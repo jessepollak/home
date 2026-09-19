@@ -86,7 +86,6 @@ const meta = {
   title: "Proposals/Money Position",
   component: MoneyPositionProposal,
   args: {
-    headline: "net-position",
     position: completePosition,
   },
   parameters: {
@@ -110,13 +109,8 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** Alternative A for Jesse review. Borrowed proceeds are offset by debt in the headline. */
+/** Jesse-selected headline. Borrowed proceeds are offset by debt in net position. */
 export const NetPosition: Story = {};
-
-/** Alternative B for Jesse review. Assets, debt, and position after debt remain simultaneously visible. */
-export const AssetsAndDebt: Story = {
-  args: { headline: "assets-and-debt" },
-};
 
 export const SaveAndBorrowTiles: Story = {
   render: ({ position }) => (
@@ -149,7 +143,6 @@ export const CashOnly: Story = {
 
 export const ZeroDecimalCurrency: Story = {
   args: {
-    headline: "assets-and-debt",
     position: {
       currency: "CLP",
       quoteCurrencyMinorUnitScale: 0,
@@ -240,7 +233,6 @@ export const Unavailable: Story = {
 
 export const LongValuesAndLabels: Story = {
   args: {
-    headline: "assets-and-debt",
     position: position(
       [
         {

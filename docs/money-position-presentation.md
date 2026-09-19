@@ -1,6 +1,6 @@
 # Money position presentation contract
 
-Status: unreviewed component proposal for [issue #634](https://github.com/jessepollak/home/issues/634). This contract does not change balances, protocol accounting, providers, action authority, or money movement. The proposal remains isolated in Storybook until Jesse selects a headline and approves integration.
+Status: Jesse-selected component design contract for [issue #634](https://github.com/jessepollak/home/issues/634). This contract does not change balances, protocol accounting, providers, action authority, or money movement. The proposal remains isolated in Storybook until a separate implementation leaf integrates it.
 
 ## Customer model
 
@@ -17,14 +17,11 @@ Every verified amount appears once according to its current job:
 
 A transfer between slices does not create wealth. Posting collateral moves an asset into the collateral slice instead of duplicating it in cash or investments. Borrowing may add proceeds to cash only with matching debt; therefore `net position = assets − debt` does not rise from the borrow itself.
 
-## Headline alternatives awaiting Jesse
+## Headline decision
 
-Both deterministic stories use the same derived amounts and preserve the borrowing invariant:
+Jesse selected **Net position** for issue #634. Net position is the only headline in the component contract; assets and positive or unavailable debt remain visible as supporting facts. Verified zero debt is omitted.
 
-1. **Net position** — net position is primary; assets and debt remain visible as supporting facts.
-2. **Assets and debt** — assets are primary; debt and **Position after debt** are simultaneously visible. Assets alone must never be described as balance, wealth, or available money.
-
-Selecting one alternative is a product decision, not an implementation default. Direct Storybook IDs are `proposal-money-position--net-position` and `proposal-money-position--assets-and-debt`.
+The reason is the borrowing invariant: borrowed proceeds may increase cash and assets, but matching debt increases by the same amount, so borrowing cannot raise the headline. The assets-first alternative has been removed from the production component API and Storybook. The selected direct Storybook ID is `proposal-money-position--net-position`.
 
 ## Completeness and recovery
 
@@ -38,6 +35,6 @@ Selecting one alternative is a product decision, not an implementation default. 
 
 ## Review scenarios
 
-`apps/web/client/home/money-position-proposal.stories.tsx` covers empty, cash only, a zero-decimal quote currency, saved only, invested only, collateral without debt, collateral plus debt, future card allocation, partial plus stale, unavailable, long-value, both headline alternatives, Save/Borrow tiles, and the Borrow position header. Stories render the production components (`MoneyPositionProposal`, `MoneyPositionProductTiles`, and `BorrowPositionHeaderProposal`) and make no network or provider request. Supporting direct IDs are `proposal-money-position--save-and-borrow-tiles` and `proposal-money-position--borrow-position-header`.
+`apps/web/client/home/money-position-proposal.stories.tsx` covers the selected Net position headline, empty, cash only, a zero-decimal quote currency, saved only, invested only, collateral without debt, collateral plus debt, future card allocation, partial plus stale, unavailable, long-value, Save/Borrow tiles, and the Borrow position header. Stories render the production components (`MoneyPositionProposal`, `MoneyPositionProductTiles`, and `BorrowPositionHeaderProposal`) and make no network or provider request. Supporting direct IDs are `proposal-money-position--save-and-borrow-tiles` and `proposal-money-position--borrow-position-header`.
 
-After headline approval, a separate implementation leaf must map reconciled Home/Save/Invest/Borrow/Card sources into this contract, prove each source is counted once, and verify the same production component in Home under `docs/browser-validation.md`. That follow-up—not this proposal—owns integrated routing, recovery, and Back behavior evidence.
+A separate implementation leaf must map reconciled Home/Save/Invest/Borrow/Card sources into this selected contract, prove each source is counted once, and verify the same production component in Home under `docs/browser-validation.md`. That follow-up—not this proposal—owns integrated routing, recovery, and Back behavior evidence.

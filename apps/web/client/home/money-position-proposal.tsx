@@ -31,8 +31,6 @@ import {
   type MoneyPositionSlice,
 } from "./money-position-model";
 
-export type MoneyPositionHeadline = "net-position" | "assets-and-debt";
-
 const groupOrder = ["available", "growing", "committed"] as const;
 type PositionGroup = (typeof groupOrder)[number];
 
@@ -68,11 +66,9 @@ function sliceContext(slice: MoneyPositionSlice): string {
 
 export function MoneyPositionProposal({
   position,
-  headline,
   onAddMoney,
 }: {
   position: MoneyPositionInput;
-  headline: MoneyPositionHeadline;
   onAddMoney?: () => void;
 }) {
   const summary = summarizeMoneyPosition(position);
@@ -92,39 +88,16 @@ export function MoneyPositionProposal({
     <section className="mx-auto w-full max-w-2xl space-y-3" aria-label="Money position proposal">
       <Card variant="flush">
         <CardContent inset="hero">
-          {headline === "net-position" ? (
-            <>
-              <p className="text-sm text-muted-foreground">Net position</p>
-              <p className="break-words text-3xl font-semibold tracking-tight tabular-nums sm:text-4xl">
-                {format(summary.netPositionMinor)}
-              </p>
-              <p className="text-sm text-muted-foreground tabular-nums">
-                Assets {format(summary.assetsMinor)}
-                {showDebtFact
-                  ? <> · Debt {format(summary.debtMinor === null ? null : -summary.debtMinor)}</>
-                  : null}
-              </p>
-            </>
-          ) : (
-            <>
-              <p className="text-sm text-muted-foreground">Assets</p>
-              <p className="break-words text-3xl font-semibold tracking-tight tabular-nums sm:text-4xl">
-                {format(summary.assetsMinor)}
-              </p>
-              {showDebtFact ? (
-                <dl className="grid grid-cols-1 gap-3 border-t pt-3 tabular-nums sm:grid-cols-2">
-                  <div className="min-w-0">
-                    <dt className="text-xs text-muted-foreground">Debt</dt>
-                    <dd className="break-words font-medium">{format(summary.debtMinor === null ? null : -summary.debtMinor)}</dd>
-                  </div>
-                  <div className="min-w-0 border-t pt-3 sm:border-t-0 sm:border-l sm:pt-0 sm:pl-3">
-                    <dt className="text-xs text-muted-foreground">Position after debt</dt>
-                    <dd className="break-words font-semibold">{format(summary.netPositionMinor)}</dd>
-                  </div>
-                </dl>
-              ) : null}
-            </>
-          )}
+          <p className="text-sm text-muted-foreground">Net position</p>
+          <p className="break-words text-3xl font-semibold tracking-tight tabular-nums sm:text-4xl">
+            {format(summary.netPositionMinor)}
+          </p>
+          <p className="text-sm text-muted-foreground tabular-nums">
+            Assets {format(summary.assetsMinor)}
+            {showDebtFact
+              ? <> · Debt {format(summary.debtMinor === null ? null : -summary.debtMinor)}</>
+              : null}
+          </p>
           <p className="text-xs text-muted-foreground tabular-nums">
             Available to use {format(summary.spendableMinor)}
           </p>
