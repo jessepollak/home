@@ -14,6 +14,7 @@ import type { ActivityLedgerItem } from "./activity-ledger";
 afterEach(cleanup);
 
 type FundingLedgerItem = Extract<ActivityLedgerItem, { family: "funding-order" }>;
+type CashOutLedgerItem = Extract<ActivityLedgerItem, { family: "cash-out-order" }>;
 
 function fundingItem(overrides: Partial<FundingLedgerItem> = {}): FundingLedgerItem {
   return {
@@ -35,6 +36,26 @@ function fundingItem(overrides: Partial<FundingLedgerItem> = {}): FundingLedgerI
   };
 }
 
+function cashOutItem(overrides: Partial<CashOutLedgerItem> = {}): CashOutLedgerItem {
+  return {
+    canonicalId: "cashout:peer:deposit-7",
+    family: "cash-out-order",
+    title: "Cash out",
+    exactAmount: "$80.00 USDC",
+    occurredAt: "2026-09-19T04:12:00.000Z",
+    occurredAtLabel: "Today, 11:12",
+    status: "reversed",
+    nextAction: { kind: "withdraw-returned-funds", label: "Withdraw returned funds" },
+    detail: {
+      family: "cash-out-order",
+      provider: "Peer",
+      payoutMethod: "Cash App",
+      orderId: "deposit-7",
+    },
+    ...overrides,
+  };
+}
+
 describe("ActivityLedger presentation contract", () => {
   test("defines every requested status and fails closed for unsafe next actions", () => {
     expect(activityLedgerStatuses).toEqual([
@@ -49,10 +70,13 @@ describe("ActivityLedger presentation contract", () => {
       "reversed",
       "refunded",
     ]);
-    expect(isActivityLedgerNextActionAllowed("waiting-customer", "complete-payment")).toBe(true);
-    expect(isActivityLedgerNextActionAllowed("waiting-chain", "retry")).toBe(false);
-    expect(isActivityLedgerNextActionAllowed("ambiguous", "retry")).toBe(false);
-    expect(isActivityLedgerNextActionAllowed("reversed", "withdraw-returned-funds")).toBe(true);
+    expect(isActivityLedgerNextActionAllowed("waiting-customer", "complete-payment", "funding-order")).toBe(true);
+    expect(isActivityLedgerNextActionAllowed("waiting-customer", "complete-payment", "cash-out-order")).toBe(false);
+    expect(isActivityLedgerNextActionAllowed("waiting-chain", "retry", "home-action")).toBe(false);
+    expect(isActivityLedgerNextActionAllowed("ambiguous", "retry", "cash-out-order")).toBe(false);
+    expect(isActivityLedgerNextActionAllowed("reversed", "withdraw-returned-funds", "cash-out-order")).toBe(true);
+    expect(isActivityLedgerNextActionAllowed("reversed", "withdraw-returned-funds", "funding-order")).toBe(false);
+    expect(isActivityLedgerNextActionAllowed("failed", "retry", "card")).toBe(true);
   });
 
   test("preserves exact supplied amounts and presents a canonical item once", () => {
@@ -91,6 +115,38 @@ describe("ActivityLedger presentation contract", () => {
     await waitFor(() => expect(view.queryByRole("heading", { name: "Add money by bank transfer" })).toBeNull());
     await waitFor(() => expect(document.activeElement).toBe(opener));
     expect(selected).toEqual(["funding:idrx:order-1", null]);
+  });
+
+  test("shows a cash-out-owned returned-funds action in its detail sheet", async () => {
+    const actions: string[] = [];
+    const view = render(
+      <ActivityLedger
+        items={[cashOutItem()]}
+        onNextAction={(_, action) => actions.push(action.kind)}
+      />,
+    );
+
+    fireEvent.click(view.getByRole("button", { name: /Cash out/ }));
+    const actionButton = await view.findByRole("button", { name: "Withdraw returned funds" });
+    fireEvent.click(actionButton);
+    expect(actions).toEqual(["withdraw-returned-funds"]);
+  });
+
+  test("fails closed when a detail action belongs to another family", async () => {
+    const view = render(
+      <ActivityLedger
+        items={[fundingItem({
+          status: "reversed",
+          nextAction: { kind: "withdraw-returned-funds", label: "Withdraw returned funds" },
+        })]}
+        onNextAction={() => undefined}
+      />,
+    );
+
+    fireEvent.click(view.getByRole("button", { name: /Add money by bank transfer/ }));
+    expect(await view.findByRole("heading", { name: "Add money by bank transfer" })).toBeTruthy();
+    expect(view.queryByRole("button", { name: "Withdraw returned funds" })).toBeNull();
+    expect(view.getByRole("dialog").querySelector('[data-slot="drawer-footer"]')).toBeNull();
   });
 
   test("does not render or reserve detail recovery UI without a handler", async () => {
@@ -173,6 +229,17 @@ describe("ActivityLedger presentation contract", () => {
     expect(body.getByText("2 activities need you. Add money by bank transfer")).toBeTruthy();
     fireEvent.click(body.getByRole("button", { name: "View instructions" }));
     expect(actions).toEqual(["complete-payment"]);
+
+    rerender(
+      <ActivityNeedsAttention
+        item={cashOutItem({
+          status: "waiting-customer",
+          nextAction: { kind: "complete-payment", label: "View instructions" },
+        })}
+        onNextAction={() => undefined}
+      />,
+    );
+    expect(body.queryByText("Needs your attention")).toBeNull();
 
     rerender(
       <ActivityNeedsAttention

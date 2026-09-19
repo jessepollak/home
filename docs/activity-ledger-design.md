@@ -29,7 +29,7 @@ The existing feed correlates an action with an onchain transfer by transaction h
 | `reversed` | Reversed | The original movement was reversed | Withdraw returned funds only when cash-out owns that recovery |
 | `refunded` | Refunded | A later return is established | None |
 
-The exported action matrix fails closed: an invalid status/action pair is not rendered. Verification wording reuses the selective shared cause language approved in #635 only when a real funding/provider gate owns it. Chain pending, quote expiry, cash-out withdrawal, card decline and other operational states remain feature-owned.
+The exported action predicate fails closed on both status and family: an invalid status/action pair is not rendered, `complete-payment` is restricted to funding orders, and `withdraw-returned-funds` is restricted to cash-out orders. Other actions retain the status semantics above. Verification wording reuses the selective shared cause language approved in #635 only when a real funding/provider gate owns it. Chain pending, quote expiry, cash-out withdrawal, card decline and other operational states remain feature-owned.
 
 ## Item and detail contracts
 
@@ -50,13 +50,13 @@ The five detail contracts expose only actionable facts:
 - cash-out: provider, payout method, order ID;
 - card: merchant, safe card label, provider reference.
 
-Owner identifiers, provider payloads, compliance prose and internal protocol state do not belong in presentation input. Callers must owner-fence before constructing items and must pass privacy-safe values. The component does not format, round, infer a sign, synthesize an ID, deduplicate, dispatch money, or claim success.
+Owner identifiers, provider payloads, compliance prose and internal protocol state do not belong in presentation input. Callers must owner-fence before constructing items and must pass privacy-safe values. As a second fail-closed boundary, the component validates the supplied status, action, and family before rendering recovery UI. The component does not format, round, infer a sign, synthesize an ID, deduplicate, dispatch money, or claim success.
 
 `correlatedSourceCount` is optional presentation evidence for a composition layer that already correlated records. It renders one “Matched confirmation” hint; it is not a deduplication mechanism.
 
 ## Home attention affordance
 
-`ActivityNeedsAttention` renders only for `waiting-customer` with an allowed next action. It names the first continuation and optionally states the count. Provider, chain, Home, ambiguous and terminal states render nothing, so Home does not become an alarm wall or an alternate action authority.
+`ActivityNeedsAttention` renders only for `waiting-customer` with an action allowed for that item family. It names the first continuation and optionally states the count. Provider, chain, Home, ambiguous, terminal, and mismatched-family actions render nothing, so Home does not become an alarm wall or an alternate action authority.
 
 ## Storybook review matrix
 

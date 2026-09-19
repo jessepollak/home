@@ -12,6 +12,7 @@ export {
 } from "./activity-ledger";
 export type {
   ActivityLedgerDetail,
+  ActivityLedgerFamily,
   ActivityLedgerItem,
   ActivityLedgerNextAction,
   ActivityLedgerNextActionKind,

@@ -165,6 +165,8 @@ export type ActivityLedgerDetail =
   | CashOutOrderDetail
   | CardActivityDetail;
 
+export type ActivityLedgerFamily = ActivityLedgerDetail["family"];
+
 type ActivityLedgerItemBase = {
   /** Canonical source-owned identity. Presentation never synthesizes or rewrites it. */
   canonicalId: string;
@@ -196,9 +198,15 @@ export type ActivitySourceFailure = {
 export function isActivityLedgerNextActionAllowed(
   status: ActivityLedgerStatus,
   action: ActivityLedgerNextActionKind,
+  family: ActivityLedgerFamily,
 ): boolean {
-  return (activityLedgerAllowedNextActions[status] as readonly ActivityLedgerNextActionKind[])
-    .includes(action);
+  if (!(activityLedgerAllowedNextActions[status] as readonly ActivityLedgerNextActionKind[]).includes(action)) {
+    return false;
+  }
+
+  if (action === "complete-payment") return family === "funding-order";
+  if (action === "withdraw-returned-funds") return family === "cash-out-order";
+  return true;
 }
 
 export function ActivityLedger({
@@ -313,7 +321,7 @@ export function ActivityNeedsAttention({
   if (
     item.status !== "waiting-customer" ||
     !action ||
-    !isActivityLedgerNextActionAllowed(item.status, action.kind)
+    !isActivityLedgerNextActionAllowed(item.status, action.kind, item.family)
   ) return null;
 
   return (
@@ -349,7 +357,7 @@ export function ActivityLedgerDetailSheet({
   const titleId = useId();
   const descriptionId = useId();
   const copy = item ? item.statusCopy ?? activityLedgerStatusCopy[item.status] : null;
-  const detailAction = item?.nextAction && onNextAction && isActivityLedgerNextActionAllowed(item.status, item.nextAction.kind)
+  const detailAction = item?.nextAction && onNextAction && isActivityLedgerNextActionAllowed(item.status, item.nextAction.kind, item.family)
     ? { action: item.nextAction, handler: onNextAction, item }
     : null;
   const rows = item ? detailRows(item.detail) : [];
