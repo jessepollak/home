@@ -15,9 +15,13 @@ import {
 } from "./cdp-session-lifecycle";
 import type { AccountWalletSdkBoundary } from "./cdp-client";
 import type { AccountRenderSeed } from "@/shared/account/session-types";
-import { boundedCdpSignOut, composeSdkBoundaries } from "./composite-sdk-boundary";
+import {
+  boundedCdpSignOut,
+  composeSdkBoundaries,
+  type SignOutTimeoutOptions,
+} from "./composite-sdk-boundary";
 import { useNativeBaseIdentity } from "./native-base-bridge";
-import { createSdkActivationGate } from "./sdk-activation";
+import { createSdkActivationGate, type TimeoutScheduler } from "./sdk-activation";
 import {
   clearCdpRenderHint,
   readHomeAuthRestoreHint,
@@ -34,6 +38,15 @@ import {
 } from "@/client/observability/auth-performance";
 
 type CdpBoundary = AccountWalletSdkBoundary & { isInitialized: boolean };
+
+// Deterministic test seam: production callers omit `timing`, so activation and
+// sign-out keep their real browser timers and published timeout defaults.
+export type AccountProviderTiming = {
+  activationTimeoutMs?: number;
+  scheduleActivationTimeout?: TimeoutScheduler;
+  signOutTimeoutMs?: number;
+  scheduleSignOutTimeout?: TimeoutScheduler;
+};
 
 function CdpSdkIslandAttempt({
   projectId,
@@ -78,11 +91,13 @@ export default function CompositeAccountProvider({
   projectId,
   baseAccountEnabled,
   renderSeed = null,
+  timing,
   children,
 }: {
   projectId: string;
   baseAccountEnabled: boolean;
   renderSeed?: AccountRenderSeed | null;
+  timing?: AccountProviderTiming;
   children: ReactNode;
 }) {
   const [restorePlan, setRestorePlan] = useState({
@@ -102,6 +117,8 @@ export default function CompositeAccountProvider({
       markHomeAuthRestore("sdk-activate");
     },
     {
+      timeoutMs: timing?.activationTimeoutMs,
+      scheduleTimeout: timing?.scheduleActivationTimeout,
       onTimeout: () => {
         setCdpBoundary(null);
         setActivationFailed(true);
@@ -224,6 +241,11 @@ export default function CompositeAccountProvider({
     }
   }, [activate, cdpBoundary, cdpCleanup]);
 
+  const signOutTimeout = useMemo<SignOutTimeoutOptions>(() => ({
+    timeoutMs: timing?.signOutTimeoutMs,
+    scheduleTimeout: timing?.scheduleSignOutTimeout,
+  }), [timing?.signOutTimeoutMs, timing?.scheduleSignOutTimeout]);
+
   const sdk = useMemo(() => {
     const composed = composeSdkBoundaries({
       restorePlanCaptured: restorePlan.captured,
@@ -237,6 +259,7 @@ export default function CompositeAccountProvider({
       shouldSignOutCdp: () => cdpCleanup.isRequired() || Boolean(
         cdpBoundary?.isInitialized && cdpBoundary.isSignedIn,
       ),
+      signOutTimeout,
     });
     return {
       ...composed,
@@ -249,7 +272,7 @@ export default function CompositeAccountProvider({
         }
       },
     };
-  }, [activate, cdp, cdpBoundary, cdpCleanup, cdpSignOut, native, restorePlan]);
+  }, [activate, cdp, cdpBoundary, cdpCleanup, cdpSignOut, native, restorePlan, signOutTimeout]);
 
   useEffect(() => {
     if (native.identity === null) emailSwitchInFlightRef.current = false;
@@ -260,10 +283,10 @@ export default function CompositeAccountProvider({
       emailSwitchInFlightRef.current
     ) return;
     cdpCleanupInFlightRef.current = true;
-    void boundedCdpSignOut(cdpSignOut)
+    void boundedCdpSignOut(cdpSignOut, undefined, signOutTimeout)
       .catch(() => { writeCdpRestoreMarker(); })
       .finally(() => { cdpCleanupInFlightRef.current = false; });
-  }, [cdpBoundary?.isSignedIn, cdpSignOut, native.identity]);
+  }, [cdpBoundary?.isSignedIn, cdpSignOut, native.identity, signOutTimeout]);
 
   return (
     <AccountWalletSessionOwner

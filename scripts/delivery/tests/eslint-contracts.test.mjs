@@ -354,3 +354,94 @@ test("shared/formatting is the intentional presentation-formatting exception", a
     'export function f(n: number) { return n.toFixed(2); }\n',
   );
 });
+
+test("tests must not read source files outside the migration helper", async () => {
+  await assertRestricted(
+    "server/gates-fixture.test.ts",
+    'import { readFile } from "node:fs/promises";\nexport const read = readFile;\n',
+    "no-restricted-imports",
+    "tests must not read source files",
+  );
+  await assertRestricted(
+    "server/gates-fixture.test.ts",
+    'import { readFileSync } from "fs";\nexport const read = readFileSync;\n',
+    "no-restricted-imports",
+    "tests must not read source files",
+  );
+  // Bun.file stays rejected alongside the fs/promises imports.
+  await assertRestricted(
+    "server/gates-fixture.test.ts",
+    'export const file = Bun.file("fixture.sql");\n',
+    "no-restricted-syntax",
+    "tests must not read source files",
+  );
+});
+
+test("the migration helper is the intentional fs/promises exception", async () => {
+  await assertClean(
+    "tests/helpers/migrations.ts",
+    'import { readFile } from "node:fs/promises";\nexport function load(name: string) { return readFile(name, "utf8"); }\n',
+  );
+});
+
+test("tests must not sleep for real", async () => {
+  await assertRestricted(
+    "client/gates-fixture.test.tsx",
+    'export async function wait() { await Bun.sleep(10); }\n',
+    "no-restricted-syntax",
+    "tests must not sleep",
+  );
+});
+
+test("tests must not wait longer than two seconds for Testing Library", async () => {
+  await assertRestricted(
+    "client/gates-fixture.test.tsx",
+    'import { waitFor } from "@testing-library/react";\nexport function wait() { return waitFor(async () => undefined, { timeout: 5_000 }); }\n',
+    "no-restricted-syntax",
+    "tests must not wait longer than 2000ms",
+  );
+});
+
+test("tests must not assert on presentation classes", async () => {
+  await assertRestricted(
+    "client/gates-fixture.test.tsx",
+    'export function read(element: Element) { return element.className; }\n',
+    "no-restricted-syntax",
+    "tests must assert behavior, not CSS classes",
+  );
+  await assertRestricted(
+    "client/gates-fixture.test.tsx",
+    'export function read(element: Element) { element.classList.add("x"); }\n',
+    "no-restricted-syntax",
+    "tests must assert behavior, not CSS classes",
+  );
+  await assertRestricted(
+    "client/gates-fixture.test.tsx",
+    'export function read(element: Element) { return element.getAttribute("class"); }\n',
+    "no-restricted-syntax",
+    "tests must assert behavior, not CSS classes",
+  );
+});
+
+test("legal test patterns stay clean under the test-only policy", async () => {
+  // Writing a className through JSX is rendering, not a presentation assertion.
+  await assertClean(
+    "client/gates-fixture.test.tsx",
+    'export function View() { return <div className="w-full">x</div>; }\n',
+  );
+  // Assigning a class is not a presentation assertion; only reads are rejected.
+  await assertClean(
+    "client/gates-fixture.test.tsx",
+    'export function setClass(element: Element) { element.className = "w-full"; }\n',
+  );
+  // Route discovery uses Bun.Glob plus a dynamic import.
+  await assertClean(
+    "app/gates-fixture.test.ts",
+    'const routeGlob = new Bun.Glob("**/route.ts");\nexport async function load() { for await (const path of routeGlob.scan(".")) { return import(`./${path}`); } }\n',
+  );
+  // Ordinary behavior assertions remain the default.
+  await assertClean(
+    "client/gates-fixture.test.tsx",
+    'import { expect, test } from "bun:test";\ntest("adds", () => { expect(1 + 1).toBe(2); });\n',
+  );
+});

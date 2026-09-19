@@ -1,8 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
+import { readMigrationSql } from "@/tests/helpers/migrations";
 import { PostgresFundingOrderStore } from "./postgres-store";
 import type { FundingReservation } from "./store";
 
@@ -38,9 +37,9 @@ async function inTestSchema(text: string): Promise<void> {
 describePostgres("PostgresFundingOrderStore production contract", () => {
   beforeAll(async () => {
     admin = new Bun.SQL(connectionString!) as unknown as BunSqlClient;
-    const migration = await readFile(resolve(import.meta.dir, "../migrations/002_funding_provider_seam.sql"), "utf8");
-    hostedRetirementMigration = await readFile(resolve(import.meta.dir, "../migrations/003_coinbase_hosted_retired.sql"), "utf8");
-    sandboxMigration = await readFile(resolve(import.meta.dir, "../migrations/004_funding_sandbox.sql"), "utf8");
+    const migration = await readMigrationSql("002_funding_provider_seam.sql");
+    hostedRetirementMigration = await readMigrationSql("003_coinbase_hosted_retired.sql");
+    sandboxMigration = await readMigrationSql("004_funding_sandbox.sql");
     await admin.unsafe(`DROP SCHEMA IF EXISTS ${TEST_SCHEMA} CASCADE`);
     await admin.unsafe(`CREATE SCHEMA ${TEST_SCHEMA}`);
     await inTestSchema(migration);
@@ -64,6 +63,15 @@ describePostgres("PostgresFundingOrderStore production contract", () => {
     expect(results.filter((result) => result.created)).toHaveLength(1);
     expect(results[0].order.id).toBe(results[1].order.id);
     expect(results[0].order.quoteToken).toBe(left.quoteToken);
+  });
+
+  test("rejects a second dispatch that reuses another order's provider order id", async () => {
+    const first = reservation();
+    const second = reservation();
+    await store.reserve(first);
+    await store.reserve(second);
+    await store.completeDispatch(first.id, dispatch);
+    await expect(store.completeDispatch(second.id, dispatch)).rejects.toBeDefined();
   });
 
   test("sandbox flag round-trips through reservations", async () => {

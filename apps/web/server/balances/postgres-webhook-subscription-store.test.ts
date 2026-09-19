@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, describe } from "bun:test";
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
 import type { SqlExecutor } from "@/server/db/sql";
+import { readMigrationSql } from "@/tests/helpers/migrations";
 import { PostgresWebhookSubscriptionStore } from "./webhook-subscription-store";
 import { webhookSubscriptionStoreContract } from "./webhook-subscription-store.contract";
 
@@ -18,7 +17,7 @@ let executor: SqlExecutor;
 describePostgres("Postgres webhook subscription production contract", () => {
   beforeAll(async () => {
     client = new Bun.SQL(connectionString!) as unknown as BunSqlClient;
-    const migration = await readFile(resolve(import.meta.dir, "../db/migrations/005_balances.sql"), "utf8");
+    const migration = await readMigrationSql("005_balances.sql");
     await client.unsafe("DROP TABLE IF EXISTS webhook_subscriptions");
     await client.unsafe(migration);
     executor = bunExecutor(client);

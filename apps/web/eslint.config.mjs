@@ -13,6 +13,8 @@ const baseUiMessage =
 const literalStyleMessage =
   "Use semantic theme tokens instead of hex/rgba, arbitrary-px, or raw palette colors in utility strings.";
 const serverLayerMessage = "server modules must not import web client or app layers";
+const testsReadSourceMessage = "tests must not read source files; assert behavior instead";
+const testsAssertBehaviorMessage = "tests must assert behavior, not CSS classes";
 const storybookIsolationMessage =
   "Storybook and MSW are development-only; production modules must not import workshop packages, config, or stories";
 const baseUiImportRestriction = {
@@ -405,40 +407,6 @@ const eslintConfig = defineConfig([
     },
   },
   {
-    files: ["**/*.test.{ts,tsx}"],
-    ignores: ["**/migrations/**"],
-    rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          paths: [
-            {
-              name: "fs",
-              message: "tests must not read source files; assert behavior instead",
-            },
-            {
-              name: "node:fs",
-              message: "tests must not read source files; assert behavior instead",
-            },
-          ],
-          patterns: [baseUiImportRestriction],
-        },
-      ],
-      "no-restricted-syntax": [
-        "error",
-        {
-          selector:
-            "CallExpression[callee.name=/^set(?:Timeout|Interval)$/][arguments.1.type='Literal'][arguments.1.value>50]",
-          message: "tests must use fake timers instead of real delays over 50ms",
-        },
-        {
-          selector: "CallExpression[callee.object.name='Bun'][callee.property.name='file']",
-          message: "tests must not read source files; assert behavior instead",
-        },
-      ],
-    },
-  },
-  {
     files: ["server/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
     rules: {
       "no-restricted-imports": [
@@ -572,6 +540,63 @@ const eslintConfig = defineConfig([
         {
           selector: "JSXOpeningElement[name.name='button']",
           message: "Use Button from @/components/ui/button. The raw-button allowlist only shrinks.",
+        },
+      ],
+    },
+  },
+  // Test-only policy: assert behavior, never source text, real sleeps, or CSS
+  // classes. This block is last so it wins for test files in every layer.
+  // tests/helpers/migrations.ts is the sole fs/promises seam for integration
+  // fixtures that apply committed schema migrations, and the Apple Pay test
+  // reads a shipped public asset to hash it rather than asserting source text.
+  {
+    files: ["**/*.test.{ts,tsx}", "tests/helpers/**/*.{ts,tsx}"],
+    ignores: [
+      "**/migrations/**",
+      "tests/helpers/migrations.ts",
+      "tests/well-known/apple-pay-domain-association.test.ts",
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            { name: "fs", message: testsReadSourceMessage },
+            { name: "node:fs", message: testsReadSourceMessage },
+            { name: "fs/promises", message: testsReadSourceMessage },
+            { name: "node:fs/promises", message: testsReadSourceMessage },
+          ],
+          patterns: [baseUiImportRestriction],
+        },
+      ],
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "CallExpression[callee.name=/^set(?:Timeout|Interval)$/][arguments.1.type='Literal'][arguments.1.value>50]",
+          message: "tests must use fake timers instead of real delays over 50ms",
+        },
+        {
+          selector: "CallExpression[callee.object.name='Bun'][callee.property.name='file']",
+          message: testsReadSourceMessage,
+        },
+        {
+          selector: "CallExpression[callee.object.name='Bun'][callee.property.name='sleep']",
+          message: "tests must not sleep; use fake timers or an injected scheduler",
+        },
+        {
+          selector:
+            "CallExpression[callee.name='waitFor'] > ObjectExpression > Property[key.name='timeout'] > Literal[value>2000]",
+          message: "tests must not wait longer than 2000ms; bound the wait deterministically",
+        },
+        {
+          selector:
+            "MemberExpression[property.name=/^(?:className|classList)$/]:not(AssignmentExpression > MemberExpression.left)",
+          message: testsAssertBehaviorMessage,
+        },
+        {
+          selector: "CallExpression[callee.property.name='getAttribute'][arguments.0.value='class']",
+          message: testsAssertBehaviorMessage,
         },
       ],
     },
