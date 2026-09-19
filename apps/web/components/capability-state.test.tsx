@@ -53,6 +53,20 @@ describe("capability state contract", () => {
 });
 
 describe("capability state presentation", () => {
+  test("keeps the capability name as the row title and moves state detail into supporting copy", () => {
+    const view = render(
+      <CapabilityState
+        capability="Bank transfer"
+        state="temporarily-unavailable"
+        placement="row"
+        action={{ kind: "retry", onSelect: () => {} }}
+      />,
+    );
+
+    expect(view.getByText("Bank transfer")).toBeTruthy();
+    expect(view.getByText("Temporarily unavailable. Home could not load this feature. Try again.")).toBeTruthy();
+  });
+
   for (const placement of ["tile", "row", "detail", "account"] satisfies CapabilityStatePlacement[]) {
     test(`renders semantic copy and the allowed recovery action in the ${placement} placement`, () => {
       let retries = 0;
@@ -72,6 +86,51 @@ describe("capability state presentation", () => {
     });
   }
 
+  for (const [kind, label] of [
+    ["retry-verification", "Try verification again"],
+    ["resume-verification", "Resume verification"],
+  ] as const) {
+    test(`derives the verification-rejected ${kind} label from the action kind`, () => {
+      let actionCalls = 0;
+      const view = render(
+        <CapabilityState
+          capability="Card"
+          state="verification-rejected"
+          placement="detail"
+          action={{ kind, onSelect: () => { actionCalls += 1; } }}
+        />,
+      );
+
+      fireEvent.click(view.getByRole("button", { name: label }));
+      expect(actionCalls).toBe(1);
+    });
+  }
+
+  test("preserves copy and action label overrides", () => {
+    const action = { kind: "resume-verification" as const, onSelect: () => {} };
+    const view = render(
+      <CapabilityState
+        capability="Card"
+        state="verification-rejected"
+        placement="detail"
+        action={action}
+        copy={{ actionLabel: "Continue review" }}
+      />,
+    );
+
+    expect(view.getByRole("button", { name: "Continue review" })).toBeTruthy();
+    view.rerender(
+      <CapabilityState
+        capability="Card"
+        state="verification-rejected"
+        placement="detail"
+        action={{ ...action, label: "Use secure link" }}
+        copy={{ actionLabel: "Continue review" }}
+      />,
+    );
+    expect(view.getByRole("button", { name: "Use secure link" })).toBeTruthy();
+  });
+
   test("does not render an action for country ineligibility", () => {
     const view = render(
       <CapabilityState
@@ -81,7 +140,7 @@ describe("capability state presentation", () => {
       />,
     );
 
-    expect(view.getByText("Not available in your country")).toBeTruthy();
+    expect(view.getByText("Not available in your country. This feature is not offered for your selected country.")).toBeTruthy();
     expect(view.queryByRole("button")).toBeNull();
   });
 });

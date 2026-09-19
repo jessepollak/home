@@ -129,31 +129,26 @@ const defaultCopy = {
     statusLabel: "Available",
     title: "Ready to use",
     description: "This feature is available now.",
-    actionLabel: "Open",
   },
   "sign-in-required": {
     statusLabel: "Sign-in required",
     title: "Sign in to continue",
     description: "Sign in to check your access and continue.",
-    actionLabel: "Sign in",
   },
   "verification-start": {
     statusLabel: "Verification required",
     title: "Verify your identity",
     description: "Complete identity verification to use this feature.",
-    actionLabel: "Start verification",
   },
   "verification-pending": {
     statusLabel: "In review",
     title: "Verification in review",
     description: "Your information was submitted. You can return here to check progress.",
-    actionLabel: "Resume verification",
   },
   "verification-rejected": {
     statusLabel: "Needs attention",
     title: "Verification needs attention",
     description: "Review the verification request and provide the requested information.",
-    actionLabel: "Try verification again",
   },
   "unavailable-in-country": {
     statusLabel: "Country unavailable",
@@ -169,7 +164,6 @@ const defaultCopy = {
     statusLabel: "Try later",
     title: "Temporarily unavailable",
     description: "Home could not load this feature. Try again.",
-    actionLabel: "Retry",
   },
   "configuration-unavailable": {
     statusLabel: "Not configured",
@@ -177,6 +171,15 @@ const defaultCopy = {
     description: "This Home has not configured this feature.",
   },
 } as const satisfies Record<CapabilityStateKind, CapabilityStateCopy>;
+
+const defaultActionLabels = {
+  open: "Open",
+  "sign-in": "Sign in",
+  "start-verification": "Start verification",
+  "resume-verification": "Resume verification",
+  "retry-verification": "Try verification again",
+  retry: "Retry",
+} as const satisfies Record<CapabilityActionKind, string>;
 
 export type CapabilityStateAction = {
   kind: CapabilityActionKind;
@@ -217,7 +220,9 @@ export function CapabilityState({
     : undefined;
   const headingId = useId();
   const resolvedCopy = { ...defaultCopy[state], ...copy };
-  const actionLabel = allowedAction?.label ?? resolvedCopy.actionLabel;
+  const actionLabel = allowedAction
+    ? allowedAction.label ?? copy?.actionLabel ?? defaultActionLabels[allowedAction.kind]
+    : undefined;
   const statusIcon = icon ?? <StateIcon state={state} />;
   const actionControl = allowedAction && actionLabel ? (
     <Button
@@ -266,14 +271,10 @@ export function CapabilityState({
         <ItemMedia variant="avatar" aria-hidden="true">{statusIcon}</ItemMedia>
         <ItemContent className="min-w-0">
           <ItemTitle id={headingId} truncate={false}>
-            <span className="wrap-anywhere whitespace-normal">
-              {placement === "account" ? capability : resolvedCopy.title}
-            </span>
+            <span className="wrap-anywhere whitespace-normal">{capability}</span>
           </ItemTitle>
           <ItemDescription lines="none">
-            {placement === "account"
-              ? `${resolvedCopy.title}. ${resolvedCopy.description}`
-              : resolvedCopy.description}
+            {resolvedCopy.title}. {resolvedCopy.description}
           </ItemDescription>
           {placement === "row" ? <Badge variant={badgeVariant(state)}>{resolvedCopy.statusLabel}</Badge> : null}
         </ItemContent>
