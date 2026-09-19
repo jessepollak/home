@@ -219,7 +219,10 @@ export function SendDialog({
     setRequest(null); setCashout(null); setSelectedOfframp(null); setSelectedPlatform(null); setPayoutHandle("");
     setCanonicalHandle(""); setHandleConfirmation(""); setAction(null); setStep("amount"); setError(null);
   }
-  function close() { onClose(); }
+  function close(): boolean | void {
+    if (step === "pending") return false;
+    onClose();
+  }
   function back() {
     setError(null);
     if (step === "destination") setStep("amount");

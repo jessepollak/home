@@ -6,6 +6,8 @@ import { AccountWalletSessionOwner } from "./cdp-session-lifecycle";
 
 const SIGNED_IN_KEY = "home:playwright-smoke:signed-in";
 const DISPATCH_COUNT_KEY = "home:playwright-smoke:dispatch-count";
+const HOLD_DISPATCH_KEY = "home:playwright-smoke:hold-dispatch";
+const RELEASE_DISPATCH_EVENT = "home:playwright-smoke:release-dispatch";
 const SMART_ACCOUNT_ADDRESS = "0x1111111111111111111111111111111111111111" as const;
 const USER_OPERATION_HASH = `0x${"ab".repeat(32)}` as const;
 const TRANSACTION_HASH = `0x${"cd".repeat(32)}` as const;
@@ -55,6 +57,12 @@ export function SmokeFixtureAccountProvider({ children }: { children: ReactNode 
       if (count === 1) {
         return {
           then(resolve: (value: { userOperationHash: typeof USER_OPERATION_HASH }) => void) {
+            if (window.sessionStorage.getItem(HOLD_DISPATCH_KEY) === "1") {
+              window.addEventListener(RELEASE_DISPATCH_EVENT, () => {
+                resolve({ userOperationHash: USER_OPERATION_HASH });
+              }, { once: true });
+              return;
+            }
             resolve({ userOperationHash: USER_OPERATION_HASH });
             throw new Error("fixture transport threw after resolving");
           },

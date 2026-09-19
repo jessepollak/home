@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
+import { expect, test, type CDPSession, type Locator, type Page, type Route } from "@playwright/test";
 import type { RegionId } from "../../config/regions";
 import type { BalancesSnapshot } from "../../shared/balances/types";
 import { balancesSnapshot, scrollableBalancesSnapshot } from "./balances-fixtures";
@@ -468,6 +468,79 @@ test("ambiguous handle response retries without a second wallet dispatch", async
     sessionStorage.getItem("home:playwright-smoke:dispatch-count"),
   )).toBe("1");
   await expect(page.getByText("Sent $1.00 to 0x2222…222222", { exact: true })).toBeVisible();
+});
+
+/** Touch down on the sheet grabber and drag 320px down without releasing. */
+async function startSwipeDown(page: Page): Promise<CDPSession> {
+  const grabber = page.locator("[data-money-sheet-grabber]");
+  const box = await grabber.boundingBox();
+  if (!box) throw new Error("money sheet grabber is not visible");
+  const x = Math.round(box.x + box.width / 2);
+  const y = Math.round(box.y + box.height / 2);
+  const session = await page.context().newCDPSession(page);
+  await session.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
+  const points = (clientY: number) => [{ x, y: clientY, radiusX: 2, radiusY: 2, force: 1, id: 1 }];
+  await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: points(y) });
+  for (let step = 1; step <= 8; step += 1) {
+    await session.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: points(y + (320 * step) / 8),
+    });
+  }
+  return session;
+}
+
+async function endSwipe(session: CDPSession) {
+  await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await session.detach();
+}
+
+test("pending send vetoes Escape, backdrop press, and swipe dismissal until the wallet settles", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  await page.goto("/home");
+  await page.getByRole("button", { name: "Send" }).click();
+  await typeAmount(page, "1");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("textbox", { name: "To" }).fill(RECIPIENT);
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.evaluate(() => sessionStorage.setItem("home:playwright-smoke:hold-dispatch", "1"));
+  await page.getByRole("button", { name: "Send $1.00" }).click();
+
+  const confirm = page.getByRole("dialog", { name: "Confirm" });
+  const pending = confirm.getByText("Waiting for your wallet…");
+  const dispatchCount = () => page.evaluate(() =>
+    sessionStorage.getItem("home:playwright-smoke:dispatch-count"));
+  await expect(pending).toBeVisible();
+  await expect.poll(dispatchCount).toBe("1");
+  await expect(confirm.getByRole("button", { name: "Close send dialog" })).toBeDisabled();
+
+  await page.keyboard.press("Escape");
+  await expect(confirm).toBeVisible();
+  await expect(pending).toBeVisible();
+
+  // The backdrop/outside press is vetoed while the wallet is unresolved.
+  await page.mouse.click(12, 12);
+  await expect(confirm).toBeVisible();
+  await expect(pending).toBeVisible();
+  await expect.poll(dispatchCount).toBe("1");
+
+  const firstSwipe = await startSwipeDown(page);
+  await expect(page.locator("[data-money-sheet]")).toHaveAttribute("data-swiping", /.*/);
+  await endSwipe(firstSwipe);
+  await expect(confirm).toBeVisible();
+  await expect(pending).toBeVisible();
+  await expect.poll(dispatchCount).toBe("1");
+
+  await page.evaluate(() => window.dispatchEvent(new Event("home:playwright-smoke:release-dispatch")));
+  await expect(confirm.getByRole("button", { name: "Try again" })).toBeVisible();
+  await expect(confirm.getByRole("button", { name: "Close send dialog" })).toBeEnabled();
+
+  // The same swipe now dismisses, proving the pending gesture crossed the dismissal threshold.
+  await endSwipe(await startSwipeDown(page));
+  await expect(confirm).toBeHidden();
+  await expect.poll(dispatchCount).toBe("1");
 });
 
 test("persisted balances paint before verification and settle without row shift", async ({ page }) => {

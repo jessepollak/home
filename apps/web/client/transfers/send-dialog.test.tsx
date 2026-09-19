@@ -2,6 +2,7 @@ import "@/client/account/dom-test-harness";
 
 import { page } from "@/tests/helpers/dom";
 import { afterEach, describe, expect, test } from "bun:test";
+import { useState } from "react";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { encodeUsdcTransfer, getTransferAsset } from "@/shared/transfers/transfer-helpers";
 import { TransferExecutionError } from "@/shared/transfers/types";
@@ -427,4 +428,72 @@ describe("SendDialog resume", () => {
       cleanup();
     }
   });
+});
+
+describe("SendDialog pending dismissal", () => {
+  for (const kind of ["send", "cashout"] as const) {
+    test(`a resumed ${kind} vetoes Escape and backdrop press while the wallet is unresolved and dismisses after rejection`, async () => {
+      const executions: string[] = [];
+      let settle!: (result: { id: string; status: "rejected" }) => void;
+      const unresolved = new Promise<{ id: string; status: "rejected" }>((resolve) => { settle = resolve; });
+      let closes = 0;
+
+      function Harness() {
+        const [open, setOpen] = useState(true);
+        return (
+          <SendDialog
+            open={open}
+            immediate
+            address={ACCOUNT}
+            ownerBoundary={`owner-pending-${kind}`}
+            resumeActionId={ACTION_ID}
+            {...(kind === "cashout"
+              ? { availableAssets: [{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }] }
+              : {})}
+            prepareMoneyAction={async () => (kind === "send" ? resumedAction() : cashoutAction())}
+            resumeMoneyAction={async () => (kind === "send" ? resumedAction() : cashoutAction())}
+            executeMoneyAction={async (action) => { executions.push(action.id); return await unresolved; }}
+            onClose={() => { closes += 1; setOpen(false); }}
+          />
+        );
+      }
+
+      render(<Harness />);
+      const backdrop = () => {
+        const pressTarget = document.querySelector<HTMLElement>('[data-slot="drawer-overlay"]');
+        if (!pressTarget) throw new Error("money sheet backdrop is not rendered");
+        return pressTarget;
+      };
+      fireEvent.click(await page().findByRole("button", { name: kind === "send" ? "Send $1.00" : "Cash out 1 USDC" }));
+      expect(executions).toEqual([ACTION_ID]);
+      expect(await page().findByText("Waiting for your wallet…")).toBeTruthy();
+      expect((page().getByRole("button", { name: "Close send dialog" }) as HTMLButtonElement).disabled).toBe(true);
+
+      await act(async () => { fireEvent.pointerDown(backdrop()); fireEvent.click(backdrop()); });
+      expect(page().getByRole("dialog", { name: "Confirm" })).toBeTruthy();
+      expect(page().getByText("Waiting for your wallet…")).toBeTruthy();
+      expect(executions).toEqual([ACTION_ID]);
+      expect(closes).toBe(0);
+
+      await act(async () => { fireEvent.keyDown(document, { key: "Escape" }); });
+      expect(page().getByRole("dialog", { name: "Confirm" })).toBeTruthy();
+      expect(page().getByText("Waiting for your wallet…")).toBeTruthy();
+      if (kind === "send") {
+        expect(page().getByRole("button", { name: `Copy ${RECIPIENT}` })).toBeTruthy();
+      } else {
+        expect(document.body.textContent).toContain("alice");
+        expect(document.body.textContent).toContain("Cash App");
+      }
+      expect(executions).toEqual([ACTION_ID]);
+      expect(closes).toBe(0);
+
+      await act(async () => { settle({ id: ACTION_ID, status: "rejected" }); });
+      expect((await page().findByRole("alert")).textContent).toContain("still ready to retry");
+      expect((page().getByRole("button", { name: "Close send dialog" }) as HTMLButtonElement).disabled).toBe(false);
+
+      await act(async () => { fireEvent.pointerDown(backdrop()); fireEvent.click(backdrop()); });
+      await waitFor(() => expect(page().queryByRole("dialog", { name: "Confirm" })).toBeNull());
+      expect(executions).toEqual([ACTION_ID]);
+    });
+  }
 });
