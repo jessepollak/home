@@ -256,13 +256,13 @@ export function ActivityLedger({
                 ) : null}
               </Alert>
             ) : null}
-            {items.length === 0 ? (
+            {items.length === 0 && sourceFailures.length === 0 ? (
               <Empty className="items-start justify-start text-left">
                 <EmptyHeader className="items-start">
                   <EmptyTitle>No activity yet</EmptyTitle>
                 </EmptyHeader>
               </Empty>
-            ) : (
+            ) : items.length > 0 ? (
               <ol className="list-none space-y-1 p-0">
                 {items.map((item) => {
                   const copy = item.statusCopy ?? activityLedgerStatusCopy[item.status];
@@ -284,7 +284,7 @@ export function ActivityLedger({
                   );
                 })}
               </ol>
-            )}
+            ) : null}
           </div>
         </CardContent>
       </Card>
@@ -349,8 +349,8 @@ export function ActivityLedgerDetailSheet({
   const titleId = useId();
   const descriptionId = useId();
   const copy = item ? item.statusCopy ?? activityLedgerStatusCopy[item.status] : null;
-  const safeAction = item?.nextAction && isActivityLedgerNextActionAllowed(item.status, item.nextAction.kind)
-    ? item.nextAction
+  const detailAction = item?.nextAction && onNextAction && isActivityLedgerNextActionAllowed(item.status, item.nextAction.kind)
+    ? { action: item.nextAction, handler: onNextAction, item }
     : null;
   const rows = item ? detailRows(item.detail) : [];
 
@@ -370,7 +370,7 @@ export function ActivityLedgerDetailSheet({
         onClose={onClose}
         closeLabel="Close activity details"
       />
-      <MoneyModalBody hasFooter={safeAction !== null} className="pt-4">
+      <MoneyModalBody hasFooter={detailAction !== null} className="pt-4">
         <div className="space-y-4">
           <div>
             <p className="text-2xl font-semibold tabular-nums">{item?.exactAmount}</p>
@@ -387,10 +387,10 @@ export function ActivityLedgerDetailSheet({
           </dl>
         </div>
       </MoneyModalBody>
-      {item && safeAction ? (
+      {detailAction ? (
         <MoneyModalFooter
-          primaryLabel={safeAction.label}
-          onPrimary={() => onNextAction?.(item, safeAction)}
+          primaryLabel={detailAction.action.label}
+          onPrimary={() => detailAction.handler(detailAction.item, detailAction.action)}
         />
       ) : null}
     </MoneyModal>

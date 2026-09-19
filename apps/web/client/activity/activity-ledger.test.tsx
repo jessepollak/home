@@ -83,12 +83,25 @@ describe("ActivityLedger presentation contract", () => {
     expect(view.getByText("order-1")).toBeTruthy();
     expect(view.getByText(/Continue this activity/)).toBeTruthy();
 
-    fireEvent.click(view.getByRole("button", { name: "View instructions" }));
+    const actionButton = view.getByRole("button", { name: "View instructions" });
+    expect(actionButton.closest('[data-slot="drawer-footer"]')).toBeTruthy();
+    fireEvent.click(actionButton);
     expect(actions).toEqual(["complete-payment"]);
     fireEvent.click(view.getByRole("button", { name: "Back" }));
     await waitFor(() => expect(view.queryByRole("heading", { name: "Add money by bank transfer" })).toBeNull());
     await waitFor(() => expect(document.activeElement).toBe(opener));
     expect(selected).toEqual(["funding:idrx:order-1", null]);
+  });
+
+  test("does not render or reserve detail recovery UI without a handler", async () => {
+    const view = render(<ActivityLedger items={[fundingItem()]} />);
+
+    fireEvent.click(view.getByRole("button", { name: /Add money by bank transfer/ }));
+    expect(await view.findByRole("heading", { name: "Add money by bank transfer" })).toBeTruthy();
+    expect(view.queryByRole("button", { name: "View instructions" })).toBeNull();
+
+    const dialog = view.getByRole("dialog", { name: "Add money by bank transfer" });
+    expect(dialog.querySelector('[data-slot="drawer-footer"]')).toBeNull();
   });
 
   test("does not render an invalid retry for an ambiguous outcome", async () => {
@@ -108,6 +121,25 @@ describe("ActivityLedger presentation contract", () => {
     fireEvent.click(view.getByRole("button", { name: /Cash out/ }));
     expect(await view.findByText(/Do not try again yet/)).toBeTruthy();
     expect(view.queryByRole("button", { name: "Try cash-out again" })).toBeNull();
+  });
+
+  test("shows an authoritative empty state when all sources succeed", () => {
+    const view = render(<ActivityLedger items={[]} />);
+
+    expect(view.getByText("No activity yet")).toBeTruthy();
+    expect(view.queryByRole("status")).toBeNull();
+  });
+
+  test("preserves the unavailable alert without claiming an empty ledger when a source fails", () => {
+    const view = render(
+      <ActivityLedger
+        items={[]}
+        sourceFailures={[{ id: "onchain", label: "Onchain transfers" }]}
+      />,
+    );
+
+    expect(view.getByRole("status").textContent).toContain("Onchain transfers");
+    expect(view.queryByText("No activity yet")).toBeNull();
   });
 
   test("keeps available rows visible during a partial-source failure", () => {
