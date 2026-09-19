@@ -178,6 +178,7 @@ const itemDescriptionVariants = cva(
       lines: {
         1: "line-clamp-1",
         2: "line-clamp-2",
+        false: "",
       },
     },
     defaultVariants: {

@@ -199,9 +199,9 @@ export function RegionalPreferencesProposal({
         <CardContent inset="list">
           <Item className="min-w-0 items-start sm:flex-nowrap sm:items-center">
             <ItemMedia variant="avatar"><Globe2 aria-hidden /></ItemMedia>
-            <ItemContent className="min-w-48">
-              <ItemTitle>{copy.country}</ItemTitle>
-              <ItemDescription>{copy.countryDescription}</ItemDescription>
+            <ItemContent className="min-w-0 basis-48 break-words">
+              <ItemTitle truncate={false} className="whitespace-normal">{copy.country}</ItemTitle>
+              <ItemDescription lines={false}>{copy.countryDescription}</ItemDescription>
             </ItemContent>
             <ItemActions className="min-w-0 basis-full justify-end sm:basis-auto">
               <CountryPreferenceCombobox
@@ -217,9 +217,9 @@ export function RegionalPreferencesProposal({
           <ItemSeparator className="my-0" />
           <Item className="min-w-0 items-start sm:flex-nowrap sm:items-center">
             <ItemMedia variant="avatar"><WalletCards aria-hidden /></ItemMedia>
-            <ItemContent className="min-w-48">
-              <ItemTitle>{copy.displayCurrency}</ItemTitle>
-              <ItemDescription>{copy.displayCurrencyDescription}</ItemDescription>
+            <ItemContent className="min-w-0 basis-48 break-words">
+              <ItemTitle truncate={false} className="whitespace-normal">{copy.displayCurrency}</ItemTitle>
+              <ItemDescription lines={false}>{copy.displayCurrencyDescription}</ItemDescription>
             </ItemContent>
             <ItemActions className="min-w-0 basis-full justify-end sm:basis-auto">
               <PreferenceSelect
@@ -236,9 +236,9 @@ export function RegionalPreferencesProposal({
           <ItemSeparator className="my-0" />
           <Item className="min-w-0 items-start sm:flex-nowrap sm:items-center">
             <ItemMedia variant="avatar"><Languages aria-hidden /></ItemMedia>
-            <ItemContent className="min-w-48">
-              <ItemTitle>{copy.language}</ItemTitle>
-              <ItemDescription>{copy.languageDescription}</ItemDescription>
+            <ItemContent className="min-w-0 basis-48 break-words">
+              <ItemTitle truncate={false} className="whitespace-normal">{copy.language}</ItemTitle>
+              <ItemDescription lines={false}>{copy.languageDescription}</ItemDescription>
             </ItemContent>
             <ItemActions className="min-w-0 basis-full justify-end sm:basis-auto">
               <PreferenceSelect
