@@ -14,6 +14,8 @@ const baseUiMessage =
 const literalStyleMessage =
   "Use semantic theme tokens instead of hex/rgba, arbitrary-px, or raw palette colors in utility strings.";
 const serverLayerMessage = "server modules must not import web client or app layers";
+const testsReadSourceMessage = "tests must not read source files; assert behavior instead";
+const testsAssertBehaviorMessage = "tests must assert behavior, not CSS classes";
 const storybookIsolationMessage =
   "Storybook and MSW are development-only; production modules must not import workshop packages, config, or stories";
 const baseUiImportRestriction = {
@@ -192,6 +194,177 @@ const serverOnlyPlugin = {
 const tailwindPolicyPlugin = {
   rules: {
     "no-detached-class-constants": noDetachedClassConstantsRule,
+  },
+};
+
+// Home-owned test policy. These live behind plugin rule IDs rather than the
+// core no-restricted-imports/no-restricted-syntax rules so the layer boundary
+// rules keep their own options for test files: core rule options replace, they
+// do not compose.
+const testPolicyPlugin = {
+  rules: {
+    "no-source-reads": {
+      meta: {
+        type: "problem",
+        messages: { rejected: testsReadSourceMessage },
+        schema: [],
+      },
+      create(context) {
+        function sourceValue(node) {
+          if (node?.type === "Literal") return node.value;
+          if (node?.type === "TemplateLiteral" && node.expressions.length === 0) {
+            return node.quasis[0]?.value.cooked;
+          }
+          return undefined;
+        }
+
+        function checkSource(node) {
+          const value = sourceValue(node);
+          if (
+            value === "fs"
+            || value === "node:fs"
+            || value === "fs/promises"
+            || value === "node:fs/promises"
+          ) {
+            context.report({ node, messageId: "rejected" });
+          }
+        }
+
+        return {
+          ImportDeclaration(node) {
+            checkSource(node.source);
+          },
+          ExportNamedDeclaration(node) {
+            if (node.source) checkSource(node.source);
+          },
+          ExportAllDeclaration(node) {
+            checkSource(node.source);
+          },
+          ImportExpression(node) {
+            checkSource(node.source);
+          },
+          CallExpression(node) {
+            const callee = node.callee;
+            if (callee.type === "Identifier" && callee.name === "require") {
+              checkSource(node.arguments[0]);
+            }
+            if (
+              callee.type === "MemberExpression"
+              && !callee.computed
+              && callee.object.type === "Identifier"
+              && callee.object.name === "Bun"
+              && callee.property.type === "Identifier"
+              && callee.property.name === "file"
+            ) {
+              context.report({ node, messageId: "rejected" });
+            }
+          },
+        };
+      },
+    },
+    "no-real-waits": {
+      meta: {
+        type: "problem",
+        messages: {
+          delay: "tests must use fake timers instead of real delays over 50ms",
+          sleep: "tests must not sleep; use fake timers or an injected scheduler",
+          wait: "tests must not wait longer than 2000ms; bound the wait deterministically",
+        },
+        schema: [],
+      },
+      create(context) {
+        return {
+          CallExpression(node) {
+            const callee = node.callee;
+            if (
+              callee.type === "Identifier"
+              && (callee.name === "setTimeout" || callee.name === "setInterval")
+            ) {
+              const delay = node.arguments[1];
+              if (delay?.type === "Literal" && typeof delay.value === "number" && delay.value > 50) {
+                context.report({ node: delay, messageId: "delay" });
+              }
+            }
+            if (
+              callee.type === "MemberExpression"
+              && !callee.computed
+              && callee.object.type === "Identifier"
+              && callee.object.name === "Bun"
+              && callee.property.type === "Identifier"
+              && callee.property.name === "sleep"
+            ) {
+              context.report({ node, messageId: "sleep" });
+            }
+            if (callee.type === "Identifier" && callee.name === "waitFor") {
+              const options = node.arguments[1];
+              if (options?.type === "ObjectExpression") {
+                for (const property of options.properties) {
+                  if (
+                    property.type === "Property"
+                    && !property.computed
+                    && property.key.type === "Identifier"
+                    && property.key.name === "timeout"
+                    && property.value.type === "Literal"
+                    && typeof property.value.value === "number"
+                    && property.value.value > 2000
+                  ) {
+                    context.report({ node: property.value, messageId: "wait" });
+                  }
+                }
+              }
+            }
+          },
+        };
+      },
+    },
+    "no-presentation-class-reads": {
+      meta: {
+        type: "problem",
+        messages: { rejected: testsAssertBehaviorMessage },
+        schema: [],
+      },
+      create(context) {
+        const mutationMethods = new Set(["add", "remove", "toggle", "replace"]);
+
+        // Arrange-phase writes are setup, not assertions: a className assignment
+        // or a classList mutation call is allowed, any read is not.
+        function isWrite(node) {
+          const parent = node.parent;
+          if (parent.type === "AssignmentExpression" && parent.left === node) return true;
+          return (
+            parent.type === "MemberExpression"
+            && parent.object === node
+            && parent.property.type === "Identifier"
+            && mutationMethods.has(parent.property.name)
+            && parent.parent.type === "CallExpression"
+            && parent.parent.callee === parent
+          );
+        }
+
+        return {
+          MemberExpression(node) {
+            if (node.computed || node.property.type !== "Identifier") return;
+            if (node.property.name !== "className" && node.property.name !== "classList") return;
+            if (isWrite(node)) return;
+            context.report({ node, messageId: "rejected" });
+          },
+          CallExpression(node) {
+            const callee = node.callee;
+            if (
+              callee.type === "MemberExpression"
+              && !callee.computed
+              && callee.property.type === "Identifier"
+              && callee.property.name === "getAttribute"
+            ) {
+              const attribute = node.arguments[0];
+              if (attribute?.type === "Literal" && attribute.value === "class") {
+                context.report({ node, messageId: "rejected" });
+              }
+            }
+          },
+        };
+      },
+    },
   },
 };
 
@@ -432,40 +605,6 @@ const eslintConfig = defineConfig([
     },
   },
   {
-    files: ["**/*.test.{ts,tsx}"],
-    ignores: ["**/migrations/**"],
-    rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          paths: [
-            {
-              name: "fs",
-              message: "tests must not read source files; assert behavior instead",
-            },
-            {
-              name: "node:fs",
-              message: "tests must not read source files; assert behavior instead",
-            },
-          ],
-          patterns: [baseUiImportRestriction],
-        },
-      ],
-      "no-restricted-syntax": [
-        "error",
-        {
-          selector:
-            "CallExpression[callee.name=/^set(?:Timeout|Interval)$/][arguments.1.type='Literal'][arguments.1.value>50]",
-          message: "tests must use fake timers instead of real delays over 50ms",
-        },
-        {
-          selector: "CallExpression[callee.object.name='Bun'][callee.property.name='file']",
-          message: "tests must not read source files; assert behavior instead",
-        },
-      ],
-    },
-  },
-  {
     files: ["server/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
     rules: {
       "no-restricted-imports": [
@@ -601,6 +740,33 @@ const eslintConfig = defineConfig([
           message: "Use Button from @/components/ui/button. The raw-button allowlist only shrinks.",
         },
       ],
+    },
+  },
+  // Test-only policy: assert behavior, never source text, real sleeps, or CSS
+  // classes. The rules live behind distinct test-policy plugin IDs so the
+  // per-layer no-restricted-imports/no-restricted-syntax boundary rules keep
+  // applying to test files instead of being replaced by this block.
+  {
+    files: ["**/*.test.{ts,tsx}", "tests/helpers/**/*.{ts,tsx}"],
+    ignores: ["**/migrations/**"],
+    plugins: { "test-policy": testPolicyPlugin },
+    rules: {
+      "test-policy/no-source-reads": "error",
+      "test-policy/no-real-waits": "error",
+      "test-policy/no-presentation-class-reads": "error",
+    },
+  },
+  // tests/helpers/migrations.ts is the sole fs/promises seam for integration
+  // fixtures that apply committed schema migrations, and the Apple Pay test
+  // reads a shipped public asset to hash it rather than asserting source text.
+  // Both carve out only the source-read rule; the other test-policy rules stay on.
+  {
+    files: [
+      "tests/helpers/migrations.ts",
+      "tests/well-known/apple-pay-domain-association.test.ts",
+    ],
+    rules: {
+      "test-policy/no-source-reads": "off",
     },
   },
 ]);

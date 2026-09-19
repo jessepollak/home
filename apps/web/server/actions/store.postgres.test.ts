@@ -1,8 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
+import { readMigrationSql } from "@/tests/helpers/migrations";
 import { ActionsStore, actionOwnerKey } from "./store";
 
 const connectionString = process.env.ACTION_PG_TEST_URL?.trim();
@@ -21,7 +20,7 @@ const calls = [{ to: owner.address, data: "0x1234" as const, value: "0" }];
 describePostgres("actions schema and store", () => {
   beforeAll(async () => {
     admin = new Bun.SQL(connectionString!) as unknown as BunSqlClient;
-    const migration = await readFile(resolve(import.meta.dir, "../db/migrations/001_actions.sql"), "utf8");
+    const migration = await readMigrationSql("001_actions.sql");
     await admin.unsafe(`DROP SCHEMA IF EXISTS ${TEST_SCHEMA} CASCADE`);
     await admin.unsafe(`CREATE SCHEMA ${TEST_SCHEMA}`);
     await admin.begin(async (transaction) => {

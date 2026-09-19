@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { AccountWalletSdkBoundary } from "./cdp-client";
-import { composeSdkBoundaries, type CompositeSdkBoundaryInput } from "./composite-sdk-boundary";
+import {
+  CDP_SIGN_OUT_TIMEOUT_MS,
+  composeSdkBoundaries,
+  type CompositeSdkBoundaryInput,
+} from "./composite-sdk-boundary";
 import type { VerifiedAccountSession } from "./session-client";
 
 const NATIVE_ADDRESS = "0x1111111111111111111111111111111111111111" as const;
@@ -53,6 +57,7 @@ function input(overrides: {
   cdpSignOut?: CompositeSdkBoundaryInput["cdpSignOut"];
   retryCdp?: CompositeSdkBoundaryInput["retryCdp"];
   shouldSignOutCdp?: () => boolean;
+  signOutTimeout?: CompositeSdkBoundaryInput["signOutTimeout"];
 } = {}): CompositeSdkBoundaryInput {
   const identity = overrides.identity ?? null;
   const isSettled = overrides.isSettled ?? true;
@@ -80,6 +85,7 @@ function input(overrides: {
     cdpSignOut: overrides.cdpSignOut ?? (async () => {}),
     retryCdp: overrides.retryCdp ?? (async () => {}),
     shouldSignOutCdp: overrides.shouldSignOutCdp ?? (() => true),
+    signOutTimeout: overrides.signOutTimeout,
   };
 }
 
@@ -471,6 +477,7 @@ const rows: Array<{ name: string; run: () => Promise<void> }> = [
       const first = deferred();
       let firstAttempt: Promise<void> | null = null;
       const phases: string[] = [];
+      const scheduled: Array<{ callback: () => void; cancelled: boolean; timeoutMs: number }> = [];
       const sdk = composeSdkBoundaries(input({
         cdpSignOut: async (onPhase) => {
           cdpCalls += 1;
@@ -482,9 +489,19 @@ const rows: Array<{ name: string; run: () => Promise<void> }> = [
             await firstAttempt;
           }
         },
+        signOutTimeout: {
+          scheduleTimeout: (callback, timeoutMs) => {
+            const timer = { callback, cancelled: false, timeoutMs };
+            scheduled.push(timer);
+            return () => { timer.cancelled = true; };
+          },
+        },
       }));
-      await expect(sdk.signOut((phase) => phases.push(`${phase.phase}:${phase.outcome}`)))
-        .rejects.toThrow("timed out");
+      const cleanup = sdk.signOut((phase) => phases.push(`${phase.phase}:${phase.outcome}`));
+      expect(scheduled[0]?.timeoutMs).toBe(CDP_SIGN_OUT_TIMEOUT_MS);
+      scheduled[0]!.callback();
+      await expect(cleanup).rejects.toThrow("timed out");
+      expect(scheduled[0]?.cancelled).toBe(true);
       expect(phases).toEqual(["cdp-signout:timeout"]);
 
       first.resolve();

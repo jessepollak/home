@@ -10,6 +10,7 @@ import { isActionKind, type ActionKind } from "@/shared/money-actions/types";
 import { authorizeSession } from "@/server/auth/authorize";
 import { issueSendMoneyAction } from "@/server/money-actions/prepare-send";
 import { issueMoneyAction } from "@/server/money-actions/issue";
+import { privateError, privateJson } from "@/server/http/private-response";
 import { prepareSavingsAction, SavingsActionError } from "@/server/savings/prepare";
 import { prepareBorrowAction, BorrowPreparationError } from "@/server/borrowing/prepare";
 import { getBaseBorrowing } from "@/server/borrowing/rpc";
@@ -20,12 +21,6 @@ import {
   prepareCashoutWithdrawAction,
 } from "@/server/funding/cash-out";
 import type { ActionAuthorizer } from "./handler";
-
-const privateHeaders = {
-  "Cache-Control": "private, no-store, max-age=0",
-  Pragma: "no-cache",
-  Vary: "Authorization, X-Home-Account-Provider",
-} as const;
 
 export function createPrepareActionHandler(dependencies: {
   authorize: ActionAuthorizer;
@@ -136,12 +131,6 @@ async function prepare(
 
 async function readJson(request: Request): Promise<unknown> {
   try { return await request.json(); } catch { return null; }
-}
-function privateJson(body: unknown, status: number): Response {
-  return Response.json(body, { status, headers: privateHeaders });
-}
-function privateError(code: string, message: string, status: number): Response {
-  return privateJson({ error: { code, message } }, status);
 }
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));

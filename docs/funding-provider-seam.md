@@ -236,7 +236,7 @@ The design originally cut sandbox from v1, then reversed that decision on Septem
 - `POST /api/funding/quotes` never accepts KYC fields. Ripio customer creation and hosted verification use the private owner-scoped provider-customer route, and quote creation requires the stored customer state to be `verified`. `POST /api/funding/orders` accepts only the signed quote token.
 - Ripio keeps per-country client credentials and webhook secrets. Configure the same `POST /api/funding/webhooks/ripio` URL in each AR, BR, and CO dashboard, then place each generated secret in the matching `RIPIO_WEBHOOK_SECRET_AR`, `_BR`, or `_CO` Vercel variable. There is no shared fallback. When migrating from the former shared `RIPIO_WEBHOOK_SECRET`, set every required suffixed Vercel variable before deploying this code or removing the shared variable so bindings and open orders do not become inert during the rename.
 - `GET /api/funding/orders?region=` is added as the owner-scoped resume endpoint used when Add money opens. It has the same private/no-store response contract as the specified status route.
-- Coinbase moved behind the manifest seam on Sept 12 (`providers/coinbase/{manifest,adapter}.ts`, registered in `providers/index.ts`); the legacy Ripio store/reconciliation files are tracked for removal in #293.
+- Coinbase moved behind the manifest seam on Sept 12 (`providers/coinbase/{manifest,adapter}.ts`, registered in `providers/index.ts`); the legacy Ripio store/reconciliation stack was removed under [closed #293](https://github.com/jessepollak/home/issues/293).
 
 ### Astra fix round (September 12, 2026)
 

@@ -156,7 +156,7 @@ Summarize agent-browser mode, route, viewport, exercised path including recovery
 - Every provider call and server POST is guarded by the owner-generation fence.
 - Reconciliation reads are owner-scoped, provider-read-only, and never mutate calldata.
 
-Test Home's logic: calldata issuance, auth scope, amount parsing/formatting, derived status, owner fence, and bug-relevant UI behavior. Do not retest dependencies. Use no real sleeps or source-text assertions; keep permutations bounded. `bun check` must pass.
+Tests follow the [test policy](architecture.md#test-policy); `bun check` must pass.
 
 ## Docs
 

@@ -51,7 +51,7 @@ Do not add provider credentials or funded-wallet checks to pull-request CI.
 - Prefix TanStack Query keys by owner and clear private queries whenever the owner generation changes.
 - Identify assets by chain ID plus address, never ticker. Token amounts are `bigint`; exact review facts stay on confirm.
 - Preserve the shell frame budget: pointer motion and price ticks use transforms, opacity, motion values, or imperative text writes rather than React state per update.
-- Add behavioral tests for regressions that matter, with exact bigint fixtures for amounts. Do not add copy, layout, animation, real-sleep, or source-text tests.
+- Add behavioral tests for regressions that matter, with exact bigint fixtures for amounts. Follow the [test policy](docs/architecture.md#test-policy) for what to test and what to avoid.
 - Run `bun check`; run the browser smoke for shell, session, or action-flow changes. Keep live provider and funded-wallet checks out of CI.
 - Update the matching current doc in the same change when a delivered, user-visible, or execution contract changes.
 
