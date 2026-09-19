@@ -2,6 +2,7 @@ import { defineConfig, globalIgnores } from "eslint/config";
 import { plugin as shadcn } from "@shadcn/lint";
 import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTs from "eslint-config-next/typescript";
+import { noDetachedClassConstantsRule } from "./eslint/no-detached-class-constants.mjs";
 
 const sharedLayerMessage =
   "shared modules must remain runtime-agnostic and independent of web application layers";
@@ -184,6 +185,15 @@ const serverOnlyPlugin = {
         };
       },
     },
+  },
+};
+
+// Tailwind utilities must live at the use site: inline in className/cn(), or
+// in an owned components/ui variant for reusable presentation. The rule follows
+// identifiers to local static class-string definitions by scope binding.
+const tailwindPolicyPlugin = {
+  rules: {
+    "no-detached-class-constants": noDetachedClassConstantsRule,
   },
 };
 
@@ -415,6 +425,23 @@ const eslintConfig = defineConfig([
     files: ["components/ui/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
     rules: {
       "shadcn/no-restyle": "off",
+    },
+  },
+  {
+    files: [
+      "app/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+      "client/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+      "components/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+    ],
+    ignores: [
+      "components/ui/**",
+      "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+      "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+      "**/tests/**",
+    ],
+    plugins: { "tailwind-policy": tailwindPolicyPlugin },
+    rules: {
+      "tailwind-policy/no-detached-class-constants": "error",
     },
   },
   {

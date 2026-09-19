@@ -68,7 +68,7 @@ Use the owned component contracts rather than restyling their slots:
 
 ## Rules
 
-1. Style components and product surfaces with Tailwind utilities. ESLint bans hex/rgba, arbitrary-pixel, and raw palette classes; use semantic tokens instead.
+1. Style components and product surfaces with Tailwind utilities. ESLint bans hex/rgba, arbitrary-pixel, and raw palette classes; use semantic tokens instead. Keep utilities inline at the product use site: ESLint (`tailwind-policy/no-detached-class-constants`) follows identifiers in `className` and `cn()` to local static class-string constants and rejects them. Reusable presentation belongs in owned component variants; dynamic composition (ternaries, templates, props, `cva()`) stays allowed.
 2. Raw `@base-ui/react` imports are allowed only in `apps/web/components/ui`.
 3. Raw `button`, `input`, and `select` elements outside `components/ui` are banned except for the shrinking audited allowlist. Use the owned wrappers.
 4. `@shadcn/lint` rejects restyling of owned UI components in product code. Callers may use layout classes; reusable presentation belongs in variants or explicit component contracts.
