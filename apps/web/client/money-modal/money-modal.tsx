@@ -12,9 +12,9 @@ import {
 import { ArrowLeft, X } from "lucide-react";
 import { useRef, type ReactNode, type RefObject } from "react";
 
-export function AppDrawer({ open, labelledBy, describedBy, immediate = false, initialFocusRef, onCancel, onClose, children }: {
+export function AppDrawer({ open, labelledBy, describedBy, immediate = false, initialFocusRef, finalFocusRef, onCancel, onClose, children }: {
   open: boolean; labelledBy: string; describedBy?: string; immediate?: boolean;
-  initialFocusRef?: RefObject<HTMLElement | null>; onCancel: () => boolean | void;
+  initialFocusRef?: RefObject<HTMLElement | null>; finalFocusRef?: RefObject<HTMLElement | null>; onCancel: () => boolean | void;
   onClose?: () => void; children: ReactNode;
 }) {
   const popupRef = useRef<HTMLDivElement>(null);
@@ -28,6 +28,7 @@ export function AppDrawer({ open, labelledBy, describedBy, immediate = false, in
         aria-labelledby={labelledBy}
         aria-describedby={describedBy}
         initialFocus={initialFocusRef ?? (() => popupRef.current?.querySelector<HTMLElement>("[data-initial-focus]:not(:disabled)") ?? true)}
+        finalFocus={finalFocusRef}
         data-money-sheet=""
         immediate={immediate}
         className="max-h-[88svh] sm:mx-auto sm:max-w-md"
@@ -39,11 +40,11 @@ export function AppDrawer({ open, labelledBy, describedBy, immediate = false, in
   );
 }
 
-export function MoneyModal({ open, labelledBy, describedBy, immediate = false, onCancel, onClose, children }: {
-  open: boolean; labelledBy: string; describedBy?: string; immediate?: boolean;
+export function MoneyModal({ open, labelledBy, describedBy, immediate = false, finalFocusRef, onCancel, onClose, children }: {
+  open: boolean; labelledBy: string; describedBy?: string; immediate?: boolean; finalFocusRef?: RefObject<HTMLElement | null>;
   onCancel: () => boolean | void; onClose: () => void; children: ReactNode;
 }) {
-  return <AppDrawer open={open} labelledBy={labelledBy} describedBy={describedBy} immediate={immediate} onCancel={onCancel} onClose={onClose}>{children}</AppDrawer>;
+  return <AppDrawer open={open} labelledBy={labelledBy} describedBy={describedBy} immediate={immediate} finalFocusRef={finalFocusRef} onCancel={onCancel} onClose={onClose}>{children}</AppDrawer>;
 }
 
 type MoneyModalHeaderProps = {

@@ -38,5 +38,7 @@ This map points to Home's current product, engineering, delivery, setup, and int
 
 ## Proposed specs
 
+- [Activity ledger presentation](activity-ledger-design.md) — Storybook proposal for unified status, recovery, and detail presentation across Home activity families.
+
 - [Public transfer feed](public-transfer-feed-spec.md) — active implementation-ready proposal for a public ERC-20 transfer feed.
 - [Checking shimmer](qa/checking-97/CHECKING-SHIMMER-SPEC.md) — active QA specification for the checking loading state.
