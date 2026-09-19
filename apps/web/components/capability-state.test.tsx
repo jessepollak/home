@@ -1,9 +1,9 @@
 import "@/client/account/dom-test-harness";
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import type { CapabilityStatePlacement } from "./capability-state";
 
-const { fireEvent, render } = await import("@testing-library/react");
+const { cleanup, fireEvent, render } = await import("@testing-library/react");
 const {
   CapabilityState,
   capabilityStateAllowedActions,
@@ -11,6 +11,8 @@ const {
   capabilityStateMessageIds,
   isCapabilityActionAllowed,
 } = await import("./capability-state");
+
+afterEach(cleanup);
 
 describe("capability state contract", () => {
   test("is closed, complete, and assigns stable semantic message IDs", () => {
