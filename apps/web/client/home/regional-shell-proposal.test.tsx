@@ -7,7 +7,6 @@ import {
   type RegionalHomeComposition,
   type RegionalHomeCopy,
 } from "./regional-shell-proposal";
-import { regionalHomeCompositions } from "./regional-shell-proposal-fixtures";
 
 afterEach(cleanup);
 
@@ -40,6 +39,49 @@ const composition: RegionalHomeComposition = {
   localYield: { title: "Local savings", detail: "Not available", state: "unavailable" },
   activity: [],
 };
+
+const regionalHomeTestCompositions = {
+  GLOBAL: {
+    ...composition,
+    regionLabel: "Global presentation",
+    localYield: {
+      title: "Local savings",
+      detail: "Choose a country to see whether a local-currency yield product is available.",
+      state: "choose-country",
+    },
+  },
+  US: {
+    ...composition,
+    regionLabel: "United States · USD",
+    localYield: undefined,
+  },
+  BR: {
+    ...composition,
+    localYield: {
+      title: "Rendimento em reais",
+      detail: "Nenhum produto de rendimento em moeda local está disponível nesta composição.",
+      state: "unavailable",
+    },
+  },
+  NG: {
+    ...composition,
+    regionLabel: "Nigeria · NGN",
+    localYield: {
+      title: "Naira savings",
+      detail: "No local-currency yield product is available in this composition.",
+      state: "unavailable",
+    },
+  },
+  ID: {
+    ...composition,
+    regionLabel: "Indonesia · IDR",
+    localYield: {
+      title: "Tabungan rupiah",
+      detail: "Belum ada produk imbal hasil mata uang lokal dalam komposisi ini.",
+      state: "unavailable",
+    },
+  },
+} satisfies Record<string, RegionalHomeComposition>;
 
 describe("RegionalHomeShellProposal", () => {
   test("dispatches each first-class money intent without combining them", () => {
@@ -179,10 +221,10 @@ describe("RegionalHomeShellProposal", () => {
     expect(view.getByRole("navigation", { name: "Mobile navigation" })).toBeTruthy();
   });
 
-  test("omits local yield and disclaimer copy from the US story fixture", () => {
+  test("omits local yield and disclaimer copy from the US composition", () => {
     const view = render(
       <RegionalHomeShellProposal
-        composition={regionalHomeCompositions.US}
+        composition={regionalHomeTestCompositions.US}
         copy={copy}
         onAccount={() => {}}
         onAction={() => {}}
@@ -199,28 +241,28 @@ describe("RegionalHomeShellProposal", () => {
     expect(view.queryByText(copy.countryNeeded)).toBeNull();
   });
 
-  test("retains the intended local-yield states in the other deterministic fixtures", () => {
+  test("retains the intended local-yield states in deterministic test compositions", () => {
     const fixtures = [
       {
-        composition: regionalHomeCompositions.GLOBAL,
+        composition: regionalHomeTestCompositions.GLOBAL,
         heading: "Local savings",
         state: "choose-country",
         stateCopy: copy.countryNeeded,
       },
       {
-        composition: regionalHomeCompositions.BR,
+        composition: regionalHomeTestCompositions.BR,
         heading: "Rendimento em reais",
         state: "unavailable",
         stateCopy: copy.localYieldUnavailable,
       },
       {
-        composition: regionalHomeCompositions.NG,
+        composition: regionalHomeTestCompositions.NG,
         heading: "Naira savings",
         state: "unavailable",
         stateCopy: copy.localYieldUnavailable,
       },
       {
-        composition: regionalHomeCompositions.ID,
+        composition: regionalHomeTestCompositions.ID,
         heading: "Tabungan rupiah",
         state: "unavailable",
         stateCopy: copy.localYieldUnavailable,
