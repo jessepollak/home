@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from "react";
+import { useId, type MouseEventHandler, type ReactNode } from "react";
 import { ArrowDown, ArrowLeftRight, ArrowUp, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,7 +24,7 @@ type FinanceRowProps = {
   valueContext?: ReactNode;
   valueContextTitle?: string;
   valueTone?: FinanceRowTone;
-  onActivate?: () => void;
+  onActivate?: MouseEventHandler<HTMLButtonElement>;
   activateLabel?: string;
 };
 

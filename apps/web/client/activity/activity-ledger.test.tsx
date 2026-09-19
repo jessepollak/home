@@ -88,19 +88,24 @@ describe("ActivityLedger presentation contract", () => {
     expect(view.getByText("Matched confirmation")).toBeTruthy();
   });
 
-  test("opens one family-specific detail sheet and exposes only its safe action", async () => {
+  test("opens one family-specific detail sheet, exposes only its safe action, and restores focus to the activated row", async () => {
     const selected: (string | null)[] = [];
     const actions: string[] = [];
     const view = render(
-      <ActivityLedger
-        items={[fundingItem()]}
-        onSelectedChange={(id) => selected.push(id)}
-        onNextAction={(_, action) => actions.push(action.kind)}
-      />,
+      <>
+        <button type="button">Previously focused</button>
+        <ActivityLedger
+          items={[fundingItem()]}
+          onSelectedChange={(id) => selected.push(id)}
+          onNextAction={(_, action) => actions.push(action.kind)}
+        />
+      </>,
     );
 
+    const previouslyFocused = view.getByRole("button", { name: "Previously focused" });
     const opener = view.getByRole("button", { name: /Add money by bank transfer/ });
-    opener.focus();
+    previouslyFocused.focus();
+    expect(document.activeElement).toBe(previouslyFocused);
     fireEvent.click(opener);
     expect(await view.findByRole("heading", { name: "Add money by bank transfer" })).toBeTruthy();
     expect(view.getByText("Mandiri virtual account")).toBeTruthy();

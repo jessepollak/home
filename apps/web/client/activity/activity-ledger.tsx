@@ -283,8 +283,8 @@ export function ActivityLedger({
                       contextTitle={`${item.occurredAtLabel} · ${copy.label}`}
                       value={item.exactAmount}
                       valueContext={item.correlatedSourceCount && item.correlatedSourceCount > 1 ? "Matched confirmation" : undefined}
-                      onActivate={() => {
-                        if (document.activeElement instanceof HTMLElement) openerRef.current = document.activeElement;
+                      onActivate={(event) => {
+                        openerRef.current = event.currentTarget;
                         select(item.canonicalId);
                       }}
                       activateLabel={`View ${item.title} details`}
