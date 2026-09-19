@@ -2,9 +2,9 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, fn, userEvent, within } from "storybook/test";
 import {
   RegionalHomeShellProposal,
-  type RegionalHomeComposition,
   type RegionalHomeCopy,
 } from "./regional-shell-proposal";
+import { regionalHomeCompositions } from "./regional-shell-proposal-fixtures";
 
 const englishCopy: RegionalHomeCopy = {
   account: "Account",
@@ -16,6 +16,7 @@ const englishCopy: RegionalHomeCopy = {
   dollarProducts: "Dollar products",
   home: "Home",
   invest: "Invest",
+  illustrativeNonCoverage: "Illustrative only — coverage not assessed",
   localMoney: "Local money",
   localYieldUnavailable: "Local yield unavailable",
   send: "Send",
@@ -23,121 +24,13 @@ const englishCopy: RegionalHomeCopy = {
   totalBalance: "Total balance",
 };
 
-const sharedActivity = [
-  { id: "salary", label: "Money added", detail: "Today", amount: "+ $1,250.00" },
-  { id: "send", label: "Sent", detail: "Yesterday", amount: "− $48.20" },
-] as const;
-
-const compositions = {
-  GLOBAL: {
-    regionLabel: "Global presentation",
-    totalBalance: "$12,480.32",
-    localMoney: {
-      title: "Choose your country",
-      value: "—",
-      detail: "Choose a country to see local money separately from dollars.",
-    },
-    dollarProducts: {
-      title: "Dollar products",
-      value: "$12,480.32",
-      detail: "Dollar balances remain denominated in USD.",
-    },
-    localYield: {
-      title: "Local savings",
-      detail: "Choose a country to see whether a local-currency yield product is available.",
-      state: "choose-country",
-    },
-    activity: sharedActivity,
-  },
-  US: {
-    regionLabel: "United States · USD",
-    totalBalance: "$12,480.32",
-    localMoney: {
-      title: "US dollars",
-      value: "$10,340.24",
-      detail: "Your local money and display currency are both USD.",
-    },
-    dollarProducts: {
-      title: "Dollar products",
-      value: "$2,140.08",
-      detail: "Dollar savings and investments stay distinct from available cash.",
-    },
-    localYield: {
-      title: "Dollar savings",
-      detail: "The local and dollar denomination is the same, so this appears once.",
-      state: "available",
-    },
-    activity: sharedActivity,
-  },
-  BR: {
-    regionLabel: "Brasil · BRL",
-    totalBalance: "R$ 68.400,20",
-    localMoney: {
-      title: "Dinheiro local",
-      value: "R$ 55.810,12",
-      detail: "Saldo local ilustrativo, separado dos produtos em dólar.",
-    },
-    dollarProducts: {
-      title: "Produtos em dólar",
-      value: "US$ 2.140,08",
-      detail: "Continuam denominados em USD, mesmo quando o total é exibido em reais.",
-    },
-    localYield: {
-      title: "Rendimento em reais",
-      detail: "Nenhum produto de rendimento em moeda local está disponível nesta composição.",
-      state: "unavailable",
-    },
-    activity: sharedActivity,
-  },
-  NG: {
-    regionLabel: "Nigeria · NGN",
-    totalBalance: "₦19,870,400.00",
-    localMoney: {
-      title: "Naira money",
-      value: "₦16,450,200.00",
-      detail: "Illustrative local money, shown separately from dollar products.",
-    },
-    dollarProducts: {
-      title: "Dollar products",
-      value: "$2,140.08",
-      detail: "These products stay denominated in USD.",
-    },
-    localYield: {
-      title: "Naira savings",
-      detail: "No local-currency yield product is available in this composition.",
-      state: "unavailable",
-    },
-    activity: sharedActivity,
-  },
-  ID: {
-    regionLabel: "Indonesia · IDR",
-    totalBalance: "Rp199.684.000",
-    localMoney: {
-      title: "Uang lokal",
-      value: "Rp165.442.000",
-      detail: "Saldo lokal ilustratif, terpisah dari produk dolar.",
-    },
-    dollarProducts: {
-      title: "Produk dolar",
-      value: "$2,140.08",
-      detail: "Produk ini tetap dalam denominasi USD.",
-    },
-    localYield: {
-      title: "Tabungan rupiah",
-      detail: "Belum ada produk imbal hasil mata uang lokal dalam komposisi ini.",
-      state: "unavailable",
-    },
-    activity: sharedActivity,
-  },
-} satisfies Record<string, RegionalHomeComposition>;
-
 const meta = {
   id: "proposal-regional-home-shell",
   title: "Proposals/Regional Home Shell",
   component: RegionalHomeShellProposal,
   args: {
     activeNavigation: "home",
-    composition: compositions.GLOBAL,
+    composition: regionalHomeCompositions.GLOBAL,
     copy: englishCopy,
     onAccount: fn(),
     onAction: fn(),
@@ -153,19 +46,19 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Global: Story = {};
-export const UnitedStates: Story = { args: { composition: compositions.US } };
-export const Brazil: Story = { args: { composition: compositions.BR } };
-export const Nigeria: Story = { args: { composition: compositions.NG } };
-export const Indonesia: Story = { args: { composition: compositions.ID } };
+export const UnitedStates: Story = { args: { composition: regionalHomeCompositions.US } };
+export const Brazil: Story = { args: { composition: regionalHomeCompositions.BR } };
+export const Nigeria: Story = { args: { composition: regionalHomeCompositions.NG } };
+export const Indonesia: Story = { args: { composition: regionalHomeCompositions.ID } };
 
 export const IntentionalDesktop: Story = {
-  args: { composition: compositions.BR },
+  args: { composition: regionalHomeCompositions.BR },
   parameters: { viewport: { defaultViewport: "desktop" } },
 };
 
 export const SmallMobileGermanLongCopy: Story = {
   args: {
-    composition: compositions.NG,
+    composition: regionalHomeCompositions.NG,
     copy: {
       ...englishCopy,
       account: "Konto",
@@ -185,7 +78,7 @@ export const SmallMobileGermanLongCopy: Story = {
 
 export const FrenchAtTwoHundredPercentText: Story = {
   args: {
-    composition: compositions.BR,
+    composition: regionalHomeCompositions.BR,
     copy: {
       ...englishCopy,
       account: "Compte",
@@ -209,7 +102,7 @@ export const FrenchAtTwoHundredPercentText: Story = {
 };
 
 export const RightToLeftDirection: Story = {
-  args: { composition: compositions.ID },
+  args: { composition: regionalHomeCompositions.ID },
   render: (args) => (
     <div dir="rtl">
       <RegionalHomeShellProposal {...args} />
@@ -218,7 +111,7 @@ export const RightToLeftDirection: Story = {
 };
 
 export const KeyboardFocus: Story = {
-  args: { composition: compositions.US },
+  args: { composition: regionalHomeCompositions.US },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.tab();
@@ -230,7 +123,7 @@ export const KeyboardFocus: Story = {
 };
 
 export const ReducedMotionReference: Story = {
-  args: { composition: compositions.BR },
+  args: { composition: regionalHomeCompositions.BR },
   parameters: {
     docs: {
       description: {

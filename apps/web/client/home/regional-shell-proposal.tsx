@@ -39,6 +39,7 @@ export type RegionalHomeCopy = {
   dollarProducts: string;
   home: string;
   invest: string;
+  illustrativeNonCoverage: string;
   localMoney: string;
   localYieldUnavailable: string;
   send: string;
@@ -62,7 +63,7 @@ export type RegionalHomeComposition = {
   localYield: {
     title: string;
     detail: string;
-    state: "available" | "unavailable" | "choose-country";
+    state: "available" | "unavailable" | "choose-country" | "illustrative";
   };
   activity: readonly {
     id: string;
@@ -132,21 +133,22 @@ function NavigationItems({
   });
 }
 
+const moneyActionTreatment = "outline" as const;
+
 function MoneyAction({
   icon: Icon,
   label,
-  primary = false,
   onClick,
 }: {
   icon: ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
   label: string;
-  primary?: boolean;
   onClick: () => void;
 }) {
   return (
     <Button
       className="h-auto min-h-11 min-w-0 flex-col whitespace-normal text-center"
-      variant={primary ? "default" : "outline"}
+      data-money-action-treatment={moneyActionTreatment}
+      variant={moneyActionTreatment}
       onClick={onClick}
     >
       <Icon className="size-4" aria-hidden />
@@ -156,33 +158,39 @@ function MoneyAction({
 }
 
 function ProductCard({
+  headingId,
   icon: Icon,
   title,
   value,
   detail,
 }: {
+  headingId: string;
   icon: ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
   title: string;
   value: string;
   detail: string;
 }) {
   return (
-    <Card className="h-full">
-      <CardHeader>
-        <div className="flex items-center gap-2">
-          <span className="flex size-8 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-            <Icon className="size-4" aria-hidden />
-          </span>
-          <CardTitle>{title}</CardTitle>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-1">
-          <p className="text-xl font-semibold tabular-nums">{value}</p>
-          <p className="text-sm text-muted-foreground">{detail}</p>
-        </div>
-      </CardContent>
-    </Card>
+    <section className="h-full" aria-labelledby={headingId}>
+      <Card className="h-full">
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <span className="flex size-8 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+              <Icon className="size-4" aria-hidden />
+            </span>
+            <CardTitle>
+              <h2 id={headingId}>{title}</h2>
+            </CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-1">
+            <p className="text-xl font-semibold tabular-nums">{value}</p>
+            <p className="text-sm text-muted-foreground">{detail}</p>
+          </div>
+        </CardContent>
+      </Card>
+    </section>
   );
 }
 
@@ -247,7 +255,6 @@ export function RegionalHomeShellProposal({
                   <MoneyAction
                     icon={ArrowDownToLine}
                     label={copy.addMoney}
-                    primary
                     onClick={() => onAction("add-money")}
                   />
                   <MoneyAction
@@ -264,12 +271,14 @@ export function RegionalHomeShellProposal({
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <ProductCard
+                    headingId="regional-local-money-heading"
                     icon={Landmark}
                     title={composition.localMoney.title || copy.localMoney}
                     value={composition.localMoney.value}
                     detail={composition.localMoney.detail}
                   />
                   <ProductCard
+                    headingId="regional-dollar-products-heading"
                     icon={PiggyBank}
                     title={composition.dollarProducts.title || copy.dollarProducts}
                     value={composition.dollarProducts.value}
@@ -282,7 +291,9 @@ export function RegionalHomeShellProposal({
                 <section aria-labelledby="local-yield-heading">
                   <Card>
                     <CardHeader>
-                      <CardTitle id="local-yield-heading">{composition.localYield.title}</CardTitle>
+                      <CardTitle>
+                        <h2 id="local-yield-heading">{composition.localYield.title}</h2>
+                      </CardTitle>
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-2">
@@ -292,7 +303,9 @@ export function RegionalHomeShellProposal({
                             ? copy.shownSeparately
                             : composition.localYield.state === "unavailable"
                               ? copy.localYieldUnavailable
-                              : copy.countryNeeded}
+                              : composition.localYield.state === "illustrative"
+                                ? copy.illustrativeNonCoverage
+                                : copy.countryNeeded}
                         </p>
                       </div>
                     </CardContent>
@@ -302,7 +315,9 @@ export function RegionalHomeShellProposal({
                 <section aria-labelledby="regional-activity-heading">
                   <Card>
                     <CardHeader>
-                      <CardTitle id="regional-activity-heading">{copy.activity}</CardTitle>
+                      <CardTitle>
+                        <h2 id="regional-activity-heading">{copy.activity}</h2>
+                      </CardTitle>
                     </CardHeader>
                     <CardContent inset="list">
                       <div role="list">

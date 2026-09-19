@@ -7,6 +7,7 @@ import {
   type RegionalHomeComposition,
   type RegionalHomeCopy,
 } from "./regional-shell-proposal";
+import { regionalHomeCompositions } from "./regional-shell-proposal-fixtures";
 
 afterEach(cleanup);
 
@@ -20,6 +21,7 @@ const copy: RegionalHomeCopy = {
   dollarProducts: "Dollar products",
   home: "Home",
   invest: "Invest",
+  illustrativeNonCoverage: "Illustrative only — coverage not assessed",
   localMoney: "Local money",
   localYieldUnavailable: "Local yield unavailable",
   send: "Send",
@@ -58,6 +60,69 @@ describe("RegionalHomeShellProposal", () => {
       "send",
       "cash-out",
     ]);
+  });
+
+  test("gives all three money actions the same visual treatment", () => {
+    const view = render(
+      <RegionalHomeShellProposal
+        composition={composition}
+        copy={copy}
+        onAccount={() => {}}
+        onAction={() => {}}
+        onNavigate={() => {}}
+      />,
+    );
+
+    const actions = ["Add money", "Send", "Cash out"].map((name) =>
+      view.getByRole("button", { name }),
+    );
+    expect(actions.map((action) => action.getAttribute("data-money-action-treatment"))).toEqual([
+      "outline",
+      "outline",
+      "outline",
+    ]);
+  });
+
+  test("uses native headings and labelled sections inside the product cards", () => {
+    const view = render(
+      <RegionalHomeShellProposal
+        composition={composition}
+        copy={copy}
+        onAccount={() => {}}
+        onAction={() => {}}
+        onNavigate={() => {}}
+      />,
+    );
+
+    for (const name of ["Local money", "Dollar products", "Local savings", "Activity"]) {
+      const heading = view.getByRole("heading", { level: 2, name });
+      const region = view.getByRole("region", { name });
+      expect(region.getAttribute("aria-labelledby")).toBe(heading.id);
+      expect(heading.parentElement?.getAttribute("data-slot")).toBe("card-title");
+    }
+  });
+
+  test("marks the US story fixture as illustrative without claiming coverage", () => {
+    const view = render(
+      <RegionalHomeShellProposal
+        composition={regionalHomeCompositions.US}
+        copy={copy}
+        onAccount={() => {}}
+        onAction={() => {}}
+        onNavigate={() => {}}
+      />,
+    );
+
+    const state = view.getByText(copy.illustrativeNonCoverage);
+    expect(state.getAttribute("data-capability-state")).toBe("illustrative");
+    expect(
+      view.getByText(
+        "Illustrative placement only; this fixture does not assess regional coverage.",
+      ),
+    ).toBeTruthy();
+    expect(view.queryByText(copy.shownSeparately)).toBeNull();
+    expect(view.queryByText(copy.localYieldUnavailable)).toBeNull();
+    expect(view.queryByText(copy.countryNeeded)).toBeNull();
   });
 
   test("keeps Home, Card, Invest and Account as independent navigation intents", () => {
