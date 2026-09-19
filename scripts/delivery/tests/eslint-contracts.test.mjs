@@ -355,32 +355,102 @@ test("shared/formatting is the intentional presentation-formatting exception", a
   );
 });
 
+test("the test policy composes with every layer boundary in test files", async () => {
+  // The test-only rules live behind distinct plugin IDs, so the per-layer
+  // no-restricted-imports rules must still fire alongside them. A fixture that
+  // violates both proves neither policy replaced the other.
+  const serverCode =
+    'import "server-only";\nimport { a } from "@/client/anything";\nimport { readFile } from "node:fs/promises";\nexport const y = [a, readFile];\n';
+  await assertRestricted(
+    "server/gates-fixture.test.ts",
+    serverCode,
+    "no-restricted-imports",
+    "server modules must not import web client or app layers",
+  );
+  await assertRestricted(
+    "server/gates-fixture.test.ts",
+    serverCode,
+    "test-policy/no-source-reads",
+    "tests must not read source files",
+  );
+
+  const clientCode =
+    'import { a } from "@/server/anything";\nexport async function f() { await Bun.sleep(10); return a; }\n';
+  await assertRestricted(
+    "client/gates-fixture.test.tsx",
+    clientCode,
+    "no-restricted-imports",
+    "client modules must not import the server layer",
+  );
+  await assertRestricted(
+    "client/gates-fixture.test.tsx",
+    clientCode,
+    "test-policy/no-real-waits",
+    "tests must not sleep",
+  );
+
+  const sharedCode =
+    'import { useState } from "react";\nexport function read(element: Element) { return element.className; }\nexport const y = useState;\n';
+  await assertRestricted(
+    "shared/gates-fixture.test.ts",
+    sharedCode,
+    "no-restricted-imports",
+    "shared modules must remain runtime-agnostic",
+  );
+  await assertRestricted(
+    "shared/gates-fixture.test.ts",
+    sharedCode,
+    "test-policy/no-presentation-class-reads",
+    "tests must assert behavior, not CSS classes",
+  );
+});
+
 test("tests must not read source files outside the migration helper", async () => {
   await assertRestricted(
     "server/gates-fixture.test.ts",
     'import { readFile } from "node:fs/promises";\nexport const read = readFile;\n',
-    "no-restricted-imports",
+    "test-policy/no-source-reads",
     "tests must not read source files",
   );
   await assertRestricted(
     "server/gates-fixture.test.ts",
     'import { readFileSync } from "fs";\nexport const read = readFileSync;\n',
-    "no-restricted-imports",
+    "test-policy/no-source-reads",
     "tests must not read source files",
   );
   // Bun.file stays rejected alongside the fs/promises imports.
   await assertRestricted(
     "server/gates-fixture.test.ts",
     'export const file = Bun.file("fixture.sql");\n',
-    "no-restricted-syntax",
+    "test-policy/no-source-reads",
     "tests must not read source files",
   );
 });
 
-test("the migration helper is the intentional fs/promises exception", async () => {
+test("the migration helper disables only the source-read rule", async () => {
   await assertClean(
     "tests/helpers/migrations.ts",
     'import { readFile } from "node:fs/promises";\nexport function load(name: string) { return readFile(name, "utf8"); }\n',
+  );
+  // The carve-out is narrow: real sleeps still fail in the helper.
+  await assertRestricted(
+    "tests/helpers/migrations.ts",
+    'export async function wait() { await Bun.sleep(10); }\n',
+    "test-policy/no-real-waits",
+    "tests must not sleep",
+  );
+});
+
+test("the Apple Pay asset-hash test disables only the source-read rule", async () => {
+  await assertClean(
+    "tests/well-known/apple-pay-domain-association.test.ts",
+    'import { readFile } from "node:fs/promises";\nexport const read = readFile;\n',
+  );
+  await assertRestricted(
+    "tests/well-known/apple-pay-domain-association.test.ts",
+    'export function read(element: Element) { return element.className; }\n',
+    "test-policy/no-presentation-class-reads",
+    "tests must assert behavior, not CSS classes",
   );
 });
 
@@ -388,8 +458,14 @@ test("tests must not sleep for real", async () => {
   await assertRestricted(
     "client/gates-fixture.test.tsx",
     'export async function wait() { await Bun.sleep(10); }\n',
-    "no-restricted-syntax",
+    "test-policy/no-real-waits",
     "tests must not sleep",
+  );
+  await assertRestricted(
+    "client/gates-fixture.test.tsx",
+    'export function wait() { setTimeout(() => undefined, 5_000); }\n',
+    "test-policy/no-real-waits",
+    "tests must use fake timers instead of real delays over 50ms",
   );
 });
 
@@ -397,28 +473,29 @@ test("tests must not wait longer than two seconds for Testing Library", async ()
   await assertRestricted(
     "client/gates-fixture.test.tsx",
     'import { waitFor } from "@testing-library/react";\nexport function wait() { return waitFor(async () => undefined, { timeout: 5_000 }); }\n',
-    "no-restricted-syntax",
+    "test-policy/no-real-waits",
     "tests must not wait longer than 2000ms",
   );
 });
 
-test("tests must not assert on presentation classes", async () => {
+test("tests must not read presentation classes", async () => {
   await assertRestricted(
     "client/gates-fixture.test.tsx",
     'export function read(element: Element) { return element.className; }\n',
-    "no-restricted-syntax",
+    "test-policy/no-presentation-class-reads",
     "tests must assert behavior, not CSS classes",
   );
+  // classList.contains is an assertion, unlike the arrange-phase mutation calls.
   await assertRestricted(
     "client/gates-fixture.test.tsx",
-    'export function read(element: Element) { element.classList.add("x"); }\n',
-    "no-restricted-syntax",
+    'export function read(element: Element) { return element.classList.contains("x"); }\n',
+    "test-policy/no-presentation-class-reads",
     "tests must assert behavior, not CSS classes",
   );
   await assertRestricted(
     "client/gates-fixture.test.tsx",
     'export function read(element: Element) { return element.getAttribute("class"); }\n',
-    "no-restricted-syntax",
+    "test-policy/no-presentation-class-reads",
     "tests must assert behavior, not CSS classes",
   );
 });
@@ -433,6 +510,11 @@ test("legal test patterns stay clean under the test-only policy", async () => {
   await assertClean(
     "client/gates-fixture.test.tsx",
     'export function setClass(element: Element) { element.className = "w-full"; }\n',
+  );
+  // Arrange-phase classList mutations are setup, not assertions.
+  await assertClean(
+    "client/gates-fixture.test.tsx",
+    'export function arrange(element: Element) { element.classList.add("w-full"); element.classList.remove("hidden"); element.classList.toggle("active"); element.classList.replace("a", "b"); }\n',
   );
   // Route discovery uses Bun.Glob plus a dynamic import.
   await assertClean(

@@ -81,6 +81,16 @@ describePostgres("PostgresFundingOrderStore production contract", () => {
     expect((await store.getOwned(input.id, input.owner))?.sandbox).toBe(true);
   });
 
+  test("sandbox migration leaves the column non-null and false by default", async () => {
+    const { rows } = await sql.query<{ is_nullable: string; column_default: string | null }>(
+      "SELECT is_nullable, column_default FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'funding_orders' AND column_name = 'sandbox'",
+      [TEST_SCHEMA],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].is_nullable).toBe("NO");
+    expect(rows[0].column_default ?? "").toMatch(/false/);
+  });
+
   test("does not resume completed sandbox runs but keeps live sent-unverified orders open", async () => {
     const sandbox = { ...reservation(), owner: { subject: "pg-sandbox", accountProvider: "base-account" as const }, sandbox: true };
     await store.reserve(sandbox);
