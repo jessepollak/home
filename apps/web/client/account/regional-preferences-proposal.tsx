@@ -200,7 +200,7 @@ export function RegionalPreferencesProposal({
           <Item className="min-w-0 items-start sm:flex-nowrap sm:items-center">
             <ItemMedia variant="avatar"><Globe2 aria-hidden /></ItemMedia>
             <ItemContent className="min-w-0 basis-48 break-words">
-              <ItemTitle truncate={false} className="whitespace-normal">{copy.country}</ItemTitle>
+              <ItemTitle truncate={false} className="block w-full whitespace-normal">{copy.country}</ItemTitle>
               <ItemDescription lines={false}>{copy.countryDescription}</ItemDescription>
             </ItemContent>
             <ItemActions className="min-w-0 basis-full justify-end sm:basis-auto">
@@ -218,7 +218,7 @@ export function RegionalPreferencesProposal({
           <Item className="min-w-0 items-start sm:flex-nowrap sm:items-center">
             <ItemMedia variant="avatar"><WalletCards aria-hidden /></ItemMedia>
             <ItemContent className="min-w-0 basis-48 break-words">
-              <ItemTitle truncate={false} className="whitespace-normal">{copy.displayCurrency}</ItemTitle>
+              <ItemTitle truncate={false} className="block w-full whitespace-normal">{copy.displayCurrency}</ItemTitle>
               <ItemDescription lines={false}>{copy.displayCurrencyDescription}</ItemDescription>
             </ItemContent>
             <ItemActions className="min-w-0 basis-full justify-end sm:basis-auto">
@@ -237,7 +237,7 @@ export function RegionalPreferencesProposal({
           <Item className="min-w-0 items-start sm:flex-nowrap sm:items-center">
             <ItemMedia variant="avatar"><Languages aria-hidden /></ItemMedia>
             <ItemContent className="min-w-0 basis-48 break-words">
-              <ItemTitle truncate={false} className="whitespace-normal">{copy.language}</ItemTitle>
+              <ItemTitle truncate={false} className="block w-full whitespace-normal">{copy.language}</ItemTitle>
               <ItemDescription lines={false}>{copy.languageDescription}</ItemDescription>
             </ItemContent>
             <ItemActions className="min-w-0 basis-full justify-end sm:basis-auto">
