@@ -51,6 +51,48 @@ The built `index.json` is the durable discoverability source when this inventory
 
 Storybook can prove that a production component renders and supports fixture-backed component interactions under deterministic states and review viewports. Stories and play functions are review scenarios, not permanent browser tests or approval by themselves. Storybook cannot prove Home's Next routing/history, app-level scrolling or focus restoration, browser Back integration, wallet/provider behavior, physical keyboard behavior, or Safari behavior. Verify the integrated component in Home under the [browser-validation contract](browser-validation.md), and record media and limitations under [UI PR previews](ui-pr-previews.md).
 
+### Capability-state proposal
+
+Issue #635 defines a closed, provider-independent presentation taxonomy. It does not infer provider acceptance, authorize access, or replace feature-owned status and owner fences. Until Jesse reviews the proposal, consuming Fund, Save, Invest, Borrow, Card, and Account screens remain unchanged.
+
+| Semantic state | Meaning | Allowed action |
+| --- | --- | --- |
+| `available` | The feature's authoritative checks say it can be used now. | `open` |
+| `sign-in-required` | Home needs a signed-in owner before it can check or use the feature. | `sign-in` |
+| `verification-start` | An authoritative capability check requires identity verification that has not started. | `start-verification` |
+| `verification-pending` | Verification was submitted and is still in review. | `resume-verification` only when a valid handoff exists; otherwise no action |
+| `verification-rejected` | Verification needs additional customer input. | `retry-verification` or `resume-verification`, according to the authoritative recovery route |
+| `unavailable-in-country` | The selected country is ineligible for the feature. | none |
+| `not-yet-in-home` | Home does not offer the product, independent of country or provider health. | none |
+| `temporarily-unavailable` | A normally reachable check or feature failed and retry is safe. | `retry` |
+| `configuration-unavailable` | This Home deployment has not configured the feature. | none on the customer surface |
+
+`apps/web/components/capability-state.tsx` is the production-usable proposal for tile, row, detail CTA, and Account placements. It rejects action/state combinations outside this table. Callers own the authoritative state, action callback, translated copy, privacy boundary, and owner reset. The component owns only consistent presentation. Its Storybook ID is `proposal-capability-states`, with scenarios for every state and placement, long copy, 200% text, and reduced-motion review.
+
+Current-copy inventory motivating the proposal:
+
+- Fund uses “Funding methods are unavailable,” open-deposit/provider-setup failures, and “Sign in and verify a Base account” in different layers; the last phrase collapses authentication and verification.
+- Save distinguishes stale/partial balances and temporary vault failures, but “Savings unavailable,” “Savings rate unavailable,” and “APY unavailable” use the same word for different scopes.
+- Invest uses “Asset unavailable,” “category unavailable right now,” and “Unavailable” shelf labels without distinguishing product absence from a temporary market-data failure.
+- Borrow distinguishes sign-in and retry in its detail surface, but “Bitcoin borrowing unavailable,” “Borrow is unavailable,” and per-market disabled reasons do not share one cause label.
+- Account already distinguishes unconfigured sign-in from provider failure, while session validation and sign-out recovery use separate “unavailable” and retry language. Account has no shared capability verification row yet.
+
+For #621, reserve these semantic message IDs; do not add them to translation catalogs until the proposal is accepted:
+
+| State | Message IDs |
+| --- | --- |
+| available | `capability.state.available.title`, `.description`, `.action.open` |
+| sign-in required | `capability.state.sign_in_required.title`, `.description`, `.action.sign_in` |
+| verification start | `capability.state.verification_start.title`, `.description`, `.action.start` |
+| verification pending | `capability.state.verification_pending.title`, `.description`, `.action.resume` |
+| verification rejected | `capability.state.verification_rejected.title`, `.description`, `.action.retry`, `.action.resume` |
+| unavailable in country | `capability.state.unavailable_in_country.title`, `.description` |
+| not yet in Home | `capability.state.not_yet_in_home.title`, `.description` |
+| temporarily unavailable | `capability.state.temporarily_unavailable.title`, `.description`, `.action.retry` |
+| configuration unavailable | `capability.state.configuration_unavailable.title`, `.description` |
+
+Provider name, provider status code, authoritative acceptance, country code, selected capability, log fields, and action kind remain structural data, not translated strings.
+
 ## Theme
 
 `apps/web/app/globals.css` uses shadcn's stock neutral theme generated by the `base-nova` preset. Home overrides only `--primary`/`--ring` with Base blue (`#0052ff`), `--primary-foreground` with white, and `--radius` with `0.25rem`. `--market-gain` and `--market-loss` remain while their current chart consumers exist.
