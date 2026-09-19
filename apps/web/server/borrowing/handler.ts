@@ -81,4 +81,3 @@ function marketIdentity(market: (typeof BORROW_MARKETS)[number]) {
     oracle: market.oracle, irm: market.irm, lltvWad: market.lltvWad.toString(10), rank: market.rank,
   };
 }
-

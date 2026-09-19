@@ -106,4 +106,3 @@ function isTransferRequest(value: unknown): value is TransferRequest {
 async function readJson(request: Request): Promise<unknown> {
   try { return await request.json(); } catch { return null; }
 }
-

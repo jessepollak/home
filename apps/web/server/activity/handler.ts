@@ -304,5 +304,3 @@ function activityReadError(error: unknown): Response {
     502,
   );
 }
-
-
