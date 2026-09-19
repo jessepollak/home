@@ -138,8 +138,6 @@ function NavigationItems({
   });
 }
 
-const moneyActionTreatment = "outline" as const;
-
 function MoneyAction({
   icon: Icon,
   label,
@@ -152,8 +150,7 @@ function MoneyAction({
   return (
     <Button
       className="h-auto min-h-11 min-w-0 flex-col whitespace-normal text-center"
-      data-money-action-treatment={moneyActionTreatment}
-      variant={moneyActionTreatment}
+      variant="outline"
       onClick={onClick}
     >
       <Icon className="size-4" aria-hidden />

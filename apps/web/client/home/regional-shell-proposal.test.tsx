@@ -107,27 +107,6 @@ describe("RegionalHomeShellProposal", () => {
     ]);
   });
 
-  test("gives all three money actions the same visual treatment", () => {
-    const view = render(
-      <RegionalHomeShellProposal
-        composition={composition}
-        copy={copy}
-        onAccount={() => {}}
-        onAction={() => {}}
-        onNavigate={() => {}}
-      />,
-    );
-
-    const actions = ["Add money", "Send", "Cash out"].map((name) =>
-      view.getByRole("button", { name }),
-    );
-    expect(actions.map((action) => action.getAttribute("data-money-action-treatment"))).toEqual([
-      "outline",
-      "outline",
-      "outline",
-    ]);
-  });
-
   test("uses native headings and labelled sections inside the product cards", () => {
     const view = render(
       <RegionalHomeShellProposal
