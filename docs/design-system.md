@@ -67,7 +67,7 @@ Issue #635 defines a closed, provider-independent presentation taxonomy. It does
 | `temporarily-unavailable` | A normally reachable check or feature failed and retry is safe. | `retry` |
 | `configuration-unavailable` | This Home deployment has not configured the feature. | none on the customer surface |
 
-`apps/web/components/capability-state.tsx` is the production-usable proposal for tile, row, detail CTA, and Account placements. It rejects action/state combinations outside this table. Callers own the authoritative state, action callback, translated copy, privacy boundary, and owner reset. The component owns only consistent presentation. Its Storybook ID is `proposal-capability-states`, with scenarios for every state and placement, long copy, 200% text, and reduced-motion review.
+`apps/web/components/capability-state.tsx` is the production-usable proposal for tile, row, detail CTA, and Account placements. It ignores action/state combinations outside this table and renders no action. Callers own the authoritative state, action callback, translated copy, privacy boundary, and owner reset. The component owns only consistent presentation. Its Storybook ID is `proposal-capability-states`, with scenarios for every state and placement, long copy, 200% text, and reduced-motion review.
 
 Current-copy inventory motivating the proposal:
 
