@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useLayoutEffect, useState, type ReactNode } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import {
@@ -171,6 +171,25 @@ function fixture(
   } as ActivityLedgerItem;
 }
 
+function RootTextScale({ children }: { children: ReactNode }) {
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    const previousValue = root.style.getPropertyValue("font-size");
+    const previousPriority = root.style.getPropertyPriority("font-size");
+    root.style.setProperty("font-size", "200%");
+
+    return () => {
+      if (previousValue) {
+        root.style.setProperty("font-size", previousValue, previousPriority);
+      } else {
+        root.style.removeProperty("font-size");
+      }
+    };
+  }, []);
+
+  return children;
+}
+
 function LedgerFrame({
   items = mixedItems,
   sourceFailures,
@@ -299,8 +318,37 @@ export const LongLocalizedContent: Story = {
 };
 
 export const TwoHundredPercentText: Story = {
-  decorators: [(StoryComponent) => <div style={{ fontSize: "200%" }}><StoryComponent /></div>],
+  decorators: [(StoryComponent) => (
+    <RootTextScale>
+      <StoryComponent />
+    </RootTextScale>
+  )],
   render: () => <LedgerFrame items={mixedItems.slice(0, 3)} />,
+  play: async ({ canvasElement }) => {
+    const screen = within(canvasElement);
+    const root = canvasElement.ownerDocument.documentElement;
+    const ledgerLabel = await screen.findByText("Add money by bank transfer");
+    await expect(ledgerLabel).toBeVisible();
+
+    const scaledRootSize = Number.parseFloat(getComputedStyle(root).fontSize);
+    const scaledLedgerSize = Number.parseFloat(getComputedStyle(ledgerLabel).fontSize);
+
+    root.style.removeProperty("font-size");
+    try {
+      await waitFor(() => {
+        expect(Number.parseFloat(getComputedStyle(root).fontSize)).toBeLessThan(scaledRootSize);
+      });
+      const normalLedgerSize = Number.parseFloat(getComputedStyle(ledgerLabel).fontSize);
+      expect(scaledLedgerSize).toBeGreaterThan(normalLedgerSize);
+    } finally {
+      root.style.setProperty("font-size", "200%");
+    }
+
+    await waitFor(() => {
+      expect(Number.parseFloat(getComputedStyle(root).fontSize)).toBe(scaledRootSize);
+      expect(Number.parseFloat(getComputedStyle(ledgerLabel).fontSize)).toBe(scaledLedgerSize);
+    });
+  },
 };
 
 export const SmallMobileContainment: Story = {
