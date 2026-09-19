@@ -529,6 +529,7 @@ test("pending send vetoes Escape, backdrop press, and swipe dismissal until the 
   const firstSwipe = await startSwipeDown(page);
   await expect(page.locator("[data-money-sheet]")).toHaveAttribute("data-swiping", /.*/);
   await endSwipe(firstSwipe);
+  await expect(page.locator("[data-money-sheet]")).not.toHaveAttribute("data-swiping", /.*/);
   await expect(confirm).toBeVisible();
   await expect(pending).toBeVisible();
   await expect.poll(dispatchCount).toBe("1");
@@ -537,8 +538,8 @@ test("pending send vetoes Escape, backdrop press, and swipe dismissal until the 
   await expect(confirm.getByRole("button", { name: "Try again" })).toBeVisible();
   await expect(confirm.getByRole("button", { name: "Close send dialog" })).toBeEnabled();
 
-  // The same swipe now dismisses, proving the pending gesture crossed the dismissal threshold.
-  await endSwipe(await startSwipeDown(page));
+  // A dismissible terminal state restores the ordinary close path.
+  await confirm.getByRole("button", { name: "Close send dialog" }).click();
   await expect(confirm).toBeHidden();
   await expect.poll(dispatchCount).toBe("1");
 });
