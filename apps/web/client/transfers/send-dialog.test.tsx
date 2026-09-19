@@ -496,4 +496,38 @@ describe("SendDialog pending dismissal", () => {
       expect(executions).toEqual([ACTION_ID]);
     });
   }
+
+  test("an unresolved resume remains dismissible before wallet execution starts", async () => {
+    const unresolved = new Promise<PreparedMoneyAction>(() => {});
+    let closes = 0;
+    let executions = 0;
+
+    function Harness() {
+      const [open, setOpen] = useState(true);
+      return (
+        <SendDialog
+          open={open}
+          immediate
+          address={ACCOUNT}
+          ownerBoundary="owner-resume-loading"
+          resumeActionId={ACTION_ID}
+          prepareMoneyAction={async () => resumedAction()}
+          resumeMoneyAction={async () => await unresolved}
+          executeMoneyAction={async () => { executions += 1; return { id: ACTION_ID, status: "rejected" }; }}
+          onClose={() => { closes += 1; setOpen(false); }}
+          onClosed={() => {}}
+        />
+      );
+    }
+
+    render(<Harness />);
+    expect(await page().findByRole("dialog", { name: "Confirm" })).toBeTruthy();
+    const closeButton = page().getByRole("button", { name: "Close send dialog" }) as HTMLButtonElement;
+    expect(closeButton.disabled).toBe(false);
+
+    await act(async () => { fireEvent.click(closeButton); });
+    await waitFor(() => expect(page().queryByRole("dialog", { name: "Confirm" })).toBeNull());
+    expect(closes).toBe(1);
+    expect(executions).toBe(0);
+  });
 });
