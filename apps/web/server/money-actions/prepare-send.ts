@@ -10,6 +10,7 @@ import {
 import { TransferExecutionError, type TransferRequest } from "@/shared/transfers/types";
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
 import { issueMoneyAction } from "./issue";
+import { privateError, privateJson } from "@/server/http/private-response";
 
 export function createPrepareSendMoneyActionHandler(dependencies: {
   authorize: SessionAuthorizer;
@@ -106,16 +107,3 @@ async function readJson(request: Request): Promise<unknown> {
   try { return await request.json(); } catch { return null; }
 }
 
-const privateHeaders = {
-  "Cache-Control": "private, no-store, max-age=0",
-  Pragma: "no-cache",
-  Vary: "Authorization, X-Home-Account-Provider",
-} as const;
-
-function privateJson(body: unknown, status: number): Response {
-  return Response.json(body, { status, headers: privateHeaders });
-}
-
-function privateError(code: string, message: string, status: number): Response {
-  return privateJson({ error: { code, message } }, status);
-}

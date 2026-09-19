@@ -1,24 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
-  formatApy,
-  formatUsdcUsd,
   parseUsdcAmount,
   readUsdcBaseUnits,
   shortVaultLabel,
 } from "./format";
 
 describe("savings format", () => {
-  test("formats USDC base units as dollar hero amounts", () => {
-    expect(formatUsdcUsd("0")).toBe("$0.00");
-    expect(formatUsdcUsd("1240000000")).toBe("$1,240.00");
-    expect(formatUsdcUsd("820000000")).toBe("$820.00");
-    expect(formatUsdcUsd("2100000")).toBe("$2.10");
-    expect(formatUsdcUsd("not-raw")).toBe("—");
-  });
-
-  test("keeps APY quiet and shortens vault names", () => {
-    expect(formatApy(0.041)).toBe("4.10%");
-    expect(formatApy(null)).toBe("—");
+  test("shortens vault names", () => {
     expect(shortVaultLabel("Gauntlet USDC Prime")).toBe("Gauntlet");
     expect(shortVaultLabel("Steakhouse USDC")).toBe("Steakhouse");
   });

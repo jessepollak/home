@@ -4,11 +4,6 @@ import { formatPresentationPercentage } from "@/shared/formatting";
 import { getSavingsRateState } from "./portfolio-summary";
 export { readUsdcBaseUnits } from "@/shared/savings/contracts/positions";
 
-export {
-  formatPresentationPercentage as formatApy,
-  formatUsdStablecoinAmount as formatUsdcUsd,
-} from "@/shared/formatting";
-
 export function shortVaultLabel(name: string): string {
   return name.trim().split(/\s+/)[0] || name;
 }

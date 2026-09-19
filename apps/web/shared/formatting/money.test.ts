@@ -8,6 +8,7 @@ import {
   formatHealthFactor,
   formatOracleUsd,
   formatPercentage,
+  formatPresentationPercentage,
   formatPresentationDate,
   formatPresentationPrice,
   formatPresentationTokenAmount,
@@ -196,8 +197,10 @@ describe("presentation money formatting", () => {
     const cases = [
       { actual: formatUnsignedTokenAmount("1234560000", 6), expected: "1,234.56" },
       { actual: formatExactPresentationTokenAmount("1", 18, "ETH", { useNoBreakSpace: true }), expected: "0.000000000000000001\u00A0ETH" },
+      { actual: formatUsdStablecoinAmount("0"), expected: "$0.00" },
       { actual: formatUsdStablecoinAmount("1234560000"), expected: "$1,234.56" },
       { actual: formatUsdStablecoinAmount("1000001"), expected: "$1.000001" },
+      { actual: formatUsdStablecoinAmount("not-raw"), expected: "—" },
       { actual: formatFiatAmount("1234.565", "USD"), expected: "$1,234.56" },
       { actual: formatWadPercent("455000000000000"), expected: "0.05%" },
       { actual: formatBasisPoints("455"), expected: "4.55%" },
@@ -206,6 +209,9 @@ describe("presentation money formatting", () => {
       { actual: formatOracleUsd("800000000000000000000000000000000000000"), expected: "$80,000.00" },
     ];
     for (const entry of cases) expect(entry.actual).toBe(entry.expected);
+
+    expect(formatPresentationPercentage(0.041)).toBe("4.10%");
+    expect(formatPresentationPercentage(null)).toBe("—");
 
     expect(formatPresentationTokenAmount("bad", 6, "USDC")).toBe("—");
     expect(formatFiatAmount("-1", "USD")).toBe("—");

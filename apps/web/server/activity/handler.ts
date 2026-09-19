@@ -1,6 +1,5 @@
 import "server-only";
 
-import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
 import type { ActivityResponse } from "@/shared/activity/contract";
 import {
   authorizeSession,
@@ -11,6 +10,7 @@ import type {
   ActivityReadSource,
   ObservabilityEvent,
 } from "@/server/observability/schema";
+import { privateError, privateJson } from "@/server/http/private-response";
 import type { ActivityReader } from "./types";
 
 type ActivityReadObservation = Extract<
@@ -20,12 +20,6 @@ type ActivityReadObservation = Extract<
 export type ActivityObservationSink = (
   event: ActivityReadObservation,
 ) => unknown | PromiseLike<unknown>;
-
-const privateResponseHeaders = {
-  "Cache-Control": "private, no-store, max-age=0",
-  Pragma: "no-cache",
-  Vary: `Authorization, ${ACCOUNT_PROVIDER_HEADER}`,
-} as const;
 
 export function createActivityHandler(dependencies: {
   authorize: SessionAuthorizer;
@@ -311,10 +305,4 @@ function activityReadError(error: unknown): Response {
   );
 }
 
-function privateError(code: string, message: string, status: number): Response {
-  return privateJson({ error: { code, message } }, status);
-}
 
-function privateJson(body: unknown, status: number): Response {
-  return Response.json(body, { status, headers: privateResponseHeaders });
-}

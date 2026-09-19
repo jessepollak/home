@@ -9,6 +9,7 @@ import type { MoneyActionOwner, PreparedMoneyAction } from "@/shared/money-actio
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
 import { createTransferReceiptReader, type TransferReceiptStatus } from "./receipt";
 import { moneyActionOwner } from "@/server/money-actions/session";
+import { privateError, privateJson } from "@/server/http/private-response";
 import { getActionsStore, type ActionRow, type ActionsStore, type PendingAction } from "./store";
 import { deriveActionStatus, type ActionReceiptState } from "./status";
 import { finalizeTradeCalls, type PendingTradeConfirmation } from "./kinds/trade/finalize";
@@ -29,11 +30,6 @@ import {
 
 export type ActionAuthorizer = SessionAuthorizer;
 
-const privateHeaders = {
-  "Cache-Control": "private, no-store, max-age=0",
-  Pragma: "no-cache",
-  Vary: "Authorization, X-Home-Account-Provider",
-} as const;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const hashPattern = /^0x[0-9a-fA-F]{64}$/;
 const RECONCILE_GRACE_MS = 20_000;
@@ -442,12 +438,6 @@ async function readJson(request: Request): Promise<unknown> {
   try { return await request.json(); } catch { return null; }
 }
 
-function privateJson(body: unknown, status: number): Response {
-  return Response.json(body, { status, headers: privateHeaders });
-}
-function privateError(code: string, message: string, status: number): Response {
-  return privateJson({ error: { code, message } }, status);
-}
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
