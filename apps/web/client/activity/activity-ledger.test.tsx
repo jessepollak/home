@@ -157,6 +157,39 @@ describe("ActivityLedger presentation contract", () => {
     expect(selected).toEqual(["funding:idrx:order-1", null]);
   });
 
+  test("shows confirmed detail copy once without an empty or malformed accessible description", async () => {
+    const view = render(
+      <ActivityLedger items={[fundingItem({ status: "confirmed", nextAction: undefined })]} />,
+    );
+
+    fireEvent.click(view.getByRole("button", { name: /Add money by bank transfer/ }));
+    const dialog = await view.findByRole("dialog", { name: "Add money by bank transfer" });
+    const descriptionId = dialog.getAttribute("aria-describedby");
+    const description = descriptionId ? document.getElementById(descriptionId) : null;
+
+    expect(description?.textContent).toBe("Confirmed");
+    expect(view.queryByText("Confirmed. This activity is confirmed.")).toBeNull();
+  });
+
+  test("keeps custom confirmed status copy in the modal accessible description", async () => {
+    const view = render(
+      <ActivityLedger
+        items={[fundingItem({
+          status: "confirmed",
+          statusCopy: { label: "Completed!", description: "Settled on Base." },
+          nextAction: undefined,
+        })]}
+      />,
+    );
+
+    fireEvent.click(view.getByRole("button", { name: /Add money by bank transfer/ }));
+    const dialog = await view.findByRole("dialog", { name: "Add money by bank transfer" });
+    const descriptionId = dialog.getAttribute("aria-describedby");
+    const description = descriptionId ? document.getElementById(descriptionId) : null;
+
+    expect(description?.textContent).toBe("Completed! Settled on Base.");
+  });
+
   test("opens and closes details when selection is controlled", async () => {
     const view = render(<ControlledLedger item={fundingItem()} />);
 

@@ -70,7 +70,7 @@ export const activityLedgerStatusMessageIds = {
 
 export type ActivityLedgerStatusCopy = {
   label: string;
-  description: string;
+  description?: string;
 };
 
 export const activityLedgerStatusCopy = {
@@ -92,7 +92,6 @@ export const activityLedgerStatusCopy = {
   },
   confirmed: {
     label: "Confirmed",
-    description: "This activity is confirmed.",
   },
   failed: {
     label: "Failed",
@@ -373,7 +372,7 @@ export function ActivityLedgerDetailSheet({
 }) {
   const titleId = useId();
   const descriptionId = useId();
-  const copy = item ? item.statusCopy ?? activityLedgerStatusCopy[item.status] : null;
+  const statusDescription = item ? detailStatusDescription(item) : "Activity details";
   const detailAction = item?.nextAction && onNextAction && isActivityLedgerNextActionAllowed(item.status, item.nextAction.kind, item.family)
     ? { action: item.nextAction, handler: onNextAction, item }
     : null;
@@ -400,7 +399,7 @@ export function ActivityLedgerDetailSheet({
           <div>
             <p className="text-2xl font-semibold tabular-nums">{item?.exactAmount}</p>
             <p id={descriptionId} className="mt-1 text-sm text-muted-foreground">
-              {copy?.label}. {copy?.description}
+              {statusDescription}
             </p>
           </div>
           <Separator />
@@ -420,6 +419,16 @@ export function ActivityLedgerDetailSheet({
       ) : null}
     </MoneyModal>
   );
+}
+
+function detailStatusDescription(item: ActivityLedgerItem): string {
+  const fallback: ActivityLedgerStatusCopy = activityLedgerStatusCopy[item.status];
+  const copy: ActivityLedgerStatusCopy = item.statusCopy ?? fallback;
+  const label = copy.label.trim() || fallback.label;
+  const description = copy.description?.trim();
+
+  if (!description) return label;
+  return `${label}${/[.!?]$/.test(label) ? "" : "."} ${description}`;
 }
 
 function DetailRow({ label, value }: { label: string; value: string }) {
