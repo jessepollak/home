@@ -9,7 +9,7 @@ The Jesse/factory actor model, harness delegation, product framing, run triggers
 - Jesse owns product intent, consequential decisions, privileged actions, final approval, and merge. The factory bot account `jessepollakj` owns implementation coordination, independent review, evidence, and pull-request delivery.
 - **Harness delegation.** Follow the [harness delegation contract](docs/operating-manual.md#harness-delegation). Factory coordination never displaces the Sol parent's scope, decision, integration, or final-acceptance authority.
 - Issue title prefixes define the work: `product(...)` for research, `design(...)` for design work, and `feat(...)` or `fix(...)` for implementation.
-- On first pickup, the factory comments `Working on this (run N).`, removes `factory`, and works in `agent/<issue>`. Repository-changing work produces a normal PR ending with `Refs #<issue>`; `product(...)` research produces an issue comment.
+- On pickup, the factory comments `Working on this (run N).` and works in `agent/<issue>`. Repository-changing work produces a normal PR ending with `Refs #<issue>`; `product(...)` research produces an issue comment. The factory removes `factory` when it hands the result back.
 - Any issue or PR comment or PR review by Jesse triggers a follow-up run. Re-adding `factory` triggers a comment-less look-again run. Codex connector reviews are context, not triggers.
 - The factory requests Jesse's review only after CI is green. Commits are authored by `jessepollakj`. Jesse alone approves and merges; `main` requires one approving review plus CODEOWNERS.
 - Use the existing issue when work is already tracked; do not create a duplicate issue, parallel board, or shadow inbox.

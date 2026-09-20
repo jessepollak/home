@@ -49,7 +49,7 @@ The repository uses one factory-specific GitHub label: `factory`.
 2. The factory starts a run and comments `Working on this (run N).`, where `N` is the run number.
 3. Implementation runs use a branch named `agent/<issue>` and commits authored by the bot account `jessepollakj`.
 4. For implementation or design work that changes the repository, the factory opens a normal pull request whose description ends with `Refs #<issue>`. A `product(...)` research run instead posts its result as an issue comment.
-5. The factory removes `factory` after it has picked up the work.
+5. The factory removes `factory` when it hands the result back (PR opened, comment posted, or no change produced).
 6. When required CI is green and the delivery loop is complete, the factory requests Jesse's review.
 
 Any issue comment, pull-request comment, or pull-request review by Jesse triggers a follow-up run. The factory applies the feedback, validates the current head, and requests review again when CI is green. A Codex connector review is context for the factory to consider; it does not trigger a run. Re-adding `factory` asks the factory to look again and starts a run without the `Working on this` comment.
