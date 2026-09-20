@@ -14,7 +14,7 @@ import type {
   ReconciliationIntent,
 } from "@/shared/funding/provider-contract";
 import { atomicToDecimal, decimalToAtomic } from "@/shared/formatting/atomic";
-import { emitServerEvent } from "@/server/observability/log";
+import { emitFundingProviderFailure, type FundingProviderFailureCode } from "../../core/provider-failure";
 import {
   COINBASE_ONRAMP_API_ORIGIN,
   COINBASE_ONRAMP_REDIRECT_ORIGIN,
@@ -39,15 +39,6 @@ const transactionHashPattern = /^0x[0-9a-fA-F]{64}$/;
 
 type JwtGenerator = typeof generateJwt;
 type JsonRecord = Record<string, unknown>;
-type FailureCode =
-  | "QUOTE_ECHO_MISMATCH"
-  | "ORDER_ECHO_MISMATCH"
-  | "ORDER_AMBIGUOUS"
-  | "STATUS_ECHO_MISMATCH"
-  | "PROVIDER_HTTP_4XX"
-  | "PROVIDER_HTTP_5XX"
-  | "PROVIDER_TRANSPORT";
-
 type CoinbaseProviderOptions = {
   generateJwtImplementation?: JwtGenerator;
 };
@@ -83,13 +74,13 @@ export function createCoinbaseProvider(
       try {
         text = await readBoundedText(response);
       } catch (error) {
-        emitFailure("PROVIDER_TRANSPORT", startedAt, "unavailable");
+        emitFailure("PROVIDER_TRANSPORT", startedAt);
         throw error;
       }
       try {
         return quoteFromResponse(parseProviderJson(text), input);
       } catch (error) {
-        emitFailure("QUOTE_ECHO_MISMATCH", startedAt, "failed");
+        emitFailure("QUOTE_ECHO_MISMATCH", startedAt);
         throw error;
       }
     },
@@ -108,7 +99,7 @@ export function createCoinbaseProvider(
       try {
         token = await createJwt(ctx, "POST", ORDERS_PATH, generateJwtImplementation);
       } catch {
-        emitFailure("PROVIDER_TRANSPORT", startedAt, "rejected");
+        emitFailure("PROVIDER_TRANSPORT", startedAt);
         return {
           outcome: "rejected",
           message: "Coinbase could not authorize this funding order.",
@@ -124,7 +115,7 @@ export function createCoinbaseProvider(
           cache: "no-store",
         });
       } catch {
-        emitFailure("PROVIDER_TRANSPORT", startedAt, "unavailable");
+        emitFailure("PROVIDER_TRANSPORT", startedAt);
         return { outcome: "ambiguous" };
       }
 
@@ -136,7 +127,7 @@ export function createCoinbaseProvider(
       try {
         payload = parseProviderJson(await readBoundedText(response));
       } catch {
-        emitFailure("ORDER_AMBIGUOUS", startedAt, "unavailable");
+        emitFailure("PROVIDER_INVALID_RESPONSE", startedAt);
         return { outcome: "ambiguous" };
       }
 
@@ -146,7 +137,7 @@ export function createCoinbaseProvider(
           order: orderFromResponse(payload, input, ctx),
         };
       } catch {
-        emitFailure("ORDER_ECHO_MISMATCH", startedAt, "failed");
+        emitFailure("ORDER_ECHO_MISMATCH", startedAt);
         return { outcome: "ambiguous" };
       }
     },
@@ -155,7 +146,7 @@ export function createCoinbaseProvider(
       const startedAt = Date.now();
       const providerOrderId = readProviderOrderId(input.providerOrderId);
       if (!providerOrderId || !validReconciliationIntent(input, ctx)) {
-        emitFailure("STATUS_ECHO_MISMATCH", startedAt, "failed");
+        emitFailure("STATUS_ECHO_MISMATCH", startedAt);
         return unknown("INVALID_RECONCILIATION_INTENT");
       }
       const requestPath = `${ORDERS_PATH}/${encodeURIComponent(providerOrderId)}`;
@@ -163,7 +154,7 @@ export function createCoinbaseProvider(
       try {
         token = await createJwt(ctx, "GET", requestPath, generateJwtImplementation);
       } catch {
-        emitFailure("PROVIDER_TRANSPORT", startedAt, "unavailable");
+        emitFailure("PROVIDER_TRANSPORT", startedAt);
         return unknown("AUTHORIZATION_ERROR");
       }
 
@@ -175,7 +166,7 @@ export function createCoinbaseProvider(
           cache: "no-store",
         });
       } catch {
-        emitFailure("PROVIDER_TRANSPORT", startedAt, "unavailable");
+        emitFailure("PROVIDER_TRANSPORT", startedAt);
         return unknown("TRANSPORT_ERROR");
       }
       if (!response.ok) {
@@ -187,7 +178,7 @@ export function createCoinbaseProvider(
         const payload = parseProviderJson(await readBoundedText(response));
         return observationFromResponse(payload, input);
       } catch {
-        emitFailure("STATUS_ECHO_MISMATCH", startedAt, "failed");
+        emitFailure("STATUS_ECHO_MISMATCH", startedAt);
         return unknown("INVALID_RESPONSE");
       }
       },
@@ -257,7 +248,7 @@ async function postOrders(
   try {
     token = await createJwt(ctx, "POST", ORDERS_PATH, generateJwtImplementation);
   } catch (error) {
-    emitFailure("PROVIDER_TRANSPORT", startedAt, "unavailable");
+    emitFailure("PROVIDER_TRANSPORT", startedAt);
     throw error;
   }
   try {
@@ -268,7 +259,7 @@ async function postOrders(
       cache: "no-store",
     });
   } catch (error) {
-    emitFailure("PROVIDER_TRANSPORT", startedAt, "unavailable");
+    emitFailure("PROVIDER_TRANSPORT", startedAt);
     throw new Error(`Coinbase ${operation} request failed.`, { cause: error });
   }
 }
@@ -407,7 +398,7 @@ async function classifyCreateFailure(
       message: "Coinbase rejected the funding order.",
     };
   } catch {
-    emitFailure("ORDER_AMBIGUOUS", startedAt, "unavailable");
+    emitFailure("PROVIDER_INVALID_RESPONSE", startedAt);
     return { outcome: "ambiguous" };
   }
 }
@@ -561,21 +552,18 @@ function emitHttpFailure(status: number, startedAt: number): void {
   emitFailure(
     status >= 500 ? "PROVIDER_HTTP_5XX" : "PROVIDER_HTTP_4XX",
     startedAt,
-    "unavailable",
   );
 }
 
 function emitFailure(
-  code: FailureCode,
+  code: FundingProviderFailureCode,
   startedAt: number,
-  outcome: "failed" | "rejected" | "unavailable",
 ): void {
-  emitServerEvent("funding-order", {
+  emitFundingProviderFailure({
     route: "/funding/providers/coinbase",
     code,
-    outcome,
     provider: "coinbase",
-    durationMs: Date.now() - startedAt,
+    startedAt,
   });
 }
 

@@ -7,23 +7,26 @@ import type {
   QuoteIntent,
 } from "@/shared/funding/provider-contract";
 import { MemoryFundingOrderStore } from "./store";
-import { FundingCore, resolveClientIp, isPrivateIp } from "./service";
+import { FundingCore, resolveClientIp, isPrivateIp, type FundingOrderTransitionEvent } from "./service";
 import { FundingProviderConfigurationError, resolveFundingMode, resolveWebhookEnvironment } from "./provider-context";
 
 const session: VerifiedAccountSession = { user: { subject: "user" }, accountProvider: "base-account", smartAccount: { address: "0x1111111111111111111111111111111111111111", chainId: 8453 } };
 const manifest = { id: "fixture", displayName: "Fixture", docsUrl: "https://example.com", onramp: { apiOrigins: ["https://example.com"], reference: "home" }, bindings: [{ region: "ID", assetId: "base:idrx", currency: "IDR", directions: { onramp: { paymentMethods: [{ id: "bank", label: "Bank" }], env: ["FIXTURE_KEY"] } } }] } as const satisfies FundingProviderManifest;
 
 function setup(
-  outcome: "created" | "ambiguous" = "created",
+  outcome: "created" | "ambiguous" | "rejected" = "created",
   options: { sandbox?: boolean; providerSandbox?: boolean } = {},
 ) {
   let dispatches = 0;
   let blockReads = 0;
   let receiptVerifications = 0;
   const getOrderSandboxes: boolean[] = [];
-  let observation: "awaiting-payment" | "sent" = "awaiting-payment";
+  let observation: "awaiting-payment" | "sent" | "unknown" | "failed" | "expired" | "cancelled" | "refunded" = "awaiting-payment";
+  let statusThrows = false;
   let date = new Date("2026-09-12T00:00:00.000Z");
   const staleSignals: Array<{ address: string; at: string }> = [];
+  const transitionEvents: FundingOrderTransitionEvent[] = [];
+  const store = new MemoryFundingOrderStore();
   const provider: FundingProvider = {
     manifest: options.providerSandbox ? { ...manifest, onramp: { ...manifest.onramp, sandbox: true, modeEnv: "FIXTURE_ONRAMP_MODE" } } : manifest,
     onramp: {
@@ -31,16 +34,18 @@ function setup(
       dispatches += 1;
       expect(input.destination).toBe(session.smartAccount!.address);
       if (outcome === "ambiguous") return { outcome: "ambiguous" };
+      if (outcome === "rejected") return { outcome: "rejected", message: "fixture rejection" };
       return { outcome: "created", order: { providerOrderId: "fixture-order", tokenAddress: ctx.binding.asset.address, expectedTokenAmountAtomic: input.quote!.tokenAmountAtomic, fees: [], expiresAt: null, instructions: { kind: "bank-transfer", rail: "VA", accountNumber: "12345678", amount: input.fiatAmount, currency: "IDR" } } };
     },
       async getOrder(_input, ctx) {
         getOrderSandboxes.push(ctx.sandbox);
-        return { state: observation, providerStatus: observation, transactionHash: observation === "sent" ? `0x${"2".repeat(64)}` : null };
+        if (statusThrows) throw new Error("fixture status failure");
+        return { state: observation, providerStatus: observation, transactionHash: observation === "sent" ? `0x${"2".repeat(64)}` as `0x${string}` : null };
       },
     },
   };
-  const core = new FundingCore({ providers: [provider], store: new MemoryFundingOrderStore(), env: { FIXTURE_KEY: "set", FUNDING_QUOTE_SECRET: "s".repeat(32), ...(options.sandbox ? { FIXTURE_ONRAMP_MODE: "sandbox" } : {}) }, currentBaseBlock: async () => { blockReads += 1; return "500"; }, verifyReceipt: async (_order, hash) => { receiptVerifications += 1; return { transactionHash: hash, logIndex: 4 }; }, markStale: async (address, at) => { staleSignals.push({ address, at: at.toISOString() }); }, now: () => date });
-  return { core, dispatches: () => dispatches, blockReads: () => blockReads, receiptVerifications: () => receiptVerifications, getOrderSandboxes: () => getOrderSandboxes, staleSignals: () => staleSignals, advance(minutes: number) { date = new Date(date.getTime() + minutes * 60_000); }, sent() { observation = "sent"; date = new Date("2026-09-12T00:00:10.000Z"); } };
+  const core = new FundingCore({ providers: [provider], store, env: { FIXTURE_KEY: "set", FUNDING_QUOTE_SECRET: "s".repeat(32), ...(options.sandbox ? { FIXTURE_ONRAMP_MODE: "sandbox" } : {}) }, currentBaseBlock: async () => { blockReads += 1; return "500"; }, verifyReceipt: async (_order, hash) => { receiptVerifications += 1; return { transactionHash: hash, logIndex: 4 }; }, markStale: async (address, at) => { staleSignals.push({ address, at: at.toISOString() }); }, logOrderTransition: (event) => transitionEvents.push(event), now: () => date });
+  return { core, store, transitionEvents, dispatches: () => dispatches, blockReads: () => blockReads, receiptVerifications: () => receiptVerifications, getOrderSandboxes: () => getOrderSandboxes, staleSignals: () => staleSignals, advance(minutes: number) { date = new Date(date.getTime() + minutes * 60_000); }, observe(state: typeof observation) { observation = state; date = new Date(date.getTime() + 10_000); }, throwStatus() { statusThrows = true; date = new Date(date.getTime() + 10_000); }, sent() { observation = "sent"; date = new Date(date.getTime() + 10_000); } };
 }
 
 describe("FundingCore", () => {
@@ -321,10 +326,79 @@ describe("FundingCore", () => {
     }]);
   });
 
+  test("emits lifecycle outcomes only after successful state changes", async () => {
+    const fixture = setup();
+    const quote = await fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" }, "https://home.example");
+    const created = await fixture.core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example");
+    expect(fixture.transitionEvents).toEqual([expect.objectContaining({
+      code: "ORDER_CREATED", outcome: "ok", providerId: "fixture", region: "ID", sandbox: false,
+    })]);
+
+    fixture.advance(1);
+    await fixture.core.getOrder(session, created.id);
+    expect(fixture.transitionEvents.map((event) => event.code)).toEqual(["ORDER_CREATED"]);
+
+    fixture.sent();
+    await fixture.core.getOrder(session, created.id);
+    expect(fixture.transitionEvents.map((event) => event.code)).toEqual([
+      "ORDER_CREATED", "ORDER_SENT_UNVERIFIED", "ORDER_RECEIVED",
+    ]);
+    await fixture.core.getOrder(session, created.id);
+    expect(fixture.transitionEvents).toHaveLength(3);
+  });
+
+  test("emits create rejection and ambiguity once, including the core echo safety rejection", async () => {
+    for (const [outcome, code] of [["rejected", "ORDER_REJECTED"], ["ambiguous", "ORDER_AMBIGUOUS"]] as const) {
+      const fixture = setup(outcome);
+      const quote = await fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" }, "https://home.example");
+      await fixture.core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example");
+      await fixture.core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example");
+      expect(fixture.transitionEvents.map((event) => event.code)).toEqual([code]);
+    }
+
+    const events: FundingOrderTransitionEvent[] = [];
+    const core = coreWithInstruction(
+      { kind: "bank-transfer", rail: "VA", accountNumber: "12345678", amount: "20000", currency: "IDR" },
+      "1999999",
+      events,
+    );
+    const quote = await core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" }, "https://home.example");
+    await core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example");
+    expect(events.map((event) => event.code)).toEqual(["ORDER_AMBIGUOUS"]);
+  });
+
+  test("does not emit on unknown or thrown refreshes or a lost observation CAS", async () => {
+    for (const mode of ["unknown", "throw", "cas"] as const) {
+      const fixture = setup();
+      const quote = await fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" }, "https://home.example");
+      const created = await fixture.core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example");
+      if (mode === "throw") fixture.throwStatus();
+      else fixture.observe(mode === "unknown" ? "unknown" : "failed");
+      if (mode === "cas") fixture.store.applyObservation = async () => null;
+      await fixture.core.getOrder(session, created.id);
+      expect(fixture.transitionEvents.map((event) => event.code), mode).toEqual(["ORDER_CREATED"]);
+    }
+  });
+
+  test.each([
+    ["failed", "ORDER_FAILED"],
+    ["expired", "ORDER_EXPIRED"],
+    ["cancelled", "ORDER_CANCELLED"],
+    ["refunded", "ORDER_REFUNDED"],
+  ] as const)("maps terminal provider state %s to %s", async (state, code) => {
+    const fixture = setup();
+    const quote = await fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" }, "https://home.example");
+    const created = await fixture.core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example");
+    fixture.observe(state);
+    await fixture.core.getOrder(session, created.id);
+    expect(fixture.transitionEvents.at(-1)).toEqual(expect.objectContaining({ code, outcome: "failed" }));
+  });
+
   test("binds webhook signatures to the order region while preserving shared-secret manifests", async () => {
     const run = async (webhookEnv: string | { US: string; ID: string }, signature: string, removeOrderRegionSecret = false) => {
       let refreshes = 0;
       const matchedEvents: Array<{ providerId: string; region: string }> = [];
+      const transitionEvents: FundingOrderTransitionEvent[] = [];
       const store = new MemoryFundingOrderStore();
       const bindings = [
         { region: "US" as const, assetId: "base:usdc", currency: "USD" as const, directions: { onramp: { paymentMethods: [{ id: "bank", label: "Bank" }], env: [typeof webhookEnv === "string" ? webhookEnv : webhookEnv.US] } } },
@@ -346,15 +420,15 @@ describe("FundingCore", () => {
       const runtimeEnv = removeOrderRegionSecret && typeof webhookEnv !== "string"
         ? { [quoteSecretName]: "q".repeat(32), [webhookEnv.US]: "us-secret" }
         : fullEnv;
-      const core = new FundingCore({ providers: [provider], store, env: runtimeEnv, currentBaseBlock: async () => "1", verifyReceipt: async () => null, logMatchedWebhook: (event) => matchedEvents.push(event) });
+      const core = new FundingCore({ providers: [provider], store, env: runtimeEnv, currentBaseBlock: async () => "1", verifyReceipt: async () => null, logMatchedWebhook: (event) => matchedEvents.push(event), logOrderTransition: (event) => transitionEvents.push(event) });
       const result = await core.handleWebhook("regional", new Uint8Array(), new Headers({ "x-signature": signature }));
-      return { result, refreshes, matchedEvents };
+      return { result, refreshes, matchedEvents, transitionEvents };
     };
 
-    expect(await run({ US: "US_HOOK", ID: "ID_HOOK" }, "id-secret")).toEqual({ result: { accepted: true, matched: true }, refreshes: 1, matchedEvents: [{ providerId: "regional", region: "ID" }] });
-    expect(await run({ US: "US_HOOK", ID: "ID_HOOK" }, "us-secret")).toEqual({ result: { accepted: true, matched: false }, refreshes: 0, matchedEvents: [] });
-    expect(await run("SHARED_HOOK", "us-secret")).toEqual({ result: { accepted: true, matched: true }, refreshes: 1, matchedEvents: [{ providerId: "regional", region: "ID" }] });
-    expect(await run({ US: "US_HOOK", ID: "ID_HOOK" }, "us-secret", true)).toEqual({ result: { accepted: true, matched: false }, refreshes: 0, matchedEvents: [] });
+    expect(await run({ US: "US_HOOK", ID: "ID_HOOK" }, "id-secret")).toEqual({ result: { accepted: true, matched: true }, refreshes: 1, matchedEvents: [{ providerId: "regional", region: "ID" }], transitionEvents: [] });
+    expect(await run({ US: "US_HOOK", ID: "ID_HOOK" }, "us-secret")).toEqual({ result: { accepted: true, matched: false }, refreshes: 0, matchedEvents: [], transitionEvents: [] });
+    expect(await run("SHARED_HOOK", "us-secret")).toEqual({ result: { accepted: true, matched: true }, refreshes: 1, matchedEvents: [{ providerId: "regional", region: "ID" }], transitionEvents: [] });
+    expect(await run({ US: "US_HOOK", ID: "ID_HOOK" }, "us-secret", true)).toEqual({ result: { accepted: true, matched: false }, refreshes: 0, matchedEvents: [], transitionEvents: [] });
   });
 
   test("propagates unexpected webhook verification errors while treating missing binding configuration as invalid", async () => {
@@ -585,6 +659,7 @@ describe("FundingCore", () => {
 function coreWithInstruction(
   instructions: Instruction,
   expectedTokenAmountAtomic = "2000000",
+  transitionEvents?: FundingOrderTransitionEvent[],
 ): FundingCore {
   const provider: FundingProvider = {
     manifest: { ...manifest, onramp: { ...manifest.onramp, redirectOrigins: ["https://pay.example"] } },
@@ -611,6 +686,7 @@ function coreWithInstruction(
     env: { FIXTURE_KEY: "set", FUNDING_QUOTE_SECRET: "s".repeat(32) },
     currentBaseBlock: async () => "1",
     verifyReceipt: async () => null,
+    ...(transitionEvents ? { logOrderTransition: (event: FundingOrderTransitionEvent) => transitionEvents.push(event) } : {}),
   });
 }
 

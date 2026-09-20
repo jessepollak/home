@@ -50,6 +50,17 @@ export function getFundingCore(): FundingCore {
         provider: providerId,
       });
     },
+    logOrderTransition: ({ route, code, outcome, providerId, region, sandbox, durationMs }) => {
+      emitServerEvent("funding-order", {
+        route,
+        code,
+        outcome,
+        provider: providerId,
+        region,
+        sandbox,
+        durationMs,
+      });
+    },
   });
   return core;
 }

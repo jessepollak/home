@@ -2,6 +2,22 @@
 
 Reference adapter for AR wARS, BR wBRL, and CO wCOP. It uses raw HTTP through the bounded provider context, one country-specific credential pair per binding, a distinct webhook verification secret per country account, quotes, email-based customer creation, terms acceptance, Ripio-hosted KYC, order creation, polling, and webhook verification. A binding remains inert until all environment variables in its manifest are set.
 
+## Acceptance
+
+The authoritative detailed gates, owners/approvers, stop rules, recovery checklists, and redacted evidence template are in [`ACCEPTANCE.md`](ACCEPTANCE.md).
+
+| Onramp rail | CI synthetic | Local/sandbox | Production / hosted funded |
+| --- | --- | --- | --- |
+| AR bank transfer | Required, no network | Production-only provider; not accepted | Not accepted |
+| BR Pix | Required, no network | Production-only provider; not accepted | Not accepted |
+| CO bank transfer / Bre-B / Bancolombia R2P / Nequi R2P | Required, no network | Production-only provider; not accepted | Not accepted |
+
+- **Environment and hazards:** Ripio has no sandbox. Schema/catalog reads require operator authorization; customer, terms, KYC, quote, and order calls are production writes; payment is separately funded. CI runs no provider call.
+- **Owners and approvals:** the adapter owner maintains conformance; the operator owns country credentials and production probes; Jesse explicitly approves each bounded hosted funded rail plan.
+- **Stop and recovery:** follow the linked playbook and stop on ambiguity, schema/economic mismatch, unexpected instruction, or approval-bound breach. Never retry an uncertain write; reconcile the durable customer/order and provider status first.
+- **Evidence:** retain the playbook's redacted phase evidence per rail, environment, and approver; omit credentials, customer/KYC data, IDs, addresses, amounts, instructions, hashes, provider text, and payloads from logs.
+- **Current claim (September 18, 2026):** `in-build` for AR, BR, and CO, matching `apps/web/config/coverage.ts`; no sandbox, live, hosted-funded, or production acceptance is claimed.
+
 ## Confirm against your API
 
 1. **Origin, OAuth, and credentials.** Confirm production origin `https://skala.ripio.com`, token endpoint `POST /oauth2/token/`, HTTP Basic authentication with the country-specific client ID and secret, form body `grant_type=client_credentials`, and response fields `access_token` plus numeric `expires_in`. Argentina uses `RIPIO_CLIENT_ID_AR` / `RIPIO_CLIENT_SECRET_AR`; Brazil uses `RIPIO_CLIENT_ID_BR` / `RIPIO_CLIENT_SECRET_BR`; Colombia uses `RIPIO_CLIENT_ID_CO` / `RIPIO_CLIENT_SECRET_CO` ([client.ts lines 151–223](client.ts#L151-L223), [manifest.ts lines 31–70](manifest.ts#L31-L70)). The adapter has no sandbox origin.
@@ -16,7 +32,7 @@ Reference adapter for AR wARS, BR wBRL, and CO wCOP. It uses raw HTTP through th
 
 ## Acceptance diagnostics
 
-Ripio adapter failures emit closed, scrubbed JSON events to the local server console and hosted logs. Filter for `"provider":"ripio"`. The code distinguishes `FUNDING_PROVIDER_CONFIGURATION`, `PROVIDER_HTTP_4XX`, `PROVIDER_HTTP_5XX`, `PROVIDER_TRANSPORT`, `PROVIDER_INVALID_RESPONSE`, `QUOTE_ECHO_MISMATCH`, `ORDER_ECHO_MISMATCH`, `STATUS_ECHO_MISMATCH`, and `ORDER_AMBIGUOUS`. A verified webhook matched to a known order emits `WEBHOOK_MATCHED` with only the provider and verified two-letter region. Events never include order or transaction IDs, raw bodies, credentials, KYC fields, payment instructions, amounts, addresses, or provider error text. Client-facing errors, webhook `202` responses, status-refresh behavior, and no-retry semantics remain unchanged.
+Ripio adapter failures emit closed, scrubbed JSON events to the local server console and hosted logs. Filter for `"provider":"ripio"`. Adapter cause events distinguish `FUNDING_PROVIDER_CONFIGURATION`, `PROVIDER_HTTP_4XX`, `PROVIDER_HTTP_5XX`, `PROVIDER_TRANSPORT`, `PROVIDER_INVALID_RESPONSE`, `QUOTE_ECHO_MISMATCH`, `ORDER_ECHO_MISMATCH`, and `STATUS_ECHO_MISMATCH`; the core separately owns the single `ORDER_AMBIGUOUS` lifecycle outcome after its durable transition. A verified webhook matched to a known order emits `WEBHOOK_MATCHED` with only the provider and verified two-letter region. Events never include order or transaction IDs, raw bodies, credentials, KYC fields, payment instructions, amounts, addresses, or provider error text. Client-facing errors, webhook `202` responses, status-refresh behavior, and no-retry semantics remain unchanged.
 
 ## Acceptance runthrough
 

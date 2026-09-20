@@ -196,6 +196,61 @@ describe("observability schema", () => {
     })).not.toHaveProperty("region");
   });
 
+  test("keeps funding lifecycle events on the exact privacy allowlist", () => {
+    const event = normalizeObservabilityEvent({
+      kind: "funding-order",
+      route: "/api/funding/orders/:id",
+      code: "ORDER_RECEIVED",
+      outcome: "ok",
+      provider: "ripio",
+      region: "BR",
+      sandbox: false,
+      durationMs: 12,
+      ownerHash: "a".repeat(32),
+      orderId: "private-order",
+      providerTransactionId: "private-transaction",
+      transactionHash: `0x${"1".repeat(64)}`,
+      destination: "0x1111111111111111111111111111111111111111",
+      amount: "100.00",
+      kyc: "private-kyc",
+      paymentInstructions: "private-instructions",
+      providerStatus: "private-status",
+      providerError: "private-error",
+      rawPayload: "private-payload",
+    } as never);
+
+    expect(event).toEqual({
+      schema: "home.observability.v2",
+      route: "/api/funding/orders/:redacted",
+      level: "info",
+      kind: "funding-order",
+      code: "ORDER_RECEIVED",
+      outcome: "ok",
+      provider: "ripio",
+      region: "BR",
+      sandbox: false,
+      durationMs: 12,
+    });
+    const lifecycle = { ...event } as Record<string, unknown>;
+    expect(lifecycle).not.toHaveProperty("ownerHash");
+    expect(Object.keys(lifecycle).sort()).toEqual([
+      "code", "durationMs", "kind", "level", "outcome", "provider", "region", "route", "sandbox", "schema",
+    ].sort());
+    expect(typeof lifecycle.sandbox).toBe("boolean");
+    expect(JSON.stringify(lifecycle)).not.toMatch(/private|0x1111/);
+  });
+
+  test("omits non-boolean sandbox values", () => {
+    expect(normalizeObservabilityEvent({
+      kind: "funding-order",
+      route: "/api/funding/orders",
+      code: "ORDER_CREATED",
+      outcome: "ok",
+      sandbox: "yes",
+      durationMs: 1,
+    } as never)).not.toHaveProperty("sandbox");
+  });
+
   test("normalizes out-of-enum funding-order codes to ORDER_UNAVAILABLE", () => {
     expect(normalizeObservabilityEvent({
       kind: "funding-order",

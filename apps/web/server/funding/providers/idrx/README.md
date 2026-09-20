@@ -9,6 +9,20 @@ This adapter implements the IDRX issuer API as an `order` provider on Base. It i
 - Create validation: before either success branch, every available merchant/provider/order-ID or `reference` alias, transaction type, chain, token address/symbol/decimals, destination, decimal/atomic amount, fee amount/currency, payment method/rail/channel, checkout/payment/instruction URL, and transaction-hash alias must agree. VA additionally requires documented `baseAmount`, `amount`, and `fees` with exact atomic `amount = baseAmount + fees`; a present fee currency must be `IDR`. Hosted QRIS may omit that documented VA-only amount set. Every present URL alias must agree and use `https://checkout.idrx.co`; a URL is required for QRIS and optional for VA. Mandiri/BRI return `bank-transfer`; QRIS returns the validated redirect.
 - Reconciliation: bounded transaction-history polling receives the immutable MINT/Base/token/destination/exact-amount intent. Every available provider/reference/order-ID, type, chain, token, destination, base/payment amount, fee amount/currency, payment method/rail/channel, URL, and hash alias is checked before mapping `ReportedState`; duplicate or contradictory records remain `unknown`. Only the core may verify an exact Base transfer and set `received`.
 
+## Acceptance
+
+| Rail | CI synthetic | Local/sandbox | Production / hosted funded |
+| --- | --- | --- | --- |
+| Mandiri VA | Required, no network | No sandbox documented | Not accepted |
+| BRI VA | Required, no network | No sandbox documented | Not accepted |
+| QRIS hosted checkout | Required, no network | No sandbox documented | Not accepted |
+
+- **Environment and hazards:** IDRX currently documents production only. History confirmation is read-only; mint request is a production write; paying VA or QRIS instructions moves funds. Each credentialed call requires operator authorization, and payment requires separate explicit funded authorization.
+- **Owners and approvals:** the integration owner maintains conformance; the operator owns provider credentials and production probes; Jesse approves any hosted funded proof.
+- **Stop and recovery:** stop on schema mismatch, unexpected economics/instructions, credential failure, or ambiguous create. Never repeat an ambiguous mint request; preserve the Home order and reconcile history before any separately approved retry.
+- **Evidence:** retain synthetic output and redacted request-shape/status evidence per rail. Hosted evidence must record the approved bound, environment, rail, final provider state, and exact Home receipt result without IDs, addresses, payment details, payloads, or credentials.
+- **Current claim (September 18, 2026):** `in-build` for ID, matching `apps/web/config/coverage.ts`; no live provider call, sandbox, production acceptance, or funded proof is claimed.
+
 ## Confirm against your API
 
 1. **Authentication.** Confirm the request headers and signature construction: `idrx-api-key` is the client ID, `idrx-api-ts` is the millisecond timestamp, and `idrx-api-sig` is base64url HMAC-SHA256 with the base64-decoded client secret over the concatenated timestamp, HTTP method, full URL, and raw body when present ([adapter.ts lines 523–561](adapter.ts#L523-L561)).
