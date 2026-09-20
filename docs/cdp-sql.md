@@ -46,7 +46,7 @@ There is no automatic fallback from the default client-key mode to project crede
 Configuration-only check (never sends a request):
 
 ```sh
-bun --env-file=apps/web/.env.local scripts/cdp-sql-check.ts
+bun --conditions=react-server --env-file=apps/web/.env.local scripts/cdp-sql-check.ts
 ```
 
 For signed JWT configuration, set `CDP_SQL_AUTH_MODE=signed-jwt` in `apps/web/.env.local` (or explicitly in the command environment). Leaving the mode unset keeps the client-key default and does not reuse project credentials.
@@ -57,7 +57,7 @@ Opt-in smoke probe:
 
 ```sh
 CDP_SQL_SMOKE=1 \
-bun --env-file=apps/web/.env.local scripts/cdp-sql-smoke.ts
+bun --conditions=react-server --env-file=apps/web/.env.local scripts/cdp-sql-smoke.ts
 ```
 
 Put the selected auth mode and the three smoke inputs (`CDP_SQL_SMOKE_WALLET_ADDRESS`, `CDP_SQL_SMOKE_ASSET_ID`, and `CDP_SQL_SMOKE_ASSET_ADDRESS`) in `apps/web/.env.local`; do not place real values in the repository.
