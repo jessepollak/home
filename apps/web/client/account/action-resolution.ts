@@ -88,7 +88,7 @@ export function pollTransactionResolution(input: {
       finish();
       return;
     }
-    if ((state.status === "complete" || state.status === "failed") && state.transactionHash) {
+    if (state.status === "complete" && state.transactionHash) {
       try {
         await input.recordTransactionHash(state.transactionHash);
       } catch {
@@ -99,6 +99,8 @@ export function pollTransactionResolution(input: {
       return;
     }
     if (state.status === "failed") {
+      // A reverted user operation can still land in a successful bundle transaction, so a hash on
+      // a failed operation is not proof of success and must never be recorded.
       input.onFailedWithoutHash(state.reason ?? "The wallet operation failed.");
       finish();
       return;
