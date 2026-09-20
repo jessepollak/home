@@ -3,9 +3,9 @@
 Repository checks run without provider or funded-wallet secrets. Remaining delivery automation unit tests are part of `bun run gates`:
 
 - `bun check`
-- Chromium product smoke
-- delivery automation tests (`bun run gates`: repository gate canaries plus PR-metadata algorithms; also run inside `bun check`)
-- disposable PostgreSQL contracts for actions, funding, and balances
+- `Chromium smoke`
+- `delivery automation tests` (`bun run gates`: repository gate canaries plus PR-metadata algorithms; also run inside `bun check`)
+- `real PostgreSQL actions and funding contracts (PostgreSQL 14)`
 
 ## Browser-smoke boundary
 
