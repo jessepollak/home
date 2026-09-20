@@ -107,6 +107,10 @@ Read [Fork and extend](docs/fork-and-extend.md) before publishing a customized d
 
 Focused upstream changes are welcome. Read [CONTRIBUTING](CONTRIBUTING.md), keep credentials and funded-wallet secrets out of Git, and run `bun check` before opening a pull request.
 
+## Security
+
+Report suspected vulnerabilities privately through the repository [security policy](SECURITY.md), not through a public issue.
+
 ## License
 
 Original repository content is licensed under [MIT](LICENSE). Third-party materials, provider SDKs, fonts, and trademarks keep their own terms.
