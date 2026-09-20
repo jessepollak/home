@@ -3,6 +3,7 @@ import "@/client/account/dom-test-harness";
 import { page } from "@/tests/helpers/dom";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { useState } from "react";
+import type { MoneyAmountChangeSource } from "./amount";
 
 const { cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const {
@@ -13,6 +14,7 @@ const {
   fitAmountFontSize,
 } = await import("./amount");
 const { moneyAssetPricing } = await import("./amount-units");
+const { MoneyMotionProvider } = await import("@/components/money-ticker");
 
 const usdUsdc = moneyAssetPricing("USDC", "US");
 const unpricedEth = moneyAssetPricing("ETH");
@@ -42,11 +44,17 @@ function AmountHarness({
   availableAmount?: string | null;
 }) {
   const [amount, setAmount] = useState("");
-  const changeAmount = (value: string) => setAmount(value);
+  const [amountChangeSource, setAmountChangeSource] =
+    useState<MoneyAmountChangeSource>("programmatic");
+  const changeAmount = (value: string, source: MoneyAmountChangeSource) => {
+    setAmountChangeSource(source);
+    setAmount(value);
+  };
   return (
     <>
       <MoneyAmountDisplay
         amount={amount}
+        amountChangeSource={amountChangeSource}
         onAmountChange={changeAmount}
         availableLabel={availableLabel}
         availableAmount={availableAmount}
@@ -74,6 +82,21 @@ test("primary amount auto-fit shrinks and clamps longer number and unit combinat
 });
 
 describe("MoneyAmountDisplay", () => {
+  test("skips the primary ticker animation for keypad input and animates quick amounts", () => {
+    render(<MoneyMotionProvider reducedMotion={false}><AmountHarness /></MoneyMotionProvider>);
+    const primaryTicker = () => document.querySelector<HTMLElement>(
+      "[data-primary-amount] [data-slot='money-ticker']",
+    );
+
+    fireEvent.click(page().getByRole("button", { name: "1" }));
+    expect(page().getByLabelText("Native amount").textContent).toBe("1");
+    expect(primaryTicker()?.dataset.animated).toBe("false");
+
+    fireEvent.click(page().getByRole("button", { name: "$25" }));
+    expect(page().getByLabelText("Native amount").textContent).toBe("25");
+    expect(primaryTicker()?.dataset.animated).toBe("true");
+  });
+
   test("toggles display units without changing the entered native amount", () => {
     render(<AmountHarness />);
 

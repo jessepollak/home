@@ -67,13 +67,14 @@ async function installApiFixtures(
   options: { balances?: BalancesSnapshot | ((region: RegionId) => BalancesSnapshot) } = {},
 ) {
   let status: ActionStatus = "unconfirmed";
-  let sessionReads = 0;
   let balancesReads = 0;
   const balancesReadsByRegion = new Map<RegionId, number>();
   let delayedSession: Promise<void> | null = null;
   let releaseDelayedSession: (() => void) | null = null;
+  let resolveSessionObserved: (() => void) | null = null;
   let delayedBalances: Promise<void> | null = null;
   let releaseDelayedBalances: (() => void) | null = null;
+  let resolveBalancesObserved: (() => void) | null = null;
   let handleRecorded = false;
   let failHandleResponseOnce = true;
   let fundingStatusReads = 0;
@@ -85,7 +86,8 @@ async function installApiFixtures(
     const path = url.pathname;
 
     if (path === "/api/session") {
-      sessionReads += 1;
+      resolveSessionObserved?.();
+      resolveSessionObserved = null;
       if (delayedSession) await delayedSession;
       return json(route, {
         user: { subject: "playwright-smoke-subject" },
@@ -97,6 +99,8 @@ async function installApiFixtures(
       const region = (url.searchParams.get("region") ?? "US") as RegionId;
       balancesReads += 1;
       balancesReadsByRegion.set(region, (balancesReadsByRegion.get(region) ?? 0) + 1);
+      resolveBalancesObserved?.();
+      resolveBalancesObserved = null;
       if (delayedBalances) await delayedBalances;
       const fixture = typeof options.balances === "function"
         ? options.balances(region)
@@ -300,21 +304,22 @@ async function installApiFixtures(
   });
 
   return {
-    sessionReads: () => sessionReads,
     balancesReads: () => balancesReads,
     balancesReadsForRegion: (region: RegionId) => balancesReadsByRegion.get(region) ?? 0,
+    /** Holds the next session read and resolves when that held request is observed. */
     delayNextSession() {
       delayedSession = new Promise<void>((resolve) => { releaseDelayedSession = resolve; });
-      return sessionReads + 1;
+      return new Promise<void>((resolve) => { resolveSessionObserved = resolve; });
     },
     releaseSession() {
       releaseDelayedSession?.();
       delayedSession = null;
       releaseDelayedSession = null;
     },
+    /** Holds the next balances read and resolves when that held request is observed. */
     delayNextBalances() {
       delayedBalances = new Promise<void>((resolve) => { releaseDelayedBalances = resolve; });
-      return balancesReads + 1;
+      return new Promise<void>((resolve) => { resolveBalancesObserved = resolve; });
     },
     releaseBalances() {
       releaseDelayedBalances?.();
@@ -487,12 +492,12 @@ test("persisted balances paint before verification and settle without row shift"
   await page.waitForTimeout(600);
   await markPersistedQueriesStale(page);
   const hydrationErrors = trackHydrationErrors(page);
-  const delayedSessionRead = fixtures.delayNextSession();
-  const delayedBalancesRead = fixtures.delayNextBalances();
+  const sessionObserved = fixtures.delayNextSession();
+  const balancesObserved = fixtures.delayNextBalances();
   const balancesReadsBeforeReload = fixtures.balancesReads();
 
   await page.reload();
-  await expect.poll(fixtures.sessionReads).toBeGreaterThanOrEqual(delayedSessionRead);
+  await sessionObserved;
   await expect(page.getByText("Recognized Coin", { exact: true }).first()).toBeVisible();
   expect(fixtures.balancesReads()).toBe(balancesReadsBeforeReload);
   const provisionalLayout = await visibleBalanceRowLayout(page);
@@ -507,7 +512,7 @@ test("persisted balances paint before verification and settle without row shift"
   await expect.poll(() => page.evaluate(() =>
     performance.getEntriesByName("session:verified", "mark").length,
   )).toBeGreaterThan(0);
-  await expect.poll(fixtures.balancesReads).toBeGreaterThanOrEqual(delayedBalancesRead);
+  await balancesObserved;
   fixtures.releaseBalances();
   await expect(page.locator('[data-shell-panel]:not([hidden]) [aria-label="Total balance"]'))
     .not.toHaveAttribute("aria-busy", "true");

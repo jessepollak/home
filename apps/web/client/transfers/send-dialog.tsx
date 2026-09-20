@@ -31,6 +31,7 @@ import {
   MoneyNumpad,
   isPositiveDecimalAmount,
   useMoneyAssetPricing,
+  type MoneyAmountChangeSource,
 } from "@/client/money-modal";
 import {
   assertTransferRequest,
@@ -100,6 +101,8 @@ export function SendDialog({
   const [assetId, setAssetId] = useState<string | null>(() => availableAssets?.[0]?.id ?? null);
   const [recipient, setRecipient] = useState("");
   const [amount, setAmount] = useState("");
+  const [amountChangeSource, setAmountChangeSource] =
+    useState<MoneyAmountChangeSource>("programmatic");
   const [request, setRequest] = useState<TransferRequest | null>(null);
   const [cashout, setCashout] = useState<CashoutRequest | null>(null);
   const [offramps, setOfframps] = useState<ReadonlyArray<FundingOfframpBinding>>([]);
@@ -119,11 +122,14 @@ export function SendDialog({
   const resumedActionRef = useRef<string | null>(null);
   const selectedStillAvailable = !assetId || availableAssets?.some((asset) => asset.id === assetId) !== false;
   const activeAssetId = assetId && selectedStillAvailable ? assetId : availableAssets?.[0]?.id ?? null;
-  function changeAmount(value: string) { setAmount(value); }
+  function changeAmount(value: string, source: MoneyAmountChangeSource) {
+    setAmountChangeSource(source);
+    setAmount(value);
+  }
 
   if (assetId && !selectedStillAvailable) {
     setAssetId(activeAssetId);
-    if (amount !== "") changeAmount("");
+    if (amount !== "") changeAmount("", "programmatic");
   }
   const selectedAsset = activeAssetId ? getTransferAsset(activeAssetId) : null;
   const pricing = useMoneyAssetPricing(selectedAsset?.symbol ?? "");
@@ -215,7 +221,7 @@ export function SendDialog({
   }, [availableAssets, onInvalidResume, open, ownerBoundary, resumeActionId, resumeMoneyAction]);
 
   function reset() {
-    setAssetId(availableAssets?.[0]?.id ?? null); setRecipient(""); changeAmount("");
+    setAssetId(availableAssets?.[0]?.id ?? null); setRecipient(""); changeAmount("", "programmatic");
     setRequest(null); setCashout(null); setSelectedOfframp(null); setSelectedPlatform(null); setPayoutHandle("");
     setCanonicalHandle(""); setHandleConfirmation(""); setAction(null); setStep("amount"); setError(null);
   }
@@ -343,7 +349,7 @@ export function SendDialog({
     assetLabel: selectedAsset?.symbol,
     assetCurrency: selectedAsset?.cashCurrency,
     assetOptions,
-    onAssetChange: (next: string) => { setAssetId(next); changeAmount(""); },
+    onAssetChange: (next: string) => { setAssetId(next); changeAmount("", "programmatic"); },
   };
   return (
     <MoneyModal open={open} labelledBy="send-title" immediate={immediate} onCancel={close} onClose={() => { reset(); (onClosed ?? onClose)(); }}>
@@ -359,7 +365,7 @@ export function SendDialog({
       />
       <MoneyModalBody hasFooter={["amount", "destination", "handle", "handle-confirm", "confirm", "error"].includes(step)} className="gap-4 pt-4">
         {step === "amount" ? <>
-          <MoneyAmountDisplay amount={amount} onAmountChange={changeAmount} availableLabel={selectedAvailability ? `${selectedAvailability.balanceLabel} available` : undefined} availableAmount={selectedAvailability ? atomicToDecimal(selectedAvailability.balanceBaseUnits, selectedAvailability.decimals) : null} assetId={activeAssetId ?? undefined} assetLabel={selectedAsset?.symbol} assetControl="header" chipSet={pricing.status === "priced" ? "quick-local" : "none"} pricing={pricing} nativeSymbol={selectedAsset?.symbol ?? ""} />
+          <MoneyAmountDisplay amount={amount} amountChangeSource={amountChangeSource} onAmountChange={changeAmount} availableLabel={selectedAvailability ? `${selectedAvailability.balanceLabel} available` : undefined} availableAmount={selectedAvailability ? atomicToDecimal(selectedAvailability.balanceBaseUnits, selectedAvailability.decimals) : null} assetId={activeAssetId ?? undefined} assetLabel={selectedAsset?.symbol} assetControl="header" chipSet={pricing.status === "priced" ? "quick-local" : "none"} pricing={pricing} nativeSymbol={selectedAsset?.symbol ?? ""} />
           {selectedAsset ? <MoneyNumpad value={amount} maxDecimals={selectedAsset.decimals} onChange={changeAmount} /> : <StatusMessage>No catalog balance is available to send.</StatusMessage>}
           {!selectedAsset && visibleActiveOrders.length > 0 ? <div className="grid gap-1">{visibleActiveOrders.map((order) => <RecoveryItem key={order.depositId} order={order} onWithdraw={() => void prepareWithdraw(order)} />)}</div> : null}
           {!selectedAsset && providersLoaded && ordersLoaded && recoveryEligible && !recoveryAttempted && visibleActiveOrders.length === 0 ? <Button variant="ghost" size="sm" onClick={() => void recoverCashouts()}>Recover a Peer cash-out</Button> : null}

@@ -29,6 +29,7 @@ import {
   MoneyModalFooter,
   MoneyModalHeader,
   MoneyNumpad,
+  type MoneyAmountChangeSource,
 } from "@/client/money-modal";
 import {
   ownerQueryKey,
@@ -80,6 +81,8 @@ export function FundingOrderFlow({
 }) {
   const [method, setMethod] = useState(binding.paymentMethods[0]?.id ?? "");
   const [amount, setAmount] = useState("");
+  const [amountChangeSource, setAmountChangeSource] =
+    useState<MoneyAmountChangeSource>("programmatic");
   const [email, setEmail] = useState("");
   const [draft, setDraft] = useState<QuoteDraft | null>(null);
   const [customer, setCustomer] = useState<FundingProviderCustomerSummary | null>(initialCustomer ?? null);
@@ -96,7 +99,8 @@ export function FundingOrderFlow({
     initialOrder?.id ?? null,
   );
 
-  function changeAmount(value: string) {
+  function changeAmount(value: string, source: MoneyAmountChangeSource) {
+    setAmountChangeSource(source);
     setAmount(value);
   }
 
@@ -318,6 +322,7 @@ export function FundingOrderFlow({
         ) : null}
         <MoneyAmountDisplay
           amount={amount}
+          amountChangeSource={amountChangeSource}
           onAmountChange={changeAmount}
           assetId={binding.currency.toLocaleLowerCase()}
           assetLabel={binding.currency}
