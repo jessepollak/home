@@ -45,6 +45,14 @@
   --color-balance-cash: var(--balance-cash);
   --color-balance-savings: var(--balance-savings);
   --color-balance-investments: var(--balance-investments);
+  --color-payout-cashapp: var(--payout-cashapp);
+  --color-payout-cashapp-foreground: var(--payout-cashapp-foreground);
+  --color-payout-zelle: var(--payout-zelle);
+  --color-payout-zelle-foreground: var(--payout-zelle-foreground);
+  --color-payout-monzo: var(--payout-monzo);
+  --color-payout-monzo-foreground: var(--payout-monzo-foreground);
+  --color-payout-revolut: var(--payout-revolut);
+  --color-payout-revolut-foreground: var(--payout-revolut-foreground);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -75,6 +83,11 @@
   --balance-cash: oklch(0.64 0.17 151);
   --balance-savings: oklch(0.62 0.2 255);
   --balance-investments: oklch(0.62 0.18 305);
+  /* Payout brand marks keep their brand colors in both themes. */
+  --payout-cashapp: #00d64f; --payout-cashapp-foreground: #000000;
+  --payout-zelle: #6d1ed4; --payout-zelle-foreground: #ffffff;
+  --payout-monzo: #14233c; --payout-monzo-foreground: #ffffff;
+  --payout-revolut: #000000; --payout-revolut-foreground: #ffffff;
 }
 
 .dark {
