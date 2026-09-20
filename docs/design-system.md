@@ -15,6 +15,8 @@ bunx shadcn add <name>
 
 Review every generated copy before committing it. Stock Tailwind scale utilities are allowed; replace hex/rgba, arbitrary-pixel, and raw palette classes with semantic tokens.
 
+The pinned `shadcn` CLI's own composition rules are installed as the committed [shadcn skill](../../.agents/skills/shadcn/SKILL.md) (`bunx skills add shadcn/ui --skill shadcn -a universal --copy -y`, recorded in `skills-lock.json`). Its `rules/` files are the source of composition guidance — starting from existing owned components and variants instead of hand-rolling UI. Home's own rules below still win where they are stricter.
+
 ## Component workshop
 
 Storybook is a credential-free development and review workshop for Home's production components. From the repository root, install and run it without `apps/web/.env.local`, provider keys, a wallet, or a database:
@@ -32,6 +34,26 @@ bun run --cwd apps/web build-storybook
 
 The generated `apps/web/storybook-static/` directory is ignored and must not be committed. A successful static build does not replace `bun check`; both remain required for a Storybook change.
 
+### MCP workshop tools
+
+`apps/web/.storybook/main.ts` registers `@storybook/addon-a11y`, `@storybook/addon-vitest`, and `@storybook/addon-mcp`, and sets `features.componentsManifest: true` — the Storybook 10.6 feature key, kept explicit rather than inferred from the addon's preset — alongside the `features.experimentalComponentsManifest: true` alias that issue #660 names. While the workshop runs, the MCP server answers at `http://127.0.0.1:$STORYBOOK_PORT/mcp` and exposes `docs-list`, `docs-show`, `docs-show-story`, `stories-find-by-component`, `stories-preview`, and `test-run`. The repository-root `.mcp.json` registers that endpoint as `storybook` with the literal `${STORYBOOK_PORT}` placeholder, so export the port in an interactive shell before starting the workshop (`export STORYBOOK_PORT=6006`; the factory sets it per slot) and start Storybook before relying on the tools.
+
+Discover before composing: `docs-list` lists every component the manifest knows, which includes every owned `apps/web/components/ui` module (each has a minimal workshop story beside it) and the pilot and journey surfaces. `docs-show <id>` returns documented props and story usage, and `stories-find-by-component` maps any source file to the story IDs that render it. Do not restate component props from memory or invent a parallel component.
+
+### Journey stories
+
+Page-level flows live under `apps/web/stories/journeys/<flow>.stories.tsx`. A journey composes the real screen from production components, serves each existing external request with `msw-storybook-addon` handlers (`parameters.msw.handlers`), and walks the flow in a `play` function that asserts observable results, not implementation details. The reference journey is `journeys-savings-deposit--deposit`: it loads vault metadata over the production `/api/savings/vaults` fetch, selects a vault, prepares a deposit, and dispatches the exact prepared action.
+
+### Story tests
+
+`@storybook/addon-vitest` runs every story in headless Chromium through the workshop's own Vite pipeline:
+
+```sh
+bun run --cwd apps/web test:stories
+```
+
+The same run is available through the MCP `test-run` tool and the workshop's test widget. A failing `play` function fails the run, and the a11y addon audits every story. `a11y.test` is `"todo"` (report, do not fail) globally because owned components carry pre-existing violations that need a product decision — the `ItemMedia variant="avatar"` initials contrast (4.34:1), the money-modal asset-picker controls' missing accessible names, and the destructive `AlertDescription` contrast (4.49:1). Minimal workshop stories that pass the audit set `a11y: { test: "error" }` so a new violation in those components fails the run. The Storybook manager and the test runner share a Vite dependency cache, so stop a running `storybook dev` before a full `test:stories` run.
+
 Keep `*.stories.tsx` beside the production surface under `apps/web/components/**` or `apps/web/client/**`. A story imports the component Home uses rather than a separately styled copy, and composes the real card, list, shell, and provider constraints needed by that surface. Prefer the component's natural typed props and injected action functions; use provider fixtures or MSW only at an existing external-request boundary. The current MSW worker starts only through Storybook's global loader. Its file lives under `.storybook/static`, never `public`, and production modules may not import Storybook, stories, or MSW. Keep story-only fixtures inside a `*.stories.*` or `.storybook/**` path so the production-isolation gate can enforce that boundary.
 
 Fixtures use fixed balances, clock values, and presentation regions. Each story resets the shared query client and owns cleanup for mutable or deferred state. Unexpected requests fail visibly; only known Storybook/Vite assets are bypassed. Never let a story fall through to a Home, provider, database, wallet, or other live service. Use the 390 CSS-pixel viewport as the representative mobile review composition; narrower widths such as 320px are safety checks for viewport containment, not the product's definition of mobile.
@@ -47,7 +69,7 @@ The pilot inventory is:
 - Savings money dialog: `pilot-savings-money-dialog--amount-entry`, `pilot-savings-money-dialog--validation-failure`, `pilot-savings-money-dialog--review`, `pilot-savings-money-dialog--pending`, `pilot-savings-money-dialog--failure-recovery`, `pilot-savings-money-dialog--back-and-cancel`, `pilot-savings-money-dialog--reduced-motion-reference`
 - Savings screen: `pilot-savings-experience--funded`, `pilot-savings-experience--verified-empty`, `pilot-savings-experience--loading`, `pilot-savings-experience--unavailable-partial`, `pilot-savings-experience--long-localized-content`
 
-The built `index.json` is the durable discoverability source when this inventory grows. An intentional ID or export rename must update direct links and review evidence in the same change.
+Every owned `apps/web/components/ui` module also has a minimal workshop story (`UI/<Component>`) so the MCP manifest exposes the owned inventory rather than only the pilot surfaces, plus the journey inventory `journeys-savings-deposit--deposit`. The built `index.json` and the MCP `docs-list` output are the durable discoverability sources when this inventory grows. An intentional ID or export rename must update direct links and review evidence in the same change.
 
 Storybook can prove that a production component renders and supports fixture-backed component interactions under deterministic states and review viewports. Stories and play functions are review scenarios, not permanent browser tests or approval by themselves. Storybook cannot prove Home's Next routing/history, app-level scrolling or focus restoration, browser Back integration, wallet/provider behavior, physical keyboard behavior, or Safari behavior. Verify the integrated component in Home under the [browser-validation contract](browser-validation.md), and record media and limitations under [UI PR previews](ui-pr-previews.md).
 
@@ -84,6 +106,8 @@ These stay app-local because they encode Home product behavior, not general-purp
 ## Testing
 
 Keep tests for Home behavior: exact amounts, dispatch counts, owner fences, routing, cancellation, focus restoration, and other failures that would affect users or money. Follow the [test policy](architecture.md#test-policy) for what not to test. The owner checks presentation manually; Home has no screenshot baselines.
+
+`bun run --cwd apps/web test:stories` is the story-interaction gate: it runs every story's `play` function and the a11y audit in headless Chromium. It runs in CI as the **story tests** job and is not part of `bun check`, so run it with `agent-browser` proof when a change touches stories or owned components.
 
 ## Teardown measurements
 

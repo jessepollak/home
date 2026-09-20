@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "storybook": {
+      "url": "http://127.0.0.1:${STORYBOOK_PORT}/mcp"
+    }
+  }
+}

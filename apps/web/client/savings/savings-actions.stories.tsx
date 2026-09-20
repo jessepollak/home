@@ -81,7 +81,10 @@ const currencyOptions = [
   },
 ] satisfies ReadonlyArray<MoneyAssetOption>;
 
-function preparedAction(kind: string): PreparedMoneyAction {
+function preparedAction(
+  kind: string,
+  vault: MorphoVaultCandidate = candidate,
+): PreparedMoneyAction {
   const actionKind = kind === "savings-withdraw"
     ? "savings-withdraw"
     : "savings-deposit";
@@ -100,8 +103,8 @@ function preparedAction(kind: string): PreparedMoneyAction {
     metadata: {
       product: "savings",
       operation: actionKind === "savings-deposit" ? "deposit" : "withdraw",
-      vaultAddress: candidate.vaultAddress,
-      vaultName: candidate.name,
+      vaultAddress: vault.vaultAddress,
+      vaultName: vault.name,
       network: { name: "Base", chainId: 8453 },
       feeWad: "100000000000000000",
       limitBaseUnits: "250000000",
@@ -119,9 +122,6 @@ function preparedAction(kind: string): PreparedMoneyAction {
     },
   };
 }
-
-const prepareMoneyAction: AccountWalletClient["prepareMoneyAction"] = async (kind) =>
-  preparedAction(kind);
 
 const rejectedExecution: AccountWalletClient["executeMoneyAction"] = async (action) => ({
   id: action.id,
@@ -149,6 +149,10 @@ function DialogStorySurface({
   const [open, setOpen] = useState(true);
   const [selectedAssetId, setSelectedAssetId] = useState("usdc");
   const selectedAsset = currencyOptions.find((option) => option.id === selectedAssetId) ?? currencyOptions[0];
+  // The prepared review must describe the candidate the story renders, so the
+  // simulated-failure fixture is visible in its own recovery state.
+  const prepareStoryAction: AccountWalletClient["prepareMoneyAction"] = async (kind) =>
+    preparedAction(kind, storyCandidate);
   return (
     <main className="mx-auto flex min-h-svh w-full max-w-2xl items-center justify-center p-4">
       {!open ? (
@@ -172,7 +176,7 @@ function DialogStorySurface({
         assetDecimals={selectedAssetId === "idrx" ? 2 : 6}
         assetOptions={currencyOptions}
         onAssetChange={setSelectedAssetId}
-        prepareMoneyAction={prepareMoneyAction}
+        prepareMoneyAction={prepareStoryAction}
         executeMoneyAction={executeMoneyAction}
         onClose={() => setOpen(false)}
       />

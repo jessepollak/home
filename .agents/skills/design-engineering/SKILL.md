@@ -22,11 +22,11 @@ Home's craft standard for user-visible work, adapted from Emil Kowalski's design
 
 ## Working sequence
 
-1. **Inspect the surface and its context.** Read the current component, its tokens, states, tests, and nearest established pattern before proposing anything. Reuse before replacing.
+1. **Inspect the surface and its context.** Read the current component, its tokens, states, tests, and nearest established pattern before proposing anything. Reuse before replacing. Discover Home's owned components through the Storybook MCP docs tools (`docs-list`, then `docs-show <id>`) instead of guessing props or re-inventing a component.
 2. **Name hierarchy and default-state intent.** State the primary action, secondary actions, and the intended default, empty, loading, error, recovery, disabled, and focused states before editing.
 3. **Review interaction edges.** Check press, focus-visible, keyboard, touch, capability-gated hover, long or translated content, partial data, slow or failed responses, and reduced motion — not only the happy path.
 4. **Prefer the smallest cohesive improvement.** Improve the existing pattern rather than replacing it. A dependency, second component system, or demo route needs a separate approved decision. Keep Tailwind utilities inline at the product use site: do not detach them into class-string constants. Reusable presentation belongs in owned `components/ui` variants, and ESLint (`tailwind-policy/no-detached-class-constants`) rejects identifiers in `className`/`cn()` that resolve to local static class strings (see [design-system rules](../../../docs/design-system.md)).
-5. **Validate at the applicable layer.** For implementation or interactive review of a rendered surface, follow the browser-validation contract and prove the production component in Home with the repository-pinned `agent-browser`, not a mock, a story, or a separately styled copy. Static or read-only diff review uses the available code and evidence without manufacturing a browser run.
+5. **Validate at the applicable layer.** For a page-level flow, compose or refresh the journey story under `apps/web/stories/journeys/` from production components, then run the workshop loop: **discover** with the MCP docs tools, **compose** the journey story, **run story tests** with `bun run --cwd apps/web test:stories` (or the MCP `test-run` tool) so `play` functions and the a11y audit execute, and **capture proof** of the canvas at the review viewport. For implementation or interactive review of a rendered surface, follow the browser-validation contract and prove the production component in Home with the repository-pinned `agent-browser`, not a mock, a story, or a separately styled copy. Static or read-only diff review uses the available code and evidence without manufacturing a browser run.
 6. **Review with fresh eyes.** For feel-dependent craft, replay the interaction slowly and revisit it later or the next day when the schedule allows; otherwise use a fresh reviewer. Working-state attention misses timing and detail problems that a reset can reveal.
 
 ## Motion
@@ -49,7 +49,7 @@ Purpose, frequency, and content sensitivity gate motion; `docs/ui-direction.md` 
 - Screenshots use an adaptive comparison: pair Before and After only when the baseline materially improves judgment, with identical state, data, and CSS-pixel viewport and the current PR head as After. Otherwise keep current-head evidence only. Motion uses a short clip when stills cannot show behavior.
 - Publish review findings separately from screenshots as `| Severity | Evidence | Judgment / action |`. Severity is blocker, major, or minor, and a taste-only note without concrete user or coherence impact is non-blocking.
 - A Before/After table is screenshot evidence for comparable states, not a required shape for every review response; upstream's mandatory review format is not adopted.
-- Keep the existing Storybook Before / Proposed / Implemented lifecycle; this skill creates no second evidence system.
+- Keep the existing Storybook Before / Proposed / Implemented lifecycle; this skill creates no second evidence system. The discover → compose → run-story-tests → capture-proof loop in [UI PR previews](../../../docs/ui-pr-previews.md) is how a journey proposal is built and evidenced: a failing `play` fails the story-test run, and the a11y audit's findings are recorded rather than hidden.
 
 ## Report
 

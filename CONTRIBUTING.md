@@ -39,7 +39,10 @@ The import boundaries are enforced by ESLint: `shared/` cannot import React, Nex
 bun install --frozen-lockfile
 bun check
 bun run --cwd apps/web test:browser-smoke
+bun run --cwd apps/web test:stories # Storybook play functions and the a11y audit
 ```
+
+The story tests run in a headless Chromium; install it once with `bun run --cwd apps/web test:browser-install`.
 
 Do not add provider credentials or funded-wallet checks to pull-request CI.
 
@@ -52,7 +55,7 @@ Do not add provider credentials or funded-wallet checks to pull-request CI.
 - Identify assets by chain ID plus address, never ticker. Token amounts are `bigint`; exact review facts stay on confirm.
 - Preserve the shell frame budget: pointer motion and price ticks use transforms, opacity, motion values, or imperative text writes rather than React state per update.
 - Add behavioral tests for regressions that matter, with exact bigint fixtures for amounts. Follow the [test policy](docs/architecture.md#test-policy) for what to test and what to avoid.
-- Run `bun check`; run the browser smoke for shell, session, or action-flow changes. Keep live provider and funded-wallet checks out of CI.
+- Run `bun check`; run the browser smoke for shell, session, or action-flow changes, and the story tests for Storybook or owned-component changes. Keep live provider and funded-wallet checks out of CI.
 - Update the matching current doc in the same change when a delivered, user-visible, or execution contract changes.
 
 ## Factory delivery
