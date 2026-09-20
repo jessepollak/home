@@ -62,10 +62,10 @@ Keep findings separate from the screenshot tables. When a user-visible PR record
 | major | Recovery CTA is obscured in the PR-head screenshot; `file:line` identifies the owned component | Fix before approval |
 | minor | Press state reads slow in the motion clip at 0:02 | Follow-up issue, or accept with reason |
 
-Severity is `blocker`, `major`, or `minor` for actionable defects. Apply the [design work mode](../.agents/skills/design-engineering/SKILL.md#work-modes):
+Severity is `blocker`, `major`, or `minor` for actionable defects. Review against the [issue's design scope](../.agents/skills/design-engineering/SKILL.md#follow-the-issue-scope) and acceptance criteria:
 
 - **Maintenance:** unsupported stylistic preference does not block a bounded fix; correctness, accessibility and coherence findings need concrete evidence.
-- **Exploration:** visual quality is the work under review. Compare the scoped alternatives and name the visual differences and unresolved choices; technical readiness does not satisfy an art-direction brief. When requested, show neutral comparisons before critic rankings or authorship. Do not convert the critic's favorite into an accepted design.
+- **Exploration:** visual quality is the work under review. Assess the proposal against the brief; compare alternatives only when requested and name unresolved visual choices; technical readiness does not satisfy an art-direction brief. When requested, show neutral comparisons before critic rankings or authorship. Do not convert the critic's favorite into an accepted design.
 - **Adoption:** compare against Jesse's selected revision at matching state/data/viewport, explain material differences, and resolve unintended divergence before claiming fidelity. Record actual integration and interaction coverage.
 
 Keep candidate strengths/tradeoffs separate from defect severity. Jesse owns selection and approval. Evidence cells name the observed issue and cite retained media, code, console results, or an existing issue; this is the findings presentation, not a second evidence system.
