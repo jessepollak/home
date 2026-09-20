@@ -56,7 +56,7 @@ Jesse applies exactly one label, `factory`, meaning start. The factory owns two 
 
 Any issue comment, pull-request comment, or pull-request review by Jesse triggers a follow-up run. The factory applies the feedback, validates the current head, and requests review again when CI is green. A Codex connector review is context for the factory to consider; it does not trigger a run. Re-adding `factory` asks the factory to look again and starts a run without the `Working on this` comment.
 
-Jesse alone approves and merges. The `main` branch requires one approving review and CODEOWNERS approval. The factory never approves, merges, enables auto-merge, or treats its own completion or green CI as merge permission.
+Jesse alone approves and merges. The `main` branch requires one approving review and CODEOWNERS approval plus the required checks. The factory enables squash auto-merge on the pull requests it opens, so Jesse's approval is the only click; it never approves, merges, or treats its own completion or green CI as merge permission.
 
 ## Delivery loop
 
