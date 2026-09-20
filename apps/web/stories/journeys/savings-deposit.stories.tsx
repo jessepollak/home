@@ -295,17 +295,17 @@ export const Deposit: Story = {
     await userEvent.click(
       within(confirmDialog).getByRole("button", { name: "Deposit $25.00" }),
     );
-    await waitFor(() => {
-      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    });
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
     await expect(journey.dispatched).toHaveLength(1);
     await expect(journey.dispatched[0]?.metadata).toMatchObject({
       product: "savings",
       vaultAddress: SELECTED_VAULT,
     });
     await expect(journey.dispatched[0]?.amounts[0]?.amountBaseUnits).toBe("25000000");
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Deposit" })).toBe(document.activeElement);
-    });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Deposit" })).toBe(document.activeElement),
+    );
   },
 };

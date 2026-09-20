@@ -75,7 +75,7 @@ For a local database, run `bun run db:up` (Docker), set `DATABASE_URL=postgresql
 
 ```sh
 bun test       # deterministic unit and contract tests
-bun lint       # ESLint
+bun lint       # Oxlint (native, type-aware, and Home contract rules)
 bun typecheck  # generated route types and strict TypeScript
 bun build      # production build
 bun check      # repository gates, test, lint, typecheck, and build

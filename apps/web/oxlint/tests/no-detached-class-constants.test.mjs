@@ -1,23 +1,65 @@
-// Behavioral tests for the no-detached-class-constants rule. Cases assert
-// scope-based resolution and initializer shape — never identifier naming: the
-// invalid and valid suites reuse bland names like `tone` to prove the rule
-// resolves bindings rather than pattern-matching names.
-import { RuleTester } from "eslint";
-import { describe, it } from "bun:test";
-import { noDetachedClassConstantsRule } from "./no-detached-class-constants.mjs";
+// Behavioral tests for the no-detached-class-constants rule. Each case runs
+// through the pinned Oxlint binary in an isolated temporary project, so the
+// corpus cannot pass through an ESLint compatibility implementation.
+import { afterAll, describe, expect, it } from "bun:test";
+import { cp, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
-// Pipe RuleTester's mocha-style suite hooks into bun's runner so each case
-// reports individually.
-RuleTester.describe = describe;
-RuleTester.it = it;
+const appsWebDir = fileURLToPath(new URL("../..", import.meta.url));
+const mirror = await mkdtemp(path.join(tmpdir(), "home-oxlint-detached-"));
+await mkdir(path.join(mirror, "client"), { recursive: true });
+await cp(path.join(appsWebDir, "oxlint"), path.join(mirror, "oxlint"), { recursive: true });
+await symlink(path.join(appsWebDir, "node_modules"), path.join(mirror, "node_modules"), "dir");
+await writeFile(path.join(mirror, ".oxlintrc.jsonc"), JSON.stringify({
+  plugins: [],
+  categories: { correctness: "off" },
+  jsPlugins: ["./oxlint/home-plugin.mjs"],
+  rules: { "home/no-detached-class-constants": "error" },
+}));
 
-const ruleTester = new RuleTester({
-  languageOptions: {
-    ecmaVersion: "latest",
-    sourceType: "module",
-    parserOptions: { ecmaFeatures: { jsx: true } },
-  },
-});
+afterAll(async () => rm(mirror, { recursive: true, force: true }));
+
+function lint(code) {
+  const fixture = path.join(mirror, "client", "fixture.tsx");
+  return writeFile(fixture, code).then(() => {
+    const result = spawnSync(
+      path.join(appsWebDir, "node_modules", ".bin", "oxlint"),
+      ["-c", ".oxlintrc.jsonc", "--disable-nested-config", "-f", "json", "client/fixture.tsx"],
+      { cwd: mirror, encoding: "utf8" },
+    );
+    expect(result.signal).toBeNull();
+    expect([0, 1]).toContain(result.status);
+    const output = JSON.parse(result.stdout);
+    return output.diagnostics.filter((diagnostic) =>
+      diagnostic.code === "home(no-detached-class-constants)");
+  });
+}
+
+class OxlintRuleTester {
+  run(name, _rule, cases) {
+    describe(name, () => {
+      cases.valid.forEach((entry, index) => {
+        const code = typeof entry === "string" ? entry : entry.code;
+        it(`valid ${index + 1}`, async () => expect(await lint(code)).toHaveLength(0));
+      });
+      cases.invalid.forEach((entry, index) => {
+        it(`invalid ${index + 1}`, async () => {
+          const diagnostics = await lint(entry.code);
+          expect(diagnostics).toHaveLength(entry.errors.length);
+          for (const [errorIndex, expected] of entry.errors.entries()) {
+            expect(diagnostics[errorIndex]?.message).toContain(expected.data.name);
+          }
+        });
+      });
+    });
+  }
+}
+
+const noDetachedClassConstantsRule = {};
+const ruleTester = new OxlintRuleTester();
 
 const detached = (name) => [{ messageId: "detached", data: { name } }];
 

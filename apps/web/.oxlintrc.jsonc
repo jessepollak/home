@@ -1,0 +1,352 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [
+    "eslint",
+    "typescript",
+    "react",
+    "jsx-a11y",
+    "nextjs",
+    "import",
+    "oxc"
+  ],
+  "categories": {
+    "correctness": "off",
+    "suspicious": "off",
+    "pedantic": "off",
+    "perf": "off",
+    "style": "off",
+    "restriction": "off",
+    "nursery": "off"
+  },
+  "jsPlugins": [
+    "./oxlint/home-plugin.mjs"
+  ],
+  "options": {
+    "typeAware": true,
+    "reportUnusedDisableDirectives": "error"
+  },
+  "env": {
+    "browser": true,
+    "node": true,
+    "es2024": true
+  },
+  "ignorePatterns": [
+    "node_modules/**",
+    ".next/**",
+    "out/**",
+    "build/**",
+    "storybook-static/**",
+    ".storybook/static/mockServiceWorker.js",
+    "next-env.d.ts"
+  ],
+  "rules": {
+    "nextjs/google-font-display": "error",
+    "nextjs/google-font-preconnect": "error",
+    "nextjs/inline-script-id": "error",
+    "nextjs/next-script-for-ga": "error",
+    "nextjs/no-assign-module-variable": "error",
+    "nextjs/no-async-client-component": "error",
+    "nextjs/no-before-interactive-script-outside-document": "error",
+    "nextjs/no-css-tags": "error",
+    "nextjs/no-document-import-in-page": "error",
+    "nextjs/no-duplicate-head": "error",
+    "nextjs/no-head-element": "error",
+    "nextjs/no-head-import-in-document": "error",
+    "nextjs/no-html-link-for-pages": "error",
+    "nextjs/no-img-element": "warn",
+    "nextjs/no-page-custom-font": "error",
+    "nextjs/no-script-component-in-head": "error",
+    "nextjs/no-styled-jsx-in-document": "error",
+    "nextjs/no-sync-scripts": "error",
+    "nextjs/no-title-in-document-head": "error",
+    "nextjs/no-typos": "error",
+    "nextjs/no-unwanted-polyfillio": "error",
+    "typescript/ban-ts-comment": "error",
+    "typescript/no-array-constructor": "error",
+    "typescript/no-duplicate-enum-values": "error",
+    "typescript/no-empty-object-type": "error",
+    "typescript/no-explicit-any": "warn",
+    "typescript/no-extra-non-null-assertion": "error",
+    "typescript/no-misused-new": "error",
+    "typescript/no-namespace": "error",
+    "typescript/no-non-null-asserted-optional-chain": "error",
+    "typescript/no-require-imports": "error",
+    "typescript/no-this-alias": "error",
+    "typescript/no-unnecessary-type-constraint": "error",
+    "typescript/no-unsafe-declaration-merging": "error",
+    "typescript/no-unsafe-function-type": "error",
+    "typescript/no-unused-expressions": "error",
+    "typescript/no-unused-vars": "warn",
+    "typescript/no-wrapper-object-types": "error",
+    "typescript/prefer-as-const": "error",
+    "typescript/prefer-namespace-keyword": "error",
+    "typescript/triple-slash-reference": "error",
+    "typescript/no-floating-promises": "error",
+    "no-var": "error",
+    "prefer-const": "error",
+    "prefer-rest-params": "error",
+    "prefer-spread": "error",
+    "react/display-name": "error",
+    "react/jsx-key": "error",
+    "react/jsx-no-comment-textnodes": "error",
+    "react/jsx-no-duplicate-props": "error",
+    "react/jsx-no-undef": "error",
+    "react/no-children-prop": "error",
+    "react/no-danger-with-children": "error",
+    "react/no-direct-mutation-state": "error",
+    "react/no-find-dom-node": "error",
+    "react/no-is-mounted": "error",
+    "react/no-render-return-value": "error",
+    "react/no-string-refs": "error",
+    "react/no-unescaped-entities": "error",
+    "react/require-render-return": "error",
+    "react-hooks/rules-of-hooks": "error",
+    "react-hooks/exhaustive-deps": "warn",
+    "react-hooks/error-boundaries": "error",
+    "react-hooks/globals": "error",
+    "react-hooks/immutability": "error",
+    "react-hooks/incompatible-library": "warn",
+    "react-hooks/preserve-manual-memoization": "error",
+    "react-hooks/purity": "error",
+    "react-hooks/refs": "error",
+    "react-hooks/set-state-in-effect": "error",
+    "react-hooks/set-state-in-render": "error",
+    "react-hooks/static-components": "error",
+    "react-hooks/unsupported-syntax": "warn",
+    "react-hooks/use-memo": "error",
+    "import/no-anonymous-default-export": "warn",
+    "jsx-a11y/alt-text": [
+      "warn",
+      {
+        "elements": [
+          "img"
+        ],
+        "img": [
+          "Image"
+        ]
+      }
+    ],
+    "jsx-a11y/aria-props": "warn",
+    "jsx-a11y/aria-proptypes": "warn",
+    "jsx-a11y/aria-unsupported-elements": "warn",
+    "jsx-a11y/role-has-required-aria-props": "warn",
+    "jsx-a11y/role-supports-aria-props": "warn"
+  },
+  "overrides": [
+    {
+      "files": [
+        "app/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "client/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "components/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "config/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "lib/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "server/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "shared/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "types/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "instrumentation*.ts",
+        "next.config.ts",
+        "proxy.ts"
+      ],
+      "excludeFiles": [
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "rules": {
+        "home/no-storybook-imports": "error"
+      }
+    },
+    {
+      "files": [
+        "server/cdp/**/*.{ts,tsx}"
+      ],
+      "excludeFiles": [
+        "**/*.test.{ts,tsx}"
+      ],
+      "rules": {
+        "typescript/no-unsafe-member-access": "error"
+      }
+    },
+    {
+      "files": [
+        "{app,client,components,server,shared}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "rules": {
+        "home/no-client-server-imports": "error",
+        "home/no-server-client-imports": "error",
+        "home/no-shared-runtime-imports": "error",
+        "home/no-browser-sdk-imports": "error",
+        "home/no-base-ui-imports": "error"
+      }
+    },
+    {
+      "files": [
+        "{app,client,components}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "excludeFiles": [
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**"
+      ],
+      "rules": {
+        "home/no-restyle": "error",
+        "home/no-literal-utility-styles": "error"
+      }
+    },
+    {
+      "files": [
+        "components/ui/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "rules": {
+        "home/no-restyle": "off"
+      }
+    },
+    {
+      "files": [
+        "{app,client,components}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "excludeFiles": [
+        "components/ui/**",
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**"
+      ],
+      "rules": {
+        "home/no-detached-class-constants": "error"
+      }
+    },
+    {
+      "files": [
+        "server/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "excludeFiles": [
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.d.ts"
+      ],
+      "rules": {
+        "home/require-server-only": "error"
+      }
+    },
+    {
+      "files": [
+        "{app,client,components,shared}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "excludeFiles": [
+        "client/landing/globe-geometry.ts",
+        "client/landing/supported-globe.tsx",
+        "shared/formatting/**",
+        "**/*.test.{ts,tsx}",
+        "**/tests/**"
+      ],
+      "rules": {
+        "home/no-local-formatting": "error"
+      }
+    },
+    {
+      "files": [
+        "{app,client,components}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "excludeFiles": [
+        "client/landing/supported-globe.tsx",
+        "components/ui/**",
+        "**/*.test.{ts,tsx}",
+        "**/tests/**"
+      ],
+      "rules": {
+        "home/no-raw-buttons": "error"
+      }
+    },
+    {
+      "files": [
+        "{app,client,components}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "excludeFiles": [
+        "components/ui/**",
+        "**/*.test.{ts,tsx}",
+        "**/tests/**"
+      ],
+      "rules": {
+        "home/no-raw-fields": "error"
+      }
+    },
+    {
+      "files": [
+        "{app,client,components}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "excludeFiles": [
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**"
+      ],
+      "rules": {
+        "home/no-relative-location-assignment": "error"
+      }
+    },
+    {
+      "files": [
+        "**/*.test.{ts,tsx}",
+        "tests/helpers/**/*.{ts,tsx}"
+      ],
+      "excludeFiles": [
+        "**/migrations/**"
+      ],
+      "rules": {
+        "home/no-source-reads": "error",
+        "home/no-real-waits": "error",
+        "home/no-presentation-class-reads": "error"
+      }
+    },
+    {
+      "files": [
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "tests/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/testing/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*test-harness.{ts,tsx}",
+        "**/*smoke-fixture*.{ts,tsx}"
+      ],
+      "rules": {
+        "home/exact-mock-modules": "error"
+      }
+    },
+    {
+      "files": [
+        "tests/helpers/migrations.ts",
+        "tests/well-known/apple-pay-domain-association.test.ts"
+      ],
+      "rules": {
+        "home/no-source-reads": "off"
+      }
+    },
+    {
+      "files": [
+        "client/account/cdp-money-action-execution.test.ts"
+      ],
+      "rules": {
+        "react-hooks/globals": "off"
+      }
+    },
+    {
+      "files": [
+        "{app,client,components,config,lib,server,shared,types}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "instrumentation*.ts",
+        "next.config.ts",
+        "proxy.ts"
+      ],
+      "excludeFiles": [
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**",
+        "**/testing/**",
+        "**/*test-harness.{ts,tsx}",
+        "**/*smoke-fixture*.{ts,tsx}",
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "rules": {
+        "home/no-chained-type-assertions": "error",
+        "home/no-reflect-indirection": "error",
+        "home/no-vague-object-parameters": "error",
+        "home/no-unknown-aliases": "error",
+        "home/no-reducer-accumulator-spread": "error",
+        "home/no-reduce-accumulator-copy": "error",
+        "home/no-widen-then-assert": "error"
+      }
+    }
+  ]
+}

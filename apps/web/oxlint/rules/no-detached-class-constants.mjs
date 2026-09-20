@@ -36,18 +36,6 @@ function isStaticString(node, resolveIdentifier, depth = 0) {
   return null;
 }
 
-function isReferenceIdentifier(node) {
-  const parent = node.parent;
-  if (!parent) return false;
-  if (parent.type === "MemberExpression" && parent.property === node && !parent.computed) return false;
-  if (parent.type === "Property" && parent.key === node && !parent.computed) return false;
-  if (parent.type === "PropertyDefinition" && parent.key === node && !parent.computed) return false;
-  if (parent.type === "VariableDeclarator" && parent.id === node) return false;
-  if (parent.type === "FunctionDeclaration" && parent.id === node) return false;
-  if ((parent.type === "FunctionExpression" || parent.type === "ArrowFunctionExpression") && parent.params.includes(node)) return false;
-  return true;
-}
-
 // Collect reference identifiers inside a className/cn() value, following only
 // expression roles whose value can actually become part of the class output:
 // results, branch bodies, template interpolations, and concatenations. A
@@ -70,7 +58,7 @@ function collectReferenceIdentifiers(node, found) {
     case "ClassDeclaration":
       return;
     case "Identifier":
-      if (isReferenceIdentifier(node)) found.add(node);
+      found.add(node);
       return;
     case "CallExpression": {
       collectReferenceIdentifiers(node.callee, found);
@@ -130,57 +118,20 @@ function collectReferenceIdentifiers(node, found) {
   }
 }
 
-// Decide whether a cn() call sits in a region whose role classification the
-// enclosing relevant root — the className attribute value or an outer cn()
-// argument — already owns. The standalone CallExpression visitor defers in
-// that case: the root's role-aware traversal either analyzes the region as
-// class-producing or deliberately ignores it as predicate/data, and
-// re-analyzing from the nested call would flag condition data (a ternary
-// test, an object condition value, a negation operand) as classes. The walk
-// stops — returning false so the standalone visitor stays the safety net — at
-// the same regions the traversal never classifies: nested function and class
-// bodies, nested JSX, arguments of non-cn calls, and member-access
-// subexpressions (where a nested cn() result can still be class-producing,
-// e.g. `cn(pad).trim()`).
-function isOwnedByEnclosingRoot(node) {
-  let child = node;
-  for (let parent = child.parent; parent; child = parent, parent = parent.parent) {
-    switch (parent.type) {
-      case "ArrowFunctionExpression":
-      case "FunctionExpression":
-      case "FunctionDeclaration":
-      case "ClassExpression":
-      case "ClassDeclaration":
-      case "JSXElement":
-      case "JSXFragment":
-        return false;
-      case "CallExpression":
-        // A callee keeps the walk going: the root classifies callee
-        // expressions transitively. An argument of an enclosing cn() call is
-        // inside that root's role-aware traversal; an argument of any other
-        // call is outside the traversal's ownership.
-        if (parent.callee === child) break;
-        return parent.callee.type === "Identifier" && parent.callee.name === "cn";
-      case "JSXAttribute":
-        return parent.name.type === "JSXIdentifier" && parent.name.name === "className";
-      case "MemberExpression":
-        return false;
-      default:
-        // Every other position between the nested call and the root is one
-        // the role-aware traversal either analyzes or deliberately ignores.
-        break;
+function bindingNames(pattern, names = []) {
+  if (!pattern) return names;
+  if (pattern.type === "Identifier") names.push(pattern);
+  else if (pattern.type === "RestElement") bindingNames(pattern.argument, names);
+  else if (pattern.type === "AssignmentPattern") bindingNames(pattern.left, names);
+  else if (pattern.type === "ObjectPattern") {
+    for (const property of pattern.properties) {
+      if (property.type === "Property") bindingNames(property.value, names);
+      else bindingNames(property.argument, names);
     }
+  } else if (pattern.type === "ArrayPattern") {
+    for (const element of pattern.elements) bindingNames(element, names);
   }
-  return false;
-}
-
-function findBinding(sourceCode, identifier) {
-  let scope = sourceCode.getScope(identifier);
-  while (scope) {
-    if (scope.set.has(identifier.name)) return scope.set.get(identifier.name);
-    scope = scope.upper;
-  }
-  return null;
+  return names;
 }
 
 export const noDetachedClassConstantsRule = {
@@ -193,56 +144,100 @@ export const noDetachedClassConstantsRule = {
     },
   },
   create(context) {
-    const sourceCode = context.sourceCode;
-    const reported = new Set();
+    const scopes = [];
+    const ownedCalls = new Set();
 
-    // Resolve a reference identifier to the static class string it holds, or
-    // null when the value is not local or not statically known. Parameters,
-    // imports, calls, conditionals, and interpolated templates all resolve to
-    // null: those are the allowed dynamic or owned-component patterns.
-    function resolveStaticString(identifier, depth = 0) {
-      if (depth > MAX_RESOLVE_DEPTH) return null;
-      const binding = findBinding(sourceCode, identifier);
-      if (!binding || !binding.defs || binding.defs.length === 0) return null;
-      const def = binding.defs[0];
-      if (def.type !== "Variable" || !def.node || def.node.type !== "VariableDeclarator") return null;
-      if (def.node.id === identifier) return null;
-      // A variable reassigned after initialization may hold different class
-      // strings at runtime; treat it as dynamic rather than guess.
-      if (binding.references.some((reference) => reference.isWrite() && !reference.init)) return null;
-      const init = def.node.init;
-      if (!init) return null;
-      if (init.type === "Identifier") return resolveStaticString(init, depth + 1);
-      return isStaticString(init, resolveStaticString, depth + 1);
+    function pushScope() { scopes.push(new Map()); }
+    function popScope() { scopes.pop(); }
+    function define(name, value = null) {
+      scopes.at(-1)?.set(name, { value, reassigned: false });
     }
-
+    function resolve(name) {
+      for (let index = scopes.length - 1; index >= 0; index -= 1) {
+        const binding = scopes[index].get(name);
+        if (binding) return binding;
+      }
+      return null;
+    }
+    function staticValue(node, depth = 0) {
+      if (!node || depth > MAX_RESOLVE_DEPTH) return null;
+      if (node.type === "Identifier") {
+        const binding = resolve(node.name);
+        return binding && !binding.reassigned ? binding.value : null;
+      }
+      return isStaticString(node, (identifier, nextDepth) => staticValue(identifier, nextDepth), depth);
+    }
+    function callKey(node) {
+      return node.range?.join(":") ?? `${node.start ?? ""}:${node.end ?? ""}`;
+    }
+    function markNestedCnCalls(node) {
+      if (!node || typeof node.type !== "string") return;
+      if (node.type === "CallExpression" && node.callee.type === "Identifier" && node.callee.name === "cn") {
+        ownedCalls.add(callKey(node));
+      }
+      for (const key of Object.keys(node)) {
+        if (["parent", "range", "loc"].includes(key)) continue;
+        const child = node[key];
+        if (Array.isArray(child)) for (const item of child) markNestedCnCalls(item);
+        else if (child && typeof child.type === "string") markNestedCnCalls(child);
+      }
+    }
     function checkValue(value) {
       const identifiers = new Set();
       collectReferenceIdentifiers(value, identifiers);
       for (const identifier of identifiers) {
-        if (reported.has(identifier)) continue;
-        const staticString = resolveStaticString(identifier);
-        if (staticString === null || staticString.trim() === "") continue;
-        reported.add(identifier);
-        context.report({
-          node: identifier,
-          messageId: "detached",
-          data: { name: identifier.name },
-        });
+        const value = staticValue(identifier);
+        if (value === null || value.trim() === "") continue;
+        context.report({ node: identifier, messageId: "detached", data: { name: identifier.name } });
       }
     }
+    function enterFunction(node) {
+      pushScope();
+      for (const parameter of node.params) {
+        for (const name of bindingNames(parameter)) define(name.name);
+      }
+    }
+    function exitFunction() { popScope(); }
 
     return {
+      Program: pushScope,
+      "Program:exit": popScope,
+      BlockStatement: pushScope,
+      "BlockStatement:exit": popScope,
+      FunctionDeclaration: enterFunction,
+      "FunctionDeclaration:exit": exitFunction,
+      FunctionExpression: enterFunction,
+      "FunctionExpression:exit": exitFunction,
+      ArrowFunctionExpression: enterFunction,
+      "ArrowFunctionExpression:exit": exitFunction,
+      ImportSpecifier(node) { define(node.local.name); },
+      ImportDefaultSpecifier(node) { define(node.local.name); },
+      ImportNamespaceSpecifier(node) { define(node.local.name); },
+      VariableDeclarator(node) {
+        const value = node.id.type === "Identifier" ? staticValue(node.init) : null;
+        for (const name of bindingNames(node.id)) define(name.name, value);
+      },
+      AssignmentExpression(node) {
+        if (node.left.type === "Identifier") {
+          const binding = resolve(node.left.name);
+          if (binding) binding.reassigned = true;
+        }
+      },
+      UpdateExpression(node) {
+        if (node.argument.type === "Identifier") {
+          const binding = resolve(node.argument.name);
+          if (binding) binding.reassigned = true;
+        }
+      },
       JSXAttribute(node) {
-        if (node.name.type !== "JSXIdentifier" || node.name.name !== "className") return;
-        if (!node.value) return;
-        checkValue(node.value.type === "JSXExpressionContainer" ? node.value.expression : node.value);
+        if (node.name.type !== "JSXIdentifier" || node.name.name !== "className" || !node.value) return;
+        const value = node.value.type === "JSXExpressionContainer" ? node.value.expression : node.value;
+        markNestedCnCalls(value);
+        checkValue(value);
       },
       CallExpression(node) {
-        if (node.callee.type !== "Identifier" || node.callee.name !== "cn") return;
-        // The enclosing relevant root owns role classification for this
-        // region; only standalone cn() calls re-analyze their arguments.
-        if (isOwnedByEnclosingRoot(node)) return;
+        if (node.callee.type !== "Identifier" || node.callee.name !== "cn" || ownedCalls.has(callKey(node))) return;
+        for (const argument of node.arguments) markNestedCnCalls(argument);
         for (const argument of node.arguments) checkValue(argument);
       },
     };
