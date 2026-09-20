@@ -40,6 +40,13 @@ const preview: Preview = {
     nextjs: {
       appDirectory: true,
     },
+    // Every story test runs the a11y addon's checks. Violations are reported as
+    // warnings (`todo`) so the gate fails on behavior, not on pre-existing
+    // product findings that need their own product decision; audit-clean
+    // workshop stories opt into `error` in their own meta.
+    a11y: {
+      test: "todo",
+    },
     viewport: {
       viewports: {
         smallMobile: {

@@ -38,6 +38,15 @@ When Storybook is useful for design review, add optional **Before / Proposed / I
 - **Proposed:** the Storybook commit, commit-specific deployment URL, direct manager and canvas URLs, selected capture, and concise observable criteria. “Commit-specific” means later pushes cannot silently change the reviewed artifact. Label it unreviewed until Jesse leaves an actual [unmarked GitHub comment or review](operating-manual.md#jesse-review-pickup) tied to that revision. A concrete approval reference includes that Jesse link and all of the preceding fields; factory review or an unreviewed proposal is never approval.
 - **Implemented:** current-head proof of the same production component in Home at matching state/data/viewport, captured and exercised with the [agent-browser contract](browser-validation.md). Record mode, route, viewport, exercised path, recovery and Back behavior, final semantic state, browser console/error results, and the exact owned fixture-server cleanup result.
 
+Run the workshop loop for a journey-level proposal, and record its terminal result in the PR:
+
+1. **Discover** owned components and their documented props with the MCP docs tools (`docs-list`, `docs-show`, `stories-find-by-component`) instead of re-inventing them.
+2. **Compose** or refresh the journey story under `apps/web/stories/journeys/` from production components with MSW-backed existing request boundaries.
+3. **Run story tests** with the MCP `test-run` tool (`bun run --cwd apps/web test:stories`); a failing `play` fails the run, and the a11y audit reports what it finds. Paste the passing-story list and any a11y finding; do not describe a failing run as green.
+4. **Capture proof** of the rendered canvas at the proposal's CSS-pixel viewport (390×844 for mobile) with the pinned `agent-browser`.
+
+The loop produces the review evidence above; it does not replace the `agent-browser` Home verification an implemented change still needs.
+
 Include the relevant failure/recovery path. For motion, include the short clip required above; when reduced motion applies, record the stable story target plus real browser media emulation, exact browser/device/viewport coverage, and the observed reduced behavior. A story name or viewport setting does not prove reduced-motion behavior.
 
 Keep an accepted Proposed reference immutable as design history. If its component, fixture, or behavior changes before review, replace its commit, deployment links, and capture and return it to unreviewed when the observable proposal changed materially. After any implementation UI change, refresh Implemented media and agent-browser evidence against the current PR head; refresh Before when the compared baseline changed.
