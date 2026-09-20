@@ -63,9 +63,9 @@ export function AccessForm({ next }: { next: string }) {
       className="grid gap-4"
       action="/api/access"
       method="post"
-      onSubmit={submit}
+      onSubmit={(event) => void submit(event)}
     >
-      <input type="hidden" name="next" value={next} />
+      <Input type="hidden" name="next" value={next} />
       <label className="grid gap-2 text-sm font-medium">
         Access password
         <Input

@@ -7,15 +7,22 @@ export type AccessNavigation = {
 
 type NavigationTarget = (destination: string) => void;
 
+type NavigateOnceOptions = {
+  target: object;
+  destination: string;
+  navigate: NavigationTarget;
+  releaseAfterNavigation: boolean;
+};
+
 const pendingNavigations = new WeakMap<object, Map<string, Promise<void>>>();
 const browserNavigationTarget = {};
 
-async function navigateOnce(
-  target: object,
-  destination: string,
-  navigate: NavigationTarget,
-  releaseAfterNavigation: boolean,
-): Promise<void> {
+async function navigateOnce({
+  target,
+  destination,
+  navigate,
+  releaseAfterNavigation,
+}: NavigateOnceOptions): Promise<void> {
   let targetNavigations = pendingNavigations.get(target);
   if (!targetNavigations) {
     targetNavigations = new Map();
@@ -70,15 +77,25 @@ export async function redirectOnAccessRequired(
   if (navigation.navigate) {
     // Injected navigation represents a soft lifecycle: concurrent denials share
     // one transition, then a later expiry may legitimately navigate again.
-    await navigateOnce(navigation.navigate, destination, navigation.navigate, true);
+    await navigateOnce({
+      target: navigation.navigate,
+      destination,
+      navigate: navigation.navigate,
+      releaseAfterNavigation: true,
+    });
   } else if (typeof window !== "undefined") {
     // Access expiry crosses the proxy boundary and must replace client state with
     // a full document request rather than becoming an in-app auth transition.
     // Keep that hard navigation one-shot because a successful assign unloads this
     // module; if it does not unload, repeated protected calls must not loop.
-    await navigateOnce(browserNavigationTarget, destination, (value) => {
-      window.location.assign(value);
-    }, false);
+    await navigateOnce({
+      target: browserNavigationTarget,
+      destination,
+      navigate: (value) => {
+        window.location.assign(value);
+      },
+      releaseAfterNavigation: false,
+    });
   }
   return true;
 }
