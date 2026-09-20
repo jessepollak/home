@@ -1,34 +1,30 @@
 # UI direction
 
-Home uses a clean, product-first financial interface. Signed-in Home and Invest visual craft follows **Direction 1 — Vercel Editorial** (locked 2026-09-08). IA stays Home shell v2 + Invest discovery v3.
+## Sources and status
 
-Base brand guidance (reviewed September 7, 2026) still informs the palette: `https://www.base.org/brand`, `https://www.base.org/brand/color`, and `https://www.base.org/brand/typography`.
+- **Implemented system:** [UI system](design-system.md#theme) owns current theme, typography and component contracts; component source and `apps/web/app/globals.css` determine what actually renders. Existing code is implementation evidence, not approval of a new visual standard.
+- **Scoped exploration:** [#662](https://github.com/jessepollak/home/issues/662) / [PR #675](https://github.com/jessepollak/home/pull/675) owns the current Home art-direction comparison. Its rendered proposals are unapproved until Jesse selects a specific revision. [#654 / PR #661](https://github.com/jessepollak/home/pull/661) is parked groundwork.
+- **Accepted direction:** record Jesse's review link, selected revision, rationale and scope here when a direction is selected. The reference-image preference does not select an implementation. Production adoption remains [#655](https://github.com/jessepollak/home/issues/655).
+- **Workflow:** the [design-engineering skill](../.agents/skills/design-engineering/SKILL.md#work-modes) defines exploration, maintenance, adoption and review. [UI PR previews](ui-pr-previews.md) owns evidence requirements.
 
-## Direction 1 tokens
+The September 8 “Vercel Editorial” lock and its `--home-*` palette, 8px control / 12px panel radii and feature-module styling recipe are historical (see this file's Git history). They are not an alternate token system to recreate. Use the current UI system for maintenance; an explicitly scoped exploration may reconsider visual choices without changing production behavior.
 
-```
---home-ink:        #0a0b0d
---home-muted:      #5b6270
---home-white:      #ffffff
---home-canvas:     #f7f8fa   /* page / shell behind panels */
---home-hairline:   #e6e8ec
---home-blue:       #0052ff
---control-radius:  8px
---panel-radius:    12px
-```
+Base brand guidance (reviewed September 7, 2026) informs identity: `https://www.base.org/brand`, `https://www.base.org/brand/color`, and `https://www.base.org/brand/typography`. Base Sans and Base Mono reuse rights remain unverified; naming a reference is not permission to bundle its assets.
 
-- Canvas behind modules; white panels; 1px hairlines. Panel radius 12px, controls 8px.
-- Near-ink `#0a0b0d` over pure black. Muted copy uses `#5b6270`.
-- Base blue is the single primary action accent (Add money, Buy, active tab). Send, Receive, Sell, and Account stay outline / quiet.
-- Percent change is green up / red down — never blue. Chart stroke is Base blue (~1.5–2px) with fill only if `rgba(0, 82, 255, 0.06)`.
-- Region accent is a whisper on currency marks only.
-- No gradients, glass, heavy in-app drop shadows, or gamification chrome.
-- Motion is short and optical, and must earn its place: purpose (feedback, spatial continuity, state indication, preventing a jarring change), frequency, and content sensitivity decide. Tab ≤180ms, chip ≤120ms, CTA press 100–160ms; other motion stays comparably short. Frequently read financial surfaces stay still — functional balances, amounts, and positions do not move merely for decoration.
-- `prefers-reduced-motion: reduce` removes spatial and transform motion, keeping short opacity or color transitions only when they aid comprehension. No decorative fallback, and smooth scrolling stays `auto`.
-- Base Sans and Base Mono are not bundled because reuse rights for this project are unverified. Home uses a system sans-serif stack.
+## Continuing product guidance
+
+Preserve financial meaning, readable amounts and identity, actionable recovery, accessibility and the existing money-action flow unless the task explicitly changes that flow. A visual exploration is not authority to change money execution or perform funded actions.
+
 - Do not put legal disclosures, eligibility essays, contract lists, source roster walls, "not an endorsement," or similar compliance copy on product screens (Home, Save, Invest, Borrow, Fund, etc.). Registry and docs may record contracts and eligibility for builders. Product list and discovery UI must not surface them. Present disclosures only under Account → Disclosures / Terms (or an equivalent settings section). Account should gain that destination if it is missing.
 - Review and confirm screens may show the **actionable** facts needed to complete an action (amount, fee, slippage, network). Do not turn those into catalog footnotes on list surfaces.
 
-## Feature-module contract
+## Motion
 
-Savings and Invest modules are passed into `HomeExperience` through `savingsContent` and `investContent`. Their scoped styles should use the Direction 1 tokens (`--home-ink`, `--home-muted`, `--home-white`, `--home-canvas`, `--home-hairline`, `--home-blue`) and the gray-scale aliases. Feature panels stay flat white on canvas with hairline separators — no gradients, glass, shadows, or restricted fonts.
+- Motion is short and optical, and must earn its place: purpose (feedback, spatial continuity, state indication, preventing a jarring change), frequency, and content sensitivity decide. Tab ≤180ms, chip ≤120ms, CTA press 100–160ms; other motion stays comparably short. Frequently read financial surfaces stay still — functional balances, amounts, and positions do not move merely for decoration.
+- `prefers-reduced-motion: reduce` removes spatial and transform motion, keeping short opacity or color transitions only when they aid comprehension. No decorative fallback, and smooth scrolling stays `auto`.
+
+## Carrying decisions forward
+
+After Jesse selects a rendered direction, keep the decision and rationale beside the accepted example: scope, source review, stable story/commit reference, and meaningful exceptions. Separate Jesse's decisions from agent suggestions and unapproved experiments. Adopt reusable mechanics through existing tokens/components; do not turn a preference from one screen into an app-wide rule without checking its scope.
+
+When revising design guidance, reuse a small set of existing fixed fixtures and viewports to compare the affected outputs. Check transfer to another relevant surface before broad adoption. Record what changed and the human feedback; model rankings assist review but do not establish acceptance. This uses the existing workshop and preview history, not a new evaluation service or screenshot-regression gate.
