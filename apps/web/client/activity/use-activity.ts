@@ -124,6 +124,7 @@ export function useActivity(
       loadMoreInFlightRef.current = false;
     }
   }, [autoLoadPaused, mergedPage?.transfers.length, query]);
+  const loadMore = useCallback(() => { void requestMore(); }, [requestMore]);
   const retryLoadMore = useCallback(() => {
     if (loadMoreInFlightRef.current) return;
     setAutoLoadPaused(false);
@@ -137,14 +138,14 @@ export function useActivity(
     return {
       status: "unavailable", page: null, loadingMore: false,
       loadMoreError: false, autoLoadPaused: false,
-      retry, refresh, loadMore: requestMore, retryLoadMore,
+      retry, refresh, loadMore, retryLoadMore,
     };
   }
   if (query.isPending) {
     return {
       status: "loading", page: null, loadingMore: false,
       loadMoreError: false, autoLoadPaused: false,
-      retry, refresh, loadMore: requestMore, retryLoadMore,
+      retry, refresh, loadMore, retryLoadMore,
     };
   }
   if (!mergedPage) {
@@ -152,7 +153,7 @@ export function useActivity(
       status: "error", page: null, loadingMore: false,
       loadMoreError: false, autoLoadPaused: false,
       error: readActivityFailure(query.error),
-      retry, refresh, loadMore: requestMore, retryLoadMore,
+      retry, refresh, loadMore, retryLoadMore,
     };
   }
   return {
@@ -163,7 +164,7 @@ export function useActivity(
     autoLoadPaused,
     retry,
     refresh,
-    loadMore: requestMore,
+    loadMore,
     retryLoadMore,
   };
 }

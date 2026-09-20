@@ -236,7 +236,7 @@ function IncrementalBalancesList({
     if (!active || !hasMore || typeof IntersectionObserver === "undefined") return;
     const sentinel = sentinelRef.current;
     if (!sentinel) return;
-    const closestRoot = sentinel.closest(".app-main-authenticated");
+    const closestRoot = sentinel.closest("[data-app-main-authenticated]");
     const root = closestRoot instanceof HTMLElement ? closestRoot : null;
     const observer = new IntersectionObserver(
       (entries) => {

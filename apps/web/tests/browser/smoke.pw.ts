@@ -389,11 +389,11 @@ async function openScrolledBalances(page: Page) {
   await page.waitForTimeout(150);
   const freshCount = await page.evaluate(countVisibleBalanceRows);
   const maxTop = await page.evaluate(() => {
-    const main = document.querySelector<HTMLElement>(".app-main-authenticated");
+    const main = document.querySelector<HTMLElement>("[data-app-main-authenticated]");
     return main ? Math.max(0, main.scrollHeight - main.clientHeight) : 0;
   });
   const target = await page.evaluate((max) => {
-    const main = document.querySelector<HTMLElement>(".app-main-authenticated");
+    const main = document.querySelector<HTMLElement>("[data-app-main-authenticated]");
     if (!main) return 0;
     main.scrollTop = Math.min(max, Math.max(240, Math.round(max * 0.6)));
     main.dispatchEvent(new Event("scroll", { bubbles: true }));
@@ -421,7 +421,7 @@ async function expectBalancesRestored(
 ) {
   await expect(page.getByRole("heading", { name: "Your money" })).toBeVisible();
   await expect.poll(() => page.evaluate(() =>
-    document.querySelector<HTMLElement>(".app-main-authenticated")?.scrollTop ?? 0,
+    document.querySelector<HTMLElement>("[data-app-main-authenticated]")?.scrollTop ?? 0,
   )).toBe(state.target);
   expect(state.target).toBeLessThanOrEqual(state.maxTop);
   await expect.poll(() => page.evaluate(countVisibleBalanceRows)).toBe(state.revealedCount);
@@ -429,7 +429,7 @@ async function expectBalancesRestored(
 
 function anchoredGroupOffset(page: Page) {
   return page.evaluate(() => {
-    const main = document.querySelector<HTMLElement>(".app-main-authenticated");
+    const main = document.querySelector<HTMLElement>("[data-app-main-authenticated]");
     const group = document.getElementById("investments");
     return main && group && main.scrollTop > 0
       ? group.getBoundingClientRect().top - main.getBoundingClientRect().top
@@ -549,7 +549,7 @@ test("canonical routing preserves the shell and one balances read", async ({ pag
   await expect(page).toHaveURL(/\/invest$/);
   await page.evaluate(() => {
     for (const node of [
-      document.querySelector<HTMLElement>(".app-main-authenticated"),
+      document.querySelector<HTMLElement>("[data-app-main-authenticated]"),
       document.querySelector<HTMLElement>("header"),
     ]) {
       if (node) (node as HTMLElement & { __shellProbe?: boolean }).__shellProbe = true;
@@ -564,7 +564,7 @@ test("canonical routing preserves the shell and one balances read", async ({ pag
   await page.goForward();
   await expect(page).toHaveURL(/\/invest$/);
   expect(await page.evaluate(() => [
-    document.querySelector<HTMLElement>(".app-main-authenticated"),
+    document.querySelector<HTMLElement>("[data-app-main-authenticated]"),
     document.querySelector<HTMLElement>("header"),
   ].every((node) => node && (node as HTMLElement & { __shellProbe?: boolean }).__shellProbe)))
     .toBe(true);
@@ -654,7 +654,7 @@ test("generic destination resets Balances to the top on browser Back", async ({ 
   await page.goBack();
   await expect(page.getByRole("heading", { name: "Your money" })).toBeVisible();
   await expect.poll(() => page.evaluate(() =>
-    document.querySelector<HTMLElement>(".app-main-authenticated")?.scrollTop ?? 0,
+    document.querySelector<HTMLElement>("[data-app-main-authenticated]")?.scrollTop ?? 0,
   )).toBe(0);
   await expect.poll(() => page.evaluate(countVisibleBalanceRows)).toBe(state.freshCount);
 });

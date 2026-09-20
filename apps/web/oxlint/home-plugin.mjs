@@ -28,6 +28,8 @@ import {
   noWidenThenAssert,
 } from "./rules/anti-slop.mjs";
 import { noDetachedClassConstantsRule } from "./rules/no-detached-class-constants.mjs";
+import { noUnknownTailwindClasses } from "./rules/unknown-classes.mjs";
+import { noLiteralJsxColors } from "./rules/jsx-colors.mjs";
 
 const homePlugin = {
   meta: { name: "home" },
@@ -57,6 +59,8 @@ const homePlugin = {
     "no-reduce-accumulator-copy": noReduceAccumulatorCopy,
     "no-widen-then-assert": noWidenThenAssert,
     "no-detached-class-constants": noDetachedClassConstantsRule,
+    "no-unknown-tailwind-classes": noUnknownTailwindClasses,
+    "no-literal-jsx-colors": noLiteralJsxColors,
   },
 };
 

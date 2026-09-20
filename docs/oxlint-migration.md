@@ -51,7 +51,18 @@ Oxlint native ownership is preferred. `no-location-assign-relative-destination` 
 
 The existing warning rules remain build-failing through deny-warnings. The type-aware pilot additionally evaluates `no-floating-promises`, `no-misused-promises`, `switch-exhaustiveness-check`, unsafe argument/assignment/call/member-access/return, and unnecessary assertions. Each is enabled only after positive and negative fixtures pass and real-tree diagnostics are classified. Production and test overrides may differ only to account for verified Bun test typing, not to hide source defects.
 
-Pilot outcome: `no-floating-promises` is enabled tree-wide; twelve intentional synchronous React test `act()` calls now use explicit `void`. `no-misused-promises` found six existing callback-shape diagnostics and `switch-exhaustiveness-check` found seven existing partial switches. The broad unsafe family and unnecessary-assertion pilot produced thousands of diagnostics dominated by external/Bun typing boundaries (including 10,346 unsafe calls and 4,962 unsafe member accesses), so those rules are not enabled tree-wide. Phase 1 nevertheless enables `no-unsafe-member-access` for production `server/cdp/**` modules, excluding tests whose Bun matcher types create unrelated noise. Its three real-tree findings in `server/cdp/session.ts` were repaired by treating SDK array entries as `unknown` until their fields are parsed. Failing SDK-`any`, legal typed, and boundary-parsing fixtures keep this override non-vacuous without banning `unknown` or broad type assertions. The other unsafe rules remain classified rather than silently suppressed, and the targeted override does not weaken the migrated 96-rule baseline.
+Pilot outcome: `no-floating-promises` is enabled tree-wide; twelve intentional synchronous React test `act()` calls now use explicit `void`. `no-misused-promises` and `switch-exhaustiveness-check` were classified and enabled in issue #677 (see "Focused follow-up coverage" below). The broad unsafe family and unnecessary-assertion pilot produced thousands of diagnostics dominated by external/Bun typing boundaries (including 10,346 unsafe calls and 4,962 unsafe member accesses), so those rules are not enabled tree-wide. Phase 1 nevertheless enables `no-unsafe-member-access` for production `server/cdp/**` modules, excluding tests whose Bun matcher types create unrelated noise. Its three real-tree findings in `server/cdp/session.ts` were repaired by treating SDK array entries as `unknown` until their fields are parsed. Failing SDK-`any`, legal typed, and boundary-parsing fixtures keep this override non-vacuous without banning `unknown` or broad type assertions. The other unsafe rules remain classified rather than silently suppressed, and the targeted override does not weaken the migrated 96-rule baseline.
+
+### Focused follow-up coverage (issue #677)
+
+A post-migration audit closed four shadcn/type-aware gaps without restoring ESLint or `@shadcn/lint`. Every new rule is a Home-owned Oxlint visitor with real-Oxlint fixtures and a delivery-contract canary.
+
+- **Unknown Tailwind classes (`home/no-unknown-tailwind-classes`).** Class strings in `{app,client,components}` production files (tests, stories, and `**/tests/**` excluded) are validated against the exact project theme by loading Tailwind's design system once from `app/globals.css` (`__unstable__loadDesignSystem`, resolved through `oxlint/policy/design-system.mjs`). A token is rejected when Tailwind cannot generate it. `group`/`peer`/`dark` markers and the reviewed plain-CSS classes in `oxlint/policy/custom-classes.mjs` are exempt. This found exactly three current unknowns, all repaired without changing rendering: `panel-fade` and `p-control-inset` were stale no-ops whose definitions were deleted earlier, so the dead class references were removed; `app-main-authenticated` was a style-less DOM hook and became the `data-app-main-authenticated` attribute consumed by `closest`/`querySelector`.
+- **Raw JSX colors (`home/no-literal-jsx-colors`).** Literal `fill`/`stroke`/`color`/`stopColor`/`floodColor`/`lightingColor` paint values are rejected unless they are `var(--…)`, `url(…)`, or a paint keyword (`none`, `currentColor`, `transparent`, `context-fill`, `context-stroke`). The single globe marker stroke moved from the JSX attribute into its CSS module (identical rendering). Three current brand fills on the designed ETH mark stay, narrowly excepted by file and exact literal in `oxlint/policy/jsx-color-exceptions.mjs` and covered by positive/negative fixtures.
+- **`typescript/no-misused-promises` (tree-wide, default options).** Six current findings were genuine callback-shape defects: four `loadMore: requestMore` sites in `client/activity/use-activity.ts` (a `Promise<void>` assigned to a `() => void` property) now expose a `void`-returning `loadMore` wrapper, and two `onSubmit={handle…Submit}` sites in `client/account/account-screen.tsx` now use `(event) => void handle…Submit(event)`. All six are fixed, so the rule is enabled at its default strictness with no suppressions.
+- **`typescript/switch-exhaustiveness-check` (`considerDefaultExhaustiveForUnions: true`).** Seven current switches (`server/actions/prepare.ts`, `client/account/cdp-wallet-provider-capabilities.ts` ×2, `client/actions/review.tsx`, `client/actions/operation-details.ts`, `client/account/account-screen.tsx` ×2) all carry an intentional `default` fallback, so none is a defect. Enabling the rule with `considerDefaultExhaustiveForUnions` keeps a precise, non-noisy boundary: switches without a `default` over a union must still enumerate every case (proved by a canary fixture).
+
+Audited-but-rejected candidates: blanket `no-arbitrary-values`, `no-inline-styles`, and `require-static-classes` remain out of scope because current uses are deliberate geometry (`[&_svg:not([class*='size-'])]`), safe-area behavior, CSS modules, library composition, and runtime styling; enforcing them would be noisy and would not represent a correctness defect. `@shadcn/lint` and ESLint remain absent because the package still restores an ESLint dependency chain through `@typescript-eslint/parser`'s mandatory peer.
 
 ### React and React Hooks — 33 rules
 
@@ -87,6 +98,8 @@ The three generic ESLint IDs are replaced by stable, specific Home rule IDs rath
 | Literal utility styles | app/client/components production | stock Tailwind scale and `var(--*)` arbitrary values | hex, rgba, raw palette, arbitrary px in className literal/expression/template and `cn`/`cva` literal/template |
 | Raw elements | app/client/components production outside UI/tests; current button allowlist only | owned UI wrappers, tests, `client/landing/supported-globe.tsx`; field allowlist remains empty | `button`, `input`, and `select` across app/client/components |
 | Detached classes | app/client/components production outside UI/stories/tests | imports, parameters, mutable/reassigned/member-mutated bindings (including destructuring and loop targets), calls and frozen wrappers, spreads, holes, dynamic shapes, predicate/data roles, non-final sequence operands, and lookup-result aliases | 118-case identifier/aggregate alias, scope, order, TypeScript-wrapper, static, and dynamic corpus |
+| Unknown Tailwind classes | app/client/components production; tests/stories excluded | `group`/`peer`/`dark` markers and reviewed plain-CSS classes in `custom-classes.mjs` | bare unknown class, unknown utility value, template/`cn`/`cva` literals, cva variant strings (not `defaultVariants`) |
+| Raw JSX colors | app/client/components production | `var()`/`url()`/paint keywords and reviewed brand-asset file+literal pairs | hex, named, and functional paint values on JSX color attributes |
 | Test source reads | tests/helpers except migration subtree; two exact source-read exceptions | migration helper/subtree and Apple Pay asset test; other test rules remain active | fs imports/exports/dynamic/require/templates and `Bun.file` |
 | Deterministic test timing | tests/helpers except migration subtree | 50ms timer and 2000ms wait boundaries | `setTimeout`, `setInterval`, `Bun.sleep`, and Testing Library waits above limits |
 | Behavioral assertions | tests/helpers except migration subtree | class writes/mutations | className/classList/getAttribute("class") reads |
@@ -158,9 +171,16 @@ apps/web/oxlint/rules/raw-elements.mjs
 apps/web/oxlint/rules/tests.mjs
 apps/web/oxlint/rules/anti-slop.mjs
 apps/web/oxlint/rules/no-detached-class-constants.mjs
+apps/web/oxlint/rules/unknown-classes.mjs
+apps/web/oxlint/rules/jsx-colors.mjs
 apps/web/oxlint/policy/mock-modules.mjs
+apps/web/oxlint/policy/custom-classes.mjs
+apps/web/oxlint/policy/jsx-color-exceptions.mjs
+apps/web/oxlint/policy/design-system.mjs
 apps/web/oxlint/THIRD_PARTY_NOTICES.md
 apps/web/oxlint/tests/anti-slop.test.mjs
+apps/web/oxlint/tests/unknown-classes.test.mjs
+apps/web/oxlint/tests/jsx-colors.test.mjs
 apps/web/oxlint/tests/*.test.mjs
 scripts/delivery/tests/oxlint-contracts.test.mjs
 ```
@@ -178,7 +198,7 @@ ESLint is removed only after all of the following are true:
 5. `app/coverage/page.tsx` and `client/account/cdp-money-action-execution.test.ts` native semantic differences are classified as defects or rule mismatch.
 6. Static, alias, relative, dynamic, template, and require boundary matrices pass.
 7. Existing allowlists are identical or smaller.
-8. The three current source suppressions are converted to exact, reasoned Oxlint directives or removed because equivalent ownership makes them unnecessary.
+8. Every current source suppression is converted to an exact, reasoned Oxlint directive or removed because equivalent ownership makes it unnecessary. The four present are: `app/coverage/page.tsx` (`nextjs/no-html-link-for-pages`), `components/ui/data-table.tsx` (`react-hooks/incompatible-library`), and `components/currency-mark.tsx` / `components/profile-mark.tsx` (`nextjs/no-img-element`).
 9. `bun run gates`, Oxlint-only `bun run lint`, and `bun check` pass after `bun install --frozen-lockfile` without changing `bun.lock`.
 10. Cold and warm lint timings are recorded using the baseline command shape.
 11. `eslint`, `eslint-config-next`, TypeScript ESLint dependencies, import resolver/plugin packages, `@shadcn/lint`, migration-only packages, `apps/web/eslint.config.mjs`, and obsolete ESLint tests are absent from the manifest and lockfile.

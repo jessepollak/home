@@ -135,7 +135,7 @@ function MemePaginationFooter({
     ) {
       return;
     }
-    const closestRoot = sentinel.closest(".app-main-authenticated");
+    const closestRoot = sentinel.closest("[data-app-main-authenticated]");
     const root = closestRoot instanceof HTMLElement ? closestRoot : null;
     const observer = new IntersectionObserver(
       (entries) => {
