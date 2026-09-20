@@ -13,6 +13,16 @@ import { awaitBalanceSignal } from "@/server/balances/signal";
 
 export type ReceiptMatch = { transactionHash: `0x${string}`; logIndex: number } | null;
 
+export type FundingOrderTransitionEvent = {
+  route: "/api/funding/orders" | "/api/funding/orders/:id" | "/api/funding/webhooks/:provider";
+  code: "ORDER_CREATED" | "ORDER_REJECTED" | "ORDER_AMBIGUOUS" | "ORDER_SENT_UNVERIFIED" | "ORDER_RECEIVED" | "ORDER_EXPIRED" | "ORDER_CANCELLED" | "ORDER_FAILED" | "ORDER_REFUNDED";
+  outcome: "ok" | "rejected" | "unavailable" | "failed";
+  providerId: string;
+  region: string;
+  sandbox: boolean;
+  durationMs: number;
+};
+
 type Environment = Readonly<Record<string, string | undefined>>;
 export type FundingCoreDependencies = {
   providers: ReadonlyArray<FundingProvider>;
@@ -25,6 +35,7 @@ export type FundingCoreDependencies = {
   logUnmatchedWebhook?: (event: { providerId: string; reason: "invalid" | "unmatched" | "region-mismatch" }) => void;
   logMatchedWebhook?: (event: { providerId: string; region: string }) => void;
   logProviderDiscoveryFailure?: (event: { providerId: string; reason: "configuration" | "provider"; code: FundingConfigurationCode }) => void;
+  logOrderTransition?: (event: FundingOrderTransitionEvent) => void;
   markStale?: (address: `0x${string}`, at: Date) => Promise<void>;
   now?: () => Date;
 };
@@ -348,11 +359,17 @@ export class FundingCore {
     });
     if (!reserved.created) return publicOrder(reserved.order);
     const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "onramp", paymentMethodId: claims.paymentMethod, env: this.env, fetchImplementation: this.deps.fetchImplementation, sandbox: claims.sandbox });
+    const dispatchStartedAt = Date.now();
     const result = await onramp.createOrder({ homeOrderId: id, destination: session.smartAccount.address, fiatAmount: claims.fiatAmount, quote: claims.quote, customerRef: claims.customerRef ?? undefined, clientIp: resolveClientIp(headers, this.env, claims.sandbox), returnUrl: `${returnOrigin}/fund?return=funding` }, ctx);
-    if (result.outcome === "ambiguous") return publicOrder(await this.deps.store.markDispatchAmbiguous(id, reserved.order.version, this.now().toISOString()));
+    if (result.outcome === "ambiguous") {
+      const ambiguous = await this.deps.store.markDispatchAmbiguous(id, reserved.order.version, this.now().toISOString());
+      this.logTransition(ambiguous, "ORDER_AMBIGUOUS", "unavailable", "/api/funding/orders", dispatchStartedAt);
+      return publicOrder(ambiguous);
+    }
     if (result.outcome === "rejected") {
       const rejected = await this.deps.store.applyObservation(id, { state: "failed", providerStatus: result.message, expectedVersion: reserved.order.version, updatedAt: this.now().toISOString() });
       if (!rejected) throw new FundingCoreError("ORDER_STATE_CHANGED", 409);
+      if (rejected.state !== reserved.order.state) this.logTransition(rejected, "ORDER_REJECTED", "rejected", "/api/funding/orders", dispatchStartedAt);
       return publicOrder(rejected);
     }
     const asset = getFundingAsset(claims.assetId)!;
@@ -366,9 +383,13 @@ export class FundingCore {
     ) {
       // The create reached the provider, so a contradictory echo is an ambiguous
       // dispatch, never a safe rejection that the UI may repeat.
-      return publicOrder(await this.deps.store.markDispatchAmbiguous(id, reserved.order.version, this.now().toISOString()));
+      const ambiguous = await this.deps.store.markDispatchAmbiguous(id, reserved.order.version, this.now().toISOString());
+      this.logTransition(ambiguous, "ORDER_AMBIGUOUS", "unavailable", "/api/funding/orders", dispatchStartedAt);
+      return publicOrder(ambiguous);
     }
-    return publicOrder(await this.deps.store.completeDispatch(id, { ...result.order, expectedVersion: reserved.order.version, updatedAt: this.now().toISOString() }));
+    const created = await this.deps.store.completeDispatch(id, { ...result.order, expectedVersion: reserved.order.version, updatedAt: this.now().toISOString() });
+    this.logTransition(created, "ORDER_CREATED", "ok", "/api/funding/orders", dispatchStartedAt);
+    return publicOrder(created);
   }
 
   async getOrder(session: VerifiedAccountSession, id: string) {
@@ -452,6 +473,7 @@ export class FundingCore {
     const asset = getFundingAsset(order.assetId);
     if (!asset) return order;
     const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "onramp", paymentMethodId: order.paymentMethod, env: this.env, fetchImplementation: this.deps.fetchImplementation, sandbox: order.sandbox });
+    const refreshStartedAt = Date.now();
     let observation: Observation;
     try {
       observation = await onramp.getOrder({
@@ -479,6 +501,8 @@ export class FundingCore {
     // A concurrent or terminal transition won the compare-and-swap. This stale
     // observation must not claim a receipt or overwrite the winning state.
     if (!updated) return await this.deps.store.getOwned(order.id, order.owner) ?? order;
+    const refreshRoute = force ? "/api/funding/webhooks/:provider" : "/api/funding/orders/:id";
+    if (updated.state !== order.state) this.logObservedTransition(updated, refreshRoute, refreshStartedAt);
     if (observation.transactionHash && !order.sandbox) {
       const evidence = await this.deps.verifyReceipt(updated, observation.transactionHash);
       if (evidence) {
@@ -490,6 +514,7 @@ export class FundingCore {
         });
         if (received) {
           updated = received;
+          this.logTransition(received, "ORDER_RECEIVED", "ok", refreshRoute, refreshStartedAt);
           await awaitBalanceSignal(() => this.deps.markStale?.(
             received.destination,
             receivedAt,
@@ -498,6 +523,40 @@ export class FundingCore {
       }
     }
     return updated;
+  }
+
+  private logObservedTransition(
+    order: FundingOrder,
+    route: FundingOrderTransitionEvent["route"],
+    startedAt: number,
+  ): void {
+    const transition = {
+      "sent-unverified": ["ORDER_SENT_UNVERIFIED", "unavailable"],
+      expired: ["ORDER_EXPIRED", "failed"],
+      cancelled: ["ORDER_CANCELLED", "failed"],
+      failed: ["ORDER_FAILED", "failed"],
+      refunded: ["ORDER_REFUNDED", "failed"],
+    } as const;
+    const mapped = transition[order.state as keyof typeof transition];
+    if (mapped) this.logTransition(order, mapped[0], mapped[1], route, startedAt);
+  }
+
+  private logTransition(
+    order: FundingOrder,
+    code: FundingOrderTransitionEvent["code"],
+    outcome: FundingOrderTransitionEvent["outcome"],
+    route: FundingOrderTransitionEvent["route"],
+    startedAt: number,
+  ): void {
+    this.deps.logOrderTransition?.({
+      route,
+      code,
+      outcome,
+      providerId: order.providerId,
+      region: order.region,
+      sandbox: order.sandbox,
+      durationMs: Math.max(0, Date.now() - startedAt),
+    });
   }
 
   private provider(id: string) { return this.deps.providers.find((provider) => provider.manifest.id === id); }

@@ -11,6 +11,7 @@ import type {
   ReconciliationIntent,
 } from "@/shared/funding/provider-contract";
 import { decimalToAtomic } from "@/shared/formatting/atomic";
+import { emitFundingProviderFailure, type FundingProviderFailureCode } from "../../core/provider-failure";
 import { IDRX_API_ORIGIN, IDRX_CHECKOUT_ORIGIN, idrxManifest } from "./manifest";
 
 const MINT_PATH = "/transaction/mint-request";
@@ -137,6 +138,7 @@ export const idrxProvider: FundingProvider = {
   },
 
   async getOrder(input, ctx) {
+    const startedAt = Date.now();
     if (!isValidReconciliationIntent(input, ctx)) {
       return unknown("INVALID_RECONCILIATION_INTENT");
     }
@@ -156,28 +158,39 @@ export const idrxProvider: FundingProvider = {
         cache: "no-store",
       });
     } catch {
+      emitIdrxStatusFailure("PROVIDER_TRANSPORT", startedAt, ctx.binding.region);
       return unknown("TRANSPORT_ERROR");
     }
-    if (!response.ok) return unknown(`HTTP_${response.status}`);
+    if (!response.ok) {
+      emitIdrxStatusFailure(response.status >= 500 ? "PROVIDER_HTTP_5XX" : "PROVIDER_HTTP_4XX", startedAt, ctx.binding.region);
+      return unknown(`HTTP_${response.status}`);
+    }
 
     try {
       const payload = parseProviderJson(await readBoundedText(response));
       if (!isRecord(payload) || !Array.isArray(payload.records)) {
+        emitIdrxStatusFailure("PROVIDER_INVALID_RESPONSE", startedAt, ctx.binding.region);
         return unknown("INVALID_RESPONSE");
       }
-      if (payload.records.length > HISTORY_TAKE) return unknown("INVALID_RESPONSE");
+      if (payload.records.length > HISTORY_TAKE) {
+        emitIdrxStatusFailure("PROVIDER_INVALID_RESPONSE", startedAt, ctx.binding.region);
+        return unknown("INVALID_RESPONSE");
+      }
       if (payload.records.length === 0) {
         return { state: "awaiting-payment", providerStatus: "NOT_FOUND" };
       }
       if (payload.records.length !== 1 || !isRecord(payload.records[0])) {
+        emitIdrxStatusFailure("PROVIDER_INVALID_RESPONSE", startedAt, ctx.binding.region);
         return unknown("AMBIGUOUS_HISTORY");
       }
       const record = payload.records[0];
       if (!recordMatchesReconciliationIntent(record, input, ctx)) {
+        emitIdrxStatusFailure("PROVIDER_INVALID_RESPONSE", startedAt, ctx.binding.region);
         return unknown("INTENT_MISMATCH");
       }
       return observationFromRecord(record);
     } catch {
+      emitIdrxStatusFailure("PROVIDER_INVALID_RESPONSE", startedAt, ctx.binding.region);
       return unknown("INVALID_RESPONSE");
     }
     },
@@ -644,6 +657,20 @@ function observationFromRecord(record: JsonRecord): Observation {
 
 function unknown(providerStatus: string): Observation {
   return { state: "unknown", providerStatus };
+}
+
+function emitIdrxStatusFailure(
+  code: FundingProviderFailureCode,
+  startedAt: number,
+  region: string,
+): void {
+  emitFundingProviderFailure({
+    route: "/funding/providers/idrx",
+    code,
+    provider: "idrx",
+    region,
+    startedAt,
+  });
 }
 
 function readTransactionHash(record: JsonRecord): `0x${string}` | null {

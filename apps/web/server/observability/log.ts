@@ -41,6 +41,7 @@ export function emitServerEvent(
     outcome: ServerEventOutcome;
     provider?: string;
     region?: string;
+    sandbox?: boolean;
     owner?: { subject: string; accountProvider: string };
     durationMs?: number;
   },
@@ -58,6 +59,7 @@ export function emitServerEvent(
     outcome: fields.outcome,
     ...(fields.provider ? { provider: fields.provider } : {}),
     ...(fields.region ? { region: fields.region } : {}),
+    ...(typeof fields.sandbox === "boolean" ? { sandbox: fields.sandbox } : {}),
     ...(ownerHash ? { ownerHash } : {}),
     durationMs: fields.durationMs ?? 0,
   });

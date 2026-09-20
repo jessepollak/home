@@ -1,6 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createProviderContext } from "@/server/funding/core/provider-context";
 import { describeFundingAdapter } from "@/server/funding/core/testing/describeFundingAdapter";
+import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 import type {
   OrderIntent,
   ReconciliationIntent,
@@ -24,6 +25,9 @@ const intent = {
   fiatAmount: "20000.50",
   returnUrl: "https://home.example/funding/return",
 } satisfies OrderIntent;
+beforeEach(() => setObservabilityLogWriterForTests(() => undefined));
+afterEach(() => setObservabilityLogWriterForTests());
+
 const reconciliationIntent = {
   providerOrderId: "synthetic-order-1",
   transactionType: "MINT",
@@ -123,6 +127,37 @@ describeFundingAdapter({
 });
 
 describe("IDRX adapter behavior", () => {
+  test("emits one provider-attributed cause for each failed status attempt", async () => {
+    const lines: string[] = [];
+    setObservabilityLogWriterForTests((line) => lines.push(line));
+    try {
+      const attempts: Array<{ fetch: typeof fetch; code: string }> = [
+        { fetch: (async () => { throw new Error("synthetic transport"); }) as unknown as typeof fetch, code: "PROVIDER_TRANSPORT" },
+        { fetch: (async () => new Response("", { status: 400 })) as unknown as typeof fetch, code: "PROVIDER_HTTP_4XX" },
+        { fetch: (async () => new Response("", { status: 503 })) as unknown as typeof fetch, code: "PROVIDER_HTTP_5XX" },
+        { fetch: (async () => new Response("not-json", { status: 200 })) as unknown as typeof fetch, code: "PROVIDER_INVALID_RESPONSE" },
+      ];
+      for (const attempt of attempts) {
+        const ctx = createProviderContext({
+          manifest: idrxProvider.manifest,
+          region: "ID",
+          paymentMethodId: "qris",
+          env,
+          fetchImplementation: attempt.fetch,
+        });
+        expect((await idrxProvider.onramp!.getOrder(reconciliationIntent, ctx)).state).toBe("unknown");
+      }
+      expect(lines.map((line) => {
+        const event = JSON.parse(line) as Record<string, unknown>;
+        expect(event).toMatchObject({ kind: "funding-order", provider: "idrx", region: "ID" });
+        expect(Object.keys(event)).not.toContain("providerStatus");
+        return event.code;
+      })).toEqual(attempts.map((attempt) => attempt.code));
+    } finally {
+      setObservabilityLogWriterForTests();
+    }
+  });
+
   test("preserves the IDRX nullable bigint amount contract", () => {
     const cases = [
       { value: "20000.50", decimals: 2, expected: BigInt(2_000_050) },

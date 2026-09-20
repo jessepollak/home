@@ -54,7 +54,7 @@ describe("Ripio funding adapter", () => {
     expect(calls).toBe(1);
   });
 
-  test("emits only closed, scrubbed ambiguous-create evidence", async () => {
+  test("emits only closed, scrubbed transport cause evidence for an ambiguous create", async () => {
     const lines: string[] = [];
     setObservabilityLogWriterForTests((line) => lines.push(line));
     const privateValue = `${homeOrderId}:${customerRef}:${intent.destination}:super-secret`;
@@ -70,7 +70,7 @@ describe("Ripio funding adapter", () => {
       route: "/funding/providers/ripio",
       level: "error",
       kind: "funding-order",
-      code: "ORDER_AMBIGUOUS",
+      code: "PROVIDER_TRANSPORT",
       outcome: "unavailable",
       provider: "ripio",
       region: "AR",

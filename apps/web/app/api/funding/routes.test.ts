@@ -8,6 +8,12 @@ import { GET as providerCustomers } from "./provider-customers/route";
 import { POST as startProviderCustomerVerification } from "./provider-customers/verification/route";
 import { POST as webhook } from "./webhooks/[provider]/route";
 import { readBoundedWebhookBody } from "@/server/funding/core/webhook-body";
+import { setObservabilityLogWriterForTests } from "@/server/observability/log";
+import {
+  handleFundingOpenOrderGet,
+  handleFundingOrderGetById,
+  handleFundingOrderPost,
+} from "./orders/handler";
 
 function assertPrivate(response: Response) {
   expect(response.headers.get("cache-control")).toContain("private");
@@ -119,6 +125,58 @@ describe("funding route privacy and rejection", () => {
       const response = await invoke();
       expect(response.ok).toBe(false);
       assertPrivate(response);
+    }
+  });
+
+  test("omits unknown provider attribution from each funding order route catch path", async () => {
+    const lines: string[] = [];
+    setObservabilityLogWriterForTests((line) => lines.push(line));
+    try {
+      const session = {
+        user: { subject: "funding-user" },
+        smartAccount: { address: "0x1111111111111111111111111111111111111111" as const, chainId: 8453 as const },
+        accountProvider: "cdp-embedded" as const,
+      };
+      const fail = async (): Promise<never> => { throw new Error("store unavailable"); };
+      const dependencies = {
+        authorize: async () => session,
+        createOrder: fail,
+        getOpenOrder: fail,
+        getOrder: fail,
+      };
+      const responses = await Promise.all([
+        handleFundingOrderPost(new Request("https://home.example/api/funding/orders", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ quoteToken: "synthetic-token" }),
+        }), dependencies),
+        handleFundingOpenOrderGet(
+          new Request("https://home.example/api/funding/orders?region=ID"),
+          dependencies,
+        ),
+        handleFundingOrderGetById(
+          new Request("https://home.example/api/funding/orders/11111111-1111-4111-8111-111111111111"),
+          "11111111-1111-4111-8111-111111111111",
+          dependencies,
+        ),
+      ]);
+
+      expect(responses.map((response) => response.status)).toEqual([503, 503, 503]);
+      expect(lines).toHaveLength(3);
+      const eventRoutes = lines.map(
+        (line) => (JSON.parse(line) as Record<string, unknown>).route,
+      );
+      expect(eventRoutes.filter((route) => route === "/api/funding/orders")).toHaveLength(2);
+      expect(eventRoutes.filter((route) => route === "/api/funding/orders/:redacted")).toHaveLength(1);
+      for (const line of lines) {
+        const event = JSON.parse(line) as Record<string, unknown>;
+        expect(event).toMatchObject({ kind: "funding-order", code: "ORDER_UNAVAILABLE", ownerHash: expect.any(String) });
+        expect(event).not.toHaveProperty("provider");
+        expect(line).not.toContain("cdp-embedded");
+        expect(line).not.toContain("funding-user");
+      }
+    } finally {
+      setObservabilityLogWriterForTests();
     }
   });
 

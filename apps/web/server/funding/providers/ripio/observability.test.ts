@@ -17,10 +17,10 @@ describe("Ripio failure classification", () => {
       ["quote", new RipioProviderError("binding-conflict"), "QUOTE_ECHO_MISMATCH"],
       ["order", new RipioProviderError("binding-conflict"), "ORDER_ECHO_MISMATCH"],
       ["status", new RipioProviderError("binding-conflict"), "STATUS_ECHO_MISMATCH"],
-      ["order", new RipioProviderError("ambiguous-create"), "ORDER_AMBIGUOUS"],
+      ["order", new RipioProviderError("ambiguous-create"), "PROVIDER_TRANSPORT"],
       ["order", new RipioProviderError("ambiguous-create", null, new RipioProviderError("binding-conflict")), "ORDER_ECHO_MISMATCH"],
-      ["order", new RipioProviderError("ambiguous-create", 201, new RipioProviderError("invalid-response", 201)), "ORDER_AMBIGUOUS"],
-      ["order", new RipioProviderError("ambiguous-create", 503), "ORDER_AMBIGUOUS"],
+      ["order", new RipioProviderError("ambiguous-create", 201, new RipioProviderError("invalid-response", 201)), "PROVIDER_INVALID_RESPONSE"],
+      ["order", new RipioProviderError("ambiguous-create", 503), "PROVIDER_HTTP_5XX"],
       ["quote", new RipioProviderError("ambiguous-create", 200, new RipioProviderError("invalid-response", 200)), "PROVIDER_INVALID_RESPONSE"],
     ] as const;
 

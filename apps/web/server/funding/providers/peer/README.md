@@ -2,6 +2,19 @@
 
 Peer is registered once with an offramp port. No Peer onramp is implemented: the published integration still does not provide the hosted recipient/asset/amount/country/recovery contract required by issue #436.
 
+## Acceptance
+
+| Offramp rail | CI synthetic | Local staging | Production / hosted funded |
+| --- | --- | --- | --- |
+| US Cash App / Zelle | Required, no network | Planned, not run | Not accepted |
+| GB Monzo / Revolut | Required, no network | Planned, not run | Not accepted |
+
+- **Environment and hazards:** capability conformance is synthetic. Staging deposit/withdraw and every production escrow action are writes; payment fulfillment and funded escrow require explicit bounded authorization. Peer acceptance is offramp-only and intentionally outside the onramp coverage registry.
+- **Owners and approvals:** the integration owner runs conformance; the operator owns enabled credentials/contracts; Jesse approves each staging or production funded plan and its maximum exposure.
+- **Stop and recovery:** stop on contract/config mismatch, missing country confirmation, ambiguous chain/provider evidence, or any bound breach. Do not repeat a deposit; recover through Action receipt, owner-order reload, and full withdrawal paths.
+- **Evidence:** retain redacted Action receipts, owner-order/status recovery, duplicate-protection, and withdrawal results for each account provider and rail; never retain handles, addresses, transaction identifiers, or payment details in logs.
+- **Current claim (September 14, 2026):** synthetic/local implementation only; no staging, production, live, or funded acceptance claim.
+
 ## Implementation and enablement gates
 
 The Home adapter implements Base-USDC cash-out through pinned Peer production and staging deployments. It uses `@zkp2p/cash` `0.5.3` for static capabilities, estimates, payee canonicalization/registration, owner order reads, and full-close withdrawal planning, plus `@zkp2p/sdk` `0.14.1` for the escrow call builder. SDK calldata is treated as untrusted: Home decodes a Home-owned ABI fragment and asserts token, amount, range, one platform/currency, payee hash, oracle sentinel/config, gating service, guardian, zero delegate/value, `retainOnEmpty=false`, exact ERC-8021 attribution, target, and call cardinality. Home authors any exact USDC approval.

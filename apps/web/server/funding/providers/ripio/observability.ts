@@ -1,28 +1,19 @@
 import "server-only";
 
-import { emitServerEvent } from "@/server/observability/log";
+import {
+  emitFundingProviderFailure,
+  type FundingProviderFailureCode,
+} from "../../core/provider-failure";
 import { RipioProviderError } from "./client";
 
 export type RipioFailureStage = "customer" | "quote" | "order" | "status";
-
-export type RipioFailureCode =
-  | "FUNDING_PROVIDER_CONFIGURATION"
-  | "QUOTE_ECHO_MISMATCH"
-  | "ORDER_ECHO_MISMATCH"
-  | "ORDER_AMBIGUOUS"
-  | "STATUS_ECHO_MISMATCH"
-  | "PROVIDER_HTTP_4XX"
-  | "PROVIDER_HTTP_5XX"
-  | "PROVIDER_INVALID_RESPONSE"
-  | "PROVIDER_TRANSPORT";
+export type RipioFailureCode = FundingProviderFailureCode;
 
 export function classifyRipioFailure(
   stage: RipioFailureStage,
   error: unknown,
 ): RipioFailureCode | null {
-  if (!(error instanceof RipioProviderError)) {
-    return stage === "order" ? "ORDER_AMBIGUOUS" : "PROVIDER_TRANSPORT";
-  }
+  if (!(error instanceof RipioProviderError)) return "PROVIDER_TRANSPORT";
 
   if (error.code === "not-configured" || error.code === "unauthorized") {
     return "FUNDING_PROVIDER_CONFIGURATION";
@@ -39,14 +30,12 @@ export function classifyRipioFailure(
     const cause = error.cause;
     if (cause instanceof RipioProviderError) {
       if (cause.code === "binding-conflict") return echoMismatchCode(stage);
-      if (cause.code === "invalid-response") {
-        return stage === "order" ? "ORDER_AMBIGUOUS" : "PROVIDER_INVALID_RESPONSE";
-      }
+      if (cause.code === "invalid-response") return "PROVIDER_INVALID_RESPONSE";
+      if (cause.status !== null) return httpFailureCode(cause.status);
     }
-    if (stage === "order") return "ORDER_AMBIGUOUS";
     return error.status === null ? "PROVIDER_TRANSPORT" : httpFailureCode(error.status);
   }
-  return stage === "order" ? "ORDER_AMBIGUOUS" : "PROVIDER_TRANSPORT";
+  return "PROVIDER_TRANSPORT";
 }
 
 export function emitRipioFailure(
@@ -57,15 +46,12 @@ export function emitRipioFailure(
 ): void {
   const code = classifyRipioFailure(stage, error);
   if (!code) return;
-  emitServerEvent("funding-order", {
+  emitFundingProviderFailure({
     route: "/funding/providers/ripio",
     code,
-    outcome: code.endsWith("ECHO_MISMATCH") || code === "PROVIDER_INVALID_RESPONSE"
-      ? "failed"
-      : "unavailable",
     provider: "ripio",
     region,
-    durationMs: Date.now() - startedAt,
+    startedAt,
   });
 }
 

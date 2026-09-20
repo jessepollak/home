@@ -95,8 +95,20 @@ export const SERVER_EVENT_OUTCOMES = [
   "accepted",
   "ignored",
 ] as const;
+export const FUNDING_ORDER_LIFECYCLE_CODES = [
+  "ORDER_CREATED",
+  "ORDER_REJECTED",
+  "ORDER_AMBIGUOUS",
+  "ORDER_SENT_UNVERIFIED",
+  "ORDER_RECEIVED",
+  "ORDER_EXPIRED",
+  "ORDER_CANCELLED",
+  "ORDER_FAILED",
+  "ORDER_REFUNDED",
+] as const;
 export const FUNDING_ORDER_CODES = [
   "ORDER_UNAVAILABLE",
+  ...FUNDING_ORDER_LIFECYCLE_CODES,
   "FUNDING_PROVIDER_CONFIGURATION",
   "FUNDING_SANDBOX_MIGRATION_REQUIRED",
   "FUNDING_BINDING_ENVIRONMENT_MISSING",
@@ -104,7 +116,6 @@ export const FUNDING_ORDER_CODES = [
   "OFFRAMP_DISCOVERY_PROVIDER",
   "QUOTE_ECHO_MISMATCH",
   "ORDER_ECHO_MISMATCH",
-  "ORDER_AMBIGUOUS",
   "STATUS_ECHO_MISMATCH",
   "PROVIDER_HTTP_4XX",
   "PROVIDER_HTTP_5XX",
@@ -170,6 +181,7 @@ export type ObservabilityEvent =
       outcome: ServerEventOutcome;
       provider?: string;
       region?: string;
+      sandbox?: boolean;
       ownerHash?: string;
       durationMs: number;
     };
@@ -281,6 +293,7 @@ export type ObservabilityLogLine = ObservabilityLogBase &
         outcome: ServerEventOutcome;
         provider?: string;
         region?: string;
+        sandbox?: boolean;
         ownerHash?: string;
         durationMs: number;
       }
@@ -435,7 +448,9 @@ export function normalizeObservabilityEvent(
     const region = event.region && /^[A-Z]{2}$/.test(event.region)
       ? event.region
       : undefined;
-    const ownerHash = event.ownerHash && /^[a-f0-9]{32}$/.test(event.ownerHash)
+    const ownerHash = event.ownerHash &&
+      !(event.kind === "funding-order" && (FUNDING_ORDER_LIFECYCLE_CODES as readonly string[]).includes(code)) &&
+      /^[a-f0-9]{32}$/.test(event.ownerHash)
       ? event.ownerHash
       : undefined;
     return {
@@ -449,6 +464,7 @@ export function normalizeObservabilityEvent(
       outcome,
       ...(provider ? { provider } : {}),
       ...(region ? { region } : {}),
+      ...(typeof event.sandbox === "boolean" ? { sandbox: event.sandbox } : {}),
       ...(ownerHash ? { ownerHash } : {}),
       durationMs: boundedInteger(event.durationMs, 60_000),
     };

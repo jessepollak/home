@@ -58,6 +58,7 @@ Do not add provider credentials or funded-wallet checks to pull-request CI.
 - Add behavioral tests for regressions that matter, with exact bigint fixtures for amounts. Follow the [test policy](docs/architecture.md#test-policy) for what to test and what to avoid.
 - Run `bun check`; run the browser smoke for shell, session, or action-flow changes, and the story tests for Storybook or owned-component changes. Keep live provider and funded-wallet checks out of CI.
 - Update the matching current doc in the same change when a delivered, user-visible, or execution contract changes.
+- A funding provider contribution includes an **Acceptance** section beside the adapter using the shared [provider acceptance template](docs/integrations/README.md#provider-acceptance-template): rail/environment matrix, write hazards, owners/approvers, stop/recovery rules, evidence, and a dated scoped claim. Keep provider credentials, network probes, and funded checks out of pull-request CI; onramp status must match `apps/web/config/coverage.ts`.
 
 ## Factory delivery
 

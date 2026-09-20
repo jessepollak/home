@@ -75,6 +75,18 @@ bun check
 
 Tests lock contact-field omission, exact purchase amount, one create, generic status GET, embedded payment-link acceptance, sandbox query/reference behavior, account-provider eligibility, `userAuthToken` containment, iframe attributes, trusted messages, and receipt-gated completion.
 
+## Acceptance
+
+| Rail | CI synthetic | Local sandbox | Production / hosted funded |
+| --- | --- | --- | --- |
+| US / Apple Pay / Base USDC | Required, no network | Completed September 16, 2026 | Not accepted |
+
+- **Environment and hazards:** Coinbase sandbox uses production CDP credentials and provider-hosted synthetic writes; production order creation and payment are production writes. No provider probe, order, or payment is authorized by CI.
+- **Owners and approvals:** the integration owner runs synthetic checks; the operator authorizes credentialed sandbox probes; Jesse explicitly approves any hosted production/funded payment.
+- **Stop and recovery:** stop on an unexpected domain, amount, status, credential error, or ambiguous create. Never repeat create for the reservation; preserve the order and reconcile status before a separately approved retry.
+- **Evidence:** retain command output and redacted provider/Home state evidence; hosted acceptance additionally requires the approved bound, exact rail, final provider state, and Home receipt result without IDs, addresses, payment data, or credentials.
+- **Current claim (September 16, 2026):** `sandbox` for the US onramp, matching `apps/web/config/coverage.ts`. Production and funded acceptance are not claimed.
+
 ## Operator actions
 
 - In CDP Portal, allowlist and verify Home's production and preview domains for Apple Pay. `localhost` needs no registration.

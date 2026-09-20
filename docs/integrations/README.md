@@ -2,6 +2,17 @@
 
 Status: issuer walkthrough for the funding-provider seam on `main`, updated September 18, 2026. This page does not authorize a funded test, deployment, provider enablement, or merge. Live validation follows the risk-based operator contract below.
 
+## Provider acceptance template
+
+Every onramp or offramp contribution documents these four gates in an **Acceptance** section beside its adapter:
+
+1. **CI conformance:** synthetic fixtures and contract tests only, with no network or credentials.
+2. **Provider probes:** name each schema/live call, whether it is read-only, a sandbox write, or a production write, and the authorization required before it runs.
+3. **Local or sandbox end to end:** state the actual environment, owner and approver, stop rules, ambiguous-write recovery, and redacted evidence to retain.
+4. **Hosted-final funded proof:** cover every declared rail, require explicit payment/funded authorization, and retain only redacted evidence.
+
+The section also includes a rail × environment matrix, sandbox and production write hazards, owners/approvers, stop and recovery rules, required evidence, and a dated environment-scoped current claim. Onramp claims use `none`, `planned`, `in-build`, `sandbox`, or `live`; [`apps/web/config/coverage.ts`](../../apps/web/config/coverage.ts) is authoritative, and `live` requires dated hosted-production evidence. Offramps document their acceptance separately when they are outside that registry. Credentials, provider calls, and funded checks never run in pull-request CI.
+
 ## Current status and prerequisites
 
 | Capability | Current `main` | What to use |
