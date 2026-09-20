@@ -1,7 +1,7 @@
 import "@/client/account/dom-test-harness";
 import { afterEach, describe, expect, test } from "bun:test";
 import { page } from "@/tests/helpers/dom";
-import { ReferenceHome } from "./reference-home";
+import { ReferenceHome, type HomeTreatment } from "./reference-home";
 import { reimaginedFundedState, reimaginedLongLocalizedState } from "./fixtures";
 
 const { cleanup, fireEvent, render } = await import("@testing-library/react");
@@ -9,9 +9,9 @@ afterEach(cleanup);
 
 function text() { return document.body.textContent ?? ""; }
 
-describe("Astra funded Home", () => {
+describe.each([undefined, "A", "B", "C"] as const)("Funded Home treatment %s (undefined is baseline)", (treatment: HomeTreatment | undefined) => {
   test("separates net, available cash and savings using the existing exact presenter", () => {
-    render(<ReferenceHome />);
+    render(<ReferenceHome treatment={treatment} />);
     expect(page().getByRole("region", { name: "Net position" }).textContent).toContain("$1,250.00");
     expect(page().getByRole("region", { name: "Available cash and funding" }).textContent).toContain("$250.00");
     expect(page().getByRole("region", { name: "Save" }).textContent).toContain("$1,000.00");
@@ -27,7 +27,7 @@ describe("Astra funded Home", () => {
   });
 
   test("Save and Borrow each expose one labeled full-row control, with the visible row content inside it", async () => {
-    render(<ReferenceHome />);
+    render(<ReferenceHome treatment={treatment} />);
     const saveButton = page().getByRole("button", { name: "Save $1,000.00 Combined 4.04% APY" });
     expect(saveButton.textContent).toContain("$1,000.00");
     expect(saveButton.textContent).toContain("Combined 4.04% APY");
@@ -51,7 +51,7 @@ describe("Astra funded Home", () => {
     const original = HTMLElement.prototype.scrollIntoView;
     HTMLElement.prototype.scrollIntoView = () => {};
     try {
-      render(<ReferenceHome />);
+      render(<ReferenceHome treatment={treatment} />);
       fireEvent.click(page().getByRole("button", { name: "Activity" }));
       expect(document.activeElement).toBe(page().getByRole("heading", { name: "Activity" }));
     } finally {
@@ -60,7 +60,7 @@ describe("Astra funded Home", () => {
   });
 
   test("preserves the fixed plain-transfer history instead of claiming a savings deposit", () => {
-    render(<ReferenceHome />);
+    render(<ReferenceHome treatment={treatment} />);
     const rows = [...page().getByRole("region", { name: "Activity" }).querySelectorAll("li")];
     expect(rows).toHaveLength(3);
     expect(rows[0]?.textContent).toContain("+250.00 USDC");
@@ -73,7 +73,7 @@ describe("Astra funded Home", () => {
   test.each(["Fund", "Save $1,000.00 Combined 4.04% APY", "Buy", "Sell", "Borrow", "Account"])("%s is an explicit fixture-only modal handoff, never a money mutation", async (name) => {
     const initialState = reimaginedFundedState();
     const before = JSON.stringify(initialState);
-    render(<ReferenceHome initialState={initialState} />);
+    render(<ReferenceHome treatment={treatment} initialState={initialState} />);
     fireEvent.click(page().getByRole("button", { name }));
     await page().findByRole("dialog");
     expect(text()).toContain("Fixture only. No money moves.");
@@ -84,8 +84,21 @@ describe("Astra funded Home", () => {
     expect(text()).toContain("$1,250.00");
   });
 
+  test("embedded comparison retains facts and controls without duplicate app landmarks", () => {
+    const individual = render(<ReferenceHome treatment={treatment} />);
+    const expectedText = text();
+    individual.unmount();
+    render(<ReferenceHome embedded treatment={treatment} />);
+    expect(text()).toBe(expectedText);
+    expect(page().queryByRole("main")).toBeNull();
+    expect(page().queryByRole("navigation")).toBeNull();
+    expect(page().queryByRole("region")).toBeNull();
+    expect(page().getByRole("group", { name: "Net position" }).textContent).toContain("$1,250.00");
+    expect(page().getByRole("button", { name: "Fund" })).toBeDefined();
+  });
+
   test("large amounts retain precision and unquoted holding exclusions", () => {
-    render(<ReferenceHome initialState={reimaginedLongLocalizedState()} />);
+    render(<ReferenceHome treatment={treatment} initialState={reimaginedLongLocalizedState()} />);
     expect(text()).toContain("$1,234,567.89");
     expect(text()).toContain("IDR");
     expect(text()).toContain("IDR balance is not included until a display quote is configured.");

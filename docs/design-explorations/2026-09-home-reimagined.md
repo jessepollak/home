@@ -10,9 +10,81 @@
 
 Constraints this exploration respects: the component-workshop rules in [`docs/design-system.md`](../design-system.md) (stories beside the surface under `apps/web/client/**`, real production components rather than styled copies, fixture-only data, explicit stable story `id`s, manager/canvas paths); the money semantics owned by [`docs/architecture.md`](../architecture.md) and [`docs/actions.md`](../actions.md), which this exploration reuses rather than modifies; and the rule that Storybook proves fixture-backed composition only, while Home-level behavior must be verified under [`docs/browser-validation.md`](../browser-validation.md) by the adoption issue.
 
-The framing below was produced by a fresh Astra/high pass for the direction reset (model recorded in PR #661 as `cbhq-openai/gpt-6-astra`, thinking high). Its substance is reproduced here; the rest of the document is implementation evidence and recommendation.
+The historical product framing below came from an earlier Astra/high direction-reset pass (model recorded in PR #661 as `cbhq-openai/gpt-6-astra`, thinking high). The active checkpoint is the current learning record. The preserved baseline checkpoint and subsequent sections are historical context, including the older simulated-deposit exercise and broader state matrix—not the current funded fixture or authorized scope.
 
-## Active checkpoint — Astra, reference-led funded Home
+## Active checkpoint — anonymous A/B/C art direction
+
+**Scope and authorship.** Astra/high owns this art direction and initial React/CSS implementation. All three candidates are unapproved, uncommitted work on `agent/662` above baseline commit `d2fe33a448adba2b15c7d5229b0cf0078b3fda58`. The existing Astra composition at that commit remains separately available, unchanged by default. No winner, production adoption, new journey, Save detail, or expanded state matrix is proposed.
+
+**Feedback boundary.** Jesse’s prior feedback: earlier work felt incremental; the latest composition improved hierarchy but remains unapproved. Prior model critique of that composition is recorded below and is not Jesse’s approval. Fresh independent candidate critique is recorded in the collapsed advisory section after the comparison entry; it is not Jesse’s selection or approval. This pass makes no causal claim about model improvement.
+
+### Design plan (recorded before implementation)
+
+One composition and one fixture; only the visual language changes. Stable mapping is **A / B / C**, with no authorship, reference, or process labels on the initial comparison.
+
+| Treatment | Type roles | Palette | Surfaces / controls | Distinctive Home quality | Familiar-template check |
+| --- | --- | --- | --- | --- | --- |
+| A | Light, open system-sans net amount; medium peer cash/savings amounts; quiet regular labels; tabular figures | Midnight blue, soft white, cool gray secondary ink, pale blue primary action | Continuous unboxed canvas, hairline separators, compact square-corner outlined secondary actions; fine line icons | A calm night-readable financial instrument: precision without turning balances into a trading terminal | Not a Mercury clone: no graph, account-card grid, wordmark, sidebar, or brand palette copied. Net vs available and Home’s existing product order remain the substance. |
+| B | Bold compact sans net amount; strong sans section labels and peer amounts; regular supporting text | White and cool chalk, near-black ink, saturated Home-blue primary action | Flat inset cash/Save surfaces, crisp edges and restrained rounding; sturdy controls and heavier icon strokes | Cash availability feels tangible and immediately actionable without borrowing a payment card metaphor | Not the familiar fintech dashboard: no giant rounded balance card, promotional green, chips, gradient, yield badge, or invented chart. Existing sections alone supply the structure. |
+| C | System Georgia for net/cash/savings amounts; system sans for interface labels, controls and activity; tabular figures | Warm paper, dark aubergine ink, muted plum secondary ink | Ledger-like horizontal rules, generous open margins, squared solid primary / outlined secondary controls, bare directional icons | A personal financial statement with a humane, editorial reading rhythm | Not a wealth-management landing page: no serif slogan, lifestyle art, ornamental seals, purple marketing hero, or premium upsell. Serif has a narrow numerical role, never addresses or functional labels. |
+
+All retain the same IA, order, exact amounts, labels, fixed history, combined **4.04% APY**, net/available distinction and existing fixture-only modal notices. No copy correction is planned. Local exploration CSS only; production Button/Drawer wrappers remain authoritative and unchanged. No dependency, font download or global font migration.
+
+**Reference access.** Actual downloaded official promotional images were inspected, not inferred from brand reputation: `/tmp/home-662-references/mercury.png` ([Mercury](https://mercury.com/)), `cash.webp` ([Cash App](https://cash.app/)), and `wealthfront.png` ([Wealthfront](https://www.wealthfront.com/)). These are marketing references, not authenticated in-app research. The existing Mercury static asset remains only in the older reference board. No new brand assets enter Home UI.
+
+**Repeatable evaluation set.** (1) Funded Home at 390×844, fixed clock `2026-09-19T12:04:00.000Z`, net $1,250.00 / available $250.00 / saved $1,000.00 / no debt / three plain transfers; (2) existing large/local-currency fixture, including exact USD values and the unquoted-IDR exclusion; (3) future Save-detail transfer check, only after separate authorization. **Only funded Home is compared now**; 320×844 and large/local values are spot checks, not a state matrix. Actions are fixture-only handoffs, never quotes, orders or money movement.
+
+### Current implementation and review entry
+
+One `ReferenceHome` renders all candidates from the existing funded fixture and money presenters. `art-direction.module.css` applies only when `treatment` is A/B/C. Typography, palette, surfaces, spacing, control shape and icon weight vary together; content/order/financial logic do not. No copy correction was made. The anonymous comparison uses three fixed **390×844 CSS-pixel scrollports at device scale 1, with no transform or scaling**, inside a 1266×928 capture. Its only visible review labels are A/B/C. Embedded screens use named groups under the comparison’s single main landmark; individual stories retain their normal application landmarks. No wrapper, token or request-guard changes were needed.
+
+Stable canvas URL: `/iframe.html?id=<story-id>&viewMode=story`; manager URL: `/?path=/story/<story-id>`. The IDs below were verified in the final built Storybook index. Existing Astra IDs and the older reference board remain available separately.
+
+| Entry | Exact stable story ID | Current local capture in `.factory/media/` |
+| --- | --- | --- |
+| Anonymous comparison | `explorations-home-art-direction--comparison` | `home-662-comparison.png` |
+| A | `explorations-home-art-direction--a` | `home-662-a-390.png` |
+| B | `explorations-home-art-direction--b` | `home-662-b-390.png` |
+| C | `explorations-home-art-direction--c` | `home-662-c-390.png` |
+| Preserved baseline | `explorations-home-reimagined-astra--funded-home` | `home-662-baseline-390.png` |
+| Large/local spot checks | `explorations-home-art-direction--a-large-local`, `--b-large-local`, `--c-large-local` (same prefix) | `home-662-{a,b,c}-large-local.png` |
+
+Additional 320×844 captures: `.factory/media/home-662-{a,b,c}-320.png`, using the same A/B/C stories at the narrower viewport, not new states. These are current rendered screenshots, not mockups; media are local review artifacts, not published or committed. Large/local values retain $12,345,678.99 net, $1,234,567.89 available and $11,111,111.10 saved. That existing fixture truthfully computes **4.07% APY**, not the funded comparison’s 4.04%; the unquoted IDR exclusion remains visible.
+
+<details>
+<summary>Advisory model critique and scoped correctness repair — not a selection</summary>
+
+**Critic:** `anthropic/claude-fable-5-1`, thinking high, fresh anonymous rendered review. This is model feedback, separate from Astra/high implementation authorship and Jesse’s decision. Advisory ranking: **C > B > A**; no winner is selected or approved here.
+
+- **C:** Warm cream, serif money values, plum primary action, unboxed rows, hairline separators and bare arrows formed the most coherent and distinctive system. Its main defect was the near-invisible Buy/Sell outlines.
+- **B:** Strongest pure action hierarchy through the heavy balance, saturated Fund and clear active navigation; mixed cards, bare rows and control weights felt more generic fintech.
+- **A:** Internally consistent dark navy system, but pale Fund and light numerals weakened primary-action/balance confidence and felt more pro-mode than approachable everyday money.
+
+**Correctness findings and actions, separate from taste:** No blockers or majors; data, order and labels were identical. C’s minor Buy/Sell affordance was repaired only by changing those two 1px borders from the separator color `#cfc3c6` to the existing secondary ink `#73636d`; dark labels, square shape, geometry and all other styling remain unchanged. Fable’s rendered follow-up passed the repair at 390px, 320px and with large/local values, found no new C defect or A/B change, and kept the advisory ranking unchanged. A’s minor 320px Activity spacing (about 15px gap) had no overlap or truncation and is intentionally unchanged. No title-weight, B surface-system or A action-emphasis suggestions were applied; A/B are untouched.
+
+This critique is advisory, **not Jesse’s selection or approval**. No causal model-improvement claim is made.
+
+</details>
+
+### Checked implementation evidence (not design approval)
+
+**Initial implementation validation** (before the scoped critic repair; latest checks follow):
+
+- Repository-pinned `bunx agent-browser --version`: **0.38.1**; core guidance loaded before browser work. Online quick doctor could not reach the Chrome CDN; installed Chrome was usable. Offline quick doctor passed before and after (8 pass, 0 fail, 0 warn). A diagnostic papercut was filed; no dependency or browser upgrade.
+- Owned fixture-only Storybook server: `127.0.0.1:6062`, clean environment, exact server PID **9322**; owned browser session `home-662-art-direction-fca0d2e1d075`. Baseline inspected before editing and captured again afterward: both PNGs have identical SHA-256 `81649192a3dac74ab4d76ef8c4ed4ac29c857022d6e0d57a617e3ff2a755f45c`.
+- Final A/B/C at 390×844, 320×844 and large/local 390×844: no horizontal page/element overflow; all eight controls at least 44×44; all three funded transfers remain readable. Axe 4.12.1: **0 violations, 0 incomplete** in all nine cases and the comparison. Comparison measurements confirm equal width/height, scale and identical ordered text. Final console checks have no warnings/errors or uncaught errors (normal Vite/MSW informational logs only).
+- Keyboard: visible 2px focus outlines with 3px offset on every treatment; Fund opens the unchanged shared fixture-only notice; settled Tab/Shift+Tab remain inside it; Escape and Back to Home return focus to Fund. Activity focuses its heading and Home returns to the top. Browser Back/Forward between B/C large-local direct links works. Reduced-motion emulation confirms zero candidate control transition duration; no new material motion, so no motion clips. Modal axe reports zero violations and one manual-review item for Base UI’s inert background/focus guards; keyboard containment and restoration were manually checked, not treated as an automated pass.
+- During iteration, the direct three-screen board exposed duplicate landmarks; embedded group semantics resolved them without changing standalone landmarks or visible content. A discarded nested-iframe approach hit the existing dev-asset request guard; no guard was weakened. Final direct-frame renders are clean.
+- `cd apps/web && bun test client/explorations/home-reimagined`: **93 pass, 0 fail, 466 assertions**, including all baseline/A/B/C financial facts, modal handoffs, Activity focus, large precision and embedded text/semantics parity. Focused ESLint (`--max-warnings 0`), `bun run --cwd apps/web typecheck`, and isolated `bun run --cwd apps/web build-storybook` pass. Build emits the existing large-chunk advisory. `git diff --check` passes; nothing staged.
+- Browser/geometry/a11y summary: `.factory/media/home-662-browser-validation.json`. Exact owned process/session cleanup is recorded there. No provider, wallet or production-route validation is claimed.
+
+**Post-critique C repair validation:** Only the C Buy/Sell border declaration changed. Border contrast against `#f8f4ec` increases from **1.56:1 to 5.13:1**; unchanged labels are **12.03:1**, and both controls retain 64×44 hit regions, 1px outlines and 2px corners. Refreshed only `home-662-c-390.png`, `home-662-c-320.png`, `home-662-c-large-local.png` and `home-662-comparison.png` at the same fixtures/viewports above; all seven A/B/baseline PNG hashes remain unchanged. Actual final pixels were inspected. C at 390/320/large and the comparison have no horizontal overflow, no targets below 44×44, zero axe violations/incomplete results, and no console warnings/errors or uncaught errors. The comparison retains identical ordered text and unscaled 390×844 scrollports at DPR 1. C320 Buy/Sell keyboard activation, visible focus, fixture-only notice dismissal and focus restoration passed a fresh direct-navigation retest.
+
+Pinned agent-browser 0.38.1/core guidance and offline quick doctor before/after (8 pass, 0 fail, 0 warn) were rechecked; online doctor again reported only CDN reachability failure. The dedicated `127.0.0.1:6063` Storybook session `home-662-c-repair-fca0d2e1d075` was closed; exact owned server PID **12672** was terminated and waited (status 0), then absence verified. Temporary server log/FIFO and session/owner helpers were removed. Focused tests reran: **93 pass, 0 fail, 466 assertions**; focused ESLint and isolated Storybook build pass (existing build advisories only). Typecheck was not repeated for this one-line CSS repair; the initial implementation passed it. No additional permanent test is warranted for this border-only change. Current repair details and hashes are under `correctnessRepair` in `.factory/media/home-662-browser-validation.json`; command results are appended to `.factory/media/home-662-validation.txt`.
+
+**Learning / next review.** This establishes a controlled art-direction comparison, not evidence of a preferred language. A uses weight contrast and continuous dark space; B uses heavier sans and working surfaces; C uses numerical serif and ledger rules. The anonymous rendered critique and focused repair verification above supply advisory feedback, not evidence of Jesse’s preference. Repository checks and the Storybook build pass on the integrated working tree. Jesse’s judgment and approval remain outstanding; no winner selected. Cross-browser/platform font metrics and future Save-detail transfer remain unchecked.
+
+## Preserved baseline checkpoint — Astra, reference-led funded Home
 
 This pass replaces the four-direction exercise **for current review only**; the material below remains an archived exploration, not an adoption recommendation. One funded composition, no new Save screens or state matrix. Production money modals and all shared wrappers/tokens are untouched.
 

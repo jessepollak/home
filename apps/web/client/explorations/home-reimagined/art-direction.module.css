@@ -1,0 +1,140 @@
+/* Authorized art-direction sandbox. No selector applies to the preserved baseline,
+   production routes, shared wrappers, or the portalled money-handoff notices. */
+.treatment {
+  --background: var(--canvas);
+  --foreground: var(--ink);
+  --muted-foreground: var(--quiet);
+  --muted: var(--surface);
+  --border: var(--rule);
+  --primary: var(--action);
+  --primary-foreground: var(--action-ink);
+  --secondary: var(--surface);
+  --secondary-foreground: var(--ink);
+  --ring: var(--ink);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.treatment [data-slot="button"] {
+  border-radius: var(--control-radius);
+  transition: none;
+}
+
+.treatment [data-slot="button"]:focus-visible,
+.treatment h2:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+  box-shadow: none;
+}
+
+.treatment [data-part="peer-amount"] { font-size: 1.5rem; }
+.treatment [data-part="navigation"] [aria-current="page"] { color: var(--ink); }
+.treatment [data-part="navigation"] [aria-current="page"] span { font-weight: 700; }
+
+/* A: continuous night canvas, precise outlines, air around the primary figure. */
+.treatment[data-treatment="A"] {
+  --canvas: #111e2b;
+  --ink: #f2f5f7;
+  --quiet: #a6b5c4;
+  --surface: #203141;
+  --rule: #3c4b59;
+  --action: #c5e1f5;
+  --action-ink: #142839;
+  --control-radius: 0.25rem;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.treatment[data-treatment="A"] header { height: 4.5rem; }
+.treatment[data-treatment="A"] header h1 { font-weight: 500; letter-spacing: 0.02em; }
+.treatment[data-treatment="A"] [data-part="net"] { padding-block: 1.5rem; }
+.treatment[data-treatment="A"] [data-part="net-amount"] { font-weight: 300; letter-spacing: -0.045em; }
+.treatment[data-treatment="A"] [data-part="peer-amount"] { font-weight: 400; }
+.treatment[data-treatment="A"] [data-part="invest"] button { border-color: var(--rule); background: transparent; }
+.treatment[data-treatment="A"] [data-part="activity-icon"] { border-radius: 0.25rem; background: transparent; border: 1px solid var(--rule); }
+.treatment[data-treatment="A"] svg { stroke-width: 1.5; }
+.treatment[data-treatment="A"] [data-part="navigation"] { padding-top: 0.5rem; }
+
+/* B: sturdy sans, inset working surfaces and assertive, deliberately simple controls. */
+.treatment[data-treatment="B"] {
+  --canvas: #ffffff;
+  --ink: #111820;
+  --quiet: #58616c;
+  --surface: #eef1f5;
+  --rule: #c8cfd8;
+  --action: #0052ff;
+  --action-ink: #ffffff;
+  --control-radius: 0.5rem;
+}
+
+.treatment[data-treatment="B"] header h1 { font-size: 1.25rem; font-weight: 800; letter-spacing: -0.04em; }
+.treatment[data-treatment="B"] [data-part="content"] { padding-inline: 1rem; }
+.treatment[data-treatment="B"] [data-part="net"] { padding: 1rem 0.5rem 1.5rem; }
+.treatment[data-treatment="B"] [data-part="net-amount"] { font-weight: 800; letter-spacing: -0.065em; }
+.treatment[data-treatment="B"] h2 { font-weight: 700; }
+.treatment[data-treatment="B"] [data-part="cash"],
+.treatment[data-treatment="B"] [data-part="save"] { padding: 1rem; background: var(--surface); border: 0; border-radius: 0.5rem; }
+.treatment[data-treatment="B"] [data-part="cash"] { margin-bottom: 0.5rem; }
+.treatment[data-treatment="B"] [data-part="save"] { padding-block: 0; }
+.treatment[data-treatment="B"] [data-part="peer-amount"] { font-weight: 700; letter-spacing: -0.035em; }
+.treatment[data-treatment="B"] [data-part="cash"] button { min-width: 6rem; font-weight: 700; }
+.treatment[data-treatment="B"] [data-part="invest"],
+.treatment[data-treatment="B"] [data-part="borrow"] { margin-inline: 0.5rem; }
+.treatment[data-treatment="B"] [data-part="invest"] { min-height: 4.5rem; }
+.treatment[data-treatment="B"] [data-part="invest"] button { background: var(--canvas); border-color: var(--ink); font-weight: 700; }
+.treatment[data-treatment="B"] [data-part="activity"] { padding: 1.25rem 0.5rem 0.75rem; }
+.treatment[data-treatment="B"] [data-part="activity-icon"] { border-radius: 0.375rem; }
+.treatment[data-treatment="B"] svg { stroke-width: 2.5; }
+.treatment[data-treatment="B"] [data-part="navigation"] { border-top: 2px solid var(--ink); }
+.treatment[data-treatment="B"] [data-part="navigation"] [aria-current="page"] { background: var(--surface); }
+
+/* C: a warm personal statement. Serif belongs to balances, not interface copy. */
+.treatment[data-treatment="C"] {
+  --canvas: #f8f4ec;
+  --ink: #392c38;
+  --quiet: #73636d;
+  --surface: #eee7df;
+  --rule: #cfc3c6;
+  --action: #493445;
+  --action-ink: #fffaf3;
+  --control-radius: 0.125rem;
+}
+
+.treatment[data-treatment="C"] header { height: 4.5rem; }
+.treatment[data-treatment="C"] header h1 { letter-spacing: 0.03em; font-weight: 500; }
+.treatment[data-treatment="C"] [data-part="net"] { padding-block: 1rem 2rem; }
+.treatment[data-treatment="C"] [data-part="net-amount"],
+.treatment[data-treatment="C"] [data-part="peer-amount"] { font-family: Georgia, "Times New Roman", serif; font-weight: 400; letter-spacing: -0.045em; }
+.treatment[data-treatment="C"] [data-part="peer-amount"] { font-size: 1.75rem; line-height: 1.15; }
+.treatment[data-treatment="C"] [data-part="save"] { border-top-color: var(--ink); }
+.treatment[data-treatment="C"] [data-part="invest"] { min-height: 4.5rem; }
+.treatment[data-treatment="C"] [data-part="invest"] button { background: transparent; border-color: var(--quiet); }
+.treatment[data-treatment="C"] [data-part="activity"] { padding-top: 1.25rem; }
+.treatment[data-treatment="C"] [data-part="activity-icon"] { background: transparent; width: 1.5rem; }
+.treatment[data-treatment="C"] [data-part="activity"] li + li { border-top: 1px solid var(--rule); }
+.treatment[data-treatment="C"] svg { stroke-width: 1.5; }
+.treatment[data-treatment="C"] [data-part="navigation"] [aria-current="page"] span { text-decoration: underline; text-underline-offset: 0.3em; }
+
+@media (hover: hover) {
+  .treatment [data-part="invest"] button:hover { background: var(--surface); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .treatment [data-slot="button"]:active { transform: none; translate: none; }
+}
+
+/* Comparison is intentionally wider than a phone: never shrink the candidates. */
+.comparison {
+  display: flex;
+  gap: 1.5rem;
+  width: max-content;
+  padding: 1.5rem;
+  background: #e8e8e8;
+  color: #222222;
+}
+.comparison > section { width: 390px; flex: none; }
+.comparison > section > h2 { margin: 0 0 0.75rem; font: 500 1rem/1.5 Arial, Helvetica, sans-serif; }
+.frame {
+  width: 390px;
+  height: 844px;
+  overflow: auto;
+  --home-reimagined-frame-height: 844px;
+}
