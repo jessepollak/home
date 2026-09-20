@@ -51,6 +51,55 @@ The built `index.json` is the durable discoverability source when this inventory
 
 Storybook can prove that a production component renders and supports fixture-backed component interactions under deterministic states and review viewports. Stories and play functions are review scenarios, not permanent browser tests or approval by themselves. Storybook cannot prove Home's Next routing/history, app-level scrolling or focus restoration, browser Back integration, wallet/provider behavior, physical keyboard behavior, or Safari behavior. Verify the integrated component in Home under the [browser-validation contract](browser-validation.md), and record media and limitations under [UI PR previews](ui-pr-previews.md).
 
+## Reference journey proposal (#654)
+
+Status: **unapproved proposed design** awaiting Jesse's review ([issue #654](https://github.com/jessepollak/home/issues/654)). It changes no production route, token, shell, or `MoneyModal` behavior; production adoption is a separate dependent issue, and the current `displayTotal` ("Total balance") hero is unchanged until then. The proposal lives beside the Home surfaces in `apps/web/client/home/reference-journey/`:
+
+- `reference-position.ts` — production-intended presentation model: net position from explicit complete/partial/loading/unavailable cash, saved, and debt slices. Verified zero debt is omitted; a missing slice is named and never rendered as zero or a complete total. It follows [#634's selected Net position contract](https://github.com/jessepollak/home/issues/634) without relabelling production `displayTotal`.
+- `reference-home.tsx` — `ReferenceHomeComposition` with the explicit `ledger` (recommended Option A) and `tiles` (Option B) composition variants.
+- `reference-save.tsx` — `ReferenceSaveComposition` with the same `ledger` / `tiles` variants over the selected vault.
+- `reference-journey.tsx` — the connected fixture journey (Home → Save → existing deposit amount → review → pending/result → return, plus Activity → transaction detail → back).
+- `reference-fixtures.ts` — the shared fixture set. It imports no Storybook, MSW, or provider code; stories and focused behavior tests import the same values so the two option comparisons cannot drift apart.
+
+Direct story links (manager / canvas): `reference-home` (`/?path=/story/reference-home--ledger-first`, `/iframe.html?id=reference-home--ledger-first&viewMode=story`), `reference-save` (`/?path=/story/reference-save--ledger-first`), and `reference-journey` (`/?path=/story/reference-journey--funded-journey`). The built `index.json` remains the durable source when these grow. A rename must update these links and the review evidence in the same change.
+
+Fixture limits, stated plainly: the comparisons and journey simulate navigation and dispatch with component state and injected fixture money-action functions. They are not proof of Next routing/history, browser Back, provider or wallet behavior, real balances, or money execution. `Add money`, `Send`, `Cash out`, `Borrow`, `Your money`, `Withdraw`, and `Invest` are reference intents that keep their existing production flows and are labeled unwired when activated. A fixture deposit only moves balances when the injected result is `confirmed`; `submitted`, `pending`, and `unknown` record the action and leave balances unchanged, and the 18-decimal share preview is scaled from the exact USDC amount rather than string-padded.
+
+Known limitations recorded for review, not accepted as complete:
+
+- **Inherited financial-row context can truncate** at narrow widths or 200% root text because production `HomeBalanceRowView` / `ActivityRow` keep names, dates, and action titles on one line; row titles retain full timestamps where available, and transaction detail shows the full date and action facts. The proposal-owned Home/Save rows wrap without overlap, but production-row adoption needs a separate shared-row decision.
+- **200% text** was exercised in Chrome at a 390px viewport by setting the root text size to 200%; the reference content wraps/stacks without overlap. Browser/OS zoom and physical-device text scaling remain unverified.
+- **Reduced motion** was exercised in Chrome with `prefers-reduced-motion: reduce`; all reference money tickers reported animation disabled and the rendered stories had no accessibility violations. Safari remains unverified.
+- **Routing, history, Back, provider, and wallet behavior** are fixture-level only; the connected journey's `Back` returns to the reference Home view and does not exercise browser history.
+- Story play assertions prove the fixture scenarios they render; they do not replace the focused behavior tests, `Home` browser validation, or an independent review.
+
+### Source-only inventory and rollout map
+
+Reachable surfaces at this revision, from source inspection only (no live run):
+
+| Surface | Entry | Main component | Existing story | State gaps | Current owner / proposal input |
+| --- | --- | --- | --- | --- | --- |
+| Home | `/home` | `client/home/home-panel.tsx` in `shell.tsx` | none (only `pilot-financial-row`) | hero/actions/ledger composition and its loading, empty, partial states | #654 reference; #634 / PR #648 money semantics; #638 / PR #653 shell input |
+| Your money / Balances | Home "See all" or group "More", `/balances/<group>` | `client/home/balances-panel.tsx` | `pilot-financial-row` | page-level states | #634 / PR #648 presentation input |
+| Save | Save row/tile, `/save` | `client/savings/savings-experience.tsx` | `pilot-savings-experience` | funded/empty/partial/loading/long-copy already covered | #654 reference; existing Save production source retained |
+| Deposit / Withdraw sheet | Save actions | `client/savings/savings-actions.tsx` + `client/money-modal/**` | `pilot-savings-money-dialog` | covered, including reduced motion | #654 fixture journey; coordinate #529 / #534 before shared-sheet changes |
+| Borrow | Borrow tile, `/borrow` | `client/borrowing/borrowing-experience.tsx` | none | no story; out of this proposal's scope | #634 / PR #648 accounting input; no #654 rollout |
+| Activity | Activity card / "See all", `/activity` | `client/activity/activity-panel.tsx`, details via `components/transaction-details.tsx` | none (tests only) | no story; the journey covers row → detail → back | #637 / PR #652 taxonomy/detail input |
+| Invest | bottom navigation, `/invest/<asset>` or `/invest/<shelf>` | `client/invest/priced-invest-experience.tsx` | none | no story; out of this proposal's scope | source-only inventory; no #654 rollout |
+| Account / settings | header account control | `client/account/account-settings.tsx`, `account-screen.tsx` | none | no story; #638 owns Account destinations | #638 / PR #653 |
+| Add money | Home primary action | `client/funding/funding-actions.tsx` | none | no story; #638 shell language only | #638 / PR #653 shell input |
+| Send / cash out | Home action | `client/transfers/transfer-actions.tsx` | none | no story; #638 owns the Cash out placement decision | #638 / PR #653; coordinate #529 pending behavior |
+
+Rollout map for the dependent implementation issue:
+
+1. Jesse selects or refines one reference composition from the stories above.
+2. The implementation leaf maps the live `BalancesPresentation` and savings summary into the selected composition's props; it does not add a second accounting model.
+3. Adopt #634's Net position headline in the production hero as part of that leaf — not here — while keeping the existing exact values, combined APY, completeness, and identity semantics.
+4. Keep `HomeShell` routing/history, `MoneyModal` behavior, global tokens, and the owned wrappers unchanged unless that issue contains an explicitly approved narrow seam.
+5. Treat Borrow, Invest, Account, and the #638 Cash out decision as separate follow-ups.
+
+Non-goals: no new route, dependency, font or icon migration, provider call, or demo route; no fixtures in production code paths.
+
 ## Theme
 
 `apps/web/app/globals.css` uses shadcn's stock neutral theme generated by the `base-nova` preset. Home overrides only `--primary`/`--ring` with Base blue (`#0052ff`), `--primary-foreground` with white, and `--radius` with `0.25rem`. `--market-gain` and `--market-loss` remain while their current chart consumers exist.
