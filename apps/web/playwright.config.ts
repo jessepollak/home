@@ -58,14 +58,17 @@ const executablePath = cachedChromiumExecutable();
 const playwrightCredentialKey = ["HOME", "PLAYWRIGHT", "ACCESS", "CREDENTIAL"].join("_");
 const playwrightCookieKey = ["HOME", "PLAYWRIGHT", "ACCESS", "COOKIE"].join("_");
 const accessCredential = process.env[playwrightCredentialKey] ?? randomBytes(32).toString("base64url");
+const accessSigningSecret = randomBytes(32).toString("base64url");
 const accessIssuedAt = new Date();
 const accessPayload = JSON.stringify({
   version: 1,
   issuedAt: accessIssuedAt.toISOString(),
   expiresAt: new Date(accessIssuedAt.getTime() + 7 * 24 * 60 * 60 * 1_000).toISOString(),
 });
-const accessKey = createHmac("sha256", Buffer.from(accessCredential, "utf8"))
+const accessKey = createHmac("sha256", Buffer.from(accessSigningSecret, "utf8"))
   .update("home:deployment-access:v1:signing-key")
+  .update("\0")
+  .update(accessCredential, "utf8")
   .digest();
 const accessEncoded = Buffer.from(accessPayload, "utf8").toString("base64url");
 const accessInput = `v1.${accessEncoded}`;
@@ -75,6 +78,7 @@ process.env[playwrightCredentialKey] = accessCredential;
 process.env[playwrightCookieKey] = accessCookie;
 process.env.HOME_ACCESS_REQUIRED = "1";
 process.env["HOME_ACCESS_PASSWORD"] = accessCredential;
+process.env.HOME_ACCESS_SIGNING_SECRET = accessSigningSecret;
 
 export default defineConfig({
   testDir: "./tests/browser",
@@ -93,6 +97,7 @@ export default defineConfig({
       HOME_PLAYWRIGHT_SMOKE: "1",
       HOME_SESSION_SECRET: "playwright-smoke-home-session-secret-32-bytes!!",
       HOME_ACCESS_REQUIRED: "1",
+      HOME_ACCESS_SIGNING_SECRET: accessSigningSecret,
       HOME_ACCESS_PASSWORD: accessCredential,
     },
   },

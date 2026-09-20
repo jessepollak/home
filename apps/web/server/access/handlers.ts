@@ -109,7 +109,7 @@ export function createAccessLoginHandler(input: LoginDependencies = {}) {
       "Set-Cookie",
       cookie(
         ACCESS_COOKIE_NAME,
-        issueAccessToken(config.credential, now),
+        issueAccessToken(config, now),
         request,
         ACCESS_TOKEN_TTL_MS / 1_000,
       ),

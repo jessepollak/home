@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { createAccessLoginHandler, createAccessLogoutHandler } from "./handlers";
 
-const CREDENTIAL = "a".repeat(32);
+const CREDENTIAL = "a".repeat(8);
+const SIGNING_SECRET = "b".repeat(32);
 const field = ["pass", "word"].join("");
 function body(value: string, next = "/") {
   const form = new URLSearchParams();
@@ -25,7 +26,7 @@ function request(formBody: string, headers: Record<string, string> = {}) {
 
 describe("access login", () => {
   const handle = createAccessLoginHandler({
-    getConfig: () => ({ kind: "enabled", credential: CREDENTIAL }),
+    getConfig: () => ({ kind: "enabled", credential: CREDENTIAL, signingSecret: SIGNING_SECRET}),
     now: () => new Date("2026-09-18T12:00:00.000Z"),
   });
 
