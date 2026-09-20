@@ -32,7 +32,7 @@ The version must be `0.38.1`. Load `bunx agent-browser skills get dogfood` for e
 
 ## Factory loop
 
-1. Confirm `bun run factory:preflight` passes. Use no `.env.local`, provider/database/production call, credentials, saved browser state, or funded action.
+1. Use an isolated worktree with no `.env.local`, provider/database/production call, credentials, saved browser state, or funded action.
 2. Run `bunx agent-browser doctor --quick --json`. An isolated factory home has no shared browser cache; if Chrome is missing, run `bunx agent-browser install` in that worktree and repeat the diagnostic.
 3. Start Home in fixture mode on a dedicated non-3199 port with `HOME_PLAYWRIGHT_SMOKE=1`. Use rootless `bun --cwd apps/web dev -- --port <port>`, not root `bun dev`. Start it in the cleanup shell as a background process, redirect its log to a temporary file outside the repository, and capture its exact owned PID immediately with `export HOME_FIXTURE_SERVER_PID=$!`. Never use `pkill`, `killall`, or a name/port-wide kill.
 4. Create a unique worktree-scoped session:

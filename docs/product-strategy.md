@@ -17,7 +17,7 @@ This document defines product direction and scope. GitHub issues track delivery.
 1. Read the relevant workstream below and the repository's current `AGENTS.md`.
 2. Inspect the code and existing issues. Identify what works, what remains, and what needs external access. Reuse existing issues.
 3. Turn a bounded gap into a PRD using section 6. Bring a recommendation for consequential open decisions.
-4. Execute under the repository's operating manual: local interactive work runs on Jesse's explicit current-session instruction for a named issue; standalone eligibility still requires a Jesse-applied `factory:ready` ([execution modes](operating-manual.md#execution-modes)). As a readiness discipline, Jesse applies that label only to an owner-authored delivery leaf with `status:todo` and exactly one lane and priority. Exact queue checks and implementation live outside Home. This strategy grants no additional execution, release, funded-action, or merge authority.
+4. Execute under the repository's operating manual. Jesse adds `factory` to tell the factory to start an issue; this strategy grants no additional execution, release, funded-action, or merge authority.
 
 ## 1. Vision and product principles
 
@@ -160,6 +160,6 @@ These questions refine delivery; they do not reopen the agreed MVP breadth.
 | [Design system](https://github.com/jessepollak/home/blob/main/docs/design-system.md) and Home motion/mobile skills | Components and interaction implementation guidance |
 | [Operating manual](https://github.com/jessepollak/home/blob/main/docs/operating-manual.md) and `AGENTS.md` | Authorization, factory workflow, review, and merge rules |
 
-Use the [PRD template](prd-template.md) for delivery issues and the [GitHub Project guide](github-project.md) for the workstream index and board setup. Coordinate role documentation with [#561](https://github.com/jessepollak/home/issues/561).
+Use the [PRD template](prd-template.md) for delivery issues. Coordinate role documentation with [#561](https://github.com/jessepollak/home/issues/561).
 
 Source: Jesse's vision narration, subsequent scope decisions, and the linked repository records. This defines intended scope, not shipped capability.
