@@ -1,0 +1,162 @@
+{
+  "version": 1,
+  "updatedAt": "2026-09-20",
+  "paperFile": {
+    "id": "01M309G29JMQCCGPGWJCPYSBQP",
+    "name": "Home — design exploration",
+    "team": "Home",
+    "url": "https://app.paper.design/file/01M309G29JMQCCGPGWJCPYSBQP"
+  },
+  "artboards": [
+    {
+      "name": "B — explorations-home-art-direction--b @ 2f6ee76",
+      "kind": "candidate-record",
+      "storyId": "explorations-home-art-direction--b",
+      "fixture": "reimaginedFundedState: cash $250.00; saved $1,000.00; 4.04% weighted savings APY; verified debt $0.00; fixed activity",
+      "viewport": { "width": 390, "height": 844, "unit": "css-px" },
+      "sourceSha": "2f6ee7638cd67a702ccc2041577860001ac94fb1",
+      "pageId": "p-2-1",
+      "nodeId": "5-1",
+      "frameUrl": "https://app.paper.design/file/01M309G29JMQCCGPGWJCPYSBQP/p-2-1?node=5-1",
+      "fidelityNotes": [
+        "Editable text, frames, rules and controls retained from the Storybook candidate.",
+        "Paper uses locally available Arial/Helvetica metrics and simplified editable glyphs in place of browser-rendered icons."
+      ]
+    },
+    {
+      "name": "A — explorations-home-art-direction--a @ 2f6ee76",
+      "kind": "candidate-record",
+      "storyId": "explorations-home-art-direction--a",
+      "fixture": "reimaginedFundedState",
+      "viewport": { "width": 390, "height": 844, "unit": "css-px" },
+      "sourceSha": "2f6ee7638cd67a702ccc2041577860001ac94fb1",
+      "pageId": "p-2-1",
+      "nodeId": "28-1",
+      "frameUrl": "https://app.paper.design/file/01M309G29JMQCCGPGWJCPYSBQP/p-2-1?node=28-1",
+      "fidelityNotes": ["Retained unchanged as Jesse's comparison record; editable layers, with local-font and icon-glyph translation differences."]
+    },
+    {
+      "name": "C — explorations-home-art-direction--c @ 2f6ee76",
+      "kind": "candidate-record",
+      "storyId": "explorations-home-art-direction--c",
+      "fixture": "reimaginedFundedState",
+      "viewport": { "width": 390, "height": 844, "unit": "css-px" },
+      "sourceSha": "2f6ee7638cd67a702ccc2041577860001ac94fb1",
+      "pageId": "p-2-1",
+      "nodeId": "42-1",
+      "frameUrl": "https://app.paper.design/file/01M309G29JMQCCGPGWJCPYSBQP/p-2-1?node=42-1",
+      "fidelityNotes": ["Retained unchanged as Jesse's comparison record; editable layers, with local-font and icon-glyph translation differences."]
+    },
+    {
+      "name": "Baseline — explorations-home-reimagined-astra--funded-home @ 2f6ee76",
+      "kind": "superseded-exploration-baseline",
+      "storyId": "explorations-home-reimagined-astra--funded-home",
+      "fixture": "reimaginedFundedState",
+      "viewport": { "width": 390, "height": 844, "unit": "css-px" },
+      "sourceSha": "2f6ee7638cd67a702ccc2041577860001ac94fb1",
+      "pageId": "p-2-1",
+      "nodeId": "5W-1",
+      "frameUrl": "https://app.paper.design/file/01M309G29JMQCCGPGWJCPYSBQP/p-2-1?node=5W-1",
+      "fidelityNotes": ["This is the prior Astra exploration, not the live product baseline. It remains unchanged because the Candidates page is Jesse's comment record."]
+    },
+    {
+      "name": "Baseline — live Home @ 1dfdd250",
+      "kind": "live-main-baseline",
+      "storyId": null,
+      "fixture": "production /home route with apps/web/tests/browser/balances-fixtures.ts balancesSnapshot(\"US\") and fixture-authenticated local API boundaries",
+      "viewport": { "width": 390, "height": 844, "unit": "css-px" },
+      "sourceSha": "1dfdd250b0c5dd9ecc8dde54e7e46c97e3af0a88",
+      "pageId": "p-2-1",
+      "nodeId": "JR-1",
+      "frameUrl": "https://app.paper.design/file/01M309G29JMQCCGPGWJCPYSBQP/p-2-1?node=JR-1",
+      "fidelityNotes": [
+        "Recreated from the real main /home DOM and a computed-style capture, not from the Astra exploration.",
+        "Matches the 390×844 card geometry, $90.54 total, Cash/Savings/Investments segmented line, action row, visible money groups and bottom navigation.",
+        "The Homemark, US flag and navigation icons are simplified editable shapes/glyphs; browser SVG paths and image assets were not flattened into the frame.",
+        "The Paper layer is a static editable reconstruction and does not represent scrolling, loading or runtime interaction."
+      ]
+    },
+    {
+      "name": "E6",
+      "kind": "rejected-exploration-record",
+      "storyId": null,
+      "fixture": "reimaginedFundedState facts",
+      "viewport": { "width": 390, "height": 844, "unit": "css-px" },
+      "sourceSha": "1dfdd250b0c5dd9ecc8dde54e7e46c97e3af0a88",
+      "pageId": "p-3-1",
+      "nodeId": "D0-1",
+      "frameUrl": "https://app.paper.design/file/01M309G29JMQCCGPGWJCPYSBQP/p-3-1?node=D0-1",
+      "fidelityNotes": ["Paper-only exploration retained because the replacement brief deleted E1–E5 only. It is not selected or approved."]
+    },
+    {
+      "name": "E6 intent",
+      "kind": "exploration-note",
+      "storyId": null,
+      "fixture": null,
+      "viewport": { "width": 300, "height": 260, "unit": "paper-px" },
+      "sourceSha": "1dfdd250b0c5dd9ecc8dde54e7e46c97e3af0a88",
+      "pageId": "p-3-1",
+      "nodeId": "D1-1",
+      "frameUrl": "https://app.paper.design/file/01M309G29JMQCCGPGWJCPYSBQP/p-3-1?node=D1-1",
+      "fidelityNotes": ["Editable intent note paired with E6; retained unchanged."]
+    },
+    {
+      "name": "B2",
+      "kind": "paper-revision",
+      "storyId": null,
+      "fixture": "reimaginedFundedState: $1,250.00 Cash; $250.00 available; $1,000.00 saved; 4.04% savings APY; verified debt $0.00; investment balance unavailable",
+      "viewport": { "width": 390, "height": 844, "unit": "paper-px" },
+      "sourceSha": "2f6ee7638cd67a702ccc2041577860001ac94fb1",
+      "pageId": "p-4-1",
+      "nodeId": "ME-1",
+      "frameUrl": "https://app.paper.design/file/01M309G29JMQCCGPGWJCPYSBQP/p-4-1?node=ME-1",
+      "fidelityNotes": [
+        "Built as editable text, frames, rules and category segments from B's white canvas, Inter typography, gray Cash surface and blue Fund hierarchy.",
+        "4.04% is labelled savings APY because the fixture does not verify yield on the available $250.00.",
+        "Invest is deliberately unavailable rather than an invented $0.00; Borrow uses the fixture's verified $0.00 debt."
+      ],
+      "readBackStyles": {
+        "artboard": { "display": "flex", "width": "390px", "height": "844px", "backgroundColor": "#FFFFFF" },
+        "headline": { "fontFamily": "Inter", "fontSize": "56px", "fontWeight": 700, "lineHeight": "62px", "letterSpacing": "-0.03em", "color": "#111820" },
+        "cashSurface": { "width": "358px", "height": "126px", "padding": "16px", "borderRadius": "8px", "backgroundColor": "#EEF1F5" },
+        "fundAction": { "width": "96px", "height": "48px", "borderRadius": "8px", "backgroundColor": "#0052FF" }
+      }
+    },
+    {
+      "name": "B2 — Cash L2",
+      "kind": "paper-revision",
+      "storyId": null,
+      "fixture": "same funded B fixture; USDC only; Gauntlet $750.00 at 4.10% APY; Steakhouse $250.00 at 3.85% APY",
+      "viewport": { "width": 390, "height": 844, "unit": "paper-px" },
+      "sourceSha": "2f6ee7638cd67a702ccc2041577860001ac94fb1",
+      "pageId": "p-4-1",
+      "nodeId": "MF-1",
+      "frameUrl": "https://app.paper.design/file/01M309G29JMQCCGPGWJCPYSBQP/p-4-1?node=MF-1",
+      "fidelityNotes": ["Editable Cash decomposition separates the $250.00 available balance from the $1,000.00 savings subtotal and its two funded vault constituents; it adds no fictitious currency."]
+    },
+    {
+      "name": "B2 — chart",
+      "kind": "paper-revision",
+      "storyId": null,
+      "fixture": "same funded B fixture; one dated $1,250.00 snapshot only",
+      "viewport": { "width": 390, "height": 844, "unit": "paper-px" },
+      "sourceSha": "2f6ee7638cd67a702ccc2041577860001ac94fb1",
+      "pageId": "p-4-1",
+      "nodeId": "QP-1",
+      "frameUrl": "https://app.paper.design/file/01M309G29JMQCCGPGWJCPYSBQP/p-4-1?node=QP-1",
+      "fidelityNotes": ["Uses editable SVG path/circle layers and labels the plot Snapshot only. No trend, performance or historical balances are invented; a dated series is still required."]
+    },
+    {
+      "name": "B2 — debt",
+      "kind": "paper-revision",
+      "storyId": null,
+      "fixture": "reimaginedDebtState: $1,250.00 Cash; $500.00 verified debt; $750.00 net headline",
+      "viewport": { "width": 390, "height": 844, "unit": "paper-px" },
+      "sourceSha": "2f6ee7638cd67a702ccc2041577860001ac94fb1",
+      "pageId": "p-4-1",
+      "nodeId": "T5-1",
+      "frameUrl": "https://app.paper.design/file/01M309G29JMQCCGPGWJCPYSBQP/p-4-1?node=T5-1",
+      "fidelityNotes": ["Separate existing debt fixture prevents mixing $500.00 debt into the canonical funded state. Editable segments place debt left of a zero tick and available/saved balances to the right."]
+    }
+  ]
+}
