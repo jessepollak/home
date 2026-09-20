@@ -9,6 +9,7 @@ Home is meant to be cloned and run first. This guide is for focused pull request
 3. [Browser validation](docs/browser-validation.md) — required before/after iteration and regression-test boundaries for user-visible and core-flow work
 4. [Docs index](docs/README.md)
 5. [Operating manual](docs/operating-manual.md) — product framing, factory runs, delivery loop, live-money validation, PR evidence, and completion authority
+6. [Security policy](SECURITY.md) — report suspected vulnerabilities privately and keep sensitive evidence out of public channels
 
 For hosting, see [Vercel deploy](docs/vercel-deploy.md). For a customized operator deployment, see [Fork and extend](docs/fork-and-extend.md).
 
