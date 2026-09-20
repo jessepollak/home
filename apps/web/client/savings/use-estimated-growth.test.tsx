@@ -60,11 +60,11 @@ describe("Save estimated-growth owner", () => {
     const now = jest.fn(() => wall);
     const view = render(<Harness value={anchor("a", BigInt("1000000000000000000"), wall - 60_000)} now={now} />);
     expect(view.container.textContent).toBe("1000000000000000000");
-    act(() => jest.advanceTimersByTime(1_000));
+    void act(() => jest.advanceTimersByTime(1_000));
     expect(now).toHaveBeenCalledTimes(0);
 
     hidden = false;
-    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    void act(() => document.dispatchEvent(new Event("visibilitychange")));
     expect(now).toHaveBeenCalledTimes(1);
     expect(view.container.textContent).not.toBe("1000000000000000000");
   });
@@ -79,10 +79,10 @@ describe("Save estimated-growth owner", () => {
 
     hidden = true;
     wall += 500;
-    act(() => jest.advanceTimersByTime(250));
+    void act(() => jest.advanceTimersByTime(250));
     expect(now).toHaveBeenCalledTimes(0);
     hidden = false;
-    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    void act(() => document.dispatchEvent(new Event("visibilitychange")));
     expect(now).toHaveBeenCalledTimes(1);
     expect(view.container.textContent).toBe("1000000000000000000");
   });
@@ -92,7 +92,7 @@ describe("Save estimated-growth owner", () => {
     const wall = 2_000_000_060_000;
     const now = () => wall;
     const view = render(<Harness value={anchor("a", BigInt("1000000000000000000"), wall - 60_000)} now={now} />);
-    act(() => jest.advanceTimersByTime(250));
+    void act(() => jest.advanceTimersByTime(250));
     expect(view.container.textContent).not.toBe("1000000000000000000");
 
     view.rerender(<Harness value={anchor("higher", BigInt("2000000000000000000"), wall)} now={now} />);
@@ -108,7 +108,7 @@ describe("Save estimated-growth owner", () => {
     const now = jest.fn(() => 2_000_000_060_000);
     const value = anchor("stable", BigInt("1000000000000000000"), 2_000_000_000_000);
     const view = render(<Harness value={value} now={now} />);
-    act(() => jest.advanceTimersByTime(250));
+    void act(() => jest.advanceTimersByTime(250));
     const grown = view.container.textContent;
     view.rerender(<Harness value={{ ...value }} now={now} />);
     expect(view.container.textContent).toBe(grown);
@@ -116,7 +116,7 @@ describe("Save estimated-growth owner", () => {
     expect(add.mock.calls.some(([type]) => type === "visibilitychange")).toBe(true);
     expect(remove.mock.calls.some(([type]) => type === "visibilitychange")).toBe(true);
     const callsAtUnmount = now.mock.calls.length;
-    act(() => jest.advanceTimersByTime(1_000));
+    void act(() => jest.advanceTimersByTime(1_000));
     expect(now).toHaveBeenCalledTimes(callsAtUnmount);
     add.mockRestore();
     remove.mockRestore();

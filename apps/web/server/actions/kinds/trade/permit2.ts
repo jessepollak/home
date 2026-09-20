@@ -190,7 +190,7 @@ export async function recoverTradeSigner(
   ) reject();
   try {
     return (await recoverTypedDataAddress({
-      ...(typedData as unknown as Omit<Parameters<typeof recoverTypedDataAddress>[0], "signature">),
+      ...(typedData as Omit<Parameters<typeof recoverTypedDataAddress>[0], "signature">),
       signature: signature as ViemHex,
     })).toLowerCase() as Address;
   } catch {

@@ -83,7 +83,7 @@ function ProfileMarkButton({
       >
         {showPhoto && photoUrl ? (
           // Remote Basename photos are not in the Next image allowlist.
-          // eslint-disable-next-line @next/next/no-img-element
+          // oxlint-disable-next-line nextjs/no-img-element -- Profile avatar URLs are remote runtime data, so next/image cannot statically optimize them.
           <img
             className="col-start-1 row-start-1 size-full object-cover"
             src={photoUrl}

@@ -24,7 +24,7 @@ type DataTableProps<TData> = {
 
 export function DataTable<TData>({ columns, data, caption, density = "default" }: DataTableProps<TData>) {
   // TanStack Table intentionally returns mutable table functions; this recipe does not pass them to memoized children.
-  // eslint-disable-next-line react-hooks/incompatible-library
+  // oxlint-disable-next-line react-hooks/incompatible-library -- TanStack Table returns mutable functions that stay inside this component.
   const table = useReactTable({ data, columns, getCoreRowModel: getCoreRowModel() });
 
   return (

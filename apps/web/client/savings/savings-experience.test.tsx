@@ -434,7 +434,7 @@ describe("Save simplify", () => {
 
     const authoritativeLabel = "$1,000,000,000.00";
     expect(await page().findByRole("img", { name: authoritativeLabel })).toBeTruthy();
-    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    void act(() => document.dispatchEvent(new Event("visibilitychange")));
     expect(page().queryByRole("img", { name: authoritativeLabel })).not.toBeNull();
     const save = page().getByRole("region", { name: "Save" });
     const hero = save.querySelector("[data-slot='money-ticker']");

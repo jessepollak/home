@@ -96,11 +96,11 @@ describe("action toast owner fence", () => {
     );
     await waitFor(() => expect(getHomeQueryClient().getQueryData(queryKey)).toBeTruthy());
 
-    act(() => getHomeQueryClient().setQueryData(queryKey, { actions: [repayAll] }));
+    void act(() => getHomeQueryClient().setQueryData(queryKey, { actions: [repayAll] }));
     await waitFor(() => expect(view.getByText("Repaying all Borrow debt")).toBeTruthy());
     expect(view.queryByText("Repaying $125.00")).toBeNull();
 
-    act(() => getHomeQueryClient().setQueryData(queryKey, { actions: [{ ...repayAll, status: "confirmed" }] }));
+    void act(() => getHomeQueryClient().setQueryData(queryKey, { actions: [{ ...repayAll, status: "confirmed" }] }));
     await waitFor(() => expect(view.getByText("Repaid all Borrow debt")).toBeTruthy());
     expect(view.queryByText("Repaid $125.00")).toBeNull();
   });
@@ -131,11 +131,11 @@ describe("action toast owner fence", () => {
     );
     await waitFor(() => expect(getHomeQueryClient().getQueryData(queryKey)).toBeTruthy());
 
-    act(() => getHomeQueryClient().setQueryData(queryKey, { actions: [closePosition] }));
+    void act(() => getHomeQueryClient().setQueryData(queryKey, { actions: [closePosition] }));
     await waitFor(() => expect(view.getByText("Closing Borrow position")).toBeTruthy());
     expect(view.queryByText("Repaying $125.00")).toBeNull();
 
-    act(() => getHomeQueryClient().setQueryData(queryKey, { actions: [{ ...closePosition, status: "confirmed" }] }));
+    void act(() => getHomeQueryClient().setQueryData(queryKey, { actions: [{ ...closePosition, status: "confirmed" }] }));
     await waitFor(() => expect(view.getByText("Closed Borrow position")).toBeTruthy());
     expect(view.queryByText("Repaid $125.00")).toBeNull();
   });

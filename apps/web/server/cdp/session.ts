@@ -62,7 +62,7 @@ function normalizeEmbeddedAddress(value: VerifiedEndUser): `0x${string}` | null 
     throw new InvalidVerifiedIdentityError();
   }
 
-  const smartAccounts = value.evmSmartAccountObjects.map((account) => {
+  const smartAccounts = value.evmSmartAccountObjects.map((account: unknown) => {
     if (!account || typeof account !== "object" || !("address" in account)) {
       throw new InvalidVerifiedIdentityError();
     }
@@ -81,8 +81,9 @@ function authenticatedAccountProviders(value: unknown): Set<AccountProvider> {
     throw new InvalidVerifiedIdentityError();
   }
 
+  const methods: unknown[] = authenticationMethods;
   const providers = new Set<AccountProvider>();
-  for (const method of authenticationMethods) {
+  for (const method of methods) {
     if (
       !method ||
       typeof method !== "object" ||

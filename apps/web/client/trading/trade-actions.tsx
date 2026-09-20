@@ -72,7 +72,7 @@ export function parseTradeIntent(
     typeof value.permitExpiresAt !== "string" || typeof value.expiresAt !== "string" ||
     !Number.isFinite(Date.parse(value.permitExpiresAt)) || Date.parse(value.expiresAt) <= Date.now()
   ) return null;
-  return value as unknown as TradeIntentReview;
+  return value as TradeIntentReview;
 }
 
 function isPermitTypedData(value: unknown): boolean {

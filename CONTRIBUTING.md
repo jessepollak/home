@@ -32,7 +32,7 @@ Home is one Next.js app in `apps/web`:
 | `components/` | Reusable owned UI components |
 | `config/` | Brand, navigation, regions, and asset identities |
 
-The import boundaries are enforced by ESLint: `shared/` cannot import React, Next, Node builtins, or app/client/server/component code; client and component code cannot import `server/`; server code cannot import app, client, or component code. Start server modules with `import "server-only";`. API handlers and clients share versioned parsers and types from `shared/`.
+The import boundaries are enforced by Oxlint and Home-owned visitors in `apps/web/oxlint/`: `shared/` cannot import React, Next, Node builtins, or app/client/server/component code; client and component code cannot import `server/`; server code cannot import app, client, or component code. Start server modules with `import "server-only";`. API handlers and clients share versioned parsers and types from `shared/`.
 
 ## Local checks
 
