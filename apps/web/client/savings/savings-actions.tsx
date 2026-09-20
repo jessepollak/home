@@ -19,6 +19,7 @@ import {
   decimalFromBaseUnits,
   isPositiveDecimalAmount,
   useMoneyAssetPricing,
+  type MoneyAmountChangeSource,
   type MoneyAssetOption,
 } from "@/client/money-modal";
 import type {
@@ -90,6 +91,8 @@ function OwnerBoundSavingsMoneyDialog({
   onConfirmed,
 }: SavingsMoneyDialogProps) {
   const [amount, setAmount] = useState("");
+  const [amountChangeSource, setAmountChangeSource] =
+    useState<MoneyAmountChangeSource>("programmatic");
   const [amountBaseUnits, setAmountBaseUnits] = useState<string | null>(null);
   const [preparedAction, setPreparedAction] = useState<PreparedMoneyAction | null>(null);
   const [attemptedAction, setAttemptedAction] = useState(false);
@@ -119,12 +122,13 @@ function OwnerBoundSavingsMoneyDialog({
       ? "Deposit"
       : "Withdraw";
 
-  function changeAmount(value: string) {
+  function changeAmount(value: string, source: MoneyAmountChangeSource) {
+    setAmountChangeSource(source);
     setAmount(value);
   }
 
   function reset() {
-    changeAmount("");
+    changeAmount("", "programmatic");
     setAmountBaseUnits(null);
     setPreparedAction(null);
     setAttemptedAction(false);
@@ -271,6 +275,7 @@ function OwnerBoundSavingsMoneyDialog({
             <>
               <MoneyAmountDisplay
                 amount={amount}
+                amountChangeSource={amountChangeSource}
                 onAmountChange={changeAmount}
                 availableLabel={availableLabel}
                 availableAmount={decimalFromBaseUnits(availableBaseUnits ?? "", assetDecimals)}

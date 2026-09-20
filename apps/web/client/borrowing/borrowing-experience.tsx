@@ -23,6 +23,7 @@ import {
   decimalFromBaseUnits,
   isPositiveDecimalAmount,
   useMoneyAssetPricing,
+  type MoneyAmountChangeSource,
 } from "@/client/money-modal";
 import {
   browserHomeQueryClient,
@@ -580,7 +581,13 @@ function BorrowMoneyDialog({
     : "";
   const primaryPricing = useMoneyAssetPricing(primaryAsset.symbol);
   const primaryAssetMark = presentBorrowAssetMark(primaryAsset, assetMarkResolution);
+  function changeAmount(value: string, source: MoneyAmountChangeSource) {
+    setAmountChangeSource(source);
+    setAmount(value);
+  }
   const [amount, setAmount] = useState(initialAmount);
+  const [amountChangeSource, setAmountChangeSource] =
+    useState<MoneyAmountChangeSource>("programmatic");
   const [preparedAction, setPreparedAction] = useState<PreparedMoneyAction | null>(null);
   const [clockNow, setClockNow] = useState(() => Date.now());
   const [serverExpiredActionId, setServerExpiredActionId] = useState<string | null>(null);
@@ -722,7 +729,8 @@ function BorrowMoneyDialog({
               <>
                 <MoneyAmountDisplay
                   amount={amount}
-                  onAmountChange={setAmount}
+                  amountChangeSource={amountChangeSource}
+                  onAmountChange={changeAmount}
                   availableLabel={availableLabel}
                   availableAmount={availableAmount}
                   assetId={primaryAsset.id}
@@ -733,7 +741,7 @@ function BorrowMoneyDialog({
                   pricing={primaryPricing}
                   nativeSymbol={primaryAsset.symbol}
                 />
-                <MoneyNumpad value={amount} maxDecimals={primaryAsset.decimals} onChange={setAmount} />
+                <MoneyNumpad value={amount} maxDecimals={primaryAsset.decimals} onChange={changeAmount} />
                 {operation === "supply-and-borrow" ? (
                   <div className="min-h-[4.5rem] rounded-lg border bg-muted/40 px-3 py-2 text-sm" data-testid="borrow-collateral-preview">
                     <p className="font-medium">Bitcoin collateral</p>
