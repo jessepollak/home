@@ -19,8 +19,7 @@ The pinned `shadcn` CLI's own composition rules are installed as the committed [
 
 ## Component workshop
 
-Resolve the [design work mode](../.agents/skills/design-engineering/SKILL.md#work-modes) first. The production-component instructions below govern maintenance, journey validation and adoption. An explicitly scoped exploration may use local candidate presentation in a clearly labeled `Explorations/` story group, reusing financial fixtures and behavior where practical. It is not a second production UI system. Preserve production isolation, enforced repository rules and required checks; document the boundary and stop at the task's review checkpoint. Do not exhaustively harden every candidate before selection.
-
+Follow the [issue's design scope](../.agents/skills/design-engineering/SKILL.md#follow-the-issue-scope); default to implementation within the current system. The production-component instructions below govern maintenance, journey validation and adoption. An explicitly scoped exploration may use local candidate presentation in a clearly labeled `Explorations/` story group, reusing financial fixtures and behavior where practical. It is not a second production UI system. Preserve production isolation, enforced repository rules and required checks; document the boundary and stop at the task's review checkpoint. Do not exhaustively harden every candidate before selection.
 
 Storybook is a credential-free development and review workshop for Home's production components. From the repository root, install and run it without `apps/web/.env.local`, provider keys, a wallet, or a database:
 
