@@ -198,6 +198,10 @@ export const peerOfframp: FundingOfframpProvider = {
   async listOrders(input, ctx) {
     return (await clients(ctx).cash.orders(input.owner, { inFlight: input.inFlight, limit: 100 }))
       .filter((order) => validDepositId(order.depositId, ctx))
+      // Cash 0.5.3 represents unavailable payeeDetailsHash as an empty hash.
+      // Exclude that legacy/indexer-only row, but keep all other malformed rows
+      // on the strict mapping path so they still fail closed.
+      .filter((order) => !(order.payouts?.length === 1 && !isBytes32(order.payouts[0]?.payeeHash)))
       .map((order) => mapOrder(order, input.owner, ctx));
   },
 

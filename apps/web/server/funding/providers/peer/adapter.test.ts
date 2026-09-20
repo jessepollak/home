@@ -82,9 +82,9 @@ function validDepositCall(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function cashOrder(payeeHash: string = PAYEE_HASH) {
+function cashOrder(payeeHash: string = PAYEE_HASH, depositId = `${PEER_PRODUCTION_CONTRACTS.escrow.toLowerCase()}_7`) {
   return {
-    depositId: `${PEER_PRODUCTION_CONTRACTS.escrow.toLowerCase()}_7`,
+    depositId,
     state: "awaiting-buyer",
     fills: [],
     totalAmount: BigInt(2_000_000), filledAmount: BigInt(0), pendingAmount: BigInt(0), returnedAmount: BigInt(0),
@@ -94,9 +94,9 @@ function cashOrder(payeeHash: string = PAYEE_HASH) {
   } as const;
 }
 
-function installFakeClients(payeeHash: string = PAYEE_HASH) {
+function installFakeClients(payeeHash: string = PAYEE_HASH, orders = [cashOrder(payeeHash)]) {
   const valid = validDepositCall();
-  const order = cashOrder(payeeHash);
+  const order = orders[0]!;
   const cash = {
     capabilities: () => ({
       environment: "production", chainId: 8453, token: { address: BASE_USDC_ADDRESS, symbol: "USDC", decimals: 6 },
@@ -104,7 +104,7 @@ function installFakeClients(payeeHash: string = PAYEE_HASH) {
       platforms: [{ platform: "cashapp", currencies: ["USD"], payeeHint: "Cashtag", requiresIdentityAttestation: false }],
     }),
     estimate: async () => ({ amount: valid.amount, currency: "USD", receiveAmount: 2, asOf: NOW_SECONDS, eta: { seconds: 60 } }),
-    orders: async () => [order],
+    orders: async () => orders,
     order: async () => order,
     prepareWithdraw: async () => ({ txs: [withdrawCall("withdrawDeposit")], steps: [] }),
   };
@@ -157,9 +157,33 @@ describe("Peer funding provider", () => {
     }
   });
 
-  test("rejects malformed observed payee hashes before exposing an order", async () => {
-    installFakeClients("");
-    await expect(peerProvider.offramp!.listOrders({ owner: OWNER, inFlight: true }, context())).rejects.toBeInstanceOf(PeerOfframpSafetyError);
+  test("excludes malformed payee rows while preserving valid Home history", async () => {
+    const valid = cashOrder();
+    const legacy = cashOrder("0x", `${PEER_PRODUCTION_CONTRACTS.escrow.toLowerCase()}_8`);
+    installFakeClients(PAYEE_HASH, [valid, legacy]);
+    await expect(peerProvider.offramp!.listOrders({ owner: OWNER, inFlight: true }, context())).resolves.toMatchObject([
+      { depositId: valid.depositId, payeeHash: PAYEE_HASH },
+    ]);
+  });
+
+  test("returns no orders when every row has an unavailable payee hash", async () => {
+    installFakeClients("", [cashOrder("", `${PEER_PRODUCTION_CONTRACTS.escrow.toLowerCase()}_8`)]);
+    await expect(peerProvider.offramp!.listOrders({ owner: OWNER, inFlight: true }, context())).resolves.toEqual([]);
+  });
+
+  test("keeps direct reads fail-closed for a malformed payee target", async () => {
+    const malformed = cashOrder("", `${PEER_PRODUCTION_CONTRACTS.escrow.toLowerCase()}_8`);
+    installFakeClients("", [malformed]);
+    await expect(peerProvider.offramp!.readOrder({ owner: OWNER, depositId: malformed.depositId }, context())).rejects.toBeInstanceOf(PeerOfframpSafetyError);
+  });
+
+  test("retains foreign escrow filtering while listing valid Home history", async () => {
+    const valid = cashOrder();
+    const foreign = cashOrder(PAYEE_HASH, `${PEER_SANDBOX_CONTRACTS.escrow.toLowerCase()}_8`);
+    installFakeClients(PAYEE_HASH, [valid, foreign]);
+    await expect(peerProvider.offramp!.listOrders({ owner: OWNER, inFlight: true }, context())).resolves.toMatchObject([
+      { depositId: valid.depositId, payeeHash: PAYEE_HASH },
+    ]);
   });
 
   test("accepts only the complete reviewed createDeposit tuple and exact ERC-8021 boundary", () => {
