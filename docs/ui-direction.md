@@ -32,3 +32,7 @@ Base brand guidance (reviewed September 7, 2026) still informs the palette: `htt
 ## Feature-module contract
 
 Savings and Invest modules are passed into `HomeExperience` through `savingsContent` and `investContent`. Their scoped styles should use the Direction 1 tokens (`--home-ink`, `--home-muted`, `--home-white`, `--home-canvas`, `--home-hairline`, `--home-blue`) and the gray-scale aliases. Feature panels stay flat white on canvas with hairline separators — no gradients, glass, shadows, or restricted fonts.
+
+## Design explorations (not direction)
+
+- Home reimagined, issue #662 ([exploration — unapproved](design-explorations/2026-09-home-reimagined.md)): an unapproved comparison of four Home models. It does not change Direction 1, the Home shell v2 + Invest discovery v3 IA, or any production surface.
