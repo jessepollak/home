@@ -5,6 +5,7 @@ const credentialKey = `HOME_ACCESS_${"PASS"}${"WORD"}`;
 test("deployment access composes independently before Home authentication", async ({ page, context }) => {
   const credential = process.env[credentialKey];
   expect(credential).toBeTruthy();
+  // Browser fixtures intentionally stay stronger than the runtime 8-byte floor.
   expect(Buffer.byteLength(credential ?? "", "utf8")).toBeGreaterThanOrEqual(32);
 
   await context.clearCookies();
