@@ -41,16 +41,16 @@ Load `bunx agent-browser skills get dogfood` for exploratory QA or a bug hunt. L
 
 ## Modes
 
-### Secret-free agent mode (default)
+### Isolated agent mode (default)
 
-- Use a clean, secret-free worktree with no operator `.env.local`. Home's `bun run factory:preflight` is an optional generic repository check for this mode; the standalone factory uses its own external preflight.
+- Use a clean worktree with no operator `.env.local` or credentials.
 - Run `bunx agent-browser doctor --quick --json` before launch. An isolated factory home has no shared browser cache; if the diagnostic reports that Chrome is missing, run `bunx agent-browser install` in that worktree, then repeat the diagnostic.
 - Run the app with `HOME_PLAYWRIGHT_SMOKE=1`, headless unless the task needs visual judgment, and a dedicated port other than Playwright's `3199`.
 - Make no provider, database, production, funded, or destructive call. Route needed API responses to bounded local fixtures.
 - Do not use `--profile`, `--state`, `--restore`, `--auto-connect`, auth-vault state, or saved cookies. State files can contain plaintext session tokens.
 - Use only the session created for this worktree and close only that session. Never run `close --all`.
 
-A secret-free server launch in a factory worktree looks like the following. Start it from the shell that will perform cleanup, capture the owned process PID immediately, and keep the log out of the repository:
+An isolated server launch in a factory worktree looks like the following. Start it from the shell that will perform cleanup, capture the owned process PID immediately, and keep the log out of the repository:
 
 ```sh
 export HOME_FIXTURE_SERVER_LOG="$(mktemp "${TMPDIR:-/tmp}/home-fixture-server.XXXXXX")"
@@ -74,7 +74,7 @@ Use a different non-3199 port when `3200` is occupied. Do not use root `bun dev`
 - Do not persist a browser profile or auth state. Keep every action within the approved runbook scope and safety limits.
 - Record any unperformed real-device, provider, authentication, or money check precisely. For an unperformed live-money path, write `Real money: not tested` and name the uncertainty; emulation is not real-device or funded proof.
 
-Factory mode stays local and secret-free by default. A protected Vercel preview is operator-only unless an operator explicitly authorizes and provisions automation access. First load the version-matched `protected-vercel-deployments` skill and prefer its short-lived approved access path. Protection Bypass for Automation requires explicit operator authorization: read `VERCEL_AUTOMATION_BYPASS_SECRET` only from the approved environment, inject it through the documented bypass header/cookie flow, and never print, persist, commit, or capture it. Do not disable protection or make the deployment public.
+Factory mode stays local and credential-free by default. A protected Vercel preview is operator-only unless an operator explicitly authorizes and provisions automation access. First load the version-matched `protected-vercel-deployments` skill and prefer its short-lived approved access path. Protection Bypass for Automation requires explicit operator authorization: read `VERCEL_AUTOMATION_BYPASS_SECRET` only from the approved environment, inject it through the documented bypass header/cookie flow, and never print, persist, commit, or capture it. Do not disable protection or make the deployment public.
 
 ## Required iteration loop
 

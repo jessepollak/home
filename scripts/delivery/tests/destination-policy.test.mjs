@@ -16,7 +16,6 @@ test("allows a direct main destination", async () => {
     allowed: true,
     mode: "main",
     baseRef: "main",
-    promotionLabels: ["status:ready-for-review"],
     message: "Pull request targets main.",
   });
 });
@@ -37,11 +36,11 @@ test("allows an explicitly labeled stack without claiming main delivery", async 
   assert.match(result.message, /not delivered to main/);
 });
 
-test("rejects delivery promotion labels on a stack", async () => {
+test("ignores unrelated labels when evaluating a stack", async () => {
   const payload = await fixture("promoted-stacked");
   const result = validateDestinationEvent(payload, { expectedRepository: "jessepollak/home" });
-  assert.equal(result.allowed, false);
-  assert.deepEqual(result.promotionLabels, ["status:needs-jesse"]);
+  assert.equal(result.allowed, true);
+  assert.equal(result.mode, "stacked");
 });
 
 test("requires the stack marker to be removed after retargeting to main", async () => {

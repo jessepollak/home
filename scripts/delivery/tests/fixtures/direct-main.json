@@ -1,16 +1,20 @@
 {
   "action": "labeled",
-  "repository": { "full_name": "jessepollak/home" },
+  "repository": {
+    "full_name": "jessepollak/home"
+  },
   "pull_request": {
     "number": 112,
     "state": "open",
     "draft": false,
     "merged": false,
-    "base": { "ref": "main" },
+    "base": {
+      "ref": "main"
+    },
     "labels": [
-      { "name": "priority:p1" },
-      { "name": "lane:ops" },
-      { "name": "status:ready-for-review" }
+      {
+        "name": "factory"
+      }
     ]
   }
 }

@@ -8,7 +8,7 @@ import {
 } from "./check-pr-destination.mjs";
 import {
   evaluatePullRequestDestination,
-  pullRequestLabels,
+  isStackedPullRequest,
 } from "./destination-policy.mjs";
 
 export const DESTINATION_STATUS_CONTEXT = "delivery/pr-destination";
@@ -88,7 +88,7 @@ function snapshotFingerprint(pullRequest) {
   return JSON.stringify({
     baseRef: pullRequest.base.ref,
     headSha: pullRequest.head.sha,
-    labels: [...pullRequestLabels(pullRequest)].sort(),
+    isStacked: isStackedPullRequest(pullRequest),
     number: pullRequest.number,
     state: pullRequest.state,
   });

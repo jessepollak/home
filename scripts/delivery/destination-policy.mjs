@@ -1,9 +1,5 @@
 const MAIN_BRANCH = "main";
 const STACKED_LABEL = "delivery:stacked";
-const PROMOTION_LABELS = new Set([
-  "status:ready-for-review",
-  "status:needs-jesse",
-]);
 
 function assertSafeRef(value, field) {
   if (
@@ -38,19 +34,20 @@ export function pullRequestLabels(pullRequest) {
   return pullRequest.labels.map(labelName);
 }
 
+export function isStackedPullRequest(pullRequest) {
+  return pullRequestLabels(pullRequest).includes(STACKED_LABEL);
+}
+
 export function evaluatePullRequestDestination(pullRequest) {
   if (!pullRequest || typeof pullRequest !== "object") throw new Error("pull request is required");
   const baseRef = assertSafeRef(pullRequest.base?.ref, "base ref");
-  const labels = pullRequestLabels(pullRequest);
-  const isStacked = labels.includes(STACKED_LABEL);
-  const promotionLabels = labels.filter((label) => PROMOTION_LABELS.has(label));
+  const isStacked = isStackedPullRequest(pullRequest);
 
   if (baseRef === MAIN_BRANCH && !isStacked) {
     return {
       allowed: true,
       mode: "main",
       baseRef,
-      promotionLabels,
       message: "Pull request targets main.",
     };
   }
@@ -60,7 +57,6 @@ export function evaluatePullRequestDestination(pullRequest) {
       allowed: false,
       mode: "invalid",
       baseRef,
-      promotionLabels,
       message: `Remove ${STACKED_LABEL} after retargeting the pull request to main.`,
     };
   }
@@ -70,18 +66,7 @@ export function evaluatePullRequestDestination(pullRequest) {
       allowed: false,
       mode: "invalid",
       baseRef,
-      promotionLabels,
       message: `Pull request targets ${baseRef}; retarget it to main or apply the reviewed ${STACKED_LABEL} exception.`,
-    };
-  }
-
-  if (promotionLabels.length > 0) {
-    return {
-      allowed: false,
-      mode: "invalid",
-      baseRef,
-      promotionLabels,
-      message: `Stacked pull requests cannot carry delivery promotion labels: ${promotionLabels.join(", ")}.`,
     };
   }
 
@@ -89,7 +74,6 @@ export function evaluatePullRequestDestination(pullRequest) {
     allowed: true,
     mode: "stacked",
     baseRef,
-    promotionLabels,
     message: `Stacked pull request targets ${baseRef}; it is an intermediate change and is not delivered to main.`,
   };
 }
@@ -102,5 +86,4 @@ export function isDirectMainDestination(pullRequest) {
 export const deliveryDestinationConstants = Object.freeze({
   mainBranch: MAIN_BRANCH,
   stackedLabel: STACKED_LABEL,
-  promotionLabels: Object.freeze([...PROMOTION_LABELS]),
 });

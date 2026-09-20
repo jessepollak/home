@@ -139,12 +139,9 @@ test("a head change immediately after publication invalidates old success and re
 test("a base retarget observed before publication is re-evaluated on the same pending head", async () => {
   const payload = await destinationPayload("c".repeat(40));
   const directMain = livePullRequest(payload, "c".repeat(40));
-  const promotedStack = structuredClone(directMain);
-  promotedStack.base.ref = "feature/dependency";
-  promotedStack.labels.push({ name: "delivery:stacked" });
-  promotedStack.labels = promotedStack.labels.filter((label) => label.name !== "status:ready-for-review");
-  promotedStack.labels.push({ name: "status:needs-jesse" });
-  const github = mockGitHub([directMain, promotedStack, promotedStack, promotedStack]);
+  const invalidDestination = structuredClone(directMain);
+  invalidDestination.base.ref = "feature/dependency";
+  const github = mockGitHub([directMain, invalidDestination, invalidDestination, invalidDestination]);
 
   const result = await publishCurrentHeadDestinationStatus(payload, {
     ...options,
@@ -153,12 +150,7 @@ test("a base retarget observed before publication is re-evaluated on the same pe
 
   assert.equal(result.allowed, false);
   assert.deepEqual(statusPosts(github).map(({ state }) => state), ["pending", "failure"]);
-  assert.deepEqual(statusPosts(github).at(-1), {
-    context: DESTINATION_STATUS_CONTEXT,
-    description: "Stacked pull requests cannot carry delivery promotion labels: status:needs-jesse.",
-    headSha: "c".repeat(40),
-    state: "failure",
-  });
+  assert.match(statusPosts(github).at(-1).description, /retarget it to main/);
 });
 
 test("a stable invalid destination replaces prior success with a final failure", async () => {

@@ -2,8 +2,6 @@
 
 <!-- What changed, why, and the issue. -->
 
-Closes #
-
 ## Test plan
 
 - [ ] `bun check` / CI green
@@ -15,7 +13,7 @@ Closes #
 
 ## Operator action required
 
-<!-- Optional. If this PR needs an operator action after merge, state exact environment variable names, non-secret setting values, and commands. Never include secret values, credentials, tokens, private keys, or customer data. The PR stays status:needs-jesse until Jesse completes it and the affected path is verified. Otherwise write N/A. -->
+<!-- Optional. If this PR needs an operator action after merge, state exact environment variable names, non-secret setting values, and commands. Never include secret values, credentials, tokens, private keys, or customer data. The PR remains unready for approval until Jesse completes it and the affected path is verified. Otherwise write N/A. -->
 
 ## Preview
 
@@ -26,3 +24,5 @@ Closes #
 | Descriptive state — 390×844 CSS px | GitHub screenshot or clip attachment |
 
 Keep review findings separate from screenshot evidence in a `Severity | Evidence | Judgment / action` table when findings are recorded. Also summarize agent-browser mode (factory fixture/operator), route, viewport, exercised path including recovery/Back, final state, console/errors, and exact owned fixture-server cleanup. Include Storybook Before/Proposed/Implemented references only when useful; they do not create a separate approval system. State limitations. See docs/browser-validation.md and docs/ui-pr-previews.md. Otherwise write N/A: docs-only / CI-only / pure server. -->
+
+Refs #

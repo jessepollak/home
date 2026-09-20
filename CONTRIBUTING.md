@@ -8,7 +8,7 @@ Home is meant to be cloned and run first. This guide is for focused pull request
 2. [Architecture](docs/architecture.md) — principles, seams, and the thinness test; [Actions](docs/actions.md) and [Balances](docs/balances.md) for subsystem contracts
 3. [Browser validation](docs/browser-validation.md) — required before/after iteration and regression-test boundaries for user-visible and core-flow work
 4. [Docs index](docs/README.md)
-5. [Operating manual](docs/operating-manual.md) — product framing, issue state, execution modes, delivery loop, live-money validation, PR evidence, and completion authority
+5. [Operating manual](docs/operating-manual.md) — product framing, factory runs, delivery loop, live-money validation, PR evidence, and completion authority
 
 For hosting, see [Vercel deploy](docs/vercel-deploy.md). For a customized operator deployment, see [Fork and extend](docs/fork-and-extend.md).
 
@@ -16,7 +16,7 @@ For hosting, see [Vercel deploy](docs/vercel-deploy.md). For a customized operat
 
 The [README setup](README.md#install-and-run) bootstraps a fresh clone from the tracked `.env.example`. An ordinary Git worktree does not copy the ignored `apps/web/.env.local`; follow the [AGENTS worktree bootstrap](AGENTS.md#working-in-this-repo) to copy it from the primary checkout only when it is missing, without printing, overwriting, or committing it.
 
-Secret-free agent and automated worktrees are different: they never copy or read the operator's `.env.local` or receive provider, database, production, or Vercel credentials. They may run `bun run factory:preflight` as an optional generic repository gate. The standalone factory uses its own external preflight; this repository command does not implement or invoke that queue.
+Automated factory runs use isolated environments and never copy or read the operator's `.env.local` or receive provider, database, production, or Vercel credentials.
 
 ## App boundaries
 
@@ -57,8 +57,6 @@ Do not add provider credentials or funded-wallet checks to pull-request CI.
 
 ## Factory delivery
 
-The factory follows the [operating manual](docs/operating-manual.md). GitHub Issues and lane/status/priority labels are the sole durable intake and delivery board; they track work but do not by themselves authorize execution.
-
-Tracking, local interactive authorization, and standalone queue eligibility are separate ([execution modes](docs/operating-manual.md#execution-modes)): a local session implements a named issue on Jesse's explicit current-session instruction, while standalone eligibility still requires a Jesse-applied `factory:ready`. As a readiness discipline, Jesse applies that label only to an owner-authored delivery leaf with `status:todo` and exactly one lane and priority. Exact queue checks and implementation live outside Home.
+Jesse files issues on `jessepollak/home`; adding `factory` means start working on the issue. The factory bot follows the run triggers and delivery loop in the [operating manual](docs/operating-manual.md), works on `agent/<issue>`, and delivers a normal PR ending with `Refs #<issue>` (or an issue comment for `product(...)` research). Any Jesse issue/PR comment or PR review triggers a follow-up; re-adding `factory` triggers a comment-less look-again run.
 
 **Only Jesse (`jessepollak`) gives the final +1 and merges.** User-visible pull requests need proof in the description; see [UI PR previews](docs/ui-pr-previews.md).

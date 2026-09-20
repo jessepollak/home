@@ -28,7 +28,7 @@ Every slice states:
 - what is inside and outside its boundary;
 - the proof that will show it works.
 
-Keep implementation details, migrations, test additions, adapters, and other technical subtasks inside the owning slice. They are engineering work, not separate product approvals. Preserve the native parent/sub-issue hierarchy and Project membership when a new delivery issue is needed.
+Keep implementation details, migrations, test additions, adapters, and other technical subtasks inside the owning slice. They are engineering work, not separate product approvals. Reuse the existing delivery issue when possible.
 
 ## Evidence planning
 
