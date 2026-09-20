@@ -240,7 +240,7 @@ function ActivityPagination({
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel || !nextCursor || loading || failed || autoLoadPaused || typeof IntersectionObserver === "undefined") return;
-    const closestRoot = sentinel.closest(".app-main-authenticated");
+    const closestRoot = sentinel.closest("[data-app-main-authenticated]");
     const root = closestRoot instanceof HTMLElement ? closestRoot : null;
     const observer = new IntersectionObserver(
       (entries) => {

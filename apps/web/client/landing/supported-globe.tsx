@@ -362,8 +362,7 @@ export function SupportedGlobe({
               cx={position.x.toFixed(3)} cy={position.y.toFixed(3)} r=".48"
               visibility={position.visible ? "visible" : "hidden"}
               data-tone={point.markerTone ?? "default"}
-              className={styles.marker}
-              stroke="white" strokeWidth=".22" />;
+              className={styles.marker} />;
           })}
         </svg>
         <div className={styles.countryTargets} data-interactive={status === "ready" ? "true" : "false"}>

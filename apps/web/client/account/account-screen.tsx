@@ -306,7 +306,7 @@ export function AccountSignInSheet({
                 resendSeconds={resendSeconds}
                 inputRef={otpInputRef}
                 onOtpChange={setOtp}
-                onSubmit={handleOtpSubmit}
+                onSubmit={(event) => void handleOtpSubmit(event)}
                 onChangeEmail={changeEmail}
                 onResend={() => { setOtp(""); void sendCode(email); }}
               />
@@ -318,7 +318,7 @@ export function AccountSignInSheet({
                 baseAccountPhase={activeBaseAccountPhase}
                 inputRef={emailInputRef}
                 onEmailChange={setEmail}
-                onSubmit={handleEmailSubmit}
+                onSubmit={(event) => void handleEmailSubmit(event)}
                 onBaseAccountSignIn={() => void handleBaseAccountSignIn()}
               />
             )}

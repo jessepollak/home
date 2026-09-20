@@ -214,7 +214,7 @@ export function InvestExperience({
 
   return (
     <div ref={hostRef}>
-      <div className="panel-fade" key={currentViewKey}>
+      <div key={currentViewKey}>
         {screen}
       </div>
     </div>

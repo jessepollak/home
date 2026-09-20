@@ -98,6 +98,8 @@
 
 .marker {
   fill: #0000ff;
+  stroke: #ffffff;
+  stroke-width: 0.22;
 }
 
 .marker[data-tone="positive"] {

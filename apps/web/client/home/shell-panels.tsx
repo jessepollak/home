@@ -121,7 +121,8 @@ export function DashboardShell({
     <>
       <main
         ref={mainRef}
-        className={`app-main-authenticated order-1 min-h-0 flex-1 overscroll-contain overflow-x-hidden bg-muted pb-4 scroll-pb-4 sm:order-2 ${shellScrollContainerClassName}`}
+        data-app-main-authenticated
+        className={`order-1 min-h-0 flex-1 overscroll-contain overflow-x-hidden bg-muted pb-4 scroll-pb-4 sm:order-2 ${shellScrollContainerClassName}`}
       >
         <div className={`${shellContentFrameClassName} py-4 sm:py-6`}>
         {isUnavailable ? (
