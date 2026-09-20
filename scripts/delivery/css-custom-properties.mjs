@@ -1,6 +1,6 @@
-// App CSS must not reference an unresolved CSS custom property: every var(--name)
-// use in an app CSS file needs a declaration in CSS, an inline TS/TSX provider,
-// or an entry in the narrow runtime-injected allowlist.
+// App CSS and TS/TSX class strings must not reference an unresolved CSS
+// custom property: every var(--name) use needs a declaration in CSS, an inline
+// TS/TSX provider, or an entry in the narrow runtime-injected allowlist.
 
 // Custom-property name, without the leading --, normalized everywhere. Valid
 // names may contain underscores and start with a digit (e.g. --_private,
@@ -10,15 +10,15 @@ const CSS_DECLARATION = new RegExp(`--(${NAME})\\s*:`, "g");
 const CSS_VAR_USE = new RegExp(`var\\(\\s*(--${NAME})`, "g");
 
 // Provider-shaped TS/TSX literals only: a setProperty call whose first argument
-// is a "--name" literal, or a literal object property key "--name":. A quoted
-// "--name" on its own (a constant, a getPropertyValue/removeProperty lookup, or
-// a comment) never defines a property. Tailwind arbitrary properties
-// ([--name:value]) in class strings are deliberately not treated as providers;
-// a var() use of one must be declared in CSS or allowlisted. Type-declaration
-// keys ("--name":) are indistinguishable from object keys by literal scan and
-// remain an accepted residual in .ts/.tsx; .d.ts declarations are excluded.
+// is a "--name" literal, a literal object property key "--name":, or a Tailwind
+// arbitrary-property class ([--name:value]). A quoted "--name" on its own (a
+// constant, a getPropertyValue/removeProperty lookup, or a comment) never
+// defines a property. Type-declaration keys ("--name":) are indistinguishable
+// from object keys by literal scan and remain an accepted residual in .ts/.tsx;
+// .d.ts declarations are excluded.
 const TS_SETPROPERTY_PROVIDER = new RegExp(`\\.setProperty\\(\\s*['"](--${NAME})['"]\\s*,`, "g");
 const TS_OBJECT_KEY_PROVIDER = new RegExp(`['"](--${NAME})['"]\\s*:`, "g");
+const TS_CLASS_PROPERTY_PROVIDER = new RegExp(`\\[--(${NAME})\\s*:`, "g");
 
 // TS/TSX paths that never define a property at runtime and are skipped as
 // provider sources: test files, test directories, and type declarations.
@@ -84,9 +84,43 @@ function note(map, name, file) {
   map.get(name).add(file);
 }
 
+// Return static quoted/template literal contents. Interpolated expressions are
+// not evaluated; recognizable literal segments remain safe to inspect.
+function jsStringLiterals(source) {
+  const literals = [];
+  for (let i = 0; i < source.length; i += 1) {
+    const quote = source[i];
+    if (quote !== "'" && quote !== '"' && quote !== "`") continue;
+    let value = "";
+    i += 1;
+    while (i < source.length && source[i] !== quote) {
+      if (source[i] === "\\" && i + 1 < source.length) {
+        value += source[i + 1];
+        i += 2;
+      } else {
+        value += source[i];
+        i += 1;
+      }
+    }
+    literals.push(value);
+  }
+  return literals;
+}
+
+// A var() is a class-string consumer only when it occurs in a Tailwind
+// arbitrary-value token. Plain TS values such as `const color = "var(--x)"`
+// are runtime CSS values, but are deliberately outside this class-string gate.
+function isArbitraryClassValue(literal, index) {
+  const tokenStart = Math.max(literal.lastIndexOf(" ", index), literal.lastIndexOf("\n", index), literal.lastIndexOf("\t", index)) + 1;
+  const suffix = literal.slice(tokenStart);
+  const close = suffix.search(/\s/);
+  const token = close === -1 ? suffix : suffix.slice(0, close);
+  return token.includes("[") && token.includes("]");
+}
+
 // files: { path, content }[]. Definitions come from CSS declarations and
-// provider-shaped TS/TSX literals; uses come from var() references in CSS
-// files only.
+// provider-shaped TS/TSX literals; uses come from var() references in CSS and
+// statically recognizable Tailwind arbitrary-value class strings.
 export function collectCustomProperties(files) {
   const defined = new Map();
   const usedInCss = new Map();
@@ -100,13 +134,21 @@ export function collectCustomProperties(files) {
       for (const pattern of [TS_SETPROPERTY_PROVIDER, TS_OBJECT_KEY_PROVIDER]) {
         for (const match of source.matchAll(pattern)) note(defined, withoutLeadingDashes(match[1]), file.path);
       }
+      for (const literal of jsStringLiterals(source)) {
+        for (const match of literal.matchAll(TS_CLASS_PROPERTY_PROVIDER)) note(defined, match[1], file.path);
+        for (const match of literal.matchAll(CSS_VAR_USE)) {
+          if (isArbitraryClassValue(literal, match.index)) {
+            note(usedInCss, withoutLeadingDashes(match[1]), file.path);
+          }
+        }
+      }
     }
   }
   return { defined, usedInCss };
 }
 
 // defined/usedInCss: maps from collectCustomProperties; runtimeAllowed: names
-// injected by frameworks at runtime. unresolved: CSS var() uses with no
+// injected by frameworks at runtime. unresolved: var() uses with no
 // definition anywhere; staleAllowlist: runtime names now defined in the repo;
 // unusedAllowlist: runtime names no longer used by any CSS var().
 export function evaluateCustomPropertyResolution({ defined, usedInCss, runtimeAllowed = [] }) {

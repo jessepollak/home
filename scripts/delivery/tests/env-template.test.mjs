@@ -20,6 +20,7 @@ const PLATFORM_ALLOWLIST = [
   "NODE_ENV",
   "VERCEL",
   "VERCEL_ENV",
+  "VERCEL_PROJECT_PRODUCTION_URL", // Vercel-owned production deployment hostname
 ];
 
 // Test and smoke toggles, not operator configuration.
@@ -32,12 +33,129 @@ const TEST_ONLY_ALLOWLIST = [
   "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH",
 ];
 
-test("scanner finds direct dot and bracket process.env reads", () => {
+test("scanner finds direct dot and literal-bracket process.env reads", () => {
   const reads = readDirectEnvNames([
     { path: "a.ts", content: "const a = process.env.HOME_ONE; const b = process.env[\"HOME_TWO\"];\n" },
-    { path: "b.tsx", content: "const c = process.env['HOME_THREE'];\nprocess.env[`${d}`];\nprocess.env[d];\n" },
+    { path: "b.tsx", content: "const c = process.env['HOME_THREE']; const d = `${process.env.HOME_TEMPLATE}`;\n" },
   ]);
-  assert.deepEqual([...reads.keys()].sort(), ["HOME_ONE", "HOME_THREE", "HOME_TWO"]);
+  assert.deepEqual([...reads.keys()].sort(), ["HOME_ONE", "HOME_TEMPLATE", "HOME_THREE", "HOME_TWO"]);
+});
+
+test("scanner follows aliases assigned directly from process.env", () => {
+  const reads = readDirectEnvNames([
+    {
+      path: "aliases.ts",
+      content: `
+        const runtime = process.env;
+        const one = runtime.HOME_ALIAS_DOT;
+        const two = runtime["HOME_ALIAS_BRACKET"];
+        function injected(runtime: Record<string, string | undefined>) {
+          return runtime.HOME_INJECTED_SHADOW;
+        }
+        function configured(env: Readonly<Record<string, string | undefined>> = process.env) {
+          return env.HOME_ALIAS_DEFAULT;
+        }
+      `,
+    },
+  ]);
+  assert.deepEqual([...reads.keys()].sort(), ["HOME_ALIAS_BRACKET", "HOME_ALIAS_DEFAULT", "HOME_ALIAS_DOT"]);
+});
+
+test("scanner follows process.env fallback aliases without globalizing injected records", () => {
+  const reads = readDirectEnvNames([
+    {
+      path: "fallback.ts",
+      content: `
+        function runtime(options: { env?: Record<string, string | undefined> } = {}) {
+          const env = options.env ?? process.env;
+          const direct = env.HOME_FALLBACK_DIRECT;
+          return helper(env);
+        }
+        function helper(environment: Record<string, string | undefined>) {
+          return environment.HOME_FALLBACK_HELPER;
+        }
+        function purelyInjected(env: Record<string, string | undefined>) {
+          return env.HOME_INJECTED_ONLY;
+        }
+      `,
+    },
+  ]);
+  assert.deepEqual([...reads.keys()].sort(), ["HOME_FALLBACK_DIRECT", "HOME_FALLBACK_HELPER"]);
+});
+
+test("an inner fallback alias wins over a later outer alias with the same name", () => {
+  const reads = readDirectEnvNames([
+    {
+      path: "innermost-alias.ts",
+      content: `
+        function configured(options: { env?: Record<string, string | undefined> } = {}) {
+          const env = options.env ?? process.env;
+          return env.HOME_INNER_FALLBACK;
+        }
+        const env = process.env;
+        const outer = env.HOME_OUTER_ALIAS;
+      `,
+    },
+  ]);
+  assert.deepEqual([...reads.keys()].sort(), ["HOME_INNER_FALLBACK", "HOME_OUTER_ALIAS"]);
+});
+
+test("local variable bindings shadow outer process.env aliases", () => {
+  const reads = readDirectEnvNames([
+    {
+      path: "variable-shadows.ts",
+      content: `
+        const constEnv = process.env;
+        const keep = constEnv.HOME_OUTER_CONST;
+        { const constEnv = injected; constEnv.HOME_SHADOWED_CONST; }
+
+        const letEnv = process.env;
+        function withLet() { let letEnv = injected; return letEnv.HOME_SHADOWED_LET; }
+        const keepLet = letEnv.HOME_OUTER_LET;
+
+        const varEnv = process.env;
+        function withVar() { var varEnv = injected; return varEnv.HOME_SHADOWED_VAR; }
+        const keepVar = varEnv.HOME_OUTER_VAR;
+      `,
+    },
+  ]);
+  assert.deepEqual([...reads.keys()].sort(), ["HOME_OUTER_CONST", "HOME_OUTER_LET", "HOME_OUTER_VAR"]);
+});
+
+test("helper propagation rejects a call-site alias shadowed by an injected parameter", () => {
+  const reads = readDirectEnvNames([
+    {
+      path: "shadowed-helper.ts",
+      content: `
+        const env = configuredEnv ?? process.env;
+        function injected(env: Record<string, string | undefined>) {
+          return injectedHelper(env);
+        }
+        function injectedHelper(record: Record<string, string | undefined>) {
+          return record.HOME_SHADOWED_HELPER;
+        }
+      `,
+    },
+  ]);
+  assert.deepEqual([...reads.keys()], []);
+});
+
+test("scanner excludes injected records and dynamic property names", () => {
+  const reads = readDirectEnvNames([
+    {
+      path: "controls.ts",
+      content: `
+        function injected(env: Record<string, string | undefined>) {
+          return env.HOME_INJECTED_RECORD;
+        }
+        function configured(runtime = process.env) {
+          const dynamic = "HOME_DYNAMIC";
+          return runtime[dynamic] ?? runtime[\`HOME_\${dynamic}\`] ?? process.env[dynamic];
+        }
+      `,
+    },
+  ]);
+  assert.deepEqual([...reads.keys()], []);
 });
 
 test("evaluation reports missing, declared, allowlisted, and stale-allowlist cases", () => {
