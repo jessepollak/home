@@ -57,6 +57,6 @@ Do not add provider credentials or funded-wallet checks to pull-request CI.
 
 ## Factory delivery
 
-Jesse files issues on `jessepollak/home`; adding `factory` means start working on the issue. The factory bot follows the run triggers and delivery loop in the [operating manual](docs/operating-manual.md), works on `agent/<issue>`, and delivers a normal PR ending with `Refs #<issue>` (or an issue comment for `product(...)` research). Any Jesse issue/PR comment or PR review triggers a follow-up; re-adding `factory` triggers a comment-less look-again run.
+Jesse files issues on `jessepollak/home` with a kind prefix in the title (`product(...)`, `design(...)`, `feat(...)`, `fix(...)`, `test(...)`, `ops(...)`, `dx(...)`, `docs(...)`, `chore(...)`); adding `factory` means start working on the issue. The factory bot follows the run triggers and delivery loop in the [operating manual](docs/operating-manual.md), marks the issue `factory:working` and then `factory:review` itself, works on `agent/<issue>`, and delivers a normal PR ending with `Closes #<issue>` for implementation or `Refs #<issue>` for design proposals (or an issue comment for `product(...)` research). Any Jesse issue/PR comment or PR review triggers a follow-up; re-adding `factory` triggers a comment-less look-again run.
 
 **Only Jesse (`jessepollak`) gives the final +1 and merges.** User-visible pull requests need proof in the description; see [UI PR previews](docs/ui-pr-previews.md).

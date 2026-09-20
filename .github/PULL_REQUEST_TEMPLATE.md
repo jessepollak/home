@@ -25,4 +25,5 @@
 
 Keep review findings separate from screenshot evidence in a `Severity | Evidence | Judgment / action` table when findings are recorded. Also summarize agent-browser mode (factory fixture/operator), route, viewport, exercised path including recovery/Back, final state, console/errors, and exact owned fixture-server cleanup. Include Storybook Before/Proposed/Implemented references only when useful; they do not create a separate approval system. State limitations. See docs/browser-validation.md and docs/ui-pr-previews.md. Otherwise write N/A: docs-only / CI-only / pure server. -->
 
-Refs #
+<!-- Last line: `Closes #<issue>` for implementation PRs, `Refs #<issue>` for design proposals. -->
+Closes #
