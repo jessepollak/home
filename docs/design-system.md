@@ -53,17 +53,29 @@ Storybook can prove that a production component renders and supports fixture-bac
 
 ## Reference journey proposal (#654)
 
-Status: **unapproved proposed design** awaiting Jesse's review ([issue #654](https://github.com/jessepollak/home/issues/654)). It changes no production route, token, shell, or `MoneyModal` behavior; production adoption is a separate dependent issue, and the current `displayTotal` ("Total balance") hero is unchanged until then. The proposal lives beside the Home surfaces in `apps/web/client/home/reference-journey/`:
+Status: **unapproved direction examples** awaiting Jesse's selection ([issue #654](https://github.com/jessepollak/home/issues/654)). They change no production route, token, shell, provider, or `MoneyModal` behavior; production adoption is a separate dependent issue, and the current `displayTotal` ("Total balance") hero is unchanged until one direction is selected and implemented. Explicit direction exploration that Jesse authorizes is a bounded review phase: while the work stays proposal-only it is not constrained by the ordinary smallest-cohesive-improvement maintenance default.
+
+The current checkpoint is three paired Home + Save directions over `referenceFundedPosition` and one presenter, so the difference is grouping, hierarchy, disclosure, and action placement — never different numbers:
+
+- Overview-to-vault workspace (recommended): `reference-directions-home--overview`, `reference-directions-save--overview`
+- Expandable statement: `reference-directions-home--statement`, `reference-directions-save--statement`
+- Tabbed workspace: `reference-directions-home--workspace`, `reference-directions-save--workspace`
+- Desktop review of the recommended Home and Save: `reference-directions-home--overview-desktop`, `reference-directions-save--overview-desktop`
+
+The proposal lives beside the Home surfaces in `apps/web/client/home/reference-journey/`:
 
 - `reference-position.ts` — production-intended presentation model: net position from explicit complete/partial/loading/unavailable cash, saved, and debt slices. Verified zero debt is omitted; a missing slice is named and never rendered as zero or a complete total. It follows [#634's selected Net position contract](https://github.com/jessepollak/home/issues/634) without relabelling production `displayTotal`.
-- `reference-home.tsx` — `ReferenceHomeComposition` with the explicit `ledger` (recommended Option A) and `tiles` (Option B) composition variants.
-- `reference-save.tsx` — `ReferenceSaveComposition` with the same `ledger` / `tiles` variants over the selected vault.
-- `reference-journey.tsx` — the connected fixture journey (Home → Save → existing deposit amount → review → pending/result → return, plus Activity → transaction detail → back).
-- `reference-fixtures.ts` — the shared fixture set. It imports no Storybook, MSW, or provider code; stories and focused behavior tests import the same values so the two option comparisons cannot drift apart.
+- `reference-directions-frame.tsx` — shared proposal frame with the production `PrimaryNavigation`; Save stays nested under Home, keeps Home active, and gets a Back affordance.
+- `reference-directions-parts.tsx` — shared presentation pieces (net position / saved headlines, summary rows, action bands, vault identity and details, disclosure row).
+- `reference-directions-home.tsx`, `reference-directions-save.tsx` — the three Home and three Save compositions.
+- `reference-directions-surface.tsx` — the paired stateful surface the two story files and the focused tests share.
+- `reference-fixtures.ts` — the shared fixture set. It imports no Storybook, MSW, or provider code; stories and focused behavior tests import the same values so the directions cannot drift apart.
 
-Direct story links (manager / canvas): `reference-home` (`/?path=/story/reference-home--ledger-first`, `/iframe.html?id=reference-home--ledger-first&viewMode=story`), `reference-save` (`/?path=/story/reference-save--ledger-first`), and `reference-journey` (`/?path=/story/reference-journey--funded-journey`). The built `index.json` remains the durable source when these grow. A rename must update these links and the review evidence in the same change.
+Retained from the earlier checkpoint, not the current recommendation: `reference-home.tsx` / `reference-save.tsx` with their `ledger` and `tiles` comparison variants and the connected `reference-journey.tsx` (Home → Save → existing deposit amount → review → pending/result → return, plus Activity → transaction detail → back).
 
-Fixture limits, stated plainly: the comparisons and journey simulate navigation and dispatch with component state and injected fixture money-action functions. They are not proof of Next routing/history, browser Back, provider or wallet behavior, real balances, or money execution. `Add money`, `Send`, `Cash out`, `Borrow`, `Your money`, `Withdraw`, and `Invest` are reference intents that keep their existing production flows and are labeled unwired when activated. A fixture deposit only moves balances when the injected result is `confirmed`; `submitted`, `pending`, and `unknown` record the action and leave balances unchanged, and the 18-decimal share preview is scaled from the exact USDC amount rather than string-padded.
+Direct story links follow the documented pattern (`/?path=/story/<id>`, `/iframe.html?id=<id>&viewMode=story`), for example `/?path=/story/reference-directions-home--overview` and `/iframe.html?id=reference-directions-save--overview&viewMode=story`. The built `index.json` remains the durable source when these grow. A rename must update these links and the review evidence in the same change.
+
+Fixture limits, stated plainly: the directions and journey simulate navigation and dispatch with component state and injected fixture money-action functions. They are not proof of Next routing/history, browser Back, provider or wallet behavior, real balances, or money execution. `Add money`, `Send`, `Cash out`, `Borrow`, `Your money`, `Withdraw`, and `Invest` are reference intents that keep their existing production flows; in the direction examples the deposit and withdraw callbacks keep the journey's shape but stay unwired. A fixture deposit only moves balances when the injected result is `confirmed`; `submitted`, `pending`, and `unknown` record the action and leave balances unchanged, and the 18-decimal share preview is scaled from the exact USDC amount rather than string-padded.
 
 Known limitations recorded for review, not accepted as complete:
 

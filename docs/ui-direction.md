@@ -20,7 +20,7 @@ Savings and Invest modules are still passed into `HomeExperience` through `savin
 
 ## Reference journey proposal (#654)
 
-The unapproved reference composition for Home, Save, and the connected journey is documented in the [design system](design-system.md#reference-journey-proposal-654). It is a proposal, not the current direction: production adoption is a separate dependent issue, and the existing `displayTotal` ("Total balance") hero is unchanged until that issue lands.
+Three unapproved direction examples for Home and Save — overview-to-vault workspace (recommended), expandable statement, and tabbed workspace — are documented in the [design system](design-system.md#reference-journey-proposal-654); the earlier ledger/tiles comparison and the connected journey are retained as inputs. They are direction examples for Jesse's selection, not the current direction: production adoption is a separate dependent issue, and the existing `displayTotal` ("Total balance") hero is unchanged until one direction is selected and implemented. Explicit direction exploration that Jesse authorizes is a bounded phase and, while the work stays proposal-only, is not constrained by the ordinary smallest-cohesive-improvement maintenance default: no production route, shell, token, provider, flow, dependency, or second UI system changes.
 
 ## History — Direction 1 "Vercel Editorial" (locked 2026-09-08)
 
