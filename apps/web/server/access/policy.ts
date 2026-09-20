@@ -53,7 +53,7 @@ export function enforceAccess(
   }
 
   const token = request.cookies.get(ACCESS_COOKIE_NAME)?.value;
-  if (token && readAccessToken(token, config.credential, now)) {
+  if (token && readAccessToken(token, config, now)) {
     return privateHeaders(NextResponse.next());
   }
 

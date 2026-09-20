@@ -20,7 +20,7 @@ export default async function AccessPage({
   );
   const accessCookie = (await cookies()).get(ACCESS_COOKIE_NAME)?.value;
   const hasAccess = config.kind === "enabled" && Boolean(
-    accessCookie && readAccessToken(accessCookie, config.credential),
+    accessCookie && readAccessToken(accessCookie, config),
   );
 
   return (

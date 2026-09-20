@@ -12,27 +12,34 @@ type AccessTokenPayload = {
   expiresAt: string;
 };
 
-function signingKey(credential: string): Buffer {
-  return createHmac("sha256", Buffer.from(credential, "utf8"))
+export type AccessTokenSigner = {
+  credential: string;
+  signingSecret: string;
+};
+
+function signingKey(signer: AccessTokenSigner): Buffer {
+  return createHmac("sha256", Buffer.from(signer.signingSecret, "utf8"))
     .update(SIGNING_KEY_LABEL)
+    .update("\0")
+    .update(signer.credential, "utf8")
     .digest();
 }
 
-export function issueAccessToken(credential: string, now = new Date()): string {
+export function issueAccessToken(signer: AccessTokenSigner, now = new Date()): string {
   const payload: AccessTokenPayload = {
     version: 1,
     issuedAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + ACCESS_TOKEN_TTL_MS).toISOString(),
   };
-  return signedValue(signingKey(credential), JSON.stringify(payload));
+  return signedValue(signingKey(signer), JSON.stringify(payload));
 }
 
 export function readAccessToken(
   token: string,
-  credential: string,
+  signer: AccessTokenSigner,
   now = new Date(),
 ): AccessTokenPayload | null {
-  const value = readSignedValue(signingKey(credential), token);
+  const value = readSignedValue(signingKey(signer), token);
   if (!value) return null;
   try {
     const payload = JSON.parse(value) as Partial<AccessTokenPayload>;

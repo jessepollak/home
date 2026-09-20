@@ -3,8 +3,9 @@ import { NextRequest } from "next/server";
 import { issueAccessToken } from "./token";
 import { enforceAccess } from "./policy";
 
-const CREDENTIAL = "a".repeat(32);
-const enabled = { kind: "enabled" as const, credential: CREDENTIAL };
+const CREDENTIAL = "a".repeat(8);
+const SIGNING_SECRET = "b".repeat(32);
+const enabled = { kind: "enabled" as const, credential: CREDENTIAL, signingSecret: SIGNING_SECRET };
 const now = new Date("2026-09-18T12:00:00.000Z");
 
 function request(
@@ -70,7 +71,7 @@ describe("deployment access policy", () => {
   });
 
   test("allows a valid independent access cookie and makes the response private", () => {
-    const token = issueAccessToken(CREDENTIAL, now);
+    const token = issueAccessToken(enabled, now);
     const response = enforceAccess(request("/api/session", { headers: { cookie: `home-access=${token}` } }), enabled, now);
     expect(response?.status).toBe(200);
     expect(response?.headers.get("x-middleware-next")).toBe("1");

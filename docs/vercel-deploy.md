@@ -16,7 +16,7 @@ The existing `home-web` Vercel project uses **Root Directory** `apps/web`; Verce
 
 ### Pre-release production access
 
-Home can place a replaceable shared deployment-access gate before customer authentication. Set `HOME_ACCESS_REQUIRED=1` and configure the server-only `HOME_ACCESS_PASSWORD` with at least 32 UTF-8 bytes. This credential and the `home-access` cookie are independent from Home customer sessions and any future administrator session; passing the gate never identifies or authorizes a customer, administrator, support agent, or configuration change.
+Home can place a replaceable shared deployment-access gate before customer authentication. Set `HOME_ACCESS_REQUIRED=1`, configure the server-only `HOME_ACCESS_PASSWORD` with at least 8 UTF-8 bytes (prefer a longer random password), and configure an independent server-only `HOME_ACCESS_SIGNING_SECRET` with at least 32 random UTF-8 bytes. Rotating either value invalidates every `home-access` cookie. Never use committed literal secret fixtures for either value. The credential, signing secret, and cookie are independent from Home customer sessions and any future administrator session; passing the gate never identifies or authorizes a customer, administrator, support agent, or configuration change.
 
 Keep Vercel Authentication enabled while deploying and verifying the gate. After authorized verification, change **Project Settings → Deployment Protection** to exactly **Only Preview Deployments**. This keeps previews behind Vercel Authentication and removes it only from production so the public Apple association file and signed webhook endpoints can reach Home. Roll back by restoring Vercel Authentication for production; do not widen the application's public-route allowlist.
 
