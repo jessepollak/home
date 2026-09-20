@@ -287,6 +287,57 @@ describe("thin action dispatch", () => {
     expect(fake.pending()).toBe(0);
   });
 
+  test("does not record a provider hash for a failed operation and announces the failure instead", async () => {
+    const fake = fakeClock();
+    const posts: string[] = [];
+    const failures: string[] = [];
+    let checks = 0;
+    const run = pollTransactionResolution({
+      generation: 2,
+      fence: { assertCurrent: () => {} },
+      check: async () => {
+        checks += 1;
+        return {
+          status: "failed",
+          transactionHash,
+          reason: "User operation reverted inside the bundle.",
+        };
+      },
+      recordTransactionHash: async (hash) => { posts.push(hash); },
+      onFailedWithoutHash: (reason) => { failures.push(reason); },
+      clock: fake.clock,
+    });
+
+    await fake.advance(1_500);
+    await run.result;
+
+    expect(posts).toEqual([]);
+    expect(failures).toEqual(["User operation reverted inside the bundle."]);
+    expect(checks).toBe(1);
+    expect(fake.pending()).toBe(0);
+  });
+
+  test("announces a failed operation carrying a hash with the default reason when the provider gives none", async () => {
+    const fake = fakeClock();
+    const posts: string[] = [];
+    const failures: string[] = [];
+    const run = pollTransactionResolution({
+      generation: 2,
+      fence: { assertCurrent: () => {} },
+      check: async () => ({ status: "failed", transactionHash }),
+      recordTransactionHash: async (hash) => { posts.push(hash); },
+      onFailedWithoutHash: (reason) => { failures.push(reason); },
+      clock: fake.clock,
+    });
+
+    await fake.advance(1_500);
+    await run.result;
+
+    expect(posts).toEqual([]);
+    expect(failures).toEqual(["The wallet operation failed."]);
+    expect(fake.pending()).toBe(0);
+  });
+
   test("stops silently when the operation status cannot be read", async () => {
     const fake = fakeClock();
     const posts: string[] = [];
