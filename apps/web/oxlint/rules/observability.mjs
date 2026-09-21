@@ -96,23 +96,23 @@ function isUndefinedValue(node) {
     || (node.type === "UnaryExpression" && node.operator === "void");
 }
 
-function assignsOuterValue(sourceCode, catchClause, node) {
+function assignsOuterValue(state, node) {
   if (node.type !== "AssignmentExpression" || node.left.type !== "Identifier"
     || isUndefinedValue(node.right)) return false;
-  let scope = sourceCode.getScope(node.left);
+  let scope = state.sourceCode.getScope(node.left);
   while (scope) {
     const variable = scope.set.get(node.left.name);
     if (variable) {
-      const declaredInside = variable.identifiers.some((identifier) => isWithin(identifier, catchClause));
+      const declaredInside = variable.identifiers.some((identifier) => isWithin(identifier, state.catchClause));
       return !declaredInside && variable.references.some((reference) =>
-        reference.identifier.start > catchClause.end && reference.isRead());
+        reference.identifier.start > state.catchClause.end && reference.isRead());
     }
     scope = scope.upper;
   }
   return false;
 }
 
-const recoveryCall = /^(?:set[A-Z]|on[A-Z]|dispatch|resolve|reject|abort|cancel|cleanup|clear|release|remove|reset|invalidate)/u;
+const recoveryCall = /^(?:set[A-Z]|on[A-Z]|dispatch|resolve|reject|abort|cancel|cleanup|clear|release|remove|reset|invalidate|delete)/u;
 const transparentExpression = new Set([
   "AwaitExpression",
   "ChainExpression",
@@ -122,49 +122,64 @@ const transparentExpression = new Set([
   "TSTypeAssertion",
 ]);
 
-function expressionHasDisposition(sourceCode, catchClause, node, reportingHelpers) {
+function localHelperDisposes(state, name) {
+  if (state.stack.has(name)) return false;
+  const bodies = state.localFunctions.get(name);
+  if (!bodies) return false;
+  state.stack.add(name);
+  const disposes = bodies.every((body) => body.type === "BlockStatement"
+    ? blockOutcomes(state, body, true) === 0
+    : expressionHasDisposition(state, body));
+  state.stack.delete(name);
+  return disposes;
+}
+
+function expressionHasDisposition(state, node) {
   if (!node) return false;
-  if (node.type === "AssignmentExpression" && assignsOuterValue(sourceCode, catchClause, node)) return true;
+  if (node.type === "AssignmentExpression" && assignsOuterValue(state, node)) return true;
   if (node.type === "CallExpression" || node.type === "NewExpression") {
     const name = callName(node);
-    if (!node.optional && name && (reportingHelpers.has(name) || recoveryCall.test(name))) return true;
+    if (!node.optional && name && (state.reportingHelpers.has(name) || recoveryCall.test(name))) return true;
+    if (!node.optional && node.callee.type === "Identifier"
+      && localHelperDisposes(state, node.callee.name)) return true;
     return !node.optional && node.arguments.some((argument) =>
       argument.type !== "SpreadElement"
-        ? expressionHasDisposition(sourceCode, catchClause, argument, reportingHelpers)
-        : expressionHasDisposition(sourceCode, catchClause, argument.argument, reportingHelpers));
+        ? expressionHasDisposition(state, argument)
+        : expressionHasDisposition(state, argument.argument));
   }
   if (transparentExpression.has(node.type)) {
-    return expressionHasDisposition(sourceCode, catchClause, node.expression ?? node.argument, reportingHelpers);
+    return expressionHasDisposition(state, node.expression ?? node.argument);
+  }
+  if (node.type === "UnaryExpression" && node.operator === "void") {
+    return expressionHasDisposition(state, node.argument);
   }
   if (node.type === "SequenceExpression") {
-    return node.expressions.some((expression) =>
-      expressionHasDisposition(sourceCode, catchClause, expression, reportingHelpers));
+    return node.expressions.some((expression) => expressionHasDisposition(state, expression));
   }
   if (node.type === "ConditionalExpression") {
-    return expressionHasDisposition(sourceCode, catchClause, node.test, reportingHelpers)
-      || (expressionHasDisposition(sourceCode, catchClause, node.consequent, reportingHelpers)
-        && expressionHasDisposition(sourceCode, catchClause, node.alternate, reportingHelpers));
+    return expressionHasDisposition(state, node.test)
+      || (expressionHasDisposition(state, node.consequent)
+        && expressionHasDisposition(state, node.alternate));
   }
   if (node.type === "LogicalExpression") {
-    return expressionHasDisposition(sourceCode, catchClause, node.left, reportingHelpers)
-      || (expressionHasDisposition(sourceCode, catchClause, node.right, reportingHelpers)
+    return expressionHasDisposition(state, node.left)
+      || (expressionHasDisposition(state, node.right)
         && node.operator === "??" && node.left.type === "Literal" && node.left.value == null);
   }
   if (node.type === "AssignmentExpression") {
-    return expressionHasDisposition(sourceCode, catchClause, node.right, reportingHelpers);
+    return expressionHasDisposition(state, node.right);
   }
   if (node.type === "BinaryExpression") {
-    return expressionHasDisposition(sourceCode, catchClause, node.left, reportingHelpers)
-      || expressionHasDisposition(sourceCode, catchClause, node.right, reportingHelpers);
+    return expressionHasDisposition(state, node.left) || expressionHasDisposition(state, node.right);
   }
   if (node.type === "ArrayExpression") {
     return node.elements.some((element) => element
-      && expressionHasDisposition(sourceCode, catchClause, element.argument ?? element, reportingHelpers));
+      && expressionHasDisposition(state, element.argument ?? element));
   }
   if (node.type === "ObjectExpression") {
     return node.properties.some((property) => property.type === "SpreadElement"
-      ? expressionHasDisposition(sourceCode, catchClause, property.argument, reportingHelpers)
-      : expressionHasDisposition(sourceCode, catchClause, property.value, reportingHelpers));
+      ? expressionHasDisposition(state, property.argument)
+      : expressionHasDisposition(state, property.value));
   }
   return false;
 }
@@ -172,52 +187,58 @@ function expressionHasDisposition(sourceCode, catchClause, node, reportingHelper
 const fallsThrough = 1;
 const exitsWithoutDisposition = 2;
 
-function statementOutcomes(sourceCode, catchClause, node, reportingHelpers) {
-  if (node.type === "ReturnStatement") return node.argument ? 0 : exitsWithoutDisposition;
+function statementOutcomes(state, node, inHelper) {
+  if (node.type === "ReturnStatement") {
+    return inHelper ? exitsWithoutDisposition : node.argument ? 0 : exitsWithoutDisposition;
+  }
   if (node.type === "ThrowStatement") return 0;
   if (node.type === "BlockStatement") {
-    return blockOutcomes(sourceCode, catchClause, node, reportingHelpers);
+    return blockOutcomes(state, node, inHelper);
+  }
+  if (node.type === "TryStatement") {
+    const block = blockOutcomes(state, node.block, inHelper);
+    const handler = node.handler
+      ? blockOutcomes(state, node.handler.body, inHelper)
+      : exitsWithoutDisposition;
+    const combined = block | handler;
+    return node.finalizer
+      ? combined | (blockOutcomes(state, node.finalizer, inHelper) & exitsWithoutDisposition)
+      : combined;
   }
   if (node.type === "ExpressionStatement") {
-    return expressionHasDisposition(sourceCode, catchClause, node.expression, reportingHelpers)
-      ? 0
-      : fallsThrough;
+    return expressionHasDisposition(state, node.expression) ? 0 : fallsThrough;
   }
   if (node.type === "VariableDeclaration") {
-    return node.declarations.some((declaration) =>
-      expressionHasDisposition(sourceCode, catchClause, declaration.init, reportingHelpers))
+    return node.declarations.some((declaration) => expressionHasDisposition(state, declaration.init))
       ? 0
       : fallsThrough;
   }
   if (node.type === "IfStatement") {
-    if (expressionHasDisposition(sourceCode, catchClause, node.test, reportingHelpers)) return 0;
-    const consequent = statementOutcomes(sourceCode, catchClause, node.consequent, reportingHelpers);
-    const alternate = node.alternate
-      ? statementOutcomes(sourceCode, catchClause, node.alternate, reportingHelpers)
-      : fallsThrough;
+    if (expressionHasDisposition(state, node.test)) return 0;
+    const consequent = statementOutcomes(state, node.consequent, inHelper);
+    const alternate = node.alternate ? statementOutcomes(state, node.alternate, inHelper) : fallsThrough;
     return consequent | alternate;
   }
   if (node.type === "LabeledStatement" || node.type === "WithStatement") {
-    return statementOutcomes(sourceCode, catchClause, node.body, reportingHelpers);
+    return statementOutcomes(state, node.body, inHelper);
   }
   if (node.type === "DoWhileStatement") {
-    return statementOutcomes(sourceCode, catchClause, node.body, reportingHelpers);
+    return statementOutcomes(state, node.body, inHelper);
   }
   return fallsThrough;
 }
 
-function blockOutcomes(sourceCode, catchClause, block, reportingHelpers) {
+function blockOutcomes(state, block, inHelper) {
   let outcomes = fallsThrough;
   for (const statement of block.body) {
     if (!(outcomes & fallsThrough)) break;
-    outcomes = (outcomes & exitsWithoutDisposition)
-      | statementOutcomes(sourceCode, catchClause, statement, reportingHelpers);
+    outcomes = (outcomes & exitsWithoutDisposition) | statementOutcomes(state, statement, inHelper);
   }
   return outcomes;
 }
 
-function catchHasDisposition(sourceCode, node, reportingHelpers) {
-  return blockOutcomes(sourceCode, node, node.body, reportingHelpers) === 0;
+function catchHasDisposition(state, node) {
+  return blockOutcomes(state, node.body, false) === 0;
 }
 
 export const noSilentCatch = {
@@ -232,12 +253,40 @@ export const noSilentCatch = {
   create(context) {
     if (filenameIsInstrumentation(context)) return {};
     const reportingHelpers = new Set(context.options[0]?.reportingHelpers ?? []);
+    const localFunctions = new Map();
+    const catchClauses = [];
+    const addLocalFunction = (name, body) => {
+      const bodies = localFunctions.get(name) ?? [];
+      bodies.push(body);
+      localFunctions.set(name, bodies);
+    };
     return {
+      FunctionDeclaration(node) {
+        if (node.id && node.body) addLocalFunction(node.id.name, node.body);
+      },
+      VariableDeclarator(node) {
+        if (node.id.type !== "Identifier" || !node.init) return;
+        if (node.init.type === "ArrowFunctionExpression" || node.init.type === "FunctionExpression") {
+          addLocalFunction(node.id.name, node.init.body);
+        }
+      },
       CatchClause(node) {
-        if (node.body.body.length === 0) {
-          context.report({ node, messageId: "empty" });
-        } else if (!catchHasDisposition(context.sourceCode, node, reportingHelpers)) {
-          context.report({ node, messageId: "silent" });
+        catchClauses.push(node);
+      },
+      "Program:exit"() {
+        for (const node of catchClauses) {
+          if (node.body.body.length === 0) {
+            context.report({ node, messageId: "empty" });
+            continue;
+          }
+          const state = {
+            sourceCode: context.sourceCode,
+            catchClause: node,
+            reportingHelpers,
+            localFunctions,
+            stack: new Set(),
+          };
+          if (!catchHasDisposition(state, node)) context.report({ node, messageId: "silent" });
         }
       },
     };

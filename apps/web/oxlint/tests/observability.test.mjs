@@ -125,6 +125,57 @@ describe("no-silent-catch", () => {
       consume(status);
     `, options)).toHaveLength(0);
   });
+
+  it("accepts failures disposed by same-file helpers that throw or report", async () => {
+    expect(await lint("no-silent-catch", `
+      function unsupported(): never { throw new Error("unsupported"); }
+      function unavailable(cause: unknown): never { throw new Error(String(cause)); }
+      function observeStoreFailure(code: string): void { emitServerEvent(code); }
+      try { run(); } catch { unsupported(); }
+      try { run(); } catch (error) { unavailable(error); }
+      try { run(); } catch (error) { if (error instanceof Error) throw error; unavailable(error); }
+      try { run(); } catch { observeStoreFailure("failed"); }
+    `, options)).toHaveLength(0);
+  });
+
+  it("rejects same-file helpers that only return values or fall through", async () => {
+    expect(await lint("no-silent-catch", `
+      function ignore(): null { return null; }
+      function noop(): void { }
+      try { run(); } catch { ignore(); }
+      try { run(); } catch { noop(); }
+    `, options)).toHaveLength(2);
+  });
+
+  it("accepts a nested retry that assigns state or returns on every path", async () => {
+    expect(await lint("no-silent-catch", `
+      let state;
+      try { run(); } catch {
+        try { state = read(); } catch { throw new Error("retry failed"); }
+      }
+      consume(state);
+      function decode(data: string): string | null {
+        try { return parse(data); } catch {
+          try { return parseFallback(data); } catch { return null; }
+        }
+      }
+    `, options)).toHaveLength(0);
+  });
+
+  it("rejects a nested try whose handler falls through", async () => {
+    expect(await lint("no-silent-catch", `
+      try { run(); } catch {
+        try { risky(); } catch { }
+      }
+    `, options)).toHaveLength(2);
+  });
+
+  it("accepts collection cleanup and void-wrapped reporting calls", async () => {
+    expect(await lint("no-silent-catch", `
+      try { run(); } catch { pending.delete(key); }
+      try { run(); } catch (error) { void reportClientError(error); }
+    `, options)).toHaveLength(0);
+  });
 });
 
 describe("isolate-instrumentation-calls", () => {
