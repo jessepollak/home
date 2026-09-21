@@ -114,6 +114,13 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Reach**:
   1. `goto "/save?flow=save-deposit"`
   2. `expect "Deposit"`
+- **Reach (live)**:
+  1. `goto "/save?flow=save-deposit"`
+  2. `expect "Deposit"`
+  3. `click "1"`
+  4. `click "Continue"`
+  5. `expect "Confirm"`
+  6. `click "Deposit $1.00"`
 - **Notes**: The smoke path also covers `/save?flow=save-withdraw`, closes via `Close deposit dialog` or Escape (`Close withdraw dialog`), and asserts focus returns to the `Deposit` or `Withdraw` opener.
 - **Expect**: section `role="region"`/`aria-label="Save"` hosted variant (savings-experience.tsx); vault radiogroup `aria-label="Vault"`; `Nothing saved yet` empty; action buttons `Get started` (unfunded) / `Deposit` + `Withdraw` (funded) (savings-experience.tsx); dialog labels from `closeLabel={Close ${mode} dialog}` and `primaryLabel` `Continue` → `Deposit $X`/`Withdraw $X`/`Retry` (savings-actions.tsx lines ~251–350).
 - **States**: cold loading (`data-shimmer="savings-hero"`, `savings-apy`); vaults loading `aria-busy`; vaults error `Vaults are temporarily unavailable.` + `Retry`; stale alerts `Saved balance stale…` / `Vault rates stale…`; deposit/withdraw amount → confirm → pending (`Waiting for your wallet…`) → error/failed.
@@ -125,6 +132,13 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Live**: confirm
 - **Confirm labels**: "Confirm action", "Retry"
 - **Reach**: Seed the signed-in state and borrow fixtures, go to `/borrow` or `/borrow/<marketId>`, then choose a `data-testid="borrow-market-card"` inside the `Borrow markets` list.
+- **Reach (live)**:
+  1. `goto "/borrow/0x9103c3b4e834476c9a62ea009ba2c884ee42e94e6e314a26f04d312434191836"`
+  2. `expect "Borrow"`
+  3. `click "1"`
+  4. `click "Continue"`
+  5. `expect "Confirm"`
+  6. `click "Confirm action"`
 - **Verify**: manual
 - **Notes**: No smoke fixture exists for `/api/borrow*`; see Gaps.
 - **Expect**: heading `Borrow` (`#borrow-overview-title`, `#borrow-direct-title`, borrowing-experience.tsx); position actions including `Borrow`, `Supply`/`Withdraw collateral from Bitcoin position` (`aria-label`, line 539); `Back to Borrow`; `Market values are unavailable` + `Retry` error; collateral preview `data-testid="borrow-collateral-preview"`; action money modal title `Confirm`, footer `Confirm action`/`Retry`/`Back`/`Close` (lines ~712–782).
@@ -154,7 +168,17 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
   3. `expect "Recognized Coin"`
   4. `click "Send"`
   5. `expect "Send"`
-- **Notes**: The dialog is labelled by `send-title`.
+- **Reach (live)**:
+  1. `goto "/home"`
+  2. `click "Send"`
+  3. `click "1"`
+  4. `click "Continue"`
+  5. `fill "To" "<recipient>"`
+  6. `click "Continue"`
+  7. `expect "Confirm"`
+  8. `click "Send $1.00"`
+  9. `expect "Sent"`
+- **Notes**: The dialog is labelled by `send-title`. Live mode replaces `<recipient>` with the required `--recipient <0x-address>` value.
   1. **amount**: type digits via keypad buttons named `0`–`9`, `Decimal point`, `Delete last digit` (`role="group" aria-label="Amount keypad"`, client/money-modal/amount.tsx:581–601); quick chips group `Quick amounts` (`$10`/`$25`/`Max` when priced, amount.tsx:508+). Primary `Continue` disabled until positive amount (`isPositiveDecimalAmount`).
   2. **destination**: step title stays `Send`; field label `To` (AddressField `id="send-recipient"`); primary `Continue` disabled until `isTransferRecipient` (send-dialog.tsx).
   3. **confirm**: dialog title becomes `Confirm` (send-dialog.tsx `modalTitle`); summary via `MoneyConfirmSummary` rows `To` (CopyableValue full address), `Asset`, `Network` = `Base` (send-dialog.tsx); primary button `Send $1.00` where amount is `MoneyTicker(confirmAmount)` — smoke clicks `getByRole("button", { name: "Send $1.00" })`; secondary `Back`.
@@ -172,6 +196,18 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Live**: up-to-review
 - **Confirm labels**: "Cash out $<amount>"
 - **Reach** (smoke-verified, `openPeerCashOutHandle`, smoke.pw.ts): 1) seed + `installApiFixtures`. 2) `Send` → digits `1` → `Continue`. 3) click `/Send to Zelle, Venmo, Cash App and more/` (CashoutItem, send-dialog.tsx). 4) click `Cash App` (payment-method button, payout step). 5) textbox `Cash App handle` (label `${selectedPlatform.label} handle`); attributes asserted: `autocomplete="off"`, `autocapitalize="none"`, `autocorrect="off"`, `spellcheck="false"`, `enterkeyhint="next"`, 16px font, ≥44px target. 6) `Continue` → textbox `Re-enter handle` (`enterkeyhint="done"`). 7) `Review` → confirm step.
+- **Reach (live)**:
+  1. `goto "/home"`
+  2. `click "Send"`
+  3. `click "1"`
+  4. `click "Continue"`
+  5. `click "Send to Zelle, Venmo, Cash App and more"`
+  6. `click "Cash App"`
+  7. `fill "Cash App handle" "$alice"`
+  8. `click "Continue"`
+  9. `fill "Re-enter handle" "$alice"`
+  10. `click "Review"`
+  11. `expect "Confirm"`
 - **Verify**: manual
 - **Expect**: modal title `Cash out with Peer` (send-dialog.tsx `modalTitle`); confirm rows `Provider`, `Payout app`, `Payout handle`, `Approximate receive`, `Estimated delivery`, `Network` = `Base` (send-dialog.tsx confirm rows); disclaimer `The fiat amount and delivery time are approximate, not guaranteed.`; primary `Cash out $X`.
 - **States**: providers not loaded → CashoutItem absent (requires `PEER_OFFRAMP` stub registered after `installApiFixtures` via `route.fallback`, smoke.pw.ts); recovery items `Withdraw <amount>` for active orders; `Recover a Peer cash-out` button when `recoveryEligible` (send-dialog.tsx).
@@ -183,6 +219,15 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Live**: up-to-review
 - **Confirm labels**: "Confirm deposit"
 - **Reach** (smoke-verified IDRX path): 1) seed country `ID` (`localStorage["home.country.v1"]="ID"`) + `installApiFixtures`. 2) `signIn(page)` helper. 3) click `Add money` (funding-actions.tsx). 4) method step button `/Deposit IDR/` must contain `IDRX · Bank transfer · Mandiri` (smoke.pw.ts). 5) type `20000` via numpad. 6) `Review quote` → heading `Review quote`, row `Receive` contains `20.000,00 IDRX`. 7) `Confirm deposit` → heading `Review payment details`, row `Network` contains `Rp 100,00`. 8) `View payment instructions` → `123456789012` visible; then `Money received` (≤7s budget, smoke.pw.ts).
+- **Reach (live)**:
+  1. `goto "/home"`
+  2. `click "Add money"`
+  3. `expect "Add money"`
+  4. `click "Deposit USD"`
+  5. `click "2"`
+  6. `click "5"`
+  7. `click "Review quote"`
+  8. `expect "Review quote"`
 - **Verify**: manual
 - **Expect**: dialog titles `Add money` / `Receive` / `Deposit IDR` (add-money-dialog.tsx `title`); method list has `Receive crypto` row; close label `Close add money`; receive step QR (`aria-label="QR code for Base address …"`) and address copy (`Copy …`, `Full Base address …`, add-money-dialog.tsx). Signed-out body offers `Sign in` link to `/?account=signin`.
 - **States**: method loading (`providerBindingsDisabled={!ordersQuery.isSuccess}`); `Funding methods are unavailable. Try again.` / `Home couldn't check for an open deposit. Retry.` / `Home couldn't check your provider setup. Retry.` (funding-experience.tsx); resumable open order auto-jumps to `order` step (funding-experience.tsx); customer/KYC step for providers with `customerSetup`.

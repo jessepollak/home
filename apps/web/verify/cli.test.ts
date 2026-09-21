@@ -52,8 +52,14 @@ describe("live CLI preflight", () => {
     expect(result.stderr).toContain("outside the repository");
   });
 
+  test("refuses a live send without a recipient before browser launch", () => {
+    const result = run(["send", "--live", "--base-url", "https://example.com", "--out", outsideOutput]);
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("--recipient");
+  });
+
   test("refuses a missing max-usd before browser launch", () => {
-    const result = run(["send", "--live", "--base-url", "https://example.com", "--out", outsideOutput, "--allow-confirm", "--account", addressA]);
+    const result = run(["send", "--live", "--base-url", "https://example.com", "--out", outsideOutput, "--recipient", addressB, "--allow-confirm", "--account", addressA]);
     expect(result.exitCode).toBe(2);
     expect(result.stderr).toContain("--max-usd");
   });
@@ -70,6 +76,8 @@ describe("live CLI preflight", () => {
       "https://example.com",
       "--out",
       outsideOutput,
+      "--recipient",
+      addressA,
       "--allow-confirm",
       "--account",
       addressB,

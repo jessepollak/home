@@ -5,6 +5,7 @@ import {
   accountPinError,
   automationEnvironmentError,
   composeAllowedDomains,
+  confirmReviewOrderError,
   decideConfirmGate,
   enforceAmountCap,
   enforceCumulativeAmountCap,
@@ -53,6 +54,22 @@ describe("live confirm gate", () => {
     expect(decideConfirmGate("read-only", "Continue", true).action).toBe("refuse");
     expect(decideConfirmGate("up-to-review", "Continue", true).action).toBe("refuse");
     expect(decideConfirmGate(undefined, "Continue", true).action).toBe("refuse");
+  });
+
+  test("requires a review expect immediately before every mapped confirm click", () => {
+    const labels = ["Send $<amount>"];
+    expect(confirmReviewOrderError([
+      { kind: "expect", text: "Confirm" },
+      { kind: "click", label: "Send $1.00" },
+    ], labels)).toBeNull();
+    expect(confirmReviewOrderError([
+      { kind: "expect", text: "Confirm" },
+      { kind: "expect", text: "Network" },
+      { kind: "click", label: "Send $1.00" },
+    ], labels)).toContain("immediately precedes");
+    expect(confirmReviewOrderError([
+      { kind: "click", label: "Send $1.00" },
+    ], labels)).toContain("immediately precedes");
   });
 
   test("refuses press and unlisted fill steps before live browser launch", () => {

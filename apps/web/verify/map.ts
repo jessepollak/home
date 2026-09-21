@@ -12,6 +12,7 @@ export type LiveAccess = "read-only" | "up-to-review" | "confirm";
 export type Surface = {
   id: string;
   reach: ReachStep[];
+  liveReach?: ReachStep[];
   confirmLabels: string[];
   budgets: Record<string, number>;
   manual: boolean;
@@ -32,11 +33,9 @@ export function parseFeatureMap(markdown: string): Map<string, Surface> {
     const id = heading.match(/^`([^`]+)`/)?.[1];
     if (!id) continue;
     const body = bodyLines.join("\n");
-    const reachText = body.match(/- \*\*Reach\*\*[^\n]*\n([\s\S]*?)(?=\n- \*\*[A-Z]|\n## |$)/)?.[1] ?? "";
-    const reach = [...reachText.matchAll(/`([^`]+)`/g)].flatMap((match) => {
-      const parsed = parseReachStep(match[1]);
-      return parsed ? [parsed] : [];
-    });
+    const reach = parseReachBlock(body, "Reach");
+    const parsedLiveReach = parseReachBlock(body, "Reach \\(live\\)");
+    const liveReach = parsedLiveReach.length > 0 ? parsedLiveReach : undefined;
     const confirmText = body.match(/^- \*\*Confirm labels\*\*:\s*(.*)$/m)?.[1] ?? "";
     const confirmLabels = [...confirmText.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
     const budgets: Record<string, number> = {};
@@ -45,9 +44,17 @@ export function parseFeatureMap(markdown: string): Map<string, Surface> {
     }
     const manual = /^- \*\*Verify\*\*:\s*manual\s*$/m.test(body);
     const live = body.match(/^- \*\*Live\*\*:\s*(read-only|up-to-review|confirm)\s*$/m)?.[1] as LiveAccess | undefined;
-    surfaces.set(id, { id, reach, confirmLabels, budgets, manual, live });
+    surfaces.set(id, { id, reach, ...(liveReach ? { liveReach } : {}), confirmLabels, budgets, manual, live });
   }
   return surfaces;
+}
+
+function parseReachBlock(body: string, heading: string): ReachStep[] {
+  const reachText = body.match(new RegExp(`- \\*\\*${heading}\\*\\*[^\\n]*\\n([\\s\\S]*?)(?=\\n- \\*\\*[A-Z]|\\n## |$)`))?.[1] ?? "";
+  return [...reachText.matchAll(/`([^`]+)`/g)].flatMap((match) => {
+    const parsed = parseReachStep(match[1]);
+    return parsed ? [parsed] : [];
+  });
 }
 
 export function matchesConfirmLabel(patterns: string[], label: string): boolean {

@@ -1,5 +1,5 @@
 import { relative, resolve } from "node:path";
-import type { LiveAccess, ReachStep } from "./map";
+import { matchesConfirmLabel, type LiveAccess, type ReachStep } from "./map";
 
 export const accountPattern = /^0x[0-9a-fA-F]{40}$/;
 export const liveProviderOrigins = [
@@ -53,6 +53,17 @@ export function decideConfirmGate(
 
 export function isReviewNavigationLabel(label: string): boolean {
   return label === "Continue" || label === "Back" || label === "Close" || label.startsWith("Close ");
+}
+
+export function confirmReviewOrderError(steps: ReachStep[], confirmLabels: string[]): string | null {
+  for (const [index, step] of steps.entries()) {
+    if (step.kind !== "click" || !matchesConfirmLabel(confirmLabels, step.label)) continue;
+    const previous = steps[index - 1];
+    if (previous?.kind !== "expect" || !/^(?:Confirm|Review)/i.test(previous.text)) {
+      return `Live confirmation refuses “${step.label}” unless a Confirm or Review expect step immediately precedes it.`;
+    }
+  }
+  return null;
 }
 
 export function liveStepError(live: LiveAccess | undefined, step: ReachStep, approvedSteps: ReachStep[]): string | null {

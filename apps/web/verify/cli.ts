@@ -9,6 +9,7 @@ import {
   accountPinError,
   automationEnvironmentError,
   composeAllowedDomains,
+  confirmReviewOrderError,
   decideConfirmGate,
   enforceAmountCap,
   enforceCumulativeAmountCap,
@@ -37,7 +38,7 @@ const hasFlag = (name: string) => args.includes(name);
 
 if (args.includes("--list")) {
   for (const surface of surfaces.values()) {
-    console.log(`${surface.id}: ${surface.manual ? "manual" : "automated"}; live ${surface.live ?? "read-only"}`);
+    console.log(`${surface.id}: ${surface.manual ? "manual" : "automated"}; live ${surface.live ?? "read-only"}${surface.liveReach ? "; live Reach override" : ""}`);
   }
   process.exit(0);
 }
@@ -245,7 +246,7 @@ const surfaceId = args[0];
 if (!surfaceId || surfaceId.startsWith("-")) {
   console.error("Usage: bun run verify <surface-id> [--base-url <url>] [--out <dir>] [--allow-console] [--allow-domain <host>]");
   console.error("       bun run verify live-login --base-url <url> [--allow-domain <host>]");
-  console.error("       bun run verify <surface-id> --live --base-url <url> --out <dir> [--allow-domain <host>] [--allow-confirm --account <0x…> --max-usd <n> [--max-usd-total <n>]]");
+  console.error("       bun run verify <surface-id> --live --base-url <url> --out <dir> [--recipient <0x-address>] [--allow-domain <host>] [--allow-confirm --account <0x…> --max-usd <n> [--max-usd-total <n>]]");
   console.error("       bun run verify --list");
   process.exit(2);
 }
@@ -258,6 +259,7 @@ const maxUsdValue = option("--max-usd");
 const maxUsd = maxUsdValue === undefined ? null : Number(maxUsdValue);
 const maxUsdTotalValue = option("--max-usd-total");
 const maxUsdTotal = maxUsdTotalValue === undefined ? maxUsd : Number(maxUsdTotalValue);
+const recipient = option("--recipient");
 const surface = surfaces.get(surfaceId);
 if (!surface) {
   console.error(`Unknown surface id: ${surfaceId}`);
@@ -268,10 +270,20 @@ if (surface.manual && !live) {
   console.error(`Surface ${surfaceId} is a manual-only surface.`);
   process.exit(2);
 }
-if (surface.reach.length === 0) {
+const selectedReach = live ? surface.liveReach ?? surface.reach : surface.reach;
+if (selectedReach.length === 0) {
   console.error(`Surface ${surfaceId} has no machine-readable Reach steps.`);
   process.exit(2);
 }
+if (live && surfaceId === "send" && (!recipient || !accountPattern.test(recipient))) {
+  console.error("Live send verification requires --recipient <0x-address>.");
+  process.exit(2);
+}
+const reachSteps = selectedReach.map((step): ReachStep =>
+  step.kind === "fill" && step.value === "<recipient>"
+    ? { ...step, value: recipient ?? step.value }
+    : step
+);
 if (live && outputInsideRepository(outputRoot, repositoryRoot)) {
   console.error("Live evidence --out must be outside the repository root.");
   process.exit(2);
@@ -296,8 +308,13 @@ if (live && allowConfirm) {
   }
 }
 if (live) {
-  for (const step of surface.reach) {
-    const stepError = liveStepError(surface.live, step, surface.reach);
+  const orderError = confirmReviewOrderError(reachSteps, surface.confirmLabels);
+  if (orderError) {
+    console.error(orderError);
+    process.exit(2);
+  }
+  for (const step of reachSteps) {
+    const stepError = liveStepError(surface.live, step, reachSteps);
     if (stepError) {
       console.error(stepError);
       process.exit(2);
@@ -418,7 +435,7 @@ try {
   command("errors", "--clear");
   if (!live) command("network", "requests", "--clear");
   let afterReview = false;
-  for (const step of surface.reach) {
+  for (const step of reachSteps) {
     const description = step.kind === "goto"
       ? `goto ${step.path}`
       : step.kind === "click"
