@@ -124,7 +124,7 @@ A fiat or card ledger, KYC document storage, custom contracts, multichain routin
 
 ## Comment policy
 
-Non-test, non-story code in `app`, `client`, `components`, `server`, and `shared` carries no comments. The only exceptions are `oxlint-disable*` directives with a `-- reason`, triple-slash references, and third-party licence or notice headers. When prose exposes useful information, either delete it because the code is already clear, assert the behavior in a test, encode the invariant in an assertion or type, enforce the pattern with lint, or move durable operational and architectural context into `docs/`.
+The enforced scope is non-test, non-story TypeScript and TSX under the five product layers: `app`, `client`, `components`, `server`, and `shared`. The only exceptions are `oxlint-disable*` directives with a `-- reason`, triple-slash references, and third-party licence or notice headers. When prose exposes useful information, either delete it because the code is already clear, assert the behavior in a test, encode the invariant in an assertion or type, enforce the pattern with lint, or move durable operational and architectural context into `docs/`. Applied SQL migrations are excluded by design because migration immutability wins over this source policy; CSS comments are tracked separately in [#713](https://github.com/jessepollak/home/issues/713).
 
 ## Test policy
 
