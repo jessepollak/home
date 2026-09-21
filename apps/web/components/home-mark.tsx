@@ -153,9 +153,6 @@ const MarkArtwork = memo(function MarkArtwork() {
         );
       });
       sequence.push([chars, { opacity: 1 }, { duration: 0.5, at: 1.8 }]);
-      // Explicitly pass the user preference: the reference sets this through
-      // MotionConfig, whereas Home does not need a global Motion provider.
-      // Motion snaps transforms while preserving the timed opacity sequence.
       void animate(sequence, {
         duration: 1.6,
         reduceMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
