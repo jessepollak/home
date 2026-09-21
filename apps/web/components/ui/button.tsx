@@ -2,17 +2,6 @@ import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
-// Press feedback is part of the shared button contract, so every trigger,
-// including popup triggers, reacts on pointer/touch-down without a handler:
-// - `standard` compresses slightly; the onset is immediate (`active:duration-0`)
-//   and the release settles over the shared 150ms transition.
-// - `icon` compresses deliberately more because an icon-only control has no text.
-// - `none` keeps wide rows and link-like surfaces still as whole surfaces; the
-//   variant's own active color cue still marks the press.
-// Each variant mirrors its established hover treatment in `active:` so touch
-// users get the same state cue hover-capable devices get. Reduced motion drops
-// every press transform and keeps those color cues. Existing hover,
-// focus-visible, busy, and disabled semantics are unchanged.
 const buttonVariants = cva(
   "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap outline-none select-none transition-[scale,color,background-color,border-color,opacity,box-shadow] duration-150 active:duration-0 motion-reduce:transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-busy:opacity-60 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
@@ -77,8 +66,6 @@ const iconPressSizes = new Set<ButtonSize>([
   "icon-lg",
 ]);
 
-// Surfaces that must not scale as a whole: navigation owns its icon press,
-// product tiles keep their child hover, and inline/link text stays text.
 const stillPressVariants = new Set<ButtonVariant>([
   "link",
   "navigation",
