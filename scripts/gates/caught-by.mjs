@@ -8,10 +8,17 @@ function git(args, cwd = process.cwd()) {
   return result.stdout.trim();
 }
 
-export function detectCommitRange({ cwd = process.cwd(), env = process.env } = {}) {
+export function detectCommitRange({ cwd = process.cwd(), env = process.env, gitRunner = git } = {}) {
   if (!env.GITHUB_BASE_REF) return "HEAD^!";
-  const remoteBase = `origin/${env.GITHUB_BASE_REF}`;
-  const base = git(["merge-base", "HEAD", remoteBase], cwd);
+  const baseRef = env.GITHUB_BASE_REF;
+  const remoteBase = `origin/${baseRef}`;
+  try {
+    gitRunner(["rev-parse", "--verify", remoteBase], cwd);
+  } catch {
+    gitRunner(["fetch", "--no-tags", "--depth=200", "origin", baseRef], cwd);
+    gitRunner(["rev-parse", "--verify", remoteBase], cwd);
+  }
+  const base = gitRunner(["merge-base", "HEAD", remoteBase], cwd);
   return `${base}..HEAD`;
 }
 
@@ -27,11 +34,11 @@ export function readCommitsForRange(range, cwd = process.cwd()) {
 }
 
 export function caughtByViolations(commits) {
-  const trailer = new RegExp(`^Caught-by: (${caughtByValues.join("|")})$`, "m");
+  const trailer = new RegExp(`^Caught-by: (${caughtByValues.join("|")})$`, "gm");
   return commits.flatMap((commit) => {
     if (!/^fix\([^)]+\):/.test(commit.subject)) return [];
-    return trailer.test(commit.body)
+    return [...commit.body.matchAll(trailer)].length === 1
       ? []
-      : [`${commit.sha.slice(0, 12)} ${commit.subject} must include Caught-by: ${caughtByValues.join("|")}`];
+      : [`${commit.sha.slice(0, 12)} ${commit.subject} must include exactly one Caught-by trailer`];
   });
 }
