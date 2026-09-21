@@ -112,6 +112,46 @@ describe("account provider restore hints", () => {
     expect(readHomeAuthRestoreHint()).toBe("none");
   });
 
+  test("a storage hint can only delay settlement, never authorize", () => {
+    window.sessionStorage.setItem(ACCOUNT_PROVIDER_HINT_KEY, "pending:cdp-embedded");
+    expect(hasCdpRestoreHint()).toBe(true);
+    expect(readHomeAuthRestoreHint()).toBe("cdp");
+    expect(readAccountProviderHint()).toBe("pending:cdp-embedded");
+  });
+
+  test("a tampered restore hint cannot restore a session", () => {
+    for (const tampered of ["cdp-embedded:subject-a", "pending:cdp-embedded:subject-a", "base-account:owner"]) {
+      window.sessionStorage.setItem(ACCOUNT_PROVIDER_HINT_KEY, tampered);
+      expect(readAccountProviderHint()).toBeNull();
+      expect(readHomeAuthRestoreHint()).toBe("none");
+      expect(hasAccountProviderHint()).toBe(false);
+    }
+  });
+
+  test("the readable cookie clears even when storage throws", () => {
+    const localDescriptor = Object.getOwnPropertyDescriptor(window, "localStorage");
+    const cookieDescriptor = Object.getOwnPropertyDescriptor(document, "cookie");
+    const writes: string[] = [];
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      get() { throw new Error("storage blocked"); },
+    });
+    Object.defineProperty(document, "cookie", {
+      configurable: true,
+      get: () => `home-cdp-live=${LIVE_NONCE}`,
+      set: (value: string) => writes.push(value),
+    });
+    try {
+      clearCdpRenderHint();
+      expect(writes).toHaveLength(1);
+      expect(writes[0]).toContain("home-cdp-live=; Max-Age=0");
+    } finally {
+      if (localDescriptor) Object.defineProperty(window, "localStorage", localDescriptor);
+      if (cookieDescriptor) Object.defineProperty(document, "cookie", cookieDescriptor);
+      else Reflect.deleteProperty(document, "cookie");
+    }
+  });
+
   test("fails open for readiness when browser storage is unavailable", () => {
     const sessionDescriptor = Object.getOwnPropertyDescriptor(window, "sessionStorage");
     const localDescriptor = Object.getOwnPropertyDescriptor(window, "localStorage");

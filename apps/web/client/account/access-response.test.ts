@@ -1,4 +1,6 @@
-import { describe, expect, test } from "bun:test";
+import "./dom-test-harness";
+
+import { describe, expect, spyOn, test } from "bun:test";
 import { redirectOnAccessRequired } from "./access-response";
 
 function json(value: unknown, status: number) {
@@ -6,6 +8,21 @@ function json(value: unknown, status: number) {
 }
 
 describe("access response navigation", () => {
+  test("fires a hard navigation once when protected calls repeat", async () => {
+    window.history.replaceState({}, "", "/borrow?asset=usdc#review");
+    const assign = spyOn(window.location, "assign").mockImplementation(() => {});
+    const responses = [
+      json({ version: 1, error: { code: "ACCESS_REQUIRED" } }, 401),
+      json({ version: 1, error: { code: "ACCESS_REQUIRED" } }, 401),
+    ];
+
+    await expect(Promise.all(responses.map((response) => redirectOnAccessRequired(response))))
+      .resolves.toEqual([true, true]);
+    expect(assign).toHaveBeenCalledTimes(1);
+    expect(assign).toHaveBeenCalledWith("/access?next=%2Fborrow%3Fasset%3Dusdc%23review");
+    assign.mockRestore();
+  });
+
   test("deduplicates concurrent versioned access denials without swallowing later expiry", async () => {
     const destinations: string[] = [];
     const navigate = (value: string) => destinations.push(value);
