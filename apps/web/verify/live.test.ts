@@ -1,8 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import { createElement } from "react";
-import { renderToString } from "react-dom/server";
-import { MoneyTicker } from "../components/money-ticker";
 import {
   accountAddressFromDocument,
   accountPinError,
@@ -100,16 +97,6 @@ describe("live amount cap", () => {
     expect(parseUsdAmount("You pay\nUS$ 25.50\nReceive\n25 USDC")).toBe(25.5);
     expect(parseUsdAmount("Confirm\n$1.00\nYou're sending USDC")).toBe(1);
     expect(parseUsdAmount("Confirm\n1 USDC\nNetwork\nBase\nFee\n$0.01")).toBe(0.01);
-  });
-
-  test("parses the text shape rendered by MoneyTicker", async () => {
-    await GlobalRegistrator.register();
-    const container = document.createElement("div");
-    container.innerHTML = renderToString(createElement(MoneyTicker, { value: "$1.00", animated: false }));
-    const renderedText = container.innerText || container.textContent || "";
-    expect(renderedText).toContain("$1.00");
-    expect(parseUsdAmount(renderedText)).toBe(1);
-    await GlobalRegistrator.unregister();
   });
 
   test("refuses fee-row-first and two-candidate reviews", () => {
@@ -227,5 +214,17 @@ describe("live run guards", () => {
     expect(outputInsideRepository("/repo/.verify", "/repo")).toBe(true);
     expect(outputInsideRepository("/repo", "/repo")).toBe(true);
     expect(outputInsideRepository("/tmp/home-verify", "/repo")).toBe(false);
+  });
+
+  test("parses the text shape rendered by MoneyTicker", async () => {
+    await GlobalRegistrator.register();
+    const { render } = await import("@testing-library/react/pure");
+    const { createElement } = await import("react");
+    const { MoneyTicker } = await import("../components/money-ticker");
+    const view = render(createElement(MoneyTicker, { value: "$1.00", animated: false }));
+    const renderedText = view.container.innerText || view.container.textContent || "";
+    expect(renderedText).toContain("$1.00");
+    expect(parseUsdAmount(renderedText)).toBe(1);
+    view.unmount();
   });
 });
