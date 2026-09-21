@@ -66,9 +66,6 @@ export function createActivityReader(
     const from = new Date(to.getTime() - windowMs).toISOString();
     const page = await listTransfers({
       verifiedWalletAddress: account.address,
-      // SQL remains the fail-closed fallback while Address History awaits live
-      // auth/order proof. On current main it keeps the existing all-contract
-      // wallet scope; Address History ignores these SQL-specific selectors.
       assetIds: [],
       includeUnknownAssets: true,
       from,
