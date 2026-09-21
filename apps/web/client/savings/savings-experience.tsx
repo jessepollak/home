@@ -85,7 +85,6 @@ type SavingsExperienceProps = {
   balanceRevalidating?: boolean;
   balanceRefreshError?: boolean;
   balanceStale?: boolean;
-  balanceFetchedAt?: string | null;
   onRetryBalances?: () => void;
   growthAuthority?: SavingsGrowthAuthority | null;
   prepareMoneyAction?: (
@@ -152,7 +151,6 @@ export function AuthenticatedSavingsExperience() {
       balanceRevalidating={balances.revalidating === true}
       balanceRefreshError={balances.refreshError === true}
       balanceStale={balances.snapshot?.stale === true}
-      balanceFetchedAt={balances.snapshot?.fetchedAt ?? null}
       onRetryBalances={() => void balances.retry()}
       growthAuthority={growthAuthority}
       prepareMoneyAction={account.prepareMoneyAction}
@@ -172,7 +170,6 @@ export function SavingsExperience({
   balanceRevalidating = false,
   balanceRefreshError = false,
   balanceStale = false,
-  balanceFetchedAt = null,
   onRetryBalances,
   growthAuthority = null,
   prepareMoneyAction,
@@ -485,7 +482,7 @@ export function SavingsExperience({
           {retainedBalanceIsStale ? (
             <Alert className="mt-4" role="status">
               <AlertDescription>
-                Saved balance stale{formatSnapshotAge(balanceFetchedAt, rateNowMs)}.
+                Saved balance stale.
               </AlertDescription>
               {onRetryBalances ? (
                 <AlertAction>
@@ -500,7 +497,7 @@ export function SavingsExperience({
       {loadState.status === "ready" && loadState.data.stale ? (
         <Alert role="status">
           <AlertDescription>
-            Vault rates stale{formatSnapshotAge(loadState.data.source.fetchedAt, rateNowMs)}.
+            Vault rates stale.
           </AlertDescription>
           <AlertAction>
             <Button variant="ghost" onClick={() => void metadataQuery.refetch()}>Retry</Button>
@@ -686,14 +683,6 @@ export function SavingsExperience({
 
 function availableBalanceOrPositions(state: PositionState): boolean {
   return state.status === "ready" && state.data.some((entry) => entry.position !== null);
-}
-
-function formatSnapshotAge(fetchedAt: string | null, nowMs: number): string {
-  if (!fetchedAt) return "";
-  const fetchedAtMs = Date.parse(fetchedAt);
-  if (!Number.isFinite(fetchedAtMs)) return "";
-  const ageMinutes = Math.max(0, Math.floor((nowMs - fetchedAtMs) / 60_000));
-  return ` · updated ${ageMinutes < 1 ? "less than a minute" : `${ageMinutes} min`} ago`;
 }
 
 function vaultInitials(name: string): string {

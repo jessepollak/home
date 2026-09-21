@@ -6,7 +6,12 @@ import { useState, type ComponentProps } from "react";
 import type { AccountWalletSdkBoundary } from "@/client/account/cdp-client";
 import type { SessionFetch, VerifiedAccountSession } from "@/client/account/session-client";
 import { BORROW_MARKET_ID } from "@/shared/borrowing/config";
-import type { BalanceRowModel, BalancesPresentation } from "@/shared/balances/present";
+import { buildBalancesSnapshotFixture } from "@/shared/balances/fixtures";
+import {
+  presentBalances,
+  type BalanceRowModel,
+  type BalancesPresentation,
+} from "@/shared/balances/present";
 
 const replaceCalls: string[] = [];
 const pushCalls: string[] = [];
@@ -648,6 +653,31 @@ describe("Home shell routing and intents", () => {
     expect(await page().findByRole("combobox", { name: "Country" })).toBeTruthy();
 
     expect(presentationCalls).toBe(0);
+  });
+
+  test("keeps the total-balance hero quiet for a stale cached balance during background revalidation", async () => {
+    const snapshot = {
+      ...buildBalancesSnapshotFixture({ fetchedAt: "2026-09-13T12:00:00.000Z" }),
+      stale: true as const,
+    };
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        assetBalances={presentBalances(
+          { status: "ready", snapshot, error: null, revalidating: true },
+          { showSmallBalances: false },
+        )}
+      />,
+    );
+    await waitForVerifiedShell();
+
+    const hero = page().getByLabelText("Total balance");
+    expect(hero.querySelector("[data-balance-breakdown]")).toBeTruthy();
+    expect(hero.querySelector("[data-total-status]")).toBeNull();
+    expect(hero.textContent).not.toContain("Updated");
+    expect(hero.textContent).not.toContain("ago");
+    expect(hero.textContent).not.toContain("Updating…");
+    expect(hero.getAttribute("aria-busy")).toBe("true");
   });
 
   test("preserves Balances offset across background value and topology refreshes", async () => {
