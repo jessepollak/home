@@ -12,7 +12,7 @@ export function readAnonymousCountryPreference(
 ): RegionId | null {
   try {
     return normalizeRegionId(getStorage().getItem(anonymousCountryPreferenceKey));
-  } catch { // oxlint-disable-line home/no-silent-catch -- unavailable browser storage is represented by the preference contract's null result
+  } catch {
     return null;
   }
 }

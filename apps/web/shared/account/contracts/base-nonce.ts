@@ -64,7 +64,7 @@ export function parseNativeBaseChallenge(value: unknown): NativeBaseChallenge | 
       uri.origin !== record.uri ||
       uri.hostname !== record.domain
     ) return null;
-  } catch { // oxlint-disable-line home/no-silent-catch -- an invalid challenge URI fails closed through the contract's null result
+  } catch {
     return null;
   }
 

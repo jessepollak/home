@@ -81,7 +81,7 @@ function splitPathname(pathname: string): (string | null)[] {
   return pathname.split("/").filter((segment) => segment.length > 0).map((segment) => {
     try {
       return decodeURIComponent(segment);
-    } catch { // oxlint-disable-line home/no-silent-catch -- malformed URL segments fail closed through the route parser's null result
+    } catch {
       return null;
     }
   });
