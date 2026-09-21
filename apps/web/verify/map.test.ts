@@ -55,8 +55,10 @@ describe("feature map parser", () => {
     expect(surfaces.get("send")?.liveReach).toContainEqual({ kind: "fill", label: "To", value: "<recipient>" });
     expect(surfaces.get("save")?.liveReach?.at(-2)).toEqual({ kind: "expect", text: "Confirm" });
     expect(surfaces.get("borrow")?.liveReach?.at(-2)).toEqual({ kind: "expect", text: "Confirm" });
+    expect(surfaces.get("cash-out")?.liveReach).toContainEqual({ kind: "click", label: "Send to Zelle, Venmo, Cash App and more Use Peer to send via app" });
     expect(surfaces.get("cash-out")?.liveReach?.at(-1)).toEqual({ kind: "expect", text: "Confirm" });
     expect(surfaces.get("cash-out")?.confirmLabels).toContain("Withdraw $<amount>");
+    expect(surfaces.get("add-money")?.liveReach).toContainEqual({ kind: "click", label: "Deposit USD Coinbase · Apple Pay" });
     expect(surfaces.get("add-money")?.liveReach?.at(-1)).toEqual({ kind: "expect", text: "Review quote" });
     expect([...surfaces.values()].filter((surface) => surface.manual).map((surface) => surface.id)).toEqual([
       "borrow",

@@ -201,7 +201,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
   2. `click "Send"`
   3. `click "1"`
   4. `click "Continue"`
-  5. `click "Send to Zelle, Venmo, Cash App and more"`
+  5. `click "Send to Zelle, Venmo, Cash App and more Use Peer to send via app"`
   6. `click "Cash App"`
   7. `fill "Cash App handle" "$alice"`
   8. `click "Continue"`
@@ -223,7 +223,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
   1. `goto "/home"`
   2. `click "Add money"`
   3. `expect "Add money"`
-  4. `click "Deposit USD"`
+  4. `click "Deposit USD Coinbase · Apple Pay"`
   5. `click "2"`
   6. `click "5"`
   7. `click "Review quote"`
