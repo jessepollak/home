@@ -158,6 +158,7 @@ function resolveAllowedDomains(): string {
   }
 }
 const allowedDomains = resolveAllowedDomains();
+const allowedDomainFlags = options("--allow-domain").map((domain) => domain.toLowerCase());
 const sessionSurface = liveLogin ? "live-login" : args[0] ?? "unknown";
 const session = `home-verify-${sessionSurface}-${crypto.randomUUID().slice(0, 8)}`;
 const browserEnv: Record<string, string | undefined> = {
@@ -535,6 +536,7 @@ async function writeLiveEvidence(): Promise<void> {
   if (!live) return;
   await writeFile(livePath, `${JSON.stringify({
     baseHost: baseUrl.host,
+    allowedDomains: allowedDomainFlags,
     surface: surfaceId,
     pinnedAccount,
     steps,
