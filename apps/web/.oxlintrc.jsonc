@@ -416,6 +416,7 @@
           {
             "safeHelpers": [
               "createClientErrorHandler",
+              "createClientPerformanceHandler",
               "emitServerEvent",
               "finishHomeAuthRestore",
               "installClientErrorReporting",

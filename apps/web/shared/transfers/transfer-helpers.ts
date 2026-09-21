@@ -46,12 +46,14 @@ export function getTransferAsset(assetId: unknown): TransferAsset | null {
 }
 
 export function isTransferRecipient(value: string): boolean {
+  let valid = false;
   try {
     normalizeTransferRecipient(value);
-    return true;
+    valid = true;
   } catch {
-    return false;
+    valid = false;
   }
+  return valid;
 }
 
 export function normalizeTransferRecipient(value: string): `0x${string}` {

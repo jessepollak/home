@@ -290,6 +290,7 @@ export function formatPresentationTokenAmount(
   symbol: string,
   options: PresentationTokenAmountOptions = {},
 ): string {
+  let formatted = "—";
   try {
     const parsedBaseUnits = parseAtomicAmount(balanceBaseUnits);
     const assetClass = presentationAssetClass({ ...options, symbol });
@@ -305,10 +306,11 @@ export function formatPresentationTokenAmount(
       minimumFractionDigits,
       options.regionId,
     );
-    return joinAmountAndSymbol(amount, symbol, options.useNoBreakSpace);
+    formatted = joinAmountAndSymbol(amount, symbol, options.useNoBreakSpace);
   } catch {
-    return "—";
+    formatted = "—";
   }
+  return formatted;
 }
 
 /** Formats all token precision for review and detail surfaces. */
@@ -443,16 +445,18 @@ export function formatUsdStablecoinAmount(
   decimals = 6,
   regionId: RegionId = "GLOBAL",
 ): string {
+  let formatted = "—";
   try {
     const atoms = parseUnsignedAtomicAmount(balanceBaseUnits);
-    return formatFiatAmount(atoms, decimals, "USD", {
+    formatted = formatFiatAmount(atoms, decimals, "USD", {
       fractionDigits: decimals,
       minimumFractionDigits: Math.min(2, decimals),
       regionId,
     });
   } catch {
-    return "—";
+    formatted = "—";
   }
+  return formatted;
 }
 
 export function formatPresentationPercentage(

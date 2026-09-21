@@ -35,13 +35,13 @@ export function parseSafeAccessDestination(value: unknown): string {
     forbiddenDestinationPattern.test(value)
   ) return "/";
 
-  let parsed: URL;
+  let parsed: URL | null;
   try {
     parsed = new URL(value, "https://home.invalid");
   } catch {
-    return "/";
+    parsed = null;
   }
-  if (parsed.origin !== "https://home.invalid") return "/";
+  if (!parsed || parsed.origin !== "https://home.invalid") return "/";
   if (
     parsed.pathname === "/access" ||
     parsed.pathname === "/api/access" ||

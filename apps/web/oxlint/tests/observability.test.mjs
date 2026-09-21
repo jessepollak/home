@@ -63,6 +63,44 @@ describe("no-silent-catch", () => {
       consume(status);
     `, options)).toHaveLength(0);
   });
+
+  it("rejects primitive and empty-literal returns", async () => {
+    expect(await lint("no-silent-catch", `
+      function zero() { try { run(); } catch { return 0; } }
+      function blank() { try { run(); } catch { return ""; } }
+      function no() { try { run(); } catch { return false; } }
+      function object() { try { run(); } catch { return {}; } }
+      function array() { try { run(); } catch { return []; } }
+    `, options)).toHaveLength(5);
+  });
+
+  it("rejects assigning undefined as the only outer disposition", async () => {
+    expect(await lint("no-silent-catch", `
+      let result = "ready";
+      try { run(); } catch { result = undefined; }
+      consume(result);
+    `, options)).toHaveLength(1);
+  });
+
+  it("requires conditional typed returns to dominate the catch body", async () => {
+    expect(await lint("no-silent-catch", `
+      function partial(condition) {
+        try { run(); } catch { if (condition) return { ok: false }; }
+      }
+      function complete(condition) {
+        try { run(); } catch {
+          if (condition) return { ok: false };
+          return { ok: false, reason: "other" };
+        }
+      }
+      function branches(condition) {
+        try { run(); } catch {
+          if (condition) return { ok: false };
+          else return { ok: false, reason: "other" };
+        }
+      }
+    `, options)).toHaveLength(1);
+  });
 });
 
 describe("isolate-instrumentation-calls", () => {

@@ -93,12 +93,43 @@ function callName(node) {
 
 function returnsHandledValue(node) {
   if (node.type !== "ReturnStatement" || !node.argument) return false;
-  return !(node.argument.type === "Identifier" && node.argument.name === "undefined")
-    && !(node.argument.type === "Literal" && node.argument.value === null);
+  const argument = node.argument;
+  if (argument.type === "Identifier" && argument.name === "undefined") return false;
+  if ([
+    "Literal",
+    "StringLiteral",
+    "NumericLiteral",
+    "BooleanLiteral",
+    "BigIntLiteral",
+    "TemplateLiteral",
+  ].includes(argument.type)) return false;
+  if (argument.type === "ObjectExpression" || argument.type === "ArrayExpression") {
+    return argument.properties?.length > 0 || argument.elements?.length > 0;
+  }
+  return true;
+}
+
+function blockHasDominatingReturn(block) {
+  return block.body.some((statement) => {
+    if (returnsHandledValue(statement)) return true;
+    if (statement.type === "BlockStatement") return blockHasDominatingReturn(statement);
+    return statement.type === "IfStatement" && statement.alternate
+      && branchHasDominatingReturn(statement.consequent)
+      && branchHasDominatingReturn(statement.alternate);
+  });
+}
+
+function branchHasDominatingReturn(statement) {
+  if (returnsHandledValue(statement)) return true;
+  if (statement.type === "BlockStatement") return blockHasDominatingReturn(statement);
+  return statement.type === "IfStatement" && statement.alternate
+    && branchHasDominatingReturn(statement.consequent)
+    && branchHasDominatingReturn(statement.alternate);
 }
 
 function assignsOuterValue(sourceCode, catchClause, node) {
-  if (node.type !== "AssignmentExpression" || node.left.type !== "Identifier") return false;
+  if (node.type !== "AssignmentExpression" || node.left.type !== "Identifier"
+    || (node.right.type === "Identifier" && node.right.name === "undefined")) return false;
   let scope = sourceCode.getScope(node.left);
   while (scope) {
     const variable = scope.set.get(node.left.name);
@@ -112,13 +143,13 @@ function assignsOuterValue(sourceCode, catchClause, node) {
 }
 
 function catchHasDisposition(sourceCode, node, reportingHelpers) {
+  if (blockHasDominatingReturn(node.body)) return true;
   const recoveryCall = /^(?:set[A-Z]|on[A-Z]|dispatch|resolve|reject|abort|cancel|cleanup|clear|release|remove|reset|invalidate)/u;
   const stack = [...node.body.body];
   while (stack.length > 0) {
     const current = stack.pop();
     if (!current) continue;
-    if (current.type === "ThrowStatement" || returnsHandledValue(current)
-      || assignsOuterValue(sourceCode, node, current)) return true;
+    if (current.type === "ThrowStatement" || assignsOuterValue(sourceCode, node, current)) return true;
     if (current.type === "CallExpression") {
       const name = callName(current);
       if (name && (reportingHelpers.has(name) || recoveryCall.test(name))) return true;

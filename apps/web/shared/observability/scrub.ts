@@ -173,13 +173,15 @@ function decodedSensitiveKey(segment: string): boolean {
     if (isSensitiveKey(candidate)) return true;
     if (!candidate.includes("%")) return false;
 
+    let decoded: string | null;
     try {
-      const decoded = decodeURIComponent(candidate);
-      if (decoded === candidate) return false;
-      candidate = decoded;
+      decoded = decodeURIComponent(candidate);
     } catch {
-      return true;
+      decoded = null;
     }
+    if (decoded === null) return true;
+    if (decoded === candidate) return false;
+    candidate = decoded;
   }
 
   if (isSensitiveKey(candidate)) return true;
