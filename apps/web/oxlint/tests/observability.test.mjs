@@ -37,18 +37,20 @@ async function lint(rule, code, options) {
 describe("no-silent-catch", () => {
   const options = { reportingHelpers: ["emitServerEvent", "reportClientError"] };
 
-  it("rejects empty catches and null or undefined-only fallbacks", async () => {
+  it("rejects empty, comment-only, and bare-return catches", async () => {
     expect(await lint("no-silent-catch", `
       try { run(); } catch {}
-      function parse() { try { run(); } catch { return null; } }
-      function read() { try { run(); } catch { return undefined; } }
+      try { run(); } catch { /* intentionally empty */ }
+      function read() { try { run(); } catch { return; } }
     `, options)).toHaveLength(3);
   });
 
-  it("accepts throws, typed values, reporting, recovery state, and promise settlement", async () => {
+  it("accepts throws, explicit return values, reporting, recovery state, and promise settlement", async () => {
     expect(await lint("no-silent-catch", `
       function a() { try { run(); } catch (error) { throw error; } }
       function b() { try { run(); } catch { return { ok: false }; } }
+      function c() { try { run(); } catch { return null; } }
+      function d() { try { run(); } catch { return undefined; } }
       try { run(); } catch (error) { emitServerEvent(error); }
       try { run(); } catch { setError("failed"); }
       try { run(); } catch { dispatch({ type: "failed" }); }
@@ -56,37 +58,56 @@ describe("no-silent-catch", () => {
     `, options)).toHaveLength(0);
   });
 
-  it("accepts an outer recovery value only when it is read after the catch", async () => {
+  it("accepts any non-undefined outer recovery value when it is read after the catch", async () => {
     expect(await lint("no-silent-catch", `
       let status = "ready";
-      try { run(); } catch { status = "failed"; }
-      consume(status);
+      let count = 1;
+      let details = { ready: true };
+      try { run(); } catch { status = ""; }
+      try { run(); } catch { count = 0; }
+      try { run(); } catch { details = {}; }
+      consume(status, count, details);
     `, options)).toHaveLength(0);
   });
 
-  it("rejects primitive and empty-literal returns", async () => {
+  it("accepts primitive and empty-literal returns", async () => {
     expect(await lint("no-silent-catch", `
       function zero() { try { run(); } catch { return 0; } }
       function blank() { try { run(); } catch { return ""; } }
       function no() { try { run(); } catch { return false; } }
       function object() { try { run(); } catch { return {}; } }
       function array() { try { run(); } catch { return []; } }
-    `, options)).toHaveLength(5);
+    `, options)).toHaveLength(0);
   });
 
-  it("rejects assigning undefined as the only outer disposition", async () => {
+  it("rejects outer assignments of undefined or values that are never read", async () => {
     expect(await lint("no-silent-catch", `
       let result = "ready";
       try { run(); } catch { result = undefined; }
       consume(result);
-    `, options)).toHaveLength(1);
+      let unread = "ready";
+      try { run(); } catch { unread = "failed"; }
+      unread = "replaced";
+    `, options)).toHaveLength(2);
   });
 
-  it("requires conditional typed returns to dominate the catch body", async () => {
+  it("rejects discards and dispositions that do not dominate the catch body", async () => {
     expect(await lint("no-silent-catch", `
+      try { run(); } catch (error) { void error; }
+      try { run(); } catch (error) { error; }
+      try { run(); } catch { 0; }
       function partial(condition) {
         try { run(); } catch { if (condition) return { ok: false }; }
       }
+      let status = "ready";
+      try { run(); } catch { if (condition) status = "failed"; }
+      consume(status);
+      try { run(); } catch (error) { if (condition) emitServerEvent(error); }
+    `, options)).toHaveLength(6);
+  });
+
+  it("accepts dispositions that cover every catch path", async () => {
+    expect(await lint("no-silent-catch", `
       function complete(condition) {
         try { run(); } catch {
           if (condition) return { ok: false };
@@ -99,7 +120,10 @@ describe("no-silent-catch", () => {
           else return { ok: false, reason: "other" };
         }
       }
-    `, options)).toHaveLength(1);
+      let status = "ready";
+      try { run(); } catch { if (condition) status = "failed"; else status = "idle"; }
+      consume(status);
+    `, options)).toHaveLength(0);
   });
 });
 

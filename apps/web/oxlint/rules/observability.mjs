@@ -91,78 +91,133 @@ function callName(node) {
   return null;
 }
 
-function returnsHandledValue(node) {
-  if (node.type !== "ReturnStatement" || !node.argument) return false;
-  const argument = node.argument;
-  if (argument.type === "Identifier" && argument.name === "undefined") return false;
-  if ([
-    "Literal",
-    "StringLiteral",
-    "NumericLiteral",
-    "BooleanLiteral",
-    "BigIntLiteral",
-    "TemplateLiteral",
-  ].includes(argument.type)) return false;
-  if (argument.type === "ObjectExpression" || argument.type === "ArrayExpression") {
-    return argument.properties?.length > 0 || argument.elements?.length > 0;
-  }
-  return true;
-}
-
-function blockHasDominatingReturn(block) {
-  return block.body.some((statement) => {
-    if (returnsHandledValue(statement)) return true;
-    if (statement.type === "BlockStatement") return blockHasDominatingReturn(statement);
-    return statement.type === "IfStatement" && statement.alternate
-      && branchHasDominatingReturn(statement.consequent)
-      && branchHasDominatingReturn(statement.alternate);
-  });
-}
-
-function branchHasDominatingReturn(statement) {
-  if (returnsHandledValue(statement)) return true;
-  if (statement.type === "BlockStatement") return blockHasDominatingReturn(statement);
-  return statement.type === "IfStatement" && statement.alternate
-    && branchHasDominatingReturn(statement.consequent)
-    && branchHasDominatingReturn(statement.alternate);
+function isUndefinedValue(node) {
+  return (node.type === "Identifier" && node.name === "undefined")
+    || (node.type === "UnaryExpression" && node.operator === "void");
 }
 
 function assignsOuterValue(sourceCode, catchClause, node) {
   if (node.type !== "AssignmentExpression" || node.left.type !== "Identifier"
-    || (node.right.type === "Identifier" && node.right.name === "undefined")) return false;
+    || isUndefinedValue(node.right)) return false;
   let scope = sourceCode.getScope(node.left);
   while (scope) {
     const variable = scope.set.get(node.left.name);
     if (variable) {
       const declaredInside = variable.identifiers.some((identifier) => isWithin(identifier, catchClause));
-      return !declaredInside && variable.references.some((reference) => reference.identifier.start > catchClause.end);
+      return !declaredInside && variable.references.some((reference) =>
+        reference.identifier.start > catchClause.end && reference.isRead());
     }
     scope = scope.upper;
   }
   return false;
 }
 
-function catchHasDisposition(sourceCode, node, reportingHelpers) {
-  if (blockHasDominatingReturn(node.body)) return true;
-  const recoveryCall = /^(?:set[A-Z]|on[A-Z]|dispatch|resolve|reject|abort|cancel|cleanup|clear|release|remove|reset|invalidate)/u;
-  const stack = [...node.body.body];
-  while (stack.length > 0) {
-    const current = stack.pop();
-    if (!current) continue;
-    if (current.type === "ThrowStatement" || assignsOuterValue(sourceCode, node, current)) return true;
-    if (current.type === "CallExpression") {
-      const name = callName(current);
-      if (name && (reportingHelpers.has(name) || recoveryCall.test(name))) return true;
-    }
-    if (["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(current.type)) continue;
-    for (const value of Object.values(current)) {
-      if (!value || value === current.parent) continue;
-      if (Array.isArray(value)) {
-        for (const child of value) if (child && typeof child.type === "string") stack.push(child);
-      } else if (typeof value.type === "string") stack.push(value);
-    }
+const recoveryCall = /^(?:set[A-Z]|on[A-Z]|dispatch|resolve|reject|abort|cancel|cleanup|clear|release|remove|reset|invalidate)/u;
+const transparentExpression = new Set([
+  "AwaitExpression",
+  "ChainExpression",
+  "TSAsExpression",
+  "TSNonNullExpression",
+  "TSSatisfiesExpression",
+  "TSTypeAssertion",
+]);
+
+function expressionHasDisposition(sourceCode, catchClause, node, reportingHelpers) {
+  if (!node) return false;
+  if (node.type === "AssignmentExpression" && assignsOuterValue(sourceCode, catchClause, node)) return true;
+  if (node.type === "CallExpression" || node.type === "NewExpression") {
+    const name = callName(node);
+    if (!node.optional && name && (reportingHelpers.has(name) || recoveryCall.test(name))) return true;
+    return !node.optional && node.arguments.some((argument) =>
+      argument.type !== "SpreadElement"
+        ? expressionHasDisposition(sourceCode, catchClause, argument, reportingHelpers)
+        : expressionHasDisposition(sourceCode, catchClause, argument.argument, reportingHelpers));
+  }
+  if (transparentExpression.has(node.type)) {
+    return expressionHasDisposition(sourceCode, catchClause, node.expression ?? node.argument, reportingHelpers);
+  }
+  if (node.type === "SequenceExpression") {
+    return node.expressions.some((expression) =>
+      expressionHasDisposition(sourceCode, catchClause, expression, reportingHelpers));
+  }
+  if (node.type === "ConditionalExpression") {
+    return expressionHasDisposition(sourceCode, catchClause, node.test, reportingHelpers)
+      || (expressionHasDisposition(sourceCode, catchClause, node.consequent, reportingHelpers)
+        && expressionHasDisposition(sourceCode, catchClause, node.alternate, reportingHelpers));
+  }
+  if (node.type === "LogicalExpression") {
+    return expressionHasDisposition(sourceCode, catchClause, node.left, reportingHelpers)
+      || (expressionHasDisposition(sourceCode, catchClause, node.right, reportingHelpers)
+        && node.operator === "??" && node.left.type === "Literal" && node.left.value == null);
+  }
+  if (node.type === "AssignmentExpression") {
+    return expressionHasDisposition(sourceCode, catchClause, node.right, reportingHelpers);
+  }
+  if (node.type === "BinaryExpression") {
+    return expressionHasDisposition(sourceCode, catchClause, node.left, reportingHelpers)
+      || expressionHasDisposition(sourceCode, catchClause, node.right, reportingHelpers);
+  }
+  if (node.type === "ArrayExpression") {
+    return node.elements.some((element) => element
+      && expressionHasDisposition(sourceCode, catchClause, element.argument ?? element, reportingHelpers));
+  }
+  if (node.type === "ObjectExpression") {
+    return node.properties.some((property) => property.type === "SpreadElement"
+      ? expressionHasDisposition(sourceCode, catchClause, property.argument, reportingHelpers)
+      : expressionHasDisposition(sourceCode, catchClause, property.value, reportingHelpers));
   }
   return false;
+}
+
+const fallsThrough = 1;
+const exitsWithoutDisposition = 2;
+
+function statementOutcomes(sourceCode, catchClause, node, reportingHelpers) {
+  if (node.type === "ReturnStatement") return node.argument ? 0 : exitsWithoutDisposition;
+  if (node.type === "ThrowStatement") return 0;
+  if (node.type === "BlockStatement") {
+    return blockOutcomes(sourceCode, catchClause, node, reportingHelpers);
+  }
+  if (node.type === "ExpressionStatement") {
+    return expressionHasDisposition(sourceCode, catchClause, node.expression, reportingHelpers)
+      ? 0
+      : fallsThrough;
+  }
+  if (node.type === "VariableDeclaration") {
+    return node.declarations.some((declaration) =>
+      expressionHasDisposition(sourceCode, catchClause, declaration.init, reportingHelpers))
+      ? 0
+      : fallsThrough;
+  }
+  if (node.type === "IfStatement") {
+    if (expressionHasDisposition(sourceCode, catchClause, node.test, reportingHelpers)) return 0;
+    const consequent = statementOutcomes(sourceCode, catchClause, node.consequent, reportingHelpers);
+    const alternate = node.alternate
+      ? statementOutcomes(sourceCode, catchClause, node.alternate, reportingHelpers)
+      : fallsThrough;
+    return consequent | alternate;
+  }
+  if (node.type === "LabeledStatement" || node.type === "WithStatement") {
+    return statementOutcomes(sourceCode, catchClause, node.body, reportingHelpers);
+  }
+  if (node.type === "DoWhileStatement") {
+    return statementOutcomes(sourceCode, catchClause, node.body, reportingHelpers);
+  }
+  return fallsThrough;
+}
+
+function blockOutcomes(sourceCode, catchClause, block, reportingHelpers) {
+  let outcomes = fallsThrough;
+  for (const statement of block.body) {
+    if (!(outcomes & fallsThrough)) break;
+    outcomes = (outcomes & exitsWithoutDisposition)
+      | statementOutcomes(sourceCode, catchClause, statement, reportingHelpers);
+  }
+  return outcomes;
+}
+
+function catchHasDisposition(sourceCode, node, reportingHelpers) {
+  return blockOutcomes(sourceCode, node, node.body, reportingHelpers) === 0;
 }
 
 export const noSilentCatch = {
