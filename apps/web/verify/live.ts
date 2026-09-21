@@ -127,11 +127,15 @@ export function reviewAndLabelAmountError(reviewAmount: number | null, labelAmou
   return null;
 }
 
+const reviewToRowPattern = /^to(?:$|\s+\S)/i;
+
 export function recipientRowError(reviewText: string, recipient: string): string | null {
   const expected = recipient.trim();
   const lines = reviewLines(reviewText);
-  const index = lines.findIndex((line) => /^to$/i.test(line) || /^to\s+\S/i.test(line));
-  if (index === -1) return "The review has no “To” row; confirmation was refused.";
+  const rowIndexes = lines.flatMap((line, index) => reviewToRowPattern.test(line) ? [index] : []);
+  if (rowIndexes.length === 0) return "The review has no “To” row; confirmation was refused.";
+  if (rowIndexes.length > 1) return "The review must contain exactly one “To” row; confirmation was refused.";
+  const index = rowIndexes[0];
   const inlineValue = lines[index].replace(/^to\s*/i, "").trim();
   const shown = (inlineValue.length > 0 ? inlineValue : lines[index + 1] ?? "").trim();
   if (shown.length === 0) return "The review “To” row is empty; confirmation was refused.";

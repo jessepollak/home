@@ -135,6 +135,11 @@ describe("live review recipient row", () => {
     expect(recipientRowError(`Confirm\nTo\n${formatAddress(recipient)}\nAsset`, recipient)).toContain("instead");
   });
 
+  test("refuses a review with more than one To row", () => {
+    expect(recipientRowError(`Confirm\nTo\n${recipient}\nTo ${address}\nAsset`, recipient)).toContain("exactly one");
+    expect(recipientRowError(`Confirm\nTo\n${recipient}\nTo\n${recipient}\nAsset`, recipient)).toContain("exactly one");
+  });
+
   test("refuses an absent, empty, or mismatched To row", () => {
     expect(recipientRowError("Confirm\n$1.00\nAsset\nUSDC", recipient)).toContain("no “To” row");
     expect(recipientRowError("Confirm\nTo", recipient)).toContain("“To” row is empty");
