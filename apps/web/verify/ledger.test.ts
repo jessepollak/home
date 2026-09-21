@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { appendLedger, armAuthorityError, armCommentId, armEvent, readLedger, spendForDay, spendForRun, surfaceArmState, withLedgerLock, type ArmComment, type LedgerEntry, type LedgerRun } from "./ledger";
+import { appendLedger, armAuthorityError, armCommentId, armEvent, armReplayError, readLedger, spendForDay, spendForRun, surfaceArmState, withLedgerLock, type ArmComment, type LedgerDisarm, type LedgerEntry, type LedgerRun } from "./ledger";
 
 const temporaryDirectories: string[] = [];
 const revision = "abc123";
@@ -79,7 +79,7 @@ describe("verification ledger", () => {
     });
     expect(surfaceArmState(entries, "send", revision).reason).toBe("incident");
     const by = "https://github.com/jessepollak/home/issues/1#issuecomment-123";
-    entries.push(armEvent("send", by, { html_url: by, body: "/verify arm send", user: { login: "jessepollak" } }));
+    entries.push(armEvent("send", by, { html_url: by, body: "/verify arm send", user: { login: "jessepollak" }, created_at: "2026-09-21T13:30:00.000Z" }));
     expect(surfaceArmState(entries, "send", revision)).toEqual({ armed: true, cleanRuns: 0, reason: "jesse-arm" });
   });
 
@@ -91,7 +91,7 @@ describe("verification ledger", () => {
       reason: "incident",
     });
     const by = "https://github.com/jessepollak/home/issues/1#issuecomment-123";
-    const armed = [...cleanRuns, armEvent("send", by, { html_url: by, body: "/verify arm send", user: { login: "jessepollak" } })];
+    const armed = [...cleanRuns, armEvent("send", by, { html_url: by, body: "/verify arm send", user: { login: "jessepollak" }, created_at: "2026-09-21T13:30:00.000Z" })];
     expect(surfaceArmState([...armed, run({ runId: "5", clean: false, incidents: ["post-confirm-failure"] })], "send", revision)).toEqual({
       armed: false,
       cleanRuns: 0,
@@ -101,13 +101,27 @@ describe("verification ledger", () => {
 
   test("validates the re-arm repository, author, exact command, and resolved URL", () => {
     const by = "https://github.com/jessepollak/home/pull/7#issuecomment-42";
-    const comment: ArmComment = { html_url: by, body: "/verify arm send", user: { login: "jessepollak" } };
+    const comment: ArmComment = { html_url: by, body: "/verify arm send", user: { login: "jessepollak" }, created_at: "2026-09-21T13:00:00.000Z" };
     expect(armCommentId(by)).toBe("42");
     expect(armEvent("send", by, comment).by).toBe(by);
     expect(() => armCommentId("https://github.com/other/repo/issues/1#issuecomment-42")).toThrow("jessepollak/home");
     expect(armAuthorityError("send", by, { ...comment, user: { login: "someone-else" } })).toContain("Only");
     expect(armAuthorityError("send", by, { ...comment, body: "/verify arm save" })).toContain("exactly");
     expect(armAuthorityError("send", by, { ...comment, html_url: "https://github.com/jessepollak/home/issues/8#issuecomment-42" })).toContain("does not match");
+    expect(armAuthorityError("send", by, { ...comment, created_at: undefined })).toContain("creation time");
+  });
+
+  test("refuses a replayed re-arm comment and one that predates the latest disarm", () => {
+    const by = "https://github.com/jessepollak/home/issues/1#issuecomment-123";
+    const comment: ArmComment = { html_url: by, body: "/verify arm send", user: { login: "jessepollak" }, created_at: "2026-09-22T00:00:00.000Z" };
+    const armed: LedgerEntry[] = [armEvent("send", by, comment, new Date("2026-09-22T00:00:05.000Z"))];
+    expect(armed[0]).toMatchObject({ type: "arm", commentId: "123", createdAt: "2026-09-22T00:00:00.000Z" });
+    expect(armReplayError(armed, "send", "123", "2026-09-23T00:00:00.000Z")).toContain("already");
+    expect(armReplayError([], "send", "123", "2026-09-23T00:00:00.000Z")).toBeNull();
+    const disarm: LedgerDisarm = { type: "disarm", timestamp: "2026-09-25T00:00:00.000Z", surface: "send", incidents: ["ambiguous-result"], runId: "run-9" };
+    expect(armReplayError([disarm], "send", "124", "2026-09-24T00:00:00.000Z")).toContain("predates");
+    expect(armReplayError([disarm], "save", "124", "2026-09-24T00:00:00.000Z")).toBeNull();
+    expect(armReplayError([disarm], "send", "124", "2026-09-26T00:00:00.000Z")).toBeNull();
   });
 
   test("sums daily factory and per-run confirmed amounts", () => {

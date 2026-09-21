@@ -21,6 +21,8 @@ export type LedgerArm = {
   timestamp: string;
   surface: string;
   by: string;
+  commentId: string;
+  createdAt: string;
 };
 
 export type LedgerDisarm = {
@@ -128,6 +130,7 @@ export type ArmComment = {
   html_url?: string;
   body?: string;
   user?: { login?: string };
+  created_at?: string;
 };
 
 export function armCommentId(by: string): string {
@@ -144,11 +147,24 @@ export function armAuthorityError(surface: string, by: string, comment: ArmComme
   if (comment.html_url !== by) return "The resolved GitHub comment URL does not match --by.";
   if (comment.user?.login !== "jessepollak") return "Only a comment authored by jessepollak can re-arm a surface.";
   if (comment.body?.trim() !== `/verify arm ${surface}`) return `The Jesse comment must contain exactly /verify arm ${surface}.`;
+  if (!comment.created_at || !Number.isFinite(Date.parse(comment.created_at))) return "The resolved Jesse comment has no readable creation time.";
+  return null;
+}
+
+export function armReplayError(entries: LedgerEntry[], surface: string, commentId: string, createdAt: string): string | null {
+  if (entries.some((entry) => entry.type === "arm" && entry.commentId === commentId)) {
+    return "That comment already re-armed a surface; comment again to re-arm.";
+  }
+  const latestDisarm = entries.filter((entry): entry is LedgerDisarm => entry.type === "disarm" && entry.surface === surface).at(-1);
+  if (latestDisarm && Date.parse(createdAt) <= Date.parse(latestDisarm.timestamp)) {
+    return `That comment predates the latest ${surface} disarm; comment again to re-arm.`;
+  }
   return null;
 }
 
 export function armEvent(surface: string, by: string, comment: ArmComment, now = new Date()): LedgerArm {
   const authorityError = armAuthorityError(surface, by, comment);
   if (authorityError) throw new Error(authorityError);
-  return { type: "arm", timestamp: now.toISOString(), surface, by };
+  const createdAt = comment.created_at ?? "";
+  return { type: "arm", timestamp: now.toISOString(), surface, by, commentId: armCommentId(by), createdAt };
 }

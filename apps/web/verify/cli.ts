@@ -30,7 +30,7 @@ import {
   unlistedAmountClickError,
   type LiveRecipient,
 } from "./live";
-import { appendLedger, armCommentId, armEvent, readLedger, spendForDay, spendForRun, surfaceArmState, withLedgerLock, type ArmComment, type LedgerEntry } from "./ledger";
+import { appendLedger, armCommentId, armEvent, armReplayError, readLedger, spendForDay, spendForRun, surfaceArmState, withLedgerLock, type ArmComment, type LedgerEntry } from "./ledger";
 import { canaryReach, matchesConfirmLabel, readFeatureMap, type ReachStep } from "./map";
 import { confirmPolicyRefusal, requestedCaps, resolveVerifyRole, verifyPolicy, type VerifyRole } from "./policy";
 
@@ -105,6 +105,10 @@ if (args[0] === "arm") {
     console.error("Usage: bun run verify arm <surface> --by <GitHub-comment-url>");
     process.exit(2);
   }
+  if (verifyRole !== "operator") {
+    console.error("verify arm requires the operator role; the factory role cannot re-arm a surface.");
+    process.exit(2);
+  }
   try {
     const commentId = armCommentId(by);
     const result = Bun.spawnSync({
@@ -115,7 +119,10 @@ if (args[0] === "arm") {
     });
     if (result.exitCode !== 0) throw new Error("Could not resolve the Jesse re-arm comment.");
     const comment = JSON.parse(result.stdout.toString()) as ArmComment;
-    await appendLedger(ledgerPath, armEvent(surfaceId, by, comment));
+    const event = armEvent(surfaceId, by, comment);
+    const replayError = armReplayError(await readLedger(ledgerPath), surfaceId, event.commentId, event.createdAt);
+    if (replayError) throw new Error(replayError);
+    await appendLedger(ledgerPath, event);
     console.log(`${surfaceId}: armed by ${by}`);
     process.exit(0);
   } catch (error) {

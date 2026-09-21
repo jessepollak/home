@@ -9,10 +9,44 @@ Bun.spawnSync(["mkdir", "-p", home]);
 const outsideOutput = resolve(home, "evidence");
 const addressA = "0x1111111111111111111111111111111111111111";
 const addressB = "0x2222222222222222222222222222222222222222";
+const commentUrl = "https://github.com/jessepollak/home/issues/1#issuecomment-123";
+const armHomes: string[] = [];
 
 afterAll(() => {
   Bun.spawnSync(["rm", "-rf", home]);
+  for (const path of armHomes.splice(0)) Bun.spawnSync(["rm", "-rf", path]);
 });
+
+async function armHome(entries: unknown[] = []) {
+  const directory = resolve(tmpdir(), `home-verify-arm-${crypto.randomUUID()}`);
+  const binDirectory = resolve(directory, "bin");
+  Bun.spawnSync(["mkdir", "-p", resolve(directory, ".home-verify"), binDirectory]);
+  if (entries.length > 0) {
+    await Bun.write(resolve(directory, ".home-verify", "ledger.jsonl"), `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+  }
+  const gh = resolve(binDirectory, "gh");
+  await Bun.write(gh, `#!/bin/sh
+if [ "$1" = "api" ]; then
+  printf '{"html_url":"%s","body":"%s","user":{"login":"jessepollak"},"created_at":"%s"}' "$FAKE_COMMENT_URL" "$FAKE_COMMENT_BODY" "$FAKE_COMMENT_CREATED_AT"
+  exit 0
+fi
+exit 1
+`);
+  Bun.spawnSync(["chmod", "+x", gh]);
+  armHomes.push(directory);
+  return directory;
+}
+
+function runArm(homePath: string, extraEnv: Record<string, string | undefined> = {}, comment: { body?: string; created?: string } = {}) {
+  return run(["arm", "send", "--by", commentUrl], {
+    HOME: homePath,
+    PATH: `${resolve(homePath, "bin")}:${process.env.PATH}`,
+    FAKE_COMMENT_URL: commentUrl,
+    FAKE_COMMENT_BODY: comment.body ?? "/verify arm send",
+    FAKE_COMMENT_CREATED_AT: comment.created ?? "2026-09-23T00:00:00.000Z",
+    ...extraEnv,
+  });
+}
 
 async function armSurface(surface: string) {
   const directory = resolve(home, ".home-verify");
@@ -47,6 +81,53 @@ describe("live CLI policy", () => {
       ["https://example.com/home", "https://unexpected.example.net/image.png"],
       ["example.com"],
     )).toEqual(["unexpected.example.net"]);
+  });
+});
+
+describe("live CLI re-arm", () => {
+  test("refuses the factory role", async () => {
+    const homePath = await armHome();
+    const result = runArm(homePath, { HOME_VERIFY_ROLE: "factory" });
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("operator role");
+  });
+
+  test("refuses a comment id that is already recorded", async () => {
+    const homePath = await armHome([{
+      type: "arm",
+      timestamp: "2026-09-22T00:00:00.000Z",
+      surface: "send",
+      by: commentUrl,
+      commentId: "123",
+      createdAt: "2026-09-22T00:00:00.000Z",
+    }]);
+    const result = runArm(homePath, {}, { created: "2026-09-23T00:00:00.000Z" });
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("already re-armed");
+  });
+
+  test("refuses a comment that predates the latest disarm", async () => {
+    const homePath = await armHome([{
+      type: "disarm",
+      timestamp: "2026-09-25T00:00:00.000Z",
+      surface: "send",
+      incidents: ["ambiguous-result"],
+      runId: "run-9",
+    }]);
+    const result = runArm(homePath, {}, { created: "2026-09-24T00:00:00.000Z" });
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("predates");
+  });
+
+  test("records the comment id and creation time, then refuses the replay", async () => {
+    const homePath = await armHome();
+    const first = runArm(homePath);
+    expect(first.exitCode).toBe(0);
+    const lines = (await Bun.file(resolve(homePath, ".home-verify", "ledger.jsonl")).text()).trim().split("\n");
+    expect(JSON.parse(lines.at(-1) ?? "{}")).toMatchObject({ type: "arm", commentId: "123", createdAt: "2026-09-23T00:00:00.000Z" });
+    const replay = runArm(homePath);
+    expect(replay.exitCode).toBe(2);
+    expect(replay.stderr).toContain("already re-armed");
   });
 });
 
