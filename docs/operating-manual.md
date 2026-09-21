@@ -51,8 +51,8 @@ Jesse applies exactly one label, `factory`, meaning start. The factory owns thre
 2. The factory removes `factory`, applies `factory:working`, and comments `Working on this (run N).`, where `N` is the run number.
 3. Implementation runs use a branch named `agent/<issue>` and commits authored by the bot account `jessepollakj`.
 4. For work that changes the repository, the factory opens a normal pull request. Implementation PRs end with `Closes #<issue>`, so merging closes the issue; `design(...)` proposals and `product(...)` follow-ups end with `Refs #<issue>`, and Jesse decides when the issue is done. A `product(...)` research run instead posts its result as an issue comment.
-5. The factory swaps `factory:working` for `factory:review` when a PR's required checks are green, and for `factory:needs-jesse` for every other handoff (research comment posted, question or blocker, visual proof still missing, checks red after the repair budget, no change produced, or stopped after repeated failure).
-6. When required CI is green and the delivery loop is complete, the factory requests Jesse's review.
+5. The factory swaps `factory:working` for `factory:needs-jesse` for every handoff that is not a green PR: research comment posted, question or blocker, visual proof still missing, checks red after the repair budget, no change produced, or stopped after repeated failure.
+6. When a PR's required checks are green, the factory applies `factory:review` and requests Jesse's review in the same step; a PR still waiting on checks carries no handoff label.
 
 Any issue comment, pull-request comment, or pull-request review by Jesse triggers a follow-up run. The factory applies the feedback, validates the current head, and requests review again when CI is green. A Codex connector review is context for the factory to consider; it does not trigger a run. Re-adding `factory` asks the factory to look again and starts a run without the `Working on this` comment.
 
