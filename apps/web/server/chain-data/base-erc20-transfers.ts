@@ -84,21 +84,6 @@ export function buildBaseErc20TransferQuery(
     ? `\n  AND ${buildCursorPredicate(request.cursor)}`
     : "";
 
-  // Re-org safety is intentional: action is aggregated for every stable log_id,
-  // and only net-active logs are paginated. Filtering action = 'added' would
-  // leave removed logs in history.
-  //
-  // CoinbaSeQL accepts the decoded Transfer parameter shape used here. Keep
-  // token identity exact by grouping and paging with the emitting contract;
-  // do not aggregate raw topics or derive parameter names in SQL because those
-  // shapes are rejected by the upstream query validator.
-  //
-  // CoinbaSeQL's published selectStatement is GROUP BY then optional ORDER BY /
-  // LIMIT — no HAVING. #46 nested ORDER BY … LIMIT after HAVING; #73 removed
-  // that inner limit but left HAVING, and prod /api/activity stayed 502
-  // ACTIVITY_UNAVAILABLE for healthy empty sessions (#70). Filter net action
-  // in the outer WHERE (the documented subquery pattern) and page with the
-  // outer LIMIT only.
   const sql = `SELECT
   log_id,
   toString(block_number_numeric) AS block_number,
