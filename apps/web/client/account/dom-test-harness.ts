@@ -3,10 +3,6 @@ import { afterEach } from "bun:test";
 import { getHomeQueryClient } from "@/client/query/query-client";
 
 if (typeof window === "undefined") {
-  // Happy DOM models browser fetch responses, so it intentionally drops the
-  // forbidden Set-Cookie response header. Keep Bun's server Fetch API globals
-  // when installing the shared DOM to prevent UI tests from changing route
-  // handler behavior later in the same test process.
   const serverFetchDescriptors = Object.fromEntries(
     ["AbortController", "AbortSignal", "Headers", "Request", "Response"].map((name) => [
       name,
