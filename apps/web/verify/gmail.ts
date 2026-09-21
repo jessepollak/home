@@ -79,8 +79,9 @@ export function isReadonlyScopeGrant(value: string | undefined): boolean {
 export function extractOtp(message: GmailMessage, sender: string, submittedAt: number, expiresAt: number): string | null {
   const receivedAt = Number(message.internalDate ?? Number.NaN);
   if (!Number.isFinite(receivedAt) || receivedAt < submittedAt || receivedAt > expiresAt) return null;
-  const from = header(message, "from").toLowerCase();
-  if (!from.includes(sender.toLowerCase())) return null;
+  const fromHeader = header(message, "from").trim();
+  const fromAddress = fromHeader.match(/<([^<>]+)>/)?.[1] ?? fromHeader;
+  if (fromAddress.trim().toLowerCase() !== sender.trim().toLowerCase()) return null;
   const codes = [...messageText(message).matchAll(/(?:^|\D)(\d{6})(?!\d)/g)].map((match) => match[1]);
   const distinct = [...new Set(codes)];
   return distinct.length === 1 ? distinct[0] : null;

@@ -32,8 +32,9 @@ describe("Gmail OTP parsing", () => {
     expect(extractOtp(message({ internalDate: String(submittedAt + 300_001) }), sender, submittedAt, submittedAt + 300_000)).toBeNull();
   });
 
-  test("rejects every other sender", () => {
+  test("rejects every other sender and a matching display-name spoof", () => {
     expect(extractOtp(message({ payload: { headers: [{ name: "From", value: "attacker@example.com" }] } }), sender, submittedAt, submittedAt + 300_000)).toBeNull();
+    expect(extractOtp(message({ payload: { headers: [{ name: "From", value: `${sender} <attacker@example.com>` }] } }), sender, submittedAt, submittedAt + 300_000)).toBeNull();
   });
 });
 
