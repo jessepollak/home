@@ -1,5 +1,5 @@
-import { appendFile, chmod, mkdir, readFile, rm } from "node:fs/promises";
-import { dirname } from "node:path";
+import { appendFile, chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import { verifyPolicy, type VerifyRole } from "./policy";
 
 export type LedgerRun = {
@@ -54,18 +54,53 @@ export async function appendLedger(path: string, entry: LedgerEntry): Promise<vo
   await appendFile(path, `${JSON.stringify(entry)}\n`, { mode: 0o600 });
 }
 
+const staleLockMilliseconds = 10 * 60 * 1000;
+
+function reservationRefusal(lockPath: string): Error {
+  return new Error(`Another verification run is reserving spend; confirmation was refused. If no verification run is active, remove ${lockPath} (rm -rf ${lockPath}) and retry.`);
+}
+
+function processIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+async function clearStaleLock(lockPath: string): Promise<boolean> {
+  let owner: { pid?: number; timestamp?: number };
+  try {
+    owner = JSON.parse(await readFile(resolve(lockPath, "owner.json"), "utf8")) as { pid?: number; timestamp?: number };
+  } catch {
+    return false;
+  }
+  if (typeof owner.pid !== "number" || typeof owner.timestamp !== "number") return false;
+  if (Date.now() - owner.timestamp <= staleLockMilliseconds) return false;
+  if (processIsAlive(owner.pid)) return false;
+  await rm(lockPath, { recursive: true, force: true });
+  console.error(`Removed a stale verification lock at ${lockPath} left by process ${owner.pid}.`);
+  return true;
+}
+
 export async function withLedgerLock<T>(path: string, action: () => Promise<T>): Promise<T> {
   await ensureLedger(path);
   const lockPath = `${path}.lock`;
   try {
     await mkdir(lockPath, { mode: 0o700 });
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-      throw new Error("Another verification run is reserving spend; confirmation was refused.");
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    if (!(await clearStaleLock(lockPath))) throw reservationRefusal(lockPath);
+    try {
+      await mkdir(lockPath, { mode: 0o700 });
+    } catch (retryError) {
+      if ((retryError as NodeJS.ErrnoException).code !== "EEXIST") throw retryError;
+      throw reservationRefusal(lockPath);
     }
-    throw error;
   }
   try {
+    await writeFile(resolve(lockPath, "owner.json"), JSON.stringify({ pid: process.pid, timestamp: Date.now() }), { mode: 0o600 });
     return await action();
   } finally {
     await rm(lockPath, { recursive: true, force: true });

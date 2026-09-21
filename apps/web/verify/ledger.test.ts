@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { appendLedger, armAuthorityError, armCommentId, armEvent, armReplayError, readLedger, spendForDay, spendForRun, surfaceArmState, withLedgerLock, type ArmComment, type LedgerDisarm, type LedgerEntry, type LedgerRun } from "./ledger";
@@ -47,6 +48,41 @@ describe("verification ledger", () => {
       await expect(withLedgerLock(path, async () => undefined)).rejects.toThrow("reserving spend");
     });
     await expect(withLedgerLock(path, async () => "released")).resolves.toBe("released");
+  });
+
+  test("clears a stale spend lock whose owner process is gone", async () => {
+    const directory = resolve(tmpdir(), `home-ledger-stale-${crypto.randomUUID()}`);
+    Bun.spawnSync(["mkdir", "-p", directory]);
+    temporaryDirectories.push(directory);
+    const path = resolve(directory, "ledger.jsonl");
+    const lockPath = `${path}.lock`;
+    await mkdir(lockPath, { mode: 0o700 });
+    await writeFile(resolve(lockPath, "owner.json"), JSON.stringify({ pid: 999999, timestamp: Date.now() - 11 * 60 * 1000 }));
+    const notices: string[] = [];
+    const originalError = console.error;
+    console.error = (...values: unknown[]) => {
+      notices.push(values.join(" "));
+    };
+    try {
+      await expect(withLedgerLock(path, async () => "acquired")).resolves.toBe("acquired");
+    } finally {
+      console.error = originalError;
+    }
+    expect(notices.join(" ")).toContain("stale");
+  });
+
+  test("keeps refusing a live or fresh lock and names the removal command", async () => {
+    const directory = resolve(tmpdir(), `home-ledger-live-${crypto.randomUUID()}`);
+    Bun.spawnSync(["mkdir", "-p", directory]);
+    temporaryDirectories.push(directory);
+    const path = resolve(directory, "ledger.jsonl");
+    const lockPath = `${path}.lock`;
+    await mkdir(lockPath, { mode: 0o700 });
+    await writeFile(resolve(lockPath, "owner.json"), JSON.stringify({ pid: process.pid, timestamp: Date.now() - 11 * 60 * 1000 }));
+    await expect(withLedgerLock(path, async () => undefined)).rejects.toThrow(`rm -rf ${lockPath}`);
+    await writeFile(resolve(lockPath, "owner.json"), JSON.stringify({ pid: 999999, timestamp: Date.now() }));
+    await expect(withLedgerLock(path, async () => undefined)).rejects.toThrow("reserving spend");
+    await rm(lockPath, { recursive: true, force: true });
   });
 
   test("arms after three clean rung 2 runs on current main only", () => {
