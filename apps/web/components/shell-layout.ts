@@ -6,8 +6,5 @@ export const shellContentFrameClassName =
 export const publicHeaderFrameClassName = "w-full px-4 sm:px-6 lg:px-8";
 
 export const shellScrollContainerClassName = "shell-scroll-container overflow-y-auto";
-// Keep the previous export during Fast Refresh so an in-flight client graph can recover.
-export const shellScrollbarGutterClassName = shellScrollContainerClassName;
-
 export const shellChromeCompensationClassName =
   "shell-scrollbar-compensated";
