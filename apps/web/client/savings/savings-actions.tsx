@@ -47,7 +47,6 @@ export type SavingsMoneyDialogProps = {
   mode: SavingsActionMode;
   session: VerifiedAccountSession;
   candidate: MorphoVaultCandidate;
-  /** System preference in production; explicit reduced mode makes a deterministic review fixture. */
   motion?: SavingsDialogMotion;
   availableLabel?: string;
   availableBaseUnits?: string | null;
