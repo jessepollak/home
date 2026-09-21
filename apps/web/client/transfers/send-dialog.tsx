@@ -445,7 +445,7 @@ export function SendDialog({
 
 function CashoutItem({ binding, onSelect }: { binding: FundingOfframpBinding; onSelect: () => void }) {
   return <Item
-    render={<Button variant="ghost" />}
+    render={<Button variant="ghost" press="none" />}
     className="flex-nowrap items-center text-left"
     onClick={onSelect}
   >
@@ -461,7 +461,7 @@ function CashoutItem({ binding, onSelect }: { binding: FundingOfframpBinding; on
 function RecoveryItem({ order, onWithdraw }: { order: CashoutOrderSummary; onWithdraw: () => void }) {
   const amount = `${atomicToDecimal(order.remainingAmountAtomic, order.assetDecimals)} ${order.assetSymbol}`;
   return <Item
-    render={<Button variant="ghost" />}
+    render={<Button variant="ghost" press="none" />}
     className="flex-nowrap items-center text-left"
     onClick={onWithdraw}
   >

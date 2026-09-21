@@ -183,6 +183,7 @@ export function MethodBody({
               render={
                 <Button
                   variant="ghost"
+                  press="none"
                   type="button"
                   onClick={onSelectReceive}
                   aria-describedby="receive-method-hint"
@@ -209,6 +210,7 @@ export function MethodBody({
                   render={
                     <Button
                       variant="ghost"
+                      press="none"
                       type="button"
                       disabled={
                         providerBindingsDisabled ||
