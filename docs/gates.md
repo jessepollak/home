@@ -12,12 +12,20 @@ The full check suite also covers:
 - `bun check` (including Oxlint-only lint with warnings denied and unused suppressions reported)
 - Chromium product smoke
 - story tests (`bun run --cwd apps/web test:stories`)
-- `bun run gates` (the repository gate unit tests above; also run inside `bun check`)
+- `bun run gates` (the repository gate unit tests above, including commit provenance; also run inside `bun check`)
 - disposable PostgreSQL contracts for actions, funding, and balances
+
+## Surface verification boundary
+
+`bun run --cwd apps/web verify <surface-id>` is a local, fixture-backed evidence command over the repository [feature map](../.agents/skills/browser-iteration/feature-map.md). It captures screenshot and DOM text, browser errors and failed requests, performance marks/budgets, and long-task count into an evidence bundle whose `summary.md` is ready for PR evidence. It is not a CI gate, hosted-preview check, accessibility audit, or durable regression suite; Playwright remains the only committed automated browser regression layer. See [browser validation](browser-validation.md#surface-verify-cli) for setup, output, and cleanup.
 
 ## Story-test boundary
 
 The **story tests** job runs every Storybook story in headless Chromium through `@storybook/addon-vitest` for every pull request and every push to `main`. It executes each story's `play` function — a failing `play` fails the job — and runs the a11y addon's audit. The audit reports findings rather than failing the job globally (`a11y.test: "todo"`) because owned components carry pre-existing violations that need a product decision; minimal workshop stories that are audit-clean opt into `a11y.test: "error"`. The job is not part of `bun check`, so run `bun run --cwd apps/web test:stories` directly for story or owned-component changes and stop a running `storybook dev` first (shared Storybook Vite cache).
+
+## Fix-commit provenance
+
+The repository gate checks commits after the pull request branch's merge-base with `main`; outside a pull request it checks `HEAD`. Every scoped `fix(...)` subject must include one of these trailers in its commit body: `Caught-by: lint`, `Caught-by: bot`, `Caught-by: review`, `Caught-by: browser`, or `Caught-by: production`. Earlier commits on `main` are grandfathered.
 
 ## Browser-smoke boundary
 
