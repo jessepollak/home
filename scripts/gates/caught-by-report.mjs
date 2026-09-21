@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
 import {
+  caughtByPolicyStart,
   caughtByTrailerValues,
   commitLogFormat,
   fixScope,
@@ -22,6 +23,17 @@ function git(args, cwd = process.cwd()) {
   const result = spawnSync("git", args, { cwd, encoding: "utf8" });
   if (result.status !== 0) throw new Error(result.stderr.trim() || `git ${args[0]} failed`);
   return result.stdout.trim();
+}
+
+// Whether a commit exists in this repository. Fixture repositories predate the
+// policy start and report no policy line.
+function commitExists(sha, cwd) {
+  return spawnSync("git", ["cat-file", "-e", `${sha}^{commit}`], { cwd, encoding: "utf8" }).status === 0;
+}
+
+// Whether `descendant` is at or after `ancestor` in history.
+function isAncestor(ancestor, descendant, cwd) {
+  return spawnSync("git", ["merge-base", "--is-ancestor", ancestor, descendant], { cwd, encoding: "utf8" }).status === 0;
 }
 
 // `--since` accepts the compact `N.days` form used by the scripts and CI; any
@@ -64,7 +76,7 @@ export function collectFixCommits({ cwd = process.cwd(), range = null, since = d
   return parseCommitLog(git(args, cwd));
 }
 
-export function summarizeFixCommits(commits) {
+export function summarizeFixCommits(commits, { isPrePolicy = () => false } = {}) {
   const fixes = commits.flatMap((commit) => {
     const scope = fixScope(commit.subject);
     if (scope === null) return [];
@@ -74,15 +86,17 @@ export function summarizeFixCommits(commits) {
       subject: commit.subject,
       scope,
       detector: values.length === 1 ? values[0] : "unknown",
+      prePolicy: isPrePolicy(commit.sha),
     }];
   });
+  const counted = fixes.filter((fix) => !fix.prePolicy);
   const detectors = detectorOrder.map((detector) => {
-    const count = fixes.filter((fix) => fix.detector === detector).length;
-    return { detector, count, share: fixes.length === 0 ? 0 : count / fixes.length };
+    const count = counted.filter((fix) => fix.detector === detector).length;
+    return { detector, count, share: counted.length === 0 ? 0 : count / counted.length };
   });
-  const scopes = [...new Set(fixes.map((fix) => fix.scope))]
+  const scopes = [...new Set(counted.map((fix) => fix.scope))]
     .map((scope) => {
-      const scoped = fixes.filter((fix) => fix.scope === scope);
+      const scoped = counted.filter((fix) => fix.scope === scope);
       const counts = Object.fromEntries(detectorOrder.map((detector) => [
         detector,
         scoped.filter((fix) => fix.detector === detector).length,
@@ -98,16 +112,21 @@ function changedFiles(sha, cwd) {
   return output === "" ? [] : output.split("\n").filter(Boolean);
 }
 
-export function collectReport({ cwd = process.cwd(), range = null, since = defaultSince } = {}) {
+export function collectReport({ cwd = process.cwd(), range = null, since = defaultSince, policyStart = caughtByPolicyStart } = {}) {
   const commits = collectFixCommits({ cwd, range, since });
-  const summary = summarizeFixCommits(commits);
+  const resolvedPolicyStart = commitExists(policyStart, cwd) ? policyStart : null;
+  const summary = summarizeFixCommits(commits, {
+    isPrePolicy: (sha) => resolvedPolicyStart !== null && !isAncestor(resolvedPolicyStart, sha, cwd),
+  });
   const candidates = summary.fixes
-    .filter((fix) => ruleCandidateDetectors.includes(fix.detector))
+    .filter((fix) => !fix.prePolicy && ruleCandidateDetectors.includes(fix.detector))
     .map((fix) => ({ ...fix, files: changedFiles(fix.sha, cwd) }));
   return {
     range,
     since: range === null ? since : null,
     total: summary.fixes.length,
+    prePolicyTotal: summary.fixes.filter((fix) => fix.prePolicy).length,
+    policyStart: resolvedPolicyStart,
     detectors: summary.detectors,
     scopes: summary.scopes,
     candidates,
@@ -121,6 +140,9 @@ function formatShare(share) {
 export function renderMarkdown(report) {
   const lines = ["# Caught-by report", "", `Fix commits: ${report.total}`];
   lines.push("", report.range ? `Range: \`${report.range}\`` : `Since: \`${report.since}\``);
+  if (report.policyStart !== null) {
+    lines.push("", `Trailer policy started at \`${report.policyStart.slice(0, 8)}\` (#709, 2026-09-21). Pre-policy fix commits in this range: ${report.prePolicyTotal} of ${report.total} — excluded from shares.`);
+  }
   lines.push("", "## Detectors", "", "| Detector | Fixes | Share |", "| --- | ---: | ---: |");
   for (const row of report.detectors) {
     lines.push(`| ${row.detector} | ${row.count} | ${formatShare(row.share)} |`);

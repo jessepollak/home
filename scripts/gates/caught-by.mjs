@@ -2,6 +2,10 @@ import { spawnSync } from "node:child_process";
 
 export const caughtByValues = ["lint", "bot", "review", "browser", "production"];
 
+// The commit that introduced the trailer policy (#709, 2026-09-21). The report
+// marks fixes that do not descend from it as pre-policy.
+export const caughtByPolicyStart = "226d2f26fd9a16045b8b6c6339c3fe46028da2bd";
+
 export const commitLogFormat = "--format=%H%x1f%s%x1f%B%x1e";
 
 const fixSubject = /^fix\(([^)]+)\):/;

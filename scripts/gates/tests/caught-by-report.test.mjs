@@ -150,6 +150,23 @@ test("classifies scoped fixes by their single Caught-by trailer", () => {
   ]);
 });
 
+test("excludes fixes marked pre-policy from detector counts and shares", () => {
+  const prePolicySha = "1".repeat(40);
+  const summary = summarizeFixCommits([
+    commit_(prePolicySha, "fix(balances): guard", "Caught-by: lint"),
+    commit_("2".repeat(40), "fix(access): repair", "Caught-by: bot"),
+  ], { isPrePolicy: (sha) => sha === prePolicySha });
+  assert.deepEqual(summary.fixes.map((fix) => fix.prePolicy), [true, false]);
+  assert.deepEqual(summary.detectors.map((row) => [row.detector, row.count, row.share]), [
+    ["lint", 0, 0],
+    ["bot", 1, 1],
+    ["review", 0, 0],
+    ["browser", 0, 0],
+    ["production", 0, 0],
+    ["unknown", 0, 0],
+  ]);
+});
+
 test("defaults to the last 30 days on the current branch", () => {
   const report = collectReport({ cwd: repo });
   assert.equal(report.since, "30.days");
@@ -219,8 +236,27 @@ test("renders an empty corpus without rows or candidates", () => {
 
 function summarizeReport(total) {
   const detectors = ["lint", "bot", "review", "browser", "production", "unknown"].map((detector) => ({ detector, count: 0, share: 0 }));
-  return { range: null, since: "30.days", total, detectors, scopes: [], candidates: [], fixes: [] };
+  return { range: null, since: "30.days", total, prePolicyTotal: 0, policyStart: null, detectors, scopes: [], candidates: [], fixes: [] };
 }
+
+test("omits the policy line when the repository predates the trailer policy", () => {
+  const report = collectReport({ cwd: repo });
+  assert.equal(report.policyStart, null);
+  assert.equal(report.prePolicyTotal, 0);
+  assert.ok(!renderMarkdown(report).includes("Trailer policy started at"), "fixture repositories have no policy-start commit");
+});
+
+test("marks fixes that predate the policy commit and reports the excluded count", () => {
+  const report = collectReport({ cwd: repo, policyStart: shas.review });
+  assert.equal(report.policyStart, shas.review);
+  assert.equal(report.total, 6);
+  assert.equal(report.prePolicyTotal, 1);
+  assert.deepEqual(report.candidates.map((candidate) => candidate.detector), ["production", "review"]);
+  const markdown = renderMarkdown(report);
+  assert.ok(markdown.includes(`Trailer policy started at \`${shas.review.slice(0, 8)}\` (#709, 2026-09-21). Pre-policy fix commits in this range: 1 of 6 — excluded from shares.`));
+  assert.ok(markdown.includes("| bot | 0 | 0.0% |"));
+  assert.ok(markdown.includes("| review | 1 | 20.0% |"));
+});
 
 test("the CLI prints JSON for a range and the markdown summary otherwise", () => {
   const jsonRun = spawnSync(process.execPath, [cli, "--range", `${shas.bot}..HEAD`, "--json"], { cwd: repo, encoding: "utf8" });
