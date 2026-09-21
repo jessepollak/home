@@ -6,7 +6,7 @@ import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { encodeUsdcTransfer, getTransferAsset } from "@/shared/transfers/transfer-helpers";
 import { TransferExecutionError } from "@/shared/transfers/types";
 
-const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
+const { cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { SendDialog } = await import("./send-dialog");
 
 const ACCOUNT = "0x1111111111111111111111111111111111111111" as const;
@@ -205,11 +205,12 @@ describe("SendDialog Peer cash-out", () => {
     );
     fireEvent.click(page().getByRole("button", { name: "1" }));
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
-    expect(page().queryByRole("button", { name: /Send to Zelle, Venmo, Cash App and more/ })).toBeNull();
-    expect(page().queryByRole("button", { name: "Recover a Peer cash-out" })).toBeNull();
-    expect(page().getByLabelText("To")).toBeTruthy();
-    expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
-    await act(async () => { await Promise.resolve(); });
+    await waitFor(() => {
+      expect(page().queryByRole("button", { name: /Send to Zelle, Venmo, Cash App and more/ })).toBeNull();
+      expect(page().queryByRole("button", { name: "Recover a Peer cash-out" })).toBeNull();
+      expect(page().getByLabelText("To")).toBeTruthy();
+      expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
+    });
   });
 
   test("waits for settled reads and hides an empty explicit recovery result", async () => {
