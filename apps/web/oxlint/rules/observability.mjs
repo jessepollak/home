@@ -39,7 +39,9 @@ function isIsolatedCall(node) {
   let current = node;
   while (current?.parent) {
     const parent = current.parent;
-    if (parent.type === "TryStatement" && parent.handler && isWithin(node, parent.block)) return true;
+    if (parent.type === "TryStatement" && parent.handler && isWithin(node, parent.block)) {
+      return node.parent?.type === "AwaitExpression";
+    }
     if (["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(parent.type)) break;
     current = parent;
   }

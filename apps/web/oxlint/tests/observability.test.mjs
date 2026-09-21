@@ -72,15 +72,24 @@ describe("isolate-instrumentation-calls", () => {
     expect(await lint("isolate-instrumentation-calls", `
       import { emitServerEvent, reportClientError } from "@/server/observability/log";
       emitServerEvent(event);
-      try { reportClientError(event); } catch {}
+      try { await reportClientError(event); } catch {}
       void reportClientError(event).catch(handleFailure);
     `, options)).toHaveLength(0);
   });
 
-  it("rejects an unsafe imported instrumentation call that can escape", async () => {
+  it("rejects unsafe imported instrumentation calls that can escape", async () => {
     expect(await lint("isolate-instrumentation-calls", `
       import { reportClientError } from "@/server/observability/log";
       reportClientError(event);
+      try { reportClientError(event); } catch {}
+    `, options)).toHaveLength(2);
+  });
+
+  it("requires startup reports inside try blocks to be awaited", async () => {
+    expect(await lint("isolate-instrumentation-calls", `
+      import { sendHomeStartupReport } from "@/client/observability/client-reporter";
+      try { sendHomeStartupReport(report); } catch {}
+      try { await sendHomeStartupReport(report); } catch {}
     `, options)).toHaveLength(1);
   });
 });
