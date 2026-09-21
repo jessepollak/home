@@ -73,6 +73,9 @@ const fixtures = {
   "client/silent-catch.ts": 'export function read(){ try { run(); } catch {} }',
   "client/handled-catch.ts": 'function unsupported(): never { throw new Error("unsupported"); } export function read(){ try { run(); } catch { unsupported(); } }',
   "server/silent-catch.ts": 'import "server-only"; export function read(){ try { run(); } catch {} }',
+  "client/policy.ts": 'export const policy = "frame-ancestors none"; export const readHeader = () => "frame-ancestors none";',
+  "client/policy.test.ts": 'import { expect, test } from "bun:test"; import { policy } from "./policy"; test("x", () => { expect(readHeader()).toBe(policy); });',
+  "client/policy-clean.test.ts": 'import { expect, test } from "bun:test"; import { policy, readHeader } from "./policy"; test("x", () => { expect(readHeader()).toBe("frame-ancestors none"); expect(policy).toBe("frame-ancestors none"); });',
 
   "client/raw.tsx": 'export function A(){ return <><button>go</button><input/><select/></> }',
   "components/raw.tsx": 'export function A(){ return <><button>go</button><input/><select/></> }',
@@ -178,6 +181,7 @@ const contracts = [
   ["literal utility styles reject all supported expression forms", () => { assertHits("client/styles.tsx", "home(no-literal-utility-styles)", 4); assertClean("client/styles-clean.tsx"); }],
   ["raw controls use owned wrappers in every product layer", () => { assertHits("app/raw.tsx", "home(no-raw-buttons)"); assertHits("client/raw.tsx", "home(no-raw-buttons)"); assertHits("components/raw.tsx", "home(no-raw-buttons)"); }],
   ["silent catches fail while typed recovery values pass in every covered layer", () => { assertHits("app/silent-catch.ts", "home(no-silent-catch)"); assertHits("client/silent-catch.ts", "home(no-silent-catch)"); assertHits("server/silent-catch.ts", "home(no-silent-catch)"); assertClean("app/handled-catch.ts"); assertClean("client/handled-catch.ts"); }],
+  ["self-referential expectations fail while independent assertions pass", () => { assertHits("client/policy.test.ts", "home(no-self-referential-expectation)"); assertClean("client/policy-clean.test.ts"); }],
 
   ["instrumentation helpers are isolated unless their boundary is intrinsically safe", () => { assertHits("server/instrumentation-unsafe.ts", "home(isolate-instrumentation-calls)"); assertClean("server/instrumentation-safe.ts"); }],
   ["raw fields have no allowlist in every product layer", () => { assertHits("app/raw.tsx", "home(no-raw-fields)", 2); assertHits("client/raw.tsx", "home(no-raw-fields)", 2); assertHits("components/raw.tsx", "home(no-raw-fields)", 2); }],

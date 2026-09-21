@@ -1,5 +1,79 @@
 import { allowedMockModules } from "../policy/mock-modules.mjs";
 
+const testFileSuffix = /\.(?:test|pw)\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/u;
+const moduleSuffix = /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/u;
+const expectationMatchers = new Set([
+  "toBe",
+  "toEqual",
+  "toStrictEqual",
+  "toContain",
+  "toContainEqual",
+  "toMatch",
+  "toMatchObject",
+  "toHaveLength",
+  "toBeLessThan",
+  "toBeGreaterThan",
+]);
+
+function normalizedStem(name) {
+  return name.toLowerCase().replaceAll(/[^a-z0-9]+/gu, "-").replaceAll(/^-|-$/gu, "");
+}
+
+function resolvedImportPath(testRelativePath, source) {
+  const segments = source.startsWith("@/")
+    ? source.slice(2).split("/")
+    : [...testRelativePath.split("/").slice(0, -1), ...source.split("/")];
+  return normalizeRelativePath(segments.join("/"));
+}
+
+function expectedArgument(node) {
+  let current = node.callee;
+  const members = [];
+  while (current?.type === "MemberExpression" && !current.computed
+    && current.property.type === "Identifier") {
+    members.push(current.property.name);
+    current = current.object;
+  }
+  if (current?.type !== "CallExpression" || current.callee.type !== "Identifier"
+    || current.callee.name !== "expect") return null;
+  if (!members.some((name) => expectationMatchers.has(name))) return null;
+  return node.arguments[0] ?? null;
+}
+
+export const noSelfReferentialExpectation = {
+  meta: {
+    type: "problem", schema: [], messages: {
+      rejected: "Expectations must assert an independently derived value, not an identifier imported from the module under test.",
+    },
+  },
+  create(context) {
+    const relative = appsWebRelativeFilename(context);
+    if (!relative) return {};
+    const subjectPath = relative.replace(testFileSuffix, "");
+    if (subjectPath === relative) return {};
+    const stem = normalizedStem(subjectPath.split("/").pop() ?? "");
+    const subjectBindings = new Set();
+    return {
+      ImportDeclaration(node) {
+        const source = sourceValue(node.source);
+        if (typeof source !== "string"
+          || !(source.startsWith("./") || source.startsWith("../") || source.startsWith("@/"))) return;
+        const resolved = resolvedImportPath(relative, source);
+        if (resolved === null) return;
+        const resolvedModule = resolved.replace(moduleSuffix, "");
+        const importStem = normalizedStem(resolvedModule.split("/").pop() ?? "");
+        if (resolvedModule !== subjectPath && (source.startsWith("@/") || importStem !== stem)) return;
+        for (const specifier of node.specifiers) subjectBindings.add(specifier.local.name);
+      },
+      CallExpression(node) {
+        const expected = expectedArgument(node);
+        if (expected?.type !== "Identifier" || !subjectBindings.has(expected.name)) return;
+        context.report({ node: expected, messageId: "rejected" });
+      },
+    };
+  },
+};
+
 function sourceValue(node) {
   if (node?.type === "Literal" || node?.type === "StringLiteral") return node.value;
   if (node?.type === "TemplateLiteral" && node.expressions.length === 0) return node.quasis[0]?.value.cooked;
