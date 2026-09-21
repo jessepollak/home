@@ -51,6 +51,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Expect**: `h1` `One home for your money.` (client/home/shell-chrome.tsx, `landing-title`); subtitle `Invest in any asset, earn more on your savings, and grow your wealth.` (same file); buttons `Sign in` and, when `account.signInAvailability === "ready"`, `Create account` (shell-chrome.tsx); header `Sign in` in `role="banner"` (tests/browser/smoke.pw.ts "wide touch targets…" test); globe visual `SupportedGlobeDynamic` (app/page.tsx). Signed-in request 307s to `/home` (tests/browser/landing-route.pw.ts).
 - **States**: anonymous default; `isVerified` landing variant swaps in `Open dashboard` (shell-chrome.tsx); `sign-out-error` variant shows destructive Alert with `Retry sign out`.
 - **Evidence to capture**: screenshot (mobile + desktop); DOM text snapshot; console errors + failed requests (expected none; the globe renderer uses a local dynamic import and makes no application network request); perf marks: `shell:paint` fires here too (client/home/shell.tsx rAF), but `balances:painted`/`session:verified` are dashboard-only.
+- **Perf budgets (initial)**: `shell:paint` ≤ 1_500 ms.
 - **Owned by**: `apps/web/client/landing/`, `apps/web/client/home/shell-chrome.tsx`, `apps/web/client/home/shell.tsx`, `apps/web/app/page.tsx`.
 - **Unknowns**: none; `supported-globe.tsx` only dynamically imports the local renderer and does not fetch remote data.
 
@@ -66,7 +67,8 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Reach**: 1) `seedSignedInSession(page)` + `installApiFixtures(page)`. 2) goto `/home`. 3) wait for header title `Home` (`[data-shell-header-title]`, shell-chrome.tsx). 4) optionally click `Send` for the money modal, or card actions below.
 - **Expect**: `Total balance` card with `aria-label="Total balance"` and `aria-busy` while loading (home-panel.tsx); balance breakdown (`data-balance-breakdown`, `data-balance-segment="cash|saved|investments"`, home-panel.tsx); status line `[data-total-status]` when `statusLabel` present; money actions group `aria-label="Money actions"` with `Add money` and `Send`; `Your money` card (h2 `your-money-heading`) with `See all` action; Save card (`save-heading`), Borrow card (`borrow-heading`); Activity card (`activity-title`). Fixture-visible rows include `Recognized Coin` (balances-fixtures.ts recognizedCatalogHolding).
 - **States** (fixtures): loading → hold `/api/session`/`/api/balances` with `fixtures.delayNextSession()/delayNextBalances()` (smoke.pw.ts); empty → base fixture minus holdings (**no ready empty fixture exists — construct via `options.balances`**); unavailable → `status: "unavailable"` presentation (home-panel.tsx `Balance unavailable`); error state for action APIs is surfaced in the modal, not the panel.
-- **Evidence**: screenshot; DOM text snapshot; console/errors; perf marks `shell:paint`, `session:verified` (shell.tsx:356), `balances:painted` (shell.tsx:402), `action:first-interactive` (client/transfers/transfer-actions.tsx:82). Budget: `BALANCES_PAINTED_BUDGET_MS` (CI 3500 / local 1000 ms) measured on `performance.getEntriesByName("balances:painted","mark")[0].startTime` (tests/browser/smoke.pw.ts).
+- **Evidence**: screenshot; DOM text snapshot; console/errors; perf marks `shell:paint`, `session:verified` (shell.tsx:356), `balances:painted` (shell.tsx:402), `action:first-interactive` (client/transfers/transfer-actions.tsx:82). `balances:painted` keeps the smoke suite budget (CI 3,500 / local 1,000 ms); the CLI uses the initial cross-environment budget below without changing smoke.
+- **Perf budgets (initial)**: `shell:paint` ≤ 1_500 ms; `session:verified` ≤ 3_000 ms; `balances:painted` ≤ 3_500 ms; `action:first-interactive` ≤ 3_500 ms.
 - **Owned by**: `apps/web/client/home/`, data `apps/web/server/balances/*`, `/api/balances` route.
 - **Unknowns**: `statusLabel` copy is supplied by balance presentation data and therefore varies by snapshot. `MountedShellPanel` sets inactive panels to `hidden`, `inert`, and `aria-hidden`.
 
@@ -78,7 +80,8 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
   4. Use `/balances/investments` with `scrollableBalancesSnapshot()` for anchoring work; the group section is `id="investments"`.
 - **Expect**: scroll container `[data-app-main-authenticated]` (shell-panels.tsx); balance rows `[data-balance-list] [data-kind="balance"]` (smoke.pw.ts); reveal window grows after scroll (`BALANCES_BATCH_SIZE = 10`, client/home/balances-panel.tsx); `Show small balances` switch lives in account settings, not this page (smoke.pw.ts touch test).
 - **States**: loading shimmer (`LoadingMoneyGroup`, balances-panel.tsx); unavailable; empty (`BalancesEmpty`); ready with reveal batches; stale revalidation anchored to requested group (`cold and revalidated cached Balances…` smoke test).
-- **Evidence**: screenshot; DOM snapshot; console/errors; perf `balances:painted` + budget; scroll-offset assertions.
+- **Evidence**: screenshot; DOM snapshot; console/errors; perf marks and scroll-offset assertions.
+- **Perf budgets (initial)**: `shell:paint` ≤ 1_500 ms; `session:verified` ≤ 3_000 ms; `balances:painted` ≤ 3_500 ms; `action:first-interactive` ≤ 3_500 ms.
 - **Owned by**: `apps/web/client/home/balances-panel.tsx`, `apps/web/client/home/shell.tsx`, `apps/web/client/balances/use-balances.ts`, `/api/balances`.
 - **Unknowns**: none; incremental batches use an intersection sentinel rather than a reveal-more button, group navigation is labelled `More <group>`, and the empty state is `No money yet`.
 
@@ -129,7 +132,8 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
   6. **success/status**: dialog closes; toast `Sent $1.00 to 0x2222…222222` (exact text, smoke.pw.ts; toast owned by client/home/action-toasts.tsx).
 - **Expect**: prepared action via `POST /api/actions/prepare`; confirm/handle via `/api/actions/[id]/{confirm,handle}` (smoke fixtures); dialog uses `data-money-sheet` / `data-money-sheet-grabber` (client/money-modal/money-modal.tsx) and reduced-motion transitions are `0s` (`drawer becomes instant…` smoke test).
 - **States**: asset picker (`aria-label="Asset"`, amount.tsx:443) with multiple assets; no catalog balance → `No catalog balance is available to send.`; rejected/unknown wallet results via `messageForError` (send-dialog.tsx).
-- **Evidence**: screenshots per step; DOM snapshot per step (re-snapshot after every material DOM change per SKILL.md); console/errors; marks `action:first-interactive` (transfer-actions.tsx:82) and `shell:paint`.
+- **Evidence**: screenshots per step; DOM snapshot per step (re-snapshot after every material DOM change per SKILL.md); console/errors; startup and first-action marks.
+- **Perf budgets (initial)**: `shell:paint` ≤ 1_500 ms; `session:verified` ≤ 3_000 ms; `balances:painted` ≤ 3_500 ms; `action:first-interactive` ≤ 3_500 ms.
 - **Owned by**: `apps/web/client/transfers/send-dialog.tsx`, `apps/web/client/money-modal/`, `apps/web/server/actions/` (prepare/confirm/handle/list), routes `apps/web/app/api/actions/**`.
 - **Unknowns**: none blocking; exact `MoneyConfirmSummary` fee row for sends (sends show no fee row — wallet shows fee; fixture `warnings` say `Network fee shown by wallet.`).
 
@@ -200,6 +204,6 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - Invest `Memes` discovery (`/api/invest/discover`) and market prices (`/api/market-prices*`) when the fixture returns `{}` — smoke never asserts a meme shelf; treat as unknown rather than "empty".
 - `/api/webhooks/cdp` and trades (`/api/trades`, `client/trading/trade-actions.tsx` buttons are `disabled` — trading is not user-reachable today).
 
-**Perf marks with no surface budget**: only `balances:painted` has a budget (`BALANCES_PAINTED_BUDGET_MS`, tests/browser/smoke.pw.ts). `shell:paint`, `session:verified`, and `action:first-interactive` are emitted (client/home/shell.tsx:201/356, client/transfers/transfer-actions.tsx:82) and read by the startup recorder (client/observability/perf-marks.ts) but no surface asserts a maximum ms — each surface's evidence line above names the marks it should emit; mark-vs-no-budget asymmetry is the notable instrumentation gap.
+**Initial perf budgets**: the CLI budgets are deliberately broader than local smoke timing and apply only when listed on a surface. They establish a measured baseline for `shell:paint`, `session:verified`, and `action:first-interactive`; the existing smoke budget for `balances:painted` is unchanged.
 
 **Verification notes:** every selector quoted here was read from code or from `tests/browser/smoke.pw.ts`. Remaining Unknowns identify provider- or fixture-dependent behavior that code alone cannot confirm. The fixture baseline and kept-current trigger set are repository policy.
