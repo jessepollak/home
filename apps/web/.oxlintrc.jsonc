@@ -186,6 +186,19 @@
     },
     {
       "files": [
+        "{app,client,components,server,shared}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "excludeFiles": [
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**"
+      ],
+      "rules": {
+        "home/no-comments": "error"
+      }
+    },
+    {
+      "files": [
         "{app,client,components}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
       ],
       "excludeFiles": [

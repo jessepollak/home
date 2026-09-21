@@ -32,6 +32,7 @@ import { noUnknownTailwindClasses } from "./rules/unknown-classes.mjs";
 import { noLiteralJsxColors } from "./rules/jsx-colors.mjs";
 import { isolateInstrumentationCalls, noSilentCatch } from "./rules/observability.mjs";
 import { noAmountFallback } from "./rules/amounts.mjs";
+import { noComments } from "./rules/no-comments.mjs";
 
 const homePlugin = {
   meta: { name: "home" },
@@ -66,6 +67,7 @@ const homePlugin = {
     "no-silent-catch": noSilentCatch,
     "isolate-instrumentation-calls": isolateInstrumentationCalls,
     "no-amount-fallback": noAmountFallback,
+    "no-comments": noComments,
   },
 };
 
