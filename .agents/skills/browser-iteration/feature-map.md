@@ -110,6 +110,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 
 ### `save`
 - **Live**: confirm
+- **Confirm labels**: "Deposit $<amount>", "Withdraw $<amount>", "Retry"
 - **Reach**:
   1. `goto "/save?flow=save-deposit"`
   2. `expect "Deposit"`
@@ -122,6 +123,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 
 ### `borrow`
 - **Live**: confirm
+- **Confirm labels**: "Confirm action", "Retry"
 - **Reach**: Seed the signed-in state and borrow fixtures, go to `/borrow` or `/borrow/<marketId>`, then choose a `data-testid="borrow-market-card"` inside the `Borrow markets` list.
 - **Verify**: manual
 - **Notes**: No smoke fixture exists for `/api/borrow*`; see Gaps.
@@ -145,6 +147,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 
 ### `send` (money modal — steps individually)
 - **Live**: confirm
+- **Confirm labels**: "Send $<amount>"
 - **Reach** (smoke-verified):
   1. Seed the signed-in fixture and install API fixtures.
   2. `goto "/home"`
@@ -167,6 +170,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 
 ### `cash-out` (Peer offramp inner steps)
 - **Live**: up-to-review
+- **Confirm labels**: "Cash out $<amount>"
 - **Reach** (smoke-verified, `openPeerCashOutHandle`, smoke.pw.ts): 1) seed + `installApiFixtures`. 2) `Send` → digits `1` → `Continue`. 3) click `/Send to Zelle, Venmo, Cash App and more/` (CashoutItem, send-dialog.tsx). 4) click `Cash App` (payment-method button, payout step). 5) textbox `Cash App handle` (label `${selectedPlatform.label} handle`); attributes asserted: `autocomplete="off"`, `autocapitalize="none"`, `autocorrect="off"`, `spellcheck="false"`, `enterkeyhint="next"`, 16px font, ≥44px target. 6) `Continue` → textbox `Re-enter handle` (`enterkeyhint="done"`). 7) `Review` → confirm step.
 - **Verify**: manual
 - **Expect**: modal title `Cash out with Peer` (send-dialog.tsx `modalTitle`); confirm rows `Provider`, `Payout app`, `Payout handle`, `Approximate receive`, `Estimated delivery`, `Network` = `Base` (send-dialog.tsx confirm rows); disclaimer `The fiat amount and delivery time are approximate, not guaranteed.`; primary `Cash out $X`.
@@ -177,6 +181,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 
 ### `add-money` (funding)
 - **Live**: up-to-review
+- **Confirm labels**: "Confirm deposit"
 - **Reach** (smoke-verified IDRX path): 1) seed country `ID` (`localStorage["home.country.v1"]="ID"`) + `installApiFixtures`. 2) `signIn(page)` helper. 3) click `Add money` (funding-actions.tsx). 4) method step button `/Deposit IDR/` must contain `IDRX · Bank transfer · Mandiri` (smoke.pw.ts). 5) type `20000` via numpad. 6) `Review quote` → heading `Review quote`, row `Receive` contains `20.000,00 IDRX`. 7) `Confirm deposit` → heading `Review payment details`, row `Network` contains `Rp 100,00`. 8) `View payment instructions` → `123456789012` visible; then `Money received` (≤7s budget, smoke.pw.ts).
 - **Verify**: manual
 - **Expect**: dialog titles `Add money` / `Receive` / `Deposit IDR` (add-money-dialog.tsx `title`); method list has `Receive crypto` row; close label `Close add money`; receive step QR (`aria-label="QR code for Base address …"`) and address copy (`Copy …`, `Full Base address …`, add-money-dialog.tsx). Signed-out body offers `Sign in` link to `/?account=signin`.

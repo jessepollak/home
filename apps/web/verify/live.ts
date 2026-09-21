@@ -1,7 +1,6 @@
 import { relative, resolve } from "node:path";
-import type { LiveAccess } from "./map";
+import type { LiveAccess, ReachStep } from "./map";
 
-export const confirmLabelPattern = /confirm|approve|sign|submit|pay|deposit|withdraw|send now|cash out/i;
 export const accountPattern = /^0x[0-9a-fA-F]{40}$/;
 export const liveProviderOrigins = [
   "https://api.cdp.coinbase.com",
@@ -35,29 +34,51 @@ export function decideConfirmGate(
   live: LiveAccess | undefined,
   stepLabel: string,
   allowConfirm: boolean,
+  isConfirmLabel = false,
+  afterReview = false,
 ): ConfirmGateDecision {
   const access = live ?? "read-only";
   if (allowConfirm && access !== "confirm") {
     return { action: "refuse", reason: `--allow-confirm is not available for a ${access} surface.` };
   }
-  if (!confirmLabelPattern.test(stepLabel)) return { action: "run" };
-  if (access === "confirm" && allowConfirm) return { action: "run" };
-  return { action: "stop", reason: `Live ${access} verification stops before “${stepLabel}”.` };
+  if (isConfirmLabel) {
+    if (access === "confirm" && allowConfirm) return { action: "run" };
+    return { action: "stop", reason: `Live ${access} verification stops before “${stepLabel}”.` };
+  }
+  if (afterReview && (access === "confirm" || access === "up-to-review") && !isReviewNavigationLabel(stepLabel)) {
+    return { action: "stop", reason: `Live ${access} verification stopped before unknown review control “${stepLabel}”.` };
+  }
+  return { action: "run" };
+}
+
+export function isReviewNavigationLabel(label: string): boolean {
+  return label === "Continue" || label === "Back" || label === "Close" || label.startsWith("Close ");
+}
+
+export function liveStepError(live: LiveAccess | undefined, step: ReachStep, approvedSteps: ReachStep[]): string | null {
+  if (live !== "confirm" && live !== "up-to-review") return null;
+  if (step.kind === "press") return `Live ${live} verification refuses press steps before browser launch.`;
+  if (step.kind === "fill") {
+    const approved = approvedSteps.some((candidate) => candidate.kind === "fill" && candidate.label === step.label);
+    if (!approved) return `Live ${live} verification refuses fill for unlisted field “${step.label}”.`;
+  }
+  return null;
 }
 
 export function parseUsdAmount(text: string): number | null {
-  const lines = reviewLines(text);
-  const labelled = ["Amount", "You pay"];
-  for (const label of labelled) {
-    const index = lines.findIndex((line) => line.toLowerCase() === label.toLowerCase());
-    if (index !== -1) {
-      const parsed = parseUsdToken(lines[index + 1] ?? "");
-      if (parsed !== null) return parsed;
-    }
-  }
-  for (const line of lines.slice(0, 4)) {
-    const parsed = parseUsdToken(line);
-    if (parsed !== null) return parsed;
+  const amounts = distinctUsdAmounts(text);
+  return amounts.length === 1 ? amounts[0] : null;
+}
+
+export function parseUsdAmountFromLabel(label: string): number | null {
+  const amounts = distinctUsdAmounts(label);
+  return amounts.length === 1 ? amounts[0] : null;
+}
+
+export function reviewAndLabelAmountError(reviewAmount: number | null, labelAmount: number | null): string | null {
+  if (reviewAmount === null) return "The review must contain exactly one distinct USD amount; confirmation was refused.";
+  if (labelAmount !== null && labelAmount !== reviewAmount) {
+    return `The review amount $${reviewAmount.toFixed(2)} does not match the confirm label amount $${labelAmount.toFixed(2)}.`;
   }
   return null;
 }
@@ -70,8 +91,7 @@ export type BorrowReviewAmounts = {
 
 export function parseBorrowReviewAmounts(text: string): BorrowReviewAmounts {
   const lines = reviewLines(text);
-  const borrowedAmount = valueAfterLabel(lines, /^You receive(?:\s|\()/i) ??
-    lines.find((line) => parseUsdStablecoinToken(line) !== null) ?? null;
+  const borrowedAmount = valueAfterLabel(lines, /^You receive\s*\((?:USDC|USD)\)$/i);
   const collateralAmount = valueAfterLabel(lines, /^Locked as collateral(?:\s|\()/i);
   return {
     borrowedAmount,
@@ -96,11 +116,28 @@ function parseUsdStablecoinToken(value: string): number | null {
   return Number.isFinite(amount) && amount >= 0 ? amount : null;
 }
 
+function distinctUsdAmounts(value: string): number[] {
+  const amounts = [...value.matchAll(/(?:^|\s)(?:US\$|USD\s*|\$)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)(?=\s|$)/gim)]
+    .map((match) => Number(match[1].replaceAll(",", "")))
+    .filter((amount) => Number.isFinite(amount) && amount >= 0);
+  return [...new Set(amounts)];
+}
+
 function parseUsdToken(value: string): number | null {
-  const match = value.match(/(?:^|\s)(?:US\$|USD\s*|\$)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)(?:\s|$)/i);
-  if (!match) return null;
-  const amount = Number(match[1].replaceAll(",", ""));
-  return Number.isFinite(amount) && amount >= 0 ? amount : null;
+  const amounts = distinctUsdAmounts(value);
+  return amounts.length === 1 ? amounts[0] : null;
+}
+
+export function unexpectedNetworkHosts(urls: string[], allowedHosts: string[]): string[] {
+  const allowed = new Set(allowedHosts.map((host) => host.toLowerCase()));
+  const observed = urls.flatMap((value) => {
+    try {
+      return [new URL(value).hostname.toLowerCase()];
+    } catch {
+      return [];
+    }
+  });
+  return [...new Set(observed.filter((host) => !allowed.has(host)))].sort();
 }
 
 export function enforceAmountCap(amount: number | null, cap: number): string | null {
@@ -108,6 +145,13 @@ export function enforceAmountCap(amount: number | null, cap: number): string | n
   if (!Number.isFinite(cap) || cap <= 0) return "--max-usd must be a positive number.";
   if (amount > cap) return `The review amount $${amount.toFixed(2)} exceeds the $${cap.toFixed(2)} cap.`;
   return null;
+}
+
+export function accountAddressFromDocument(source: Document): string | null {
+  const heading = source.getElementById("account-heading");
+  const section = heading?.closest("section");
+  const values = [...(section?.querySelectorAll("button[title]") ?? [])].map((node) => node.getAttribute("title"));
+  return values.find((value) => /^0x[0-9a-fA-F]{40}$/.test(value ?? "")) ?? null;
 }
 
 export function accountPinError(observed: string | null, pinned: string): string | null {

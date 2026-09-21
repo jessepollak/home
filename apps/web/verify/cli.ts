@@ -4,18 +4,22 @@ import { resolve } from "node:path";
 import { finalizeEvidence, summarizeEvidence, type MarkResult } from "./evidence";
 import { fixtureRoutes, requiresSignedInFixture } from "./fixtures";
 import {
+  accountAddressFromDocument,
   accountPattern,
   accountPinError,
   automationEnvironmentError,
   composeAllowedDomains,
-  confirmLabelPattern,
   decideConfirmGate,
   enforceAmountCap,
+  liveStepError,
   outputInsideRepository,
   parseBorrowReviewAmounts,
   parseUsdAmount,
+  parseUsdAmountFromLabel,
+  reviewAndLabelAmountError,
+  unexpectedNetworkHosts,
 } from "./live";
-import { readFeatureMap, type ReachStep } from "./map";
+import { matchesConfirmLabel, readFeatureMap, type ReachStep } from "./map";
 
 const args = Bun.argv.slice(2);
 const repositoryRoot = resolve(import.meta.dir, "../../..");
@@ -69,18 +73,19 @@ const session = `home-verify-${sessionSurface}-${crypto.randomUUID().slice(0, 8)
 const browserEnv: Record<string, string | undefined> = {
   ...process.env,
   AGENT_BROWSER_SESSION: session,
-  AGENT_BROWSER_ALLOWED_DOMAINS: allowedDomains,
   AGENT_BROWSER_MAX_OUTPUT: "12000",
   AGENT_BROWSER_DEFAULT_TIMEOUT: liveLogin ? "600000" : "25000",
   AGENT_BROWSER_HEADED: liveLogin ? "true" : undefined,
 };
 delete browserEnv.HOME_ACCESS_PASSWORD;
+if (!live) browserEnv.AGENT_BROWSER_ALLOWED_DOMAINS = allowedDomains;
 
-function command(...commandArgs: string[]): string {
+function commandWithInput(input: string | undefined, ...commandArgs: string[]): string {
   const result = Bun.spawnSync({
     cmd: ["bunx", "agent-browser", ...commandArgs, "--json"],
     cwd: repositoryRoot,
     env: browserEnv,
+    stdin: input === undefined ? undefined : Buffer.from(input),
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -92,9 +97,13 @@ function command(...commandArgs: string[]): string {
   return stdout;
 }
 
-function secretCommand(...commandArgs: string[]): string {
+function command(...commandArgs: string[]): string {
+  return commandWithInput(undefined, ...commandArgs);
+}
+
+function secretCommand(input: string, ...commandArgs: string[]): string {
   try {
-    return command(...commandArgs);
+    return commandWithInput(input, ...commandArgs);
   } catch {
     throw new Error(`agent-browser ${commandArgs[0]} failed while handling the deployment access gate.`);
   }
@@ -130,14 +139,25 @@ function messages(output: string, kind?: string): string[] {
   });
 }
 
-function requestFailures(output: string): string[] {
+function networkItems(output: string): unknown[] {
   const parsed = jsonResult(output);
-  const items = Array.isArray(parsed)
+  return Array.isArray(parsed)
     ? parsed
     : typeof parsed === "object" && parsed !== null
       ? Object.values(parsed).find(Array.isArray) ?? []
       : [];
-  return items.flatMap((item) => {
+}
+
+function requestUrls(output: string): string[] {
+  return networkItems(output).flatMap((item) => {
+    if (typeof item !== "object" || item === null) return [];
+    const url = (item as Record<string, unknown>).url;
+    return typeof url === "string" ? [url] : [];
+  });
+}
+
+function requestFailures(output: string): string[] {
+  return networkItems(output).flatMap((item) => {
     if (typeof item !== "object" || item === null) return [];
     const request = item as Record<string, unknown>;
     const status = typeof request.status === "number" ? request.status : null;
@@ -154,7 +174,7 @@ function currentPath(): string {
 function authenticatedAccountAddress(): string | null {
   const result = jsonResult(command(
     "eval",
-    `(()=>{const values=[...document.querySelectorAll("button[title]")].map((node)=>node.getAttribute("title"));return values.find((value)=>/^0x[0-9a-fA-F]{40}$/.test(value||""))||null})()`,
+    `(${accountAddressFromDocument.toString()})(document)`,
   ));
   return typeof result === "string" && accountPattern.test(result) ? result : null;
 }
@@ -171,9 +191,9 @@ function handleAccessGate(): void {
   if (!currentPath().startsWith("/access")) return;
   const password = process.env.HOME_ACCESS_PASSWORD;
   if (!password) throw new Error("This deployment requires HOME_ACCESS_PASSWORD in the operator environment.");
-  secretCommand("find", "label", "Access password", "fill", password, "--exact");
-  secretCommand("find", "role", "button", "click", "--name", "Continue", "--exact");
-  secretCommand("wait", "--fn", `location.pathname!=="/access"`);
+  secretCommand(`(()=>{const input=document.querySelector('input[aria-label="Access password"],input[name="password"]');if(!(input instanceof HTMLInputElement))throw new Error("Access password field not found");const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value")?.set;setter?.call(input,${JSON.stringify(password)});input.dispatchEvent(new Event("input",{bubbles:true}));input.dispatchEvent(new Event("change",{bubbles:true}));return true})()`, "eval", "--stdin");
+  secretCommand("", "find", "role", "button", "click", "--name", "Continue", "--exact");
+  secretCommand("", "wait", "--fn", `location.pathname!=="/access"`);
 }
 
 async function ensurePrivateStateDirectory(): Promise<void> {
@@ -235,6 +255,8 @@ const allowConfirm = hasFlag("--allow-confirm");
 const accountIntent = option("--account");
 const maxUsdValue = option("--max-usd");
 const maxUsd = maxUsdValue === undefined ? null : Number(maxUsdValue);
+const maxUsdTotalValue = option("--max-usd-total");
+const maxUsdTotal = maxUsdTotalValue === undefined ? maxUsd : Number(maxUsdTotalValue);
 const surface = surfaces.get(surfaceId);
 if (!surface) {
   console.error(`Unknown surface id: ${surfaceId}`);
@@ -267,10 +289,38 @@ if (live && allowConfirm) {
     console.error("Live confirmation requires --max-usd <positive-number> with no default.");
     process.exit(2);
   }
+  if (maxUsdTotal === null || !Number.isFinite(maxUsdTotal) || maxUsdTotal <= 0) {
+    console.error("--max-usd-total must be a positive number.");
+    process.exit(2);
+  }
+}
+if (live) {
+  for (const step of surface.reach) {
+    const stepError = liveStepError(surface.live, step, surface.reach);
+    if (stepError) {
+      console.error(stepError);
+      process.exit(2);
+    }
+  }
+}
+let pinnedAccount: string | null = null;
+if (live) {
+  try {
+    pinnedAccount = (await readFile(pinPath, "utf8")).trim();
+    await stat(statePath);
+  } catch {
+    console.error(`No saved live session exists for ${baseUrl.host}; run verify live-login --base-url ${baseUrl.origin}.`);
+    process.exit(2);
+  }
+  if (allowConfirm && accountIntent?.toLowerCase() !== pinnedAccount.toLowerCase()) {
+    console.error(`--account ${accountIntent} does not match the pinned test account ${pinnedAccount}.`);
+    process.exit(2);
+  }
 }
 
-const destination = resolve(outputRoot, surfaceId);
-if (live) await rm(destination, { recursive: true, force: true });
+const destination = live
+  ? resolve(outputRoot, surfaceId, new Date().toISOString())
+  : resolve(outputRoot, surfaceId);
 const tempDirectory = await mkdtemp(resolve(tmpdir(), "home-verify-"));
 const initPath = resolve(tempDirectory, `init-${session}.js`);
 const screenshotPath = resolve(destination, "screenshot.png");
@@ -300,29 +350,50 @@ function executeStep(step: ReachStep): string {
   return `expect ${step.text}`;
 }
 
-const init = `${!live && requiresSignedInFixture(surfaceId) ? 'sessionStorage.setItem("home:playwright-smoke:signed-in", "1");localStorage.setItem("home.country.v1", "US");' : ""}window.__homeVerifyLongTasks=[];try{new PerformanceObserver((list)=>window.__homeVerifyLongTasks.push(...list.getEntries().map((entry)=>entry.duration))).observe({type:"longtask",buffered:true})}catch{}`;
+const hostObserver = `window.__homeVerifyHosts=[];const __homeVerifyRecord=(value)=>{try{window.__homeVerifyHosts.push(new URL(String(value),location.href).hostname.toLowerCase())}catch{}};const __homeVerifyFetch=window.fetch;window.fetch=(input,init)=>{__homeVerifyRecord(typeof input==="string"?input:input.url);return __homeVerifyFetch(input,init)};const __homeVerifyOpen=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(method,url,...rest){__homeVerifyRecord(url);return __homeVerifyOpen.call(this,method,url,...rest)};const __homeVerifyWebSocket=window.WebSocket;window.WebSocket=function(url,protocols){__homeVerifyRecord(url);return new __homeVerifyWebSocket(url,protocols)};window.WebSocket.prototype=__homeVerifyWebSocket.prototype;const __homeVerifyBeacon=navigator.sendBeacon.bind(navigator);navigator.sendBeacon=(url,data)=>{__homeVerifyRecord(url);return __homeVerifyBeacon(url,data)};`;
+const init = `${!live && requiresSignedInFixture(surfaceId) ? 'sessionStorage.setItem("home:playwright-smoke:signed-in", "1");localStorage.setItem("home.country.v1", "US");' : ""}${live ? hostObserver : ""}window.__homeVerifyLongTasks=[];try{new PerformanceObserver((list)=>window.__homeVerifyLongTasks.push(...list.getEntries().map((entry)=>entry.duration))).observe({type:"longtask",buffered:true})}catch{}`;
 await writeFile(initPath, init, { mode: 0o600 });
 let exitCode = 1;
-let pinnedAccount: string | null = null;
 let parsedAmountUsd: number | null = null;
 let borrowedAmount: string | null = null;
 let collateralAmount: string | null = null;
 let confirmPerformed = false;
 let liveRefusal: string | null = null;
-const steps: string[] = [];
+type StepRecord = { step: string; status: "pending" | "done" | "failed" };
+const steps: StepRecord[] = [];
+let cumulativeAmountUsd = 0;
+let confirmIntent: { label: string; parsedAmountUsd: number; capUsd: number; totalCapUsd: number; timestamp: string } | null = null;
+let confirmClickAttempted = false;
+let stoppedBefore: string | null = null;
+let unexpectedHosts: string[] = [];
+let transactionHash: string | null = null;
+let actionId: string | null = null;
+await mkdir(destination, { recursive: true });
+async function writeLiveEvidence(): Promise<void> {
+  if (!live) return;
+  await writeFile(livePath, `${JSON.stringify({
+    baseHost: baseUrl.host,
+    surface: surfaceId,
+    pinnedAccount,
+    steps,
+    confirmIntent,
+    confirmPerformed,
+    parsedAmountUsd,
+    borrowedAmount,
+    collateralAmount,
+    cumulativeAmountUsd,
+    transactionHash,
+    actionId,
+    stoppedBefore,
+    unexpectedHosts,
+  }, null, 2)}\n`);
+}
 try {
   command("open", "--init-script", initPath);
   command("set", "viewport", "390", "844");
   if (live) {
     await ensurePrivateStateDirectory();
-    try {
-      pinnedAccount = (await readFile(pinPath, "utf8")).trim();
-      await stat(statePath);
-    } catch {
-      throw new Error(`No saved live session exists for ${baseUrl.host}; run verify live-login --base-url ${baseUrl.origin}.`);
-    }
     command("state", "load", statePath);
-    browserEnv.AGENT_BROWSER_ALLOWED_DOMAINS = allowedDomains;
     command("navigate", new URL("/home?account=settings", baseUrl).toString());
     handleAccessGate();
     command("wait", "--fn", `document.body.innerText.includes("Show small balances")||location.search.includes("account=signin")||document.body.innerText.includes("Sign in to Home")`);
@@ -330,26 +401,47 @@ try {
       throw new Error(`The live session expired; run verify live-login --base-url ${baseUrl.origin}.`);
     }
     const observedAccount = authenticatedAccountAddress();
-    const pinError = accountPinError(observedAccount, pinnedAccount);
+    const pinError = accountPinError(observedAccount, pinnedAccount ?? "");
     if (pinError) throw new Error(pinError);
-    if (allowConfirm && accountIntent?.toLowerCase() !== pinnedAccount.toLowerCase()) {
-      throw new Error(`--account ${accountIntent} does not match the pinned test account ${pinnedAccount}.`);
-    }
   } else {
     for (const [pattern, body] of fixtureRoutes()) {
       command("network", "route", pattern, "--body", JSON.stringify(body));
     }
   }
-  await mkdir(destination, { recursive: true });
   command("console", "--clear");
   command("errors", "--clear");
   command("network", "requests", "--clear");
+  let afterReview = false;
   for (const step of surface.reach) {
+    const description = step.kind === "goto"
+      ? `goto ${step.path}`
+      : step.kind === "click"
+        ? `click ${step.label}`
+        : step.kind === "fill"
+          ? `fill ${step.label}`
+          : step.kind === "press"
+            ? `press ${step.key}`
+            : `expect ${step.text}`;
+    const record: StepRecord = { step: description, status: "pending" };
+    steps.push(record);
+    let confirmStep = false;
     if (live && step.kind === "click") {
-      const decision = decideConfirmGate(surface.live, step.label, allowConfirm);
-      if (decision.action === "refuse") throw new Error(decision.reason);
-      if (decision.action === "stop") break;
-      if (allowConfirm && confirmLabelPattern.test(step.label)) {
+      confirmStep = matchesConfirmLabel(surface.confirmLabels, step.label);
+      const decision = decideConfirmGate(surface.live, step.label, allowConfirm, confirmStep, afterReview);
+      if (decision.action === "refuse") {
+        record.status = "failed";
+        stoppedBefore = step.label;
+        await writeLiveEvidence();
+        throw new Error(decision.reason);
+      }
+      if (decision.action === "stop") {
+        record.status = "failed";
+        stoppedBefore = step.label;
+        if (!confirmStep) liveRefusal = decision.reason;
+        await writeLiveEvidence();
+        break;
+      }
+      if (confirmStep) {
         const reviewText = jsonResult(command(
           "eval",
           `(()=>{const dialogs=[...document.querySelectorAll('[role="dialog"]')].filter((node)=>node.getClientRects().length>0);return (dialogs.at(-1)||document.body).innerText})()`,
@@ -363,12 +455,43 @@ try {
         } else {
           parsedAmountUsd = parseUsdAmount(review);
         }
-        liveRefusal = enforceAmountCap(parsedAmountUsd, maxUsd ?? Number.NaN);
-        if (liveRefusal) break;
-        confirmPerformed = true;
+        const labelAmount = parseUsdAmountFromLabel(step.label);
+        liveRefusal = reviewAndLabelAmountError(parsedAmountUsd, labelAmount) ??
+          enforceAmountCap(parsedAmountUsd, maxUsd ?? Number.NaN);
+        if (!liveRefusal && parsedAmountUsd !== null && cumulativeAmountUsd + parsedAmountUsd > (maxUsdTotal ?? Number.NaN)) {
+          liveRefusal = `The cumulative confirmation amount $${(cumulativeAmountUsd + parsedAmountUsd).toFixed(2)} exceeds the $${(maxUsdTotal ?? Number.NaN).toFixed(2)} run cap.`;
+        }
+        if (liveRefusal || parsedAmountUsd === null || maxUsd === null || maxUsdTotal === null) {
+          record.status = "failed";
+          stoppedBefore = step.label;
+          await writeLiveEvidence();
+          break;
+        }
+        confirmIntent = {
+          label: step.label,
+          parsedAmountUsd,
+          capUsd: maxUsd,
+          totalCapUsd: maxUsdTotal,
+          timestamp: new Date().toISOString(),
+        };
+        confirmClickAttempted = true;
+        await writeLiveEvidence();
       }
     }
-    steps.push(executeStep(step));
+    try {
+      executeStep(step);
+      record.status = "done";
+      if (confirmStep && parsedAmountUsd !== null) {
+        confirmPerformed = true;
+        cumulativeAmountUsd += parsedAmountUsd;
+        await writeLiveEvidence();
+      }
+    } catch (error) {
+      record.status = "failed";
+      await writeLiveEvidence();
+      throw error;
+    }
+    if (step.kind === "expect" && /^(?:Confirm|Review)/i.test(step.text)) afterReview = true;
   }
   const requiredMarks = Object.keys(surface.budgets);
   if (requiredMarks.length > 0) {
@@ -390,14 +513,26 @@ try {
     return { name, startTime, budgetMs, passed: budgetMs === null ? null : startTime !== null && startTime <= budgetMs };
   });
   const consoleErrors = messages(command("console"), "error");
+  const networkOutput = command("network", "requests");
+  const observedByScript = live
+    ? jsonResult(command("eval", "[...new Set(window.__homeVerifyHosts||[])]"))
+    : [];
+  const observedUrls = requestUrls(networkOutput);
+  const scriptUrls = Array.isArray(observedByScript)
+    ? observedByScript.flatMap((host) => typeof host === "string" ? [`https://${host}`] : [])
+    : [];
+  unexpectedHosts = live ? unexpectedNetworkHosts([...observedUrls, ...scriptUrls], allowedDomains.split(",")) : [];
+  if (unexpectedHosts.length > 0) {
+    liveRefusal = `Unexpected network hosts were observed: ${unexpectedHosts.join(", ")}.`;
+  }
   const pageErrors = [...messages(command("errors")), ...(liveRefusal ? [liveRefusal] : [])];
-  const failedRequests = requestFailures(command("network", "requests"));
+  const failedRequests = requestFailures(networkOutput);
   const finalizedEvidence = finalizeEvidence({
     surfaceId,
     baseUrl: baseUrl.origin,
     capturedAt: new Date().toISOString(),
     viewport: { width: 390, height: 844 },
-    steps,
+    steps: steps.filter((step) => step.status === "done").map((step) => step.step),
     artifacts: { screenshot: "screenshot.png", dom: "dom.txt" },
     consoleErrors,
     failedRequests,
@@ -409,25 +544,30 @@ try {
   await writeFile(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
   await writeFile(summaryPath, summarizeEvidence(evidence, live ? "live" : "fixture"));
   if (live) {
-    const transactionHash = domText.match(/\b0x[0-9a-fA-F]{64}\b/)?.[0] ?? null;
-    const actionId = domText.match(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i)?.[0] ?? null;
-    await writeFile(livePath, `${JSON.stringify({
-      baseHost: baseUrl.host,
-      surface: surfaceId,
-      pinnedAccount,
-      stepsExecuted: steps,
-      confirmPerformed,
-      parsedAmountUsd,
-      borrowedAmount,
-      collateralAmount,
-      transactionHash,
-      actionId,
-    }, null, 2)}\n`);
+    transactionHash = domText.match(/\b0x[0-9a-fA-F]{64}\b/)?.[0] ?? null;
+    actionId = domText.match(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i)?.[0] ?? null;
+    await writeLiveEvidence();
   }
   console.log(summaryPath);
   exitCode = evidence.passed ? 0 : 1;
 } catch (error) {
-  console.error(error instanceof Error ? error.message : "Verification failed.");
+  if (live) {
+    try {
+      const networkOutput = command("network", "requests");
+      const observedByScript = jsonResult(command("eval", "[...new Set(window.__homeVerifyHosts||[])]"));
+      const scriptUrls = Array.isArray(observedByScript)
+        ? observedByScript.flatMap((host) => typeof host === "string" ? [`https://${host}`] : [])
+        : [];
+      unexpectedHosts = unexpectedNetworkHosts([...requestUrls(networkOutput), ...scriptUrls], allowedDomains.split(","));
+    } catch {
+      unexpectedHosts = [];
+    }
+    await writeLiveEvidence();
+  }
+  const message = error instanceof Error ? error.message : "Verification failed.";
+  console.error(confirmClickAttempted
+    ? `${message} A confirm click may have been dispatched; check Activity before re-running because a re-run confirms again.`
+    : message);
 } finally {
   try {
     command("close");
