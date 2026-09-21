@@ -74,7 +74,7 @@ export function formatPrimaryAmount(
   fiatCurrency?: string,
   nativeSymbol?: string,
 ): string {
-  const figure = amount || "0";
+  const figure = amount || "0"; // oxlint-disable-line home/no-amount-fallback -- a blank editable amount field intentionally presents its zero entry state
   if (fiatCurrency) return formatLocalDisplay(figure, fiatCurrency);
   if (unit === "native" || pricing.status === "unpriced") {
     return nativeSymbol ? `${figure} ${nativeSymbol}` : figure;

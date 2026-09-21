@@ -347,6 +347,23 @@
     },
     {
       "files": [
+        "shared/formatting/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "client/money-modal/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "server/balances/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "shared/balances/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "server/actions/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "excludeFiles": [
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**",
+        "**/testing/**"
+      ],
+      "rules": {
+        "home/no-amount-fallback": "error"
+      }
+    },
+    {
+      "files": [
         "{app,components,config,shared}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "instrumentation*.ts"
       ],
