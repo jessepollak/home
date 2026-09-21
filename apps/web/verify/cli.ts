@@ -209,6 +209,11 @@ async function ensurePrivateStateDirectory(): Promise<void> {
   await chmod(stateDirectory, 0o700);
 }
 
+async function saveLiveSession(): Promise<void> {
+  command("state", "save", statePath);
+  await chmod(statePath, 0o600);
+}
+
 async function runLiveLogin(): Promise<never> {
   await ensurePrivateStateDirectory();
   let exitCode = 1;
@@ -460,6 +465,7 @@ try {
     const observedAccount = authenticatedAccountAddress();
     const pinError = accountPinError(observedAccount, pinnedAccount ?? "");
     if (pinError) throw new Error(pinError);
+    await saveLiveSession();
   } else {
     for (const [pattern, body] of fixtureRoutes()) {
       command("network", "route", pattern, "--body", JSON.stringify(body));
@@ -623,6 +629,7 @@ try {
     transactionHash = domText.match(/\b0x[0-9a-fA-F]{64}\b/)?.[0] ?? null;
     actionId = domText.match(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i)?.[0] ?? null;
     await writeLiveEvidence();
+    if (evidence.passed && requiresSignedInFixture(surfaceId)) await saveLiveSession();
   }
   console.log(summaryPath);
   exitCode = evidence.passed ? 0 : 1;

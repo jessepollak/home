@@ -9,6 +9,38 @@ Bun.spawnSync(["mkdir", "-p", home]);
 const outsideOutput = resolve(home, "evidence");
 const addressA = "0x1111111111111111111111111111111111111111";
 const addressB = "0x2222222222222222222222222222222222222222";
+const stateDirectory = resolve(home, ".home-verify", "example.com", "state");
+const statePath = resolve(stateDirectory, "browser-state.json");
+const fakeBinDirectory = resolve(home, "fake-bin");
+const fakeLogPath = resolve(home, "fake-agent-browser.log");
+
+async function seedLiveState(address: string): Promise<void> {
+  Bun.spawnSync(["mkdir", "-p", stateDirectory]);
+  await Bun.write(resolve(stateDirectory, "account"), `${address}\n`);
+  await Bun.write(statePath, "{}\n");
+}
+
+async function installFakeAgentBrowser(): Promise<void> {
+  Bun.spawnSync(["mkdir", "-p", fakeBinDirectory]);
+  const fakePath = resolve(import.meta.dir, "test-fixtures/fake-agent-browser.ts");
+  const bunxPath = resolve(fakeBinDirectory, "bunx");
+  await Bun.write(bunxPath, `#!/bin/sh\nexec '${process.execPath}' '${fakePath}' "$@"\n`);
+  Bun.spawnSync(["chmod", "755", bunxPath]);
+}
+
+function fakeEnv(body: string, address: string): Record<string, string> {
+  return {
+    PATH: `${fakeBinDirectory}:${process.env.PATH ?? ""}`,
+    FAKE_AGENT_BROWSER_LOG: fakeLogPath,
+    FAKE_AGENT_BROWSER_BODY: body,
+    FAKE_AGENT_BROWSER_ADDRESS: address,
+  };
+}
+
+function fakeCalls(): string[][] {
+  const log = Bun.spawnSync(["cat", fakeLogPath], { stdout: "pipe", stderr: "pipe" }).stdout.toString();
+  return log.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as string[]);
+}
 
 afterAll(() => {
   Bun.spawnSync(["rm", "-rf", home]);
@@ -81,10 +113,7 @@ describe("live CLI preflight", () => {
   });
 
   test("refuses account intent that differs from the saved pin before browser launch", async () => {
-    const stateDirectory = resolve(home, ".home-verify", "example.com", "state");
-    Bun.spawnSync(["mkdir", "-p", stateDirectory]);
-    await Bun.write(resolve(stateDirectory, "account"), `${addressA}\n`);
-    await Bun.write(resolve(stateDirectory, "browser-state.json"), "{}\n");
+    await seedLiveState(addressA);
     const result = run([
       "send",
       "--live",
@@ -102,5 +131,65 @@ describe("live CLI preflight", () => {
     ]);
     expect(result.exitCode).toBe(2);
     expect(result.stderr).toContain("does not match the pinned test account");
+  });
+});
+
+describe("live session state", () => {
+  test("waits out a restoring session instead of declaring it expired", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = run([
+      "account-settings",
+      "--live",
+      "--base-url",
+      "https://example.com",
+      "--out",
+      outsideOutput,
+    ], fakeEnv("Sign in to Home\nVerifying your session…", addressA));
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).not.toContain("expired");
+    const wait = fakeCalls().find((call) => call[0] === "wait" && call[1] === "--fn");
+    expect(wait?.[2]).toContain("Show small balances");
+    expect(wait?.[2]).toContain("Verifying your session");
+    expect(wait?.[2]).toContain("Finishing sign-out");
+    expect(wait?.[2]).toContain("Sign in to Home");
+    expect(wait?.[2]).not.toContain("account=signin");
+  });
+
+  test("re-saves the live session after an authenticated run", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = run([
+      "account-settings",
+      "--live",
+      "--base-url",
+      "https://example.com",
+      "--out",
+      outsideOutput,
+    ], fakeEnv("Account\nShow small balances\nYour money", addressA));
+    expect(result.exitCode).toBe(0);
+    const saves = fakeCalls().filter((call) => call[0] === "state" && call[1] === "save");
+    expect(saves.length).toBeGreaterThan(0);
+    expect(saves.every((call) => call[2] === statePath)).toBe(true);
+  });
+
+  test("never re-saves a state that detected sign-out", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = run([
+      "account-settings",
+      "--live",
+      "--base-url",
+      "https://example.com",
+      "--out",
+      outsideOutput,
+    ], fakeEnv("Sign in to Home", addressA));
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("session expired");
+    const saves = fakeCalls().filter((call) => call[0] === "state" && call[1] === "save");
+    expect(saves).toEqual([]);
   });
 });
