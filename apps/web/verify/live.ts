@@ -31,6 +31,36 @@ export function resolveLiveRecipient(value: string | undefined): RecipientResolu
   };
 }
 
+export function isRecipientFillStep(step: ReachStep): step is Extract<ReachStep, { kind: "fill" }> {
+  return step.kind === "fill" && step.label === "To" && step.value === "<recipient>";
+}
+
+export function recipientPlaceholderError(steps: ReachStep[]): string | null {
+  for (const step of steps) {
+    if (isRecipientFillStep(step)) continue;
+    if (reachStepValues(step).some((value) => value.includes("<recipient>"))) {
+      return `Live verification refuses the <recipient> placeholder outside the “To” fill step (${reachStepSummary(step)}).`;
+    }
+  }
+  return null;
+}
+
+function reachStepValues(step: ReachStep): string[] {
+  if (step.kind === "fill") return [step.label, step.value];
+  if (step.kind === "click") return [step.label];
+  if (step.kind === "goto") return [step.path];
+  if (step.kind === "press") return [step.key];
+  return [step.text];
+}
+
+function reachStepSummary(step: ReachStep): string {
+  if (step.kind === "fill") return `fill “${step.label}”`;
+  if (step.kind === "click") return `click “${step.label}”`;
+  if (step.kind === "goto") return `goto ${step.path}`;
+  if (step.kind === "press") return `press ${step.key}`;
+  return `expect “${step.text}”`;
+}
+
 const bareHostnamePattern = /^(?=.{1,253}$)(?:localhost|(?:(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)\.)*(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?))$/;
 
 export function composeAllowedDomains(

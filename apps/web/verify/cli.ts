@@ -14,11 +14,13 @@ import {
   enforceAmountCap,
   enforceCumulativeAmountCap,
   hostObservationRefusal,
+  isRecipientFillStep,
   liveStepError,
   outputInsideRepository,
   parseBorrowReviewAmounts,
   parseUsdAmount,
   parseUsdAmountFromLabel,
+  recipientPlaceholderError,
   recipientRowError,
   resolveLiveRecipient,
   reviewAndLabelAmountError,
@@ -280,7 +282,14 @@ if (selectedReach.length === 0) {
   console.error(`Surface ${surfaceId} has no machine-readable Reach steps.`);
   process.exit(2);
 }
-const recipientPlaceholder = selectedReach.some((step) => step.kind === "fill" && step.value === "<recipient>");
+const recipientPlaceholder = selectedReach.some(isRecipientFillStep);
+if (live) {
+  const placeholderError = recipientPlaceholderError(selectedReach);
+  if (placeholderError) {
+    console.error(placeholderError);
+    process.exit(2);
+  }
+}
 let effectiveRecipient: LiveRecipient | null = null;
 if (live && (recipientPlaceholder || recipientOption !== undefined)) {
   const resolution = resolveLiveRecipient(recipientOption);
@@ -291,7 +300,7 @@ if (live && (recipientPlaceholder || recipientOption !== undefined)) {
   effectiveRecipient = resolution.recipient;
 }
 const reachSteps = selectedReach.map((step): ReachStep =>
-  step.kind === "fill" && step.value === "<recipient>"
+  isRecipientFillStep(step)
     ? { ...step, value: live ? effectiveRecipient?.address ?? step.value : recipientOption ?? step.value }
     : step
 );

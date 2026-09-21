@@ -13,12 +13,14 @@ import {
   enforceAmountCap,
   enforceCumulativeAmountCap,
   hostObservationRefusal,
+  isRecipientFillStep,
   liveProviderOrigins,
   liveStepError,
   outputInsideRepository,
   parseBorrowReviewAmounts,
   parseUsdAmount,
   parseUsdAmountFromLabel,
+  recipientPlaceholderError,
   recipientRowError,
   resolveLiveRecipient,
   reviewAndLabelAmountError,
@@ -145,6 +147,32 @@ describe("live review recipient row", () => {
     expect(recipientRowError("Confirm\nTo", recipient)).toContain("“To” row is empty");
     expect(recipientRowError(recipientReview("0x2222222222222222222222222222222222222222"), recipient)).toContain("instead");
     expect(recipientRowError(recipientReview(formatAddress(address)), recipient)).toContain("instead");
+  });
+});
+
+describe("live recipient placeholder", () => {
+  test("substitutes only the To fill step", () => {
+    expect(isRecipientFillStep({ kind: "fill", label: "To", value: "<recipient>" })).toBe(true);
+    expect(isRecipientFillStep({ kind: "fill", label: "Email", value: "<recipient>" })).toBe(false);
+    expect(isRecipientFillStep({ kind: "fill", label: "To", value: address })).toBe(false);
+    expect(isRecipientFillStep({ kind: "click", label: "<recipient>" })).toBe(false);
+  });
+
+  test("refuses the placeholder in any other step", () => {
+    expect(recipientPlaceholderError([
+      { kind: "goto", path: "/home" },
+      { kind: "fill", label: "To", value: "<recipient>" },
+      { kind: "click", label: "Continue" },
+    ])).toBeNull();
+    expect(recipientPlaceholderError([
+      { kind: "fill", label: "Email", value: "<recipient>" },
+    ])).toContain("outside");
+    expect(recipientPlaceholderError([
+      { kind: "fill", label: "To", value: "<recipient> 0x" },
+    ])).toContain("outside");
+    expect(recipientPlaceholderError([
+      { kind: "expect", text: "To <recipient>" },
+    ])).toContain("outside");
   });
 });
 
