@@ -1,0 +1,47 @@
+name: Caught-by weekly
+
+on:
+  schedule:
+    # Monday 14:00 UTC, on the default branch.
+    - cron: "0 14 * * 1"
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  report:
+    name: caught-by weekly report
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22.13.1
+          package-manager-cache: false
+
+      - name: Generate the report
+        run: node scripts/gates/caught-by-report.mjs --since 7.days > "$RUNNER_TEMP/caught-by-report.md"
+
+      - name: Post it to the pinned issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          report="$RUNNER_TEMP/caught-by-report.md"
+          if [ ! -s "$report" ]; then
+            echo "::error::caught-by-report produced no output"
+            exit 1
+          fi
+          number=$(gh issue list --repo "$GITHUB_REPOSITORY" --state all --limit 100 --search '"Caught-by weekly report" in:title' --json number,title --jq '[.[] | select(.title == "Caught-by weekly report")][0].number // empty')
+          if [ -z "$number" ]; then
+            url=$(gh issue create --repo "$GITHUB_REPOSITORY" --title "Caught-by weekly report" --body "Weekly detector report over scoped \`fix(...)\` commits from the last 7 days. Comments below are posted by the \`Caught-by weekly\` workflow.")
+            number=${url##*/}
+          fi
+          gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body-file "$report"
+          gh issue pin "$number" --repo "$GITHUB_REPOSITORY" || echo "::warning::could not pin issue #$number"
