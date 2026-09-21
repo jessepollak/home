@@ -79,4 +79,4 @@ Coinbase uses the generic v2 Orders API and Embedded Orders iframe described abo
 
 ## Authority and safety
 
-No guide step grants access to a funded wallet, issuer account, production credentials, deployment, provider enablement, or merge authority. Live probes remain explicitly operator-authorized and outside CI; factory children receive none of that authority. The operator controls credentials; Jesse alone gives final approval and merges. See the [operating manual](../operating-manual.md#risk-based-live-money-validation) and [delivery gates](../delivery-gates.md).
+No guide step grants access to a funded wallet, issuer account, production credentials, deployment, provider enablement, or merge authority. Live probes remain explicitly operator-authorized and outside CI; factory children receive none of that authority. The operator controls credentials; Jesse alone gives final approval and merges. See the [operating manual](../operating-manual.md#risk-based-live-money-validation) and [repository gates](../gates.md).

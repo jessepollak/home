@@ -1,11 +1,18 @@
-# Delivery gates
+# Repository gates
 
-Repository checks run without provider or funded-wallet secrets. Remaining delivery automation unit tests are part of `bun run gates`:
+`bun run gates` runs the repository gate unit tests, and `bun check` runs that plus the rest of the checks. All of it runs without provider or funded-wallet secrets. The gates guard four invariants:
+
+- Migrations run before build, so a build cannot ship a schema it never applied.
+- No unresolved CSS custom properties, so every referenced token resolves in the theme.
+- Every `process.env` read is declared in `.env.example`, so a clone knows which variables it needs.
+- Custom lint rules are non-vacuous, proven against temporary-mirror fixtures rather than a clean source tree.
+
+The full check suite also covers:
 
 - `bun check` (including Oxlint-only lint with warnings denied and unused suppressions reported)
 - Chromium product smoke
 - story tests (`bun run --cwd apps/web test:stories`)
-- delivery automation tests (`bun run gates`: repository gate canaries, including the non-vacuous temporary-mirror Oxlint contract suite, plus PR-metadata algorithms, plus the figma-implementation skill's spec/diff unit tests; also run inside `bun check`)
+- `bun run gates` (the repository gate unit tests above; also run inside `bun check`)
 - disposable PostgreSQL contracts for actions, funding, and balances
 
 ## Story-test boundary
@@ -18,6 +25,6 @@ The current **Chromium smoke** job runs the fixture-backed Playwright suite in G
 
 The Jesse-locked [architecture](architecture.md#quality-bar) targets Playwright smoke on every hosted preview. That hosted-preview smoke target is not implemented yet; current PR/main fixture smoke must not be described as hosted-preview verification.
 
-`main` is the delivery destination. A stacked change is intermediate work, not delivery evidence. Deployment configuration, credentials, and production promotion remain operator decisions; a green local or CI run is not funded-wallet or production authorization.
+Deployment configuration, credentials, and production promotion remain operator decisions; a green local or CI run is not funded-wallet or production authorization.
 
 For action changes, review the flow in [Actions](actions.md): server-authored calldata; verified scope; one action ID for provider idempotency; owner-generation fencing; provider and chain status.

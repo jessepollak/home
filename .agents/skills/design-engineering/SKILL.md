@@ -14,8 +14,6 @@ Home's craft standard for user-visible work, adapted from Emil Kowalski's design
 
 ## Follow the issue scope
 
-When implementing from an accepted Figma frame, follow [`figma-implementation`](../figma-implementation/SKILL.md): compute properties from metadata instead of eyeballing, run the DOM measure gate before any pixel diff, and leave `docs/design/<task>/` artifacts (inventory, audit, verification) behind. This skill still owns the craft judgment; the Figma skill owns the measurement.
-
 By default, implement within the existing design system. The issue author sets whether the assignment is exploration or adoption; the builder follows that scope rather than choosing a work mode. A generic factory checklist does not expand the assignment.
 
 - **Explicit exploration:** the brief names the visual dimensions open to change, the reviewable deliverable and stopping point. Preserve everything outside that scope. Use supplied reference images and render one proposal unless the issue requests alternatives. Existing presentation is not a visual ceiling within the named dimensions. Keep prototypes isolated, preserve repository checks, and stop for Jesse's selection before production rollout or exhaustive candidate hardening.

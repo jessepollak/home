@@ -182,7 +182,7 @@ apps/web/oxlint/tests/anti-slop.test.mjs
 apps/web/oxlint/tests/unknown-classes.test.mjs
 apps/web/oxlint/tests/jsx-colors.test.mjs
 apps/web/oxlint/tests/*.test.mjs
-scripts/delivery/tests/oxlint-contracts.test.mjs
+scripts/gates/tests/oxlint-contracts.test.mjs
 ```
 
 Rule-isolation tests may invoke Oxlint against temporary on-disk fixtures. The delivery canary never writes fixtures into the working source tree. It builds a mirror under `os.tmpdir()`, copies the checked-in `.oxlintrc.jsonc` and `oxlint/**` byte-for-byte, symlinks `node_modules`, `components.json`, `tsconfig.json`, the CSS entrypoint referenced by `components.json`, and the required owned UI wrapper, then writes representative fixtures under mirrored app/client/components/server/shared/tests paths. It runs the pinned binary from the mirror root with JSON output and nested config disabled. The test asserts copied config/plugin bytes equal the checked-in sources, checks exact rule IDs and diagnostic counts, and includes a fixture-only sentinel proving each representative path was covered. It proves `node_modules` and generated-output ignores through both zero diagnostics and absence from Oxlint's debug file list. The mirror copies Home's replacement `home/no-restyle` implementation and no longer loads `@shadcn/lint`; this avoids concurrent source-tree mutation or crash debris. A passing clean source tree is never accepted as parity evidence by itself.
@@ -202,7 +202,7 @@ ESLint is removed only after all of the following are true:
 9. `bun run gates`, Oxlint-only `bun run lint`, and `bun check` pass after `bun install --frozen-lockfile` without changing `bun.lock`.
 10. Cold and warm lint timings are recorded using the baseline command shape.
 11. `eslint`, `eslint-config-next`, TypeScript ESLint dependencies, import resolver/plugin packages, `@shadcn/lint`, migration-only packages, `apps/web/eslint.config.mjs`, and obsolete ESLint tests are absent from the manifest and lockfile.
-12. `AGENTS.md`, `docs/architecture.md`, `docs/design-system.md`, `docs/delivery-gates.md`, `README.md`, `CONTRIBUTING.md`, and `apps/web/README.md` describe the final Oxlint-owned contract where relevant.
+12. `AGENTS.md`, `docs/architecture.md`, `docs/design-system.md`, `docs/gates.md`, `README.md`, `CONTRIBUTING.md`, and `apps/web/README.md` describe the final Oxlint-owned contract where relevant.
 13. Fresh independent review verifies parity, non-vacuous canaries, dependency cleanup, unchanged/shrunk allowlists, and the exact current head.
 
 Browser preview evidence is not applicable because this migration has no user-visible UI change.
