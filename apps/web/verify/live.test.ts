@@ -103,12 +103,12 @@ describe("live confirm gate", () => {
 describe("live recipient policy", () => {
   test("defaults to the pinned jesse.base.eth recipient when the flag is absent", () => {
     expect(defaultLiveRecipient).toEqual({ name: "jesse.base.eth", address: defaultRecipient });
-    expect(resolveLiveRecipient(undefined)).toEqual({ action: "use", recipient: defaultLiveRecipient });
+    expect(resolveLiveRecipient(undefined)).toEqual({ action: "use", recipient: { name: "jesse.base.eth", address: defaultRecipient } });
   });
 
   test("maps the jesse.base.eth name to the pinned address", () => {
-    expect(resolveLiveRecipient("jesse.base.eth")).toEqual({ action: "use", recipient: defaultLiveRecipient });
-    expect(resolveLiveRecipient("JESSE.BASE.ETH")).toEqual({ action: "use", recipient: defaultLiveRecipient });
+    expect(resolveLiveRecipient("jesse.base.eth")).toEqual({ action: "use", recipient: { name: "jesse.base.eth", address: defaultRecipient } });
+    expect(resolveLiveRecipient("JESSE.BASE.ETH")).toEqual({ action: "use", recipient: { name: "jesse.base.eth", address: defaultRecipient } });
   });
 
   test("accepts a bare 0x address and refuses every other value", () => {
