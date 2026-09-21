@@ -166,9 +166,9 @@ describe("Peer funding provider", () => {
     ]);
   });
 
-  test("returns no orders when every row has an unavailable payee hash", async () => {
+  test("fails closed when a listed row has a malformed non-legacy payee hash", async () => {
     installFakeClients("", [cashOrder("", `${PEER_PRODUCTION_CONTRACTS.escrow.toLowerCase()}_8`)]);
-    await expect(peerProvider.offramp!.listOrders({ owner: OWNER, inFlight: true }, context())).resolves.toEqual([]);
+    await expect(peerProvider.offramp!.listOrders({ owner: OWNER, inFlight: true }, context())).rejects.toBeInstanceOf(PeerOfframpSafetyError);
   });
 
   test("keeps direct reads fail-closed for a malformed payee target", async () => {
