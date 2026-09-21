@@ -272,7 +272,7 @@ export function accountPinError(observed: string | null, pinned: string): string
 }
 
 export function automationEnvironmentError(env: Record<string, string | undefined>): string | null {
-  return env.CI || env.GITHUB_ACTIONS ? "Live verification is operator-only and cannot run in CI or GitHub Actions." : null;
+  return env.CI || env.GITHUB_ACTIONS ? "Live verification cannot run in CI or GitHub Actions." : null;
 }
 
 export function outputInsideRepository(output: string, repositoryRoot: string): boolean {

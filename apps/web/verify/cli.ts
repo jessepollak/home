@@ -28,12 +28,28 @@ import {
   unlistedAmountClickError,
   type LiveRecipient,
 } from "./live";
+import { appendLedger, armEvent, readLedger, spendForDay, spendForRun, surfaceArmState, type LedgerEntry } from "./ledger";
 import { matchesConfirmLabel, readFeatureMap, type ReachStep } from "./map";
+import { confirmPolicyRefusal, requestedCaps, resolveVerifyRole, verifyPolicy, type VerifyRole } from "./policy";
 
 const args = Bun.argv.slice(2);
 const repositoryRoot = resolve(import.meta.dir, "../../..");
 const featureMapPath = resolve(repositoryRoot, ".agents/skills/browser-iteration/feature-map.md");
 const surfaces = await readFeatureMap(featureMapPath);
+const ledgerPath = resolve(homedir(), ".home-verify", "ledger.jsonl");
+let verifyRole: VerifyRole;
+try {
+  verifyRole = resolveVerifyRole(process.env.HOME_VERIFY_ROLE);
+} catch (error) {
+  console.error(error instanceof Error ? error.message : "Invalid verification role.");
+  process.exit(2);
+}
+function revision(name: string): string {
+  const result = Bun.spawnSync({ cmd: ["git", "rev-parse", name], cwd: repositoryRoot, stdout: "pipe", stderr: "pipe" });
+  if (result.exitCode !== 0) throw new Error(`Could not resolve ${name} for the verification ledger.`);
+  return result.stdout.toString().trim();
+}
+const currentMainRevision = revision("origin/main");
 const option = (name: string) => {
   const index = args.indexOf(name);
   return index === -1 ? undefined : args[index + 1];
@@ -48,6 +64,37 @@ if (args.includes("--list")) {
     console.log(`${surface.id}: ${surface.manual ? "manual" : "automated"}; live ${surface.live ?? "read-only"}${surface.liveReach ? "; live Reach override" : ""}`);
   }
   process.exit(0);
+}
+
+if (args[0] === "status") {
+  const entries = await readLedger(ledgerPath);
+  const today = new Date().toISOString().slice(0, 10);
+  console.log(`role: ${verifyRole}`);
+  console.log(`today's factory spend: $${spendForDay(entries, today).toFixed(2)} / $${verifyPolicy.factory.perDayUsd.toFixed(2)}`);
+  console.log(`caps: $${verifyPolicy.factory.perClickUsd.toFixed(2)} click; $${verifyPolicy.factory.perRunUsd.toFixed(2)} run; $${verifyPolicy.factory.perDayUsd.toFixed(2)} day; $${verifyPolicy.balanceCeilingUsd.toFixed(2)} ceiling`);
+  for (const surface of surfaces.values()) {
+    const state = surfaceArmState(entries, surface.id, currentMainRevision);
+    console.log(`${surface.id}: ${state.armed ? "armed" : "disarmed"} (${state.reason}; ${state.cleanRuns}/${verifyPolicy.cleanRunsToArm} clean Rung 2 runs)`);
+  }
+  process.exit(0);
+}
+
+if (args[0] === "arm") {
+  const surfaceId = args[1];
+  const byIndex = args.indexOf("--by");
+  const by = byIndex === -1 ? undefined : args[byIndex + 1];
+  if (!surfaceId || !surfaces.has(surfaceId) || !by) {
+    console.error("Usage: bun run verify arm <surface> --by <GitHub-comment-url>");
+    process.exit(2);
+  }
+  try {
+    await appendLedger(ledgerPath, armEvent(surfaceId, by));
+    console.log(`${surfaceId}: armed by ${by}`);
+    process.exit(0);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : "Could not record arm event.");
+    process.exit(2);
+  }
 }
 
 const liveLogin = args[0] === "live-login";
@@ -263,9 +310,11 @@ const allowConsole = hasFlag("--allow-console");
 const allowConfirm = hasFlag("--allow-confirm");
 const accountIntent = option("--account");
 const maxUsdValue = option("--max-usd");
-const maxUsd = maxUsdValue === undefined ? null : Number(maxUsdValue);
+const requestedMaxUsd = maxUsdValue === undefined ? null : Number(maxUsdValue);
 const maxUsdTotalValue = option("--max-usd-total");
-const maxUsdTotal = maxUsdTotalValue === undefined ? maxUsd : Number(maxUsdTotalValue);
+const requestedMaxUsdTotal = maxUsdTotalValue === undefined ? null : Number(maxUsdTotalValue);
+let maxUsd: number | null = requestedMaxUsd;
+let maxUsdTotal: number | null = requestedMaxUsdTotal ?? requestedMaxUsd;
 const recipientOption = option("--recipient");
 const surface = surfaces.get(surfaceId);
 if (!surface) {
@@ -311,22 +360,28 @@ if (live && outputInsideRepository(outputRoot, repositoryRoot)) {
   console.error("Live evidence --out must be outside the repository root.");
   process.exit(2);
 }
+const ledgerEntries = live ? await readLedger(ledgerPath) : [];
+const armState = surfaceArmState(ledgerEntries, surfaceId, currentMainRevision);
 if (live && allowConfirm) {
   const authority = decideConfirmGate(surface.live, "Continue", true);
   if (authority.action === "refuse") {
     console.error(authority.reason);
     process.exit(2);
   }
-  if (!accountIntent || !accountPattern.test(accountIntent)) {
-    console.error("Live confirmation requires --account <0x…>.");
+  if (verifyRole === "operator" && (!accountIntent || !accountPattern.test(accountIntent))) {
+    console.error("Live confirmation requires --account <0x…> in operator mode.");
     process.exit(2);
   }
-  if (maxUsd === null || !Number.isFinite(maxUsd) || maxUsd <= 0) {
-    console.error("Live confirmation requires --max-usd <positive-number> with no default.");
+  try {
+    const caps = requestedCaps(verifyRole, requestedMaxUsd, requestedMaxUsdTotal);
+    maxUsd = caps.clickCapUsd;
+    maxUsdTotal = caps.runCapUsd;
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : "Invalid confirmation caps.");
     process.exit(2);
   }
-  if (maxUsdTotal === null || !Number.isFinite(maxUsdTotal) || maxUsdTotal <= 0) {
-    console.error("--max-usd-total must be a positive number.");
+  if (!armState.armed) {
+    console.error(`Rung 3 is disarmed for ${surfaceId}; ${armState.cleanRuns}/${verifyPolicy.cleanRunsToArm} clean current-main Rung 2 runs are recorded.`);
     process.exit(2);
   }
 }
@@ -354,7 +409,7 @@ if (live) {
     console.error(`No saved live session exists for ${baseUrl.host}; run verify live-login --base-url ${baseUrl.origin}.`);
     process.exit(2);
   }
-  if (allowConfirm && accountIntent?.toLowerCase() !== pinnedAccount.toLowerCase()) {
+  if (allowConfirm && accountIntent && accountIntent.toLowerCase() !== pinnedAccount.toLowerCase()) {
     console.error(`--account ${accountIntent} does not match the pinned test account ${pinnedAccount}.`);
     process.exit(2);
   }
@@ -409,6 +464,10 @@ let borrowedAmount: string | null = null;
 let collateralAmount: string | null = null;
 let confirmPerformed = false;
 let liveRefusal: string | null = null;
+let renderedBalanceUsd: number | null = null;
+let finalEvidencePassed = false;
+let ledgerRecorded = false;
+const confirmedAmountsUsd: number[] = [];
 type StepRecord = { step: string; status: "pending" | "done" | "failed" };
 const steps: StepRecord[] = [];
 let cumulativeAmountUsd = 0;
@@ -433,6 +492,7 @@ async function writeLiveEvidence(): Promise<void> {
     borrowedAmount,
     collateralAmount,
     cumulativeAmountUsd,
+    renderedBalanceUsd,
     transactionHash,
     actionId,
     stoppedBefore,
@@ -446,6 +506,55 @@ function observeUnexpectedHosts(): string[] {
     ? observedByScript.flatMap((host) => typeof host === "string" ? [`https://${host}`] : [])
     : [];
   return unexpectedNetworkHosts([...requestUrls(networkOutput), ...scriptUrls], allowedDomains.split(","));
+}
+function runIncidents(): string[] {
+  const incidents = [];
+  if (unexpectedHosts.length > 0) incidents.push("unexpected-host");
+  if (recipientMismatch) incidents.push("recipient-mismatch");
+  if (liveRefusal?.includes("does not match")) incidents.push("amount-mismatch");
+  if (confirmClickAttempted && !confirmPerformed) incidents.push("ambiguous-result");
+  if (confirmPerformed && !finalEvidencePassed) incidents.push("post-confirm-failure");
+  return [...new Set(incidents)];
+}
+function syncDisarmIssue(incidents: string[]): void {
+  const title = `verify: ${surfaceId} disarmed`;
+  const listed = Bun.spawnSync({
+    cmd: ["gh", "issue", "list", "--repo", "jessepollak/home", "--state", "open", "--search", `${title} in:title`, "--json", "number", "--jq", ".[0].number"],
+    cwd: repositoryRoot,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (listed.exitCode !== 0) throw new Error("Could not query the disarm issue.");
+  const number = listed.stdout.toString().trim();
+  const body = `Verifier incident for \`${surfaceId}\`: ${incidents.join(", ")}. Run id: \`${session}\`. The surface remains disarmed until Jesse comments \`/verify arm ${surfaceId}\` and that comment URL is recorded.`;
+  const result = number
+    ? Bun.spawnSync({ cmd: ["gh", "issue", "comment", number, "--repo", "jessepollak/home", "--body", body], cwd: repositoryRoot, stdout: "pipe", stderr: "pipe" })
+    : Bun.spawnSync({ cmd: ["gh", "issue", "create", "--repo", "jessepollak/home", "--title", title, "--body", body], cwd: repositoryRoot, stdout: "pipe", stderr: "pipe" });
+  if (result.exitCode !== 0) throw new Error("Could not create or update the disarm issue.");
+}
+async function recordLiveLedger(): Promise<void> {
+  if (!live || ledgerRecorded) return;
+  const incidents = runIncidents();
+  const rungReached = confirmPerformed ? 3 : steps.some((step) => step.status === "done" && (step.step.startsWith("expect Confirm") || step.step.startsWith("expect Review"))) ? 2 : 1;
+  const entry: LedgerEntry = {
+    type: "run",
+    timestamp: new Date().toISOString(),
+    runId: session,
+    host: baseUrl.host,
+    surface: surfaceId,
+    role: verifyRole,
+    mainRevision: currentMainRevision,
+    rungReached,
+    amountsUsd: confirmedAmountsUsd,
+    incidents,
+    clean: rungReached >= 2 && finalEvidencePassed && incidents.length === 0,
+  };
+  await appendLedger(ledgerPath, entry);
+  if (incidents.length > 0) {
+    await appendLedger(ledgerPath, { type: "disarm", timestamp: new Date().toISOString(), surface: surfaceId, incidents, runId: session });
+    syncDisarmIssue(incidents);
+  }
+  ledgerRecorded = true;
 }
 try {
   command("open", "--init-script", initPath);
@@ -462,6 +571,13 @@ try {
     const observedAccount = authenticatedAccountAddress();
     const pinError = accountPinError(observedAccount, pinnedAccount ?? "");
     if (pinError) throw new Error(pinError);
+    if (allowConfirm) {
+      command("navigate", new URL("/home", baseUrl).toString());
+      command("wait", "--fn", `Boolean(document.querySelector('[aria-label="Total balance"]'))`);
+      const renderedBalance = jsonResult(command("eval", `document.querySelector('[aria-label="Total balance"]')?.innerText||null`));
+      renderedBalanceUsd = typeof renderedBalance === "string" ? parseUsdAmount(renderedBalance) : null;
+      if (renderedBalanceUsd === null) throw new Error("The rendered account balance is not knowable; confirmation was refused.");
+    }
   } else {
     for (const [pattern, body] of fixtureRoutes()) {
       command("network", "route", pattern, "--body", JSON.stringify(body));
@@ -539,6 +655,18 @@ try {
         if (!liveRefusal && parsedAmountUsd !== null) {
           liveRefusal = enforceCumulativeAmountCap(cumulativeAmountUsd, parsedAmountUsd, maxUsdTotal ?? Number.NaN);
         }
+        if (!liveRefusal && maxUsd !== null && maxUsdTotal !== null) {
+          liveRefusal = confirmPolicyRefusal({
+            role: verifyRole,
+            armed: armState.armed,
+            amountUsd: parsedAmountUsd,
+            balanceUsd: renderedBalanceUsd,
+            runSpendUsd: spendForRun(ledgerEntries, session) + cumulativeAmountUsd,
+            todayFactorySpendUsd: spendForDay(ledgerEntries, new Date().toISOString().slice(0, 10)),
+            clickCapUsd: maxUsd,
+            runCapUsd: maxUsdTotal,
+          });
+        }
         if (liveRefusal || parsedAmountUsd === null || maxUsd === null || maxUsdTotal === null) {
           record.status = "failed";
           stoppedBefore = step.label;
@@ -571,6 +699,7 @@ try {
       if (confirmStep && parsedAmountUsd !== null) {
         confirmPerformed = true;
         cumulativeAmountUsd += parsedAmountUsd;
+        confirmedAmountsUsd.push(parsedAmountUsd);
         await writeLiveEvidence();
       }
     } catch (error) {
@@ -619,6 +748,7 @@ try {
     longTaskCount: performance.longTaskCount ?? 0,
   }, allowConsole);
   const evidence = liveRefusal ? { ...finalizedEvidence, passed: false } : finalizedEvidence;
+  finalEvidencePassed = evidence.passed;
   await writeFile(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
   await writeFile(summaryPath, summarizeEvidence(evidence, live ? "live" : "fixture"));
   if (live) {
@@ -646,6 +776,15 @@ try {
     command("close");
   } catch {
     exitCode = 1;
+    finalEvidencePassed = false;
+  }
+  if (live) {
+    try {
+      await recordLiveLedger();
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : "Could not record the verification ledger.");
+      exitCode = 1;
+    }
   }
   await rm(tempDirectory, { recursive: true, force: true });
 }

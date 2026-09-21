@@ -296,8 +296,8 @@ describe("live run guards", () => {
   });
 
   test("refuses CI environments", () => {
-    expect(automationEnvironmentError({ CI: "1" })).toContain("operator-only");
-    expect(automationEnvironmentError({ GITHUB_ACTIONS: "true" })).toContain("operator-only");
+    expect(automationEnvironmentError({ CI: "1" })).toContain("cannot run in CI");
+    expect(automationEnvironmentError({ GITHUB_ACTIONS: "true" })).toContain("cannot run in CI");
     expect(automationEnvironmentError({})).toBeNull();
   });
 

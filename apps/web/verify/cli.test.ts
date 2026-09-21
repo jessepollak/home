@@ -14,6 +14,17 @@ afterAll(() => {
   Bun.spawnSync(["rm", "-rf", home]);
 });
 
+async function armSurface(surface: string) {
+  const directory = resolve(home, ".home-verify");
+  Bun.spawnSync(["mkdir", "-p", directory]);
+  await Bun.write(resolve(directory, "ledger.jsonl"), `${JSON.stringify({
+    type: "arm",
+    timestamp: new Date().toISOString(),
+    surface,
+    by: "https://github.com/jessepollak/home/issues/1#issuecomment-1",
+  })}\n`);
+}
+
 function run(args: string[], extraEnv: Record<string, string | undefined> = {}) {
   const env: Record<string, string | undefined> = { ...process.env, HOME: home, CI: undefined, GITHUB_ACTIONS: undefined, ...extraEnv };
   const result = Bun.spawnSync({
@@ -43,7 +54,7 @@ describe("live CLI preflight", () => {
   test("refuses CI before browser launch", () => {
     const result = run(["account-settings", "--live", "--base-url", "https://example.com", "--out", outsideOutput], { CI: "1" });
     expect(result.exitCode).toBe(2);
-    expect(result.stderr).toContain("operator-only");
+    expect(result.stderr).toContain("cannot run in CI");
   });
 
   test("refuses output inside the repository before browser launch", () => {
@@ -81,6 +92,7 @@ describe("live CLI preflight", () => {
   });
 
   test("refuses account intent that differs from the saved pin before browser launch", async () => {
+    await armSurface("send");
     const stateDirectory = resolve(home, ".home-verify", "example.com", "state");
     Bun.spawnSync(["mkdir", "-p", stateDirectory]);
     await Bun.write(resolve(stateDirectory, "account"), `${addressA}\n`);
