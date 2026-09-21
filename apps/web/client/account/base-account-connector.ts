@@ -281,7 +281,7 @@ async function openBaseProvider(
   } catch (error) {
     removeListeners();
     if (walletConnected) {
-      try { await provider.disconnect(); } catch { /* best-effort wallet cleanup */ }
+      try { await provider.disconnect(); } catch {}
     }
     if (error instanceof BaseAccountConnectorError) throw error;
     const code = providerErrorCode(error);

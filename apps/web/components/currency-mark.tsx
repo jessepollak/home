@@ -97,7 +97,6 @@ function CurrencyMarkSlot({
     >
       <span className={styles.inner} data-mark-inner="">
         {showImage && src ? (
-          // Token metadata URLs and local flag SVGs are not in the Next allowlist.
           // oxlint-disable-next-line nextjs/no-img-element -- Provider icon URLs are remote runtime data, so next/image cannot statically optimize them.
           <img
             ref={imageRef}
