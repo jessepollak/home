@@ -5,7 +5,7 @@ Repository checks run without provider or funded-wallet secrets. Remaining deliv
 - `bun check` (including Oxlint-only lint with warnings denied and unused suppressions reported)
 - Chromium product smoke
 - story tests (`bun run --cwd apps/web test:stories`)
-- delivery automation tests (`bun run gates`: repository gate canaries, including the non-vacuous temporary-mirror Oxlint contract suite, plus PR-metadata algorithms; also run inside `bun check`)
+- delivery automation tests (`bun run gates`: repository gate canaries, including the non-vacuous temporary-mirror Oxlint contract suite, plus PR-metadata algorithms, plus the figma-implementation skill's spec/diff unit tests; also run inside `bun check`)
 - disposable PostgreSQL contracts for actions, funding, and balances
 
 ## Story-test boundary
