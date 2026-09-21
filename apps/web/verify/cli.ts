@@ -1,12 +1,12 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { finalizeEvidence, summarizeEvidence, type MarkResult } from "./evidence";
 import { fixtureRoutes, requiresSignedInFixture } from "./fixtures";
-import { parseFeatureMap, type ReachStep } from "./map";
+import { readFeatureMap, type ReachStep } from "./map";
 
 const args = Bun.argv.slice(2);
 const featureMapPath = resolve(import.meta.dir, "../../../.agents/skills/browser-iteration/feature-map.md");
-const surfaces = parseFeatureMap(await readFile(featureMapPath, "utf8"));
+const surfaces = await readFeatureMap(featureMapPath);
 if (args.includes("--list")) {
   for (const surface of surfaces.values()) {
     console.log(`${surface.id}: ${surface.manual ? "manual" : "automated"}`);

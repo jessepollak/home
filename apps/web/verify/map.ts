@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+
 export type ReachStep =
   | { kind: "goto"; path: string }
   | { kind: "click"; label: string }
@@ -13,6 +15,10 @@ export type Surface = {
 };
 
 const stepPattern = /^(goto|click|fill|press|expect)\s+"([^"]*)"(?:\s+"([^"]*)")?$/;
+
+export async function readFeatureMap(path: string): Promise<Map<string, Surface>> {
+  return parseFeatureMap(await readFile(path, "utf8"));
+}
 
 export function parseFeatureMap(markdown: string): Map<string, Surface> {
   const surfaces = new Map<string, Surface>();
