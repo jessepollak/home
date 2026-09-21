@@ -155,7 +155,7 @@ export function createBalancesPricer(dependencies: Dependencies = {}) {
     };
     try {
       schedule(task);
-    } catch { // oxlint-disable-line home/no-silent-catch -- a synchronous schedule failure releases every refresh key; an empty key set needs no release
+    } catch { // oxlint-disable-line home/no-silent-catch -- a synchronous schedule failure releases every refresh key, but the ForOfStatement body is not traversed
       for (const key of keys) refreshing.delete(key);
     }
   }
