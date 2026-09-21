@@ -1,4 +1,3 @@
-/* Local, authorized assets; see public/home-mark/PROVENANCE.md. */
 @font-face {
   font-family: "Home Mark Base Sans";
   src: url("/home-mark/BaseSans-Medium.woff") format("woff");
@@ -11,7 +10,6 @@
   font-family: "Home Mark Doto";
   src: url("/home-mark/Doto.ttf") format("truetype");
   font-display: swap;
-  /* Deliberately no weight range: preserves the reference's variable face. */
 }
 
 .root {
@@ -56,7 +54,6 @@
 }
 
 .control:hover {
-  /* Natural home advance is wider than base. This never resizes .root. */
   width: 82px;
 }
 

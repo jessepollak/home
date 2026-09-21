@@ -122,6 +122,10 @@ A fiat or card ledger, KYC document storage, custom contracts, multichain routin
 - Missed webhook: an active client sees an external transfer within the 120 s backstop plus CDP index lag; an idle client sees it on return.
 - Action failure modes: [actions.md](actions.md#failure-modes-we-accept).
 
+## Comment policy
+
+Non-test, non-story code in `app`, `client`, `components`, `server`, and `shared` carries no comments. The only exceptions are `oxlint-disable*` directives with a `-- reason`, triple-slash references, and third-party licence or notice headers. When prose exposes useful information, either delete it because the code is already clear, assert the behavior in a test, encode the invariant in an assertion or type, enforce the pattern with lint, or move durable operational and architectural context into `docs/`.
+
 ## Test policy
 
 Test Home's logic: calldata issuance (exact approvals and amounts), auth scope, amount parsing and formatting, derived status (table-driven), the owner fence, selectors and presenters, and UI behavior that would be a bug if broken. Never re-test CDP, Base Account, Next, motion, or happy-dom. No real sleeps; no assertions on source text or rendered CSS classes; integration fixtures load migrations only through `apps/web/tests/helpers/migrations.ts`; matrices are table-driven and bounded; one behavior per test. The test-only Oxlint overrides and temporary-mirror canaries enforce the mechanical rules. Heuristic: a PR's test code should not exceed its product code, except for status derivation and amount parsing.
