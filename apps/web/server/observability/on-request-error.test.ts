@@ -54,6 +54,16 @@ describe("Next onRequestError ownership", () => {
     }
   });
 
+  test("Next error handling stays the only owner when reporting fails", async () => {
+    setObservabilityLogWriterForTests(() => { throw new Error("reporter unavailable"); });
+
+    await expect(handleRequestError(
+      new Error("application failure"),
+      { method: "GET", path: "/home", headers: {} },
+      { routePath: "/app/page", routeType: "render" },
+    )).resolves.toBeUndefined();
+  });
+
   test("does not inspect hostile exception getters", () => {
     const hostile = Object.create(Error.prototype, {
       name: { get: () => { throw new Error("hostile name"); } },

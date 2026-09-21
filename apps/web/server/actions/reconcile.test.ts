@@ -197,6 +197,11 @@ describe("Base Account handle reconciliation", () => {
     expect(calls).toHaveLength(2);
   });
 
+  test("a bad RPC override degrades to unavailable instead of failing at route load", async () => {
+    const resolver = createActionHandleResolver({ walletRpcUrl: "not a URL" });
+    await expect(resolver(action())).resolves.toEqual({ status: "unavailable" });
+  });
+
   test("skips a legacy UUID handle without fetching", async () => {
     const { calls, fetchImpl } = fixtureFetch((handle) => rpcResult(handle));
     const resolver = createActionHandleResolver({ fetchImpl });
