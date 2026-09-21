@@ -1,4 +1,4 @@
-const OXLINT_DISABLE_DIRECTIVE = /^\s*oxlint-disable(?:-line|-next-line)?\b[^\r\n]*?\s--\s\S/u;
+const OXLINT_DISABLE_DIRECTIVE = /^\s*oxlint-disable(?:-line|-next-line)?\s[^\r\n]*?\s--\s\S/u;
 const TRIPLE_SLASH_REFERENCE = /^\/\s*<reference\s+(?:path|types|lib|no-default-lib)=/u;
 const THIRD_PARTY_NOTICE = /(?:SPDX-License-Identifier:|@license\b|\bCopyright\s*(?:\(c\)|©)|\bMIT License\b|\bApache License\b)/iu;
 

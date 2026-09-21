@@ -47,6 +47,7 @@ export function Example() { return <div>{/* JSX */}</div>; }
   it("allows oxlint disable directives only when they carry a reason", async () => {
     expect(await diagnostics("// oxlint-disable-next-line no-console -- console output is the fixture contract.\nconsole.log('ok');", "ts")).toHaveLength(0);
     expect(await diagnostics("// oxlint-disable-next-line no-console\nconsole.log('no reason');", "ts")).toHaveLength(1);
+    expect(await diagnostics("// oxlint-disable-note -- not a directive\nexport {};", "ts")).toHaveLength(1);
     expect(await diagnostics("export const node = <div>{/* oxlint-disable-next-line react/jsx-key -- upstream nodes have stable identity. */}</div>;" )).toHaveLength(0);
   });
 
