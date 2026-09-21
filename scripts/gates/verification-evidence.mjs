@@ -62,9 +62,10 @@ export function parseVerificationRows(body) {
   for (const line of section.split("\n")) {
     if (!line.trim().startsWith("|")) continue;
     const cells = line.split("|").slice(1, -1).map((cell) => cell.trim());
-    if (cells.length < 4 || /^surface$/i.test(cells[0]) || /^-+$/.test(cells[0])) continue;
-    const surface = cells[0].replaceAll("`", "");
-    const rung = Number(cells[1].match(/[0-4]/)?.[0] ?? Number.NaN);
+    if (cells.length < 4) continue;
+    const surface = cells[0].match(/[^\s`]+/)?.[0];
+    if (!surface || /^surface$/i.test(surface) || /^-+$/.test(surface)) continue;
+    const rung = Number(cells[1].match(/(?:^|\s)([0-4])(?=\s|$)/)?.[1] ?? Number.NaN);
     rows.set(surface, { rung, evidence: cells[2], incidents: cells[3] });
   }
   return rows;
@@ -83,7 +84,8 @@ export function verificationEvidenceFindings(files, body, surfaces) {
   for (const [surface, rung] of required) {
     const row = rows.get(surface);
     if (!row) findings.push(`Missing ## Verification row for ${surface}; Rung ${rung} is required.`);
-    else if (!Number.isFinite(row.rung) || row.rung < rung) findings.push(`${surface} reports Rung ${row.rung || 0}; Rung ${rung} is required.`);
+    else if (!Number.isFinite(row.rung)) findings.push(`Missing rung for ${surface}; Rung ${rung} is required.`);
+    else if (row.rung < rung) findings.push(`${surface} reports Rung ${row.rung}; Rung ${rung} is required.`);
     else if (!row.evidence || /^(n\/a|none|-|pending)$/i.test(row.evidence)) findings.push(`${surface} needs an evidence pointer for Rung ${rung}.`);
   }
   return findings;

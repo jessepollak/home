@@ -66,6 +66,31 @@ test("requires Rung 3 for the actions routes and the money modal", () => {
   assert.equal(requiredRung(realSurface("send"), "apps/web/client/transfers/recipient.tsx"), 2);
 });
 
+test("matches surface rows by their leading token and reads only a standalone rung digit", () => {
+  const rows = parseVerificationRows(`## Verification
+
+| surface | rung reached | evidence pointer | incidents |
+| --- | --- | --- | --- |
+| \`dev-ui\` — comment-only change | 0 | /tmp/dev-ui/summary.md | none |
+| send | 10 | /tmp/send/summary.md | none |
+| save | Rung 3 | /tmp/save/summary.md | none |
+`);
+  assert.equal(rows.get("dev-ui").rung, 0);
+  assert.ok(Number.isNaN(rows.get("send").rung));
+  assert.equal(rows.get("save").rung, 3);
+});
+
+test("reports a missing rung and accepts a suffixed surface cell", () => {
+  assert.deepEqual(
+    verificationEvidenceFindings(["apps/web/client/landing/page.tsx"], body.replace("| landing | 1 |", "| landing | 10 |"), surfaces),
+    ["Missing rung for landing; Rung 1 is required."],
+  );
+  assert.deepEqual(
+    verificationEvidenceFindings(["apps/web/client/landing/page.tsx"], body.replace("| landing | 1 |", "| landing — read-only copy | 1 |"), surfaces),
+    [],
+  );
+});
+
 test("passes complete evidence and fails missing, low, or pointerless rows", () => {
   assert.deepEqual(verificationEvidenceFindings([
     "apps/web/client/landing/page.tsx",
