@@ -29,6 +29,15 @@ describe("parseBalancesSnapshot", () => {
     expect(parsed).toEqual(balancesSnapshotFixture);
   });
 
+  test("the reference fixture totals 385288 minor units at partial status", () => {
+    const parsed = parseBalancesSnapshot(clone(balancesSnapshotFixture), session, "US");
+    expect(parsed.total).toEqual({
+      status: "partial",
+      value: { atoms: "385288", scale: 2 },
+      currency: "USD",
+    });
+  });
+
   test("accepts a GLOBAL region snapshot with no quote currency", () => {
     const snapshot = buildBalancesSnapshotFixture({ region: "GLOBAL" });
     expect(snapshot.quoteCurrency).toBeNull();

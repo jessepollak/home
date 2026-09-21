@@ -83,6 +83,18 @@ describe("presentation money formatting", () => {
       .toMatch(/^\S+\u00a0vault\u00a0shares$/);
   });
 
+  test("multi-character currency symbols take one no-break space", () => {
+    for (const formatted of [
+      formatFiatAmount("1234.56", "BRL", { regionId: "BR", fractionDigits: 2 }),
+      formatFiatAmount("1234.56", "IDR", { regionId: "ID", fractionDigits: 2 }),
+    ]) {
+      expect(formatted).toMatch(/^(?:R\$|Rp)\u00a0\S/);
+      expect(formatted).not.toContain("\u00a0\u00a0");
+    }
+    expect(formatFiatAmount("1234.56", "USD", { regionId: "US", fractionDigits: 2 }))
+      .toBe("$1,234.56");
+  });
+
   test("formats amounts, signs, percentages, prices, and dates for every locale", () => {
     for (const entry of localeCases) {
       expect(
