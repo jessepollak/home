@@ -1,4 +1,3 @@
-// No-op: touch apps/web so Vercel preview rebuilds after Neon prune (empty/docs-only commits can skip).
 import "server-only";
 
 const IPFS_GATEWAY = "https://ipfs.io/ipfs/";
