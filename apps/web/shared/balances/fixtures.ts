@@ -246,6 +246,5 @@ export const balancesSnapshotFixture: BalancesSnapshot = buildBalancesSnapshotFi
     }),
   ],
   coverage: { registry: "partial", catalog: "complete" },
-  // USDC 1,234.56 + ETH 1,600.00 + vault 1,000.12 + AERO 18.20 (gated in); toshi unavailable → partial.
   total: { status: "partial", value: decimal("385288", 2), currency: "USD" },
 });

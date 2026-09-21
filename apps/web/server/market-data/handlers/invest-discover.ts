@@ -23,7 +23,6 @@ export function createInvestDiscoverHandler(
 
     try {
       const payload = await readDiscover(offset);
-      // Failures must never be cached as successful/exhausted pages.
       const cacheControl =
         payload.memes.status === "ready" || payload.memes.status === "empty"
           ? "public, max-age=45, stale-while-revalidate=45"

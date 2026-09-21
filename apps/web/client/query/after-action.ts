@@ -114,9 +114,6 @@ export async function startBalanceFreshness(input: {
   const hasSnapshot = balanceQueries.some((q) => isBalancesSnapshot(q.state.data));
   if (!hasSnapshot || !isLatestStart()) return;
   const initial: Record<string, string | null> = Object.fromEntries(assetIds.map((id) => [id, null]));
-  // Regions refresh independently; an inactive region's snapshot can be hours
-  // old. Merge oldest → newest so the freshest non-null balance wins and older
-  // snapshots only fill gaps, otherwise a stale region reports a false move.
   const byFreshness = [...balanceQueries].sort(
     (a, b) => a.state.dataUpdatedAt - b.state.dataUpdatedAt,
   );
@@ -172,10 +169,6 @@ export async function startBalanceFreshness(input: {
     });
 }
 
-/**
- * Indexers (activity, Morpho positions) lag the chain; refresh them once the
- * balances have visibly moved (or the run timed out), not only at hash-post time.
- */
 export async function settleBalanceFreshness(input: {
   queryClient: Pick<QueryClient, "invalidateQueries">;
   dataOwnerKey: string;

@@ -187,8 +187,6 @@ export async function prepareCashoutWithdrawAction(
   );
   const method = binding?.directions.offramp?.paymentMethods[0];
   const env = dependencies.env ?? process.env;
-  // Recovery stays available after discovery/preparation is disabled so owners
-  // can withdraw USDC already held by the pinned escrow.
   if (!provider?.offramp || !binding || !method) unavailable();
   const currentMode = resolveFundingMode(provider.manifest, "offramp", env);
   const mode = modeForDeposit(provider.manifest, input.depositId) ?? currentMode;

@@ -20,7 +20,6 @@ type FetchLike = (
 ) => Promise<Response>;
 
 const DEFAULT_STATUS_RPC_URL = "https://rpc.wallet.coinbase.com";
-// Intentionally below handler.ts RECONCILE_DEADLINE_MS (3,000ms) so provider hangs open the breaker first.
 const DEFAULT_TIMEOUT_MS = 2_500;
 const CIRCUIT_BREAKER_MS = 60_000;
 const UNKNOWN_HANDLE_BACKOFF_MS = 5 * 60_000;
@@ -44,7 +43,6 @@ export function createActionHandleResolver(
     throw new Error("The Base Account status timeout must be 1-10000ms.");
   }
   const configuredUrl = (options.walletRpcUrl ?? process.env.BASE_ACCOUNT_STATUS_RPC_URL)?.trim() || DEFAULT_STATUS_RPC_URL;
-  // Resolved lazily so a bad optional override degrades to "unavailable" instead of failing the route at load.
   let rpcUrl: string | null = null;
   const now = options.now ?? Date.now;
   let circuitOpenUntil = 0;
@@ -114,7 +112,6 @@ export function createActionHandleResolver(
         } catch {
           const timedOut = controller.signal.reason instanceof DOMException &&
             controller.signal.reason.name === "TimeoutError";
-          // A caller abort says nothing about provider health; our timeout and transport failures do.
           if (externalSignal?.aborted && !timedOut) return { status: "unavailable" };
           circuitOpenUntil = now() + CIRCUIT_BREAKER_MS;
           backoff(handle, now() + UNAVAILABLE_BACKOFF_MS);

@@ -93,8 +93,6 @@ export function FundingOrderFlow({
   const [busy, setBusy] = useState(false);
   const [confirmationAttempted, setConfirmationAttempted] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Only redirect orders created in this dialog session auto-open; a resumed open
-  // order keeps its explicit "Continue to payment" link.
   const openedRedirectOrderRef = useRef<string | null>(
     initialOrder?.id ?? null,
   );
@@ -191,8 +189,6 @@ export function FundingOrderFlow({
     setConfirmationAttempted(true);
     setError(null);
     try {
-      // Keep and retry this exact signed token if the response is lost. The
-      // server correlates it to one durable reservation and never redispatches.
       const value = await fetchAccountResource("/api/funding/orders", {
         method: "POST",
         body: { quoteToken: draft.quoteToken },
@@ -449,8 +445,6 @@ function ProviderEconomicsReview({
     binding.assetSymbol,
     { regionId, useNoBreakSpace: true },
   );
-  // The provider may reprice between quote and order; the created order's
-  // instruction carries the fiat total the user will actually pay.
   const instruction = order.instructions;
   const pay =
     instruction && instruction.kind !== "redirect"

@@ -105,7 +105,6 @@ export function createSavingsGrowthAnchor({
   return { identity, authoritativeBaseUnits, estimate };
 }
 
-/** Returns a display-only estimate. Identity mismatches synchronously expose B0. */
 export function useEstimatedSavingsGrowth(
   anchor: SavingsGrowthAnchor,
   now: () => number = Date.now,

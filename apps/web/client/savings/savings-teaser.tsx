@@ -115,7 +115,6 @@ export function SavingsTeaser({
       nowMs: rateNowMs,
     });
   }, [metadataQuery.data, positions, rateNowMs]);
-  // A restoring/validating session is unknown, not zero: keep the shimmer until the owner is known.
   const sessionSettling = account.status === "restoring" || account.status === "validating";
   const loading = sessionSettling ||
     (!metadataQuery.data && !metadataQuery.isError) ||

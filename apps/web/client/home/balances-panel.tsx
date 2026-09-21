@@ -156,8 +156,6 @@ export function HomeMoneyGroups({
   onOpenGroup: (group: MoneyGroupPresentation["id"]) => void;
 }) {
   if (groups.length > 0) {
-    // Preview each group the snapshot presents; hidden dust rows never reach Home, and an absent
-    // group (no investments yet) stays hidden rather than showing a header and a More row.
     const hiddenKeys = new Set(hiddenRows.map((row) => row.key));
     const previewGroups = groups
       .map((group) => ({

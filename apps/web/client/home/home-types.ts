@@ -14,7 +14,6 @@ export type HomeExperienceProps = {
   savingsContent?: ReactNode;
   initialAccountOpen?: boolean;
   initialPanel?: ShellPanelId;
-  /** The server-validated canonical page location for this URL; the shell otherwise parses window.location. */
   initialLocation?: ShellLocation;
   initialAccountSettingsOpen?: boolean;
   assetBalances?: HomeAssetBalancesPresentation;
@@ -25,7 +24,6 @@ export type HomeExperienceProps = {
   onShowSmallBalancesChange?: (value: boolean) => void;
   landingVisual?: ReactNode;
   routeMode?: "landing" | "dashboard";
-  /** Live balances revalidation state from the owning experience; anchors hold until it settles. */
   balancesRevalidating?: boolean;
   initialAddMoney?: boolean;
   returnedFromProvider?: boolean;

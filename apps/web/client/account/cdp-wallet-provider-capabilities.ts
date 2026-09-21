@@ -16,7 +16,6 @@ export function writeCdpRestoreMarker(): void {
   try {
     window.localStorage.setItem(CDP_RESTORE_MARKER_KEY, "1");
   } catch {
-    // This identity-free hint may only delay settlement; it grants no auth.
   }
 }
 
@@ -32,7 +31,6 @@ export function clearCdpRenderHint(): void {
   try {
     window.localStorage.removeItem(CDP_RESTORE_MARKER_KEY);
   } catch {
-    // Continue clearing the readable cookie when storage is unavailable.
   }
   if (typeof document === "undefined") return;
   try {
@@ -90,7 +88,6 @@ export function writeAccountProviderHint(provider: AccountProviderHint | null) {
       window.sessionStorage.removeItem(ACCOUNT_PROVIDER_HINT_KEY);
     }
   } catch {
-    // This hint may only restrict restoration; storage is not an auth boundary.
   }
 }
 

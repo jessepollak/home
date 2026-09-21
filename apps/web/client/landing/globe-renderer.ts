@@ -155,7 +155,6 @@ export function createGlobeRenderer(
   function tick(time: number) {
     frame = 0;
     if (disposed || !visible || document.hidden) return;
-    // Includes pointer updates: at most 30fps, with no inactive-time catch-up.
     if (time - lastTime >= 1000 / 30) {
       if (playing && !drag) {
         const nextLongitude = advanceMotion(longitudeVelocity, time - lastTime);
@@ -192,7 +191,6 @@ export function createGlobeRenderer(
   }
 
   function pointerDown(event: PointerEvent) {
-    // A second finger belongs to browser pinch zoom, not globe inertia.
     if (!event.isPrimary) { endDrag(false); return; }
     if (event.button !== 0 || disposed || !visible || document.hidden) return;
     endDrag(false);
@@ -239,8 +237,6 @@ export function createGlobeRenderer(
 
   function suspend() {
     endDrag(false);
-    // A pointer move may be waiting for the 30fps draw. Resume from what was
-    // actually displayed, not from an unseen final gesture update.
     longitude = presentedLongitude;
     latitude = presentedLatitude;
     dirty = false;

@@ -78,9 +78,6 @@ export function createHomeStartupRecorder(dependencies: RecorderDependencies) {
     if (route === null || terminal || !marks.has("shell:paint") || !marks.has("session:verified")) {
       return null;
     }
-    // Every canonical shell route paints the same authenticated balances shell.
-    // Interactivity is useful when already observed, but it must not hold the
-    // startup report open after the visible authenticated shell is ready.
     if (route !== "/" && !marks.has("balances:painted")) return null;
     return finish("ready");
   };

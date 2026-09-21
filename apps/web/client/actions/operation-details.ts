@@ -42,7 +42,6 @@ export function labelForMoneyActionKind(kind: ActionKind): string {
   }
 }
 
-/** Underlying assets first; ERC-4626 vault shares follow as secondary detail. */
 export function primaryOperationAmount(
   operation: RecentMoneyActionOperation,
 ): MoneyActionAmount | undefined {

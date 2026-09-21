@@ -85,9 +85,6 @@ export function ActivityPanelView({
   const items = mergeActivityFeed({ transfers, operations });
   const visibleItems = density === "teaser" ? items.slice(0, ACTIVITY_TEASER_LIMIT) : items;
   const hasRows = visibleItems.length > 0;
-  // Initial load waits for both Activity sources to settle so the panel never
-  // presents whichever source resolved first as the whole feed. Load-more is
-  // separate (status stays "ready" while loading more) and keeps existing rows.
   const sourcesPending = activity.status === "loading" || actionsStatus === "loading";
 
   if (activity.status === "unavailable" && !hasRows) {

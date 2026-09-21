@@ -39,11 +39,6 @@ const AMOUNT_FIT_SAFETY_FACTOR = 0.97;
 
 export type MoneyAmountChangeSource = "keypad" | "programmatic";
 
-/**
- * Keypad edits should not animate digits out from under the user's finger;
- * every other change (chips, resets, unit toggles on the same amount) animates.
- * Kept module-private: the contract is asserted through the rendered ticker.
- */
 function shouldAnimatePrimaryAmount(
   previousAmount: string,
   amount: string,
@@ -71,13 +66,6 @@ export function matchesMoneyAssetOption(
     .includes(normalized);
 }
 
-/**
- * Scales a formatted amount to fit the available width without changing,
- * rounding, abbreviating, ellipsizing, or clipping the value. Returns the
- * largest font size (px) up to `baseFontSize` that keeps the value inside
- * `availableWidth` given its measured `naturalWidth` at `baseFontSize`.
- * Below `minFontSize` it stops shrinking and the full value stays visible.
- */
 export function fitAmountFontSize(
   availableWidth: number,
   naturalWidth: number,
@@ -148,9 +136,6 @@ export function useAutoFitAmountText(text: string) {
     const min = Number.parseFloat(minRaw) || AMOUNT_MIN_FONT_SIZE_FALLBACK;
     const fitted = available * AMOUNT_FIT_SAFETY_FACTOR;
     const target = Math.floor(fitAmountFontSize(fitted, natural, base, min) * 10) / 10;
-    // At the minimum type size an extreme value (20 characters at 320px) can still
-    // exceed the width; compact only the inline axis by the small remainder rather
-    // than clipping or dropping below the readable minimum.
     const unclamped = (base * fitted) / natural;
     const targetScaleX = Math.min(1, Math.max(0.9, unclamped / target));
 
@@ -328,8 +313,6 @@ export function MoneyPrimaryAmount({
   nativeSymbol: string;
 }) {
   const text = formatPrimaryAmount(amount, unit, pricing, fiatCurrency, nativeSymbol);
-  // Hold the animation decision until the amount or rendered text changes so
-  // unrelated rerenders do not restart the digit transition.
   const [rendered, setRendered] = useState({ amount, text, animated: true });
   let animated = rendered.animated;
   if (rendered.amount !== amount || rendered.text !== text) {

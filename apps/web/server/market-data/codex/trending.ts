@@ -608,13 +608,6 @@ function normalizeTrendingRows(
   return { assets, snapshots };
 }
 
-/**
- * Reads and validates the provider's `count`/`page` metadata. `page` must equal
- * the requested offset — this is the truthfulness guard that prevents a silent
- * "repeated page one" regression — and `count` must equal the number of rows in
- * this page so the next offset advances by real provider results, never by a
- * client-side dedup count.
- */
 function readTrendingPageMeta(
   connection: Record<string, unknown>,
   offset: number,

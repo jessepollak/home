@@ -412,8 +412,6 @@ async function openBaseProvider(
       if (!id || id.length > 512) {
         throw new BaseAccountConnectorError("invalid-provider-response");
       }
-      // The provider handle is durable evidence that the request returned. Parse and
-      // return it before any unrelated account-state read can erase that evidence.
       return id;
     },
     async getCallsStatus(submissionId) {

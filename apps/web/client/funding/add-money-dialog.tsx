@@ -71,8 +71,6 @@ export function AddMoneyDialog({
   onSelectReceive: () => void;
   providerBindings: ReadonlyArray<FundingBinding>;
   providerBindingsDisabled: boolean;
-  // Customer-capable bindings stay unselectable until the customer lookup that
-  // feeds the order flow has succeeded.
   customerSetupReady: boolean;
   fundingReadError: { message: string; retry: () => void } | null;
   selectedBinding: FundingBinding | null;
@@ -244,7 +242,6 @@ export function MethodBody({
 }
 
 function fundingMethodDescription(binding: FundingBinding): string {
-  // A method labelled like the provider itself ("Coinbase · Coinbase") says nothing twice.
   const labels = binding.paymentMethods
     .map((method) => method.label)
     .filter((label) => label !== binding.displayName);

@@ -22,11 +22,6 @@ export function isTransactionHash(value: unknown): value is `0x${string}` {
   return typeof value === "string" && transactionHashPattern.test(value);
 }
 
-/**
- * Builds a BaseScan transaction link only for a real 0x-prefixed 64-hex
- * transaction hash. ERC-4337 user-operation hashes and other submission
- * references must not open the Base transaction explorer.
- */
 export function transactionExplorerLink(
   transactionHash: unknown,
 ): TransactionExplorerLink | null {

@@ -49,8 +49,6 @@ export function createMarketPriceHistoryHandler(
 
     if (isDynamicMarketPriceAssetId(identity.assetId)) {
       try {
-        // Provider-backed exact admission from the canonical contract/network.
-        // This is independent of the page-zero catalog so page-2+ memes pass.
         const admitted = await readDynamicAdmission(
           identity.contractAddress,
           identity.chainId,

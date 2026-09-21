@@ -11,7 +11,6 @@ import {
 } from "@/shared/balances/types";
 import type { BalancesUniverse, UniverseEntry } from "./types";
 
-/** The pinned chain read is intentionally limited to configured registry assets. */
 export function registryEntries(): UniverseEntry[] {
   const direct = getDirectPortfolioAssets();
   const cash = direct.filter((asset) => asset.cashCurrency !== null);

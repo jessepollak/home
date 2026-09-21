@@ -308,7 +308,6 @@ export function parseCdpSqlResponseEnvelope(
 
 const INVALID = Symbol("invalid-cdp-sql-field");
 
-/** Live empty page: `result: null` + `rowCount: 0`. Missing `result` stays invalid. */
 function normalizeResultRows(
   result: unknown,
   declaredRowCount: number | null,

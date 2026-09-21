@@ -158,7 +158,6 @@ export function createCdpTokenBalancesClient(options: {
             signal: request.signal,
           });
         } catch (error) {
-          // A missing later page must not erase quantities already read.
           if (collected.size > 0 && pageToken && isTransientPageError(error)) {
             break;
           }

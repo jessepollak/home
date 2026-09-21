@@ -62,7 +62,6 @@ export function locateCountries(countries: readonly GlobeCountry[]): GlobePoint[
   });
 }
 
-/** Right-handed unit sphere: +Y north, +Z at the prime meridian. */
 export function geographicVector(longitude: number, latitude: number) {
   const lon = longitude * RAD;
   const lat = latitude * RAD;
@@ -167,7 +166,6 @@ export type GlobePopoverSelection = {
   position: ReturnType<typeof projectCountry>;
 };
 
-/** Selects one sourced, front-facing profile without oscillating between nearby markers. */
 export function selectGlobePopoverCountry(
   points: readonly GlobePoint[],
   viewLongitude: number,

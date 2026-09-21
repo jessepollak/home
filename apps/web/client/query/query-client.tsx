@@ -90,7 +90,6 @@ export function createOwnerQueryPersister(
     try {
       storage.setItem(key, JSON.stringify(value));
     } catch {
-      // Persistence is a performance optimization; quota/private-mode failures fail open.
     }
   };
   return {
@@ -167,7 +166,6 @@ export function restoreOwnerQueries(
     if (persisted) persister?.removeClient();
     return false;
   }
-  // Defense in depth: hydrate only this owner's queries even if the blob was tampered with.
   const state = persisted.clientState;
   hydrate(queryClient, {
     ...state,
@@ -186,10 +184,6 @@ export function ownerRestoreCacheState(
 
 export function OwnerQueryPersistence({ ownerKey }: { ownerKey: string | null }) {
   const queryClient = useQueryClient(browserHomeQueryClient());
-  // Restore runs in the first passive effect: the SSR/initial hydration render
-  // shows the loading shell, and the owner-scoped cache hydrates immediately
-  // after hydration — never during render, where mutating the query client
-  // could diverge from the server HTML (hydration mismatch).
   useEffect(() => {
     if (!ownerKey || typeof window === "undefined") return;
     const restored = restoreOwnerQueries(queryClient, window.localStorage, ownerKey);

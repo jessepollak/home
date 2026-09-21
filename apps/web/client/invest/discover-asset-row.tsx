@@ -55,9 +55,6 @@ export function DiscoverAssetRow({
         </ItemContent>
         <ItemContent className="items-end text-right">
           {isMarketLoading ? (
-            // Loading rows keep the known asset name and the settled row's
-            // dimensions: stable Skeleton bars instead of a finished-looking
-            // em dash (#460).
             <>
               <Skeleton className="h-5 w-16" data-shimmer="price" />
               <Skeleton className="h-5 w-12" data-shimmer="change" />

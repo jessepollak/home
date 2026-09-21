@@ -39,8 +39,6 @@ if (typeof window === "undefined") {
 const { cleanup: cleanupDomTests } = await import("@testing-library/react");
 
 afterEach(() => {
-  // Unmount observers before clearing so no active query can repopulate the
-  // shared browser client after a test boundary.
   cleanupDomTests();
   getHomeQueryClient().clear();
 });

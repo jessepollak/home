@@ -46,7 +46,6 @@ export async function reportClientError(
       referrerPolicy: "no-referrer",
     });
   } catch {
-    // Reporting must never affect the application.
   }
 }
 
@@ -74,7 +73,6 @@ function safeThrownDescription(value: unknown): { name: string; message: string 
       return { name: "UnhandledRejection", message: value };
     }
   } catch {
-    // Hostile getters and proxy values are intentionally ignored.
   }
   return { name: "UnhandledRejection", message: "Non-Error rejection" };
 }
@@ -115,6 +113,5 @@ export function installClientErrorReporting(
       }
     });
   } catch {
-    // Instrumentation installation cannot block hydration.
   }
 }

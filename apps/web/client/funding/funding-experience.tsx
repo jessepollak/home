@@ -182,9 +182,6 @@ function FundingExperienceBoundary({
     });
   }, [customersQuery.data, ordersQuery.data, ordersQuery.isSuccess, providerBindings, returnedFromVerification]);
 
-  // The order flow snapshots the customer record once, so a customer-capable
-  // binding stays unselectable until the lookup that yields that record has
-  // succeeded. Direct Coinbase/IDRX bindings never wait on it.
   const customerSetupReady = customersQuery.isSuccess || !customerSetupRequired;
   const fundingReadError = providerQuery.isError
     ? {

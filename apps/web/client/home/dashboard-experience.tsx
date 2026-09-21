@@ -16,10 +16,6 @@ export function DashboardExperience({
   initialSearch?: string;
 }) {
   const discover = useInvestDiscover();
-  // The canonical shell page validates the URL pathname into an explicit
-  // location, so SSR and the first hydrated render select the same panel and
-  // Invest view directly from server data — never window.location, which the
-  // server cannot see and which would first paint Home and flash (#460).
   const initialInvestView = useMemo(
     () => investViewFromLocation(initialLocation),
     [initialLocation],

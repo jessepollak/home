@@ -140,7 +140,6 @@ export function sendHomeAuthSignOut(report: Omit<HomeAuthSignOutReport, "version
 export function startHomeAuthRestore(hint: HomeAuthHint): void {
   try {
     if (typeof window === "undefined") return;
-    // Canonical routes normalize to their L1 label; dynamic segments never leak.
     const route = normalizeHomeStartupRoute(window.location.pathname);
     if (!route) return;
     recorder.start(route, hint);

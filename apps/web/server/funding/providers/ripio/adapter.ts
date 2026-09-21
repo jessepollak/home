@@ -42,9 +42,6 @@ export const ripioProvider: FundingProvider = {
       async startVerification(input, ctx) {
         const startedAt = Date.now();
         try {
-          // Terms acceptance and KYC submission are provider writes. The core
-          // claims the durable customer row before entering this method, and any
-          // uncertainty after that point is never retried automatically.
           if (!input.clientIp) throw new RipioProviderError("invalid-request");
           const client = clientFor(ctx);
           const termsId = readTermsId(await client.getTerms());
@@ -75,9 +72,6 @@ export const ripioProvider: FundingProvider = {
     async createQuote(input, ctx) {
       const startedAt = Date.now();
       try {
-        // Ripio prices a quote against the customer, so the verified customer
-        // must already exist. Without it the provider rejects the create, and
-        // a quote bound to the wrong customer could not be ordered against.
         if (!input.customerRef) throw new RipioProviderError("invalid-request");
         const quote = await clientFor(ctx).createQuote({
           country: countryFor(ctx),
@@ -91,10 +85,6 @@ export const ripioProvider: FundingProvider = {
         });
         return {
           providerQuoteId: quote.quoteId,
-          // Ripio pads the amount to its own precision, so the requested form
-          // is restored when the two are the same debit. A provider that
-          // actually changed the debit is passed through unchanged and the core
-          // rejects it, which keeps that decision where it is documented.
           fiatAmount: sameRipioDecimal(quote.finalFromAmount, input.fiatAmount) ? input.fiatAmount : quote.finalFromAmount,
           tokenAmountAtomic: ripioDecimalToAtomic(quote.finalToAmount, ctx.binding.asset.decimals, "invalid-response"),
           fees: quote.fees.map((fee) => ({

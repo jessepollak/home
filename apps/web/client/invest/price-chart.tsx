@@ -151,7 +151,6 @@ function ChartBody({
   );
 }
 
-/** Commit a complete series only. Mid-load points/window/value stay on last-good. */
 function useHeldLivelinePlot(
   status: PriceHistoryState["status"],
   incoming: LivelinePoint[],

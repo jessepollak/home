@@ -39,16 +39,10 @@ function cachedNumberFormat(
   return formatter;
 }
 
-/**
- * ICU builds disagree on the whitespace they emit (U+0020 vs U+00A0 vs U+202F)
- * and on joiners such as "at". Home owns these typographic choices so output is
- * byte-identical on every platform.
- */
 function collapseSpaces(value: string, replacement: string): string {
   return value.replace(anySpace, replacement).trim();
 }
 
-/** Multi-character currency symbols (R$, Rp, US$) take one no-break space; single glyphs ($, €, £) none. */
 function joinCurrencyPrefix(symbol: string, amount: string): string {
   const compact = collapseSpaces(symbol, "");
   if (!compact) return amount;

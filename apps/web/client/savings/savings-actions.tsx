@@ -221,7 +221,6 @@ function OwnerBoundSavingsMoneyDialog({
       try {
         await onConfirmed?.(result);
       } catch {
-        // A parent refresh failure must not relabel a dispatched action.
       }
       reset();
       onClose();

@@ -34,7 +34,6 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 const hashPattern = /^0x[0-9a-fA-F]{64}$/;
 const RECONCILE_GRACE_MS = 20_000;
 const RECONCILE_MAX_PER_REQUEST = 5;
-// Window step matches the client's Activity poll so >5 candidates are covered across consecutive requests.
 const RECONCILE_ROTATION_MS = 10_000;
 const RECONCILE_DEADLINE_MS = 3_000;
 const BALANCES_HOT_WINDOW_MS = 60_000;
@@ -382,7 +381,6 @@ function isReconcileCandidate(row: ActionRow, now: Date): boolean {
     now.getTime() - confirmedAt >= RECONCILE_GRACE_MS;
 }
 
-/** Newest-first when the list fits; otherwise a window that walks the list over time so no candidate is starved by permanently hashless newer rows. */
 function rotatingWindow<T>(items: T[], size: number, nowMs: number): T[] {
   if (items.length <= size) return items;
   const start = Math.floor(nowMs / RECONCILE_ROTATION_MS) % items.length;

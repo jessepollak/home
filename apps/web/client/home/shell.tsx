@@ -115,10 +115,6 @@ export function HomeShell({
 }: HomeShellProps) {
   const router = useRouter();
   const account = useAccountWallet();
-  // The pathname is authoritative for page state and the query string only ever
-  // carries ephemeral overlays. The server page passes its validated canonical
-  // location so SSR and the first hydrated render agree; the client falls back
-  // to parsing window.location for mounts without an explicit location (landing).
   const [initialUrlIntent] = useState(() => readHomeInboundPanelState(
     initialLocation ?? (typeof window === "undefined"
       ? parseShellLocation("/")
@@ -154,10 +150,6 @@ export function HomeShell({
   const panelStageRef = useRef<HTMLElement>(null);
   const explicitLogoutRef = useRef(false);
   const landingRedirectedRef = useRef(false);
-  // A cold load that lands directly on /balances/<group> must anchor the
-  // requested group exactly like the in-app More action: navigationRequest is
-  // still 0 and balances paint only after the session verifies, so the armed
-  // group is anchored once the target section first renders (#460).
   const coldGroupAnchorRef = useRef<MoneyGroupId | null>(
     routeMode === "dashboard" && initialPanel === balancesPanelId
       ? initialUrlIntent.location.group
@@ -268,8 +260,6 @@ export function HomeShell({
     setUrlIntent(intent);
   }, []);
 
-  // Overlays commit on top of the current canonical pathname; the pathname is
-  // never changed by overlay state.
   const currentUrlIntent = useCallback(() => readHomeInboundPanelState(
     parseShellLocation(window.location.pathname),
     new URLSearchParams(window.location.search),
@@ -361,9 +351,6 @@ export function HomeShell({
     const intent = pendingUrlIntentRef.current;
     applyUrlState(intent);
     setSettingsOpenedInApp(false);
-    // The server-selected panel already painted this destination on first render
-    // (initialPanel); reapplying the same panel must not refocus the panel stage
-    // or reset its scroll (#460). Only a panel change is a navigation event.
     if (intent.panel !== activeNavigation) {
       setNavigationRequest((request) => request + 1);
     }
@@ -464,10 +451,6 @@ export function HomeShell({
     urlIntent.location.group,
   ]);
 
-  // A provisional cached paint may anchor but stays armed until the session is
-  // server-verified; once verified, an in-flight revalidation retains it and
-  // the first settled pass consumes it (#462). Scope precedes this effect so a
-  // canonical group re-armed for a new scope is observed in the same commit.
   useEffect(() => {
     const group = coldGroupAnchorRef.current;
     if (!group || activeNavigation !== balancesPanelId) {

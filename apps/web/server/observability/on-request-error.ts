@@ -48,6 +48,5 @@ export async function handleRequestError(
       buildUnhandledServerErrorEvent(error, request, context),
     );
   } catch {
-    // Next error handling must remain the only owner of the application failure.
   }
 }
