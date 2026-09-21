@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { resolve } from "node:path";
+import { formatAddress } from "../shared/formatting";
 import {
   accountAddressFromDocument,
   accountPinError,
@@ -8,21 +9,28 @@ import {
   composeAllowedDomains,
   confirmReviewOrderError,
   decideConfirmGate,
+  defaultLiveRecipient,
   enforceAmountCap,
   enforceCumulativeAmountCap,
   hostObservationRefusal,
+  isRecipientFillStep,
   liveProviderOrigins,
   liveStepError,
   outputInsideRepository,
   parseBorrowReviewAmounts,
   parseUsdAmount,
   parseUsdAmountFromLabel,
+  recipientPlaceholderError,
+  recipientRowError,
+  resolveLiveRecipient,
   reviewAndLabelAmountError,
   unexpectedNetworkHosts,
   unlistedAmountClickError,
 } from "./live";
 
 const address = "0x1111111111111111111111111111111111111111";
+const defaultRecipient = "0x2211d1d0020daea8039e46cf1367962070d77da9";
+const recipientReview = (to: string) => `Confirm\n$1.00\nYou're sending USDC\nTo\n${to}\nAsset\nUSDC\nNetwork\nBase`;
 
 describe("live confirm gate", () => {
   test("runs ordinary controls without confirmation authority", () => {
@@ -89,6 +97,88 @@ describe("live confirm gate", () => {
     expect(liveStepError("confirm", to, [])).toContain("unlisted or unsafe");
     expect(liveStepError("confirm", { kind: "fill", label: "Email", value: "a@example.com" }, ["Email"])).toContain("unlisted or unsafe");
     expect(liveStepError("read-only", { kind: "press", key: "Enter" }, [])).toBeNull();
+  });
+});
+
+describe("live recipient policy", () => {
+  test("defaults to the pinned jesse.base.eth recipient when the flag is absent", () => {
+    expect(defaultLiveRecipient).toEqual({ name: "jesse.base.eth", address: defaultRecipient });
+    expect(resolveLiveRecipient(undefined)).toEqual({ action: "use", recipient: defaultLiveRecipient });
+  });
+
+  test("maps the jesse.base.eth name to the pinned address", () => {
+    expect(resolveLiveRecipient("jesse.base.eth")).toEqual({ action: "use", recipient: defaultLiveRecipient });
+    expect(resolveLiveRecipient("JESSE.BASE.ETH")).toEqual({ action: "use", recipient: defaultLiveRecipient });
+  });
+
+  test("accepts a bare 0x address and refuses every other value", () => {
+    expect(resolveLiveRecipient(address)).toEqual({ action: "use", recipient: { name: null, address } });
+    for (const value of ["jesse", "0x1234", "jesse.base.eth.", "https://jesse.base.eth", ""]) {
+      const resolution = resolveLiveRecipient(value);
+      expect(resolution.action).toBe("refuse");
+      if (resolution.action === "refuse") expect(resolution.reason).toContain("bare 0x address or jesse.base.eth");
+    }
+  });
+
+  test("refuses the zero address before browser launch", () => {
+    const resolution = resolveLiveRecipient("0x0000000000000000000000000000000000000000");
+    expect(resolution.action).toBe("refuse");
+    if (resolution.action === "refuse") expect(resolution.reason).toContain("zero address");
+  });
+});
+
+describe("live review recipient row", () => {
+  const recipient = defaultLiveRecipient.address;
+
+  test("accepts a rendered To row that equals the effective recipient", () => {
+    expect(recipientRowError(recipientReview(recipient), recipient)).toBeNull();
+    expect(recipientRowError(recipientReview(recipient.toUpperCase()), recipient)).toBeNull();
+    expect(recipientRowError(`Confirm\nTo ${recipient}\nAsset`, recipient)).toBeNull();
+  });
+
+  test("refuses the shared-format truncation even of the effective recipient", () => {
+    expect(formatAddress(recipient)).toBe("0x2211…d77da9");
+    expect(formatAddress(recipient)).not.toBe(recipient);
+    expect(recipientRowError(recipientReview(formatAddress(recipient)), recipient)).toContain("instead");
+    expect(recipientRowError(`Confirm\nTo\n${formatAddress(recipient)}\nAsset`, recipient)).toContain("instead");
+  });
+
+  test("refuses a review with more than one To row", () => {
+    expect(recipientRowError(`Confirm\nTo\n${recipient}\nTo ${address}\nAsset`, recipient)).toContain("exactly one");
+    expect(recipientRowError(`Confirm\nTo\n${recipient}\nTo\n${recipient}\nAsset`, recipient)).toContain("exactly one");
+  });
+
+  test("refuses an absent, empty, or mismatched To row", () => {
+    expect(recipientRowError("Confirm\n$1.00\nAsset\nUSDC", recipient)).toContain("no “To” row");
+    expect(recipientRowError("Confirm\nTo", recipient)).toContain("“To” row is empty");
+    expect(recipientRowError(recipientReview("0x2222222222222222222222222222222222222222"), recipient)).toContain("instead");
+    expect(recipientRowError(recipientReview(formatAddress(address)), recipient)).toContain("instead");
+  });
+});
+
+describe("live recipient placeholder", () => {
+  test("substitutes only the To fill step", () => {
+    expect(isRecipientFillStep({ kind: "fill", label: "To", value: "<recipient>" })).toBe(true);
+    expect(isRecipientFillStep({ kind: "fill", label: "Email", value: "<recipient>" })).toBe(false);
+    expect(isRecipientFillStep({ kind: "fill", label: "To", value: address })).toBe(false);
+    expect(isRecipientFillStep({ kind: "click", label: "<recipient>" })).toBe(false);
+  });
+
+  test("refuses the placeholder in any other step", () => {
+    expect(recipientPlaceholderError([
+      { kind: "goto", path: "/home" },
+      { kind: "fill", label: "To", value: "<recipient>" },
+      { kind: "click", label: "Continue" },
+    ])).toBeNull();
+    expect(recipientPlaceholderError([
+      { kind: "fill", label: "Email", value: "<recipient>" },
+    ])).toContain("outside");
+    expect(recipientPlaceholderError([
+      { kind: "fill", label: "To", value: "<recipient> 0x" },
+    ])).toContain("outside");
+    expect(recipientPlaceholderError([
+      { kind: "expect", text: "To <recipient>" },
+    ])).toContain("outside");
   });
 });
 
@@ -228,5 +318,25 @@ describe("live run guards", () => {
     const rendered = JSON.parse(result.stdout.toString()) as { renderedText: string; parsedAmount: number | null };
     expect(rendered.renderedText).toContain("$1.00");
     expect(rendered.parsedAmount).toBe(1);
+  });
+
+  test("matches the recipient text rendered by the send review row components", () => {
+    const result = Bun.spawnSync({
+      cmd: ["bun", "apps/web/verify/test-fixtures/send-review-row.ts"],
+      cwd: resolve(import.meta.dir, "../../.."),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(result.exitCode).toBe(0);
+    const rendered = JSON.parse(result.stdout.toString()) as {
+      rows: Array<{ label: string; value: string }>;
+      renderedMatch: string | null;
+      truncatedValue: string;
+      truncatedMatch: string | null;
+    };
+    expect(rendered.rows).toContainEqual({ label: "To", value: defaultRecipient });
+    expect(rendered.renderedMatch).toBeNull();
+    expect(rendered.truncatedValue).toBe(formatAddress(defaultRecipient));
+    expect(rendered.truncatedMatch).toContain("instead");
   });
 });

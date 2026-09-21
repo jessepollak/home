@@ -52,10 +52,26 @@ describe("live CLI preflight", () => {
     expect(result.stderr).toContain("outside the repository");
   });
 
-  test("refuses a live send without a recipient before browser launch", () => {
+  test("defaults the live send recipient before browser launch when --recipient is absent", () => {
     const result = run(["send", "--live", "--base-url", "https://example.com", "--out", outsideOutput]);
     expect(result.exitCode).toBe(2);
-    expect(result.stderr).toContain("--recipient");
+    expect(result.stderr).toContain("No saved live session");
+    expect(result.stderr).not.toContain("--recipient");
+  });
+
+  test("accepts the pinned name and refuses every other recipient before browser launch", () => {
+    const named = run(["send", "--live", "--base-url", "https://example.com", "--out", outsideOutput, "--recipient", "jesse.base.eth"]);
+    expect(named.exitCode).toBe(2);
+    expect(named.stderr).toContain("No saved live session");
+    const refused = run(["send", "--live", "--base-url", "https://example.com", "--out", outsideOutput, "--recipient", "jesse"]);
+    expect(refused.exitCode).toBe(2);
+    expect(refused.stderr).toContain("--recipient must be a bare 0x address or jesse.base.eth");
+  });
+
+  test("refuses the zero address before browser launch", () => {
+    const result = run(["send", "--live", "--base-url", "https://example.com", "--out", outsideOutput, "--recipient", "0x0000000000000000000000000000000000000000"]);
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("zero address");
   });
 
   test("refuses a missing max-usd before browser launch", () => {

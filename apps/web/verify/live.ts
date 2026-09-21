@@ -7,6 +7,65 @@ export const liveProviderOrigins = [
   "https://secure-wallet.cdp.coinbase.com",
 ] as const;
 
+export type LiveRecipient = { name: string | null; address: string };
+
+const liveRecipientName = "jesse.base.eth";
+
+export const defaultLiveRecipient: LiveRecipient = {
+  name: liveRecipientName,
+  address: "0x2211d1d0020daea8039e46cf1367962070d77da9",
+};
+
+export type RecipientResolution =
+  | { action: "use"; recipient: LiveRecipient }
+  | { action: "refuse"; reason: string };
+
+const zeroAddressPattern = /^0x0{40}$/i;
+
+export function resolveLiveRecipient(value: string | undefined): RecipientResolution {
+  if (value === undefined) return { action: "use", recipient: defaultLiveRecipient };
+  const candidate = value.trim();
+  if (zeroAddressPattern.test(candidate)) {
+    return { action: "refuse", reason: "--recipient must not be the zero address." };
+  }
+  if (accountPattern.test(candidate)) return { action: "use", recipient: { name: null, address: candidate } };
+  if (candidate.toLowerCase() === liveRecipientName) return { action: "use", recipient: defaultLiveRecipient };
+  return {
+    action: "refuse",
+    reason: `--recipient must be a bare 0x address or ${liveRecipientName}; received “${value}”.`,
+  };
+}
+
+export function isRecipientFillStep(step: ReachStep): step is Extract<ReachStep, { kind: "fill" }> {
+  return step.kind === "fill" && step.label === "To" && step.value === "<recipient>";
+}
+
+export function recipientPlaceholderError(steps: ReachStep[]): string | null {
+  for (const step of steps) {
+    if (isRecipientFillStep(step)) continue;
+    if (reachStepValues(step).some((value) => value.includes("<recipient>"))) {
+      return `Live verification refuses the <recipient> placeholder outside the “To” fill step (${reachStepSummary(step)}).`;
+    }
+  }
+  return null;
+}
+
+function reachStepValues(step: ReachStep): string[] {
+  if (step.kind === "fill") return [step.label, step.value];
+  if (step.kind === "click") return [step.label];
+  if (step.kind === "goto") return [step.path];
+  if (step.kind === "press") return [step.key];
+  return [step.text];
+}
+
+function reachStepSummary(step: ReachStep): string {
+  if (step.kind === "fill") return `fill “${step.label}”`;
+  if (step.kind === "click") return `click “${step.label}”`;
+  if (step.kind === "goto") return `goto ${step.path}`;
+  if (step.kind === "press") return `press ${step.key}`;
+  return `expect “${step.text}”`;
+}
+
 const bareHostnamePattern = /^(?=.{1,253}$)(?:localhost|(?:(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)\.)*(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?))$/;
 
 export function composeAllowedDomains(
@@ -101,6 +160,22 @@ export function reviewAndLabelAmountError(reviewAmount: number | null, labelAmou
     return `The review amount $${reviewAmount.toFixed(2)} does not match the confirm label amount $${labelAmount.toFixed(2)}.`;
   }
   return null;
+}
+
+const reviewToRowPattern = /^to(?:$|\s+\S)/i;
+
+export function recipientRowError(reviewText: string, recipient: string): string | null {
+  const expected = recipient.trim();
+  const lines = reviewLines(reviewText);
+  const rowIndexes = lines.flatMap((line, index) => reviewToRowPattern.test(line) ? [index] : []);
+  if (rowIndexes.length === 0) return "The review has no “To” row; confirmation was refused.";
+  if (rowIndexes.length > 1) return "The review must contain exactly one “To” row; confirmation was refused.";
+  const index = rowIndexes[0];
+  const inlineValue = lines[index].replace(/^to\s*/i, "").trim();
+  const shown = (inlineValue.length > 0 ? inlineValue : lines[index + 1] ?? "").trim();
+  if (shown.length === 0) return "The review “To” row is empty; confirmation was refused.";
+  if (shown.toLowerCase() === expected.toLowerCase()) return null;
+  return `The review “To” row shows “${shown}” instead of “${expected}”; confirmation was refused.`;
 }
 
 export type BorrowReviewAmounts = {

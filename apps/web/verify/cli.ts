@@ -14,14 +14,19 @@ import {
   enforceAmountCap,
   enforceCumulativeAmountCap,
   hostObservationRefusal,
+  isRecipientFillStep,
   liveStepError,
   outputInsideRepository,
   parseBorrowReviewAmounts,
   parseUsdAmount,
   parseUsdAmountFromLabel,
+  recipientPlaceholderError,
+  recipientRowError,
+  resolveLiveRecipient,
   reviewAndLabelAmountError,
   unexpectedNetworkHosts,
   unlistedAmountClickError,
+  type LiveRecipient,
 } from "./live";
 import { matchesConfirmLabel, readFeatureMap, type ReachStep } from "./map";
 
@@ -248,7 +253,7 @@ const surfaceId = args[0];
 if (!surfaceId || surfaceId.startsWith("-")) {
   console.error("Usage: bun run verify <surface-id> [--base-url <url>] [--out <dir>] [--allow-console] [--allow-domain <host>]");
   console.error("       bun run verify live-login --base-url <url> [--allow-domain <host>]");
-  console.error("       bun run verify <surface-id> --live --base-url <url> --out <dir> [--recipient <0x-address>] [--allow-domain <host>] [--allow-confirm --account <0x…> --max-usd <n> [--max-usd-total <n>]]");
+  console.error("       bun run verify <surface-id> --live --base-url <url> --out <dir> [--recipient <0x-address|jesse.base.eth>] [--allow-domain <host>] [--allow-confirm --account <0x…> --max-usd <n> [--max-usd-total <n>]]");
   console.error("       bun run verify --list");
   process.exit(2);
 }
@@ -261,7 +266,7 @@ const maxUsdValue = option("--max-usd");
 const maxUsd = maxUsdValue === undefined ? null : Number(maxUsdValue);
 const maxUsdTotalValue = option("--max-usd-total");
 const maxUsdTotal = maxUsdTotalValue === undefined ? maxUsd : Number(maxUsdTotalValue);
-const recipient = option("--recipient");
+const recipientOption = option("--recipient");
 const surface = surfaces.get(surfaceId);
 if (!surface) {
   console.error(`Unknown surface id: ${surfaceId}`);
@@ -277,15 +282,31 @@ if (selectedReach.length === 0) {
   console.error(`Surface ${surfaceId} has no machine-readable Reach steps.`);
   process.exit(2);
 }
-if (live && surfaceId === "send" && (!recipient || !accountPattern.test(recipient))) {
-  console.error("Live send verification requires --recipient <0x-address>.");
-  process.exit(2);
+const recipientPlaceholder = selectedReach.some(isRecipientFillStep);
+if (live) {
+  const placeholderError = recipientPlaceholderError(selectedReach);
+  if (placeholderError) {
+    console.error(placeholderError);
+    process.exit(2);
+  }
+}
+let effectiveRecipient: LiveRecipient | null = null;
+if (live && (recipientPlaceholder || recipientOption !== undefined)) {
+  const resolution = resolveLiveRecipient(recipientOption);
+  if (resolution.action === "refuse") {
+    console.error(resolution.reason);
+    process.exit(2);
+  }
+  effectiveRecipient = resolution.recipient;
 }
 const reachSteps = selectedReach.map((step): ReachStep =>
-  step.kind === "fill" && step.value === "<recipient>"
-    ? { ...step, value: recipient ?? step.value }
+  isRecipientFillStep(step)
+    ? { ...step, value: live ? effectiveRecipient?.address ?? step.value : recipientOption ?? step.value }
     : step
 );
+const toFillRecipient = live
+  ? reachSteps.flatMap((step) => (step.kind === "fill" && step.label === "To" ? [step.value] : []))[0] ?? null
+  : null;
 if (live && outputInsideRepository(outputRoot, repositoryRoot)) {
   console.error("Live evidence --out must be outside the repository root.");
   process.exit(2);
@@ -383,6 +404,7 @@ await writeFile(initPath, init, { mode: 0o600 });
 let exitCode = 1;
 let parsedAmountUsd: number | null = null;
 let reviewText: string | null = null;
+let recipientMismatch: string | null = null;
 let borrowedAmount: string | null = null;
 let collateralAmount: string | null = null;
 let confirmPerformed = false;
@@ -390,7 +412,7 @@ let liveRefusal: string | null = null;
 type StepRecord = { step: string; status: "pending" | "done" | "failed" };
 const steps: StepRecord[] = [];
 let cumulativeAmountUsd = 0;
-let confirmIntent: { label: string; parsedAmountUsd: number; capUsd: number; totalCapUsd: number; timestamp: string } | null = null;
+let confirmIntent: { label: string; parsedAmountUsd: number; capUsd: number; totalCapUsd: number; recipient: LiveRecipient | null; timestamp: string } | null = null;
 let confirmClickAttempted = false;
 let stoppedBefore: string | null = null;
 let unexpectedHosts: string[] = [];
@@ -407,6 +429,7 @@ async function writeLiveEvidence(): Promise<void> {
     confirmPerformed,
     parsedAmountUsd,
     reviewText,
+    recipientMismatch,
     borrowedAmount,
     collateralAmount,
     cumulativeAmountUsd,
@@ -492,6 +515,16 @@ try {
         ));
         const review = typeof evaluatedReview === "string" ? evaluatedReview : "";
         reviewText = review;
+        if (toFillRecipient !== null) {
+          recipientMismatch = recipientRowError(review, toFillRecipient);
+          if (recipientMismatch) {
+            record.status = "failed";
+            stoppedBefore = step.label;
+            liveRefusal = recipientMismatch;
+            await writeLiveEvidence();
+            break;
+          }
+        }
         if (surfaceId === "borrow") {
           const borrowReview = parseBorrowReviewAmounts(review);
           parsedAmountUsd = borrowReview.borrowedAmountUsd;
@@ -525,6 +558,7 @@ try {
           parsedAmountUsd,
           capUsd: maxUsd,
           totalCapUsd: maxUsdTotal,
+          recipient: effectiveRecipient,
           timestamp: new Date().toISOString(),
         };
         confirmClickAttempted = true;
