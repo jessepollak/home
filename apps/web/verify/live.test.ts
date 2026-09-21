@@ -81,12 +81,13 @@ describe("live confirm gate", () => {
     ], labels)).toContain("immediately precedes");
   });
 
-  test("refuses press and unlisted fill steps before live browser launch", () => {
-    const approved = [{ kind: "fill" as const, label: "To", value: "0x1" }];
-    expect(liveStepError("confirm", { kind: "press", key: "Enter" }, approved)).toContain("press");
-    expect(liveStepError("confirm", approved[0], approved)).toBeNull();
-    expect(liveStepError("confirm", { kind: "fill", label: "Amount", value: "1" }, approved)).toContain("unlisted");
-    expect(liveStepError("read-only", { kind: "press", key: "Enter" }, approved)).toBeNull();
+  test("refuses press and fills outside both the mapped and fixed live-safe field sets", () => {
+    const to = { kind: "fill" as const, label: "To", value: "0x1" };
+    expect(liveStepError("confirm", { kind: "press", key: "Enter" }, ["To"])).toContain("press");
+    expect(liveStepError("confirm", to, ["To"])).toBeNull();
+    expect(liveStepError("confirm", to, [])).toContain("unlisted or unsafe");
+    expect(liveStepError("confirm", { kind: "fill", label: "Email", value: "a@example.com" }, ["Email"])).toContain("unlisted or unsafe");
+    expect(liveStepError("read-only", { kind: "press", key: "Enter" }, [])).toBeNull();
   });
 });
 

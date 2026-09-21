@@ -315,8 +315,9 @@ if (live) {
     console.error(orderError);
     process.exit(2);
   }
+  const approvedFillFields = reachSteps.flatMap((step) => step.kind === "fill" ? [step.label] : []);
   for (const step of reachSteps) {
-    const stepError = liveStepError(surface.live, step, reachSteps);
+    const stepError = liveStepError(surface.live, step, approvedFillFields);
     if (stepError) {
       console.error(stepError);
       process.exit(2);

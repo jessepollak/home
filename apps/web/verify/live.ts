@@ -72,12 +72,15 @@ export function confirmReviewOrderError(steps: ReachStep[], confirmLabels: strin
   return null;
 }
 
-export function liveStepError(live: LiveAccess | undefined, step: ReachStep, approvedSteps: ReachStep[]): string | null {
+const liveSafeFillFields = new Set(["To", "Cash App handle", "Re-enter handle"]);
+
+export function liveStepError(live: LiveAccess | undefined, step: ReachStep, approvedFillFields: string[]): string | null {
   if (live !== "confirm" && live !== "up-to-review") return null;
   if (step.kind === "press") return `Live ${live} verification refuses press steps before browser launch.`;
   if (step.kind === "fill") {
-    const approved = approvedSteps.some((candidate) => candidate.kind === "fill" && candidate.label === step.label);
-    if (!approved) return `Live ${live} verification refuses fill for unlisted field “${step.label}”.`;
+    const mapped = approvedFillFields.includes(step.label);
+    const liveSafe = liveSafeFillFields.has(step.label);
+    if (!mapped || !liveSafe) return `Live ${live} verification refuses fill for unlisted or unsafe field “${step.label}”.`;
   }
   return null;
 }
