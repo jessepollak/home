@@ -46,6 +46,41 @@ function expectedArgument(node) {
   return node.arguments[0] ?? null;
 }
 
+const transparentExpectedValue = new Set([
+  "TSAsExpression",
+  "TSNonNullExpression",
+  "TSSatisfiesExpression",
+  "TSTypeAssertion",
+]);
+
+function containsSubjectBinding(node, subjectBindings, subjectNamespaces) {
+  if (!node) return false;
+  if (node.type === "Identifier") return subjectBindings.has(node.name);
+  if (transparentExpectedValue.has(node.type)) {
+    return containsSubjectBinding(node.expression, subjectBindings, subjectNamespaces);
+  }
+  if (node.type === "ArrayExpression") {
+    return node.elements.some((element) => element && containsSubjectBinding(
+      element.type === "SpreadElement" ? element.argument : element,
+      subjectBindings,
+      subjectNamespaces,
+    ));
+  }
+  if (node.type === "ObjectExpression") {
+    return node.properties.some((property) => containsSubjectBinding(
+      property.type === "SpreadElement" ? property.argument : property.value,
+      subjectBindings,
+      subjectNamespaces,
+    ));
+  }
+  if (node.type === "TemplateLiteral") {
+    return node.expressions.some((expression) =>
+      containsSubjectBinding(expression, subjectBindings, subjectNamespaces));
+  }
+  return node.type === "MemberExpression" && !node.computed
+    && node.object.type === "Identifier" && subjectNamespaces.has(node.object.name);
+}
+
 export const noSelfReferentialExpectation = {
   meta: {
     type: "problem", schema: [], messages: {
@@ -59,11 +94,12 @@ export const noSelfReferentialExpectation = {
     if (subjectPath === relative) return {};
     const stem = normalizedStem(subjectPath.split("/").pop() ?? "");
     const subjectBindings = new Set();
+    const subjectNamespaces = new Set();
     return {
       ImportDeclaration(node) {
         const source = sourceValue(node.source);
         if (typeof source !== "string"
-          || !(source.startsWith("./") || source.startsWith("../") || source.startsWith("@/"))) return;
+          || !(source === "." || source.startsWith("./") || source.startsWith("../") || source.startsWith("@/"))) return;
         const resolved = resolvedImportPath(relative, source);
         if (resolved === null) return;
         const resolvedModule = resolved.replace(moduleSuffix, "");
@@ -71,11 +107,14 @@ export const noSelfReferentialExpectation = {
         const matchingSameDirectoryStem = directoryName(resolvedModule) === directoryName(subjectPath)
           && importStem === stem;
         if (resolvedModule !== subjectPath && !matchingSameDirectoryStem) return;
-        for (const specifier of node.specifiers) subjectBindings.add(specifier.local.name);
+        for (const specifier of node.specifiers) {
+          if (specifier.type === "ImportNamespaceSpecifier") subjectNamespaces.add(specifier.local.name);
+          else subjectBindings.add(specifier.local.name);
+        }
       },
       CallExpression(node) {
         const expected = expectedArgument(node);
-        if (expected?.type !== "Identifier" || !subjectBindings.has(expected.name)) return;
+        if (!containsSubjectBinding(expected, subjectBindings, subjectNamespaces)) return;
         context.report({ node: expected, messageId: "rejected" });
       },
     };

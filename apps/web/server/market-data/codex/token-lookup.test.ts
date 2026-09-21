@@ -65,7 +65,7 @@ describe("Codex token lookup", () => {
     const first = await lookup(addresses);
     const second = await lookup(addresses);
 
-    expect(batchSizes).toEqual([CODEX_TOKEN_LOOKUP_BATCH_MAX, 1]);
+    expect(batchSizes).toEqual([CODEX_TOKEN_LOOKUP_BATCH_MAX, 1]); // oxlint-disable-line home/no-self-referential-expectation -- the constant is the specified bound; the assertion tests batching, not the value
     expect(calls).toBe(2);
     expect(first.get(ADDRESS)).toEqual({
       address: ADDRESS,

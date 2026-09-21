@@ -72,6 +72,28 @@ describe("no-self-referential-expectation", () => {
     `)).toHaveLength(3);
   });
 
+  it("unwraps typed, non-null, collection, template, and namespace expected values", async () => {
+    expect(await lintTestFile("limit.test.ts", `
+      import { expect } from "bun:test";
+      import { maxPages } from "./limit";
+      import * as limits from "./limit";
+      expect(read()).toBe(maxPages as number);
+      expect(read()).toBe(maxPages!);
+      expect(read()).toEqual([maxPages]);
+      expect(read()).toMatchObject({ max: maxPages });
+      expect(read()).toBe(\`\${maxPages}\`);
+      expect(read()).toBe(limits.maxPages);
+    `)).toHaveLength(6);
+  });
+
+  it("treats the current-directory barrel as the index subject", async () => {
+    expect(await lintTestFile("feature/index.test.ts", `
+      import { expect } from "bun:test";
+      import { maxPages } from ".";
+      expect(read()).toBe(maxPages);
+    `)).toHaveLength(1);
+  });
+
   it("accepts literals, derived members, and locally defined expectations", async () => {
     expect(await lintTestFile("behavior.test.ts", `
       import { expect } from "bun:test";

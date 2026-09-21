@@ -36,6 +36,7 @@ describe("anonymous country preference", () => {
 
     expect(writeAnonymousCountryPreference(() => storage, "ID")).toBe(true);
     expect(writeAnonymousCountryPreference(() => storage, "FR")).toBe(true);
+    // oxlint-disable-next-line home/no-self-referential-expectation -- writes must target the canonical versioned storage key
     expect(writes).toEqual([
       [anonymousCountryPreferenceKey, "ID"],
       [anonymousCountryPreferenceKey, "FR"],
