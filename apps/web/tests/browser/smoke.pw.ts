@@ -3,6 +3,7 @@ import type { RegionId } from "../../config/regions";
 import type { BalancesSnapshot } from "../../shared/balances/types";
 import { balancesSnapshot, scrollableBalancesSnapshot } from "./balances-fixtures";
 import { portfolioVaults, PORTFOLIO_USDC_ADDRESS } from "../../config/portfolio-assets";
+import { ownerQueryPersistThrottleMs } from "../../client/query/query-client";
 
 // Local laptops paint balances in ~350-620ms; hosted CI runners measure 1.0-2.2s.
 const BALANCES_PAINTED_BUDGET_MS = process.env.CI ? 3_500 : 1_000;
@@ -440,16 +441,24 @@ function anchoredGroupOffset(page: Page) {
   });
 }
 
-async function persistedBalancesReady(page: Page) {
-  return page.evaluate(() => {
-    const key = Object.keys(localStorage).find((candidate) => candidate.startsWith("home.query.v1:"));
-    if (!key) return false;
-    const persisted = JSON.parse(localStorage.getItem(key) ?? "null") as {
-      clientState?: { queries?: Array<{ queryKey?: unknown[] }> };
-    } | null;
-    const queries = persisted?.clientState?.queries;
-    return Boolean(queries?.length && queries.some((query) => query.queryKey?.[1] === "balances"));
-  });
+async function waitForSettledPersistedBalances(page: Page) {
+  let previousQueries: string | null = null;
+  await expect.poll(async () => {
+    const queries = await page.evaluate(() => {
+      const key = Object.keys(localStorage)
+        .find((candidate) => candidate.startsWith("home.query.v1:"));
+      if (!key) return null;
+      const persisted = JSON.parse(localStorage.getItem(key) ?? "null") as {
+        clientState?: { queries?: Array<{ queryKey?: unknown[] }> };
+      } | null;
+      const persistedQueries = persisted?.clientState?.queries;
+      if (!persistedQueries?.some((query) => query.queryKey?.[1] === "balances")) return null;
+      return JSON.stringify(persistedQueries);
+    });
+    const settled = queries !== null && queries === previousQueries;
+    previousQueries = queries;
+    return settled;
+  }, { intervals: [ownerQueryPersistThrottleMs + 100] }).toBe(true);
 }
 
 async function markPersistedQueriesStale(page: Page) {
@@ -501,7 +510,7 @@ test("persisted balances paint before verification and settle without row shift"
     performance.getEntriesByName("balances:painted", "mark")[0]?.startTime ?? Number.POSITIVE_INFINITY,
   );
   expect(coldPaint).toBeLessThan(BALANCES_PAINTED_BUDGET_MS);
-  await expect.poll(() => persistedBalancesReady(page)).toBe(true);
+  await waitForSettledPersistedBalances(page);
   await markPersistedQueriesStale(page);
   const hydrationErrors = trackHydrationErrors(page);
   const sessionObserved = fixtures.delayNextSession();
@@ -916,7 +925,7 @@ test("cold and revalidated cached Balances stay anchored to the requested group"
 
   await page.goto("/balances/investments");
   await expect.poll(() => anchoredGroupOffset(page)).toBeGreaterThanOrEqual(14);
-  await expect.poll(() => persistedBalancesReady(page)).toBe(true);
+  await waitForSettledPersistedBalances(page);
   await markPersistedQueriesStale(page);
 
   serveChanged = true;
