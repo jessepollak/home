@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
+import { decideConfirmGate, unexpectedNetworkHosts } from "./live";
 
 const repositoryRoot = resolve(import.meta.dir, "../../..");
 const home = resolve(tmpdir(), `home-verify-cli-test-${crypto.randomUUID()}`);
@@ -24,6 +25,19 @@ function run(args: string[], extraEnv: Record<string, string | undefined> = {}) 
   });
   return { exitCode: result.exitCode, stderr: result.stderr.toString() };
 }
+
+describe("live CLI policy", () => {
+  test("stops an unknown control after review", () => {
+    expect(decideConfirmGate("confirm", "Unknown action", false, false, true).action).toBe("stop");
+  });
+
+  test("fails host observation outside the configured set", () => {
+    expect(unexpectedNetworkHosts(
+      ["https://example.com/home", "https://unexpected.example.net/image.png"],
+      ["example.com"],
+    )).toEqual(["unexpected.example.net"]);
+  });
+});
 
 describe("live CLI preflight", () => {
   test("refuses CI before browser launch", () => {
