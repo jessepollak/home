@@ -23,7 +23,13 @@ function resolvedImportPath(testRelativePath, source) {
   const segments = source.startsWith("@/")
     ? source.slice(2).split("/")
     : [...testRelativePath.split("/").slice(0, -1), ...source.split("/")];
-  return normalizeRelativePath(segments.join("/"));
+  const resolved = normalizeRelativePath(segments.join("/"));
+  if (resolved === null) return null;
+  return source === "." ? [resolved, "index"].filter(Boolean).join("/") : resolved;
+}
+
+function directoryName(modulePath) {
+  return modulePath.split("/").slice(0, -1).join("/");
 }
 
 function expectedArgument(node) {
@@ -62,7 +68,9 @@ export const noSelfReferentialExpectation = {
         if (resolved === null) return;
         const resolvedModule = resolved.replace(moduleSuffix, "");
         const importStem = normalizedStem(resolvedModule.split("/").pop() ?? "");
-        if (resolvedModule !== subjectPath && (source.startsWith("@/") || importStem !== stem)) return;
+        const matchingSameDirectoryStem = directoryName(resolvedModule) === directoryName(subjectPath)
+          && importStem === stem;
+        if (resolvedModule !== subjectPath && !matchingSameDirectoryStem) return;
         for (const specifier of node.specifiers) subjectBindings.add(specifier.local.name);
       },
       CallExpression(node) {

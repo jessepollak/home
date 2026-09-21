@@ -42,12 +42,24 @@ describe("no-self-referential-expectation", () => {
     `)).toHaveLength(1);
   });
 
-  it("rejects expected values imported from a subject module by normalized name", async () => {
-    expect(await lintTestFile("config/next-config.test.ts", `
+  it("rejects expected values imported from a same-directory subject by normalized name", async () => {
+    expect(await lintTestFile("next-config.test.ts", `
       import { expect } from "bun:test";
-      import { contentSecurityPolicy } from "../next.config";
+      import { contentSecurityPolicy } from "./next.config";
       expect(readHeader()).toBe(contentSecurityPolicy);
     `)).toHaveLength(1);
+  });
+
+  it("resolves relative and alias imports to the subject file without same-stem cross-directory matches", async () => {
+    expect(await lintTestFile("feature/config.test.ts", `
+      import { expect } from "bun:test";
+      import { localConfig } from "./config";
+      import { aliasedConfig } from "@/feature/config";
+      import { otherConfig } from "../other-dir/config";
+      expect(readLocal()).toBe(localConfig);
+      expect(readAlias()).toBe(aliasedConfig);
+      expect(readOther()).toBe(otherConfig);
+    `)).toHaveLength(2);
   });
 
   it("rejects imported aliases and every tracked matcher argument", async () => {
