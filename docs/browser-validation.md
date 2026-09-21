@@ -19,7 +19,7 @@ This contract applies to every user-visible UI change and core-flow implementati
    - **No:** use ordinary `agent-browser` iteration.
    - **Yes:** use operator mode and the applicable provider runbook plus the [risk-based live-money contract](operating-manual.md#risk-based-live-money-validation). A safe, bounded, explicitly operator-authorized live journey is normal strong evidence for money-moving features; it remains outside PR CI and factory-child authority. A committed provider-specific harness is allowed only when the acceptance flow needs one and does not become the ordinary feature-iteration API. Deterministic tests of the harness's safety and orchestration rules remain required.
 
-Playwright is the sole committed automated browser regression layer. For ordinary feature iteration, do not commit an ad hoc `agent-browser` script, transcript, generic feature DSL, profile/state file, or another CI browser job. Home's reviewed surface verifier is the single repository-owned wrapper; the narrowly approved provider-harness exception is governed by step 3.
+The surface verifier at `apps/web/verify/` is the one committed `agent-browser` wrapper, approved by Jesse on 2026-09-21 in issue #708; it produces evidence and is not a CI gate. Playwright remains the sole committed automated browser regression layer. For ordinary feature iteration, do not commit another `agent-browser` script, transcript, generic feature DSL, profile/state file, wrapper, or CI browser job. The narrowly approved provider-harness exception is governed by step 3.
 
 ## Use the reviewed repository version
 

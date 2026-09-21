@@ -11,7 +11,7 @@ metadata:
 
 # Browser iteration for Home
 
-Follow [`docs/browser-validation.md`](../../../docs/browser-validation.md); it is normative and wins over this operational summary. Home pins `agent-browser` `0.38.1` in the root package and lockfile. Never rely on a global installation. Ordinary feature iteration does not create a wrapper or committed browser script; only a provider-specific acceptance harness explicitly approved by Jesse may be committed under the contract's exceptional provider path.
+Follow [`docs/browser-validation.md`](../../../docs/browser-validation.md); it is normative and wins over this operational summary. Home pins `agent-browser` `0.38.1` in the root package and lockfile. Never rely on a global installation. Use the approved surface verifier at `apps/web/verify/` for its documented evidence flow; ordinary feature iteration does not create another wrapper or committed browser script. Only a provider-specific acceptance harness explicitly approved by Jesse may be committed under the contract's exceptional provider path.
 
 ## Pick the surface first
 
