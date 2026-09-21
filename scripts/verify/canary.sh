@@ -22,27 +22,32 @@ run_canary() {
   label=$1
   shift
   log="$run_dir/$(printf '%s' "$label" | tr '/ ' '--').log"
+  run_result=0
   if bun run --cwd apps/web verify "$@" --live --base-url "$production_url" --out "$run_dir/evidence" >"$log" 2>&1; then
     result=pass
   else
     result=fail
+    run_result=1
     status=1
   fi
   evidence=$(tail -n 1 "$log" 2>/dev/null || printf 'no evidence bundle')
   printf '| %s | %s | `%s` |\n' "$label" "$result" "$evidence" >>"$summary"
+  return "$run_result"
 }
 
 for surface in landing sign-in home-panel balances activity save borrow invest send cash-out add-money account-settings coverage; do
-  run_canary "$surface nightly" "$surface"
+  run_canary "$surface nightly" "$surface" || true
 done
 
 weekly_day=${HOME_VERIFY_WEEKLY_DAY:-7}
 if [ "$mode" = weekly ] || { [ "$mode" = scheduled ] && [ "$(date -u +%u)" = "$weekly_day" ]; }; then
-  run_canary "save deposit" save --canary-operation deposit --allow-confirm
-  run_canary "save withdraw" save --canary-operation withdraw --allow-confirm
-  run_canary "borrow" borrow --canary-operation borrow --allow-confirm
-  run_canary "borrow repay" borrow --canary-operation repay --allow-confirm
-  run_canary "send to jesse.base.eth" send --canary-operation send --recipient jesse.base.eth --allow-confirm
+  if run_canary "save deposit" save --canary-operation deposit --allow-confirm; then
+    run_canary "save withdraw" save --canary-operation withdraw --allow-confirm || true
+  fi
+  if run_canary "borrow" borrow --canary-operation borrow --allow-confirm; then
+    run_canary "borrow repay" borrow --canary-operation repay --allow-confirm || true
+  fi
+  run_canary "send to jesse.base.eth" send --canary-operation send --recipient jesse.base.eth --allow-confirm || true
 fi
 
 issue_number=$(gh issue list --repo jessepollak/home --state open --search 'Verification canary in:title' --json number,title --jq '.[] | select(.title == "Verification canary") | .number' | head -n 1)
