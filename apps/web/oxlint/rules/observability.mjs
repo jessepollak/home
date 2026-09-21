@@ -2,6 +2,8 @@ const instrumentationModules = new Set([
   "@/server/observability/log",
   "@/client/observability/client-reporter",
   "@/server/observability/client-errors",
+  "@/server/observability/client-performance",
+  "@/server/observability/on-request-error",
   "@/client/observability/perf-marks",
   "@/client/observability/auth-performance",
   "@/client/account/auth-diagnostics",
