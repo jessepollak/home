@@ -194,7 +194,7 @@ export type FundingOfframpProvider = {
     ctx: OfframpContext,
   ): Promise<OfframpOrder>;
   listOrders(
-    input: { owner: `0x${string}`; inFlight?: boolean },
+    input: { owner: `0x${string}`; inFlight?: boolean; onMalformedPayee: "throw" | "skip" },
     ctx: OfframpContext,
   ): Promise<ReadonlyArray<OfframpOrder>>;
   depositIdFromReceipt(

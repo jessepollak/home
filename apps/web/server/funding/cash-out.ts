@@ -107,7 +107,7 @@ export async function prepareCashoutAction(
   if (!capability || capability.requiresAccessPolicy || capability.requiresIdentityAttestation ||
     amount < BigInt(capability.minimumAmountAtomic) ||
     (capability.maximumAmountAtomic !== null && amount > BigInt(capability.maximumAmountAtomic))) unavailable();
-  const existingOrders = await provider.offramp.listOrders({ owner: session.smartAccount.address, inFlight: true }, ctx);
+  const existingOrders = await provider.offramp.listOrders({ owner: session.smartAccount.address, inFlight: true, onMalformedPayee: "throw" }, ctx);
   if (existingOrders.length > 0) {
     throw new CashoutPreparationError("order-in-flight", "This account already has an in-flight Peer cash-out. Resume or withdraw it before creating another deposit.");
   }
@@ -264,7 +264,7 @@ export async function listCashoutOrders(
       env: recoveryEnv,
       sandbox: mode === "sandbox",
     });
-    const orders = await offramp.listOrders({ owner, inFlight: input.inFlight }, ctx);
+    const orders = await offramp.listOrders({ owner, inFlight: input.inFlight, onMalformedPayee: "skip" }, ctx);
     return orders.map((order) => ({
       providerId: provider.manifest.id,
       providerName: provider.manifest.displayName,

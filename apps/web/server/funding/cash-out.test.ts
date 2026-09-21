@@ -7,6 +7,7 @@ import { BASE_USDC_ADDRESS, CASH_ATTRIBUTION_CODE, buildIntentAmountRange } from
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { setActionsStoreForTests, type ActionRow, type ActionsStore } from "@/server/actions/store";
 import { issueMoneyAction } from "@/server/money-actions/issue";
+import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 import { createProviderContext } from "@/server/funding/core/provider-context";
 import { peerProvider } from "@/server/funding/providers/peer/adapter";
 import { PEER_CREATE_DEPOSIT_ABI, PEER_WITHDRAW_ABI } from "@/server/funding/providers/peer/abi";
@@ -35,18 +36,19 @@ function validCall(amount = BigInt(2_000_000)) {
   const canonical = encodeFunctionData({ abi: PEER_CREATE_DEPOSIT_ABI, functionName: "createDeposit", args: [params] });
   return { to: ctx.deployment.contracts.escrow, data: `${canonical}${suffix().slice(2)}` as Hex, value: "0" };
 }
-function installClients(withOrder = false) {
+function installClients(withOrder = false, payeeHashes: readonly string[] = [PAYEE_HASH]) {
   const amount = BigInt(2_000_000);
-  const depositId = `${PEER_PRODUCTION_CONTRACTS.escrow.toLowerCase()}_7`;
-  const order = {
-    depositId, state: "awaiting-buyer", fills: [], totalAmount: amount, filledAmount: BigInt(0), pendingAmount: BigInt(0), returnedAmount: BigInt(0),
+  const orders = payeeHashes.map((payeeHash, index) => ({
+    depositId: `${PEER_PRODUCTION_CONTRACTS.escrow.toLowerCase()}_${7 + index}`,
+    state: "awaiting-buyer", fills: [], totalAmount: amount, filledAmount: BigInt(0), pendingAmount: BigInt(0), returnedAmount: BigInt(0),
     nextActions: ["withdraw"], updatedAt: Math.floor(Date.now() / 1000), isInFlight: true,
-    payouts: [{ platform: "cashapp", platformHash: "0x", currency: "USD", currencyHash: "0x", payeeHash: PAYEE_HASH, active: true, pricing: { marketRate: true } }],
-  };
+    payouts: [{ platform: "cashapp", platformHash: "0x", currency: "USD", currencyHash: "0x", payeeHash, active: true, pricing: { marketRate: true } }],
+  }));
+  const order = orders[0]!;
   const withdrawData = encodeFunctionData({ abi: PEER_WITHDRAW_ABI, functionName: "withdrawDeposit", args: [BigInt(7)] });
   const cash = {
     capabilities: () => ({ environment: "production", chainId: 8453, token: { address: BASE_USDC_ADDRESS }, amount: { min: BigInt(10_000), max: null }, platforms: [{ platform: "cashapp", currencies: ["USD"], payeeHint: "Cashtag", requiresIdentityAttestation: false }] }),
-    orders: async () => withOrder ? [order] : [],
+    orders: async () => withOrder ? orders : [],
     order: async () => order,
     prepareWithdraw: async () => ({ txs: [{ to: PEER_PRODUCTION_CONTRACTS.escrow, data: `${withdrawData}${suffix().slice(2)}`, value: BigInt(0) }], steps: [] }),
     estimate: async () => ({ amount, currency: "USD", receiveAmount: 2, asOf: Math.floor(Date.now() / 1000) }),
@@ -72,6 +74,7 @@ function row(overrides: Partial<ActionRow> = {}): ActionRow {
 afterEach(() => {
   setPeerClientFactoryForTests(null);
   setActionsStoreForTests(null);
+  setObservabilityLogWriterForTests();
 });
 
 describe("Peer cash-out action preparation", () => {
@@ -126,6 +129,39 @@ describe("Peer cash-out action preparation", () => {
     for (const disabled of [undefined, "0", "false"]) {
       await expect(prepareCashoutAction(session, input(), undefined, { env: { PEER_OFFRAMP_ENABLED: disabled } })).rejects.toMatchObject({ code: "unavailable" });
     }
+  });
+
+  test("keeps preparation fail-closed when an in-flight row has a malformed payee", async () => {
+    installClients(true, ["invalid"]);
+    await expect(prepareCashoutAction(session, input(), undefined, {
+      env: { PEER_OFFRAMP_ENABLED: "1" }, store: { list: async () => [] }, readAllowance: async () => BigInt(0),
+    })).rejects.toThrow("Peer order payee hash is invalid");
+  });
+
+  test("skips malformed recovery rows and reports each skipped row", async () => {
+    const lines: string[] = [];
+    setObservabilityLogWriterForTests((line) => { lines.push(line); });
+    installClients(true, [PAYEE_HASH, "invalid"]);
+
+    const result = await listCashoutOrders(
+      session,
+      { region: "US", inFlight: true },
+      { PEER_OFFRAMP_ENABLED: "1" },
+      { store: { hasCashoutHistory: async () => true, cashoutRecoveryModes: async () => ["production"] } },
+    );
+
+    expect(result.orders).toHaveLength(1);
+    expect(result.orders[0]?.depositId).toEndWith("_7");
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0]!)).toMatchObject({
+      kind: "funding-order",
+      route: "/api/funding/offramp/orders",
+      code: "OFFRAMP_ORDER_MALFORMED_PAYEE_SKIPPED",
+      outcome: "ignored",
+      provider: "peer",
+      region: "US",
+      sandbox: false,
+    });
   });
 
   test("lists owner recovery orders with provider labels while discovery is disabled", async () => {

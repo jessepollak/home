@@ -145,7 +145,7 @@ describe("Peer funding provider", () => {
     await expect(peerProvider.offramp!.capabilities(ctx)).resolves.toMatchObject({ platforms: [{ id: "cashapp", currencies: ["USD"] }] });
     await expect(peerProvider.offramp!.estimate({ amountAtomic: BigInt(2_000_000), platform: "cashapp", currency: "USD" }, ctx)).resolves.toMatchObject({ approximateFiatAmount: "2", etaSeconds: 60 });
     await expect(peerProvider.offramp!.prepareDeposit({ owner: OWNER, amountAtomic: BigInt(2_000_000), platform: "cashapp", currency: "USD", payoutHandle: "$Alice" }, ctx)).resolves.toMatchObject({ payee: { canonicalHandle: "Alice", hash: PAYEE_HASH } });
-    await expect(peerProvider.offramp!.listOrders({ owner: OWNER, inFlight: true }, ctx)).resolves.toMatchObject([{ state: "awaiting-buyer", canonicalHandle: null, payeeHash: PAYEE_HASH }]);
+    await expect(peerProvider.offramp!.listOrders({ owner: OWNER, inFlight: true, onMalformedPayee: "throw" }, ctx)).resolves.toMatchObject([{ state: "awaiting-buyer", canonicalHandle: null, payeeHash: PAYEE_HASH }]);
     await expect(peerProvider.offramp!.readOrder({ owner: OWNER, depositId: cashOrder().depositId }, ctx)).resolves.toMatchObject({ nextActions: ["withdraw"] });
     await expect(peerProvider.offramp!.prepareWithdraw({ owner: OWNER, depositId: cashOrder().depositId }, ctx)).resolves.toMatchObject({ calls: [{ to: PEER_PRODUCTION_CONTRACTS.escrow }] });
   });
@@ -172,14 +172,14 @@ describe("Peer funding provider", () => {
     const sdkLegacy = cashOrder("", `${PEER_PRODUCTION_CONTRACTS.escrow.toLowerCase()}_8`);
     const historicalLegacy = cashOrder("0x", `${PEER_PRODUCTION_CONTRACTS.escrow.toLowerCase()}_9`);
     installFakeClients(PAYEE_HASH, [valid, sdkLegacy, historicalLegacy]);
-    await expect(peerProvider.offramp!.listOrders({ owner: OWNER, inFlight: true }, context())).resolves.toMatchObject([
+    await expect(peerProvider.offramp!.listOrders({ owner: OWNER, inFlight: true, onMalformedPayee: "throw" }, context())).resolves.toMatchObject([
       { depositId: valid.depositId, payeeHash: PAYEE_HASH },
     ]);
   });
 
   test("fails closed when a listed row has a malformed non-legacy payee hash", async () => {
     installFakeClients("invalid", [cashOrder("invalid", `${PEER_PRODUCTION_CONTRACTS.escrow.toLowerCase()}_8`)]);
-    await expect(peerProvider.offramp!.listOrders({ owner: OWNER, inFlight: true }, context())).rejects.toBeInstanceOf(PeerOfframpSafetyError);
+    await expect(peerProvider.offramp!.listOrders({ owner: OWNER, inFlight: true, onMalformedPayee: "throw" }, context())).rejects.toBeInstanceOf(PeerOfframpSafetyError);
   });
 
   test("keeps direct reads fail-closed for a malformed payee target", async () => {
@@ -192,7 +192,7 @@ describe("Peer funding provider", () => {
     const valid = cashOrder();
     const foreign = cashOrder(PAYEE_HASH, `${PEER_SANDBOX_CONTRACTS.escrow.toLowerCase()}_8`);
     installFakeClients(PAYEE_HASH, [valid, foreign]);
-    await expect(peerProvider.offramp!.listOrders({ owner: OWNER, inFlight: true }, context())).resolves.toMatchObject([
+    await expect(peerProvider.offramp!.listOrders({ owner: OWNER, inFlight: true, onMalformedPayee: "throw" }, context())).resolves.toMatchObject([
       { depositId: valid.depositId, payeeHash: PAYEE_HASH },
     ]);
   });

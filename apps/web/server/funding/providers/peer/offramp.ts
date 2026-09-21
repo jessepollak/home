@@ -35,6 +35,7 @@ import {
 } from "viem";
 import { base, mainnet, polygon } from "viem/chains";
 import { resolveBaseRpcUrl } from "@/server/chain/rpc";
+import { emitServerEvent } from "@/server/observability/log";
 import { canonicalizeCashPayee } from "@/shared/funding/cash-payee";
 import type {
   FundingOfframpProvider,
@@ -198,8 +199,23 @@ export const peerOfframp: FundingOfframpProvider = {
   async listOrders(input, ctx) {
     return (await clients(ctx).cash.orders(input.owner, { inFlight: input.inFlight, limit: 100 }))
       .filter((order) => validDepositId(order.depositId, ctx))
-      .filter((order) => !(order.payouts?.length === 1 && ["", "0x"].includes(order.payouts[0]?.payeeHash ?? "")))
-      .map((order) => mapOrder(order, input.owner, ctx));
+      .flatMap((order) => {
+        const payeeHash = order.payouts?.length === 1 ? order.payouts[0]?.payeeHash : undefined;
+        if (payeeHash === "" || payeeHash === "0x") return [];
+        if (!isBytes32(payeeHash)) {
+          if (input.onMalformedPayee === "throw") fail("Peer order payee hash is invalid.");
+          emitServerEvent("funding-order", {
+            route: "/api/funding/offramp/orders",
+            code: "OFFRAMP_ORDER_MALFORMED_PAYEE_SKIPPED",
+            outcome: "ignored",
+            provider: "peer",
+            region: ctx.binding.region,
+            sandbox: ctx.sandbox,
+          });
+          return [];
+        }
+        return [mapOrder(order, input.owner, ctx)];
+      });
   },
 
   depositIdFromReceipt(receipt, input) {
