@@ -54,7 +54,9 @@ issue_number=$(gh issue list --repo jessepollak/home --state open --search 'Veri
 if [ -z "$issue_number" ]; then
   issue_url=$(gh issue create --repo jessepollak/home --title 'Verification canary' --body 'Scheduled production verification canary summaries are posted here.')
   issue_number=${issue_url##*/}
-  gh issue pin "$issue_number" --repo jessepollak/home
+fi
+if ! gh issue pin "$issue_number" --repo jessepollak/home >/dev/null 2>&1; then
+  printf 'Could not pin the Verification canary issue %s; pin it manually if it is unpinned.\n' "$issue_number" >&2
 fi
 gh issue comment "$issue_number" --repo jessepollak/home --body-file "$summary"
 printf '%s\n' "$summary"
