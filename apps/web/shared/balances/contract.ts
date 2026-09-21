@@ -405,14 +405,12 @@ function validateDecimal(value: unknown): value is ExactDecimal {
 
 function validateHttpsImage(value: unknown): boolean {
   if (typeof value !== "string" || value.length > 2_048) return false;
-  let valid = false;
   try {
     const url = new URL(value);
-    valid = url.protocol === "https:" && !url.username && !url.password && !url.hash;
+    return url.protocol === "https:" && !url.username && !url.password && !url.hash;
   } catch {
-    valid = false;
+    return false;
   }
-  return valid;
 }
 
 function normalizeNullableAddress(value: unknown): string | null | undefined {

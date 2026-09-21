@@ -28,13 +28,11 @@ export function parseConfirmActionResponse(
 
 function isValidBatchGasLimit(value: unknown): value is string {
   if (typeof value !== "string" || !/^[1-9]\d*$/.test(value)) return false;
-  let valid = false;
   try {
-    valid = BigInt(value) <= BigInt(2_000_000);
+    return BigInt(value) <= BigInt(2_000_000);
   } catch {
-    valid = false;
+    return false;
   }
-  return valid;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

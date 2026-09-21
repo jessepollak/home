@@ -21,12 +21,10 @@ export function writeAnonymousCountryPreference(
   getStorage: PreferenceStorageGetter<"setItem">,
   regionId: RegionId,
 ): boolean {
-  let written = false;
   try {
     getStorage().setItem(anonymousCountryPreferenceKey, regionId);
-    written = true;
+    return true;
   } catch {
-    written = false;
+    return false;
   }
-  return written;
 }
