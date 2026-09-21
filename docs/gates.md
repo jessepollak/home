@@ -28,6 +28,14 @@ The **story tests** job runs every Storybook story in headless Chromium through 
 
 The repository gate checks commits after the pull request branch's merge-base with `main`; outside a pull request it checks `HEAD`. Every scoped `fix(...)` subject must include one of these trailers in its commit body: `Caught-by: lint`, `Caught-by: bot`, `Caught-by: review`, `Caught-by: browser`, or `Caught-by: production`. Earlier commits on `main` are grandfathered.
 
+## Caught-by report
+
+`bun run caught-by-report` (or `node scripts/gates/caught-by-report.mjs`) aggregates the `Caught-by` trailers from scoped `fix(...)` commits into a detector report. It defaults to `--since 30.days` on the current branch, accepts `--range <a..b>`, and prints JSON with `--json`. It is a report, not a gate: it always exits 0, so a broken or empty corpus never fails a build.
+
+The report has three parts. **Detectors** counts every scoped fix commit by its `Caught-by` value and shows each detector's share. Identical trailers dedupe to one value (`browser`, `browser` counts as `browser`); a squash-merged body with two or more distinct values counts as `mixed`, which is what multi-commit fix PRs look like on `main`; no trailer counts as `unknown`. Fixes that do not descend from the trailer policy start (`226d2f26`, #709, 2026-09-21) are marked pre-policy and excluded from the detector and scope statistics, with the count stated in the report header. **By scope** breaks the same counts down by the `fix(<scope>)` token. **Rule candidates** lists every `review`, `bot`, and `production` fix with its sha, subject, and files touched; each row is a rule candidate for the gardener to triage under the [rule-first policy](operating-manual.md#delivery-loop), because a `home/*` lint rule could have caught it. The report caps the candidate list at 50 rows with 10 files each and truncates its body at 60,000 characters.
+
+The **caught-by report** CI job writes the pull-request-range report to the run summary, and the **Caught-by weekly** workflow posts the trailing 7-day report as a comment on the open `Caught-by weekly report` issue, creating one when no open issue exists and pinning it when possible. Both are informational; neither fails a build.
+
 ## Browser-smoke boundary
 
 The current **Chromium smoke** job runs the fixture-backed Playwright suite in GitHub Actions for every pull request and every push to `main`. It starts a CI-local fixture server; it does not exercise the hosted Vercel preview deployment.
