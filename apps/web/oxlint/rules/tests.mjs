@@ -52,6 +52,20 @@ export const noRealWaits = {
     },
   },
   create(context) {
+    function invokesResolver(node, resolverName) {
+      if (!node) return false;
+      if (node.type === "CallExpression" && node.callee.type === "Identifier"
+        && node.callee.name === resolverName) return true;
+      if (["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(node.type)) return false;
+      for (const value of Object.values(node)) {
+        if (!value || value === node.parent) continue;
+        if (Array.isArray(value)) {
+          if (value.some((child) => child && typeof child.type === "string"
+            && invokesResolver(child, resolverName))) return true;
+        } else if (typeof value.type === "string" && invokesResolver(value, resolverName)) return true;
+      }
+      return false;
+    }
     function isPromiseDelay(node) {
       let callback = node.parent;
       while (callback && !["ArrowFunctionExpression", "FunctionExpression", "FunctionDeclaration"].includes(callback.type)) {
@@ -61,8 +75,11 @@ export const noRealWaits = {
         || callback.parent?.type !== "NewExpression" || callback.parent.callee.type !== "Identifier"
         || callback.parent.callee.name !== "Promise" || callback.parent.arguments[0] !== callback) return false;
       const resolver = callback.params[0];
-      return resolver?.type === "Identifier" && node.arguments[0]?.type === "Identifier"
-        && node.arguments[0].name === resolver.name;
+      if (resolver?.type !== "Identifier") return false;
+      const timerCallback = node.arguments[0];
+      return timerCallback?.type === "Identifier" && timerCallback.name === resolver.name
+        || timerCallback?.type === "ArrowFunctionExpression" && timerCallback.params.length === 0
+        && invokesResolver(timerCallback.body, resolver.name);
     }
     return {
       CallExpression(node) {

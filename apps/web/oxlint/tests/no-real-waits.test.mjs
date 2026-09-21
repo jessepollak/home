@@ -40,11 +40,22 @@ describe("no-real-waits", () => {
       .toHaveLength(2);
   });
 
-  it("rejects promise-wrapped timeouts with expression and block callbacks", async () => {
+  it("rejects promise-wrapped timeouts with direct and zero-argument resolver callbacks", async () => {
     expect(await lint(`
       new Promise((resolve) => setTimeout(resolve, delay));
       new Promise(function (done) { setTimeout(done, 1); });
-    `)).toHaveLength(2);
+      new Promise((resolve) => setTimeout(() => resolve(), delay));
+      new Promise((resolve) => setTimeout(() => { resolve(); }, delay));
+    `)).toHaveLength(4);
+  });
+
+  it("documents destructured and aliased waitForTimeout as known non-detections", async () => {
+    expect(await lint(`
+      const { waitForTimeout } = page;
+      waitForTimeout(100);
+      const browserPage = page;
+      browserPage.waitForTimeout(100);
+    `)).toHaveLength(0);
   });
 
   it("accepts observable Playwright waits and unrelated promises", async () => {
