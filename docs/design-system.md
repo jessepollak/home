@@ -77,7 +77,7 @@ Storybook can prove that a production component renders and supports fixture-bac
 
 ## Theme
 
-The shared sheet spring uses the owned motion contract; its stiffness targets an approximately 350 ms critical settle across a full-height sheet, with damping chosen to prevent overshoot.
+The shared sheet spring uses the owned motion contract; its stiffness targets an approximately 350 ms critical settle across a full-height sheet, with damping chosen to prevent overshoot. Home mark enter and exit sequences are not interruptible or reentrant by design, matching the reference interaction exactly.
 
 This section describes the implemented system and maintenance defaults. [UI direction](ui-direction.md#sources-and-status) records exploration and acceptance status; production defaults do not freeze the visual choices of an explicitly scoped experiment.
 
