@@ -53,7 +53,8 @@ export function parseFeatureMap(markdown: string): Map<string, Surface> {
 export function matchesConfirmLabel(patterns: string[], label: string): boolean {
   return patterns.some((pattern) => {
     const escaped = pattern.split("$<amount>").map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-    const source = escaped.join("\\$(?:[0-9]{1,3}(?:,[0-9]{3})*|[0-9]+)(?:\\.[0-9]{1,2})?");
+    const digits = "(?:[0-9]{1,3}(?:,[0-9]{3})*|[0-9]+)(?:\\.[0-9]+)?";
+    const source = escaped.join(`(?:\\$${digits}|${digits}\\s+[A-Z][A-Z0-9]{1,9})`);
     return new RegExp(`^${source}$`).test(label);
   });
 }
