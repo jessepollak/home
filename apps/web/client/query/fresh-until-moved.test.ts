@@ -194,6 +194,43 @@ describe("balance freshness across cached regions", () => {
   }
 });
 
+test("reports an action-listing failure without starting balance polling", async () => {
+  const previousFetch = globalThis.fetch;
+  const previousWindow = globalThis.window;
+  const reports: Array<{ input: string; init?: RequestInit }> = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    reports.push({ input: String(input), init });
+    return new Response(null, { status: 204 });
+  }) as typeof fetch;
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { location: { pathname: "/home" } },
+  });
+  try {
+    await startBalanceFreshness({
+      actionId: "action-1",
+      session,
+      queryClient: createHomeQueryClient(),
+      state: createBalanceFreshnessState(),
+      fetchVerifiedResource: async () => { throw new Error("listing unavailable"); },
+    });
+    await flushMicrotasks();
+
+    expect(reports).toHaveLength(1);
+    expect(reports[0]?.input).toBe("/api/client-errors");
+    expect(JSON.parse(String(reports[0]?.init?.body))).toMatchObject({
+      name: "Error",
+      message: "listing unavailable",
+    });
+  } finally {
+    globalThis.fetch = previousFetch;
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: previousWindow,
+    });
+  }
+});
+
 describe("fresh-until-moved scheduler", () => {
   test("stops after an affected balance moves", async () => {
     const fake = fakeClock();
