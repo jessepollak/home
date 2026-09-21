@@ -20,7 +20,6 @@ import {
   isPositiveDecimalAmount,
   useMoneyAssetPricing,
   type MoneyAmountChangeSource,
-  type MoneyAssetOption,
 } from "@/client/money-modal";
 import type {
   OperationResult,
@@ -38,23 +37,17 @@ import {
   type SavingsPreparedReview,
 } from "@/shared/savings/review";
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
+import { useSavingsDialogFixture } from "./savings-dialog-fixture";
 
 export type SavingsActionMode = "deposit" | "withdraw";
-export type SavingsDialogMotion = "system" | "reduced";
 
 export type SavingsMoneyDialogProps = {
   open: boolean;
   mode: SavingsActionMode;
   session: VerifiedAccountSession;
   candidate: MorphoVaultCandidate;
-  motion?: SavingsDialogMotion;
   availableLabel?: string;
   availableBaseUnits?: string | null;
-  assetId?: string;
-  assetLabel?: string;
-  assetDecimals?: number;
-  assetOptions?: ReadonlyArray<MoneyAssetOption>;
-  onAssetChange?: (assetId: string) => void;
   prepareMoneyAction: AccountWalletClient["prepareMoneyAction"];
   executeMoneyAction: AccountWalletClient["executeMoneyAction"];
   onClose: () => void;
@@ -74,20 +67,22 @@ function OwnerBoundSavingsMoneyDialog({
   mode,
   session,
   candidate,
-  motion = "system",
   availableLabel,
   availableBaseUnits,
-  assetId: selectedAssetId,
-  assetLabel: selectedAssetLabel,
-  assetDecimals: selectedAssetDecimals,
-  assetOptions,
-  onAssetChange,
   prepareMoneyAction,
   executeMoneyAction,
   onClose,
   onClosed,
   onConfirmed,
 }: SavingsMoneyDialogProps) {
+  const {
+    motion = "system",
+    assetId: selectedAssetId,
+    assetLabel: selectedAssetLabel,
+    assetDecimals: selectedAssetDecimals,
+    assetOptions,
+    onAssetChange,
+  } = useSavingsDialogFixture();
   const [amount, setAmount] = useState("");
   const [amountChangeSource, setAmountChangeSource] =
     useState<MoneyAmountChangeSource>("programmatic");
