@@ -70,6 +70,27 @@ describe("no-silent-catch", () => {
     `, options)).toHaveLength(0);
   });
 
+  it("accepts a retained pre-initialized fallback assigned by the try", async () => {
+    expect(await lint("no-silent-catch", `
+      let details = { code: null };
+      try { details = readDetails(); } catch {}
+      consume(details);
+    `, options)).toHaveLength(0);
+  });
+
+  it("rejects missing or undefined initializers and pre-initialized bindings not read after the try", async () => {
+    expect(await lint("no-silent-catch", `
+      let missing;
+      try { missing = readDetails(); } catch {}
+      consume(missing);
+      let undefinedFallback = undefined;
+      try { undefinedFallback = readDetails(); } catch {}
+      consume(undefinedFallback);
+      let unread = { code: null };
+      try { unread = readDetails(); } catch {}
+    `, options)).toHaveLength(3);
+  });
+
   it("accepts primitive and empty-literal returns", async () => {
     expect(await lint("no-silent-catch", `
       function zero() { try { run(); } catch { return 0; } }

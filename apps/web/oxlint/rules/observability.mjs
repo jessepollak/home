@@ -96,20 +96,57 @@ function isUndefinedValue(node) {
     || (node.type === "UnaryExpression" && node.operator === "void");
 }
 
+function findVariable(state, identifier) {
+  let scope = state.sourceCode.getScope(identifier);
+  while (scope) {
+    const variable = scope.set.get(identifier.name);
+    if (variable) return variable;
+    scope = scope.upper;
+  }
+  return null;
+}
+
 function assignsOuterValue(state, node) {
   if (node.type !== "AssignmentExpression" || node.left.type !== "Identifier"
     || isUndefinedValue(node.right)) return false;
-  let scope = state.sourceCode.getScope(node.left);
-  while (scope) {
-    const variable = scope.set.get(node.left.name);
-    if (variable) {
-      const declaredInside = variable.identifiers.some((identifier) => isWithin(identifier, state.catchClause));
-      return !declaredInside && variable.references.some((reference) =>
-        reference.identifier.start > state.catchClause.end && reference.isRead());
+  const variable = findVariable(state, node.left);
+  if (!variable) return false;
+  const declaredInside = variable.identifiers.some((identifier) => isWithin(identifier, state.catchClause));
+  return !declaredInside && variable.references.some((reference) =>
+    reference.identifier.start > state.catchClause.end && reference.isRead());
+}
+
+function walkAssignments(node, visit) {
+  if (!node || typeof node !== "object") return;
+  if (node.type === "AssignmentExpression") visit(node);
+  if (["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(node.type)) return;
+  for (const [key, value] of Object.entries(node)) {
+    if (key === "parent" || !value) continue;
+    if (Array.isArray(value)) {
+      for (const child of value) walkAssignments(child, visit);
+    } else if (typeof value === "object") {
+      walkAssignments(value, visit);
     }
-    scope = scope.upper;
   }
-  return false;
+}
+
+function retainsPreInitializedFallback(state) {
+  const tryStatement = state.catchClause.parent;
+  if (tryStatement?.type !== "TryStatement") return false;
+  let retained = false;
+  walkAssignments(tryStatement.block, (assignment) => {
+    if (retained || assignment.left.type !== "Identifier") return;
+    const variable = findVariable(state, assignment.left);
+    const identifier = variable?.identifiers[0];
+    const declarator = identifier?.parent;
+    const declaration = declarator?.parent;
+    if (declarator?.type !== "VariableDeclarator" || declaration?.type !== "VariableDeclaration"
+      || !["let", "var"].includes(declaration.kind) || !declarator.init
+      || isUndefinedValue(declarator.init) || isWithin(identifier, tryStatement)) return;
+    retained = variable.references.some((reference) =>
+      reference.identifier.start > tryStatement.end && reference.isRead());
+  });
+  return retained;
 }
 
 const recoveryCall = /^(?:set[A-Z]|on[A-Z]|dispatch|resolve|reject|abort|cancel|cleanup|clear|release|remove|reset|invalidate|delete)/u;
@@ -238,7 +275,7 @@ function blockOutcomes(state, block, inHelper) {
 }
 
 function catchHasDisposition(state, node) {
-  return blockOutcomes(state, node.body, false) === 0;
+  return blockOutcomes(state, node.body, false) === 0 || retainsPreInitializedFallback(state);
 }
 
 export const noSilentCatch = {
@@ -275,10 +312,6 @@ export const noSilentCatch = {
       },
       "Program:exit"() {
         for (const node of catchClauses) {
-          if (node.body.body.length === 0) {
-            context.report({ node, messageId: "empty" });
-            continue;
-          }
           const state = {
             sourceCode: context.sourceCode,
             catchClause: node,
@@ -286,7 +319,8 @@ export const noSilentCatch = {
             localFunctions,
             stack: new Set(),
           };
-          if (!catchHasDisposition(state, node)) context.report({ node, messageId: "silent" });
+          if (catchHasDisposition(state, node)) continue;
+          context.report({ node, messageId: node.body.body.length === 0 ? "empty" : "silent" });
         }
       },
     };
