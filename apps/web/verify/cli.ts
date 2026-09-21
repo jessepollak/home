@@ -30,7 +30,7 @@ import {
   type LiveRecipient,
 } from "./live";
 import { appendLedger, armEvent, readLedger, spendForDay, spendForRun, surfaceArmState, type LedgerEntry } from "./ledger";
-import { matchesConfirmLabel, readFeatureMap, type ReachStep } from "./map";
+import { canaryReach, matchesConfirmLabel, readFeatureMap, type ReachStep } from "./map";
 import { confirmPolicyRefusal, requestedCaps, resolveVerifyRole, verifyPolicy, type VerifyRole } from "./policy";
 
 const args = Bun.argv.slice(2);
@@ -345,7 +345,13 @@ if (surface.manual && !live) {
   console.error(`Surface ${surfaceId} is a manual-only surface.`);
   process.exit(2);
 }
-const selectedReach = live ? surface.liveReach ?? surface.reach : surface.reach;
+let selectedReach = live ? surface.liveReach ?? surface.reach : surface.reach;
+try {
+  selectedReach = canaryReach(surfaceId, option("--canary-operation"), selectedReach);
+} catch (error) {
+  console.error(error instanceof Error ? error.message : "Invalid canary operation.");
+  process.exit(2);
+}
 if (selectedReach.length === 0) {
   console.error(`Surface ${surfaceId} has no machine-readable Reach steps.`);
   process.exit(2);
@@ -660,7 +666,7 @@ try {
             break;
           }
         }
-        if (surfaceId === "borrow") {
+        if (surfaceId === "borrow" && option("--canary-operation") !== "repay") {
           const borrowReview = parseBorrowReviewAmounts(review);
           parsedAmountUsd = borrowReview.borrowedAmountUsd;
           borrowedAmount = borrowReview.borrowedAmount;

@@ -210,7 +210,15 @@ Operator sequence for each of send, save, and borrow:
 1. Run `gmail-auth` once per machine, then run `live-login` and verify the reported pinned address.
 2. Run a `read-only` surface without confirmation flags.
 3. Run the target `up-to-review` or `confirm` surface without `--allow-confirm`, inspect the review, and verify the run stops at its listed final-confirm label. For send, `--recipient` is optional; omit it for the pinned `jesse.base.eth` default or pass a bare non-zero `--recipient <0x-address>` or `--recipient jesse.base.eth` (case-insensitive, surrounding whitespace ignored), and expect the verifier to refuse any other value before browser launch.
-4. After approving the bounded live-money plan, run that target with `--allow-confirm --account <pinned-address> --max-usd <per-click-cap>` and, when needed, `--max-usd-total <run-cap>`. For send, retain the independently verified recipient (the pinned default or an explicit `--recipient`).
+4. In operator mode, run an armed target with `--allow-confirm --account <pinned-address> --max-usd <per-click-cap>` and, when needed, `--max-usd-total <run-cap>`. Factory mode takes its caps from policy. For send, retain the independently verified recipient.
+
+### Production canary
+
+`scripts/verify/canary.sh scheduled` runs read-only and up-to-review production checks nightly across machine-reachable surfaces. On UTC weekday `HOME_VERIFY_WEEKLY_DAY` (default `7`, Sunday), it also performs five $1 confirmations: save deposit then withdrawal, borrow then repay, and send to the pinned `jesse.base.eth`. The five actions consume the full $5 factory daily cap. Run `scripts/verify/canary.sh nightly` to suppress funded actions or `scripts/verify/canary.sh weekly` to require the round trips. Do not schedule this in GitHub Actions.
+
+Set the public `HOME_VERIFY_PRODUCTION_URL` and the studio environment described below, run `live-login`, and confirm `verify status` shows each confirm surface armed before the first weekly run. Evidence and command logs stay under `${HOME_VERIFY_CANARY_DIR:-~/.home-verify/canary}/<UTC timestamp>/`. The script creates and pins an open issue titled `Verification canary` when missing, then posts the retained `summary.md`. A failed journey remains in the summary, exits non-zero, and any verifier incident separately disarms its surface and updates `verify: <surface> disarmed`.
+
+For studio scheduling, copy `scripts/verify/com.jessepollak.home-verification-canary.plist` to `~/Library/LaunchAgents/`, replace `__HOME_REPOSITORY__`, `__HOME_PRODUCTION_HOST__`, and `__HOME_DIRECTORY__`, and load it with `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.jessepollak.home-verification-canary.plist`. The template runs daily at 03:00 local time and deliberately contains no password or token. Provision `HOME_ACCESS_PASSWORD` into the studio launchd environment from its secret store without printing it; keep Gmail refresh credentials only in the mode-`600` file. Run `weekly` manually once before relying on the schedule, then inspect the pinned issue and retained evidence.
 
 ## Evidence to report
 

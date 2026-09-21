@@ -60,6 +60,31 @@ function parseReachBlock(body: string, heading: string): ReachStep[] {
   });
 }
 
+export function canaryReach(surfaceId: string, operation: string | undefined, fallback: ReachStep[]): ReachStep[] {
+  if (operation === undefined) return fallback;
+  if (surfaceId === "save" && operation === "deposit") return fallback;
+  if (surfaceId === "save" && operation === "withdraw") return [
+    { kind: "goto", path: "/save?flow=save-withdraw" },
+    { kind: "expect", text: "Withdraw" },
+    { kind: "click", label: "1" },
+    { kind: "click", label: "Continue" },
+    { kind: "expect", text: "Confirm" },
+    { kind: "click", label: "Withdraw $1.00" },
+  ];
+  if (surfaceId === "borrow" && operation === "borrow") return fallback;
+  if (surfaceId === "borrow" && operation === "repay") return [
+    { kind: "goto", path: "/borrow" },
+    { kind: "expect", text: "Borrow" },
+    { kind: "click", label: "Repay" },
+    { kind: "click", label: "1" },
+    { kind: "click", label: "Continue" },
+    { kind: "expect", text: "Confirm" },
+    { kind: "click", label: "Confirm action" },
+  ];
+  if (surfaceId === "send" && operation === "send") return fallback;
+  throw new Error(`Unsupported canary operation ${operation} for ${surfaceId}.`);
+}
+
 export function matchesConfirmLabel(patterns: string[], label: string): boolean {
   return patterns.some((pattern) => {
     const escaped = pattern.split("$<amount>").map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));

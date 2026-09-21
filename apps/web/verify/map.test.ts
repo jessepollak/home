@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { matchesConfirmLabel, parseFeatureMap, parseReachStep, readFeatureMap } from "./map";
+import { canaryReach, matchesConfirmLabel, parseFeatureMap, parseReachStep, readFeatureMap } from "./map";
 
 describe("feature map parser", () => {
   test("parses the supported Reach grammar, Live access, and budgets", () => {
@@ -25,6 +25,14 @@ describe("feature map parser", () => {
       manual: false,
       live: "confirm",
     });
+  });
+
+  test("provides fixed weekly round-trip reach variants", () => {
+    const fallback = [{ kind: "goto" as const, path: "/fallback" }];
+    expect(canaryReach("save", "withdraw", fallback)).toContainEqual({ kind: "click", label: "Withdraw $1.00" });
+    expect(canaryReach("borrow", "repay", fallback)).toContainEqual({ kind: "click", label: "Repay" });
+    expect(canaryReach("send", "send", fallback)).toBe(fallback);
+    expect(() => canaryReach("send", "withdraw", fallback)).toThrow("Unsupported canary operation");
   });
 
   test("matches exact confirm labels with an amount placeholder", () => {
