@@ -158,6 +158,7 @@ export function useAuthenticatedTransport({
         try {
           details = responseErrorDetails(await response.json());
         } catch {
+          details = { code: null, serverMessage: null };
         }
         throwIfDeploymentExpired(response, skewHeaders, details.code);
         const unavailable = new Error("Authenticated resource is unavailable.");
@@ -234,6 +235,7 @@ export function useAuthenticatedTransport({
         try {
           details = responseErrorDetails(await response.json());
         } catch {
+          details = { code: null, serverMessage: null };
         }
         throwIfDeploymentExpired(response, skewHeaders, details.code);
         const failure = new TransferExecutionError(
