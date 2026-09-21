@@ -385,8 +385,7 @@ async function openScrolledBalances(page: Page) {
   await page.setViewportSize({ width: 390, height: 440 });
   await page.goto("/balances");
   await expect(page.getByRole("heading", { level: 1, name: "Your money" })).toBeVisible();
-  await expect.poll(() => page.evaluate(countVisibleBalanceRows)).toBeGreaterThanOrEqual(10);
-  await page.waitForTimeout(150);
+  await expect.poll(() => page.evaluate(countVisibleBalanceRows)).toBeGreaterThan(10);
   const freshCount = await page.evaluate(countVisibleBalanceRows);
   const maxTop = await page.evaluate(() => {
     const main = document.querySelector<HTMLElement>("[data-app-main-authenticated]");
@@ -489,7 +488,6 @@ test("persisted balances paint before verification and settle without row shift"
   await expect.poll(() => page.evaluate(() =>
     Object.keys(localStorage).some((key) => key.startsWith("home.query.v1:")),
   )).toBe(true);
-  await page.waitForTimeout(600);
   await markPersistedQueriesStale(page);
   const hydrationErrors = trackHydrationErrors(page);
   const sessionObserved = fixtures.delayNextSession();
@@ -907,7 +905,6 @@ test("cold and revalidated cached Balances stay anchored to the requested group"
   await expect.poll(() => page.evaluate(() =>
     Object.keys(localStorage).some((key) => key.startsWith("home.query.v1:")),
   )).toBe(true);
-  await page.waitForTimeout(600);
   await markPersistedQueriesStale(page);
 
   serveChanged = true;

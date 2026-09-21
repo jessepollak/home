@@ -303,6 +303,7 @@
     {
       "files": [
         "**/*.test.{ts,tsx}",
+        "**/*.pw.ts",
         "tests/helpers/**/*.{ts,tsx}"
       ],
       "excludeFiles": [

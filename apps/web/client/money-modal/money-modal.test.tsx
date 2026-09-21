@@ -9,7 +9,8 @@ const { MoneyModal, MoneyModalHeader } = await import("./money-modal");
 
 afterEach(async () => {
   cleanup();
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await waitFor(() => expect(document.querySelector("[data-base-ui-portal]")).toBeNull());
+  await waitFor(() => expect(document.body.style.overflowY).toBe(""));
   document.body.style.overflow = "";
   document.body.style.overflowX = "";
   document.body.style.overflowY = "";

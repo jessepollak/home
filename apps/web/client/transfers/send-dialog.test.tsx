@@ -209,7 +209,7 @@ describe("SendDialog Peer cash-out", () => {
     expect(page().queryByRole("button", { name: "Recover a Peer cash-out" })).toBeNull();
     expect(page().getByLabelText("To")).toBeTruthy();
     expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    await act(async () => { await Promise.resolve(); });
   });
 
   test("waits for settled reads and hides an empty explicit recovery result", async () => {
