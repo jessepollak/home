@@ -186,7 +186,6 @@ export function HomeMoneyGroups({
   return <BalancesEmpty />;
 }
 
-/** Kept as the single-row-list boundary used by focused row behavior tests. */
 export function HomeBalancesList({
   rows,
   isLoading,
