@@ -11,6 +11,7 @@
     "lint": "oxlint -c .oxlintrc.jsonc --deny-warnings --report-unused-disable-directives --disable-nested-config .",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "bun test --max-concurrency 1",
+    "verify": "bun run verify/cli.ts",
     "test:stories": "vitest run",
     "test:browser-smoke": "playwright test --config playwright.config.ts",
     "test:browser-install": "playwright install --with-deps chromium",
