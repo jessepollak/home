@@ -6,10 +6,6 @@ export const PEER_CURATOR_PRODUCTION_ORIGIN = "https://api.zkp2p.xyz" as const;
 export const PEER_CURATOR_SANDBOX_ORIGIN = "https://api-staging.zkp2p.xyz" as const;
 export const PEER_INDEXER_ORIGIN = "https://indexer.zkp2p.xyz" as const;
 
-// Pinned from @zkp2p/sdk 0.14.1 (pulled by the exact @zkp2p/cash 0.5.3
-// dependency). adapter.test.ts asserts these literals against the published
-// contract source so an SDK deployment change fails review instead of silently
-// widening Home's money-action scope.
 export const PEER_PRODUCTION_CONTRACTS = {
   escrow: "0x777777779d229cdF3110e9de47943791c26300Ef",
   intentGuardian: "0x83671606454fA72ba1e2831E18C5090D25629414",
