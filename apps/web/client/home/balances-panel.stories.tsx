@@ -1,7 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import type { BalanceRowModel } from "@/shared/balances/present";
 import { Card, CardContent } from "@/components/ui/card";
-import { shellContentFrameClassName } from "@/components/shell-layout";
 import { HomeBalanceRowView } from "./balances-panel";
 import { ShimmerRows } from "./panel-shared";
 
@@ -39,11 +38,9 @@ type FinancialRowStoryProps = {
   row: BalanceRowModel;
 };
 
-// The row is composed inside the real shell content frame so the story card
-// width matches the shipped Home column at every viewport.
 function FinancialRowStory({ row }: FinancialRowStoryProps) {
   return (
-    <main className={`${shellContentFrameClassName} py-4`}>
+    <div className="mx-auto w-full max-w-md p-2">
       <Card>
         <CardContent inset="list">
           <ul className="list-none p-0" data-balance-list="">
@@ -51,7 +48,7 @@ function FinancialRowStory({ row }: FinancialRowStoryProps) {
           </ul>
         </CardContent>
       </Card>
-    </main>
+    </div>
   );
 }
 
@@ -74,14 +71,14 @@ export const Normal: Story = {};
 
 export const Loading: Story = {
   render: () => (
-    <main className={`${shellContentFrameClassName} py-4`}>
+    <div className="mx-auto w-full max-w-md p-2">
       <Card>
         <CardContent inset="list">
           <ShimmerRows count={2} />
           <span className="sr-only">Loading balances…</span>
         </CardContent>
       </Card>
-    </main>
+    </div>
   ),
 };
 

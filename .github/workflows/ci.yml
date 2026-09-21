@@ -119,6 +119,7 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+  # TODO(operator): rename this job to `repository gates` after the ruleset required check is updated.
   delivery-automation-tests:
     name: delivery automation tests
     runs-on: ubuntu-latest
@@ -141,7 +142,7 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile
 
-      - name: Test repository gates and delivery metadata algorithms
+      - name: Test repository gates
         run: bun run gates
 
   postgres-store-contract:
