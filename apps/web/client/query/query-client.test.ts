@@ -96,6 +96,42 @@ describe("owner query cache boundary", () => {
       .toHaveLength(3);
   });
 
+  test("a throwing storage fails open", () => {
+    const client = createHomeQueryClient();
+    const storage = {
+      getItem: () => { throw new Error("private mode"); },
+      setItem: () => { throw new Error("quota exceeded"); },
+      removeItem: () => {},
+    };
+    const persister = createOwnerQueryPersister(storage, "owner-a", 0);
+
+    expect(() => {
+      persister?.persistClient({ timestamp: Date.now(), buster: "home-query-v2", clientState: { mutations: [], queries: [] } });
+      persister?.flush();
+    }).not.toThrow();
+    expect(restoreOwnerQueries(client, storage, "owner-a")).toBe(false);
+    expect(client.getQueryCache().getAll()).toHaveLength(0);
+  });
+
+  test("a tampered blob cannot hydrate another owner's queries", () => {
+    const storage = memoryStorage();
+    const attacker = createHomeQueryClient();
+    attacker.setQueryDefaults(ownerQueryKey("owner-b", "balances", "US"), {
+      meta: ownerQueryMeta("owner-b", "owner"),
+    });
+    attacker.setQueryData(ownerQueryKey("owner-b", "balances", "US"), { amount: "99" });
+    storage.setItem(`${ownerQueryCachePrefix}owner-a`, JSON.stringify({
+      timestamp: Date.now(),
+      buster: "home-query-v2",
+      clientState: dehydrateOwnerQueries(attacker, "owner-b"),
+    }));
+
+    const restored = createHomeQueryClient();
+    expect(restoreOwnerQueries(restored, storage, "owner-a")).toBe(true);
+    expect(restored.getQueryCache().getAll()).toHaveLength(0);
+    expect(restored.getQueryData(ownerQueryKey("owner-b", "balances", "US"))).toBeUndefined();
+  });
+
   test("persister restores synchronously and dehydration rejects non-owner keys", async () => {
     const storage = memoryStorage();
     expect(isSafeQueryIdentity("Bearer secret")).toBeFalse();

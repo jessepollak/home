@@ -211,6 +211,26 @@ describe("fresh-until-moved scheduler", () => {
     expect(fake.pending()).toBe(0);
   });
 
+  test("a failing read keeps polling without inventing data", async () => {
+    const fake = fakeClock();
+    let reads = 0;
+    const run = freshUntilMoved({
+      initial: { usdc: "10" },
+      readFresh: async () => {
+        reads += 1;
+        if (reads === 1) throw new Error("temporary read failure");
+        return { usdc: "11" };
+      },
+      clock: fake.clock,
+    });
+
+    await fake.advance(6_000);
+
+    expect(await run.result).toBe("moved");
+    expect(reads).toBe(2);
+    expect(fake.pending()).toBe(0);
+  });
+
   test("stops at sixty seconds when balances do not move", async () => {
     const fake = fakeClock();
     let reads = 0;
