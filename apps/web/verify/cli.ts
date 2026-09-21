@@ -78,9 +78,24 @@ if (args[0] === "status") {
   console.log(`role: ${verifyRole}`);
   console.log(`today's factory spend: $${spendForDay(entries, today).toFixed(2)} / $${verifyPolicy.factory.perDayUsd.toFixed(2)}`);
   console.log(`caps: $${verifyPolicy.factory.perClickUsd.toFixed(2)} click; $${verifyPolicy.factory.perRunUsd.toFixed(2)} run; $${verifyPolicy.factory.perDayUsd.toFixed(2)} day; $${verifyPolicy.balanceCeilingUsd.toFixed(2)} ceiling`);
+  const statusBaseValue = option("--base-url");
+  let statusHost: string | null = null;
+  if (statusBaseValue !== undefined) {
+    try {
+      statusHost = new URL(statusBaseValue).host;
+    } catch {
+      console.error("--base-url must be a valid URL.");
+      process.exit(2);
+    }
+  }
   for (const surface of surfaces.values()) {
-    const state = surfaceArmState(entries, surface.id, currentMainRevision());
-    console.log(`${surface.id}: ${state.armed ? "armed" : "disarmed"} (${state.reason}; ${state.cleanRuns}/${verifyPolicy.cleanRunsToArm} clean Rung 2 runs)`);
+    const runHosts = [...new Set(entries.flatMap((entry) => entry.type === "run" && entry.surface === surface.id ? [entry.host] : []))];
+    const hosts = statusHost !== null ? [statusHost] : runHosts.length > 0 ? runHosts : [""];
+    for (const host of hosts) {
+      const state = surfaceArmState(entries, surface.id, currentMainRevision(), host);
+      const label = host === "" ? surface.id : `${surface.id} @ ${host}`;
+      console.log(`${label}: ${state.armed ? "armed" : "disarmed"} (${state.reason}; ${state.cleanRuns}/${verifyPolicy.cleanRunsToArm} clean Rung 2 runs)`);
+    }
   }
   process.exit(0);
 }
@@ -340,7 +355,7 @@ if (!surfaceId || surfaceId.startsWith("-")) {
   console.error("Usage: bun run verify <surface-id> [--base-url <url>] [--out <dir>] [--allow-console] [--allow-domain <host>]");
   console.error("       bun run verify live-login --base-url <url> [--allow-domain <host>]");
   console.error("       bun run verify gmail-auth");
-  console.error("       bun run verify status | arm <surface> --by <GitHub-comment-url>");
+  console.error("       bun run verify status [--base-url <url>] | arm <surface> --by <GitHub-comment-url>");
   console.error("       bun run verify <surface-id> --live --base-url <url> --out <dir> [--recipient <0x-address|jesse.base.eth>] [--allow-domain <host>] [--allow-confirm --account <0x…> --max-usd <n> [--max-usd-total <n>]]");
   console.error("       bun run verify --list");
   process.exit(2);
@@ -413,7 +428,7 @@ if (live && outputInsideRepository(outputRoot, repositoryRoot)) {
 }
 const ledgerEntries = live ? await readLedger(ledgerPath) : [];
 const armState = live
-  ? surfaceArmState(ledgerEntries, surfaceId, currentMainRevision())
+  ? surfaceArmState(ledgerEntries, surfaceId, currentMainRevision(), baseUrl.host)
   : { armed: false, cleanRuns: 0, reason: "insufficient-clean-runs" as const };
 if (live && allowConfirm) {
   const authority = decideConfirmGate(surface.live, "Continue", true);
@@ -597,7 +612,7 @@ function syncDisarmIssue(incidents: string[]): void {
 async function reserveSpend(amountUsd: number): Promise<string | null> {
   return withLedgerLock(ledgerPath, async () => {
     const currentEntries = await readLedger(ledgerPath);
-    const currentArmState = surfaceArmState(currentEntries, surfaceId, currentMainRevision());
+    const currentArmState = surfaceArmState(currentEntries, surfaceId, currentMainRevision(), baseUrl.host);
     const refusal = confirmPolicyRefusal({
       role: verifyRole,
       armed: currentArmState.armed,

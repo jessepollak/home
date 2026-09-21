@@ -86,12 +86,12 @@ describe("verification ledger", () => {
   });
 
   test("arms after three clean rung 2 runs on current main only", () => {
-    expect(surfaceArmState([run(), run({ runId: "2" })], "send", revision)).toEqual({
+    expect(surfaceArmState([run(), run({ runId: "2" })], "send", revision, "preview.example")).toEqual({
       armed: false,
       cleanRuns: 2,
       reason: "insufficient-clean-runs",
     });
-    expect(surfaceArmState([run(), run({ runId: "2" }), run({ runId: "3" })], "send", revision)).toEqual({
+    expect(surfaceArmState([run(), run({ runId: "2" }), run({ runId: "3" })], "send", revision, "preview.example")).toEqual({
       armed: true,
       cleanRuns: 3,
       reason: "clean-runs",
@@ -101,7 +101,25 @@ describe("verification ledger", () => {
       run({ runId: "2", clean: false }),
       run({ runId: "3", incidents: ["unexpected-host"] }),
       run({ runId: "4", mainRevision: "old" }),
-    ], "send", revision).armed).toBe(false);
+    ], "send", revision, "preview.example").armed).toBe(false);
+  });
+
+  test("arms only from clean runs on the same host", () => {
+    const previewRuns = [
+      run({ host: "preview.example" }),
+      run({ runId: "2", host: "preview.example" }),
+      run({ runId: "3", host: "preview.example" }),
+    ];
+    expect(surfaceArmState(previewRuns, "send", revision, "home.example")).toEqual({
+      armed: false,
+      cleanRuns: 0,
+      reason: "insufficient-clean-runs",
+    });
+    expect(surfaceArmState(previewRuns, "send", revision, "preview.example")).toEqual({
+      armed: true,
+      cleanRuns: 3,
+      reason: "clean-runs",
+    });
   });
 
   test("an incident disarms until a later Jesse arm event", () => {
@@ -113,22 +131,22 @@ describe("verification ledger", () => {
       incidents: ["ambiguous-result"],
       runId: "4",
     });
-    expect(surfaceArmState(entries, "send", revision).reason).toBe("incident");
+    expect(surfaceArmState(entries, "send", revision, "preview.example").reason).toBe("incident");
     const by = "https://github.com/jessepollak/home/issues/1#issuecomment-123";
     entries.push(armEvent("send", by, { html_url: by, body: "/verify arm send", user: { login: "jessepollak" }, created_at: "2026-09-21T13:30:00.000Z" }));
-    expect(surfaceArmState(entries, "send", revision)).toEqual({ armed: true, cleanRuns: 0, reason: "jesse-arm" });
+    expect(surfaceArmState(entries, "send", revision, "preview.example")).toEqual({ armed: true, cleanRuns: 0, reason: "jesse-arm" });
   });
 
   test("an incident run disarms even when the disarm entry is lost", () => {
     const cleanRuns = [run(), run({ runId: "2" }), run({ runId: "3" })];
-    expect(surfaceArmState([...cleanRuns, run({ runId: "4", clean: false, incidents: ["ambiguous-result"] })], "send", revision)).toEqual({
+    expect(surfaceArmState([...cleanRuns, run({ runId: "4", clean: false, incidents: ["ambiguous-result"] })], "send", revision, "preview.example")).toEqual({
       armed: false,
       cleanRuns: 0,
       reason: "incident",
     });
     const by = "https://github.com/jessepollak/home/issues/1#issuecomment-123";
     const armed = [...cleanRuns, armEvent("send", by, { html_url: by, body: "/verify arm send", user: { login: "jessepollak" }, created_at: "2026-09-21T13:30:00.000Z" })];
-    expect(surfaceArmState([...armed, run({ runId: "5", clean: false, incidents: ["post-confirm-failure"] })], "send", revision)).toEqual({
+    expect(surfaceArmState([...armed, run({ runId: "5", clean: false, incidents: ["post-confirm-failure"] })], "send", revision, "preview.example")).toEqual({
       armed: false,
       cleanRuns: 0,
       reason: "incident",

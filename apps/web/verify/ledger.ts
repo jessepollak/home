@@ -127,6 +127,7 @@ export function surfaceArmState(
   entries: LedgerEntry[],
   surface: string,
   mainRevision: string,
+  host: string,
 ): SurfaceArmState {
   const relevantEvents = entries.filter((entry) =>
     entry.surface === surface && (entry.type !== "run" || entry.incidents.length > 0)
@@ -137,6 +138,7 @@ export function surfaceArmState(
   const cleanRuns = entries.filter((entry): entry is LedgerRun =>
     entry.type === "run" &&
     entry.surface === surface &&
+    entry.host === host &&
     entry.mainRevision === mainRevision &&
     entry.rungReached >= 2 &&
     entry.clean &&
