@@ -72,7 +72,7 @@ Use a different non-3199 port when `3200` is occupied. Do not use root `bun dev`
 - Use a headed, fresh browser on local Home or an approved preview/sandbox.
 - Stop at explicit human checkpoints for sign-in, OTP, wallet, provider authentication, and final confirmation. Never automate or capture a real OTP, secret, recovery code, or payment detail.
 - A funded action may proceed only after the operator explicitly approves the bounded live plan required by the [operating manual](operating-manual.md#risk-based-live-money-validation): network, asset, maximum amount/loss, controlled destination, expected changes, privacy, ambiguity/retry behavior, and stop/recovery conditions. One approval may cover the stated complete journey. Stop whenever a bound or stop condition is reached.
-- Do not persist a browser profile or auth state. Keep every action within the approved runbook scope and safety limits.
+- Do not persist a browser profile or auth state except through the surface verifier's explicitly approved Live mode below. Keep every action within the approved runbook scope and safety limits.
 - Record any unperformed real-device, provider, authentication, or money check precisely. For an unperformed live-money path, write `Real money: not tested` and name the uncertainty; emulation is not real-device or funded proof.
 
 Factory mode stays local and credential-free by default. A protected Vercel preview is operator-only unless an operator explicitly authorizes and provisions automation access. First load the version-matched `protected-vercel-deployments` skill and prefer its short-lived approved access path. Protection Bypass for Automation requires explicit operator authorization: read `VERCEL_AUTOMATION_BYPASS_SECRET` only from the approved environment, inject it through the documented bypass header/cookie flow, and never print, persist, commit, or capture it. Do not disable protection or make the deployment public.
@@ -178,6 +178,23 @@ bun run --cwd apps/web verify <surface-id> --base-url http://127.0.0.1:3200 --ou
 The CLI shells out to the repository-pinned `agent-browser`; it never reads or prints cookies, browser state, or environment values. Its tolerant feature-map parser supports only these Reach commands: `goto "path"`, `click "label"`, `fill "label" "value"`, `press "key"`, and `expect "text"`. It stages deterministic signed-in, session, balance, action-list, funding-list, and profile fixtures before navigation.
 
 Each run writes `<out>/<surface-id>/{evidence.json,summary.md,screenshot.png,dom.txt}`. The bundle contains the screenshot and DOM `innerText`, console/page errors and failed requests, named Home performance marks and listed initial budgets, and the long-task count. Browser noise or a failed/missing listed budget makes the command non-zero; `--allow-console` records but permits browser noise for a deliberately noisy investigation. The CLI does not run an accessibility audit. Paste `summary.md` into PR evidence and retain the screenshot only when the PR media policy requires it. This evidence does not replace Playwright regression coverage or the required exact-PID server cleanup.
+
+### Live mode
+
+Live verification is operator-only and refuses to run when `CI` or `GITHUB_ACTIONS` is set. It targets a deployed environment and the Home test account `j@pollak.io`; factory runs never use it and never receive its credentials, state, provider access, or money authority.
+
+Start with `bun run --cwd apps/web verify live-login --base-url <deployed-url>`. The headed browser fills the deployment access gate only from the operator's `HOME_ACCESS_PASSWORD`, opens email sign-in for `j@pollak.io`, and waits for the operator to complete OTP. It then reads the smart-account address from the rendered Account surface, pins that address, and saves private browser state under `~/.home-verify/<host>/state` with directory mode `700` and file mode `600`. Live runs load that state, re-read the Account address before their first Reach step, and stop without an evidence bundle when the session is expired or the account differs from the pin.
+
+Run read-only or review-bounded evidence with `verify <surface> --live --base-url <url> --out <outside-repo-dir>`. The feature map's `Live` field controls the boundary: `read-only` and a missing field stop before money-labelled clicks; `up-to-review` never confirms; only `confirm` can cross the confirm gate. A confirm run additionally requires `--allow-confirm`, `--account <pinned-address>`, and an explicit positive `--max-usd <n>`. Before clicking, the verifier reads the review amount from rendered DOM text and refuses an unparseable amount or one above the cap.
+
+Live evidence uses the normal surface bundle plus `live.json`, containing the base host, surface, pinned address, executed steps, whether a confirm occurred, parsed USD amount, and any transaction hash or action id visible in the success UI. `--out` must be outside the repository. State never enters the repository, and neither state nor evidence contains the deployment password, OTP, cookies, network response bodies, or other secrets.
+
+Operator sequence:
+
+1. Run `live-login`, complete OTP, and verify the reported pinned address.
+2. Run a `read-only` surface without confirmation flags.
+3. Run an `up-to-review` or `confirm` surface without `--allow-confirm` and verify it stops at the money boundary.
+4. After approving the bounded live-money plan, run a `confirm` surface with `--allow-confirm --account <pinned-address> --max-usd <cap>`.
 
 ## Evidence to report
 

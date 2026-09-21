@@ -44,6 +44,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 ## Surfaces
 
 ### `landing`
+- **Live**: read-only
 - **Reach**:
   1. `goto "/"`
   2. `expect "One home for your money."`
@@ -56,6 +57,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Unknowns**: none; `supported-globe.tsx` only dynamically imports the local renderer and does not fetch remote data.
 
 ### `sign-in`
+- **Live**: read-only
 - **Reach**:
   1. `goto "/?account=signin"`
   2. `expect "Sign in to Home"`
@@ -67,6 +69,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Unknowns**: none; the labels, invalid-code recovery, and resend countdown are defined in `sign-in-email.tsx`, `sign-in-otp.tsx`, and `account-screen.tsx`.
 
 ### `home-panel`
+- **Live**: read-only
 - **Reach**:
   1. `goto "/home"`
   2. `expect "Home"`
@@ -80,6 +83,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Unknowns**: `statusLabel` copy is supplied by balance presentation data and therefore varies by snapshot. `MountedShellPanel` sets inactive panels to `hidden`, `inert`, and `aria-hidden`.
 
 ### `balances`
+- **Live**: read-only
 - **Reach**:
   1. `goto "/balances"`
   2. `expect "Your money"`
@@ -93,6 +97,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Unknowns**: none; incremental batches use an intersection sentinel rather than a reveal-more button, group navigation is labelled `More <group>`, and the empty state is `No money yet`.
 
 ### `activity`
+- **Live**: read-only
 - **Reach**:
   1. `goto "/activity"`
   2. `expect "Activity"`
@@ -104,6 +109,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Unknowns**: row value/date text remains fixture-dependent; pagination is labelled `Load more activity`, `Continue loading activity`, or `Retry more activity`.
 
 ### `save`
+- **Live**: confirm
 - **Reach**:
   1. `goto "/save?flow=save-deposit"`
   2. `expect "Deposit"`
@@ -115,6 +121,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Unknowns**: none blocking; notices include `Updating…`, `Loading APY…`, `Loading vaults…`, and the amount dialog reports the formatted available balance.
 
 ### `borrow`
+- **Live**: up-to-review
 - **Reach**: Seed the signed-in state and borrow fixtures, go to `/borrow` or `/borrow/<marketId>`, then choose a `data-testid="borrow-market-card"` inside the `Borrow markets` list.
 - **Verify**: manual
 - **Notes**: No smoke fixture exists for `/api/borrow*`; see Gaps.
@@ -125,6 +132,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Unknowns**: no fixture-backed browser smoke state exists. Operation labels are `Add collateral`, `Borrow`, `Repay`, `Repay all`, `Withdraw collateral`, and `Close position`.
 
 ### `invest`
+- **Live**: read-only
 - **Reach**:
   1. `goto "/invest"`
   2. `expect "Invest"`
@@ -136,6 +144,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Unknowns**: meme pagination copy remains unknown because no fixture-backed browser state reaches it; category links expose visible `See all ›` text.
 
 ### `send` (money modal — steps individually)
+- **Live**: confirm
 - **Reach** (smoke-verified):
   1. Seed the signed-in fixture and install API fixtures.
   2. `goto "/home"`
@@ -157,6 +166,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Unknowns**: none blocking; exact `MoneyConfirmSummary` fee row for sends (sends show no fee row — wallet shows fee; fixture `warnings` say `Network fee shown by wallet.`).
 
 ### `cash-out` (Peer offramp inner steps)
+- **Live**: up-to-review
 - **Reach** (smoke-verified, `openPeerCashOutHandle`, smoke.pw.ts): 1) seed + `installApiFixtures`. 2) `Send` → digits `1` → `Continue`. 3) click `/Send to Zelle, Venmo, Cash App and more/` (CashoutItem, send-dialog.tsx). 4) click `Cash App` (payment-method button, payout step). 5) textbox `Cash App handle` (label `${selectedPlatform.label} handle`); attributes asserted: `autocomplete="off"`, `autocapitalize="none"`, `autocorrect="off"`, `spellcheck="false"`, `enterkeyhint="next"`, 16px font, ≥44px target. 6) `Continue` → textbox `Re-enter handle` (`enterkeyhint="done"`). 7) `Review` → confirm step.
 - **Verify**: manual
 - **Expect**: modal title `Cash out with Peer` (send-dialog.tsx `modalTitle`); confirm rows `Provider`, `Payout app`, `Payout handle`, `Approximate receive`, `Estimated delivery`, `Network` = `Base` (send-dialog.tsx confirm rows); disclaimer `The fiat amount and delivery time are approximate, not guaranteed.`; primary `Cash out $X`.
@@ -166,6 +176,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Unknowns**: none blocking; server cashout error copy depends on `serverCashoutMessage` (send-dialog.tsx).
 
 ### `add-money` (funding)
+- **Live**: up-to-review
 - **Reach** (smoke-verified IDRX path): 1) seed country `ID` (`localStorage["home.country.v1"]="ID"`) + `installApiFixtures`. 2) `signIn(page)` helper. 3) click `Add money` (funding-actions.tsx). 4) method step button `/Deposit IDR/` must contain `IDRX · Bank transfer · Mandiri` (smoke.pw.ts). 5) type `20000` via numpad. 6) `Review quote` → heading `Review quote`, row `Receive` contains `20.000,00 IDRX`. 7) `Confirm deposit` → heading `Review payment details`, row `Network` contains `Rp 100,00`. 8) `View payment instructions` → `123456789012` visible; then `Money received` (≤7s budget, smoke.pw.ts).
 - **Verify**: manual
 - **Expect**: dialog titles `Add money` / `Receive` / `Deposit IDR` (add-money-dialog.tsx `title`); method list has `Receive crypto` row; close label `Close add money`; receive step QR (`aria-label="QR code for Base address …"`) and address copy (`Copy …`, `Full Base address …`, add-money-dialog.tsx). Signed-out body offers `Sign in` link to `/?account=signin`.
@@ -175,6 +186,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Unknowns**: provider-specific order-flow labels outside the smoke-verified IDRX path remain unknown because they depend on provider configuration; snapshot before acting.
 
 ### `account-settings`
+- **Live**: read-only
 - **Reach**:
   1. `goto "/home?account=settings"`
   2. `expect "Account"`
@@ -186,6 +198,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Unknowns**: none; the country selector is described by `Country` / `Sets how money is shown`, and the button is labelled `Sign out`.
 
 ### `access-gate`
+- **Live**: read-only
 - **Reach** (smoke-verified): 1) clear cookies; goto `/home` (protected) → redirect `/access?next=%2Fhome`. 2) fill textbox `Access password`; wrong value → `Access denied. Try again.`; cookie `home-access` absent. 3) correct `HOME_ACCESS_PASSWORD` → `Continue` posts `/api/access`, then URL `/home` or `/?account=signin`. 4) heading `Access granted` on revisit; `Leave this deployment` posts `/api/access/logout` (no-JS form also asserted).
 - **Verify**: manual
 - **Expect**: headings `Enter access password` / `Access granted`; `Continue to Home` link; CSP header `frame-ancestors 'none'` on the protected response (tests/browser/access.pw.ts); hydrated form marker `form[data-hydrated="true"]`.
@@ -195,6 +208,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Unknowns**: cookie/secret names intentional; do not print credentials.
 
 ### `coverage`
+- **Live**: read-only
 - **Reach**:
   1. `goto "/coverage"`
   2. `expect "Local money coverage"`
@@ -206,6 +220,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Unknowns**: none; filters are `Search`, `1:1 onramp`, `Portfolio`, `Integrated`, and `Sort`.
 
 ### `dev-ui`
+- **Live**: read-only
 - **Reach**: Run with `HOME_PLAYWRIGHT_SMOKE=1` or in development, go to `/dev/ui`, and otherwise expect `notFound()` (404).
 - **Verify**: manual
 - **Expect**: `Home UI theme` heading; swatch grid; `Stock type scale` card; `Buttons` section with `Primary`/`Outline`/`Destructive` (app/dev/ui/page.tsx).
@@ -215,6 +230,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Unknowns**: none.
 
 ### `toasts`
+- **Live**: read-only
 - **Reach**: Complete a prepared action (smoke: send success) and observe the toast region.
 - **Verify**: manual
 - **Expect**: exact success copy e.g. `Sent $1.00 to 0x2222…222222` (smoke.pw.ts); renders only when `routeMode === "dashboard" && isVerified` (shell.tsx).

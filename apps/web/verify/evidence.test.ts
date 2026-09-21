@@ -34,4 +34,9 @@ describe("evidence summary", () => {
     expect(finalizeEvidence(missing).passed).toBe(false);
     expect(summarizeEvidence(finalizeEvidence(missing))).toContain("not observed (budget 1500 ms; fail)");
   });
+
+  test("labels every non-empty live summary line", () => {
+    const summary = summarizeEvidence(finalizeEvidence(base), "live");
+    expect(summary.split("\n").filter(Boolean).every((line) => line.startsWith("[live] "))).toBe(true);
+  });
 });

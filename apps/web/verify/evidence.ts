@@ -31,7 +31,7 @@ export function finalizeEvidence(
   return { ...input, passed: budgetsPass && browserHealthPass };
 }
 
-export function summarizeEvidence(evidence: VerifyEvidence): string {
+export function summarizeEvidence(evidence: VerifyEvidence, mode: "fixture" | "live" = "fixture"): string {
   const status = evidence.passed ? "pass" : "fail";
   const marks = evidence.marks.length === 0
     ? "None listed for this surface."
@@ -41,5 +41,8 @@ export function summarizeEvidence(evidence: VerifyEvidence): string {
       const result = mark.passed === null ? "recorded" : mark.passed ? "pass" : "fail";
       return `- \`${mark.name}\`: ${value} (${budget}; ${result})`;
     }).join("\n");
-  return `### Verify: \`${evidence.surfaceId}\` — ${status}\n\n- Origin: ${evidence.baseUrl}\n- Viewport: ${evidence.viewport.width}×${evidence.viewport.height} CSS px\n- Screenshot: \`${evidence.artifacts.screenshot}\`\n- DOM text: \`${evidence.artifacts.dom}\`\n- Console errors: ${evidence.consoleErrors.length}\n- Page errors: ${evidence.pageErrors.length}\n- Failed requests: ${evidence.failedRequests.length}\n- Long tasks: ${evidence.longTaskCount}\n\n#### Performance marks\n${marks}\n`;
+  const summary = `### Verify: \`${evidence.surfaceId}\` — ${status}\n\n- Origin: ${evidence.baseUrl}\n- Viewport: ${evidence.viewport.width}×${evidence.viewport.height} CSS px\n- Screenshot: \`${evidence.artifacts.screenshot}\`\n- DOM text: \`${evidence.artifacts.dom}\`\n- Console errors: ${evidence.consoleErrors.length}\n- Page errors: ${evidence.pageErrors.length}\n- Failed requests: ${evidence.failedRequests.length}\n- Long tasks: ${evidence.longTaskCount}\n\n#### Performance marks\n${marks}\n`;
+  return mode === "live"
+    ? summary.split("\n").map((line) => line ? `[live] ${line}` : line).join("\n")
+    : summary;
 }

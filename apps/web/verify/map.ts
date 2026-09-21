@@ -7,11 +7,14 @@ export type ReachStep =
   | { kind: "press"; key: string }
   | { kind: "expect"; text: string };
 
+export type LiveAccess = "read-only" | "up-to-review" | "confirm";
+
 export type Surface = {
   id: string;
   reach: ReachStep[];
   budgets: Record<string, number>;
   manual: boolean;
+  live?: LiveAccess;
 };
 
 const stepPattern = /^(goto|click|fill|press|expect)\s+"([^"]*)"(?:\s+"([^"]*)")?$/;
@@ -38,7 +41,8 @@ export function parseFeatureMap(markdown: string): Map<string, Surface> {
       budgets[match[1]] = Number(match[2].replaceAll("_", ""));
     }
     const manual = /^- \*\*Verify\*\*:\s*manual\s*$/m.test(body);
-    surfaces.set(id, { id, reach, budgets, manual });
+    const live = body.match(/^- \*\*Live\*\*:\s*(read-only|up-to-review|confirm)\s*$/m)?.[1] as LiveAccess | undefined;
+    surfaces.set(id, { id, reach, budgets, manual, live });
   }
   return surfaces;
 }

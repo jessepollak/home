@@ -3,8 +3,8 @@ import { describe, expect, test } from "bun:test";
 import { parseFeatureMap, parseReachStep, readFeatureMap } from "./map";
 
 describe("feature map parser", () => {
-  test("parses the supported Reach grammar and budgets", () => {
-    const map = parseFeatureMap(`### \`sample\`\n- **Reach**:\n  1. \`goto "/home"\`\n  2. \`click "Send"\`\n  3. \`fill "To" "0x123"\`\n  4. \`press "Enter"\`\n  5. \`expect "Confirm"\`\n- **Expect**: ready.\n- **Perf budgets (initial)**: \`shell:paint\` ≤ 1_500 ms.\n`);
+  test("parses the supported Reach grammar, Live access, and budgets", () => {
+    const map = parseFeatureMap(`### \`sample\`\n- **Reach**:\n  1. \`goto "/home"\`\n  2. \`click "Send"\`\n  3. \`fill "To" "0x123"\`\n  4. \`press "Enter"\`\n  5. \`expect "Confirm"\`\n- **Live**: confirm\n- **Expect**: ready.\n- **Perf budgets (initial)**: \`shell:paint\` ≤ 1_500 ms.\n`);
     expect(map.get("sample")).toEqual({
       id: "sample",
       reach: [
@@ -16,12 +16,14 @@ describe("feature map parser", () => {
       ],
       budgets: { "shell:paint": 1500 },
       manual: false,
+      live: "confirm",
     });
   });
 
-  test("ignores prose and unsupported commands", () => {
+  test("ignores prose, unsupported commands, and invalid Live values", () => {
     expect(parseReachStep("seed fixtures")).toBeNull();
     expect(parseReachStep('click "Send" extra')).toBeNull();
+    expect(parseFeatureMap("### `sample`\n- **Live**: never\n").get("sample")?.live).toBeUndefined();
   });
 
   test("gives every non-manual surface in the feature map a Reach step", async () => {
