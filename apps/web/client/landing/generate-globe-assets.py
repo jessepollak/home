@@ -42,8 +42,6 @@ def on_land(x, y):
     return False
 
 
-# Approximately equal-area rows; longitude count shrinks toward each pole.
-# Staggered rows avoid a strong meridian grid. No antimeridian seam/duplicate.
 points = []
 for row in range(144):
     lat = -89.375 + row * 1.25
@@ -54,8 +52,6 @@ for row in range(144):
             points.extend([round(lon, 3), round(lat, 3)])
 (ROOT / "globe-land-points.json").write_text(json.dumps(points, separators=(",", ":")) + "\n")
 
-# Natural Earth label points are better than polygon centroids for islands and
-# overseas territories. Prefer the main country over dependencies/disputed land.
 positions = {}
 priority = {"Sovereign country": 0, "Country": 0, "Sovereignty": 0}
 for feature in sorted(countries["features"], key=lambda f: priority.get(f["properties"]["TYPE"], 1)):
@@ -65,8 +61,6 @@ for feature in sorted(countries["features"], key=lambda f: priority.get(f["prope
         positions[code] = [round(p["LABEL_X"], 5), round(p["LABEL_Y"], 5)]
 (ROOT / "globe-country-coordinates.json").write_text(json.dumps(dict(sorted(positions.items())), indent=2) + "\n")
 
-# Same projection/starting orientation as globe-geometry.ts and the renderer.
-# The fallback has no supported-country data baked in; live config supplies it.
 svg = ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">',
        '<defs><radialGradient id="s" cx="32%" cy="26%" r="78%"><stop stop-color="#fcfdff"/><stop offset=".48" stop-color="#f1f4f8"/><stop offset=".8" stop-color="#e0e7ef"/><stop offset="1" stop-color="#cbd5e1"/></radialGradient></defs>',
        '<circle cx="50" cy="50" r="44" fill="url(#s)"/>', '<g fill="none" stroke="#8295ad" stroke-width=".38" stroke-linecap="round">']

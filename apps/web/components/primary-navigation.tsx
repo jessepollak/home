@@ -63,7 +63,7 @@ export function PrimaryNavigation({
                 aria-hidden="true"
               />
             ) : null}
-            <Icon className="size-5 transition-transform group-active/button:scale-95 motion-reduce:transition-none" aria-hidden="true" />
+            <Icon className="size-5 transition-transform group-active/button:scale-95 group-active/button:duration-0 motion-reduce:transition-none motion-reduce:group-active/button:scale-none" aria-hidden="true" />
             <span className="truncate transition-colors motion-reduce:transition-none">{item.label}</span>
           </Button>
         );

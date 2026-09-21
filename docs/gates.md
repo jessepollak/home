@@ -1,9 +1,10 @@
 # Repository gates
 
-`bun run gates` runs the repository gate unit tests, and `bun check` runs that plus the rest of the checks. All of it runs without provider or funded-wallet secrets. The gates guard four invariants:
+`bun run gates` runs the repository gate unit tests, and `bun check` runs that plus the rest of the checks. All of it runs without provider or funded-wallet secrets. The gates guard five invariants:
 
 - Migrations run before build, so a build cannot ship a schema it never applied.
 - No unresolved CSS custom properties, so every referenced token resolves in the theme.
+- No comments in CSS or Python under the five product layers beyond a third-party notice header, so the [comment policy](architecture.md#comment-policy) covers the source formats Oxlint cannot parse.
 - Every `process.env` read is declared in `.env.example`, so a clone knows which variables it needs.
 - Custom lint rules are non-vacuous, proven against temporary-mirror fixtures rather than a clean source tree.
 
@@ -12,12 +13,28 @@ The full check suite also covers:
 - `bun check` (including Oxlint-only lint with warnings denied and unused suppressions reported)
 - Chromium product smoke
 - story tests (`bun run --cwd apps/web test:stories`)
-- `bun run gates` (the repository gate unit tests above; also run inside `bun check`)
+- `bun run gates` (the repository gate unit tests above, including commit provenance; also run inside `bun check`)
 - disposable PostgreSQL contracts for actions, funding, and balances
+
+## Surface verification boundary
+
+`bun run --cwd apps/web verify <surface-id>` is a local, fixture-backed evidence command over the repository [feature map](../.agents/skills/browser-iteration/feature-map.md). It captures screenshot and DOM text, browser errors and failed requests, performance marks/budgets, and long-task count into an evidence bundle whose `summary.md` is ready for PR evidence. It is not a CI gate, hosted-preview check, accessibility audit, or durable regression suite; Playwright remains the only committed automated browser regression layer. See [browser validation](browser-validation.md#surface-verify-cli) for setup, output, and cleanup.
 
 ## Story-test boundary
 
 The **story tests** job runs every Storybook story in headless Chromium through `@storybook/addon-vitest` for every pull request and every push to `main`. It executes each story's `play` function — a failing `play` fails the job — and runs the a11y addon's audit. The audit reports findings rather than failing the job globally (`a11y.test: "todo"`) because owned components carry pre-existing violations that need a product decision; minimal workshop stories that are audit-clean opt into `a11y.test: "error"`. The job is not part of `bun check`, so run `bun run --cwd apps/web test:stories` directly for story or owned-component changes and stop a running `storybook dev` first (shared Storybook Vite cache).
+
+## Fix-commit provenance
+
+The repository gate checks commits after the pull request branch's merge-base with `main`; outside a pull request it checks `HEAD`. Every scoped `fix(...)` subject must include one of these trailers in its commit body: `Caught-by: lint`, `Caught-by: bot`, `Caught-by: review`, `Caught-by: browser`, or `Caught-by: production`. Earlier commits on `main` are grandfathered.
+
+## Caught-by report
+
+`bun run caught-by-report` (or `node scripts/gates/caught-by-report.mjs`) aggregates the `Caught-by` trailers from scoped `fix(...)` commits into a detector report. It defaults to `--since 30.days` on the current branch, accepts `--range <a..b>`, and prints JSON with `--json`. It is a report, not a gate: it always exits 0, so a broken or empty corpus never fails a build.
+
+The report has three parts. **Detectors** counts every scoped fix commit by its `Caught-by` value and shows each detector's share. Identical trailers dedupe to one value (`browser`, `browser` counts as `browser`); a squash-merged body with two or more distinct values counts as `mixed`, which is what multi-commit fix PRs look like on `main`; no trailer counts as `unknown`. Fixes that do not descend from the trailer policy start (`226d2f26`, #709, 2026-09-21) are marked pre-policy and excluded from the detector and scope statistics, with the count stated in the report header. **By scope** breaks the same counts down by the `fix(<scope>)` token. **Rule candidates** lists every `review`, `bot`, and `production` fix with its sha, subject, and files touched; each row is a rule candidate for the gardener to triage under the [rule-first policy](operating-manual.md#delivery-loop), because a `home/*` lint rule could have caught it. The report caps the candidate list at 50 rows with 10 files each and truncates its body at 60,000 characters.
+
+The **caught-by report** CI job writes the pull-request-range report to the run summary, and the **Caught-by weekly** workflow posts the trailing 7-day report as a comment on the open `Caught-by weekly report` issue, creating one when no open issue exists and pinning it when possible. Both are informational; neither fails a build.
 
 ## Browser-smoke boundary
 
