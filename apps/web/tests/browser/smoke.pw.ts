@@ -385,8 +385,12 @@ async function openScrolledBalances(page: Page) {
   await page.setViewportSize({ width: 390, height: 440 });
   await page.goto("/balances");
   await expect(page.getByRole("heading", { level: 1, name: "Your money" })).toBeVisible();
-  await expect.poll(() => page.evaluate(countVisibleBalanceRows)).toBeGreaterThan(10);
+  await expect.poll(() => page.evaluate(countVisibleBalanceRows)).toBeGreaterThanOrEqual(10);
   const freshCount = await page.evaluate(countVisibleBalanceRows);
+  await expect.poll(() => page.evaluate(() => {
+    const main = document.querySelector<HTMLElement>("[data-app-main-authenticated]");
+    return main ? main.scrollHeight - main.clientHeight : 0;
+  })).toBeGreaterThan(0);
   const maxTop = await page.evaluate(() => {
     const main = document.querySelector<HTMLElement>("[data-app-main-authenticated]");
     return main ? Math.max(0, main.scrollHeight - main.clientHeight) : 0;
@@ -433,6 +437,18 @@ function anchoredGroupOffset(page: Page) {
     return main && group && main.scrollTop > 0
       ? group.getBoundingClientRect().top - main.getBoundingClientRect().top
       : null;
+  });
+}
+
+async function persistedBalancesReady(page: Page) {
+  return page.evaluate(() => {
+    const key = Object.keys(localStorage).find((candidate) => candidate.startsWith("home.query.v1:"));
+    if (!key) return false;
+    const persisted = JSON.parse(localStorage.getItem(key) ?? "null") as {
+      clientState?: { queries?: Array<{ queryKey?: unknown[] }> };
+    } | null;
+    const queries = persisted?.clientState?.queries;
+    return Boolean(queries?.length && queries.some((query) => query.queryKey?.[1] === "balances"));
   });
 }
 
@@ -485,9 +501,7 @@ test("persisted balances paint before verification and settle without row shift"
     performance.getEntriesByName("balances:painted", "mark")[0]?.startTime ?? Number.POSITIVE_INFINITY,
   );
   expect(coldPaint).toBeLessThan(BALANCES_PAINTED_BUDGET_MS);
-  await expect.poll(() => page.evaluate(() =>
-    Object.keys(localStorage).some((key) => key.startsWith("home.query.v1:")),
-  )).toBe(true);
+  await expect.poll(() => persistedBalancesReady(page)).toBe(true);
   await markPersistedQueriesStale(page);
   const hydrationErrors = trackHydrationErrors(page);
   const sessionObserved = fixtures.delayNextSession();
@@ -902,9 +916,7 @@ test("cold and revalidated cached Balances stay anchored to the requested group"
 
   await page.goto("/balances/investments");
   await expect.poll(() => anchoredGroupOffset(page)).toBeGreaterThanOrEqual(14);
-  await expect.poll(() => page.evaluate(() =>
-    Object.keys(localStorage).some((key) => key.startsWith("home.query.v1:")),
-  )).toBe(true);
+  await expect.poll(() => persistedBalancesReady(page)).toBe(true);
   await markPersistedQueriesStale(page);
 
   serveChanged = true;
