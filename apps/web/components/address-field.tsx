@@ -36,7 +36,7 @@ export function AddressField({
     if (!navigator.clipboard?.readText) return;
     try {
       onChange((await navigator.clipboard.readText()).trim());
-    } catch {
+    } catch { // oxlint-disable-line home/no-silent-catch -- clipboard paste is optional and the editable field remains the recovery path
       // Paste stays a best-effort convenience; the field remains editable.
     }
   }

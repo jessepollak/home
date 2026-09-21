@@ -1,0 +1,157 @@
+import { afterAll, describe, expect, it } from "bun:test";
+import { cp, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+const appsWebDir = fileURLToPath(new URL("../..", import.meta.url));
+const mirror = await mkdtemp(path.join(tmpdir(), "home-oxlint-observability-"));
+await cp(path.join(appsWebDir, "oxlint"), path.join(mirror, "oxlint"), { recursive: true });
+await symlink(path.join(appsWebDir, "node_modules"), path.join(mirror, "node_modules"), "dir");
+afterAll(() => rm(mirror, { recursive: true, force: true }));
+
+let fixtureIndex = 0;
+async function lint(rule, code, options) {
+  fixtureIndex += 1;
+  const fixture = `fixture-${fixtureIndex}.ts`;
+  const config = `.oxlintrc-${fixtureIndex}.json`;
+  await writeFile(path.join(mirror, fixture), code);
+  await writeFile(path.join(mirror, config), JSON.stringify({
+    plugins: [],
+    categories: { correctness: "off" },
+    jsPlugins: ["./oxlint/home-plugin.mjs"],
+    rules: { [`home/${rule}`]: options ? ["error", options] : "error" },
+  }));
+  const result = spawnSync(
+    path.join(appsWebDir, "node_modules", ".bin", "oxlint"),
+    ["-c", config, "--disable-nested-config", "-f", "json", fixture],
+    { cwd: mirror, encoding: "utf8" },
+  );
+  expect(result.signal).toBeNull();
+  expect([0, 1]).toContain(result.status);
+  return JSON.parse(result.stdout).diagnostics.filter((diagnostic) =>
+    diagnostic.code === `home(${rule})`);
+}
+
+describe("no-silent-catch", () => {
+  const options = { reportingHelpers: ["emitServerEvent", "reportClientError"] };
+
+  it("rejects empty, comment-only, and bare-return catches", async () => {
+    expect(await lint("no-silent-catch", `
+      try { run(); } catch {}
+      try { run(); } catch { /* intentionally empty */ }
+      function read() { try { run(); } catch { return; } }
+    `, options)).toHaveLength(3);
+  });
+
+  it("accepts throws, explicit return values, reporting, recovery state, and promise settlement", async () => {
+    expect(await lint("no-silent-catch", `
+      function a() { try { run(); } catch (error) { throw error; } }
+      function b() { try { run(); } catch { return { ok: false }; } }
+      function c() { try { run(); } catch { return null; } }
+      function d() { try { run(); } catch { return undefined; } }
+      try { run(); } catch (error) { emitServerEvent(error); }
+      try { run(); } catch { setError("failed"); }
+      try { run(); } catch { dispatch({ type: "failed" }); }
+      try { run(); } catch (error) { reject(error); }
+    `, options)).toHaveLength(0);
+  });
+
+  it("accepts any non-undefined outer recovery value when it is read after the catch", async () => {
+    expect(await lint("no-silent-catch", `
+      let status = "ready";
+      let count = 1;
+      let details = { ready: true };
+      try { run(); } catch { status = ""; }
+      try { run(); } catch { count = 0; }
+      try { run(); } catch { details = {}; }
+      consume(status, count, details);
+    `, options)).toHaveLength(0);
+  });
+
+  it("accepts primitive and empty-literal returns", async () => {
+    expect(await lint("no-silent-catch", `
+      function zero() { try { run(); } catch { return 0; } }
+      function blank() { try { run(); } catch { return ""; } }
+      function no() { try { run(); } catch { return false; } }
+      function object() { try { run(); } catch { return {}; } }
+      function array() { try { run(); } catch { return []; } }
+    `, options)).toHaveLength(0);
+  });
+
+  it("rejects outer assignments of undefined or values that are never read", async () => {
+    expect(await lint("no-silent-catch", `
+      let result = "ready";
+      try { run(); } catch { result = undefined; }
+      consume(result);
+      let unread = "ready";
+      try { run(); } catch { unread = "failed"; }
+      unread = "replaced";
+    `, options)).toHaveLength(2);
+  });
+
+  it("rejects discards and dispositions that do not dominate the catch body", async () => {
+    expect(await lint("no-silent-catch", `
+      try { run(); } catch (error) { void error; }
+      try { run(); } catch (error) { error; }
+      try { run(); } catch { 0; }
+      function partial(condition) {
+        try { run(); } catch { if (condition) return { ok: false }; }
+      }
+      let status = "ready";
+      try { run(); } catch { if (condition) status = "failed"; }
+      consume(status);
+      try { run(); } catch (error) { if (condition) emitServerEvent(error); }
+    `, options)).toHaveLength(6);
+  });
+
+  it("accepts dispositions that cover every catch path", async () => {
+    expect(await lint("no-silent-catch", `
+      function complete(condition) {
+        try { run(); } catch {
+          if (condition) return { ok: false };
+          return { ok: false, reason: "other" };
+        }
+      }
+      function branches(condition) {
+        try { run(); } catch {
+          if (condition) return { ok: false };
+          else return { ok: false, reason: "other" };
+        }
+      }
+      let status = "ready";
+      try { run(); } catch { if (condition) status = "failed"; else status = "idle"; }
+      consume(status);
+    `, options)).toHaveLength(0);
+  });
+});
+
+describe("isolate-instrumentation-calls", () => {
+  const options = { safeHelpers: ["emitServerEvent"] };
+
+  it("accepts configured intrinsically safe helpers and isolated unsafe helpers", async () => {
+    expect(await lint("isolate-instrumentation-calls", `
+      import { emitServerEvent, reportClientError } from "@/server/observability/log";
+      emitServerEvent(event);
+      try { await reportClientError(event); } catch {}
+      void reportClientError(event).catch(handleFailure);
+    `, options)).toHaveLength(0);
+  });
+
+  it("rejects unsafe imported instrumentation calls that can escape", async () => {
+    expect(await lint("isolate-instrumentation-calls", `
+      import { reportClientError } from "@/server/observability/log";
+      reportClientError(event);
+      try { reportClientError(event); } catch {}
+    `, options)).toHaveLength(2);
+  });
+
+  it("requires startup reports inside try blocks to be awaited", async () => {
+    expect(await lint("isolate-instrumentation-calls", `
+      import { sendHomeStartupReport } from "@/client/observability/client-reporter";
+      try { sendHomeStartupReport(report); } catch {}
+      try { await sendHomeStartupReport(report); } catch {}
+    `, options)).toHaveLength(1);
+  });
+});

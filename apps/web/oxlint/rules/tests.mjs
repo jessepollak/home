@@ -45,20 +45,58 @@ export const noRealWaits = {
   meta: {
     type: "problem", schema: [], messages: {
       delay: "tests must use fake timers instead of real delays over 50ms",
+      promiseDelay: "tests must not create delay promises; wait for an observable condition instead",
       sleep: "tests must not sleep; use fake timers or an injected scheduler",
+      browserSleep: "Playwright tests must not use waitForTimeout; wait for a locator or poll an observable condition",
       wait: "tests must not wait longer than 2000ms; bound the wait deterministically",
     },
   },
   create(context) {
+    function invokesResolver(node, resolverName) {
+      if (!node) return false;
+      if (node.type === "CallExpression" && node.callee.type === "Identifier"
+        && node.callee.name === resolverName) return true;
+      if (["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(node.type)) return false;
+      for (const value of Object.values(node)) {
+        if (!value || value === node.parent) continue;
+        if (Array.isArray(value)) {
+          if (value.some((child) => child && typeof child.type === "string"
+            && invokesResolver(child, resolverName))) return true;
+        } else if (typeof value.type === "string" && invokesResolver(value, resolverName)) return true;
+      }
+      return false;
+    }
+    function isPromiseDelay(node) {
+      let callback = node.parent;
+      while (callback && !["ArrowFunctionExpression", "FunctionExpression", "FunctionDeclaration"].includes(callback.type)) {
+        callback = callback.parent;
+      }
+      if (!callback || callback.type === "FunctionDeclaration"
+        || callback.parent?.type !== "NewExpression" || callback.parent.callee.type !== "Identifier"
+        || callback.parent.callee.name !== "Promise" || callback.parent.arguments[0] !== callback) return false;
+      const resolver = callback.params[0];
+      if (resolver?.type !== "Identifier") return false;
+      const timerCallback = node.arguments[0];
+      return timerCallback?.type === "Identifier" && timerCallback.name === resolver.name
+        || timerCallback?.type === "ArrowFunctionExpression" && timerCallback.params.length === 0
+        && invokesResolver(timerCallback.body, resolver.name);
+    }
     return {
       CallExpression(node) {
         const callee = node.callee;
-        if (callee.type === "Identifier" && ["setTimeout", "setInterval"].includes(callee.name)) {
+        if (callee.type === "Identifier" && callee.name === "setTimeout" && isPromiseDelay(node)) {
+          context.report({ node, messageId: "promiseDelay" });
+        } else if (callee.type === "Identifier" && ["setTimeout", "setInterval"].includes(callee.name)) {
           const delay = node.arguments[1];
           if ((delay?.type === "Literal" || delay?.type === "NumericLiteral")
             && typeof delay.value === "number" && delay.value > 50) {
             context.report({ node: delay, messageId: "delay" });
           }
+        }
+        if (callee.type === "MemberExpression" && ["page", "frame"].includes(
+          callee.object.type === "Identifier" ? callee.object.name : "",
+        ) && memberName(callee) === "waitForTimeout") {
+          context.report({ node, messageId: "browserSleep" });
         }
         if (callee.type === "MemberExpression" && !callee.computed
           && callee.object.type === "Identifier" && callee.object.name === "Bun"

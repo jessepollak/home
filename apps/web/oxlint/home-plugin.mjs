@@ -30,6 +30,8 @@ import {
 import { noDetachedClassConstantsRule } from "./rules/no-detached-class-constants.mjs";
 import { noUnknownTailwindClasses } from "./rules/unknown-classes.mjs";
 import { noLiteralJsxColors } from "./rules/jsx-colors.mjs";
+import { isolateInstrumentationCalls, noSilentCatch } from "./rules/observability.mjs";
+import { noAmountFallback } from "./rules/amounts.mjs";
 
 const homePlugin = {
   meta: { name: "home" },
@@ -61,6 +63,9 @@ const homePlugin = {
     "no-detached-class-constants": noDetachedClassConstantsRule,
     "no-unknown-tailwind-classes": noUnknownTailwindClasses,
     "no-literal-jsx-colors": noLiteralJsxColors,
+    "no-silent-catch": noSilentCatch,
+    "isolate-instrumentation-calls": isolateInstrumentationCalls,
+    "no-amount-fallback": noAmountFallback,
   },
 };
 

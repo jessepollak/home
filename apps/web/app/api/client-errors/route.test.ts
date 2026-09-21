@@ -4,6 +4,7 @@ import {
   reportClientError,
 } from "@/client/observability/client-reporter";
 import {
+  emitServerEvent,
   setObservabilityLogWriterForTests,
   writeObservabilityEvent,
 } from "@/server/observability/log";
@@ -195,6 +196,34 @@ describe("POST /api/client-errors security matrix", () => {
       takePermit: () => true,
     })(request(JSON.stringify({ name: "Error", message: "boom", route: "/" })));
     expect(response.status).toBe(204);
+  });
+
+  test("observability helpers contain synchronous throws and asynchronous rejections", async () => {
+    const event = { kind: "client-error", route: "/", errorName: "Error", summary: "boom" } as const;
+    setObservabilityLogWriterForTests(() => { throw new Error("sync sink failed"); });
+    expect(() => writeObservabilityEvent(event)).not.toThrow();
+
+    setObservabilityLogWriterForTests(async () => { throw new Error("async sink failed"); });
+    expect(() => writeObservabilityEvent(event)).not.toThrow();
+    await Promise.resolve();
+  });
+
+  test("observability helpers contain normalization and owner hashing failures", () => {
+    const event = new Proxy(
+      { kind: "client-error", route: "/", errorName: "Error", summary: "boom" } as const,
+      { get: () => { throw new Error("normalization failed"); } },
+    );
+    const owner = new Proxy(
+      { subject: "subject", accountProvider: "base" },
+      { get: () => { throw new Error("owner hashing failed"); } },
+    );
+    expect(() => writeObservabilityEvent(event)).not.toThrow();
+    expect(() => emitServerEvent("action-prepare", {
+      route: "/api/actions/prepare",
+      code: "ACTION_PREPARED",
+      outcome: "ok",
+      owner,
+    })).not.toThrow();
   });
 
   test("scrubs synthetic canaries from reporter through the normalized log line", async () => {

@@ -45,37 +45,41 @@ export function emitServerEvent(
     owner?: { subject: string; accountProvider: string };
     durationMs?: number;
   },
-): ObservabilityLogLine {
-  const ownerHash = fields.owner
-    ? createHash("sha256")
-        .update(`${fields.owner.accountProvider}\0${fields.owner.subject}`)
-        .digest("hex")
-        .slice(0, 32)
-    : undefined;
-  return writeObservabilityEvent({
-    kind,
-    route: fields.route,
-    code: fields.code,
-    outcome: fields.outcome,
-    ...(fields.provider ? { provider: fields.provider } : {}),
-    ...(fields.region ? { region: fields.region } : {}),
-    ...(typeof fields.sandbox === "boolean" ? { sandbox: fields.sandbox } : {}),
-    ...(ownerHash ? { ownerHash } : {}),
-    durationMs: fields.durationMs ?? 0,
-  });
+): ObservabilityLogLine | undefined {
+  try {
+    const ownerHash = fields.owner
+      ? createHash("sha256")
+          .update(`${fields.owner.accountProvider}\0${fields.owner.subject}`)
+          .digest("hex")
+          .slice(0, 32)
+      : undefined;
+    return writeObservabilityEvent({
+      kind,
+      route: fields.route,
+      code: fields.code,
+      outcome: fields.outcome,
+      ...(fields.provider ? { provider: fields.provider } : {}),
+      ...(fields.region ? { region: fields.region } : {}),
+      ...(typeof fields.sandbox === "boolean" ? { sandbox: fields.sandbox } : {}),
+      ...(ownerHash ? { ownerHash } : {}),
+      durationMs: fields.durationMs ?? 0,
+    });
+  } catch {
+    return undefined;
+  }
 }
 
 export function writeObservabilityEvent(
   event: ObservabilityEvent,
-): ObservabilityLogLine {
-  const line = normalizeObservabilityEvent(event);
+): ObservabilityLogLine | undefined {
   try {
+    const line = normalizeObservabilityEvent(event);
     const result = writer(JSON.stringify(line), line.level);
     void Promise.resolve(result).catch(() => {
       // Asynchronous sink rejection must never escape application work.
     });
+    return line;
   } catch {
-    // Synchronous sink failure must never change application behavior.
+    return undefined;
   }
-  return line;
 }
