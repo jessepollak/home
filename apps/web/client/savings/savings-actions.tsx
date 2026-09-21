@@ -26,6 +26,7 @@ import type {
   PreparedMoneyAction,
 } from "@/shared/money-actions/types";
 import { parseUsdcAmount } from "@/client/savings/format";
+import { reportClientError } from "@/client/observability/client-reporter";
 import {
   formatExactPresentationTokenAmount,
   formatPresentationDate,
@@ -213,7 +214,12 @@ function OwnerBoundSavingsMoneyDialog({
       }
       try {
         await onConfirmed?.(result);
-      } catch {
+      } catch (error) {
+        void reportClientError({
+          name: error instanceof Error ? error.name : "Error",
+          message: error instanceof Error ? error.message : "The post-confirm refresh failed.",
+          route: window.location.pathname,
+        });
       }
       reset();
       onClose();
