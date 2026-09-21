@@ -41,6 +41,8 @@ export function pathMatchesGlob(path, glob) {
 const rungThreePaths = [
   "apps/web/server/actions/**",
   "apps/web/server/money-actions/**",
+  "apps/web/app/api/actions/**",
+  "apps/web/client/money-modal/**",
   "**/*calldata*",
   "apps/web/client/transfers/send-dialog.tsx",
   "apps/web/client/savings/savings-actions.tsx",

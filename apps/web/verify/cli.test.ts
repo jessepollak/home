@@ -40,12 +40,11 @@ exit 1
 function runArm(homePath: string, extraEnv: Record<string, string | undefined> = {}, comment: { body?: string; created?: string } = {}) {
   return run(["arm", "send", "--by", commentUrl], {
     HOME: homePath,
-    PATH: `${resolve(homePath, "bin")}:${process.env.PATH}`,
     FAKE_COMMENT_URL: commentUrl,
     FAKE_COMMENT_BODY: comment.body ?? "/verify arm send",
     FAKE_COMMENT_CREATED_AT: comment.created ?? "2026-09-23T00:00:00.000Z",
     ...extraEnv,
-  });
+  }, resolve(homePath, "bin"));
 }
 
 async function armSurface(surface: string) {
@@ -59,8 +58,9 @@ async function armSurface(surface: string) {
   })}\n`);
 }
 
-function run(args: string[], extraEnv: Record<string, string | undefined> = {}) {
+function run(args: string[], extraEnv: Record<string, string | undefined> = {}, pathPrefix?: string) {
   const env: Record<string, string | undefined> = { ...process.env, HOME: home, CI: undefined, GITHUB_ACTIONS: undefined, ...extraEnv };
+  if (pathPrefix) env.PATH = `${pathPrefix}:${env.PATH ?? ""}`;
   const result = Bun.spawnSync({
     cmd: ["bun", "apps/web/verify/cli.ts", ...args],
     cwd: repositoryRoot,

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   parseSurfaceOwnership,
@@ -42,6 +43,27 @@ test("requires Rung 1 for read-only, Rung 2 for a money client, and Rung 3 for m
   assert.equal(requiredRung(surfaces[0], "apps/web/client/landing/page.tsx"), 1);
   assert.equal(requiredRung(surfaces[1], "apps/web/client/transfers/recipient.tsx"), 2);
   assert.equal(requiredRung(surfaces[1], "apps/web/server/actions/confirm.ts"), 3);
+});
+
+const realMap = parseSurfaceOwnership(readFileSync(new URL("../../../.agents/skills/browser-iteration/feature-map.md", import.meta.url), "utf8"));
+const realSurface = (id) => realMap.find((surface) => surface.id === id);
+
+test("maps the money engine directories to their surfaces", () => {
+  assert.ok(realSurface("borrow").ownedPaths.some((glob) => pathMatchesGlob("apps/web/server/borrowing/prepare.ts", glob)));
+  assert.ok(realSurface("save").ownedPaths.some((glob) => pathMatchesGlob("apps/web/server/savings/prepare.ts", glob)));
+  assert.ok(realSurface("save").ownedPaths.some((glob) => pathMatchesGlob("apps/web/server/morpho/client.ts", glob)));
+  assert.ok(realSurface("borrow").ownedPaths.some((glob) => pathMatchesGlob("apps/web/server/morpho-markets/rpc.ts", glob)));
+  assert.deepEqual(
+    verificationEvidenceFindings(["apps/web/server/borrowing/prepare.ts"], "## Verification\n", realMap),
+    ["Missing ## Verification row for borrow; Rung 2 is required."],
+  );
+});
+
+test("requires Rung 3 for the actions routes and the money modal", () => {
+  assert.equal(requiredRung(realSurface("send"), "apps/web/app/api/actions/[id]/confirm/route.ts"), 3);
+  assert.equal(requiredRung(realSurface("send"), "apps/web/client/money-modal/amount.tsx"), 3);
+  assert.equal(requiredRung(realSurface("send"), "apps/web/client/transfers/send-dialog.tsx"), 3);
+  assert.equal(requiredRung(realSurface("send"), "apps/web/client/transfers/recipient.tsx"), 2);
 });
 
 test("passes complete evidence and fails missing, low, or pointerless rows", () => {

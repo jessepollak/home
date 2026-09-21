@@ -115,7 +115,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 
 ### `save`
 - **Live**: confirm
-- **Owned paths**: `apps/web/app/save/**`, `apps/web/client/savings/**`, `apps/web/shared/savings/**`, `apps/web/app/api/savings/**`, `apps/web/server/actions/**`, `apps/web/server/money-actions/**`
+- **Owned paths**: `apps/web/app/save/**`, `apps/web/client/savings/**`, `apps/web/shared/savings/**`, `apps/web/app/api/savings/**`, `apps/web/server/savings/**`, `apps/web/server/morpho/**`, `apps/web/server/actions/**`, `apps/web/server/money-actions/**`
 - **Confirm labels**: "Deposit $<amount>", "Withdraw $<amount>", "Retry"
 - **Reach**:
   1. `goto "/save?flow=save-deposit"`
@@ -137,7 +137,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 
 ### `borrow`
 - **Live**: confirm
-- **Owned paths**: `apps/web/app/borrow/**`, `apps/web/client/borrowing/**`, `apps/web/app/api/borrow/**`, `apps/web/server/borrow/**`, `apps/web/server/actions/**`, `apps/web/server/money-actions/**`
+- **Owned paths**: `apps/web/app/borrow/**`, `apps/web/client/borrowing/**`, `apps/web/app/api/borrow/**`, `apps/web/server/borrowing/**`, `apps/web/server/morpho-markets/**`, `apps/web/server/actions/**`, `apps/web/server/money-actions/**`
 - **Confirm labels**: "Confirm action", "Retry"
 - **Reach**: Seed the signed-in state and borrow fixtures, go to `/borrow` or `/borrow/<marketId>`, then choose a `data-testid="borrow-market-card"` inside the `Borrow markets` list.
 - **Reach (live)**:
