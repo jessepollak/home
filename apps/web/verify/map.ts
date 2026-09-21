@@ -70,6 +70,7 @@ export function canaryReach(surfaceId: string, operation: string | undefined, fa
     { kind: "click", label: "Continue" },
     { kind: "expect", text: "Confirm" },
     { kind: "click", label: "Withdraw $1.00" },
+    { kind: "expect", text: "Withdrawn $1.00" },
   ];
   if (surfaceId === "borrow" && operation === "borrow") return fallback;
   if (surfaceId === "borrow" && operation === "repay") return [
@@ -80,6 +81,7 @@ export function canaryReach(surfaceId: string, operation: string | undefined, fa
     { kind: "click", label: "Continue" },
     { kind: "expect", text: "Confirm" },
     { kind: "click", label: "Confirm action" },
+    { kind: "expect", text: "Repaid $1.00" },
   ];
   if (surfaceId === "send" && operation === "send") return fallback;
   throw new Error(`Unsupported canary operation ${operation} for ${surfaceId}.`);

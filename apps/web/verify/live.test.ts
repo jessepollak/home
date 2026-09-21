@@ -8,6 +8,7 @@ import {
   automationEnvironmentError,
   composeAllowedDomains,
   confirmReviewOrderError,
+  confirmTerminalOrderError,
   decideConfirmGate,
   defaultLiveRecipient,
   enforceAmountCap,
@@ -72,6 +73,24 @@ describe("live confirm gate", () => {
     expect(decideConfirmGate("read-only", "Continue", true).action).toBe("refuse");
     expect(decideConfirmGate("up-to-review", "Continue", true).action).toBe("refuse");
     expect(decideConfirmGate(undefined, "Continue", true).action).toBe("refuse");
+  });
+
+  test("requires a terminal success expect immediately after every mapped confirm click", () => {
+    const labels = ["Send $<amount>"];
+    expect(confirmTerminalOrderError([
+      { kind: "expect", text: "Confirm" },
+      { kind: "click", label: "Send $1.00" },
+      { kind: "expect", text: "Sent $1.00" },
+    ], labels)).toBeNull();
+    expect(confirmTerminalOrderError([
+      { kind: "expect", text: "Confirm" },
+      { kind: "click", label: "Send $1.00" },
+    ], labels)).toContain("terminal-success");
+    expect(confirmTerminalOrderError([
+      { kind: "expect", text: "Confirm" },
+      { kind: "click", label: "Send $1.00" },
+      { kind: "expect", text: "Waiting for your wallet" },
+    ], labels)).toContain("terminal-success");
   });
 
   test("requires a review expect immediately before every mapped confirm click", () => {

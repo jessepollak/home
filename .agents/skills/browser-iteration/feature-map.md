@@ -127,6 +127,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
   4. `click "Continue"`
   5. `expect "Confirm"`
   6. `click "Deposit $1.00"`
+  7. `expect "Deposited $1.00"`
 - **Notes**: The smoke path also covers `/save?flow=save-withdraw`, closes via `Close deposit dialog` or Escape (`Close withdraw dialog`), and asserts focus returns to the `Deposit` or `Withdraw` opener.
 - **Expect**: section `role="region"`/`aria-label="Save"` hosted variant (savings-experience.tsx); vault radiogroup `aria-label="Vault"`; `Nothing saved yet` empty; action buttons `Get started` (unfunded) / `Deposit` + `Withdraw` (funded) (savings-experience.tsx); dialog labels from `closeLabel={Close ${mode} dialog}` and `primaryLabel` `Continue` → `Deposit $X`/`Withdraw $X`/`Retry` (savings-actions.tsx lines ~251–350).
 - **States**: cold loading (`data-shimmer="savings-hero"`, `savings-apy`); vaults loading `aria-busy`; vaults error `Vaults are temporarily unavailable.` + `Retry`; stale alerts `Saved balance stale…` / `Vault rates stale…`; deposit/withdraw amount → confirm → pending (`Waiting for your wallet…`) → error/failed.
@@ -146,6 +147,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
   4. `click "Continue"`
   5. `expect "Confirm"`
   6. `click "Confirm action"`
+  7. `expect "Borrowed $1.00"`
 - **Verify**: manual
 - **Notes**: No smoke fixture exists for `/api/borrow*`; see Gaps.
 - **Expect**: heading `Borrow` (`#borrow-overview-title`, `#borrow-direct-title`, borrowing-experience.tsx); position actions including `Borrow`, `Supply`/`Withdraw collateral from Bitcoin position` (`aria-label`, line 539); `Back to Borrow`; `Market values are unavailable` + `Retry` error; collateral preview `data-testid="borrow-collateral-preview"`; action money modal title `Confirm`, footer `Confirm action`/`Retry`/`Back`/`Close` (lines ~712–782).
@@ -186,7 +188,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
   6. `click "Continue"`
   7. `expect "Confirm"`
   8. `click "Send $1.00"`
-  9. `expect "Sent"`
+  9. `expect "Sent $1.00"`
 - **Notes**: The dialog is labelled by `send-title`. Live mode replaces `<recipient>` with the effective recipient only in that `To` fill step; any other step containing `<recipient>` refuses before browser launch. `--recipient` accepts a bare 40-hex `0x` address other than the zero address, or the name `jesse.base.eth` matched case-insensitively with surrounding whitespace ignored (mapped to the pinned `0x2211d1d0020daea8039e46cf1367962070d77da9`), and defaults to that pinned recipient when omitted; every other value refuses before browser launch. The product does not resolve recipient names yet (#720). Before the gated `Send $1.00` confirm click the verifier requires exactly one review `To` row to show the full recipient address (case-insensitive) and stops with `recipientMismatch` otherwise.
   1. **amount**: type digits via keypad buttons named `0`–`9`, `Decimal point`, `Delete last digit` (`role="group" aria-label="Amount keypad"`, client/money-modal/amount.tsx:581–601); quick chips group `Quick amounts` (`$10`/`$25`/`Max` when priced, amount.tsx:508+). Primary `Continue` disabled until positive amount (`isPositiveDecimalAmount`).
   2. **destination**: step title stays `Send`; field label `To` (AddressField `id="send-recipient"`); primary `Continue` disabled until `isTransferRecipient` (send-dialog.tsx).

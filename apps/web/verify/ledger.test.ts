@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { appendLedger, armEvent, readLedger, spendForDay, spendForRun, surfaceArmState, withLedgerLock, type LedgerEntry, type LedgerRun } from "./ledger";
+import { appendLedger, armAuthorityError, armCommentId, armEvent, readLedger, spendForDay, spendForRun, surfaceArmState, withLedgerLock, type ArmComment, type LedgerEntry, type LedgerRun } from "./ledger";
 
 const temporaryDirectories: string[] = [];
 const revision = "abc123";
@@ -78,13 +78,20 @@ describe("verification ledger", () => {
       runId: "4",
     });
     expect(surfaceArmState(entries, "send", revision).reason).toBe("incident");
-    entries.push(armEvent("send", "https://github.com/jessepollak/home/issues/1#issuecomment-123"));
+    const by = "https://github.com/jessepollak/home/issues/1#issuecomment-123";
+    entries.push(armEvent("send", by, { html_url: by, body: "/verify arm send", user: { login: "jessepollak" } }));
     expect(surfaceArmState(entries, "send", revision)).toEqual({ armed: true, cleanRuns: 0, reason: "jesse-arm" });
   });
 
-  test("validates arm authority pointers", () => {
-    expect(armEvent("send", "https://github.com/jessepollak/home/pull/7#issuecomment-42").by).toContain("issuecomment-42");
-    expect(() => armEvent("send", "https://example.com/comment/1")).toThrow("GitHub issue or pull-request comment URL");
+  test("validates the re-arm repository, author, exact command, and resolved URL", () => {
+    const by = "https://github.com/jessepollak/home/pull/7#issuecomment-42";
+    const comment: ArmComment = { html_url: by, body: "/verify arm send", user: { login: "jessepollak" } };
+    expect(armCommentId(by)).toBe("42");
+    expect(armEvent("send", by, comment).by).toBe(by);
+    expect(() => armCommentId("https://github.com/other/repo/issues/1#issuecomment-42")).toThrow("jessepollak/home");
+    expect(armAuthorityError("send", by, { ...comment, user: { login: "someone-else" } })).toContain("Only");
+    expect(armAuthorityError("send", by, { ...comment, body: "/verify arm save" })).toContain("exactly");
+    expect(armAuthorityError("send", by, { ...comment, html_url: "https://github.com/jessepollak/home/issues/8#issuecomment-42" })).toContain("does not match");
   });
 
   test("sums daily factory and per-run confirmed amounts", () => {

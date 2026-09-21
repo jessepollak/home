@@ -122,10 +122,31 @@ export function spendForRun(entries: LedgerEntry[], runId: string): number {
   }, 0);
 }
 
-export function armEvent(surface: string, by: string, now = new Date()): LedgerArm {
+export type ArmComment = {
+  html_url?: string;
+  body?: string;
+  user?: { login?: string };
+};
+
+export function armCommentId(by: string): string {
   const url = new URL(by);
-  if (url.protocol !== "https:" || url.hostname !== "github.com" || !/\/(issues|pull)\/\d+#issuecomment-\d+$/.test(url.pathname + url.hash)) {
-    throw new Error("--by must be a GitHub issue or pull-request comment URL.");
+  const match = `${url.pathname}${url.hash}`.match(/^\/jessepollak\/home\/(?:issues|pull)\/\d+#issuecomment-(\d+)$/);
+  if (url.protocol !== "https:" || url.hostname !== "github.com" || !match) {
+    throw new Error("--by must be a jessepollak/home issue or pull-request comment URL.");
   }
-  return { type: "arm", timestamp: now.toISOString(), surface, by: url.toString() };
+  return match[1];
+}
+
+export function armAuthorityError(surface: string, by: string, comment: ArmComment): string | null {
+  armCommentId(by);
+  if (comment.html_url !== by) return "The resolved GitHub comment URL does not match --by.";
+  if (comment.user?.login !== "jessepollak") return "Only a comment authored by jessepollak can re-arm a surface.";
+  if (comment.body?.trim() !== `/verify arm ${surface}`) return `The Jesse comment must contain exactly /verify arm ${surface}.`;
+  return null;
+}
+
+export function armEvent(surface: string, by: string, comment: ArmComment, now = new Date()): LedgerArm {
+  const authorityError = armAuthorityError(surface, by, comment);
+  if (authorityError) throw new Error(authorityError);
+  return { type: "arm", timestamp: now.toISOString(), surface, by };
 }

@@ -29,8 +29,8 @@ describe("feature map parser", () => {
 
   test("provides fixed weekly round-trip reach variants", () => {
     const fallback = [{ kind: "goto" as const, path: "/fallback" }];
-    expect(canaryReach("save", "withdraw", fallback)).toContainEqual({ kind: "click", label: "Withdraw $1.00" });
-    expect(canaryReach("borrow", "repay", fallback)).toContainEqual({ kind: "click", label: "Repay" });
+    expect(canaryReach("save", "withdraw", fallback)).toContainEqual({ kind: "expect", text: "Withdrawn $1.00" });
+    expect(canaryReach("borrow", "repay", fallback)).toContainEqual({ kind: "expect", text: "Repaid $1.00" });
     expect(canaryReach("send", "send", fallback)).toBe(fallback);
     expect(() => canaryReach("send", "withdraw", fallback)).toThrow("Unsupported canary operation");
   });
@@ -63,8 +63,10 @@ describe("feature map parser", () => {
     expect([...surfaces.values()].filter((surface) => surface.ownedPaths.length === 0)).toEqual([]);
     expect(surfaces.get("borrow")?.live).toBe("confirm");
     expect(surfaces.get("send")?.liveReach).toContainEqual({ kind: "fill", label: "To", value: "<recipient>" });
-    expect(surfaces.get("save")?.liveReach?.at(-2)).toEqual({ kind: "expect", text: "Confirm" });
-    expect(surfaces.get("borrow")?.liveReach?.at(-2)).toEqual({ kind: "expect", text: "Confirm" });
+    expect(surfaces.get("save")?.liveReach?.at(-3)).toEqual({ kind: "expect", text: "Confirm" });
+    expect(surfaces.get("save")?.liveReach?.at(-1)).toEqual({ kind: "expect", text: "Deposited $1.00" });
+    expect(surfaces.get("borrow")?.liveReach?.at(-3)).toEqual({ kind: "expect", text: "Confirm" });
+    expect(surfaces.get("borrow")?.liveReach?.at(-1)).toEqual({ kind: "expect", text: "Borrowed $1.00" });
     expect(surfaces.get("cash-out")?.liveReach).toContainEqual({ kind: "click", label: "Send to Zelle, Venmo, Cash App and more Use Peer to send via app" });
     expect(surfaces.get("cash-out")?.liveReach?.at(-1)).toEqual({ kind: "expect", text: "Confirm" });
     expect(surfaces.get("cash-out")?.confirmLabels).toContain("Withdraw $<amount>");

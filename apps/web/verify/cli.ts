@@ -11,6 +11,7 @@ import {
   automationEnvironmentError,
   composeAllowedDomains,
   confirmReviewOrderError,
+  confirmTerminalOrderError,
   decideConfirmGate,
   enforceAmountCap,
   enforceCumulativeAmountCap,
@@ -29,7 +30,7 @@ import {
   unlistedAmountClickError,
   type LiveRecipient,
 } from "./live";
-import { appendLedger, armEvent, readLedger, spendForDay, spendForRun, surfaceArmState, withLedgerLock, type LedgerEntry } from "./ledger";
+import { appendLedger, armCommentId, armEvent, readLedger, spendForDay, spendForRun, surfaceArmState, withLedgerLock, type ArmComment, type LedgerEntry } from "./ledger";
 import { canaryReach, matchesConfirmLabel, readFeatureMap, type ReachStep } from "./map";
 import { confirmPolicyRefusal, requestedCaps, resolveVerifyRole, verifyPolicy, type VerifyRole } from "./policy";
 
@@ -50,7 +51,11 @@ function revision(name: string): string {
   if (result.exitCode !== 0) throw new Error(`Could not resolve ${name} for the verification ledger.`);
   return result.stdout.toString().trim();
 }
-const currentMainRevision = revision("origin/main");
+let cachedMainRevision: string | null = null;
+function currentMainRevision(): string {
+  cachedMainRevision ??= revision("origin/main");
+  return cachedMainRevision;
+}
 const option = (name: string) => {
   const index = args.indexOf(name);
   return index === -1 ? undefined : args[index + 1];
@@ -74,7 +79,7 @@ if (args[0] === "status") {
   console.log(`today's factory spend: $${spendForDay(entries, today).toFixed(2)} / $${verifyPolicy.factory.perDayUsd.toFixed(2)}`);
   console.log(`caps: $${verifyPolicy.factory.perClickUsd.toFixed(2)} click; $${verifyPolicy.factory.perRunUsd.toFixed(2)} run; $${verifyPolicy.factory.perDayUsd.toFixed(2)} day; $${verifyPolicy.balanceCeilingUsd.toFixed(2)} ceiling`);
   for (const surface of surfaces.values()) {
-    const state = surfaceArmState(entries, surface.id, currentMainRevision);
+    const state = surfaceArmState(entries, surface.id, currentMainRevision());
     console.log(`${surface.id}: ${state.armed ? "armed" : "disarmed"} (${state.reason}; ${state.cleanRuns}/${verifyPolicy.cleanRunsToArm} clean Rung 2 runs)`);
   }
   process.exit(0);
@@ -101,7 +106,16 @@ if (args[0] === "arm") {
     process.exit(2);
   }
   try {
-    await appendLedger(ledgerPath, armEvent(surfaceId, by));
+    const commentId = armCommentId(by);
+    const result = Bun.spawnSync({
+      cmd: ["gh", "api", `repos/jessepollak/home/issues/comments/${commentId}`],
+      cwd: repositoryRoot,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    if (result.exitCode !== 0) throw new Error("Could not resolve the Jesse re-arm comment.");
+    const comment = JSON.parse(result.stdout.toString()) as ArmComment;
+    await appendLedger(ledgerPath, armEvent(surfaceId, by, comment));
     console.log(`${surfaceId}: armed by ${by}`);
     process.exit(0);
   } catch (error) {
@@ -143,7 +157,7 @@ const browserEnv: Record<string, string | undefined> = {
   ...process.env,
   AGENT_BROWSER_SESSION: session,
   AGENT_BROWSER_MAX_OUTPUT: "12000",
-  AGENT_BROWSER_DEFAULT_TIMEOUT: liveLogin ? "600000" : "25000",
+  AGENT_BROWSER_DEFAULT_TIMEOUT: live ? "600000" : "25000",
   AGENT_BROWSER_HEADED: liveLogin ? "true" : undefined,
 };
 delete browserEnv.HOME_ACCESS_PASSWORD;
@@ -386,7 +400,9 @@ if (live && outputInsideRepository(outputRoot, repositoryRoot)) {
   process.exit(2);
 }
 const ledgerEntries = live ? await readLedger(ledgerPath) : [];
-const armState = surfaceArmState(ledgerEntries, surfaceId, currentMainRevision);
+const armState = live
+  ? surfaceArmState(ledgerEntries, surfaceId, currentMainRevision())
+  : { armed: false, cleanRuns: 0, reason: "insufficient-clean-runs" as const };
 if (live && allowConfirm) {
   const authority = decideConfirmGate(surface.live, "Continue", true);
   if (authority.action === "refuse") {
@@ -411,7 +427,8 @@ if (live && allowConfirm) {
   }
 }
 if (live) {
-  const orderError = confirmReviewOrderError(reachSteps, surface.confirmLabels);
+  const orderError = confirmReviewOrderError(reachSteps, surface.confirmLabels) ??
+    confirmTerminalOrderError(reachSteps, surface.confirmLabels);
   if (orderError) {
     console.error(orderError);
     process.exit(2);
@@ -561,7 +578,7 @@ function syncDisarmIssue(incidents: string[]): void {
 async function reserveSpend(amountUsd: number): Promise<string | null> {
   return withLedgerLock(ledgerPath, async () => {
     const currentEntries = await readLedger(ledgerPath);
-    const currentArmState = surfaceArmState(currentEntries, surfaceId, currentMainRevision);
+    const currentArmState = surfaceArmState(currentEntries, surfaceId, currentMainRevision());
     const refusal = confirmPolicyRefusal({
       role: verifyRole,
       armed: currentArmState.armed,
@@ -580,7 +597,7 @@ async function reserveSpend(amountUsd: number): Promise<string | null> {
       host: baseUrl.host,
       surface: surfaceId,
       role: verifyRole,
-      mainRevision: currentMainRevision,
+      mainRevision: currentMainRevision(),
       rungReached: 2,
       amountsUsd: [amountUsd],
       incidents: [],
@@ -601,7 +618,7 @@ async function recordLiveLedger(): Promise<void> {
     host: baseUrl.host,
     surface: surfaceId,
     role: verifyRole,
-    mainRevision: currentMainRevision,
+    mainRevision: currentMainRevision(),
     rungReached,
     amountsUsd: spendReserved ? [] : confirmedAmountsUsd,
     incidents,
