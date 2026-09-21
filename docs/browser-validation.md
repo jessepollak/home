@@ -19,7 +19,7 @@ This contract applies to every user-visible UI change and core-flow implementati
    - **No:** use ordinary `agent-browser` iteration.
    - **Yes:** use operator mode and the applicable provider runbook plus the [risk-based live-money contract](operating-manual.md#risk-based-live-money-validation). A safe, bounded, explicitly operator-authorized live journey is normal strong evidence for money-moving features; it remains outside PR CI and factory-child authority. A committed provider-specific harness is allowed only when the acceptance flow needs one and does not become the ordinary feature-iteration API. Deterministic tests of the harness's safety and orchestration rules remain required.
 
-Playwright is the sole committed automated browser regression layer. For ordinary feature iteration, do not commit an `agent-browser` script, transcript, wrapper, generic feature DSL, profile/state file, or another CI browser job. The narrowly approved provider-harness exception is governed by step 3.
+Playwright is the sole committed automated browser regression layer. For ordinary feature iteration, do not commit an ad hoc `agent-browser` script, transcript, generic feature DSL, profile/state file, or another CI browser job. Home's reviewed surface verifier is the single repository-owned wrapper; the narrowly approved provider-harness exception is governed by step 3.
 
 ## Use the reviewed repository version
 
@@ -166,6 +166,18 @@ unset HOME_FIXTURE_SERVER_PID HOME_FIXTURE_SERVER_LOG HOME_FIXTURE_SERVER_WAIT_S
 ```
 
 Run this cleanup on normal completion and interrupted/failed iteration. Never substitute `pkill`, `killall`, or a broad name/port match. Evidence must state that the exact owned fixture-server PID was terminated (or had already exited) and waited for.
+
+## Surface verify CLI
+
+Read the [feature map](../.agents/skills/browser-iteration/feature-map.md), choose a surface id, start the fixture server as described above, and run:
+
+```sh
+bun run --cwd apps/web verify <surface-id> --base-url http://127.0.0.1:3200 --out /tmp/home-verify
+```
+
+The CLI shells out to the repository-pinned `agent-browser`; it never reads or prints cookies, browser state, or environment values. Its tolerant feature-map parser supports only these Reach commands: `goto "path"`, `click "label"`, `fill "label" "value"`, `press "key"`, and `expect "text"`. It stages deterministic signed-in, session, balance, action-list, funding-list, and profile fixtures before navigation.
+
+Each run writes `<out>/<surface-id>/{evidence.json,summary.md,screenshot.png,dom.txt}`. The bundle contains the screenshot and DOM `innerText`, console/page errors and failed requests, named Home performance marks and listed initial budgets, and the long-task count. Browser noise or a failed/missing listed budget makes the command non-zero; `--allow-console` records but permits browser noise for a deliberately noisy investigation. The CLI does not run an accessibility audit. Paste `summary.md` into PR evidence and retain the screenshot only when the PR media policy requires it. This evidence does not replace Playwright regression coverage or the required exact-PID server cleanup.
 
 ## Evidence to report
 
