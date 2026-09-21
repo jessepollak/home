@@ -15,6 +15,7 @@ import {
   hostObservationRefusal,
   isRecipientFillStep,
   liveProviderOrigins,
+  liveSessionExpired,
   liveStepError,
   outputInsideRepository,
   parseBorrowReviewAmounts,
@@ -278,6 +279,23 @@ describe("live browser origin observation", () => {
       "not a url",
       "https://images.example.net/b.png",
     ], ["preview.example.com", "api.cdp.coinbase.com"])).toEqual(["images.example.net"]);
+  });
+});
+
+describe("live session restore", () => {
+  test("treats a restoring or signing-out sheet as not expired", () => {
+    expect(liveSessionExpired("Sign in to Home\nVerifying your session…")).toBe(false);
+    expect(liveSessionExpired("Sign in to Home\nFinishing sign-out…")).toBe(false);
+  });
+
+  test("treats a settled sign-in sheet as expired", () => {
+    expect(liveSessionExpired("Sign in to Home")).toBe(true);
+    expect(liveSessionExpired("Sign in to Home\nEmail address\nContinue with email")).toBe(true);
+  });
+
+  test("treats authenticated content as not expired", () => {
+    expect(liveSessionExpired("Account\nShow small balances\nYour money")).toBe(false);
+    expect(liveSessionExpired("")).toBe(false);
   });
 });
 

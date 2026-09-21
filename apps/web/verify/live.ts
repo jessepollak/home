@@ -255,6 +255,11 @@ export function enforceCumulativeAmountCap(confirmed: number, next: number, cap:
   return null;
 }
 
+export function liveSessionExpired(documentText: string): boolean {
+  const pending = documentText.includes("Verifying your session…") || documentText.includes("Finishing sign-out…");
+  return documentText.includes("Sign in to Home") && !pending;
+}
+
 export function accountAddressFromDocument(source: Document): string | null {
   const heading = source.getElementById("account-heading");
   const section = heading?.closest("section");

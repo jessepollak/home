@@ -15,6 +15,7 @@ import {
   enforceCumulativeAmountCap,
   hostObservationRefusal,
   isRecipientFillStep,
+  liveSessionExpired,
   liveStepError,
   outputInsideRepository,
   parseBorrowReviewAmounts,
@@ -189,11 +190,8 @@ function authenticatedAccountAddress(): string | null {
 }
 
 function sessionExpired(): boolean {
-  const result = jsonResult(command(
-    "eval",
-    `location.search.includes("account=signin")||document.body.innerText.includes("Sign in to Home")`,
-  ));
-  return result === true;
+  const result = jsonResult(command("eval", "document.body.innerText"));
+  return typeof result === "string" && liveSessionExpired(result);
 }
 
 function handleAccessGate(): void {
@@ -455,7 +453,7 @@ try {
     command("state", "load", statePath);
     command("navigate", new URL("/home?account=settings", baseUrl).toString());
     handleAccessGate();
-    command("wait", "--fn", `document.body.innerText.includes("Show small balances")||location.search.includes("account=signin")||document.body.innerText.includes("Sign in to Home")`);
+    command("wait", "--fn", `document.body.innerText.includes("Show small balances")||(${liveSessionExpired.toString()})(document.body.innerText)`);
     if (sessionExpired()) {
       throw new Error(`The live session expired; run verify live-login --base-url ${baseUrl.origin}.`);
     }
