@@ -32,7 +32,7 @@ export function PrimaryNavigation({
 
   return (
     <div
-      className={`order-2 w-full shrink-0 bg-background pb-[env(safe-area-inset-bottom)] sm:order-1 sm:pb-0 ${shellChromeCompensationClassName}`}
+      className={`order-2 w-full shrink-0 bg-background pb-[var(--shell-safe-area-bottom)] sm:order-1 sm:pb-0 ${shellChromeCompensationClassName}`}
     >
       <nav
         className={`${shellWidthClassName} grid min-h-shell-mobile-navigation grid-cols-2 border-t sm:border-x sm:border-b`}

@@ -89,6 +89,13 @@
   --payout-zelle: #6d1ed4; --payout-zelle-foreground: #ffffff;
   --payout-monzo: #14233c; --payout-monzo-foreground: #ffffff;
   --payout-revolut: #000000; --payout-revolut-foreground: #ffffff;
+  --shell-safe-area-bottom: 0px;
+}
+
+@media (display-mode: standalone) {
+  :root {
+    --shell-safe-area-bottom: env(safe-area-inset-bottom);
+  }
 }
 
 .dark {
