@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createRipioClient, RIPIO_PRODUCTION_ASSETS, RipioProviderError, ripioCredentialState } from "./client";
+import { createRipioClient, RIPIO_PRODUCTION_ASSETS, RipioProviderError, ripioCredentialState, sameRipioDecimal } from "./client";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const CUSTOMER = "22222222-2222-4222-8222-222222222222";
@@ -15,6 +15,11 @@ const brEnv = {
   RIPIO_CLIENT_SECRET_BR: "secret-br-long-enough",
 };
 const PIX_CODE = "00020126320014br.gov.bcb.pix0110abcdefghij5204000053039865406100.005802BR5904HOME6004HOME6304C027";
+
+test("2300 and 2300.00000000 are the same debit", () => {
+  expect(sameRipioDecimal("2300", "2300.00000000")).toBe(true);
+  expect(sameRipioDecimal("2300", "2300.00000001")).toBe(false);
+});
 
 function token() {
   return Response.json({ access_token: "provider-access-token", expires_in: 36000, scope: "read write" });

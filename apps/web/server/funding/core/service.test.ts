@@ -13,6 +13,44 @@ import { FundingProviderConfigurationError, resolveFundingMode, resolveWebhookEn
 const session: VerifiedAccountSession = { user: { subject: "user" }, accountProvider: "base-account", smartAccount: { address: "0x1111111111111111111111111111111111111111", chainId: 8453 } };
 const manifest = { id: "fixture", displayName: "Fixture", docsUrl: "https://example.com", onramp: { apiOrigins: ["https://example.com"], reference: "home" }, bindings: [{ region: "ID", assetId: "base:idrx", currency: "IDR", directions: { onramp: { paymentMethods: [{ id: "bank", label: "Bank" }], env: ["FIXTURE_KEY"] } } }] } as const satisfies FundingProviderManifest;
 
+function customerSetup() {
+  let creates = 0;
+  const customerManifest = {
+    ...manifest,
+    onramp: {
+      ...manifest.onramp,
+      customer: { handoffOrigins: ["https://verify.example.com"] },
+    },
+  } as const satisfies FundingProviderManifest;
+  const provider: FundingProvider = {
+    manifest: customerManifest,
+    onramp: {
+      customer: {
+        async create() {
+          creates += 1;
+          return { outcome: "created", customerRef: "customer-1" };
+        },
+        async startVerification() {
+          return { outcome: "created", providerUrl: "https://verify.example.com/session?bearer=secret" };
+        },
+        async getStatus() {
+          return { state: "pending" };
+        },
+      },
+      async createOrder() { return { outcome: "ambiguous" }; },
+      async getOrder() { return { state: "unknown", providerStatus: "unknown" }; },
+    },
+  };
+  const core = new FundingCore({
+    providers: [provider],
+    store: new MemoryFundingOrderStore(),
+    env: { FIXTURE_KEY: "set" },
+    currentBaseBlock: async () => "1",
+    verifyReceipt: async () => null,
+  });
+  return { core, creates: () => creates };
+}
+
 function setup(
   outcome: "created" | "ambiguous" | "rejected" = "created",
   options: { sandbox?: boolean; providerSandbox?: boolean } = {},
@@ -49,6 +87,37 @@ function setup(
 }
 
 describe("FundingCore", () => {
+  test("returns the provider handoff URL only from the explicit verification POST", async () => {
+    const { core } = customerSetup();
+    const started = await core.startProviderCustomerVerification(
+      session,
+      { providerId: "fixture", region: "ID", email: "alice@example.com" },
+      "https://home.example",
+    );
+
+    expect(started).toMatchObject({
+      customer: { providerId: "fixture", state: "pending" },
+      handoff: { url: "https://verify.example.com/session?bearer=secret" },
+    });
+    expect(await core.listProviderCustomers(session, "ID")).toEqual([
+      expect.objectContaining({ providerId: "fixture", state: "pending" }),
+    ]);
+    expect(JSON.stringify(await core.listProviderCustomers(session, "ID"))).not.toContain("bearer=secret");
+  });
+
+  test("rejects an address over the RFC 5321 limit before reserving a customer row", async () => {
+    const { core, creates } = customerSetup();
+    const email = `${"a".repeat(250)}@b.co`;
+
+    await expect(core.startProviderCustomerVerification(
+      session,
+      { providerId: "fixture", region: "ID", email },
+      "https://home.example",
+    )).rejects.toMatchObject({ code: "INVALID_VERIFICATION_REQUEST", status: 400 });
+    expect(creates()).toBe(0);
+    expect(await core.listProviderCustomers(session, "ID")).toEqual([]);
+  });
+
   test("scopes sandbox mode to the declaring provider and leaves production providers listed", async () => {
     const sandboxProvider: FundingProvider = {
       manifest: { ...manifest, id: "sandbox-fixture", onramp: { ...manifest.onramp, sandbox: true, modeEnv: "SANDBOX_FIXTURE_MODE" } },
