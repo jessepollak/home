@@ -78,6 +78,24 @@ describe("no-silent-catch", () => {
     `, options)).toHaveLength(0);
   });
 
+  it("rejects undefined fallbacks, undefined reassignment, and late declarations", async () => {
+    expect(await lint("no-silent-catch", `
+      let typed = undefined as { code: null } | undefined;
+      try { typed = readDetails(); } catch {}
+      consume(typed);
+    `, options)).toHaveLength(1);
+    expect(await lint("no-silent-catch", `
+      let overwritten = { code: null };
+      try { overwritten = undefined; overwritten = readDetails(); } catch {}
+      consume(overwritten);
+    `, options)).toHaveLength(1);
+    expect(await lint("no-silent-catch", `
+      try { hoisted = readDetails(); } catch {}
+      if (condition) { var hoisted = { code: null }; }
+      consume(hoisted);
+    `, options)).toHaveLength(1);
+  });
+
   it("rejects missing or undefined initializers and pre-initialized bindings not read after the try", async () => {
     expect(await lint("no-silent-catch", `
       let missing;

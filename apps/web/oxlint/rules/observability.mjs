@@ -91,9 +91,18 @@ function callName(node) {
   return null;
 }
 
+const undefinedValueWrappers = new Set([
+  "ParenthesizedExpression",
+  "TSAsExpression",
+  "TSNonNullExpression",
+  "TSSatisfiesExpression",
+]);
+
 function isUndefinedValue(node) {
-  return (node.type === "Identifier" && node.name === "undefined")
-    || (node.type === "UnaryExpression" && node.operator === "void");
+  let current = node;
+  while (current && undefinedValueWrappers.has(current.type)) current = current.expression;
+  return (current?.type === "Identifier" && current.name === "undefined")
+    || (current?.type === "UnaryExpression" && current.operator === "void");
 }
 
 function findVariable(state, identifier) {
@@ -133,20 +142,29 @@ function walkAssignments(node, visit) {
 function retainsPreInitializedFallback(state) {
   const tryStatement = state.catchClause.parent;
   if (tryStatement?.type !== "TryStatement") return false;
-  let retained = false;
+  const undefinedAssignments = new Set();
+  const candidates = [];
   walkAssignments(tryStatement.block, (assignment) => {
-    if (retained || assignment.left.type !== "Identifier") return;
+    if (assignment.left.type !== "Identifier") return;
     const variable = findVariable(state, assignment.left);
-    const identifier = variable?.identifiers[0];
+    if (!variable) return;
+    if (isUndefinedValue(assignment.right)) {
+      undefinedAssignments.add(variable);
+      return;
+    }
+    candidates.push(variable);
+  });
+  return candidates.some((variable) => {
+    if (undefinedAssignments.has(variable)) return false;
+    const identifier = variable.identifiers[0];
     const declarator = identifier?.parent;
     const declaration = declarator?.parent;
     if (declarator?.type !== "VariableDeclarator" || declaration?.type !== "VariableDeclaration"
       || !["let", "var"].includes(declaration.kind) || !declarator.init
-      || isUndefinedValue(declarator.init) || isWithin(identifier, tryStatement)) return;
-    retained = variable.references.some((reference) =>
+      || isUndefinedValue(declarator.init) || !(declarator.start < tryStatement.start)) return false;
+    return variable.references.some((reference) =>
       reference.identifier.start > tryStatement.end && reference.isRead());
   });
-  return retained;
 }
 
 const recoveryCall = /^(?:set[A-Z]|on[A-Z]|dispatch|resolve|reject|abort|cancel|cleanup|clear|release|remove|reset|invalidate|delete)/u;
