@@ -5,9 +5,19 @@ import { fixtureRoutes, requiresSignedInFixture } from "./fixtures";
 import { parseFeatureMap, type ReachStep } from "./map";
 
 const args = Bun.argv.slice(2);
+const featureMapPath = resolve(import.meta.dir, "../../../.agents/skills/browser-iteration/feature-map.md");
+const surfaces = parseFeatureMap(await readFile(featureMapPath, "utf8"));
+if (args.includes("--list")) {
+  for (const surface of surfaces.values()) {
+    console.log(`${surface.id}: ${surface.manual ? "manual" : "automated"}`);
+  }
+  process.exit(0);
+}
+
 const surfaceId = args[0];
 if (!surfaceId || surfaceId.startsWith("-")) {
   console.error("Usage: bun run verify <surface-id> [--base-url <url>] [--out <dir>] [--allow-console]");
+  console.error("       bun run verify --list");
   process.exit(2);
 }
 
@@ -18,12 +28,14 @@ const option = (name: string) => {
 const baseUrl = new URL(option("--base-url") ?? "http://127.0.0.1:3200");
 const outputRoot = resolve(option("--out") ?? ".verify");
 const allowConsole = args.includes("--allow-console");
-const featureMapPath = resolve(import.meta.dir, "../../../.agents/skills/browser-iteration/feature-map.md");
-const surfaces = parseFeatureMap(await readFile(featureMapPath, "utf8"));
 const surface = surfaces.get(surfaceId);
 if (!surface) {
   console.error(`Unknown surface id: ${surfaceId}`);
   console.error(`Available: ${[...surfaces.keys()].join(", ")}`);
+  process.exit(2);
+}
+if (surface.manual) {
+  console.error(`Surface ${surfaceId} is a manual-only surface.`);
   process.exit(2);
 }
 if (surface.reach.length === 0) {

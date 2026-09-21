@@ -36,7 +36,7 @@ export function summarizeEvidence(evidence: VerifyEvidence): string {
   const marks = evidence.marks.length === 0
     ? "None listed for this surface."
     : evidence.marks.map((mark) => {
-      const value = mark.startTime === null ? "missing" : `${Math.round(mark.startTime)} ms`;
+      const value = mark.startTime === null ? "not observed" : `${Math.round(mark.startTime)} ms`;
       const budget = mark.budgetMs === null ? "evidence only" : `budget ${mark.budgetMs} ms`;
       const result = mark.passed === null ? "recorded" : mark.passed ? "pass" : "fail";
       return `- \`${mark.name}\`: ${value} (${budget}; ${result})`;

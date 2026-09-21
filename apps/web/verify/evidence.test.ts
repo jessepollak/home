@@ -29,9 +29,9 @@ describe("evidence summary", () => {
     expect(finalizeEvidence(noisy, true).passed).toBe(true);
   });
 
-  test("fails a missing or over-budget required mark", () => {
+  test("fails and reports a required mark that was not observed", () => {
     const missing = { ...base, marks: [{ name: "shell:paint", startTime: null, budgetMs: 1500, passed: false }] };
     expect(finalizeEvidence(missing).passed).toBe(false);
-    expect(summarizeEvidence(finalizeEvidence(missing))).toContain("missing (budget 1500 ms; fail)");
+    expect(summarizeEvidence(finalizeEvidence(missing))).toContain("not observed (budget 1500 ms; fail)");
   });
 });

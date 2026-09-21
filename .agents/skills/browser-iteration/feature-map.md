@@ -47,7 +47,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Reach**:
   1. `goto "/"`
   2. `expect "One home for your money."`
-  3. Optionally use a 900×844 viewport for the pointer-fine layout used by smoke.
+- **Notes**: Optionally use a 900×844 viewport for the pointer-fine layout used by smoke.
 - **Expect**: `h1` `One home for your money.` (client/home/shell-chrome.tsx, `landing-title`); subtitle `Invest in any asset, earn more on your savings, and grow your wealth.` (same file); buttons `Sign in` and, when `account.signInAvailability === "ready"`, `Create account` (shell-chrome.tsx); header `Sign in` in `role="banner"` (tests/browser/smoke.pw.ts "wide touch targets…" test); globe visual `SupportedGlobeDynamic` (app/page.tsx). Signed-in request 307s to `/home` (tests/browser/landing-route.pw.ts).
 - **States**: anonymous default; `isVerified` landing variant swaps in `Open dashboard` (shell-chrome.tsx); `sign-out-error` variant shows destructive Alert with `Retry sign out`.
 - **Evidence to capture**: screenshot (mobile + desktop); DOM text snapshot; console errors + failed requests (expected none; the globe renderer uses a local dynamic import and makes no application network request); perf marks: `shell:paint` fires here too (client/home/shell.tsx rAF), but `balances:painted`/`session:verified` are dashboard-only.
@@ -56,7 +56,10 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Unknowns**: none; `supported-globe.tsx` only dynamically imports the local renderer and does not fetch remote data.
 
 ### `sign-in`
-- **Reach** (fixture path, from smoke.pw.ts `signIn`): 1) `installApiFixtures`. 2) goto `/?account=signin`. 3) dialog `Sign in to Home` visible (smoke.pw.ts signed-out test). 4) fill `Email address` (`getByLabel("Email address")`), press Enter. 5) fill `Verification code` `123456`. 6) click button `Verify and continue`. 7) expect URL `/home`.
+- **Reach**:
+  1. `goto "/?account=signin"`
+  2. `expect "Sign in to Home"`
+- **Notes**: The smoke path installs API fixtures, fills `Email address`, presses Enter, fills `Verification code` with `123456`, clicks `Verify and continue`, and expects `/home`.
 - **Expect**: dialog labelled `Sign in to Home` (client/account/account-screen.tsx); email + OTP steps; after verify `router.replace("/home")` (shell.tsx `AccountSignInSheet onVerified`). Signed-out visiting `/home`/`/save` lands on `/?account=signin` (smoke.pw.ts).
 - **States**: email step; OTP step; error/execution variants (`That code is not valid. Check the six digits and try again.`, `Try again`, and the resend countdown/`Resend code`); Base-account (CDP) connector variant (sign-in-base-account.tsx) — operator/live path.
 - **Evidence**: screenshot of dialog; DOM snapshot; console/errors; marks n/a (`shell:paint` may fire on the root page).
@@ -64,7 +67,11 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Unknowns**: none; the labels, invalid-code recovery, and resend countdown are defined in `sign-in-email.tsx`, `sign-in-otp.tsx`, and `account-screen.tsx`.
 
 ### `home-panel`
-- **Reach**: 1) `seedSignedInSession(page)` + `installApiFixtures(page)`. 2) goto `/home`. 3) wait for header title `Home` (`[data-shell-header-title]`, shell-chrome.tsx). 4) optionally click `Send` for the money modal, or card actions below.
+- **Reach**:
+  1. `goto "/home"`
+  2. `expect "Home"`
+  3. `expect "Recognized Coin"`
+- **Notes**: The verifier seeds the signed-in session and API fixtures. Optionally click `Send` for the money modal or exercise the card actions below.
 - **Expect**: `Total balance` card with `aria-label="Total balance"` and `aria-busy` while loading (home-panel.tsx); balance breakdown (`data-balance-breakdown`, `data-balance-segment="cash|saved|investments"`, home-panel.tsx); status line `[data-total-status]` when `statusLabel` present; money actions group `aria-label="Money actions"` with `Add money` and `Send`; `Your money` card (h2 `your-money-heading`) with `See all` action; Save card (`save-heading`), Borrow card (`borrow-heading`); Activity card (`activity-title`). Fixture-visible rows include `Recognized Coin` (balances-fixtures.ts recognizedCatalogHolding).
 - **States** (fixtures): loading → hold `/api/session`/`/api/balances` with `fixtures.delayNextSession()/delayNextBalances()` (smoke.pw.ts); empty → base fixture minus holdings (**no ready empty fixture exists — construct via `options.balances`**); unavailable → `status: "unavailable"` presentation (home-panel.tsx `Balance unavailable`); error state for action APIs is surfaced in the modal, not the panel.
 - **Evidence**: screenshot; DOM text snapshot; console/errors; perf marks `shell:paint`, `session:verified` (shell.tsx:356), `balances:painted` (shell.tsx:402), `action:first-interactive` (client/transfers/transfer-actions.tsx:82). `balances:painted` keeps the smoke suite budget (CI 3,500 / local 1,000 ms); the CLI uses the initial cross-environment budget below without changing smoke.
@@ -74,11 +81,10 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 
 ### `balances`
 - **Reach**:
-  1. Seed the signed-in fixture and install the balances fixture.
-  2. `goto "/balances"`
-  3. `expect "Your money"`
-  4. `expect "Recognized Coin"`
-  5. Use `/balances/investments` with `scrollableBalancesSnapshot()` for anchoring work; the group section is `id="investments"`.
+  1. `goto "/balances"`
+  2. `expect "Your money"`
+  3. `expect "Recognized Coin"`
+- **Notes**: The verifier seeds the signed-in session and balances fixture. Use `/balances/investments` with `scrollableBalancesSnapshot()` for anchoring work; the group section is `id="investments"`.
 - **Expect**: scroll container `[data-app-main-authenticated]` (shell-panels.tsx); balance rows `[data-balance-list] [data-kind="balance"]` (smoke.pw.ts); reveal window grows after scroll (`BALANCES_BATCH_SIZE = 10`, client/home/balances-panel.tsx); `Show small balances` switch lives in account settings, not this page (smoke.pw.ts touch test).
 - **States**: loading shimmer (`LoadingMoneyGroup`, balances-panel.tsx); unavailable; empty (`BalancesEmpty`); ready with reveal batches; stale revalidation anchored to requested group (`cold and revalidated cached Balances…` smoke test).
 - **Evidence**: screenshot; DOM snapshot; console/errors; perf marks and scroll-offset assertions.
@@ -87,7 +93,10 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Unknowns**: none; incremental batches use an intersection sentinel rather than a reveal-more button, group navigation is labelled `More <group>`, and the empty state is `No money yet`.
 
 ### `activity`
-- **Reach**: 1) seed + `installApiFixtures` (add `/api/activity` rows if needed). 2) goto `/activity` or from Home `Activity` card action.
+- **Reach**:
+  1. `goto "/activity"`
+  2. `expect "Activity"`
+- **Notes**: The verifier seeds the signed-in session and API fixtures. Add `/api/activity` fixture rows when exercising populated states; the Home Activity card is the interactive entry point.
 - **Expect**: `Activity` heading (`#activity-title`, client/activity/activity-panel.tsx `DefaultActivityHeader`); empty state `No activity yet`; end marker `End of activity`; error `Try again` button; rows expose `View <direction> <symbol> transaction details` activation labels (activity-panel.tsx `TransferActivityRow`).
 - **States**: loading shimmer (`ActivityPage`, client/home/activity-panel.tsx `ShimmerRows count={4}`); empty (`No activity yet`); error (`Try again`); success list; load-more error/cursor states (client/activity/use-activity.ts, not read in detail).
 - **Evidence**: screenshot; DOM snapshot; console/errors; marks `shell:paint` (dashboard).
@@ -95,7 +104,10 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Unknowns**: row value/date text remains fixture-dependent; pagination is labelled `Load more activity`, `Continue loading activity`, or `Retry more activity`.
 
 ### `save`
-- **Reach** (smoke-verified): 1) seed + `installApiFixtures`. 2) goto `/save?flow=save-deposit` or `/save?flow=save-withdraw` → dialog `Deposit`/`Withdraw` opens (tests/browser/smoke.pw.ts). 3) close via `Close deposit dialog` or Escape (`Close withdraw dialog`); focus returns to `Deposit`/`Withdraw` opener (smoke.pw.ts asserts exact opener focus).
+- **Reach**:
+  1. `goto "/save?flow=save-deposit"`
+  2. `expect "Deposit"`
+- **Notes**: The smoke path also covers `/save?flow=save-withdraw`, closes via `Close deposit dialog` or Escape (`Close withdraw dialog`), and asserts focus returns to the `Deposit` or `Withdraw` opener.
 - **Expect**: section `role="region"`/`aria-label="Save"` hosted variant (savings-experience.tsx); vault radiogroup `aria-label="Vault"`; `Nothing saved yet` empty; action buttons `Get started` (unfunded) / `Deposit` + `Withdraw` (funded) (savings-experience.tsx); dialog labels from `closeLabel={Close ${mode} dialog}` and `primaryLabel` `Continue` → `Deposit $X`/`Withdraw $X`/`Retry` (savings-actions.tsx lines ~251–350).
 - **States**: cold loading (`data-shimmer="savings-hero"`, `savings-apy`); vaults loading `aria-busy`; vaults error `Vaults are temporarily unavailable.` + `Retry`; stale alerts `Saved balance stale…` / `Vault rates stale…`; deposit/withdraw amount → confirm → pending (`Waiting for your wallet…`) → error/failed.
 - **Evidence**: screenshot; DOM snapshot; console/errors; marks `shell:paint`, and `action:first-interactive` when the Send boundary mounts (not Save-specific).
@@ -103,7 +115,9 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Unknowns**: none blocking; notices include `Updating…`, `Loading APY…`, `Loading vaults…`, and the amount dialog reports the formatted available balance.
 
 ### `borrow`
-- **Reach**: 1) seed + fixtures (borrow market API stubs needed — **no smoke fixture exists**, see Gaps). 2) goto `/borrow` or `/borrow/<marketId>`. 3) click a `data-testid="borrow-market-card"` (`role="listitem"`, borrowing-experience.tsx:382) inside `aria-label="Borrow markets"` list (line 260).
+- **Reach**: Seed the signed-in state and borrow fixtures, go to `/borrow` or `/borrow/<marketId>`, then choose a `data-testid="borrow-market-card"` inside the `Borrow markets` list.
+- **Verify**: manual
+- **Notes**: No smoke fixture exists for `/api/borrow*`; see Gaps.
 - **Expect**: heading `Borrow` (`#borrow-overview-title`, `#borrow-direct-title`, borrowing-experience.tsx); position actions including `Borrow`, `Supply`/`Withdraw collateral from Bitcoin position` (`aria-label`, line 539); `Back to Borrow`; `Market values are unavailable` + `Retry` error; collateral preview `data-testid="borrow-collateral-preview"`; action money modal title `Confirm`, footer `Confirm action`/`Retry`/`Back`/`Close` (lines ~712–782).
 - **States**: loading/error via `overview.refetch()`/`detail.refetch()` buttons; amount → confirm → pending (`Waiting for your wallet…`, `#borrow-action-pending`) → error/failed.
 - **Evidence**: screenshot; DOM snapshot; console/errors.
@@ -111,7 +125,10 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Unknowns**: no fixture-backed browser smoke state exists. Operation labels are `Add collateral`, `Borrow`, `Repay`, `Repay all`, `Withdraw collateral`, and `Close position`.
 
 ### `invest`
-- **Reach** (smoke-verified asset detail): 1) seed + fixtures. 2) click Main navigation `Invest` (exact button name, primary-navigation.tsx) → URL `/invest`. 3) click asset row button matching `/^NVIDIA/` → URL `/invest/nvdac` (tests/browser/smoke.pw.ts `openInvestAssetDetail`). 4) header title read via `[data-shell-header-title]` = `NVIDIA` (smoke SSR test).
+- **Reach**:
+  1. `goto "/invest"`
+  2. `expect "Invest"`
+- **Notes**: The smoke asset-detail path clicks Main navigation `Invest`, clicks the asset row matching `/^NVIDIA/`, expects `/invest/nvdac`, and reads `NVIDIA` from `[data-shell-header-title]`.
 - **Expect**: hub shelves `Stocks`, `Crypto`, `Memes` (`discoverShelves`, client/invest/discover.ts; shelf CardTitle `role=heading aria-level=3`, discover-shelf.tsx); `See all ›` per shelf; empty shelf copy `Loading`/`Unavailable`/`None trending` (discover-shelf.tsx `shelfStatusLabel`); category screen `Back to Invest` (category-screen.tsx); asset detail price (`data-tone`), change (`data-money-change`), `Trade <displayName>` group with disabled `Buy`/`Sell` (client/trading/trade-actions.tsx).
 - **States**: hub loading/empty/error per shelf (`MemeShelfStatus`); category pagination error `Retry`; detail status screen variant (asset-detail-screen.tsx `AssetDetailStatusScreen`).
 - **Evidence**: screenshot; DOM snapshot; console/errors.
@@ -125,7 +142,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
   3. `expect "Recognized Coin"`
   4. `click "Send"`
   5. `expect "Send"`
-  6. The dialog is labelled by `send-title`.
+- **Notes**: The dialog is labelled by `send-title`.
   1. **amount**: type digits via keypad buttons named `0`–`9`, `Decimal point`, `Delete last digit` (`role="group" aria-label="Amount keypad"`, client/money-modal/amount.tsx:581–601); quick chips group `Quick amounts` (`$10`/`$25`/`Max` when priced, amount.tsx:508+). Primary `Continue` disabled until positive amount (`isPositiveDecimalAmount`).
   2. **destination**: step title stays `Send`; field label `To` (AddressField `id="send-recipient"`); primary `Continue` disabled until `isTransferRecipient` (send-dialog.tsx).
   3. **confirm**: dialog title becomes `Confirm` (send-dialog.tsx `modalTitle`); summary via `MoneyConfirmSummary` rows `To` (CopyableValue full address), `Asset`, `Network` = `Base` (send-dialog.tsx); primary button `Send $1.00` where amount is `MoneyTicker(confirmAmount)` — smoke clicks `getByRole("button", { name: "Send $1.00" })`; secondary `Back`.
@@ -141,6 +158,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 
 ### `cash-out` (Peer offramp inner steps)
 - **Reach** (smoke-verified, `openPeerCashOutHandle`, smoke.pw.ts): 1) seed + `installApiFixtures`. 2) `Send` → digits `1` → `Continue`. 3) click `/Send to Zelle, Venmo, Cash App and more/` (CashoutItem, send-dialog.tsx). 4) click `Cash App` (payment-method button, payout step). 5) textbox `Cash App handle` (label `${selectedPlatform.label} handle`); attributes asserted: `autocomplete="off"`, `autocapitalize="none"`, `autocorrect="off"`, `spellcheck="false"`, `enterkeyhint="next"`, 16px font, ≥44px target. 6) `Continue` → textbox `Re-enter handle` (`enterkeyhint="done"`). 7) `Review` → confirm step.
+- **Verify**: manual
 - **Expect**: modal title `Cash out with Peer` (send-dialog.tsx `modalTitle`); confirm rows `Provider`, `Payout app`, `Payout handle`, `Approximate receive`, `Estimated delivery`, `Network` = `Base` (send-dialog.tsx confirm rows); disclaimer `The fiat amount and delivery time are approximate, not guaranteed.`; primary `Cash out $X`.
 - **States**: providers not loaded → CashoutItem absent (requires `PEER_OFFRAMP` stub registered after `installApiFixtures` via `route.fallback`, smoke.pw.ts); recovery items `Withdraw <amount>` for active orders; `Recover a Peer cash-out` button when `recoveryEligible` (send-dialog.tsx).
 - **Evidence**: screenshots; DOM snapshot; console/errors.
@@ -149,6 +167,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 
 ### `add-money` (funding)
 - **Reach** (smoke-verified IDRX path): 1) seed country `ID` (`localStorage["home.country.v1"]="ID"`) + `installApiFixtures`. 2) `signIn(page)` helper. 3) click `Add money` (funding-actions.tsx). 4) method step button `/Deposit IDR/` must contain `IDRX · Bank transfer · Mandiri` (smoke.pw.ts). 5) type `20000` via numpad. 6) `Review quote` → heading `Review quote`, row `Receive` contains `20.000,00 IDRX`. 7) `Confirm deposit` → heading `Review payment details`, row `Network` contains `Rp 100,00`. 8) `View payment instructions` → `123456789012` visible; then `Money received` (≤7s budget, smoke.pw.ts).
+- **Verify**: manual
 - **Expect**: dialog titles `Add money` / `Receive` / `Deposit IDR` (add-money-dialog.tsx `title`); method list has `Receive crypto` row; close label `Close add money`; receive step QR (`aria-label="QR code for Base address …"`) and address copy (`Copy …`, `Full Base address …`, add-money-dialog.tsx). Signed-out body offers `Sign in` link to `/?account=signin`.
 - **States**: method loading (`providerBindingsDisabled={!ordersQuery.isSuccess}`); `Funding methods are unavailable. Try again.` / `Home couldn't check for an open deposit. Retry.` / `Home couldn't check your provider setup. Retry.` (funding-experience.tsx); resumable open order auto-jumps to `order` step (funding-experience.tsx); customer/KYC step for providers with `customerSetup`.
 - **Evidence**: screenshots per step; DOM snapshot; console/errors.
@@ -156,7 +175,10 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Unknowns**: provider-specific order-flow labels outside the smoke-verified IDRX path remain unknown because they depend on provider configuration; snapshot before acting.
 
 ### `account-settings`
-- **Reach**: 1) seed + fixtures. 2) goto `/home?account=settings` (shell.tsx `openAccountSettings` commits this) or click the header profile mark (`ProfileMark`, shell-chrome.tsx). 3) header title becomes `Account`; `Done` button closes.
+- **Reach**:
+  1. `goto "/home?account=settings"`
+  2. `expect "Account"`
+- **Notes**: The verifier seeds the signed-in session and fixtures. The interactive path clicks the header profile mark; `Done` closes the settings panel.
 - **Expect**: `Show small balances` switch (`getByRole("switch", { name: "Show small balances" })`, smoke.pw.ts wide-touch test; owned by client/home/use-show-small-balances.ts + account-settings region of shell-panels.tsx). Sign-out control and region selector live here (shell-panels.tsx passes `regionId`, `resolutionSource`, `onRegionChange`, `onSignOut` to client/account/account-settings.tsx).
 - **States**: preference not ready (`isPreferenceReady`); region override messages (`preferenceMessage`).
 - **Evidence**: screenshot; DOM snapshot; console/errors.
@@ -165,6 +187,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 
 ### `access-gate`
 - **Reach** (smoke-verified): 1) clear cookies; goto `/home` (protected) → redirect `/access?next=%2Fhome`. 2) fill textbox `Access password`; wrong value → `Access denied. Try again.`; cookie `home-access` absent. 3) correct `HOME_ACCESS_PASSWORD` → `Continue` posts `/api/access`, then URL `/home` or `/?account=signin`. 4) heading `Access granted` on revisit; `Leave this deployment` posts `/api/access/logout` (no-JS form also asserted).
+- **Verify**: manual
 - **Expect**: headings `Enter access password` / `Access granted`; `Continue to Home` link; CSP header `frame-ancestors 'none'` on the protected response (tests/browser/access.pw.ts); hydrated form marker `form[data-hydrated="true"]`.
 - **States**: `misconfigured` → `Access is temporarily unavailable.`; `disabled` → `Continue to Home` (app/access/page.tsx).
 - **Evidence**: screenshot; DOM snapshot; console/errors.
@@ -172,7 +195,10 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Unknowns**: cookie/secret names intentional; do not print credentials.
 
 ### `coverage`
-- **Reach**: 1) goto `/coverage`. 2) interact with the four `role="combobox"` native selects (search/issuer/home/priority per app/coverage/page.tsx query params `q`, `issuer`, `home`, `priority`, `sort`).
+- **Reach**:
+  1. `goto "/coverage"`
+  2. `expect "Local money coverage"`
+- **Notes**: Exercise the four native comboboxes for search, issuer, Home status, and priority plus the `sort` query parameter when validating filters.
 - **Expect**: `Local money coverage | Home` title; coverage table rows (components/ui/coverage-table.tsx); combobox font ≥16px on mobile/landscape (tests/browser/smoke.pw.ts).
 - **States**: filtered-empty result reports `Showing 0 of <total> countries and territories.` and an empty coverage table.
 - **Evidence**: screenshot (390×844 and 844×390); DOM snapshot; console/errors.
@@ -180,7 +206,8 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Unknowns**: none; filters are `Search`, `1:1 onramp`, `Portfolio`, `Integrated`, and `Sort`.
 
 ### `dev-ui`
-- **Reach**: 1) run with `HOME_PLAYWRIGHT_SMOKE=1` (or dev). 2) goto `/dev/ui`. 3) otherwise expect `notFound()` (404).
+- **Reach**: Run with `HOME_PLAYWRIGHT_SMOKE=1` or in development, go to `/dev/ui`, and otherwise expect `notFound()` (404).
+- **Verify**: manual
 - **Expect**: `Home UI theme` heading; swatch grid; `Stock type scale` card; `Buttons` section with `Primary`/`Outline`/`Destructive` (app/dev/ui/page.tsx).
 - **States**: enabled vs 404.
 - **Evidence**: screenshot; DOM snapshot.
@@ -188,7 +215,8 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Unknowns**: none.
 
 ### `toasts`
-- **Reach**: complete any prepared action (smoke: send success) and observe the toast region.
+- **Reach**: Complete a prepared action (smoke: send success) and observe the toast region.
+- **Verify**: manual
 - **Expect**: exact success copy e.g. `Sent $1.00 to 0x2222…222222` (smoke.pw.ts); renders only when `routeMode === "dashboard" && isVerified` (shell.tsx).
 - **States**: pending/confirmed/failed toast variants (client/home/action-toasts.tsx).
 - **Evidence**: screenshot; DOM snapshot; console/errors.

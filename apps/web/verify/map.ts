@@ -9,6 +9,7 @@ export type Surface = {
   id: string;
   reach: ReachStep[];
   budgets: Record<string, number>;
+  manual: boolean;
 };
 
 const stepPattern = /^(goto|click|fill|press|expect)\s+"([^"]*)"(?:\s+"([^"]*)")?$/;
@@ -30,7 +31,8 @@ export function parseFeatureMap(markdown: string): Map<string, Surface> {
     for (const match of body.matchAll(/`([a-z][a-z:-]+)`\s*(?:≤|<=)\s*([\d_]+)\s*ms/g)) {
       budgets[match[1]] = Number(match[2].replaceAll("_", ""));
     }
-    surfaces.set(id, { id, reach, budgets });
+    const manual = /^- \*\*Verify\*\*:\s*manual\s*$/m.test(body);
+    surfaces.set(id, { id, reach, budgets, manual });
   }
   return surfaces;
 }

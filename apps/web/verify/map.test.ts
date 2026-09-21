@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { parseFeatureMap, parseReachStep } from "./map";
 
@@ -14,11 +16,33 @@ describe("feature map parser", () => {
         { kind: "expect", text: "Confirm" },
       ],
       budgets: { "shell:paint": 1500 },
+      manual: false,
     });
   });
 
   test("ignores prose and unsupported commands", () => {
     expect(parseReachStep("seed fixtures")).toBeNull();
     expect(parseReachStep('click "Send" extra')).toBeNull();
+  });
+
+  test("gives every non-manual surface in the feature map a Reach step", () => {
+    const featureMap = readFileSync(
+      resolve(import.meta.dir, "../../../.agents/skills/browser-iteration/feature-map.md"),
+      "utf8",
+    );
+    const surfaces = parseFeatureMap(featureMap);
+    const missing = [...surfaces.values()]
+      .filter((surface) => !surface.manual && surface.reach.length === 0)
+      .map((surface) => surface.id);
+
+    expect(missing).toEqual([]);
+    expect([...surfaces.values()].filter((surface) => surface.manual).map((surface) => surface.id)).toEqual([
+      "borrow",
+      "cash-out",
+      "add-money",
+      "access-gate",
+      "dev-ui",
+      "toasts",
+    ]);
   });
 });
