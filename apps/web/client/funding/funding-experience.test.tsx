@@ -47,6 +47,7 @@ function multiMethodBinding() {
     assetSymbol: "wCOP",
     currency: "COP",
     paymentMethods: [
+      { id: "provider", label: "Ripio" },
       { id: "bank_transfer", label: "Bank transfer" },
       { id: "breb", label: "Bre-B" },
       { id: "bancolombia", label: "Bancolombia" },
@@ -211,6 +212,7 @@ describe("FundingExperience", () => {
     const provider = await page().findByRole("button", { name: /Deposit COP/ });
     expect(provider.textContent).toContain("Deposit COP");
     expect(provider.textContent).toContain("Ripio · Bank transfer · Bre-B · +2");
+    expect(provider.textContent?.match(/Ripio/g)).toHaveLength(1);
     expect(provider.textContent).not.toContain("Deposit COP with Ripio");
   });
 
@@ -223,7 +225,7 @@ describe("FundingExperience", () => {
         if (path.startsWith("/api/funding/providers")) return { providers: [fundingBinding()] };
         if (path.startsWith("/api/funding/orders?")) return { order: null };
         if (path === "/api/funding/quotes") return { quoteToken: "signed-token", quote: { fiatAmount: "1000", tokenAmountAtomic: "1000000000000000000000", fees: [{ label: "Rail", amount: "10", currency: "ARS" }], expiresAt: "2099-01-01T00:00:00.000Z" } };
-        if (path === "/api/funding/orders") return { order: { id: "11111111-1111-4111-8111-111111111111", providerId: "ripio", state: "awaiting-payment", fiatAmount: "1000", expectedTokenAmountAtomic: "1000000000000000000000", fees: [{ label: "Provider", amount: "12", currency: "ARS" }], providerStatus: null, instructions: { kind: "bank-transfer", rail: "CVU", accountNumber: "1234567890", amount: "1000", currency: "ARS" } } };
+        if (path === "/api/funding/orders") return { order: { id: "11111111-1111-4111-8111-111111111111", providerId: "ripio", state: "awaiting-payment", fiatAmount: "1000", expectedTokenAmountAtomic: "1000000000000000000000", fees: [{ label: "Provider", amount: "12", currency: "ARS" }], providerStatus: null, instructions: { kind: "bank-transfer", rail: "CVU", accountNumber: "1234567890", amount: "1012", currency: "ARS" } } };
         throw new Error("unexpected request");
       },
     };
@@ -239,6 +241,7 @@ describe("FundingExperience", () => {
     expect(page().getByText("Rail").parentElement?.textContent).toContain("$10,00");
     fireEvent.click(page().getByRole("button", { name: "Confirm deposit" }));
     await page().findByRole("heading", { name: "Review payment details" });
+    expect(page().getByText("You pay").parentElement?.textContent).toContain("$1.012,00");
     expect(page().getByText("Provider").parentElement?.textContent).toContain("$12,00");
     expect(page().queryByText("1234567890")).toBeNull();
     fireEvent.click(page().getByRole("button", { name: "View payment instructions" }));
