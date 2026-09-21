@@ -50,7 +50,6 @@ export type SavingsMoneyDialogProps = {
   motion?: SavingsDialogMotion;
   availableLabel?: string;
   availableBaseUnits?: string | null;
-  /** Presentation overrides for deterministic design fixtures. A non-matching asset can be viewed but never submitted to the configured candidate route. */
   assetId?: string;
   assetLabel?: string;
   assetDecimals?: number;
