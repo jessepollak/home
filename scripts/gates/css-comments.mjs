@@ -115,6 +115,21 @@ function isNoticeHeader(source, comment) {
   return source.slice(0, comment.start).trim().length === 0 && THIRD_PARTY_NOTICE.test(comment.text);
 }
 
+// Python functional lines are comments a tool consumes, not prose: a line-1
+// shebang, a line-1/2 PEP 263 encoding declaration, and inline PEP 484
+// `# type:` / flake8 `# noqa` pragmas. The pragma prefixes are exact, so
+// `# type: ignore` is exempt and `# typing: ...` is not.
+const PYTHON_ENCODING = /^(?:-\*-\s*coding[:=][ \t]*[A-Za-z0-9._-]+\s*-\*-|coding[:=][ \t]*[A-Za-z0-9._-]+)$/;
+const PYTHON_PRAGMA = /^(?:type:|noqa$|noqa:)/;
+
+function isPythonFunctionalComment(source, comment) {
+  if (PYTHON_PRAGMA.test(comment.text)) return true;
+  if (comment.line === 1 && comment.start === 0 && comment.text.startsWith("!")) return true;
+  if (comment.line > 2) return false;
+  const lineStart = source.lastIndexOf("\n", comment.start - 1) + 1;
+  return source.slice(lineStart, comment.start).trim().length === 0 && PYTHON_ENCODING.test(comment.text);
+}
+
 // files: { path, content }[]. Returns forbidden comments as { path, line, text }
 // in path/line order. Unknown extensions and non-product paths are ignored; the
 // contract test asserts the loaded tree still contains CSS and Python sources.
@@ -126,6 +141,7 @@ export function collectForbiddenComments(files) {
     if (extension !== ".css" && extension !== ".py") continue;
     const comments = extension === ".css" ? scanCssComments(file.content) : scanPythonComments(file.content);
     for (const comment of comments) {
+      if (extension === ".py" && isPythonFunctionalComment(file.content, comment)) continue;
       if (isNoticeHeader(file.content, comment)) continue;
       forbidden.push({ path: file.path, line: comment.line, text: comment.text });
     }

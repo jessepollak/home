@@ -32,6 +32,24 @@ test("Python comments fail while # inside strings and docstrings is not a commen
   ]);
 });
 
+test("Python functional lines are exempt: shebang, encoding declaration, and inline pragmas", () => {
+  const forbidden = collectForbiddenComments([
+    { path: "client/landing/tool.py", content: "#!/usr/bin/env python3\n# -*- coding: utf-8 -*-\nvalue = []  # type: list[str]\nother = 1  # noqa: E501\nplain = 2  # noqa\n" },
+    { path: "server/second-line.py", content: "#!/usr/bin/env python3\n# coding=utf-8\n" },
+    { path: "app/encoding-first.py", content: "# coding: utf-8\n" },
+    { path: "client/landing/real.py", content: "# real comment\n" },
+    { path: "client/landing/near-miss.py", content: "# typing: not a pragma\n# noqa-ish note\n# coding: utf-8\n#!/usr/bin/env python3\n" },
+  ]);
+
+  assert.deepEqual(forbidden, [
+    { path: "client/landing/near-miss.py", line: 1, text: "typing: not a pragma" },
+    { path: "client/landing/near-miss.py", line: 2, text: "noqa-ish note" },
+    { path: "client/landing/near-miss.py", line: 3, text: "coding: utf-8" },
+    { path: "client/landing/near-miss.py", line: 4, text: "!/usr/bin/env python3" },
+    { path: "client/landing/real.py", line: 1, text: "real comment" },
+  ]);
+});
+
 test("test and story sources stay outside the comment policy", () => {
   const forbidden = collectForbiddenComments([
     { path: "components/fixture.test.css", content: "/* fixture comment */\n" },
