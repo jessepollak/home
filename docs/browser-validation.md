@@ -15,9 +15,9 @@ This contract applies to every user-visible UI change and core-flow implementati
    3. reuse an existing Chromium smoke path if it already fails on the bug;
    4. add one assertion to the existing fixture-backed Playwright suite only when the failure is principally observable through layout or geometry, scrolling, focus, history, persisted browser state, media queries, hydration/first paint, browser dispatch integration, or a critical cross-page journey;
    5. otherwise, add no Playwright test.
-3. **Does proof require human-authenticated provider or live-money behavior?**
+3. **Does proof require provider-authenticated or live-money behavior?**
    - **No:** use ordinary `agent-browser` iteration.
-   - **Yes:** use operator mode and the applicable provider runbook plus the [risk-based live-money contract](operating-manual.md#risk-based-live-money-validation). A safe, bounded, explicitly operator-authorized live journey is normal strong evidence for money-moving features; it remains outside PR CI and factory-child authority. A committed provider-specific harness is allowed only when the acceptance flow needs one and does not become the ordinary feature-iteration API. Deterministic tests of the harness's safety and orchestration rules remain required.
+   - **Yes:** use the verifier Live mode and applicable provider runbook under the [verification ladder](operating-manual.md#verification-ladder). The CLI may hold the bot account's credentials and funded authority within policy; it remains outside PR CI. A committed provider-specific harness is allowed only when the acceptance flow needs one and does not become the ordinary feature-iteration API. Deterministic tests of every safety and orchestration rule remain required.
 
 The surface verifier at `apps/web/verify/` is the one committed `agent-browser` wrapper, approved by Jesse on 2026-09-21 in issue #708; it produces evidence and is not a CI gate. Playwright remains the sole committed automated browser regression layer. For ordinary feature iteration, do not commit another `agent-browser` script, transcript, generic feature DSL, profile/state file, wrapper, or CI browser job. The narrowly approved provider-harness exception is governed by step 3.
 
@@ -70,12 +70,12 @@ Use a different non-3199 port when `3200` is occupied. Do not use root `bun dev`
 ### Operator mode
 
 - Use a headed, fresh browser on local Home or an approved preview/sandbox.
-- Stop at explicit human checkpoints for sign-in, OTP, wallet, provider authentication, and final confirmation. Never automate or capture a real OTP, secret, recovery code, or payment detail.
-- A funded action may proceed only after the operator explicitly approves the bounded live plan required by the [operating manual](operating-manual.md#risk-based-live-money-validation): network, asset, maximum amount/loss, controlled destination, expected changes, privacy, ambiguity/retry behavior, and stop/recovery conditions. One approval may cover the stated complete journey. Stop whenever a bound or stop condition is reached.
-- Do not persist a browser profile or auth state except through the surface verifier's explicitly approved Live mode below. Keep every action within the approved runbook scope and safety limits.
-- Record any unperformed real-device, provider, authentication, or money check precisely. For an unperformed live-money path, write `Real money: not tested` and name the uncertainty; emulation is not real-device or funded proof.
+- Outside the verifier, stop at human checkpoints for sign-in, OTP, wallet, provider authentication, and final confirmation. The verifier may automate the bot mailbox OTP and policy-authorized confirmation; it never prints, stores, or includes an OTP in evidence. Never automate or capture another account's OTP, secret, recovery code, or payment detail.
+- A funded verifier action proceeds only within `apps/web/verify/policy.ts`, the ledger-derived arm state, and the mapped review checks. Stop whenever a policy bound or incident condition is reached.
+- Do not persist a general browser profile or auth state. The verifier may persist its private bot session under `~/.home-verify`; keep every action within its mapped scope and safety limits.
+- Record any unperformed real-device, provider, authentication, or money check precisely. Write `Real money: not tested` only when the required rung is blocked by a disarmed surface, exhausted cap, or insufficient ceiling.
 
-Factory mode stays local and credential-free by default. A protected Vercel preview is operator-only unless an operator explicitly authorizes and provisions automation access. First load the version-matched `protected-vercel-deployments` skill and prefer its short-lived approved access path. Protection Bypass for Automation requires explicit operator authorization: read `VERCEL_AUTOMATION_BYPASS_SECRET` only from the approved environment, inject it through the documented bypass header/cookie flow, and never print, persist, commit, or capture it. Do not disable protection or make the deployment public.
+Factory mode stays local and credential-free by default, but the studio factory runner may use the verifier's provisioned bot credentials, protected-preview access, and bounded funded authority. First load the version-matched `protected-vercel-deployments` skill and prefer its short-lived approved access path. Protection Bypass for Automation requires provisioned authority: read `VERCEL_AUTOMATION_BYPASS_SECRET` only from the approved environment, inject it through the documented bypass header/cookie flow, and never print, persist, commit, or capture it. Do not disable protection or make the deployment public.
 
 ## Required iteration loop
 
@@ -181,7 +181,7 @@ Each run writes `<out>/<surface-id>/{evidence.json,summary.md,screenshot.png,dom
 
 ### Live mode
 
-Live verification is operator-only and refuses to run when `CI` or `GITHUB_ACTIONS` is set. It targets a deployed environment and the Home test account `j@pollak.io`; factory runs never use it and never receive its credentials, state, provider access, or money authority.
+Live verification runs only on an operator laptop or the provisioned studio factory runner and refuses when `CI` or `GITHUB_ACTIONS` is set. It targets a deployed environment and the bot-dedicated Home account `j@pollak.io`; authority comes only from the verifier policy and ledger.
 
 Start with `bun run --cwd apps/web verify live-login --base-url <deployed-url>`. The headed browser fills the deployment access gate only from the operator's `HOME_ACCESS_PASSWORD`, opens email sign-in for `j@pollak.io`, and waits for the operator to complete OTP. It then reads the smart-account address from the rendered Account surface, pins that address, and saves private browser state under `~/.home-verify/<host>/state` with directory mode `700` and file mode `600`. Live runs load that state, re-read the Account address before their first Reach step, and stop without an evidence bundle when the session is expired or the account differs from the pin.
 

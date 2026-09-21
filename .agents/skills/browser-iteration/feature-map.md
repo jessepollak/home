@@ -295,7 +295,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - `borrow` (no smoke fixture for `/api/borrow*` at all), `activity`, `account-settings`, `invest` hub/category browsing beyond one asset-detail click, `dev-ui`, `coverage` filtering behavior (only font metrics asserted).
 - Journey stories: only `apps/web/stories/journeys/savings-deposit.stories.tsx` exists; every other surface above lacks one.
 
-**Reach depends on a live provider and cannot run against the fixture server** (needs a documented fixture or is operator-only):
+**Reach depends on a live provider and cannot run against the fixture server** (needs a documented fixture or the provisioned verifier Live mode):
 - Base-account/CDP sign-in (`client/account/base-account-connector.tsx`, `cdp-*`), real Coinbase onramp/offramp providers via `/api/funding/providers`, `/api/funding/quotes`, `/api/funding/provider-customers`, and `/api/funding/webhooks/[provider]` (smoke uses hand-written IDRX/PEER stubs instead of a documented shared fixture).
 - Invest `Memes` discovery (`/api/invest/discover`) and market prices (`/api/market-prices*`) when the fixture returns `{}` — smoke never asserts a meme shelf; treat as unknown rather than "empty".
 - `/api/webhooks/cdp` and trades (`/api/trades`, `client/trading/trade-actions.tsx` buttons are `disabled` — trading is not user-reachable today).
