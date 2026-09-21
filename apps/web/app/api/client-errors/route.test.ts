@@ -197,6 +197,16 @@ describe("POST /api/client-errors security matrix", () => {
     expect(response.status).toBe(204);
   });
 
+  test("observability helpers contain synchronous throws and asynchronous rejections", async () => {
+    const event = { kind: "client-error", route: "/", errorName: "Error", summary: "boom" } as const;
+    setObservabilityLogWriterForTests(() => { throw new Error("sync sink failed"); });
+    expect(() => writeObservabilityEvent(event)).not.toThrow();
+
+    setObservabilityLogWriterForTests(async () => { throw new Error("async sink failed"); });
+    expect(() => writeObservabilityEvent(event)).not.toThrow();
+    await Promise.resolve();
+  });
+
   test("scrubs synthetic canaries from reporter through the normalized log line", async () => {
     const canaries = {
       headerOne: "e2e-header-first-canary",

@@ -12,7 +12,7 @@ export async function register(): Promise<void> {
       instrumentations: [],
       traceSampler: "always_off",
     });
-  } catch {
+  } catch { // oxlint-disable-line home/no-silent-catch -- optional telemetry initialization cannot prevent the server from starting
     // Instrumentation initialization cannot prevent the server from starting.
   }
 }
@@ -29,7 +29,7 @@ export const onRequestError: Instrumentation.onRequestError = async (
       "@/server/observability/on-request-error"
     );
     await handleRequestError(error, request, context);
-  } catch {
+  } catch { // oxlint-disable-line home/no-silent-catch -- Next remains the sole owner of the original application error
     // Next remains the sole owner of the original application error.
   }
 };

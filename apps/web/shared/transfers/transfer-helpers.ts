@@ -200,7 +200,7 @@ export function transferRequestFromAction(
       if (encodeErc20Transfer(asset.contractAddress, recipient, BigInt(spend.amountBaseUnits)).data !== call.data.toLowerCase()) {
         return null;
       }
-    } catch {
+    } catch { // oxlint-disable-line home/no-silent-catch -- malformed transfer calldata fails closed through the parser's null result
       return null;
     }
   }
@@ -212,7 +212,7 @@ export function transferRequestFromAction(
     } satisfies TransferRequest;
     assertTransferRequest(request);
     return request;
-  } catch {
+  } catch { // oxlint-disable-line home/no-silent-catch -- an invalid transfer request fails closed through the parser's null result
     return null;
   }
 }

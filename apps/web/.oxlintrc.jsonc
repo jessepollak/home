@@ -347,6 +347,32 @@
     },
     {
       "files": [
+        "{app,components,config,shared}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "instrumentation*.ts"
+      ],
+      "excludeFiles": [
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**",
+        "**/testing/**",
+        "**/*test-harness.{ts,tsx}",
+        "**/*smoke-fixture*.{ts,tsx}",
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "rules": {
+        "home/no-silent-catch": [
+          "error",
+          {
+            "reportingHelpers": [
+              "emitServerEvent",
+              "writeObservabilityEvent",
+              "reportClientError"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": [
         "{app,client,components,config,lib,server,shared,types}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "instrumentation*.ts",
         "next.config.ts",
@@ -367,7 +393,28 @@
         "home/no-unknown-aliases": "error",
         "home/no-reducer-accumulator-spread": "error",
         "home/no-reduce-accumulator-copy": "error",
-        "home/no-widen-then-assert": "error"
+        "home/no-widen-then-assert": "error",
+        "home/isolate-instrumentation-calls": [
+          "error",
+          {
+            "safeHelpers": [
+              "createClientErrorHandler",
+              "emitServerEvent",
+              "finishHomeAuthRestore",
+              "installClientErrorReporting",
+              "markHomeAuthRestore",
+              "markHomePerformance",
+              "markHomeStartupOutcome",
+              "recordAuthDiagnostic",
+              "recordHomeStartupCache",
+              "reportClientError",
+              "sendHomeAuthSignOut",
+              "startHomeAuthRestore",
+              "startHomePerformance",
+              "writeObservabilityEvent"
+            ]
+          }
+        ]
       }
     }
   ]
