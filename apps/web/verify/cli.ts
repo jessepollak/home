@@ -473,8 +473,10 @@ const destination = live
   ? resolve(outputRoot, surfaceId, new Date().toISOString())
   : resolve(outputRoot, surfaceId);
 if (live) {
-  await mkdir(resolve(outputRoot, surfaceId), { recursive: true });
-  await mkdir(destination);
+  await mkdir(resolve(outputRoot, surfaceId), { recursive: true, mode: 0o700 });
+  await chmod(resolve(outputRoot, surfaceId), 0o700);
+  await mkdir(destination, { mode: 0o700 });
+  await chmod(destination, 0o700);
 } else {
   await mkdir(destination, { recursive: true });
 }
@@ -532,9 +534,13 @@ let stoppedBefore: string | null = null;
 let unexpectedHosts: string[] = [];
 let transactionHash: string | null = null;
 let actionId: string | null = null;
+async function writeEvidenceFile(path: string, contents: string): Promise<void> {
+  await writeFile(path, contents);
+  if (live) await chmod(path, 0o600);
+}
 async function writeLiveEvidence(): Promise<void> {
   if (!live) return;
-  await writeFile(livePath, `${JSON.stringify({
+  await writeEvidenceFile(livePath, `${JSON.stringify({
     baseHost: baseUrl.host,
     allowedDomains: allowedDomainFlags,
     surface: surfaceId,
@@ -809,9 +815,10 @@ try {
     }
   }
   command("screenshot", "--full", screenshotPath);
+  if (live) await chmod(screenshotPath, 0o600);
   const dom = jsonResult(command("eval", "document.body.innerText"));
   const domText = typeof dom === "string" ? dom : JSON.stringify(dom, null, 2);
-  await writeFile(domPath, domText);
+  await writeEvidenceFile(domPath, domText);
   const performance = jsonResult(command("eval", `({marks:performance.getEntriesByType("mark").map((entry)=>({name:entry.name,startTime:entry.startTime})),longTaskCount:(window.__homeVerifyLongTasks||[]).length})`)) as { marks?: Array<{ name: string; startTime: number }>; longTaskCount?: number };
   const markNames = new Set([...Object.keys(surface.budgets), ...(performance.marks ?? []).map((mark) => mark.name).filter((name) => ["shell:paint", "session:verified", "balances:painted", "action:first-interactive"].includes(name))]);
   const marks: MarkResult[] = [...markNames].map((name) => {
@@ -840,8 +847,8 @@ try {
   }, allowConsole);
   const evidence = liveRefusal ? { ...finalizedEvidence, passed: false } : finalizedEvidence;
   finalEvidencePassed = evidence.passed;
-  await writeFile(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
-  await writeFile(summaryPath, summarizeEvidence(evidence, live ? "live" : "fixture"));
+  await writeEvidenceFile(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
+  await writeEvidenceFile(summaryPath, summarizeEvidence(evidence, live ? "live" : "fixture"));
   if (live) {
     transactionHash = domText.match(/\b0x[0-9a-fA-F]{64}\b/)?.[0] ?? null;
     actionId = domText.match(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i)?.[0] ?? null;
