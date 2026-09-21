@@ -23,6 +23,17 @@
   vertical-align: middle;
 }
 
+.compact {
+  width: 30.333333px;
+  min-width: 30.333333px;
+}
+
+@media (width >= 768px) {
+  .compact .control:hover {
+    width: 30.333333px;
+  }
+}
+
 @supports (color: color(display-p3 0 0 1)) {
   .root {
     --mark-blue: color(display-p3 0 0 1);

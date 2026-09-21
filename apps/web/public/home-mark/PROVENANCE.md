@@ -46,6 +46,8 @@ reference manifest timestamp: 2026-09-08T03:30:02.882Z.
 - Final h/o/m/e are individual natural Base Sans glyphs, not stretched b/a/s/e.
   Doto also uses its actual lowercase h/o/m/e. Home's wider advance requires
   an 82px expanded hitbox; the reserved desktop width stays 123.15625px.
+  The shell's compact title-adjacent variant uses the collapsed 30.333333px
+  footprint and keeps the animated expansion disabled.
 - Entry/exit use Motion's sequence/spring implementation, exact authored raw
   extents 2.3/1.901 normalized to 1600/1200ms. The noninterruptible sequence,
   queued-exit rapid-reentry quirk, and reduced-motion transform snapping with

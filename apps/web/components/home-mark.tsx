@@ -13,6 +13,7 @@ import styles from "./home-mark.module.css";
 
 type SharedHomeMarkProps = {
   className?: string;
+  compact?: boolean;
 };
 
 type HomeMarkLinkProps = SharedHomeMarkProps &
@@ -53,10 +54,11 @@ function serverDesktop() {
   return true;
 }
 
-const MarkArtwork = memo(function MarkArtwork() {
+const MarkArtwork = memo(function MarkArtwork({ interactive = true }: { interactive?: boolean }) {
   const [scope, animate] = useAnimate<HTMLSpanElement>();
 
   useEffect(() => {
+    if (!interactive) return;
     const artwork = scope.current;
     const control = artwork.parentElement;
     if (!control) return;
@@ -172,7 +174,7 @@ const MarkArtwork = memo(function MarkArtwork() {
       scope.animations.forEach((animation) => animation.stop());
       scope.animations.length = 0;
     };
-  }, [animate, scope]);
+  }, [animate, interactive, scope]);
 
   return (
     <span ref={scope} className={styles.artwork} aria-hidden="true">
@@ -212,15 +214,15 @@ const MarkArtwork = memo(function MarkArtwork() {
 
 export function HomeMark(props: HomeMarkProps) {
   const desktop = useSyncExternalStore(subscribeDesktop, isDesktop, serverDesktop);
-  const { className, "aria-label": ariaLabel, ...controlProps } = props;
+  const { className, compact = false, "aria-label": ariaLabel, ...controlProps } = props;
   const controlClass = className ? `${styles.control} ${className}` : styles.control;
   const artwork = <>
     <span className={styles.mobileSquare} aria-hidden="true" />
-    {desktop ? <MarkArtwork /> : null}
+    {desktop ? <MarkArtwork interactive={!compact} /> : null}
   </>;
 
   return (
-    <span className={styles.root} data-home-mark="">
+    <span className={compact ? `${styles.root} ${styles.compact}` : styles.root} data-home-mark="">
       {"href" in controlProps && controlProps.href !== undefined ? (
         <a {...controlProps} className={controlClass} aria-label={ariaLabel ?? "Home"}>
           {artwork}
