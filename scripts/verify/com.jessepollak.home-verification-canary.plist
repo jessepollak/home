@@ -13,6 +13,8 @@
   <string>__HOME_REPOSITORY__</string>
   <key>EnvironmentVariables</key>
   <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
     <key>HOME_VERIFY_PRODUCTION_URL</key>
     <string>https://__HOME_PRODUCTION_HOST__</string>
     <key>HOME_VERIFY_GMAIL_CREDENTIALS</key>
