@@ -5,6 +5,7 @@ import { useEffect, useSyncExternalStore, type ReactNode } from "react";
 import { renderToString } from "react-dom/server";
 import type { AccountWalletClient } from "./cdp-client";
 import type { AccountProviderTiming } from "./composite-account-provider";
+import { CDP_ACTIVATION_TIMEOUT_MS } from "./sdk-activation";
 import {
   hasCdpRestoreHint,
   hasCdpRestoreMarker,
@@ -360,6 +361,24 @@ describe("composite account provider switches", () => {
     expect(events).toEqual(["cdp-email", "cdp-email"]);
   });
 
+  test("uses the published activation timeout when timeout timing is omitted", async () => {
+    cdpState = { isInitialized: false, isSignedIn: false, userId: null };
+    const activation = manualScheduler();
+    installSessionFetch();
+    renderProvider(false, false, true, {
+      scheduleActivationTimeout: activation.scheduleTimeout,
+    });
+    await waitFor(() => expect(currentClient().status).toBe("signed-out"));
+
+    let request!: Promise<{ flowId: string }>;
+    act(() => { request = currentClient().requestEmailCode("person@example.com"); });
+    await waitFor(() => expect(cdpProviderMounts).toBe(1));
+    expect(activation.timers[0]?.timeoutMs).toBe(CDP_ACTIVATION_TIMEOUT_MS);
+
+    act(() => setCdpState({ isInitialized: true }));
+    await act(async () => { await request; });
+  });
+
   test("keeps canceled and reissued email actions gated through an uninitialized publication", async () => {
     cdpState = { isInitialized: false, isSignedIn: false, userId: null };
     installSessionFetch();
@@ -605,7 +624,7 @@ describe("composite account provider switches", () => {
     expect(hasCdpRestoreMarker()).toBe(true);
   });
 
-  test("activates a hinted CDP restore immediately after mount", async () => {
+  test("keeps sign-in forms hidden while the CDP island is suspended", async () => {
     cdpState = { isInitialized: false, isSignedIn: false, userId: null };
     installSessionFetch();
     const view = renderProvider(true, true);
