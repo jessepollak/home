@@ -1,5 +1,5 @@
 import { relative, resolve } from "node:path";
-import { matchesConfirmLabel, type LiveAccess, type ReachStep } from "./map";
+import { bareHostnamePattern, matchesConfirmLabel, type LiveAccess, type ReachStep } from "./map";
 
 export const accountPattern = /^0x[0-9a-fA-F]{40}$/;
 export const liveProviderOrigins = [
@@ -66,8 +66,6 @@ function reachStepSummary(step: ReachStep): string {
   return `expect “${step.text}”`;
 }
 
-const bareHostnamePattern = /^(?=.{1,253}$)(?:localhost|(?:(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)\.)*(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?))$/;
-
 export function composeAllowedDomains(
   baseUrl: URL,
   additionalDomains: string[],
@@ -82,6 +80,14 @@ export function composeAllowedDomains(
   const providerDomains = liveProviderOrigins.map((origin) => new URL(origin).hostname);
   const fixtureDomains = fixtureMode ? ["localhost", "127.0.0.1"] : [];
   return [...new Set([baseUrl.hostname.toLowerCase(), ...providerDomains, ...normalizedAdditional, ...fixtureDomains])];
+}
+
+export function composeLiveAllowedDomains(
+  baseUrl: URL,
+  featureMapHosts: readonly string[],
+  additionalDomains: string[],
+): string[] {
+  return composeAllowedDomains(baseUrl, [...featureMapHosts, ...additionalDomains], false);
 }
 
 export type ConfirmGateDecision =

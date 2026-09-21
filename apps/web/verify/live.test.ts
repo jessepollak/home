@@ -7,6 +7,7 @@ import {
   accountPinError,
   automationEnvironmentError,
   composeAllowedDomains,
+  composeLiveAllowedDomains,
   confirmReviewOrderError,
   decideConfirmGate,
   defaultLiveRecipient,
@@ -269,6 +270,32 @@ describe("live browser origin observation", () => {
   test("refuses before confirmation when an observed hostname is not approved", () => {
     expect(hostObservationRefusal(["images.example.net"])).toContain("images.example.net");
     expect(hostObservationRefusal([])).toBeNull();
+  });
+
+  test("composes the feature map hosts with the base host, provider origins, and overrides", () => {
+    expect(composeLiveAllowedDomains(
+      new URL("https://home.jesse.xyz"),
+      ["api.ensideas.com", "API.ENSIDEAS.COM"],
+      ["extra.example.com"],
+    )).toEqual([
+      "home.jesse.xyz",
+      "api.cdp.coinbase.com",
+      "secure-wallet.cdp.coinbase.com",
+      "api.ensideas.com",
+      "extra.example.com",
+    ]);
+  });
+
+  test("keeps failing hosts outside the composed live allowance", () => {
+    const allowed = composeLiveAllowedDomains(new URL("https://home.jesse.xyz"), ["api.ensideas.com"], []);
+    expect(unexpectedNetworkHosts([
+      "https://api.ensideas.com/ens/resolve/0x1",
+      "https://cdn.example.net/icon.svg",
+    ], allowed)).toEqual(["cdn.example.net"]);
+  });
+
+  test("rejects a feature map host that is not a bare hostname", () => {
+    expect(() => composeLiveAllowedDomains(new URL("https://home.jesse.xyz"), ["https://api.ensideas.com"], [])).toThrow("bare hostname");
   });
 
   test("detects every observed hostname outside the approved set", () => {

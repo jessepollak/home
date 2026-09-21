@@ -9,6 +9,7 @@ import {
   accountPinError,
   automationEnvironmentError,
   composeAllowedDomains,
+  composeLiveAllowedDomains,
   confirmReviewOrderError,
   decideConfirmGate,
   enforceAmountCap,
@@ -34,7 +35,7 @@ import { matchesConfirmLabel, readFeatureMap, type ReachStep } from "./map";
 const args = Bun.argv.slice(2);
 const repositoryRoot = resolve(import.meta.dir, "../../..");
 const featureMapPath = resolve(repositoryRoot, ".agents/skills/browser-iteration/feature-map.md");
-const surfaces = await readFeatureMap(featureMapPath);
+const { surfaces, liveHosts } = await readFeatureMap(featureMapPath);
 const option = (name: string) => {
   const index = args.indexOf(name);
   return index === -1 ? undefined : args[index + 1];
@@ -69,9 +70,11 @@ const hostKey = baseUrl.host.replaceAll(/[^a-zA-Z0-9._-]/g, "_");
 const stateDirectory = resolve(homedir(), ".home-verify", hostKey, "state");
 const statePath = resolve(stateDirectory, "browser-state.json");
 const pinPath = resolve(stateDirectory, "account");
-function resolveAllowedDomains(): string {
+function resolveAllowedDomains(): string[] {
   try {
-    return composeAllowedDomains(baseUrl, options("--allow-domain"), !live).join(",");
+    return live
+      ? composeLiveAllowedDomains(baseUrl, liveHosts, options("--allow-domain"))
+      : composeAllowedDomains(baseUrl, options("--allow-domain"), true);
   } catch (error) {
     console.error(error instanceof Error ? error.message : "Invalid --allow-domain value.");
     process.exit(2);
@@ -88,7 +91,7 @@ const browserEnv: Record<string, string | undefined> = {
   AGENT_BROWSER_HEADED: liveLogin ? "true" : undefined,
 };
 delete browserEnv.HOME_ACCESS_PASSWORD;
-if (!live) browserEnv.AGENT_BROWSER_ALLOWED_DOMAINS = allowedDomains;
+if (!live) browserEnv.AGENT_BROWSER_ALLOWED_DOMAINS = allowedDomains.join(",");
 
 function commandWithInput(input: string | undefined, ...commandArgs: string[]): string {
   const result = Bun.spawnSync({
@@ -448,7 +451,7 @@ function observeUnexpectedHosts(): string[] {
   const scriptUrls = Array.isArray(observedByScript)
     ? observedByScript.flatMap((host) => typeof host === "string" ? [`https://${host}`] : [])
     : [];
-  return unexpectedNetworkHosts([...requestUrls(networkOutput), ...scriptUrls], allowedDomains.split(","));
+  return unexpectedNetworkHosts([...requestUrls(networkOutput), ...scriptUrls], allowedDomains);
 }
 try {
   command("open", "--init-script", initPath);
