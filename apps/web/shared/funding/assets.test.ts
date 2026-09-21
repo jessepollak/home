@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { presentationRegions } from "@/config/regions";
-import { FUNDING_CHAIN_ID, fundingAssets, getFundingAsset } from "./assets";
+import { fundingAssets, getFundingAsset } from "./assets";
 
 const regionByAsset = {
   "base:usdc": "US",
@@ -45,7 +45,7 @@ describe("funding asset registry", () => {
       }),
     });
     for (const asset of Object.values(fundingAssets)) {
-      expect(asset.chainId).toBe(FUNDING_CHAIN_ID);
+      expect(asset.chainId).toBe(8453);
       expect(new URL(asset.issuerDocsUrl).protocol).toBe("https:");
     }
   });

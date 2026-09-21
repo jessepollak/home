@@ -106,7 +106,7 @@ describe("Morpho borrowing integer math", () => {
 
     expect(maxDebt).toBe(BigInt("68800000000"));
     expect(required).toBe(oneCbbtc);
-    expect(healthFactorWad(maxDebt, maxDebt)).toBe(WAD);
+    expect(healthFactorWad(maxDebt, maxDebt)).toBe(BigInt("1000000000000000000"));
   });
 
   test("preserves Morpho's intermediate floor when inverting the health boundary", () => {

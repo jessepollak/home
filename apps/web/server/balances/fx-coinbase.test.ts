@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  COINBASE_EXCHANGE_RATES_URL,
   createCoinbaseExchangeRatesReader,
   supportedFiatCurrencies,
 } from "./fx-coinbase";
@@ -21,7 +20,7 @@ describe("Coinbase exchange rates", () => {
       now: () => new Date(currentTime),
       fetchImpl: (async (input) => {
         calls += 1;
-        expect(String(input)).toBe(COINBASE_EXCHANGE_RATES_URL);
+        expect(String(input)).toBe("https://api.coinbase.com/v2/exchange-rates?currency=USD");
         return Response.json({
           data: { currency: "USD", rates: { ...rates, ETH: "0.0005" } },
         });

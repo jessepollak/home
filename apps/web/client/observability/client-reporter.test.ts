@@ -69,6 +69,6 @@ describe("client error reporter", () => {
     }
     await Promise.resolve();
 
-    expect(calls).toHaveLength(CLIENT_ERROR_MAX_REPORTS_PER_PAGE);
+    expect(calls).toHaveLength(5);
   });
 });

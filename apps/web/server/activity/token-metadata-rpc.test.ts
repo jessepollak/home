@@ -129,8 +129,8 @@ describe("Activity token metadata RPC fallback", () => {
     );
     const first = await resolver(addresses);
     const second = await resolver(addresses);
-    expect(first.size).toBe(ACTIVITY_TOKEN_RPC_BATCH_MAX);
-    expect(second.size).toBe(ACTIVITY_TOKEN_RPC_BATCH_MAX);
+    expect(first.size).toBe(25);
+    expect(second.size).toBe(25);
     expect(encodedCalls).toBe(ACTIVITY_TOKEN_RPC_BATCH_MAX * 2);
     expect(calls).toBe(1);
     expect(assertionSignal).toBeInstanceOf(AbortSignal);

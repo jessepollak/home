@@ -268,9 +268,9 @@ describe("CDP Onchain Data Token Balances client", () => {
     });
 
     const listed = await client.listBalances({ address: ADDRESS });
-    expect(pages).toBe(CDP_TOKEN_BALANCES_MAX_PAGES);
+    expect(pages).toBe(32);
     expect(listed.complete).toBeFalse();
-    expect(listed.balances).toHaveLength(CDP_TOKEN_BALANCES_MAX_PAGES);
+    expect(listed.balances).toHaveLength(32);
     expect(listed.balances.at(-1)?.amountBaseUnits).toBe(String(CDP_TOKEN_BALANCES_MAX_PAGES));
   });
 

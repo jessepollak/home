@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  BASE_CHAIN_ID,
   cryptoAssets,
   investAssets,
   memeAssets,
@@ -57,7 +56,7 @@ describe("invest asset registry", () => {
     ]);
 
     for (const asset of cryptoAssets) {
-      expect(asset.chainId).toBe(BASE_CHAIN_ID);
+      expect(asset.chainId).toBe(8453);
       expect(asset.representation.issuer).toBe("Coinbase");
       expect(asset.representation.relationship).toContain("Home does not provide redemption");
       expect(asset.displaySymbol).not.toBe(asset.representation.tokenSymbol);
@@ -90,7 +89,7 @@ describe("invest asset registry", () => {
     ]);
 
     for (const asset of memeAssets) {
-      expect(asset.chainId).toBe(BASE_CHAIN_ID);
+      expect(asset.chainId).toBe(8453);
       expect(asset.contractAddress).toMatch(evmAddressPattern);
       expect(asset.availability).toBe("informational");
       expect(asset.projectUrl?.startsWith("https://")).toBe(true);

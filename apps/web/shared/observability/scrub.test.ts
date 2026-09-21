@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   REDACTED,
-  REDACTED_URL,
   sanitizeIdentifier,
   sanitizeRoutePath,
   scrubString,
@@ -43,8 +42,8 @@ describe("observability scrub security matrix", () => {
     const scrubbed = scrubString(input);
 
     for (const value of forbidden) expect(scrubbed).not.toContain(value);
-    expect(scrubbed).toContain(REDACTED);
-    expect(scrubbed).toContain(REDACTED_URL);
+    expect(scrubbed).toContain("[REDACTED]");
+    expect(scrubbed).toContain("[URL]");
     expect(scrubbed).toContain("/activity");
     expect(scrubbed).toContain("ACTIVITY_UNAVAILABLE TypeError");
   });

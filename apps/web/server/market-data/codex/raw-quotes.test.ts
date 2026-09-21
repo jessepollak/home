@@ -32,7 +32,7 @@ describe("Codex raw quotes", () => {
           networkId: 8453,
         }]);
       }
-      expect(codexSharedReaderCountForTests()).toBe(CODEX_SHARED_READER_MAX);
+      expect(codexSharedReaderCountForTests()).toBe(256);
     } finally {
       if (previousKey === undefined) delete process.env.CODEX_API_KEY;
       else process.env.CODEX_API_KEY = previousKey;

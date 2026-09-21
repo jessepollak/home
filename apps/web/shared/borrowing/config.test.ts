@@ -28,7 +28,8 @@ describe("Borrow market registry", () => {
     expect(BORROW_MARKET_PARAMS).toBe(MORPHO_USDC_CBBTC_MARKET_PARAMS);
   });
   test("resolves configured ids case-insensitively and rejects arbitrary markets", () => {
-    expect(getBorrowMarketRef(DEFAULT_BORROW_MARKET.marketId.toUpperCase())).toBe(DEFAULT_BORROW_MARKET);
+    expect(getBorrowMarketRef(DEFAULT_BORROW_MARKET.marketId.toUpperCase())?.marketId)
+      .toBe("0x9103c3b4e834476c9a62ea009ba2c884ee42e94e6e314a26f04d312434191836");
     expect(getBorrowMarketRef(`0x${"00".repeat(32)}`)).toBeNull();
   });
 });
