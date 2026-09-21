@@ -14,6 +14,8 @@ Offramps execute through Actions rather than `funding_orders`. The shared Action
 
 Peer is a deliberate egress exception to the raw-HTTP adapter rule below. The exact installed Cash/SDK options do not expose fetch injection for the curator/indexer calls Home uses. The adapter instead requires literal manifest-pinned curator/indexer origins, passes those URLs and Home's Base RPC transport explicitly, disables foreign-chain RPC, and sets 6-second SDK/API and RPC timeouts where supported. Cash indexer requests retain package-owned timeout behavior, and owner scans remain capped at 100 because the installed package documents no pagination or higher safe ceiling. This residual can fail closed for unusually old/high-volume owners; Home does not monkey-patch global fetch or weaken the origin boundary.
 
+Peer treats a single-payout Cash 0.5.3 row whose `payeeHash` is empty or `"0x"` as the known legacy unavailable-payee representation and skips it. Any other malformed payee hash fails closed during cash-out preparation as `PeerOfframpSafetyError`, surfaced by the prepare route as `ACTION_PREPARE_UNAVAILABLE`; the recovery-list path skips the malformed row, emits a scrubbed server observability event, and keeps valid withdrawals available rather than returning `OFFRAMP_ORDERS_UNAVAILABLE` for the whole list.
+
 ## Intent
 
 Someone at a stablecoin issuer or local rail should be able to clone Home, run it, sign in with their Base Account, drop in their provider credentials, and walk through the Add money flow for their country end to end. That is the whole test. The crew builds most of each adapter; the issuer confirms it against their real API and fixes what disagrees.
