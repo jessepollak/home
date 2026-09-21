@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { BORROW_MARKET_ID } from "@/shared/borrowing/config";
-import type { ShellLocation } from "@/config/shell-location";
+import { homeHrefWithOverlays, type ShellLocation } from "@/config/shell-location";
 import { readHomeInboundPanelState } from "./panel-routing";
 
 function location(panel: ShellLocation["panel"], rest: Partial<ShellLocation> = {}): ShellLocation {
@@ -10,6 +10,11 @@ function location(panel: ShellLocation["panel"], rest: Partial<ShellLocation> = 
 const ACTION_ID = "11111111-1111-4111-8111-111111111111";
 
 describe("home panel routing", () => {
+  test("homeHrefWithOverlays drops non-allowlisted keys", () => {
+    expect(homeHrefWithOverlays({ account: "settings", token: "secret" })).toBe("/home?account=settings");
+    expect(homeHrefWithOverlays({ token: "secret", panel: "borrow" })).toBe("/home");
+  });
+
   test("combines the explicit page location with empty overlays", () => {
     expect(readHomeInboundPanelState(location("balances"), new URLSearchParams())).toEqual({
       panel: "balances",
@@ -51,7 +56,6 @@ describe("home panel routing", () => {
     )).toMatchObject({ panel: "home", flow: "send", sendFlow: true, actionId: ACTION_ID });
     expect(readHomeInboundPanelState(location("save"), new URLSearchParams("flow=save-deposit")))
       .toMatchObject({ panel: "save", flow: "save-deposit", sendFlow: false, actionId: null });
-    // The market segment is page state; unrelated query keys never touch it.
     expect(readHomeInboundPanelState(
       location("borrow", { market: BORROW_MARKET_ID }),
       new URLSearchParams("panel=home&group=cash"),
