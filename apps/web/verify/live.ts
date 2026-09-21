@@ -151,6 +151,12 @@ export function unexpectedNetworkHosts(urls: string[], allowedHosts: string[]): 
   return [...new Set(observed.filter((host) => !allowed.has(host)))].sort();
 }
 
+export function hostObservationRefusal(unexpectedHosts: string[]): string | null {
+  return unexpectedHosts.length > 0
+    ? `Unexpected network hosts were observed: ${unexpectedHosts.join(", ")}.`
+    : null;
+}
+
 export function enforceAmountCap(amount: number | null, cap: number): string | null {
   if (amount === null) return "The review amount could not be parsed as USD; confirmation was refused.";
   if (!Number.isFinite(cap) || cap <= 0) return "--max-usd must be a positive number.";

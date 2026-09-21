@@ -9,6 +9,7 @@ import {
   decideConfirmGate,
   enforceAmountCap,
   enforceCumulativeAmountCap,
+  hostObservationRefusal,
   liveProviderOrigins,
   liveStepError,
   outputInsideRepository,
@@ -162,6 +163,11 @@ describe("live browser origin observation", () => {
     for (const value of ["https://extra.example.com", "extra.example.com:443", "extra.example.com/path", "two hosts", "*.example.com"]) {
       expect(() => composeAllowedDomains(new URL("https://preview.example.com"), [value], false)).toThrow("bare hostname");
     }
+  });
+
+  test("refuses before confirmation when an observed hostname is not approved", () => {
+    expect(hostObservationRefusal(["images.example.net"])).toContain("images.example.net");
+    expect(hostObservationRefusal([])).toBeNull();
   });
 
   test("detects every observed hostname outside the approved set", () => {

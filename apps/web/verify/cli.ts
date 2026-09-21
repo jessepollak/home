@@ -13,6 +13,7 @@ import {
   decideConfirmGate,
   enforceAmountCap,
   enforceCumulativeAmountCap,
+  hostObservationRefusal,
   liveStepError,
   outputInsideRepository,
   parseBorrowReviewAmounts,
@@ -411,6 +412,14 @@ async function writeLiveEvidence(): Promise<void> {
     unexpectedHosts,
   }, null, 2)}\n`);
 }
+function observeUnexpectedHosts(): string[] {
+  const networkOutput = command("network", "requests");
+  const observedByScript = jsonResult(command("eval", "[...new Set(window.__homeVerifyHosts||[])]"));
+  const scriptUrls = Array.isArray(observedByScript)
+    ? observedByScript.flatMap((host) => typeof host === "string" ? [`https://${host}`] : [])
+    : [];
+  return unexpectedNetworkHosts([...requestUrls(networkOutput), ...scriptUrls], allowedDomains.split(","));
+}
 try {
   command("open", "--init-script", initPath);
   command("set", "viewport", "390", "844");
@@ -490,6 +499,14 @@ try {
           await writeLiveEvidence();
           break;
         }
+        unexpectedHosts = observeUnexpectedHosts();
+        liveRefusal = hostObservationRefusal(unexpectedHosts);
+        if (liveRefusal) {
+          record.status = "failed";
+          stoppedBefore = step.label;
+          await writeLiveEvidence();
+          break;
+        }
         confirmIntent = {
           label: step.label,
           parsedAmountUsd,
@@ -537,17 +554,8 @@ try {
   });
   const consoleErrors = messages(command("console"), "error");
   const networkOutput = command("network", "requests");
-  const observedByScript = live
-    ? jsonResult(command("eval", "[...new Set(window.__homeVerifyHosts||[])]"))
-    : [];
-  const observedUrls = requestUrls(networkOutput);
-  const scriptUrls = Array.isArray(observedByScript)
-    ? observedByScript.flatMap((host) => typeof host === "string" ? [`https://${host}`] : [])
-    : [];
-  unexpectedHosts = live ? unexpectedNetworkHosts([...observedUrls, ...scriptUrls], allowedDomains.split(",")) : [];
-  if (unexpectedHosts.length > 0) {
-    liveRefusal = `Unexpected network hosts were observed: ${unexpectedHosts.join(", ")}.`;
-  }
+  unexpectedHosts = live ? observeUnexpectedHosts() : [];
+  liveRefusal = hostObservationRefusal(unexpectedHosts) ?? liveRefusal;
   const pageErrors = [...messages(command("errors")), ...(liveRefusal ? [liveRefusal] : [])];
   const failedRequests = requestFailures(networkOutput);
   const finalizedEvidence = finalizeEvidence({
@@ -576,12 +584,7 @@ try {
 } catch (error) {
   if (live) {
     try {
-      const networkOutput = command("network", "requests");
-      const observedByScript = jsonResult(command("eval", "[...new Set(window.__homeVerifyHosts||[])]"));
-      const scriptUrls = Array.isArray(observedByScript)
-        ? observedByScript.flatMap((host) => typeof host === "string" ? [`https://${host}`] : [])
-        : [];
-      unexpectedHosts = unexpectedNetworkHosts([...requestUrls(networkOutput), ...scriptUrls], allowedDomains.split(","));
+      unexpectedHosts = observeUnexpectedHosts();
     } catch {
       unexpectedHosts = [];
     }
