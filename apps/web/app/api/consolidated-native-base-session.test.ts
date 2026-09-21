@@ -26,6 +26,8 @@ const previousProjectId = process.env.NEXT_PUBLIC_CDP_PROJECT_ID;
 process.env.HOME_SESSION_SECRET = SECRET;
 process.env.NEXT_PUBLIC_CDP_PROJECT_ID = "project-with-native-session";
 
+const actualCdpProvider = await import("@/server/cdp/provider");
+
 const CDP_SESSION: VerifiedAccountSession = {
   user: { subject: "cdp-route-test-user" },
   smartAccount: {
@@ -36,6 +38,7 @@ const CDP_SESSION: VerifiedAccountSession = {
 };
 
 mock.module("@/server/cdp/provider", () => ({
+  ...actualCdpProvider,
   getCdpAccessTokenValidator: async () => ({
     validateAccessToken: async () => ({
       userId: CDP_SESSION.user.subject,
