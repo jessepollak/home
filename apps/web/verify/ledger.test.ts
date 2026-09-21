@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { appendLedger, armAuthorityError, armCommentId, armEvent, armReplayError, readLedger, spendForDay, spendForRun, surfaceArmState, withLedgerLock, type ArmComment, type LedgerDisarm, type LedgerEntry, type LedgerRun } from "./ledger";
@@ -56,8 +55,8 @@ describe("verification ledger", () => {
     temporaryDirectories.push(directory);
     const path = resolve(directory, "ledger.jsonl");
     const lockPath = `${path}.lock`;
-    await mkdir(lockPath, { mode: 0o700 });
-    await writeFile(resolve(lockPath, "owner.json"), JSON.stringify({ pid: 999999, timestamp: Date.now() - 11 * 60 * 1000 }));
+    Bun.spawnSync(["mkdir", "-p", lockPath]);
+    await Bun.write(resolve(lockPath, "owner.json"), JSON.stringify({ pid: 999999, timestamp: Date.now() - 11 * 60 * 1000 }));
     const notices: string[] = [];
     const originalError = console.error;
     console.error = (...values: unknown[]) => {
@@ -77,12 +76,12 @@ describe("verification ledger", () => {
     temporaryDirectories.push(directory);
     const path = resolve(directory, "ledger.jsonl");
     const lockPath = `${path}.lock`;
-    await mkdir(lockPath, { mode: 0o700 });
-    await writeFile(resolve(lockPath, "owner.json"), JSON.stringify({ pid: process.pid, timestamp: Date.now() - 11 * 60 * 1000 }));
+    Bun.spawnSync(["mkdir", "-p", lockPath]);
+    await Bun.write(resolve(lockPath, "owner.json"), JSON.stringify({ pid: process.pid, timestamp: Date.now() - 11 * 60 * 1000 }));
     await expect(withLedgerLock(path, async () => undefined)).rejects.toThrow(`rm -rf ${lockPath}`);
-    await writeFile(resolve(lockPath, "owner.json"), JSON.stringify({ pid: 999999, timestamp: Date.now() }));
+    await Bun.write(resolve(lockPath, "owner.json"), JSON.stringify({ pid: 999999, timestamp: Date.now() }));
     await expect(withLedgerLock(path, async () => undefined)).rejects.toThrow("reserving spend");
-    await rm(lockPath, { recursive: true, force: true });
+    Bun.spawnSync(["rm", "-rf", lockPath]);
   });
 
   test("arms after three clean rung 2 runs on current main only", () => {

@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
+import { readLedger } from "./ledger";
 import { decideConfirmGate, unexpectedNetworkHosts } from "./live";
 
 const repositoryRoot = resolve(import.meta.dir, "../../..");
@@ -123,8 +124,8 @@ describe("live CLI re-arm", () => {
     const homePath = await armHome();
     const first = runArm(homePath);
     expect(first.exitCode).toBe(0);
-    const lines = (await Bun.file(resolve(homePath, ".home-verify", "ledger.jsonl")).text()).trim().split("\n");
-    expect(JSON.parse(lines.at(-1) ?? "{}")).toMatchObject({ type: "arm", commentId: "123", createdAt: "2026-09-23T00:00:00.000Z" });
+    const entries = await readLedger(resolve(homePath, ".home-verify", "ledger.jsonl"));
+    expect(entries.at(-1)).toMatchObject({ type: "arm", commentId: "123", createdAt: "2026-09-23T00:00:00.000Z" });
     const replay = runArm(homePath);
     expect(replay.exitCode).toBe(2);
     expect(replay.stderr).toContain("already re-armed");
