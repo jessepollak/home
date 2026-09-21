@@ -3,6 +3,28 @@ import type { LiveAccess } from "./map";
 
 export const confirmLabelPattern = /confirm|approve|sign|submit|pay|deposit|withdraw|send now|cash out/i;
 export const accountPattern = /^0x[0-9a-fA-F]{40}$/;
+export const liveProviderOrigins = [
+  "https://api.cdp.coinbase.com",
+  "https://secure-wallet.cdp.coinbase.com",
+] as const;
+
+const bareHostnamePattern = /^(?=.{1,253}$)(?:localhost|(?:(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)\.)*(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?))$/;
+
+export function composeAllowedDomains(
+  baseUrl: URL,
+  additionalDomains: string[],
+  fixtureMode: boolean,
+): string[] {
+  const normalizedAdditional = additionalDomains.map((domain) => {
+    if (!bareHostnamePattern.test(domain)) {
+      throw new Error(`--allow-domain must be a bare hostname, received “${domain}”.`);
+    }
+    return domain.toLowerCase();
+  });
+  const providerDomains = liveProviderOrigins.map((origin) => new URL(origin).hostname);
+  const fixtureDomains = fixtureMode ? ["localhost", "127.0.0.1"] : [];
+  return [...new Set([baseUrl.hostname.toLowerCase(), ...providerDomains, ...normalizedAdditional, ...fixtureDomains])];
+}
 
 export type ConfirmGateDecision =
   | { action: "run" }

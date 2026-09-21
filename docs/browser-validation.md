@@ -187,6 +187,8 @@ Start with `bun run --cwd apps/web verify live-login --base-url <deployed-url>`.
 
 Run read-only or review-bounded evidence with `verify <surface> --live --base-url <url> --out <outside-repo-dir>`. The feature map's `Live` field controls the boundary: `read-only` and a missing field stop before money-labelled clicks; `up-to-review` never confirms; only `confirm` can cross the confirm gate. A confirm run additionally requires `--allow-confirm`, `--account <pinned-address>`, and an explicit positive `--max-usd <n>`. Before clicking, the verifier reads the review amount from rendered DOM text and refuses an unparseable amount or one above the cap.
 
+The browser allowlist always contains the deployment host and the provider origins exported as `liveProviderOrigins`; fixture mode additionally permits `localhost` and `127.0.0.1`. Repeat `--allow-domain <host>` to add an environment-specific bare hostname. URL, port, path, and whitespace values are rejected.
+
 Live evidence uses the normal surface bundle plus `live.json`, containing the base host, surface, pinned address, executed steps, whether a confirm occurred, parsed USD amount, and any transaction hash or action id visible in the success UI. `--out` must be outside the repository. State never enters the repository, and neither state nor evidence contains the deployment password, OTP, cookies, network response bodies, or other secrets.
 
 Operator sequence:

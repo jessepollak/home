@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test";
 import {
   accountPinError,
   automationEnvironmentError,
+  composeAllowedDomains,
   decideConfirmGate,
   enforceAmountCap,
+  liveProviderOrigins,
   outputInsideRepository,
   parseUsdAmount,
 } from "./live";
@@ -48,6 +50,34 @@ describe("live amount cap", () => {
     expect(enforceAmountCap(1, 0)).toContain("positive number");
     expect(enforceAmountCap(10.01, 10)).toContain("exceeds");
     expect(enforceAmountCap(10, 10)).toBeNull();
+  });
+});
+
+describe("live browser allowlist", () => {
+  test("combines the base host, provider origins, repeated overrides, and fixture loopbacks", () => {
+    expect(liveProviderOrigins).toEqual([
+      "https://api.cdp.coinbase.com",
+      "https://secure-wallet.cdp.coinbase.com",
+    ]);
+    expect(composeAllowedDomains(
+      new URL("https://preview.example.com"),
+      ["extra.example.com", "EXTRA.example.com"],
+      true,
+    )).toEqual([
+      "preview.example.com",
+      "api.cdp.coinbase.com",
+      "secure-wallet.cdp.coinbase.com",
+      "extra.example.com",
+      "localhost",
+      "127.0.0.1",
+    ]);
+    expect(composeAllowedDomains(new URL("https://preview.example.com"), [], false)).not.toContain("localhost");
+  });
+
+  test("rejects allow-domain values that are not bare hostnames", () => {
+    for (const value of ["https://extra.example.com", "extra.example.com:443", "extra.example.com/path", "two hosts"]) {
+      expect(() => composeAllowedDomains(new URL("https://preview.example.com"), [value], false)).toThrow("bare hostname");
+    }
   });
 });
 

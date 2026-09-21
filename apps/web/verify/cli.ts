@@ -1,13 +1,13 @@
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { contentSecurityPolicy } from "../next.config";
 import { finalizeEvidence, summarizeEvidence, type MarkResult } from "./evidence";
 import { fixtureRoutes, requiresSignedInFixture } from "./fixtures";
 import {
   accountPattern,
   accountPinError,
   automationEnvironmentError,
+  composeAllowedDomains,
   confirmLabelPattern,
   decideConfirmGate,
   enforceAmountCap,
@@ -24,6 +24,9 @@ const option = (name: string) => {
   const index = args.indexOf(name);
   return index === -1 ? undefined : args[index + 1];
 };
+const options = (name: string) => args.flatMap((argument, index) =>
+  argument === name ? [args[index + 1] ?? ""] : []
+);
 const hasFlag = (name: string) => args.includes(name);
 
 if (args.includes("--list")) {
@@ -51,15 +54,21 @@ const hostKey = baseUrl.host.replaceAll(/[^a-zA-Z0-9._-]/g, "_");
 const stateDirectory = resolve(homedir(), ".home-verify", hostKey, "state");
 const statePath = resolve(stateDirectory, "browser-state.json");
 const pinPath = resolve(stateDirectory, "account");
-const providerHosts = [...contentSecurityPolicy.matchAll(/https:\/\/[^\s;]+/g)]
-  .map((match) => new URL(match[0]).hostname);
-const allowedDomains = [...new Set([baseUrl.hostname, ...providerHosts])].join(",");
+function resolveAllowedDomains(): string {
+  try {
+    return composeAllowedDomains(baseUrl, options("--allow-domain"), !live).join(",");
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : "Invalid --allow-domain value.");
+    process.exit(2);
+  }
+}
+const allowedDomains = resolveAllowedDomains();
 const sessionSurface = liveLogin ? "live-login" : args[0] ?? "unknown";
 const session = `home-verify-${sessionSurface}-${crypto.randomUUID().slice(0, 8)}`;
 const browserEnv: Record<string, string | undefined> = {
   ...process.env,
   AGENT_BROWSER_SESSION: session,
-  AGENT_BROWSER_ALLOWED_DOMAINS: live && !liveLogin ? undefined : allowedDomains,
+  AGENT_BROWSER_ALLOWED_DOMAINS: allowedDomains,
   AGENT_BROWSER_MAX_OUTPUT: "12000",
   AGENT_BROWSER_DEFAULT_TIMEOUT: liveLogin ? "600000" : "25000",
   AGENT_BROWSER_HEADED: liveLogin ? "true" : undefined,
@@ -212,9 +221,9 @@ if (liveLogin) await runLiveLogin();
 
 const surfaceId = args[0];
 if (!surfaceId || surfaceId.startsWith("-")) {
-  console.error("Usage: bun run verify <surface-id> [--base-url <url>] [--out <dir>] [--allow-console]");
-  console.error("       bun run verify live-login --base-url <url>");
-  console.error("       bun run verify <surface-id> --live --base-url <url> --out <dir> [--allow-confirm --account <0x…> --max-usd <n>]");
+  console.error("Usage: bun run verify <surface-id> [--base-url <url>] [--out <dir>] [--allow-console] [--allow-domain <host>]");
+  console.error("       bun run verify live-login --base-url <url> [--allow-domain <host>]");
+  console.error("       bun run verify <surface-id> --live --base-url <url> --out <dir> [--allow-domain <host>] [--allow-confirm --account <0x…> --max-usd <n>]");
   console.error("       bun run verify --list");
   process.exit(2);
 }
