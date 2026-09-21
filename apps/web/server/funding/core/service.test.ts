@@ -34,7 +34,7 @@ function customerSetup() {
           return { outcome: "created", providerUrl: "https://verify.example.com/session?bearer=secret" };
         },
         async getStatus() {
-          return { state: "pending" };
+          return "pending";
         },
       },
       async createOrder() { return { outcome: "ambiguous" }; },

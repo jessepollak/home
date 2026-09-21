@@ -198,7 +198,7 @@ export const peerOfframp: FundingOfframpProvider = {
   async listOrders(input, ctx) {
     return (await clients(ctx).cash.orders(input.owner, { inFlight: input.inFlight, limit: 100 }))
       .filter((order) => validDepositId(order.depositId, ctx))
-      .filter((order) => !(order.payouts?.length === 1 && order.payouts[0]?.payeeHash === "0x"))
+      .filter((order) => !(order.payouts?.length === 1 && ["", "0x"].includes(order.payouts[0]?.payeeHash ?? "")))
       .map((order) => mapOrder(order, input.owner, ctx));
   },
 

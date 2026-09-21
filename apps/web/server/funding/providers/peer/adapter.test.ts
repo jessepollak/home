@@ -19,7 +19,7 @@ import {
   getSpreadOracleConfig,
   resolvePaymentMethodHashFromCatalog,
 } from "@zkp2p/sdk";
-import { BASE_USDC_ADDRESS, CASH_ATTRIBUTION_CODE, buildIntentAmountRange, normalizeCashPayee } from "@zkp2p/cash";
+import { BASE_USDC_ADDRESS, CASH_ATTRIBUTION_CODE, buildIntentAmountRange, derivePayouts, normalizeCashPayee } from "@zkp2p/cash";
 import { canonicalizeCashPayee } from "@/shared/funding/cash-payee";
 import { createProviderContext } from "../../core/provider-context";
 import { peerProvider } from "./adapter";
@@ -150,6 +150,16 @@ describe("Peer funding provider", () => {
     await expect(peerProvider.offramp!.prepareWithdraw({ owner: OWNER, depositId: cashOrder().depositId }, ctx)).resolves.toMatchObject({ calls: [{ to: PEER_PRODUCTION_CONTRACTS.escrow }] });
   });
 
+  test("pins the SDK unavailable-payee representation", () => {
+    const catalog = getPaymentMethodsCatalog(8453, "production");
+    const paymentMethodHash = resolvePaymentMethodHashFromCatalog("cashapp", catalog);
+    expect(derivePayouts(
+      [{ paymentMethodHash, payeeDetailsHash: null }],
+      [],
+      catalog,
+    )).toMatchObject([{ payeeHash: "" }]);
+  });
+
   test("keeps Home's preview canonicalization in parity with the pinned SDK boundary", () => {
     for (const [platform, input] of [["cashapp", "  $$Alice "], ["zelle", " Alice@Example.COM "], ["monzo", " @Alice "]] as const) {
       const sdk = normalizeCashPayee(platform, input);
@@ -157,17 +167,18 @@ describe("Peer funding provider", () => {
     }
   });
 
-  test("excludes malformed payee rows while preserving valid Home history", async () => {
+  test("excludes only the pinned and historical unavailable-payee rows while preserving valid Home history", async () => {
     const valid = cashOrder();
-    const legacy = cashOrder("0x", `${PEER_PRODUCTION_CONTRACTS.escrow.toLowerCase()}_8`);
-    installFakeClients(PAYEE_HASH, [valid, legacy]);
+    const sdkLegacy = cashOrder("", `${PEER_PRODUCTION_CONTRACTS.escrow.toLowerCase()}_8`);
+    const historicalLegacy = cashOrder("0x", `${PEER_PRODUCTION_CONTRACTS.escrow.toLowerCase()}_9`);
+    installFakeClients(PAYEE_HASH, [valid, sdkLegacy, historicalLegacy]);
     await expect(peerProvider.offramp!.listOrders({ owner: OWNER, inFlight: true }, context())).resolves.toMatchObject([
       { depositId: valid.depositId, payeeHash: PAYEE_HASH },
     ]);
   });
 
   test("fails closed when a listed row has a malformed non-legacy payee hash", async () => {
-    installFakeClients("", [cashOrder("", `${PEER_PRODUCTION_CONTRACTS.escrow.toLowerCase()}_8`)]);
+    installFakeClients("invalid", [cashOrder("invalid", `${PEER_PRODUCTION_CONTRACTS.escrow.toLowerCase()}_8`)]);
     await expect(peerProvider.offramp!.listOrders({ owner: OWNER, inFlight: true }, context())).rejects.toBeInstanceOf(PeerOfframpSafetyError);
   });
 
