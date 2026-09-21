@@ -69,7 +69,7 @@ All factory code changes use an issue, an isolated branch/worktree, a normal pul
 5. **Rule-first recurring fixes.** A first occurrence is fixed without a new rule. When a `fix(...)` commit corrects an agent-produced pattern that has recurred (the second or later occurrence), the PR also ships a `home/*` rule with its contract test, or links a `dx(lint)` issue explaining why the pattern is not lintable. This soft policy targets demonstrated recurrence: in the sampled 30-day fix corpus, lint caught 6.7%, bots 23.6%, human review 8.4%, and 52.8% had unknown provenance.
 6. **CI and preview.** Required CI must be green on the exact independently reviewed head. User-visible work also needs the current Vercel preview and retained media in the PR description before handoff.
 7. **Operator actions.** PRs name exact non-secret post-merge environment, migration, provider-dashboard, or Vercel steps under **Operator action required**. Verify the affected path after Jesse confirms the action.
-8. **Git.** Append normal commits to the owned branch; never rewrite published history or force-update `main`.
+8. **Git.** Append normal commits to the owned branch; never rewrite published history or force-update `main`. Every scoped `fix(...)` commit carries exactly one provenance trailer: `Caught-by: lint`, `Caught-by: bot`, `Caught-by: review`, `Caught-by: browser`, or `Caught-by: production`. The trailer records the detector, not the repair author.
 9. **Communication.** Do not post routine progress receipts beyond the run-start comment. Comment for results, blockers, Jesse decisions, feedback replies, or handoff.
 
 ### Shared merge hotspots

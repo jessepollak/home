@@ -12,12 +12,16 @@ The full check suite also covers:
 - `bun check` (including Oxlint-only lint with warnings denied and unused suppressions reported)
 - Chromium product smoke
 - story tests (`bun run --cwd apps/web test:stories`)
-- `bun run gates` (the repository gate unit tests above; also run inside `bun check`)
+- `bun run gates` (the repository gate unit tests above, including commit provenance; also run inside `bun check`)
 - disposable PostgreSQL contracts for actions, funding, and balances
 
 ## Story-test boundary
 
 The **story tests** job runs every Storybook story in headless Chromium through `@storybook/addon-vitest` for every pull request and every push to `main`. It executes each story's `play` function — a failing `play` fails the job — and runs the a11y addon's audit. The audit reports findings rather than failing the job globally (`a11y.test: "todo"`) because owned components carry pre-existing violations that need a product decision; minimal workshop stories that are audit-clean opt into `a11y.test: "error"`. The job is not part of `bun check`, so run `bun run --cwd apps/web test:stories` directly for story or owned-component changes and stop a running `storybook dev` first (shared Storybook Vite cache).
+
+## Fix-commit provenance
+
+The repository gate checks commits after the pull request branch's merge-base with `main`; outside a pull request it checks `HEAD`. Every scoped `fix(...)` subject must include one of these trailers in its commit body: `Caught-by: lint`, `Caught-by: bot`, `Caught-by: review`, `Caught-by: browser`, or `Caught-by: production`. Earlier commits on `main` are grandfathered.
 
 ## Browser-smoke boundary
 
