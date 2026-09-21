@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
+import { resolve } from "node:path";
 import {
   accountAddressFromDocument,
   accountPinError,
@@ -216,15 +217,16 @@ describe("live run guards", () => {
     expect(outputInsideRepository("/tmp/home-verify", "/repo")).toBe(false);
   });
 
-  test("parses the text shape rendered by MoneyTicker", async () => {
-    await GlobalRegistrator.register();
-    const { render } = await import("@testing-library/react/pure");
-    const { createElement } = await import("react");
-    const { MoneyTicker } = await import("../components/money-ticker");
-    const view = render(createElement(MoneyTicker, { value: "$1.00", animated: false }));
-    const renderedText = view.container.innerText || view.container.textContent || "";
-    expect(renderedText).toContain("$1.00");
-    expect(parseUsdAmount(renderedText)).toBe(1);
-    view.unmount();
+  test("parses the text shape rendered by MoneyTicker", () => {
+    const result = Bun.spawnSync({
+      cmd: ["bun", "apps/web/verify/test-fixtures/money-ticker.ts"],
+      cwd: resolve(import.meta.dir, "../../.."),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(result.exitCode).toBe(0);
+    const rendered = JSON.parse(result.stdout.toString()) as { renderedText: string; parsedAmount: number | null };
+    expect(rendered.renderedText).toContain("$1.00");
+    expect(rendered.parsedAmount).toBe(1);
   });
 });
