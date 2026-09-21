@@ -54,7 +54,6 @@ export type ReadHolding = UniverseEntry & {
 
 export type BalancesRead = {
   block: { number: string; hash: `0x${string}`; timestamp: string };
-  /** When the registry read pinned `block`, not when an observation was stored. */
   observedAt: string;
   holdings: ReadHolding[];
   coverage: BalancesCoverage;

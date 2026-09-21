@@ -46,10 +46,6 @@ export type ActionRow = {
   handle_recorded_at: string | Date | null;
 };
 
-/**
- * Drivers disagree on jsonb: pg's Pool returns parsed objects, Bun.SQL returns
- * the JSON text. Normalize at the query boundary so the store is driver-agnostic.
- */
 function parseJsonColumn<T>(value: unknown): T | null {
   if (value == null) return null;
   if (typeof value === "string") return JSON.parse(value) as T;

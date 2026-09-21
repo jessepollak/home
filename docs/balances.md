@@ -209,6 +209,8 @@ Actions remain registry-only until a separate product decision extends Send.
 
 ## Constants
 
+`observedAt` is the timestamp of the registry read's pinned block, not the time the observation was stored. A holding value's `asOf` is the price source time; display valuation accepts the documented maximum age while trade and borrow enforce their own stricter limits. Snapshot totals are computed from registry rows; gated catalog rows can add displayed value but never change coverage status.
+
 | Constant | Value | Why |
 |---|---|---|
 | Client `staleTime` | 15 s | refetch on focus/mount past this; visible-tab interval ~30 s |

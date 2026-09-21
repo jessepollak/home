@@ -27,11 +27,6 @@ export type HoldingValueUnpricedReason =
   | "below-market-gate"
   | "no-quote-currency";
 
-/**
- * Value in the snapshot's `quoteCurrency`. `asOf` is the price source time; display
- * valuation accepts prices up to BALANCES_PRICE_MAX_AGE_MS old (older → "price-stale").
- * Trade and borrow authorization keep their own, stricter freshness rules.
- */
 export type HoldingValue =
   | { status: "priced"; currency: FiatCurrencyCode; amount: ExactDecimal; asOf: string }
   | { status: "unpriced"; reason: HoldingValueUnpricedReason }
@@ -66,7 +61,6 @@ export type BalancesCoverage = {
 };
 
 export type BalancesTotal = {
-  /** Computed from registry rows only; catalog rows add value when gated in and never move status. */
   status: "complete" | "partial" | "unavailable" | "no-quote-currency";
   value: ExactDecimal | null;
   currency: FiatCurrencyCode | null;

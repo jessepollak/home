@@ -400,9 +400,6 @@ export function HomeShell({
   );
   const previousNavigationRef = useRef(activeNavigation);
 
-  // This is the sole scope boundary for Balances scroll provenance. Preference
-  // hydration settles before the first baseline so a persisted region is not
-  // mistaken for an explicit region switch.
   useEffect(() => {
     if (isSignedOut) {
       if (signedOutBoundaryClearedRef.current) return;

@@ -909,7 +909,6 @@ function formatCurrencyDecimal(
       maximumFractionDigits: 0,
     }).formatToParts(BigInt(0));
   } catch {
-    // Provider-supplied codes (USDC, IDRX, wARS) are not ISO 4217: render as a suffix label.
     return joinAmountAndSymbol(localizedAmount, currency.trim().toUpperCase(), true);
   }
   const numericTypes = new Set<Intl.NumberFormatPartTypes>([

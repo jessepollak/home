@@ -93,7 +93,6 @@ export function createActionHandleResolver(
         try {
           response = await fetchImpl(rpcUrl, {
             method: "POST",
-            // Mirrors the identifying headers sent by @base-org/account 2.5.10.
             headers: {
               accept: "application/json",
               "content-type": "application/json",

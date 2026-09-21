@@ -6,6 +6,8 @@ An action is the onchain flow: Home prepares calldata, the user signs, Home trac
 
 ## Data model
 
+Database drivers expose `jsonb` differently: `pg` returns parsed objects while Bun SQL may return JSON text, so action metadata is normalized at the query boundary. JSON-RPC error envelopes may carry `id: null`; they remain RPC errors and retain their provider message.
+
 Neon Postgres stays. The full table inventory is in [architecture.md](architecture.md#data-model); this document owns `actions`. Native Base SIWE challenges are stateless: the signed HttpOnly challenge cookie carries the address, origin, message hash, nonce, issue time, and five-minute expiry, so authentication creates no database row.
 
 ```sql

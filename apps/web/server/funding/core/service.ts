@@ -639,9 +639,6 @@ function clientIpFromHeaders(headers: Headers | undefined): string | undefined {
   const candidate = forwarded || headers?.get("x-real-ip")?.trim();
   return candidate && /^[0-9a-f.:]{2,45}$/i.test(candidate) ? candidate : undefined;
 }
-// Providers that need the end user's public IP reject loopback and private
-// ranges. A local sandbox run has only those, so sandbox mode alone may
-// substitute FUNDING_SANDBOX_CLIENT_IP; production never reads it.
 export function resolveClientIp(headers: Headers | undefined, env: Environment, sandbox: boolean): string | undefined {
   const observed = clientIpFromHeaders(headers);
   if (!sandbox) return observed;

@@ -24,11 +24,6 @@ export function investViewFromLocation(location: Pick<ShellLocation, "shelf" | "
   return { screen: "hub" };
 }
 
-/**
- * Emits flat canonical Invest paths: /invest, /invest/<category>, or
- * /invest/<assetId>. The category context of an in-app detail view is local
- * state, not a path segment, so history carries one low-cardinality segment.
- */
 export function investHref(view: InvestView): string {
   if (view.screen === "category") {
     return shellHref({ panel: "invest", shelf: view.shelfId });

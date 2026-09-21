@@ -4,7 +4,6 @@ const canonicalIntegerPattern = /^(?:0|[1-9][0-9]*)$/;
 const decimalPattern = /^(\d+)(?:\.(\d*))?(?:e([+-]?\d+))?$/i;
 
 export const SAVINGS_RATE_FRESHNESS_MS = 5 * 60_000;
-/** Morpho's indexed vault state may legitimately trail our read by hours. */
 export const SAVINGS_STATE_MAX_AGE_MS = 24 * 60 * 60_000;
 const SAVINGS_RATE_MAX_FUTURE_SKEW_MS = 60_000;
 

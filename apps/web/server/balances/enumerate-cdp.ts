@@ -17,7 +17,6 @@ export const CDP_TOKEN_BALANCES_TIMEOUT_MS = 4_000;
 const UINT256_MAX = (BigInt(1) << BigInt(256)) - BigInt(1);
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const amountPattern = /^[0-9]+$/;
-/** CDP ListResponse example is standard base64, including `=` padding. */
 const pageTokenPattern = /^[A-Za-z0-9._~+/=-]{1,2048}$/;
 
 export type CdpTokenBalancesErrorCode =
