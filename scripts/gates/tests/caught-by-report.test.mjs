@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   collectReport,
+  maxReportCharacters,
   parseArguments,
   renderMarkdown,
   sinceArgument,
@@ -240,10 +241,41 @@ test("renders an empty corpus without rows or candidates", () => {
   assert.ok(markdown.includes("None in this range."));
 });
 
-function summarizeReport(total) {
+function summarizeReport(total, candidates = []) {
   const detectors = ["lint", "bot", "review", "browser", "production", "mixed", "unknown"].map((detector) => ({ detector, count: 0, share: 0 }));
-  return { range: null, since: "30.days", total, prePolicyTotal: 0, policyStart: null, detectors, scopes: [], candidates: [], fixes: [] };
+  return { range: null, since: "30.days", total, prePolicyTotal: 0, policyStart: null, detectors, scopes: [], candidates, fixes: [] };
 }
+
+test("caps candidate rows and files per candidate with an overflow note", () => {
+  const candidates = Array.from({ length: 55 }, (_, index) => ({
+    sha: String(index).padStart(40, "0"),
+    subject: `fix(balances): candidate ${index}`,
+    scope: "balances",
+    detector: "review",
+    prePolicy: false,
+    files: Array.from({ length: 13 }, (_, file) => `apps/web/balance-${file}.ts`),
+  }));
+  const markdown = renderMarkdown(summarizeReport(55, candidates));
+  const rows = markdown.split("\n").filter((line) => line.startsWith("- `"));
+  assert.equal(rows.length, 50);
+  assert.equal((rows[0].match(/`apps\/web\/balance-\d+\.ts`/g) ?? []).length, 10);
+  assert.ok(rows[0].includes(", … +3 more"), rows[0]);
+  assert.ok(markdown.includes("- … +5 more candidates"));
+});
+
+test("truncates an oversized report body at the character cap", () => {
+  const candidates = Array.from({ length: 50 }, (_, index) => ({
+    sha: String(index).padStart(40, "0"),
+    subject: `fix(balances): ${"pending state ".repeat(150)}`,
+    scope: "balances",
+    detector: "review",
+    prePolicy: false,
+    files: [],
+  }));
+  const markdown = renderMarkdown(summarizeReport(50, candidates));
+  assert.equal(markdown.length, maxReportCharacters);
+  assert.ok(markdown.endsWith("_Report truncated at 60,000 characters._"));
+});
 
 test("omits the policy line when the repository predates the trailer policy", () => {
   const report = collectReport({ cwd: repo });

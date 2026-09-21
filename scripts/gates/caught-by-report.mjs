@@ -18,6 +18,10 @@ export const detectorOrder = ["lint", "bot", "review", "browser", "production", 
 // review, bot, and production fixes are the rule-first triage queue.
 export const ruleCandidateDetectors = ["review", "bot", "production"];
 export const defaultSince = "30.days";
+export const maxReportCharacters = 60_000;
+const maxCandidateRows = 50;
+const maxCandidateFiles = 10;
+const truncationNotice = "\n\n_Report truncated at 60,000 characters._";
 
 function git(args, cwd = process.cwd()) {
   const result = spawnSync("git", args, { cwd, encoding: "utf8" });
@@ -140,6 +144,20 @@ function formatShare(share) {
   return `${(share * 100).toFixed(1)}%`;
 }
 
+function formatCandidateFiles(files) {
+  if (files.length === 0) return "_no files_";
+  const shown = files.slice(0, maxCandidateFiles).map((file) => `\`${file}\``);
+  if (files.length > maxCandidateFiles) shown.push(`… +${files.length - maxCandidateFiles} more`);
+  return shown.join(", ");
+}
+
+// The workflow posts this markdown as a GitHub comment, so the body stays
+// below the comment limit even for a very large candidate list.
+function boundReport(markdown) {
+  if (markdown.length <= maxReportCharacters) return markdown;
+  return `${markdown.slice(0, maxReportCharacters - truncationNotice.length)}${truncationNotice}`;
+}
+
 export function renderMarkdown(report) {
   const lines = ["# Caught-by report", "", `Fix commits: ${report.total}`];
   lines.push("", report.range ? `Range: \`${report.range}\`` : `Since: \`${report.since}\``);
@@ -168,14 +186,14 @@ export function renderMarkdown(report) {
   if (report.candidates.length === 0) {
     lines.push("None in this range.");
   } else {
-    for (const candidate of report.candidates) {
-      const files = candidate.files.length === 0
-        ? "_no files_"
-        : candidate.files.map((file) => `\`${file}\``).join(", ");
-      lines.push(`- \`${candidate.sha.slice(0, 12)}\` ${candidate.subject} — ${files}`);
+    for (const candidate of report.candidates.slice(0, maxCandidateRows)) {
+      lines.push(`- \`${candidate.sha.slice(0, 12)}\` ${candidate.subject} — ${formatCandidateFiles(candidate.files)}`);
+    }
+    if (report.candidates.length > maxCandidateRows) {
+      lines.push(`- … +${report.candidates.length - maxCandidateRows} more candidates`);
     }
   }
-  return lines.join("\n");
+  return boundReport(lines.join("\n"));
 }
 
 export function run(argv = process.argv.slice(2), { cwd = process.cwd(), stdout = process.stdout, stderr = process.stderr } = {}) {
