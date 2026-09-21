@@ -4,7 +4,7 @@ import { matchesConfirmLabel, parseFeatureMap, parseReachStep, readFeatureMap } 
 
 describe("feature map parser", () => {
   test("parses the supported Reach grammar, Live access, and budgets", () => {
-    const map = parseFeatureMap(`### \`sample\`\n- **Reach**:\n  1. \`goto "/home"\`\n  2. \`click "Send"\`\n  3. \`fill "To" "0x123"\`\n  4. \`press "Enter"\`\n  5. \`expect "Confirm"\`\n- **Reach (live)**:\n  1. \`goto "/home"\`\n  2. \`expect "Confirm"\`\n  3. \`click "Send $1.00"\`\n- **Live**: confirm\n- **Confirm labels**: "Send $<amount>", "Retry"\n- **Expect**: ready.\n- **Perf budgets (initial)**: \`shell:paint\` ≤ 1_500 ms.\n`);
+    const map = parseFeatureMap(`### \`sample\`\n- **Reach**:\n  1. \`goto "/home"\`\n  2. \`click "Send"\`\n  3. \`fill "To" "0x123"\`\n  4. \`press "Enter"\`\n  5. \`expect "Confirm"\`\n- **Reach (live)**:\n  1. \`goto "/home"\`\n  2. \`expect "Confirm"\`\n  3. \`click "Send $1.00"\`\n- **Live**: confirm\n- **Owned paths**: \`apps/web/client/sample/**\`, \`apps/web/server/sample.ts\`\n- **Confirm labels**: "Send $<amount>", "Retry"\n- **Expect**: ready.\n- **Perf budgets (initial)**: \`shell:paint\` ≤ 1_500 ms.\n`);
     expect(map.get("sample")).toEqual({
       id: "sample",
       reach: [
@@ -20,6 +20,7 @@ describe("feature map parser", () => {
         { kind: "click", label: "Send $1.00" },
       ],
       confirmLabels: ["Send $<amount>", "Retry"],
+      ownedPaths: ["apps/web/client/sample/**", "apps/web/server/sample.ts"],
       budgets: { "shell:paint": 1500 },
       manual: false,
       live: "confirm",
@@ -51,6 +52,7 @@ describe("feature map parser", () => {
       .map((surface) => surface.id);
 
     expect(missing).toEqual([]);
+    expect([...surfaces.values()].filter((surface) => surface.ownedPaths.length === 0)).toEqual([]);
     expect(surfaces.get("borrow")?.live).toBe("confirm");
     expect(surfaces.get("send")?.liveReach).toContainEqual({ kind: "fill", label: "To", value: "<recipient>" });
     expect(surfaces.get("save")?.liveReach?.at(-2)).toEqual({ kind: "expect", text: "Confirm" });

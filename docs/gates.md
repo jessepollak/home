@@ -18,7 +18,9 @@ The full check suite also covers:
 
 ## Surface verification boundary
 
-`bun run --cwd apps/web verify <surface-id>` is a local, fixture-backed evidence command over the repository [feature map](../.agents/skills/browser-iteration/feature-map.md). It captures screenshot and DOM text, browser errors and failed requests, performance marks/budgets, and long-task count into an evidence bundle whose `summary.md` is ready for PR evidence. It is not a CI gate, hosted-preview check, accessibility audit, or durable regression suite; Playwright remains the only committed automated browser regression layer. See [browser validation](browser-validation.md#surface-verify-cli) for setup, output, and cleanup.
+`bun run --cwd apps/web verify <surface-id>` is a local, fixture-backed evidence command over the repository [feature map](../.agents/skills/browser-iteration/feature-map.md). It captures screenshot and DOM text, browser errors and failed requests, performance marks/budgets, and long-task count into an evidence bundle whose `summary.md` is ready for PR evidence. It is not a durable regression suite; Playwright remains the only committed automated browser regression layer. See [browser validation](browser-validation.md#surface-verify-cli) for setup, output, and cleanup.
+
+Each surface declares machine-readable **Owned paths**. The `verification-evidence` CI step maps the pull-request diff to those paths and checks the PR's `## Verification` table for every affected surface, its required rung, an evidence pointer, and incidents. Read-only changes require Rung 1, money-client changes require Rung 2, and action/calldata/confirm-step changes on confirm surfaces require Rung 3. The step is soft (`continue-on-error`) while the map is calibrated. A follow-up PR makes it hard after three consecutive mapped pull requests report no false-positive surface or rung; until then, a failure is a required handoff finding but does not block CI.
 
 ## Story-test boundary
 

@@ -7,6 +7,14 @@
 - [ ] `bun check` / CI green
 - [ ] Smoke the changed surface (or N/A — say why)
 
+## Verification
+
+| surface | rung reached | evidence pointer | incidents |
+| --- | --- | --- | --- |
+| N/A | 0 | N/A | none |
+
+<!-- Add one row for every mapped surface touched by the PR. The verification-evidence check derives the required rung from the feature map's Owned paths. Link or name the retained verifier bundle; do not paste secrets or raw provider payloads. -->
+
 ## Real money
 
 <!-- For money-moving work, either summarize the bounded operator-authorized live check and link its safe evidence, or write exactly "Real money: not tested" and name the remaining uncertainty. Before a live check, state network, asset, maximum amount/loss, destination/control assumptions, expected balance changes, privacy handling, ambiguity/retry behavior, and stop/recovery conditions. Never include secrets, payment details, customer data, OTPs, recovery codes, or raw provider payloads. For other work write N/A. -->

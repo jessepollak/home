@@ -45,6 +45,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 
 ### `landing`
 - **Live**: read-only
+- **Owned paths**: `apps/web/app/page.tsx`, `apps/web/client/landing/**`, `apps/web/client/home/shell-chrome.tsx`
 - **Reach**:
   1. `goto "/"`
   2. `expect "One home for your money."`
@@ -58,6 +59,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 
 ### `sign-in`
 - **Live**: read-only
+- **Owned paths**: `apps/web/client/account/account-screen.tsx`, `apps/web/client/account/sign-in-*.tsx`, `apps/web/server/auth/**`
 - **Reach**:
   1. `goto "/?account=signin"`
   2. `expect "Sign in to Home"`
@@ -70,6 +72,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 
 ### `home-panel`
 - **Live**: read-only
+- **Owned paths**: `apps/web/app/home/**`, `apps/web/client/home/home-panel.tsx`, `apps/web/client/home/shell*.tsx`, `apps/web/server/balances/**`
 - **Reach**:
   1. `goto "/home"`
   2. `expect "Home"`
@@ -84,6 +87,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 
 ### `balances`
 - **Live**: read-only
+- **Owned paths**: `apps/web/app/balances/**`, `apps/web/client/home/balances-*.tsx`, `apps/web/client/balances/**`, `apps/web/server/balances/**`, `apps/web/app/api/balances/**`
 - **Reach**:
   1. `goto "/balances"`
   2. `expect "Your money"`
@@ -98,6 +102,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 
 ### `activity`
 - **Live**: read-only
+- **Owned paths**: `apps/web/app/activity/**`, `apps/web/client/activity/**`, `apps/web/client/home/activity-panel.tsx`, `apps/web/app/api/activity/**`
 - **Reach**:
   1. `goto "/activity"`
   2. `expect "Activity"`
@@ -110,6 +115,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 
 ### `save`
 - **Live**: confirm
+- **Owned paths**: `apps/web/app/save/**`, `apps/web/client/savings/**`, `apps/web/shared/savings/**`, `apps/web/app/api/savings/**`, `apps/web/server/actions/**`, `apps/web/server/money-actions/**`
 - **Confirm labels**: "Deposit $<amount>", "Withdraw $<amount>", "Retry"
 - **Reach**:
   1. `goto "/save?flow=save-deposit"`
@@ -130,6 +136,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 
 ### `borrow`
 - **Live**: confirm
+- **Owned paths**: `apps/web/app/borrow/**`, `apps/web/client/borrowing/**`, `apps/web/app/api/borrow/**`, `apps/web/server/borrow/**`, `apps/web/server/actions/**`, `apps/web/server/money-actions/**`
 - **Confirm labels**: "Confirm action", "Retry"
 - **Reach**: Seed the signed-in state and borrow fixtures, go to `/borrow` or `/borrow/<marketId>`, then choose a `data-testid="borrow-market-card"` inside the `Borrow markets` list.
 - **Reach (live)**:
@@ -149,6 +156,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 
 ### `invest`
 - **Live**: read-only
+- **Owned paths**: `apps/web/app/invest/**`, `apps/web/client/invest/**`, `apps/web/client/trading/**`, `apps/web/app/api/invest/**`, `apps/web/app/api/market-prices/**`
 - **Reach**:
   1. `goto "/invest"`
   2. `expect "Invest"`
@@ -161,6 +169,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 
 ### `send` (money modal — steps individually)
 - **Live**: confirm
+- **Owned paths**: `apps/web/client/transfers/send-dialog.tsx`, `apps/web/client/money-modal/**`, `apps/web/app/api/actions/**`, `apps/web/server/actions/**`, `apps/web/server/money-actions/**`
 - **Confirm labels**: "Send $<amount>"
 - **Reach** (smoke-verified):
   1. Seed the signed-in fixture and install API fixtures.
@@ -194,6 +203,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 
 ### `cash-out` (Peer offramp inner steps)
 - **Live**: up-to-review
+- **Owned paths**: `apps/web/client/transfers/send-dialog.tsx`, `apps/web/app/api/funding/offramp/**`, `apps/web/server/funding/offramp/**`
 - **Confirm labels**: "Cash out $<amount>", "Withdraw $<amount>"
 - **Reach** (smoke-verified, `openPeerCashOutHandle`, smoke.pw.ts): 1) seed + `installApiFixtures`. 2) `Send` → digits `1` → `Continue`. 3) click `/Send to Zelle, Venmo, Cash App and more/` (CashoutItem, send-dialog.tsx). 4) click `Cash App` (payment-method button, payout step). 5) textbox `Cash App handle` (label `${selectedPlatform.label} handle`); attributes asserted: `autocomplete="off"`, `autocapitalize="none"`, `autocorrect="off"`, `spellcheck="false"`, `enterkeyhint="next"`, 16px font, ≥44px target. 6) `Continue` → textbox `Re-enter handle` (`enterkeyhint="done"`). 7) `Review` → confirm step.
 - **Reach (live)**:
@@ -217,6 +227,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 
 ### `add-money` (funding)
 - **Live**: up-to-review
+- **Owned paths**: `apps/web/client/funding/**`, `apps/web/app/api/funding/**`, `apps/web/server/funding/**`, `apps/web/shared/funding/**`
 - **Confirm labels**: "Confirm deposit"
 - **Reach** (smoke-verified IDRX path): 1) seed country `ID` (`localStorage["home.country.v1"]="ID"`) + `installApiFixtures`. 2) `signIn(page)` helper. 3) click `Add money` (funding-actions.tsx). 4) method step button `/Deposit IDR/` must contain `IDRX · Bank transfer · Mandiri` (smoke.pw.ts). 5) type `20000` via numpad. 6) `Review quote` → heading `Review quote`, row `Receive` contains `20.000,00 IDRX`. 7) `Confirm deposit` → heading `Review payment details`, row `Network` contains `Rp 100,00`. 8) `View payment instructions` → `123456789012` visible; then `Money received` (≤7s budget, smoke.pw.ts).
 - **Reach (live)**:
@@ -237,6 +248,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 
 ### `account-settings`
 - **Live**: read-only
+- **Owned paths**: `apps/web/client/account/account-settings.tsx`, `apps/web/client/home/shell-panels.tsx`, `apps/web/client/home/use-show-small-balances.ts`
 - **Reach**:
   1. `goto "/home?account=settings"`
   2. `expect "Account"`
@@ -249,6 +261,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 
 ### `access-gate`
 - **Live**: read-only
+- **Owned paths**: `apps/web/app/access/**`, `apps/web/app/api/access/**`, `apps/web/server/access/**`
 - **Reach** (smoke-verified): 1) clear cookies; goto `/home` (protected) → redirect `/access?next=%2Fhome`. 2) fill textbox `Access password`; wrong value → `Access denied. Try again.`; cookie `home-access` absent. 3) correct `HOME_ACCESS_PASSWORD` → `Continue` posts `/api/access`, then URL `/home` or `/?account=signin`. 4) heading `Access granted` on revisit; `Leave this deployment` posts `/api/access/logout` (no-JS form also asserted).
 - **Verify**: manual
 - **Expect**: headings `Enter access password` / `Access granted`; `Continue to Home` link; CSP header `frame-ancestors 'none'` on the protected response (tests/browser/access.pw.ts); hydrated form marker `form[data-hydrated="true"]`.
@@ -259,6 +272,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 
 ### `coverage`
 - **Live**: read-only
+- **Owned paths**: `apps/web/app/coverage/**`, `apps/web/client/coverage/**`, `apps/web/config/coverage.ts`, `apps/web/components/ui/coverage-table.tsx`
 - **Reach**:
   1. `goto "/coverage"`
   2. `expect "Local money coverage"`
@@ -271,6 +285,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 
 ### `dev-ui`
 - **Live**: read-only
+- **Owned paths**: `apps/web/app/dev/ui/**`, `apps/web/components/ui/**`
 - **Reach**: Run with `HOME_PLAYWRIGHT_SMOKE=1` or in development, go to `/dev/ui`, and otherwise expect `notFound()` (404).
 - **Verify**: manual
 - **Expect**: `Home UI theme` heading; swatch grid; `Stock type scale` card; `Buttons` section with `Primary`/`Outline`/`Destructive` (app/dev/ui/page.tsx).
@@ -281,6 +296,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 
 ### `toasts`
 - **Live**: read-only
+- **Owned paths**: `apps/web/client/home/action-toasts.tsx`, `apps/web/server/actions/**`, `apps/web/app/api/actions/**`
 - **Reach**: Complete a prepared action (smoke: send success) and observe the toast region.
 - **Verify**: manual
 - **Expect**: exact success copy e.g. `Sent $1.00 to 0x2222…222222` (smoke.pw.ts); renders only when `routeMode === "dashboard" && isVerified` (shell.tsx).

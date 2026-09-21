@@ -14,6 +14,7 @@ export type Surface = {
   reach: ReachStep[];
   liveReach?: ReachStep[];
   confirmLabels: string[];
+  ownedPaths: string[];
   budgets: Record<string, number>;
   manual: boolean;
   live?: LiveAccess;
@@ -38,13 +39,15 @@ export function parseFeatureMap(markdown: string): Map<string, Surface> {
     const liveReach = parsedLiveReach.length > 0 ? parsedLiveReach : undefined;
     const confirmText = body.match(/^- \*\*Confirm labels\*\*:\s*(.*)$/m)?.[1] ?? "";
     const confirmLabels = [...confirmText.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+    const ownedText = body.match(/^- \*\*Owned paths\*\*:\s*(.*)$/m)?.[1] ?? "";
+    const ownedPaths = [...ownedText.matchAll(/`([^`]+)`/g)].map((match) => match[1]);
     const budgets: Record<string, number> = {};
     for (const match of body.matchAll(/`([a-z][a-z:-]+)`\s*(?:≤|<=)\s*([\d_]+)\s*ms/g)) {
       budgets[match[1]] = Number(match[2].replaceAll("_", ""));
     }
     const manual = /^- \*\*Verify\*\*:\s*manual\s*$/m.test(body);
     const live = body.match(/^- \*\*Live\*\*:\s*(read-only|up-to-review|confirm)\s*$/m)?.[1] as LiveAccess | undefined;
-    surfaces.set(id, { id, reach, ...(liveReach ? { liveReach } : {}), confirmLabels, budgets, manual, live });
+    surfaces.set(id, { id, reach, ...(liveReach ? { liveReach } : {}), confirmLabels, ownedPaths, budgets, manual, live });
   }
   return surfaces;
 }
