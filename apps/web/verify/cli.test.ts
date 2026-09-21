@@ -166,6 +166,27 @@ describe("live CLI preflight", () => {
     expect(result.stderr).toContain("zero address");
   });
 
+  test("refuses --allow-console together with --allow-confirm", () => {
+    const result = run([
+      "send",
+      "--live",
+      "--base-url",
+      "https://example.com",
+      "--out",
+      outsideOutput,
+      "--recipient",
+      addressA,
+      "--allow-console",
+      "--allow-confirm",
+      "--account",
+      addressA,
+      "--max-usd",
+      "1",
+    ]);
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("--allow-console cannot be combined with --allow-confirm");
+  });
+
   test("refuses a missing max-usd before browser launch", () => {
     const result = run(["send", "--live", "--base-url", "https://example.com", "--out", outsideOutput, "--recipient", addressB, "--allow-confirm", "--account", addressA]);
     expect(result.exitCode).toBe(2);

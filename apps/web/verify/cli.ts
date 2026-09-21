@@ -348,6 +348,10 @@ if (!surfaceId || surfaceId.startsWith("-")) {
 const outputRoot = resolve(option("--out") ?? ".verify");
 const allowConsole = hasFlag("--allow-console");
 const allowConfirm = hasFlag("--allow-confirm");
+if (allowConsole && allowConfirm) {
+  console.error("--allow-console cannot be combined with --allow-confirm.");
+  process.exit(2);
+}
 const accountIntent = option("--account");
 const maxUsdValue = option("--max-usd");
 const requestedMaxUsd = maxUsdValue === undefined ? null : Number(maxUsdValue);
