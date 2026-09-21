@@ -1,10 +1,10 @@
 import { resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { parseFeatureMap, parseReachStep, readFeatureMap } from "./map";
+import { matchesConfirmLabel, parseFeatureMap, parseReachStep, readFeatureMap } from "./map";
 
 describe("feature map parser", () => {
   test("parses the supported Reach grammar, Live access, and budgets", () => {
-    const map = parseFeatureMap(`### \`sample\`\n- **Reach**:\n  1. \`goto "/home"\`\n  2. \`click "Send"\`\n  3. \`fill "To" "0x123"\`\n  4. \`press "Enter"\`\n  5. \`expect "Confirm"\`\n- **Live**: confirm\n- **Expect**: ready.\n- **Perf budgets (initial)**: \`shell:paint\` ≤ 1_500 ms.\n`);
+    const map = parseFeatureMap(`### \`sample\`\n- **Reach**:\n  1. \`goto "/home"\`\n  2. \`click "Send"\`\n  3. \`fill "To" "0x123"\`\n  4. \`press "Enter"\`\n  5. \`expect "Confirm"\`\n- **Live**: confirm\n- **Confirm labels**: "Send $<amount>", "Retry"\n- **Expect**: ready.\n- **Perf budgets (initial)**: \`shell:paint\` ≤ 1_500 ms.\n`);
     expect(map.get("sample")).toEqual({
       id: "sample",
       reach: [
@@ -14,10 +14,20 @@ describe("feature map parser", () => {
         { kind: "press", key: "Enter" },
         { kind: "expect", text: "Confirm" },
       ],
+      confirmLabels: ["Send $<amount>", "Retry"],
       budgets: { "shell:paint": 1500 },
       manual: false,
       live: "confirm",
     });
+  });
+
+  test("matches exact confirm labels with an amount placeholder", () => {
+    const labels = ["Send $<amount>", "Retry"];
+    expect(matchesConfirmLabel(labels, "Send $1.00")).toBe(true);
+    expect(matchesConfirmLabel(labels, "Send $1,234.50")).toBe(true);
+    expect(matchesConfirmLabel(labels, "Retry")).toBe(true);
+    expect(matchesConfirmLabel(labels, "Send now")).toBe(false);
+    expect(matchesConfirmLabel(labels, "Retry action")).toBe(false);
   });
 
   test("ignores prose, unsupported commands, and invalid Live values", () => {
