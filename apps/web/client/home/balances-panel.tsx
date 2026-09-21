@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import {
   Item,
   ItemActions,
@@ -12,10 +11,6 @@ import {
   ItemTitle,
 } from "@/components/ui/item";
 import { MoneyTicker } from "@/components/money-ticker";
-import { compactFinancialValue } from "@/components/compact-financial-value";
-import { CurrencyMark } from "@/components/currency-mark";
-import { BalanceRow } from "@/components/finance-rows";
-import { presentPortfolioAssetMark } from "@/client/asset-mark/presentation";
 import type { RegionId } from "@/config/regions";
 import {
   HOME_MONEY_GROUP_PREVIEW_COUNT,
@@ -23,6 +18,7 @@ import {
   type BalancesPresentation,
   type MoneyGroupPresentation,
 } from "@/shared/balances/present";
+import { BalancesEmpty, BalancesList, BalancesListFallback } from "./balances-list";
 import { ShimmerRows } from "./panel-shared";
 
 const BALANCES_BATCH_SIZE = 10;
@@ -186,21 +182,6 @@ export function HomeMoneyGroups({
   return <BalancesEmpty />;
 }
 
-export function HomeBalancesList({
-  rows,
-  isLoading,
-  isUnavailable = false,
-}: {
-  rows: readonly BalanceRowModel[];
-  isLoading: boolean;
-  isUnavailable?: boolean;
-}) {
-  if (rows.length > 0) {
-    return <BalancesList rows={rows} />;
-  }
-  return <BalancesListFallback isLoading={isLoading} isUnavailable={isUnavailable} />;
-}
-
 function IncrementalBalancesList({
   active,
   groups,
@@ -360,14 +341,6 @@ function LoadingMoneyGroup({ label }: { label: string }) {
   );
 }
 
-function BalancesList({ rows }: { rows: readonly BalanceRowModel[] }) {
-  return (
-    <ul className="list-none p-0" data-balance-list="">
-      {rows.map((row) => <HomeBalanceRowView key={row.key} row={row} />)}
-    </ul>
-  );
-}
-
 function SmallBalancesControl({
   hiddenCount,
   revealSmallBalances,
@@ -405,67 +378,3 @@ function SmallBalancesControl({
   );
 }
 
-function BalancesListFallback({
-  isLoading,
-  isUnavailable,
-}: {
-  isLoading: boolean;
-  isUnavailable: boolean;
-}) {
-  if (isLoading) return <ShimmerRows count={2} />;
-  if (isUnavailable) return null;
-  return <BalancesEmpty />;
-}
-
-function BalancesEmpty() {
-  return (
-    <Empty>
-      <EmptyHeader>
-        <EmptyTitle>No money yet</EmptyTitle>
-      </EmptyHeader>
-    </Empty>
-  );
-}
-
-export function HomeBalanceRowView({ row }: { row: BalanceRowModel }) {
-  const symbolMark = row.mark.kind === "symbol"
-    ? presentPortfolioAssetMark(
-        {
-          assetKey: row.key,
-          name: row.name,
-          symbol: row.mark.symbol,
-          currency: null,
-        },
-      )
-    : null;
-  const icon = row.mark.kind === "flag"
-    ? <CurrencyMark currency={row.mark.currency} size="sm" />
-    : row.mark.kind === "image"
-      ? <CurrencyMark src={row.mark.url} symbol={row.mark.fallbackSymbol} size="sm" />
-      : row.mark.kind === "eth"
-        ? <CurrencyMark symbol="ETH" size="sm" />
-        : (
-            <CurrencyMark
-              src={symbolMark?.imageUrl}
-              symbol={symbolMark?.symbol}
-              pending={symbolMark?.pending}
-              size="sm"
-            />
-          );
-  return (
-    <BalanceRow
-      icon={icon}
-      iconTone="mark"
-      label={row.name}
-      context={row.secondary ?? undefined}
-      value={
-        <MoneyTicker
-          value={compactFinancialValue(row.primary)}
-          aria-label={row.primary}
-          reserveDigits={false}
-        />
-      }
-      valueTone={row.tone}
-    />
-  );
-}

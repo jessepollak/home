@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import type { BalanceRowModel } from "@/shared/balances/present";
 import { Card, CardContent } from "@/components/ui/card";
-import { HomeBalanceRowView } from "./balances-panel";
+import { HomeBalanceRowView } from "./balances-list";
 import { ShimmerRows } from "./panel-shared";
 
 const normalRow = {

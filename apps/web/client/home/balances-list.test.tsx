@@ -13,7 +13,8 @@ import {
   presentBalances,
   type BalanceRowModel,
 } from "@/shared/balances/present";
-import { BalancesPage, HomeBalancesList } from "./balances-panel";
+import { BalancesPage } from "./balances-panel";
+import { HomeBalancesList } from "./balances-list";
 import { showSmallBalancesPreferenceKey } from "./use-show-small-balances";
 
 const CBBTC_KEY = assetKeyForErc20("0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf");
