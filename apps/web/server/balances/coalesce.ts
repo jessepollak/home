@@ -238,7 +238,7 @@ export function createBalancesService(dependencies: Dependencies = {}) {
     ]);
     const resolved = await timeStage(nowMs, durationMs, "resolve", () =>
       resolveBalances(registryRead, enumeration));
-    const resumed = row && (row.enumerationCursor || enumeration.status === "unavailable")
+    const resumed = row && (row.enumerationCursor || enumeration.status !== "complete")
       ? mergeResumedHoldings(resolved, row, enumeration)
       : resolved;
     return {
@@ -361,7 +361,8 @@ function mergeResumedHoldings(
       .map((holding) => [holding.key, holding]),
   );
   for (const holding of resolved.holdings) {
-    if (holding.source !== "registry") holdings.set(holding.key, holding);
+    if (holding.source === "registry") holdings.delete(holding.key);
+    else holdings.set(holding.key, holding);
   }
   return {
     ...resolved,
@@ -371,7 +372,8 @@ function mergeResumedHoldings(
     ],
     coverage: {
       registry: resolved.coverage.registry,
-      catalog: enumeration.status === "unavailable"
+      catalog: enumeration.status === "unavailable" ||
+          (row.enumerationCursor !== null && row.coverage.catalog === "incomplete")
         ? row.coverage.catalog
         : resolved.coverage.catalog,
     },

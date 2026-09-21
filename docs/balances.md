@@ -34,7 +34,7 @@ Status: **G1 CDP-first server, G2 deletion, G3 server observation, G3b productio
 
 The server has two bounded inputs with different freshness and authority:
 
-1. **Enumerate per owner.** CDP Token Balances scans up to 32 pages at the documented maximum of 100 rows per page (3,200 rows). It returns lowercase ERC-20 contract addresses, decimal-integer-string amounts, and optional trimmed `name`, `symbol`, and `decimals`. The native `0xeeee…` sentinel is excluded because ETH is read from the registry path. One in-flight scan is shared per owner and detached from route caller aborts. It starts pages inside a 2.5 s soft budget, lets a healthy in-flight page finish, and enforces a 4 s hard ceiling per page including retries. Stopping after one or more pages preserves those rows, marks the scan incomplete, and stores the next page cursor so a stale signal or 120 s backstop resumes instead of restarting.
+1. **Enumerate per owner.** CDP Token Balances scans up to 32 pages at the documented maximum of 100 rows per page (3,200 rows). It returns lowercase ERC-20 contract addresses, decimal-integer-string amounts, and optional trimmed `name`, `symbol`, and `decimals`. The native `0xeeee…` sentinel is excluded because ETH is read from the registry path. One in-flight scan is shared per owner and detached from route caller aborts. It starts pages inside a 2.5 s soft budget, lets a healthy in-flight page finish, and enforces a 4 s hard ceiling per page including retries. Stopping after one or more pages preserves those rows, marks the scan incomplete, and stores the next page cursor so a stale signal or 120 s backstop resumes instead of restarting. A bounded scan that began at page one also preserves stored holdings from pages it did not reach; only a complete scan replaces stored non-registry holdings.
 2. **Read the registry.** `server/balances/universe.ts` contains only configured direct assets and vault shares from `config/portfolio-assets.ts`. Registry ordering stays cash → native → other direct assets → vaults. It never expands to the Codex catalog and never performs a 512-contract `decimals()` verification.
 
 CDP supplies display-grade quantities only for positive non-registry rows. Registry quantities, including ETH and vault shares, always come from the pinned Base read. This deliberately gives action-relevant assets a coherent block while allowing Home to show tokens discovered by the wallet index.
@@ -71,7 +71,7 @@ The Codex catalog reader remains the three-page, 512-entry, 60 s shared cache. I
 - A Codex price is usable for display valuation when its `asOf` is within `BALANCES_PRICE_MAX_AGE_MS` (24 h); older → `price-stale`. Fresh quotes are stored once per asset in `price_observations`, and a cold instance or failed Codex batch may reuse the newest stored quote inside that bound. Trade/borrow authorization keep the 5-minute market-prices rule (decision 7).
 - Codex-enriched `wallet` rows share the catalog 25-token price batches and market gate; unknown quantity-only rows return `value: { status: "unpriced", reason: "below-market-gate" }` and never enter the total.
 - ETH and FX continue to use Coinbase exchange rates. Cash rows still get `cashValue` in their own denomination.
-- `total.status` is determined from registry rows only. Gated-in catalog values add to the amount without changing status.
+- `total.status` is `complete` only when registry and inventory coverage are complete and every known positive registry, catalog, or wallet holding is priced. Any missing inventory coverage or positive unpriced holding makes a nonzero known total `partial`; when no positive priced contribution exists the total is `unavailable`, not a misleading zero. Every priced holding contributes exactly once.
 
 All amount and valuation math remains bigint / exact-decimal based; no amount crosses through JavaScript `Number`.
 
@@ -85,9 +85,9 @@ Coverage now means:
 |---|---|---|
 | `coverage.registry` | `complete` | Every configured registry quantity was read successfully. |
 | `coverage.registry` | `partial` | At least one registry quantity is unavailable. |
-| `coverage.catalog` | `complete` | The CDP scan completed, the Codex catalog cache is complete, and no enumerated catalog row was skipped for a decimals disagreement. |
-| `coverage.catalog` | `incomplete` | The scan hit its page or soft page-start bound, Codex returned a partial catalog, or a CDP/Codex decimals disagreement caused a skip. |
-| `coverage.catalog` | `unavailable` | CDP enumeration was unavailable; the response is a full registry-only snapshot. |
+| `coverage.catalog` | `complete` | A page-one CDP scan completed, the Codex catalog cache is complete, and no enumerated positive non-registry row was skipped for unusable metadata or a CDP/Codex decimals disagreement. Enumerated registry contracts and duplicate rows are intentionally ignored and do not reduce coverage. |
+| `coverage.catalog` | `incomplete` | The scan hit its page or soft page-start bound, Codex returned a partial catalog, or a positive non-registry row was skipped for unusable metadata or a CDP/Codex decimals disagreement. Completing a stored-cursor resume preserves an earlier `incomplete` result until a later complete page-one scan verifies the whole inventory. |
+| `coverage.catalog` | `unavailable` | CDP enumeration was unavailable; only registry inventory is known. This incomplete inventory cannot produce a `complete` total; it yields `partial` when a positive priced contribution is known and `unavailable` otherwise. |
 
 CDP unavailability never turns `/api/balances` into a 502. A registry read failure retains the existing fail-closed registry row semantics and can still cause the route-level read failure behavior when the pinned pass itself cannot complete.
 
@@ -165,7 +165,7 @@ create table balance_snapshots (
 Rules:
 
 - **Scope.** The row is keyed by address because that is what the chain and the webhook know; the verified session decides which address a request may read (unchanged verified-scope rule). Two providers on one address share one observation.
-- **Writers touch only their columns.** An observation write is a conditional upsert on `block_number` (a newer block never loses to an older one) that writes the observation columns only. Signal writers (`/confirm`, `/handle`, the webhook, a funding receipt) touch only `stale_at` or `hot_until`. A signal before the first observation intentionally no-ops: the first read is fresh by definition, and placeholder rows are forbidden.
+- **Writers touch only their columns.** An observation write is a conditional upsert ordered by `block_number`, then `observed_at` for the same block (a newer observation never loses to an older response), and writes the observation columns only. Signal writers (`/confirm`, `/handle`, the webhook, a funding receipt) touch only `stale_at` or `hot_until`. A signal before the first observation intentionally no-ops: the first read is fresh by definition, and placeholder rows are forbidden.
 - **When a read re-observes.** An existing stale, expired, or degraded row is served immediately while a per-owner deduped full observation runs through the route's `after()` scheduler. A fresh row with an enumeration cursor is also served immediately while enumeration resumes, without being marked stale. `hot_until > now()` remains synchronous registry-only because a person is waiting for a post-action balance to move; when hot and stale overlap, that registry refresh is returned and a full observation is also scheduled. A missing row still requires a synchronous full observation. `hot_until` is set by `POST /api/actions/:id/confirm` and `/handle` to `now() + 60 s`; `stale_at` by the CDP webhook and by a funding order reaching `received`; the backstop is 120 s.
 - **Serving as observed.** `observed_at` is the last full observation's pin time; registry-only refreshes update registry rows and coverage without moving it. `fetchedAt` on the wire is `observed_at`, never the response time. `stale: true` means a required re-observe is pending or failed and is not included in this response; the presenter shows the observation age. Never fresh, never zero.
 - **Stale maxima.** Send and Save take their maxima from the snapshot even when stale; the flow shows the observation age beside the max; the server's pinned read at `prepare` remains the authority (§Boundary).
@@ -211,7 +211,7 @@ Actions remain registry-only until a separate product decision extends Send.
 
 ### Provenance and valuation
 
-`observedAt` is the timestamp of the registry read's pinned block, not the time the observation was stored. A holding value's `asOf` is the price source time; display valuation accepts the documented maximum age while trade and borrow enforce their own stricter limits. Snapshot totals are computed from registry rows; gated catalog rows can add displayed value but never change coverage status.
+`observedAt` is the timestamp of the registry read's pinned block, not the time the observation was stored. A holding value's `asOf` is the price source time; display valuation accepts the documented maximum age while trade and borrow enforce their own stricter limits. Snapshot totals include every priced registry, catalog, and wallet holding exactly once and are `complete` only with complete registry and inventory coverage; missing coverage leaves a nonzero known sum `partial`, never a silently smaller complete total.
 
 ### Runtime bounds
 

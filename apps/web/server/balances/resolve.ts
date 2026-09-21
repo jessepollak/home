@@ -171,6 +171,7 @@ export function createBalancesResolver(dependencies: Dependencies = {}) {
         !isBoundedText(row.symbol) ||
         !isDecimals(row.decimals)
       ) {
+        incomplete = true;
         continue;
       }
       discovered.push({
