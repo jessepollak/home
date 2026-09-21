@@ -56,9 +56,10 @@ function findExecutable(
 const executablePath = cachedChromiumExecutable();
 
 const playwrightCredentialKey = ["HOME", "PLAYWRIGHT", "ACCESS", "CREDENTIAL"].join("_");
+const playwrightSigningSecretKey = ["HOME", "PLAYWRIGHT", "ACCESS", "SIGNING", "SECRET"].join("_");
 const playwrightCookieKey = ["HOME", "PLAYWRIGHT", "ACCESS", "COOKIE"].join("_");
 const accessCredential = process.env[playwrightCredentialKey] ?? randomBytes(32).toString("base64url");
-const accessSigningSecret = randomBytes(32).toString("base64url");
+const accessSigningSecret = process.env[playwrightSigningSecretKey] ?? randomBytes(32).toString("base64url");
 const accessIssuedAt = new Date();
 const accessPayload = JSON.stringify({
   version: 1,
@@ -75,6 +76,7 @@ const accessInput = `v1.${accessEncoded}`;
 const accessToken = `${accessInput}.${createHmac("sha256", accessKey).update(accessInput).digest("base64url")}`;
 const accessCookie = `home-access=${accessToken}`;
 process.env[playwrightCredentialKey] = accessCredential;
+process.env[playwrightSigningSecretKey] = accessSigningSecret;
 process.env[playwrightCookieKey] = accessCookie;
 process.env.HOME_ACCESS_REQUIRED = "1";
 process.env["HOME_ACCESS_PASSWORD"] = accessCredential;

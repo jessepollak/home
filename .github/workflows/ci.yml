@@ -85,6 +85,8 @@ jobs:
       DISABLE_CDP_USAGE_TRACKING: "true"
       DISABLE_CDP_ERROR_REPORTING: "true"
       CDP_SQL_AUTH_MODE: client-api-key
+      HOME_PLAYWRIGHT_ACCESS_CREDENTIAL: chromium-smoke-access-credential-fixture
+      HOME_PLAYWRIGHT_ACCESS_SIGNING_SECRET: chromium-smoke-signing-secret-fixture
     steps:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
