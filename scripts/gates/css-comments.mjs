@@ -2,13 +2,18 @@ import path from "node:path";
 
 // Product source under the five layers carries no comments. Oxlint's
 // home/no-comments rule covers TypeScript and TSX; this gate covers the CSS
-// and Python that Oxlint cannot parse. Test and story sources keep the same
-// exclusions as the Oxlint rule.
+// and Python that Oxlint cannot parse. Test and story sources keep the Oxlint
+// rule's exclusions plus extra patterns (.spec., __tests__/, singular test/).
 const PRODUCT_LAYER_SKIP = /(?:^|\/)(?:tests?|__tests__)\/|\.(?:test|spec)\.[^/]+$|\.stories\.[^/]+$/;
 
-// The layers the comment policy covers. Callers filter scan candidates through
-// this list so a new layer is a deliberate edit here instead of an implicit scan.
+// The layers the comment policy covers. collectForbiddenComments scans only
+// these layers, so a new layer is a deliberate edit here instead of an implicit
+// scan.
 export const PRODUCT_LAYERS = ["app", "client", "components", "server", "shared"];
+
+function isInProductLayer(filePath) {
+  return PRODUCT_LAYERS.some((layer) => filePath.startsWith(`${layer}/`));
+}
 
 // Mirrors THIRD_PARTY_NOTICE in apps/web/oxlint/rules/no-comments.mjs: the one
 // allowed comment is a third-party licence or notice header, and only as the
@@ -131,12 +136,13 @@ function isPythonFunctionalComment(source, comment) {
 }
 
 // files: { path, content }[]. Returns forbidden comments as { path, line, text }
-// in path/line order. Unknown extensions and non-product paths are ignored; the
-// contract test asserts the loaded tree still contains CSS and Python sources.
+// in path/line order. Unknown extensions, paths outside the five product
+// layers, and test/story sources are ignored; the contract test asserts the
+// loaded tree still contains CSS and Python sources.
 export function collectForbiddenComments(files) {
   const forbidden = [];
   for (const file of files) {
-    if (!isProductSource(file.path)) continue;
+    if (!isInProductLayer(file.path) || !isProductSource(file.path)) continue;
     const extension = path.extname(file.path).toLowerCase();
     if (extension !== ".css" && extension !== ".py") continue;
     const comments = extension === ".css" ? scanCssComments(file.content) : scanPythonComments(file.content);

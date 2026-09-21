@@ -61,10 +61,22 @@ test("test and story sources stay outside the comment policy", () => {
   assert.deepEqual(forbidden, []);
 });
 
+test("the gate scans only the five product layers and ignores sources outside them", () => {
+  const forbidden = collectForbiddenComments([
+    ...PRODUCT_LAYERS.map((layer) => ({ path: `${layer}/fixture.css`, content: "/* narrated */\n" })),
+    { path: "docs/fixture.css", content: "/* narrated */\n" },
+    { path: "scripts/fixture.py", content: "# narrated\n" },
+  ]);
+
+  assert.deepEqual(
+    forbidden.map(({ path }) => path).sort(),
+    PRODUCT_LAYERS.map((layer) => `${layer}/fixture.css`).sort(),
+  );
+});
+
 test("product CSS and Python carry no comments", async () => {
   const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
-  const files = (await loadSourceFiles(`${repoRoot}/apps/web`, { extensions: [".css", ".py"] }))
-    .filter((file) => PRODUCT_LAYERS.some((layer) => file.path.startsWith(`${layer}/`)));
+  const files = await loadSourceFiles(`${repoRoot}/apps/web`, { extensions: [".css", ".py"] });
 
   assert.ok(files.some((file) => file.path.endsWith(".css")), "CSS scan must find product stylesheets");
   assert.ok(files.some((file) => file.path.endsWith(".py")), "Python scan must find the landing asset generator");
