@@ -3,6 +3,7 @@ import type { RegionId } from "../../config/regions";
 import type { BalancesSnapshot } from "../../shared/balances/types";
 import { balancesSnapshot, scrollableBalancesSnapshot } from "./balances-fixtures";
 import { portfolioVaults, PORTFOLIO_USDC_ADDRESS } from "../../config/portfolio-assets";
+import { ownerQueryPersistThrottleMs } from "../../client/query/query-client";
 
 // Local laptops paint balances in ~350-620ms; hosted CI runners measure 1.0-2.2s.
 const BALANCES_PAINTED_BUDGET_MS = process.env.CI ? 3_500 : 1_000;
@@ -457,7 +458,7 @@ async function waitForSettledPersistedBalances(page: Page) {
     const settled = queries !== null && queries === previousQueries;
     previousQueries = queries;
     return settled;
-  }, { intervals: [100] }).toBe(true);
+  }, { intervals: [ownerQueryPersistThrottleMs + 100] }).toBe(true);
 }
 
 async function markPersistedQueriesStale(page: Page) {
