@@ -28,3 +28,11 @@ The Jesse-locked [architecture](architecture.md#quality-bar) targets Playwright 
 Deployment configuration, credentials, and production promotion remain operator decisions; a green local or CI run is not funded-wallet or production authorization.
 
 For action changes, review the flow in [Actions](actions.md): server-authored calldata; verified scope; one action ID for provider idempotency; owner-generation fencing; provider and chain status.
+
+## Wave 1 lint contracts
+
+- `jsx-a11y/*` violations are errors, moving missing accessible names, roles, and ARIA contracts into the gate after the a11y-semantics fixes in `61e7e4d5`, `70b6f070`, and `1491b808`.
+- `home/no-real-waits` covers unit tests and `*.pw.ts`, rejecting long timers, `Bun.sleep`, Playwright `page`/`frame.waitForTimeout`, promise-wrapped timers, and overlong Testing Library waits; this closes the Playwright scope gap identified in Codex PR #641 and the fix-corpus gate-browser-test bucket.
+- `home/no-silent-catch` rejects empty or unhandled catches in the currently clean `app`, `components`, `config`, and `shared` layers; recovery state, typed non-null results, explicit reporting, promise settlement, and cleanup remain valid handling, targeting the state-and-cache failures represented by `a3efbae2`, `01042089`, and `14465e42`.
+- `home/isolate-instrumentation-calls` requires potentially failing observability calls to use `try/catch` or `void promise.catch(...)`; helpers whose own tested boundary contains sink failures are explicitly configured as intrinsically safe.
+- `home/no-amount-fallback` rejects zero defaults for amount-like names in shared formatting, money-modal, balances, and server-action paths, requiring null/unavailable propagation or fail-closed handling after the value-truth fixes in `6e566e44`, `a5781ae7`, and `088e407c`.
