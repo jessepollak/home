@@ -128,10 +128,11 @@ describe("live review recipient row", () => {
     expect(recipientRowError(`Confirm\nTo ${recipient}\nAsset`, recipient)).toBeNull();
   });
 
-  test("accepts the shared-format truncation rendered by the value components", () => {
+  test("refuses the shared-format truncation even of the effective recipient", () => {
     expect(formatAddress(recipient)).toBe("0x2211…d77da9");
-    expect(recipientRowError(recipientReview(formatAddress(recipient)), recipient)).toBeNull();
-    expect(recipientRowError(`Confirm\nTo\n${formatAddress(recipient)}\nAsset`, recipient)).toBeNull();
+    expect(formatAddress(recipient)).not.toBe(recipient);
+    expect(recipientRowError(recipientReview(formatAddress(recipient)), recipient)).toContain("instead");
+    expect(recipientRowError(`Confirm\nTo\n${formatAddress(recipient)}\nAsset`, recipient)).toContain("instead");
   });
 
   test("refuses an absent, empty, or mismatched To row", () => {
@@ -297,6 +298,6 @@ describe("live run guards", () => {
     expect(rendered.rows).toContainEqual({ label: "To", value: defaultRecipient });
     expect(rendered.renderedMatch).toBeNull();
     expect(rendered.truncatedValue).toBe(formatAddress(defaultRecipient));
-    expect(rendered.truncatedMatch).toBeNull();
+    expect(rendered.truncatedMatch).toContain("instead");
   });
 });

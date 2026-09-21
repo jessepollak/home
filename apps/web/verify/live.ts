@@ -1,5 +1,4 @@
 import { relative, resolve } from "node:path";
-import { formatAddress } from "../shared/formatting";
 import { matchesConfirmLabel, type LiveAccess, type ReachStep } from "./map";
 
 export const accountPattern = /^0x[0-9a-fA-F]{40}$/;
@@ -136,8 +135,7 @@ export function recipientRowError(reviewText: string, recipient: string): string
   const inlineValue = lines[index].replace(/^to\s*/i, "").trim();
   const shown = (inlineValue.length > 0 ? inlineValue : lines[index + 1] ?? "").trim();
   if (shown.length === 0) return "The review “To” row is empty; confirmation was refused.";
-  const rendered = shown.toLowerCase();
-  if (rendered === expected.toLowerCase() || rendered === formatAddress(expected).toLowerCase()) return null;
+  if (shown.toLowerCase() === expected.toLowerCase()) return null;
   return `The review “To” row shows “${shown}” instead of “${expected}”; confirmation was refused.`;
 }
 
