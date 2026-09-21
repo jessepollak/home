@@ -1,4 +1,4 @@
-import { appendFile, chmod, mkdir, readFile } from "node:fs/promises";
+import { appendFile, chmod, mkdir, readFile, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 import { verifyPolicy, type VerifyRole } from "./policy";
 
@@ -50,6 +50,24 @@ export async function ensureLedger(path: string): Promise<void> {
 export async function appendLedger(path: string, entry: LedgerEntry): Promise<void> {
   await ensureLedger(path);
   await appendFile(path, `${JSON.stringify(entry)}\n`, { mode: 0o600 });
+}
+
+export async function withLedgerLock<T>(path: string, action: () => Promise<T>): Promise<T> {
+  await ensureLedger(path);
+  const lockPath = `${path}.lock`;
+  try {
+    await mkdir(lockPath, { mode: 0o700 });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+      throw new Error("Another verification run is reserving spend; confirmation was refused.");
+    }
+    throw error;
+  }
+  try {
+    return await action();
+  } finally {
+    await rm(lockPath, { recursive: true, force: true });
+  }
 }
 
 export async function readLedger(path: string): Promise<LedgerEntry[]> {

@@ -29,7 +29,7 @@ import {
   unlistedAmountClickError,
   type LiveRecipient,
 } from "./live";
-import { appendLedger, armEvent, readLedger, spendForDay, spendForRun, surfaceArmState, type LedgerEntry } from "./ledger";
+import { appendLedger, armEvent, readLedger, spendForDay, spendForRun, surfaceArmState, withLedgerLock, type LedgerEntry } from "./ledger";
 import { canaryReach, matchesConfirmLabel, readFeatureMap, type ReachStep } from "./map";
 import { confirmPolicyRefusal, requestedCaps, resolveVerifyRole, verifyPolicy, type VerifyRole } from "./policy";
 
@@ -493,6 +493,7 @@ let renderedBalanceUsd: number | null = null;
 let finalEvidencePassed = false;
 let ledgerRecorded = false;
 const confirmedAmountsUsd: number[] = [];
+let spendReserved = false;
 type StepRecord = { step: string; status: "pending" | "done" | "failed" };
 const steps: StepRecord[] = [];
 let cumulativeAmountUsd = 0;
@@ -557,6 +558,38 @@ function syncDisarmIssue(incidents: string[]): void {
     : Bun.spawnSync({ cmd: ["gh", "issue", "create", "--repo", "jessepollak/home", "--title", title, "--body", body], cwd: repositoryRoot, stdout: "pipe", stderr: "pipe" });
   if (result.exitCode !== 0) throw new Error("Could not create or update the disarm issue.");
 }
+async function reserveSpend(amountUsd: number): Promise<string | null> {
+  return withLedgerLock(ledgerPath, async () => {
+    const currentEntries = await readLedger(ledgerPath);
+    const currentArmState = surfaceArmState(currentEntries, surfaceId, currentMainRevision);
+    const refusal = confirmPolicyRefusal({
+      role: verifyRole,
+      armed: currentArmState.armed,
+      amountUsd,
+      balanceUsd: renderedBalanceUsd,
+      runSpendUsd: spendForRun(currentEntries, session),
+      todayFactorySpendUsd: spendForDay(currentEntries, new Date().toISOString().slice(0, 10)),
+      clickCapUsd: maxUsd ?? Number.NaN,
+      runCapUsd: maxUsdTotal ?? Number.NaN,
+    });
+    if (refusal) return refusal;
+    await appendLedger(ledgerPath, {
+      type: "run",
+      timestamp: new Date().toISOString(),
+      runId: session,
+      host: baseUrl.host,
+      surface: surfaceId,
+      role: verifyRole,
+      mainRevision: currentMainRevision,
+      rungReached: 2,
+      amountsUsd: [amountUsd],
+      incidents: [],
+      clean: false,
+    });
+    spendReserved = true;
+    return null;
+  });
+}
 async function recordLiveLedger(): Promise<void> {
   if (!live || ledgerRecorded) return;
   const incidents = runIncidents();
@@ -570,7 +603,7 @@ async function recordLiveLedger(): Promise<void> {
     role: verifyRole,
     mainRevision: currentMainRevision,
     rungReached,
-    amountsUsd: confirmedAmountsUsd,
+    amountsUsd: spendReserved ? [] : confirmedAmountsUsd,
     incidents,
     clean: rungReached >= 2 && finalEvidencePassed && incidents.length === 0,
   };
@@ -687,7 +720,7 @@ try {
             amountUsd: parsedAmountUsd,
             balanceUsd: renderedBalanceUsd,
             runSpendUsd: spendForRun(ledgerEntries, session) + cumulativeAmountUsd,
-            todayFactorySpendUsd: spendForDay(ledgerEntries, new Date().toISOString().slice(0, 10)),
+            todayFactorySpendUsd: spendForDay(ledgerEntries, new Date().toISOString().slice(0, 10)) + cumulativeAmountUsd,
             clickCapUsd: maxUsd,
             runCapUsd: maxUsdTotal,
           });
@@ -700,6 +733,7 @@ try {
         }
         unexpectedHosts = observeUnexpectedHosts();
         liveRefusal = hostObservationRefusal(unexpectedHosts);
+        if (!liveRefusal && parsedAmountUsd !== null) liveRefusal = await reserveSpend(parsedAmountUsd);
         if (liveRefusal) {
           record.status = "failed";
           stoppedBefore = step.label;

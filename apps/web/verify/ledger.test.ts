@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { appendLedger, armEvent, readLedger, spendForDay, spendForRun, surfaceArmState, type LedgerEntry, type LedgerRun } from "./ledger";
+import { appendLedger, armEvent, readLedger, spendForDay, spendForRun, surfaceArmState, withLedgerLock, type LedgerEntry, type LedgerRun } from "./ledger";
 
 const temporaryDirectories: string[] = [];
 const revision = "abc123";
@@ -36,6 +36,17 @@ describe("verification ledger", () => {
     await appendLedger(path, run());
     await appendLedger(path, run({ runId: "run-2" }));
     expect(await readLedger(path)).toHaveLength(2);
+  });
+
+  test("serializes spend reservations and releases the lock", async () => {
+    const directory = resolve(tmpdir(), `home-ledger-lock-${crypto.randomUUID()}`);
+    Bun.spawnSync(["mkdir", "-p", directory]);
+    temporaryDirectories.push(directory);
+    const path = resolve(directory, "ledger.jsonl");
+    await withLedgerLock(path, async () => {
+      await expect(withLedgerLock(path, async () => undefined)).rejects.toThrow("reserving spend");
+    });
+    await expect(withLedgerLock(path, async () => "released")).resolves.toBe("released");
   });
 
   test("arms after three clean rung 2 runs on current main only", () => {
