@@ -410,7 +410,7 @@ try {
   }
   command("console", "--clear");
   command("errors", "--clear");
-  command("network", "requests", "--clear");
+  if (!live) command("network", "requests", "--clear");
   let afterReview = false;
   for (const step of surface.reach) {
     const description = step.kind === "goto"
