@@ -23,16 +23,20 @@ describe("deployment access configuration", () => {
       .toEqual({ kind: "disabled" });
   });
 
-  test("fails closed when a required credential is absent or shorter than 8 UTF-8 bytes", () => {
-    expect(readAccessConfig(environment("1", undefined, "b".repeat(32))))
-      .toEqual({ kind: "misconfigured" });
+  test("throws a clear error when exactly one credential value is set", () => {
+    const message = `${credentialKey} and ${signingSecretKey} must be set together.`;
+    expect(() => readAccessConfig(environment(undefined, "a".repeat(8))))
+      .toThrow(message);
+    expect(() => readAccessConfig(environment(undefined, undefined, "b".repeat(32))))
+      .toThrow(message);
+  });
+
+  test("fails closed when a required credential is shorter than 8 UTF-8 bytes", () => {
     expect(readAccessConfig(environment("1", `${"🔐"}${"a".repeat(3)}`, "b".repeat(32))))
       .toEqual({ kind: "misconfigured" });
   });
 
-  test("fails closed when a required signing secret is absent or shorter than 32 UTF-8 bytes", () => {
-    expect(readAccessConfig(environment("1", "a".repeat(8))))
-      .toEqual({ kind: "misconfigured" });
+  test("fails closed when a required signing secret is shorter than 32 UTF-8 bytes", () => {
     expect(readAccessConfig(environment("1", "a".repeat(8), "b".repeat(31))))
       .toEqual({ kind: "misconfigured" });
   });

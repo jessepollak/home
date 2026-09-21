@@ -11,9 +11,14 @@ const signingSecretEnvironmentKey = "HOME_ACCESS_SIGNING_SECRET";
 export function readAccessConfig(
   environment: Record<string, string | undefined> = process.env,
 ): AccessConfig {
-  if (environment.HOME_ACCESS_REQUIRED !== "1") return { kind: "disabled" };
   const credential = environment[credentialEnvironmentKey];
   const signingSecret = environment[signingSecretEnvironmentKey];
+  if ((credential === undefined) !== (environment[signingSecretEnvironmentKey] === undefined)) {
+    throw new Error(
+      `${credentialEnvironmentKey} and ${signingSecretEnvironmentKey} must be set together.`,
+    );
+  }
+  if (environment.HOME_ACCESS_REQUIRED !== "1") return { kind: "disabled" };
   if (
     !credential ||
     Buffer.byteLength(credential, "utf8") < 8 ||
