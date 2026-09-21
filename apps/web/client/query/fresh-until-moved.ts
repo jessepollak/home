@@ -55,7 +55,6 @@ export function freshUntilMoved(options: {
         return;
       }
     } catch {
-      // A transient fresh-read failure consumes no invented data; keep polling.
     }
     if (!settled) timer = clock.setTimer(() => void poll(), intervalMs);
   };

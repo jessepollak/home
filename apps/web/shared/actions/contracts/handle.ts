@@ -1,5 +1,3 @@
-// Route contract.
-// POST /api/actions/:id/handle
 
 import type { GetActionResponse } from "./get";
 

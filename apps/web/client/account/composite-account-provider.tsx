@@ -39,8 +39,6 @@ import {
 
 type CdpBoundary = AccountWalletSdkBoundary & { isInitialized: boolean };
 
-// Deterministic test seam: production callers omit `timing`, so activation and
-// sign-out keep their real browser timers and published timeout defaults.
 export type AccountProviderTiming = {
   activationTimeoutMs?: number;
   scheduleActivationTimeout?: TimeoutScheduler;
@@ -153,8 +151,6 @@ export default function CompositeAccountProvider({
 
   useLayoutEffect(() => {
     let current = true;
-    // Defer the browser read out of the first client render. This microtask is
-    // queued from layout, ahead of the native restore queued by its effect.
     queueMicrotask(() => {
       if (!current) return;
       const hint = readHomeAuthRestoreHint();
@@ -226,8 +222,6 @@ export default function CompositeAccountProvider({
         onPhase?.(phase);
       });
       cdpCleanup.clear();
-      // A timed-out caller may have restored this durable cleanup marker while
-      // the SDK request was still running. Late success removes that obligation.
       clearCdpRenderHint();
     } catch (error) {
       if (!reported) {
@@ -301,8 +295,6 @@ export default function CompositeAccountProvider({
           fallback={<LazyCdpFailure onError={onCdpError} />}
         >
           <Suspense fallback={null}>
-            {/* Callers await activationGate while this island is suspended; the
-                restoring status also hides sign-in forms on initial load. */}
             <CdpSdkIslandAttempt
               projectId={projectId}
               onBoundary={onCdpBoundary}

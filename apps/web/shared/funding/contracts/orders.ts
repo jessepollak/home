@@ -1,5 +1,3 @@
-// Route contract.
-// GET, POST /api/funding/orders
 
 import type { FundingOrderSummary } from "./order";
 

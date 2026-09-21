@@ -56,7 +56,7 @@ export function describeFundingOfframpAdapter(options: {
           () => adapter.prepareDeposit({ ...common, amountAtomic: BigInt(1), platform: options.paymentMethodId, currency: options.currency, payoutHandle: "fixture" }, ctx),
           () => adapter.prepareWithdraw({ ...common, depositId: "fixture" }, ctx),
           () => adapter.readOrder({ ...common, depositId: "fixture" }, ctx),
-          () => adapter.listOrders({ ...common, inFlight: true }, ctx),
+          () => adapter.listOrders({ ...common, inFlight: true, onMalformedPayee: "throw" }, ctx),
         ]) await expect(operation()).rejects.toBeInstanceOf(Error);
       });
     }

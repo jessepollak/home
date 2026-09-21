@@ -1,11 +1,6 @@
 const LARGE_VALUE_INTEGER_DIGITS = 12;
 const SCIENTIFIC_SIGNIFICANT_DIGITS = 6;
 
-/**
- * Keeps everyday monetary values familiar, while abbreviating values whose
- * integer part would dominate a mobile row. The input remains the source of
- * truth and should still be supplied as the accessible label.
- */
 export function compactFinancialValue(
   value: string,
   integerDigitLimit = LARGE_VALUE_INTEGER_DIGITS,

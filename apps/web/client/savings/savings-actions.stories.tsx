@@ -14,11 +14,11 @@ import {
   MORPHO_V1_CANDIDATE_ADDRESSES,
 } from "@/shared/savings/config";
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
+import { SavingsMoneyDialog, type SavingsActionMode } from "./savings-actions";
 import {
-  SavingsMoneyDialog,
-  type SavingsActionMode,
+  SavingsDialogFixtureProvider,
   type SavingsDialogMotion,
-} from "./savings-actions";
+} from "./savings-dialog-fixture";
 
 const ACCOUNT = "0x1111111111111111111111111111111111111111" as const;
 const FIXTURE_NOW = "2026-09-10T12:04:00.000Z";
@@ -163,23 +163,26 @@ function DialogStorySurface({
           Reopen {mode} dialog
         </Button>
       ) : null}
-      <SavingsMoneyDialog
-        open={open}
-        mode={mode}
-        motion={motion}
-        session={session}
-        candidate={storyCandidate}
-        availableLabel={selectedAssetId === "idrx" ? "Rp 250 available" : selectedAssetId === "eurc" ? "€250.00 available" : "$250.00 available"}
-        availableBaseUnits={selectedAssetId === "idrx" ? "25000" : "250000000"}
-        assetId={selectedAssetId}
-        assetLabel={selectedAsset.label}
-        assetDecimals={selectedAssetId === "idrx" ? 2 : 6}
-        assetOptions={currencyOptions}
-        onAssetChange={setSelectedAssetId}
-        prepareMoneyAction={prepareStoryAction}
-        executeMoneyAction={executeMoneyAction}
-        onClose={() => setOpen(false)}
-      />
+      <SavingsDialogFixtureProvider value={{
+        motion,
+        assetId: selectedAssetId,
+        assetLabel: selectedAsset.label,
+        assetDecimals: selectedAssetId === "idrx" ? 2 : 6,
+        assetOptions: currencyOptions,
+        onAssetChange: setSelectedAssetId,
+      }}>
+        <SavingsMoneyDialog
+          open={open}
+          mode={mode}
+          session={session}
+          candidate={storyCandidate}
+          availableLabel={selectedAssetId === "idrx" ? "Rp 250 available" : selectedAssetId === "eurc" ? "€250.00 available" : "$250.00 available"}
+          availableBaseUnits={selectedAssetId === "idrx" ? "25000" : "250000000"}
+          prepareMoneyAction={prepareStoryAction}
+          executeMoneyAction={executeMoneyAction}
+          onClose={() => setOpen(false)}
+        />
+      </SavingsDialogFixtureProvider>
     </main>
   );
 }

@@ -198,10 +198,8 @@ function emitActivityObservation(
   try {
     const result = observe(event);
     void Promise.resolve(result).catch(() => {
-      // Asynchronous observation rejection must never escape the request.
     });
   } catch {
-    // Synchronous observation failure must never change response behavior.
   }
 }
 

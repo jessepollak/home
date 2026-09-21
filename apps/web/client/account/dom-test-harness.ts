@@ -3,10 +3,6 @@ import { afterEach } from "bun:test";
 import { getHomeQueryClient } from "@/client/query/query-client";
 
 if (typeof window === "undefined") {
-  // Happy DOM models browser fetch responses, so it intentionally drops the
-  // forbidden Set-Cookie response header. Keep Bun's server Fetch API globals
-  // when installing the shared DOM to prevent UI tests from changing route
-  // handler behavior later in the same test process.
   const serverFetchDescriptors = Object.fromEntries(
     ["AbortController", "AbortSignal", "Headers", "Request", "Response"].map((name) => [
       name,
@@ -27,8 +23,6 @@ if (typeof window === "undefined") {
     if (descriptor) Object.defineProperty(globalThis, name, descriptor);
   }
 
-  // Fail closed: no unit test may reach the network. Tests that need a
-  // response stub `window.fetch` themselves.
   globalThis.fetch = (async (input: RequestInfo | URL) =>
     new Response(null, {
       status: 503,
@@ -39,8 +33,6 @@ if (typeof window === "undefined") {
 const { cleanup: cleanupDomTests } = await import("@testing-library/react");
 
 afterEach(() => {
-  // Unmount observers before clearing so no active query can repopulate the
-  // shared browser client after a test boundary.
   cleanupDomTests();
   getHomeQueryClient().clear();
 });

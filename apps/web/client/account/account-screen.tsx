@@ -111,9 +111,6 @@ export function AccountSignInSheet({
     : projectConfigured
       ? emailInputRef
       : baseAccountButtonRef;
-  // The sign-in form stays mounted during a pending Base Account attempt; the
-  // phase surface lives inside the Base Account button. This status gate covers
-  // only cleanup, validation, and error states that replace the form.
   const hasStatus = Boolean(
     isCleaningUp || isChecking || status === "signout-error" || status === "unavailable",
   );

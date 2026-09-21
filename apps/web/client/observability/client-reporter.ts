@@ -46,7 +46,6 @@ export async function reportClientError(
       referrerPolicy: "no-referrer",
     });
   } catch {
-    // Reporting must never affect the application.
   }
 }
 
@@ -74,7 +73,6 @@ function safeThrownDescription(value: unknown): { name: string; message: string 
       return { name: "UnhandledRejection", message: value };
     }
   } catch {
-    // Hostile getters and proxy values are intentionally ignored.
   }
   return { name: "UnhandledRejection", message: "Non-Error rejection" };
 }
@@ -102,7 +100,6 @@ export function installClientErrorReporting(
           route: window.location.pathname,
         });
       } catch {
-        // Error reporting must not create another error.
       }
     });
 
@@ -111,10 +108,8 @@ export function installClientErrorReporting(
         const description = safeThrownDescription(event.reason);
         report({ ...description, route: window.location.pathname });
       } catch {
-        // Error reporting must not create another rejection.
       }
     });
   } catch {
-    // Instrumentation installation cannot block hydration.
   }
 }

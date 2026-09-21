@@ -6,9 +6,7 @@ export type TransactionExplorerLink = {
 
 export type TransactionDetailRow = {
   label: string;
-  /** Full semantic value. This is also the clipboard payload when display is set. */
   value: string;
-  /** Optional condensed presentation for copyable addresses and transaction hashes. */
   display?: string;
 };
 
@@ -24,11 +22,6 @@ export function isTransactionHash(value: unknown): value is `0x${string}` {
   return typeof value === "string" && transactionHashPattern.test(value);
 }
 
-/**
- * Builds a BaseScan transaction link only for a real 0x-prefixed 64-hex
- * transaction hash. ERC-4337 user-operation hashes and other submission
- * references must not open the Base transaction explorer.
- */
 export function transactionExplorerLink(
   transactionHash: unknown,
 ): TransactionExplorerLink | null {
@@ -40,7 +33,6 @@ export function transactionExplorerLink(
   };
 }
 
-/** Condenses a validated transaction hash for compact detail display. */
 export function condensedTransactionHash(value: string): string {
   if (!isTransactionHash(value)) return value;
   return `${value.slice(0, 10)}…${value.slice(-8)}`;

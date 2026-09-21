@@ -112,9 +112,6 @@ export async function clearNativeBaseSession(
   fetchImpl: NativeBaseFetch = fetch,
   accessNavigation?: AccessNavigation,
 ): Promise<void> {
-  // Never pin sign-out to the serving deployment. Logout only clears cookies
-  // and is valid on any deployment; a pinned request from a tab older than the
-  // Skew Protection max age would 404 and leave the user unable to sign out.
   const response = await fetchImpl("/api/auth/base/logout", {
     method: "POST",
     headers: { Accept: "application/json" },

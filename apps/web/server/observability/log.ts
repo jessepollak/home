@@ -76,7 +76,6 @@ export function writeObservabilityEvent(
     const line = normalizeObservabilityEvent(event);
     const result = writer(JSON.stringify(line), line.level);
     void Promise.resolve(result).catch(() => {
-      // Asynchronous sink rejection must never escape application work.
     });
     return line;
   } catch {

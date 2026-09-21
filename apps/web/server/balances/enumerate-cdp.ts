@@ -4,13 +4,11 @@ import { generateJwt } from "@coinbase/cdp-sdk/auth";
 
 export const CDP_TOKEN_BALANCES_HOST = "api.cdp.coinbase.com" as const;
 export const CDP_TOKEN_BALANCES_NETWORK = "base" as const;
-/** Onchain Data path — not `/platform/v2/evm/token-balances/…`. */
 export const CDP_TOKEN_BALANCES_PATH_PREFIX =
   "/platform/v2/data/evm/token-balances" as const;
 export const CDP_NATIVE_TOKEN_ADDRESS =
   "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" as const;
 export const CDP_TOKEN_BALANCES_PAGE_SIZE = 100;
-/** Hard request budget: enough for dusty wallets while preventing unbounded scans. */
 export const CDP_TOKEN_BALANCES_MAX_PAGES = 32;
 export const CDP_TOKEN_BALANCES_PAGE_ATTEMPTS = 2;
 export const CDP_TOKEN_BALANCES_SOFT_PAGE_START_MS = 2_500;
@@ -19,7 +17,6 @@ export const CDP_TOKEN_BALANCES_TIMEOUT_MS = 4_000;
 const UINT256_MAX = (BigInt(1) << BigInt(256)) - BigInt(1);
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const amountPattern = /^[0-9]+$/;
-/** CDP ListResponse example is standard base64, including `=` padding. */
 const pageTokenPattern = /^[A-Za-z0-9._~+/=-]{1,2048}$/;
 
 export type CdpTokenBalancesErrorCode =
@@ -56,9 +53,7 @@ export type ListedTokenBalance = {
 
 export type TokenBalancesPageSet = {
   balances: ListedTokenBalance[];
-  /** False when a page, cursor, or request budget prevented an exhaustive scan. */
   complete: boolean;
-  /** Next page to request when `complete` is false. */
   nextPageToken: string | null;
   pagesRead: number;
   durationMs: number;
@@ -162,7 +157,6 @@ export function createCdpTokenBalancesClient(options: {
             signal: request.signal,
           });
         } catch (error) {
-          // A missing later page must not erase quantities already read.
           if (collected.size > 0 && pageToken && isTransientPageError(error)) {
             break;
           }

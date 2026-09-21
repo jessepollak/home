@@ -112,11 +112,6 @@ export function selectCash(snapshot: BalancesSnapshot): CashSelection[] {
   return selected;
 }
 
-/**
- * Splits the ready snapshot by its authored stablecoin role. `cashCurrency` is
- * the balance model's cash bucket marker; every non-cash, non-vault holding is
- * an investment. Vault shares stay exclusively in Save.
- */
 export function selectMoneyGroups(snapshot: BalancesSnapshot): MoneyGroups {
   const cash = selectCash(snapshot);
   const selectedCashIds = new Set(
@@ -131,8 +126,6 @@ export function selectMoneyGroups(snapshot: BalancesSnapshot): MoneyGroups {
   );
 
   return {
-    // Cash keeps selectCash's authored order (selected local → canonical USD → other cash);
-    // only investments sort by value.
     cash,
     investments: investments.sort(compareHoldings),
   };

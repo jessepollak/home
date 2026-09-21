@@ -27,10 +27,8 @@ export type ValuationAttempt = {
 
 export interface PriceObservationStore {
   getMany(assetKeys: readonly string[]): Promise<PriceObservation[]>;
-  /** Upserts by source time; equal source time refreshes fetchedAt, older never wins. */
   putMany(observations: readonly PriceObservation[]): Promise<void>;
   getAttempts(assetKeys: readonly string[]): Promise<ValuationAttempt[]>;
-  /** Upserts by attempt time; an older attempt never wins. */
   putAttempts(attempts: readonly ValuationAttempt[]): Promise<void>;
 }
 

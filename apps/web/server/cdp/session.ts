@@ -279,8 +279,6 @@ export function createSessionHandler({
       return jsonResponse(nativeSession.session, 200);
     }
     if (!accessToken) return unauthenticatedResponse();
-    // A Bearer can never carry a Base Account session (#288); answer without
-    // spending a CDP validation on a request whose outcome is already known.
     if (accountProvider === "base-account") return baseAccountDisabledResponse();
     try {
       const validator = await getValidator();

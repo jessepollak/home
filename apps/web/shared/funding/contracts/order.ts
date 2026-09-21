@@ -1,5 +1,3 @@
-// Route contract.
-// GET /api/funding/orders/:id
 
 import type { Instruction, OrderState, Quote } from "@/shared/funding/provider-contract";
 export type { Instruction } from "@/shared/funding/provider-contract";

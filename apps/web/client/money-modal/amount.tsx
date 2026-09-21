@@ -35,18 +35,10 @@ import {
 const AMOUNT_MIN_FONT_PROPERTY = "--money-amount-min-size";
 const AMOUNT_MIN_FONT_SIZE_FALLBACK = 20;
 const AMOUNT_FIT_TOLERANCE_PX = 0.5;
-// Font rendering is not perfectly proportional to `font-size` (glyph advances
-// and negative letter-spacing round at each size). Reserve a small headroom so
-// a measured fit never overflows the container by a subpixel rounding error.
 const AMOUNT_FIT_SAFETY_FACTOR = 0.97;
 
 export type MoneyAmountChangeSource = "keypad" | "programmatic";
 
-/**
- * Keypad edits should not animate digits out from under the user's finger;
- * every other change (chips, resets, unit toggles on the same amount) animates.
- * Kept module-private: the contract is asserted through the rendered ticker.
- */
 function shouldAnimatePrimaryAmount(
   previousAmount: string,
   amount: string,
@@ -74,13 +66,6 @@ export function matchesMoneyAssetOption(
     .includes(normalized);
 }
 
-/**
- * Scales a formatted amount to fit the available width without changing,
- * rounding, abbreviating, ellipsizing, or clipping the value. Returns the
- * largest font size (px) up to `baseFontSize` that keeps the value inside
- * `availableWidth` given its measured `naturalWidth` at `baseFontSize`.
- * Below `minFontSize` it stops shrinking and the full value stays visible.
- */
 export function fitAmountFontSize(
   availableWidth: number,
   naturalWidth: number,
@@ -117,7 +102,6 @@ export function triggerKeyHaptic(durationMs = 12): void {
   try {
     navigator.vibrate(durationMs);
   } catch {
-    // Haptics are optional; unsupported or blocked devices stay silent.
   }
 }
 
@@ -128,8 +112,6 @@ export function useAutoFitAmountText(text: string) {
   const [scaleX, setScaleX] = useState(1);
   const lastWidthRef = useRef(-1);
 
-  // Reads refs and the live DOM only, so observers can share one stable
-  // callback for the whole mount instead of rebuilding it per text change.
   const measure = useCallback(() => {
     const container = containerRef.current;
     const sizer = sizerRef.current;
@@ -143,9 +125,6 @@ export function useAutoFitAmountText(text: string) {
     const available = container.clientWidth - horizontalPadding;
     const base = Number.parseFloat(window.getComputedStyle(sizer).fontSize);
     const currentSize = Number.parseFloat(computed.fontSize);
-    // Measure the ticker box itself (what is laid out). The primary ticker opts
-    // out of grow-only digit reservation, so deleting digits shrinks this box and
-    // lets the amount return to its full type size without remounting the ticker.
     const ticker = container.querySelector<HTMLElement>("[data-slot=\"money-ticker\"]");
     const renderedNatural = ticker?.offsetWidth || sizer.getBoundingClientRect().width;
     if (available <= 0 || renderedNatural <= 0 || !Number.isFinite(base) || base <= 0) return;
@@ -157,9 +136,6 @@ export function useAutoFitAmountText(text: string) {
     const min = Number.parseFloat(minRaw) || AMOUNT_MIN_FONT_SIZE_FALLBACK;
     const fitted = available * AMOUNT_FIT_SAFETY_FACTOR;
     const target = Math.floor(fitAmountFontSize(fitted, natural, base, min) * 10) / 10;
-    // At the minimum type size an extreme value (20 characters at 320px) can still
-    // exceed the width; compact only the inline axis by the small remainder rather
-    // than clipping or dropping below the readable minimum.
     const unclamped = (base * fitted) / natural;
     const targetScaleX = Math.min(1, Math.max(0.9, unclamped / target));
 
@@ -171,11 +147,6 @@ export function useAutoFitAmountText(text: string) {
     setScaleX((current) => (Math.abs(current - targetScaleX) < 0.005 ? current : targetScaleX));
   }, []);
 
-  // The ResizeObserver, the root class/style observer, and the font-ready
-  // remeasure install once per mount. Re-measure only when the text changes,
-  // fonts settle, or the container's inline width changes. Our own font-size
-  // change alters the container's height and the ticker's box; feeding those
-  // back would oscillate.
   useLayoutEffect(() => {
     const container = containerRef.current;
     const sizer = sizerRef.current;
@@ -209,7 +180,6 @@ export function useAutoFitAmountText(text: string) {
     };
   }, [measure]);
 
-  // A text change needs only a fresh measurement; observers stay installed.
   useLayoutEffect(() => {
     measure();
   }, [measure, text]);
@@ -258,7 +228,6 @@ export function MoneyAmountDisplay({
   fiatCurrency?: string;
   initialUnit?: MoneyPrimaryUnit;
   amountChangeSource?: MoneyAmountChangeSource;
-  /** The header owns the sole picker when set to `header`. */
   assetControl?: "body" | "header";
 }) {
   const [requestedUnit, setRequestedUnit] = useState<MoneyPrimaryUnit>(initialUnit);
@@ -344,8 +313,6 @@ export function MoneyPrimaryAmount({
   nativeSymbol: string;
 }) {
   const text = formatPrimaryAmount(amount, unit, pricing, fiatCurrency, nativeSymbol);
-  // Hold the animation decision until the amount or rendered text changes so
-  // unrelated rerenders do not restart the digit transition.
   const [rendered, setRendered] = useState({ amount, text, animated: true });
   let animated = rendered.animated;
   if (rendered.amount !== amount || rendered.text !== text) {

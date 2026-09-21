@@ -25,7 +25,6 @@ const address = /^0x[0-9a-fA-F]{40}$/;
 const hash = /^0x[0-9a-fA-F]{64}$/;
 const WAD = BigInt("1000000000000000000");
 
-/** Fails closed unless all review facts are typed, internally consistent, and server-authored. */
 export function readSavingsPreparedReview(
   action: PreparedMoneyAction,
 ): SavingsPreparedReview | null {

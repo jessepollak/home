@@ -22,7 +22,6 @@ export type CdpSqlAuth =
     }
   | {
       mode: "signed-jwt";
-      /** Generate a short-lived server JWT for this exact request. */
       generateBearerToken(request: {
         requestMethod: "POST";
         requestHost: typeof CDP_SQL_HOST;
@@ -257,13 +256,6 @@ function parseRetryAfter(value: string | null): number | null {
     : null;
 }
 
-/**
- * Official CDP `OnchainDataResult` marks `result`, `schema`, `metadata`, and
- * every metadata field optional. A 200 empty page is `result: []`, or live
- * CoinbaSeQL `result: null` with `metadata.rowCount === 0`. A missing `result`
- * field still fails — do not invent an empty list from an error-shaped body.
- * Partial/derived `schema` is ignored rather than failing a healthy page.
- */
 export function parseCdpSqlResponseEnvelope(
   value: unknown,
   receivedAt = new Date(),
@@ -316,7 +308,6 @@ export function parseCdpSqlResponseEnvelope(
 
 const INVALID = Symbol("invalid-cdp-sql-field");
 
-/** Live empty page: `result: null` + `rowCount: 0`. Missing `result` stays invalid. */
 function normalizeResultRows(
   result: unknown,
   declaredRowCount: number | null,
@@ -372,7 +363,6 @@ function readOptionalRowCount(
 
 function rowCountAgreesWithPage(declared: number, pageLength: number): boolean {
   if (declared === pageLength) return true;
-  // Truncated / max-row pages: CDP may report the full match count.
   return pageLength > 0 && declared > pageLength;
 }
 

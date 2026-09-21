@@ -20,9 +20,6 @@ export type BorrowActionIntent = {
   maximumRepayBaseUnits?: string;
 };
 
-/** Kept as an alias for callers while the generic action contract replaces the old snapshot-bound preview. */
-export type BorrowPreviewRequest = BorrowActionIntent;
-
 export type BorrowActionSummaryMetadata = {
   product: "borrow";
   operation: BorrowOperation;

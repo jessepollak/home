@@ -1,5 +1,3 @@
-// Route contract.
-// GET /api/actions/:id
 
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {

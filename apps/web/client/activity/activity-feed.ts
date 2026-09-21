@@ -54,8 +54,6 @@ function compareActivityFeedItems(left: ActivityFeedItem, right: ActivityFeedIte
   return compareActionIds(left.id, right.id);
 }
 
-// Code-unit order keeps same-timestamp ties deterministic across runtimes;
-// locale-aware collation would depend on the host locale.
 function compareActionIds(leftId: string, rightId: string): number {
   if (leftId === rightId) return 0;
   return leftId < rightId ? -1 : 1;

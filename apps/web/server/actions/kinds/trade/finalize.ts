@@ -25,7 +25,6 @@ export type PendingTradeConfirmation = {
   swapCallIndex: number;
 };
 
-/** Kept half of the old finalizer: verify the reviewed Permit2 signature and splice it into the reviewed swap call. */
 export async function finalizeTradeCalls(input: {
   pending: PendingTradeConfirmation;
   signature: Hex;

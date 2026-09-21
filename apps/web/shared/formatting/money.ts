@@ -39,16 +39,10 @@ function cachedNumberFormat(
   return formatter;
 }
 
-/**
- * ICU builds disagree on the whitespace they emit (U+0020 vs U+00A0 vs U+202F)
- * and on joiners such as "at". Home owns these typographic choices so output is
- * byte-identical on every platform.
- */
 function collapseSpaces(value: string, replacement: string): string {
   return value.replace(anySpace, replacement).trim();
 }
 
-/** Multi-character currency symbols (R$, Rp, US$) take one no-break space; single glyphs ($, €, £) none. */
 function joinCurrencyPrefix(symbol: string, amount: string): string {
   const compact = collapseSpaces(symbol, "");
   if (!compact) return amount;
@@ -60,7 +54,6 @@ function joinCurrencySuffix(amount: string, symbol: string): string {
   return compact ? `${amount}${NBSP}${compact}` : amount;
 }
 
-/** Token symbols keep their internal spacing ("vault shares"); only currency glyphs are compacted. */
 function joinAmountAndSymbol(
   amount: string,
   symbol: string,
@@ -197,7 +190,6 @@ export function moneyChangeTone(
   return "neutral";
 }
 
-/** Formats integer token base units without converting the amount to Number. */
 export function formatTokenAmount(
   balanceBaseUnits: AtomicAmount,
   decimals: number,
@@ -311,7 +303,6 @@ export function formatPresentationTokenAmount(
   }
 }
 
-/** Formats all token precision for review and detail surfaces. */
 export function formatExactTokenAmount(
   balanceBaseUnits: AtomicAmount,
   decimals: number,
@@ -320,7 +311,6 @@ export function formatExactTokenAmount(
   return formatTokenAmount(balanceBaseUnits, decimals, decimals, regionId);
 }
 
-/** Formats unsigned token amounts and rejects malformed or negative input. */
 export function formatUnsignedTokenAmount(
   balanceBaseUnits: AtomicAmount,
   decimals: number,
@@ -343,7 +333,6 @@ export function formatExactPresentationTokenAmount(
   );
 }
 
-/** Exact decimal formatting from atomic bigint units. */
 export function formatDecimalAmount(
   atoms: bigint,
   decimals: number,
@@ -369,7 +358,6 @@ export function formatDecimalAmount(
   return applySign(amount, result.negative, options.sign);
 }
 
-/** Exact fiat formatting from atomic bigint units or an exact decimal string. */
 export function formatFiatAmount(
   atoms: bigint,
   decimals: number,
@@ -498,7 +486,6 @@ export function formatHealthFactor(
   });
 }
 
-/** Morpho oracle prices are loan-token units per collateral token at 34 decimals. */
 export function formatOracleUsd(
   raw: AtomicAmount,
   regionId: RegionId = "GLOBAL",
@@ -922,7 +909,6 @@ function formatCurrencyDecimal(
       maximumFractionDigits: 0,
     }).formatToParts(BigInt(0));
   } catch {
-    // Provider-supplied codes (USDC, IDRX, wARS) are not ISO 4217: render as a suffix label.
     return joinAmountAndSymbol(localizedAmount, currency.trim().toUpperCase(), true);
   }
   const numericTypes = new Set<Intl.NumberFormatPartTypes>([

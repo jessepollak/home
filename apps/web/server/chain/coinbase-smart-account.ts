@@ -156,8 +156,6 @@ export function createCoinbaseSmartAccountBatchSimulator(options: {
           client,
           "eth_call",
           [{
-            // Coinbase MultiOwnable permits the account itself; this preserves the exact ordered
-            // state changes without claiming that a future user signature has been validated.
             from: account,
             to: account,
             data: encodeCoinbaseExecuteBatch(calls),

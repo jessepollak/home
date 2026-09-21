@@ -53,14 +53,7 @@ function serverDesktop() {
   return true;
 }
 
-/**
- * Base's observed three-layer sequence, adapted to natural h/o/m/e glyphs.
- * Raw extents are 2.3 / 1.901; Motion normalizes them to 1.6s / 1.2s.
- * Keep these authored timelines separate (exit is not reversed entry).
- * Asset/source details: public/home-mark/PROVENANCE.md.
- */
 const MarkArtwork = memo(function MarkArtwork() {
-  // Mini doesn't support the source's sequence + spring/transform API.
   const [scope, animate] = useAnimate<HTMLSpanElement>();
 
   useEffect(() => {
@@ -126,8 +119,6 @@ const MarkArtwork = memo(function MarkArtwork() {
     }
 
     function enter() {
-      // Reference quirk: reentry does not clear a queued exit, and entry/exit
-      // cannot be interrupted. A new leave/enter is needed after settling.
       if (phase !== "idle" || control?.matches(":disabled")) return;
       phase = "entering";
       queuedExit = false;
@@ -162,9 +153,6 @@ const MarkArtwork = memo(function MarkArtwork() {
         );
       });
       sequence.push([chars, { opacity: 1 }, { duration: 0.5, at: 1.8 }]);
-      // Explicitly pass the user preference: the reference sets this through
-      // MotionConfig, whereas Home does not need a global Motion provider.
-      // Motion snaps transforms while preserving the timed opacity sequence.
       void animate(sequence, {
         duration: 1.6,
         reduceMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
@@ -189,7 +177,6 @@ const MarkArtwork = memo(function MarkArtwork() {
   return (
     <span ref={scope} className={styles.artwork} aria-hidden="true">
       <span className={styles.square} data-square="">
-        {/* Observed block/ascender fragment reused for h, not an h outline. */}
         <svg
           className={styles.ascender}
           width="664"
@@ -223,10 +210,7 @@ const MarkArtwork = memo(function MarkArtwork() {
   );
 });
 
-/** Fixed layout footprint; native link/button behavior belongs to the caller. */
 export function HomeMark(props: HomeMarkProps) {
-  // Remounting only the decorative desktop layer resets Motion's cached
-  // transforms and cancels its sequences on responsive switches.
   const desktop = useSyncExternalStore(subscribeDesktop, isDesktop, serverDesktop);
   const { className, "aria-label": ariaLabel, ...controlProps } = props;
   const controlClass = className ? `${styles.control} ${className}` : styles.control;

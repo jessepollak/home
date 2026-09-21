@@ -32,6 +32,8 @@ Never use a `NEXT_PUBLIC_` prefix. The adapter sends the key raw in the `Authori
 
 ## Provider request and validation
 
+Codex close values are nullable floats. A null close contributes no point; every non-null close must pass finite-number and timestamp validation before exposure.
+
 Endpoint: `POST https://graph.codex.io/graphql`
 
 The bounded query is:

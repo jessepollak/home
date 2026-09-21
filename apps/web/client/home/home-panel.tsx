@@ -93,8 +93,6 @@ export function HomePanel({
   regionId: RegionId;
 }) {
   const isLoading = assetBalances?.status === "loading";
-  // Direct mounts retain Send's existing availability-derived marks; the owning
-  // portfolio experience supplies the complete validated holdings resolution.
   const resolvedAssetMarks: AssetMarkResolution = assetMarkResolution ?? {
     images: Object.fromEntries(
       sendAvailability.map((asset) => [asset.assetKey, asset.imageUrl ?? null]),

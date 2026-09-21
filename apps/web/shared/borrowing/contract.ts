@@ -1,6 +1,3 @@
-// Private route contracts.
-// GET /api/borrow
-// GET /api/borrow/markets/:marketId
 
 import type { AccountProvider } from "@/shared/account/session-types";
 import type { BorrowAddress, BorrowAssetRef, BorrowMarketId } from "./config";

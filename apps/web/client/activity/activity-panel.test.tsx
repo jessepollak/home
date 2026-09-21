@@ -11,7 +11,7 @@ import {
 const { act, cleanup, fireEvent, render, waitFor } = await import(
   "@testing-library/react"
 );
-const { ActivityPanel } = await import("./activity-panel");
+const { ActivityPanel, ActivityPanelView } = await import("./activity-panel");
 
 class ControlledIntersectionObserver implements IntersectionObserver {
   static instances: ControlledIntersectionObserver[] = [];
@@ -166,6 +166,29 @@ afterEach(() => {
 });
 
 describe("ActivityPanel", () => {
+  test("initial load stays pending until both sources settle", () => {
+    const activityPage = pageFor("to=2026-09-13T12%3A00%3A00.000Z", WALLET_A);
+    const view = render(
+      <ActivityPanelView
+        activity={{
+          status: "ready",
+          page: activityPage,
+          loadingMore: false,
+          loadMoreError: false,
+          autoLoadPaused: false,
+          retry: () => {},
+          refresh: () => {},
+          loadMore: () => {},
+          retryLoadMore: () => {},
+        }}
+        actionsStatus="loading"
+      />,
+    );
+
+    expect(view.getByText("Loading recent activity…")).toBeTruthy();
+    expect(view.queryByRole("button", { description: /transaction details/ })).toBeNull();
+  });
+
   test("keeps the pagination window stable while deduplicating overlap", async () => {
     const queries: string[] = [];
     let initialExecutionTimestamp = "";

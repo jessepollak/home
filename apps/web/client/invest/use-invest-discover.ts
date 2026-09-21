@@ -15,7 +15,6 @@ import type { MemePagination } from "./discover";
 
 const DISCOVER_ENDPOINT = "/api/invest/discover";
 const VISIBILITY_REFRESH_COOLDOWN_MS = 60_000;
-/** Bound consecutive provider pages that normalize away before we stop. */
 const MAX_CONSECUTIVE_EMPTY_PAGES = 3;
 
 type FetchLike = (

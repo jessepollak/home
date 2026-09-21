@@ -281,7 +281,7 @@ async function openBaseProvider(
   } catch (error) {
     removeListeners();
     if (walletConnected) {
-      try { await provider.disconnect(); } catch { /* best-effort wallet cleanup */ }
+      try { await provider.disconnect(); } catch {}
     }
     if (error instanceof BaseAccountConnectorError) throw error;
     const code = providerErrorCode(error);
@@ -412,8 +412,6 @@ async function openBaseProvider(
       if (!id || id.length > 512) {
         throw new BaseAccountConnectorError("invalid-provider-response");
       }
-      // The provider handle is durable evidence that the request returned. Parse and
-      // return it before any unrelated account-state read can erase that evidence.
       return id;
     },
     async getCallsStatus(submissionId) {
@@ -469,7 +467,6 @@ async function openBaseProvider(
       try {
         await provider.disconnect();
       } catch {
-        // Local connector cleanup must not expose provider internals.
       }
     },
   };

@@ -216,8 +216,6 @@ export function createRipioClient(country: RipioCountry, options: {
         },
       });
     } catch (error) {
-      // A timed-out or disconnected create can have succeeded. It must be reconciled by
-      // a recorded provider ID or GET, never by repeating the POST.
       throw new RipioProviderError(create ? "ambiguous-create" : "unavailable", null, error);
     }
     if (response.status === 401 || response.status === 403) {
@@ -225,9 +223,6 @@ export function createRipioClient(country: RipioCountry, options: {
       throw new RipioProviderError("unauthorized", response.status);
     }
     if (!response.ok) {
-      // Only Ripio's documented 400 validation rejection proves no order was
-      // accepted. Redirects, conflicts, rate limits, undocumented 422s, and
-      // server failures may follow a committed create and are ambiguous.
       const uncertainCreate = create && response.status !== 400;
       throw new RipioProviderError(
         uncertainCreate ? "ambiguous-create" : response.status < 500 ? "invalid-request" : "unavailable",
@@ -357,8 +352,6 @@ function parseQuote(value: unknown, request: RipioQuoteRequest): RipioQuote {
   if (!isRecord(value) || !validUuid(value.quoteId) || value.fromCurrency !== request.fromCurrency || value.toCurrency !== request.toCurrency || !validDate(value.expiration) || !Array.isArray(value.fees)) {
     throw new RipioProviderError("invalid-response");
   }
-  // A quote echoing a different customer would be unorderable: the order create
-  // binds quote and customer together. Absent is accepted, conflicting is not.
   if (value.customerId !== undefined && value.customerId !== request.customerId) {
     throw new RipioProviderError("invalid-response");
   }
@@ -533,9 +526,6 @@ function exactRipioEntitlement(input: RipioQuoteRequest): boolean {
     && validDecimal(input.fromAmount)
     && /[1-9]/.test(input.fromAmount);
 }
-// Ripio pads amounts to its own precision, so "2300" and "2300.00000000" are
-// the same debit. Callers compare by value; whether a *changed* debit is
-// rejected stays the core's decision.
 export function sameRipioDecimal(left: string, right: string): boolean { return sameDecimal(left, right); }
 function sameDecimal(left: string, right: string): boolean {
   if (!validDecimal(left) || !validDecimal(right)) return false;
@@ -580,8 +570,6 @@ function validPixCode(value: string, expectedAmount: string): boolean {
   return offset === value.length && hasCrc && amount !== undefined && sameDecimal(amount, expectedAmount);
 }
 function validDate(value: unknown): value is string { return typeof value === "string" && Number.isFinite(Date.parse(value)); }
-// Ripio records the address the customer accepted the terms from. Home only
-// ever forwards an address it observed on the request; it never invents one.
 function validIpAddress(value: unknown): value is string { return typeof value === "string" && /^[0-9a-f.:]{2,45}$/i.test(value); }
 function validEmail(value: string): boolean { return value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value); }
 function validRedirectUrl(value: string): boolean {

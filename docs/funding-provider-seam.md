@@ -14,6 +14,8 @@ Offramps execute through Actions rather than `funding_orders`. The shared Action
 
 Peer is a deliberate egress exception to the raw-HTTP adapter rule below. The exact installed Cash/SDK options do not expose fetch injection for the curator/indexer calls Home uses. The adapter instead requires literal manifest-pinned curator/indexer origins, passes those URLs and Home's Base RPC transport explicitly, disables foreign-chain RPC, and sets 6-second SDK/API and RPC timeouts where supported. Cash indexer requests retain package-owned timeout behavior, and owner scans remain capped at 100 because the installed package documents no pagination or higher safe ceiling. This residual can fail closed for unusually old/high-volume owners; Home does not monkey-patch global fetch or weaken the origin boundary.
 
+Peer treats a single-payout Cash 0.5.3 row whose `payeeHash` is empty or `"0x"` as the known legacy unavailable-payee representation and skips it. Any other malformed payee hash fails closed during cash-out preparation as `PeerOfframpSafetyError`, surfaced by the prepare route as `ACTION_PREPARE_UNAVAILABLE`; the recovery-list path skips the malformed row, emits a scrubbed server observability event, and keeps valid withdrawals available rather than returning `OFFRAMP_ORDERS_UNAVAILABLE` for the whole list.
+
 ## Intent
 
 Someone at a stablecoin issuer or local rail should be able to clone Home, run it, sign in with their Base Account, drop in their provider credentials, and walk through the Add money flow for their country end to end. That is the whole test. The crew builds most of each adapter; the issuer confirms it against their real API and fixes what disagrees.
@@ -216,6 +218,8 @@ A complete September 16 `agent-browser` sandbox run without `clientIp` passed qu
 
 ## Implementation notes (#294)
 
+Standard Coinbase orders return an Apple Pay button link. Embedded orders, where Coinbase collects contact, OTP, and identity details, return the embedded payment link observed in the live contract on 2026-09-13.
+
 - `Instruction` now has a distinct `embed` kind. The first presentation is `apple-pay`; the instruction carries the allowlisted iframe URL and the fee-inclusive fiat amount/currency the payer will authorize.
 - `ensureCustomer` receives `clientIp`, the address Home observed on the request, for providers that record where a customer accepted their terms. It is the same value `OrderIntent.clientIp` already carries and is absent when no forwarded address was observed; an adapter that needs it fails closed rather than substituting one. Ripio needs it.
 - `QuoteIntent.customerRef` carries the verified customer to adapters whose provider prices a quote against that customer, matching `OrderIntent.customerRef`. The core supplies it whenever a customer reference exists; a provider that does not price per customer ignores it, and one that requires it fails the quote closed when it is absent. Ripio requires it.
@@ -231,6 +235,8 @@ The design originally cut sandbox from v1, then reversed that decision on Septem
 `fundingRequestOrigin` prefers the platform/proxy-owned `x-forwarded-host` and `x-forwarded-proto` over the server bind address, while client IP uses `x-forwarded-for` before `x-real-ip`. Home relies on the platform or proxy owning those headers; Vercel does. Do not expose a bare `next start` server directly to untrusted clients.
 
 ## Implementation notes and deviations (#301)
+
+In local Next development, request URLs can report the bind address rather than the browser `Host`; signed-cookie domain resolution accounts for that boundary. Providers that require the end user's public IP reject loopback and private ranges, so `FUNDING_SANDBOX_CLIENT_IP` is restricted to sandbox use.
 
 - `FundingProvider.getOrder` receives a core-owned `ReconciliationIntent`, rather than only a provider order ID, so adapters can reject contradictory asset, destination, amount, chain, and transaction-type echoes before the core considers receipt evidence.
 - `POST /api/funding/quotes` never accepts KYC fields. Ripio customer creation and hosted verification use the private owner-scoped provider-customer route, and quote creation requires the stored customer state to be `verified`. `POST /api/funding/orders` accepts only the signed quote token.

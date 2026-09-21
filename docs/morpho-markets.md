@@ -20,4 +20,6 @@ A market must not appear in a product registry merely because another product ap
 
 ## Save and shared engine interfaces
 
+Morpho's indexed vault state may legitimately trail Home's direct read by hours, so freshness is carried explicitly rather than inferred from request time.
+
 Save deposits into MetaMorpho ERC-4626 vaults, while Borrow reads Morpho Blue isolated markets. They do not share one ABI or accounting adapter. They do share the verified-engine contract: compile-time transaction authority, product capability modes, pinned and re-confirmed Base provenance, exact approvals, ordered smart-account batch simulation, and thin prepared actions. Morpho API listing and rate data remain display observations and never activate a vault.

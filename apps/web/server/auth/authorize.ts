@@ -23,10 +23,6 @@ export const sessionHandler = createSessionHandler({
   baseAccountEnabled: () => isHomeSessionConfigured(process.env.HOME_SESSION_SECRET),
 });
 
-/**
- * Authorizes and validates one verified account session. A missing provider
- * header selects `cdp-embedded`; callers never reinterpret provider scope.
- */
 export async function authorizeSession(
   request: Request,
   boundary: SessionBoundary = sessionHandler,

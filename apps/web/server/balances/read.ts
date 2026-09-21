@@ -419,7 +419,6 @@ function emitHostedGuard(
       reason: "not-configured",
     });
   } catch {
-    // Observability never changes reads.
   }
 }
 

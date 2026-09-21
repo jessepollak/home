@@ -8,9 +8,11 @@ import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
+import type { SavingsMoneyDialogProps } from "./savings-actions";
 
 const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { SavingsMoneyDialog } = await import("./savings-actions");
+const { SavingsDialogFixtureProvider } = await import("./savings-dialog-fixture");
 
 const ACCOUNT = "0x1111111111111111111111111111111111111111" as const;
 const VAULT = MORPHO_V1_CANDIDATE_ADDRESSES[0];
@@ -91,6 +93,14 @@ afterEach(() => {
   getHomeQueryClient().clear();
 });
 
+function ReducedSavingsMoneyDialog(props: SavingsMoneyDialogProps) {
+  return (
+    <SavingsDialogFixtureProvider value={{ motion: "reduced" }}>
+      <SavingsMoneyDialog {...props} />
+    </SavingsDialogFixtureProvider>
+  );
+}
+
 function ReopenHarness() {
   const [open, setOpen] = useState(true);
   return (
@@ -134,18 +144,21 @@ describe("SavingsMoneyDialog", () => {
   test("offers deterministic currency fixtures through the shared asset picker", async () => {
     let selected = "";
     const view = render(
-      <SavingsMoneyDialog
-        open mode="deposit" session={session} candidate={candidate}
-        assetOptions={[
+      <SavingsDialogFixtureProvider value={{
+        assetOptions: [
           { id: "usdc", label: "USDC", description: "US dollar", currency: "USD" },
           { id: "eurc", label: "EURC", description: "Euro", currency: "EUR" },
           { id: "idrx", label: "IDRX", description: "Indonesian rupiah", currency: "IDR" },
-        ]}
-        onAssetChange={(assetId) => { selected = assetId; }}
-        prepareMoneyAction={async () => prepared()}
-        executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
-        onClose={() => {}}
-      />,
+        ],
+        onAssetChange: (assetId) => { selected = assetId; },
+      }}>
+        <SavingsMoneyDialog
+          open mode="deposit" session={session} candidate={candidate}
+          prepareMoneyAction={async () => prepared()}
+          executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
+          onClose={() => {}}
+        />
+      </SavingsDialogFixtureProvider>,
     );
 
     const input = view.getByRole("combobox", { name: "Asset" });
@@ -159,18 +172,23 @@ describe("SavingsMoneyDialog", () => {
   test("never routes a presentation-only currency through the configured USDC candidate", async () => {
     let prepareCalls = 0;
     render(
-      <SavingsMoneyDialog
-        open mode="deposit" session={session} candidate={candidate}
-        assetId="eurc" assetLabel="EURC" assetDecimals={6}
-        assetOptions={[
+      <SavingsDialogFixtureProvider value={{
+        assetId: "eurc",
+        assetLabel: "EURC",
+        assetDecimals: 6,
+        assetOptions: [
           { id: "usdc", label: "USDC", description: "US dollar", currency: "USD" },
           { id: "eurc", label: "EURC", description: "Euro", currency: "EUR" },
-        ]}
-        onAssetChange={() => {}}
-        prepareMoneyAction={async () => { prepareCalls += 1; return prepared(); }}
-        executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
-        onClose={() => {}}
-      />,
+        ],
+        onAssetChange: () => {},
+      }}>
+        <SavingsMoneyDialog
+          open mode="deposit" session={session} candidate={candidate}
+          prepareMoneyAction={async () => { prepareCalls += 1; return prepared(); }}
+          executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
+          onClose={() => {}}
+        />
+      </SavingsDialogFixtureProvider>,
     );
 
     typeAmount("5");
@@ -183,13 +201,15 @@ describe("SavingsMoneyDialog", () => {
 
   test("forces every number and drawer layer into deterministic reduced motion", () => {
     const view = render(
-      <SavingsMoneyDialog
-        open mode="deposit" motion="reduced" session={session} candidate={candidate}
-        availableLabel="$50.00 available" availableBaseUnits="50000000"
-        prepareMoneyAction={async () => prepared()}
-        executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
-        onClose={() => {}}
-      />,
+      <SavingsDialogFixtureProvider value={{ motion: "reduced" }}>
+        <SavingsMoneyDialog
+          open mode="deposit" session={session} candidate={candidate}
+          availableLabel="$50.00 available" availableBaseUnits="50000000"
+          prepareMoneyAction={async () => prepared()}
+          executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
+          onClose={() => {}}
+        />
+      </SavingsDialogFixtureProvider>,
     );
 
     const tickers = view.container.ownerDocument.querySelectorAll("[data-slot='money-ticker']");
@@ -236,8 +256,8 @@ describe("SavingsMoneyDialog", () => {
     });
     const ownerBRequests: unknown[] = [];
     const view = render(
-      <SavingsMoneyDialog
-        open mode="deposit" motion="reduced" session={session} candidate={candidate}
+      <ReducedSavingsMoneyDialog
+        open mode="deposit" session={session} candidate={candidate}
         prepareMoneyAction={() => ownerAPreparation}
         executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
         onClose={() => {}}
@@ -249,8 +269,8 @@ describe("SavingsMoneyDialog", () => {
     await page().findByText("Waiting for your wallet…");
 
     view.rerender(
-      <SavingsMoneyDialog
-        open mode="deposit" motion="reduced" session={sessionB} candidate={candidate}
+      <ReducedSavingsMoneyDialog
+        open mode="deposit" session={sessionB} candidate={candidate}
         prepareMoneyAction={async (_kind, input) => {
           ownerBRequests.push(input);
           return prepared("savings-deposit", "1000000", sessionB);
@@ -285,8 +305,8 @@ describe("SavingsMoneyDialog", () => {
   test("clears a completed owner-A review and amount before owner B can confirm", async () => {
     const ownerBRequests: unknown[] = [];
     const view = render(
-      <SavingsMoneyDialog
-        open mode="deposit" motion="reduced" session={session} candidate={candidate}
+      <ReducedSavingsMoneyDialog
+        open mode="deposit" session={session} candidate={candidate}
         prepareMoneyAction={async () => prepared("savings-deposit", "1234567", session)}
         executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
         onClose={() => {}}
@@ -299,8 +319,8 @@ describe("SavingsMoneyDialog", () => {
     expect(document.body.textContent).toContain("Base (8453)");
 
     view.rerender(
-      <SavingsMoneyDialog
-        open mode="deposit" motion="reduced" session={sessionB} candidate={candidate}
+      <ReducedSavingsMoneyDialog
+        open mode="deposit" session={sessionB} candidate={candidate}
         prepareMoneyAction={async (_kind, input) => {
           ownerBRequests.push(input);
           return prepared("savings-deposit", "2000000", sessionB);
@@ -328,8 +348,8 @@ describe("SavingsMoneyDialog", () => {
 
   test("does not restore a completed review after sign-out and sign-in", async () => {
     const dialog = (
-      <SavingsMoneyDialog
-        open mode="deposit" motion="reduced" session={session} candidate={candidate}
+      <ReducedSavingsMoneyDialog
+        open mode="deposit" session={session} candidate={candidate}
         prepareMoneyAction={async () => prepared()}
         executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
         onClose={() => {}}
@@ -348,6 +368,26 @@ describe("SavingsMoneyDialog", () => {
     expect(page().queryByRole("button", { name: "Deposit $1.00" })).toBeNull();
     expect(document.body.textContent).not.toContain("Base (8453)");
     expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  test("a failing onConfirmed does not relabel the dispatched action", async () => {
+    let closes = 0;
+    render(
+      <SavingsMoneyDialog
+        open mode="deposit" session={session} candidate={candidate}
+        prepareMoneyAction={async () => prepared()}
+        executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
+        onConfirmed={async () => { throw new Error("refresh failed"); }}
+        onClose={() => { closes += 1; }}
+      />,
+    );
+
+    typeAmount("1");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
+
+    await waitFor(() => expect(closes).toBe(1));
+    expect(page().queryByRole("alert")).toBeNull();
   });
 
   test("retries the same prepared action after an ambiguous dispatch", async () => {

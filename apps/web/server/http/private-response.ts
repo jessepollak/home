@@ -8,7 +8,6 @@ const privateResponseHeaders = {
   Vary: `Authorization, ${ACCOUNT_PROVIDER_HEADER}`,
 } as const;
 
-/** One private JSON response contract for authenticated API handlers. */
 export function privateJson(body: unknown, status: number): Response {
   return Response.json(body, { status, headers: privateResponseHeaders });
 }

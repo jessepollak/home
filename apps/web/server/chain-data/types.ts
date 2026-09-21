@@ -49,16 +49,13 @@ export type ChainDataSource = {
 export type BaseErc20TransferPage = {
   transfers: BaseErc20Transfer[];
   nextCursor: string | null;
-  /** Server-internal count of valid source rows omitted as unclassified. */
   droppedRowCount?: number;
   source: ChainDataSource;
 };
 
 export type ListBaseErc20TransfersInput = {
-  /** Must come from the authenticated session's verified smart account. */
   verifiedWalletAddress: string;
   assetIds: readonly string[];
-  /** Include wallet-scoped ERC-20 transfers whose contracts are not in assets. */
   includeUnknownAssets?: boolean;
   from: string;
   to: string;
@@ -81,7 +78,6 @@ export type CdpSqlMetadata = {
   rowCount: number;
 };
 
-/** Normalized after `parseCdpSqlResponseEnvelope`. Live CDP fields are optional. */
 export type CdpSqlResponse = {
   result: unknown[];
   schema?: { columns: CdpSqlColumn[] };

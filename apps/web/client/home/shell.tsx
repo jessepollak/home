@@ -74,8 +74,6 @@ type HomeShellProps = HomeExperienceProps & {
   isBalancesRestoreArmed: () => boolean;
 };
 
-// Startup telemetry keeps closed low-cardinality route labels: dynamic L2
-// paths normalize to their canonical L1 page.
 const panelStartupRoutes: Record<ShellPanelId, Exclude<HomeStartupRoute, "/">> = {
   home: "/home",
   balances: "/balances",
@@ -117,10 +115,6 @@ export function HomeShell({
 }: HomeShellProps) {
   const router = useRouter();
   const account = useAccountWallet();
-  // The pathname is authoritative for page state and the query string only ever
-  // carries ephemeral overlays. The server page passes its validated canonical
-  // location so SSR and the first hydrated render agree; the client falls back
-  // to parsing window.location for mounts without an explicit location (landing).
   const [initialUrlIntent] = useState(() => readHomeInboundPanelState(
     initialLocation ?? (typeof window === "undefined"
       ? parseShellLocation("/")
@@ -156,10 +150,6 @@ export function HomeShell({
   const panelStageRef = useRef<HTMLElement>(null);
   const explicitLogoutRef = useRef(false);
   const landingRedirectedRef = useRef(false);
-  // A cold load that lands directly on /balances/<group> must anchor the
-  // requested group exactly like the in-app More action: navigationRequest is
-  // still 0 and balances paint only after the session verifies, so the armed
-  // group is anchored once the target section first renders (#460).
   const coldGroupAnchorRef = useRef<MoneyGroupId | null>(
     routeMode === "dashboard" && initialPanel === balancesPanelId
       ? initialUrlIntent.location.group
@@ -196,7 +186,6 @@ export function HomeShell({
   useEffect(() => () => cancelPendingShellScroll(), [cancelPendingShellScroll]);
 
   useEffect(() => {
-    // Dynamic L2 paths normalize to their low-cardinality L1 page label.
     startHomePerformance(routeMode === "landing" ? "/" : panelStartupRoutes[initialPanel]);
     const frame = window.requestAnimationFrame(() => markHomePerformance("shell:paint"));
     return () => window.cancelAnimationFrame(frame);
@@ -271,8 +260,6 @@ export function HomeShell({
     setUrlIntent(intent);
   }, []);
 
-  // Overlays commit on top of the current canonical pathname; the pathname is
-  // never changed by overlay state.
   const currentUrlIntent = useCallback(() => readHomeInboundPanelState(
     parseShellLocation(window.location.pathname),
     new URLSearchParams(window.location.search),
@@ -319,10 +306,7 @@ export function HomeShell({
 
   useEffect(() => {
     const onPopState = () => {
-      // The pathname is authoritative: reparsed on every history entry.
       const intent = currentUrlIntent();
-      // Balances restores only proven asset/account returns; ordinary history returns reset it.
-      // History navigation owns its own scroll behavior: never fire the cold-load group anchor.
       coldGroupAnchorRef.current = null;
       pendingHistoryScrollRestoreRef.current = intent.panel === balancesPanelId
         ? null
@@ -367,9 +351,6 @@ export function HomeShell({
     const intent = pendingUrlIntentRef.current;
     applyUrlState(intent);
     setSettingsOpenedInApp(false);
-    // The server-selected panel already painted this destination on first render
-    // (initialPanel); reapplying the same panel must not refocus the panel stage
-    // or reset its scroll (#460). Only a panel change is a navigation event.
     if (intent.panel !== activeNavigation) {
       setNavigationRequest((request) => request + 1);
     }
@@ -394,8 +375,6 @@ export function HomeShell({
       : loadingAssetBalances,
     [assetBalances, mayPaintBalances, presentAssetBalances, showAllAssetBalances],
   );
-  // The owning experience threads the live revalidation state; presentation
-  // fixtures that carry it directly keep working when the prop is absent.
   const balancesRevalidating = balancesRevalidatingProp ?? paintedAssetBalances.revalidating === true;
   useEffect(() => {
     if (mayPaintBalances && paintedAssetBalances.status === "ready") {
@@ -421,9 +400,6 @@ export function HomeShell({
   );
   const previousNavigationRef = useRef(activeNavigation);
 
-  // This is the sole scope boundary for Balances scroll provenance. Preference
-  // hydration settles before the first baseline so a persisted region is not
-  // mistaken for an explicit region switch.
   useEffect(() => {
     if (isSignedOut) {
       if (signedOutBoundaryClearedRef.current) return;
@@ -472,10 +448,6 @@ export function HomeShell({
     urlIntent.location.group,
   ]);
 
-  // A provisional cached paint may anchor but stays armed until the session is
-  // server-verified; once verified, an in-flight revalidation retains it and
-  // the first settled pass consumes it (#462). Scope precedes this effect so a
-  // canonical group re-armed for a new scope is observed in the same commit.
   useEffect(() => {
     const group = coldGroupAnchorRef.current;
     if (!group || activeNavigation !== balancesPanelId) {
@@ -573,7 +545,6 @@ export function HomeShell({
       !landingRedirectedRef.current
     ) {
       landingRedirectedRef.current = true;
-      // Preserve only allowlisted ephemeral overlay intent; /?account=signin stays root.
       router.replace(
         homeHrefWithOverlays(new URLSearchParams(window.location.search)),
         { scroll: false },
@@ -707,7 +678,6 @@ export function HomeShell({
     ? "Back"
     : investChrome?.nested?.backLabel ?? "Back";
   function leaveHomeNestedPanel() {
-    // Home is a forward visit from Balances so browser Back can reopen a fresh Balances panel.
     if (activeNavigation === balancesPanelId || !isClientHistoryEntry()) {
       navigateTo("home");
       return;

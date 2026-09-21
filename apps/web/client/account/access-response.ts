@@ -66,17 +66,12 @@ export async function redirectOnAccessRequired(
   } catch {
     pathname = "/";
   }
-  // The access surface is public and deliberately has no Home account
-  // lifecycle. If an obsolete client still makes a protected request there,
-  // consume the denial without replacing the original `next` destination.
   if (pathname === "/access" || pathname.startsWith("/access/")) return true;
 
   const current = parseSafeAccessDestination(browserCurrent);
   const query = new URLSearchParams({ next: current });
   const destination = `/access?${query.toString()}`;
   if (navigation.navigate) {
-    // Injected navigation represents a soft lifecycle: concurrent denials share
-    // one transition, then a later expiry may legitimately navigate again.
     await navigateOnce({
       target: navigation.navigate,
       destination,
@@ -84,10 +79,6 @@ export async function redirectOnAccessRequired(
       releaseAfterNavigation: true,
     });
   } else if (typeof window !== "undefined") {
-    // Access expiry crosses the proxy boundary and must replace client state with
-    // a full document request rather than becoming an in-app auth transition.
-    // Keep that hard navigation one-shot because a successful assign unloads this
-    // module; if it does not unload, repeated protected calls must not loop.
     await navigateOnce({
       target: browserNavigationTarget,
       destination,

@@ -1,5 +1,3 @@
-// Route contract.
-// GET /api/funding/providers?region=US&direction=onramp|offramp
 
 export const FUNDING_PROVIDERS_VERSION = 3 as const;
 

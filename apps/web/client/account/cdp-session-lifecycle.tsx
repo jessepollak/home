@@ -415,8 +415,6 @@ export function AccountWalletSessionOwner({
       options?.onNavigationSafe?.();
     };
 
-    // This boundary is intentionally synchronous: no old owner query or
-    // authenticated transport can survive until either remote cleanup starts.
     fence.advance();
     clearPrivate();
     setStatus("signing-out");

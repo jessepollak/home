@@ -17,9 +17,6 @@ export function readRenderSession(
   env: Record<string, string | undefined> = process.env,
   now: Date = new Date(),
 ): RenderSession | null {
-  // Next's Map-backed cookies() store collapses duplicate names to the last value,
-  // so duplicate rejection mainly protects structural test stores; either way,
-  // session authority still requires a valid HMAC.
   const nativeCookies = cookies.getAll(HOME_SESSION_COOKIE);
   if (nativeCookies.length === 1 && nativeCookies[0]?.value) {
     const native = readNativeBaseSessionToken(

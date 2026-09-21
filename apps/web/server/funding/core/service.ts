@@ -76,10 +76,6 @@ export class FundingCore {
         !directionAvailable(provider, direction, sandbox)
       ) return [];
       if (!environmentAvailable(directional.env, this.env)) {
-        // The binding matches the request but stays inert because a declared
-        // variable is unset. Without this event a local operator sees an empty
-        // Add money list and nothing in the logs. Names and values stay out
-        // of the event.
         this.deps.logProviderDiscoveryFailure?.({
           providerId: provider.manifest.id,
           reason: "configuration",
@@ -231,8 +227,6 @@ export class FundingCore {
       const ambiguous = await this.customerStore.markDispatchAmbiguous(customer.id, claimed.version, this.now().toISOString());
       return { customer: publicCustomer(ambiguous ?? claimed) };
     }
-    // The URL may contain a bearer token. It is returned only by this explicit
-    // POST and is deliberately absent from the durable/public customer record.
     return { customer: publicCustomer(claimed), handoff: { url: result.providerUrl } };
   }
 
@@ -381,8 +375,6 @@ export class FundingCore {
         provider.manifest.onramp?.redirectOrigins,
       )
     ) {
-      // The create reached the provider, so a contradictory echo is an ambiguous
-      // dispatch, never a safe rejection that the UI may repeat.
       const ambiguous = await this.deps.store.markDispatchAmbiguous(id, reserved.order.version, this.now().toISOString());
       this.logTransition(ambiguous, "ORDER_AMBIGUOUS", "unavailable", "/api/funding/orders", dispatchStartedAt);
       return publicOrder(ambiguous);
@@ -424,8 +416,6 @@ export class FundingCore {
           }
         } catch (error) {
           if (!(error instanceof FundingProviderConfigurationError)) throw error;
-          // A webhook is only a trigger. Invalid binding configuration cannot
-          // turn an unverified request into an order refresh.
         }
       }
       if (providerOrderId) break;
@@ -498,8 +488,6 @@ export class FundingCore {
       expectedVersion: order.version,
       updatedAt: this.now().toISOString(),
     });
-    // A concurrent or terminal transition won the compare-and-swap. This stale
-    // observation must not claim a receipt or overwrite the winning state.
     if (!updated) return await this.deps.store.getOwned(order.id, order.owner) ?? order;
     const refreshRoute = force ? "/api/funding/webhooks/:provider" : "/api/funding/orders/:id";
     if (updated.state !== order.state) this.logObservedTransition(updated, refreshRoute, refreshStartedAt);
@@ -634,8 +622,6 @@ function parseQuoteRequest(value: unknown): { providerId: string; region: string
 function parseVerificationRequest(value: unknown): { providerId: string; region: string; email: string } | null {
   if (!record(value) || Object.keys(value).some((key) => !["providerId", "region", "email"].includes(key)) || typeof value.providerId !== "string" || typeof value.region !== "string" || typeof value.email !== "string") return null;
   const email = value.email.trim();
-  // 254 is the RFC 5321 address limit the provider clients enforce; rejecting
-  // it here keeps an uncreatable address from reserving a customer row first.
   return email.length > 3 && email.length <= 254 && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) ? { providerId: value.providerId, region: value.region, email } : null;
 }
 function publicCustomer(customer: FundingProviderCustomer) {
@@ -653,9 +639,6 @@ function clientIpFromHeaders(headers: Headers | undefined): string | undefined {
   const candidate = forwarded || headers?.get("x-real-ip")?.trim();
   return candidate && /^[0-9a-f.:]{2,45}$/i.test(candidate) ? candidate : undefined;
 }
-// Providers that need the end user's public IP reject loopback and private
-// ranges. A local sandbox run has only those, so sandbox mode alone may
-// substitute FUNDING_SANDBOX_CLIENT_IP; production never reads it.
 export function resolveClientIp(headers: Headers | undefined, env: Environment, sandbox: boolean): string | undefined {
   const observed = clientIpFromHeaders(headers);
   if (!sandbox) return observed;

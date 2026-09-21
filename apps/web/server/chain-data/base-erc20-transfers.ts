@@ -27,7 +27,6 @@ const MAX_CACHE_AGE_MS = 15 * 60 * 1000;
 const DEFAULT_STALE_AFTER_MS = 60 * 1000;
 const TRANSFER_SIGNATURE = "Transfer(address,address,uint256)";
 const MAX_LOG_ID_LENGTH = 256;
-// Includes UTF-8, JSON escaping, and base64 expansion of bounded log IDs.
 const MAX_ENCODED_CURSOR_LENGTH = 4096;
 
 export type BaseErc20TransferHistoryOptions = {
@@ -85,21 +84,6 @@ export function buildBaseErc20TransferQuery(
     ? `\n  AND ${buildCursorPredicate(request.cursor)}`
     : "";
 
-  // Re-org safety is intentional: action is aggregated for every stable log_id,
-  // and only net-active logs are paginated. Filtering action = 'added' would
-  // leave removed logs in history.
-  //
-  // CoinbaSeQL accepts the decoded Transfer parameter shape used here. Keep
-  // token identity exact by grouping and paging with the emitting contract;
-  // do not aggregate raw topics or derive parameter names in SQL because those
-  // shapes are rejected by the upstream query validator.
-  //
-  // CoinbaSeQL's published selectStatement is GROUP BY then optional ORDER BY /
-  // LIMIT — no HAVING. #46 nested ORDER BY … LIMIT after HAVING; #73 removed
-  // that inner limit but left HAVING, and prod /api/activity stayed 502
-  // ACTIVITY_UNAVAILABLE for healthy empty sessions (#70). Filter net action
-  // in the outer WHERE (the documented subquery pattern) and page with the
-  // outer LIMIT only.
   const sql = `SELECT
   log_id,
   toString(block_number_numeric) AS block_number,

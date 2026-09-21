@@ -262,9 +262,6 @@ function parseEnvelope(value: unknown, expectedId?: number): RpcSuccess {
   if (!isRecord(value) || value.jsonrpc !== "2.0") {
     throw new BaseRpcError("Base RPC returned an invalid response envelope.");
   }
-  // JSON-RPC error envelopes may carry `id: null` (parse/batch errors, some
-  // proxies); surface them as RPC errors with their code before the id check so
-  // callers can still recognise rate limits.
   if ("error" in value) {
     const error = isRecord(value.error) ? value.error : null;
     throw new BaseRpcError(rpcErrorMessage(error), {

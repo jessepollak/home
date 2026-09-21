@@ -10,7 +10,6 @@ import styles from "./currency-mark.module.css";
 type CurrencyMarkProps = {
   currency?: string | null;
   symbol?: string | null;
-  /** Resolved asset image. Wins over a cash flag. Not a shipped SVG mark. */
   src?: string | null;
   pending?: boolean;
   size?: "default" | "sm";
@@ -88,8 +87,6 @@ function CurrencyMarkSlot({
   return (
     <span
       className={`${styles.mark} ${showShimmer
-        // Owned pulse animation; the legacy global `.shimmer` CSS was removed
-        // (82cc4fba), so the old class name had no effect (#460).
         ? "animate-pulse motion-reduce:animate-none"
         : ""}`}
       data-mark={showShimmer ? "shimmer" : readyKind}
@@ -100,7 +97,6 @@ function CurrencyMarkSlot({
     >
       <span className={styles.inner} data-mark-inner="">
         {showImage && src ? (
-          // Token metadata URLs and local flag SVGs are not in the Next allowlist.
           // oxlint-disable-next-line nextjs/no-img-element -- Provider icon URLs are remote runtime data, so next/image cannot statically optimize them.
           <img
             ref={imageRef}
@@ -123,7 +119,6 @@ function CurrencyMarkSlot({
   );
 }
 
-/** Designed ETH diamond on the Ethereum purple disc. Original geometry; not a flag. */
 function EthMark() {
   return (
     <svg className={styles.eth} viewBox="0 0 32 32" aria-hidden="true">

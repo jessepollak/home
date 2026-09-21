@@ -158,7 +158,6 @@ export function useAuthenticatedTransport({
         try {
           details = responseErrorDetails(await response.json());
         } catch {
-          // Fixed-endpoint callers only need the bounded status/code seam.
         }
         throwIfDeploymentExpired(response, skewHeaders, details.code);
         const unavailable = new Error("Authenticated resource is unavailable.");
@@ -235,7 +234,6 @@ export function useAuthenticatedTransport({
         try {
           details = responseErrorDetails(await response.json());
         } catch {
-          // Money-action callers only need the bounded status/code seam.
         }
         throwIfDeploymentExpired(response, skewHeaders, details.code);
         const failure = new TransferExecutionError(

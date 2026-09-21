@@ -81,7 +81,6 @@ export function createClientPerformanceHandler(dependencies?: {
     try {
       log(report);
     } catch {
-      // Reporting cannot change the endpoint or application outcome.
     }
     return emptyResponse(204);
   };
@@ -95,7 +94,6 @@ function cancelBody(request: Request): void {
   try {
     if (request.body && !request.body.locked) void request.body.cancel().catch(() => undefined);
   } catch {
-    // Reject paths do not depend on transport cleanup succeeding.
   }
 }
 

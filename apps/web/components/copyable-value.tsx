@@ -9,34 +9,17 @@ type CopyStatus = "idle" | "copied" | "unavailable" | "denied";
 
 type CopyableValueProps = {
   value: string;
-  /** Condensed label shown in the control. Defaults to the full value. */
   display?: string;
-  /**
-   * `inline` (default) is a plain text control, `full` is a full-width control
-   * with a comfortable hit target, and `compact` is the same full-width control
-   * without the inner vertical padding.
-   */
   presentation?: "inline" | "full" | "compact";
   className?: string;
   copiedLabel?: string;
   copyLabelPrefix?: string;
-  /** Noun used in the accessible fallback label and error copy. */
   valueKind?: string;
   fallbackLabel?: string;
-  /** Extra identity used to clear a stale confirmation when the owner changes. */
   resetKey?: string;
   copiedResetMs?: number;
 };
 
-/**
- * Shared tap-to-copy primitive.
- *
- * Copies the full `value` even when `display` is condensed (an address or a
- * transaction id). "Copied" is shown only after a successful write; denied or
- * missing clipboard access exposes the selectable full value plus a truthful
- * error. The confirmation is announced politely and clears on a timer or when
- * the value / owner changes.
- */
 export function CopyableValue(props: CopyableValueProps) {
   const { value, resetKey } = props;
   return (

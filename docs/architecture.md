@@ -45,7 +45,7 @@ flowchart LR
 
 An optional, replaceable pre-release deployment-access gate runs before these boundaries. Its signed `home-access` cookie is independent of Home customer identity and future administrator authorization; it creates no user, wallet, staff, support, or configuration authority. Public machine routes remain an explicit path allowlist. Future administration composes deployment access when enabled, a verified Home session, then separate administrator authorization.
 
-The API validates the session, resolves the one smart account the caller may act for, and invokes a seam. Scope is the verified subject, its smart account, chain 8453, and the declared provider; nothing in a request body or query widens it. It never receives keys or unrestricted signing authority; the user signs in the browser. Private responses are `Cache-Control: private, no-store`.
+The API validates the session, resolves the one smart account the caller may act for, and invokes a seam. Scope is the verified subject, its smart account, chain 8453, and the declared provider; nothing in a request body or query widens it. It never receives keys or unrestricted signing authority; the user signs in the browser. Private responses are `Cache-Control: private, no-store`. Route ownership is expressed by `shared/<feature>/contract*.ts` naming and the handler import, not by file headers.
 
 ## Core model
 
@@ -100,7 +100,9 @@ Balances are a read pipeline, not a flow: enumerate (CDP) ∥ read (pinned regis
 
 Two cache layers, one source. The device paints first from a persisted, owner-scoped TanStack cache (every row the server sent, stored whole; cleared on every owner-generation bump) — before `session:verified`, and calls nothing before it; the server answers from the snapshot row and global short-TTL price caches; the chain and providers are the source. The device revalidates after its own confirmed action, on focus, on mount past `staleTime`, and on a visible-tab interval; the server re-observes on events and the backstop. No layer fabricates a quantity the layer behind it did not produce.
 
-One shell stays mounted; flows are shallow-routed and URL-addressable through one inbound allowlist. One query client, owner-prefixed keys, one owner fence ([actions.md](actions.md#owner-fence)). One row component and one formatting module render every amount; features select from shared snapshots and never re-query what a selector gives them. Send and Save use the snapshot for display maxima, including stale maxima labelled with their age; cached quantities never authorize execution (principle 2). Low-value and unpriced discovered rows are hidden by default behind a per-device "show all" ([balances.md](balances.md) §9; not yet built).
+One shell stays mounted; flows are shallow-routed and URL-addressable through one inbound allowlist. The catch-all shell owns `/home`, `/balances[/cash|investments]`, `/activity`, `/save`, `/borrow`, `/invest[/<category>|/<assetId>]`, and `/fund`; invalid paths fall back through the shared routing contract. Invest URLs stay flat, while the client retains local category context for back/forward navigation. The shell is also the sole scope boundary for Balances scroll provenance, after preference hydration and before the first balance anchor.
+
+One query client, owner-prefixed keys, one owner fence ([actions.md](actions.md#owner-fence)). One row component and one formatting module render every amount; features select from shared snapshots and never re-query what a selector gives them. Send and Save use the snapshot for display maxima, including stale maxima labelled with their age; cached quantities never authorize execution (principle 2). Low-value and unpriced discovered rows are hidden by default behind a per-device "show all" ([balances.md](balances.md) §9; not yet built).
 
 ## Quality bar
 
@@ -119,6 +121,10 @@ A fiat or card ledger, KYC document storage, custom contracts, multichain routin
 - Provider outage: the provider's error is shown; balances show the last observation marked stale with its age.
 - Missed webhook: an active client sees an external transfer within the 120 s backstop plus CDP index lag; an idle client sees it on return.
 - Action failure modes: [actions.md](actions.md#failure-modes-we-accept).
+
+## Comment policy
+
+The enforced scope is non-test, non-story TypeScript and TSX under the five product layers: `app`, `client`, `components`, `server`, and `shared`. The only exceptions are `oxlint-disable*` directives with a `-- reason`, triple-slash references, and third-party licence or notice headers. When prose exposes useful information, either delete it because the code is already clear, assert the behavior in a test, encode the invariant in an assertion or type, enforce the pattern with lint, or move durable operational and architectural context into `docs/`. Applied SQL migrations are excluded by design because migration immutability wins over this source policy; CSS comments are tracked separately in [#713](https://github.com/jessepollak/home/issues/713).
 
 ## Test policy
 

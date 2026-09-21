@@ -47,6 +47,8 @@ All selections are confirmed product defaults. “Verification pending” means 
 
 ## Implementation of confirmed defaults
 
+Provider-supplied non-ISO codes such as USDC, IDRX, and wARS render as suffix labels rather than being passed through ISO currency formatting.
+
 These selections establish product defaults for implementation; they do not assert that providers are integrated or automatically enable live routes. Bind confirmed defaults to Base chain ID and verified contract/decimals, then test the exact funding route. No issuer changes happen silently after confirmation.
 
 Suggested first demo candidates: USD/USDC, BRL/wBRL and IDR/IDRX. EUR/EURC is the simpler fallback if either local funding integration is not ready. This balances the local-money story with the existing CDP dollar flow; the choice of demo regions remains separate from approving the full mapping.

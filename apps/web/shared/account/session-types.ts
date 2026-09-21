@@ -15,7 +15,6 @@ export type VerifiedAccountSession = {
   accountProvider: AccountProvider;
 };
 
-/** HMAC-verified request identity used only to select signed local UI data. */
 export type AccountRenderSeed = {
   session: VerifiedAccountSession;
   source: "home-session" | "cdp-hint";

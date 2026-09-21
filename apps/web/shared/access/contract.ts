@@ -1,6 +1,3 @@
-// Route contract.
-// POST /api/access
-// POST /api/access/logout
 
 export const ACCESS_CONTRACT_VERSION = 1 as const;
 export const ACCESS_COOKIE_NAME = "home-access";

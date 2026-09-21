@@ -4,6 +4,7 @@ import { afterEach, describe, expect, jest, test } from "bun:test";
 import { act, cleanup, render } from "@testing-library/react";
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
 import type { SavingsPortfolioSummary } from "./portfolio-summary";
+import { estimateSavingsGrowthBaseUnits } from "./estimated-growth";
 import { createSavingsGrowthAnchor, useEstimatedSavingsGrowth, type SavingsGrowthAnchor, type SavingsGrowthAuthority } from "./use-estimated-growth";
 
 let hidden = false;
@@ -85,6 +86,24 @@ describe("Save estimated-growth owner", () => {
     void act(() => document.dispatchEvent(new Event("visibilitychange")));
     expect(now).toHaveBeenCalledTimes(1);
     expect(view.container.textContent).toBe("1000000000000000000");
+  });
+
+  test("recomputes every displayed estimate from the authoritative base units", () => {
+    jest.useFakeTimers();
+    let wall = 2_000_000_060_000;
+    const value = anchor("authoritative", BigInt("1000000000000000000"), wall - 60_000);
+    const view = render(<Harness value={value} now={() => wall} />);
+
+    void act(() => jest.advanceTimersByTime(250));
+    expect(view.container.textContent).toBe(
+      estimateSavingsGrowthBaseUnits(value.estimate!, wall).toString(),
+    );
+
+    wall += 60_000;
+    void act(() => jest.advanceTimersByTime(250));
+    expect(view.container.textContent).toBe(
+      estimateSavingsGrowthBaseUnits(value.estimate!, wall).toString(),
+    );
   });
 
   test("reconciles higher and lower identities synchronously without a stale frame", () => {

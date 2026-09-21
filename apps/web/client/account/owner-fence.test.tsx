@@ -357,6 +357,38 @@ describe("owner generation fence", () => {
     expect(signOutCalls).toBe(1);
   });
 
+  test("advances the owner fence before sign-out cleanup settles", async () => {
+    let finishSignOut!: () => void;
+    const signOutPending = new Promise<void>((resolve) => { finishSignOut = resolve; });
+    const activeSession = session("cdp-embedded");
+    const activeSdk = sdk({
+      provisionalSession: activeSession,
+      signOut: () => signOutPending,
+    });
+    render(
+      <AccountWalletSessionOwner
+        sdk={activeSdk}
+        sessionFetch={async (input: RequestInfo | URL) => String(input) === "/api/actions/prepare"
+          ? Response.json(prepared(activeSession))
+          : Response.json(activeSession)}
+      >
+        <ClientProbe />
+      </AccountWalletSessionOwner>,
+    );
+    await waitFor(() => expect(currentClient().status).toBe("verified"));
+    const client = currentClient();
+    const action = await client.prepareMoneyAction("send", { amountBaseUnits: "1000000" });
+
+    let signOutPromise!: Promise<void>;
+    act(() => { signOutPromise = client.signOut(); });
+    await expect(client.executeMoneyAction(action)).rejects.toMatchObject({
+      reason: "stale-session",
+    });
+
+    finishSignOut();
+    await act(async () => { await signOutPromise; });
+  });
+
   test("clears the CDP render hint synchronously with private session state", async () => {
     let finishSignOut!: () => void;
     const signOutPending = new Promise<void>((resolve) => { finishSignOut = resolve; });

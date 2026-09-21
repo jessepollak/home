@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, jest, test } from "bun:test";
 import type { ActionRow } from "./store";
 import { createActionHandleResolver, type HandleResolution } from "./reconcile";
 
@@ -37,6 +37,10 @@ function rpcResult(handle: string, overrides: Record<string, unknown> = {}): Res
     },
   });
 }
+
+afterEach(() => {
+  jest.useRealTimers();
+});
 
 function fixtureFetch(response: (handle: string) => Response | Promise<Response>) {
   const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
@@ -141,6 +145,28 @@ describe("Base Account handle reconciliation", () => {
     expect(calls).toHaveLength(2);
   });
 
+  test("aborts at the default timeout before the handler deadline", async () => {
+    jest.useFakeTimers();
+    const signals: AbortSignal[] = [];
+    const fetchImpl = async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const signal = init?.signal;
+      if (!signal) throw new Error("missing signal");
+      signals.push(signal);
+      return await new Promise<Response>((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+      });
+    };
+    const resolver = createActionHandleResolver({ fetchImpl });
+    const resolution = resolver(action());
+    await Promise.resolve();
+
+    void jest.advanceTimersByTime(2_499);
+    expect(signals[0]?.aborted).toBe(false);
+    void jest.advanceTimersByTime(1);
+    expect(signals[0]?.aborted).toBe(true);
+    await expect(resolution).resolves.toEqual({ status: "unavailable" });
+  });
+
   test("opens the circuit when its own timeout aborts a hanging request", async () => {
     const currentTime = 1_000;
     let fetchCalls = 0;
@@ -195,6 +221,11 @@ describe("Base Account handle reconciliation", () => {
     aborted = false;
     expect(await resolver(action())).toEqual({ status: "pending" });
     expect(calls).toHaveLength(2);
+  });
+
+  test("a bad RPC override degrades to unavailable instead of failing at route load", async () => {
+    const resolver = createActionHandleResolver({ walletRpcUrl: "not a URL" });
+    await expect(resolver(action())).resolves.toEqual({ status: "unavailable" });
   });
 
   test("skips a legacy UUID handle without fetching", async () => {

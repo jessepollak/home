@@ -39,21 +39,12 @@ export type MoneyTickerProps = Omit<
   ComponentPropsWithoutRef<"span">,
   "children"
 > & {
-  /** An already-formatted display string. MoneyTicker never parses the amount as a number. */
   value: string;
-  /** Disables transitions while preserving the exact formatted value. */
   animated?: boolean;
-  /** Keeps the ticker's widest rendered character count to prevent balance rows from shifting. */
   reserveDigits?: boolean;
-  /** Aligns the formatted value within its reserved width. Start-aligned tickers never reserve width. */
   align?: "start" | "end";
 };
 
-/**
- * Splits an already-formatted value around its first and last ASCII digits.
- * Currency symbols, signs, grouping, decimal separators, spaces, and units stay
- * byte-for-byte anchored while only individual display digits are animated.
- */
 export function splitMoneyTickerValue(value: string): MoneyTickerParts {
   const characters = Array.from(value);
   const firstDigit = characters.findIndex(isAsciiDigit);
@@ -93,7 +84,6 @@ function useMoneyTickerReducedMotion(): boolean {
   return useContext(MoneyMotionContext) ?? systemPreference;
 }
 
-/** A scoped review/test override; production callers omit it and follow the system preference. */
 export function MoneyMotionProvider({
   reducedMotion,
   children,

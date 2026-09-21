@@ -1,5 +1,3 @@
-// Route contract.
-// POST /api/actions/prepare
 
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { ActionKind, PreparedMoneyAction } from "@/shared/money-actions/types";

@@ -5,7 +5,6 @@ export type BasenameProfile = {
 
 export const BASENAME_PROFILE_PATH = "/ens/resolve/";
 
-/** Public ENS/Basename resolver. Fail-open: any error returns null. */
 export function basenameProfileUrl(address: string): string {
   return `https://api.ensideas.com${BASENAME_PROFILE_PATH}${encodeURIComponent(address)}`;
 }

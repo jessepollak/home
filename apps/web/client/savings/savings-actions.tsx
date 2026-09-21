@@ -20,7 +20,6 @@ import {
   isPositiveDecimalAmount,
   useMoneyAssetPricing,
   type MoneyAmountChangeSource,
-  type MoneyAssetOption,
 } from "@/client/money-modal";
 import type {
   OperationResult,
@@ -38,25 +37,17 @@ import {
   type SavingsPreparedReview,
 } from "@/shared/savings/review";
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
+import { useSavingsDialogFixture } from "./savings-dialog-fixture";
 
 export type SavingsActionMode = "deposit" | "withdraw";
-export type SavingsDialogMotion = "system" | "reduced";
 
 export type SavingsMoneyDialogProps = {
   open: boolean;
   mode: SavingsActionMode;
   session: VerifiedAccountSession;
   candidate: MorphoVaultCandidate;
-  /** System preference in production; explicit reduced mode makes a deterministic review fixture. */
-  motion?: SavingsDialogMotion;
   availableLabel?: string;
   availableBaseUnits?: string | null;
-  /** Presentation overrides for deterministic design fixtures. A non-matching asset can be viewed but never submitted to the configured candidate route. */
-  assetId?: string;
-  assetLabel?: string;
-  assetDecimals?: number;
-  assetOptions?: ReadonlyArray<MoneyAssetOption>;
-  onAssetChange?: (assetId: string) => void;
   prepareMoneyAction: AccountWalletClient["prepareMoneyAction"];
   executeMoneyAction: AccountWalletClient["executeMoneyAction"];
   onClose: () => void;
@@ -76,20 +67,22 @@ function OwnerBoundSavingsMoneyDialog({
   mode,
   session,
   candidate,
-  motion = "system",
   availableLabel,
   availableBaseUnits,
-  assetId: selectedAssetId,
-  assetLabel: selectedAssetLabel,
-  assetDecimals: selectedAssetDecimals,
-  assetOptions,
-  onAssetChange,
   prepareMoneyAction,
   executeMoneyAction,
   onClose,
   onClosed,
   onConfirmed,
 }: SavingsMoneyDialogProps) {
+  const {
+    motion = "system",
+    assetId: selectedAssetId,
+    assetLabel: selectedAssetLabel,
+    assetDecimals: selectedAssetDecimals,
+    assetOptions,
+    onAssetChange,
+  } = useSavingsDialogFixture();
   const [amount, setAmount] = useState("");
   const [amountChangeSource, setAmountChangeSource] =
     useState<MoneyAmountChangeSource>("programmatic");
@@ -221,7 +214,6 @@ function OwnerBoundSavingsMoneyDialog({
       try {
         await onConfirmed?.(result);
       } catch {
-        // A parent refresh failure must not relabel a dispatched action.
       }
       reset();
       onClose();

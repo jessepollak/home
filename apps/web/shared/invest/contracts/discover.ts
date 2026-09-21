@@ -1,5 +1,3 @@
-// Route contract.
-// GET /api/invest/discover
 
 import { investAssets, type InvestAsset } from "@/config/invest-assets";
 import { assetKeyForErc20 } from "@/config/portfolio-assets";

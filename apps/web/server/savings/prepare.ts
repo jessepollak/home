@@ -332,8 +332,6 @@ async function createReviewMetadata(
         };
       }
     } catch {
-      // Discovery data is display-only. An unavailable rate must not replace
-      // the current onchain fee, limit, preview, or otherwise block preparation.
     }
   }
 

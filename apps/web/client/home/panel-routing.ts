@@ -50,11 +50,6 @@ export function useOptionalHomeShellRouting(): HomeShellRouting | null {
   return useContext(HomeShellRoutingContext);
 }
 
-/**
- * Combines the explicit page location (parsed from the authoritative canonical
- * pathname by the server page or by reparsing `window.location` on popstate)
- * with the allowlisted ephemeral overlay query state.
- */
 export function readHomeInboundPanelState(
   location: ShellLocation,
   search: URLSearchParams,

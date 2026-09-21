@@ -69,7 +69,6 @@ export function createHomeStartupRecorder(dependencies: RecorderDependencies) {
     try {
       void dependencies.send(report);
     } catch {
-      // Performance instrumentation never affects the application.
     }
     return report;
   };
@@ -78,9 +77,6 @@ export function createHomeStartupRecorder(dependencies: RecorderDependencies) {
     if (route === null || terminal || !marks.has("shell:paint") || !marks.has("session:verified")) {
       return null;
     }
-    // Every canonical shell route paints the same authenticated balances shell.
-    // Interactivity is useful when already observed, but it must not hold the
-    // startup report open after the visible authenticated shell is ready.
     if (route !== "/" && !marks.has("balances:painted")) return null;
     return finish("ready");
   };
@@ -135,7 +131,6 @@ export async function sendHomeStartupReport(report: HomeStartupReport): Promise<
       referrerPolicy: "no-referrer",
     });
   } catch {
-    // Delivery failure never affects startup.
   }
 }
 
@@ -150,7 +145,6 @@ export function startHomePerformance(route: HomeStartupRoute): void {
   try {
     recorder.start(route);
   } catch {
-    // Performance instrumentation never affects the application.
   }
 }
 
@@ -164,7 +158,6 @@ export function markHomePerformance(name: HomePerformanceMark): void {
     }
     recorder.mark(name);
   } catch {
-    // Performance instrumentation never affects the application.
   }
 }
 
@@ -172,7 +165,6 @@ export function markHomeStartupOutcome(outcome: "signed-out" | "unavailable"): v
   try {
     recorder.terminate(outcome);
   } catch {
-    // Performance instrumentation never affects the application.
   }
 }
 
@@ -180,6 +172,5 @@ export function recordHomeStartupCache(cache: HomeStartupCacheState): void {
   try {
     recorder.setCache(cache);
   } catch {
-    // Performance instrumentation never affects the application.
   }
 }

@@ -338,8 +338,6 @@ function normalizeBars(data: unknown): MarketPriceHistoryPoint[] {
     const time = new Date(timestampSeconds * 1_000);
     if (Number.isNaN(time.getTime())) throwMalformedBars();
 
-    // Codex documents close values as nullable Float entries. A null close has
-    // no point to expose, while every non-null close must be a valid price.
     if (bars.c[index] === null) continue;
     const value = readPositiveDecimal(bars.c[index]);
     if (!value) throwMalformedBars();

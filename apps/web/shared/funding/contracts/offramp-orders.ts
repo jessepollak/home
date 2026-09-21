@@ -1,5 +1,3 @@
-// Private route contract.
-// GET /api/funding/offramp/orders?region=US&inFlight=1[&providerId=peer]
 
 export const OFFRAMP_ORDERS_VERSION = 3 as const;
 

@@ -35,7 +35,6 @@ export function createCdpWebhookHandler(dependencies: {
     try {
       payload = JSON.parse(new TextDecoder().decode(raw)) as unknown;
     } catch {
-      // Authenticate against every stored secret before reporting a body error.
     }
 
     let records = await subscriptions();

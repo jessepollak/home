@@ -85,7 +85,6 @@
   --balance-cash: oklch(0.64 0.17 151);
   --balance-savings: oklch(0.62 0.2 255);
   --balance-investments: oklch(0.62 0.18 305);
-  /* Payout brand marks keep their brand colors in both themes. */
   --payout-cashapp: #00d64f; --payout-cashapp-foreground: #000000;
   --payout-zelle: #6d1ed4; --payout-zelle-foreground: #ffffff;
   --payout-monzo: #14233c; --payout-monzo-foreground: #ffffff;

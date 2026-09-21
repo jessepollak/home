@@ -1,5 +1,3 @@
-// Route contract.
-// GET /api/session
 
 import {
   BASE_CHAIN_ID,

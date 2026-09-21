@@ -18,6 +18,8 @@ Navigation reflects the server-cookie boundary. A CDP-only session can navigate 
 
 ## Security boundary
 
+Operation-status RPC requests mirror the identifying headers emitted by `@base-org/account` 2.5.10. Next's Map-backed `cookies()` store collapses duplicate names to the last value, so duplicate rejection primarily protects non-Next callers and future adapters.
+
 The Home-native Base Account flow:
 
 1. requests `POST /api/auth/base/nonce` before connecting. The request is address-independent and returns the complete five-minute challenge: a 48-character lowercase hexadecimal nonce, Base chain ID `8453`, current domain and origin URI, SIWE version `1`, `Sign in to Home.`, issue time, and expiration time;

@@ -10,8 +10,6 @@ export function requestOrigin(request: Request): URL | null {
       url.username ||
       url.password
     ) return null;
-    // Next.js dev rebuilds request.url from the bind address (127.0.0.1),
-    // not the Host the browser used; the SIWE domain must match the browser.
     const host = request.headers.get("host");
     if (host) return new URL(`${url.protocol}//${host}`);
     return new URL(url.origin);

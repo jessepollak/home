@@ -19,11 +19,6 @@ export function isValidSavingsGrowthApy(apy: ExactSavingsApy): boolean {
     apy.numerator <= BigInt(10) * apy.denominator;
 }
 
-/**
- * Applies a bounded binary64 compounding approximation only at the display
- * boundary. The authoritative amount and all final base-unit arithmetic remain
- * bigint throughout.
- */
 export function estimateSavingsGrowthBaseUnits(
   input: SavingsGrowthEstimate,
   nowMs: number,

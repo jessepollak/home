@@ -9,7 +9,6 @@ export type SqlQueryResult<T = Record<string, unknown>> = {
 
 export type SqlQueryOptions = {
   signal?: AbortSignal;
-  /** Server-enforced statement timeout; used only by bounded read paths. */
   timeoutMs?: number;
 };
 
@@ -108,8 +107,6 @@ export function createPostgresSqlExecutor(
       };
       pool = options.poolFactory?.(poolConfig) ?? new Pool(poolConfig);
       pool.on("error", (error) => {
-        // Idle clients can be reset between serverless invocations. Log only
-        // the SQLSTATE so the process survives without leaking connection details.
         console.warn("postgres idle client error", (error as { code?: string }).code ?? "unknown");
       });
     }
@@ -143,7 +140,6 @@ export function createPostgresSqlExecutor(
       try {
         await client.query("ROLLBACK");
       } catch {
-        // Keep the original error.
       }
       throw error;
     } finally {

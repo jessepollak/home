@@ -61,7 +61,6 @@ type Dependencies = {
   nowMs?: () => number;
   backstopMs?: number;
   log?: (event: ObservabilityEvent) => unknown;
-  /** Starts detached work immediately; the composition root may retain it with `after()`. */
   schedule?: (task: Promise<unknown> | (() => Promise<unknown>)) => void;
 };
 
@@ -77,7 +76,6 @@ type ObservedResult = {
 
 type ObservationDurations = ObservedResult["durationMs"];
 
-/** Persistent observation selection with per-instance, per-owner in-flight dedupe. */
 export function createBalancesService(dependencies: Dependencies = {}) {
   const store = dependencies.store ?? getBalanceSnapshotStore();
   const readUniverse = dependencies.readUniverse ?? getBalancesUniverse;
@@ -221,7 +219,6 @@ export function createBalancesService(dependencies: Dependencies = {}) {
       schedule(task);
     } catch {
       revalidating.delete(address);
-      // Scheduling failure never changes the cached response.
     }
   }
 
@@ -430,7 +427,6 @@ function emitBalancesRead(
       coverage,
     });
   } catch {
-    // Observability never changes balance reads.
   }
 }
 

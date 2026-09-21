@@ -83,7 +83,6 @@ export function createActivityTokenMetadataResolver(options: {
     try {
       codex = await codexLookup(unresolved);
     } catch {
-      // Metadata is optional. Continue to the read-only onchain fallback.
     }
 
     const rpcAddresses: `0x${string}`[] = [];

@@ -60,7 +60,6 @@ export function createHomeAuthRestoreRecorder(dependencies: RecorderDependencies
     try {
       void dependencies.send(report);
     } catch {
-      // Auth performance reporting never affects authentication.
     }
     return report;
   };
@@ -116,7 +115,6 @@ export async function sendHomeAuthReport(
       referrerPolicy: "no-referrer",
     });
   } catch {
-    // Delivery failure never affects authentication.
   }
 }
 
@@ -133,19 +131,16 @@ export function sendHomeAuthSignOut(report: Omit<HomeAuthSignOutReport, "version
   try {
     void sendHomeAuthReport({ version: 1, kind: "home-auth-phase", ...report });
   } catch {
-    // Auth performance reporting never affects authentication.
   }
 }
 
 export function startHomeAuthRestore(hint: HomeAuthHint): void {
   try {
     if (typeof window === "undefined") return;
-    // Canonical routes normalize to their L1 label; dynamic segments never leak.
     const route = normalizeHomeStartupRoute(window.location.pathname);
     if (!route) return;
     recorder.start(route, hint);
   } catch {
-    // Auth performance reporting never affects authentication.
   }
 }
 
@@ -153,7 +148,6 @@ export function markHomeAuthRestore(name: HomeAuthRestoreMark): void {
   try {
     recorder.mark(name);
   } catch {
-    // Auth performance reporting never affects authentication.
   }
 }
 
@@ -161,6 +155,5 @@ export function finishHomeAuthRestore(outcome: Exclude<HomeAuthOutcome, "timeout
   try {
     recorder.terminate(outcome);
   } catch {
-    // Auth performance reporting never affects authentication.
   }
 }

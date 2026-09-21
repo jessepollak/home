@@ -1,5 +1,3 @@
-// Route contract.
-// POST /api/auth/base/verify
 
 import {
   BASE_CHAIN_ID,
