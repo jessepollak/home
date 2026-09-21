@@ -3,6 +3,7 @@ import { homedir, tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { finalizeEvidence, summarizeEvidence, type MarkResult } from "./evidence";
 import { fixtureRoutes, requiresSignedInFixture } from "./fixtures";
+import { defaultOtpSender, gmailCredentialsPath, pollGmailOtp, readGmailCredentials, runGmailAuth, type GmailCredentials } from "./gmail";
 import {
   accountAddressFromDocument,
   accountPattern,
@@ -77,6 +78,18 @@ if (args[0] === "status") {
     console.log(`${surface.id}: ${state.armed ? "armed" : "disarmed"} (${state.reason}; ${state.cleanRuns}/${verifyPolicy.cleanRunsToArm} clean Rung 2 runs)`);
   }
   process.exit(0);
+}
+
+if (args[0] === "gmail-auth") {
+  try {
+    const path = gmailCredentialsPath(process.env);
+    await runGmailAuth(path);
+    console.log(`Gmail readonly authorization saved to ${path}.`);
+    process.exit(0);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : "Gmail authorization failed.");
+    process.exit(1);
+  }
 }
 
 if (args[0] === "arm") {
@@ -269,8 +282,12 @@ async function runLiveLogin(): Promise<never> {
       command("navigate", new URL("/?account=signin", baseUrl).toString());
     }
     command("find", "label", "Email address", "fill", "j@pollak.io", "--exact");
+    const submittedAt = Date.now();
     command("find", "role", "button", "click", "--name", "Continue with email", "--exact");
-    console.log("Complete the email OTP in the visible browser. Waiting up to 10 minutes…");
+    const credentials = await readGmailCredentials(gmailCredentialsPath(process.env)) as Required<GmailCredentials>;
+    const code = await pollGmailOtp(credentials, process.env.HOME_VERIFY_OTP_SENDER ?? defaultOtpSender, submittedAt);
+    secretCommand(`(()=>{const input=document.querySelector('input[aria-label="Verification code"],input[name="otp"]');if(!(input instanceof HTMLInputElement))throw new Error("Verification code field not found");const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value")?.set;setter?.call(input,${JSON.stringify(code)});input.dispatchEvent(new Event("input",{bubbles:true}));input.dispatchEvent(new Event("change",{bubbles:true}));return true})()`, "eval", "--stdin");
+    secretCommand("", "find", "role", "button", "click", "--name", "Verify and continue", "--exact");
     command("wait", "--fn", `Boolean(document.querySelector("[data-app-main-authenticated]"))`);
     command("navigate", new URL("/home?account=settings", baseUrl).toString());
     command("wait", "--text", "Show small balances");
@@ -300,6 +317,8 @@ const surfaceId = args[0];
 if (!surfaceId || surfaceId.startsWith("-")) {
   console.error("Usage: bun run verify <surface-id> [--base-url <url>] [--out <dir>] [--allow-console] [--allow-domain <host>]");
   console.error("       bun run verify live-login --base-url <url> [--allow-domain <host>]");
+  console.error("       bun run verify gmail-auth");
+  console.error("       bun run verify status | arm <surface> --by <GitHub-comment-url>");
   console.error("       bun run verify <surface-id> --live --base-url <url> --out <dir> [--recipient <0x-address|jesse.base.eth>] [--allow-domain <host>] [--allow-confirm --account <0x…> --max-usd <n> [--max-usd-total <n>]]");
   console.error("       bun run verify --list");
   process.exit(2);
