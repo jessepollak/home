@@ -29,7 +29,6 @@ export function assembleBalancesSnapshot({
   stale?: boolean;
 }): BalancesSnapshot {
   const quoteCurrency = presentationRegions[region].currency.code;
-  const registry = holdings.filter((holding) => holding.source === "registry");
   let total: BalancesSnapshot["total"];
 
   if (quoteCurrency === null) {
@@ -39,16 +38,19 @@ export function assembleBalancesSnapshot({
       currency: null,
     };
   } else {
-    const incomplete = registry.some(
-      (holding) => holding.value.status !== "priced",
+    const knownPositive = holdings.filter(
+      (holding) => holding.balance.status === "ready" &&
+        BigInt(holding.balance.baseUnits) > BigInt(0),
     );
-    const hasNonzero = registry.some(
-      (holding) =>
-        holding.value.status === "priced" &&
+    const incomplete = read.coverage.registry !== "complete" ||
+      read.coverage.catalog !== "complete" ||
+      knownPositive.some((holding) => holding.value.status !== "priced");
+    const hasPositivePricedContribution = knownPositive.some(
+      (holding) => holding.value.status === "priced" &&
         exactDecimalToFraction(holding.value.amount).numerator > BigInt(0),
     );
 
-    if (incomplete && !hasNonzero) {
+    if (incomplete && !hasPositivePricedContribution) {
       total = {
         status: "unavailable",
         value: null,

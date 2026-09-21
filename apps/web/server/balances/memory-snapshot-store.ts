@@ -17,7 +17,13 @@ export class MemoryBalanceSnapshotStore implements BalanceSnapshotStore {
   async putObservation(row: BalanceObservation): Promise<boolean> {
     const rowKey = key(row.chainId, row.address);
     const existing = this.rows.get(rowKey);
-    if (existing && BigInt(row.blockNumber) < BigInt(existing.blockNumber)) return false;
+    if (existing) {
+      const blockOrder = BigInt(row.blockNumber) - BigInt(existing.blockNumber);
+      if (blockOrder < BigInt(0) ||
+          (blockOrder === BigInt(0) && Date.parse(row.observedAt) <= Date.parse(existing.observedAt))) {
+        return false;
+      }
+    }
     this.rows.set(rowKey, structuredClone({
       ...row,
       address: row.address.toLowerCase() as `0x${string}`,
