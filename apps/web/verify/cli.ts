@@ -12,6 +12,7 @@ import {
   decideConfirmGate,
   enforceAmountCap,
   outputInsideRepository,
+  parseBorrowReviewAmounts,
   parseUsdAmount,
 } from "./live";
 import { readFeatureMap, type ReachStep } from "./map";
@@ -304,6 +305,8 @@ await writeFile(initPath, init, { mode: 0o600 });
 let exitCode = 1;
 let pinnedAccount: string | null = null;
 let parsedAmountUsd: number | null = null;
+let borrowedAmount: string | null = null;
+let collateralAmount: string | null = null;
 let confirmPerformed = false;
 let liveRefusal: string | null = null;
 const steps: string[] = [];
@@ -351,7 +354,15 @@ try {
           "eval",
           `(()=>{const dialogs=[...document.querySelectorAll('[role="dialog"]')].filter((node)=>node.getClientRects().length>0);return (dialogs.at(-1)||document.body).innerText})()`,
         ));
-        parsedAmountUsd = parseUsdAmount(typeof reviewText === "string" ? reviewText : "");
+        const review = typeof reviewText === "string" ? reviewText : "";
+        if (surfaceId === "borrow") {
+          const borrowReview = parseBorrowReviewAmounts(review);
+          parsedAmountUsd = borrowReview.borrowedAmountUsd;
+          borrowedAmount = borrowReview.borrowedAmount;
+          collateralAmount = borrowReview.collateralAmount;
+        } else {
+          parsedAmountUsd = parseUsdAmount(review);
+        }
         liveRefusal = enforceAmountCap(parsedAmountUsd, maxUsd ?? Number.NaN);
         if (liveRefusal) break;
         confirmPerformed = true;
@@ -407,6 +418,8 @@ try {
       stepsExecuted: steps,
       confirmPerformed,
       parsedAmountUsd,
+      borrowedAmount,
+      collateralAmount,
       transactionHash,
       actionId,
     }, null, 2)}\n`);

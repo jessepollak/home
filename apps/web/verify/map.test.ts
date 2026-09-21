@@ -35,6 +35,7 @@ describe("feature map parser", () => {
       .map((surface) => surface.id);
 
     expect(missing).toEqual([]);
+    expect(surfaces.get("borrow")?.live).toBe("confirm");
     expect([...surfaces.values()].filter((surface) => surface.manual).map((surface) => surface.id)).toEqual([
       "borrow",
       "cash-out",

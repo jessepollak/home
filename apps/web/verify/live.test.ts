@@ -7,6 +7,7 @@ import {
   enforceAmountCap,
   liveProviderOrigins,
   outputInsideRepository,
+  parseBorrowReviewAmounts,
   parseUsdAmount,
 } from "./live";
 
@@ -25,8 +26,10 @@ describe("live confirm gate", () => {
     expect(decideConfirmGate("confirm", "Send now", false).action).toBe("stop");
   });
 
-  test("runs an approved confirm step only on a confirm surface", () => {
-    expect(decideConfirmGate("confirm", "Approve", true)).toEqual({ action: "run" });
+  test("runs approved send, save, and borrow confirms only on a confirm surface", () => {
+    expect(decideConfirmGate("confirm", "Send now", true)).toEqual({ action: "run" });
+    expect(decideConfirmGate("confirm", "Deposit", true)).toEqual({ action: "run" });
+    expect(decideConfirmGate("confirm", "Confirm action", true)).toEqual({ action: "run" });
     expect(decideConfirmGate("confirm", "Continue", true)).toEqual({ action: "run" });
   });
 
@@ -43,6 +46,23 @@ describe("live amount cap", () => {
     expect(parseUsdAmount("You pay\nUS$ 25.50\nReceive\n25 USDC")).toBe(25.5);
     expect(parseUsdAmount("Confirm\n$1.00\nYou're sending USDC")).toBe(1);
     expect(parseUsdAmount("Confirm\n1 USDC\nNetwork\nBase\nFee\n$0.01")).toBeNull();
+  });
+
+  test("caps a borrow by the received amount and records collateral separately", () => {
+    const amounts = parseBorrowReviewAmounts([
+      "Confirm",
+      "Borrow USDC",
+      "Locked as collateral (cbBTC)",
+      "0.0001 cbBTC",
+      "You receive (USDC)",
+      "25.50 USDC",
+    ].join("\n"));
+    expect(amounts).toEqual({
+      borrowedAmount: "25.50 USDC",
+      collateralAmount: "0.0001 cbBTC",
+      borrowedAmountUsd: 25.5,
+    });
+    expect(enforceAmountCap(amounts.borrowedAmountUsd, 25)).toContain("exceeds");
   });
 
   test("refuses unparseable, invalid-cap, and above-cap amounts", () => {

@@ -121,7 +121,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Unknowns**: none blocking; notices include `Updating…`, `Loading APY…`, `Loading vaults…`, and the amount dialog reports the formatted available balance.
 
 ### `borrow`
-- **Live**: up-to-review
+- **Live**: confirm
 - **Reach**: Seed the signed-in state and borrow fixtures, go to `/borrow` or `/borrow/<marketId>`, then choose a `data-testid="borrow-market-card"` inside the `Borrow markets` list.
 - **Verify**: manual
 - **Notes**: No smoke fixture exists for `/api/borrow*`; see Gaps.

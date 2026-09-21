@@ -46,7 +46,7 @@ export function decideConfirmGate(
 }
 
 export function parseUsdAmount(text: string): number | null {
-  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const lines = reviewLines(text);
   const labelled = ["Amount", "You pay"];
   for (const label of labelled) {
     const index = lines.findIndex((line) => line.toLowerCase() === label.toLowerCase());
@@ -60,6 +60,40 @@ export function parseUsdAmount(text: string): number | null {
     if (parsed !== null) return parsed;
   }
   return null;
+}
+
+export type BorrowReviewAmounts = {
+  borrowedAmount: string | null;
+  collateralAmount: string | null;
+  borrowedAmountUsd: number | null;
+};
+
+export function parseBorrowReviewAmounts(text: string): BorrowReviewAmounts {
+  const lines = reviewLines(text);
+  const borrowedAmount = valueAfterLabel(lines, /^You receive(?:\s|\()/i) ??
+    lines.find((line) => parseUsdStablecoinToken(line) !== null) ?? null;
+  const collateralAmount = valueAfterLabel(lines, /^Locked as collateral(?:\s|\()/i);
+  return {
+    borrowedAmount,
+    collateralAmount,
+    borrowedAmountUsd: borrowedAmount === null ? null : parseUsdStablecoinToken(borrowedAmount),
+  };
+}
+
+function reviewLines(text: string): string[] {
+  return text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+}
+
+function valueAfterLabel(lines: string[], label: RegExp): string | null {
+  const index = lines.findIndex((line) => label.test(line));
+  return index === -1 ? null : lines[index + 1] ?? null;
+}
+
+function parseUsdStablecoinToken(value: string): number | null {
+  const match = value.match(/^(?:Estimated\s+)?(?:Up to\s+)?([0-9][0-9,]*(?:\.[0-9]+)?)\s+(?:USDC|USD)$/i);
+  if (!match) return parseUsdToken(value);
+  const amount = Number(match[1].replaceAll(",", ""));
+  return Number.isFinite(amount) && amount >= 0 ? amount : null;
 }
 
 function parseUsdToken(value: string): number | null {
