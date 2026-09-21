@@ -322,6 +322,12 @@ if (live) {
 const destination = live
   ? resolve(outputRoot, surfaceId, new Date().toISOString())
   : resolve(outputRoot, surfaceId);
+if (live) {
+  await mkdir(resolve(outputRoot, surfaceId), { recursive: true });
+  await mkdir(destination);
+} else {
+  await mkdir(destination, { recursive: true });
+}
 const tempDirectory = await mkdtemp(resolve(tmpdir(), "home-verify-"));
 const initPath = resolve(tempDirectory, `init-${session}.js`);
 const screenshotPath = resolve(destination, "screenshot.png");
@@ -369,7 +375,6 @@ let stoppedBefore: string | null = null;
 let unexpectedHosts: string[] = [];
 let transactionHash: string | null = null;
 let actionId: string | null = null;
-await mkdir(destination, { recursive: true });
 async function writeLiveEvidence(): Promise<void> {
   if (!live) return;
   await writeFile(livePath, `${JSON.stringify({
