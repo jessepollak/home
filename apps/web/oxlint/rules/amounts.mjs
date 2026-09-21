@@ -1,4 +1,4 @@
-const amountName = /(?:amount|value|balance|total|usd|fiat|atomic)$/iu;
+const amountName = /(?:amount|balance|total|quantity|value|assets|shares|usd|fiat|atomic)(?:BaseUnits|Units|Wei|Wad|Atomic|Usd|Fiat)?$/iu;
 
 function sourceValue(node) {
   if (node?.type === "Literal" || node?.type === "StringLiteral" || node?.type === "NumericLiteral") {
@@ -43,7 +43,7 @@ function amountExpression(node) {
 
 function zeroFallback(node) {
   const value = sourceValue(unwrapExpression(node));
-  return value === 0 || value === "0";
+  return value === 0 || value === 0n || value === "0";
 }
 
 export const noAmountFallback = {
