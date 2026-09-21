@@ -7,11 +7,9 @@ const resolutionTimeoutMs = 3 * 60_000;
 
 type GenerationGuard = Pick<OwnerGenerationFence, "assertCurrent">;
 
-export type ResolutionState = {
-  status: "pending" | "complete" | "failed" | "unavailable";
-  transactionHash?: string;
-  reason?: string;
-};
+export type ResolutionState =
+  | { status: "pending" | "complete"; transactionHash?: string; reason?: string }
+  | { status: "failed" | "unavailable"; transactionHash?: never; reason?: string };
 
 const CDP_STATUS_MAP: Record<string, ResolutionState["status"]> = {
   pending: "pending",
@@ -98,8 +96,6 @@ export function pollTransactionResolution(input: {
       return;
     }
     if (state.status === "failed") {
-      // A reverted user operation can still land in a successful bundle transaction, so a hash on
-      // a failed operation is not proof of success and must never be recorded.
       input.onFailedWithoutHash(state.reason ?? "The wallet operation failed.");
       finish();
       return;
@@ -119,6 +115,9 @@ export function normalizeResolutionState(value: unknown): ResolutionState {
   if (!isRecord(value) || !status) throw new Error("Invalid operation status.");
   const reason = failureReason(value)
     ?? (value.status === "dropped" ? "The operation was dropped before it was included." : null);
+  if (status === "failed" || status === "unavailable") {
+    return { status, ...(reason ? { reason } : {}) };
+  }
   return {
     status,
     ...(typeof value.transactionHash === "string" && hashPattern.test(value.transactionHash)

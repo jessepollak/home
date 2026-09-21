@@ -55,10 +55,8 @@ export type Holding = {
   imageUrl?: string;
   underlying?: { key: Erc20AssetKey; symbol: "USDC"; decimals: 6 };
   balance: HoldingBalance;
-  /** Vault shares only: `convertToAssets(shares)` at the snapshot block. */
   underlyingBalance?: HoldingBalance;
   value: HoldingValue;
-  /** Present iff `cashCurrency !== null`. */
   cashValue?: HoldingCashValue;
 };
 

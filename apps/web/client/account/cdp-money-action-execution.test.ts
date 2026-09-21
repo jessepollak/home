@@ -297,11 +297,11 @@ describe("thin action dispatch", () => {
       fence: { assertCurrent: () => {} },
       check: async () => {
         checks += 1;
-        return {
+        return normalizeResolutionState({
           status: "failed",
           transactionHash,
-          reason: "User operation reverted inside the bundle.",
-        };
+          failureReason: "User operation reverted inside the bundle.",
+        });
       },
       recordTransactionHash: async (hash) => { posts.push(hash); },
       onFailedWithoutHash: (reason) => { failures.push(reason); },
@@ -324,7 +324,7 @@ describe("thin action dispatch", () => {
     const run = pollTransactionResolution({
       generation: 2,
       fence: { assertCurrent: () => {} },
-      check: async () => ({ status: "failed", transactionHash }),
+      check: async () => normalizeResolutionState({ status: "failed", transactionHash }),
       recordTransactionHash: async (hash) => { posts.push(hash); },
       onFailedWithoutHash: (reason) => { failures.push(reason); },
       clock: fake.clock,

@@ -63,11 +63,6 @@ export type SummarizeSavingsPortfolioInput = {
   nowMs?: number;
 };
 
-/**
- * Produces the owner-independent savings math shared by Save and future Home previews.
- * All balance weighting and division stays in integer/rational form; rounding belongs
- * only in the presentation formatter below.
- */
 export function summarizeSavingsPortfolio({
   supportedVaultAddresses,
   requiredAsset,
