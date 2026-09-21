@@ -23,6 +23,9 @@ describe("verification roles and caps", () => {
     expect(requestedCaps("factory", null, null)).toEqual({ clickCapUsd: 1, runCapUsd: 2 });
     expect(() => requestedCaps("factory", 1.01, 2)).toThrow("Factory --max-usd");
     expect(() => requestedCaps("factory", 1, 2.01)).toThrow("Factory --max-usd-total");
+    expect(() => requestedCaps("factory", Number.NaN, 1)).toThrow("positive number");
+    expect(() => requestedCaps("factory", 1, Number.NaN)).toThrow("positive number");
+    expect(() => requestedCaps("factory", -1, -5)).toThrow("positive number");
     expect(requestedCaps("operator", 1, null)).toEqual({ clickCapUsd: 1, runCapUsd: 1 });
     expect(() => requestedCaps("operator", null, null)).toThrow("operator mode");
     expect(() => requestedCaps("operator", 6, 6)).toThrow("ceiling");

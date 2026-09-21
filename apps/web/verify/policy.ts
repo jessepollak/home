@@ -33,6 +33,12 @@ export function requestedCaps(
   requestedRun: number | null,
 ): { clickCapUsd: number; runCapUsd: number } {
   if (role === "factory") {
+    if (requestedClick !== null && (!Number.isFinite(requestedClick) || requestedClick <= 0)) {
+      throw new Error("Factory --max-usd must be a positive number.");
+    }
+    if (requestedRun !== null && (!Number.isFinite(requestedRun) || requestedRun <= 0)) {
+      throw new Error("Factory --max-usd-total must be a positive number.");
+    }
     if (requestedClick !== null && requestedClick > verifyPolicy.factory.perClickUsd) {
       throw new Error(`Factory --max-usd cannot exceed $${verifyPolicy.factory.perClickUsd.toFixed(2)}.`);
     }
