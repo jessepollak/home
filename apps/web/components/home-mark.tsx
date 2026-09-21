@@ -119,8 +119,6 @@ const MarkArtwork = memo(function MarkArtwork() {
     }
 
     function enter() {
-      // Reference quirk: reentry does not clear a queued exit, and entry/exit
-      // cannot be interrupted. A new leave/enter is needed after settling.
       if (phase !== "idle" || control?.matches(":disabled")) return;
       phase = "entering";
       queuedExit = false;
