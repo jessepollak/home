@@ -20,7 +20,8 @@ Longitude wraps continuously. This is an intentionally simplified land silhouett
 not a political boundary map. Small islands may not have land dots at this scale.
 
 `globe-static.svg` projects the same samples into the initial orthographic view
-(center longitude −28°, latitude 12°). It contains **no baked-in support markers**;
+(center longitude −28°, latitude 12°), matching the initial-view constants in
+`globe-geometry.ts` and the WebGL renderer. It contains **no baked-in support markers**;
 the React component overlays current profile markers in both static and WebGL modes.
 
 `globe-country-coordinates.json` contains 239 Natural Earth alpha-2 label points.
