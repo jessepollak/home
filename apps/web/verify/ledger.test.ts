@@ -83,6 +83,22 @@ describe("verification ledger", () => {
     expect(surfaceArmState(entries, "send", revision)).toEqual({ armed: true, cleanRuns: 0, reason: "jesse-arm" });
   });
 
+  test("an incident run disarms even when the disarm entry is lost", () => {
+    const cleanRuns = [run(), run({ runId: "2" }), run({ runId: "3" })];
+    expect(surfaceArmState([...cleanRuns, run({ runId: "4", clean: false, incidents: ["ambiguous-result"] })], "send", revision)).toEqual({
+      armed: false,
+      cleanRuns: 0,
+      reason: "incident",
+    });
+    const by = "https://github.com/jessepollak/home/issues/1#issuecomment-123";
+    const armed = [...cleanRuns, armEvent("send", by, { html_url: by, body: "/verify arm send", user: { login: "jessepollak" } })];
+    expect(surfaceArmState([...armed, run({ runId: "5", clean: false, incidents: ["post-confirm-failure"] })], "send", revision)).toEqual({
+      armed: false,
+      cleanRuns: 0,
+      reason: "incident",
+    });
+  });
+
   test("validates the re-arm repository, author, exact command, and resolved URL", () => {
     const by = "https://github.com/jessepollak/home/pull/7#issuecomment-42";
     const comment: ArmComment = { html_url: by, body: "/verify arm send", user: { login: "jessepollak" } };

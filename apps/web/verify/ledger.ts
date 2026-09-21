@@ -91,10 +91,12 @@ export function surfaceArmState(
   surface: string,
   mainRevision: string,
 ): SurfaceArmState {
-  const relevantEvents = entries.filter((entry) => entry.surface === surface && entry.type !== "run");
+  const relevantEvents = entries.filter((entry) =>
+    entry.surface === surface && (entry.type !== "run" || entry.incidents.length > 0)
+  );
   const lastEvent = relevantEvents.at(-1);
   if (lastEvent?.type === "arm") return { armed: true, cleanRuns: 0, reason: "jesse-arm" };
-  if (lastEvent?.type === "disarm") return { armed: false, cleanRuns: 0, reason: "incident" };
+  if (lastEvent?.type === "disarm" || lastEvent?.type === "run") return { armed: false, cleanRuns: 0, reason: "incident" };
   const cleanRuns = entries.filter((entry): entry is LedgerRun =>
     entry.type === "run" &&
     entry.surface === surface &&

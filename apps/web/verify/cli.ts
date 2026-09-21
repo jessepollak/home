@@ -624,9 +624,11 @@ async function recordLiveLedger(): Promise<void> {
     incidents,
     clean: rungReached >= 2 && finalEvidencePassed && incidents.length === 0,
   };
-  await appendLedger(ledgerPath, entry);
   if (incidents.length > 0) {
     await appendLedger(ledgerPath, { type: "disarm", timestamp: new Date().toISOString(), surface: surfaceId, incidents, runId: session });
+  }
+  await appendLedger(ledgerPath, entry);
+  if (incidents.length > 0) {
     syncDisarmIssue(incidents);
   }
   ledgerRecorded = true;
