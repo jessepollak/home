@@ -56,6 +56,7 @@ describe("feature map parser", () => {
     expect(surfaces.get("save")?.liveReach?.at(-2)).toEqual({ kind: "expect", text: "Confirm" });
     expect(surfaces.get("borrow")?.liveReach?.at(-2)).toEqual({ kind: "expect", text: "Confirm" });
     expect(surfaces.get("cash-out")?.liveReach?.at(-1)).toEqual({ kind: "expect", text: "Confirm" });
+    expect(surfaces.get("cash-out")?.confirmLabels).toContain("Withdraw $<amount>");
     expect(surfaces.get("add-money")?.liveReach?.at(-1)).toEqual({ kind: "expect", text: "Review quote" });
     expect([...surfaces.values()].filter((surface) => surface.manual).map((surface) => surface.id)).toEqual([
       "borrow",

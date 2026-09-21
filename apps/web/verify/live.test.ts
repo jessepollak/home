@@ -18,6 +18,7 @@ import {
   parseUsdAmountFromLabel,
   reviewAndLabelAmountError,
   unexpectedNetworkHosts,
+  unlistedAmountClickError,
 } from "./live";
 
 const address = "0x1111111111111111111111111111111111111111";
@@ -42,6 +43,13 @@ describe("live confirm gate", () => {
     for (const label of ["Send $1.00", "Deposit $1.00", "Withdraw $1.00", "Confirm action", "Retry"]) {
       expect(decideConfirmGate("confirm", label, true, true, true)).toEqual({ action: "run" });
     }
+  });
+
+  test("refuses amount-bearing clicks unless the label is listed for the surface", () => {
+    expect(unlistedAmountClickError("Withdraw $1.00", true)).toBeNull();
+    expect(unlistedAmountClickError("Withdraw $1.00", false)).toContain("amount-bearing");
+    expect(unlistedAmountClickError("Withdraw 1 USDC", false)).toContain("amount-bearing");
+    expect(unlistedAmountClickError("Continue", false)).toBeNull();
   });
 
   test("stops unknown controls after review on money surfaces", () => {

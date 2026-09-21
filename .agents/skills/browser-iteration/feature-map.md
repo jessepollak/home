@@ -194,7 +194,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 
 ### `cash-out` (Peer offramp inner steps)
 - **Live**: up-to-review
-- **Confirm labels**: "Cash out $<amount>"
+- **Confirm labels**: "Cash out $<amount>", "Withdraw $<amount>"
 - **Reach** (smoke-verified, `openPeerCashOutHandle`, smoke.pw.ts): 1) seed + `installApiFixtures`. 2) `Send` → digits `1` → `Continue`. 3) click `/Send to Zelle, Venmo, Cash App and more/` (CashoutItem, send-dialog.tsx). 4) click `Cash App` (payment-method button, payout step). 5) textbox `Cash App handle` (label `${selectedPlatform.label} handle`); attributes asserted: `autocomplete="off"`, `autocapitalize="none"`, `autocorrect="off"`, `spellcheck="false"`, `enterkeyhint="next"`, 16px font, ≥44px target. 6) `Continue` → textbox `Re-enter handle` (`enterkeyhint="done"`). 7) `Review` → confirm step.
 - **Reach (live)**:
   1. `goto "/home"`

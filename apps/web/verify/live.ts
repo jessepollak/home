@@ -55,6 +55,12 @@ export function isReviewNavigationLabel(label: string): boolean {
   return label === "Continue" || label === "Back" || label === "Close" || label.startsWith("Close ");
 }
 
+export function unlistedAmountClickError(label: string, isConfirmLabel: boolean): string | null {
+  if (isConfirmLabel) return null;
+  const containsAmount = /\$[0-9]|(?:^|\s)[0-9][0-9,]*(?:\.[0-9]+)?\s+[A-Z][A-Z0-9]{1,9}(?:\s|$)/.test(label);
+  return containsAmount ? `Live verification refuses unlisted amount-bearing control “${label}”.` : null;
+}
+
 export function confirmReviewOrderError(steps: ReachStep[], confirmLabels: string[]): string | null {
   for (const [index, step] of steps.entries()) {
     if (step.kind !== "click" || !matchesConfirmLabel(confirmLabels, step.label)) continue;

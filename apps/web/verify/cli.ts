@@ -21,6 +21,7 @@ import {
   parseUsdAmountFromLabel,
   reviewAndLabelAmountError,
   unexpectedNetworkHosts,
+  unlistedAmountClickError,
 } from "./live";
 import { matchesConfirmLabel, readFeatureMap, type ReachStep } from "./map";
 
@@ -459,6 +460,14 @@ try {
     let confirmStep = false;
     if (live && step.kind === "click") {
       confirmStep = matchesConfirmLabel(surface.confirmLabels, step.label);
+      const amountClickError = unlistedAmountClickError(step.label, confirmStep);
+      if (amountClickError) {
+        record.status = "failed";
+        stoppedBefore = step.label;
+        liveRefusal = amountClickError;
+        await writeLiveEvidence();
+        break;
+      }
       const decision = decideConfirmGate(surface.live, step.label, allowConfirm, confirmStep, afterReview);
       if (decision.action === "refuse") {
         record.status = "failed";
