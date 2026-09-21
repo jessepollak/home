@@ -54,7 +54,6 @@ function serverDesktop() {
 }
 
 const MarkArtwork = memo(function MarkArtwork() {
-  // Mini doesn't support the source's sequence + spring/transform API.
   const [scope, animate] = useAnimate<HTMLSpanElement>();
 
   useEffect(() => {
@@ -183,7 +182,6 @@ const MarkArtwork = memo(function MarkArtwork() {
   return (
     <span ref={scope} className={styles.artwork} aria-hidden="true">
       <span className={styles.square} data-square="">
-        {}
         <svg
           className={styles.ascender}
           width="664"
