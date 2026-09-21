@@ -16,7 +16,11 @@ export function detectCommitRange({ cwd = process.cwd(), env = process.env, gitR
     gitRunner(["rev-parse", "--verify", remoteBase], cwd);
   } catch {
     gitRunner(["fetch", "--no-tags", "--depth=200", "origin", baseRef], cwd);
-    gitRunner(["rev-parse", "--verify", remoteBase], cwd);
+    try {
+      gitRunner(["rev-parse", "--verify", remoteBase], cwd);
+    } catch (error) {
+      throw new Error(`could not resolve base ref ${remoteBase}`, { cause: error });
+    }
   }
   const base = gitRunner(["merge-base", "HEAD", remoteBase], cwd);
   return `${base}..HEAD`;

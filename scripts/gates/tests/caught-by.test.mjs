@@ -47,13 +47,17 @@ test("fails loudly when the remote base ref is still missing after fetch", () =>
 
   assert.throws(
     () => detectCommitRange({ env: { GITHUB_BASE_REF: "main" }, gitRunner }),
-    /missing ref/,
+    /could not resolve base ref origin\/main/,
   );
   assert.deepEqual(calls, [
     ["rev-parse", "--verify", "origin/main"],
     ["fetch", "--no-tags", "--depth=200", "origin", "main"],
     ["rev-parse", "--verify", "origin/main"],
   ]);
+});
+
+test("accepts an empty commit list", () => {
+  assert.deepEqual(caughtByViolations([]), []);
 });
 
 test("does not apply the trailer contract to non-fix or unscoped subjects", () => {
