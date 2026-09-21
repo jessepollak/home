@@ -77,8 +77,9 @@ function containsSubjectBinding(node, subjectBindings, subjectNamespaces) {
     return node.expressions.some((expression) =>
       containsSubjectBinding(expression, subjectBindings, subjectNamespaces));
   }
-  return node.type === "MemberExpression" && !node.computed
-    && node.object.type === "Identifier" && subjectNamespaces.has(node.object.name);
+  if (node.type !== "MemberExpression" || node.object.type !== "Identifier"
+    || !subjectNamespaces.has(node.object.name)) return false;
+  return !node.computed || node.property.type === "Literal";
 }
 
 export const noSelfReferentialExpectation = {

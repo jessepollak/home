@@ -77,13 +77,16 @@ describe("no-self-referential-expectation", () => {
       import { expect } from "bun:test";
       import { maxPages } from "./limit";
       import * as limits from "./limit";
+      const key = "maxPages";
       expect(read()).toBe(maxPages as number);
       expect(read()).toBe(maxPages!);
       expect(read()).toEqual([maxPages]);
       expect(read()).toMatchObject({ max: maxPages });
       expect(read()).toBe(\`\${maxPages}\`);
       expect(read()).toBe(limits.maxPages);
-    `)).toHaveLength(6);
+      expect(read()).toBe(limits["maxPages"]);
+      expect(read()).toBe(limits[key]);
+    `)).toHaveLength(7);
   });
 
   it("treats the current-directory barrel as the index subject", async () => {
