@@ -2,9 +2,6 @@ import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "cn"
 
-// Payout brand marks own their circular geometry and brand colors so product
-// code composes a variant instead of a detached class map. Brand values come
-// from the payout custom properties in app/globals.css.
 const payoutMarkVariants = cva(
   "flex size-7 items-center justify-center rounded-full border-2 border-background text-xs",
   {

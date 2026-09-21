@@ -17,7 +17,6 @@ export const afterActionScopes = [
   "actions",
 ] as const;
 
-/** Indexer-backed scopes: refreshed again once balances have visibly moved. */
 export const indexedScopes = ["activity", "borrow", "actions"] as const;
 
 export const activityWindowScope = "activity-window";

@@ -6,9 +6,7 @@ export type TransactionExplorerLink = {
 
 export type TransactionDetailRow = {
   label: string;
-  /** Full semantic value. This is also the clipboard payload when display is set. */
   value: string;
-  /** Optional condensed presentation for copyable addresses and transaction hashes. */
   display?: string;
 };
 
@@ -40,7 +38,6 @@ export function transactionExplorerLink(
   };
 }
 
-/** Condenses a validated transaction hash for compact detail display. */
 export function condensedTransactionHash(value: string): string {
   if (!isTransactionHash(value)) return value;
   return `${value.slice(0, 10)}…${value.slice(-8)}`;

@@ -408,7 +408,6 @@ function SmallBalancesControl({
   );
 }
 
-/** The shared loading, unavailable, and empty presentation for both balance lists. */
 function BalancesListFallback({
   isLoading,
   isUnavailable,

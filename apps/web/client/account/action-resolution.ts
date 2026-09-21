@@ -7,7 +7,6 @@ const resolutionTimeoutMs = 3 * 60_000;
 
 type GenerationGuard = Pick<OwnerGenerationFence, "assertCurrent">;
 
-/** Provider operation status folded to what Home acts on. */
 export type ResolutionState = {
   status: "pending" | "complete" | "failed" | "unavailable";
   transactionHash?: string;

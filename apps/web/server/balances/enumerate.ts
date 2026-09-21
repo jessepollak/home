@@ -21,7 +21,6 @@ type Dependencies = {
   log?: (event: ObservabilityEvent) => unknown;
 };
 
-/** Per-owner in-flight CDP enumeration dedupe, detached from every route caller signal. */
 export function createBalancesEnumerator(dependencies: Dependencies = {}) {
   const listBalances = dependencies.listBalances ??
     createCdpTokenBalancesClient().listBalances;

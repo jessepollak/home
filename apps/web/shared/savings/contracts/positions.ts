@@ -1,4 +1,3 @@
-// Shared Morpho position shape and exact USDC amount reader used by balances selectors and savings presentation.
 
 import { MORPHO_API_VERSION, type Address, type MorphoSource } from "./vaults";
 

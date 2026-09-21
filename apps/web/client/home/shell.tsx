@@ -74,8 +74,6 @@ type HomeShellProps = HomeExperienceProps & {
   isBalancesRestoreArmed: () => boolean;
 };
 
-// Startup telemetry keeps closed low-cardinality route labels: dynamic L2
-// paths normalize to their canonical L1 page.
 const panelStartupRoutes: Record<ShellPanelId, Exclude<HomeStartupRoute, "/">> = {
   home: "/home",
   balances: "/balances",
@@ -196,7 +194,6 @@ export function HomeShell({
   useEffect(() => () => cancelPendingShellScroll(), [cancelPendingShellScroll]);
 
   useEffect(() => {
-    // Dynamic L2 paths normalize to their low-cardinality L1 page label.
     startHomePerformance(routeMode === "landing" ? "/" : panelStartupRoutes[initialPanel]);
     const frame = window.requestAnimationFrame(() => markHomePerformance("shell:paint"));
     return () => window.cancelAnimationFrame(frame);
@@ -319,10 +316,7 @@ export function HomeShell({
 
   useEffect(() => {
     const onPopState = () => {
-      // The pathname is authoritative: reparsed on every history entry.
       const intent = currentUrlIntent();
-      // Balances restores only proven asset/account returns; ordinary history returns reset it.
-      // History navigation owns its own scroll behavior: never fire the cold-load group anchor.
       coldGroupAnchorRef.current = null;
       pendingHistoryScrollRestoreRef.current = intent.panel === balancesPanelId
         ? null
@@ -394,8 +388,6 @@ export function HomeShell({
       : loadingAssetBalances,
     [assetBalances, mayPaintBalances, presentAssetBalances, showAllAssetBalances],
   );
-  // The owning experience threads the live revalidation state; presentation
-  // fixtures that carry it directly keep working when the prop is absent.
   const balancesRevalidating = balancesRevalidatingProp ?? paintedAssetBalances.revalidating === true;
   useEffect(() => {
     if (mayPaintBalances && paintedAssetBalances.status === "ready") {
@@ -573,7 +565,6 @@ export function HomeShell({
       !landingRedirectedRef.current
     ) {
       landingRedirectedRef.current = true;
-      // Preserve only allowlisted ephemeral overlay intent; /?account=signin stays root.
       router.replace(
         homeHrefWithOverlays(new URLSearchParams(window.location.search)),
         { scroll: false },
@@ -707,7 +698,6 @@ export function HomeShell({
     ? "Back"
     : investChrome?.nested?.backLabel ?? "Back";
   function leaveHomeNestedPanel() {
-    // Home is a forward visit from Balances so browser Back can reopen a fresh Balances panel.
     if (activeNavigation === balancesPanelId || !isClientHistoryEntry()) {
       navigateTo("home");
       return;

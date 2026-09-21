@@ -1,5 +1,3 @@
-// Route contract.
-// GET /api/market-prices/history
 
 import {
   BASE_CHAIN_ID,
@@ -57,10 +55,6 @@ const configuredAssetIdsByAddress = new Map(
 );
 const dynamicBaseAssetPattern = /^base:(0x[0-9a-f]{40})$/;
 
-/**
- * Resolves read-only market-data identity only. Dynamic IDs must be canonical,
- * lowercase Base contract IDs and cannot alias a configured static asset.
- */
 export function resolveMarketPriceAssetIdentity(
   value: string,
 ): MarketPriceAssetIdentity | null {

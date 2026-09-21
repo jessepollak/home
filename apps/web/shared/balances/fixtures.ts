@@ -1,6 +1,3 @@
-// Deterministic BalancesSnapshot fixtures for tests, smoke, and the client lane.
-// Every registry asset is present (zero, ready) unless overridden, so the
-// fixture always satisfies parseBalancesSnapshot.
 
 import { PORTFOLIO_USDC_ASSET_KEY } from "@/config/portfolio-assets";
 import { presentationRegions, type FiatCurrencyCode, type RegionId } from "@/config/regions";
@@ -51,7 +48,6 @@ export const FIXTURE_CATALOG = {
   },
 } as const;
 
-/** A wallet-discovered token outside the registry and catalog (docs/balances.md §Next). */
 export const FIXTURE_WALLET_TOKEN = {
   address: "0x5555555555555555555555555555555555555555",
   name: "Discovered Token",
@@ -67,9 +63,7 @@ export type HoldingOverride = Partial<
 export type BalancesFixtureOptions = {
   region?: RegionId;
   owner?: `0x${string}`;
-  /** Per registry id. Unspecified registry rows are zero and ready. */
   registry?: Record<string, HoldingOverride>;
-  /** Catalog rows appended after the registry. */
   catalog?: Holding[];
   coverage?: Partial<BalancesSnapshot["coverage"]>;
   total?: Partial<BalancesSnapshot["total"]>;
@@ -214,12 +208,6 @@ export function buildBalancesSnapshotFixture(options: BalancesFixtureOptions = {
   };
 }
 
-/**
- * The reference fixture from docs/balances.md §Sequencing B0: cash positive,
- * ETH positive, a registry asset unpriced, a registry asset unavailable, three
- * vault shares with one positive, and three catalog rows (priced, below the
- * market gate, price missing). Region US.
- */
 export const balancesSnapshotFixture: BalancesSnapshot = buildBalancesSnapshotFixture({
   region: "US",
   registry: {

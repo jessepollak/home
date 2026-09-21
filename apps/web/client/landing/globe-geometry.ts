@@ -7,7 +7,6 @@ export type GlobeCountry = {
   countryCode: string;
   countryName: string;
   currency: { code: string | null; name: string };
-  /** Optional presentation data for inventory-style globe variants. */
   detail?: string;
   markerTone?: GlobeMarkerTone;
 };
@@ -39,14 +38,12 @@ export const NETWORK_CYCLE_MS = 6_800;
 const ROUTE_SAMPLES = 20;
 const RAD = Math.PI / 180;
 
-/** Stable illustrative links only. They are not transactions or verified corridors. */
 const illustrativeRouteSpecs = [
   ["US", "GB"], ["US", "BR"], ["CA", "FR"], ["MX", "CO"],
   ["BR", "PT"], ["AR", "ES"], ["NG", "GB"], ["ZA", "DE"],
   ["TR", "DE"], ["SG", "AU"], ["SG", "ID"], ["AU", "NZ"],
 ] as const;
 
-/** Presentation profiles, deliberately not a claim about product eligibility. */
 export function configuredGlobeCountries(): GlobeCountry[] {
   return regionIds.flatMap((id) => {
     const region = presentationRegions[id];
@@ -96,7 +93,6 @@ function projectVector(
   };
 }
 
-/** Orthographic projection shared by the GPU and static markers. */
 export function projectCountry(
   longitude: number,
   latitude: number,
@@ -129,7 +125,6 @@ function routeVector(from: readonly number[], to: readonly number[], progress: n
   ] as const;
 }
 
-/** Projects bounded great-circle samples and culls every back-facing segment. */
 export function projectGlobeRoute(
   route: GlobeRoute,
   viewLongitude: number,

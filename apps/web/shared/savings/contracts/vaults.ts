@@ -1,5 +1,3 @@
-// Route contract.
-// GET /api/savings/vaults
 
 import {
   BASE_USDC_ADDRESS,

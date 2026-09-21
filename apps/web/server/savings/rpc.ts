@@ -24,14 +24,11 @@ import type {
   SavingsActionStateReader,
 } from "./types";
 
-/** Covers chain + pin + 8 singles (2 in flight) + confirm, plus one 400ms retry. */
 export const SAVINGS_ACTION_RPC_TIMEOUT_MS = 10_000;
 /** Public Base `-32016`s later JSON-RPC batch items; savings reads stay singles. */
 export const SAVINGS_ACTION_RPC_BATCH_SIZE = 1;
-/** Concurrent HTTP singles — not a JSON-RPC batch. */
 export const SAVINGS_ACTION_RPC_CONCURRENCY = 2;
 export const SAVINGS_ACTION_RPC_RETRY_ATTEMPTS = 2;
-/** Pause before the second attempt so public Base `-32016` / 429 can clear. */
 export const SAVINGS_ACTION_RPC_RETRY_DELAY_MS = 400;
 const RATE_LIMITED_RPC_CODE = -32016;
 
@@ -74,7 +71,6 @@ export function createSavingsActionStateReader(options: {
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
 } = {}): SavingsActionStateReader {
   const fetchImpl = options.fetchImpl ?? fetch;
-  // Dedicated `BASE_RPC_URL` when set; otherwise public mainnet.base.org.
   const rpcUrl = resolveBaseRpcUrl(options.rpcUrl);
   const timeoutMs = options.timeoutMs ?? SAVINGS_ACTION_RPC_TIMEOUT_MS;
   const retryAttempts = options.retryAttempts ?? SAVINGS_ACTION_RPC_RETRY_ATTEMPTS;

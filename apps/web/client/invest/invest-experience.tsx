@@ -56,11 +56,6 @@ export function InvestExperience({
   onRetryLoadMoreMemes,
 }: InvestExperienceProps = {}) {
   const routing = useOptionalHomeShellRouting();
-  // initialView comes from the server-supplied dashboard query, so SSR and the
-  // first hydrated render agree on hub/category/detail. Reading window.location
-  // here made the client diverge from the server HTML (hydration mismatch) and
-  // let a stale URL override the server-selected view (#460). Later URL changes
-  // are applied by the routing pop effect below.
   const [view, setView] = useState<InvestView>(() => initialView ?? { screen: "hub" });
   const [inAppChildDepth, setInAppChildDepth] = useState(0);
   const hostRef = useRef<HTMLDivElement>(null);

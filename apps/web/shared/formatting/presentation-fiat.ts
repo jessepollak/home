@@ -15,7 +15,6 @@ export function presentationCurrencySymbol(code: string): string {
   return presentationCurrencyMetadata(code).symbol;
 }
 
-/** Presentation-only fiat value using the selected region's locale. */
 export function formatPresentationFiat(
   value: ExactDecimal,
   currency: string,

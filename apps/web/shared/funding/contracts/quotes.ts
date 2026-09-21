@@ -1,5 +1,3 @@
-// Route contract.
-// POST /api/funding/quotes
 
 import type { Quote } from "@/shared/funding/provider-contract";
 

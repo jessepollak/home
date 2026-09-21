@@ -3,9 +3,6 @@
 import { formatAddress } from "@/shared/formatting";
 import { CopyableValue } from "./copyable-value";
 
-/**
- * Address-specific convenience over the shared {@link CopyableValue} primitive.
- */
 export function AddressText({
   address,
   className,

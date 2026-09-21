@@ -85,7 +85,6 @@ export function useActivity(
         windowEnd,
       );
       if (ownerKey && pageParam) {
-        // Cursors are deterministic per window; a new window restarts the set.
         const cursorScope = `${ownerKey}\u0000${windowEnd}`;
         const requested = requestedCursorsRef.current.get(cursorScope) ?? new Set<string>();
         requested.add(pageParam);

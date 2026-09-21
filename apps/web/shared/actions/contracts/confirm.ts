@@ -1,5 +1,3 @@
-// Route contract.
-// POST /api/actions/:id/confirm
 
 import type { MoneyActionCall } from "@/shared/money-actions/types";
 import type { ActionSummaryResponse } from "./get";

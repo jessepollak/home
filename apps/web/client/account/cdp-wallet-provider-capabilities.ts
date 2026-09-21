@@ -39,7 +39,6 @@ export function clearCdpRenderHint(): void {
     document.cookie = "home-cdp-live=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/; SameSite=Lax" +
       (location.protocol === "https:" ? "; Secure" : "");
   } catch {
-    // The HttpOnly half is inert without this hint; logout also clears both halves.
   }
 }
 

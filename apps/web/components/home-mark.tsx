@@ -53,12 +53,6 @@ function serverDesktop() {
   return true;
 }
 
-/**
- * Base's observed three-layer sequence, adapted to natural h/o/m/e glyphs.
- * Raw extents are 2.3 / 1.901; Motion normalizes them to 1.6s / 1.2s.
- * Keep these authored timelines separate (exit is not reversed entry).
- * Asset/source details: public/home-mark/PROVENANCE.md.
- */
 const MarkArtwork = memo(function MarkArtwork() {
   // Mini doesn't support the source's sequence + spring/transform API.
   const [scope, animate] = useAnimate<HTMLSpanElement>();
@@ -189,7 +183,7 @@ const MarkArtwork = memo(function MarkArtwork() {
   return (
     <span ref={scope} className={styles.artwork} aria-hidden="true">
       <span className={styles.square} data-square="">
-        {/* Observed block/ascender fragment reused for h, not an h outline. */}
+        {}
         <svg
           className={styles.ascender}
           width="664"
@@ -223,7 +217,6 @@ const MarkArtwork = memo(function MarkArtwork() {
   );
 });
 
-/** Fixed layout footprint; native link/button behavior belongs to the caller. */
 export function HomeMark(props: HomeMarkProps) {
   // Remounting only the decorative desktop layer resets Motion's cached
   // transforms and cancels its sequences on responsive switches.

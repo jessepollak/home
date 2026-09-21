@@ -19,8 +19,6 @@ export function PayoutMethodMarks({ methods }: { methods: ReadonlyArray<PayoutMe
   </span>;
 }
 
-// Platform-to-glyph data stays product data; presentation lives in the owned
-// PayoutMark variants.
 function payoutMark(platform: string, label: string): { text: string; variant: PayoutMarkVariant } {
   switch (platform.toLowerCase()) {
     case "cashapp": return { text: "$", variant: "cashapp" };

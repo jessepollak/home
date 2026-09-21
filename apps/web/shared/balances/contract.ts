@@ -1,11 +1,3 @@
-// Route contract.
-// GET /api/balances?region=XX → BalancesSnapshot (docs/balances.md §4)
-//
-// The parser verifies shape and scope only: the snapshot belongs to the
-// verified session, every registry asset is present with its configured
-// metadata, catalog rows are disjoint from the registry, amounts are decimal
-// integer strings, and each status discriminant carries the fields it
-// promises. It does not recompute valuation arithmetic.
 
 import {
   getDirectPortfolioAssets,
@@ -72,7 +64,6 @@ type RegistryExpectation = {
 
 let registryExpectations: Map<string, RegistryExpectation> | null = null;
 
-/** Every registry asset the snapshot must carry, keyed by holding id. */
 export function expectedRegistryHoldings(): ReadonlyMap<string, RegistryExpectation> {
   if (registryExpectations) return registryExpectations;
   const expectations = new Map<string, RegistryExpectation>();
@@ -289,7 +280,6 @@ function validateHolding(
     return holding;
   }
 
-  // Catalog or wallet-discovered row: positive ERC-20 outside the registry.
   const contractAddress = typeof raw.contractAddress === "string" ? raw.contractAddress : "";
   const expectedId = raw.source === "catalog"
     ? catalogHoldingId(contractAddress)

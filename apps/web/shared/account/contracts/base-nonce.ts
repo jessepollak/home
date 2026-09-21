@@ -1,5 +1,3 @@
-// Route contract.
-// POST /api/auth/base/nonce
 
 import { BASE_CHAIN_ID } from "@/shared/account/session-types";
 

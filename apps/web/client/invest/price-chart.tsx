@@ -25,7 +25,6 @@ const RANGE_SECONDS: Record<MarketPriceRange, number> = {
   "1Y": 365 * 86_400,
 };
 
-/** Pulse ring max is 21px; momentum chevrons sit ~25px to the right of the live tip. */
 export const LIVELINE_PLOT_PADDING = {
   top: 32,
   right: 52,
@@ -33,7 +32,6 @@ export const LIVELINE_PLOT_PADDING = {
   left: 16,
 } as const;
 
-/** First-load cover fades once so Liveline's chart reveal can play. */
 export const CHART_COVER_FADE_MS = 180;
 
 const reducedMotionQuery = "(prefers-reduced-motion: reduce)";
@@ -181,7 +179,6 @@ function useHeldLivelinePlot(
   return held;
 }
 
-/** Opaque first-load shimmer fades once so the same Liveline instance can reveal. */
 function useFirstPaintCover(hasPlot: boolean, reduceMotion: boolean) {
   const shouldCover = hasPlot && !reduceMotion;
   const [faded, setFaded] = useState(false);

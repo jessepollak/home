@@ -1,5 +1,3 @@
-// Route contract.
-// POST /api/trades
 
 export type TradesResponse = {
   error: {

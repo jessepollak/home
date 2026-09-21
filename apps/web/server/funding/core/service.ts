@@ -76,10 +76,6 @@ export class FundingCore {
         !directionAvailable(provider, direction, sandbox)
       ) return [];
       if (!environmentAvailable(directional.env, this.env)) {
-        // The binding matches the request but stays inert because a declared
-        // variable is unset. Without this event a local operator sees an empty
-        // Add money list and nothing in the logs. Names and values stay out
-        // of the event.
         this.deps.logProviderDiscoveryFailure?.({
           providerId: provider.manifest.id,
           reason: "configuration",
@@ -424,8 +420,6 @@ export class FundingCore {
           }
         } catch (error) {
           if (!(error instanceof FundingProviderConfigurationError)) throw error;
-          // A webhook is only a trigger. Invalid binding configuration cannot
-          // turn an unverified request into an order refresh.
         }
       }
       if (providerOrderId) break;

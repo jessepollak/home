@@ -77,7 +77,6 @@ export type CashoutMoneyActionMetadata = CashoutMoneyActionMetadataBase & (
   | { operation: "withdraw"; canonicalHandle?: never; depositId: string }
 );
 
-/** Server-authored facts used to render a savings review without parsing warning prose. */
 export type SavingsMoneyActionMetadata = {
   product: "savings";
   operation: "deposit" | "withdraw";

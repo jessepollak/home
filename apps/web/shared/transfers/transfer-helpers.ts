@@ -172,10 +172,6 @@ export function encodeUsdcTransfer(
   return encodeErc20Transfer(usdc.contractAddress, recipient, amountBaseUnits).data;
 }
 
-/**
- * Decodes a prepared send action back into its catalog transfer request while
- * rechecking that its server-authored target, calldata, value, and amount agree.
- */
 export function transferRequestFromAction(
   action: PreparedMoneyAction,
 ): TransferRequest | null {

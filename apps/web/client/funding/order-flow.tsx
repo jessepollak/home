@@ -111,8 +111,6 @@ export function FundingOrderFlow({
         : publicQueryKey("funding-order-isolated", order.id)
       : publicQueryKey("funding-order-disabled"),
     enabled: shouldPollFundingOrder(order),
-    // The created order is authoritative for the first poll interval; the
-    // provider is polled from then on (matches the previous setInterval cadence).
     initialData: order ?? undefined,
     initialDataUpdatedAt: () => Date.now(),
     staleTime: 4_000,

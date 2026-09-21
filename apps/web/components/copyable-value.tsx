@@ -9,21 +9,13 @@ type CopyStatus = "idle" | "copied" | "unavailable" | "denied";
 
 type CopyableValueProps = {
   value: string;
-  /** Condensed label shown in the control. Defaults to the full value. */
   display?: string;
-  /**
-   * `inline` (default) is a plain text control, `full` is a full-width control
-   * with a comfortable hit target, and `compact` is the same full-width control
-   * without the inner vertical padding.
-   */
   presentation?: "inline" | "full" | "compact";
   className?: string;
   copiedLabel?: string;
   copyLabelPrefix?: string;
-  /** Noun used in the accessible fallback label and error copy. */
   valueKind?: string;
   fallbackLabel?: string;
-  /** Extra identity used to clear a stale confirmation when the owner changes. */
   resetKey?: string;
   copiedResetMs?: number;
 };

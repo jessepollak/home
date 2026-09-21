@@ -28,10 +28,8 @@ export type BalanceObservation = Omit<
 export interface BalanceSnapshotStore {
   get(chainId: number, address: `0x${string}`): Promise<BalanceSnapshotRow | null>;
   putObservation(row: BalanceObservation): Promise<boolean>;
-  /** Signals intentionally no-op before the first observation exists. */
   markStale(chainId: number, address: `0x${string}`, at: Date): Promise<void>;
   markStaleMany(chainId: number, addresses: readonly `0x${string}`[], at: Date): Promise<void>;
-  /** Signals intentionally no-op before the first observation exists. */
   markHot(chainId: number, address: `0x${string}`, until: Date): Promise<void>;
 }
 

@@ -123,7 +123,6 @@ export async function prepareCashoutAction(
   }, ctx);
   if (prepared.accessPolicyPaymentMethods.length !== 0 || prepared.requiresIdentityAttestation ||
     prepared.payee.canonicalHandle !== canonicalHandle || prepared.payee.platform !== input.platform || prepared.payee.currency !== input.currency) unavailable();
-  // The generic core treats SDK calldata as hostile and repeats every money-relevant assertion.
   assertPeerDepositCall(prepared.depositCall, {
     amount,
     platform: input.platform,

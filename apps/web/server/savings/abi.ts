@@ -3,7 +3,6 @@ import "server-only";
 import type { MoneyActionCall } from "@/shared/money-actions/types";
 import type { Address } from "@/shared/savings/types";
 
-// ERC-20 and ERC-4626 selectors from the canonical interfaces used by Morpho Vault V1.
 export const SELECTOR = {
   asset: "0x38d52e0f",
   decimals: "0x313ce567",

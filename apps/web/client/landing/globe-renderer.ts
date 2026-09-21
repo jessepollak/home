@@ -57,7 +57,6 @@ export type GlobeRenderer = {
   dispose: () => void;
 };
 
-/** Two draws, no texture/network requests, no scene graph or retained animation framework. */
 export function createGlobeRenderer(
   canvas: HTMLCanvasElement,
   stage: HTMLDivElement,
@@ -248,7 +247,6 @@ export function createGlobeRenderer(
   }
 
   function visibilityChanged() {
-    // Release capture and discard inertia on suspension. Never integrate hidden time.
     if (document.hidden) suspend();
     else resize();
     syncMotion();

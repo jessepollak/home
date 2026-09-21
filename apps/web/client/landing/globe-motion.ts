@@ -1,4 +1,3 @@
-/** Degrees per millisecond. Longitude inertia approaches this gentle auto-spin. */
 export const DEFAULT_VELOCITY = .0075;
 export const MAX_VELOCITY = .18;
 const DECAY_TIME = 900;

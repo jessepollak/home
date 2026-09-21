@@ -195,8 +195,6 @@ export function OwnerQueryPersistence({ ownerKey }: { ownerKey: string | null })
     const restored = restoreOwnerQueries(queryClient, window.localStorage, ownerKey);
     recordHomeStartupCache(ownerRestoreCacheState(ownerKey, restored));
   }, [ownerKey, queryClient]);
-  // Persistence subscribes in the following effect so hydration happens
-  // before the cache subscription starts writing.
   useEffect(() => {
     if (!ownerKey || typeof window === "undefined") return;
     const persister = createOwnerQueryPersister(window.localStorage, ownerKey);

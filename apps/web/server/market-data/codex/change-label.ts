@@ -1,8 +1,3 @@
-/**
- * Codex 24h change is a decimal ratio (`0.05` → +5%). Same convention as
- * `filterTokens.change24` and `getTokenPrices.priceChange24`.
- * Missing, zero, or malformed values are omitted — never invented.
- */
 import "server-only";
 
 export function formatChangeLabel(value: unknown): string | undefined {

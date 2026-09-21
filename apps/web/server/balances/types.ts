@@ -23,7 +23,6 @@ export type UniverseEntry = {
   cashCurrency: FiatCurrencyCode | null;
   imageUrl?: string;
   liquidityUsd?: ExactDecimal;
-  /** Codex resolved this wallet contract even when market-gate fields were absent. */
   marketDataResolved?: true;
   underlying?: Holding["underlying"];
 };
@@ -43,7 +42,6 @@ export type EnumeratedBalance = {
 export type BalancesEnumeration = {
   status: "complete" | "incomplete" | "unavailable";
   rows: EnumeratedBalance[];
-  /** Cursor for the next page when the bounded scan did not finish. */
   nextCursor: string | null;
   pagesRead: number;
   durationMs: number;
@@ -60,6 +58,5 @@ export type BalancesRead = {
   observedAt: string;
   holdings: ReadHolding[];
   coverage: BalancesCoverage;
-  /** Next CDP page to read after a bounded partial enumeration. */
   enumerationCursor?: string | null;
 };

@@ -43,9 +43,7 @@ export type MemePagination = {
   exhausted: boolean;
   loadingMore: boolean;
   loadMoreError: boolean;
-  /** True once the consecutive-empty-page guard trips and auto-loading stops. */
   autoLoadPaused: boolean;
-  /** Consecutive full provider pages that normalized to zero usable assets. */
   consecutiveEmptyPages: number;
 };
 

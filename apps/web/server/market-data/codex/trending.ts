@@ -29,19 +29,10 @@ import {
 
 export const CODEX_TRENDING_SOURCE_URL =
   "https://docs.codex.io/api-reference/queries/filtertokens";
-/**
- * One scroll page of trending memes. Chosen to be a comfortable mobile batch
- * while staying well under Codex's 200-row-per-request bound.
- */
 export const CODEX_TRENDING_PAGE_SIZE = 24;
 export const CODEX_TRENDING_MAX_PAGE_SIZE = 200;
-/**
- * Backwards-compatible alias: the first-page catalog read (dynamic history
- * admission and the discover initial page) uses the same bounded page size.
- */
 export const CODEX_TRENDING_LIMIT = CODEX_TRENDING_PAGE_SIZE;
 export const CODEX_TRENDING_MEME_CATEGORY = "memes";
-/** Bounded memo caches: arbitrary safe-integer offsets must not grow memory. */
 export const CODEX_TRENDING_PAGE_CACHE_MAX_ENTRIES = 32;
 export const CODEX_TRENDING_PAGE_MAX_IN_FLIGHT = 8;
 export const CODEX_TRENDING_ADMISSION_CACHE_MAX_ENTRIES = 256;
@@ -113,9 +104,7 @@ export type TrendingMemesResult = {
 };
 
 export type TrendingMemesPage = TrendingMemesResult & {
-  /** Offset to request for the next page, or null when there is no next page. */
   nextOffset: number | null;
-  /** True once the provider returned fewer rows than the requested page size. */
   exhausted: boolean;
 };
 
@@ -202,12 +191,6 @@ export function createCodexTrendingMemesReader({
   };
 }
 
-/**
- * Offset-paginated reader used by the discover API. Only successful pages are
- * cached (a rejected read leaves no cache entry), both cache and in-flight maps
- * are bounded so arbitrary safe-integer offsets cannot grow memory, and
- * concurrent reads for one offset coalesce.
- */
 export function createCodexTrendingMemesPageReader({
   apiKey,
   fetchImpl = fetch,
@@ -232,7 +215,6 @@ export function createCodexTrendingMemesPageReader({
     pruneTrendingPageCache(cache, currentTime);
     const cached = cache.get(key);
     if (cached) {
-      // Refresh recency so the bounded cache keeps the most-recently-used page.
       cache.delete(key);
       cache.set(key, cached);
       return cached.result;
@@ -269,12 +251,6 @@ export function createCodexTrendingMemesPageReader({
   };
 }
 
-/**
- * Provider-backed exact admission for a canonical Base meme contract. This is
- * deliberately independent from the page-zero discover catalog so a page-2+
- * meme still passes history admission. It fails closed for arbitrary or
- * non-meme contracts and never trusts client-supplied catalog data.
- */
 export function createCodexTrendingMemeAdmissionReader({
   apiKey,
   fetchImpl = fetch,
@@ -306,7 +282,6 @@ export function createCodexTrendingMemeAdmissionReader({
     const existing = inFlight.get(key);
     if (existing !== undefined) return existing;
     if (inFlight.size >= maxInFlight) {
-      // Fail closed; a burst does not default to admission.
       return false;
     }
 
@@ -573,11 +548,6 @@ function readTrendingConnection(data: unknown): Record<string, unknown> {
   return connection;
 }
 
-/**
- * True only when the provider returns the exact contract under the same
- * Base/meme/scam filters used by the catalog. The `count` field is validated
- * against the returned rows, and a mismatched or missing row fails closed.
- */
 export function normalizeTrendingMemeAdmission(
   data: unknown,
   address: string,

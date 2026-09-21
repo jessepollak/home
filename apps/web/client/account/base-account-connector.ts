@@ -469,7 +469,6 @@ async function openBaseProvider(
       try {
         await provider.disconnect();
       } catch {
-        // Local connector cleanup must not expose provider internals.
       }
     },
   };

@@ -10,8 +10,6 @@ export const filterSpeedInsightsEvent: BeforeSendMiddleware = (event) => {
     // either field.
     const route = normalizeHomeStartupRoute(url.pathname);
     if (!route) return null;
-    // Vercel rejects pathname-only metric `href` values as invalid HTTP URLs,
-    // so the sanitized value must remain absolute.
     return { ...event, url: new URL(route, url.origin).href, route };
   } catch {
     return null;

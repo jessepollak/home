@@ -88,7 +88,6 @@ export function createBalancesResolver(dependencies: Dependencies = {}) {
     try {
       tokenLookup = await lookupTokens(candidateAddresses);
     } catch {
-      // Contract lookup is optional enrichment. CDP metadata remains usable.
     }
 
     const seen = new Set<string>();

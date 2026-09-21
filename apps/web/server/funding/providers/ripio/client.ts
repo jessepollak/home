@@ -580,8 +580,6 @@ function validPixCode(value: string, expectedAmount: string): boolean {
   return offset === value.length && hasCrc && amount !== undefined && sameDecimal(amount, expectedAmount);
 }
 function validDate(value: unknown): value is string { return typeof value === "string" && Number.isFinite(Date.parse(value)); }
-// Ripio records the address the customer accepted the terms from. Home only
-// ever forwards an address it observed on the request; it never invents one.
 function validIpAddress(value: unknown): value is string { return typeof value === "string" && /^[0-9a-f.:]{2,45}$/i.test(value); }
 function validEmail(value: string): boolean { return value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value); }
 function validRedirectUrl(value: string): boolean {

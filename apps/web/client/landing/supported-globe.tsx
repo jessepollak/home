@@ -33,15 +33,11 @@ export type { GlobeCountry } from "./globe-geometry";
 
 export type SupportedGlobeProps = {
   className?: string;
-  /** Defaults to every configured non-neutral presentation profile. ISO alpha-2 codes. */
   countries?: readonly GlobeCountry[];
-  /** Landing routes are illustrative and can be omitted for inventory views. */
   showRoutes?: boolean;
   ariaLabel?: string;
   description?: string;
-  /** When set, keeps every marker visible but limits focus and pointer targets to these tones. */
   interactiveMarkerTones?: readonly GlobeMarkerTone[];
-  /** Adds specific ISO alpha-2 markers to the interaction targets without changing their tone. */
   interactiveCountryCodes?: readonly string[];
 };
 
@@ -65,7 +61,6 @@ function selectionForPoint(point: GlobePoint, longitude: number, latitude: numbe
   return { country: point, position: projectCountry(point.longitude, point.latitude, longitude, latitude) };
 }
 
-/** A centerpiece only: composition, headline and sign-in remain with the landing. */
 export function SupportedGlobe({
   className,
   countries = defaultCountries,
@@ -238,7 +233,6 @@ export function SupportedGlobe({
       setStatus("unavailable");
     }
 
-    // Static server HTML stays useful; GPU code isn't a prerequisite to sign-in.
     const observer = new IntersectionObserver(([entry]) => {
       if (!entry.isIntersecting) return;
       observer.disconnect();

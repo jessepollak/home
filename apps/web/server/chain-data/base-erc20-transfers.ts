@@ -27,7 +27,6 @@ const MAX_CACHE_AGE_MS = 15 * 60 * 1000;
 const DEFAULT_STALE_AFTER_MS = 60 * 1000;
 const TRANSFER_SIGNATURE = "Transfer(address,address,uint256)";
 const MAX_LOG_ID_LENGTH = 256;
-// Includes UTF-8, JSON escaping, and base64 expansion of bounded log IDs.
 const MAX_ENCODED_CURSOR_LENGTH = 4096;
 
 export type BaseErc20TransferHistoryOptions = {

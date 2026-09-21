@@ -271,7 +271,6 @@ export function createListActionsHandler(dependencies: {
               route: "/api/actions",
             })
           : row;
-        // Receipt reads keep the request signal and the reader's own timeout; only reconciliation is capped by the deadline.
         const receipt = await readRowReceipt(reconciled, dependencies.readReceipt, request.signal);
         return presentAction(reconciled, owner, receipt, now);
       }));
