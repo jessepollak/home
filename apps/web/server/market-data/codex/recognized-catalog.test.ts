@@ -94,7 +94,7 @@ describe("Codex recognized-token catalog", () => {
     );
 
     const normalized = normalizeRecognizedTokenCatalog([...cases, ...filler]);
-    expect(normalized).toHaveLength(512);
+    expect(normalized).toHaveLength(CODEX_RECOGNIZED_CATALOG_LIMIT); // oxlint-disable-line home/no-self-referential-expectation -- the constant is the specified bound; the assertion tests bounding, not the value
     expect(normalized[0]).toMatchObject({
       address: "0x1111111111111111111111111111111111111111",
       name: "Recognized",

@@ -69,6 +69,6 @@ describe("client error reporter", () => {
     }
     await Promise.resolve();
 
-    expect(calls).toHaveLength(5);
+    expect(calls).toHaveLength(CLIENT_ERROR_MAX_REPORTS_PER_PAGE); // oxlint-disable-line home/no-self-referential-expectation -- the constant is the specified bound; the assertion tests bounding, not the value
   });
 });

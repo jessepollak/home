@@ -268,9 +268,9 @@ describe("CDP Onchain Data Token Balances client", () => {
     });
 
     const listed = await client.listBalances({ address: ADDRESS });
-    expect(pages).toBe(32);
+    expect(pages).toBe(CDP_TOKEN_BALANCES_MAX_PAGES); // oxlint-disable-line home/no-self-referential-expectation -- the constant is the specified bound; the assertion tests bounding, not the value
     expect(listed.complete).toBeFalse();
-    expect(listed.balances).toHaveLength(32);
+    expect(listed.balances).toHaveLength(CDP_TOKEN_BALANCES_MAX_PAGES); // oxlint-disable-line home/no-self-referential-expectation -- the constant is the specified bound; the assertion tests bounding, not the value
     expect(listed.balances.at(-1)?.amountBaseUnits).toBe(String(CDP_TOKEN_BALANCES_MAX_PAGES));
   });
 
