@@ -51,7 +51,7 @@ export function useNativeBaseIdentity(enabled = true): NativeBaseIdentity {
       const session = await restoreNativeBaseSession(fetch, signal);
       if (signal?.aborted || sequence !== restoreSequence.current) return;
       setIdentity(session);
-    } catch {
+    } catch { // oxlint-disable-line home/no-silent-catch -- a superseded restore must not overwrite the newer attempt's state; the current attempt reports provider-unavailable
       if (signal?.aborted || sequence !== restoreSequence.current) return;
       setIdentity(null);
       setInitializationError("provider-unavailable");

@@ -54,7 +54,7 @@ export function freshUntilMoved(options: {
         finish("moved");
         return;
       }
-    } catch {
+    } catch { // oxlint-disable-line home/no-silent-catch -- a failed poll retries until the bounded timeout settles the result
     }
     if (!settled) timer = clock.setTimer(() => void poll(), intervalMs);
   };

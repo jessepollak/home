@@ -87,7 +87,7 @@ export function createBalancesResolver(dependencies: Dependencies = {}) {
     let tokenLookup = new Map<string, CodexTokenLookupEntry>();
     try {
       tokenLookup = await lookupTokens(candidateAddresses);
-    } catch {
+    } catch { // oxlint-disable-line home/no-silent-catch -- a failed Codex lookup falls back to registry and catalog discovery
     }
 
     const seen = new Set<string>();

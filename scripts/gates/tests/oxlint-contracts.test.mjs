@@ -70,6 +70,10 @@ const fixtures = {
   "app/raw.tsx": 'export function A(){ return <><button>go</button><input/><select/></> }',
   "app/silent-catch.ts": 'try { run(); } catch {}',
   "app/handled-catch.ts": 'export function read(){ try { return run(); } catch { return { ok: false }; } }',
+  "client/silent-catch.ts": 'export function read(){ try { run(); } catch {} }',
+  "client/handled-catch.ts": 'function unsupported(): never { throw new Error("unsupported"); } export function read(){ try { run(); } catch { unsupported(); } }',
+  "server/silent-catch.ts": 'import "server-only"; export function read(){ try { run(); } catch {} }',
+
   "client/raw.tsx": 'export function A(){ return <><button>go</button><input/><select/></> }',
   "components/raw.tsx": 'export function A(){ return <><button>go</button><input/><select/></> }',
   "client/landing/supported-globe.tsx": 'export function A(){ return <button>go</button> }',
@@ -173,7 +177,8 @@ const contracts = [
   ["money amounts preserve unavailable state instead of defaulting to zero", () => { assertHits("shared/formatting/amount-fallback.ts", "home(no-amount-fallback)", 3); assertClean("shared/formatting/amount-fallback-clean.ts"); }],
   ["literal utility styles reject all supported expression forms", () => { assertHits("client/styles.tsx", "home(no-literal-utility-styles)", 4); assertClean("client/styles-clean.tsx"); }],
   ["raw controls use owned wrappers in every product layer", () => { assertHits("app/raw.tsx", "home(no-raw-buttons)"); assertHits("client/raw.tsx", "home(no-raw-buttons)"); assertHits("components/raw.tsx", "home(no-raw-buttons)"); }],
-  ["silent catches fail while typed recovery values pass", () => { assertHits("app/silent-catch.ts", "home(no-silent-catch)"); assertClean("app/handled-catch.ts"); }],
+  ["silent catches fail while typed recovery values pass in every covered layer", () => { assertHits("app/silent-catch.ts", "home(no-silent-catch)"); assertHits("client/silent-catch.ts", "home(no-silent-catch)"); assertHits("server/silent-catch.ts", "home(no-silent-catch)"); assertClean("app/handled-catch.ts"); assertClean("client/handled-catch.ts"); }],
+
   ["instrumentation helpers are isolated unless their boundary is intrinsically safe", () => { assertHits("server/instrumentation-unsafe.ts", "home(isolate-instrumentation-calls)"); assertClean("server/instrumentation-safe.ts"); }],
   ["raw fields have no allowlist in every product layer", () => { assertHits("app/raw.tsx", "home(no-raw-fields)", 2); assertHits("client/raw.tsx", "home(no-raw-fields)", 2); assertHits("components/raw.tsx", "home(no-raw-fields)", 2); }],
   ["raw button allowlist does not grow", () => assertClean("client/landing/supported-globe.tsx")],

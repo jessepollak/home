@@ -122,6 +122,6 @@ function emitEnumerationEvent(
       pageCount,
       durationMs,
     });
-  } catch {
+  } catch { // oxlint-disable-line home/no-silent-catch -- the enumeration log sink is isolated so observability cannot change the enumeration result
   }
 }

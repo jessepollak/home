@@ -414,7 +414,7 @@ export class FundingCore {
             verifiedRegion = binding.region;
             break;
           }
-        } catch (error) {
+        } catch (error) { // oxlint-disable-line home/no-silent-catch -- a provider configuration error marks this binding unusable; other bindings still verify the webhook
           if (!(error instanceof FundingProviderConfigurationError)) throw error;
         }
       }
@@ -439,7 +439,7 @@ export class FundingCore {
       try {
         const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "onramp", paymentMethodId: order.paymentMethod, env: this.env, fetchImplementation: this.deps.fetchImplementation, sandbox: order.sandbox });
         verified = onramp.verifyWebhook(raw, headers, ctx);
-      } catch (error) {
+      } catch (error) { // oxlint-disable-line home/no-silent-catch -- a provider configuration error marks this binding unusable; the webhook is rejected as unmatched
         if (!(error instanceof FundingProviderConfigurationError)) throw error;
       }
       if (verified?.providerOrderId !== providerOrderId) {

@@ -377,7 +377,7 @@
     },
     {
       "files": [
-        "{app,components,config,shared}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "{app,client,components,config,server,shared}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "instrumentation*.ts"
       ],
       "excludeFiles": [

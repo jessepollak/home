@@ -89,7 +89,7 @@ export function createOwnerQueryPersister(
     pending = null;
     try {
       storage.setItem(key, JSON.stringify(value));
-    } catch {
+    } catch { // oxlint-disable-line home/no-silent-catch -- persisted owner queries are a best-effort cache; quota or privacy failures cannot block the app
     }
   };
   return {

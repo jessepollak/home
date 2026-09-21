@@ -67,28 +67,28 @@ export function pollTransactionResolution(input: {
     }
     try {
       input.fence.assertCurrent(input.generation);
-    } catch {
+    } catch { // oxlint-disable-line home/no-silent-catch -- a stale fence settles the result promise the caller awaits
       finish();
       return;
     }
     let state: ResolutionState;
     try {
       state = await input.check();
-    } catch {
+    } catch { // oxlint-disable-line home/no-silent-catch -- a failed poll retries on the next interval until the resolution settles or times out
       schedule(intervalMs);
       return;
     }
     if (settled) return;
     try {
       input.fence.assertCurrent(input.generation);
-    } catch {
+    } catch { // oxlint-disable-line home/no-silent-catch -- a stale fence settles the result promise the caller awaits
       finish();
       return;
     }
     if (state.status === "complete" && state.transactionHash) {
       try {
         await input.recordTransactionHash(state.transactionHash);
-      } catch {
+      } catch { // oxlint-disable-line home/no-silent-catch -- a failed hash record retries on the next interval until the resolution settles or times out
         schedule(intervalMs);
         return;
       }

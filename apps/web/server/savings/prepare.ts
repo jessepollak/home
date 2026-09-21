@@ -151,7 +151,7 @@ export function createPrepareSavingsAction(options: {
     };
     try {
       await simulateBatch(draft.calls, accountAddress, simulationSource, signal);
-    } catch (error) {
+    } catch (error) { // oxlint-disable-line home/no-silent-catch -- a rate-limited simulation retries once; a retried failure throws and a retried success continues
       const mapped = mapSimulationError(error);
       if (mapped.reason !== "rate-limited") throw mapped;
       if (retryDelayMs > 0) await sleep(retryDelayMs, signal);
@@ -331,7 +331,7 @@ async function createReviewMetadata(
           stateAsOf: candidate.stateAsOf,
         };
       }
-    } catch {
+    } catch { // oxlint-disable-line home/no-silent-catch -- vault discovery detail is optional metadata; a failed lookup leaves the configured name and unavailable rate
     }
   }
 

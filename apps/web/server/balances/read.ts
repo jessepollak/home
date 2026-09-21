@@ -418,7 +418,7 @@ function emitHostedGuard(
       outcome: "unavailable",
       reason: "not-configured",
     });
-  } catch {
+  } catch { // oxlint-disable-line home/no-silent-catch -- the hosted-guard log sink is isolated so observability cannot change the read result
   }
 }
 

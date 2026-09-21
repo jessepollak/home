@@ -147,7 +147,7 @@ async function resolveBaseAccountSigner(
       const [isOwner] = decodeAbiParameters([{ type: "bool" }], ownership);
       if (!isOwner) unsupported();
       signerAddress = candidate;
-    } catch (error) {
+    } catch (error) { // oxlint-disable-line home/no-silent-catch -- an undecodable owner slot falls back to the smart account as signer; finalize rejects a signature that does not recover to it
       if (error instanceof TradePreparationError) throw error;
     }
   }

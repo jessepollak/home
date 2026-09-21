@@ -153,7 +153,11 @@ export function createBalancesPricer(dependencies: Dependencies = {}) {
         });
       }
     };
-    try { schedule(task); } catch { for (const key of keys) refreshing.delete(key); }
+    try {
+      schedule(task);
+    } catch { // oxlint-disable-line home/no-silent-catch -- a synchronous schedule failure releases every refresh key; an empty key set needs no release
+      for (const key of keys) refreshing.delete(key);
+    }
   }
 
   async function runRefresh(work: RefreshWork, attemptTime: Date, durations: PriceBalancesResult["durationMs"]) {

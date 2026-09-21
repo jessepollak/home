@@ -177,7 +177,7 @@ export function AccountSignInSheet({
       if (sequence !== uiAttemptSequence.current) return;
       setFlowId(result.flowId);
       setResendAvailableAt(Date.now() + RESEND_COOLDOWN_SECONDS * 1000);
-    } catch {
+    } catch { // oxlint-disable-line home/no-silent-catch -- a superseded send attempt must not overwrite the newer attempt's error state
       if (sequence === uiAttemptSequence.current) {
         setAuthError("We could not send a code. Check the address and try again.");
       }
@@ -213,7 +213,7 @@ export function AccountSignInSheet({
       setOtp("");
       setFlowId(null);
       setResendAvailableAt(null);
-    } catch (error) {
+    } catch (error) { // oxlint-disable-line home/no-silent-catch -- a superseded verify attempt must not overwrite the newer attempt's error state
       if (sequence === uiAttemptSequence.current) setAuthError(messageForCodeError(error));
     } finally {
       if (sequence === uiAttemptSequence.current) setIsVerifyingCode(false);
@@ -239,7 +239,7 @@ export function AccountSignInSheet({
         if (sequence === uiAttemptSequence.current) setBaseAccountPhase(phase);
       });
       if (sequence === uiAttemptSequence.current) setCompletedAttemptSequence(sequence);
-    } catch (error) {
+    } catch (error) { // oxlint-disable-line home/no-silent-catch -- a superseded Base Account attempt must not overwrite the newer attempt's error state
       if (sequence !== uiAttemptSequence.current) return;
       setBaseAccountPhase(null);
       setAuthError(messageForBaseAccountError(error));

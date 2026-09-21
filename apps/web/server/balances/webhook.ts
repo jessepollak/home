@@ -34,7 +34,7 @@ export function createCdpWebhookHandler(dependencies: {
     let payload: unknown = null;
     try {
       payload = JSON.parse(new TextDecoder().decode(raw)) as unknown;
-    } catch {
+    } catch { // oxlint-disable-line home/no-silent-catch -- a body that is not JSON is rejected through WEBHOOK_BODY_REJECTED
     }
 
     let records = await subscriptions();
