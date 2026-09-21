@@ -13,6 +13,10 @@ metadata:
 
 Follow [`docs/browser-validation.md`](../../../docs/browser-validation.md); it is normative and wins over this operational summary. Home pins `agent-browser` `0.38.1` in the root package and lockfile. Never rely on a global installation. Ordinary feature iteration does not create a wrapper or committed browser script; only a provider-specific acceptance harness explicitly approved by Jesse may be committed under the contract's exceptional provider path.
 
+## Pick the surface first
+
+Read [`feature-map.md`](./feature-map.md) before driving Home. Pick one surface id, follow its Reach steps, assert its Expect facts, exercise the States touched by the change, and capture the listed Evidence. Never invent a selector for a remaining Unknown; take a fresh snapshot instead.
+
 ## Start by loading matching upstream guidance
 
 Before any browser command, run:
