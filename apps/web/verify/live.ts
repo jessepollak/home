@@ -1,4 +1,5 @@
 import { relative, resolve } from "node:path";
+import { formatAddress } from "../shared/formatting";
 import { matchesConfirmLabel, type LiveAccess, type ReachStep } from "./map";
 
 export const accountPattern = /^0x[0-9a-fA-F]{40}$/;
@@ -6,6 +7,30 @@ export const liveProviderOrigins = [
   "https://api.cdp.coinbase.com",
   "https://secure-wallet.cdp.coinbase.com",
 ] as const;
+
+export type LiveRecipient = { name: string | null; address: string };
+
+const liveRecipientName = "jesse.base.eth";
+
+export const defaultLiveRecipient: LiveRecipient = {
+  name: liveRecipientName,
+  address: "0x2211d1d0020daea8039e46cf1367962070d77da9",
+};
+
+export type RecipientResolution =
+  | { action: "use"; recipient: LiveRecipient }
+  | { action: "refuse"; reason: string };
+
+export function resolveLiveRecipient(value: string | undefined): RecipientResolution {
+  if (value === undefined) return { action: "use", recipient: defaultLiveRecipient };
+  const candidate = value.trim();
+  if (accountPattern.test(candidate)) return { action: "use", recipient: { name: null, address: candidate } };
+  if (candidate.toLowerCase() === liveRecipientName) return { action: "use", recipient: defaultLiveRecipient };
+  return {
+    action: "refuse",
+    reason: `--recipient must be a bare 0x address or ${liveRecipientName}; received “${value}”.`,
+  };
+}
 
 const bareHostnamePattern = /^(?=.{1,253}$)(?:localhost|(?:(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)\.)*(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?))$/;
 
@@ -101,6 +126,19 @@ export function reviewAndLabelAmountError(reviewAmount: number | null, labelAmou
     return `The review amount $${reviewAmount.toFixed(2)} does not match the confirm label amount $${labelAmount.toFixed(2)}.`;
   }
   return null;
+}
+
+export function recipientRowError(reviewText: string, recipient: string): string | null {
+  const expected = recipient.trim();
+  const lines = reviewLines(reviewText);
+  const index = lines.findIndex((line) => /^to$/i.test(line) || /^to\s+\S/i.test(line));
+  if (index === -1) return "The review has no “To” row; confirmation was refused.";
+  const inlineValue = lines[index].replace(/^to\s*/i, "").trim();
+  const shown = (inlineValue.length > 0 ? inlineValue : lines[index + 1] ?? "").trim();
+  if (shown.length === 0) return "The review “To” row is empty; confirmation was refused.";
+  const rendered = shown.toLowerCase();
+  if (rendered === expected.toLowerCase() || rendered === formatAddress(expected).toLowerCase()) return null;
+  return `The review “To” row shows “${shown}” instead of “${expected}”; confirmation was refused.`;
 }
 
 export type BorrowReviewAmounts = {
