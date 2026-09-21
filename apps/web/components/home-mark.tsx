@@ -211,8 +211,6 @@ const MarkArtwork = memo(function MarkArtwork() {
 });
 
 export function HomeMark(props: HomeMarkProps) {
-  // Remounting only the decorative desktop layer resets Motion's cached
-  // transforms and cancels its sequences on responsive switches.
   const desktop = useSyncExternalStore(subscribeDesktop, isDesktop, serverDesktop);
   const { className, "aria-label": ariaLabel, ...controlProps } = props;
   const controlClass = className ? `${styles.control} ${className}` : styles.control;
