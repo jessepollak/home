@@ -92,7 +92,7 @@ export function verificationEvidenceFindings(files, body, surfaces) {
 }
 
 function changedFiles(base) {
-  return execFileSync("git", ["diff", "--name-only", `origin/${base}..HEAD`], { encoding: "utf8" })
+  return execFileSync("git", ["diff", "--name-only", `origin/${base}...HEAD`], { encoding: "utf8" })
     .split("\n")
     .filter(Boolean);
 }
