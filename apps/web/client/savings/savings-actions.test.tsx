@@ -370,6 +370,26 @@ describe("SavingsMoneyDialog", () => {
     expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  test("a failing onConfirmed does not relabel the dispatched action", async () => {
+    let closes = 0;
+    render(
+      <SavingsMoneyDialog
+        open mode="deposit" session={session} candidate={candidate}
+        prepareMoneyAction={async () => prepared()}
+        executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
+        onConfirmed={async () => { throw new Error("refresh failed"); }}
+        onClose={() => { closes += 1; }}
+      />,
+    );
+
+    typeAmount("1");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
+
+    await waitFor(() => expect(closes).toBe(1));
+    expect(page().queryByRole("alert")).toBeNull();
+  });
+
   test("retries the same prepared action after an ambiguous dispatch", async () => {
     let executions = 0;
     let closes = 0;
