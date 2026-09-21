@@ -137,7 +137,7 @@ function parseUsdStablecoinToken(value: string): number | null {
 }
 
 function distinctUsdAmounts(value: string): number[] {
-  const amounts = [...value.matchAll(/(?:^|\s)(?:US\$|USD\s*|\$)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)(?=\s|$)/gim)]
+  const amounts = [...value.matchAll(/(?:US\$|USD\s*|\$)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)(?=\s|$|US\$|USD|\$)/gim)]
     .map((match) => Number(match[1].replaceAll(",", "")))
     .filter((amount) => Number.isFinite(amount) && amount >= 0);
   return [...new Set(amounts)];

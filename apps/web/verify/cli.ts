@@ -382,6 +382,7 @@ const init = `${!live && requiresSignedInFixture(surfaceId) ? 'sessionStorage.se
 await writeFile(initPath, init, { mode: 0o600 });
 let exitCode = 1;
 let parsedAmountUsd: number | null = null;
+let reviewText: string | null = null;
 let borrowedAmount: string | null = null;
 let collateralAmount: string | null = null;
 let confirmPerformed = false;
@@ -405,6 +406,7 @@ async function writeLiveEvidence(): Promise<void> {
     confirmIntent,
     confirmPerformed,
     parsedAmountUsd,
+    reviewText,
     borrowedAmount,
     collateralAmount,
     cumulativeAmountUsd,
@@ -484,11 +486,12 @@ try {
         break;
       }
       if (confirmStep) {
-        const reviewText = jsonResult(command(
+        const evaluatedReview = jsonResult(command(
           "eval",
           `(()=>{const dialogs=[...document.querySelectorAll('[role="dialog"]')].filter((node)=>node.getClientRects().length>0);return (dialogs.at(-1)||document.body).innerText})()`,
         ));
-        const review = typeof reviewText === "string" ? reviewText : "";
+        const review = typeof evaluatedReview === "string" ? evaluatedReview : "";
+        reviewText = review;
         if (surfaceId === "borrow") {
           const borrowReview = parseBorrowReviewAmounts(review);
           parsedAmountUsd = borrowReview.borrowedAmountUsd;
