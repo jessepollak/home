@@ -9,6 +9,7 @@ const { cleanup, fireEvent, render, waitFor } = await import("@testing-library/r
 const {
   MoneyAmountDisplay,
   MoneyAssetPicker,
+  MoneyPrimaryAmount,
   matchesMoneyAssetOption,
   MoneyNumpad,
   fitAmountFontSize,
@@ -82,6 +83,83 @@ test("primary amount auto-fit shrinks and clamps longer number and unit combinat
 });
 
 describe("MoneyAmountDisplay", () => {
+  test("compresses an extreme primary value on the inline axis", () => {
+    const clientWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth");
+    const offsetWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+      configurable: true,
+      get() { return this.hasAttribute("data-primary-amount") ? 100 : 0; },
+    });
+    Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
+      configurable: true,
+      get() { return this.getAttribute("data-slot") === "money-ticker" ? 1_000 : 0; },
+    });
+
+    try {
+      const view = render(
+        <MoneyPrimaryAmount
+          amount="12345678901234567890"
+          changeSource="programmatic"
+          unit="local"
+          pricing={usdUsdc}
+          nativeSymbol="USDC"
+        />,
+      );
+      const ticker = view.container.querySelector<HTMLElement>(
+        "[data-primary-amount] [data-slot='money-ticker']",
+      );
+      expect(ticker?.style.transform).toBe("scaleX(0.9)");
+      view.unmount();
+    } finally {
+      if (clientWidth) Object.defineProperty(HTMLElement.prototype, "clientWidth", clientWidth);
+      else Reflect.deleteProperty(HTMLElement.prototype, "clientWidth");
+      if (offsetWidth) Object.defineProperty(HTMLElement.prototype, "offsetWidth", offsetWidth);
+      else Reflect.deleteProperty(HTMLElement.prototype, "offsetWidth");
+    }
+  });
+
+  test("does not restart a keypad update on an unrelated rerender", () => {
+    const view = render(
+      <MoneyMotionProvider reducedMotion={false}>
+        <MoneyPrimaryAmount
+          amount="1"
+          changeSource="keypad"
+          unit="local"
+          pricing={usdUsdc}
+          nativeSymbol="USDC"
+        />
+      </MoneyMotionProvider>,
+    );
+    view.rerender(
+      <MoneyMotionProvider reducedMotion={false}>
+        <MoneyPrimaryAmount
+          amount="12"
+          changeSource="keypad"
+          unit="local"
+          pricing={usdUsdc}
+          nativeSymbol="USDC"
+        />
+      </MoneyMotionProvider>,
+    );
+    const primaryTicker = () => view.container.querySelector<HTMLElement>(
+      "[data-primary-amount] [data-slot='money-ticker']",
+    );
+    expect(primaryTicker()?.dataset.animated).toBe("false");
+
+    view.rerender(
+      <MoneyMotionProvider reducedMotion={false}>
+        <MoneyPrimaryAmount
+          amount="12"
+          changeSource="programmatic"
+          unit="local"
+          pricing={usdUsdc}
+          nativeSymbol="USDC"
+        />
+      </MoneyMotionProvider>,
+    );
+    expect(primaryTicker()?.dataset.animated).toBe("false");
+  });
+
   test("skips the primary ticker animation for keypad input and animates quick amounts", () => {
     render(<MoneyMotionProvider reducedMotion={false}><AmountHarness /></MoneyMotionProvider>);
     const primaryTicker = () => document.querySelector<HTMLElement>(
