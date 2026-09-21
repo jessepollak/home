@@ -331,7 +331,7 @@ async function createReviewMetadata(
           stateAsOf: candidate.stateAsOf,
         };
       }
-    } catch { // oxlint-disable-line home/no-silent-catch -- vault discovery detail is optional metadata; a failed lookup leaves the configured name and unavailable rate
+    } catch {
     }
   }
 

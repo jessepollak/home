@@ -414,7 +414,7 @@ export class FundingCore {
             verifiedRegion = binding.region;
             break;
           }
-        } catch (error) { // oxlint-disable-line home/no-silent-catch -- a provider configuration error marks this binding unusable; other bindings still verify the webhook
+        } catch (error) {
           if (!(error instanceof FundingProviderConfigurationError)) throw error;
         }
       }

@@ -82,7 +82,7 @@ export function createActivityTokenMetadataResolver(options: {
     let codex = new Map<string, CodexTokenLookupEntry>();
     try {
       codex = await codexLookup(unresolved);
-    } catch { // oxlint-disable-line home/no-silent-catch -- a failed Codex lookup falls back to on-chain metadata; entries stay unknown if both fail
+    } catch {
     }
 
     const rpcAddresses: `0x${string}`[] = [];
