@@ -77,7 +77,8 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
   1. Seed the signed-in fixture and install the balances fixture.
   2. `goto "/balances"`
   3. `expect "Your money"`
-  4. Use `/balances/investments` with `scrollableBalancesSnapshot()` for anchoring work; the group section is `id="investments"`.
+  4. `expect "Recognized Coin"`
+  5. Use `/balances/investments` with `scrollableBalancesSnapshot()` for anchoring work; the group section is `id="investments"`.
 - **Expect**: scroll container `[data-app-main-authenticated]` (shell-panels.tsx); balance rows `[data-balance-list] [data-kind="balance"]` (smoke.pw.ts); reveal window grows after scroll (`BALANCES_BATCH_SIZE = 10`, client/home/balances-panel.tsx); `Show small balances` switch lives in account settings, not this page (smoke.pw.ts touch test).
 - **States**: loading shimmer (`LoadingMoneyGroup`, balances-panel.tsx); unavailable; empty (`BalancesEmpty`); ready with reveal batches; stale revalidation anchored to requested group (`cold and revalidated cached Balances…` smoke test).
 - **Evidence**: screenshot; DOM snapshot; console/errors; perf marks and scroll-offset assertions.
@@ -121,9 +122,10 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 - **Reach** (smoke-verified):
   1. Seed the signed-in fixture and install API fixtures.
   2. `goto "/home"`
-  3. `click "Send"`
-  4. `expect "Send"`
-  5. The dialog is labelled by `send-title`.
+  3. `expect "Recognized Coin"`
+  4. `click "Send"`
+  5. `expect "Send"`
+  6. The dialog is labelled by `send-title`.
   1. **amount**: type digits via keypad buttons named `0`–`9`, `Decimal point`, `Delete last digit` (`role="group" aria-label="Amount keypad"`, client/money-modal/amount.tsx:581–601); quick chips group `Quick amounts` (`$10`/`$25`/`Max` when priced, amount.tsx:508+). Primary `Continue` disabled until positive amount (`isPositiveDecimalAmount`).
   2. **destination**: step title stays `Send`; field label `To` (AddressField `id="send-recipient"`); primary `Continue` disabled until `isTransferRecipient` (send-dialog.tsx).
   3. **confirm**: dialog title becomes `Confirm` (send-dialog.tsx `modalTitle`); summary via `MoneyConfirmSummary` rows `To` (CopyableValue full address), `Asset`, `Network` = `Base` (send-dialog.tsx); primary button `Send $1.00` where amount is `MoneyTicker(confirmAmount)` — smoke clicks `getByRole("button", { name: "Send $1.00" })`; secondary `Back`.

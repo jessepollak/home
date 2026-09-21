@@ -142,6 +142,14 @@ try {
   command("errors", "--clear");
   command("network", "requests", "--clear");
   const steps = surface.reach.map(executeStep);
+  const requiredMarks = Object.keys(surface.budgets);
+  if (requiredMarks.length > 0) {
+    try {
+      command("wait", "--fn", requiredMarks.map((name) => `performance.getEntriesByName(${JSON.stringify(name)},\"mark\").length>0`).join("&&"));
+    } catch {
+      exitCode = 1;
+    }
+  }
   command("screenshot", "--full", screenshotPath);
   const dom = jsonResult(command("eval", "document.body.innerText"));
   await writeFile(domPath, typeof dom === "string" ? dom : JSON.stringify(dom, null, 2));
@@ -178,6 +186,7 @@ try {
   try {
     command("close");
   } catch {
+    exitCode = 1;
   }
   await rm(initPath, { force: true });
 }
