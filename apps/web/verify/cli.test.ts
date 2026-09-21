@@ -68,6 +68,12 @@ describe("live CLI preflight", () => {
     expect(refused.stderr).toContain("--recipient must be a bare 0x address or jesse.base.eth");
   });
 
+  test("refuses the zero address before browser launch", () => {
+    const result = run(["send", "--live", "--base-url", "https://example.com", "--out", outsideOutput, "--recipient", "0x0000000000000000000000000000000000000000"]);
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("zero address");
+  });
+
   test("refuses a missing max-usd before browser launch", () => {
     const result = run(["send", "--live", "--base-url", "https://example.com", "--out", outsideOutput, "--recipient", addressB, "--allow-confirm", "--account", addressA]);
     expect(result.exitCode).toBe(2);

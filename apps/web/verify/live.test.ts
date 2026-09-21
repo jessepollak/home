@@ -119,6 +119,12 @@ describe("live recipient policy", () => {
       if (resolution.action === "refuse") expect(resolution.reason).toContain("bare 0x address or jesse.base.eth");
     }
   });
+
+  test("refuses the zero address before browser launch", () => {
+    const resolution = resolveLiveRecipient("0x0000000000000000000000000000000000000000");
+    expect(resolution.action).toBe("refuse");
+    if (resolution.action === "refuse") expect(resolution.reason).toContain("zero address");
+  });
 });
 
 describe("live review recipient row", () => {

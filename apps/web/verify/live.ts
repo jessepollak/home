@@ -20,9 +20,14 @@ export type RecipientResolution =
   | { action: "use"; recipient: LiveRecipient }
   | { action: "refuse"; reason: string };
 
+const zeroAddressPattern = /^0x0{40}$/i;
+
 export function resolveLiveRecipient(value: string | undefined): RecipientResolution {
   if (value === undefined) return { action: "use", recipient: defaultLiveRecipient };
   const candidate = value.trim();
+  if (zeroAddressPattern.test(candidate)) {
+    return { action: "refuse", reason: "--recipient must not be the zero address." };
+  }
   if (accountPattern.test(candidate)) return { action: "use", recipient: { name: null, address: candidate } };
   if (candidate.toLowerCase() === liveRecipientName) return { action: "use", recipient: defaultLiveRecipient };
   return {
