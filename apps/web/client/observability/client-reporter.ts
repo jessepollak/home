@@ -100,7 +100,6 @@ export function installClientErrorReporting(
           route: window.location.pathname,
         });
       } catch {
-        // Error reporting must not create another error.
       }
     });
 
@@ -109,7 +108,6 @@ export function installClientErrorReporting(
         const description = safeThrownDescription(event.reason);
         report({ ...description, route: window.location.pathname });
       } catch {
-        // Error reporting must not create another rejection.
       }
     });
   } catch {

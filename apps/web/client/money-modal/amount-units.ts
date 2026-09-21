@@ -36,11 +36,6 @@ export function isIdentityPricing(pricing: MoneyAssetPricing): boolean {
   );
 }
 
-/**
- * USD stables are priced 1:1 against USD. Other assets stay unpriced until a
- * real quote is passed in — do not invent a peg. Non-USD regions need FX that
- * amount-entry does not currently receive (Invest quote is scoped to Invest).
- */
 export function moneyAssetPricing(
   assetSymbol: string,
   regionId: RegionId = "GLOBAL",

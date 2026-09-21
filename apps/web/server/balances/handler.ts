@@ -75,7 +75,6 @@ function emitReadFailure(
       reason: "read-failed",
     });
   } catch {
-    // Observability never changes responses.
   }
 }
 
@@ -84,6 +83,5 @@ function fireAndForgetSubscription(run: () => Promise<void> | undefined): void {
     const pending = run();
     if (pending) void pending.catch(() => undefined);
   } catch {
-    // Subscription failures are non-fatal and logged by the subscription port.
   }
 }

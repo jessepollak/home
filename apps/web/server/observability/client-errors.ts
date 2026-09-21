@@ -59,7 +59,6 @@ function cancelBody(request: Request): void {
       void request.body.cancel().catch(() => undefined);
     }
   } catch {
-    // Reject paths do not depend on transport cleanup succeeding.
   }
 }
 
@@ -219,7 +218,6 @@ export function createClientErrorHandler(dependencies?: {
         summary: report.message,
       });
     } catch {
-      // Reporting cannot change the endpoint or application outcome.
     }
 
     return emptyResponse(204);

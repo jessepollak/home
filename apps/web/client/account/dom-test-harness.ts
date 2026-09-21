@@ -27,8 +27,6 @@ if (typeof window === "undefined") {
     if (descriptor) Object.defineProperty(globalThis, name, descriptor);
   }
 
-  // Fail closed: no unit test may reach the network. Tests that need a
-  // response stub `window.fetch` themselves.
   globalThis.fetch = (async (input: RequestInfo | URL) =>
     new Response(null, {
       status: 503,

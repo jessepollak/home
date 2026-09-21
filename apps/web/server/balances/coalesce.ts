@@ -219,7 +219,6 @@ export function createBalancesService(dependencies: Dependencies = {}) {
       schedule(task);
     } catch {
       revalidating.delete(address);
-      // Scheduling failure never changes the cached response.
     }
   }
 
@@ -428,7 +427,6 @@ function emitBalancesRead(
       coverage,
     });
   } catch {
-    // Observability never changes balance reads.
   }
 }
 

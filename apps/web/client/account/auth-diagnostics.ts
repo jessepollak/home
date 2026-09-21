@@ -80,7 +80,6 @@ export function recordAuthDiagnostic(event: AuthDiagnosticInput): void {
     window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(bounded));
     window.__HOME_AUTH_DIAGNOSTICS__ = () => readStoredEvents();
   } catch {
-    // Diagnostics must never affect authentication behavior.
   }
 }
 

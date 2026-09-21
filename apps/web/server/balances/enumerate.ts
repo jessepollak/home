@@ -123,6 +123,5 @@ function emitEnumerationEvent(
       durationMs,
     });
   } catch {
-    // Observability never changes enumeration.
   }
 }

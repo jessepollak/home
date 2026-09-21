@@ -25,7 +25,6 @@ import type {
 } from "./types";
 
 export const SAVINGS_ACTION_RPC_TIMEOUT_MS = 10_000;
-/** Public Base `-32016`s later JSON-RPC batch items; savings reads stay singles. */
 export const SAVINGS_ACTION_RPC_BATCH_SIZE = 1;
 export const SAVINGS_ACTION_RPC_CONCURRENCY = 2;
 export const SAVINGS_ACTION_RPC_RETRY_ATTEMPTS = 2;
@@ -114,8 +113,6 @@ export function createSavingsActionStateReader(options: {
       );
       const block = parseBlock(latest.result);
       const reads = createPinnedReads(input.kind, input.accountAddress, input.vaultAddress, input.amount, block.numberHex);
-      // HTTP singles with bounded concurrency: public Base `-32016`s later items
-      // in a JSON-RPC batch. Do not POST request arrays.
       const responses: RpcSuccess[] = [];
       for (const chunk of chunkReads(reads, SAVINGS_ACTION_RPC_CONCURRENCY)) {
         const chunkResponses = await Promise.all(
