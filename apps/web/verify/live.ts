@@ -147,6 +147,13 @@ export function enforceAmountCap(amount: number | null, cap: number): string | n
   return null;
 }
 
+export function enforceCumulativeAmountCap(confirmed: number, next: number, cap: number): string | null {
+  const total = confirmed + next;
+  if (!Number.isFinite(cap) || cap <= 0) return "--max-usd-total must be a positive number.";
+  if (total > cap) return `The cumulative confirmation amount $${total.toFixed(2)} exceeds the $${cap.toFixed(2)} run cap.`;
+  return null;
+}
+
 export function accountAddressFromDocument(source: Document): string | null {
   const heading = source.getElementById("account-heading");
   const section = heading?.closest("section");

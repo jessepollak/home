@@ -11,6 +11,7 @@ import {
   composeAllowedDomains,
   decideConfirmGate,
   enforceAmountCap,
+  enforceCumulativeAmountCap,
   liveStepError,
   outputInsideRepository,
   parseBorrowReviewAmounts,
@@ -244,7 +245,7 @@ const surfaceId = args[0];
 if (!surfaceId || surfaceId.startsWith("-")) {
   console.error("Usage: bun run verify <surface-id> [--base-url <url>] [--out <dir>] [--allow-console] [--allow-domain <host>]");
   console.error("       bun run verify live-login --base-url <url> [--allow-domain <host>]");
-  console.error("       bun run verify <surface-id> --live --base-url <url> --out <dir> [--allow-domain <host>] [--allow-confirm --account <0x…> --max-usd <n>]");
+  console.error("       bun run verify <surface-id> --live --base-url <url> --out <dir> [--allow-domain <host>] [--allow-confirm --account <0x…> --max-usd <n> [--max-usd-total <n>]]");
   console.error("       bun run verify --list");
   process.exit(2);
 }
@@ -458,8 +459,8 @@ try {
         const labelAmount = parseUsdAmountFromLabel(step.label);
         liveRefusal = reviewAndLabelAmountError(parsedAmountUsd, labelAmount) ??
           enforceAmountCap(parsedAmountUsd, maxUsd ?? Number.NaN);
-        if (!liveRefusal && parsedAmountUsd !== null && cumulativeAmountUsd + parsedAmountUsd > (maxUsdTotal ?? Number.NaN)) {
-          liveRefusal = `The cumulative confirmation amount $${(cumulativeAmountUsd + parsedAmountUsd).toFixed(2)} exceeds the $${(maxUsdTotal ?? Number.NaN).toFixed(2)} run cap.`;
+        if (!liveRefusal && parsedAmountUsd !== null) {
+          liveRefusal = enforceCumulativeAmountCap(cumulativeAmountUsd, parsedAmountUsd, maxUsdTotal ?? Number.NaN);
         }
         if (liveRefusal || parsedAmountUsd === null || maxUsd === null || maxUsdTotal === null) {
           record.status = "failed";
