@@ -7,6 +7,7 @@ import {
   composeAllowedDomains,
   decideConfirmGate,
   enforceAmountCap,
+  enforceCumulativeAmountCap,
   liveProviderOrigins,
   liveStepError,
   outputInsideRepository,
@@ -114,6 +115,8 @@ describe("live amount cap", () => {
     expect(enforceAmountCap(1, 0)).toContain("positive number");
     expect(enforceAmountCap(10.01, 10)).toContain("exceeds");
     expect(enforceAmountCap(10, 10)).toBeNull();
+    expect(enforceCumulativeAmountCap(6, 5, 10)).toContain("run cap");
+    expect(enforceCumulativeAmountCap(5, 5, 10)).toBeNull();
   });
 });
 
