@@ -133,6 +133,7 @@ function FinanceRow({
                 <Button
                   type="button"
                   variant="ghost"
+                  press="none"
                   aria-describedby={hintId}
                   onClick={onActivate}
                 />

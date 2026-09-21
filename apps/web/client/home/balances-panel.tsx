@@ -311,7 +311,7 @@ function GroupedBalancesList({
           {group.rows.length > 0 ? <BalancesList rows={group.rows} /> : null}
           {moreGroups.has(group.id) && onOpenGroup ? (
             <Item
-              render={<Button type="button" variant="ghost" />}
+              render={<Button type="button" variant="ghost" press="none" />}
               size="sm"
               className="min-h-10 flex-nowrap text-left"
               onClick={() => onOpenGroup(group.id)}

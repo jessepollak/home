@@ -558,6 +558,7 @@ export function SavingsExperience({
                     render={
                       <Button
                         variant="ghost"
+                        press="none"
                         size="lg"
                         type="button"
                         onClick={() =>

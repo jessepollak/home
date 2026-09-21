@@ -89,6 +89,7 @@ Use the owned component contracts rather than restyling their slots:
 - `ItemMedia variant="avatar"` owns the standard circular row media. `ItemTitle` accepts `tone` and `numeric`; `ItemDescription` accepts `lines={1 | 2}`.
 - `CardContent inset="list"` owns list-card horizontal insets; put screen-specific flow spacing on a plain inner wrapper.
 - `Button variant="navigation"` owns primary-navigation presentation, and `size="inline"` is for small actions embedded in prose.
+- `Button press="standard" | "icon" | "none"` owns press feedback: standard actions compress on pointer/touch-down, icon-only controls compress deliberately more, and `none` keeps wide rows, navigation, product tiles, and link-like text still as whole surfaces. Every variant mirrors its hover treatment in `active:` and reduced motion drops every press transform while keeping those color cues.
 - `Input variant="otp" | "code"` owns verification-code and monospace input typography. `InputGroupInput` forwards the same variant.
 - `PayoutMark variant="cashapp" | "zelle" | "monzo" | "revolut" | "fallback" | "count"` owns circular payout-mark geometry, typography, and semantic brand colors.
 - `Switch` is the semantic on/off control. Drawer surface, title, header, footer, safe-area, shadow, and immediate-motion treatment are owned defaults.
