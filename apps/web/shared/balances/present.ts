@@ -2,7 +2,6 @@ import type { FiatCurrencyCode } from "@/config/regions";
 import {
   formatPresentationFiat,
   formatPresentationTokenAmount,
-  formatRelativeTime,
   presentationCurrencyName,
 } from "@/shared/formatting";
 import { exactDecimalToFraction } from "@/shared/balances/math";
@@ -52,7 +51,6 @@ export type BalancesPresentation = {
 
 export type PresentBalancesOptions = {
   showSmallBalances: boolean;
-  nowMs?: number;
 };
 
 export const HOME_MONEY_GROUP_PREVIEW_COUNT = 3;
@@ -70,7 +68,7 @@ export function previewBalanceRows(
 
 export function presentBalances(
   state: BalancesState,
-  { showSmallBalances, nowMs = Date.now() }: PresentBalancesOptions = {
+  { showSmallBalances }: PresentBalancesOptions = {
     showSmallBalances: false,
   },
 ): BalancesPresentation {
@@ -131,11 +129,9 @@ export function presentBalances(
         : "complete",
     statusLabel: noCurrency
       ? "Choose a country in Account to set how money is shown"
-      : state.snapshot.stale === true
-        ? `Updated ${formatRelativeTime(state.snapshot.fetchedAt, nowMs)}`
-        : unavailable
-          ? "Balance unavailable"
-          : undefined,
+      : unavailable
+        ? "Balance unavailable"
+        : undefined,
     groups,
     breakdown,
     rows: groups.flatMap((group) => group.rows),

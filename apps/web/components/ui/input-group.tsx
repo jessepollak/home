@@ -99,9 +99,6 @@ function InputGroupButton({
       type={type}
       data-size={size}
       variant={variant}
-      // This wrapper keeps its own compact sizes instead of forwarding `size`,
-      // so it forwards the matching press tier explicitly: its `icon-*` sizes
-      // are icon-only affordances and the rest are text actions.
       press={press ?? (size?.startsWith("icon") ? "icon" : "standard")}
       className={cn(inputGroupButtonVariants({ size }), className)}
       {...props}

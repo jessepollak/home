@@ -201,7 +201,6 @@ function SavingsJourneySurface() {
           availableUsdcBaseUnits="250000000"
           balancePositions={fundedPositions}
           balanceStatus="ready"
-          balanceFetchedAt="2026-09-10T12:00:00.000Z"
           prepareMoneyAction={prepareMoneyAction}
           executeMoneyAction={executeMoneyAction}
         />

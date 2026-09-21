@@ -1,5 +1,4 @@
 export { formatAddress, isAddress } from "./address";
-export { formatRelativeTime } from "./relative-time";
 export {
   formatPresentationFiat,
   presentationCurrencyName,
