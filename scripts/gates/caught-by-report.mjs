@@ -14,7 +14,7 @@ import {
 // home/* lint rule could have caught. It is a report, not a gate: every path
 // exits 0 so a broken corpus can never fail a build.
 
-export const detectorOrder = ["lint", "bot", "review", "browser", "production", "unknown"];
+export const detectorOrder = ["lint", "bot", "review", "browser", "production", "mixed", "unknown"];
 // review, bot, and production fixes are the rule-first triage queue.
 export const ruleCandidateDetectors = ["review", "bot", "production"];
 export const defaultSince = "30.days";
@@ -80,12 +80,15 @@ export function summarizeFixCommits(commits, { isPrePolicy = () => false } = {})
   const fixes = commits.flatMap((commit) => {
     const scope = fixScope(commit.subject);
     if (scope === null) return [];
-    const values = caughtByTrailerValues(commit.body);
+    // Squash-merged fix PRs aggregate their inner commits' trailers into one
+    // body: identical values dedupe, several distinct values are mixed, and no
+    // value is unknown.
+    const values = [...new Set(caughtByTrailerValues(commit.body))];
     return [{
       sha: commit.sha,
       subject: commit.subject,
       scope,
-      detector: values.length === 1 ? values[0] : "unknown",
+      detector: values.length === 1 ? values[0] : values.length > 1 ? "mixed" : "unknown",
       prePolicy: isPrePolicy(commit.sha),
     }];
   });

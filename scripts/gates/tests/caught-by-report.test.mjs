@@ -121,30 +121,33 @@ test("normalizes the compact N.days form and passes other dates through", () => 
   assert.equal(sinceArgument("2026-09-01"), "2026-09-01");
 });
 
-test("classifies scoped fixes by their single Caught-by trailer", () => {
+test("classifies scoped fixes by their deduped Caught-by trailer", () => {
   const summary = summarizeFixCommits([
     commit_("1".repeat(40), "feat(balances): add price"),
     commit_("2".repeat(40), "fix(balances): guard", "\n\nCaught-by: lint"),
     commit_("3".repeat(40), "fix(access): repair"),
     commit_("4".repeat(40), "fix(home): restore", "Caught-by: lint\nCaught-by: review"),
     commit_("5".repeat(40), "fix(home): restore", "Caught-by: guess"),
+    commit_("6".repeat(40), "fix(home): restore", "Caught-by: browser\nCaught-by: browser"),
   ]);
   assert.deepEqual(summary.fixes.map((fix) => [fix.scope, fix.detector]), [
     ["balances", "lint"],
     ["access", "unknown"],
+    ["home", "mixed"],
     ["home", "unknown"],
-    ["home", "unknown"],
+    ["home", "browser"],
   ]);
   assert.deepEqual(summary.detectors.map((row) => [row.detector, row.count, row.share]), [
-    ["lint", 1, 0.25],
+    ["lint", 1, 1 / 5],
     ["bot", 0, 0],
     ["review", 0, 0],
-    ["browser", 0, 0],
+    ["browser", 1, 1 / 5],
     ["production", 0, 0],
-    ["unknown", 3, 0.75],
+    ["mixed", 1, 1 / 5],
+    ["unknown", 2, 2 / 5],
   ]);
   assert.deepEqual(summary.scopes.map((row) => [row.scope, row.total]), [
-    ["home", 2],
+    ["home", 3],
     ["access", 1],
     ["balances", 1],
   ]);
@@ -163,6 +166,7 @@ test("excludes fixes marked pre-policy from detector counts and shares", () => {
     ["review", 0, 0],
     ["browser", 0, 0],
     ["production", 0, 0],
+    ["mixed", 0, 0],
     ["unknown", 0, 0],
   ]);
 });
@@ -178,12 +182,13 @@ test("defaults to the last 30 days on the current branch", () => {
     ["review", 1, 1 / 6],
     ["browser", 1, 1 / 6],
     ["production", 1, 1 / 6],
-    ["unknown", 2, 2 / 6],
+    ["mixed", 1, 1 / 6],
+    ["unknown", 1, 1 / 6],
   ]);
   assert.deepEqual(report.scopes.map((row) => [row.scope, row.total, row.counts]), [
-    ["balances", 3, { lint: 0, bot: 0, review: 1, browser: 1, production: 0, unknown: 1 }],
-    ["access", 2, { lint: 0, bot: 1, review: 0, browser: 0, production: 0, unknown: 1 }],
-    ["home", 1, { lint: 0, bot: 0, review: 0, browser: 0, production: 1, unknown: 0 }],
+    ["balances", 3, { lint: 0, bot: 0, review: 1, browser: 1, production: 0, mixed: 1, unknown: 0 }],
+    ["access", 2, { lint: 0, bot: 1, review: 0, browser: 0, production: 0, mixed: 0, unknown: 1 }],
+    ["home", 1, { lint: 0, bot: 0, review: 0, browser: 0, production: 1, mixed: 0, unknown: 0 }],
   ]);
 });
 
@@ -217,9 +222,10 @@ test("renders detector shares, scope columns, and candidate files as markdown", 
     "Fix commits: 6",
     "Since: `30.days`",
     "| lint | 0 | 0.0% |",
-    "| unknown | 2 | 33.3% |",
-    "| balances | 3 | 0 | 0 | 1 | 1 | 0 | 1 |",
-    "| access | 2 | 0 | 1 | 0 | 0 | 0 | 1 |",
+    "| mixed | 1 | 16.7% |",
+    "| unknown | 1 | 16.7% |",
+    "| balances | 3 | 0 | 0 | 1 | 1 | 0 | 1 | 0 |",
+    "| access | 2 | 0 | 1 | 0 | 0 | 0 | 0 | 1 |",
     `- \`${shas.production.slice(0, 12)}\` fix(home): restore redirect state — \`apps/web/redirect.ts\``,
     `- \`${shas.bot.slice(0, 12)}\` fix(access): repair session restore — \`apps/web/cookie.ts\`, \`apps/web/session.ts\``,
   ]) {
@@ -230,12 +236,12 @@ test("renders detector shares, scope columns, and candidate files as markdown", 
 test("renders an empty corpus without rows or candidates", () => {
   const markdown = renderMarkdown(summarizeReport(0));
   assert.ok(markdown.includes("Fix commits: 0"));
-  assert.ok(markdown.includes("| _(none)_ | 0 | 0 | 0 | 0 | 0 | 0 | 0 |"));
+  assert.ok(markdown.includes("| _(none)_ | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |"));
   assert.ok(markdown.includes("None in this range."));
 });
 
 function summarizeReport(total) {
-  const detectors = ["lint", "bot", "review", "browser", "production", "unknown"].map((detector) => ({ detector, count: 0, share: 0 }));
+  const detectors = ["lint", "bot", "review", "browser", "production", "mixed", "unknown"].map((detector) => ({ detector, count: 0, share: 0 }));
   return { range: null, since: "30.days", total, prePolicyTotal: 0, policyStart: null, detectors, scopes: [], candidates: [], fixes: [] };
 }
 
