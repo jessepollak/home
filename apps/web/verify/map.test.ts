@@ -25,6 +25,7 @@ describe("feature map parser", () => {
     const labels = ["Send $<amount>", "Retry"];
     expect(matchesConfirmLabel(labels, "Send $1.00")).toBe(true);
     expect(matchesConfirmLabel(labels, "Send $1,234.50")).toBe(true);
+    expect(matchesConfirmLabel(["Cash out $<amount>"], "Cash out 1 USDC")).toBe(true);
     expect(matchesConfirmLabel(labels, "Retry")).toBe(true);
     expect(matchesConfirmLabel(labels, "Send now")).toBe(false);
     expect(matchesConfirmLabel(labels, "Retry action")).toBe(false);
