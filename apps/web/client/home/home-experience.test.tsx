@@ -852,16 +852,27 @@ describe("Home shell routing and intents", () => {
     expect(`${window.location.pathname}${window.location.search}`).toBe(`/borrow/${BORROW_MARKET_ID}`);
   });
 
-  test("honors server-selected panel state without adding history", async () => {
+  test("prefers the server-selected location over the browser location", async () => {
+    syncLocation("/borrow");
+    historyEntries = ["/borrow"];
     render(
       <HomeHarness
         accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
-        initialPanel="activity"
+        initialPanel="home"
+        initialLocation={{
+          panel: "activity",
+          account: null,
+          shelf: null,
+          asset: null,
+          group: null,
+          market: null,
+        }}
       />,
     );
 
     await waitForVerifiedShell();
     expect(page().getByRole("heading", { name: "Activity" })).toBeTruthy();
+    expect(page().queryByText("Borrow USDC using your Bitcoin on Base.")).toBeNull();
     expect(pushCalls).toEqual([]);
   });
 
