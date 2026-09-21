@@ -5,6 +5,7 @@ import {
   INITIAL_VIEW_LATITUDE,
   MAX_VIEW_LATITUDE,
   projectCountry,
+  selectGlobePopoverCountry,
   shouldAnimateGlobe,
 } from "./globe-geometry";
 import { advanceMotion, DEFAULT_VELOCITY } from "./globe-motion";
@@ -43,6 +44,16 @@ describe("two-axis globe view", () => {
     expect(latitude30.velocity).toBeCloseTo(latitude90.velocity, 8);
     expect(Math.abs(latitude30.velocity)).toBeLessThan(.04);
     expect(DEFAULT_VELOCITY).toBe(.0075);
+  });
+
+  test("popover selection does not oscillate between nearby markers", () => {
+    const points = [
+      { countryCode: "AA", countryName: "Alpha", currency: { code: "AAA", name: "Alpha" }, longitude: 0, latitude: 0 },
+      { countryCode: "BB", countryName: "Beta", currency: { code: "BBB", name: "Beta" }, longitude: 1, latitude: 0 },
+    ];
+    const initial = selectGlobePopoverCountry(points, 0);
+    expect(initial?.country.countryCode).toBe("AA");
+    expect(selectGlobePopoverCountry(points, 1, "AA", 500)?.country.countryCode).toBe("AA");
   });
 
   test("keeps the geographic unit-vector contract", () => {
