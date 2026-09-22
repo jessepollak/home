@@ -784,8 +784,14 @@ function readReconciliationSettlement(
       requestedAtomic,
       input.tokenDecimals,
     );
+    if (settledAtomic > expectedAtomic) {
+      throw new Error("IDRX settled amount exceeds the expected amount.");
+    }
+    if (expectedAtomic < requestedAtomic && settledAtomic !== expectedAtomic) {
+      throw new Error("IDRX quoted settlement differs from the expected amount.");
+    }
     const fees = readHistoryPaymentEchoes(record, settledAtomic, input.tokenDecimals);
-    if (settledAtomic < requestedAtomic) {
+    if (expectedAtomic === requestedAtomic && settledAtomic < requestedAtomic) {
       assertBoundedShortfall(requestedAtomic, settledAtomic, fees, input.tokenDecimals);
     }
     assertRailEchoes(

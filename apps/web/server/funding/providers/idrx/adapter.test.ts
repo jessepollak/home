@@ -281,7 +281,6 @@ describe("IDRX adapter behavior", () => {
       { name: "lowered to 0.01 with fees absorbing the rest", record: { ...liveRecord, toBeMinted: 0.01, paymentAmount: 23000, fees: [{ name: "Absorb", amount: "22999.99" }] } },
       { name: "lowered with no fee lines", record: { ...liveRecord, toBeMinted: 19860, paymentAmount: 19860, fees: [] } },
       { name: "shortfall larger than the itemized fees", record: { ...liveRecord, toBeMinted: 19000, paymentAmount: 19140, fees: [{ name: "QRIS Fee (0.7%)", amount: "140" }] } },
-      { name: "shortfall above the 5% cap even when fees cover it", record: { ...liveRecord, toBeMinted: 18000, paymentAmount: 21000, fees: [{ name: "Deducted", amount: "2000" }, { name: "VA INA", amount: "1000" }] } },
     ];
     for (const fixture of cases) {
       const ctx = createProviderContext({
@@ -299,7 +298,7 @@ describe("IDRX adapter behavior", () => {
     }
   });
 
-  test("never lets the settled amount exceed the requested amount", async () => {
+  test("never lets the settled amount exceed expectedTokenAmountAtomic", async () => {
     const liveRecord = historyMintedQrisLiveFixture.records[0];
     const liveIntent = {
       ...reconciliationIntent,
@@ -469,7 +468,7 @@ describe("IDRX adapter behavior", () => {
     }
   });
 
-  test("a quoted order expects the quoted net mint and reconciles the record against the requested amount", async () => {
+  test("creates a quoted order with the quoted net mint", async () => {
     const quote = {
       fiatAmount: "20000",
       tokenAmountAtomic: "1986000",
@@ -482,10 +481,7 @@ describe("IDRX adapter behavior", () => {
       region: "ID",
       paymentMethodId: "qris",
       env,
-      fetchImplementation: (async (input: RequestInfo | URL) =>
-        String(input).includes("mint-request")
-          ? jsonFixture({ ...createQrisFixture, data: { ...createQrisFixture.data, toBeMinted: "20000", expectedTokenAmountAtomic: "2000000" } })
-          : jsonFixture(historyMintedQrisLiveFixture)) as unknown as typeof fetch,
+      fetchImplementation: (async () => jsonFixture({ ...createQrisFixture, data: { ...createQrisFixture.data, toBeMinted: "20000", expectedTokenAmountAtomic: "2000000" } })) as unknown as typeof fetch,
     });
 
     const created = await idrxProvider.onramp!.createOrder({ ...intent, fiatAmount: "20000", quote }, ctx);
@@ -494,35 +490,77 @@ describe("IDRX adapter behavior", () => {
       expect(created.order.expectedTokenAmountAtomic).toBe("1986000");
       expect(created.order.fees).toEqual(quote.fees);
     }
+  });
 
-    // The live record: requested 20000, minted 19860. Against the quoted net
-    // amount that is an exact settlement, so nothing is lowered again.
+  test("reconciles a quoted order only at the quoted net mint", async () => {
     const liveRecord = historyMintedQrisLiveFixture.records[0]!;
-    const observation = await idrxProvider.onramp!.getOrder(
-      {
+    const cases: Array<{ name: string; record: Record<string, unknown>; expected: "sent" | "unknown" }> = [
+      { name: "between quoted net and request", record: { ...liveRecord, toBeMinted: 19900, paymentAmount: 23000, fees: [{ name: "Fees", amount: "3100" }] }, expected: "unknown" },
+      { name: "missing settled amount defaults to request", record: { ...liveRecord, toBeMinted: undefined, paymentAmount: 23000, fees: [{ name: "Fees", amount: "3000" }] }, expected: "unknown" },
+      { name: "below quoted net with covering fees", record: { ...liveRecord, toBeMinted: 19800, paymentAmount: 23000, fees: [{ name: "Fees", amount: "3200" }] }, expected: "unknown" },
+      { name: "exact quoted net", record: liveRecord, expected: "sent" },
+    ];
+    for (const scenario of cases) {
+      const ctx = createProviderContext({
+        manifest: idrxManifest,
+        region: "ID",
+        paymentMethodId: "qris",
+        env,
+        fetchImplementation: (async () => jsonFixture({ ...historyMintedQrisLiveFixture, records: [scenario.record] })) as unknown as typeof fetch,
+      });
+      const observation = await idrxProvider.onramp!.getOrder({
         ...reconciliationIntent,
         providerOrderId: liveRecord.merchantOrderId,
         destination: liveRecord.destinationWalletAddress as `0x${string}`,
         fiatAmount: "20000",
         expectedTokenAmountAtomic: "1986000",
-      },
-      ctx,
-    );
-    expect(observation.state).toBe("sent");
-    expect(observation.settledTokenAmountAtomic).toBeUndefined();
+      }, ctx);
+      expect(observation.state, scenario.name).toBe(scenario.expected);
+      if (scenario.expected === "unknown") {
+        expect(observation.providerStatus, scenario.name).toBe("INTENT_MISMATCH");
+      } else {
+        expect(observation.settledTokenAmountAtomic, scenario.name).toBeUndefined();
+      }
+    }
+  });
 
-    // A record whose base amount is not the requested amount stays unresolved.
-    const other = await idrxProvider.onramp!.getOrder(
-      {
-        ...reconciliationIntent,
-        providerOrderId: liveRecord.merchantOrderId,
-        destination: liveRecord.destinationWalletAddress as `0x${string}`,
-        fiatAmount: "21000",
-        expectedTokenAmountAtomic: "1986000",
-      },
-      ctx,
-    );
-    expect(other).toEqual({ state: "unknown", providerStatus: "INTENT_MISMATCH" });
+  test("rejects a history record whose base amount differs from the requested amount", async () => {
+    const liveRecord = historyMintedQrisLiveFixture.records[0]!;
+    const ctx = createProviderContext({
+      manifest: idrxManifest,
+      region: "ID",
+      paymentMethodId: "qris",
+      env,
+      fetchImplementation: (async () => jsonFixture({ ...historyMintedQrisLiveFixture, records: [{ ...liveRecord, baseAmount: 21000 }] })) as unknown as typeof fetch,
+    });
+    await expect(idrxProvider.onramp!.getOrder({
+      ...reconciliationIntent,
+      providerOrderId: liveRecord.merchantOrderId,
+      destination: liveRecord.destinationWalletAddress as `0x${string}`,
+      fiatAmount: "20000",
+      expectedTokenAmountAtomic: "1986000",
+    }, ctx)).resolves.toEqual({ state: "unknown", providerStatus: "INTENT_MISMATCH" });
+  });
+
+  test("rejects an unquoted settlement above the five percent shortfall cap", async () => {
+    const liveRecord = historyMintedQrisLiveFixture.records[0]!;
+    const ctx = createProviderContext({
+      manifest: idrxManifest,
+      region: "ID",
+      paymentMethodId: "qris",
+      env,
+      fetchImplementation: (async () => jsonFixture({
+        ...historyMintedQrisLiveFixture,
+        records: [{ ...liveRecord, toBeMinted: 18000, paymentAmount: 21000, fees: [{ name: "Deducted", amount: "2000" }, { name: "VA INA", amount: "1000" }] }],
+      })) as unknown as typeof fetch,
+    });
+    await expect(idrxProvider.onramp!.getOrder({
+      ...reconciliationIntent,
+      providerOrderId: liveRecord.merchantOrderId,
+      destination: liveRecord.destinationWalletAddress as `0x${string}`,
+      fiatAmount: "20000",
+      expectedTokenAmountAtomic: "2000000",
+    }, ctx)).resolves.toEqual({ state: "unknown", providerStatus: "INTENT_MISMATCH" });
   });
 
   test("quotes the net mint and the itemized fees from mint-quote", async () => {
