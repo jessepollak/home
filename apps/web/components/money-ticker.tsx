@@ -79,7 +79,7 @@ function reducedMotionSnapshot(): boolean {
     && window.matchMedia(REDUCED_MOTION_QUERY).matches;
 }
 
-function useMoneyTickerReducedMotion(): boolean {
+export function useReducedMotion(): boolean {
   const systemPreference = useSyncExternalStore(subscribeToReducedMotion, reducedMotionSnapshot, () => false);
   return useContext(MoneyMotionContext) ?? systemPreference;
 }
@@ -107,7 +107,7 @@ export function MoneyTicker({
   style,
   ...props
 }: MoneyTickerProps) {
-  const reducedMotion = useMoneyTickerReducedMotion();
+  const reducedMotion = useReducedMotion();
   const parts = splitMoneyTickerValue(value);
   const characters = Array.from(parts.numeric);
   const digitCount = characters.filter(isAsciiDigit).length;

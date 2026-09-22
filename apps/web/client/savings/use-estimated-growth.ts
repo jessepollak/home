@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useReducedMotion } from "@/components/money-ticker";
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
 import type { SavingsPortfolioSummary } from "./portfolio-summary";
 import { nextSavingsRateExpiryAt } from "./portfolio-summary";
@@ -109,16 +110,24 @@ export function useEstimatedSavingsGrowth(
   anchor: SavingsGrowthAnchor,
   now: () => number = Date.now,
 ): bigint {
+  const reducedMotion = useReducedMotion();
   const [sample, setSample] = useState(() => ({
     identity: anchor.identity,
     value: anchor.authoritativeBaseUnits,
   }));
+  const [sampleReducedMotion, setSampleReducedMotion] = useState(reducedMotion);
+
+  if (sampleReducedMotion !== reducedMotion) {
+    setSampleReducedMotion(reducedMotion);
+    setSample({ identity: anchor.identity, value: anchor.authoritativeBaseUnits });
+  }
+
   const visibleValue = anchor.estimate !== null && sample.identity === anchor.identity
     ? sample.value
     : anchor.authoritativeBaseUnits;
 
   useEffect(() => {
-    if (anchor.estimate === null) return;
+    if (reducedMotion || anchor.estimate === null) return;
     let timeout: ReturnType<typeof setTimeout> | null = null;
     let active = true;
 
@@ -156,7 +165,7 @@ export function useEstimatedSavingsGrowth(
       clearSample();
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [anchor, now]);
+  }, [anchor, now, reducedMotion]);
 
-  return visibleValue;
+  return reducedMotion ? anchor.authoritativeBaseUnits : visibleValue;
 }
