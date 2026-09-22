@@ -63,7 +63,7 @@ export function resolveLiveCashoutHandle(value: string | undefined): CashoutHand
   if (!handle) {
     return {
       action: "refuse",
-      reason: "Live cash-out requires HOME_VERIFY_CASHOUT_HANDLE set to a cashtag Jesse owns; refusing to fill the placeholder payout handle.",
+      reason: "Live cash-out requires HOME_VERIFY_CASHOUT_HANDLE set to a payout handle the operator owns; refusing to fill the placeholder payout handle.",
     };
   }
   return { action: "use", handle };
