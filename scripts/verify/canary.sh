@@ -1,6 +1,9 @@
 #!/bin/sh
 set -eu
 
+PATH="$HOME/.bun/bin:$PATH"
+export PATH
+
 mode=${1:-scheduled}
 production_url=${HOME_VERIFY_PRODUCTION_URL:?Set HOME_VERIFY_PRODUCTION_URL to the production Home origin.}
 case "$production_url" in
@@ -11,6 +14,12 @@ esac
 repository=${HOME_VERIFY_REPOSITORY:-$(gh repo view --json nameWithOwner -q .nameWithOwner)}
 
 export HOME_VERIFY_ROLE=factory
+
+if [ -z "${HOME_ACCESS_PASSWORD:-}" ] && [ -n "${HOME_ACCESS_PASSWORD_OP_REF:-}" ]; then
+  HOME_ACCESS_PASSWORD=$(op read "$HOME_ACCESS_PASSWORD_OP_REF")
+  export HOME_ACCESS_PASSWORD
+fi
+
 canary_root=${HOME_VERIFY_CANARY_DIR:-"$HOME/.home-verify/canary"}
 run_stamp=$(date -u +%Y-%m-%dT%H-%M-%SZ)
 run_dir="$canary_root/$run_stamp"

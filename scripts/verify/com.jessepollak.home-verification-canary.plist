@@ -17,10 +17,16 @@
     <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
     <key>HOME_VERIFY_PRODUCTION_URL</key>
     <string>https://__HOME_PRODUCTION_HOST__</string>
+    <key>HOME_VERIFY_ACCOUNT_EMAIL</key>
+    <string>__HOME_VERIFY_ACCOUNT_EMAIL__</string>
     <key>HOME_VERIFY_GMAIL_CREDENTIALS</key>
     <string>__HOME_DIRECTORY__/.home-verify/gmail.json</string>
     <key>HOME_VERIFY_ROLE</key>
     <string>factory</string>
+    <!-- Optional: instead of provisioning HOME_ACCESS_PASSWORD directly, set
+         HOME_ACCESS_PASSWORD_OP_REF to a 1Password reference (for example
+         op://j/access/password). When HOME_ACCESS_PASSWORD is empty, canary.sh
+         resolves the reference with `op read` without echoing it. -->
   </dict>
   <key>StartCalendarInterval</key>
   <dict>
