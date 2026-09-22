@@ -40,6 +40,9 @@ export const idrxProvider: FundingProvider = {
       const startedAt = Date.now();
       const channel = quoteChannel(ctx);
       if (!channel) throw new Error("The selected IDRX payment method is not supported.");
+      if (supportedIdrxAtomicAmount(input.fiatAmount, ctx.binding.asset.decimals) === null) {
+        throw new Error("The amount is outside the supported IDRX range.");
+      }
       const url = new URL(QUOTE_PATH, IDRX_API_ORIGIN);
       url.searchParams.set("amount", input.fiatAmount);
       url.searchParams.set("chainId", String(ctx.binding.asset.chainId));
@@ -82,14 +85,8 @@ export const idrxProvider: FundingProvider = {
     },
 
     async createOrder(input, ctx) {
-    const atomic = input.fiatAmount.length <= MAX_IDRX_DECIMAL_LENGTH
-      ? idrxAtomicAmount(input.fiatAmount, ctx.binding.asset.decimals)
-      : null;
-    if (
-      atomic === null ||
-      atomic < MIN_IDRX_ATOMIC ||
-      atomic > MAX_IDRX_ATOMIC
-    ) {
+    const atomic = supportedIdrxAtomicAmount(input.fiatAmount, ctx.binding.asset.decimals);
+    if (atomic === null) {
       return {
         outcome: "rejected",
         message: "The amount is outside the supported IDRX range.",
@@ -1007,6 +1004,14 @@ function readDecimal(value: unknown): string {
 function readOptionalReference(value: unknown): { reference?: string } {
   if (value === undefined || value === null || value === "") return {};
   return { reference: readBoundedString(value, 128) };
+}
+
+function supportedIdrxAtomicAmount(fiatAmount: string, decimals: number): bigint | null {
+  const atomic = fiatAmount.length <= MAX_IDRX_DECIMAL_LENGTH
+    ? idrxAtomicAmount(fiatAmount, decimals)
+    : null;
+  if (atomic === null || atomic < MIN_IDRX_ATOMIC || atomic > MAX_IDRX_ATOMIC) return null;
+  return atomic;
 }
 
 export function idrxAtomicAmount(value: string, decimals: number): bigint | null {

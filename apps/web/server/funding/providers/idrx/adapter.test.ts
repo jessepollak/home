@@ -598,6 +598,27 @@ describe("IDRX adapter behavior", () => {
     }, ctx)).resolves.toEqual({ state: "unknown", providerStatus: "INTENT_MISMATCH" });
   });
 
+  test("refuses to quote an amount outside the supported IDRX range without calling the provider", async () => {
+    let calls = 0;
+    const ctx = createProviderContext({
+      manifest: idrxManifest,
+      region: "ID",
+      paymentMethodId: "qris",
+      env,
+      fetchImplementation: (async () => {
+        calls += 1;
+        return jsonFixture(quoteQrisFixture);
+      }) as unknown as typeof fetch,
+    });
+
+    for (const fiatAmount of ["19999.99", "1000000000.01"]) {
+      await expect(
+        idrxProvider.onramp!.createQuote!({ destination: DESTINATION, fiatAmount, returnUrl: intent.returnUrl }, ctx),
+      ).rejects.toThrow("outside the supported IDRX range");
+    }
+    expect(calls).toBe(0);
+  });
+
   test("quotes the net mint and the itemized fees from mint-quote", async () => {
     const requests: Array<{ url: string; init: RequestInit }> = [];
     const ctx = createProviderContext({
