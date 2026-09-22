@@ -34,10 +34,7 @@ function RetryHarness({ fetchBalances }: { fetchBalances: FetchBalances }) {
       <output>{state.status === "ready"
         ? `${state.snapshot.fetchedAt}:${state.snapshot.stale === true ? "stale" : "current"}:${state.refreshError === true ? "refresh-error" : "current"}`
         : state.status}</output>
-      <span>{presentBalances(state, {
-        showSmallBalances: false,
-        nowMs: Date.parse("2026-09-13T12:03:00.000Z"),
-      }).statusLabel}</span>
+      <span data-status-label="">{presentBalances(state, { showSmallBalances: false }).statusLabel}</span>
       <button type="button" onClick={() => void state.retry()}>retry balances</button>
     </>
   );
@@ -117,7 +114,7 @@ describe("useBalances", () => {
     expect(states.at(-1)).toBe(readyState);
   });
 
-  test("retains the last verified snapshot with an explicit refresh error and manual retry", async () => {
+  test("retains the last verified snapshot quietly after a refresh error, then recovers on manual retry", async () => {
     let calls = 0;
     const fetchBalances: FetchBalances = async () => {
       calls += 1;
@@ -132,7 +129,9 @@ describe("useBalances", () => {
     expect(view.getByText(/:stale:refresh-error$/).textContent).toContain(
       balancesSnapshotFixture.fetchedAt,
     );
-    expect(view.getByText(/Updated .* ago/).textContent).toContain("Updated");
+    expect(view.container.querySelector("[data-status-label]")?.textContent).toBe("");
+    expect(document.body.textContent).not.toContain("Updated");
+    expect(document.body.textContent).not.toContain("ago");
 
     view.getByRole("button", { name: "retry balances" }).click();
     await waitFor(() => expect(view.getByText(/:current:current$/)).toBeTruthy());

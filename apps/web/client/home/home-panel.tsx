@@ -204,7 +204,7 @@ export function HomePanel({
               ) : null}
             </div>
           ) : null}
-          {isLoading || isRevalidating ? <span className="sr-only">Updating…</span> : null}
+          {isLoading ? <span className="sr-only">Updating…</span> : null}
         </CardContent>
       </Card>
 

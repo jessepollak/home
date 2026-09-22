@@ -15,7 +15,7 @@ const read: BalancesRead = {
   block: balancesSnapshotFixture.block,
   observedAt: FIXTURE_FETCHED_AT,
   holdings: [],
-  coverage: balancesSnapshotFixture.coverage,
+  coverage: { registry: "complete", catalog: "complete" },
 };
 
 function fixtureHolding(id: string): Holding {
@@ -95,7 +95,7 @@ describe("balances snapshot", () => {
     const snapshot = assembleBalancesSnapshot({
       owner: FIXTURE_OWNER_ADDRESS,
       region: "US",
-      read,
+      read: { ...read, coverage: balancesSnapshotFixture.coverage },
       holdings,
     });
     expect(parseBalancesSnapshot(
@@ -155,7 +155,7 @@ describe("balances snapshot", () => {
       },
     },
     {
-      name: "catalog value adds while an unpriced wallet row cannot affect the total",
+      name: "catalog value adds while a positive unpriced wallet row makes the total partial",
       holdings: [
         registryHolding("usdc", "0", priced("0")),
         registryHolding("cbbtc", "0", priced("0")),
@@ -166,8 +166,22 @@ describe("balances snapshot", () => {
         }),
       ],
       expected: {
-        status: "complete",
+        status: "partial",
         value: totalDecimal("7"),
+        currency: "USD",
+      },
+    },
+    {
+      name: "priced catalog and wallet holdings are each included exactly once",
+      holdings: [
+        registryHolding("usdc", "0", priced("0")),
+        registryHolding("cbbtc", "0", priced("0")),
+        catalogHolding(decimal("7")),
+        walletHolding(FIXTURE_WALLET_TOKEN, "25", priced("5")),
+      ],
+      expected: {
+        status: "complete",
+        value: totalDecimal("12"),
         currency: "USD",
       },
     },
@@ -179,5 +193,62 @@ describe("balances snapshot", () => {
       holdings: [...holdings],
     });
     expect(snapshot.total).toEqual(expected);
+  });
+
+  test.each([
+    {
+      name: "partial registry",
+      coverage: { registry: "partial", catalog: "complete" } as const,
+    },
+    {
+      name: "incomplete catalog",
+      coverage: { registry: "complete", catalog: "incomplete" } as const,
+    },
+    {
+      name: "unavailable catalog",
+      coverage: { registry: "complete", catalog: "unavailable" } as const,
+    },
+  ])(
+    "$name coverage makes a nonzero known total partial",
+    ({ coverage }) => {
+      const snapshot = assembleBalancesSnapshot({
+        owner: FIXTURE_OWNER_ADDRESS,
+        region: "US",
+        read: { ...read, coverage },
+        holdings: [
+          registryHolding("usdc", "1000000", priced("10")),
+          registryHolding("cbbtc", "0", priced("0")),
+        ],
+      });
+      expect(snapshot.total).toEqual({
+        status: "partial",
+        value: totalDecimal("10"),
+        currency: "USD",
+      });
+    },
+  );
+
+  test("incomplete inventory with no positive priced contribution is unavailable", () => {
+    const snapshot = assembleBalancesSnapshot({
+      owner: FIXTURE_OWNER_ADDRESS,
+      region: "US",
+      read: {
+        ...read,
+        coverage: { registry: "complete", catalog: "unavailable" },
+      },
+      holdings: [
+        registryHolding("usdc", "0", priced("0")),
+        registryHolding("cbbtc", "0", priced("0")),
+        walletHolding(FIXTURE_WALLET_TOKEN, "25", {
+          status: "unpriced",
+          reason: "below-market-gate",
+        }),
+      ],
+    });
+    expect(snapshot.total).toEqual({
+      status: "unavailable",
+      value: null,
+      currency: "USD",
+    });
   });
 });

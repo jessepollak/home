@@ -787,6 +787,63 @@ test("mobile cash-out handle fields meet touch-target and zoom-safe metrics", as
   }
 });
 
+test("mobile tab bar keeps browser-tab bottom spacing and touch targets", async ({ page, context }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  // Chromium has no physical home indicator, so emulate the nonzero bottom
+  // safe area an iPhone reports. This page runs in the `browser` display mode a
+  // browser tab reports: Safari already ends that viewport above its own bottom
+  // chrome, so the tab bar must not reserve the device inset a second time.
+  const cdp = await context.newCDPSession(page);
+  await cdp.send("Emulation.setSafeAreaInsetsOverride", {
+    insets: { top: 0, left: 0, right: 0, bottom: 34 },
+  });
+  await page.goto("/home");
+
+  const navigation = page.getByRole("navigation", { name: "Main navigation" });
+  await expect(navigation).toBeVisible();
+
+  // Guard the emulation itself: if the inset never reaches CSS, the spacing
+  // assertions below would pass for the wrong reason.
+  const emulatedInset = await page.evaluate(() => {
+    const probe = document.createElement("div");
+    probe.style.paddingBottom = "env(safe-area-inset-bottom)";
+    document.body.append(probe);
+    const inset = Number.parseFloat(getComputedStyle(probe).paddingBottom);
+    probe.remove();
+    return inset;
+  });
+  expect(emulatedInset).toBe(34);
+
+  const tabBar = navigation.locator("xpath=..");
+  await expect.poll(async () => tabBar.evaluate((wrapper) =>
+    Number.parseFloat(getComputedStyle(wrapper).paddingBottom))).toBe(0);
+  await expect.poll(async () => navigation.evaluate((nav) =>
+    Math.round(window.innerHeight - nav.getBoundingClientRect().bottom))).toBe(0);
+  const toastViewport = page.locator('[data-slot="toast-viewport"]');
+  await expect.poll(async () => toastViewport.evaluate((viewport) =>
+    Number.parseFloat(getComputedStyle(viewport).bottom))).toBe(72);
+
+  // The spacing fix keeps 44px targets and an unclipped active underline.
+  await expect.poll(async () => (await inputMetrics(navigation)).height).toBeGreaterThanOrEqual(44);
+  await expect.poll(async () => (await inputMetrics(navigation.getByRole("button", { name: "Home", exact: true }))).height)
+    .toBeGreaterThanOrEqual(44);
+  await expect.poll(async () => (await inputMetrics(navigation.getByRole("button", { name: "Invest", exact: true }))).height)
+    .toBeGreaterThanOrEqual(44);
+  await expect.poll(async () => navigation.evaluate((nav) => {
+    const indicator = nav.querySelector('[aria-current="page"] span[aria-hidden="true"]');
+    if (!indicator) return -1;
+    const bar = nav.getBoundingClientRect();
+    const underline = indicator.getBoundingClientRect();
+    const gap = bar.bottom - underline.bottom;
+    return underline.width >= 8 && gap >= 2 && gap <= 6 ? 1 : 0;
+  })).toBe(1);
+  await expect.poll(async () => page.evaluate(() =>
+    Math.round(document.documentElement.scrollWidth - window.innerWidth))).toBeLessThanOrEqual(0);
+
+});
+
 test("representative canonical routes SSR and hydrate their selected panel", async ({ page }) => {
   await seedSignedInSession(page, "GB");
   await page.addInitScript(() => {

@@ -22,4 +22,4 @@ title: "kind(scope): outcome"
 
 <!-- What evidence the PR or comment must show: screenshot/clip and viewport for visible changes, test names for logic, "observed evidence" otherwise. -->
 
-<!-- `factory` is the only label Jesse applies; the factory manages `factory:working` and `factory:review` itself. -->
+<!-- `factory` is the only label Jesse applies; the factory manages `factory:working`, `factory:review` and `factory:needs-jesse` itself. -->

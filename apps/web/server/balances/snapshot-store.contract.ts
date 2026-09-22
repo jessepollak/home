@@ -41,7 +41,7 @@ export function balanceSnapshotStoreContract(options: {
       expect((await store.get(8453, ADDRESS))?.enumerationCursor).toBeNull();
     });
 
-    test("equal-block observations may replace enrichment without clearing signals", async () => {
+    test("equal-block observations require a newer observation time and preserve signals", async () => {
       await store.putObservation(observation("10", "2026-09-13T12:00:10.000Z"));
       await store.markStale(8453, ADDRESS, new Date("2026-09-13T12:00:11.000Z"));
       await store.markHot(8453, ADDRESS, new Date("2026-09-13T12:01:10.000Z"));
@@ -49,7 +49,12 @@ export function balanceSnapshotStoreContract(options: {
         ...observation("10", "2026-09-13T12:00:12.000Z"),
         coverage: { registry: "partial", catalog: "incomplete" },
       })).toBeTrue();
+      expect(await store.putObservation({
+        ...observation("10", "2026-09-13T12:00:11.000Z"),
+        coverage: { registry: "complete", catalog: "complete" },
+      })).toBeFalse();
       expect(await store.get(8453, ADDRESS)).toMatchObject({
+        observedAt: "2026-09-13T12:00:12.000Z",
         staleAt: "2026-09-13T12:00:11.000Z",
         hotUntil: "2026-09-13T12:01:10.000Z",
         coverage: { registry: "partial", catalog: "incomplete" },

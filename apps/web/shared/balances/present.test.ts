@@ -20,8 +20,6 @@ import {
   previewBalanceRows,
 } from "./present";
 
-const NOW = Date.parse("2026-09-13T12:03:00.000Z");
-
 describe("balance presentation", () => {
   test("keeps cash truth, hides noncash zero/unavailable and vault shares, and includes catalog rows", () => {
     const rows = presentBalanceRows(balancesSnapshotFixture);
@@ -87,7 +85,7 @@ describe("balance presentation", () => {
       status: "ready",
       snapshot: buildBalancesSnapshotFixture({ catalog: [holding] }),
       error: null,
-    }, { showSmallBalances: false, nowMs: NOW });
+    }, { showSmallBalances: false });
 
     expect(presentation.hiddenRows.some((row) => row.name === holding.name)).toBe(hidden);
     expect(presentation.rows.some((row) => row.name === holding.name)).toBe(!hidden);
@@ -108,11 +106,11 @@ describe("balance presentation", () => {
     });
     const hidden = presentBalances(
       { status: "ready", snapshot, error: null },
-      { showSmallBalances: false, nowMs: NOW },
+      { showSmallBalances: false },
     );
     const shown = presentBalances(
       { status: "ready", snapshot, error: null },
-      { showSmallBalances: true, nowMs: NOW },
+      { showSmallBalances: true },
     );
 
     expect(hidden.rows.some((row) => row.name === "US dollar")).toBeTrue();
@@ -292,26 +290,30 @@ describe("balance presentation", () => {
     });
   });
 
-  test("prioritizes the country prompt over stale observation age", () => {
+  test("prioritizes the country prompt over stale snapshot state", () => {
     const snapshot = buildBalancesSnapshotFixture({ region: "GLOBAL" });
 
     expect(presentBalances(
       { status: "ready", snapshot: { ...snapshot, stale: true }, error: null },
-      { showSmallBalances: false, nowMs: NOW },
+      { showSmallBalances: false },
     ).statusLabel).toBe("Choose a country in Account to set how money is shown");
   });
 
-  test("labels only stale snapshots with their observation age", () => {
+  test("does not label a cached or revalidating snapshot with its observation age", () => {
     const snapshot = buildBalancesSnapshotFixture({
       fetchedAt: "2026-09-13T12:00:00.000Z",
     });
     expect(presentBalances(
       { status: "ready", snapshot: { ...snapshot, stale: true }, error: null },
-      { showSmallBalances: false, nowMs: NOW },
-    ).statusLabel).toBe("Updated 3 min ago");
+      { showSmallBalances: false },
+    ).statusLabel).toBeUndefined();
+    expect(presentBalances(
+      { status: "ready", snapshot: { ...snapshot, stale: true }, error: null, revalidating: true },
+      { showSmallBalances: false },
+    ).statusLabel).toBeUndefined();
     expect(presentBalances(
       { status: "ready", snapshot, error: null },
-      { showSmallBalances: false, nowMs: NOW },
+      { showSmallBalances: false },
     ).statusLabel).toBeUndefined();
   });
 });
