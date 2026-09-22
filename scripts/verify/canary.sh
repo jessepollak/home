@@ -19,13 +19,24 @@ summary="$run_dir/summary.md"
 printf '# Verification canary — %s\n\n- Production: `%s`\n- Mode: `%s`\n\n| surface / journey | result | evidence |\n| --- | --- | --- |\n' "$run_stamp" "$production_url" "$mode" >"$summary"
 
 status=0
+relogin_attempted=0
+verify_live() {
+  bun run --cwd apps/web verify "$@" --live --base-url "$production_url" --out "$run_dir/evidence"
+}
+relogin() {
+  [ "$relogin_attempted" = 0 ] || return 1
+  relogin_attempted=1
+  bun run --cwd apps/web verify live-login --base-url "$production_url" >"$run_dir/live-login.log" 2>&1
+}
 run_canary() {
   label=$1
   shift
   log="$run_dir/$(printf '%s' "$label" | tr '/ ' '--').log"
   run_result=0
-  if bun run --cwd apps/web verify "$@" --live --base-url "$production_url" --out "$run_dir/evidence" >"$log" 2>&1; then
+  if verify_live "$@" >"$log" 2>&1; then
     result=pass
+  elif grep -q 'The live session expired' "$log" && relogin && verify_live "$@" >"$log" 2>&1; then
+    result='pass (after re-login)'
   else
     result=fail
     run_result=1
