@@ -13,6 +13,7 @@ const { useActivity } = await import("./use-activity");
 const WALLET_A = "0x1111111111111111111111111111111111111111" as const;
 const WALLET_B = "0x2222222222222222222222222222222222222222" as const;
 const OTHER = "0x3333333333333333333333333333333333333333" as const;
+const waitedFor = { timeout: 5_000 };
 
 function session(
   subject: string,
@@ -93,6 +94,10 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+function cursors(queries: readonly string[]): (string | null)[] {
+  return queries.map((query) => new URLSearchParams(query).get("cursor"));
+}
+
 function HookHarness({
   owner,
   fetchActivity,
@@ -118,7 +123,13 @@ function HookHarness({
           <output data-testid="load-more-error">
             {String(activity.loadMoreError)}
           </output>
-          <button type="button" onClick={activity.loadMore}>automatic attempt</button>
+          <output data-testid="continuing">{String(activity.continuing)}</output>
+          <button type="button" onClick={() => activity.setSentinelVisible(true)}>
+            sentinel visible
+          </button>
+          <button type="button" onClick={() => activity.setSentinelVisible(false)}>
+            sentinel hidden
+          </button>
           <button type="button" onClick={activity.retryLoadMore}>manual retry</button>
         </>
       ) : null}
@@ -174,8 +185,8 @@ describe("useActivity pagination", () => {
     );
 
     await waitFor(() => expect(view.getByTestId("cursor").textContent).toBe("cursor-1"));
-    fireEvent.click(view.getByText("automatic attempt"));
-    fireEvent.click(view.getByText("automatic attempt"));
+    fireEvent.click(view.getByText("sentinel visible"));
+    fireEvent.click(view.getByText("sentinel visible"));
     expect(queries).toHaveLength(2);
     await waitFor(() =>
       expect(view.getByTestId("loading-more").textContent).toBe("true"),
@@ -200,19 +211,123 @@ describe("useActivity pagination", () => {
       expect(view.getByTestId("ids").textContent).toBe("event-30,event-20"),
     );
 
-    fireEvent.click(view.getByText("automatic attempt"));
-    await waitFor(() => expect(view.getByTestId("cursor").textContent).toBe("end"));
+    await waitFor(() => expect(view.getByTestId("cursor").textContent).toBe("end"), waitedFor);
     expect(view.getByTestId("ids").textContent).toBe(
       "event-30,event-20,event-10",
     );
     expect(queries).toHaveLength(3);
+    expect(cursors(queries)).toEqual([null, "cursor-1", "cursor-2"]);
     const windowEnds = queries.map((query) => new URLSearchParams(query).get("to"));
     expect(new Set(windowEnds).size).toBe(1);
-    expect(new URLSearchParams(queries[1]).get("cursor")).toBe("cursor-1");
-    expect(new URLSearchParams(queries[2]).get("cursor")).toBe("cursor-2");
   });
 
-  test("stops automatic retries after failure, permits explicit retry, and rejects cursor cycles", async () => {
+  test("continues automatically through empty and duplicate-only pages until an authoritative end", async () => {
+    const queries: string[] = [];
+    const fetchActivity: FetchActivity = async (query) => {
+      queries.push(query);
+      if (queries.length === 1) {
+        return page(
+          query,
+          WALLET_A,
+          [transfer(query, WALLET_A, "event-30", "30")],
+          "cursor-1",
+        );
+      }
+      if (queries.length === 2) {
+        return page(query, WALLET_A, [], "cursor-2");
+      }
+      if (queries.length === 3) {
+        return page(
+          query,
+          WALLET_A,
+          [transfer(query, WALLET_A, "event-30", "30")],
+          "cursor-3",
+        );
+      }
+      if (queries.length === 4) {
+        return page(
+          query,
+          WALLET_A,
+          [transfer(query, WALLET_A, "event-20", "20")],
+          "cursor-4",
+        );
+      }
+      return page(query, WALLET_A, [], null);
+    };
+    const view = render(
+      <HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} />,
+    );
+
+    await waitFor(() => expect(view.getByTestId("cursor").textContent).toBe("cursor-1"));
+    fireEvent.click(view.getByText("sentinel visible"));
+    await waitFor(() => expect(view.getByTestId("cursor").textContent).toBe("end"), waitedFor);
+
+    expect(cursors(queries)).toEqual([
+      null,
+      "cursor-1",
+      "cursor-2",
+      "cursor-3",
+      "cursor-4",
+    ]);
+    expect(view.getByTestId("ids").textContent).toBe("event-30,event-20");
+    expect(view.getByTestId("load-more-error").textContent).toBe("false");
+    expect(view.getByTestId("continuing").textContent).toBe("false");
+  });
+
+  test("stops while the sentinel is hidden and resumes from the same cursor when it returns", async () => {
+    const pendingSecond = deferred<unknown>();
+    const queries: string[] = [];
+    const fetchActivity: FetchActivity = async (query) => {
+      queries.push(query);
+      if (queries.length === 1) {
+        return page(
+          query,
+          WALLET_A,
+          [transfer(query, WALLET_A, "event-30", "30")],
+          "cursor-1",
+        );
+      }
+      if (queries.length === 2) return pendingSecond.promise;
+      return page(
+        query,
+        WALLET_A,
+        [transfer(query, WALLET_A, "event-20", "20")],
+        null,
+      );
+    };
+    const view = render(
+      <HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} />,
+    );
+
+    await waitFor(() => expect(view.getByTestId("cursor").textContent).toBe("cursor-1"));
+    fireEvent.click(view.getByText("sentinel visible"));
+    expect(queries).toHaveLength(2);
+    fireEvent.click(view.getByText("sentinel hidden"));
+
+    await act(async () => {
+      const secondQuery = queries[1]!;
+      pendingSecond.resolve(
+        page(
+          secondQuery,
+          WALLET_A,
+          [transfer(secondQuery, WALLET_A, "event-20", "20")],
+          "cursor-2",
+        ),
+      );
+      await pendingSecond.promise;
+    });
+    await waitFor(() => expect(view.getByTestId("cursor").textContent).toBe("cursor-2"));
+    expect(view.getByTestId("ids").textContent).toBe("event-30,event-20");
+    expect(view.getByTestId("continuing").textContent).toBe("false");
+    expect(queries).toHaveLength(2);
+
+    fireEvent.click(view.getByText("sentinel visible"));
+    await waitFor(() => expect(queries).toHaveLength(3), waitedFor);
+    await waitFor(() => expect(view.getByTestId("cursor").textContent).toBe("end"), waitedFor);
+    expect(cursors(queries)).toEqual([null, "cursor-1", "cursor-2"]);
+  });
+
+  test("stops on a later-page failure, keeps loaded rows, and retries the exact cursor", async () => {
     const queries: string[] = [];
     const fetchActivity: FetchActivity = async (query) => {
       queries.push(query);
@@ -237,6 +352,56 @@ describe("useActivity pagination", () => {
         query,
         WALLET_A,
         [transfer(query, WALLET_A, "event-10", "10")],
+        null,
+      );
+    };
+    const view = render(
+      <HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} />,
+    );
+
+    await waitFor(() => expect(view.getByTestId("cursor").textContent).toBe("cursor-1"));
+    fireEvent.click(view.getByText("sentinel visible"));
+    await waitFor(() =>
+      expect(view.getByTestId("load-more-error").textContent).toBe("true"),
+    );
+    expect(cursors(queries)).toEqual([null, "cursor-1"]);
+    expect(view.getByTestId("ids").textContent).toBe("event-30");
+    expect(view.getByTestId("cursor").textContent).toBe("cursor-1");
+    expect(view.getByTestId("continuing").textContent).toBe("false");
+
+    fireEvent.click(view.getByText("manual retry"));
+    await waitFor(() =>
+      expect(view.getByTestId("ids").textContent).toBe("event-30,event-20"),
+    );
+    await waitFor(() => expect(view.getByTestId("cursor").textContent).toBe("end"), waitedFor);
+    expect(cursors(queries)).toEqual([null, "cursor-1", "cursor-1", "cursor-2"]);
+    expect(view.getByTestId("ids").textContent).toBe("event-30,event-20,event-10");
+  });
+
+  test("rejects a cyclic cursor without issuing a further request", async () => {
+    const queries: string[] = [];
+    const fetchActivity: FetchActivity = async (query) => {
+      queries.push(query);
+      if (queries.length === 1) {
+        return page(
+          query,
+          WALLET_A,
+          [transfer(query, WALLET_A, "event-30", "30")],
+          "cursor-1",
+        );
+      }
+      if (queries.length === 2) {
+        return page(
+          query,
+          WALLET_A,
+          [transfer(query, WALLET_A, "event-20", "20")],
+          "cursor-2",
+        );
+      }
+      return page(
+        query,
+        WALLET_A,
+        [transfer(query, WALLET_A, "event-10", "10")],
         "cursor-1",
       );
     };
@@ -245,25 +410,15 @@ describe("useActivity pagination", () => {
     );
 
     await waitFor(() => expect(view.getByTestId("cursor").textContent).toBe("cursor-1"));
-    fireEvent.click(view.getByText("automatic attempt"));
+    fireEvent.click(view.getByText("sentinel visible"));
     await waitFor(() =>
       expect(view.getByTestId("load-more-error").textContent).toBe("true"),
+      waitedFor,
     );
-    fireEvent.click(view.getByText("automatic attempt"));
-    await act(async () => Promise.resolve());
-    expect(queries).toHaveLength(2);
-
-    fireEvent.click(view.getByText("manual retry"));
-    await waitFor(() => expect(view.getByTestId("cursor").textContent).toBe("cursor-2"));
-    expect(view.getByTestId("ids").textContent).toBe("event-30,event-20");
-
-    fireEvent.click(view.getByText("automatic attempt"));
-    await waitFor(() =>
-      expect(view.getByTestId("load-more-error").textContent).toBe("true"),
-    );
-    expect(view.getByTestId("cursor").textContent).toBe("cursor-2");
-    expect(view.getByTestId("ids").textContent).toBe("event-30,event-20");
-    expect(queries).toHaveLength(4);
+    expect(cursors(queries)).toEqual([null, "cursor-1", "cursor-2"]);
+    expect(view.getByTestId("ids").textContent).toBe("event-30,event-20,event-10");
+    expect(view.getByTestId("cursor").textContent).toBe("cursor-1");
+    expect(view.getByTestId("continuing").textContent).toBe("false");
   });
 
   test("aborts an in-flight later page and ignores it after the owner changes", async () => {
@@ -297,7 +452,7 @@ describe("useActivity pagination", () => {
       <HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} />,
     );
     await waitFor(() => expect(view.getByTestId("ids").textContent).toBe("owner-a"));
-    fireEvent.click(view.getByText("automatic attempt"));
+    fireEvent.click(view.getByText("sentinel visible"));
     await waitFor(() => expect(queries).toHaveLength(2));
 
     view.rerender(
@@ -319,5 +474,7 @@ describe("useActivity pagination", () => {
       await laterPage.promise;
     });
     expect(view.getByTestId("ids").textContent).toBe("owner-b");
+    expect(view.getByTestId("continuing").textContent).toBe("false");
+    expect(queries).toHaveLength(3);
   });
 });

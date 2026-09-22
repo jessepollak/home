@@ -141,11 +141,11 @@ request failure not listed here still fails the run, and unlisted hosts still fa
   1. `goto "/activity"`
   2. `expect "Activity"`
 - **Notes**: The verifier seeds the signed-in session and API fixtures. Add `/api/activity` fixture rows when exercising populated states; the Home Activity card is the interactive entry point.
-- **Expect**: `Activity` heading (`#activity-title`, client/activity/activity-panel.tsx `DefaultActivityHeader`); empty state `No activity yet`; end marker `End of activity`; error `Try again` button; rows expose `View <direction> <symbol> transaction details` activation labels (activity-panel.tsx `TransferActivityRow`).
-- **States**: loading shimmer (`ActivityPage`, client/home/activity-panel.tsx `ShimmerRows count={4}`); empty (`No activity yet`); error (`Try again`); success list; load-more error/cursor states (client/activity/use-activity.ts, not read in detail).
+- **Expect**: `Activity` heading (`#activity-title`, client/activity/activity-panel.tsx `DefaultActivityHeader`); empty state `No activity yet`; end marker `End of activity`; error `Try again` button; later-page failure shows a concise `Retry`; rows expose `View <direction> <symbol> transaction details` activation labels (activity-panel.tsx `TransferActivityRow`).
+- **States**: loading shimmer (`ActivityPage`, client/home/activity-panel.tsx `ShimmerRows count={4}`); empty (`No activity yet`); error (`Try again`); success list; automatic continuation while the sentinel is visible (client/activity/use-activity.ts: bounded 3-page bursts with a 250 ms yield); later-page failure keeps rows and retries the exact cursor; authoritative exhaustion only at a null cursor; repeated, non-advancing, or cyclic cursors stop without further requests; offscreen, unmounted, or owner-changed continuation stops and fences stale work.
 - **Evidence**: screenshot; DOM snapshot; console/errors; marks `shell:paint` (dashboard).
 - **Owned by**: `apps/web/client/activity/`, `apps/web/client/home/activity-panel.tsx`, `/api/activity`, `/api/actions`.
-- **Unknowns**: row value/date text remains fixture-dependent; pagination is labelled `Load more activity`, `Continue loading activity`, or `Retry more activity`.
+- **Unknowns**: row value/date text remains fixture-dependent; pagination has no routine control copy — continuation is automatic while the sentinel is visible, and the only pagination affordances are the later-page `Retry` and the authoritative `End of activity` marker.
 
 ### `save`
 - **Live**: confirm
