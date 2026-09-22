@@ -15,6 +15,7 @@ import {
   enabledButtonPredicate,
   enforceAmountCap,
   inputPresentPredicate,
+  labelledInputFillScript,
   enforceCumulativeAmountCap,
   hostObservationRefusal,
   isRecipientFillStep,
@@ -438,6 +439,23 @@ describe("live click readiness", () => {
     button.textContent = "Different";
     button.setAttribute("aria-label", label);
     expect(evaluate()).toBe(true);
+    await GlobalRegistrator.unregister();
+  });
+
+  test("fills the input the label points at, including the sign-in code field", async () => {
+    const script = labelledInputFillScript("Verification code", 'code "1" \\ 2');
+    expect(() => new Function(`return (${script});`)).not.toThrow();
+    await GlobalRegistrator.register();
+    document.body.innerHTML = '<label for="account-otp">Verification code<span aria-hidden="true">*</span></label><input id="account-otp" type="text" inputmode="numeric">';
+    const events: string[] = [];
+    const input = document.getElementById("account-otp") as HTMLInputElement;
+    input.addEventListener("input", () => events.push("input"));
+    input.addEventListener("change", () => events.push("change"));
+    expect(new Function(`return (${script});`)()).toBe(true);
+    expect(input.value).toBe('code "1" \\ 2');
+    expect(events).toEqual(["input", "change"]);
+    document.body.innerHTML = '<label>Other<input></label>';
+    expect(() => new Function(`return (${script});`)()).toThrow("Verification code field not found");
     await GlobalRegistrator.unregister();
   });
 

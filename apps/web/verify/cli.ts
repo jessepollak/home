@@ -19,6 +19,7 @@ import {
   enforceCumulativeAmountCap,
   hostObservationRefusal,
   inputPresentPredicate,
+  labelledInputFillScript,
   isRecipientFillStep,
   liveSessionExpired,
   liveStepError,
@@ -246,11 +247,11 @@ function command(...commandArgs: string[]): string {
   return commandWithInput(undefined, ...commandArgs);
 }
 
-function secretCommand(input: string, ...commandArgs: string[]): string {
+function secretCommand(step: string, input: string, ...commandArgs: string[]): string {
   try {
     return commandWithInput(input, ...commandArgs);
   } catch {
-    throw new Error(`agent-browser ${commandArgs[0]} failed while handling the deployment access gate.`);
+    throw new Error(`agent-browser ${commandArgs[0]} failed while ${step}.`);
   }
 }
 
@@ -363,10 +364,10 @@ function handleAccessGate(): void {
   const password = process.env.HOME_ACCESS_PASSWORD;
   if (!password) throw new Error("This deployment requires HOME_ACCESS_PASSWORD in the operator environment.");
   waitForInput("Access password", "The access gate did not render");
-  secretCommand(`(()=>{const input=document.querySelector('input[aria-label="Access password"],input[name="password"]');if(!(input instanceof HTMLInputElement))throw new Error("Access password field not found");const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value")?.set;setter?.call(input,${JSON.stringify(password)});input.dispatchEvent(new Event("input",{bubbles:true}));input.dispatchEvent(new Event("change",{bubbles:true}));return true})()`, "eval", "--stdin");
+  secretCommand("filling the deployment access password", labelledInputFillScript("Access password", password), "eval", "--stdin");
   waitForEnabledButton("Continue");
-  secretCommand("", "find", "role", "button", "click", "--name", "Continue", "--exact");
-  secretCommand("", "wait", "--fn", `location.pathname!=="/access"`);
+  secretCommand("submitting the deployment access password", "", "find", "role", "button", "click", "--name", "Continue", "--exact");
+  secretCommand("waiting for the deployment access gate to clear", "", "wait", "--fn", `location.pathname!=="/access"`);
 }
 
 async function ensurePrivateStateDirectory(): Promise<void> {
@@ -408,8 +409,8 @@ async function runLiveLogin(accountEmail: string): Promise<never> {
     const credentials = await readGmailCredentials(gmailCredentialsPath(process.env)) as Required<GmailCredentials>;
     const code = await pollGmailOtp(credentials, process.env.HOME_VERIFY_OTP_SENDER ?? defaultOtpSender, submittedAt);
     waitForInput("Verification code", "The verification code entry did not render");
-    secretCommand(`(()=>{const input=document.querySelector('input[aria-label="Verification code"],input[name="otp"]');if(!(input instanceof HTMLInputElement))throw new Error("Verification code field not found");const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value")?.set;setter?.call(input,${JSON.stringify(code)});input.dispatchEvent(new Event("input",{bubbles:true}));input.dispatchEvent(new Event("change",{bubbles:true}));return true})()`, "eval", "--stdin");
-    secretCommand("", "find", "role", "button", "click", "--name", "Verify and continue", "--exact");
+    secretCommand("filling the sign-in code", labelledInputFillScript("Verification code", code), "eval", "--stdin");
+    secretCommand("submitting the sign-in code", "", "find", "role", "button", "click", "--name", "Verify and continue", "--exact");
     command("wait", "--fn", `Boolean(document.querySelector("[data-app-main-authenticated]"))`);
     command("navigate", new URL("/home?account=settings", baseUrl).toString());
     command("wait", "--text", "Show small balances");
