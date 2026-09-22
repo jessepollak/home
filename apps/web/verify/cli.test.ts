@@ -59,8 +59,13 @@ async function armHome(entries: unknown[] = []) {
   }
   const gh = resolve(binDirectory, "gh");
   await Bun.write(gh, `#!/bin/sh
+printf '%s\n' "$*" >> "$FAKE_GH_LOG"
 if [ "$1" = "api" ]; then
   printf '{"html_url":"%s","body":"%s","user":{"login":"jessepollak"},"created_at":"%s"}' "$FAKE_COMMENT_URL" "$FAKE_COMMENT_BODY" "$FAKE_COMMENT_CREATED_AT"
+  exit 0
+fi
+if [ "$1" = "repo" ] && [ "$2" = "view" ]; then
+  printf '%s' "\${FAKE_GH_NAME_WITH_OWNER:-fake-owner/home}"
   exit 0
 fi
 exit 1
@@ -73,11 +78,17 @@ exit 1
 function runArm(homePath: string, extraEnv: Record<string, string | undefined> = {}, comment: { body?: string; created?: string } = {}) {
   return run(["arm", "send", "--by", commentUrl], {
     HOME: homePath,
+    FAKE_GH_LOG: resolve(homePath, "gh.log"),
     FAKE_COMMENT_URL: commentUrl,
     FAKE_COMMENT_BODY: comment.body ?? "/verify arm send",
     FAKE_COMMENT_CREATED_AT: comment.created ?? "2026-09-23T00:00:00.000Z",
     ...extraEnv,
   }, resolve(homePath, "bin"));
+}
+
+function fakeGhCalls(homePath: string): string[] {
+  const log = Bun.spawnSync(["cat", resolve(homePath, "gh.log")], { stdout: "pipe", stderr: "pipe" }).stdout.toString();
+  return log.trim().split("\n").filter(Boolean);
 }
 
 async function armSurface(surface: string) {
@@ -200,9 +211,35 @@ describe("live CLI re-arm", () => {
     expect(replay.exitCode).toBe(2);
     expect(replay.stderr).toContain("already re-armed");
   });
+
+  test("queries the repository named by HOME_VERIFY_REPOSITORY", async () => {
+    const homePath = await armHome();
+    const result = runArm(homePath, { HOME_VERIFY_REPOSITORY: "other/example-home" });
+    expect(result.exitCode).toBe(0);
+    expect(fakeGhCalls(homePath)).toContain("api repos/other/example-home/issues/comments/123");
+  });
+
+  test("queries the checkout's gh repository when HOME_VERIFY_REPOSITORY is unset", async () => {
+    const homePath = await armHome();
+    const result = runArm(homePath, { HOME_VERIFY_REPOSITORY: undefined, FAKE_GH_NAME_WITH_OWNER: "fake-owner/home" });
+    expect(result.exitCode).toBe(0);
+    expect(fakeGhCalls(homePath)).toContain("api repos/fake-owner/home/issues/comments/123");
+  });
 });
 
 describe("live CLI preflight", () => {
+  test("refuses live-login before browser launch when HOME_VERIFY_ACCOUNT_EMAIL is unset", () => {
+    const result = run(["live-login", "--base-url", "https://example.com"], { HOME_VERIFY_ACCOUNT_EMAIL: undefined });
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("HOME_VERIFY_ACCOUNT_EMAIL");
+  });
+
+  test("refuses gmail-auth when HOME_VERIFY_ACCOUNT_EMAIL is unset", () => {
+    const result = run(["gmail-auth"], { HOME_VERIFY_ACCOUNT_EMAIL: undefined });
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("HOME_VERIFY_ACCOUNT_EMAIL");
+  });
+
   test("refuses CI before browser launch", () => {
     const result = run(["account-settings", "--live", "--base-url", "https://example.com", "--out", outsideOutput], { CI: "1" });
     expect(result.exitCode).toBe(2);

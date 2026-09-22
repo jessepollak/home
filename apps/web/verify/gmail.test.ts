@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { extractOtp, gmailReadonlyScope, isReadonlyScopeGrant, pollGmailOtp, type GmailCredentials, type GmailMessage } from "./gmail";
+import { extractOtp, gmailReadonlyScope, isReadonlyScopeGrant, pollGmailOtp, verifyAccountEmail, type GmailCredentials, type GmailMessage } from "./gmail";
 
 const credentials: Required<GmailCredentials> = {
   client_id: "client-id",
@@ -82,6 +82,18 @@ describe("Gmail OTP parsing", () => {
   });
 });
 
+describe("Gmail account configuration", () => {
+  test("accepts the configured bot account email and refuses when it is unset", () => {
+    expect(verifyAccountEmail({ HOME_VERIFY_ACCOUNT_EMAIL: " bot@example.com " })).toBe("bot@example.com");
+    expect(() => verifyAccountEmail({})).toThrow("HOME_VERIFY_ACCOUNT_EMAIL");
+    expect(() => verifyAccountEmail({ HOME_VERIFY_ACCOUNT_EMAIL: "   " })).toThrow("HOME_VERIFY_ACCOUNT_EMAIL");
+  });
+
+  test("refuses OTP polling without a mailbox instead of querying an unfiltered mailbox", async () => {
+    await expect(pollGmailOtp(credentials, sender, submittedAt, { accountEmail: "" })).rejects.toThrow("HOME_VERIFY_ACCOUNT_EMAIL");
+  });
+});
+
 describe("Gmail polling", () => {
   test("queries a fake Gmail server and never logs the code or tokens", async () => {
     const requests: Array<{ path: string; authorization: string | null }> = [];
@@ -106,6 +118,7 @@ describe("Gmail polling", () => {
       const code = await pollGmailOtp(credentials, sender, submittedAt, {
         tokenEndpoint: `http://127.0.0.1:${server.port}/token`,
         apiBaseUrl: `http://127.0.0.1:${server.port}/gmail/v1`,
+        accountEmail: "bot@example.com",
         now: () => submittedAt + 2000,
         wait: async () => undefined,
       });
@@ -115,6 +128,7 @@ describe("Gmail polling", () => {
       console.error = originalError;
     }
     expect(requests.some((request) => request.path.includes(`from%3A${encodeURIComponent(sender)}`))).toBe(true);
+    expect(requests.some((request) => request.path.includes(`to%3Abot%40example.com`))).toBe(true);
     expect(requests.filter((request) => request.path !== "/token").every((request) => request.authorization === "Bearer access-token")).toBe(true);
     expect(output.join(" ")).not.toContain("847291");
     expect(output.join(" ")).not.toContain("access-token");

@@ -5,6 +5,12 @@ import { dirname, resolve } from "node:path";
 export const gmailReadonlyScope = "https://www.googleapis.com/auth/gmail.readonly";
 export const defaultOtpSender = "no-reply@coinbase.com";
 
+export function verifyAccountEmail(env: Record<string, string | undefined> = process.env): string {
+  const email = env.HOME_VERIFY_ACCOUNT_EMAIL?.trim();
+  if (!email) throw new Error("Set HOME_VERIFY_ACCOUNT_EMAIL to the bot-dedicated Home account email before live verification.");
+  return email;
+}
+
 export type GmailCredentials = {
   client_id: string;
   client_secret: string;
@@ -28,6 +34,7 @@ type GmailOptions = {
   apiBaseUrl?: string;
   now?: () => number;
   wait?: (milliseconds: number) => Promise<void>;
+  accountEmail?: string;
 };
 
 export function gmailCredentialsPath(env: Record<string, string | undefined> = process.env): string {
@@ -126,9 +133,10 @@ export async function pollGmailOtp(
   const now = options.now ?? Date.now;
   const wait = options.wait ?? ((milliseconds) => Bun.sleep(milliseconds));
   const expiresAt = submittedAt + 5 * 60 * 1000;
+  const accountEmail = options.accountEmail?.trim() || verifyAccountEmail();
   const token = await accessToken(credentials, options);
   while (now() <= expiresAt) {
-    const query = `from:${sender} after:${Math.floor(submittedAt / 1000)}`;
+    const query = `from:${sender} to:${accountEmail} after:${Math.floor(submittedAt / 1000)}`;
     const listUrl = `${apiBaseUrl}/users/me/messages?${new URLSearchParams({ q: query, maxResults: "10" })}`;
     const listResponse = await fetchImplementation(listUrl, { headers: { authorization: `Bearer ${token}` } });
     if (!listResponse.ok) throw new Error("Gmail message query failed.");

@@ -3,7 +3,7 @@ import { homedir, tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { finalizeEvidence, summarizeEvidence, type MarkResult } from "./evidence";
 import { fixtureRoutes, requiresSignedInFixture } from "./fixtures";
-import { defaultOtpSender, gmailCredentialsPath, pollGmailOtp, readGmailCredentials, runGmailAuth, type GmailCredentials } from "./gmail";
+import { defaultOtpSender, gmailCredentialsPath, pollGmailOtp, readGmailCredentials, runGmailAuth, verifyAccountEmail, type GmailCredentials } from "./gmail";
 import {
   accountAddressFromDocument,
   accountPattern,
@@ -44,6 +44,27 @@ const repositoryRoot = resolve(import.meta.dir, "../../..");
 const featureMapPath = resolve(repositoryRoot, ".agents/skills/browser-iteration/feature-map.md");
 const { surfaces, liveHosts, liveExpectedFailures } = await readFeatureMap(featureMapPath);
 const ledgerPath = resolve(homedir(), ".home-verify", "ledger.jsonl");
+function accountEmailOrExit(): string {
+  try {
+    return verifyAccountEmail(process.env);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : "HOME_VERIFY_ACCOUNT_EMAIL is not set.");
+    process.exit(2);
+  }
+}
+let cachedRepository: string | null = null;
+function verifyRepository(): string {
+  const configured = process.env.HOME_VERIFY_REPOSITORY?.trim();
+  if (configured) return configured;
+  if (cachedRepository) return cachedRepository;
+  const result = Bun.spawnSync({ cmd: ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], cwd: repositoryRoot, stdout: "pipe", stderr: "pipe" });
+  const resolvedName = result.stdout.toString().trim();
+  if (result.exitCode !== 0 || !resolvedName) {
+    throw new Error("Could not resolve the repository; set HOME_VERIFY_REPOSITORY or run from a checkout with a gh origin.");
+  }
+  cachedRepository = resolvedName;
+  return resolvedName;
+}
 let verifyRole: VerifyRole;
 try {
   verifyRole = resolveVerifyRole(process.env.HOME_VERIFY_ROLE);
@@ -106,6 +127,7 @@ if (args[0] === "status") {
 }
 
 if (args[0] === "gmail-auth") {
+  console.log(`Sign in as ${accountEmailOrExit()} to authorize Gmail readonly access.`);
   try {
     const path = gmailCredentialsPath(process.env);
     await runGmailAuth(path);
@@ -132,7 +154,7 @@ if (args[0] === "arm") {
   try {
     const commentId = armCommentId(by);
     const result = Bun.spawnSync({
-      cmd: ["gh", "api", `repos/jessepollak/home/issues/comments/${commentId}`],
+      cmd: ["gh", "api", `repos/${verifyRepository()}/issues/comments/${commentId}`],
       cwd: repositoryRoot,
       stdout: "pipe",
       stderr: "pipe",
@@ -346,7 +368,7 @@ async function saveLiveSessionIfAuthenticated(): Promise<"saved" | "not-authenti
   }
 }
 
-async function runLiveLogin(): Promise<never> {
+async function runLiveLogin(accountEmail: string): Promise<never> {
   await ensurePrivateStateDirectory();
   let exitCode = 1;
   try {
@@ -356,7 +378,7 @@ async function runLiveLogin(): Promise<never> {
     if (!currentPath().includes("account=signin")) {
       command("navigate", new URL("/?account=signin", baseUrl).toString());
     }
-    command("find", "label", "Email address", "fill", "j@pollak.io", "--exact");
+    command("find", "label", "Email address", "fill", accountEmail, "--exact");
     waitForEnabledButton("Continue with email");
     const submittedAt = Date.now();
     command("find", "role", "button", "click", "--name", "Continue with email", "--exact");
@@ -387,7 +409,7 @@ async function runLiveLogin(): Promise<never> {
   process.exit(exitCode);
 }
 
-if (liveLogin) await runLiveLogin();
+if (liveLogin) await runLiveLogin(accountEmailOrExit());
 
 const surfaceId = args[0];
 if (!surfaceId || surfaceId.startsWith("-")) {
@@ -638,7 +660,7 @@ function runIncidents(): string[] {
 function syncDisarmIssue(incidents: string[]): void {
   const title = `verify: ${surfaceId} disarmed`;
   const listed = Bun.spawnSync({
-    cmd: ["gh", "issue", "list", "--repo", "jessepollak/home", "--state", "open", "--search", `${title} in:title`, "--json", "number", "--jq", ".[0].number"],
+    cmd: ["gh", "issue", "list", "--repo", verifyRepository(), "--state", "open", "--search", `${title} in:title`, "--json", "number", "--jq", ".[0].number"],
     cwd: repositoryRoot,
     stdout: "pipe",
     stderr: "pipe",
@@ -647,8 +669,8 @@ function syncDisarmIssue(incidents: string[]): void {
   const number = listed.stdout.toString().trim();
   const body = `Verifier incident for \`${surfaceId}\`: ${incidents.join(", ")}. Run id: \`${session}\`. The surface remains disarmed until Jesse comments \`/verify arm ${surfaceId}\` and that comment URL is recorded.`;
   const result = number
-    ? Bun.spawnSync({ cmd: ["gh", "issue", "comment", number, "--repo", "jessepollak/home", "--body", body], cwd: repositoryRoot, stdout: "pipe", stderr: "pipe" })
-    : Bun.spawnSync({ cmd: ["gh", "issue", "create", "--repo", "jessepollak/home", "--title", title, "--body", body], cwd: repositoryRoot, stdout: "pipe", stderr: "pipe" });
+    ? Bun.spawnSync({ cmd: ["gh", "issue", "comment", number, "--repo", verifyRepository(), "--body", body], cwd: repositoryRoot, stdout: "pipe", stderr: "pipe" })
+    : Bun.spawnSync({ cmd: ["gh", "issue", "create", "--repo", verifyRepository(), "--title", title, "--body", body], cwd: repositoryRoot, stdout: "pipe", stderr: "pipe" });
   if (result.exitCode !== 0) throw new Error("Could not create or update the disarm issue.");
 }
 async function reserveSpend(amountUsd: number): Promise<string | null> {

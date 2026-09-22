@@ -1,11 +1,12 @@
 # Repository gates
 
-`bun run gates` runs the repository gate unit tests, and `bun check` runs that plus the rest of the checks. All of it runs without provider or funded-wallet secrets. The gates guard five invariants:
+`bun run gates` runs the repository gate unit tests, and `bun check` runs that plus the rest of the checks. All of it runs without provider or funded-wallet secrets. The gates guard six invariants:
 
 - Migrations run before build, so a build cannot ship a schema it never applied.
 - No unresolved CSS custom properties, so every referenced token resolves in the theme.
 - No comments in CSS or Python under the five product layers beyond a third-party notice header and Python functional lines (shebang, encoding declaration, `# type:`/`# noqa`), so the [comment policy](architecture.md#comment-policy) covers the source formats Oxlint cannot parse.
 - Every `process.env` read is declared in `.env.example`, so a clone knows which variables it needs.
+- No personal-email literal under `apps/web/verify`, `scripts/verify`, `docs`, or `.agents`, so the bot mailbox stays operator configuration (`HOME_VERIFY_ACCOUNT_EMAIL`) instead of a committed address.
 - Custom lint rules are non-vacuous, proven against temporary-mirror fixtures rather than a clean source tree.
 
 The full check suite also covers:
