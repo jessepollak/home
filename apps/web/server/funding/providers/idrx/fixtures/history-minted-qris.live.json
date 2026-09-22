@@ -1,0 +1,52 @@
+{
+  "source": "live",
+  "capturedAt": "2026-09-14T02:24:00Z",
+  "environment": "IDRX production, https://api.idrx.co, GET /transaction/user-transaction-history?transactionType=MINT&merchantOrderId=20260914021324",
+  "note": "Hosted QRIS order for 20000 IDR. IDRX deducted the 0.7% QRIS fee from the mint (toBeMinted 20000 -> 19860); the user paid 23000. Base tx 0xd2d2a39dfd731d00b6e66cfc6c768feb46609299ea0aa2ec88391890589086fa transferred 19860.00 IDRX (log index 464). Payment-instrument fields removed.",
+  "statusCode": 200,
+  "message": "success",
+  "metadata": {
+    "page": 1,
+    "perPage": 10,
+    "pageCount": 1,
+    "totalCount": 1
+  },
+  "records": [
+    {
+      "paymentAmount": 23000,
+      "merchantOrderId": "20260914021324",
+      "chainId": 8453,
+      "destinationWalletAddress": "0x1a120586409bd0e6d15ce1b74ab7980621681a59",
+      "createdAt": "2026-09-14T02:13:24.979Z",
+      "updatedAt": "2026-09-14T02:20:36.775Z",
+      "paymentStatus": "PAID",
+      "expiryTimestamp": "1789355604975",
+      "reference": "SNAP-20260914021324",
+      "txHash": "0xd2d2a39dfd731d00b6e66cfc6c768feb46609299ea0aa2ec88391890589086fa",
+      "qredoTxId": null,
+      "adminMintStatus": "MINTED",
+      "userMintStatus": "MINTED",
+      "reportStatus": "NONE",
+      "requestType": "idrx",
+      "paymentProviderId": null,
+      "paidAmount": null,
+      "requestedAmountStatus": "EXACTPAID",
+      "safeNonce": null,
+      "name": "Base",
+      "paymentCode": "QRIS",
+      "toBeMinted": 19860,
+      "fee": 3140,
+      "fees": [
+        {
+          "name": "VA INA",
+          "amount": "3000"
+        },
+        {
+          "name": "QRIS Fee (0.7%)",
+          "amount": "140"
+        }
+      ],
+      "customerVaName": "HOME TEST CUSTOMER"
+    }
+  ]
+}

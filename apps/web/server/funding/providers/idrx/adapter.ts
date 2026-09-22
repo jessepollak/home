@@ -8,6 +8,8 @@ import type {
   OrderIntent,
   ProviderContext,
   ProviderOrder,
+  Quote,
+  QuoteIntent,
   ReconciliationIntent,
 } from "@/shared/funding/provider-contract";
 import { decimalToAtomic } from "@/shared/formatting/atomic";
@@ -15,7 +17,10 @@ import { emitFundingProviderFailure, type FundingProviderFailureCode } from "../
 import { IDRX_API_ORIGIN, IDRX_CHECKOUT_ORIGIN, idrxManifest } from "./manifest";
 
 const MINT_PATH = "/transaction/mint-request";
+const QUOTE_PATH = "/v2/transaction/mint-quote";
 const HISTORY_PATH = "/transaction/user-transaction-history";
+const QRIS_CHANNEL = "QR";
+const QUOTE_TTL_MS = 5 * 60_000;
 const HISTORY_TAKE = 10;
 const MAX_RESPONSE_BYTES = 64 * 1024;
 const RESPONSE_BODY_TIMEOUT_MS = 6_000;
@@ -31,15 +36,57 @@ type JsonRecord = Record<string, unknown>;
 export const idrxProvider: FundingProvider = {
   manifest: idrxManifest,
   onramp: {
+    async createQuote(input, ctx) {
+      const startedAt = Date.now();
+      const channel = quoteChannel(ctx);
+      if (!channel) throw new Error("The selected IDRX payment method is not supported.");
+      if (supportedIdrxAtomicAmount(input.fiatAmount, ctx.binding.asset.decimals) === null) {
+        throw new Error("The amount is outside the supported IDRX range.");
+      }
+      const url = new URL(QUOTE_PATH, IDRX_API_ORIGIN);
+      url.searchParams.set("amount", input.fiatAmount);
+      url.searchParams.set("chainId", String(ctx.binding.asset.chainId));
+      url.searchParams.set("paymentMethod", channel.paymentMethod);
+      url.searchParams.set("channelId", channel.channelId);
+      const serializedUrl = url.toString();
+      let response: Response;
+      try {
+        response = await ctx.fetch(serializedUrl, {
+          method: "GET",
+          headers: createRequestHeaders(ctx, "GET", serializedUrl, ""),
+          cache: "no-store",
+        });
+      } catch (error) {
+        emitIdrxStatusFailure("PROVIDER_TRANSPORT", startedAt, ctx.binding.region);
+        throw error;
+      }
+      if (!response.ok) {
+        emitIdrxStatusFailure(
+          response.status >= 500 ? "PROVIDER_HTTP_5XX" : "PROVIDER_HTTP_4XX",
+          startedAt,
+          ctx.binding.region,
+        );
+        throw new Error(`IDRX quote failed with HTTP ${response.status}.`);
+      }
+      let text: string;
+      try {
+        text = await readBoundedText(response);
+      } catch (error) {
+        emitIdrxStatusFailure("PROVIDER_TRANSPORT", startedAt, ctx.binding.region);
+        throw error;
+      }
+      try {
+        const data = readData(parseProviderJson(text));
+        return readQuote(data, input, ctx, channel);
+      } catch (error) {
+        emitIdrxStatusFailure("QUOTE_ECHO_MISMATCH", startedAt, ctx.binding.region);
+        throw error;
+      }
+    },
+
     async createOrder(input, ctx) {
-    const atomic = input.fiatAmount.length <= MAX_IDRX_DECIMAL_LENGTH
-      ? idrxAtomicAmount(input.fiatAmount, ctx.binding.asset.decimals)
-      : null;
-    if (
-      atomic === null ||
-      atomic < MIN_IDRX_ATOMIC ||
-      atomic > MAX_IDRX_ATOMIC
-    ) {
+    const atomic = supportedIdrxAtomicAmount(input.fiatAmount, ctx.binding.asset.decimals);
+    if (atomic === null) {
       return {
         outcome: "rejected",
         message: "The amount is outside the supported IDRX range.",
@@ -90,14 +137,16 @@ export const idrxProvider: FundingProvider = {
       const common = {
         providerOrderId,
         tokenAddress: ctx.binding.asset.address,
-        expectedTokenAmountAtomic: atomic.toString(10),
+        expectedTokenAmountAtomic: input.quote
+          ? input.quote.tokenAmountAtomic
+          : atomic.toString(10),
       } as const;
 
       if (ctx.binding.paymentMethod.id === "qris") {
         if (!checkoutUrl) throw new Error("Missing IDRX checkout URL.");
         return created({
           ...common,
-          fees: paymentEchoes?.fees ?? [],
+          fees: paymentEchoes?.fees ?? input.quote?.fees ?? [],
           expiresAt: null,
           instructions: {
             kind: "redirect",
@@ -184,11 +233,12 @@ export const idrxProvider: FundingProvider = {
         return unknown("AMBIGUOUS_HISTORY");
       }
       const record = payload.records[0];
-      if (!recordMatchesReconciliationIntent(record, input, ctx)) {
+      const settlement = readReconciliationSettlement(record, input, ctx);
+      if (!settlement) {
         emitIdrxStatusFailure("PROVIDER_INVALID_RESPONSE", startedAt, ctx.binding.region);
         return unknown("INTENT_MISMATCH");
       }
-      return observationFromRecord(record);
+      return observationFromRecord(record, settlement);
     } catch {
       emitIdrxStatusFailure("PROVIDER_INVALID_RESPONSE", startedAt, ctx.binding.region);
       return unknown("INVALID_RESPONSE");
@@ -217,9 +267,72 @@ function createMintBody(
     };
   }
   if (ctx.binding.paymentMethod.id === "qris") {
-    return { ...common, returnUrl: input.returnUrl };
+    return {
+      ...common,
+      returnUrl: input.returnUrl,
+      paymentMethod: "qris",
+      channelId: QRIS_CHANNEL,
+      flow: "hosted",
+    };
   }
   return null;
+}
+
+function quoteChannel(
+  ctx: ProviderContext,
+): { paymentMethod: "va" | "qris"; channelId: string } | null {
+  const channel = channelForPaymentMethod(ctx.binding.paymentMethod.id);
+  if (channel) return { paymentMethod: "va", channelId: channel };
+  if (ctx.binding.paymentMethod.id === "qris") {
+    return { paymentMethod: "qris", channelId: QRIS_CHANNEL };
+  }
+  return null;
+}
+
+function readQuote(
+  data: JsonRecord,
+  input: QuoteIntent,
+  ctx: ProviderContext,
+  channel: { paymentMethod: "va" | "qris"; channelId: string },
+): Quote {
+  const decimals = ctx.binding.asset.decimals;
+  assertOptionalExactString(data.paymentMethod, channel.paymentMethod);
+  assertOptionalExactString(data.channelId, channel.channelId);
+  assertOptionalInteger(data.chainId, ctx.binding.asset.chainId);
+  const baseAtomic = idrxAtomicAmount(readDecimal(data.baseAmount), decimals);
+  const expectedAtomic = idrxAtomicAmount(input.fiatAmount, decimals);
+  if (baseAtomic === null || expectedAtomic === null || baseAtomic !== expectedAtomic) {
+    throw new Error("IDRX quoted a different base amount.");
+  }
+  const mintedAtomic = idrxAtomicAmount(readDecimal(data.toBeMinted), decimals);
+  const paymentAtomic = idrxAtomicAmount(readDecimal(data.paymentAmount), decimals);
+  if (mintedAtomic === null || paymentAtomic === null || mintedAtomic <= BigInt(0) || mintedAtomic > baseAtomic || paymentAtomic < baseAtomic) {
+    throw new Error("IDRX quote amounts are outside the requested amount.");
+  }
+  if (!Array.isArray(data.fees) || data.fees.length > 20) throw new Error("Invalid IDRX quote fees.");
+  let deducted = BigInt(0);
+  let added = BigInt(0);
+  const fees: Quote["fees"] = [];
+  for (const fee of data.fees) {
+    if (!isRecord(fee)) throw new Error("Invalid IDRX quote fee.");
+    const amount = readDecimal(fee.amount);
+    const atomic = idrxAtomicAmount(amount, decimals);
+    if (atomic === null || atomic < BigInt(0)) throw new Error("Invalid IDRX quote fee amount.");
+    if (fee.appliedTo === "toBeMinted") deducted += atomic;
+    else if (fee.appliedTo === "paymentAmount") added += atomic;
+    else throw new Error("Invalid IDRX quote fee target.");
+    fees.push({ label: readBoundedString(fee.name, 128), amount, currency: "IDR" });
+  }
+  if (baseAtomic - mintedAtomic !== deducted || paymentAtomic - baseAtomic !== added) {
+    throw new Error("IDRX quote fees do not add up.");
+  }
+  return {
+    fiatAmount: input.fiatAmount,
+    tokenAmountAtomic: mintedAtomic.toString(10),
+    fees,
+    feesKnown: true,
+    expiresAt: new Date(Date.now() + QUOTE_TTL_MS).toISOString(),
+  };
 }
 
 function channelForPaymentMethod(id: string): "MANDIRI" | "BRI" | null {
@@ -248,6 +361,14 @@ async function classifyCreateFailure(response: Response): Promise<CreateOrderRes
       return { outcome: "ambiguous" };
     }
     const message = typeof payload.message === "string" ? payload.message : "";
+    if (
+      response.status === 400 &&
+      isRecord(payload.data) &&
+      typeof payload.data.code === "string" &&
+      /^[A-Z][A-Z0-9_]{2,63}$/.test(payload.data.code)
+    ) {
+      return { outcome: "rejected", message: rejectionCopy(payload.data.code) };
+    }
     if (!isDocumentedDefinitiveCreateError(response.status, message)) {
       return { outcome: "ambiguous" };
     }
@@ -255,6 +376,13 @@ async function classifyCreateFailure(response: Response): Promise<CreateOrderRes
   } catch {
     return { outcome: "ambiguous" };
   }
+}
+
+function rejectionCopy(code: string): string {
+  if (code === "BANK_ACCOUNT_REQUIRED") {
+    return "This bank transfer option is not available for this account yet. Choose another way to pay.";
+  }
+  return "IDRX rejected the funding order.";
 }
 
 function isDocumentedDefinitiveCreateError(
@@ -336,20 +464,47 @@ function readPaymentEchoes(
   return { fees, paymentAmount };
 }
 
-function assertHistoryPaymentEchoes(
+function readHistoryPaymentEchoes(
   data: JsonRecord,
-  expectedAtomic: bigint,
+  settledAtomic: bigint,
   decimals: number,
-): void {
-  const hasPaymentAmount = data.amount !== undefined;
+): ProviderOrder["fees"] | null {
+  const paymentValues = [data.paymentAmount, data.amount].filter(
+    (value) => value !== undefined,
+  );
   const hasFees = data.fees !== undefined;
-  if (!hasPaymentAmount && !hasFees) return;
-  if (!hasPaymentAmount || !hasFees) {
+  if (paymentValues.length === 0 && !hasFees) return null;
+  if (paymentValues.length === 0 || !hasFees) {
     throw new Error("Incomplete IDRX history payment echoes.");
   }
+  const normalized = new Set(paymentValues.map(readDecimal));
+  if (normalized.size !== 1) throw new Error("Conflicting IDRX payment amounts.");
   const fees = readFees(data.fees);
-  const paymentAmount = readDecimal(data.amount);
-  assertPaymentAmount(paymentAmount, expectedAtomic, fees, decimals);
+  assertPaymentAmount([...normalized][0] as string, settledAtomic, fees, decimals);
+  return fees;
+}
+
+function assertBoundedShortfall(
+  expectedAtomic: bigint,
+  settledAtomic: bigint,
+  fees: ProviderOrder["fees"] | null,
+  decimals: number,
+): void {
+  if (fees === null) {
+    throw new Error("IDRX lowered the mint without itemized fees.");
+  }
+  const feeAtomic = fees.reduce((total, fee) => {
+    const atomic = idrxAtomicAmount(fee.amount, decimals);
+    if (atomic === null) throw new Error("Invalid IDRX fee amount.");
+    return total + atomic;
+  }, BigInt(0));
+  const shortfall = expectedAtomic - settledAtomic;
+  if (shortfall > feeAtomic) {
+    throw new Error("IDRX shortfall exceeds the itemized fees.");
+  }
+  if (shortfall * BigInt(10_000) > expectedAtomic * MAX_SETTLEMENT_SHORTFALL_BASIS_POINTS) {
+    throw new Error("IDRX shortfall exceeds the settlement cap.");
+  }
 }
 
 function assertPaymentAmount(
@@ -594,34 +749,101 @@ function isValidReconciliationIntent(
   );
 }
 
-function recordMatchesReconciliationIntent(
+type Settlement = {
+  settledAtomic: bigint;
+  expectedAtomic: bigint;
+  fees: ProviderOrder["fees"];
+};
+
+const MAX_SETTLEMENT_SHORTFALL_BASIS_POINTS = BigInt(500);
+
+function readReconciliationSettlement(
   record: JsonRecord,
   input: ReconciliationIntent,
   ctx: ProviderContext,
-): boolean {
+): Settlement | null {
   try {
     const expectedAtomic = BigInt(input.expectedTokenAmountAtomic);
+    const requestedAtomic = input.fiatAmount === undefined
+      ? expectedAtomic
+      : idrxAtomicAmount(input.fiatAmount, input.tokenDecimals);
+    if (requestedAtomic === null || requestedAtomic < expectedAtomic) {
+      throw new Error("IDRX requested amount below the expected amount.");
+    }
     assertOrderIdAliases(record, input.providerOrderId, true);
     assertReferenceAliases(record, input.providerOrderId);
     assertTransactionTypeAliases(record, input.transactionType);
     assertChainAliases(record, input.chainId);
     assertTokenAliases(record, ctx);
     assertDestinationAliases(record, input.destination);
-    assertAmountAliases(record, expectedAtomic, input.tokenDecimals);
-    assertHistoryPaymentEchoes(record, expectedAtomic, input.tokenDecimals);
+    const reportedAtomic = readSettledAmount(
+      record,
+      requestedAtomic,
+      input.tokenDecimals,
+    );
+    const fees = readHistoryPaymentEchoes(record, reportedAtomic, input.tokenDecimals);
+    const paymentStatus = typeof record.paymentStatus === "string"
+      ? record.paymentStatus
+      : "INVALID";
+    if (paymentStatus === "PAID" && reportedAtomic > expectedAtomic) {
+      throw new Error("IDRX settled amount exceeds the expected amount.");
+    }
+    if (paymentStatus === "PAID" && expectedAtomic < requestedAtomic && reportedAtomic !== expectedAtomic) {
+      throw new Error("IDRX quoted settlement differs from the expected amount.");
+    }
+    if (paymentStatus === "PAID" && expectedAtomic === requestedAtomic && reportedAtomic < requestedAtomic) {
+      assertBoundedShortfall(requestedAtomic, reportedAtomic, fees, input.tokenDecimals);
+    }
+    const settledAtomic = paymentStatus === "PAID" ? reportedAtomic : expectedAtomic;
     assertRailEchoes(
       record,
       channelForPaymentMethod(ctx.binding.paymentMethod.id),
     );
     readCheckoutUrlEchoes(record, false);
     readTransactionHash(record);
-    return true;
+    return { settledAtomic, expectedAtomic, fees: fees ?? [] };
   } catch {
-    return false;
+    return null;
   }
 }
 
-function observationFromRecord(record: JsonRecord): Observation {
+function readSettledAmount(
+  record: JsonRecord,
+  requestedAtomic: bigint,
+  decimals: number,
+): bigint {
+  for (const value of [record.decimals, record.tokenDecimals, record.assetDecimals]) {
+    assertOptionalInteger(value, decimals);
+  }
+  assertOptionalAtomicAmount(record.baseAmount, requestedAtomic, decimals);
+  let settled = requestedAtomic;
+  if (record.toBeMinted !== undefined) {
+    const minted = idrxAtomicAmount(readDecimal(record.toBeMinted), decimals);
+    if (minted === null || minted <= BigInt(0) || minted > requestedAtomic) {
+      throw new Error("IDRX settled amount outside the requested amount.");
+    }
+    settled = minted;
+  }
+  for (const value of [
+    record.expectedTokenAmountAtomic,
+    record.tokenAmountAtomic,
+    record.amountAtomic,
+  ]) {
+    assertOptionalAtomicString(value, settled);
+  }
+  return settled;
+}
+
+function observationFromRecord(
+  record: JsonRecord,
+  settlement: Settlement,
+): Observation {
+  const settled = settlement.settledAtomic === settlement.expectedAtomic
+    ? {}
+    : {
+        settledTokenAmountAtomic: settlement.settledAtomic.toString(10),
+        fees: settlement.fees,
+      };
   const mint = typeof record.userMintStatus === "string"
     ? record.userMintStatus
     : "INVALID";
@@ -634,11 +856,12 @@ function observationFromRecord(record: JsonRecord): Observation {
     return {
       state: "sent",
       providerStatus,
+      ...settled,
       ...(transactionHash ? { transactionHash } : {}),
     };
   }
   if (mint === "PROCESSING" && payment === "PAID") {
-    return { state: "settling", providerStatus };
+    return { state: "settling", providerStatus, ...settled };
   }
   if (mint === "NOT_AVAILABLE" && payment === "WAITING_FOR_PAYMENT") {
     return { state: "awaiting-payment", providerStatus };
@@ -765,19 +988,30 @@ function readExpiry(value: unknown): string {
 }
 
 function readDecimal(value: unknown): string {
+  const text = typeof value === "number" && Number.isFinite(value)
+    ? String(value)
+    : value;
   if (
-    typeof value !== "string" ||
-    value.length > MAX_IDRX_DECIMAL_LENGTH ||
-    !/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(value)
+    typeof text !== "string" ||
+    text.length > MAX_IDRX_DECIMAL_LENGTH ||
+    !/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(text)
   ) {
     throw new Error("Invalid decimal amount.");
   }
-  return value;
+  return text;
 }
 
 function readOptionalReference(value: unknown): { reference?: string } {
   if (value === undefined || value === null || value === "") return {};
   return { reference: readBoundedString(value, 128) };
+}
+
+function supportedIdrxAtomicAmount(fiatAmount: string, decimals: number): bigint | null {
+  const atomic = fiatAmount.length <= MAX_IDRX_DECIMAL_LENGTH
+    ? idrxAtomicAmount(fiatAmount, decimals)
+    : null;
+  if (atomic === null || atomic < MIN_IDRX_ATOMIC || atomic > MAX_IDRX_ATOMIC) return null;
+  return atomic;
 }
 
 export function idrxAtomicAmount(value: string, decimals: number): bigint | null {
@@ -872,13 +1106,8 @@ function parseProviderJson(text: string): unknown {
     let cursor = index;
     while (/\s/.test(text[cursor] ?? "")) cursor += 1;
     if (text[cursor] !== ":") continue;
-    let key: unknown;
-    try {
-      key = JSON.parse(token);
-    } catch { // oxlint-disable-line home/no-silent-catch -- a quoted token that is not a JSON key is skipped while normalizing decimal fields
-      continue;
-    }
-    if (typeof key !== "string" || !decimalKeys.has(key)) continue;
+    const key = parseProviderJsonKey(token);
+    if (key === null || !decimalKeys.has(key)) continue;
     output += text.slice(index, cursor + 1);
     cursor += 1;
     const whitespaceStart = cursor;
@@ -893,6 +1122,15 @@ function parseProviderJson(text: string): unknown {
     index = cursor + numeric[0].length;
   }
   return JSON.parse(output);
+}
+
+function parseProviderJsonKey(token: string): string | null {
+  try {
+    const key: unknown = JSON.parse(token);
+    return typeof key === "string" ? key : null;
+  } catch {
+    return null;
+  }
 }
 
 function isRecord(value: unknown): value is JsonRecord {

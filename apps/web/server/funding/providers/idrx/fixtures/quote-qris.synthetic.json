@@ -1,0 +1,18 @@
+{
+  "source": "synthetic",
+  "statusCode": 200,
+  "message": "success",
+  "data": {
+    "chainId": 8453,
+    "paymentMethod": "qris",
+    "channelId": "QR",
+    "baseAmount": "20000.50",
+    "toBeMinted": "19860.50",
+    "paymentAmount": "23000.50",
+    "fees": [
+      { "name": "VA INA", "amount": "3000", "type": "flat", "appliedTo": "paymentAmount" },
+      { "name": "QRIS Fee (0.7%)", "amount": "140", "type": "percentage", "appliedTo": "toBeMinted" }
+    ],
+    "minimumAmount": "20000"
+  }
+}

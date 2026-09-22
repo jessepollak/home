@@ -326,6 +326,8 @@ export type Observation = {
   state: ReportedState;
   providerStatus: string;
   transactionHash?: `0x${string}` | null;
+  settledTokenAmountAtomic?: string;
+  fees?: Quote["fees"];
 };
 
 export type OrderState =

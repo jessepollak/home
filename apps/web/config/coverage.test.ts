@@ -161,7 +161,7 @@ describe("local money coverage registry", () => {
     expect(header).toContain("quote_observed_at,quote_spread_bps,quote_fee_summary,quote_source_url");
     const mxRow = normal.split("\n").find((row) => row.startsWith("MX,Mexico,")) ?? "";
     expect(mxRow).toContain("priority,coverage:mx:mxnb:juno-bitso|coverage:mx:wmxn:ripio,MXN|MXN,MXNB|wMXN,Juno / Bitso|Ripio,552|512,https://github.com/jessepollak/home/issues/552|https://github.com/jessepollak/home/issues/512,planned|planned");
-    expect(new Bun.CryptoHasher("sha256").update(normal).digest("hex")).toBe("d5a867d91e9e61f832302e64db55a12828dac7bc89eb384eaf15516f3c81ef1f");
+    expect(new Bun.CryptoHasher("sha256").update(normal).digest("hex")).toBe("e1a47461239dd294aa2c2f737bcbc937f58255f21d2564e749682a9790358f6e");
   });
 
   test("exports dated quote observations without turning them into route promises", () => {

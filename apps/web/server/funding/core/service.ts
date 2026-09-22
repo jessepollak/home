@@ -7,6 +7,7 @@ import type { FundingDirection, FundingProvider, Instruction, Observation, Quote
 import { decimalToAtomic } from "@/shared/formatting/atomic";
 import { FUNDING_BINDING_ENVIRONMENT_CODE, FUNDING_CONFIGURATION_CODE, FundingProviderConfigurationError, createProviderContext, environmentAvailable, resolveFundingMode, type FundingConfigurationCode } from "./provider-context";
 import { authenticateFundingQuote, isFundingQuoteExpired, signFundingQuote } from "./quote-token";
+import { emitFundingProviderFailure } from "./provider-failure";
 import type { FundingOrder, FundingOrderOwner, FundingOrderStore } from "./store";
 import { MemoryFundingProviderCustomerStore, type FundingProviderCustomer, type FundingProviderCustomerStore } from "./customer-store";
 import { awaitBalanceSignal } from "@/server/balances/signal";
@@ -435,13 +436,10 @@ export class FundingCore {
         this.deps.logUnmatchedWebhook?.({ providerId, reason: "region-mismatch" });
         return { accepted: true, matched: false };
       }
-      let verified;
-      try {
+      const verified = verifyWebhookForBinding(() => {
         const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "onramp", paymentMethodId: order.paymentMethod, env: this.env, fetchImplementation: this.deps.fetchImplementation, sandbox: order.sandbox });
-        verified = onramp.verifyWebhook(raw, headers, ctx);
-      } catch (error) { // oxlint-disable-line home/no-silent-catch -- a provider configuration error marks this binding unusable; the webhook is rejected as unmatched
-        if (!(error instanceof FundingProviderConfigurationError)) throw error;
-      }
+        return onramp.verifyWebhook!(raw, headers, ctx);
+      });
       if (verified?.providerOrderId !== providerOrderId) {
         this.deps.logUnmatchedWebhook?.({ providerId, reason: "region-mismatch" });
         return { accepted: true, matched: false };
@@ -476,20 +474,32 @@ export class FundingCore {
         tokenAddress: asset.address,
         destination: order.destination,
         fiatAmount: order.fiatAmount,
-        expectedTokenAmountAtomic: order.expectedTokenAmountAtomic,
+        expectedTokenAmountAtomic: order.quote.tokenAmountAtomic,
         tokenDecimals: asset.decimals,
       }, ctx);
     } catch { return order; }
     const nextState = observation.state === "sent" ? "sent-unverified" : observation.state;
+    const refreshRoute = force ? "/api/funding/webhooks/:provider" : "/api/funding/orders/:id";
+    const settled = settledAmount(observation, order.quote.tokenAmountAtomic, order.expectedTokenAmountAtomic);
+    if (settled === undefined) {
+      emitFundingProviderFailure({
+        route: refreshRoute,
+        code: "PROVIDER_INVALID_RESPONSE",
+        provider: order.providerId,
+        region: order.region,
+        startedAt: refreshStartedAt,
+      });
+      return order;
+    }
     let updated = await this.deps.store.applyObservation(order.id, {
       state: nextState,
       providerStatus: observation.providerStatus,
       providerTransactionHash: observation.transactionHash,
+      ...(settled ? { expectedTokenAmountAtomic: settled, ...(observation.fees ? { fees: observation.fees } : {}) } : {}),
       expectedVersion: order.version,
       updatedAt: this.now().toISOString(),
     });
     if (!updated) return await this.deps.store.getOwned(order.id, order.owner) ?? order;
-    const refreshRoute = force ? "/api/funding/webhooks/:provider" : "/api/funding/orders/:id";
     if (updated.state !== order.state) this.logObservedTransition(updated, refreshRoute, refreshStartedAt);
     if (observation.transactionHash && !order.sandbox) {
       const evidence = await this.deps.verifyReceipt(updated, observation.transactionHash);
@@ -549,6 +559,15 @@ export class FundingCore {
 
   private provider(id: string) { return this.deps.providers.find((provider) => provider.manifest.id === id); }
   private quoteSecret() { return this.env.FUNDING_QUOTE_SECRET?.trim() ?? ""; }
+}
+
+function settledAmount(observation: Observation, quoted: string, current: string): string | null | undefined {
+  const reported = observation.settledTokenAmountAtomic;
+  if (reported === undefined) return null;
+  if (!/^[1-9][0-9]{0,77}$/.test(reported)) return undefined;
+  if (BigInt(reported) > BigInt(quoted)) return undefined;
+  if (current !== quoted) return reported === current ? null : undefined;
+  return reported === quoted ? null : reported;
 }
 
 export class FundingCoreError extends Error { constructor(readonly code: string, readonly status: number) { super(code); } }
@@ -612,6 +631,16 @@ function instructionUrlIsSafe(
     );
   } catch {
     return false;
+  }
+}
+function verifyWebhookForBinding(
+  verify: () => { providerOrderId: string } | null,
+): { providerOrderId: string } | null {
+  try {
+    return verify();
+  } catch (error) {
+    if (error instanceof FundingProviderConfigurationError) return null;
+    throw error;
   }
 }
 function parseQuoteRequest(value: unknown): { providerId: string; region: string; paymentMethod: string; fiatAmount: string } | null {

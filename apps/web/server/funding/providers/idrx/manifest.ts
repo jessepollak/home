@@ -10,6 +10,11 @@ export const IDRX_ENV = [
   "IDRX_CUSTOMER_NAME",
 ] as const;
 
+export const IDRX_VA_PAYMENT_METHODS = [
+  { id: "bank-va-mandiri", label: "Bank transfer · Mandiri" },
+  { id: "bank-va-bri", label: "Bank transfer · BRI" },
+] as const;
+
 export const idrxManifest = {
   id: "idrx",
   displayName: "IDRX",
@@ -18,6 +23,7 @@ export const idrxManifest = {
     apiOrigins: [IDRX_API_ORIGIN],
     redirectOrigins: [IDRX_CHECKOUT_ORIGIN],
     reference: "provider",
+    quotes: true,
   },
   bindings: [
     {
@@ -26,11 +32,7 @@ export const idrxManifest = {
       currency: "IDR",
       directions: {
         onramp: {
-          paymentMethods: [
-            { id: "bank-va-mandiri", label: "Bank transfer · Mandiri" },
-            { id: "bank-va-bri", label: "Bank transfer · BRI" },
-            { id: "qris", label: "QRIS" },
-          ],
+          paymentMethods: [{ id: "qris", label: "QRIS" }],
           env: IDRX_ENV,
         },
       },
