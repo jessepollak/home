@@ -392,6 +392,12 @@ describe("live rendered balance", () => {
     const balanceRead = fakeCalls().find((call) => call[0] === "eval" && call[1]?.includes("Total balance") && !call[1].startsWith("Boolean("));
     expect(balanceRead?.[1]).toContain('[data-slot="money-ticker"]');
     expect(balanceRead?.[1]).toContain("aria-label");
+    const calls = fakeCalls();
+    const reviewRead = calls.findIndex((call) => call[0] === "eval" && call[1]?.includes('[role="dialog"]'));
+    expect(reviewRead).toBeGreaterThan(-1);
+    expect(calls[reviewRead - 1]?.slice(0, 2)).toEqual(["wait", "--fn"]);
+    expect(calls[reviewRead - 1]?.[2]).toContain("aria-disabled");
+    expect(calls[reviewRead - 1]?.[2]).toContain(JSON.stringify("Send $1.00"));
   });
 
   test("refuses confirmation when the hero ticker is absent", async () => {

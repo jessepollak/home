@@ -850,6 +850,7 @@ try {
         break;
       }
       if (confirmStep) {
+        waitForEnabledButton(step.label);
         const evaluatedReview = jsonResult(command(
           "eval",
           `(()=>{const dialogs=[...document.querySelectorAll('[role="dialog"]')].filter((node)=>node.getClientRects().length>0);return (dialogs.at(-1)||document.body).innerText})()`,
