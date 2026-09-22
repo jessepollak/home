@@ -1,9 +1,6 @@
 "use client";
 
-import {
-  BaseAccountConnectorError,
-  type ConnectedBaseAccount,
-} from "./base-account-connector";
+import { BaseAccountConnectorError } from "./base-account-connector";
 import type { AccountProvider } from "@/shared/account/session-types";
 
 export type AccountProviderHint = AccountProvider | `pending:${AccountProvider}`;
@@ -75,6 +72,7 @@ export function readHomeAuthRestoreHint(): "none" | "cdp" | "base" {
   return hint === "base-account" || hint === "pending:base-account" ? "base" : "none";
 }
 
+/** @public exercised by client/account/cdp-wallet-provider-capabilities.test.ts */
 export function hasAccountProviderHint(): boolean {
   return readAccountProviderHint() !== null || hasCdpRestoreMarker() || hasReadableCdpCookie();
 }
@@ -121,14 +119,4 @@ export function baseLoginFailureFromConnector(
     default:
       return "provider-unavailable";
   }
-}
-
-export async function releaseBaseAccountConnection(
-  connection: ConnectedBaseAccount,
-): Promise<void> {
-  if (connection.release) {
-    connection.release();
-    return;
-  }
-  await connection.disconnect();
 }

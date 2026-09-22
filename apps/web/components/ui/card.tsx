@@ -111,9 +111,17 @@ function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
 export {
   Card,
   CardHeader,
-  CardFooter,
   CardTitle,
   CardAction,
-  CardDescription,
   CardContent,
-}
+};
+
+/** @public rendered by Storybook story components/ui/card.stories.tsx */
+export {
+  CardDescription,
+};
+
+/** @public rendered by Storybook story components/ui/card.stories.tsx */
+export {
+  CardFooter,
+};

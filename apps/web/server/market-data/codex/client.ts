@@ -143,11 +143,6 @@ export function getCodexMarketPrices(): Promise<MarketPricesResponse> {
   return sharedReader();
 }
 
-export function clearCodexMarketPricesCacheForTests() {
-  sharedReader = null;
-  sharedKey = undefined;
-}
-
 async function fetchMarketPrices({
   apiKey,
   assets,

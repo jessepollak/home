@@ -3,9 +3,8 @@ import { memeAssets } from "@/config/invest-assets";
 import { CodexMarketDataError } from "./client";
 import { CODEX_GRAPHQL_ENDPOINT } from "./config";
 import {
-  CODEX_TRENDING_LIMIT,
-  CODEX_TRENDING_MEME_CATEGORY,
   CODEX_TRENDING_PAGE_SIZE,
+  CODEX_TRENDING_MEME_CATEGORY,
   CODEX_TRENDING_QUERY,
   createCodexTrendingMemeAdmissionReader,
   createCodexTrendingMemesPageReader,
@@ -81,7 +80,7 @@ describe("Codex trending memes", () => {
           categories: { anyOf: [CODEX_TRENDING_MEME_CATEGORY] },
         },
         rankings: [{ attribute: "trendingScore24", direction: "DESC" }],
-        limit: CODEX_TRENDING_LIMIT,
+        limit: CODEX_TRENDING_PAGE_SIZE,
         offset: 0,
         excludeTokens: expect.any(Array),
       },
@@ -235,7 +234,6 @@ describe("Codex trending memes pages", () => {
     await expect(reader(0)).rejects.toThrow();
     expect(upstreamCalls).toBe(2);
   });
-
 
 });
 

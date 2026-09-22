@@ -381,25 +381,6 @@ export const investAssets = [
 
 export type InvestAssetId = (typeof investAssets)[number]["id"];
 
-export const investSources = {
-  stockRoster: {
-    label: "Official Base stock roster",
-    url: "https://www.base.org/stocks",
-  },
-  stockAnnouncement: {
-    label: "Base stock announcement",
-    url: "https://blog.base.org/tokenized-stocks",
-  },
-  coinbaseWrappedAssets: {
-    label: "Coinbase wrapped asset roster",
-    url: "https://www.coinbase.com/campaigns/cbbtc",
-  },
-} as const;
-
-export function shortenContractAddress(address: `0x${string}`): string {
-  return `${address.slice(0, 8)}…${address.slice(-4)}`;
-}
-
 export function findInvestAssetByAddress(address: string): InvestAsset | undefined {
   const key = address.toLowerCase();
   return investAssets.find(

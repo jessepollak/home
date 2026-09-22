@@ -22,7 +22,7 @@ This map points to Home's current product, engineering, delivery, setup, and int
 - [Operating manual](operating-manual.md) — Jesse/factory roles, product framing, run triggers, delivery loop, live-money validation, PR evidence, and completion authority.
 - [PRD template](prd-template.md) and [repository gates](gates.md) — shaping and repository checks.
 - [Browser validation](browser-validation.md) and [UI PR previews](ui-pr-previews.md) — interactive iteration, regression ownership, and current-head visual proof.
-- [UI direction](ui-direction.md) and [design system](design-system.md) — product presentation rules, owned components, tokens, and lint contracts.
+- [UI direction](ui-direction.md) and [design system](design-system.md) — product presentation rules, owned components, tokens, and lint contracts; [design explorations](design-explorations/README.md) — where design-lane non-production code lives.
 - [Observability](observability.md) and [performance observability](performance-observability.md) — privacy-safe events, performance marks, and verification.
 - [Vercel deploy](vercel-deploy.md) — Bun monorepo deployment and database migration setup.
 

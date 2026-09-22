@@ -10,16 +10,6 @@ export type AccessErrorCode =
   | "ACCESS_UNAVAILABLE"
   | "INVALID_ACCESS";
 
-export type AccessErrorResponse = {
-  version: typeof ACCESS_CONTRACT_VERSION;
-  error: { code: AccessErrorCode };
-};
-
-export type AccessSuccessResponse = {
-  version: typeof ACCESS_CONTRACT_VERSION;
-  destination: string;
-};
-
 const forbiddenDestinationPattern = /[\\\u0000-\u001f\u007f]/;
 
 export function parseSafeAccessDestination(value: unknown): string {

@@ -37,6 +37,7 @@ export const TRANSFER_ASSETS: Readonly<Record<string, TransferAsset>> = Object.f
   Object.fromEntries(transferAssetList.map((asset) => [asset.id, Object.freeze(asset)])),
 );
 
+/** @public Deferred transfer barrel API pending #687 cleanup. */
 export function getTransferAssets(): readonly TransferAsset[] {
   return transferAssetList;
 }
@@ -109,6 +110,7 @@ export function formatSendConfirmAmount(
   );
 }
 
+/** @public Transfer formatting seam retained for #687 cleanup. */
 export function formatTransferAmount(
   amountBaseUnits: string,
   decimals: number,
@@ -141,7 +143,6 @@ export function assertTransferRequest(value: TransferRequest): void {
   readBaseUnits(value.amountBaseUnits, true);
 }
 
-
 export function encodeErc20Transfer(
   token: `0x${string}`,
   recipient: `0x${string}`,
@@ -163,6 +164,7 @@ export function encodeErc20Transfer(
   };
 }
 
+/** @public Transfer calldata seam retained for #687 cleanup. */
 export function encodeUsdcTransfer(
   recipient: `0x${string}`,
   amountBaseUnits: bigint,

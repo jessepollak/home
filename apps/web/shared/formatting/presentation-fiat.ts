@@ -11,9 +11,6 @@ export function presentationCurrencyName(code: string): string {
   return presentationCurrencyMetadata(code).name;
 }
 
-export function presentationCurrencySymbol(code: string): string {
-  return presentationCurrencyMetadata(code).symbol;
-}
 
 export function formatPresentationFiat(
   value: ExactDecimal,

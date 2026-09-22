@@ -269,6 +269,7 @@ function readRecord(value: unknown, label: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+/** @public exercised by server/morpho/client.test.ts */
 export function clearMorphoCacheForTests() {
   sharedVaultCandidatesReader = createMorphoVaultCandidatesReader(fetch);
 }

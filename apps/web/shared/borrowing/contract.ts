@@ -100,8 +100,6 @@ export type BorrowOverviewResponse = {
 };
 
 export type BorrowResponse = BorrowOverviewResponse;
-export type BorrowErrorCode = "SMART_ACCOUNT_UNAVAILABLE" | "BORROW_STATE_UNAVAILABLE" | "BORROW_MARKET_NOT_FOUND";
-
 export function parseSnapshot(value: unknown, expectedOwner: `0x${string}`): BorrowMarketSnapshot | null {
   if (!isRecord(value) || value.version !== BORROW_MARKET_DETAIL_VERSION || value.chainId !== 8453 ||
     typeof value.walletAddress !== "string" || value.walletAddress.toLowerCase() !== expectedOwner.toLowerCase()) return null;

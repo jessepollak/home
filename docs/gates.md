@@ -11,11 +11,15 @@
 
 The full check suite also covers:
 
-- `bun check` (including Oxlint-only lint with warnings denied and unused suppressions reported)
+- `bun check` (including Oxlint-only lint with warnings denied, unused suppressions reported, and the Knip production dead-code gate)
 - Chromium product smoke
 - story tests (`bun run --cwd apps/web test:stories`)
 - `bun run gates` (the repository gate unit tests above, including commit provenance; also run inside `bun check`)
 - disposable PostgreSQL contracts for actions, funding, and balances
+
+## Dead-code boundary
+
+The **Dead code (knip)** CI step runs `bun run --cwd apps/web knip`, and `bun check` runs the same production-mode gate. A replacement change deletes the component, hook, or module it replaces in the same PR. New deliberately public exports carry a one-line `/** @public <reason> */` JSDoc. Design-lane non-production code stays inside a `*.stories.*` file or under `**/explorations/**`; temporary deferrals for #686 and #687 are listed explicitly in `apps/web/knip.json`.
 
 ## Surface verification boundary
 

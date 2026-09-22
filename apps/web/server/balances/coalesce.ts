@@ -331,8 +331,6 @@ export function createBalancesService(dependencies: Dependencies = {}) {
   };
 }
 
-export const getBalancesSnapshot = createBalancesService();
-
 function observationFromRead(
   owner: PortfolioAddress,
   read: BalancesRead,

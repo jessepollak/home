@@ -64,11 +64,6 @@ export function getResolvedAssetIcons(): Promise<AssetIconMap> {
   return sharedResolver();
 }
 
-export function clearAssetIconCacheForTests() {
-  sharedResolver = null;
-  sharedKey = undefined;
-}
-
 export function emptyAssetIconMap(): AssetIconMap {
   return Object.fromEntries(
     configuredIconAssets.map((asset) => [asset.id, null]),

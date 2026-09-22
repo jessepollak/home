@@ -131,6 +131,7 @@ export function selectMoneyGroups(snapshot: BalancesSnapshot): MoneyGroups {
   };
 }
 
+/** @public exercised by shared/balances/select.test.ts */
 export function selectAssetCount(snapshot: BalancesSnapshot): number {
   const groups = selectMoneyGroups(snapshot);
   return groups.cash.length + groups.investments.length;
@@ -139,7 +140,6 @@ export function selectAssetCount(snapshot: BalancesSnapshot): number {
 export function selectTotal(snapshot: BalancesSnapshot): BalancesSnapshot["total"] {
   return snapshot.total;
 }
-
 
 function compareHoldings(left: Holding, right: Holding): number {
   const leftValue = pricedValue(left);

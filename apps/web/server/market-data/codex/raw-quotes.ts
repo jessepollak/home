@@ -122,11 +122,13 @@ export function getCodexRawQuotes(
   return reader();
 }
 
+/** @public exercised by server/market-data/codex/raw-quotes.test.ts */
 export function resetCodexSharedReadersForTests(): void {
   sharedApiKey = undefined;
   sharedReaders.clear();
 }
 
+/** @public exercised by server/market-data/codex/raw-quotes.test.ts */
 export function codexSharedReaderCountForTests(): number {
   return sharedReaders.size;
 }

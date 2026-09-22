@@ -215,11 +215,23 @@ export {
   DrawerPortal,
   DrawerOverlay,
   DrawerSwipeHandle,
-  DrawerTrigger,
-  DrawerClose,
   DrawerContent,
   DrawerHeader,
   DrawerFooter,
   DrawerTitle,
+};
+
+/** @public rendered by Storybook story components/ui/drawer.stories.tsx */
+export {
   DrawerDescription,
-}
+};
+
+/** @public rendered by Storybook story components/ui/drawer.stories.tsx */
+export {
+  DrawerClose,
+};
+
+/** @public rendered by Storybook story components/ui/drawer.stories.tsx */
+export {
+  DrawerTrigger,
+};

@@ -28,6 +28,7 @@ export function borrowRiskState(healthFactorWad: string | null): BorrowRiskState
   return "healthy";
 }
 
+/** @public Borrow risk-label presenter exposed as a stable UI contract. */
 export function borrowRiskCopy(state: BorrowRiskState): string {
   switch (state) {
     case "no-debt": return "No debt";
@@ -38,6 +39,7 @@ export function borrowRiskCopy(state: BorrowRiskState): string {
   }
 }
 
+/** @public Borrow risk-description presenter exposed as a stable UI contract. */
 export function borrowRiskDescription(healthFactorWad: string | null): string {
   if (healthFactorWad === null) return "No active liquidation threshold.";
   const health = BigInt(healthFactorWad);

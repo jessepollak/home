@@ -36,13 +36,6 @@ export type FundingOfframpBinding = FundingBindingBase & {
 };
 
 export type FundingBinding = FundingOnrampBinding | FundingOfframpBinding;
-export type FundingProvidersResponse = {
-  version: typeof FUNDING_PROVIDERS_VERSION;
-  direction: FundingBinding["direction"];
-  providers: ReadonlyArray<FundingBinding>;
-};
-export type FundingProvidersErrorCode = "INVALID_REGION" | "INVALID_DIRECTION" | string;
-
 export function readProviderBindings(value: unknown): ReadonlyArray<FundingBinding> {
   if (!isRecord(value) || !Array.isArray(value.providers)) return [];
   const parsed: FundingBinding[] = [];

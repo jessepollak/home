@@ -14,7 +14,7 @@ import historyMintedQrisLiveFixture from "./fixtures/history-minted-qris.live.js
 import historyUnknownFixture from "./fixtures/history-unknown.synthetic.json";
 import quoteQrisFixture from "./fixtures/quote-qris.synthetic.json";
 import { createIdrxSignature, idrxAtomicAmount, idrxProvider } from "./adapter";
-import { IDRX_VA_PAYMENT_METHODS, idrxManifest } from "./manifest";
+import { idrxManifest } from "./manifest";
 
 const DESTINATION = "0x1111111111111111111111111111111111111111" as const;
 const env = {
@@ -22,6 +22,10 @@ const env = {
   IDRX_CLIENT_SECRET: Buffer.from("synthetic-secret").toString("base64"),
   IDRX_CUSTOMER_NAME: "HOME TEST CUSTOMER",
 };
+const IDRX_VA_PAYMENT_METHODS = [
+  { id: "bank-va-mandiri", label: "Bank transfer · Mandiri" },
+  { id: "bank-va-bri", label: "Bank transfer · BRI" },
+] as const;
 const intent = {
   homeOrderId: "home-order-must-not-be-used-as-idrx-reference",
   destination: DESTINATION,

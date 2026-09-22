@@ -180,6 +180,7 @@ export function parseShellOverlayIntent(
   };
 }
 
+/** @public exercised by config/shell-location.test.ts */
 export function parseInboundUrlIntent(
   pathname: string,
   search: ShellSearchInput,

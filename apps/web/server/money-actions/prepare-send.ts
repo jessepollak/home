@@ -12,6 +12,7 @@ import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authoriz
 import { issueMoneyAction } from "./issue";
 import { privateError, privateJson } from "@/server/http/private-response";
 
+/** @public exercised by server/money-actions/prepare-send.test.ts */
 export function createPrepareSendMoneyActionHandler(dependencies: {
   authorize: SessionAuthorizer;
   issue?: (session: VerifiedAccountSession, request: TransferRequest) => Promise<PreparedMoneyAction>;

@@ -5,7 +5,7 @@ import {
   presentOperationDetails,
   primaryOperationAmount,
 } from "./operation-details";
-import type { RecentMoneyActionOperation } from "./recent-operations";
+import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 
 const HASH = `0x${"a".repeat(64)}` as const;
 

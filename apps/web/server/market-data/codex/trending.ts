@@ -31,7 +31,6 @@ export const CODEX_TRENDING_SOURCE_URL =
   "https://docs.codex.io/api-reference/queries/filtertokens";
 export const CODEX_TRENDING_PAGE_SIZE = 24;
 export const CODEX_TRENDING_MAX_PAGE_SIZE = 200;
-export const CODEX_TRENDING_LIMIT = CODEX_TRENDING_PAGE_SIZE;
 export const CODEX_TRENDING_MEME_CATEGORY = "memes";
 export const CODEX_TRENDING_PAGE_CACHE_MAX_ENTRIES = 32;
 export const CODEX_TRENDING_PAGE_MAX_IN_FLIGHT = 8;
@@ -154,6 +153,7 @@ const excludedDiscoverTokens = [...stockAssets, ...cryptoAssets].map(
   (asset) => `${asset.contractAddress.toLowerCase()}:${asset.chainId}`,
 );
 
+/** @public exercised by server/market-data/codex/trending.test.ts */
 export function createCodexTrendingMemesReader({
   apiKey,
   fetchImpl = fetch,
@@ -310,34 +310,6 @@ export function createCodexTrendingMemeAdmissionReader({
   };
 }
 
-let sharedReader: ReturnType<typeof createCodexTrendingMemesReader> | null =
-  null;
-let sharedKey: string | undefined;
-
-export function getCodexTrendingMemes(): Promise<TrendingMemesResult> {
-  const apiKey = process.env.CODEX_API_KEY;
-  if (!sharedReader || sharedKey !== apiKey) {
-    sharedKey = apiKey;
-    sharedReader = createCodexTrendingMemesReader({ apiKey });
-  }
-  return sharedReader();
-}
-
-let sharedPageReader: ReturnType<typeof createCodexTrendingMemesPageReader> | null =
-  null;
-let sharedPageKey: string | undefined;
-
-export function getCodexTrendingMemesPage(
-  offset: number,
-): Promise<TrendingMemesPage> {
-  const apiKey = process.env.CODEX_API_KEY;
-  if (!sharedPageReader || sharedPageKey !== apiKey) {
-    sharedPageKey = apiKey;
-    sharedPageReader = createCodexTrendingMemesPageReader({ apiKey });
-  }
-  return sharedPageReader(offset);
-}
-
 let sharedAdmissionReader: ReturnType<
   typeof createCodexTrendingMemeAdmissionReader
 > | null = null;
@@ -353,25 +325,6 @@ export function getCodexTrendingMemeAdmission(
     sharedAdmissionReader = createCodexTrendingMemeAdmissionReader({ apiKey });
   }
   return sharedAdmissionReader(contractAddress, networkId);
-}
-
-export function clearCodexTrendingMemesCacheForTests() {
-  sharedReader = null;
-  sharedKey = undefined;
-  sharedPageReader = null;
-  sharedPageKey = undefined;
-  sharedAdmissionReader = null;
-  sharedAdmissionKey = undefined;
-}
-
-export function createUnavailableTrendingMemes(): TrendingMemesResult {
-  return { status: "unavailable", assets: [], snapshots: [] };
-}
-
-export function createErrorTrendingMemes(
-  message = "Trending memes are unavailable.",
-): TrendingMemesResult {
-  return { status: "error", message, assets: [], snapshots: [] };
 }
 
 export function createUnavailableTrendingMemesPage(): TrendingMemesPage {
@@ -414,7 +367,7 @@ async function fetchTrendingMemes({
     now,
     timeoutMs,
     offset: 0,
-    limit: CODEX_TRENDING_LIMIT,
+    limit: CODEX_TRENDING_PAGE_SIZE,
   });
   return stripTrendingPagination(page);
 }
@@ -502,6 +455,7 @@ function stripTrendingPagination(page: TrendingMemesPage): TrendingMemesResult {
   };
 }
 
+/** @public exercised by server/market-data/codex/trending.test.ts */
 export function normalizeTrendingMemes(
   data: unknown,
   fetchedAt: Date,

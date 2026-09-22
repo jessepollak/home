@@ -53,6 +53,9 @@ jobs:
       - name: Check
         run: bun check
 
+      - name: Dead code (knip)
+        run: bun run --cwd apps/web knip
+
       - name: Build Storybook
         run: bun run --cwd apps/web build-storybook
 

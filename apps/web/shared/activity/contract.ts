@@ -14,8 +14,6 @@ import {
 } from "@/shared/activity/metadata";
 
 export type ActivityResponse = ActivityPage;
-export type ActivityRequestQuery = { to: string; cursor?: string };
-
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const hashPattern = /^0x[0-9a-fA-F]{64}$/;
 const decimalIntegerPattern = /^(?:0|[1-9][0-9]*)$/;

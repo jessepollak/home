@@ -25,7 +25,6 @@ import type {
 } from "./types";
 
 export const SAVINGS_ACTION_RPC_TIMEOUT_MS = 10_000;
-export const SAVINGS_ACTION_RPC_BATCH_SIZE = 1;
 export const SAVINGS_ACTION_RPC_CONCURRENCY = 2;
 export const SAVINGS_ACTION_RPC_RETRY_ATTEMPTS = 2;
 export const SAVINGS_ACTION_RPC_RETRY_DELAY_MS = 400;

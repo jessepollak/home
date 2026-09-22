@@ -45,13 +45,6 @@ export function authenticateFundingQuote(token: string, secret: string): Authent
   } catch { return null; }
 }
 
-export function verifyFundingQuote(token: string, secret: string, now = Date.now()): FundingQuoteClaims | null {
-  const authenticated = authenticateFundingQuote(token, secret);
-  return authenticated && !isFundingQuoteExpired(authenticated.claims, now)
-    ? authenticated.claims
-    : null;
-}
-
 export function isFundingQuoteExpired(claims: FundingQuoteClaims, now = Date.now()): boolean {
   return Date.parse(claims.quote.expiresAt) <= now;
 }

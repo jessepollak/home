@@ -1,1 +1,3 @@
-export { balancesStaleTimeMs, useBalances } from "./use-balances";
+export {
+  useBalances,
+} from "./use-balances";

@@ -1,26 +1,8 @@
 
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import type { ActionKind, PreparedMoneyAction } from "@/shared/money-actions/types";
-
-export type PrepareActionRequest = {
-  kind: ActionKind;
-  params: Record<string, unknown>;
-};
+import type {  PreparedMoneyAction } from "@/shared/money-actions/types";
 
 export type PrepareActionResponse = PreparedMoneyAction;
-
-export type PrepareActionErrorCode =
-  | "AUTH_UNAVAILABLE"
-  | "INVALID_ACTION"
-  | "SAVINGS_ACTION_INVALID"
-  | "SAVINGS_ACTION_UNSUPPORTED"
-  | "SAVINGS_ACTION_LIMIT_EXCEEDED"
-  | "SAVINGS_ACTION_RATE_LIMITED"
-  | "SAVINGS_ACTION_RPC"
-  | "SAVINGS_ACTION_UNAVAILABLE"
-  | "INVALID_SEND_REQUEST"
-  | "ACTION_PREPARE_UNAVAILABLE"
-  | string;
 
 export function validPrepared(
   value: unknown,

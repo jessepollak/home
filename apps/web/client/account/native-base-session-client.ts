@@ -4,7 +4,7 @@ import {
   ACCOUNT_PROVIDER_HEADER,
   type VerifiedAccountSession,
 } from "@/shared/account/session-types";
-import { parseNativeBaseNonceResponse, type NativeBaseChallenge } from "@/shared/account/contracts/base-nonce";
+import { parseNativeBaseChallenge, type NativeBaseChallenge } from "@/shared/account/contracts/base-nonce";
 import { parseNativeBaseSession } from "@/shared/account/contracts/base-verify";
 
 export type NativeBaseFetch = (
@@ -78,7 +78,7 @@ export async function requestNativeBaseChallenge(
     throw new Error("Deployment access is required.");
   }
   if (!response.ok) throw new Error("Native Base authentication failed.");
-  const value = parseNativeBaseNonceResponse(await response.json().catch(() => null));
+  const value = parseNativeBaseChallenge(await response.json().catch(() => null));
   if (!value) throw new Error("Native Base authentication failed.");
   return value;
 }

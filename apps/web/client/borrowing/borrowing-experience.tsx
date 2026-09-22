@@ -1013,6 +1013,7 @@ function bufferCopy(healthFactorWad: string | null): string {
   return healthFactor <= WAD ? "Immediate liquidation risk" : `Bitcoin can fall ${formatBufferPercent(bps)}`;
 }
 
+/** @public exercised by client/borrowing/borrowing-experience.test.tsx */
 export function borrowTeaserPositionDescription(position: BorrowOverviewPosition, regionId: RegionId): string {
   return BigInt(position.debtAssetsRaw) === BigInt(0)
     ? `No debt · ${formatToken(position.collateralRaw, position.market.collateralToken, regionId)} locked`

@@ -76,13 +76,6 @@ export function parseRecentMoneyActions(value: unknown, session: VerifiedAccount
   return parsed.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
-export function dedupeRecentMoneyActions(
-  operations: RecentMoneyActionOperation[],
-  excluded: ReadonlySet<string>,
-) {
-  return operations.filter((operation) => !operation.transactionHash || !excluded.has(operation.transactionHash.toLowerCase()));
-}
-
 function isMoneyMetadata(value: unknown): value is MoneyActionMetadata {
   if (!isRecord(value)) return false;
   if (value.product === "cashout") {

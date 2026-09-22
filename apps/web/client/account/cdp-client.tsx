@@ -23,8 +23,8 @@ import { TransferExecutionError } from "@/shared/transfers/types";
 import { BaseAccountLoginError } from "./cdp-wallet-provider-capabilities";
 export {
   BaseAccountLoginError,
-  type BaseAccountLoginFailure,
 } from "./cdp-wallet-provider-capabilities";
+
 
 export type AccountSessionStatus =
   | "restoring"
