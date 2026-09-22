@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, type MutableRefObject } from "react";
+import { getAddress } from "viem";
 import type { AccountSessionStatus, AccountWalletSdkBoundary } from "./cdp-client";
 import type { OwnerGenerationFence } from "./cdp-session-lifecycle";
 import type { AuthenticatedTransport } from "./cdp-authenticated-transport";
@@ -106,7 +107,7 @@ export function useMoneyActionExecution({
           }
           const result = await sdkGetUserOperation({
             userOperationHash: providerHandle as `0x${string}`,
-            evmSmartAccount: action.owner.address,
+            evmSmartAccount: getAddress(action.owner.address),
             network: "base",
           });
           return normalizeResolutionState(result);
@@ -175,7 +176,7 @@ export function useMoneyActionExecution({
           if (!sdkSendUserOperation) throw new TransferExecutionError("unavailable");
           ownerFence.assertCurrent(generation);
           const result = await sdkSendUserOperation({
-            evmSmartAccount: action.owner.address,
+            evmSmartAccount: getAddress(action.owner.address),
             network: "base",
             calls,
             idempotencyKey: action.id,

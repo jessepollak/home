@@ -413,6 +413,41 @@ describe("SendDialog resume", () => {
     expect(closes).toBe(0);
   });
 
+  test("names the wallet's reason when submission fails with an unknown result", async () => {
+    render(
+      <SendDialog
+        open immediate address={ACCOUNT} ownerBoundary="owner-unknown-send" resumeActionId={ACTION_ID}
+        prepareMoneyAction={async () => resumedAction()} resumeMoneyAction={async () => resumedAction()}
+        executeMoneyAction={async () => {
+          throw new TransferExecutionError("submission-unknown", new Error("Smart account not found for this end user"));
+        }}
+        onClose={() => {}}
+      />,
+    );
+
+    fireEvent.click(await page().findByRole("button", { name: "Send $1.00" }));
+    expect((await page().findByRole("alert")).textContent).toBe(
+      "The wallet result is unknown: Smart account not found for this end user. Check Activity before trying again.",
+    );
+    expect(page().getByRole("button", { name: "Try again" })).toBeTruthy();
+  });
+
+  test("keeps the generic message when the failure happened before the wallet was asked", async () => {
+    render(
+      <SendDialog
+        open immediate address={ACCOUNT} ownerBoundary="owner-unavailable-send" resumeActionId={ACTION_ID}
+        prepareMoneyAction={async () => resumedAction()} resumeMoneyAction={async () => resumedAction()}
+        executeMoneyAction={async () => {
+          throw new TransferExecutionError("unavailable", new TypeError("Failed to fetch"));
+        }}
+        onClose={() => {}}
+      />,
+    );
+
+    fireEvent.click(await page().findByRole("button", { name: "Send $1.00" }));
+    expect((await page().findByRole("alert")).textContent).toBe("The wallet result is unknown. Check Activity before trying again.");
+  });
+
   test("keeps a cash-out review and canonical handle open when the wallet resolves rejected", async () => {
     let closes = 0;
     render(
