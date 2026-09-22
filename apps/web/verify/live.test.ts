@@ -442,6 +442,19 @@ describe("live click readiness", () => {
     await GlobalRegistrator.unregister();
   });
 
+  test("matches an enabled button by its visible name across child blocks and hidden hints", async () => {
+    await GlobalRegistrator.register();
+    const evaluate = (label: string) => new Function(`return (${enabledButtonPredicate(label)});`)() as boolean;
+    document.body.innerHTML = '<button type="button"><span aria-hidden="true">icon</span><div><div>Deposit USD</div><div>Coinbase · Apple Pay</div><span hidden>Open deposit flow</span></div></button>';
+    expect(evaluate("Deposit USD Coinbase · Apple Pay")).toBe(true);
+    expect(evaluate("Deposit USD")).toBe(false);
+    document.body.innerHTML = '<button type="button">\n  Send to Zelle, Venmo, Cash App and more\n  <p>Use Peer to send via app</p>\n</button>';
+    expect(evaluate("Send to Zelle, Venmo, Cash App and more Use Peer to send via app")).toBe(true);
+    document.body.innerHTML = '<button type="button" disabled><div>Deposit USD</div><div>Coinbase · Apple Pay</div></button>';
+    expect(evaluate("Deposit USD Coinbase · Apple Pay")).toBe(false);
+    await GlobalRegistrator.unregister();
+  });
+
   test("fills the input the label points at, including the sign-in code field", async () => {
     const script = labelledInputFillScript("Verification code", 'code "1" \\ 2');
     expect(() => new Function(`return (${script});`)).not.toThrow();

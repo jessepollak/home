@@ -14,7 +14,8 @@ if (command === "wait" && rest.includes("--text") && process.env.FAKE_AGENT_BROW
   console.error("The expectation was not observed.");
   process.exit(1);
 }
-if (command === "wait" && rest.includes("--fn") && process.env.FAKE_AGENT_BROWSER_FAIL_WAIT === "1") {
+const failWait = process.env.FAKE_AGENT_BROWSER_FAIL_WAIT;
+if (command === "wait" && rest.includes("--fn") && (failWait === "1" || (failWait === "enabled" && (rest[1] ?? "").includes("aria-disabled")))) {
   console.error("Timed out waiting for the predicate.");
   process.exit(1);
 }
