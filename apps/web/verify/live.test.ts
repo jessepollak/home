@@ -469,6 +469,14 @@ describe("live click readiness", () => {
     forLabel.textContent = label;
     document.body.append(associated, forLabel);
     expect(evaluate()).toBe(true);
+    document.body.innerHTML = "";
+    const requiredLabel = document.createElement("label");
+    requiredLabel.setAttribute("for", "account-otp");
+    requiredLabel.innerHTML = `${label}<span aria-hidden="true">*</span>`;
+    const requiredInput = document.createElement("input");
+    requiredInput.id = "account-otp";
+    document.body.append(requiredLabel, requiredInput);
+    expect(evaluate()).toBe(true);
     await GlobalRegistrator.unregister();
   });
 });
