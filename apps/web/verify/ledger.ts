@@ -194,21 +194,28 @@ export type ArmComment = {
   created_at?: string;
 };
 
-export function armCommentId(by: string): string {
+export type ArmAuthority = { repository: string; operatorLogin: string };
+
+function escapeRegExp(value: string): string {
+  return value.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function armCommentId(by: string, authority: ArmAuthority): string {
   const url = new URL(by);
-  const match = `${url.pathname}${url.hash}`.match(/^\/jessepollak\/home\/(?:issues|pull)\/\d+#issuecomment-(\d+)$/);
+  const pattern = new RegExp(`^/${escapeRegExp(authority.repository)}/(?:issues|pull)/\\d+#issuecomment-(\\d+)$`);
+  const match = `${url.pathname}${url.hash}`.match(pattern);
   if (url.protocol !== "https:" || url.hostname !== "github.com" || !match) {
-    throw new Error("--by must be a jessepollak/home issue or pull-request comment URL.");
+    throw new Error(`--by must be a ${authority.repository} issue or pull-request comment URL.`);
   }
   return match[1];
 }
 
-export function armAuthorityError(surface: string, by: string, comment: ArmComment): string | null {
-  armCommentId(by);
+export function armAuthorityError(surface: string, by: string, comment: ArmComment, authority: ArmAuthority): string | null {
+  armCommentId(by, authority);
   if (comment.html_url !== by) return "The resolved GitHub comment URL does not match --by.";
-  if (comment.user?.login !== "jessepollak") return "Only a comment authored by jessepollak can re-arm a surface.";
-  if (comment.body?.trim() !== `/verify arm ${surface}`) return `The Jesse comment must contain exactly /verify arm ${surface}.`;
-  if (!comment.created_at || !Number.isFinite(Date.parse(comment.created_at))) return "The resolved Jesse comment has no readable creation time.";
+  if (comment.user?.login !== authority.operatorLogin) return `Only a comment authored by ${authority.operatorLogin} can re-arm a surface.`;
+  if (comment.body?.trim() !== `/verify arm ${surface}`) return `The operator comment must contain exactly /verify arm ${surface}.`;
+  if (!comment.created_at || !Number.isFinite(Date.parse(comment.created_at))) return "The resolved operator comment has no readable creation time.";
   return null;
 }
 
@@ -223,11 +230,11 @@ export function armReplayError(entries: LedgerEntry[], surface: string, commentI
   return null;
 }
 
-export function armEvent(surface: string, by: string, comment: ArmComment, now = new Date()): LedgerArm {
-  const authorityError = armAuthorityError(surface, by, comment);
+export function armEvent(surface: string, by: string, comment: ArmComment, authority: ArmAuthority, now = new Date()): LedgerArm {
+  const authorityError = armAuthorityError(surface, by, comment, authority);
   if (authorityError) throw new Error(authorityError);
   const createdAt = comment.created_at ?? "";
-  return { type: "arm", timestamp: now.toISOString(), surface, by, commentId: armCommentId(by), createdAt };
+  return { type: "arm", timestamp: now.toISOString(), surface, by, commentId: armCommentId(by, authority), createdAt };
 }
 
 export async function recordArmEvent(path: string, event: LedgerArm): Promise<void> {

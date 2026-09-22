@@ -35,7 +35,7 @@ import {
   type LiveRecipient,
   type RequestFailure,
 } from "./live";
-import { appendLedger, armCommentId, armEvent, readLedger, recordArmEvent, spendForDay, spendForRun, surfaceArmState, withLedgerLock, type ArmComment, type LedgerEntry } from "./ledger";
+import { appendLedger, armCommentId, armEvent, readLedger, recordArmEvent, spendForDay, spendForRun, surfaceArmState, withLedgerLock, type ArmAuthority, type ArmComment, type LedgerEntry } from "./ledger";
 import { canaryReach, matchesConfirmLabel, readFeatureMap, type ReachStep } from "./map";
 import { confirmPolicyRefusal, requestedCaps, resolveVerifyRole, verifyPolicy, type VerifyRole } from "./policy";
 
@@ -64,6 +64,11 @@ function verifyRepository(): string {
   }
   cachedRepository = resolvedName;
   return resolvedName;
+}
+function verifyAuthority(): ArmAuthority {
+  const repository = verifyRepository();
+  const configuredLogin = process.env.HOME_VERIFY_OPERATOR_LOGIN?.trim();
+  return { repository, operatorLogin: configuredLogin || repository.split("/")[0] };
 }
 let verifyRole: VerifyRole;
 try {
@@ -152,16 +157,17 @@ if (args[0] === "arm") {
     process.exit(2);
   }
   try {
-    const commentId = armCommentId(by);
+    const authority = verifyAuthority();
+    const commentId = armCommentId(by, authority);
     const result = Bun.spawnSync({
-      cmd: ["gh", "api", `repos/${verifyRepository()}/issues/comments/${commentId}`],
+      cmd: ["gh", "api", `repos/${authority.repository}/issues/comments/${commentId}`],
       cwd: repositoryRoot,
       stdout: "pipe",
       stderr: "pipe",
     });
-    if (result.exitCode !== 0) throw new Error("Could not resolve the Jesse re-arm comment.");
+    if (result.exitCode !== 0) throw new Error("Could not resolve the operator re-arm comment.");
     const comment = JSON.parse(result.stdout.toString()) as ArmComment;
-    const event = armEvent(surfaceId, by, comment);
+    const event = armEvent(surfaceId, by, comment, authority);
     await recordArmEvent(ledgerPath, event);
     console.log(`${surfaceId}: armed by ${by}`);
     process.exit(0);

@@ -10,7 +10,7 @@ Bun.spawnSync(["mkdir", "-p", home]);
 const outsideOutput = resolve(home, "evidence");
 const addressA = "0x1111111111111111111111111111111111111111";
 const addressB = "0x2222222222222222222222222222222222222222";
-const commentUrl = "https://github.com/jessepollak/home/issues/1#issuecomment-123";
+const commentUrl = "https://github.com/fake-owner/home/issues/1#issuecomment-123";
 const armHomes: string[] = [];
 const stateDirectory = resolve(home, ".home-verify", "example.com", "state");
 const statePath = resolve(stateDirectory, "browser-state.json");
@@ -61,7 +61,7 @@ async function armHome(entries: unknown[] = []) {
   await Bun.write(gh, `#!/bin/sh
 printf '%s\n' "$*" >> "$FAKE_GH_LOG"
 if [ "$1" = "api" ]; then
-  printf '{"html_url":"%s","body":"%s","user":{"login":"jessepollak"},"created_at":"%s"}' "$FAKE_COMMENT_URL" "$FAKE_COMMENT_BODY" "$FAKE_COMMENT_CREATED_AT"
+  printf '{"html_url":"%s","body":"%s","user":{"login":"%s"},"created_at":"%s"}' "$FAKE_COMMENT_URL" "$FAKE_COMMENT_BODY" "\${FAKE_COMMENT_LOGIN:-fake-owner}" "$FAKE_COMMENT_CREATED_AT"
   exit 0
 fi
 if [ "$1" = "repo" ] && [ "$2" = "view" ]; then
@@ -75,11 +75,12 @@ exit 1
   return directory;
 }
 
-function runArm(homePath: string, extraEnv: Record<string, string | undefined> = {}, comment: { body?: string; created?: string } = {}) {
-  return run(["arm", "send", "--by", commentUrl], {
+function runArm(homePath: string, extraEnv: Record<string, string | undefined> = {}, comment: { body?: string; created?: string; url?: string } = {}) {
+  const by = comment.url ?? commentUrl;
+  return run(["arm", "send", "--by", by], {
     HOME: homePath,
     FAKE_GH_LOG: resolve(homePath, "gh.log"),
-    FAKE_COMMENT_URL: commentUrl,
+    FAKE_COMMENT_URL: by,
     FAKE_COMMENT_BODY: comment.body ?? "/verify arm send",
     FAKE_COMMENT_CREATED_AT: comment.created ?? "2026-09-23T00:00:00.000Z",
     ...extraEnv,
@@ -214,7 +215,7 @@ describe("live CLI re-arm", () => {
 
   test("queries the repository named by HOME_VERIFY_REPOSITORY", async () => {
     const homePath = await armHome();
-    const result = runArm(homePath, { HOME_VERIFY_REPOSITORY: "other/example-home" });
+    const result = runArm(homePath, { HOME_VERIFY_REPOSITORY: "other/example-home", FAKE_COMMENT_LOGIN: "other" }, { url: "https://github.com/other/example-home/issues/1#issuecomment-123" });
     expect(result.exitCode).toBe(0);
     expect(fakeGhCalls(homePath)).toContain("api repos/other/example-home/issues/comments/123");
   });
@@ -224,6 +225,23 @@ describe("live CLI re-arm", () => {
     const result = runArm(homePath, { HOME_VERIFY_REPOSITORY: undefined, FAKE_GH_NAME_WITH_OWNER: "fake-owner/home" });
     expect(result.exitCode).toBe(0);
     expect(fakeGhCalls(homePath)).toContain("api repos/fake-owner/home/issues/comments/123");
+  });
+
+  test("refuses a --by comment URL from another repository", async () => {
+    const homePath = await armHome();
+    const result = runArm(homePath, { HOME_VERIFY_REPOSITORY: "other/example-home" });
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("other/example-home issue or pull-request comment URL");
+    expect(fakeGhCalls(homePath).some((call) => call.startsWith("api "))).toBe(false);
+  });
+
+  test("accepts only the repository owner unless HOME_VERIFY_OPERATOR_LOGIN names the operator", async () => {
+    const homePath = await armHome();
+    const refused = runArm(homePath, { FAKE_COMMENT_LOGIN: "another-operator" });
+    expect(refused.exitCode).toBe(2);
+    expect(refused.stderr).toContain("Only a comment authored by fake-owner");
+    const accepted = runArm(homePath, { FAKE_COMMENT_LOGIN: "another-operator", HOME_VERIFY_OPERATOR_LOGIN: "another-operator" });
+    expect(accepted.exitCode).toBe(0);
   });
 });
 
