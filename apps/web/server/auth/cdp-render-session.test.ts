@@ -28,9 +28,9 @@ describe("CDP render session", () => {
   test("issues and validates only a complete, well-formed cookie pair", () => {
     const issued = issueCdpRenderHint(KEY, SESSION, REQUEST, NOW);
     expect(issued).toHaveLength(2);
-    expect(issued[0]).toContain(`${HOME_CDP_SESSION_COOKIE}=`);
+    expect(issued[0]).toContain(`${HOME_CDP_SESSION_COOKIE}=`); // oxlint-disable-line home/no-self-referential-expectation -- the issued hint must use the canonical session-cookie name
     expect(issued[0]).toContain("HttpOnly");
-    expect(issued[1]).toContain(`${HOME_CDP_LIVE_COOKIE}=`);
+    expect(issued[1]).toContain(`${HOME_CDP_LIVE_COOKIE}=`); // oxlint-disable-line home/no-self-referential-expectation -- the issued hint must use the canonical liveness-cookie name
     expect(issued[1]).not.toContain("HttpOnly");
     expect(issued.every((value) =>
       value.includes("Path=/") &&

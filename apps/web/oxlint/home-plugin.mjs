@@ -16,6 +16,7 @@ import {
   exactMockModules,
   noPresentationClassReads,
   noRealWaits,
+  noSelfReferentialExpectation,
   noSourceReads,
 } from "./rules/tests.mjs";
 import {
@@ -53,6 +54,7 @@ const homePlugin = {
     "no-source-reads": noSourceReads,
     "no-real-waits": noRealWaits,
     "no-presentation-class-reads": noPresentationClassReads,
+    "no-self-referential-expectation": noSelfReferentialExpectation,
     "exact-mock-modules": exactMockModules,
     "no-chained-type-assertions": noChainedTypeAssertions,
     "no-reflect-indirection": noReflectIndirection,

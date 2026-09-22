@@ -11,7 +11,6 @@ import { balancesSnapshotFixture } from "@/shared/balances/fixtures";
 import { presentBalances } from "@/shared/balances/present";
 import type { FetchBalances } from "@/shared/balances/types";
 import {
-  balancesStaleRefetchMs,
   nextStaleRefetchDelay,
   useBalances,
   type RecoverableBalancesState,
@@ -65,16 +64,16 @@ describe("useBalances", () => {
     const polling = { identity: "", dataUpdatedAt: 0, completedRefetches: 0 };
     const stale = { ...balancesSnapshotFixture, stale: true as const };
     expect(nextStaleRefetchDelay(polling, stale, "owner-a", 100))
-      .toBe(balancesStaleRefetchMs);
+      .toBe(3_000);
     expect(nextStaleRefetchDelay(polling, stale, "owner-a", 100))
-      .toBe(balancesStaleRefetchMs);
+      .toBe(3_000);
     for (const dataUpdatedAt of [101, 102, 103]) {
       expect(nextStaleRefetchDelay(polling, stale, "owner-a", dataUpdatedAt))
-        .toBe(balancesStaleRefetchMs);
+        .toBe(3_000);
     }
     expect(nextStaleRefetchDelay(polling, stale, "owner-a", 104)).toBeFalse();
     expect(nextStaleRefetchDelay(polling, stale, "owner-b", 104))
-      .toBe(balancesStaleRefetchMs);
+      .toBe(3_000);
     expect(nextStaleRefetchDelay(polling, balancesSnapshotFixture, "owner-b", 105))
       .toBeFalse();
   });

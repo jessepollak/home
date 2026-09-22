@@ -331,6 +331,15 @@
     {
       "files": [
         "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.pw.{ts,tsx}"
+      ],
+      "rules": {
+        "home/no-self-referential-expectation": "error"
+      }
+    },
+    {
+      "files": [
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "tests/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "**/tests/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "**/testing/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
@@ -377,7 +386,7 @@
     },
     {
       "files": [
-        "{app,components,config,shared}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "{app,client,components,config,server,shared}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "instrumentation*.ts"
       ],
       "excludeFiles": [

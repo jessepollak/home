@@ -70,6 +70,7 @@ describe("Codex trending memes", () => {
     });
 
     const result = await reader();
+    // oxlint-disable-next-line home/no-self-referential-expectation -- the request must carry the canonical query, category, and page-limit contract
     expect(seen.body).toEqual({
       query: CODEX_TRENDING_QUERY,
       variables: {
@@ -300,6 +301,7 @@ describe("Codex trending meme admission", () => {
     expect(await reader(address, 8453)).toBe(true);
     expect(await reader(address, 8453)).toBe(true); // cached
     expect(seen).toHaveLength(1);
+    // oxlint-disable-next-line home/no-self-referential-expectation -- admission must use the canonical configured category filter
     expect(seen[0]).toMatchObject({
       variables: {
         tokens: [`${address}:8453`],

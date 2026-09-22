@@ -28,7 +28,8 @@ describe("Borrow market registry", () => {
     expect(BORROW_MARKET_PARAMS).toBe(MORPHO_USDC_CBBTC_MARKET_PARAMS);
   });
   test("resolves configured ids case-insensitively and rejects arbitrary markets", () => {
-    expect(getBorrowMarketRef(DEFAULT_BORROW_MARKET.marketId.toUpperCase())).toBe(DEFAULT_BORROW_MARKET);
+    expect(getBorrowMarketRef(DEFAULT_BORROW_MARKET.marketId.toUpperCase()))
+      .toBe(DEFAULT_BORROW_MARKET); // oxlint-disable-line home/no-self-referential-expectation -- the lookup must return the canonical registry object
     expect(getBorrowMarketRef(`0x${"00".repeat(32)}`)).toBeNull();
   });
 });

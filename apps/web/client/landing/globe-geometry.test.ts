@@ -3,7 +3,6 @@ import {
   clampViewLatitude,
   geographicVector,
   INITIAL_VIEW_LATITUDE,
-  MAX_VIEW_LATITUDE,
   projectCountry,
   selectGlobePopoverCountry,
   shouldAnimateGlobe,
@@ -20,8 +19,8 @@ describe("two-axis globe view", () => {
   });
 
   test("clamps latitude before poles can flip", () => {
-    expect(clampViewLatitude(500)).toBe(MAX_VIEW_LATITUDE);
-    expect(clampViewLatitude(-500)).toBe(-MAX_VIEW_LATITUDE);
+    expect(clampViewLatitude(500)).toBe(55);
+    expect(clampViewLatitude(-500)).toBe(-55);
   });
 
   test("integrates both auto longitude and zero-target latitude inertia independent of frame rate", () => {

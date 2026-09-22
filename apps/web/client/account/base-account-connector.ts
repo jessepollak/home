@@ -281,7 +281,8 @@ async function openBaseProvider(
   } catch (error) {
     removeListeners();
     if (walletConnected) {
-      try { await provider.disconnect(); } catch {}
+      try { await provider.disconnect(); } catch { // oxlint-disable-line home/no-silent-catch -- disconnect is best-effort cleanup that must not mask the connector error being thrown
+      }
     }
     if (error instanceof BaseAccountConnectorError) throw error;
     const code = providerErrorCode(error);
@@ -466,7 +467,7 @@ async function openBaseProvider(
       removeListeners();
       try {
         await provider.disconnect();
-      } catch {
+      } catch { // oxlint-disable-line home/no-silent-catch -- a disconnect failure after listener removal leaves no state to recover
       }
     },
   };

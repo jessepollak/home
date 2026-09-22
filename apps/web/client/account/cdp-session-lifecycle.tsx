@@ -237,7 +237,7 @@ export function AccountWalletSessionOwner({
       setVerification("server");
       setStatus("verified");
       setMessage(null);
-    } catch (error) {
+    } catch (error) { // oxlint-disable-line home/no-silent-catch -- an aborted or superseded verification must not overwrite the newer attempt's state
       if (controller.signal.aborted || !fence.isCurrent(generation)) return;
       const missingBaseConnection = error instanceof BaseAccountConnectorError &&
         error.reason === "missing-connection";

@@ -153,7 +153,7 @@ export async function baseRpcBatch(
       } else if (!invalidIds.has(response.id)) {
         results.set(response.id, response.result);
       }
-    } catch (error) {
+    } catch (error) { // oxlint-disable-line home/no-silent-catch -- partial batches intentionally degrade an unreadable envelope to a null result; strict batches rethrow
       if (!options.allowPartial) throw error;
     }
   }

@@ -27,7 +27,9 @@ export async function verifyBaseFundingReceipt(order: FundingOrder, hash: `0x${s
     if (!record(candidate) || typeof candidate.address !== "string" || candidate.address.toLowerCase() !== asset.address.toLowerCase() || !Array.isArray(candidate.topics) || lower(candidate.topics[0]) !== TRANSFER_TOPIC || lower(candidate.topics[2]) !== destinationTopic || typeof candidate.data !== "string" || typeof candidate.logIndex !== "string") continue;
     try {
       if (BigInt(candidate.data).toString(10) === order.expectedTokenAmountAtomic) return { transactionHash: hash.toLowerCase() as `0x${string}`, logIndex: Number(BigInt(candidate.logIndex)) };
-    } catch { continue; }
+    } catch { // oxlint-disable-line home/no-silent-catch -- a malformed transfer log cannot match the expected amount; other logs still decide the receipt
+      continue;
+    }
   }
   return null;
 }

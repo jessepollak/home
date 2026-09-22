@@ -15,7 +15,7 @@ export const CDP_RESTORE_MARKER_KEY = "home:cdp-restore";
 export function writeCdpRestoreMarker(): void {
   try {
     window.localStorage.setItem(CDP_RESTORE_MARKER_KEY, "1");
-  } catch {
+  } catch { // oxlint-disable-line home/no-silent-catch -- the restore marker is best-effort; the provider hint and cookie remain the restore path
   }
 }
 
@@ -30,13 +30,13 @@ export function hasCdpRestoreMarker(): boolean {
 export function clearCdpRenderHint(): void {
   try {
     window.localStorage.removeItem(CDP_RESTORE_MARKER_KEY);
-  } catch {
+  } catch { // oxlint-disable-line home/no-silent-catch -- blocked storage cannot be cleared; the restore walk tolerates a stale marker
   }
   if (typeof document === "undefined") return;
   try {
     document.cookie = "home-cdp-live=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/; SameSite=Lax" +
       (location.protocol === "https:" ? "; Secure" : "");
-  } catch {
+  } catch { // oxlint-disable-line home/no-silent-catch -- cookie clearing is best-effort; blocked cookie access must not fail sign-out
   }
 }
 
@@ -87,7 +87,7 @@ export function writeAccountProviderHint(provider: AccountProviderHint | null) {
     } else {
       window.sessionStorage.removeItem(ACCOUNT_PROVIDER_HINT_KEY);
     }
-  } catch {
+  } catch { // oxlint-disable-line home/no-silent-catch -- the provider hint is a best-effort cache; marker and cookie detection still restore the account
   }
 }
 

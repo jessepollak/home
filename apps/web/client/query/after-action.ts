@@ -1,6 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import type { VerifiedAccountSession } from "@/client/account/session-client";
 import { dataOwnerKey as dataOwnerKeyForSession } from "@/client/account/owner-keys";
+import { reportClientError } from "@/client/observability/client-reporter";
 import {
   freshUntilMoved,
   type BalanceSnapshot,
@@ -102,7 +103,12 @@ export async function startBalanceFreshness(input: {
   let actionsValue: unknown;
   try {
     actionsValue = await fetchVerifiedResource("/api/actions");
-  } catch {
+  } catch (error) {
+    void reportClientError({
+      name: error instanceof Error ? error.name : "Error",
+      message: error instanceof Error ? error.message : "The balance freshness listing read failed.",
+      route: window.location.pathname,
+    });
     return;
   }
   if (!isLatestStart()) return;

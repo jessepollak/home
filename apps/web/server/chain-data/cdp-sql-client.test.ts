@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  CDP_SQL_ENDPOINT,
   createCdpSqlAuthFromEnv,
   createCdpSqlHttpTransport,
   parseCdpSqlResponseEnvelope,
@@ -94,7 +93,7 @@ describe("CDP SQL HTTP transport", () => {
     await transport.run({ sql: "SELECT 1", cache: { maxAgeMs: 1000 } });
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.input).toBe(CDP_SQL_ENDPOINT);
+    expect(calls[0]?.input).toBe("https://api.cdp.coinbase.com/platform/v2/data/query/run");
     expect(calls[0]?.init?.method).toBe("POST");
     const headers = new Headers(calls[0]?.init?.headers);
     expect(headers.get(["author", "ization"].join(""))).toBe(

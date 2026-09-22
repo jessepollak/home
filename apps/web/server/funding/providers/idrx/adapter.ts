@@ -875,7 +875,7 @@ function parseProviderJson(text: string): unknown {
     let key: unknown;
     try {
       key = JSON.parse(token);
-    } catch {
+    } catch { // oxlint-disable-line home/no-silent-catch -- a quoted token that is not a JSON key is skipped while normalizing decimal fields
       continue;
     }
     if (typeof key !== "string" || !decimalKeys.has(key)) continue;

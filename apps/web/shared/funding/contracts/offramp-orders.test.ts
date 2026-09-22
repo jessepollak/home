@@ -24,7 +24,11 @@ describe("offramp orders contract", () => {
       version: OFFRAMP_ORDERS_VERSION,
       recoveryEligible: true,
       orders: [order],
-    })).toEqual({ version: OFFRAMP_ORDERS_VERSION, recoveryEligible: true, orders: [order] });
+    })).toEqual({ // oxlint-disable-line home/no-self-referential-expectation -- the parser must preserve the canonical contract version while projecting the validated order
+      version: OFFRAMP_ORDERS_VERSION,
+      recoveryEligible: true,
+      orders: [order],
+    });
   });
 
   test("rejects the wrong version or missing evidence and strips non-contract fields", () => {

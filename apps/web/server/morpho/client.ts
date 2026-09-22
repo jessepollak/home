@@ -186,7 +186,7 @@ async function executeGraphqlWithRetry(
   for (let attempt = 0; ; attempt += 1) {
     try {
       return await executeGraphql(query, variables, fetchImpl, externalSignal);
-    } catch (error) {
+    } catch (error) { // oxlint-disable-line home/no-silent-catch -- a retryable upstream error continues the bounded retry loop
       if (
         attempt >= REQUEST_RETRY_LIMIT ||
         externalSignal?.aborted ||
