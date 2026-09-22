@@ -14,6 +14,7 @@ export type VerifyEvidence = {
   artifacts: { screenshot: string; dom: string };
   consoleErrors: string[];
   failedRequests: string[];
+  expectedFailures: string[];
   pageErrors: string[];
   marks: MarkResult[];
   longTaskCount: number;
@@ -41,7 +42,10 @@ export function summarizeEvidence(evidence: VerifyEvidence, mode: "fixture" | "l
       const result = mark.passed === null ? "recorded" : mark.passed ? "pass" : "fail";
       return `- \`${mark.name}\`: ${value} (${budget}; ${result})`;
     }).join("\n");
-  const summary = `### Verify: \`${evidence.surfaceId}\` — ${status}\n\n- Origin: ${evidence.baseUrl}\n- Viewport: ${evidence.viewport.width}×${evidence.viewport.height} CSS px\n- Screenshot: \`${evidence.artifacts.screenshot}\`\n- DOM text: \`${evidence.artifacts.dom}\`\n- Console errors: ${evidence.consoleErrors.length}\n- Page errors: ${evidence.pageErrors.length}\n- Failed requests: ${evidence.failedRequests.length}\n- Long tasks: ${evidence.longTaskCount}\n\n#### Performance marks\n${marks}\n`;
+  const expectedFailures = evidence.expectedFailures.length === 0
+    ? ""
+    : `\n#### Expected failures\n${evidence.expectedFailures.map((failure) => `- \`${failure}\``).join("\n")}\n`;
+  const summary = `### Verify: \`${evidence.surfaceId}\` — ${status}\n\n- Origin: ${evidence.baseUrl}\n- Viewport: ${evidence.viewport.width}×${evidence.viewport.height} CSS px\n- Screenshot: \`${evidence.artifacts.screenshot}\`\n- DOM text: \`${evidence.artifacts.dom}\`\n- Console errors: ${evidence.consoleErrors.length}\n- Page errors: ${evidence.pageErrors.length}\n- Failed requests: ${evidence.failedRequests.length}\n- Expected failures: ${evidence.expectedFailures.length}\n- Long tasks: ${evidence.longTaskCount}\n${expectedFailures}\n#### Performance marks\n${marks}\n`;
   return mode === "live"
     ? summary.split("\n").map((line) => line ? `[live] ${line}` : line).join("\n")
     : summary;

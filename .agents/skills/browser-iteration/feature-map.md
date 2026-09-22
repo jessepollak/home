@@ -41,6 +41,33 @@ session seed `sessionStorage["home:playwright-smoke:signed-in"]="1"` + `localSto
 
 API routes (no UI; listed for request-level assertions): `app/api/{access,access/logout,session,balances,activity,client-errors,client-performance,actions,actions/prepare,actions/[id],actions/[id]/confirm,actions/[id]/handle,auth/base/{nonce,verify,logout},borrow,borrow/markets/[marketId],funding/{providers,quotes,orders,orders/[id],offramp/orders,provider-customers,provider-customers/verification,webhooks/[provider]},invest/discover,market-prices,market-prices/history,savings/vaults,trades,webhooks/cdp}`. `/api/actions/*`, `/api/activity`, `/api/balances`, `/api/borrow`, and `/api/borrow/markets/[marketId]` require `authorizeSession`; provider and public route authorization remains route-specific.
 
+## Live hosts
+
+Hosts Home is known to call from the browser on a deployed environment, with the code that issues
+each call. `verify --live` composes this list with the base host, the CDP provider origins in
+`apps/web/verify/live.ts`, and repeated `--allow-domain` values; any other hostname stays in
+`unexpectedHosts` and fails the run.
+
+- `api.ensideas.com` — Basename profile lookup (`apps/web/client/account/basename-profile.ts:9`); observed in the first production run on 2026-09-21.
+- `api.cdp.coinbase.com` — CDP browser session and Coinbase onramp API (`apps/web/server/funding/providers/coinbase/manifest.ts:5`).
+- `secure-wallet.cdp.coinbase.com` — CDP embedded-wallet origin (`apps/web/verify/live.ts:6`).
+- `pay.coinbase.com` — Coinbase onramp embed and redirect (`apps/web/server/funding/providers/coinbase/manifest.ts:6`; rendered by `apps/web/client/funding/order-flow.tsx:685`).
+- `checkout.idrx.co` — IDRX checkout redirect (`apps/web/server/funding/providers/idrx/manifest.ts:6`).
+- `skala.ripio.com` — Ripio onramp API and payment redirect (`apps/web/server/funding/providers/ripio/manifest.ts:5`).
+- `kyc.ripio.com` — Ripio customer KYC handoff (`apps/web/server/funding/providers/ripio/manifest.ts:6`).
+
+## Live expected failures
+
+Deployments return these request failures on every load. `verify --live` matches failures from the
+browser network log by exact method, path, and status (query strings and fragments ignored) and
+reports them as expected failures in `live.json` and `summary.md` instead of failing the run. Any
+request failure not listed here still fails the run, and unlisted hosts still fail as
+`unexpectedHosts`.
+
+- `GET /api/session` 401 — the restore path probes the session endpoint before the CDP SDK holds a server-accepted access token (#735).
+- `POST /api/client-performance` 401 — startup and restore beacons are sent with `credentials: "omit"`, which an access-gated deployment rejects before the handler (#736).
+- `GET https://api.cdp.coinbase.com/platform/v2/embedded-wallet-api/projects/75f1f0c7-83bf-47c7-a227-e94bb6d04f83/config` 404 — CDP SDK optional project config.
+
 ## Surfaces
 
 ### `landing`
@@ -74,6 +101,10 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
   1. `goto "/home"`
   2. `expect "Home"`
   3. `expect "Recognized Coin"`
+- **Reach (live)**:
+  1. `goto "/home"`
+  2. `expect "Total balance"`
+  3. `expect "Your money"`
 - **Notes**: The verifier seeds the signed-in session and API fixtures. Optionally click `Send` for the money modal or exercise the card actions below.
 - **Expect**: `Total balance` card with `aria-label="Total balance"` and `aria-busy` while loading (home-panel.tsx); balance breakdown (`data-balance-breakdown`, `data-balance-segment="cash|saved|investments"`, home-panel.tsx); status line `[data-total-status]` when `statusLabel` present; money actions group `aria-label="Money actions"` with `Add money` and `Send`; `Your money` card (h2 `your-money-heading`) with `See all` action; Save card (`save-heading`), Borrow card (`borrow-heading`); Activity card (`activity-title`). Fixture-visible rows include `Recognized Coin` (balances-fixtures.ts recognizedCatalogHolding).
 - **States** (fixtures): loading → hold `/api/session`/`/api/balances` with `fixtures.delayNextSession()/delayNextBalances()` (smoke.pw.ts); empty → base fixture minus holdings (**no ready empty fixture exists — construct via `options.balances`**); unavailable → `status: "unavailable"` presentation (home-panel.tsx `Balance unavailable`); error state for action APIs is surfaced in the modal, not the panel.
@@ -88,6 +119,9 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
   1. `goto "/balances"`
   2. `expect "Your money"`
   3. `expect "Recognized Coin"`
+- **Reach (live)**:
+  1. `goto "/balances"`
+  2. `expect "Your money"`
 - **Notes**: The verifier seeds the signed-in session and balances fixture. Use `/balances/investments` with `scrollableBalancesSnapshot()` for anchoring work; the group section is `id="investments"`.
 - **Expect**: scroll container `[data-app-main-authenticated]` (shell-panels.tsx); balance rows `[data-balance-list] [data-kind="balance"]` (smoke.pw.ts); reveal window grows after scroll (`BALANCES_BATCH_SIZE = 10`, client/home/balances-panel.tsx); `Show small balances` switch lives in account settings, not this page (smoke.pw.ts touch test).
 - **States**: loading shimmer (`LoadingMoneyGroup`, balances-panel.tsx); unavailable; empty (`BalancesEmpty`); ready with reveal batches; stale revalidation anchored to requested group (`cold and revalidated cached Balances…` smoke test).
