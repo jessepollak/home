@@ -1,4 +1,4 @@
-const sender = process.env.HOME_VERIFY_OTP_SENDER ?? "no-reply@coinbase.com";
+const sender = process.env.HOME_VERIFY_OTP_SENDER ?? "no-reply@info.coinbase.com";
 
 globalThis.fetch = ((input: RequestInfo | URL) => {
   const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { callbackDecision, extractOtp, gmailAuthorizationUrl, gmailReadonlyScope, isReadonlyScopeGrant, pollGmailOtp, verifyAccountEmail, type GmailCredentials, type GmailMessage } from "./gmail";
+import { callbackDecision, defaultOtpSender, extractOtp, gmailAuthorizationUrl, gmailReadonlyScope, isReadonlyScopeGrant, pollGmailOtp, verifyAccountEmail, type GmailCredentials, type GmailMessage } from "./gmail";
 
 const credentials: Required<GmailCredentials> = {
   client_id: "client-id",
@@ -7,7 +7,7 @@ const credentials: Required<GmailCredentials> = {
   refresh_token: "refresh-token",
 };
 const submittedAt = Date.parse("2026-09-21T12:00:00.000Z");
-const sender = "no-reply@coinbase.com";
+const sender = defaultOtpSender;
 const servers: Array<{ stop(closeActiveConnections?: boolean): void }> = [];
 
 function message(overrides: Partial<GmailMessage> = {}): GmailMessage {
@@ -50,6 +50,19 @@ describe("Gmail OTP parsing", () => {
 
   test("accepts a split six-digit code", () => {
     expect(extractOtp(message({ snippet: "Your code is 847 291" }), sender, submittedAt, submittedAt + 300_000)).toBe("847291");
+  });
+
+  test("accepts the info.coinbase.com login code sender with the default sender", () => {
+    const loginCode = message({
+      snippet: "Sign in to Home",
+      payload: {
+        headers: [
+          { name: "From", value: "no-reply <no-reply@info.coinbase.com>" },
+          { name: "Subject", value: "123456 is your login code" },
+        ],
+      },
+    });
+    expect(extractOtp(loginCode, defaultOtpSender, submittedAt, submittedAt + 300_000)).toBe("123456");
   });
 
   test("rejects a code from a subject the sender check would not have matched", () => {

@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 
 export const gmailReadonlyScope = "https://www.googleapis.com/auth/gmail.readonly";
-export const defaultOtpSender = "no-reply@coinbase.com";
+export const defaultOtpSender = "no-reply@info.coinbase.com";
 
 export function verifyAccountEmail(env: Record<string, string | undefined> = process.env): string {
   const email = env.HOME_VERIFY_ACCOUNT_EMAIL?.trim();

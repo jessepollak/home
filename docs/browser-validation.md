@@ -193,7 +193,7 @@ The bootstrap always prints `Open this URL to authorize: <url>` before it tries 
 
 Live sign-in is configured by `HOME_VERIFY_ACCOUNT_EMAIL`: `live-login`, `gmail-auth`, and the OTP reader refuse with an actionable message when it is unset, and the pin file still records the smart-account wallet address rather than the email.
 
-The CDP core package documents the OTP flow but does not publish the sender address. The verifier defaults `HOME_VERIFY_OTP_SENDER` to `no-reply@coinbase.com`. On the first machine setup, inspect the message's From field in Gmail without copying the OTP; if it differs, set `HOME_VERIFY_OTP_SENDER` to that exact address before `live-login`. The query accepts only that sender, messages addressed to the configured mailbox, and messages received after email submission, polls for at most five minutes, and never writes message content, codes, access tokens, or refresh tokens to logs or evidence.
+The CDP core package documents the OTP flow but does not publish the sender address. The verifier defaults `HOME_VERIFY_OTP_SENDER` to `no-reply@info.coinbase.com`. On the first machine setup, inspect the message's From field in Gmail without copying the OTP; if it differs, set `HOME_VERIFY_OTP_SENDER` to that exact address before `live-login`. The query accepts only that sender, messages addressed to the configured mailbox, and messages received after email submission, polls for at most five minutes, and never writes message content, codes, access tokens, or refresh tokens to logs or evidence.
 
 ### Factory live mode
 
