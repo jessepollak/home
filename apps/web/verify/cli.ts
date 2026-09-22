@@ -21,6 +21,7 @@ import {
   hostObservationRefusal,
   inputPresentPredicate,
   labelledInputFillScript,
+  isCashoutHandleFillStep,
   isRecipientFillStep,
   liveSessionExpired,
   liveStepError,
@@ -31,6 +32,7 @@ import {
   partitionLiveFailures,
   recipientPlaceholderError,
   recipientRowError,
+  resolveLiveCashoutHandle,
   resolveLiveRecipient,
   reviewAndLabelAmountError,
   unexpectedNetworkHosts,
@@ -521,11 +523,27 @@ if (live && (recipientPlaceholder || recipientOption !== undefined)) {
   }
   effectiveRecipient = resolution.recipient;
 }
-const reachSteps = selectedReach.map((step): ReachStep =>
-  isRecipientFillStep(step)
-    ? { ...step, value: live ? effectiveRecipient?.address ?? step.value : recipientOption ?? step.value }
-    : step
-);
+const cashoutHandleRequired = selectedReach.some(isCashoutHandleFillStep);
+let liveCashoutHandle: string | null = null;
+if (live && cashoutHandleRequired) {
+  const resolution = resolveLiveCashoutHandle(process.env.HOME_VERIFY_CASHOUT_HANDLE);
+  if (resolution.action === "refuse") {
+    console.error(resolution.reason);
+    process.exit(1);
+  }
+  liveCashoutHandle = resolution.handle;
+}
+const reachSteps = selectedReach
+  .map((step): ReachStep =>
+    isRecipientFillStep(step)
+      ? { ...step, value: live ? effectiveRecipient?.address ?? step.value : recipientOption ?? step.value }
+      : step,
+  )
+  .map((step): ReachStep =>
+    live && liveCashoutHandle !== null && isCashoutHandleFillStep(step)
+      ? { ...step, value: liveCashoutHandle }
+      : step,
+  );
 const toFillRecipient = live
   ? reachSteps.flatMap((step) => (step.kind === "fill" && step.label === "To" ? [step.value] : []))[0] ?? null
   : null;

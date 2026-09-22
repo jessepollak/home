@@ -374,6 +374,36 @@ describe("live CLI preflight", () => {
   });
 });
 
+describe("live cash-out handle", () => {
+  test("fills the payout handle from HOME_VERIFY_CASHOUT_HANDLE in live mode", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = run(["cash-out", "--live", "--base-url", "https://example.com", "--out", outsideOutput], {
+      ...fakeEnv("Account\nShow small balances\nYour money", addressA),
+      HOME_VERIFY_CASHOUT_HANDLE: "$example",
+    });
+    expect(result.exitCode).toBe(0);
+    const handleFills = fakeCalls().filter((call) =>
+      call[0] === "find" && call[1] === "label" && call[3] === "fill" && (call[2] === "Cash App handle" || call[2] === "Re-enter handle"));
+    expect(handleFills.map((call) => call[4])).toEqual(["$example", "$example"]);
+    expect(fakeCalls().some((call) => call.includes("$alice"))).toBe(false);
+  });
+
+  test("refuses a live run without HOME_VERIFY_CASHOUT_HANDLE before any fill", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = run(["cash-out", "--live", "--base-url", "https://example.com", "--out", outsideOutput], {
+      ...fakeEnv("Account\nShow small balances\nYour money", addressA),
+      HOME_VERIFY_CASHOUT_HANDLE: undefined,
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("HOME_VERIFY_CASHOUT_HANDLE");
+    expect(fakeCalls().some((call) => call[3] === "fill")).toBe(false);
+  });
+});
+
 describe("live rendered balance", () => {
   function runConfirm(extraEnv: Record<string, string>) {
     return run([

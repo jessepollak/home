@@ -46,6 +46,29 @@ export function isRecipientFillStep(step: ReachStep): step is Extract<ReachStep,
   return step.kind === "fill" && step.label === "To" && step.value === "<recipient>";
 }
 
+export const cashoutHandlePlaceholder = "$alice";
+
+const cashoutHandleFillLabels = new Set(["Cash App handle", "Re-enter handle"]);
+
+export function isCashoutHandleFillStep(step: ReachStep): step is Extract<ReachStep, { kind: "fill" }> {
+  return step.kind === "fill" && step.value === cashoutHandlePlaceholder && cashoutHandleFillLabels.has(step.label);
+}
+
+export type CashoutHandleResolution =
+  | { action: "use"; handle: string }
+  | { action: "refuse"; reason: string };
+
+export function resolveLiveCashoutHandle(value: string | undefined): CashoutHandleResolution {
+  const handle = value?.trim();
+  if (!handle) {
+    return {
+      action: "refuse",
+      reason: "Live cash-out requires HOME_VERIFY_CASHOUT_HANDLE set to a cashtag Jesse owns; refusing to fill the placeholder payout handle.",
+    };
+  }
+  return { action: "use", handle };
+}
+
 export function recipientPlaceholderError(steps: ReachStep[]): string | null {
   for (const step of steps) {
     if (isRecipientFillStep(step)) continue;
