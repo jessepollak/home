@@ -476,6 +476,56 @@ describe("click readiness", () => {
   });
 });
 
+async function readUntil(stream: ReadableStream<Uint8Array>, needle: string, timeoutMs = 10000): Promise<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const deadline = Date.now() + timeoutMs;
+  while (!buffer.includes(needle)) {
+    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${needle}`);
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+  }
+  reader.releaseLock();
+  return buffer;
+}
+
+describe("gmail-auth remote flow", () => {
+  test("prints the authorization URL, ignores a stray request, and rejects only a wrong state", async () => {
+    const credentialsPath = resolve(home, "gmail-bootstrap.json");
+    await Bun.write(credentialsPath, `${JSON.stringify({ client_id: "client-id", client_secret: "client-secret" })}\n`);
+    Bun.spawnSync(["chmod", "600", credentialsPath]);
+    const process_ = Bun.spawn({
+      cmd: ["bun", "apps/web/verify/cli.ts", "gmail-auth", "--no-open"],
+      cwd: repositoryRoot,
+      env: {
+        ...process.env,
+        HOME: home,
+        CI: undefined,
+        GITHUB_ACTIONS: undefined,
+        HOME_VERIFY_ACCOUNT_EMAIL: "bot@example.com",
+        HOME_VERIFY_GMAIL_CREDENTIALS: credentialsPath,
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const output = await readUntil(process_.stdout, "Open this URL to authorize: ");
+    const match = output.match(/Open this URL to authorize: (\S+)/);
+    expect(match).not.toBeNull();
+    const authorization = new URL(match?.[1] ?? "https://invalid.example");
+    expect(authorization.searchParams.get("scope")).toBe("https://www.googleapis.com/auth/gmail.readonly");
+    const redirectUri = new URL(authorization.searchParams.get("redirect_uri") ?? "https://invalid.example");
+    expect(redirectUri.hostname).toBe("127.0.0.1");
+    const probe = await fetch(`http://127.0.0.1:${redirectUri.port}/probe`);
+    expect(probe.status).toBe(404);
+    const wrongState = await fetch(`http://127.0.0.1:${redirectUri.port}/callback?state=wrong&code=abc`);
+    expect(wrongState.status).toBe(400);
+    expect(await process_.exited).toBe(1);
+    expect(await new Response(process_.stderr).text()).toContain("Gmail OAuth state mismatch");
+  });
+});
+
 describe("live login readiness", () => {
   const preloadPath = resolve(import.meta.dir, "test-fixtures/fake-gmail-fetch.ts");
 

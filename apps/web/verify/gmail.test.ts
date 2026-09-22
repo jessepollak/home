@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { extractOtp, gmailReadonlyScope, isReadonlyScopeGrant, pollGmailOtp, verifyAccountEmail, type GmailCredentials, type GmailMessage } from "./gmail";
+import { callbackDecision, extractOtp, gmailAuthorizationUrl, gmailReadonlyScope, isReadonlyScopeGrant, pollGmailOtp, verifyAccountEmail, type GmailCredentials, type GmailMessage } from "./gmail";
 
 const credentials: Required<GmailCredentials> = {
   client_id: "client-id",
@@ -91,6 +91,31 @@ describe("Gmail account configuration", () => {
 
   test("refuses OTP polling without a mailbox instead of querying an unfiltered mailbox", async () => {
     await expect(pollGmailOtp(credentials, sender, submittedAt, { accountEmail: "" })).rejects.toThrow("HOME_VERIFY_ACCOUNT_EMAIL");
+  });
+});
+
+describe("Gmail OAuth bootstrap", () => {
+  test("ignores requests outside the callback and a callback missing state or code", () => {
+    expect(callbackDecision(new URL("http://127.0.0.1:5/probe"), "state-1")).toBe("ignore");
+    expect(callbackDecision(new URL("http://127.0.0.1:5/callback"), "state-1")).toBe("ignore");
+    expect(callbackDecision(new URL("http://127.0.0.1:5/callback?code=abc"), "state-1")).toBe("ignore");
+    expect(callbackDecision(new URL("http://127.0.0.1:5/callback?state=state-1"), "state-1")).toBe("ignore");
+  });
+
+  test("rejects only a wrong non-empty state and accepts the matching state and code", () => {
+    expect(callbackDecision(new URL("http://127.0.0.1:5/callback?state=wrong&code=abc"), "state-1")).toBe("reject");
+    expect(callbackDecision(new URL("http://127.0.0.1:5/callback?state=&code=abc"), "state-1")).toBe("ignore");
+    expect(callbackDecision(new URL("http://127.0.0.1:5/callback?state=state-1&code=abc"), "state-1")).toBe("accept");
+  });
+
+  test("builds the authorization URL with the readonly scope, loopback redirect, and state", () => {
+    const authorization = gmailAuthorizationUrl("client-id", "http://127.0.0.1:58531/callback", "state-1");
+    expect(`${authorization.origin}${authorization.pathname}`).toBe("https://accounts.google.com/o/oauth2/v2/auth");
+    expect(authorization.searchParams.get("client_id")).toBe("client-id");
+    expect(authorization.searchParams.get("redirect_uri")).toBe("http://127.0.0.1:58531/callback");
+    expect(authorization.searchParams.get("scope")).toBe("https://www.googleapis.com/auth/gmail.readonly");
+    expect(authorization.searchParams.get("access_type")).toBe("offline");
+    expect(authorization.searchParams.get("state")).toBe("state-1");
   });
 });
 

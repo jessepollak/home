@@ -134,9 +134,15 @@ if (args[0] === "status") {
 
 if (args[0] === "gmail-auth") {
   console.log(`Sign in as ${accountEmailOrExit()} to authorize Gmail readonly access.`);
+  const portValue = option("--port");
+  const port = portValue === undefined ? undefined : Number(portValue);
+  if (port !== undefined && (!Number.isInteger(port) || port < 0 || port > 65535)) {
+    console.error("--port must be an integer between 0 and 65535.");
+    process.exit(2);
+  }
   try {
     const path = gmailCredentialsPath(process.env);
-    await runGmailAuth(path);
+    await runGmailAuth(path, { open: !hasFlag("--no-open"), port });
     console.log(`Gmail readonly authorization saved to ${path}.`);
     process.exit(0);
   } catch (error) {
@@ -433,7 +439,7 @@ const surfaceId = args[0];
 if (!surfaceId || surfaceId.startsWith("-")) {
   console.error("Usage: bun run verify <surface-id> [--base-url <url>] [--out <dir>] [--allow-console] [--allow-domain <host>]");
   console.error("       bun run verify live-login --base-url <url> [--allow-domain <host>]");
-  console.error("       bun run verify gmail-auth");
+  console.error("       bun run verify gmail-auth [--no-open] [--port <n>]");
   console.error("       bun run verify status [--base-url <url>] | arm <surface> --by <GitHub-comment-url>");
   console.error("       bun run verify <surface-id> --live --base-url <url> --out <dir> [--recipient <0x-address|jesse.base.eth>] [--allow-domain <host>] [--allow-confirm --account <0x…> --max-usd <n> [--max-usd-total <n>]]");
   console.error("       bun run verify --list");

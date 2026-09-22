@@ -154,7 +154,34 @@ export async function pollGmailOtp(
   throw new Error("No matching sign-in code arrived within five minutes.");
 }
 
-export async function runGmailAuth(path: string): Promise<void> {
+export type CallbackDecision = "ignore" | "reject" | "accept";
+
+export function callbackDecision(url: URL, expectedState: string): CallbackDecision {
+  if (url.pathname !== "/callback") return "ignore";
+  const state = url.searchParams.get("state");
+  const code = url.searchParams.get("code");
+  if (state !== null && state !== "" && state !== expectedState) return "reject";
+  if (state === expectedState && code) return "accept";
+  return "ignore";
+}
+
+export function gmailAuthorizationUrl(clientId: string, redirectUri: string, state: string): URL {
+  const authorization = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+  authorization.search = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    scope: gmailReadonlyScope,
+    access_type: "offline",
+    prompt: "consent",
+    state,
+  }).toString();
+  return authorization;
+}
+
+export type GmailAuthOptions = { open?: boolean; port?: number };
+
+export async function runGmailAuth(path: string, options: GmailAuthOptions = {}): Promise<void> {
   const bootstrap = await readGmailCredentials(path, false);
   const state = crypto.randomUUID();
   let resolveCode: (code: string) => void = () => undefined;
@@ -165,38 +192,33 @@ export async function runGmailAuth(path: string): Promise<void> {
   });
   const server = Bun.serve({
     hostname: "127.0.0.1",
-    port: 0,
+    port: options.port ?? 0,
     fetch(request) {
       const url = new URL(request.url);
-      if (url.searchParams.get("state") !== state) {
-        rejectCode(new Error("Gmail OAuth state mismatch."));
+      const decision = callbackDecision(url, state);
+      if (decision === "ignore") {
+        return url.pathname === "/callback"
+          ? new Response("Authorization failed.", { status: 400 })
+          : new Response("Not found.", { status: 404 });
+      }
+      if (decision === "reject") {
+        setTimeout(() => rejectCode(new Error("Gmail OAuth state mismatch.")), 0);
         return new Response("Authorization failed.", { status: 400 });
       }
-      const code = url.searchParams.get("code");
-      if (!code) {
-        rejectCode(new Error("Gmail OAuth returned no code."));
-        return new Response("Authorization failed.", { status: 400 });
-      }
-      resolveCode(code);
+      resolveCode(url.searchParams.get("code") ?? "");
       return new Response("Home verification Gmail authorization complete. You may close this tab.");
     },
   });
   const redirectUri = `http://127.0.0.1:${server.port}/callback`;
-  const authorization = new URL("https://accounts.google.com/o/oauth2/v2/auth");
-  authorization.search = new URLSearchParams({
-    client_id: bootstrap.client_id,
-    redirect_uri: redirectUri,
-    response_type: "code",
-    scope: gmailReadonlyScope,
-    access_type: "offline",
-    prompt: "consent",
-    state,
-  }).toString();
-  const opener = process.platform === "darwin" ? "open" : "xdg-open";
-  const opened = Bun.spawnSync({ cmd: [opener, authorization.toString()], stdout: "ignore", stderr: "ignore" });
-  if (opened.exitCode !== 0) {
-    server.stop(true);
-    throw new Error("Could not open the Gmail authorization URL.");
+  const authorization = gmailAuthorizationUrl(bootstrap.client_id, redirectUri, state);
+  console.log(`Open this URL to authorize: ${authorization.toString()}`);
+  if (options.open !== false) {
+    const opener = process.platform === "darwin" ? "open" : "xdg-open";
+    const opened = Bun.spawnSync({ cmd: [opener, authorization.toString()], stdout: "ignore", stderr: "ignore" });
+    if (opened.exitCode !== 0) {
+      server.stop(true);
+      throw new Error("Could not open the Gmail authorization URL.");
+    }
   }
   try {
     const code = await codePromise;
