@@ -1,4 +1,4 @@
-import { appendFile, chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { appendFile, chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { verifyPolicy, type VerifyRole } from "./policy";
 
@@ -56,6 +56,10 @@ export async function appendLedger(path: string, entry: LedgerEntry): Promise<vo
 
 const staleLockMilliseconds = 10 * 60 * 1000;
 
+export type LedgerLockOptions = {
+  beforeStaleLockRemoval?: () => Promise<void> | void;
+};
+
 function reservationRefusal(lockPath: string): Error {
   return new Error(`Another verification run is reserving spend; confirmation was refused. If no verification run is active, remove ${lockPath} (rm -rf ${lockPath}) and retry.`);
 }
@@ -69,29 +73,49 @@ function processIsAlive(pid: number): boolean {
   }
 }
 
-async function clearStaleLock(lockPath: string): Promise<boolean> {
-  let owner: { pid?: number; timestamp?: number };
+async function lockOwner(lockPath: string): Promise<{ pid?: number; timestamp?: number } | null> {
   try {
-    owner = JSON.parse(await readFile(resolve(lockPath, "owner.json"), "utf8")) as { pid?: number; timestamp?: number };
+    return JSON.parse(await readFile(resolve(lockPath, "owner.json"), "utf8")) as { pid?: number; timestamp?: number };
   } catch {
-    return false;
+    return null;
   }
-  if (typeof owner.pid !== "number" || typeof owner.timestamp !== "number") return false;
+}
+
+async function clearStaleLock(lockPath: string, options: LedgerLockOptions): Promise<boolean> {
+  const owner = await lockOwner(lockPath);
+  if (!owner || typeof owner.pid !== "number" || typeof owner.timestamp !== "number") return false;
   if (Date.now() - owner.timestamp <= staleLockMilliseconds) return false;
   if (processIsAlive(owner.pid)) return false;
-  await rm(lockPath, { recursive: true, force: true });
+  await options.beforeStaleLockRemoval?.();
+  const quarantinePath = `${lockPath}.stale-${crypto.randomUUID()}`;
+  try {
+    await rename(lockPath, quarantinePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+  const movedOwner = await lockOwner(quarantinePath);
+  if (!movedOwner || movedOwner.pid !== owner.pid || movedOwner.timestamp !== owner.timestamp) {
+    try {
+      await rename(quarantinePath, lockPath);
+    } catch {
+      console.error(`Could not restore the newer verification lock at ${lockPath}; it remains at ${quarantinePath}.`);
+    }
+    return false;
+  }
+  await rm(quarantinePath, { recursive: true, force: true });
   console.error(`Removed a stale verification lock at ${lockPath} left by process ${owner.pid}.`);
   return true;
 }
 
-export async function withLedgerLock<T>(path: string, action: () => Promise<T>): Promise<T> {
+export async function withLedgerLock<T>(path: string, action: () => Promise<T>, options: LedgerLockOptions = {}): Promise<T> {
   await ensureLedger(path);
   const lockPath = `${path}.lock`;
   try {
     await mkdir(lockPath, { mode: 0o700 });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    if (!(await clearStaleLock(lockPath))) throw reservationRefusal(lockPath);
+    if (!(await clearStaleLock(lockPath, options))) throw reservationRefusal(lockPath);
     try {
       await mkdir(lockPath, { mode: 0o700 });
     } catch (retryError) {

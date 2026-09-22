@@ -187,4 +187,52 @@ describe("verification ledger", () => {
     expect(spendForDay(entries, "2026-09-21")).toBe(2.5);
     expect(spendForRun(entries, "run-2")).toBe(1.5);
   });
+
+  test("refuses when another process wins the stale-lock removal race", async () => {
+    const directory = resolve(tmpdir(), `home-ledger-race-${crypto.randomUUID()}`);
+    Bun.spawnSync(["mkdir", "-p", directory]);
+    temporaryDirectories.push(directory);
+    const path = resolve(directory, "ledger.jsonl");
+    const lockPath = `${path}.lock`;
+    const winnerPath = `${lockPath}.winner`;
+    Bun.spawnSync(["mkdir", "-p", lockPath]);
+    await Bun.write(resolve(lockPath, "owner.json"), JSON.stringify({ pid: 999999, timestamp: Date.now() - 11 * 60 * 1000 }));
+    const entered: string[] = [];
+    await expect(withLedgerLock(path, async () => {
+      entered.push("loser");
+      return "loser";
+    }, {
+      beforeStaleLockRemoval: async () => {
+        Bun.spawnSync(["mv", lockPath, winnerPath]);
+      },
+    })).rejects.toThrow("reserving spend");
+    expect(entered).toEqual([]);
+    expect(Bun.spawnSync(["test", "-d", winnerPath]).exitCode).toBe(0);
+  });
+
+  test("restores a newer lock it displaced and refuses instead of holding twice", async () => {
+    const directory = resolve(tmpdir(), `home-ledger-displaced-${crypto.randomUUID()}`);
+    Bun.spawnSync(["mkdir", "-p", directory]);
+    temporaryDirectories.push(directory);
+    const path = resolve(directory, "ledger.jsonl");
+    const lockPath = `${path}.lock`;
+    const winnerPath = `${lockPath}.winner`;
+    Bun.spawnSync(["mkdir", "-p", lockPath]);
+    await Bun.write(resolve(lockPath, "owner.json"), JSON.stringify({ pid: 999999, timestamp: Date.now() - 11 * 60 * 1000 }));
+    const entered: string[] = [];
+    await expect(withLedgerLock(path, async () => {
+      entered.push("loser");
+      return "loser";
+    }, {
+      beforeStaleLockRemoval: async () => {
+        Bun.spawnSync(["mv", lockPath, winnerPath]);
+        Bun.spawnSync(["mkdir", "-p", lockPath]);
+        await Bun.write(resolve(lockPath, "owner.json"), JSON.stringify({ pid: process.pid, timestamp: Date.now() }));
+      },
+    })).rejects.toThrow("reserving spend");
+    expect(entered).toEqual([]);
+    await expect(withLedgerLock(path, async () => "second")).rejects.toThrow("reserving spend");
+    Bun.spawnSync(["rm", "-rf", lockPath]);
+    await expect(withLedgerLock(path, async () => "after")).resolves.toBe("after");
+  });
 });
