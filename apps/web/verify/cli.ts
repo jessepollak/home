@@ -447,6 +447,7 @@ if (!surfaceId || surfaceId.startsWith("-")) {
   process.exit(2);
 }
 
+const liveWithSession = live && requiresSignedInFixture(surfaceId);
 const outputRoot = resolve(option("--out") ?? ".verify");
 const allowConsole = hasFlag("--allow-console");
 const allowConfirm = hasFlag("--allow-confirm");
@@ -556,7 +557,7 @@ if (live) {
   }
 }
 let pinnedAccount: string | null = null;
-if (live) {
+if (liveWithSession) {
   try {
     pinnedAccount = (await readFile(pinPath, "utf8")).trim();
     await stat(statePath);
@@ -592,6 +593,7 @@ const livePath = resolve(destination, "live.json");
 function executeStep(step: ReachStep): string {
   if (step.kind === "goto") {
     command("navigate", new URL(step.path, baseUrl).toString());
+    if (live) handleAccessGate();
     return `goto ${step.path}`;
   }
   if (step.kind === "click") {
@@ -768,7 +770,7 @@ async function recordLiveLedger(): Promise<void> {
 try {
   command("open", "--init-script", initPath);
   command("set", "viewport", "390", "844");
-  if (live) {
+  if (liveWithSession) {
     await ensurePrivateStateDirectory();
     command("state", "load", statePath);
     command("navigate", new URL("/home?account=settings", baseUrl).toString());
@@ -788,7 +790,7 @@ try {
       renderedBalanceUsd = typeof renderedBalance === "string" ? parseUsdAmount(renderedBalance) : null;
       if (renderedBalanceUsd === null) throw new Error("The rendered account balance is not knowable; confirmation was refused.");
     }
-  } else {
+  } else if (!live) {
     for (const [pattern, body] of fixtureRoutes()) {
       command("network", "route", pattern, "--body", JSON.stringify(body));
     }

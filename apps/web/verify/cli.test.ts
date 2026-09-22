@@ -350,6 +350,26 @@ describe("live CLI preflight", () => {
   });
 });
 
+describe("live anonymous surfaces", () => {
+  test("runs an anonymous surface without the saved session and clears the access gate after goto", async () => {
+    Bun.spawnSync(["rm", "-rf", stateDirectory]);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = run(["coverage", "--live", "--base-url", "https://example.com", "--out", outsideOutput], {
+      ...fakeEnv("Local money coverage\nSign in", ""),
+      FAKE_AGENT_BROWSER_PATH: "/coverage",
+    });
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+    const calls = fakeCalls();
+    expect(calls.some((call) => call[0] === "state")).toBe(false);
+    const firstNavigate = calls.findIndex((call) => call[0] === "navigate");
+    expect(calls[firstNavigate]?.[1]).toBe("https://example.com/coverage");
+    expect(calls[firstNavigate + 1]?.slice(0, 2)).toEqual(["eval", "location.pathname + location.search"]);
+    expect(calls.some((call) => call[0] === "wait" && call[1] === "--text" && call[2] === "Local money coverage")).toBe(true);
+  });
+});
+
 describe("live session state", () => {
   test("waits out a restoring session instead of declaring it expired", async () => {
     await seedLiveState(addressA);
