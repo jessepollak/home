@@ -113,11 +113,11 @@ export async function readLedger(path: string): Promise<LedgerEntry[]> {
     const contents = await readFile(path, "utf8");
     return contents.split("\n").filter(Boolean).map((line, index) => {
       try {
-        return JSON.parse(line) as LedgerEntry;
+        return JSON.parse(line) as { type?: string };
       } catch {
         throw new Error(`Invalid verification ledger entry on line ${index + 1}.`);
       }
-    });
+    }).filter((entry): entry is LedgerEntry => entry.type === "run");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw error;

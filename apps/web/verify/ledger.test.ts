@@ -50,6 +50,23 @@ describe("verification ledger", () => {
     expect(entries[1].clean).toBe(true);
   });
 
+  test("skips legacy arm and disarm events left in an existing ledger", async () => {
+    const directory = resolve(tmpdir(), `home-ledger-legacy-${crypto.randomUUID()}`);
+    Bun.spawnSync(["mkdir", "-p", directory]);
+    temporaryDirectories.push(directory);
+    const path = resolve(directory, "ledger.jsonl");
+    await Bun.write(path, [
+      JSON.stringify(run({ runId: "run-1", clean: false, incidents: ["unexpected-host"] })),
+      JSON.stringify({ type: "disarm", timestamp: "2026-09-22T00:00:01.000Z", host: "example.com", surface: "send", incidents: ["unexpected-host"] }),
+      JSON.stringify({ type: "arm", timestamp: "2026-09-22T00:00:02.000Z", host: "example.com", surface: "send", by: "https://github.com/example-org/home/issues/1#issuecomment-1" }),
+      "",
+    ].join("\n"));
+    await appendLedger(path, run({ runId: "run-2", rungReached: 3, clean: true }));
+    const entries = await readLedger(path);
+    expect(entries.map((entry) => entry.runId)).toEqual(["run-1", "run-2"]);
+    expect(entries.every((entry) => entry.type === "run")).toBe(true);
+  });
+
   test("serializes spend reservations and releases the lock", async () => {
     const directory = resolve(tmpdir(), `home-ledger-lock-${crypto.randomUUID()}`);
     Bun.spawnSync(["mkdir", "-p", directory]);
