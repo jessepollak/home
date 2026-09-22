@@ -22,9 +22,9 @@ const { SavingsExperience } = await import("./savings-experience");
 
 const ADDRESS_A = "0x1111111111111111111111111111111111111111";
 const CURATOR = "0x1234567890abcdef1234567890abcdef12345678";
-const GAUNTLET = MORPHO_V1_CANDIDATE_ADDRESSES[1];
-const STEAKHOUSE = MORPHO_V1_CANDIDATE_ADDRESSES[0];
-const THIRD_VAULT = MORPHO_V1_CANDIDATE_ADDRESSES[2];
+const GAUNTLET = MORPHO_V1_CANDIDATE_ADDRESSES[0];
+const STEAKHOUSE = MORPHO_V1_CANDIDATE_ADDRESSES[2];
+const SPARK = MORPHO_V1_CANDIDATE_ADDRESSES[1];
 const TEST_NOW = Date.parse("2026-09-10T12:04:00.000Z");
 const testNow = () => TEST_NOW;
 
@@ -243,13 +243,13 @@ describe("Save simplify", () => {
     expect(document.body.textContent).toContain("$820.00 available");
   });
 
-  test("includes funded supported vaults outside the two visible selection rows", async () => {
+  test("shows all configured vault identities while aggregating every funded position", async () => {
     const allVaultData: MorphoVaultsResult = {
       ...initialData,
       candidates: [
         candidate(STEAKHOUSE, "Steakhouse USDC", 0.04),
         candidate(GAUNTLET, "Gauntlet USDC Prime", 0.06),
-        candidate(THIRD_VAULT, "Third USDC", 0.08),
+        candidate(SPARK, "Spark USDC Vault", 0.08),
       ],
     };
     render(
@@ -261,14 +261,16 @@ describe("Save simplify", () => {
         balancePositions={balancePositions({
           [STEAKHOUSE]: "100000000",
           [GAUNTLET]: "300000000",
-          [THIRD_VAULT]: "600000000",
+          [SPARK]: "600000000",
         })}
       />,
     );
 
     expect(await page().findByText("$1,000.00")).toBeTruthy();
     expect(page().getByText("Earning ~7.00%")).toBeTruthy();
-    expect(page().queryByRole("radio", { name: /Third USDC/ })).toBeNull();
+    expect(page().getByRole("radio", { name: /Gauntlet USDC Prime/ })).toBeTruthy();
+    expect(page().getByRole("radio", { name: /Spark USDC Vault/ })).toBeTruthy();
+    expect(page().getByRole("radio", { name: /Steakhouse USDC/ })).toBeTruthy();
   });
 
   test("waits for balances and metadata in either request order", async () => {

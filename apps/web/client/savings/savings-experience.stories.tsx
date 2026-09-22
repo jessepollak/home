@@ -19,7 +19,7 @@ const ACCOUNT = "0x1111111111111111111111111111111111111111" as const;
 const FIXTURE_TIME = "2026-09-10T12:04:00.000Z";
 const FIXTURE_NOW = Date.parse(FIXTURE_TIME);
 const fixedNow = () => FIXTURE_NOW;
-const [STEAKHOUSE, GAUNTLET, THIRD_VAULT] = MORPHO_V1_CANDIDATE_ADDRESSES;
+const [GAUNTLET, SPARK, STEAKHOUSE] = MORPHO_V1_CANDIDATE_ADDRESSES;
 
 const session: VerifiedAccountSession = {
   user: { subject: "storybook-savings-owner" },
@@ -65,12 +65,13 @@ const gauntlet = candidate(
   0.041,
   "0x1234567890abcdef1234567890abcdef12345678",
 );
+const spark = candidate(SPARK, "Spark USDC Vault", 0.0362);
 
 const fixedVaults: MorphoVaultsResult = {
   version: "v1",
   chainId: 8453,
   asset: { address: BASE_USDC_ADDRESS, symbol: "USDC", decimals: 6 },
-  candidates: [steakhouse, gauntlet],
+  candidates: [gauntlet, spark, steakhouse],
   source: {
     provider: "Morpho GraphQL",
     endpoint: "https://api.morpho.org/graphql",
@@ -84,14 +85,15 @@ const longLabelVaults: MorphoVaultsResult = {
   ...fixedVaults,
   candidates: [
     {
-      ...steakhouse,
-      name: "Steakhouse International Canonical USDC Savings Reserve",
-      symbol: "International canonical USDC savings reserve receipt",
-    },
-    {
       ...gauntlet,
       name: "Gauntlet Diversified Onchain Treasury Savings Strategy Prime",
       symbol: "Diversified onchain treasury savings strategy receipt",
+    },
+    spark,
+    {
+      ...steakhouse,
+      name: "Steakhouse International Canonical USDC Savings Reserve",
+      symbol: "International canonical USDC savings reserve receipt",
     },
   ],
 };
@@ -115,13 +117,13 @@ function positions(
 const fundedPositions = positions({
   [GAUNTLET]: "987654321",
   [STEAKHOUSE]: "123456789",
-  [THIRD_VAULT]: "0",
+  [SPARK]: "0",
 });
 const emptyPositions = positions();
 const partialPositions = positions({
   [GAUNTLET]: "42000000",
   [STEAKHOUSE]: null,
-  [THIRD_VAULT]: "0",
+  [SPARK]: "0",
 });
 
 function preparedAction(kind: string): PreparedMoneyAction {

@@ -94,9 +94,9 @@ function savingsVaults() {
   return {
     version: "v1", chainId: 8453, asset: { address: USDC, symbol: "USDC", decimals: 6 },
     candidates: [
-      vaultCandidate(VAULTS[0]!, "Steakhouse USDC", 0.0385),
-      vaultCandidate(VAULTS[1]!, "Gauntlet USDC Prime", 0.041),
-      vaultCandidate(VAULTS[2]!, "Re7 USDC", 0.0362),
+      vaultCandidate(VAULTS[0]!, "Gauntlet USDC Prime", 0.0385),
+      vaultCandidate(VAULTS[1]!, "Spark USDC Vault", 0.041),
+      vaultCandidate(VAULTS[2]!, "Steakhouse USDC", 0.0362),
     ],
     source: { provider: "Morpho GraphQL", endpoint: "https://api.morpho.org/graphql", query: "vaults", fetchedAt },
     stale: false,

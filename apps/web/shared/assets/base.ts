@@ -38,21 +38,21 @@ export const BASE_CBBTC = {
 export const BASE_MORPHO_USDC_VAULTS = [
   {
     id: "morpho-steakhouse-usdc",
-    name: "Steakhouse USDC vault",
+    name: "Gauntlet USDC Prime",
     symbol: "USDC vault",
     address: "0xeE8F4eC5672F09119b96Ab6fB59C27E1b7e44b61",
     decimals: 18,
   },
   {
     id: "morpho-gauntlet-usdc",
-    name: "Gauntlet USDC Core vault",
+    name: "Spark USDC Vault",
     symbol: "USDC vault",
     address: "0x7BfA7C4f149E7415b73bdeDfe609237e29CBF34A",
     decimals: 18,
   },
   {
     id: "morpho-re7-usdc",
-    name: "Re7 USDC vault",
+    name: "Steakhouse USDC",
     symbol: "USDC vault",
     address: "0xbeeF010f9cb27031ad51e3333f9aF9C6B1228183",
     decimals: 18,

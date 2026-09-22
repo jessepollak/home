@@ -27,8 +27,8 @@ const ACCOUNT = "0x1111111111111111111111111111111111111111" as const;
 const FIXTURE_TIME = "2026-09-10T12:04:00.000Z";
 const FIXTURE_NOW = Date.parse(FIXTURE_TIME);
 const fixedNow = () => FIXTURE_NOW;
-const [STEAKHOUSE, GAUNTLET] = MORPHO_V1_CANDIDATE_ADDRESSES;
-const SELECTED_VAULT = STEAKHOUSE;
+const [GAUNTLET, SPARK] = MORPHO_V1_CANDIDATE_ADDRESSES;
+const SELECTED_VAULT = GAUNTLET;
 
 const session: VerifiedAccountSession = {
   user: { subject: "storybook-savings-journey-owner" },
@@ -67,15 +67,15 @@ function candidate(
   };
 }
 
-const steakhouse = candidate(STEAKHOUSE, "Steakhouse USDC", 0.0385);
-const gauntlet = candidate(GAUNTLET, "Gauntlet USDC Prime", 0.041);
+const gauntlet = candidate(GAUNTLET, "Gauntlet USDC Prime", 0.0385);
+const spark = candidate(SPARK, "Spark USDC Vault", 0.041);
 
 // The only network boundary in the flow: the production vault-metadata fetch.
 const vaultsFixture: MorphoVaultsResult = {
   version: "v1",
   chainId: 8453,
   asset: { address: BASE_USDC_ADDRESS, symbol: "USDC", decimals: 6 },
-  candidates: [gauntlet, steakhouse],
+  candidates: [spark, gauntlet],
   source: {
     provider: "Morpho GraphQL",
     endpoint: "https://api.morpho.org/graphql",
@@ -94,9 +94,9 @@ const fundedPositions: VaultPosition[] = MORPHO_V1_CANDIDATE_ADDRESSES.map(
   (vaultAddress) => ({
     vaultAddress,
     position: {
-      assetsRaw: vaultAddress === GAUNTLET
+      assetsRaw: vaultAddress === SPARK
         ? "987654321"
-        : vaultAddress === STEAKHOUSE
+        : vaultAddress === GAUNTLET
           ? "123456789"
           : "0",
     },
@@ -181,7 +181,7 @@ const prepareMoneyAction = async (
   input: unknown,
 ): Promise<PreparedMoneyAction> => {
   journey.prepared.push({ endpoint, input });
-  return preparedAction(steakhouse, "25000000");
+  return preparedAction(gauntlet, "25000000");
 };
 
 const executeMoneyAction = async (
@@ -235,22 +235,22 @@ export const Deposit: Story = {
 
     // Vault metadata arrives over the production `/api/savings/vaults` fetch,
     // served here by the story's MSW handler.
+    const sparkRow = await screen.findByRole("radio", {
+      name: /Spark USDC Vault/,
+    });
     const gauntletRow = await screen.findByRole("radio", {
       name: /Gauntlet USDC Prime/,
     });
-    const steakhouseRow = await screen.findByRole("radio", {
-      name: /Steakhouse USDC/,
-    });
-    await expect(within(gauntletRow).getByText("4.10%")).toBeVisible();
-    await expect(within(steakhouseRow).getByText("3.85%")).toBeVisible();
+    await expect(within(sparkRow).getByText("4.10%")).toBeVisible();
+    await expect(within(gauntletRow).getByText("3.85%")).toBeVisible();
 
-    await userEvent.click(steakhouseRow);
+    await userEvent.click(gauntletRow);
     await expect(
-      await screen.findByRole("radio", { name: /Steakhouse USDC/ }),
+      await screen.findByRole("radio", { name: /Gauntlet USDC Prime/ }),
     ).toHaveAttribute("aria-checked", "true");
     const detailsId = `vault-${SELECTED_VAULT}-details`;
     await expect(
-      await screen.findByRole("radio", { name: /Steakhouse USDC/ }),
+      await screen.findByRole("radio", { name: /Gauntlet USDC Prime/ }),
     ).toHaveAttribute("aria-controls", detailsId);
     const details = document.getElementById(detailsId);
     if (details === null) throw new Error("Vault details did not render");
@@ -275,7 +275,7 @@ export const Deposit: Story = {
       .getAllByRole("definition")
       .find((node) => node.textContent === "$25.00");
     await expect(amountRow).toBeVisible();
-    await expect(within(confirmDialog).getByText("Steakhouse USDC")).toBeVisible();
+    await expect(within(confirmDialog).getByText("Gauntlet USDC Prime")).toBeVisible();
     await expect(within(confirmDialog).getByText("Base (8453)")).toBeVisible();
     await expect(
       within(confirmDialog).getByRole("button", { name: "Deposit $25.00" }),

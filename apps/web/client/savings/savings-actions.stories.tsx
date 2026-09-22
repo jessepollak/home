@@ -30,7 +30,7 @@ const session: VerifiedAccountSession = {
 
 const candidate: MorphoVaultCandidate = {
   version: "v1",
-  vaultAddress: MORPHO_V1_CANDIDATE_ADDRESSES[1],
+  vaultAddress: MORPHO_V1_CANDIDATE_ADDRESSES[0],
   name: "Gauntlet USDC Prime",
   symbol: "gtUSDC",
   listed: true,

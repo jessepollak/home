@@ -175,7 +175,7 @@ describe("Morpho savings action preparation", () => {
     });
   });
 
-  test("authors discovery freshness and exchange constraints as typed review facts", async () => {
+  test("authors canonical identity, discovery freshness, and exchange constraints as typed review facts", async () => {
     const prepare = createPrepareSavingsAction({
       now: () => new Date("2026-09-08T10:00:00.000Z"),
       readState: async () => baseState,
@@ -189,7 +189,7 @@ describe("Morpho savings action preparation", () => {
     });
 
     expect(action.metadata).toMatchObject({
-      vaultName: "Server discovery vault",
+      vaultName: getVerifiedSaveVault(VAULT)?.name,
       discoveryRate: {
         status: "stale",
         netApy: "0.04",
@@ -203,10 +203,6 @@ describe("Morpho savings action preparation", () => {
     {
       description: "an exponent-form tiny APY",
       candidate: { netApy: 1e-7 },
-    },
-    {
-      description: "an untrimmed overlong vault name",
-      candidate: { name: ` ${"x".repeat(129)} ` },
     },
   ] satisfies Array<{
     description: string;
