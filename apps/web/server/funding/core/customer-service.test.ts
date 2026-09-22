@@ -5,6 +5,7 @@ import type { FundingProvider, FundingProviderManifest } from "@/shared/funding/
 import { createCoinbaseProvider } from "../providers/coinbase/adapter";
 import { idrxProvider } from "../providers/idrx/adapter";
 import createQrisFixture from "../providers/idrx/fixtures/create-qris.synthetic.json";
+import quoteQrisFixture from "../providers/idrx/fixtures/quote-qris.synthetic.json";
 import { MemoryFundingProviderCustomerStore, type FundingProviderCustomerStore } from "./customer-store";
 import { FundingCore } from "./service";
 import { MemoryFundingOrderStore } from "./store";
@@ -143,7 +144,7 @@ describe("provider customer service", () => {
   });
 
   test("IDRX quote/order never touches the customer store", async () => {
-    const service = new FundingCore({ providers: [idrxProvider], store: new MemoryFundingOrderStore(), customerStore: untouchedCustomerStore(), env: { IDRX_CLIENT_ID: "id", IDRX_CLIENT_SECRET: Buffer.from("secret").toString("base64"), IDRX_CUSTOMER_NAME: "HOME TEST CUSTOMER", FUNDING_QUOTE_SECRET: "q".repeat(32) }, fetchImplementation: (async () => Response.json(createQrisFixture)) as unknown as typeof fetch, currentBaseBlock: async () => "1", verifyReceipt: async () => null });
+    const service = new FundingCore({ providers: [idrxProvider], store: new MemoryFundingOrderStore(), customerStore: untouchedCustomerStore(), env: { IDRX_CLIENT_ID: "id", IDRX_CLIENT_SECRET: Buffer.from("secret").toString("base64"), IDRX_CUSTOMER_NAME: "HOME TEST CUSTOMER", FUNDING_QUOTE_SECRET: "q".repeat(32) }, fetchImplementation: (async (input: RequestInfo | URL) => Response.json(String(input).includes("mint-quote") ? quoteQrisFixture : createQrisFixture)) as unknown as typeof fetch, currentBaseBlock: async () => "1", verifyReceipt: async () => null });
     const quote = await service.createQuote(session, { providerId: "idrx", region: "ID", paymentMethod: "qris", fiatAmount: "20000.50" }, "https://home.example");
     await expect(service.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example")).resolves.toMatchObject({ state: "awaiting-payment" });
   });

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type {
   FundingProvider,
@@ -9,9 +9,12 @@ import type {
 import { MemoryFundingOrderStore } from "./store";
 import { FundingCore, resolveClientIp, isPrivateIp, type FundingOrderTransitionEvent } from "./service";
 import { FundingProviderConfigurationError, resolveFundingMode, resolveWebhookEnvironment } from "./provider-context";
+import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 
 const session: VerifiedAccountSession = { user: { subject: "user" }, accountProvider: "base-account", smartAccount: { address: "0x1111111111111111111111111111111111111111", chainId: 8453 } };
 const manifest = { id: "fixture", displayName: "Fixture", docsUrl: "https://example.com", onramp: { apiOrigins: ["https://example.com"], reference: "home" }, bindings: [{ region: "ID", assetId: "base:idrx", currency: "IDR", directions: { onramp: { paymentMethods: [{ id: "bank", label: "Bank" }], env: ["FIXTURE_KEY"] } } }] } as const satisfies FundingProviderManifest;
+beforeEach(() => setObservabilityLogWriterForTests(() => undefined));
+afterEach(() => setObservabilityLogWriterForTests());
 
 function customerSetup() {
   let creates = 0;
@@ -567,6 +570,181 @@ describe("FundingCore", () => {
 
     orderRegionError = unexpected;
     await expect(core.handleWebhook("regional", raw, new Headers({ "x-signature": "us-secret" }))).rejects.toBe(unexpected);
+  });
+
+  test("treats cross-region provider context configuration failures as unmatched", async () => {
+    const store = new MemoryFundingOrderStore();
+    const provider: FundingProvider = {
+      manifest: {
+        id: "regional-context", displayName: "Regional context", docsUrl: "https://example.com",
+        onramp: { apiOrigins: ["https://example.com"], reference: "home", webhook: { signatureHeader: "x-signature", env: { US: "US_HOOK", ID: "ID_HOOK" } } },
+        bindings: [
+          { region: "US", assetId: "base:usdc", currency: "USD", directions: { onramp: { paymentMethods: [{ id: "bank", label: "Bank" }], env: ["US_HOOK"] } } },
+          { region: "ID", assetId: "missing-asset", currency: "IDR", directions: { onramp: { paymentMethods: [{ id: "bank", label: "Bank" }], env: ["ID_HOOK"] } } },
+        ],
+      },
+      onramp: {
+        async createOrder() { return { outcome: "ambiguous" }; },
+        async getOrder() { return { state: "unknown", providerStatus: "unknown" }; },
+        verifyWebhook(_raw, headers, ctx) {
+          return ctx.binding.region === "US" && headers.get("x-signature") === "us-secret"
+            ? { providerOrderId: "regional-context-order" }
+            : null;
+        },
+      },
+    };
+    const reserved = await store.reserve({
+      id: "regional-context-home-order",
+      owner: { subject: session.user.subject, accountProvider: session.accountProvider },
+      destination: session.smartAccount!.address,
+      providerId: "regional-context",
+      region: "ID",
+      assetId: "missing-asset",
+      paymentMethod: "bank",
+      fiatAmount: "1000",
+      intentDigest: "regional-context-intent",
+      quote: { fiatAmount: "1000", tokenAmountAtomic: "100000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" },
+      quoteToken: "regional-context-token",
+      customerRef: null,
+      sandbox: false,
+      creationBlock: "1",
+      createdAt: "2026-09-12T00:00:00.000Z",
+    });
+    await store.completeDispatch(reserved.order.id, {
+      providerOrderId: "regional-context-order",
+      expectedTokenAmountAtomic: "100000",
+      fees: [],
+      expiresAt: null,
+      instructions: { kind: "bank-transfer", rail: "VA", accountNumber: "1", amount: "1000", currency: "IDR" },
+      expectedVersion: reserved.order.version,
+      updatedAt: "2026-09-12T00:00:01.000Z",
+    });
+    const events: Array<{ providerId: string; reason: "invalid" | "unmatched" | "region-mismatch" }> = [];
+    const core = new FundingCore({
+      providers: [provider],
+      store,
+      env: { US_HOOK: "us-secret", ID_HOOK: "id-secret" },
+      currentBaseBlock: async () => "1",
+      verifyReceipt: async () => null,
+      logUnmatchedWebhook: (event) => events.push(event),
+    });
+
+    await expect(core.handleWebhook("regional-context", new Uint8Array(), new Headers({ "x-signature": "us-secret" }))).resolves.toEqual({ accepted: true, matched: false });
+    expect(events).toEqual([{ providerId: "regional-context", reason: "region-mismatch" }]);
+  });
+
+  test("verifies the receipt against a lower provider-settled amount and never a higher one", async () => {
+    const verified: string[] = [];
+    let settled = "1986000";
+    let orders = 0;
+    const provider: FundingProvider = {
+      manifest,
+      onramp: {
+        async createOrder(input, ctx) {
+          orders += 1;
+          return { outcome: "created", order: { providerOrderId: `fixture-order-${orders}`, tokenAddress: ctx.binding.asset.address, expectedTokenAmountAtomic: input.quote!.tokenAmountAtomic, fees: [], expiresAt: null, instructions: { kind: "bank-transfer", rail: "VA", accountNumber: "12345678", amount: input.fiatAmount, currency: "IDR" } } };
+        },
+        async getOrder() { return { state: "sent", providerStatus: "MINTED:PAID", transactionHash: `0x${"2".repeat(64)}`, settledTokenAmountAtomic: settled, fees: [{ label: "QRIS Fee (0.7%)", amount: "140", currency: "IDR" }] }; },
+      },
+    };
+    let date = new Date("2026-09-12T00:00:00.000Z");
+    const core = new FundingCore({ providers: [provider], store: new MemoryFundingOrderStore(), env: { FIXTURE_KEY: "set", FUNDING_QUOTE_SECRET: "s".repeat(32) }, currentBaseBlock: async () => "500", verifyReceipt: async (order, hash) => { verified.push(order.expectedTokenAmountAtomic!); return { transactionHash: hash, logIndex: 4 }; }, now: () => date });
+    const quote = await core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" }, "https://home.example");
+    const created = await core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example");
+    expect(created.expectedTokenAmountAtomic).toBe("2000000");
+    date = new Date("2026-09-12T00:00:10.000Z");
+    const received = await core.getOrder(session, created.id);
+    expect(received.state).toBe("received");
+    expect(received.expectedTokenAmountAtomic).toBe("1986000");
+    expect(received.fees).toEqual([{ label: "QRIS Fee (0.7%)", amount: "140", currency: "IDR" }]);
+    expect(verified).toEqual(["1986000"]);
+
+    settled = "2000001";
+    const higher = await core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" }, "https://home.example");
+    date = new Date("2026-09-12T00:01:00.000Z");
+    const createdHigher = await core.createOrder(session, { quoteToken: higher.quoteToken }, "https://home.example");
+    date = new Date("2026-09-12T00:01:10.000Z");
+    const ignored = await core.getOrder(session, createdHigher.id);
+    expect(ignored.state).toBe("awaiting-payment");
+    expect(ignored.expectedTokenAmountAtomic).toBe("2000000");
+    expect(ignored.fees).toEqual([]);
+    expect(verified).toEqual(["1986000"]);
+  });
+
+  test("emits a provider failure and preserves the order when a settlement is rejected", async () => {
+    const lines: string[] = [];
+    setObservabilityLogWriterForTests((line) => lines.push(line));
+    try {
+      const provider: FundingProvider = {
+        manifest,
+        onramp: {
+          async createOrder(input, ctx) {
+            return { outcome: "created", order: { providerOrderId: "fixture-order", tokenAddress: ctx.binding.asset.address, expectedTokenAmountAtomic: input.quote!.tokenAmountAtomic, fees: [], expiresAt: null, instructions: { kind: "bank-transfer", rail: "VA", accountNumber: "12345678", amount: input.fiatAmount, currency: "IDR" } } };
+          },
+          async getOrder() {
+            return { state: "sent", providerStatus: "MINTED:PAID", settledTokenAmountAtomic: "2000001" };
+          },
+        },
+      };
+      let date = new Date("2026-09-12T00:00:00.000Z");
+      const core = new FundingCore({ providers: [provider], store: new MemoryFundingOrderStore(), env: { FIXTURE_KEY: "set", FUNDING_QUOTE_SECRET: "s".repeat(32) }, currentBaseBlock: async () => "500", verifyReceipt: async () => null, now: () => date });
+      const quote = await core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" }, "https://home.example");
+      const created = await core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example");
+      date = new Date("2026-09-12T00:00:10.000Z");
+
+      expect(await core.getOrder(session, created.id)).toEqual(created);
+      expect(lines).toHaveLength(1);
+      expect(JSON.parse(lines[0]!)).toMatchObject({
+        kind: "funding-order",
+        route: "/api/funding/orders/:redacted",
+        code: "PROVIDER_INVALID_RESPONSE",
+        provider: "fixture",
+        region: "ID",
+      });
+    } finally {
+      setObservabilityLogWriterForTests();
+    }
+  });
+
+  test("keeps the quoted amount as the baseline and freezes the first accepted settlement", async () => {
+    const seen: string[] = [];
+    let settled = "1900000";
+    const provider: FundingProvider = {
+      manifest,
+      onramp: {
+        async createOrder(input, ctx) {
+          return { outcome: "created", order: { providerOrderId: "fixture-order-1", tokenAddress: ctx.binding.asset.address, expectedTokenAmountAtomic: input.quote!.tokenAmountAtomic, fees: [], expiresAt: null, instructions: { kind: "bank-transfer", rail: "VA", accountNumber: "12345678", amount: input.fiatAmount, currency: "IDR" } } };
+        },
+        async getOrder(input) {
+          seen.push(input.expectedTokenAmountAtomic);
+          return { state: "sent", providerStatus: "PROCESSING:PAID", settledTokenAmountAtomic: settled, fees: [{ label: "Fee", amount: "1000", currency: "IDR" }] };
+        },
+      },
+    };
+    let date = new Date("2026-09-12T00:00:00.000Z");
+    const core = new FundingCore({ providers: [provider], store: new MemoryFundingOrderStore(), env: { FIXTURE_KEY: "set", FUNDING_QUOTE_SECRET: "s".repeat(32) }, currentBaseBlock: async () => "500", verifyReceipt: async () => null, now: () => date });
+    const quote = await core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" }, "https://home.example");
+    const created = await core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example");
+    date = new Date("2026-09-12T00:00:10.000Z");
+    const lowered = await core.getOrder(session, created.id);
+    expect(lowered.state).toBe("sent-unverified");
+    expect(lowered.expectedTokenAmountAtomic).toBe("1900000");
+
+    // A second, lower settlement is bounded by the adapter against the quoted
+    // amount, and the core drops it regardless: the first one is frozen.
+    settled = "1805000";
+    date = new Date("2026-09-12T00:00:20.000Z");
+    const again = await core.getOrder(session, created.id);
+    expect(again.expectedTokenAmountAtomic).toBe("1900000");
+    expect(again.updatedAt).toBe(lowered.updatedAt);
+    expect(seen).toEqual(["2000000", "2000000"]);
+
+    // Reporting the accepted amount again is fine and keeps the refresh alive.
+    settled = "1900000";
+    date = new Date("2026-09-12T00:00:30.000Z");
+    const same = await core.getOrder(session, created.id);
+    expect(same.expectedTokenAmountAtomic).toBe("1900000");
+    expect(same.updatedAt).toBe("2026-09-12T00:00:30.000Z");
   });
 
   test("logs unmatched webhooks without raw bodies or provider order identifiers", async () => {

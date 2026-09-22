@@ -85,6 +85,8 @@ export function ActivityPanelView({
   const items = mergeActivityFeed({ transfers, operations });
   const visibleItems = density === "teaser" ? items.slice(0, ACTIVITY_TEASER_LIMIT) : items;
   const hasRows = visibleItems.length > 0;
+  const exhausted =
+    activity.status !== "ready" || density === "teaser" || activity.page.nextCursor === null;
   const sourcesPending = activity.status === "loading" || actionsStatus === "loading";
 
   if (activity.status === "unavailable" && !hasRows) {
@@ -140,7 +142,7 @@ export function ActivityPanelView({
           Recorded Home actions are unavailable.{transfers.length > 0 ? " Onchain transfers are still shown." : ""}
         </p>
       ) : null}
-      {!hasRows ? <ActivityEmpty /> : (
+      {!hasRows ? (exhausted ? <ActivityEmpty /> : null) : (
         <ol className="list-none p-0 space-y-1">
           {visibleItems.map((item) => item.kind === "transfer" ? (
             <TransferActivityRow
@@ -166,15 +168,13 @@ export function ActivityPanelView({
       )}
 
       {density === "page" && activity.status === "ready" ? (
-        <ActivityPagination
-          nextCursor={activity.page.nextCursor}
-          hasTransfers={hasRows}
-          loading={activity.loadingMore}
-          failed={activity.loadMoreError}
-          autoLoadPaused={activity.autoLoadPaused}
-          loadMore={activity.loadMore}
-          continueManually={activity.retryLoadMore}
-        />
+        activity.page.nextCursor === null ? (
+          hasRows ? (
+            <p className="text-center text-xs text-muted-foreground" role="status">End of activity</p>
+          ) : null
+        ) : (
+          <ActivityContinuation activity={activity} />
+        )
       ) : null}
 
       <TransactionDetailsModal
@@ -215,73 +215,44 @@ function ActivitySurface({
   );
 }
 
-function ActivityPagination({
-  nextCursor,
-  hasTransfers,
-  loading,
-  failed,
-  autoLoadPaused,
-  loadMore,
-  continueManually,
-}: {
-  nextCursor: string | null;
-  hasTransfers: boolean;
-  loading: boolean;
-  failed: boolean;
-  autoLoadPaused: boolean;
-  loadMore: () => void;
-  continueManually: () => void;
-}) {
+function ActivityContinuation({ activity }: { activity: UseActivityResult }) {
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const setSentinelVisible = activity.setSentinelVisible;
 
   useEffect(() => {
     const sentinel = sentinelRef.current;
-    if (!sentinel || !nextCursor || loading || failed || autoLoadPaused || typeof IntersectionObserver === "undefined") return;
+    if (!sentinel || typeof IntersectionObserver === "undefined") return;
     const closestRoot = sentinel.closest("[data-app-main-authenticated]");
     const root = closestRoot instanceof HTMLElement ? closestRoot : null;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) loadMore();
+        const entry = entries[entries.length - 1];
+        if (entry) setSentinelVisible(entry.isIntersecting);
       },
       { root, rootMargin: "0px 0px 240px 0px" },
     );
     observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [autoLoadPaused, failed, loadMore, loading, nextCursor]);
-
-  if (!nextCursor) {
-    return hasTransfers ? (
-      <p className="text-center text-xs text-muted-foreground" role="status">End of activity</p>
-    ) : null;
-  }
+    return () => {
+      observer.disconnect();
+      setSentinelVisible(false);
+    };
+  }, [setSentinelVisible]);
 
   return (
     <div className="space-y-2">
-      {loading ? (
-        <div role="status" aria-live="polite">
-          <ShimmerRows count={1} />
-          <span className="sr-only">Loading more activity…</span>
+      <p className="sr-only" role="status">
+        {activity.continuing ? "Loading older activity" : ""}
+      </p>
+      {activity.loadingMore ? <ShimmerRows count={1} /> : null}
+      {activity.loadMoreError ? (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-destructive" role="alert">
+            More activity could not be loaded. Your current results are unchanged.
+          </p>
+          <Button variant="secondary" onClick={activity.retryLoadMore}>Retry</Button>
         </div>
       ) : null}
-      {failed ? (
-        <p className="text-xs text-destructive" role="alert">
-          More activity could not be loaded. Your current results are unchanged.
-        </p>
-      ) : autoLoadPaused ? (
-        <p className="text-xs text-muted-foreground" role="status">
-          No additional activity was found on that page. Continue to check older activity.
-        </p>
-      ) : null}
-      {loading ? null : (
-        <Button
-          className="h-11 w-full"
-          variant="secondary"
-          onClick={failed || autoLoadPaused ? continueManually : loadMore}
-        >
-          {failed ? "Retry more activity" : autoLoadPaused ? "Continue loading activity" : "Load more activity"}
-        </Button>
-      )}
-      <div key={nextCursor} ref={sentinelRef} className="h-px w-full" data-activity-sentinel="" aria-hidden="true" />
+      <div ref={sentinelRef} className="h-px w-full" data-activity-sentinel="" aria-hidden="true" />
     </div>
   );
 }

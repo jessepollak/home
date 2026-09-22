@@ -4,7 +4,6 @@ export const verifyPolicy = {
     perRunUsd: 2,
     perDayUsd: 5,
   },
-  balanceCeilingUsd: 5,
   cleanRunsToArm: 3,
 } as const;
 
@@ -55,8 +54,8 @@ export function requestedCaps(
   }
   const runCap = requestedRun ?? requestedClick;
   if (!Number.isFinite(runCap) || runCap <= 0) throw new Error("--max-usd-total must be a positive number.");
-  if (requestedClick > verifyPolicy.balanceCeilingUsd || runCap > verifyPolicy.balanceCeilingUsd) {
-    throw new Error(`Operator confirmation caps cannot exceed the $${verifyPolicy.balanceCeilingUsd.toFixed(2)} bot-account ceiling.`);
+  if (requestedClick > verifyPolicy.factory.perDayUsd || runCap > verifyPolicy.factory.perDayUsd) {
+    throw new Error(`Operator confirmation caps cannot exceed the $${verifyPolicy.factory.perDayUsd.toFixed(2)} factory daily cap.`);
   }
   return { clickCapUsd: requestedClick, runCapUsd: runCap };
 }
@@ -68,9 +67,6 @@ export function confirmPolicyRefusal(input: ConfirmPolicyInput): string | null {
   }
   if (input.balanceUsd === null || !Number.isFinite(input.balanceUsd) || input.balanceUsd < 0) {
     return "The rendered account balance is not knowable; confirmation was refused.";
-  }
-  if (input.balanceUsd > verifyPolicy.balanceCeilingUsd) {
-    return `The rendered account balance exceeds the $${verifyPolicy.balanceCeilingUsd.toFixed(2)} bot-account ceiling.`;
   }
   if (input.amountUsd > input.balanceUsd) {
     return `The confirmation amount $${input.amountUsd.toFixed(2)} exceeds the rendered balance $${input.balanceUsd.toFixed(2)}.`;

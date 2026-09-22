@@ -67,7 +67,8 @@ Every story meta has an explicit stable `id`; keep its meaningful export name st
 
 The pilot inventory is:
 
-- Financial row: `pilot-financial-row--normal`, `pilot-financial-row--loading`, `pilot-financial-row--unavailable-value`, `pilot-financial-row--long-label-large-amount`
+- Financial row: `pilot-financial-row--normal`, `pilot-financial-row--loading`, `pilot-financial-row--unavailable-value`, `pilot-financial-row--long-label-large-amount`, `pilot-financial-row--issue-example-quantities`
+- Shared finance rows: `pilot-finance-rows--asset-rows-large-local-currency`, `pilot-finance-rows--actionable-rows-chevron`
 - Savings money dialog: `pilot-savings-money-dialog--amount-entry`, `pilot-savings-money-dialog--validation-failure`, `pilot-savings-money-dialog--review`, `pilot-savings-money-dialog--pending`, `pilot-savings-money-dialog--failure-recovery`, `pilot-savings-money-dialog--back-and-cancel`, `pilot-savings-money-dialog--reduced-motion-reference`
 - Savings screen: `pilot-savings-experience--funded`, `pilot-savings-experience--verified-empty`, `pilot-savings-experience--loading`, `pilot-savings-experience--unavailable-partial`, `pilot-savings-experience--long-localized-content`
 

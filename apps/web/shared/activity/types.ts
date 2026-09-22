@@ -63,7 +63,6 @@ export type ActivitySource = {
   fetchedAt: string;
 };
 
-
 export type ActivityPage = {
   walletAddress: `0x${string}`;
   chainId: typeof ACTIVITY_BASE_CHAIN_ID;
@@ -81,7 +80,7 @@ export type ActivityReadyState = {
   page: ActivityPage;
   loadingMore: boolean;
   loadMoreError: boolean;
-  autoLoadPaused: boolean;
+  continuing: boolean;
 };
 
 export type ActivityFailure = {
@@ -95,21 +94,21 @@ export type ActivityState =
       page: null;
       loadingMore: false;
       loadMoreError: false;
-      autoLoadPaused: false;
+      continuing: false;
     }
   | {
       status: "loading";
       page: null;
       loadingMore: false;
       loadMoreError: false;
-      autoLoadPaused: false;
+      continuing: false;
     }
   | {
       status: "error";
       page: null;
       loadingMore: false;
       loadMoreError: false;
-      autoLoadPaused: false;
+      continuing: false;
       error: ActivityFailure;
     }
   | ActivityReadyState;
