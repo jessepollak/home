@@ -108,7 +108,7 @@ if (args[0] === "status") {
   const today = new Date().toISOString().slice(0, 10);
   console.log(`role: ${verifyRole}`);
   console.log(`today's factory spend: $${spendForDay(entries, today).toFixed(2)} / $${verifyPolicy.factory.perDayUsd.toFixed(2)}`);
-  console.log(`caps: $${verifyPolicy.factory.perClickUsd.toFixed(2)} click; $${verifyPolicy.factory.perRunUsd.toFixed(2)} run; $${verifyPolicy.factory.perDayUsd.toFixed(2)} day; $${verifyPolicy.balanceCeilingUsd.toFixed(2)} ceiling`);
+  console.log(`caps: $${verifyPolicy.factory.perClickUsd.toFixed(2)} click; $${verifyPolicy.factory.perRunUsd.toFixed(2)} run; $${verifyPolicy.factory.perDayUsd.toFixed(2)} day`);
   const statusBaseValue = option("--base-url");
   let statusHost: string | null = null;
   if (statusBaseValue !== undefined) {
