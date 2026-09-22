@@ -359,7 +359,9 @@ describe("live anonymous surfaces", () => {
       ...fakeEnv("Local money coverage\nSign in", ""),
       FAKE_AGENT_BROWSER_PATH: "/coverage",
     });
-    expect(result.stderr).toBe("");
+    expect(result.stderr).toContain("[live] ");
+    expect(result.stderr).toContain(" goto /coverage");
+    expect(result.stderr).not.toContain("expired");
     expect(result.exitCode).toBe(0);
     const calls = fakeCalls();
     expect(calls.some((call) => call[0] === "state")).toBe(false);
@@ -367,6 +369,19 @@ describe("live anonymous surfaces", () => {
     expect(calls[firstNavigate]?.[1]).toBe("https://example.com/coverage");
     expect(calls[firstNavigate + 1]?.slice(0, 2)).toEqual(["eval", "location.pathname + location.search"]);
     expect(calls.some((call) => call[0] === "wait" && call[1] === "--text" && call[2] === "Local money coverage")).toBe(true);
+  });
+
+  test("captures the DOM and a screenshot when a live step fails", async () => {
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = run(["coverage", "--live", "--base-url", "https://example.com", "--out", outsideOutput], {
+      ...fakeEnv("Something else entirely", ""),
+      FAKE_AGENT_BROWSER_PATH: "/coverage",
+      FAKE_AGENT_BROWSER_FAIL_EXPECT: "1",
+    });
+    expect(result.exitCode).toBe(1);
+    expect(latestRunArtifact("coverage", "dom.txt")).toContain("Something else entirely");
+    expect(fakeCalls().some((call) => call[0] === "screenshot")).toBe(true);
   });
 });
 

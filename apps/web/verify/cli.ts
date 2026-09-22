@@ -811,6 +811,7 @@ try {
             : `expect ${step.text}`;
     const record: StepRecord = { step: description, status: "pending" };
     steps.push(record);
+    if (live) console.error(`[live] ${new Date().toISOString()} ${description}`);
     let confirmStep = false;
     if (live && step.kind === "click") {
       confirmStep = matchesConfirmLabel(surface.confirmLabels, step.label);
@@ -981,6 +982,14 @@ try {
       unexpectedHosts = observeUnexpectedHosts();
     } catch {
       unexpectedHosts = [];
+    }
+    try {
+      command("screenshot", "--full", screenshotPath);
+      await chmod(screenshotPath, 0o600);
+      const failedDom = jsonResult(command("eval", "document.body.innerText"));
+      await writeEvidenceFile(domPath, typeof failedDom === "string" ? failedDom : JSON.stringify(failedDom, null, 2));
+    } catch (captureError) {
+      console.error(`Failure artifacts were not captured: ${captureError instanceof Error ? captureError.message : String(captureError)}`);
     }
     await writeLiveEvidence();
   }
