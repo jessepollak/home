@@ -499,6 +499,79 @@ test("ambiguous handle response retries without a second wallet dispatch", async
   await expect(page.getByText("Sent $1.00 to 0x2222…222222", { exact: true })).toBeVisible();
 });
 
+/** Swipes the drawer grabber down past the dismiss threshold (half the popup height). */
+async function swipeDrawerGrabberDown(page: Page) {
+  const grabber = page.locator("[data-money-sheet-grabber]");
+  await expect(grabber).toBeVisible();
+  const box = await grabber.boundingBox();
+  const popup = page.locator('[data-slot="drawer-popup"]');
+  const popupHeight = await popup.evaluate((element) => (element as HTMLElement).offsetHeight);
+  if (!box || popupHeight === 0) throw new Error("The drawer popup is not measurable");
+  const x = Math.round(box.x + box.width / 2);
+  const startY = Math.round(box.y + box.height / 2);
+  const travel = Math.round(popupHeight * 0.75);
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y: startY }] });
+  for (let step = 1; step <= 10; step += 1) {
+    await cdp.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [{ x, y: startY + Math.round((travel * step) / 10) }],
+    });
+  }
+  // The drawer must have claimed the gesture and dragged past its own dismiss threshold.
+  await expect.poll(() => popup.evaluate((element) =>
+    Number.parseFloat(getComputedStyle(element).getPropertyValue("--drawer-swipe-movement-y")) || 0,
+  )).toBeGreaterThan(popupHeight * 0.5);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await cdp.detach();
+}
+
+test.describe("send sheet dismissal", () => {
+  test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
+
+  test("pending send rejects Escape and grabber dismissal until the wallet resolves", async ({ page }) => {
+    await seedSignedInSession(page);
+    await installApiFixtures(page);
+    // Hold the wallet-result recording so the sheet stays dispatched and unresolved.
+    let releaseWalletResult = () => {};
+    const walletResult = new Promise<void>((resolve) => { releaseWalletResult = resolve; });
+    await page.route(`**/api/actions/${ACTION_ID}/handle`, async (route) => {
+      await walletResult;
+      return route.fallback();
+    });
+
+    await page.goto("/home");
+    await page.getByRole("button", { name: "Send" }).click();
+    await typeAmount(page, "1");
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("textbox", { name: "To" }).fill(RECIPIENT);
+    await page.getByRole("button", { name: "Continue" }).click();
+    const confirm = page.getByRole("dialog", { name: "Confirm" });
+    await confirm.getByRole("button", { name: "Send $1.00" }).click();
+
+    const pending = confirm.getByText("Waiting for your wallet…");
+    await expect(pending).toBeVisible();
+    await expect(page.getByRole("button", { name: "Close send dialog" })).toBeDisabled();
+
+    await page.keyboard.press("Escape");
+    await expect(pending).toBeVisible();
+
+    await swipeDrawerGrabberDown(page);
+    await expect(pending).toBeVisible();
+    await expect(confirm.getByRole("button", { name: `Copy ${RECIPIENT}` })).toBeVisible();
+
+    releaseWalletResult();
+    // The same unresolved review must survive both dismissal attempts and settle in the dialog.
+    await expect(confirm.getByRole("button", { name: "Try again" })).toBeVisible();
+    await expect.poll(() => page.evaluate(() =>
+      sessionStorage.getItem("home:playwright-smoke:dispatch-count"),
+    )).toBe("1");
+
+    await page.keyboard.press("Escape");
+    await expect(confirm).toBeHidden();
+  });
+});
+
 test("persisted balances paint before verification and settle without row shift", async ({ page }) => {
   await seedSignedInSession(page);
   const fixtures = await installApiFixtures(page);
