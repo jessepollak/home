@@ -169,6 +169,10 @@ export function HomeShell({
   const [borrowMarketOpenedInApp, setBorrowMarketOpenedInApp] = useState(false);
   const mainRef = useRef<HTMLElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
+  const settingsRegionRef = useRef<HTMLElement>(null);
+  const settingsOpenerRef = useRef<HTMLElement | null>(null);
+  const settingsFocusHandoffRef = useRef(false);
+  const settingsFocusStateRef = useRef<"uninitialized" | "open" | "closed">("uninitialized");
   const investChrome = useOptionalAppChrome();
   const cancelPendingShellScroll = useCallback(() => {
     if (pendingShellScrollFrameRef.current === null) return;
@@ -535,6 +539,31 @@ export function HomeShell({
     urlIntent.location.group,
   ]);
 
+  useEffect(() => {
+    const focusHandedOff = settingsFocusHandoffRef.current;
+    settingsFocusHandoffRef.current = false;
+    const previousState = settingsFocusStateRef.current;
+    settingsFocusStateRef.current = isAccountSettingsOpen ? "open" : "closed";
+    if (isAccountSettingsOpen) {
+      if (previousState !== "open") settingsRegionRef.current?.focus({ preventScroll: true });
+      return;
+    }
+    if (previousState !== "open" || focusHandedOff) return;
+    const opener = settingsOpenerRef.current;
+    settingsOpenerRef.current = null;
+    if (opener?.isConnected && !(opener instanceof HTMLButtonElement && opener.disabled)) {
+      opener.focus({ preventScroll: true });
+      return;
+    }
+    const accountTrigger = shellRef.current
+      ?.querySelector<HTMLButtonElement>("[data-shell-account-action] button");
+    if (accountTrigger && !accountTrigger.disabled) {
+      accountTrigger.focus({ preventScroll: true });
+      return;
+    }
+    panelStageRef.current?.focus({ preventScroll: true });
+  }, [isAccountSettingsOpen]);
+
   const activitySession: VerifiedAccountSession | null =
     isVerified && account.session?.smartAccount ? account.session : null;
   useEffect(() => {
@@ -562,6 +591,8 @@ export function HomeShell({
     group: MoneyGroupId | null = null,
     market: BorrowMarketId | null = null,
   ) {
+    settingsOpenerRef.current = null;
+    settingsFocusHandoffRef.current = true;
     const skipHistory = activeNavigation === nextNavigation && !isAccountSettingsOpen &&
       (nextNavigation !== "borrow" || urlIntent.location.market === market);
     setIsAccountSettingsOpen(false);
@@ -608,7 +639,9 @@ export function HomeShell({
     setNavigationRequest((request) => request + 1);
   }
 
-  function openAccountSettings() {
+  function openAccountSettings(opener?: HTMLButtonElement) {
+    settingsOpenerRef.current = opener ?? shellRef.current
+      ?.querySelector<HTMLButtonElement>("[data-shell-account-action] button") ?? null;
     setForwardRequest((request) => request + 1);
     if (activeNavigation === balancesPanelId && !isAccountSettingsOpen) {
       balancesReturnScrollRef.current = mainRef.current?.scrollTop ?? 0;
@@ -651,6 +684,8 @@ export function HomeShell({
   function signOut() {
     explicitLogoutRef.current = true;
     setIsAccountSettingsOpen(false);
+    settingsOpenerRef.current = null;
+    settingsFocusHandoffRef.current = true;
     setForwardRequest((request) => request + 1);
     cancelPendingShellScroll();
     lastNonNullBalancesScopeRef.current = null;
@@ -727,6 +762,7 @@ export function HomeShell({
         <DashboardShell
           mainRef={mainRef}
           panelStageRef={panelStageRef}
+          settingsRegionRef={settingsRegionRef}
           isUnavailable={isUnavailable}
           unavailableMessage={account.message}
           retrySessionValidation={account.retrySessionValidation}

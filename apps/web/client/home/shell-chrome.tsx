@@ -41,7 +41,7 @@ export function ShellHeader({
   onDashboard: () => void;
   onSignIn: () => void;
   onSignOut: () => void;
-  onOpenSettings: () => void;
+  onOpenSettings: (opener: HTMLButtonElement) => void;
   onCloseSettings: () => void;
 }) {
   const dashboardTitle = isAccountSettingsOpen
@@ -92,9 +92,7 @@ export function ShellHeader({
         </div>
       )}
       <div className="flex shrink-0 items-center">
-        {isAccountSettingsOpen ? (
-          <Button variant="secondary" className="h-11 md:pointer-fine:h-8" onClick={onCloseSettings}>Done</Button>
-        ) : (
+        <div className="flex" hidden={isAccountSettingsOpen} data-shell-account-action="">
           <HeaderAccountAction
             status={account.status}
             isSignedIn={account.isSignedIn}
@@ -106,7 +104,10 @@ export function ShellHeader({
             onSignOut={onSignOut}
             onOpenSettings={onOpenSettings}
           />
-        )}
+        </div>
+        {isAccountSettingsOpen ? (
+          <Button variant="secondary" className="h-11 md:pointer-fine:h-8" onClick={onCloseSettings}>Done</Button>
+        ) : null}
       </div>
       </div>
     </header>
@@ -132,7 +133,7 @@ function HeaderAccountAction({
   onDashboard: () => void;
   onSignIn: () => void;
   onSignOut: () => void;
-  onOpenSettings: () => void;
+  onOpenSettings: (opener: HTMLButtonElement) => void;
 }) {
   if (status === "signout-error") {
     return <Button className="h-11 md:pointer-fine:h-8" onClick={onSignOut}>Retry sign out</Button>;

@@ -708,6 +708,87 @@ test("Save flow dismissal preserves canonical routing and exact opener focus", a
   await expect(deposit).toBeFocused();
 });
 
+test("Account settings moves focus into the view and restores it to the account trigger", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+
+  const readPrimaryNavigationTargets = async () => {
+    const targets = await page.getByRole("navigation", { name: "Main navigation" })
+      .getByRole("button")
+      .evaluateAll((buttons) => buttons.map((button) => button.getAttribute("aria-controls")));
+    expect(targets.length).toBeGreaterThan(0);
+    for (const target of targets) {
+      if (target === null) throw new Error("Primary navigation button is missing aria-controls");
+      await expect(page.locator(`[id="${target}"]`)).toHaveCount(1);
+    }
+    return targets;
+  };
+
+  await page.goto("/home");
+  await expect(page.getByRole("button", { name: "Send", exact: true })).toBeVisible();
+  await readPrimaryNavigationTargets();
+
+  const trigger = page.getByRole("banner").getByRole("button", { name: "Account" });
+  await expect(trigger).toBeEnabled();
+  await trigger.evaluate((element) => element.setAttribute("data-focus-opener", ""));
+  const settings = page.getByRole("region", { name: "Account settings" });
+  const expectExactOpenerFocused = async () => {
+    await expect(trigger).toBeFocused();
+    expect(await page.evaluate(() =>
+      document.activeElement?.hasAttribute("data-focus-opener") ?? false,
+    )).toBe(true);
+  };
+  const openSettingsWithKeyboard = async () => {
+    await trigger.focus();
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/\/home\?account=settings$/);
+    await expect(settings).toBeVisible();
+    await expect(settings).toBeFocused();
+    await expect(page.getByRole("banner").getByRole("button", { name: "Account" }))
+      .toHaveCount(0);
+    expect(await readPrimaryNavigationTargets()).toContain(await settings.getAttribute("id"));
+  };
+
+  await openSettingsWithKeyboard();
+  await page.getByRole("button", { name: "Done" }).click();
+  await expect(page).toHaveURL(/\/home$/);
+  await expect(settings).toHaveCount(0);
+  await expectExactOpenerFocused();
+  await expect(page.getByRole("button", { name: "Send", exact: true })).toBeVisible();
+  await readPrimaryNavigationTargets();
+
+  await openSettingsWithKeyboard();
+  await page.goBack();
+  await expect(page).toHaveURL(/\/home$/);
+  await expect(settings).toHaveCount(0);
+  await expectExactOpenerFocused();
+  await readPrimaryNavigationTargets();
+
+  await page.goForward();
+  await expect(page).toHaveURL(/\/home\?account=settings$/);
+  await expect(settings).toBeFocused();
+  expect(await readPrimaryNavigationTargets()).toContain(await settings.getAttribute("id"));
+  await page.getByRole("button", { name: "Done" }).click();
+  await expect(page).toHaveURL(/\/home$/);
+  await expect(settings).toHaveCount(0);
+  await expectExactOpenerFocused();
+  await readPrimaryNavigationTargets();
+
+  await page.goto("/home?account=settings");
+  await expect(settings).toBeVisible();
+  await expect(settings).toBeFocused();
+  await expect(page.getByRole("banner").getByRole("button", { name: "Account" }))
+    .toHaveCount(0);
+  expect(await readPrimaryNavigationTargets()).toContain(await settings.getAttribute("id"));
+  await page.getByRole("button", { name: "Done" }).click();
+  await expect(page).toHaveURL(/\/home$/);
+  await expect(settings).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  await expect(page.getByRole("button", { name: "Send", exact: true })).toBeVisible();
+  await readPrimaryNavigationTargets();
+});
+
 test("signed-out dashboard and Save routes enter sign-in before returning to Save", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await installApiFixtures(page);
