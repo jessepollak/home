@@ -105,6 +105,40 @@ describePostgres("PostgresFundingOrderStore production contract", () => {
     expect((await store.getOpen(live.owner, "ID"))?.id).toBe(live.id);
   });
 
+  test("persists settlement economics and preserves them across later observations", async () => {
+    const input = reservation();
+    await store.reserve(input);
+    const dispatched = await store.completeDispatch(input.id, dispatch);
+    const fees = [{ label: "QRIS Fee (0.7%)", amount: "140", currency: "IDR" }];
+    const settled = await store.applyObservation(input.id, {
+      state: "settling",
+      providerStatus: "PROCESSING:PAID",
+      expectedTokenAmountAtomic: "1986000",
+      fees,
+      expectedVersion: dispatched.version,
+      updatedAt: "2026-09-12T00:00:02.000Z",
+    });
+    expect(settled).toMatchObject({
+      expectedTokenAmountAtomic: "1986000",
+      fees,
+    });
+
+    const sent = await store.applyObservation(input.id, {
+      state: "sent-unverified",
+      providerStatus: "MINTED:PAID",
+      expectedVersion: settled!.version,
+      updatedAt: "2026-09-12T00:00:03.000Z",
+    });
+    expect(sent).toMatchObject({
+      expectedTokenAmountAtomic: "1986000",
+      fees,
+    });
+    expect(await store.getOwned(input.id, input.owner)).toMatchObject({
+      expectedTokenAmountAtomic: "1986000",
+      fees,
+    });
+  });
+
   test("CAS rejects stale observations and terminal states cannot reopen", async () => {
     const input = reservation();
     await store.reserve(input);

@@ -327,8 +327,30 @@ export function liveSessionExpired(documentText: string): boolean {
   return documentText.includes("Sign in to Home") && !pending;
 }
 
+const visibleNameScript = `const visibleName=(entry)=>[...entry.childNodes].map((child)=>child.nodeType===Node.TEXT_NODE?child.textContent??"":child instanceof Element&&!child.hidden&&child.getAttribute("aria-hidden")!=="true"?" "+(child.getAttribute("aria-label")??visibleName(child))+" ":"").join("").replace(/\\s+/g," ").trim();`;
+
+export function buttonPresentPredicate(label: string): string {
+  const value = JSON.stringify(label);
+  return `[...document.querySelectorAll('button,[role="button"]')].some((node)=>{${visibleNameScript}return node.getAttribute("aria-label")?.trim()===${value}||visibleName(node)===${value}})`;
+}
+
 export function enabledButtonPredicate(label: string): string {
-  return `[...document.querySelectorAll('button,[role="button"]')].some((node)=>node.disabled!==true&&!node.hasAttribute("disabled")&&node.getAttribute("aria-disabled")!=="true"&&node.getAttribute("aria-busy")!=="true"&&(node.getAttribute("aria-label")??node.textContent??"").trim()===${JSON.stringify(label)})`;
+  const value = JSON.stringify(label);
+  return `[...document.querySelectorAll('button,[role="button"]')].some((node)=>{${visibleNameScript}return node.disabled!==true&&!node.hasAttribute("disabled")&&node.getAttribute("aria-disabled")!=="true"&&node.getAttribute("aria-busy")!=="true"&&(node.getAttribute("aria-label")?.trim()===${value}||visibleName(node)===${value})})`;
+}
+
+function labelledInputExpression(label: string): string {
+  const value = JSON.stringify(label);
+  return `[...document.querySelectorAll("input,textarea")].find((node)=>{const aria=node.getAttribute("aria-label");if(aria!==null&&aria.trim()===${value})return true;const id=node.getAttribute("id");const candidates=[node.closest("label"),...(id===null?[]:[...document.querySelectorAll("label[for]")].filter((entry)=>entry.getAttribute("for")===id))];${visibleNameScript}return candidates.some((entry)=>entry!==null&&visibleName(entry)===${value})})`;
+}
+
+export function inputPresentPredicate(label: string): string {
+  return `Boolean(${labelledInputExpression(label)})`;
+}
+
+export function labelledInputFillScript(label: string, value: string): string {
+  const missing = JSON.stringify(`${label} field not found`);
+  return `(()=>{const input=${labelledInputExpression(label)};if(!(input instanceof HTMLInputElement))throw new Error(${missing});const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value")?.set;setter?.call(input,${JSON.stringify(value)});input.dispatchEvent(new Event("input",{bubbles:true}));input.dispatchEvent(new Event("change",{bubbles:true}));return true})()`;
 }
 
 export function accountAddressFromDocument(source: Document): string | null {

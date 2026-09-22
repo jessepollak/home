@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { readLedger } from "./ledger";
-import { decideConfirmGate, enabledButtonPredicate, unexpectedNetworkHosts } from "./live";
+import { buttonPresentPredicate, decideConfirmGate, enabledButtonPredicate, inputPresentPredicate, unexpectedNetworkHosts } from "./live";
 
 const repositoryRoot = resolve(import.meta.dir, "../../..");
 const home = resolve(tmpdir(), `home-verify-cli-test-${crypto.randomUUID()}`);
@@ -27,6 +27,13 @@ async function installFakeAgentBrowser(): Promise<void> {
   const bunxPath = resolve(fakeBinDirectory, "bunx");
   await Bun.write(bunxPath, `#!/bin/sh\nexec '${process.execPath}' '${fakePath}' "$@"\n`);
   Bun.spawnSync(["chmod", "755", bunxPath]);
+}
+
+async function seedGmailCredentials(): Promise<string> {
+  const path = resolve(home, "gmail.json");
+  await Bun.write(path, `${JSON.stringify({ client_id: "client-id", client_secret: "client-secret", refresh_token: "refresh-token" })}\n`);
+  Bun.spawnSync(["chmod", "600", path]);
+  return path;
 }
 
 function fakeEnv(body: string, address: string): Record<string, string> {
@@ -57,6 +64,9 @@ function expectWaitBeforeEveryClick(): void {
     if (!(call[0] === "find" && call[1] === "role" && call[2] === "button" && call[3] === "click")) continue;
     const label = call[call.indexOf("--name") + 1];
     if (label === undefined) throw new Error("A click call is missing --name.");
+    const present = calls[index - 2];
+    expect(present?.slice(0, 3)).toEqual(["wait", "--fn", buttonPresentPredicate(label)]);
+    expect(present?.slice(3, 5)).toEqual(["--timeout", "30000"]);
     const wait = calls[index - 1];
     expect(wait?.[0]).toBe("wait");
     expect(wait?.[1]).toBe("--fn");
@@ -85,11 +95,12 @@ function liveJson(surfaceId: string): {
   };
 }
 
-function run(args: string[], extraEnv: Record<string, string | undefined> = {}, pathPrefix?: string) {
+function run(args: string[], extraEnv: Record<string, string | undefined> = {}, pathPrefix?: string, preload?: string) {
   const env: Record<string, string | undefined> = { ...process.env, HOME: home, CI: undefined, GITHUB_ACTIONS: undefined, ...extraEnv };
   if (pathPrefix) env.PATH = `${pathPrefix}:${env.PATH ?? ""}`;
+  const command = preload ? ["bun", "--preload", preload, "apps/web/verify/cli.ts", ...args] : ["bun", "apps/web/verify/cli.ts", ...args];
   const result = Bun.spawnSync({
-    cmd: ["bun", "apps/web/verify/cli.ts", ...args],
+    cmd: command,
     cwd: repositoryRoot,
     env,
     stdout: "pipe",
@@ -242,6 +253,80 @@ describe("live CLI preflight", () => {
   });
 });
 
+describe("live rendered balance", () => {
+  function runConfirm(extraEnv: Record<string, string>) {
+    return run([
+      "send", "--live", "--base-url", "https://example.com", "--out", outsideOutput,
+      "--recipient", addressB, "--allow-confirm", "--account", addressA, "--max-usd", "1",
+    ], { ...fakeEnv("Home\nTotal balance\n$36.83\nCash\n$21.29\nInvestments\n$15.54\nShow small balances", addressA), ...extraEnv });
+  }
+
+  test("reads the hero ticker rather than every amount in the balance card", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = runConfirm({ FAKE_AGENT_BROWSER_BALANCE: "$36.83" });
+    expect(result.stderr).not.toContain("not knowable");
+    const balanceRead = fakeCalls().find((call) => call[0] === "eval" && call[1]?.includes("Total balance") && !call[1].startsWith("Boolean("));
+    expect(balanceRead?.[1]).toContain('[data-slot="money-ticker"]');
+    expect(balanceRead?.[1]).toContain("aria-label");
+    const calls = fakeCalls();
+    const balanceIndex = calls.findIndex((call) => call[0] === "eval" && call[1]?.includes('[data-slot="money-ticker"]'));
+    const nextNavigate = calls.findIndex((call, index) => index > balanceIndex && call[0] === "navigate");
+    const settled = calls.slice(balanceIndex + 1, nextNavigate).find((call) => call[0] === "wait" && call[1] === "--load");
+    expect(settled).toEqual(["wait", "--load", "networkidle", "--timeout", "30000", "--json"]);
+    const reviewRead = calls.findIndex((call) => call[0] === "eval" && call[1]?.includes('[role="dialog"]'));
+    expect(reviewRead).toBeGreaterThan(-1);
+    expect(calls[reviewRead - 1]?.slice(0, 2)).toEqual(["wait", "--fn"]);
+    expect(calls[reviewRead - 1]?.[2]).toContain("aria-disabled");
+    expect(calls[reviewRead - 1]?.[2]).toContain(JSON.stringify("Send $1.00"));
+  });
+
+  test("refuses confirmation when the hero ticker is absent", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = runConfirm({});
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("The rendered account balance is not knowable; confirmation was refused.");
+  });
+});
+
+describe("live anonymous surfaces", () => {
+  test("runs an anonymous surface without the saved session and clears the access gate after goto", async () => {
+    Bun.spawnSync(["rm", "-rf", stateDirectory]);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = run(["coverage", "--live", "--base-url", "https://example.com", "--out", outsideOutput], {
+      ...fakeEnv("Local money coverage\nSign in", ""),
+      FAKE_AGENT_BROWSER_PATH: "/coverage",
+    });
+    expect(result.stderr).toContain("[live] ");
+    expect(result.stderr).toContain(" goto /coverage");
+    expect(result.stderr).not.toContain("expired");
+    expect(result.exitCode).toBe(0);
+    const calls = fakeCalls();
+    expect(calls.some((call) => call[0] === "state")).toBe(false);
+    const firstNavigate = calls.findIndex((call) => call[0] === "navigate");
+    expect(calls[firstNavigate]?.[1]).toBe("https://example.com/coverage");
+    expect(calls[firstNavigate + 1]?.slice(0, 2)).toEqual(["eval", "location.pathname + location.search"]);
+    expect(calls.some((call) => call[0] === "wait" && call[1] === "--text" && call[2] === "Local money coverage")).toBe(true);
+  });
+
+  test("captures the DOM and a screenshot when a live step fails", async () => {
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = run(["coverage", "--live", "--base-url", "https://example.com", "--out", outsideOutput], {
+      ...fakeEnv("Something else entirely", ""),
+      FAKE_AGENT_BROWSER_PATH: "/coverage",
+      FAKE_AGENT_BROWSER_FAIL_EXPECT: "1",
+    });
+    expect(result.exitCode).toBe(1);
+    expect(latestRunArtifact("coverage", "dom.txt")).toContain("Something else entirely");
+    expect(fakeCalls().some((call) => call[0] === "screenshot")).toBe(true);
+  });
+});
+
 describe("live session state", () => {
   test("waits out a restoring session instead of declaring it expired", async () => {
     await seedLiveState(addressA);
@@ -359,12 +444,133 @@ describe("click readiness", () => {
     const result = run(["send", "--out", outsideOutput], {
       PATH: `${fakeBinDirectory}:${process.env.PATH ?? ""}`,
       FAKE_AGENT_BROWSER_LOG: fakeLogPath,
-      FAKE_AGENT_BROWSER_FAIL_WAIT: "1",
+      FAKE_AGENT_BROWSER_FAIL_WAIT: "enabled",
     });
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("still disabled");
     expect(result.stderr).toContain("Send");
     expect(clickCalls()).toEqual([]);
+  });
+
+  test("fails a click step whose target never renders without waiting out the enabled budget", async () => {
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = run(["send", "--out", outsideOutput], {
+      PATH: `${fakeBinDirectory}:${process.env.PATH ?? ""}`,
+      FAKE_AGENT_BROWSER_LOG: fakeLogPath,
+      FAKE_AGENT_BROWSER_FAIL_WAIT: "1",
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("The button “Send” did not render within 30 seconds");
+    expect(result.stderr).not.toContain("still disabled");
+    expect(fakeCalls().some((call) => call[0] === "wait" && call[2] === enabledButtonPredicate("Send"))).toBe(false);
+    expect(clickCalls()).toEqual([]);
+  });
+});
+
+async function readUntil(stream: ReadableStream<Uint8Array>, needle: string, timeoutMs = 10000): Promise<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const deadline = Date.now() + timeoutMs;
+  while (!buffer.includes(needle)) {
+    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${needle}`);
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+  }
+  reader.releaseLock();
+  return buffer;
+}
+
+describe("gmail-auth remote flow", () => {
+  test("prints the authorization URL, ignores a stray request, and rejects only a wrong state", async () => {
+    const credentialsPath = resolve(home, "gmail-bootstrap.json");
+    await Bun.write(credentialsPath, `${JSON.stringify({ client_id: "client-id", client_secret: "client-secret" })}\n`);
+    Bun.spawnSync(["chmod", "600", credentialsPath]);
+    const process_ = Bun.spawn({
+      cmd: ["bun", "apps/web/verify/cli.ts", "gmail-auth", "--no-open"],
+      cwd: repositoryRoot,
+      env: {
+        ...process.env,
+        HOME: home,
+        CI: undefined,
+        GITHUB_ACTIONS: undefined,
+        HOME_VERIFY_ACCOUNT_EMAIL: "bot@example.com",
+        HOME_VERIFY_GMAIL_CREDENTIALS: credentialsPath,
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const output = await readUntil(process_.stdout, "Open this URL to authorize: ");
+    const match = output.match(/Open this URL to authorize: (\S+)/);
+    expect(match).not.toBeNull();
+    const authorization = new URL(match?.[1] ?? "https://invalid.example");
+    expect(authorization.searchParams.get("scope")).toBe("https://www.googleapis.com/auth/gmail.readonly");
+    const redirectUri = new URL(authorization.searchParams.get("redirect_uri") ?? "https://invalid.example");
+    expect(redirectUri.hostname).toBe("127.0.0.1");
+    const probe = await fetch(`http://127.0.0.1:${redirectUri.port}/probe`);
+    expect(probe.status).toBe(404);
+    const wrongState = await fetch(`http://127.0.0.1:${redirectUri.port}/callback?state=wrong&code=abc`);
+    expect(wrongState.status).toBe(400);
+    expect(await process_.exited).toBe(1);
+    expect(await new Response(process_.stderr).text()).toContain("Gmail OAuth state mismatch");
+  });
+});
+
+describe("live login readiness", () => {
+  const preloadPath = resolve(import.meta.dir, "test-fixtures/fake-gmail-fetch.ts");
+
+  function runLiveLogin(extraEnv: Record<string, string | undefined>) {
+    return run(["live-login", "--base-url", "https://example.com"], {
+      PATH: `${fakeBinDirectory}:${process.env.PATH ?? ""}`,
+      FAKE_AGENT_BROWSER_LOG: fakeLogPath,
+      FAKE_AGENT_BROWSER_ADDRESS: addressA,
+      FAKE_AGENT_BROWSER_AUTHENTICATED: "1",
+      HOME_VERIFY_ACCOUNT_EMAIL: "bot@example.com",
+      ...extraEnv,
+    }, undefined, preloadPath);
+  }
+
+  test("waits for the sign-in sheet and the code entry before filling them", async () => {
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const gmailPath = await seedGmailCredentials();
+    const result = runLiveLogin({ HOME_VERIFY_GMAIL_CREDENTIALS: gmailPath });
+    expect(result.exitCode).toBe(0);
+    const calls = fakeCalls();
+    const emailWait = calls.findIndex((call) => call[0] === "wait" && call[1] === "--fn" && call[2] === inputPresentPredicate("Email address"));
+    expect(emailWait).toBeGreaterThan(-1);
+    expect(calls[emailWait + 1]).toEqual(["find", "label", "Email address", "fill", "bot@example.com", "--exact", "--json"]);
+    const codeWait = calls.findIndex((call) => call[0] === "wait" && call[1] === "--fn" && call[2] === inputPresentPredicate("Verification code"));
+    expect(codeWait).toBeGreaterThan(emailWait);
+    expect(calls[codeWait + 1]).toEqual(["eval", "--stdin", "--json"]);
+  });
+
+  test("fails the sign-in sheet wait before filling the email", async () => {
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = runLiveLogin({ FAKE_AGENT_BROWSER_FAIL_WAIT: "1" });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("The sign-in sheet did not render");
+    expect(fakeCalls().some((call) => call[0] === "find" && call[1] === "label" && call[2] === "Email address" && call[3] === "fill")).toBe(false);
+  });
+
+  test("waits for the access gate password field before filling it", async () => {
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const gmailPath = await seedGmailCredentials();
+    const result = runLiveLogin({
+      HOME_VERIFY_GMAIL_CREDENTIALS: gmailPath,
+      HOME_ACCESS_PASSWORD: "fake-access-password",
+      FAKE_AGENT_BROWSER_PATH: "/access?next=%2F%3Faccount%3Dsignin",
+    });
+    expect(result.exitCode).toBe(0);
+    const calls = fakeCalls();
+    const gateWait = calls.findIndex((call) => call[0] === "wait" && call[1] === "--fn" && call[2] === inputPresentPredicate("Access password"));
+    expect(gateWait).toBeGreaterThan(-1);
+    expect(calls[gateWait + 1]).toEqual(["eval", "--stdin", "--json"]);
+    expect(calls.findIndex((call) => call[0] === "eval" && call[1] === "--stdin")).toBe(gateWait + 1);
   });
 });
 

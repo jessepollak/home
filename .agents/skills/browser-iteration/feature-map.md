@@ -48,6 +48,7 @@ each call. `verify --live` composes this list with the base host, the CDP provid
 `apps/web/verify/live.ts`, and repeated `--allow-domain` values; any other hostname stays in
 `unexpectedHosts` and fails the run.
 
+- `media.thegrid.id`, `token-media.defined.fi` — token artwork returned by the Codex token-image lookup (`apps/web/server/market-data/codex/token-images.ts:68`) and rendered by asset marks such as the borrow market header (`apps/web/client/borrowing/borrowing-experience.tsx:440`) and the invest list; both observed in the first studio canary on 2026-09-22.
 - `api.ensideas.com` — Basename profile lookup (`apps/web/client/account/basename-profile.ts:9`); observed in the first production run on 2026-09-21.
 - `api.cdp.coinbase.com` — CDP browser session and Coinbase onramp API (`apps/web/server/funding/providers/coinbase/manifest.ts:5`).
 - `secure-wallet.cdp.coinbase.com` — CDP embedded-wallet origin (`apps/web/verify/live.ts:6`).
@@ -141,11 +142,11 @@ request failure not listed here still fails the run, and unlisted hosts still fa
   1. `goto "/activity"`
   2. `expect "Activity"`
 - **Notes**: The verifier seeds the signed-in session and API fixtures. Add `/api/activity` fixture rows when exercising populated states; the Home Activity card is the interactive entry point.
-- **Expect**: `Activity` heading (`#activity-title`, client/activity/activity-panel.tsx `DefaultActivityHeader`); empty state `No activity yet`; end marker `End of activity`; error `Try again` button; rows expose `View <direction> <symbol> transaction details` activation labels (activity-panel.tsx `TransferActivityRow`).
-- **States**: loading shimmer (`ActivityPage`, client/home/activity-panel.tsx `ShimmerRows count={4}`); empty (`No activity yet`); error (`Try again`); success list; load-more error/cursor states (client/activity/use-activity.ts, not read in detail).
+- **Expect**: `Activity` heading (`#activity-title`, client/activity/activity-panel.tsx `DefaultActivityHeader`); empty state `No activity yet`; end marker `End of activity`; error `Try again` button; later-page failure shows a concise `Retry`; rows expose `View <direction> <symbol> transaction details` activation labels (activity-panel.tsx `TransferActivityRow`).
+- **States**: loading shimmer (`ActivityPage`, client/home/activity-panel.tsx `ShimmerRows count={4}`); empty (`No activity yet`); error (`Try again`); success list; automatic continuation while the sentinel is visible (client/activity/use-activity.ts: bounded 3-page bursts with a 250 ms yield); later-page failure keeps rows and retries the exact cursor; authoritative exhaustion only at a null cursor; repeated, non-advancing, or cyclic cursors stop without further requests; offscreen, unmounted, or owner-changed continuation stops and fences stale work.
 - **Evidence**: screenshot; DOM snapshot; console/errors; marks `shell:paint` (dashboard).
 - **Owned by**: `apps/web/client/activity/`, `apps/web/client/home/activity-panel.tsx`, `/api/activity`, `/api/actions`.
-- **Unknowns**: row value/date text remains fixture-dependent; pagination is labelled `Load more activity`, `Continue loading activity`, or `Retry more activity`.
+- **Unknowns**: row value/date text remains fixture-dependent; pagination has no routine control copy — continuation is automatic while the sentinel is visible, and the only pagination affordances are the later-page `Retry` and the authoritative `End of activity` marker.
 
 ### `save`
 - **Live**: confirm
@@ -183,7 +184,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
   6. `click "Confirm action"`
   7. `expect "Borrowed $1.00"`
 - **Verify**: manual
-- **Notes**: No smoke fixture exists for `/api/borrow*`; see Gaps.
+- **Notes**: No smoke fixture exists for `/api/borrow*`; see Gaps. Live: the `1` chip renders only when the pinned account holds the market's collateral (`You need cbBTC in this wallet before you can borrow.`); the production bot account held none on 2026-09-22, so the canary reports `did not render` until it is funded.
 - **Expect**: heading `Borrow` (`#borrow-overview-title`, `#borrow-direct-title`, borrowing-experience.tsx); position actions including `Borrow`, `Supply`/`Withdraw collateral from Bitcoin position` (`aria-label`, line 539); `Back to Borrow`; `Market values are unavailable` + `Retry` error; collateral preview `data-testid="borrow-collateral-preview"`; action money modal title `Confirm`, footer `Confirm action`/`Retry`/`Back`/`Close` (lines ~712–782).
 - **States**: loading/error via `overview.refetch()`/`detail.refetch()` buttons; amount → confirm → pending (`Waiting for your wallet…`, `#borrow-action-pending`) → error/failed.
 - **Evidence**: screenshot; DOM snapshot; console/errors.
@@ -288,7 +289,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 - **Reach**:
   1. `goto "/home?account=settings"`
   2. `expect "Account"`
-- **Notes**: The verifier seeds the signed-in session and fixtures. The interactive path clicks the header profile mark; `Done` closes the settings panel.
+- **Notes**: The verifier seeds the signed-in session and fixtures. The interactive path clicks the header profile mark; `Done` closes the settings panel. Live: the Peer option renders only where `PEER_OFFRAMP_ENABLED` is set on the target (`apps/web/server/funding/providers/peer/manifest.ts:51`); production keeps it off pending the provider README's staging and corridor confirmations, so the canary reports `did not render` for cash-out until then.
 - **Expect**: `Show small balances` switch (`getByRole("switch", { name: "Show small balances" })`, smoke.pw.ts wide-touch test; owned by client/home/use-show-small-balances.ts + account-settings region of shell-panels.tsx). Sign-out control and region selector live here (shell-panels.tsx passes `regionId`, `resolutionSource`, `onRegionChange`, `onSignOut` to client/account/account-settings.tsx).
 - **States**: preference not ready (`isPreferenceReady`); region override messages (`preferenceMessage`).
 - **Evidence**: screenshot; DOM snapshot; console/errors.

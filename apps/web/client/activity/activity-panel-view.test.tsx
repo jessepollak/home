@@ -52,10 +52,10 @@ function loading(): UseActivityResult {
     page: null,
     loadingMore: false,
     loadMoreError: false,
-    autoLoadPaused: false,
+    continuing: false,
     retry: noop,
     refresh: noop,
-    loadMore: noop,
+    setSentinelVisible: noop,
     retryLoadMore: noop,
   };
 }
@@ -63,7 +63,7 @@ function loading(): UseActivityResult {
 function ready(
   transfers: ActivityTransfer[],
   nextCursor: string | null = null,
-  overrides: { loadingMore?: boolean } = {},
+  overrides: { loadingMore?: boolean; continuing?: boolean } = {},
 ): UseActivityResult {
   const page: ActivityPage = {
     walletAddress: WALLET,
@@ -85,10 +85,10 @@ function ready(
     page,
     loadingMore: overrides.loadingMore === true,
     loadMoreError: false,
-    autoLoadPaused: false,
+    continuing: overrides.continuing === true,
     retry: noop,
     refresh: noop,
-    loadMore: noop,
+    setSentinelVisible: noop,
     retryLoadMore: noop,
   };
 }
@@ -99,11 +99,11 @@ function failed(retry: () => void = noop): UseActivityResult {
     page: null,
     loadingMore: false,
     loadMoreError: false,
-    autoLoadPaused: false,
+    continuing: false,
     error: { code: "ACTIVITY_UPSTREAM", message: "Recent Base activity could not be loaded." },
     retry,
     refresh: noop,
-    loadMore: noop,
+    setSentinelVisible: noop,
     retryLoadMore: noop,
   };
 }

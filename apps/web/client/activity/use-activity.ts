@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   compareActivityTransferKeys,
   isVerifiedActivitySession,
@@ -29,15 +29,44 @@ import {
 import { dataOwnerKey } from "@/client/account/owner-keys";
 
 export const activityStaleTimeMs = 10_000;
+export const activityContinuationBurstPages = 3;
+export const activityContinuationYieldMs = 250;
 
 export type UseActivityResult = ActivityState & {
   retry: () => void;
   refresh: () => void;
-  loadMore: () => void;
+  setSentinelVisible: (visible: boolean) => void;
   retryLoadMore: () => void;
 };
 
 export const activityOwnerKey = dataOwnerKey;
+
+type ContinuationState = {
+  visible: boolean;
+  failed: boolean;
+  running: boolean;
+  scheduled: boolean;
+  consumed: Set<string>;
+  burst: number;
+  generation: number;
+  timer: ReturnType<typeof setTimeout> | null;
+};
+
+type ContinuationCursor = {
+  fetchNextPage: (options: { cancelRefetch: boolean }) => Promise<{
+    data?: { pages: ActivityPage[] };
+    hasNextPage?: boolean;
+    isError?: boolean;
+    isFetchNextPageError?: boolean;
+  }>;
+  hasNextPage: boolean;
+  nextCursor: string | null;
+};
+
+type ScopedFlag = {
+  scope: string;
+  value: boolean;
+};
 
 export function useActivity(
   session: VerifiedAccountSession | null,
@@ -46,9 +75,6 @@ export function useActivity(
   const validSession = isVerifiedActivitySession(session) ? session : null;
   const ownerKey = validSession ? activityOwnerKey(validSession) : null;
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
-  const requestedCursorsRef = useRef(new Map<string, Set<string>>());
-  const loadMoreInFlightRef = useRef(false);
-  const [autoLoadPaused, setAutoLoadPaused] = useState(false);
   const expectedSession = validSession;
   const windowQuery = useHomeQuery({
     queryKey: ownerKey
@@ -84,14 +110,8 @@ export function useActivity(
         expectedSession,
         windowEnd,
       );
-      if (ownerKey && pageParam) {
-        const cursorScope = `${ownerKey}\u0000${windowEnd}`;
-        const requested = requestedCursorsRef.current.get(cursorScope) ?? new Set<string>();
-        requested.add(pageParam);
-        requestedCursorsRef.current.set(cursorScope, requested);
-        if (page.nextCursor && requested.has(page.nextCursor)) {
-          throw new Error("Activity cursor did not advance.");
-        }
+      if (pageParam && page.nextCursor === pageParam) {
+        throw new Error("Activity cursor did not advance.");
       }
       return page;
     },
@@ -104,66 +124,204 @@ export function useActivity(
     return mergeActivityPages(pages);
   }, [query.data?.pages]);
 
+  const continuationScope = `${ownerKey ?? "signed-out"}\u0000${windowEnd}`;
+  const scopeRef = useRef(continuationScope);
+  const [continuingFlag, setContinuingFlag] = useState<ScopedFlag>({
+    scope: continuationScope,
+    value: false,
+  });
+  const [failedFlag, setFailedFlag] = useState<ScopedFlag>({
+    scope: continuationScope,
+    value: false,
+  });
+  const continuing = continuingFlag.scope === continuationScope && continuingFlag.value;
+  const loadMoreFailed = failedFlag.scope === continuationScope && failedFlag.value;
+  const markContinuing = useCallback((value: boolean) => {
+    setContinuingFlag({ scope: scopeRef.current, value });
+  }, []);
+  const markFailed = useCallback((value: boolean) => {
+    setFailedFlag({ scope: scopeRef.current, value });
+  }, []);
+
+  const continuationRef = useRef<ContinuationState>({
+    visible: false,
+    failed: false,
+    running: false,
+    scheduled: false,
+    consumed: new Set<string>(),
+    burst: 0,
+    generation: 0,
+    timer: null,
+  });
+  const latestRef = useRef<ContinuationCursor>({
+    fetchNextPage: query.fetchNextPage,
+    hasNextPage: query.hasNextPage,
+    nextCursor: mergedPage?.nextCursor ?? null,
+  });
+  const pumpRef = useRef<() => Promise<void>>(async () => undefined);
+  useEffect(() => {
+    latestRef.current = {
+      fetchNextPage: query.fetchNextPage,
+      hasNextPage: query.hasNextPage,
+      nextCursor: mergedPage?.nextCursor ?? null,
+    };
+  });
+
+  const schedule = useCallback((delayMs: number) => {
+    const state = continuationRef.current;
+    if (state.scheduled || state.running) return;
+    state.scheduled = true;
+    const generation = state.generation;
+    state.timer = setTimeout(() => {
+      const current = continuationRef.current;
+      current.timer = null;
+      current.scheduled = false;
+      if (generation !== current.generation) return;
+      void pumpRef.current();
+    }, delayMs);
+  }, []);
+
+  const pump = useCallback(async () => {
+    const state = continuationRef.current;
+    if (state.running || state.failed || !state.visible) return;
+    const latest = latestRef.current;
+    const cursor = latest.nextCursor;
+    if (!latest.hasNextPage || !cursor) return;
+    if (state.consumed.has(cursor)) {
+      state.failed = true;
+      markFailed(true);
+      markContinuing(false);
+      return;
+    }
+    if (state.burst >= activityContinuationBurstPages) {
+      state.burst = 0;
+      schedule(activityContinuationYieldMs);
+      return;
+    }
+    const generation = state.generation;
+    state.running = true;
+    const result = await latest.fetchNextPage({ cancelRefetch: false });
+    const current = continuationRef.current;
+    current.running = false;
+    if (generation !== current.generation) return;
+    if (result.isError || result.isFetchNextPageError) {
+      current.failed = true;
+      markFailed(true);
+      markContinuing(false);
+      return;
+    }
+    const nextCursor = result.data?.pages.at(-1)?.nextCursor ?? null;
+    latestRef.current = {
+      ...latestRef.current,
+      hasNextPage: nextCursor !== null,
+      nextCursor,
+    };
+    current.consumed.add(cursor);
+    current.burst += 1;
+    markContinuing(nextCursor !== null && current.visible);
+    if (nextCursor === null || !current.visible) return;
+    schedule(0);
+  }, [markContinuing, markFailed, schedule]);
+  useEffect(() => {
+    pumpRef.current = pump;
+  });
+
+  useEffect(() => {
+    const state = continuationRef.current;
+    scopeRef.current = continuationScope;
+    state.generation += 1;
+    state.visible = false;
+    state.failed = false;
+    state.running = false;
+    state.scheduled = false;
+    state.consumed = new Set<string>();
+    state.burst = 0;
+    if (state.timer !== null) {
+      clearTimeout(state.timer);
+      state.timer = null;
+    }
+    return () => {
+      state.generation += 1;
+      state.visible = false;
+      state.failed = false;
+      state.running = false;
+      state.scheduled = false;
+      if (state.timer !== null) {
+        clearTimeout(state.timer);
+        state.timer = null;
+      }
+    };
+  }, [continuationScope]);
+
   const retry = useCallback(() => { void query.refetch(); }, [query]);
   const refresh = useCallback(() => {
     if (ownerKey) advanceActivityWindowEnd(queryClient, ownerKey);
-    setAutoLoadPaused(false);
-  }, [ownerKey, queryClient, setAutoLoadPaused]);
-  const requestMore = useCallback(async () => {
-    if (!query.hasNextPage || query.isFetchingNextPage || loadMoreInFlightRef.current || autoLoadPaused) return;
-    loadMoreInFlightRef.current = true;
-    try {
-      const previousCount = mergedPage?.transfers.length ?? 0;
-      const result = await query.fetchNextPage({ cancelRefetch: false });
-      const next = result.data ? mergeActivityPages(result.data.pages) : null;
-      if (next?.nextCursor && (next.transfers.length ?? 0) === previousCount) {
-        setAutoLoadPaused(true);
+    markFailed(false);
+  }, [markFailed, ownerKey, queryClient]);
+  const setSentinelVisible = useCallback((visible: boolean) => {
+    const state = continuationRef.current;
+    state.visible = visible;
+    if (!visible) {
+      if (state.timer !== null) {
+        clearTimeout(state.timer);
+        state.timer = null;
       }
-    } finally {
-      loadMoreInFlightRef.current = false;
+      state.scheduled = false;
+      state.burst = 0;
+      markContinuing(false);
+      return;
     }
-  }, [autoLoadPaused, mergedPage?.transfers.length, query]);
-  const loadMore = useCallback(() => { void requestMore(); }, [requestMore]);
+    if (state.failed) return;
+    if (!latestRef.current.hasNextPage) {
+      markContinuing(false);
+      return;
+    }
+    markContinuing(true);
+    void pumpRef.current();
+  }, [markContinuing]);
   const retryLoadMore = useCallback(() => {
-    if (loadMoreInFlightRef.current) return;
-    setAutoLoadPaused(false);
-    loadMoreInFlightRef.current = true;
-    void query.fetchNextPage({ cancelRefetch: false }).finally(() => {
-      loadMoreInFlightRef.current = false;
-    });
-  }, [query, setAutoLoadPaused]);
+    const state = continuationRef.current;
+    state.failed = false;
+    state.consumed = new Set<string>();
+    state.burst = 0;
+    state.visible = true;
+    markFailed(false);
+    markContinuing(true);
+    void pumpRef.current();
+  }, [markContinuing, markFailed]);
 
+  const readError = loadMoreFailed || query.isFetchNextPageError;
   if (!ownerKey) {
     return {
       status: "unavailable", page: null, loadingMore: false,
-      loadMoreError: false, autoLoadPaused: false,
-      retry, refresh, loadMore, retryLoadMore,
+      loadMoreError: false, continuing: false,
+      retry, refresh, setSentinelVisible, retryLoadMore,
     };
   }
   if (query.isPending) {
     return {
       status: "loading", page: null, loadingMore: false,
-      loadMoreError: false, autoLoadPaused: false,
-      retry, refresh, loadMore, retryLoadMore,
+      loadMoreError: false, continuing: false,
+      retry, refresh, setSentinelVisible, retryLoadMore,
     };
   }
   if (!mergedPage) {
     return {
       status: "error", page: null, loadingMore: false,
-      loadMoreError: false, autoLoadPaused: false,
+      loadMoreError: false, continuing: false,
       error: readActivityFailure(query.error),
-      retry, refresh, loadMore, retryLoadMore,
+      retry, refresh, setSentinelVisible, retryLoadMore,
     };
   }
   return {
     status: "ready",
     page: mergedPage,
     loadingMore: query.isFetchingNextPage,
-    loadMoreError: query.isFetchNextPageError,
-    autoLoadPaused,
+    loadMoreError: readError,
+    continuing,
     retry,
     refresh,
-    loadMore,
+    setSentinelVisible,
     retryLoadMore,
   };
 }

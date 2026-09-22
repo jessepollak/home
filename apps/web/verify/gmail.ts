@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 
 export const gmailReadonlyScope = "https://www.googleapis.com/auth/gmail.readonly";
-export const defaultOtpSender = "no-reply@coinbase.com";
+export const defaultOtpSender = "no-reply@info.coinbase.com";
 
 export function verifyAccountEmail(env: Record<string, string | undefined> = process.env): string {
   const email = env.HOME_VERIFY_ACCOUNT_EMAIL?.trim();
@@ -154,7 +154,43 @@ export async function pollGmailOtp(
   throw new Error("No matching sign-in code arrived within five minutes.");
 }
 
-export async function runGmailAuth(path: string): Promise<void> {
+export type CallbackDecision = "ignore" | "reject" | "accept";
+
+export function callbackDecision(url: URL, expectedState: string): CallbackDecision {
+  if (url.pathname !== "/callback") return "ignore";
+  const state = url.searchParams.get("state");
+  const code = url.searchParams.get("code");
+  if (state !== null && state !== "" && state !== expectedState) return "reject";
+  if (state === expectedState && code) return "accept";
+  return "ignore";
+}
+
+export function gmailAuthorizationUrl(clientId: string, redirectUri: string, state: string): URL {
+  const authorization = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+  authorization.search = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    scope: gmailReadonlyScope,
+    access_type: "offline",
+    prompt: "consent",
+    state,
+  }).toString();
+  return authorization;
+}
+
+export type GmailAuthOptions = {
+  open?: boolean;
+  port?: number;
+  fetchImplementation?: typeof fetch;
+  tokenEndpoint?: string;
+  apiBaseUrl?: string;
+  revokeEndpoint?: string;
+  accountEmail?: string;
+  writeCredentials?: (path: string, credentials: Required<GmailCredentials>) => Promise<void>;
+};
+
+export async function runGmailAuth(path: string, options: GmailAuthOptions = {}): Promise<void> {
   const bootstrap = await readGmailCredentials(path, false);
   const state = crypto.randomUUID();
   let resolveCode: (code: string) => void = () => undefined;
@@ -165,63 +201,84 @@ export async function runGmailAuth(path: string): Promise<void> {
   });
   const server = Bun.serve({
     hostname: "127.0.0.1",
-    port: 0,
+    port: options.port ?? 0,
     fetch(request) {
       const url = new URL(request.url);
-      if (url.searchParams.get("state") !== state) {
-        rejectCode(new Error("Gmail OAuth state mismatch."));
+      const decision = callbackDecision(url, state);
+      if (decision === "ignore") {
+        return url.pathname === "/callback"
+          ? new Response("Authorization failed.", { status: 400 })
+          : new Response("Not found.", { status: 404 });
+      }
+      if (decision === "reject") {
+        setTimeout(() => rejectCode(new Error("Gmail OAuth state mismatch.")), 0);
         return new Response("Authorization failed.", { status: 400 });
       }
-      const code = url.searchParams.get("code");
-      if (!code) {
-        rejectCode(new Error("Gmail OAuth returned no code."));
-        return new Response("Authorization failed.", { status: 400 });
-      }
-      resolveCode(code);
+      resolveCode(url.searchParams.get("code") ?? "");
       return new Response("Home verification Gmail authorization complete. You may close this tab.");
     },
   });
   const redirectUri = `http://127.0.0.1:${server.port}/callback`;
-  const authorization = new URL("https://accounts.google.com/o/oauth2/v2/auth");
-  authorization.search = new URLSearchParams({
-    client_id: bootstrap.client_id,
-    redirect_uri: redirectUri,
-    response_type: "code",
-    scope: gmailReadonlyScope,
-    access_type: "offline",
-    prompt: "consent",
-    state,
-  }).toString();
-  const opener = process.platform === "darwin" ? "open" : "xdg-open";
-  const opened = Bun.spawnSync({ cmd: [opener, authorization.toString()], stdout: "ignore", stderr: "ignore" });
-  if (opened.exitCode !== 0) {
-    server.stop(true);
-    throw new Error("Could not open the Gmail authorization URL.");
+  const authorization = gmailAuthorizationUrl(bootstrap.client_id, redirectUri, state);
+  console.log(`Open this URL to authorize: ${authorization.toString()}`);
+  if (options.open !== false) {
+    const opener = process.platform === "darwin" ? "open" : "xdg-open";
+    const opened = Bun.spawnSync({ cmd: [opener, authorization.toString()], stdout: "ignore", stderr: "ignore" });
+    if (opened.exitCode !== 0) {
+      server.stop(true);
+      throw new Error("Could not open the Gmail authorization URL.");
+    }
   }
   try {
-    const code = await codePromise;
-    const response = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: bootstrap.client_id,
-        client_secret: bootstrap.client_secret,
-        code,
-        grant_type: "authorization_code",
-        redirect_uri: redirectUri,
-      }),
-    });
-    if (!response.ok) throw new Error("Gmail OAuth token exchange failed.");
-    const body = await response.json() as { refresh_token?: string; scope?: string };
-    if (!body.refresh_token || !isReadonlyScopeGrant(body.scope)) {
-      throw new Error("Gmail OAuth did not return the required readonly grant.");
-    }
-    await writeGmailCredentials(path, {
-      client_id: bootstrap.client_id,
-      client_secret: bootstrap.client_secret,
-      refresh_token: body.refresh_token,
-    });
+    await completeGmailAuthorization(path, await codePromise, bootstrap, redirectUri, options);
   } finally {
     server.stop(true);
   }
+}
+
+export async function completeGmailAuthorization(
+  path: string,
+  code: string,
+  bootstrap: { client_id: string; client_secret: string },
+  redirectUri: string,
+  options: GmailAuthOptions = {},
+): Promise<void> {
+  const fetchImplementation = options.fetchImplementation ?? fetch;
+  const apiBaseUrl = options.apiBaseUrl ?? "https://gmail.googleapis.com/gmail/v1";
+  const response = await fetchImplementation(options.tokenEndpoint ?? "https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: bootstrap.client_id,
+      client_secret: bootstrap.client_secret,
+      code,
+      grant_type: "authorization_code",
+      redirect_uri: redirectUri,
+    }),
+  });
+  if (!response.ok) throw new Error("Gmail OAuth token exchange failed.");
+  const body = await response.json() as { access_token?: string; refresh_token?: string; scope?: string };
+  if (!body.refresh_token || !body.access_token || !isReadonlyScopeGrant(body.scope)) {
+    throw new Error("Gmail OAuth did not return the required readonly grant.");
+  }
+  const accountEmail = options.accountEmail?.trim() || verifyAccountEmail();
+  const profileResponse = await fetchImplementation(`${apiBaseUrl}/users/me/profile`, {
+    headers: { authorization: `Bearer ${body.access_token}` },
+  });
+  if (!profileResponse.ok) throw new Error("Gmail profile lookup failed.");
+  const grantedEmail = ((await profileResponse.json() as { emailAddress?: string }).emailAddress ?? "").trim();
+  if (grantedEmail.toLowerCase() !== accountEmail.toLowerCase()) {
+    await fetchImplementation(options.revokeEndpoint ?? "https://oauth2.googleapis.com/revoke", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ token: body.refresh_token }),
+    });
+    throw new Error(`Gmail authorization was granted by ${grantedEmail}, not the configured bot account ${accountEmail}; the grant was revoked.`);
+  }
+  await (options.writeCredentials ?? writeGmailCredentials)(path, {
+    client_id: bootstrap.client_id,
+    client_secret: bootstrap.client_secret,
+    refresh_token: body.refresh_token,
+  });
+  console.log(`Gmail readonly authorization saved for ${grantedEmail} to ${path}.`);
 }
