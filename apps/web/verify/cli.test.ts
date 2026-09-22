@@ -323,7 +323,7 @@ describe("live rendered balance", () => {
     expect(reviewRead).toBeGreaterThan(-1);
     expect(calls[reviewRead - 1]?.slice(0, 2)).toEqual(["wait", "--fn"]);
     expect(calls[reviewRead - 1]?.[2]).toContain("aria-disabled");
-    expect(calls[reviewRead - 1]?.[2]).toContain(JSON.stringify("Send $1.00"));
+    expect(calls[reviewRead - 1]?.[2]).toContain(JSON.stringify("Send $0.10"));
   });
 
   test("refuses confirmation when the hero ticker is absent", async () => {
@@ -478,7 +478,7 @@ describe("click readiness", () => {
       FAKE_AGENT_BROWSER_AUTHENTICATED: "1",
     });
     expect(result.exitCode).toBe(0);
-    expect(clickCalls().map((call) => call[call.indexOf("--name") + 1])).toEqual(["1", "Continue"]);
+    expect(clickCalls().map((call) => call[call.indexOf("--name") + 1])).toEqual(["Decimal point", "1", "Continue"]);
     expectWaitBeforeEveryClick();
   });
 
@@ -692,7 +692,7 @@ describe("live CLI confirmation bounds", () => {
       ...fakeEnv("Account\nShow small balances\nYour money", address),
       FAKE_AGENT_BROWSER_AUTHENTICATED: "1",
       FAKE_AGENT_BROWSER_BALANCE: "$26.89",
-      FAKE_AGENT_BROWSER_REVIEW: "Deposit\n$1.00",
+      FAKE_AGENT_BROWSER_REVIEW: "Deposit\n$0.10",
       ...(failures ? { FAKE_AGENT_BROWSER_FAILURES: JSON.stringify(failures) } : {}),
     };
   }

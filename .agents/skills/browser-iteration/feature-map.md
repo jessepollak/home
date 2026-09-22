@@ -158,11 +158,12 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 - **Reach (live)**:
   1. `goto "/save?flow=save-deposit"`
   2. `expect "Deposit"`
-  3. `click "1"`
-  4. `click "Continue"`
-  5. `expect "Confirm"`
-  6. `click "Deposit $1.00"`
-  7. `expect "Deposited $1.00"`
+  3. `click "Decimal point"`
+  4. `click "1"`
+  5. `click "Continue"`
+  6. `expect "Confirm"`
+  7. `click "Deposit $0.10"`
+  8. `expect "Deposited $0.10"`
 - **Notes**: The smoke path also covers `/save?flow=save-withdraw`, closes via `Close deposit dialog` or Escape (`Close withdraw dialog`), and asserts focus returns to the `Deposit` or `Withdraw` opener.
 - **Expect**: section `role="region"`/`aria-label="Save"` hosted variant (savings-experience.tsx); vault radiogroup `aria-label="Vault"`; `Nothing saved yet` empty; action buttons `Get started` (unfunded) / `Deposit` + `Withdraw` (funded) (savings-experience.tsx); dialog labels from `closeLabel={Close ${mode} dialog}` and `primaryLabel` `Continue` → `Deposit $X`/`Withdraw $X`/`Retry` (savings-actions.tsx lines ~251–350).
 - **States**: cold loading (`data-shimmer="savings-hero"`, `savings-apy`); vaults loading `aria-busy`; vaults error `Vaults are temporarily unavailable.` + `Retry`; stale alerts `Saved balance stale…` / `Vault rates stale…`; deposit/withdraw amount → confirm → pending (`Waiting for your wallet…`) → error/failed.
@@ -178,11 +179,12 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 - **Reach (live)**:
   1. `goto "/borrow/0x9103c3b4e834476c9a62ea009ba2c884ee42e94e6e314a26f04d312434191836"`
   2. `expect "Borrow"`
-  3. `click "1"`
-  4. `click "Continue"`
-  5. `expect "Confirm"`
-  6. `click "Confirm action"`
-  7. `expect "Borrowed $1.00"`
+  3. `click "Decimal point"`
+  4. `click "1"`
+  5. `click "Continue"`
+  6. `expect "Confirm"`
+  7. `click "Confirm action"`
+  8. `expect "Borrowed $0.10"`
 - **Verify**: manual
 - **Notes**: No smoke fixture exists for `/api/borrow*`; see Gaps. Live: the `1` chip renders only when the pinned account holds the market's collateral (`You need cbBTC in this wallet before you can borrow.`); the production bot account held none on 2026-09-22, so the canary reports `did not render` until it is funded.
 - **Expect**: heading `Borrow` (`#borrow-overview-title`, `#borrow-direct-title`, borrowing-experience.tsx); position actions including `Borrow`, `Supply`/`Withdraw collateral from Bitcoin position` (`aria-label`, line 539); `Back to Borrow`; `Market values are unavailable` + `Retry` error; collateral preview `data-testid="borrow-collateral-preview"`; action money modal title `Confirm`, footer `Confirm action`/`Retry`/`Back`/`Close` (lines ~712–782).
@@ -217,13 +219,14 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 - **Reach (live)**:
   1. `goto "/home"`
   2. `click "Send"`
-  3. `click "1"`
-  4. `click "Continue"`
-  5. `fill "To" "<recipient>"`
-  6. `click "Continue"`
-  7. `expect "Confirm"`
-  8. `click "Send $1.00"`
-  9. `expect "Sent $1.00"`
+  3. `click "Decimal point"`
+  4. `click "1"`
+  5. `click "Continue"`
+  6. `fill "To" "<recipient>"`
+  7. `click "Continue"`
+  8. `expect "Confirm"`
+  9. `click "Send $0.10"`
+  10. `expect "Sent $0.10"`
 - **Notes**: The dialog is labelled by `send-title`. Live mode replaces `<recipient>` with the effective recipient only in that `To` fill step; any other step containing `<recipient>` refuses before browser launch. `--recipient` accepts a bare 40-hex `0x` address other than the zero address, or the name `jesse.base.eth` matched case-insensitively with surrounding whitespace ignored (mapped to the pinned `0x2211d1d0020daea8039e46cf1367962070d77da9`), and defaults to that pinned recipient when omitted; every other value refuses before browser launch. The product does not resolve recipient names yet (#720). Before the gated `Send $1.00` confirm click the verifier requires exactly one review `To` row to show the full recipient address (case-insensitive) and stops with `recipientMismatch` otherwise.
   1. **amount**: type digits via keypad buttons named `0`–`9`, `Decimal point`, `Delete last digit` (`role="group" aria-label="Amount keypad"`, client/money-modal/amount.tsx:581–601); quick chips group `Quick amounts` (`$10`/`$25`/`Max` when priced, amount.tsx:508+). Primary `Continue` disabled until positive amount (`isPositiveDecimalAmount`).
   2. **destination**: step title stays `Send`; field label `To` (AddressField `id="send-recipient"`); primary `Continue` disabled until `isTransferRecipient` (send-dialog.tsx).
@@ -246,15 +249,16 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 - **Reach (live)**:
   1. `goto "/home"`
   2. `click "Send"`
-  3. `click "1"`
-  4. `click "Continue"`
-  5. `click "Send to Zelle, Venmo, Cash App and more Use Peer to send via app"`
-  6. `click "Cash App"`
-  7. `fill "Cash App handle" "$alice"` — live substitutes `HOME_VERIFY_CASHOUT_HANDLE` for `$alice`; unset refuses before any fill
-  8. `click "Continue"`
-  9. `fill "Re-enter handle" "$alice"` — live substitutes the Cash App canonical form of `HOME_VERIFY_CASHOUT_HANDLE` (leading `$` stripped, `shared/funding/cash-payee.ts`), because Review enables only when the re-entry equals the canonical handle (send-dialog.tsx `handleConfirmation !== canonicalHandle`); unset refuses before any fill
-  10. `click "Review"`
-  11. `expect "Confirm"`
+  3. `click "Decimal point"`
+  4. `click "1"`
+  5. `click "Continue"`
+  6. `click "Send to Zelle, Venmo, Cash App and more Use Peer to send via app"`
+  7. `click "Cash App"`
+  8. `fill "Cash App handle" "$alice"` — live substitutes `HOME_VERIFY_CASHOUT_HANDLE` for `$alice`; unset refuses before any fill
+  9. `click "Continue"`
+  10. `fill "Re-enter handle" "$alice"` — live substitutes the Cash App canonical form of `HOME_VERIFY_CASHOUT_HANDLE` (leading `$` stripped, `shared/funding/cash-payee.ts`), because Review enables only when the re-entry equals the canonical handle (send-dialog.tsx `handleConfirmation !== canonicalHandle`); unset refuses before any fill
+  11. `click "Review"`
+  12. `expect "Confirm"`
 - **Verify**: manual
 - **Expect**: modal title `Cash out with Peer` (send-dialog.tsx `modalTitle`); confirm rows `Provider`, `Payout app`, `Payout handle`, `Approximate receive`, `Estimated delivery`, `Network` = `Base` (send-dialog.tsx confirm rows); disclaimer `The fiat amount and delivery time are approximate, not guaranteed.`; primary `Cash out $X`.
 - **States**: providers not loaded → CashoutItem absent (requires `PEER_OFFRAMP` stub registered after `installApiFixtures` via `route.fallback`, smoke.pw.ts); recovery items `Withdraw <amount>` for active orders; `Recover a Peer cash-out` button when `recoveryEligible` (send-dialog.tsx).
