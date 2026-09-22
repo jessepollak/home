@@ -92,7 +92,9 @@ export function extractOtp(message: GmailMessage, sender: string, submittedAt: n
   if (fromAddress.trim().toLowerCase() !== sender.trim().toLowerCase()) return null;
   const bodyCodes = sixDigitCodes(messageText(message));
   if (bodyCodes.length === 1) return bodyCodes[0];
-  const subjectCodes = sixDigitCodes(header(message, "subject"));
+  const subject = header(message, "subject");
+  if (!/\bcode\b/i.test(subject)) return null;
+  const subjectCodes = sixDigitCodes(subject);
   return subjectCodes.length === 1 ? subjectCodes[0] : null;
 }
 

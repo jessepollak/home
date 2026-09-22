@@ -63,6 +63,23 @@ describe("Gmail OTP parsing", () => {
     expect(extractOtp(message({ payload: { headers: [{ name: "From", value: "attacker@example.com" }] } }), sender, submittedAt, submittedAt + 300_000)).toBeNull();
     expect(extractOtp(message({ payload: { headers: [{ name: "From", value: `${sender} <attacker@example.com>` }] } }), sender, submittedAt, submittedAt + 300_000)).toBeNull();
   });
+
+  test("requires the word code in a subject before trusting a six-digit number", () => {
+    const withSubject = (subject: string, snippet: string) => message({
+      snippet,
+      payload: {
+        headers: [
+          { name: "From", value: `Coinbase <${sender}>` },
+          { name: "Subject", value: subject },
+        ],
+      },
+    });
+    expect(extractOtp(withSubject("Your September statement 202609 is ready", "Sign in to Home"), sender, submittedAt, submittedAt + 300_000)).toBeNull();
+    expect(extractOtp(withSubject("Order 123 456 shipped", "Sign in to Home"), sender, submittedAt, submittedAt + 300_000)).toBeNull();
+    expect(extractOtp(withSubject("Your verification code is 111111 or 222222", "Sign in to Home"), sender, submittedAt, submittedAt + 300_000)).toBeNull();
+    expect(extractOtp(withSubject("Your Coinbase verification code is 847 291", "Sign in to Home"), sender, submittedAt, submittedAt + 300_000)).toBe("847291");
+    expect(extractOtp(withSubject("Order 123 456 shipped", "Your sign-in code is 847291"), sender, submittedAt, submittedAt + 300_000)).toBe("847291");
+  });
 });
 
 describe("Gmail polling", () => {
