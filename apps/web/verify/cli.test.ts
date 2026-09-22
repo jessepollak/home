@@ -213,6 +213,29 @@ describe("live session state", () => {
     expect(saves).toEqual([]);
   });
 
+  test("re-saves the live session at the end of an authenticated run whose expectations failed", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = run([
+      "home-panel",
+      "--live",
+      "--base-url",
+      "https://example.com",
+      "--out",
+      outsideOutput,
+    ], {
+      ...fakeEnv("Account\nShow small balances\nYour money", addressA),
+      FAKE_AGENT_BROWSER_AUTHENTICATED: "1",
+      FAKE_AGENT_BROWSER_FAIL_EXPECT: "1",
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("expectation was not observed");
+    const calls = fakeCalls();
+    expect(calls.at(-1)?.[0]).toBe("close");
+    expect(calls.at(-2)?.slice(0, 3)).toEqual(["state", "save", statePath]);
+    expect(calls.filter((call) => call[0] === "state" && call[1] === "save").length).toBeGreaterThanOrEqual(2);
+  });
 });
 
 describe("live expected failures", () => {

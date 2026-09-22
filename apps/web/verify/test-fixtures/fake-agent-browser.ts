@@ -10,6 +10,10 @@ if (!logPath) {
 await appendFile(logPath, `${JSON.stringify(args)}\n`);
 const [command = "", ...rest] = args;
 let result: unknown = null;
+if (command === "wait" && rest.includes("--text") && process.env.FAKE_AGENT_BROWSER_FAIL_EXPECT === "1") {
+  console.error("The expectation was not observed.");
+  process.exit(1);
+}
 if (command === "eval") {
   const expression = rest[0] ?? "";
   if (expression.startsWith("location.pathname")) {
@@ -18,6 +22,8 @@ if (command === "eval") {
     result = process.env.FAKE_AGENT_BROWSER_ADDRESS ?? "";
   } else if (expression === "document.body.innerText") {
     result = process.env.FAKE_AGENT_BROWSER_BODY ?? "";
+  } else if (expression.includes("data-app-main-authenticated")) {
+    result = process.env.FAKE_AGENT_BROWSER_AUTHENTICATED === "1";
   } else if (expression.includes("performance.getEntriesByType")) {
     result = { marks: [], longTaskCount: 0 };
   } else if (expression.includes("__homeVerifyHosts")) {

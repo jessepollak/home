@@ -205,6 +205,11 @@ function sessionExpired(): boolean {
   return typeof result === "string" && liveSessionExpired(result);
 }
 
+function livePageAuthenticated(): boolean {
+  const result = jsonResult(command("eval", 'Boolean(document.querySelector("[data-app-main-authenticated]"))'));
+  return result === true;
+}
+
 function handleAccessGate(): void {
   if (!currentPath().startsWith("/access")) return;
   const password = process.env.HOME_ACCESS_PASSWORD;
@@ -223,6 +228,16 @@ async function ensurePrivateStateDirectory(): Promise<void> {
 async function saveLiveSession(): Promise<void> {
   command("state", "save", statePath);
   await chmod(statePath, 0o600);
+}
+
+async function saveLiveSessionIfAuthenticated(): Promise<"saved" | "not-authenticated" | "failed"> {
+  try {
+    if (!livePageAuthenticated()) return "not-authenticated";
+    await saveLiveSession();
+    return "saved";
+  } catch {
+    return "failed";
+  }
 }
 
 async function runLiveLogin(): Promise<never> {
@@ -645,7 +660,6 @@ try {
     transactionHash = domText.match(/\b0x[0-9a-fA-F]{64}\b/)?.[0] ?? null;
     actionId = domText.match(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i)?.[0] ?? null;
     await writeLiveEvidence();
-    if (evidence.passed && requiresSignedInFixture(surfaceId)) await saveLiveSession();
   }
   console.log(summaryPath);
   exitCode = evidence.passed ? 0 : 1;
@@ -663,6 +677,12 @@ try {
     ? `${message} A confirm click may have been dispatched; check Activity before re-running because a re-run confirms again.`
     : message);
 } finally {
+  if (live) {
+    const sessionSave = await saveLiveSessionIfAuthenticated();
+    if (sessionSave === "failed") {
+      console.error("The authenticated live session could not be re-saved; run verify live-login before the next live run.");
+    }
+  }
   try {
     command("close");
   } catch {
