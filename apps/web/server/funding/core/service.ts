@@ -7,6 +7,7 @@ import type { FundingDirection, FundingProvider, Instruction, Observation, Quote
 import { decimalToAtomic } from "@/shared/formatting/atomic";
 import { FUNDING_BINDING_ENVIRONMENT_CODE, FUNDING_CONFIGURATION_CODE, FundingProviderConfigurationError, createProviderContext, environmentAvailable, resolveFundingMode, type FundingConfigurationCode } from "./provider-context";
 import { authenticateFundingQuote, isFundingQuoteExpired, signFundingQuote } from "./quote-token";
+import { emitFundingProviderFailure } from "./provider-failure";
 import type { FundingOrder, FundingOrderOwner, FundingOrderStore } from "./store";
 import { MemoryFundingProviderCustomerStore, type FundingProviderCustomer, type FundingProviderCustomerStore } from "./customer-store";
 import { awaitBalanceSignal } from "@/server/balances/signal";
@@ -478,8 +479,18 @@ export class FundingCore {
       }, ctx);
     } catch { return order; }
     const nextState = observation.state === "sent" ? "sent-unverified" : observation.state;
+    const refreshRoute = force ? "/api/funding/webhooks/:provider" : "/api/funding/orders/:id";
     const settled = settledAmount(observation, order.quote.tokenAmountAtomic, order.expectedTokenAmountAtomic);
-    if (settled === undefined) return order;
+    if (settled === undefined) {
+      emitFundingProviderFailure({
+        route: refreshRoute,
+        code: "PROVIDER_INVALID_RESPONSE",
+        provider: order.providerId,
+        region: order.region,
+        startedAt: refreshStartedAt,
+      });
+      return order;
+    }
     let updated = await this.deps.store.applyObservation(order.id, {
       state: nextState,
       providerStatus: observation.providerStatus,
@@ -489,7 +500,6 @@ export class FundingCore {
       updatedAt: this.now().toISOString(),
     });
     if (!updated) return await this.deps.store.getOwned(order.id, order.owner) ?? order;
-    const refreshRoute = force ? "/api/funding/webhooks/:provider" : "/api/funding/orders/:id";
     if (updated.state !== order.state) this.logObservedTransition(updated, refreshRoute, refreshStartedAt);
     if (observation.transactionHash && !order.sandbox) {
       const evidence = await this.deps.verifyReceipt(updated, observation.transactionHash);

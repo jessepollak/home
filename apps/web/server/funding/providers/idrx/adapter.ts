@@ -37,6 +37,7 @@ export const idrxProvider: FundingProvider = {
   manifest: idrxManifest,
   onramp: {
     async createQuote(input, ctx) {
+      const startedAt = Date.now();
       const channel = quoteChannel(ctx);
       if (!channel) throw new Error("The selected IDRX payment method is not supported.");
       const url = new URL(QUOTE_PATH, IDRX_API_ORIGIN);
@@ -45,14 +46,39 @@ export const idrxProvider: FundingProvider = {
       url.searchParams.set("paymentMethod", channel.paymentMethod);
       url.searchParams.set("channelId", channel.channelId);
       const serializedUrl = url.toString();
-      const response = await ctx.fetch(serializedUrl, {
-        method: "GET",
-        headers: createRequestHeaders(ctx, "GET", serializedUrl, ""),
-        cache: "no-store",
-      });
-      if (!response.ok) throw new Error(`IDRX quote failed with HTTP ${response.status}.`);
-      const data = readData(parseProviderJson(await readBoundedText(response)));
-      return readQuote(data, input, ctx, channel);
+      let response: Response;
+      try {
+        response = await ctx.fetch(serializedUrl, {
+          method: "GET",
+          headers: createRequestHeaders(ctx, "GET", serializedUrl, ""),
+          cache: "no-store",
+        });
+      } catch (error) {
+        emitIdrxStatusFailure("PROVIDER_TRANSPORT", startedAt, ctx.binding.region);
+        throw error;
+      }
+      if (!response.ok) {
+        emitIdrxStatusFailure(
+          response.status >= 500 ? "PROVIDER_HTTP_5XX" : "PROVIDER_HTTP_4XX",
+          startedAt,
+          ctx.binding.region,
+        );
+        throw new Error(`IDRX quote failed with HTTP ${response.status}.`);
+      }
+      let text: string;
+      try {
+        text = await readBoundedText(response);
+      } catch (error) {
+        emitIdrxStatusFailure("PROVIDER_TRANSPORT", startedAt, ctx.binding.region);
+        throw error;
+      }
+      try {
+        const data = readData(parseProviderJson(text));
+        return readQuote(data, input, ctx, channel);
+      } catch (error) {
+        emitIdrxStatusFailure("QUOTE_ECHO_MISMATCH", startedAt, ctx.binding.region);
+        throw error;
+      }
     },
 
     async createOrder(input, ctx) {

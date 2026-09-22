@@ -178,6 +178,41 @@ describe("IDRX adapter behavior", () => {
     }
   });
 
+  test("emits one provider-attributed cause for each failed quote attempt", async () => {
+    const lines: string[] = [];
+    setObservabilityLogWriterForTests((line) => lines.push(line));
+    try {
+      const attempts: Array<{ fetch: typeof fetch; code: string }> = [
+        { fetch: (async () => { throw new Error("synthetic transport"); }) as unknown as typeof fetch, code: "PROVIDER_TRANSPORT" },
+        { fetch: (async () => new Response("", { status: 400 })) as unknown as typeof fetch, code: "PROVIDER_HTTP_4XX" },
+        { fetch: (async () => new Response("", { status: 503 })) as unknown as typeof fetch, code: "PROVIDER_HTTP_5XX" },
+        { fetch: (async () => new Response("not-json", { status: 200 })) as unknown as typeof fetch, code: "QUOTE_ECHO_MISMATCH" },
+        { fetch: (async () => jsonFixture({ ...quoteQrisFixture, data: { ...quoteQrisFixture.data, toBeMinted: "20000.51" } })) as unknown as typeof fetch, code: "QUOTE_ECHO_MISMATCH" },
+      ];
+      for (const attempt of attempts) {
+        const ctx = createProviderContext({
+          manifest: idrxProvider.manifest,
+          region: "ID",
+          paymentMethodId: "qris",
+          env,
+          fetchImplementation: attempt.fetch,
+        });
+        await expect(idrxProvider.onramp!.createQuote!(
+          { destination: DESTINATION, fiatAmount: "20000.50", returnUrl: intent.returnUrl },
+          ctx,
+        )).rejects.toBeDefined();
+      }
+      expect(lines.map((line) => {
+        const event = JSON.parse(line) as Record<string, unknown>;
+        expect(event).toMatchObject({ kind: "funding-order", provider: "idrx", region: "ID" });
+        expect(Object.keys(event)).not.toContain("providerStatus");
+        return event.code;
+      })).toEqual(attempts.map((attempt) => attempt.code));
+    } finally {
+      setObservabilityLogWriterForTests();
+    }
+  });
+
   test("preserves the IDRX nullable bigint amount contract", () => {
     const cases = [
       { value: "20000.50", decimals: 2, expected: BigInt(2_000_050) },

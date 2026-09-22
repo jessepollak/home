@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type {
   FundingProvider,
@@ -9,9 +9,12 @@ import type {
 import { MemoryFundingOrderStore } from "./store";
 import { FundingCore, resolveClientIp, isPrivateIp, type FundingOrderTransitionEvent } from "./service";
 import { FundingProviderConfigurationError, resolveFundingMode, resolveWebhookEnvironment } from "./provider-context";
+import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 
 const session: VerifiedAccountSession = { user: { subject: "user" }, accountProvider: "base-account", smartAccount: { address: "0x1111111111111111111111111111111111111111", chainId: 8453 } };
 const manifest = { id: "fixture", displayName: "Fixture", docsUrl: "https://example.com", onramp: { apiOrigins: ["https://example.com"], reference: "home" }, bindings: [{ region: "ID", assetId: "base:idrx", currency: "IDR", directions: { onramp: { paymentMethods: [{ id: "bank", label: "Bank" }], env: ["FIXTURE_KEY"] } } }] } as const satisfies FundingProviderManifest;
+beforeEach(() => setObservabilityLogWriterForTests(() => undefined));
+afterEach(() => setObservabilityLogWriterForTests());
 
 function customerSetup() {
   let creates = 0;
@@ -605,6 +608,41 @@ describe("FundingCore", () => {
     expect(ignored.expectedTokenAmountAtomic).toBe("2000000");
     expect(ignored.fees).toEqual([]);
     expect(verified).toEqual(["1986000"]);
+  });
+
+  test("emits a provider failure and preserves the order when a settlement is rejected", async () => {
+    const lines: string[] = [];
+    setObservabilityLogWriterForTests((line) => lines.push(line));
+    try {
+      const provider: FundingProvider = {
+        manifest,
+        onramp: {
+          async createOrder(input, ctx) {
+            return { outcome: "created", order: { providerOrderId: "fixture-order", tokenAddress: ctx.binding.asset.address, expectedTokenAmountAtomic: input.quote!.tokenAmountAtomic, fees: [], expiresAt: null, instructions: { kind: "bank-transfer", rail: "VA", accountNumber: "12345678", amount: input.fiatAmount, currency: "IDR" } } };
+          },
+          async getOrder() {
+            return { state: "sent", providerStatus: "MINTED:PAID", settledTokenAmountAtomic: "2000001" };
+          },
+        },
+      };
+      let date = new Date("2026-09-12T00:00:00.000Z");
+      const core = new FundingCore({ providers: [provider], store: new MemoryFundingOrderStore(), env: { FIXTURE_KEY: "set", FUNDING_QUOTE_SECRET: "s".repeat(32) }, currentBaseBlock: async () => "500", verifyReceipt: async () => null, now: () => date });
+      const quote = await core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" }, "https://home.example");
+      const created = await core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example");
+      date = new Date("2026-09-12T00:00:10.000Z");
+
+      expect(await core.getOrder(session, created.id)).toEqual(created);
+      expect(lines).toHaveLength(1);
+      expect(JSON.parse(lines[0]!)).toMatchObject({
+        kind: "funding-order",
+        route: "/api/funding/orders/:redacted",
+        code: "PROVIDER_INVALID_RESPONSE",
+        provider: "fixture",
+        region: "ID",
+      });
+    } finally {
+      setObservabilityLogWriterForTests();
+    }
   });
 
   test("keeps the quoted amount as the baseline and freezes the first accepted settlement", async () => {
