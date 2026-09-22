@@ -495,7 +495,7 @@ function messageForError(error: unknown, cashout: boolean): string {
   if (error instanceof TransferExecutionError && error.reason === "rejected") return cashout
     ? "The wallet request was rejected. Your reviewed cash-out is still ready to retry."
     : "The wallet request was rejected. Your reviewed send is still ready to retry.";
-  const reason = error instanceof TransferExecutionError && error.cause instanceof Error ? error.cause.message.replace(/\s+/g, " ").trim().slice(0, 160) : "";
+  const reason = error instanceof TransferExecutionError && error.reason === "submission-unknown" && error.cause instanceof Error ? error.cause.message.replace(/\s+/g, " ").trim().slice(0, 160) : "";
   return reason
     ? `The wallet result is unknown: ${reason}. Check Activity before trying again.`
     : "The wallet result is unknown. Check Activity before trying again.";
