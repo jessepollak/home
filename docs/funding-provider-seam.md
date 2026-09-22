@@ -28,7 +28,7 @@ Everything in this document serves that. Anything that does not is deliberately 
 |---|---|---|
 | Coinbase Onramp (US, USDC) | Generic v2 Orders API, Embedded Orders iframe, provider-scoped sandbox mode | Complete non-funded `agent-browser` sandbox flow and generic status proven September 16; production enablement and domain verification remain unconfirmed ([#294](https://github.com/jessepollak/home/issues/294)). |
 | Ripio Ramps (AR wARS, BR wBRL, CO wCOP) | Adapter and Add money flow on `main`; inert until every binding environment variable is set | Ripio must run the per-provider checklist; no live provider call has been made. |
-| IDRX (ID) | Adapter and Add money flow on `main`; inert until every binding environment variable is set | IDRX ran the checklist against production on 2026-09-14 (hosted QRIS, `received`); VA needs a bank account registered on the IDRX account. |
+| IDRX (ID) | QRIS-only adapter and Add money flow on `main`; provider-backed mint quotes; inert until every binding environment variable is set | IDRX ran the checklist against production on 2026-09-14 (provider-hosted QRIS, `received`). Mandiri/BRI closed VAs are parked off the live binding because they accept transfers only from a bank account registered on the ordering IDRX account. |
 | MXNB, XSGD | Provider workstreams [#552](https://github.com/jessepollak/home/issues/552) and [#557](https://github.com/jessepollak/home/issues/557) are planned; the former #295 bundle is superseded and TRYB is deferred | Adapter, manifest, fixtures, issuer access, and acceptance evidence. |
 
 Each route rebuilt the same things. The seam builds them once.
@@ -133,8 +133,8 @@ export type Observation = {
   state: ReportedState;
   providerStatus: string;
   transactionHash?: `0x${string}` | null;
-  // Only when the provider deducted its own fee from the token amount after
-  // the order was created (IDRX hosted QRIS). Never above the requested amount.
+  // Only for a lower provider settlement that the adapter has validated.
+  // Never above expectedTokenAmountAtomic; quoted orders settle at that net.
   settledTokenAmountAtomic?: string;
   fees?: Quote["fees"];
 };
@@ -143,7 +143,7 @@ export type Observation = {
 export type OrderState = ReportedState | "reserving" | "dispatch-ambiguous" | "sent-unverified" | "received";
 ```
 
-How the ports fit: Ripio is `reference: "home"`, `quotes: true`, an email-created customer with Ripio-hosted verification, webhook, `bank-transfer`/`payment-key`/`redirect`/`qr` instructions, and per-country env. IDRX is `reference: "provider"`, `quotes: true` (`mint-quote`: net mint and itemized fees per method, no quote id), no per-user KYC (the operator's issuer account), polling only, `bank-transfer` (VA) or `redirect` (QRIS, the hosted checkout opened directly on QRIS), 2-decimal asset.
+How the ports fit: Ripio is `reference: "home"`, `quotes: true`, an email-created customer with Ripio-hosted verification, webhook, `bank-transfer`/`payment-key`/`redirect`/`qr` instructions, and per-country env. IDRX is `reference: "provider"`, `quotes: true` (`mint-quote`: net mint and itemized fees per method, no quote id), no per-user KYC (the operator's issuer account), polling only, and a 2-decimal asset. Its live binding exposes only `redirect` for QRIS, opened directly on that method; tested `bank-transfer` VA paths remain parked off the live binding.
 
 `shared/funding/assets.ts` is the crew-owned token registry (`base:usdc`, `base:wars`, `base:wbrl`, `base:wcop`, `base:idrx` to start): chain ID, address, decimals, symbol, issuer doc URL. `docs/stablecoin-candidates.json` stays a research file; it is not read at runtime.
 

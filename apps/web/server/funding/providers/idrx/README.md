@@ -14,17 +14,64 @@ This adapter implements the IDRX issuer API as an `order` provider on Base. It i
 
 ## Acceptance
 
-| Rail | CI synthetic | Local/sandbox | Production / hosted funded |
-| --- | --- | --- | --- |
-| Mandiri VA | Required, no network | No sandbox documented | Not accepted |
-| BRI VA | Required, no network | No sandbox documented | Not accepted |
-| QRIS hosted checkout | Required, no network | No sandbox documented | Not accepted |
+Process, not authorization. Nothing here grants credentials, payments, deployments, or merge; the shared template in the [issuer integration guide](../../../../../../docs/integrations/README.md) and the [Ripio playbook](../ripio/ACCEPTANCE.md) describe the full loop. This section records what is specific to IDRX.
 
-- **Environment and hazards:** IDRX currently documents production only. History confirmation is read-only; mint request is a production write; paying VA or QRIS instructions moves funds. Each credentialed call requires operator authorization, and payment requires separate explicit funded authorization.
-- **Owners and approvals:** the integration owner maintains conformance; the operator owns provider credentials and production probes; Jesse approves any hosted funded proof.
-- **Stop and recovery:** stop on schema mismatch, unexpected economics/instructions, credential failure, or ambiguous create. Never repeat an ambiguous mint request; preserve the Home order and reconcile history before any separately approved retry.
-- **Evidence:** retain synthetic output and redacted request-shape/status evidence per rail. Hosted evidence must record the approved bound, environment, rail, final provider state, and exact Home receipt result without IDs, addresses, payment details, payloads, or credentials.
-- **Current claim (September 18, 2026):** `in-build` for ID, matching `apps/web/config/coverage.ts`; no live provider call, sandbox, production acceptance, or funded proof is claimed.
+### Rail and environment matrix
+
+| Rail (`paymentMethod`) | Asset | Home environment | Provider environment | Status |
+| --- | --- | --- | --- | --- |
+| `qris` | `base:idrx` | local | IDRX production | Local development completed 2026-09-14 on the #417 branch with the provider-hosted QRIS checkout; one order reached `received` |
+| `qris` | `base:idrx` | hosted-final | IDRX production | Not run |
+| `bank-va-mandiri`, `bank-va-bri` | `base:idrx` | any | IDRX production | Parked off the live binding: closed VAs accept transfers only from a bank account registered on the ordering IDRX account; with one operator key every Home user pays as the operator and is rejected |
+
+The `ID` registry claim in [`apps/web/config/coverage.ts`](../../../../config/coverage.ts) is `in-build`. It moves to `live` only with dated hosted-final funded evidence.
+
+### Sandbox and write hazard
+
+- Home has no IDRX sandbox mode. The manifest pins `https://api.idrx.co` and `https://checkout.idrx.co` and declares no `modeEnv`. IDRX runs a separate development environment with a mock token; wiring it through the seam's sandbox mode is a possible later step.
+- **Get quote** calls `GET /v2/transaction/mint-quote` against IDRX production. It is a read and creates no order. **Confirm** calls `POST /transaction/mint-request` and is the first and only provider write for an order.
+- Reconciliation reads `GET /transaction/user-transaction-history`. Status progression is polling only; IDRX offers a partner callback but this adapter does not consume it.
+- Paying QRIS instructions moves real IDR from the tester's own bank or e-wallet app. The provider minimum is Rp20,000 and the QRIS maximum is Rp10,000,000 per order. Credentialed production calls and funded payments require their respective operator approvals.
+
+### Approvals and owners
+
+| Role | Owns |
+| --- | --- |
+| Jesse | Every payment, every hosted funded order, schema sign-off, merge, and production Neon |
+| IDRX lead | The operator account, API schema answers, lookups by `merchantOrderId` or destination and time window, and IDRX operations on stuck orders |
+| IDRX tester | A dedicated test Base Account and each QRIS payment from their own app |
+| Home operator | Local and hosted environments and guarded local SQL after IDRX confirmation |
+
+Use one open order per test Base Account. All orders sit under one operator account on the IDRX side, so this limit is per Base Account, not per country.
+
+### Stop and recovery
+
+- On `dispatch-ambiguous`, stop and never retry. The IDRX lead looks up the order by `merchantOrderId` when Home stored one, otherwise by destination and creation time, then reports `WAITING_FOR_PAYMENT`, `EXPIRED`, or `PAID`. There is no partner cancel. An unpaid order expires after the 60-minute `expiryPeriod` Home sends. Locally, the operator may use the Ripio playbook's guarded one-row SQL with `provider_id = 'idrx'` and only `expired` or `failed` as the target; hosted recovery escalates to Jesse.
+- Never terminalize an order that IDRX reports as paid. IDRX may still deliver the mint and it must be accounted for.
+- IDRX production data from July through September 2026 shows `MINTED:PAID` p90 of 27 minutes below Rp50,000,000 and 59 minutes at or above that threshold, where manager multisig approval is required. More than 60 minutes is stuck: stop, hand the `merchantOrderId` to the IDRX lead, and do not create another order for that account. IDRX observed about one stuck order in 1,200; only IDRX operations can move it.
+- The kill switch is removal of `IDRX_CLIENT_ID`, `IDRX_CLIENT_SECRET`, or `IDRX_CUSTOMER_NAME`. Drain open orders first; without all three the binding disappears and open orders stall at their last state.
+
+### Evidence required per order
+
+- Provider status timeline from `NOT_AVAILABLE:WAITING_FOR_PAYMENT` to `MINTED:PAID`, from polling only.
+- Base transaction hash and `logIndex` for the `Transfer` to an approved throwaway session address.
+- Token contract, destination, and on-chain amount equal to the order's stored `expectedTokenAmountAtomic`: the quoted net mint for a quoted order, or the accepted provider-settled amount for an unquoted order.
+- Home order state `received`.
+- No credentials, checkout URLs or QR payloads, customer names, or bank or e-wallet identifiers. Use role labels only.
+
+### Issuer facts the acceptance run depends on
+
+- Fees and limits are published at https://docs.idrx.co/services/fees. QRIS charges 0.7% of the request and deducts it from IDRX delivered; `mint-quote` exposes that net amount before confirmation. VA adds a flat fee to the IDR payment and delivers the quoted IDRX amount.
+- The minimum is Rp20,000 for every method. Home sends a 60-minute `expiryPeriod`; the provider default is 120 minutes.
+- The QRIS checkout uses `https://checkout.idrx.co` with a `token` query parameter.
+- History amounts such as `toBeMinted` and `paymentAmount` are JSON numbers; create-response amounts are strings. The parser accepts either representation without using floating-point arithmetic.
+- The complete mapped status-pair set is `NOT_AVAILABLE:WAITING_FOR_PAYMENT`, `NOT_AVAILABLE:EXPIRED`, `PROCESSING:PAID`, `MINTED:PAID`, `REJECTED:PAID`, and `REFUND:PAID`. Anything else stays `unknown`. A persistent `PROCESSING:PAID` requires the stuck-order recovery above.
+- Redemption is not an offramp port. The holder burns IDRX on Base from their own wallet and submits the hash with a same-name bank account from a KYC-verified IDRX account; IDRX reviews and releases the payout through BI-FAST or RTGS. See https://docs.idrx.co/services/redeem-idr. Any separately authorized round-trip proof runs outside Home.
+- Closed VAs and redemption are bound to the API-key holder's KYC identity. With one operator key every Home user is the operator. QRIS is the only honest live binding without the intentionally excluded per-user IDRX member/KYC model.
+
+### Current claim
+
+**September 18, 2026:** `in-build` for ID, matching [`apps/web/config/coverage.ts`](../../../../config/coverage.ts). Local development against IDRX production completed 2026-09-14 on the #417 branch with the provider-hosted QRIS checkout; one order reached `received`. No hosted-final funded order has run, and no hosted Home acceptance is claimed.
 
 ## Confirmed against the IDRX production API (2026-09-14)
 
@@ -32,7 +79,7 @@ Run by IDRX engineering with a real Base Account smart wallet and a real hosted-
 
 1. **Authentication.** Headers `idrx-api-key`, `idrx-api-ts` (millisecond timestamp), and `idrx-api-sig` are correct. The API key secret is a **hex** string, and IDRX production currently only checks that `idrx-api-sig` is present (a wrong signature still returns 200), so the base64 decoding in `createIdrxSignature` is unverified against enforcement. IDRX will confirm the canonical construction before enabling enforcement.
 2. **Mint request.** `POST /transaction/mint-request` accepts the documented fields. Production accepts both `https://api.idrx.co/transaction/...` and `.../api/transaction/...`; the IDRX development environment requires the `/api` prefix. The QRIS request (common fields plus `returnUrl`) returns `{ id, merchantOrderId, reference, checkoutUrl, paymentUrl }` under `data` — no amount or fee fields.
-3. **VA response and fees.** The documented VA shape (`virtualAccountName`, `virtualAccountNo`, `expiredDate`, `baseAmount`, `amount`, `fees[]`) matches IDRX's `createPayment`, but `amount` and `baseAmount` are JSON **numbers**; `fees[].amount` is a string. `readDecimal` accepts both. A Mandiri/BRI VA requires a bank account for that bank registered on the IDRX account that orders; otherwise the create returns `400 { data: { code: "BANK_ACCOUNT_REQUIRED", requiredBankChannel } }` and no order exists — this is what the live VA attempt returned, and it is why VA is not on the live binding (see above).
+3. **VA response and fees.** The documented VA shape (`virtualAccountName`, `virtualAccountNo`, `expiredDate`, `baseAmount`, `amount`, `fees[]`) matches IDRX's `createPayment`; create-response amount fields are strings, while history amounts are JSON numbers. `readDecimal` accepts both representations. A Mandiri/BRI VA requires a bank account for that bank registered on the IDRX account that orders; otherwise the create returns `400 { data: { code: "BANK_ACCOUNT_REQUIRED", requiredBankChannel } }` and no order exists — this is what the live VA attempt returned, and it is why VA is not on the live binding (see above).
 4. **Hosted checkout.** Confirmed: `checkoutUrl` and `paymentUrl` agree, origin `https://checkout.idrx.co`, root path, `token` query parameter.
 5. **History and statuses.** Confirmed query parameters and `{ records: [...] }`. Live records use `chainId` (number), `customerVaName`, `paymentAmount`, `toBeMinted`, `fee`, `fees[]`, `expiryTimestamp` (epoch milliseconds as a string), `qrisRedirectUrl`, `virtualAccountNo`, `txHash`, `userMintStatus`, `paymentStatus`. Amounts are JSON numbers. Observed pairs: `NOT_AVAILABLE:WAITING_FOR_PAYMENT` → `PROCESSING:PAID` (18 s) → `MINTED:PAID` with `txHash`. **Hosted QRIS deducts its fee from the mint after the order exists**: created for 20000, the user picked QRIS on the checkout page, paid 23000, and IDRX minted 19860 (`fees: [{ "VA INA": 3000 }, { "QRIS Fee (0.7%)": 140 }]`). `paymentAmount = toBeMinted + sum(fees)` holds for both rails and is the checked invariant.
 6. **Base asset.** Confirmed: 2 decimals at `0x18bc5bcc660cf2b9ce3cd51a404afe1a0cbd3c22`; the mint transfer is a standard `Transfer` from the IDRX minter to the destination.
