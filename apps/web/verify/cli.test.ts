@@ -46,6 +46,26 @@ afterAll(() => {
   Bun.spawnSync(["rm", "-rf", home]);
 });
 
+function latestRunArtifact(surfaceId: string, name: string): string {
+  const runDirectory = resolve(outsideOutput, surfaceId);
+  const listing = Bun.spawnSync(["ls", "-1", runDirectory], { stdout: "pipe", stderr: "pipe" }).stdout.toString();
+  const newest = listing.trim().split("\n").filter(Boolean).sort().at(-1);
+  expect(newest).toBeDefined();
+  const artifact = Bun.spawnSync(["cat", resolve(runDirectory, newest ?? "", name)], { stdout: "pipe", stderr: "pipe" });
+  expect(artifact.exitCode).toBe(0);
+  return artifact.stdout.toString();
+}
+
+function liveJson(surfaceId: string): {
+  expectedFailures: string[];
+  unexpectedHosts: string[];
+} {
+  return JSON.parse(latestRunArtifact(surfaceId, "live.json")) as {
+    expectedFailures: string[];
+    unexpectedHosts: string[];
+  };
+}
+
 function run(args: string[], extraEnv: Record<string, string | undefined> = {}) {
   const env: Record<string, string | undefined> = { ...process.env, HOME: home, CI: undefined, GITHUB_ACTIONS: undefined, ...extraEnv };
   const result = Bun.spawnSync({
@@ -191,5 +211,57 @@ describe("live session state", () => {
     expect(result.stderr).toContain("session expired");
     const saves = fakeCalls().filter((call) => call[0] === "state" && call[1] === "save");
     expect(saves).toEqual([]);
+  });
+
+});
+
+describe("live expected failures", () => {
+  test("keeps a declared request failure out of the failing set", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = run([
+      "account-settings",
+      "--live",
+      "--base-url",
+      "https://example.com",
+      "--out",
+      outsideOutput,
+    ], {
+      ...fakeEnv("Account\nShow small balances\nYour money", addressA),
+      FAKE_AGENT_BROWSER_FAILURES: JSON.stringify([
+        { method: "GET", url: "https://example.com/api/session?cache=0", status: 401 },
+      ]),
+    });
+    expect(result.exitCode).toBe(0);
+    const expectedFailures = liveJson("account-settings").expectedFailures;
+    expect(expectedFailures).toHaveLength(1);
+    expect(expectedFailures[0]).toContain("GET https://example.com/api/session?cache=0 (401) — ");
+    expect(expectedFailures[0]).toMatch(/#\d+/);
+    const summary = latestRunArtifact("account-settings", "summary.md");
+    expect(summary).toContain("Expected failures: 1");
+    expect(summary).toContain("GET https://example.com/api/session?cache=0 (401)");
+  });
+
+  test("still fails an undeclared request failure", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = run([
+      "account-settings",
+      "--live",
+      "--base-url",
+      "https://example.com",
+      "--out",
+      outsideOutput,
+    ], {
+      ...fakeEnv("Account\nShow small balances\nYour money", addressA),
+      FAKE_AGENT_BROWSER_FAILURES: JSON.stringify([
+        { method: "GET", url: "https://example.com/api/balances", status: 500 },
+      ]),
+    });
+    expect(result.exitCode).toBe(1);
+    expect(liveJson("account-settings").expectedFailures).toEqual([]);
+    expect(latestRunArtifact("account-settings", "summary.md")).toContain("Failed requests: 1");
   });
 });

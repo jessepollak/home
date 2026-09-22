@@ -18,8 +18,10 @@ import {
   liveProviderOrigins,
   liveSessionExpired,
   liveStepError,
+  matchExpectedLiveFailure,
   outputInsideRepository,
   parseBorrowReviewAmounts,
+  partitionLiveFailures,
   parseUsdAmount,
   parseUsdAmountFromLabel,
   recipientPlaceholderError,
@@ -306,6 +308,65 @@ describe("live browser origin observation", () => {
       "not a url",
       "https://images.example.net/b.png",
     ], ["preview.example.com", "api.cdp.coinbase.com"])).toEqual(["images.example.net"]);
+  });
+});
+
+describe("live expected failures", () => {
+  const base = new URL("https://home.jesse.xyz");
+  const expected = [
+    { method: "GET", url: "/api/session", status: 401, reason: "restore probe (#101)." },
+    { method: "POST", url: "/api/client-performance", status: 401, reason: "cookie-less beacons (#102)." },
+    { method: "GET", url: "https://api.cdp.coinbase.com/platform/v2/embedded-wallet-api/projects/75f1f0c7-83bf-47c7-a227-e94bb6d04f83/config", status: 404, reason: "CDP SDK optional project config." },
+  ];
+
+  test("matches an origin-relative declaration by method, path, and status with the query ignored", () => {
+    expect(matchExpectedLiveFailure(
+      { method: "GET", url: "https://home.jesse.xyz/api/session?cache=0", status: 401 },
+      expected,
+      base,
+    )?.reason).toBe("restore probe (#101).");
+  });
+
+  test("matches an absolute declaration on its own origin and path", () => {
+    expect(matchExpectedLiveFailure(
+      { method: "GET", url: "https://api.cdp.coinbase.com/platform/v2/embedded-wallet-api/projects/75f1f0c7-83bf-47c7-a227-e94bb6d04f83/config?x=1", status: 404 },
+      expected,
+      base,
+    )?.reason).toBe("CDP SDK optional project config.");
+    expect(matchExpectedLiveFailure(
+      { method: "GET", url: "https://evil.example/api/session", status: 401 },
+      expected,
+      base,
+    )).toBeNull();
+  });
+
+  test("leaves a method, status, or path difference unmatched", () => {
+    expect(matchExpectedLiveFailure({ method: "GET", url: "https://home.jesse.xyz/api/session", status: 500 }, expected, base)).toBeNull();
+    expect(matchExpectedLiveFailure({ method: "POST", url: "https://home.jesse.xyz/api/session", status: 401 }, expected, base)).toBeNull();
+    expect(matchExpectedLiveFailure({ method: "GET", url: "https://home.jesse.xyz/api/balances", status: 401 }, expected, base)).toBeNull();
+    expect(matchExpectedLiveFailure({ method: "GET", url: "not a url", status: 401 }, expected, base)).toBeNull();
+    expect(matchExpectedLiveFailure({ method: "GET", url: "https://home.jesse.xyz/api/session", status: null }, expected, base)).toBeNull();
+  });
+
+  test("reports declared failures separately and fails every other failure", () => {
+    const partition = partitionLiveFailures([
+      { method: "GET", url: "https://home.jesse.xyz/api/session", status: 401 },
+      { method: "POST", url: "https://home.jesse.xyz/api/client-performance", status: 401 },
+      { method: "GET", url: "https://home.jesse.xyz/api/balances", status: 500 },
+    ], expected, base);
+    expect(partition.expected).toEqual([
+      "GET https://home.jesse.xyz/api/session (401) — restore probe (#101).",
+      "POST https://home.jesse.xyz/api/client-performance (401) — cookie-less beacons (#102).",
+    ]);
+    expect(partition.unexpected).toEqual(["GET https://home.jesse.xyz/api/balances (500)"]);
+  });
+
+  test("treats every failure as unexpected without declared entries", () => {
+    expect(partitionLiveFailures(
+      [{ method: "GET", url: "https://home.jesse.xyz/api/session", status: 401 }],
+      [],
+      base,
+    )).toEqual({ expected: [], unexpected: ["GET https://home.jesse.xyz/api/session (401)"] });
   });
 });
 

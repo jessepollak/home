@@ -4,6 +4,7 @@ import { balancesSnapshot, dustCatalogHolding, recognizedCatalogHolding } from "
 import { fixtureRoutes } from "./fixtures";
 import { bareHostnamePattern, matchesConfirmLabel, parseFeatureMap, parseReachStep, readFeatureMap, type ReachStep } from "./map";
 
+
 const featureMapPath = resolve(import.meta.dir, "../../../.agents/skills/browser-iteration/feature-map.md");
 
 function reachStepStrings(step: ReachStep): string[] {
@@ -86,6 +87,27 @@ describe("feature map parser", () => {
   test("parses the Live hosts list and ignores non-hostname backticks", () => {
     const map = parseFeatureMap("### `sample`\n- **Reach**:\n  1. `goto \"/home\"`\n## Live hosts\n\nHosts with `apps/web/client/account/basename-profile.ts:9` and `--allow-domain`.\n\n- `API.ENSIDEAS.COM` — Basename lookup.\n- `pay.coinbase.com` — onramp.\n- `not a host` — ignored.\n\n## Surfaces\n");
     expect(map.liveHosts).toEqual(["api.ensideas.com", "pay.coinbase.com"]);
+  });
+
+  test("parses the Live expected failures list and ignores unsupported rows", () => {
+    const map = parseFeatureMap(`### \`sample\`\n- **Reach**:\n  1. \`goto "/home"\`\n## Live expected failures\n\nFailures that deployments return on every load.\n\n- \`GET /api/session\` 401 — the restore probe runs first (#101).\n- POST /api/client-performance 401 — cookie-less beacons (#102).\n- GET https://api.cdp.coinbase.com/config 404 — optional SDK config.\n- GET /api/session 401 without a reason.\n\n## Surfaces\n`);
+    expect(map.liveExpectedFailures).toEqual([
+      { method: "GET", url: "/api/session", status: 401, reason: "the restore probe runs first (#101)." },
+      { method: "POST", url: "/api/client-performance", status: 401, reason: "cookie-less beacons (#102)." },
+      { method: "GET", url: "https://api.cdp.coinbase.com/config", status: 404, reason: "optional SDK config." },
+    ]);
+  });
+
+  test("declares every observed production request failure in the real feature map", async () => {
+    const { liveExpectedFailures } = await readFeatureMap(featureMapPath);
+    const rows = liveExpectedFailures.map((entry) => `${entry.method} ${entry.url} ${entry.status}`);
+    expect(rows).toContain("GET /api/session 401");
+    expect(rows).toContain("POST /api/client-performance 401");
+    expect(rows).toContain("GET https://api.cdp.coinbase.com/platform/v2/embedded-wallet-api/projects/75f1f0c7-83bf-47c7-a227-e94bb6d04f83/config 404");
+    const probe = liveExpectedFailures.find((entry) => entry.method === "GET" && entry.url === "/api/session");
+    const beacons = liveExpectedFailures.find((entry) => entry.method === "POST" && entry.url === "/api/client-performance");
+    expect(probe?.reason).toContain("#");
+    expect(beacons?.reason).toContain("#");
   });
 
   test("lists the browser-facing live hosts in the real feature map", async () => {

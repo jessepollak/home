@@ -23,6 +23,8 @@ if (command === "eval") {
   } else if (expression.includes("__homeVerifyHosts")) {
     result = [];
   }
+} else if (command === "network" && rest[0] === "requests") {
+  result = JSON.parse(process.env.FAKE_AGENT_BROWSER_FAILURES ?? "[]") as unknown;
 } else if (command === "state" && rest[0] === "save") {
   const statePath = rest[1];
   if (statePath) await writeFile(statePath, "{}\n", { mode: 0o600 });

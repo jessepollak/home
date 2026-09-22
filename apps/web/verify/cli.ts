@@ -22,6 +22,7 @@ import {
   parseBorrowReviewAmounts,
   parseUsdAmount,
   parseUsdAmountFromLabel,
+  partitionLiveFailures,
   recipientPlaceholderError,
   recipientRowError,
   resolveLiveRecipient,
@@ -29,13 +30,14 @@ import {
   unexpectedNetworkHosts,
   unlistedAmountClickError,
   type LiveRecipient,
+  type RequestFailure,
 } from "./live";
 import { matchesConfirmLabel, readFeatureMap, type ReachStep } from "./map";
 
 const args = Bun.argv.slice(2);
 const repositoryRoot = resolve(import.meta.dir, "../../..");
 const featureMapPath = resolve(repositoryRoot, ".agents/skills/browser-iteration/feature-map.md");
-const { surfaces, liveHosts } = await readFeatureMap(featureMapPath);
+const { surfaces, liveHosts, liveExpectedFailures } = await readFeatureMap(featureMapPath);
 const option = (name: string) => {
   const index = args.indexOf(name);
   return index === -1 ? undefined : args[index + 1];
@@ -169,13 +171,19 @@ function requestUrls(output: string): string[] {
   });
 }
 
-function requestFailures(output: string): string[] {
+function requestFailures(output: string): RequestFailure[] {
   return networkItems(output).flatMap((item) => {
     if (typeof item !== "object" || item === null) return [];
     const request = item as Record<string, unknown>;
     const status = typeof request.status === "number" ? request.status : null;
     const failed = Boolean(request.failure ?? request.failed ?? request.errorText) || (status !== null && status >= 400);
-    return failed ? [`${request.method ?? "GET"} ${request.url ?? "unknown"}${status === null ? "" : ` (${status})`}`] : [];
+    return failed
+      ? [{
+        method: typeof request.method === "string" ? request.method : "GET",
+        url: typeof request.url === "string" ? request.url : "unknown",
+        status,
+      }]
+      : [];
   });
 }
 
@@ -422,6 +430,7 @@ let confirmIntent: { label: string; parsedAmountUsd: number; capUsd: number; tot
 let confirmClickAttempted = false;
 let stoppedBefore: string | null = null;
 let unexpectedHosts: string[] = [];
+let expectedFailures: string[] = [];
 let transactionHash: string | null = null;
 let actionId: string | null = null;
 async function writeLiveEvidence(): Promise<void> {
@@ -443,6 +452,7 @@ async function writeLiveEvidence(): Promise<void> {
     actionId,
     stoppedBefore,
     unexpectedHosts,
+    expectedFailures,
   }, null, 2)}\n`);
 }
 function observeUnexpectedHosts(): string[] {
@@ -611,7 +621,9 @@ try {
   unexpectedHosts = live ? observeUnexpectedHosts() : [];
   liveRefusal = hostObservationRefusal(unexpectedHosts) ?? liveRefusal;
   const pageErrors = [...messages(command("errors")), ...(liveRefusal ? [liveRefusal] : [])];
-  const failedRequests = requestFailures(networkOutput);
+  const failurePartition = partitionLiveFailures(requestFailures(networkOutput), live ? liveExpectedFailures : [], baseUrl);
+  const failedRequests = failurePartition.unexpected;
+  expectedFailures = failurePartition.expected;
   const finalizedEvidence = finalizeEvidence({
     surfaceId,
     baseUrl: baseUrl.origin,
@@ -621,6 +633,7 @@ try {
     artifacts: { screenshot: "screenshot.png", dom: "dom.txt" },
     consoleErrors,
     failedRequests,
+    expectedFailures,
     pageErrors,
     marks,
     longTaskCount: performance.longTaskCount ?? 0,

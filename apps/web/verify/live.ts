@@ -1,5 +1,11 @@
 import { relative, resolve } from "node:path";
-import { bareHostnamePattern, matchesConfirmLabel, type LiveAccess, type ReachStep } from "./map";
+import {
+  bareHostnamePattern,
+  matchesConfirmLabel,
+  type ExpectedLiveFailure,
+  type LiveAccess,
+  type ReachStep,
+} from "./map";
 
 export const accountPattern = /^0x[0-9a-fA-F]{40}$/;
 export const liveProviderOrigins = [
@@ -227,6 +233,50 @@ function distinctUsdAmounts(value: string): number[] {
 function parseUsdToken(value: string): number | null {
   const amounts = distinctUsdAmounts(value);
   return amounts.length === 1 ? amounts[0] : null;
+}
+
+export type RequestFailure = { method: string; url: string; status: number | null };
+
+export function matchExpectedLiveFailure(
+  failure: RequestFailure,
+  expected: readonly ExpectedLiveFailure[],
+  baseUrl: URL,
+): ExpectedLiveFailure | null {
+  if (failure.status === null) return null;
+  let observed: URL;
+  try {
+    observed = new URL(failure.url);
+  } catch {
+    return null;
+  }
+  const method = failure.method.toUpperCase();
+  for (const entry of expected) {
+    if (entry.method.toUpperCase() !== method || entry.status !== failure.status) continue;
+    let target: URL;
+    try {
+      target = new URL(entry.url, baseUrl);
+    } catch {
+      continue;
+    }
+    if (target.origin === observed.origin && target.pathname === observed.pathname) return entry;
+  }
+  return null;
+}
+
+export function partitionLiveFailures(
+  failures: readonly RequestFailure[],
+  expected: readonly ExpectedLiveFailure[],
+  baseUrl: URL,
+): { expected: string[]; unexpected: string[] } {
+  const expectedLabels: string[] = [];
+  const unexpectedLabels: string[] = [];
+  for (const failure of failures) {
+    const label = `${failure.method.toUpperCase()} ${failure.url}${failure.status === null ? "" : ` (${failure.status})`}`;
+    const match = matchExpectedLiveFailure(failure, expected, baseUrl);
+    if (match) expectedLabels.push(`${label} — ${match.reason}`);
+    else unexpectedLabels.push(label);
+  }
+  return { expected: expectedLabels, unexpected: unexpectedLabels };
 }
 
 export function unexpectedNetworkHosts(urls: string[], allowedHosts: string[]): string[] {

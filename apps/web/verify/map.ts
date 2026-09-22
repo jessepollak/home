@@ -19,14 +19,23 @@ export type Surface = {
   live?: LiveAccess;
 };
 
+export type ExpectedLiveFailure = {
+  method: string;
+  url: string;
+  status: number;
+  reason: string;
+};
+
 export type FeatureMap = {
   surfaces: Map<string, Surface>;
   liveHosts: string[];
+  liveExpectedFailures: ExpectedLiveFailure[];
 };
 
 export const bareHostnamePattern = /^(?=.{1,253}$)(?:localhost|(?:(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)\.)*(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?))$/;
 
 const stepPattern = /^(goto|click|fill|press|expect)\s+"([^"]*)"(?:\s+"([^"]*)")?$/;
+const expectedFailurePattern = /^-\s+`?(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+([^\s`]+)`?\s+(\d{3})\s+—\s+(.+)$/;
 
 export async function readFeatureMap(path: string): Promise<FeatureMap> {
   return parseFeatureMap(await readFile(path, "utf8"));
@@ -53,7 +62,22 @@ export function parseFeatureMap(markdown: string): FeatureMap {
     const live = body.match(/^- \*\*Live\*\*:\s*(read-only|up-to-review|confirm)\s*$/m)?.[1] as LiveAccess | undefined;
     surfaces.set(id, { id, reach, ...(liveReach ? { liveReach } : {}), confirmLabels, budgets, manual, live });
   }
-  return { surfaces, liveHosts: parseLiveHosts(markdown) };
+  return {
+    surfaces,
+    liveHosts: parseLiveHosts(markdown),
+    liveExpectedFailures: parseLiveExpectedFailures(markdown),
+  };
+}
+
+export function parseLiveExpectedFailures(markdown: string): ExpectedLiveFailure[] {
+  const section = markdown.split(/^## /m).find((part) => part.startsWith("Live expected failures"));
+  if (!section) return [];
+  return section.split("\n").flatMap((line) => {
+    const match = line.match(expectedFailurePattern);
+    return match
+      ? [{ method: match[1], url: match[2], status: Number(match[3]), reason: match[4].trim() }]
+      : [];
+  });
 }
 
 export function parseLiveHosts(markdown: string): string[] {
