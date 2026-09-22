@@ -419,6 +419,89 @@ describe("thin action dispatch", () => {
     expect(fake.pending()).toBe(0);
   });
 
+  test("addresses the CDP smart account by its checksummed form when sending and polling", async () => {
+    const fake = fakeClock();
+    const lowercase = "0x7b058c8ea4f394d30047998202f45b3c2a94d196" as const;
+    const checksummed = "0x7B058c8EA4F394D30047998202F45b3C2a94d196";
+    const userOperationHash = `0x${"ab".repeat(32)}` as `0x${string}`;
+    const session: VerifiedAccountSession = {
+      user: { subject: "subject" },
+      smartAccount: { address: lowercase, chainId: 8453 },
+      accountProvider: "cdp-embedded",
+    };
+    const ownerFence: OwnerGenerationFence = {
+      advance: () => 4,
+      capture: () => 4,
+      isCurrent: (generation) => generation === 4,
+      assertCurrent: (generation) => { expect(generation).toBe(4); },
+      updateAuthorizationBoundary: () => {},
+      updateOwnerKey: () => false,
+    };
+    const transport = {
+      fetchAccountResource: async (path: string) => {
+        if (path === `/api/actions/${id}`) {
+          return {
+            id,
+            kind: "send",
+            summary: { title: "Send", amounts: [], warnings: [], expiresAt: "2099-01-01T00:00:00.000Z" },
+            calls: plan.calls,
+            expiresAt: "2099-01-01T00:00:00.000Z",
+          };
+        }
+        if (path === `/api/actions/${id}/confirm`) return { calls: plan.calls };
+        if (path === `/api/actions/${id}/handle`) return {};
+        throw new Error(`Unexpected account resource ${path}`);
+      },
+    } as unknown as AuthenticatedTransport;
+    const sentTo: string[] = [];
+    const polledFor: string[] = [];
+    let execution!: ReturnType<typeof useMoneyActionExecution>;
+
+    function Probe() {
+      execution = useMoneyActionExecution({
+        session,
+        status: "verified",
+        verification: "server",
+        ownerKey: "owner",
+        ownerFence,
+        sdkSendUserOperation: async (options) => {
+          sentTo.push(options.evmSmartAccount);
+          return { userOperationHash };
+        },
+        sdkGetUserOperation: async (options) => {
+          polledFor.push(options.evmSmartAccount);
+          return { status: "complete", transactionHash, network: "base", userOpHash: userOperationHash, calls: [] };
+        },
+        baseConnection: { current: null } as MutableRefObject<ConnectedBaseAccount | null>,
+        transport,
+      });
+      return null;
+    }
+
+    render(createElement(Probe));
+    const originalSetTimeout = globalThis.setTimeout;
+    const originalClearTimeout = globalThis.clearTimeout;
+    globalThis.setTimeout = ((callback: TimerHandler, delay?: number) =>
+      fake.clock.setTimer(() => {
+        if (typeof callback === "function") callback();
+      }, delay ?? 0)) as typeof setTimeout;
+    globalThis.clearTimeout = ((timer: unknown) =>
+      fake.clock.clearTimer(timer)) as typeof clearTimeout;
+
+    try {
+      const action = await execution.resumeMoneyAction(id);
+      expect(action.owner.address).toBe(lowercase);
+      await expect(execution.executeMoneyAction(action)).resolves.toMatchObject({ id, status: "submitted", userOperationHash });
+      await fake.advance(1_500);
+      expect(sentTo).toEqual([checksummed]);
+      expect(polledFor).toEqual([checksummed]);
+    } finally {
+      globalThis.setTimeout = originalSetTimeout;
+      globalThis.clearTimeout = originalClearTimeout;
+      execution.reset();
+    }
+  });
+
   test("reuses one idempotent CDP dispatch when handle recording resolves remotely then throws locally", async () => {
     let confirmPosts = 0;
     let dispatches = 0;
