@@ -713,6 +713,12 @@ test("Add money opens on-screen with a tappable deposit row while the order read
   });
 
   await page.goto("/home");
+  // shell:paint is marked from a mount effect, so it proves React hydrated the
+  // shell. Clicking Add money before hydration silently drops the push to
+  // ?flow=add-money on slower runners and the sheet never mounts.
+  await expect.poll(() => page.evaluate(() =>
+    performance.getEntriesByName("shell:paint", "mark").length,
+  )).toBeGreaterThan(0);
   await page.getByRole("button", { name: "Add money" }).click();
   const dialog = page.getByRole("dialog", { name: "Add money" });
   await expect(dialog).toBeVisible();
@@ -722,10 +728,13 @@ test("Add money opens on-screen with a tappable deposit row while the order read
 
   const deposit = dialog.getByRole("button", { name: /Deposit IDR/ });
   await expect(deposit).toBeInViewport();
-  const box = await deposit.boundingBox();
-  expect(box).not.toBeNull();
-  expect(box!.y).toBeGreaterThanOrEqual(0);
-  expect(box!.y + box!.height).toBeLessThanOrEqual(844);
+  // The drawer slides in over 350ms; poll until its entrance settles so the
+  // geometry check does not sample a mid-animation frame. Reduced-motion hosts
+  // zero the transition, so this resolves on the first poll there.
+  await expect.poll(async () => {
+    const box = await deposit.boundingBox();
+    return box !== null && box.y >= 0 && box.y + box.height <= 844;
+  }).toBe(true);
 
   releaseOrders();
   await expect(deposit).toBeEnabled();
