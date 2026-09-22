@@ -337,7 +337,7 @@ describe("live expected failures", () => {
   const base = new URL("https://home.jesse.xyz");
   const expected = [
     { method: "GET", url: "/api/session", status: 401, reason: "restore probe (#101)." },
-    { method: "POST", url: "/api/client-performance", status: 401, reason: "cookie-less beacons (#102)." },
+    { method: "POST", url: "/api/example-report", status: 429, reason: "synthetic reporter limit (#102)." },
     { method: "GET", url: "https://api.cdp.coinbase.com/platform/v2/embedded-wallet-api/projects/75f1f0c7-83bf-47c7-a227-e94bb6d04f83/config", status: 404, reason: "CDP SDK optional project config." },
   ];
 
@@ -373,12 +373,12 @@ describe("live expected failures", () => {
   test("reports declared failures separately and fails every other failure", () => {
     const partition = partitionLiveFailures([
       { method: "GET", url: "https://home.jesse.xyz/api/session", status: 401 },
-      { method: "POST", url: "https://home.jesse.xyz/api/client-performance", status: 401 },
+      { method: "POST", url: "https://home.jesse.xyz/api/example-report", status: 429 },
       { method: "GET", url: "https://home.jesse.xyz/api/balances", status: 500 },
     ], expected, base);
     expect(partition.expected).toEqual([
       "GET https://home.jesse.xyz/api/session (401) — restore probe (#101).",
-      "POST https://home.jesse.xyz/api/client-performance (401) — cookie-less beacons (#102).",
+      "POST https://home.jesse.xyz/api/example-report (429) — synthetic reporter limit (#102).",
     ]);
     expect(partition.unexpected).toEqual(["GET https://home.jesse.xyz/api/balances (500)"]);
   });

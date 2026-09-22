@@ -99,10 +99,10 @@ describe("feature map parser", () => {
   });
 
   test("parses the Live expected failures list and ignores unsupported rows", () => {
-    const map = parseFeatureMap(`### \`sample\`\n- **Reach**:\n  1. \`goto "/home"\`\n## Live expected failures\n\nFailures that deployments return on every load.\n\n- \`GET /api/session\` 401 — the restore probe runs first (#101).\n- POST /api/client-performance 401 — cookie-less beacons (#102).\n- GET https://api.cdp.coinbase.com/config 404 — optional SDK config.\n- GET /api/session 401 without a reason.\n\n## Surfaces\n`);
+    const map = parseFeatureMap(`### \`sample\`\n- **Reach**:\n  1. \`goto "/home"\`\n## Live expected failures\n\nFailures that deployments return on every load.\n\n- \`GET /api/session\` 401 — the restore probe runs first (#101).\n- POST /api/example-report 429 — synthetic reporter limit (#102).\n- GET https://api.cdp.coinbase.com/config 404 — optional SDK config.\n- GET /api/session 401 without a reason.\n\n## Surfaces\n`);
     expect(map.liveExpectedFailures).toEqual([
       { method: "GET", url: "/api/session", status: 401, reason: "the restore probe runs first (#101)." },
-      { method: "POST", url: "/api/client-performance", status: 401, reason: "cookie-less beacons (#102)." },
+      { method: "POST", url: "/api/example-report", status: 429, reason: "synthetic reporter limit (#102)." },
       { method: "GET", url: "https://api.cdp.coinbase.com/config", status: 404, reason: "optional SDK config." },
     ]);
   });
@@ -111,12 +111,10 @@ describe("feature map parser", () => {
     const { liveExpectedFailures } = await readFeatureMap(featureMapPath);
     const rows = liveExpectedFailures.map((entry) => `${entry.method} ${entry.url} ${entry.status}`);
     expect(rows).toContain("GET /api/session 401");
-    expect(rows).toContain("POST /api/client-performance 401");
     expect(rows).toContain("GET https://api.cdp.coinbase.com/platform/v2/embedded-wallet-api/projects/75f1f0c7-83bf-47c7-a227-e94bb6d04f83/config 404");
+    expect(rows).not.toContain("POST /api/client-performance 401");
     const probe = liveExpectedFailures.find((entry) => entry.method === "GET" && entry.url === "/api/session");
-    const beacons = liveExpectedFailures.find((entry) => entry.method === "POST" && entry.url === "/api/client-performance");
     expect(probe?.reason).toContain("#");
-    expect(beacons?.reason).toContain("#");
   });
 
   test("lists the browser-facing live hosts in the real feature map", async () => {
