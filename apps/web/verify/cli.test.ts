@@ -151,8 +151,29 @@ function run(args: string[], extraEnv: Record<string, string | undefined> = {}, 
     stdout: "pipe",
     stderr: "pipe",
   });
-  return { exitCode: result.exitCode, stderr: result.stderr.toString() };
+  return { exitCode: result.exitCode, stdout: result.stdout.toString(), stderr: result.stderr.toString() };
 }
+
+describe("verify status", () => {
+  test("lists arm state only for confirm surfaces and labels the rest by rung", () => {
+    const statusHome = resolve(tmpdir(), `home-verify-status-${crypto.randomUUID()}`);
+    Bun.spawnSync(["mkdir", "-p", statusHome]);
+    try {
+      const result = run(["status", "--base-url", "https://example.com"], { HOME: statusHome });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("send @ example.com: disarmed (insufficient-clean-runs; 0/3 clean Rung 2 runs)");
+      expect(result.stdout).toContain("save @ example.com: disarmed (insufficient-clean-runs; 0/3 clean Rung 2 runs)");
+      expect(result.stdout).toContain("borrow @ example.com: disarmed (insufficient-clean-runs; 0/3 clean Rung 2 runs)");
+      expect(result.stdout).toContain("landing @ example.com: read-only (rung 1)");
+      expect(result.stdout).toContain("cash-out @ example.com: review-bounded (rung 2)");
+      expect(result.stdout).not.toContain("landing @ example.com: disarmed");
+      expect(result.stdout).toContain("caps: $1.00 click; $2.00 run; $5.00 day");
+      expect(result.stdout).not.toContain("ceiling");
+    } finally {
+      Bun.spawnSync(["rm", "-rf", statusHome]);
+    }
+  });
+});
 
 describe("live CLI policy", () => {
   test("stops an unknown control after review", () => {

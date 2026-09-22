@@ -108,7 +108,7 @@ if (args[0] === "status") {
   const today = new Date().toISOString().slice(0, 10);
   console.log(`role: ${verifyRole}`);
   console.log(`today's factory spend: $${spendForDay(entries, today).toFixed(2)} / $${verifyPolicy.factory.perDayUsd.toFixed(2)}`);
-  console.log(`caps: $${verifyPolicy.factory.perClickUsd.toFixed(2)} click; $${verifyPolicy.factory.perRunUsd.toFixed(2)} run; $${verifyPolicy.factory.perDayUsd.toFixed(2)} day; $${verifyPolicy.balanceCeilingUsd.toFixed(2)} ceiling`);
+  console.log(`caps: $${verifyPolicy.factory.perClickUsd.toFixed(2)} click; $${verifyPolicy.factory.perRunUsd.toFixed(2)} run; $${verifyPolicy.factory.perDayUsd.toFixed(2)} day`);
   const statusBaseValue = option("--base-url");
   let statusHost: string | null = null;
   if (statusBaseValue !== undefined) {
@@ -120,6 +120,11 @@ if (args[0] === "status") {
     }
   }
   for (const surface of surfaces.values()) {
+    if (surface.live !== "confirm") {
+      const label = statusHost === null ? surface.id : `${surface.id} @ ${statusHost}`;
+      console.log(`${label}: ${surface.live === "up-to-review" ? "review-bounded (rung 2)" : "read-only (rung 1)"}`);
+      continue;
+    }
     const runHosts = [...new Set(entries.flatMap((entry) => entry.type === "run" && entry.surface === surface.id ? [entry.host] : []))];
     const hosts = statusHost !== null ? [statusHost] : runHosts.length > 0 ? runHosts : [""];
     for (const host of hosts) {
