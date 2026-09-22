@@ -129,7 +129,7 @@ function ItemContent({ className, ...props }: React.ComponentProps<"div">) {
 }
 
 const itemTitleVariants = cva(
-  "flex w-fit items-center gap-2 text-sm leading-snug font-medium underline-offset-4",
+  "flex w-fit items-center gap-2 text-left text-sm leading-snug font-medium underline-offset-4",
   {
     variants: {
       tone: {

@@ -63,7 +63,7 @@ export function ShellHeader({
         <div className="flex min-w-0 items-center gap-2" data-shell-header-main="">
           {hasNestedChrome ? (
             <div
-              className="flex h-11 w-11 shrink-0 items-center md:w-31 md:pointer-fine:h-7"
+              className="flex h-11 w-11 shrink-0 items-center md:w-7.5 md:pointer-fine:h-7"
               data-shell-back=""
             >
               <Button
@@ -77,7 +77,7 @@ export function ShellHeader({
               </Button>
             </div>
           ) : (
-            <HomeMark onClick={() => { if (isVerified) onHome(); }} />
+            <HomeMark compact onClick={() => { if (isVerified) onHome(); }} />
           )}
           <h1
             className="min-w-0 truncate text-base font-semibold"

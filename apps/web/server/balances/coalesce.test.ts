@@ -1,4 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { parseBalancesSnapshot } from "@/shared/balances/contract";
+import {
+  buildBalancesSnapshotFixture,
+  priced as fixturePriced,
+  ready,
+} from "@/shared/balances/fixtures";
 import type { Holding } from "@/shared/balances/types";
 import { createBalancesService } from "./coalesce";
 import { MemoryBalanceSnapshotStore } from "./memory-snapshot-store";
@@ -30,6 +36,19 @@ const catalog: ReadHolding = {
   contractAddress: "0x1111111111111111111111111111111111111111",
   cashCurrency: null,
   balance: { status: "ready", baseUnits: "2" },
+};
+/** A holding beyond page one of a bounded enumeration. */
+const laterPageCatalog: ReadHolding = {
+  key: "eip155:8453/erc20:0x2222222222222222222222222222222222222222",
+  id: "catalog:0x2222222222222222222222222222222222222222",
+  kind: "erc20",
+  source: "catalog",
+  name: "Later",
+  symbol: "LATE",
+  decimals: 18,
+  contractAddress: "0x2222222222222222222222222222222222222222",
+  cashCurrency: null,
+  balance: { status: "ready", baseUnits: "7" },
 };
 
 function read(number = "10", at = observedAt, holdings: ReadHolding[] = [registry, catalog]): BalancesRead {
@@ -77,6 +96,7 @@ function setup(options: {
   now?: string | (() => Date);
   registryRead?: () => Promise<BalancesRead>;
   enumerate?: (cursor?: string | null) => Promise<BalancesEnumeration>;
+  price?: (read: BalancesRead) => Holding[];
 }) {
   const store = options.store ?? new MemoryBalanceSnapshotStore();
   const configuredNow = options.now;
@@ -120,11 +140,15 @@ function setup(options: {
           ],
       coverage: {
         registry: registryRead.coverage.registry,
-        catalog: enumeration.status === "unavailable" ? "unavailable" : "complete",
+        catalog: enumeration.status === "unavailable"
+          ? "unavailable"
+          : enumeration.status === "incomplete"
+            ? "incomplete"
+            : "complete",
       },
     }),
     priceBalances: async (value) => ({
-      holdings: priced(value.holdings),
+      holdings: options.price?.(value) ?? priced(value.holdings),
       revalidating: false,
       durationMs: { store: 0, codex: 0, coinbase: 0 },
     } as never),
@@ -424,6 +448,205 @@ describe("balance observations", () => {
     await fixture.service(owner, "US");
     await fixture.flush();
     expect(fixture.enumerations()).toBe(2);
+  });
+
+  test("a completed resume preserves prior incompleteness until a complete page-one scan", async () => {
+    const cursors: Array<string | null | undefined> = [];
+    let fromStartScans = 0;
+    let registryReads = 0;
+    const fixture = setup({
+      now: "2026-09-13T12:02:01.000Z",
+      registryRead: async () => {
+        registryReads += 1;
+        return read("11", `2026-09-13T12:00:3${registryReads}.000Z`, [registry]);
+      },
+      enumerate: async (cursor) => {
+        cursors.push(cursor);
+        if (cursor === "page-two") {
+          return {
+            status: "complete",
+            rows: [{
+              contractAddress: "0x2222222222222222222222222222222222222222",
+              amountBaseUnits: "7",
+            }],
+            nextCursor: null,
+            pagesRead: 1,
+            durationMs: 5,
+          };
+        }
+        fromStartScans += 1;
+        return fromStartScans === 1
+          ? {
+              status: "incomplete",
+              rows: [{
+                contractAddress: "0x1111111111111111111111111111111111111111",
+                amountBaseUnits: "2",
+              }],
+              nextCursor: "page-two",
+              pagesRead: 1,
+              durationMs: 5,
+            }
+          : {
+              status: "complete",
+              rows: [{
+                contractAddress: "0x1111111111111111111111111111111111111111",
+                amountBaseUnits: "2",
+              }],
+              nextCursor: null,
+              pagesRead: 2,
+              durationMs: 5,
+            };
+      },
+    });
+    await fixture.store.putObservation(observation({
+      holdings: [registry, catalog, laterPageCatalog],
+    }));
+    await fixture.store.markStale(8453, owner, new Date("2026-09-13T12:00:20.000Z"));
+
+    const served = await fixture.service(owner, "US");
+    expect(served.stale).toBeTrue();
+    expect(cursors).toEqual([]);
+    await fixture.flush();
+
+    expect(cursors).toEqual([null]);
+    const afterFirstPage = await fixture.store.get(8453, owner);
+    expect(afterFirstPage?.holdings.map(({ id }) => id)).toEqual([
+      registry.id,
+      catalog.id,
+      laterPageCatalog.id,
+    ]);
+    expect(afterFirstPage?.enumerationCursor).toBe("page-two");
+    expect(afterFirstPage?.coverage.catalog).toBe("incomplete");
+
+    const resumed = await fixture.service(owner, "US");
+    expect(resumed.stale).toBeUndefined();
+    await fixture.flush();
+
+    expect(cursors).toEqual([null, "page-two"]);
+    const afterResume = await fixture.store.get(8453, owner);
+    expect(afterResume?.enumerationCursor).toBeNull();
+    expect(afterResume?.coverage.catalog).toBe("incomplete");
+    expect(afterResume?.holdings.map(({ id }) => id)).toEqual([
+      registry.id,
+      catalog.id,
+      laterPageCatalog.id,
+    ]);
+
+    await fixture.store.markStale(8453, owner, new Date("2026-09-13T12:01:00.000Z"));
+    expect((await fixture.service(owner, "US")).stale).toBeTrue();
+    await fixture.flush();
+
+    expect(cursors).toEqual([null, "page-two", null]);
+    const converged = await fixture.store.get(8453, owner);
+    expect(converged?.enumerationCursor).toBeNull();
+    expect(converged?.coverage.catalog).toBe("complete");
+    expect(converged?.holdings.map(({ id }) => id)).toEqual([registry.id, catalog.id]);
+  });
+
+  test("a fresh registry holding displaces a stored non-registry row with the same key", async () => {
+    const fixtureSnapshot = buildBalancesSnapshotFixture({
+      registry: {
+        cbbtc: {
+          balance: ready("100000"),
+          value: fixturePriced("USD", "1000", 2),
+        },
+      },
+    });
+    const registryRows: ReadHolding[] = fixtureSnapshot.holdings.map((holding) => ({
+      ...holding,
+    }));
+    const freshRegistry = registryRows.find((holding) => holding.id === "cbbtc");
+    if (!freshRegistry?.contractAddress) throw new Error("Missing cbBTC registry fixture.");
+    const storedWallet: ReadHolding = {
+      ...freshRegistry,
+      id: `wallet:${freshRegistry.contractAddress}`,
+      source: "wallet",
+    };
+    const fixture = setup({
+      registryRead: async () => read(
+        "11",
+        "2026-09-13T12:00:30.000Z",
+        registryRows,
+      ),
+      enumerate: async () => ({
+        status: "incomplete",
+        rows: [],
+        nextCursor: "page-three",
+        pagesRead: 1,
+        durationMs: 5,
+      }),
+      price: (balanceRead) => balanceRead.holdings.map((holding) => {
+        if (holding.source === "registry") {
+          const fixtureHolding = fixtureSnapshot.holdings.find(
+            (candidate) => candidate.id === holding.id,
+          );
+          if (!fixtureHolding) throw new Error(`Missing registry fixture ${holding.id}.`);
+          return { ...fixtureHolding, balance: holding.balance };
+        }
+        return {
+          ...holding,
+          value: holding.key === freshRegistry.key
+            ? fixturePriced("USD", "1000", 2)
+            : { status: "unpriced", reason: "price-unavailable" },
+        };
+      }),
+    });
+    await fixture.store.putObservation(observation({
+      enumerationCursor: "page-two",
+      holdings: [...registryRows, storedWallet],
+      coverage: { registry: "complete", catalog: "incomplete" },
+    }));
+
+    await fixture.service(owner, "US");
+    await fixture.flush();
+
+    const stored = await fixture.store.get(8453, owner);
+    expect(stored?.holdings.filter(({ key }) => key === freshRegistry.key)).toEqual([
+      expect.objectContaining({ id: "cbbtc", source: "registry" }),
+    ]);
+
+    const snapshot = await fixture.service(owner, "US");
+    expect(snapshot.holdings.filter(({ key }) => key === freshRegistry.key)).toEqual([
+      expect.objectContaining({ id: "cbbtc", source: "registry" }),
+    ]);
+    expect(snapshot.total).toEqual({
+      status: "partial",
+      value: { atoms: "10000000000000000000", scale: 18 },
+      currency: "USD",
+    });
+    expect(parseBalancesSnapshot(snapshot, {
+      subject: "fixture",
+      smartAccountAddress: owner,
+      chainId: 8453,
+    }, "US")).toEqual(snapshot);
+  });
+
+  test("a genuinely complete re-observe replaces stored non-registry holdings", async () => {
+    const fixture = setup({
+      now: "2026-09-13T12:02:01.000Z",
+      enumerate: async () => ({
+        status: "complete",
+        rows: [{
+          contractAddress: "0x1111111111111111111111111111111111111111",
+          amountBaseUnits: "2",
+        }],
+        nextCursor: null,
+        pagesRead: 2,
+        durationMs: 5,
+      }),
+    });
+    await fixture.store.putObservation(observation({
+      holdings: [registry, catalog, laterPageCatalog],
+    }));
+    await fixture.store.markStale(8453, owner, new Date("2026-09-13T12:00:20.000Z"));
+
+    await fixture.service(owner, "US");
+    await fixture.flush();
+
+    const stored = await fixture.store.get(8453, owner);
+    expect(stored?.holdings.map(({ id }) => id)).toEqual([registry.id, catalog.id]);
+    expect(stored?.enumerationCursor).toBeNull();
+    expect(stored?.coverage.catalog).toBe("complete");
   });
 
   test("an unavailable enumeration resume preserves the stored cursor", async () => {

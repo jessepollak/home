@@ -59,7 +59,9 @@ export class PostgresBalanceSnapshotStore implements BalanceSnapshotStore {
          enumeration_cursor=EXCLUDED.enumeration_cursor,
          holdings=EXCLUDED.holdings,
          coverage=EXCLUDED.coverage
-       WHERE EXCLUDED.block_number >= balance_snapshots.block_number
+       WHERE EXCLUDED.block_number > balance_snapshots.block_number
+          OR (EXCLUDED.block_number = balance_snapshots.block_number
+              AND EXCLUDED.observed_at > balance_snapshots.observed_at)
        RETURNING 1`,
       [row.chainId, row.address.toLowerCase(), row.blockNumber, row.blockHash,
         row.blockTimestamp, row.observedAt, row.enumerationCursor ?? null,

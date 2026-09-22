@@ -337,7 +337,7 @@ describe("Save simplify", () => {
     expect(page().queryByRole("radio")).toBeNull();
   });
 
-  test("keeps a stale verified snapshot visible with age and an explicit retry", async () => {
+  test("keeps a stale verified snapshot visible with an explicit retry and no freshness age", async () => {
     let retries = 0;
     render(
       <SavingsExperience
@@ -347,15 +347,15 @@ describe("Save simplify", () => {
         balanceStatus="ready"
         balancePositions={balancePositions({ [GAUNTLET]: "99000000" })}
         balanceStale
-        balanceFetchedAt="2026-09-10T12:00:00.000Z"
         onRetryBalances={() => { retries += 1; }}
       />,
     );
 
     expect((await page().findAllByText("$99.00")).length).toBeGreaterThan(0);
-    expect(page().getByRole("status").textContent).toContain(
-      "Saved balance stale · updated 4 min ago",
-    );
+    const staleNotice = page().getByRole("status");
+    expect(staleNotice.textContent).toContain("Saved balance stale.");
+    expect(staleNotice.textContent).not.toContain("updated");
+    expect(staleNotice.textContent).not.toContain("ago");
     fireEvent.click(page().getByRole("button", { name: "Retry" }));
     expect(retries).toBe(1);
   });

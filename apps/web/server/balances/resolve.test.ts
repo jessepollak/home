@@ -85,13 +85,6 @@ describe("balances resolution", () => {
         decimals: 18,
       },
       {
-        contractAddress: invalidAddress,
-        amountBaseUnits: "5",
-        name: " Invalid ",
-        symbol: "BAD",
-        decimals: 18,
-      },
-      {
         contractAddress: "0x5555555555555555555555555555555555555555",
         amountBaseUnits: "0",
         name: "Zero",
@@ -240,6 +233,30 @@ describe("balances resolution", () => {
 
     expect(result.holdings).toEqual(registryRead.holdings);
     expect(result.coverage.catalog).toBe("incomplete");
+  });
+
+  test("skips a positive row without usable metadata and marks coverage incomplete", async () => {
+    for (const missingMetadata of [
+      // CDP can omit presentation metadata and the Codex lookup can miss.
+      { contractAddress: invalidAddress, amountBaseUnits: "5" },
+      {
+        contractAddress: invalidAddress,
+        amountBaseUnits: "5",
+        name: " Untrimmed ",
+        symbol: "BAD",
+        decimals: 18,
+      },
+    ]) {
+      const resolve = createBalancesResolver({
+        readCatalog: async () => ({ status: "complete", entries: [] }),
+        readAssetIcons: async () => ({}),
+        lookupTokens: async () => new Map(),
+      });
+      const result = await resolve(registryRead, enumeration([missingMetadata]));
+
+      expect(result.holdings).toEqual(registryRead.holdings);
+      expect(result.coverage.catalog).toBe("incomplete");
+    }
   });
 
   test("attaches icons only to eligible registry ERC-20 holdings and icon failure remains contract-valid", async () => {

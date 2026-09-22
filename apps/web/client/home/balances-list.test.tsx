@@ -12,6 +12,7 @@ import {
 import {
   presentBalances,
   type BalanceRowModel,
+  type BalancesPresentation,
 } from "@/shared/balances/present";
 import { BalancesPage } from "./balances-panel";
 import { HomeBalancesList } from "./balances-list";
@@ -32,6 +33,21 @@ afterEach(() => {
   cleanup();
   window.localStorage.clear();
 });
+
+function renderBalancesPage(assetBalances: BalancesPresentation) {
+  return render(
+    <BalancesPage
+      active
+      assetBalances={assetBalances}
+      showSmallBalances={false}
+      revealSmallBalances={false}
+      onRevealSmallBalancesChange={() => {}}
+      isChecking={false}
+      revealedCount={10}
+      onRevealMore={() => {}}
+    />,
+  );
+}
 
 describe("HomeBalanceRowView", () => {
   test("uses holding images and renders configured initials immediately without a pending disc", () => {
@@ -136,6 +152,34 @@ describe("HomeBalanceRowView", () => {
     const freshPageLoad = render(<TransientBalancesPage />);
     expect(freshPageLoad.queryByText("Dust Token")).toBeNull();
     expect(freshPageLoad.getByText("1 small balance hidden", { exact: false })).toBeTruthy();
+  });
+
+  test("keeps a cached stale balance quiet while background revalidation runs", () => {
+    const snapshot = {
+      ...buildBalancesSnapshotFixture({ fetchedAt: "2026-09-13T12:00:00.000Z" }),
+      stale: true as const,
+    };
+    const view = renderBalancesPage(presentBalances(
+      { status: "ready", snapshot, error: null, revalidating: true },
+      { showSmallBalances: false },
+    ));
+
+    expect(view.queryByText(/Updated|ago/)).toBeNull();
+    expect(view.container.querySelector("[data-total-status]")).toBeNull();
+    // Rows still render where the removed label used to sit, leaving no blank gap.
+    expect(view.container.querySelectorAll("li").length).toBeGreaterThan(0);
+  });
+
+  test("keeps the unavailable recovery label on the balances page", () => {
+    const view = renderBalancesPage(presentBalances(
+      { status: "error", snapshot: null, error: "balances-unavailable" },
+      { showSmallBalances: false },
+    ));
+
+    expect(view.getByText("Balance unavailable")).toBeTruthy();
+    expect(
+      view.container.querySelector("[data-total-status]")?.getAttribute("data-total-status"),
+    ).toBe("unavailable");
   });
 
   test("renders every balance source through the same row anatomy", () => {
