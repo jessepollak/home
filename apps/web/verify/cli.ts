@@ -362,6 +362,7 @@ function handleAccessGate(): void {
   if (!currentPath().startsWith("/access")) return;
   const password = process.env.HOME_ACCESS_PASSWORD;
   if (!password) throw new Error("This deployment requires HOME_ACCESS_PASSWORD in the operator environment.");
+  waitForInput("Access password", "The access gate did not render");
   secretCommand(`(()=>{const input=document.querySelector('input[aria-label="Access password"],input[name="password"]');if(!(input instanceof HTMLInputElement))throw new Error("Access password field not found");const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value")?.set;setter?.call(input,${JSON.stringify(password)});input.dispatchEvent(new Event("input",{bubbles:true}));input.dispatchEvent(new Event("change",{bubbles:true}));return true})()`, "eval", "--stdin");
   waitForEnabledButton("Continue");
   secretCommand("", "find", "role", "button", "click", "--name", "Continue", "--exact");

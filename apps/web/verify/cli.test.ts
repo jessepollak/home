@@ -563,6 +563,23 @@ describe("live login readiness", () => {
     expect(result.stderr).toContain("The sign-in sheet did not render");
     expect(fakeCalls().some((call) => call[0] === "find" && call[1] === "label" && call[2] === "Email address" && call[3] === "fill")).toBe(false);
   });
+
+  test("waits for the access gate password field before filling it", async () => {
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const gmailPath = await seedGmailCredentials();
+    const result = runLiveLogin({
+      HOME_VERIFY_GMAIL_CREDENTIALS: gmailPath,
+      HOME_ACCESS_PASSWORD: "fake-access-password",
+      FAKE_AGENT_BROWSER_PATH: "/access?next=%2F%3Faccount%3Dsignin",
+    });
+    expect(result.exitCode).toBe(0);
+    const calls = fakeCalls();
+    const gateWait = calls.findIndex((call) => call[0] === "wait" && call[1] === "--fn" && call[2] === inputPresentPredicate("Access password"));
+    expect(gateWait).toBeGreaterThan(-1);
+    expect(calls[gateWait + 1]).toEqual(["eval", "--stdin", "--json"]);
+    expect(calls.findIndex((call) => call[0] === "eval" && call[1] === "--stdin")).toBe(gateWait + 1);
+  });
 });
 
 describe("live expected failures", () => {
