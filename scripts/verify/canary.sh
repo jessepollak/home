@@ -8,9 +8,8 @@ case "$production_url" in
   *) echo "HOME_VERIFY_PRODUCTION_URL must be HTTPS." >&2; exit 2 ;;
 esac
 
-repository=${HOME_VERIFY_REPOSITORY:-$(gh repo view --json nameWithOwner -q .nameWithOwner)}
-
 export HOME_VERIFY_ROLE=factory
+
 canary_root=${HOME_VERIFY_CANARY_DIR:-"$HOME/.home-verify/canary"}
 run_stamp=$(date -u +%Y-%m-%dT%H-%M-%SZ)
 run_dir="$canary_root/$run_stamp"
@@ -20,13 +19,24 @@ summary="$run_dir/summary.md"
 printf '# Verification canary — %s\n\n- Production: `%s`\n- Mode: `%s`\n\n| surface / journey | result | evidence |\n| --- | --- | --- |\n' "$run_stamp" "$production_url" "$mode" >"$summary"
 
 status=0
+relogin_attempted=0
+verify_live() {
+  bun run --cwd apps/web verify "$@" --live --base-url "$production_url" --out "$run_dir/evidence"
+}
+relogin() {
+  [ "$relogin_attempted" = 0 ] || return 1
+  relogin_attempted=1
+  bun run --cwd apps/web verify live-login --base-url "$production_url" >"$run_dir/live-login.log" 2>&1
+}
 run_canary() {
   label=$1
   shift
   log="$run_dir/$(printf '%s' "$label" | tr '/ ' '--').log"
   run_result=0
-  if bun run --cwd apps/web verify "$@" --live --base-url "$production_url" --out "$run_dir/evidence" >"$log" 2>&1; then
+  if verify_live "$@" >"$log" 2>&1; then
     result=pass
+  elif grep -q 'The live session expired' "$log" && relogin && verify_live "$@" >"$log" 2>&1; then
+    result='pass (after re-login)'
   else
     result=fail
     run_result=1
@@ -52,14 +62,6 @@ if [ "$mode" = weekly ] || { [ "$mode" = scheduled ] && [ "$(date -u +%u)" = "$w
   run_canary "send to jesse.base.eth" send --canary-operation send --recipient jesse.base.eth --allow-confirm || true
 fi
 
-issue_number=$(gh issue list --repo "$repository" --state open --search 'Verification canary in:title' --json number,title --jq '.[] | select(.title == "Verification canary") | .number' | head -n 1)
-if [ -z "$issue_number" ]; then
-  issue_url=$(gh issue create --repo "$repository" --title 'Verification canary' --body 'Scheduled production verification canary summaries are posted here.')
-  issue_number=${issue_url##*/}
-fi
-if ! gh issue pin "$issue_number" --repo "$repository" >/dev/null 2>&1; then
-  printf 'Could not pin the Verification canary issue %s; pin it manually if it is unpinned.\n' "$issue_number" >&2
-fi
-gh issue comment "$issue_number" --repo "$repository" --body-file "$summary"
+ln -sfn "$run_dir" "$canary_root/latest"
 printf '%s\n' "$summary"
 exit "$status"

@@ -18,6 +18,8 @@ import {
   enforceAmountCap,
   enforceCumulativeAmountCap,
   hostObservationRefusal,
+  inputPresentPredicate,
+  labelledInputFillScript,
   isRecipientFillStep,
   liveSessionExpired,
   liveStepError,
@@ -138,10 +140,15 @@ if (args[0] === "status") {
 
 if (args[0] === "gmail-auth") {
   console.log(`Sign in as ${accountEmailOrExit()} to authorize Gmail readonly access.`);
+  const portValue = option("--port");
+  const port = portValue === undefined ? undefined : Number(portValue);
+  if (port !== undefined && (!Number.isInteger(port) || port < 0 || port > 65535)) {
+    console.error("--port must be an integer between 0 and 65535.");
+    process.exit(2);
+  }
   try {
     const path = gmailCredentialsPath(process.env);
-    await runGmailAuth(path);
-    console.log(`Gmail readonly authorization saved to ${path}.`);
+    await runGmailAuth(path, { open: !hasFlag("--no-open"), port });
     process.exit(0);
   } catch (error) {
     console.error(error instanceof Error ? error.message : "Gmail authorization failed.");
@@ -245,11 +252,11 @@ function command(...commandArgs: string[]): string {
   return commandWithInput(undefined, ...commandArgs);
 }
 
-function secretCommand(input: string, ...commandArgs: string[]): string {
+function secretCommand(step: string, input: string, ...commandArgs: string[]): string {
   try {
     return commandWithInput(input, ...commandArgs);
   } catch {
-    throw new Error(`agent-browser ${commandArgs[0]} failed while handling the deployment access gate.`);
+    throw new Error(`agent-browser ${commandArgs[0]} failed while ${step}.`);
   }
 }
 
@@ -259,6 +266,15 @@ function waitForEnabledButton(label: string): void {
   } catch (error) {
     const detail = error instanceof Error ? error.message : "the wait timed out";
     throw new Error(`The button “${label}” is still disabled: ${detail}`);
+  }
+}
+
+function waitForInput(label: string, failure: string): void {
+  try {
+    command("wait", "--fn", inputPresentPredicate(label));
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "the wait timed out";
+    throw new Error(`${failure}: ${detail}`);
   }
 }
 
@@ -352,10 +368,11 @@ function handleAccessGate(): void {
   if (!currentPath().startsWith("/access")) return;
   const password = process.env.HOME_ACCESS_PASSWORD;
   if (!password) throw new Error("This deployment requires HOME_ACCESS_PASSWORD in the operator environment.");
-  secretCommand(`(()=>{const input=document.querySelector('input[aria-label="Access password"],input[name="password"]');if(!(input instanceof HTMLInputElement))throw new Error("Access password field not found");const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value")?.set;setter?.call(input,${JSON.stringify(password)});input.dispatchEvent(new Event("input",{bubbles:true}));input.dispatchEvent(new Event("change",{bubbles:true}));return true})()`, "eval", "--stdin");
+  waitForInput("Access password", "The access gate did not render");
+  secretCommand("filling the deployment access password", labelledInputFillScript("Access password", password), "eval", "--stdin");
   waitForEnabledButton("Continue");
-  secretCommand("", "find", "role", "button", "click", "--name", "Continue", "--exact");
-  secretCommand("", "wait", "--fn", `location.pathname!=="/access"`);
+  secretCommand("submitting the deployment access password", "", "find", "role", "button", "click", "--name", "Continue", "--exact");
+  secretCommand("waiting for the deployment access gate to clear", "", "wait", "--fn", `location.pathname!=="/access"`);
 }
 
 async function ensurePrivateStateDirectory(): Promise<void> {
@@ -389,14 +406,16 @@ async function runLiveLogin(accountEmail: string): Promise<never> {
     if (!currentPath().includes("account=signin")) {
       command("navigate", new URL("/?account=signin", baseUrl).toString());
     }
+    waitForInput("Email address", "The sign-in sheet did not render");
     command("find", "label", "Email address", "fill", accountEmail, "--exact");
     waitForEnabledButton("Continue with email");
     const submittedAt = Date.now();
     command("find", "role", "button", "click", "--name", "Continue with email", "--exact");
     const credentials = await readGmailCredentials(gmailCredentialsPath(process.env)) as Required<GmailCredentials>;
     const code = await pollGmailOtp(credentials, process.env.HOME_VERIFY_OTP_SENDER ?? defaultOtpSender, submittedAt);
-    secretCommand(`(()=>{const input=document.querySelector('input[aria-label="Verification code"],input[name="otp"]');if(!(input instanceof HTMLInputElement))throw new Error("Verification code field not found");const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value")?.set;setter?.call(input,${JSON.stringify(code)});input.dispatchEvent(new Event("input",{bubbles:true}));input.dispatchEvent(new Event("change",{bubbles:true}));return true})()`, "eval", "--stdin");
-    secretCommand("", "find", "role", "button", "click", "--name", "Verify and continue", "--exact");
+    waitForInput("Verification code", "The verification code entry did not render");
+    secretCommand("filling the sign-in code", labelledInputFillScript("Verification code", code), "eval", "--stdin");
+    secretCommand("submitting the sign-in code", "", "find", "role", "button", "click", "--name", "Verify and continue", "--exact");
     command("wait", "--fn", `Boolean(document.querySelector("[data-app-main-authenticated]"))`);
     command("navigate", new URL("/home?account=settings", baseUrl).toString());
     command("wait", "--text", "Show small balances");
@@ -426,13 +445,14 @@ const surfaceId = args[0];
 if (!surfaceId || surfaceId.startsWith("-")) {
   console.error("Usage: bun run verify <surface-id> [--base-url <url>] [--out <dir>] [--allow-console] [--allow-domain <host>]");
   console.error("       bun run verify live-login --base-url <url> [--allow-domain <host>]");
-  console.error("       bun run verify gmail-auth");
+  console.error("       bun run verify gmail-auth [--no-open] [--port <n>]");
   console.error("       bun run verify status [--base-url <url>] | arm <surface> --by <GitHub-comment-url>");
   console.error("       bun run verify <surface-id> --live --base-url <url> --out <dir> [--recipient <0x-address|jesse.base.eth>] [--allow-domain <host>] [--allow-confirm --account <0x…> --max-usd <n> [--max-usd-total <n>]]");
   console.error("       bun run verify --list");
   process.exit(2);
 }
 
+const liveWithSession = live && requiresSignedInFixture(surfaceId);
 const outputRoot = resolve(option("--out") ?? ".verify");
 const allowConsole = hasFlag("--allow-console");
 const allowConfirm = hasFlag("--allow-confirm");
@@ -542,7 +562,7 @@ if (live) {
   }
 }
 let pinnedAccount: string | null = null;
-if (live) {
+if (liveWithSession) {
   try {
     pinnedAccount = (await readFile(pinPath, "utf8")).trim();
     await stat(statePath);
@@ -578,6 +598,7 @@ const livePath = resolve(destination, "live.json");
 function executeStep(step: ReachStep): string {
   if (step.kind === "goto") {
     command("navigate", new URL(step.path, baseUrl).toString());
+    if (live) handleAccessGate();
     return `goto ${step.path}`;
   }
   if (step.kind === "click") {
@@ -669,6 +690,15 @@ function runIncidents(): string[] {
   return [...new Set(incidents)];
 }
 function syncDisarmIssue(incidents: string[]): void {
+  try {
+    postDisarmIssue(incidents);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error(`The ledger disarmed ${surfaceId}; GitHub was not updated (${detail}).`);
+  }
+}
+
+function postDisarmIssue(incidents: string[]): void {
   const title = `verify: ${surfaceId} disarmed`;
   const listed = Bun.spawnSync({
     cmd: ["gh", "issue", "list", "--repo", verifyRepository(), "--state", "open", "--search", `${title} in:title`, "--json", "number", "--jq", ".[0].number"],
@@ -745,7 +775,7 @@ async function recordLiveLedger(): Promise<void> {
 try {
   command("open", "--init-script", initPath);
   command("set", "viewport", "390", "844");
-  if (live) {
+  if (liveWithSession) {
     await ensurePrivateStateDirectory();
     command("state", "load", statePath);
     command("navigate", new URL("/home?account=settings", baseUrl).toString());
@@ -765,7 +795,7 @@ try {
       renderedBalanceUsd = typeof renderedBalance === "string" ? parseUsdAmount(renderedBalance) : null;
       if (renderedBalanceUsd === null) throw new Error("The rendered account balance is not knowable; confirmation was refused.");
     }
-  } else {
+  } else if (!live) {
     for (const [pattern, body] of fixtureRoutes()) {
       command("network", "route", pattern, "--body", JSON.stringify(body));
     }
@@ -786,6 +816,7 @@ try {
             : `expect ${step.text}`;
     const record: StepRecord = { step: description, status: "pending" };
     steps.push(record);
+    if (live) console.error(`[live] ${new Date().toISOString()} ${description}`);
     let confirmStep = false;
     if (live && step.kind === "click") {
       confirmStep = matchesConfirmLabel(surface.confirmLabels, step.label);
@@ -956,6 +987,14 @@ try {
       unexpectedHosts = observeUnexpectedHosts();
     } catch {
       unexpectedHosts = [];
+    }
+    try {
+      command("screenshot", "--full", screenshotPath);
+      await chmod(screenshotPath, 0o600);
+      const failedDom = jsonResult(command("eval", "document.body.innerText"));
+      await writeEvidenceFile(domPath, typeof failedDom === "string" ? failedDom : JSON.stringify(failedDom, null, 2));
+    } catch (captureError) {
+      console.error(`Failure artifacts were not captured: ${captureError instanceof Error ? captureError.message : String(captureError)}`);
     }
     await writeLiveEvidence();
   }

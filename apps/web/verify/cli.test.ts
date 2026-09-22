@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { readLedger } from "./ledger";
-import { decideConfirmGate, enabledButtonPredicate, unexpectedNetworkHosts } from "./live";
+import { decideConfirmGate, enabledButtonPredicate, inputPresentPredicate, unexpectedNetworkHosts } from "./live";
 
 const repositoryRoot = resolve(import.meta.dir, "../../..");
 const home = resolve(tmpdir(), `home-verify-cli-test-${crypto.randomUUID()}`);
@@ -29,6 +29,13 @@ async function installFakeAgentBrowser(): Promise<void> {
   const bunxPath = resolve(fakeBinDirectory, "bunx");
   await Bun.write(bunxPath, `#!/bin/sh\nexec '${process.execPath}' '${fakePath}' "$@"\n`);
   Bun.spawnSync(["chmod", "755", bunxPath]);
+}
+
+async function seedGmailCredentials(): Promise<string> {
+  const path = resolve(home, "gmail.json");
+  await Bun.write(path, `${JSON.stringify({ client_id: "client-id", client_secret: "client-secret", refresh_token: "refresh-token" })}\n`);
+  Bun.spawnSync(["chmod", "600", path]);
+  return path;
 }
 
 function fakeEnv(body: string, address: string): Record<string, string> {
@@ -141,11 +148,12 @@ function liveJson(surfaceId: string): {
   };
 }
 
-function run(args: string[], extraEnv: Record<string, string | undefined> = {}, pathPrefix?: string) {
+function run(args: string[], extraEnv: Record<string, string | undefined> = {}, pathPrefix?: string, preload?: string) {
   const env: Record<string, string | undefined> = { ...process.env, HOME: home, CI: undefined, GITHUB_ACTIONS: undefined, ...extraEnv };
   if (pathPrefix) env.PATH = `${pathPrefix}:${env.PATH ?? ""}`;
+  const command = preload ? ["bun", "--preload", preload, "apps/web/verify/cli.ts", ...args] : ["bun", "apps/web/verify/cli.ts", ...args];
   const result = Bun.spawnSync({
-    cmd: ["bun", "apps/web/verify/cli.ts", ...args],
+    cmd: command,
     cwd: repositoryRoot,
     env,
     stdout: "pipe",
@@ -363,6 +371,41 @@ describe("live CLI preflight", () => {
   });
 });
 
+describe("live anonymous surfaces", () => {
+  test("runs an anonymous surface without the saved session and clears the access gate after goto", async () => {
+    Bun.spawnSync(["rm", "-rf", stateDirectory]);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = run(["coverage", "--live", "--base-url", "https://example.com", "--out", outsideOutput], {
+      ...fakeEnv("Local money coverage\nSign in", ""),
+      FAKE_AGENT_BROWSER_PATH: "/coverage",
+    });
+    expect(result.stderr).toContain("[live] ");
+    expect(result.stderr).toContain(" goto /coverage");
+    expect(result.stderr).not.toContain("expired");
+    expect(result.exitCode).toBe(0);
+    const calls = fakeCalls();
+    expect(calls.some((call) => call[0] === "state")).toBe(false);
+    const firstNavigate = calls.findIndex((call) => call[0] === "navigate");
+    expect(calls[firstNavigate]?.[1]).toBe("https://example.com/coverage");
+    expect(calls[firstNavigate + 1]?.slice(0, 2)).toEqual(["eval", "location.pathname + location.search"]);
+    expect(calls.some((call) => call[0] === "wait" && call[1] === "--text" && call[2] === "Local money coverage")).toBe(true);
+  });
+
+  test("captures the DOM and a screenshot when a live step fails", async () => {
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = run(["coverage", "--live", "--base-url", "https://example.com", "--out", outsideOutput], {
+      ...fakeEnv("Something else entirely", ""),
+      FAKE_AGENT_BROWSER_PATH: "/coverage",
+      FAKE_AGENT_BROWSER_FAIL_EXPECT: "1",
+    });
+    expect(result.exitCode).toBe(1);
+    expect(latestRunArtifact("coverage", "dom.txt")).toContain("Something else entirely");
+    expect(fakeCalls().some((call) => call[0] === "screenshot")).toBe(true);
+  });
+});
+
 describe("live session state", () => {
   test("waits out a restoring session instead of declaring it expired", async () => {
     await seedLiveState(addressA);
@@ -489,6 +532,112 @@ describe("click readiness", () => {
   });
 });
 
+async function readUntil(stream: ReadableStream<Uint8Array>, needle: string, timeoutMs = 10000): Promise<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const deadline = Date.now() + timeoutMs;
+  while (!buffer.includes(needle)) {
+    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${needle}`);
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+  }
+  reader.releaseLock();
+  return buffer;
+}
+
+describe("gmail-auth remote flow", () => {
+  test("prints the authorization URL, ignores a stray request, and rejects only a wrong state", async () => {
+    const credentialsPath = resolve(home, "gmail-bootstrap.json");
+    await Bun.write(credentialsPath, `${JSON.stringify({ client_id: "client-id", client_secret: "client-secret" })}\n`);
+    Bun.spawnSync(["chmod", "600", credentialsPath]);
+    const process_ = Bun.spawn({
+      cmd: ["bun", "apps/web/verify/cli.ts", "gmail-auth", "--no-open"],
+      cwd: repositoryRoot,
+      env: {
+        ...process.env,
+        HOME: home,
+        CI: undefined,
+        GITHUB_ACTIONS: undefined,
+        HOME_VERIFY_ACCOUNT_EMAIL: "bot@example.com",
+        HOME_VERIFY_GMAIL_CREDENTIALS: credentialsPath,
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const output = await readUntil(process_.stdout, "Open this URL to authorize: ");
+    const match = output.match(/Open this URL to authorize: (\S+)/);
+    expect(match).not.toBeNull();
+    const authorization = new URL(match?.[1] ?? "https://invalid.example");
+    expect(authorization.searchParams.get("scope")).toBe("https://www.googleapis.com/auth/gmail.readonly");
+    const redirectUri = new URL(authorization.searchParams.get("redirect_uri") ?? "https://invalid.example");
+    expect(redirectUri.hostname).toBe("127.0.0.1");
+    const probe = await fetch(`http://127.0.0.1:${redirectUri.port}/probe`);
+    expect(probe.status).toBe(404);
+    const wrongState = await fetch(`http://127.0.0.1:${redirectUri.port}/callback?state=wrong&code=abc`);
+    expect(wrongState.status).toBe(400);
+    expect(await process_.exited).toBe(1);
+    expect(await new Response(process_.stderr).text()).toContain("Gmail OAuth state mismatch");
+  });
+});
+
+describe("live login readiness", () => {
+  const preloadPath = resolve(import.meta.dir, "test-fixtures/fake-gmail-fetch.ts");
+
+  function runLiveLogin(extraEnv: Record<string, string | undefined>) {
+    return run(["live-login", "--base-url", "https://example.com"], {
+      PATH: `${fakeBinDirectory}:${process.env.PATH ?? ""}`,
+      FAKE_AGENT_BROWSER_LOG: fakeLogPath,
+      FAKE_AGENT_BROWSER_ADDRESS: addressA,
+      FAKE_AGENT_BROWSER_AUTHENTICATED: "1",
+      HOME_VERIFY_ACCOUNT_EMAIL: "bot@example.com",
+      ...extraEnv,
+    }, undefined, preloadPath);
+  }
+
+  test("waits for the sign-in sheet and the code entry before filling them", async () => {
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const gmailPath = await seedGmailCredentials();
+    const result = runLiveLogin({ HOME_VERIFY_GMAIL_CREDENTIALS: gmailPath });
+    expect(result.exitCode).toBe(0);
+    const calls = fakeCalls();
+    const emailWait = calls.findIndex((call) => call[0] === "wait" && call[1] === "--fn" && call[2] === inputPresentPredicate("Email address"));
+    expect(emailWait).toBeGreaterThan(-1);
+    expect(calls[emailWait + 1]).toEqual(["find", "label", "Email address", "fill", "bot@example.com", "--exact", "--json"]);
+    const codeWait = calls.findIndex((call) => call[0] === "wait" && call[1] === "--fn" && call[2] === inputPresentPredicate("Verification code"));
+    expect(codeWait).toBeGreaterThan(emailWait);
+    expect(calls[codeWait + 1]).toEqual(["eval", "--stdin", "--json"]);
+  });
+
+  test("fails the sign-in sheet wait before filling the email", async () => {
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = runLiveLogin({ FAKE_AGENT_BROWSER_FAIL_WAIT: "1" });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("The sign-in sheet did not render");
+    expect(fakeCalls().some((call) => call[0] === "find" && call[1] === "label" && call[2] === "Email address" && call[3] === "fill")).toBe(false);
+  });
+
+  test("waits for the access gate password field before filling it", async () => {
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const gmailPath = await seedGmailCredentials();
+    const result = runLiveLogin({
+      HOME_VERIFY_GMAIL_CREDENTIALS: gmailPath,
+      HOME_ACCESS_PASSWORD: "fake-access-password",
+      FAKE_AGENT_BROWSER_PATH: "/access?next=%2F%3Faccount%3Dsignin",
+    });
+    expect(result.exitCode).toBe(0);
+    const calls = fakeCalls();
+    const gateWait = calls.findIndex((call) => call[0] === "wait" && call[1] === "--fn" && call[2] === inputPresentPredicate("Access password"));
+    expect(gateWait).toBeGreaterThan(-1);
+    expect(calls[gateWait + 1]).toEqual(["eval", "--stdin", "--json"]);
+    expect(calls.findIndex((call) => call[0] === "eval" && call[1] === "--stdin")).toBe(gateWait + 1);
+  });
+});
+
 describe("live expected failures", () => {
   test("keeps a declared request failure out of the failing set", async () => {
     await seedLiveState(addressA);
@@ -537,5 +686,22 @@ describe("live expected failures", () => {
     expect(result.exitCode).toBe(1);
     expect(liveJson("account-settings").expectedFailures).toEqual([]);
     expect(latestRunArtifact("account-settings", "summary.md")).toContain("Failed requests: 1");
+  });
+
+  test("records an incident in the ledger even when GitHub cannot be updated", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const ghPath = resolve(fakeBinDirectory, "gh");
+    await Bun.write(ghPath, "#!/bin/sh\nexit 1\n");
+    Bun.spawnSync(["chmod", "+x", ghPath]);
+    const result = run(["account-settings", "--live", "--base-url", "https://example.com", "--out", outsideOutput], {
+      ...fakeEnv("Account\nShow small balances\nYour money", addressA),
+      FAKE_AGENT_BROWSER_HOSTS: JSON.stringify(["example.com", "exfil.example"]),
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("The ledger disarmed account-settings; GitHub was not updated");
+    const entries = await readLedger(resolve(home, ".home-verify", "ledger.jsonl"));
+    expect(entries.some((entry) => entry.type === "disarm" && entry.surface === "account-settings" && entry.incidents.includes("unexpected-host"))).toBe(true);
   });
 });
