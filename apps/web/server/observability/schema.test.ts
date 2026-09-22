@@ -251,6 +251,16 @@ describe("observability schema", () => {
     } as never)).not.toHaveProperty("sandbox");
   });
 
+  test("keeps the offramp orders provider-error code so a 502 is distinguishable in logs", () => {
+    expect(normalizeObservabilityEvent({
+      kind: "funding-order",
+      route: "/api/funding/offramp/orders",
+      code: "OFFRAMP_ORDERS_PROVIDER_ERROR",
+      outcome: "unavailable",
+      durationMs: 0,
+    })).toMatchObject({ code: "OFFRAMP_ORDERS_PROVIDER_ERROR", outcome: "unavailable" });
+  });
+
   test("normalizes out-of-enum funding-order codes to ORDER_UNAVAILABLE", () => {
     expect(normalizeObservabilityEvent({
       kind: "funding-order",
