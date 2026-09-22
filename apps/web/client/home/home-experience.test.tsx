@@ -934,6 +934,32 @@ describe("Home shell routing and intents", () => {
     expect(await page().findByRole("dialog", { name: "Send" })).toBeTruthy();
     expect(page().getAllByRole("dialog", { name: "Send" })).toHaveLength(1);
   });
+
+  test("keeps an in-progress Add money open when the session verifies", async () => {
+    const pendingSession = deferred<Response>();
+    syncLocation("/home");
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        sessionFetch={() => pendingSession.promise}
+        applyInboundUrlIntent
+      />,
+    );
+
+    fireEvent.click(await page().findByRole("button", { name: "Add money" }));
+    await page().findByRole("dialog", { name: "Add money" });
+
+    await act(async () => {
+      pendingSession.resolve(Response.json(session()));
+      await pendingSession.promise;
+    });
+    await waitFor(() => expect(page().queryByRole("dialog", { name: "Add money" })).toBeTruthy());
+
+    const dialog = page().getByRole("dialog", { name: "Add money" });
+    expect(dialog.hasAttribute("data-ending-style")).toBe(false);
+    expect(page().getAllByRole("dialog", { name: "Add money" })).toHaveLength(1);
+    expect(window.location.search).toBe("?flow=add-money");
+  });
 });
 
 describe("Balances scope scroll interleavings (#485)", () => {

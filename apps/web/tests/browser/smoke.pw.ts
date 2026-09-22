@@ -701,6 +701,38 @@ test("IDRX funding reaches review, payment instructions, and receipt", async ({ 
   await expect(page.getByText("Money received")).toBeVisible({ timeout: 7_000 });
 });
 
+test("Add money opens on-screen with a tappable deposit row while the order read is in flight", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedSignedInSession(page, "ID");
+  await installApiFixtures(page);
+  let releaseOrders = () => {};
+  const ordersGate = new Promise<void>((resolve) => { releaseOrders = resolve; });
+  await page.route("**/api/funding/orders**", async (route) => {
+    if (route.request().method() === "GET") await ordersGate;
+    return route.fallback();
+  });
+
+  await page.goto("/home");
+  await page.getByRole("button", { name: "Add money" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add money" });
+  await expect(dialog).toBeVisible();
+  await expect.poll(async () => (await dialog.boundingBox())?.y ?? Number.POSITIVE_INFINITY)
+    .toBeLessThan(844);
+  await expect(page.locator("body")).toHaveCSS("overflow", "hidden");
+
+  const deposit = dialog.getByRole("button", { name: /Deposit IDR/ });
+  await expect(deposit).toBeInViewport();
+  const box = await deposit.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.y).toBeGreaterThanOrEqual(0);
+  expect(box!.y + box!.height).toBeLessThanOrEqual(844);
+
+  releaseOrders();
+  await expect(deposit).toBeEnabled();
+  await deposit.click();
+  await expect(page.getByRole("button", { name: "2", exact: true })).toBeVisible();
+});
+
 const PEER_OFFRAMP = {
   version: 2,
   direction: "offramp",
