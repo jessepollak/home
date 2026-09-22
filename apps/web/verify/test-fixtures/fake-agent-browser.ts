@@ -31,6 +31,8 @@ if (command === "eval") {
     result = process.env.FAKE_AGENT_BROWSER_AUTHENTICATED === "1";
   } else if (expression.includes("performance.getEntriesByType")) {
     result = { marks: [], longTaskCount: 0 };
+  } else if (expression.includes('[data-slot="money-ticker"]')) {
+    result = process.env.FAKE_AGENT_BROWSER_BALANCE ?? null;
   } else if (expression.includes("__homeVerifyHosts")) {
     result = JSON.parse(process.env.FAKE_AGENT_BROWSER_HOSTS ?? "[]") as unknown;
   }

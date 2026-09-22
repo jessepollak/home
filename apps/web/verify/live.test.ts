@@ -450,6 +450,8 @@ describe("live click readiness", () => {
     expect(evaluate("Deposit USD")).toBe(false);
     document.body.innerHTML = '<button type="button">\n  Send to Zelle, Venmo, Cash App and more\n  <p>Use Peer to send via app</p>\n</button>';
     expect(evaluate("Send to Zelle, Venmo, Cash App and more Use Peer to send via app")).toBe(true);
+    document.body.innerHTML = '<button type="button">Send <span role="img" aria-label="$1.00" data-slot="money-ticker">$1.00<span>$</span><span>.</span></span></button>';
+    expect(evaluate("Send $1.00")).toBe(true);
     document.body.innerHTML = '<button type="button" disabled><div>Deposit USD</div><div>Coinbase · Apple Pay</div></button>';
     expect(evaluate("Deposit USD Coinbase · Apple Pay")).toBe(false);
     await GlobalRegistrator.unregister();
