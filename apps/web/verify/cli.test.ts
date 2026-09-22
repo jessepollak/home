@@ -374,6 +374,37 @@ describe("live CLI preflight", () => {
   });
 });
 
+describe("live rendered balance", () => {
+  function runConfirm(extraEnv: Record<string, string>) {
+    return run([
+      "send", "--live", "--base-url", "https://example.com", "--out", outsideOutput,
+      "--recipient", addressB, "--allow-confirm", "--account", addressA, "--max-usd", "1",
+    ], { ...fakeEnv("Home\nTotal balance\n$36.83\nCash\n$21.29\nInvestments\n$15.54\nShow small balances", addressA), ...extraEnv });
+  }
+
+  test("reads the hero ticker rather than every amount in the balance card", async () => {
+    await armSurface("send");
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = runConfirm({ FAKE_AGENT_BROWSER_BALANCE: "$36.83" });
+    expect(result.stderr).not.toContain("not knowable");
+    const balanceRead = fakeCalls().find((call) => call[0] === "eval" && call[1]?.includes("Total balance") && !call[1].startsWith("Boolean("));
+    expect(balanceRead?.[1]).toContain('[data-slot="money-ticker"]');
+    expect(balanceRead?.[1]).toContain("aria-label");
+  });
+
+  test("refuses confirmation when the hero ticker is absent", async () => {
+    await armSurface("send");
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = runConfirm({});
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("The rendered account balance is not knowable; confirmation was refused.");
+  });
+});
+
 describe("live anonymous surfaces", () => {
   test("runs an anonymous surface without the saved session and clears the access gate after goto", async () => {
     Bun.spawnSync(["rm", "-rf", stateDirectory]);

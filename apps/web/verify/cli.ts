@@ -798,7 +798,7 @@ try {
     if (allowConfirm) {
       command("navigate", new URL("/home", baseUrl).toString());
       command("wait", "--fn", `Boolean(document.querySelector('[aria-label="Total balance"]'))`);
-      const renderedBalance = jsonResult(command("eval", `document.querySelector('[aria-label="Total balance"]')?.innerText||null`));
+      const renderedBalance = jsonResult(command("eval", `document.querySelector('[aria-label="Total balance"] [data-slot="money-ticker"]')?.getAttribute("aria-label")||null`));
       renderedBalanceUsd = typeof renderedBalance === "string" ? parseUsdAmount(renderedBalance) : null;
       if (renderedBalanceUsd === null) throw new Error("The rendered account balance is not knowable; confirmation was refused.");
     }
