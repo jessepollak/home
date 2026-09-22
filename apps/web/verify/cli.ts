@@ -683,6 +683,15 @@ function runIncidents(): string[] {
   return [...new Set(incidents)];
 }
 function syncDisarmIssue(incidents: string[]): void {
+  try {
+    postDisarmIssue(incidents);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error(`The ledger disarmed ${surfaceId}; GitHub was not updated (${detail}).`);
+  }
+}
+
+function postDisarmIssue(incidents: string[]): void {
   const title = `verify: ${surfaceId} disarmed`;
   const listed = Bun.spawnSync({
     cmd: ["gh", "issue", "list", "--repo", verifyRepository(), "--state", "open", "--search", `${title} in:title`, "--json", "number", "--jq", ".[0].number"],

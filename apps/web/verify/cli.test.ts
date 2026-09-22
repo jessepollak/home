@@ -631,4 +631,21 @@ describe("live expected failures", () => {
     expect(liveJson("account-settings").expectedFailures).toEqual([]);
     expect(latestRunArtifact("account-settings", "summary.md")).toContain("Failed requests: 1");
   });
+
+  test("records an incident in the ledger even when GitHub cannot be updated", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const ghPath = resolve(fakeBinDirectory, "gh");
+    await Bun.write(ghPath, "#!/bin/sh\nexit 1\n");
+    Bun.spawnSync(["chmod", "+x", ghPath]);
+    const result = run(["account-settings", "--live", "--base-url", "https://example.com", "--out", outsideOutput], {
+      ...fakeEnv("Account\nShow small balances\nYour money", addressA),
+      FAKE_AGENT_BROWSER_HOSTS: JSON.stringify(["example.com", "exfil.example"]),
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("The ledger disarmed account-settings; GitHub was not updated");
+    const entries = await readLedger(resolve(home, ".home-verify", "ledger.jsonl"));
+    expect(entries.some((entry) => entry.type === "disarm" && entry.surface === "account-settings" && entry.incidents.includes("unexpected-host"))).toBe(true);
+  });
 });

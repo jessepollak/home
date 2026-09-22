@@ -31,7 +31,7 @@ if (command === "eval") {
   } else if (expression.includes("performance.getEntriesByType")) {
     result = { marks: [], longTaskCount: 0 };
   } else if (expression.includes("__homeVerifyHosts")) {
-    result = [];
+    result = JSON.parse(process.env.FAKE_AGENT_BROWSER_HOSTS ?? "[]") as unknown;
   }
 } else if (command === "network" && rest[0] === "requests") {
   result = JSON.parse(process.env.FAKE_AGENT_BROWSER_FAILURES ?? "[]") as unknown;

@@ -1,9 +1,6 @@
 #!/bin/sh
 set -eu
 
-PATH="$HOME/.bun/bin:$PATH"
-export PATH
-
 mode=${1:-scheduled}
 production_url=${HOME_VERIFY_PRODUCTION_URL:?Set HOME_VERIFY_PRODUCTION_URL to the production Home origin.}
 case "$production_url" in
@@ -11,14 +8,7 @@ case "$production_url" in
   *) echo "HOME_VERIFY_PRODUCTION_URL must be HTTPS." >&2; exit 2 ;;
 esac
 
-repository=${HOME_VERIFY_REPOSITORY:-$(gh repo view --json nameWithOwner -q .nameWithOwner)}
-
 export HOME_VERIFY_ROLE=factory
-
-if [ -z "${HOME_ACCESS_PASSWORD:-}" ] && [ -n "${HOME_ACCESS_PASSWORD_OP_REF:-}" ]; then
-  HOME_ACCESS_PASSWORD=$(op read "$HOME_ACCESS_PASSWORD_OP_REF")
-  export HOME_ACCESS_PASSWORD
-fi
 
 canary_root=${HOME_VERIFY_CANARY_DIR:-"$HOME/.home-verify/canary"}
 run_stamp=$(date -u +%Y-%m-%dT%H-%M-%SZ)
@@ -61,14 +51,6 @@ if [ "$mode" = weekly ] || { [ "$mode" = scheduled ] && [ "$(date -u +%u)" = "$w
   run_canary "send to jesse.base.eth" send --canary-operation send --recipient jesse.base.eth --allow-confirm || true
 fi
 
-issue_number=$(gh issue list --repo "$repository" --state open --search 'Verification canary in:title' --json number,title --jq '.[] | select(.title == "Verification canary") | .number' | head -n 1)
-if [ -z "$issue_number" ]; then
-  issue_url=$(gh issue create --repo "$repository" --title 'Verification canary' --body 'Scheduled production verification canary summaries are posted here.')
-  issue_number=${issue_url##*/}
-fi
-if ! gh issue pin "$issue_number" --repo "$repository" >/dev/null 2>&1; then
-  printf 'Could not pin the Verification canary issue %s; pin it manually if it is unpinned.\n' "$issue_number" >&2
-fi
-gh issue comment "$issue_number" --repo "$repository" --body-file "$summary"
+ln -sfn "$run_dir" "$canary_root/latest"
 printf '%s\n' "$summary"
 exit "$status"
