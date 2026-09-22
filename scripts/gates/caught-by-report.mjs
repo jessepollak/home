@@ -3,7 +3,7 @@ import { pathToFileURL } from "node:url";
 
 import {
   caughtByPolicyStart,
-  caughtByTrailerValues,
+  caughtByDetectors,
   commitLogFormat,
   fixScope,
   parseCommitLog,
@@ -87,7 +87,7 @@ export function summarizeFixCommits(commits, { isPrePolicy = () => false } = {})
     // Squash-merged fix PRs aggregate their inner commits' trailers into one
     // body: identical values dedupe, several distinct values are mixed, and no
     // value is unknown.
-    const values = [...new Set(caughtByTrailerValues(commit.body))];
+    const values = caughtByDetectors(commit.body);
     return [{
       sha: commit.sha,
       subject: commit.subject,

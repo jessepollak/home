@@ -29,7 +29,7 @@ The **story tests** job runs every Storybook story in headless Chromium through 
 
 ## Fix-commit provenance
 
-The repository gate checks commits after the pull request branch's merge-base with `main`; outside a pull request it checks `HEAD`. Every scoped `fix(...)` subject must include one of these trailers in its commit body: `Caught-by: lint`, `Caught-by: bot`, `Caught-by: review`, `Caught-by: browser`, or `Caught-by: production`. Earlier commits on `main` are grandfathered.
+The repository gate checks commits after the pull request branch's merge-base with `main`; outside a pull request it checks `HEAD`. Every scoped `fix(...)` subject must name exactly one detector in its commit body with one of these trailers: `Caught-by: lint`, `Caught-by: bot`, `Caught-by: review`, `Caught-by: browser`, or `Caught-by: production`. Identical trailers count once, because a squash merge concatenates every inner commit's body and a multi-commit fix PR repeats the same detector once per commit; two different detectors in one body still fail, as does none. Earlier commits on `main` are grandfathered.
 
 ## Caught-by report
 
