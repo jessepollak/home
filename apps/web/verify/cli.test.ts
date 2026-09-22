@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { decideConfirmGate, unexpectedNetworkHosts } from "./live";
+import { decideConfirmGate, enabledButtonPredicate, unexpectedNetworkHosts } from "./live";
 
 const repositoryRoot = resolve(import.meta.dir, "../../..");
 const home = resolve(tmpdir(), `home-verify-cli-test-${crypto.randomUUID()}`);
@@ -45,6 +45,24 @@ function fakeCalls(): string[][] {
 afterAll(() => {
   Bun.spawnSync(["rm", "-rf", home]);
 });
+
+function clickCalls(): string[][] {
+  return fakeCalls().filter((call) => call[0] === "find" && call[1] === "role" && call[2] === "button" && call[3] === "click");
+}
+
+function expectWaitBeforeEveryClick(): void {
+  const calls = fakeCalls();
+  for (const [index, call] of calls.entries()) {
+    if (!(call[0] === "find" && call[1] === "role" && call[2] === "button" && call[3] === "click")) continue;
+    const label = call[call.indexOf("--name") + 1];
+    if (label === undefined) throw new Error("A click call is missing --name.");
+    const wait = calls[index - 1];
+    expect(wait?.[0]).toBe("wait");
+    expect(wait?.[1]).toBe("--fn");
+    expect(wait?.[2]).toBe(enabledButtonPredicate(label));
+    expect(wait?.[2]).toContain(JSON.stringify(label));
+  }
+}
 
 function latestRunArtifact(surfaceId: string, name: string): string {
   const runDirectory = resolve(outsideOutput, surfaceId);
@@ -235,6 +253,48 @@ describe("live session state", () => {
     expect(calls.at(-1)?.[0]).toBe("close");
     expect(calls.at(-2)?.slice(0, 3)).toEqual(["state", "save", statePath]);
     expect(calls.filter((call) => call[0] === "state" && call[1] === "save").length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("click readiness", () => {
+  test("waits for every click target to become enabled in fixture mode", async () => {
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = run(["send", "--out", outsideOutput], {
+      PATH: `${fakeBinDirectory}:${process.env.PATH ?? ""}`,
+      FAKE_AGENT_BROWSER_LOG: fakeLogPath,
+      FAKE_AGENT_BROWSER_BODY: "Send",
+    });
+    expect(result.stderr).not.toContain("still disabled");
+    expect(clickCalls().length).toBeGreaterThan(0);
+    expectWaitBeforeEveryClick();
+  });
+
+  test("waits for every click target to become enabled in live mode", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = run(["save", "--live", "--base-url", "https://example.com", "--out", outsideOutput], {
+      ...fakeEnv("Account\nShow small balances\nYour money", addressA),
+      FAKE_AGENT_BROWSER_AUTHENTICATED: "1",
+    });
+    expect(result.exitCode).toBe(0);
+    expect(clickCalls().map((call) => call[call.indexOf("--name") + 1])).toEqual(["1", "Continue"]);
+    expectWaitBeforeEveryClick();
+  });
+
+  test("fails a click step whose target never becomes enabled", async () => {
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = run(["send", "--out", outsideOutput], {
+      PATH: `${fakeBinDirectory}:${process.env.PATH ?? ""}`,
+      FAKE_AGENT_BROWSER_LOG: fakeLogPath,
+      FAKE_AGENT_BROWSER_FAIL_WAIT: "1",
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("still disabled");
+    expect(result.stderr).toContain("Send");
+    expect(clickCalls()).toEqual([]);
   });
 });
 

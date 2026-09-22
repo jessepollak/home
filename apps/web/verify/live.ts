@@ -316,6 +316,10 @@ export function liveSessionExpired(documentText: string): boolean {
   return documentText.includes("Sign in to Home") && !pending;
 }
 
+export function enabledButtonPredicate(label: string): string {
+  return `[...document.querySelectorAll('button,[role="button"]')].some((node)=>node.disabled!==true&&!node.hasAttribute("disabled")&&node.getAttribute("aria-disabled")!=="true"&&node.getAttribute("aria-busy")!=="true"&&(node.getAttribute("aria-label")??node.textContent??"").trim()===${JSON.stringify(label)})`;
+}
+
 export function accountAddressFromDocument(source: Document): string | null {
   const heading = source.getElementById("account-heading");
   const section = heading?.closest("section");

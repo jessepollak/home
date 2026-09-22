@@ -12,6 +12,7 @@ import {
   composeLiveAllowedDomains,
   confirmReviewOrderError,
   decideConfirmGate,
+  enabledButtonPredicate,
   enforceAmountCap,
   enforceCumulativeAmountCap,
   hostObservationRefusal,
@@ -124,6 +125,15 @@ function secretCommand(input: string, ...commandArgs: string[]): string {
   }
 }
 
+function waitForEnabledButton(label: string): void {
+  try {
+    command("wait", "--fn", enabledButtonPredicate(label));
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "the wait timed out";
+    throw new Error(`The button “${label}” is still disabled: ${detail}`);
+  }
+}
+
 function jsonResult(output: string): unknown {
   if (!output) return null;
   const parsed = JSON.parse(output) as unknown;
@@ -215,6 +225,7 @@ function handleAccessGate(): void {
   const password = process.env.HOME_ACCESS_PASSWORD;
   if (!password) throw new Error("This deployment requires HOME_ACCESS_PASSWORD in the operator environment.");
   secretCommand(`(()=>{const input=document.querySelector('input[aria-label="Access password"],input[name="password"]');if(!(input instanceof HTMLInputElement))throw new Error("Access password field not found");const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value")?.set;setter?.call(input,${JSON.stringify(password)});input.dispatchEvent(new Event("input",{bubbles:true}));input.dispatchEvent(new Event("change",{bubbles:true}));return true})()`, "eval", "--stdin");
+  waitForEnabledButton("Continue");
   secretCommand("", "find", "role", "button", "click", "--name", "Continue", "--exact");
   secretCommand("", "wait", "--fn", `location.pathname!=="/access"`);
 }
@@ -251,6 +262,7 @@ async function runLiveLogin(): Promise<never> {
       command("navigate", new URL("/?account=signin", baseUrl).toString());
     }
     command("find", "label", "Email address", "fill", "j@pollak.io", "--exact");
+    waitForEnabledButton("Continue with email");
     command("find", "role", "button", "click", "--name", "Continue with email", "--exact");
     console.log("Complete the email OTP in the visible browser. Waiting up to 10 minutes…");
     command("wait", "--fn", `Boolean(document.querySelector("[data-app-main-authenticated]"))`);
@@ -412,6 +424,7 @@ function executeStep(step: ReachStep): string {
     return `goto ${step.path}`;
   }
   if (step.kind === "click") {
+    waitForEnabledButton(step.label);
     command("find", "role", "button", "click", "--name", step.label, "--exact");
     return `click ${step.label}`;
   }

@@ -11,6 +11,7 @@ import {
   confirmReviewOrderError,
   decideConfirmGate,
   defaultLiveRecipient,
+  enabledButtonPredicate,
   enforceAmountCap,
   enforceCumulativeAmountCap,
   hostObservationRefusal,
@@ -384,6 +385,40 @@ describe("live session restore", () => {
   test("treats authenticated content as not expired", () => {
     expect(liveSessionExpired("Account\nShow small balances\nYour money")).toBe(false);
     expect(liveSessionExpired("")).toBe(false);
+  });
+});
+
+describe("live click readiness", () => {
+  test("builds an injection-safe enabled-button predicate for quoted and escaped labels", async () => {
+    const label = 'One "quote" and \\ a backslash';
+    const predicate = enabledButtonPredicate(label);
+    expect(() => new Function(`return (${predicate});`)).not.toThrow();
+    expect(predicate).toContain("aria-disabled");
+    expect(predicate).toContain("aria-busy");
+    expect(predicate).toContain("disabled");
+    await GlobalRegistrator.register();
+    const evaluate = () => new Function(`return (${predicate});`)() as boolean;
+    document.body.innerHTML = "";
+    const button = document.createElement("button");
+    button.textContent = label;
+    document.body.append(button);
+    expect(evaluate()).toBe(true);
+    button.textContent = "10";
+    expect(evaluate()).toBe(false);
+    button.textContent = label;
+    button.disabled = true;
+    expect(evaluate()).toBe(false);
+    button.disabled = false;
+    button.setAttribute("aria-disabled", "true");
+    expect(evaluate()).toBe(false);
+    button.removeAttribute("aria-disabled");
+    button.setAttribute("aria-busy", "true");
+    expect(evaluate()).toBe(false);
+    button.removeAttribute("aria-busy");
+    button.textContent = "Different";
+    button.setAttribute("aria-label", label);
+    expect(evaluate()).toBe(true);
+    await GlobalRegistrator.unregister();
   });
 });
 
