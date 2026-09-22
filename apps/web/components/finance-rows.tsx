@@ -61,31 +61,38 @@ function FinanceRow({
   const hintId = useId();
   const content = (
     <>
-      <ItemMedia variant="avatar" aria-hidden="true">
-        <span
-          className={cn(
-            "grid size-full place-items-center rounded-full bg-muted text-xs font-semibold text-muted-foreground",
-            iconTone === "incoming" && "bg-market-gain/10 text-market-gain",
-            iconTone === "outgoing" && "bg-market-loss/10 text-market-loss",
-            iconTone === "self" && "text-muted-foreground",
-            iconTone === "outlined" && "text-destructive",
-            iconTone === "mark" && "overflow-hidden bg-transparent text-inherit",
-          )}
-          data-tone={iconTone}
-        >
-          {typeof icon === "string" ? <DirectionIcon value={icon} /> : icon}
-        </span>
-      </ItemMedia>
-      <ItemContent className="min-w-0">
-        <ItemTitle className="w-full">{label}</ItemTitle>
-        {context === undefined ? null : (
-          <ItemDescription lines={1} title={contextTitle}>
-            {context}
-          </ItemDescription>
+      <div
+        className={cn(
+          "flex min-w-0 items-center gap-2.5",
+          onActivate ? "flex-1" : "flex-auto",
         )}
-      </ItemContent>
+      >
+        <ItemMedia variant="avatar" aria-hidden="true">
+          <span
+            className={cn(
+              "grid size-full place-items-center rounded-full bg-muted text-xs font-semibold text-muted-foreground",
+              iconTone === "incoming" && "bg-market-gain/10 text-market-gain",
+              iconTone === "outgoing" && "bg-market-loss/10 text-market-loss",
+              iconTone === "self" && "text-muted-foreground",
+              iconTone === "outlined" && "text-destructive",
+              iconTone === "mark" && "overflow-hidden bg-transparent text-inherit",
+            )}
+            data-tone={iconTone}
+          >
+            {typeof icon === "string" ? <DirectionIcon value={icon} /> : icon}
+          </span>
+        </ItemMedia>
+        <ItemContent className="min-w-0">
+          <ItemTitle className="w-full">{label}</ItemTitle>
+          {context === undefined ? null : (
+            <ItemDescription lines={2} title={contextTitle}>
+              {context}
+            </ItemDescription>
+          )}
+        </ItemContent>
+      </div>
       <ItemContent
-        className="max-w-2/3 min-w-0 !flex-auto items-stretch overflow-hidden text-right"
+        className="ml-auto max-w-2/3 min-w-0 !flex-none items-stretch overflow-hidden text-right"
         data-slot="finance-row-value"
       >
         <ItemTitle
