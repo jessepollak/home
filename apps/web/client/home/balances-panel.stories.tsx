@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { expect } from "storybook/test";
 import type { BalanceRowModel } from "@/shared/balances/present";
 import { Card, CardContent } from "@/components/ui/card";
 import { HomeBalanceRowView } from "./balances-list";
@@ -34,17 +35,57 @@ const longLabelLargeAmountRow = {
   tone: "default",
 } satisfies BalanceRowModel;
 
+const testTokenRow = {
+  key: "storybook-test-token",
+  group: "asset",
+  name: "Test Token",
+  mark: { kind: "symbol", symbol: "TEST" },
+  primary: "$123,456.78",
+  secondary: "123.4567 TEST",
+  tone: "default",
+} satisfies BalanceRowModel;
+
+const governanceTokenRow = {
+  key: "storybook-governance-token",
+  group: "asset",
+  name: "Sample governance token",
+  mark: { kind: "symbol", symbol: "TEST" },
+  primary: "$123,456.78",
+  secondary: "12,345,678 TEST",
+  tone: "default",
+} satisfies BalanceRowModel;
+
+const longIdentityRow = {
+  key: "storybook-long-identity",
+  group: "asset",
+  name: "International diversified treasury reserve position",
+  mark: { kind: "symbol", symbol: "RESERVE" },
+  primary: "$123,456.78",
+  secondary: "99,999,999,999.0000 RESERVE",
+  tone: "default",
+} satisfies BalanceRowModel;
+
+const largeLocalCurrencyRow = {
+  key: "storybook-idr",
+  group: "cash",
+  name: "Indonesian rupiah",
+  mark: { kind: "flag", currency: "IDR" },
+  primary: "Rp 1.234.567.890,12",
+  secondary: null,
+  tone: "default",
+} satisfies BalanceRowModel;
+
 type FinancialRowStoryProps = {
-  row: BalanceRowModel;
+  rows: BalanceRowModel[];
 };
 
-function FinancialRowStory({ row }: FinancialRowStoryProps) {
+function FinancialRowStory({ rows }: FinancialRowStoryProps) {
   return (
     <div className="mx-auto w-full max-w-md p-2">
       <Card>
         <CardContent inset="list">
           <ul className="list-none p-0" data-balance-list="">
-            <HomeBalanceRowView row={row} />
+            {rows.map((row) => <HomeBalanceRowView key={row.key} row={row} />)}
           </ul>
         </CardContent>
       </Card>
@@ -52,12 +93,27 @@ function FinancialRowStory({ row }: FinancialRowStoryProps) {
   );
 }
 
+function balanceRowParts(row: Element) {
+  const valueColumn = row.querySelector<HTMLElement>("[data-slot=finance-row-value]");
+  const ticker = row.querySelector<HTMLElement>("[data-slot=money-ticker]");
+  const label = row.querySelector<HTMLElement>("[data-slot=item-content] [data-slot=item-title]");
+  const quantity = row.querySelector<HTMLElement>("[data-slot=item-content] [data-slot=item-description]");
+  if (!valueColumn || !ticker || !label) throw new Error("Balance row geometry is incomplete");
+  return { valueColumn, ticker, label, quantity };
+}
+
+function allLinesWithin(element: HTMLElement): boolean {
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  return range.getBoundingClientRect().height <= element.getBoundingClientRect().height + 0.5;
+}
+
 const meta = {
   id: "pilot-financial-row",
   title: "Pilot/Financial Row",
   component: FinancialRowStory,
   args: {
-    row: normalRow,
+    rows: [normalRow],
   },
   parameters: {
     layout: "fullscreen",
@@ -84,17 +140,68 @@ export const Loading: Story = {
 
 export const UnavailableValue: Story = {
   args: {
-    row: unavailableRow,
+    rows: [unavailableRow],
   },
 };
 
 export const LongLabelLargeAmount: Story = {
   args: {
-    row: longLabelLargeAmountRow,
+    rows: [longLabelLargeAmountRow],
   },
   parameters: {
     viewport: {
       defaultViewport: "mobile",
     },
+  },
+};
+
+export const IssueExampleQuantities: Story = {
+  args: {
+    rows: [testTokenRow, governanceTokenRow, longIdentityRow, largeLocalCurrencyRow],
+  },
+  parameters: {
+    viewport: {
+      defaultViewport: "mobile",
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const rows = [...canvasElement.querySelectorAll("[data-slot=item][data-kind=balance]")];
+    await expect(rows).toHaveLength(4);
+    const expected = [testTokenRow, governanceTokenRow, longIdentityRow, largeLocalCurrencyRow];
+
+    for (const [index, row] of rows.entries()) {
+      const { valueColumn, ticker, label, quantity } = balanceRowParts(row);
+      const rowBox = row.getBoundingClientRect();
+      const valueBox = valueColumn.getBoundingClientRect();
+      const tickerBox = ticker.getBoundingClientRect();
+
+      await expect(Math.abs(valueBox.width - tickerBox.width)).toBeLessThan(1.5);
+      await expect(Math.abs(valueBox.right - tickerBox.right)).toBeLessThan(1.5);
+      await expect(rowBox.right - valueBox.right).toBeGreaterThanOrEqual(10);
+      await expect(rowBox.right - valueBox.right).toBeLessThan(16);
+      await expect(valueBox.left - rowBox.left).toBeGreaterThanOrEqual(10);
+
+      await expect(ticker.getAttribute("aria-label")).toBe(expected[index]!.primary);
+      await expect(label.textContent).toBe(expected[index]!.name);
+
+      if (quantity !== null) {
+        await expect(quantity.textContent).toBe(expected[index]!.secondary);
+        const quantityBox = quantity.getBoundingClientRect();
+        await expect(quantityBox.width).toBeGreaterThan(0);
+        await expect(quantityBox.left).toBeGreaterThanOrEqual(rowBox.left);
+        await expect(quantityBox.right).toBeLessThanOrEqual(rowBox.right + 0.5);
+        await expect(allLinesWithin(quantity)).toBe(true);
+        await expect(quantityBox.right).toBeLessThanOrEqual(valueBox.left + 0.5);
+      }
+    }
+
+    const boxes = rows.map((row) => row.getBoundingClientRect());
+    for (const [index, box] of boxes.slice(0, -1).entries()) {
+      await expect(box.bottom).toBeLessThanOrEqual(boxes[index + 1]!.top + 0.5);
+    }
+
+    const document = canvasElement.ownerDocument;
+    await expect(document.documentElement.scrollWidth)
+      .toBeLessThanOrEqual(document.documentElement.clientWidth + 1);
   },
 };
