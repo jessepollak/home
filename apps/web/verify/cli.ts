@@ -120,6 +120,11 @@ if (args[0] === "status") {
     }
   }
   for (const surface of surfaces.values()) {
+    if (surface.live !== "confirm") {
+      const label = statusHost === null ? surface.id : `${surface.id} @ ${statusHost}`;
+      console.log(`${label}: ${surface.live === "up-to-review" ? "review-bounded (rung 2)" : "read-only (rung 1)"}`);
+      continue;
+    }
     const runHosts = [...new Set(entries.flatMap((entry) => entry.type === "run" && entry.surface === surface.id ? [entry.host] : []))];
     const hosts = statusHost !== null ? [statusHost] : runHosts.length > 0 ? runHosts : [""];
     for (const host of hosts) {
