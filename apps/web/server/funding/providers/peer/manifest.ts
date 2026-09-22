@@ -20,7 +20,8 @@ export const PEER_SANDBOX_CONTRACTS = {
   rateManager: "0x9d773Af159538369b4842e40510562016E3eD3d7",
 } as const;
 
-const pendingConfirmation = "pending Peer written corridor confirmation";
+const productionDecision =
+  "operator decision 2026-09-22: validate in production under the verification ladder caps; Peer written corridor confirmation not yet received";
 
 export const peerManifest = {
   id: "peer",
@@ -49,7 +50,7 @@ export const peerManifest = {
             { id: "zelle", label: "Zelle" },
           ],
           env: ["PEER_OFFRAMP_ENABLED"],
-          confirmedBy: pendingConfirmation,
+          confirmedBy: productionDecision,
         },
       },
     },
@@ -64,7 +65,7 @@ export const peerManifest = {
             { id: "revolut", label: "Revolut" },
           ],
           env: ["PEER_OFFRAMP_ENABLED"],
-          confirmedBy: pendingConfirmation,
+          confirmedBy: productionDecision,
         },
       },
     },

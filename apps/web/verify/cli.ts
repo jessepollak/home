@@ -21,6 +21,8 @@ import {
   hostObservationRefusal,
   inputPresentPredicate,
   labelledInputFillScript,
+  cashoutHandleFillValue,
+  isCashoutHandleFillStep,
   isRecipientFillStep,
   liveSessionExpired,
   liveStepError,
@@ -31,6 +33,7 @@ import {
   partitionLiveFailures,
   recipientPlaceholderError,
   recipientRowError,
+  resolveLiveCashoutHandle,
   resolveLiveRecipient,
   reviewAndLabelAmountError,
   unexpectedNetworkHosts,
@@ -474,11 +477,27 @@ if (live && (recipientPlaceholder || recipientOption !== undefined)) {
   }
   effectiveRecipient = resolution.recipient;
 }
-const reachSteps = selectedReach.map((step): ReachStep =>
-  isRecipientFillStep(step)
-    ? { ...step, value: live ? effectiveRecipient?.address ?? step.value : recipientOption ?? step.value }
-    : step
-);
+const cashoutHandleRequired = selectedReach.some(isCashoutHandleFillStep);
+let liveCashoutHandle: string | null = null;
+if (live && cashoutHandleRequired) {
+  const resolution = resolveLiveCashoutHandle(process.env.HOME_VERIFY_CASHOUT_HANDLE);
+  if (resolution.action === "refuse") {
+    console.error(resolution.reason);
+    process.exit(1);
+  }
+  liveCashoutHandle = resolution.handle;
+}
+const reachSteps = selectedReach
+  .map((step): ReachStep =>
+    isRecipientFillStep(step)
+      ? { ...step, value: live ? effectiveRecipient?.address ?? step.value : recipientOption ?? step.value }
+      : step,
+  )
+  .map((step): ReachStep =>
+    live && liveCashoutHandle !== null && isCashoutHandleFillStep(step)
+      ? { ...step, value: cashoutHandleFillValue(step.label, liveCashoutHandle) }
+      : step,
+  );
 const toFillRecipient = live
   ? reachSteps.flatMap((step) => (step.kind === "fill" && step.label === "To" ? [step.value] : []))[0] ?? null
   : null;
@@ -605,8 +624,15 @@ let unexpectedHosts: string[] = [];
 let expectedFailures: string[] = [];
 let transactionHash: string | null = null;
 let actionId: string | null = null;
+function redactPayoutHandle(contents: string): string {
+  if (liveCashoutHandle === null) return contents;
+  const forms = new Set([liveCashoutHandle, cashoutHandleFillValue("Re-enter handle", liveCashoutHandle)].filter((form) => form.length >= 3));
+  let redacted = contents;
+  for (const form of forms) redacted = redacted.split(form).join("<payout-handle>");
+  return redacted;
+}
 async function writeEvidenceFile(path: string, contents: string): Promise<void> {
-  await writeFile(path, contents);
+  await writeFile(path, redactPayoutHandle(contents));
   if (live) await chmod(path, 0o600);
 }
 async function writeLiveEvidence(): Promise<void> {

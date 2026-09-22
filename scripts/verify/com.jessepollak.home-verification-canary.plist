@@ -25,6 +25,8 @@
     <string>factory</string>
     <key>HOME_ACCESS_PASSWORD</key>
     <string>__HOME_ACCESS_PASSWORD__</string>
+    <key>HOME_VERIFY_CASHOUT_HANDLE</key>
+    <string>__HOME_VERIFY_CASHOUT_HANDLE__</string>
   </dict>
   <key>StartCalendarInterval</key>
   <dict>
