@@ -32,4 +32,4 @@ Keep implementation details, migrations, test additions, adapters, and other tec
 
 ## Evidence planning
 
-For user-visible work, name the relevant browser path and current-head preview evidence. For money-moving work, plan the required rungs under the [verification ladder](operating-manual.md#verification-ladder). If policy blocks a rung because the surface is disarmed, a cap is exhausted, or the confirmation amount is unknowable, write `Real money: not tested` and name that bound.
+For user-visible work, name the relevant browser path and current-head preview evidence. For money-moving work, plan the required rungs under the [verification ladder](operating-manual.md#verification-ladder). If policy blocks a rung because a cap is exhausted or the confirmation amount is unknowable, write `Real money: not tested` and name that bound.

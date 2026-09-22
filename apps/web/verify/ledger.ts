@@ -1,6 +1,6 @@
 import { appendFile, chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { verifyPolicy, type VerifyRole } from "./policy";
+import { type VerifyRole } from "./policy";
 
 export type LedgerRun = {
   type: "run";
@@ -16,30 +16,7 @@ export type LedgerRun = {
   clean: boolean;
 };
 
-export type LedgerArm = {
-  type: "arm";
-  timestamp: string;
-  surface: string;
-  by: string;
-  commentId: string;
-  createdAt: string;
-};
-
-export type LedgerDisarm = {
-  type: "disarm";
-  timestamp: string;
-  surface: string;
-  incidents: string[];
-  runId: string;
-};
-
-export type LedgerEntry = LedgerRun | LedgerArm | LedgerDisarm;
-
-export type SurfaceArmState = {
-  armed: boolean;
-  cleanRuns: number;
-  reason: "clean-runs" | "jesse-arm" | "incident" | "insufficient-clean-runs";
-};
+export type LedgerEntry = LedgerRun;
 
 export async function ensureLedger(path: string): Promise<void> {
   const directory = dirname(path);
@@ -136,41 +113,15 @@ export async function readLedger(path: string): Promise<LedgerEntry[]> {
     const contents = await readFile(path, "utf8");
     return contents.split("\n").filter(Boolean).map((line, index) => {
       try {
-        return JSON.parse(line) as LedgerEntry;
+        return JSON.parse(line) as { type?: string };
       } catch {
         throw new Error(`Invalid verification ledger entry on line ${index + 1}.`);
       }
-    });
+    }).filter((entry): entry is LedgerEntry => entry.type === "run");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw error;
   }
-}
-
-export function surfaceArmState(
-  entries: LedgerEntry[],
-  surface: string,
-  mainRevision: string,
-  host: string,
-): SurfaceArmState {
-  const relevantEvents = entries.filter((entry) =>
-    entry.surface === surface && (entry.type !== "run" || entry.incidents.length > 0)
-  );
-  const lastEvent = relevantEvents.at(-1);
-  if (lastEvent?.type === "arm") return { armed: true, cleanRuns: 0, reason: "jesse-arm" };
-  if (lastEvent?.type === "disarm" || lastEvent?.type === "run") return { armed: false, cleanRuns: 0, reason: "incident" };
-  const cleanRuns = entries.filter((entry): entry is LedgerRun =>
-    entry.type === "run" &&
-    entry.surface === surface &&
-    entry.host === host &&
-    entry.mainRevision === mainRevision &&
-    entry.rungReached >= 2 &&
-    entry.clean &&
-    entry.incidents.length === 0
-  ).length;
-  return cleanRuns >= verifyPolicy.cleanRunsToArm
-    ? { armed: true, cleanRuns, reason: "clean-runs" }
-    : { armed: false, cleanRuns, reason: "insufficient-clean-runs" };
 }
 
 export function spendForDay(entries: LedgerEntry[], date: string, role: VerifyRole = "factory"): number {
@@ -185,62 +136,4 @@ export function spendForRun(entries: LedgerEntry[], runId: string): number {
     if (entry.type !== "run" || entry.runId !== runId) return total;
     return total + entry.amountsUsd.reduce((sum, amount) => sum + amount, 0);
   }, 0);
-}
-
-export type ArmComment = {
-  html_url?: string;
-  body?: string;
-  user?: { login?: string };
-  created_at?: string;
-};
-
-export type ArmAuthority = { repository: string; operatorLogin: string };
-
-function escapeRegExp(value: string): string {
-  return value.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-export function armCommentId(by: string, authority: ArmAuthority): string {
-  const url = new URL(by);
-  const pattern = new RegExp(`^/${escapeRegExp(authority.repository)}/(?:issues|pull)/\\d+#issuecomment-(\\d+)$`);
-  const match = `${url.pathname}${url.hash}`.match(pattern);
-  if (url.protocol !== "https:" || url.hostname !== "github.com" || !match) {
-    throw new Error(`--by must be a ${authority.repository} issue or pull-request comment URL.`);
-  }
-  return match[1];
-}
-
-export function armAuthorityError(surface: string, by: string, comment: ArmComment, authority: ArmAuthority): string | null {
-  armCommentId(by, authority);
-  if (comment.html_url !== by) return "The resolved GitHub comment URL does not match --by.";
-  if (comment.user?.login !== authority.operatorLogin) return `Only a comment authored by ${authority.operatorLogin} can re-arm a surface.`;
-  if (comment.body?.trim() !== `/verify arm ${surface}`) return `The operator comment must contain exactly /verify arm ${surface}.`;
-  if (!comment.created_at || !Number.isFinite(Date.parse(comment.created_at))) return "The resolved operator comment has no readable creation time.";
-  return null;
-}
-
-export function armReplayError(entries: LedgerEntry[], surface: string, commentId: string, createdAt: string): string | null {
-  if (entries.some((entry) => entry.type === "arm" && entry.commentId === commentId)) {
-    return "That comment already re-armed a surface; comment again to re-arm.";
-  }
-  const latestDisarm = entries.filter((entry): entry is LedgerDisarm => entry.type === "disarm" && entry.surface === surface).at(-1);
-  if (latestDisarm && Date.parse(createdAt) <= Date.parse(latestDisarm.timestamp)) {
-    return `That comment predates the latest ${surface} disarm; comment again to re-arm.`;
-  }
-  return null;
-}
-
-export function armEvent(surface: string, by: string, comment: ArmComment, authority: ArmAuthority, now = new Date()): LedgerArm {
-  const authorityError = armAuthorityError(surface, by, comment, authority);
-  if (authorityError) throw new Error(authorityError);
-  const createdAt = comment.created_at ?? "";
-  return { type: "arm", timestamp: now.toISOString(), surface, by, commentId: armCommentId(by, authority), createdAt };
-}
-
-export async function recordArmEvent(path: string, event: LedgerArm): Promise<void> {
-  await withLedgerLock(path, async () => {
-    const replayError = armReplayError(await readLedger(path), event.surface, event.commentId, event.createdAt);
-    if (replayError) throw new Error(replayError);
-    await appendLedger(path, event);
-  });
 }

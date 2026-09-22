@@ -10,8 +10,6 @@ Bun.spawnSync(["mkdir", "-p", home]);
 const outsideOutput = resolve(home, "evidence");
 const addressA = "0x1111111111111111111111111111111111111111";
 const addressB = "0x2222222222222222222222222222222222222222";
-const commentUrl = "https://github.com/fake-owner/home/issues/1#issuecomment-123";
-const armHomes: string[] = [];
 const stateDirectory = resolve(home, ".home-verify", "example.com", "state");
 const statePath = resolve(stateDirectory, "browser-state.json");
 const fakeBinDirectory = resolve(home, "fake-bin");
@@ -54,61 +52,7 @@ function fakeCalls(): string[][] {
 
 afterAll(() => {
   Bun.spawnSync(["rm", "-rf", home]);
-  for (const path of armHomes.splice(0)) Bun.spawnSync(["rm", "-rf", path]);
 });
-
-async function armHome(entries: unknown[] = []) {
-  const directory = resolve(tmpdir(), `home-verify-arm-${crypto.randomUUID()}`);
-  const binDirectory = resolve(directory, "bin");
-  Bun.spawnSync(["mkdir", "-p", resolve(directory, ".home-verify"), binDirectory]);
-  if (entries.length > 0) {
-    await Bun.write(resolve(directory, ".home-verify", "ledger.jsonl"), `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
-  }
-  const gh = resolve(binDirectory, "gh");
-  await Bun.write(gh, `#!/bin/sh
-printf '%s\n' "$*" >> "$FAKE_GH_LOG"
-if [ "$1" = "api" ]; then
-  printf '{"html_url":"%s","body":"%s","user":{"login":"%s"},"created_at":"%s"}' "$FAKE_COMMENT_URL" "$FAKE_COMMENT_BODY" "\${FAKE_COMMENT_LOGIN:-fake-owner}" "$FAKE_COMMENT_CREATED_AT"
-  exit 0
-fi
-if [ "$1" = "repo" ] && [ "$2" = "view" ]; then
-  printf '%s' "\${FAKE_GH_NAME_WITH_OWNER:-fake-owner/home}"
-  exit 0
-fi
-exit 1
-`);
-  Bun.spawnSync(["chmod", "+x", gh]);
-  armHomes.push(directory);
-  return directory;
-}
-
-function runArm(homePath: string, extraEnv: Record<string, string | undefined> = {}, comment: { body?: string; created?: string; url?: string } = {}) {
-  const by = comment.url ?? commentUrl;
-  return run(["arm", "send", "--by", by], {
-    HOME: homePath,
-    FAKE_GH_LOG: resolve(homePath, "gh.log"),
-    FAKE_COMMENT_URL: by,
-    FAKE_COMMENT_BODY: comment.body ?? "/verify arm send",
-    FAKE_COMMENT_CREATED_AT: comment.created ?? "2026-09-23T00:00:00.000Z",
-    ...extraEnv,
-  }, resolve(homePath, "bin"));
-}
-
-function fakeGhCalls(homePath: string): string[] {
-  const log = Bun.spawnSync(["cat", resolve(homePath, "gh.log")], { stdout: "pipe", stderr: "pipe" }).stdout.toString();
-  return log.trim().split("\n").filter(Boolean);
-}
-
-async function armSurface(surface: string) {
-  const directory = resolve(home, ".home-verify");
-  Bun.spawnSync(["mkdir", "-p", directory]);
-  await Bun.write(resolve(directory, "ledger.jsonl"), `${JSON.stringify({
-    type: "arm",
-    timestamp: new Date().toISOString(),
-    surface,
-    by: "https://github.com/jessepollak/home/issues/1#issuecomment-1",
-  })}\n`);
-}
 
 function clickCalls(): string[][] {
   return fakeCalls().filter((call) => call[0] === "find" && call[1] === "role" && call[2] === "button" && call[3] === "click");
@@ -166,20 +110,34 @@ function run(args: string[], extraEnv: Record<string, string | undefined> = {}, 
 }
 
 describe("verify status", () => {
-  test("lists arm state only for confirm surfaces and labels the rest by rung", () => {
+  test("labels every surface by rung and reports spend, caps, and recent incidents", async () => {
     const statusHome = resolve(tmpdir(), `home-verify-status-${crypto.randomUUID()}`);
-    Bun.spawnSync(["mkdir", "-p", statusHome]);
+    Bun.spawnSync(["mkdir", "-p", resolve(statusHome, ".home-verify")]);
     try {
+      await Bun.write(resolve(statusHome, ".home-verify", "ledger.jsonl"), `${JSON.stringify({
+        type: "run",
+        timestamp: "2026-09-23T00:00:00.000Z",
+        runId: "run-1",
+        host: "example.com",
+        surface: "send",
+        role: "factory",
+        mainRevision: "abc123",
+        rungReached: 2,
+        amountsUsd: [],
+        incidents: ["unexpected-host"],
+        clean: false,
+      })}\n`);
       const result = run(["status", "--base-url", "https://example.com"], { HOME: statusHome });
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain("send @ example.com: disarmed (insufficient-clean-runs; 0/3 clean Rung 2 runs)");
-      expect(result.stdout).toContain("save @ example.com: disarmed (insufficient-clean-runs; 0/3 clean Rung 2 runs)");
-      expect(result.stdout).toContain("borrow @ example.com: disarmed (insufficient-clean-runs; 0/3 clean Rung 2 runs)");
+      expect(result.stdout).toContain("send @ example.com: confirm-bounded (rung 3 under caps)");
+      expect(result.stdout).toContain("save @ example.com: confirm-bounded (rung 3 under caps)");
+      expect(result.stdout).toContain("borrow @ example.com: confirm-bounded (rung 3 under caps)");
       expect(result.stdout).toContain("landing @ example.com: read-only (rung 1)");
       expect(result.stdout).toContain("cash-out @ example.com: review-bounded (rung 2)");
-      expect(result.stdout).not.toContain("landing @ example.com: disarmed");
       expect(result.stdout).toContain("caps: $1.00 click; $2.00 run; $5.00 day");
-      expect(result.stdout).not.toContain("ceiling");
+      expect(result.stdout).toContain("recent incidents:");
+      expect(result.stdout).toContain("send @ example.com: unexpected-host");
+      expect(result.stdout).not.toContain("disarmed");
     } finally {
       Bun.spawnSync(["rm", "-rf", statusHome]);
     }
@@ -196,84 +154,6 @@ describe("live CLI policy", () => {
       ["https://example.com/home", "https://unexpected.example.net/image.png"],
       ["example.com"],
     )).toEqual(["unexpected.example.net"]);
-  });
-});
-
-describe("live CLI re-arm", () => {
-  test("refuses the factory role", async () => {
-    const homePath = await armHome();
-    const result = runArm(homePath, { HOME_VERIFY_ROLE: "factory" });
-    expect(result.exitCode).toBe(2);
-    expect(result.stderr).toContain("operator role");
-  });
-
-  test("refuses a comment id that is already recorded", async () => {
-    const homePath = await armHome([{
-      type: "arm",
-      timestamp: "2026-09-22T00:00:00.000Z",
-      surface: "send",
-      by: commentUrl,
-      commentId: "123",
-      createdAt: "2026-09-22T00:00:00.000Z",
-    }]);
-    const result = runArm(homePath, {}, { created: "2026-09-23T00:00:00.000Z" });
-    expect(result.exitCode).toBe(2);
-    expect(result.stderr).toContain("already re-armed");
-  });
-
-  test("refuses a comment that predates the latest disarm", async () => {
-    const homePath = await armHome([{
-      type: "disarm",
-      timestamp: "2026-09-25T00:00:00.000Z",
-      surface: "send",
-      incidents: ["ambiguous-result"],
-      runId: "run-9",
-    }]);
-    const result = runArm(homePath, {}, { created: "2026-09-24T00:00:00.000Z" });
-    expect(result.exitCode).toBe(2);
-    expect(result.stderr).toContain("predates");
-  });
-
-  test("records the comment id and creation time, then refuses the replay", async () => {
-    const homePath = await armHome();
-    const first = runArm(homePath);
-    expect(first.exitCode).toBe(0);
-    const entries = await readLedger(resolve(homePath, ".home-verify", "ledger.jsonl"));
-    expect(entries.at(-1)).toMatchObject({ type: "arm", commentId: "123", createdAt: "2026-09-23T00:00:00.000Z" });
-    const replay = runArm(homePath);
-    expect(replay.exitCode).toBe(2);
-    expect(replay.stderr).toContain("already re-armed");
-  });
-
-  test("queries the repository named by HOME_VERIFY_REPOSITORY", async () => {
-    const homePath = await armHome();
-    const result = runArm(homePath, { HOME_VERIFY_REPOSITORY: "other/example-home", FAKE_COMMENT_LOGIN: "other" }, { url: "https://github.com/other/example-home/issues/1#issuecomment-123" });
-    expect(result.exitCode).toBe(0);
-    expect(fakeGhCalls(homePath)).toContain("api repos/other/example-home/issues/comments/123");
-  });
-
-  test("queries the checkout's gh repository when HOME_VERIFY_REPOSITORY is unset", async () => {
-    const homePath = await armHome();
-    const result = runArm(homePath, { HOME_VERIFY_REPOSITORY: undefined, FAKE_GH_NAME_WITH_OWNER: "fake-owner/home" });
-    expect(result.exitCode).toBe(0);
-    expect(fakeGhCalls(homePath)).toContain("api repos/fake-owner/home/issues/comments/123");
-  });
-
-  test("refuses a --by comment URL from another repository", async () => {
-    const homePath = await armHome();
-    const result = runArm(homePath, { HOME_VERIFY_REPOSITORY: "other/example-home" });
-    expect(result.exitCode).toBe(2);
-    expect(result.stderr).toContain("other/example-home issue or pull-request comment URL");
-    expect(fakeGhCalls(homePath).some((call) => call.startsWith("api "))).toBe(false);
-  });
-
-  test("accepts only the repository owner unless HOME_VERIFY_OPERATOR_LOGIN names the operator", async () => {
-    const homePath = await armHome();
-    const refused = runArm(homePath, { FAKE_COMMENT_LOGIN: "another-operator" });
-    expect(refused.exitCode).toBe(2);
-    expect(refused.stderr).toContain("Only a comment authored by fake-owner");
-    const accepted = runArm(homePath, { FAKE_COMMENT_LOGIN: "another-operator", HOME_VERIFY_OPERATOR_LOGIN: "another-operator" });
-    expect(accepted.exitCode).toBe(0);
   });
 });
 
@@ -352,7 +232,6 @@ describe("live CLI preflight", () => {
   });
 
   test("refuses account intent that differs from the saved pin before browser launch", async () => {
-    await armSurface("send");
     await seedLiveState(addressA);
     const result = run([
       "send",
@@ -427,7 +306,6 @@ describe("live rendered balance", () => {
   }
 
   test("reads the hero ticker rather than every amount in the balance card", async () => {
-    await armSurface("send");
     await seedLiveState(addressA);
     await installFakeAgentBrowser();
     await Bun.write(fakeLogPath, "");
@@ -449,7 +327,6 @@ describe("live rendered balance", () => {
   });
 
   test("refuses confirmation when the hero ticker is absent", async () => {
-    await armSurface("send");
     await seedLiveState(addressA);
     await installFakeAgentBrowser();
     await Bun.write(fakeLogPath, "");
@@ -790,21 +667,58 @@ describe("live expected failures", () => {
     expect(liveJson("account-settings").expectedFailures).toEqual([]);
     expect(latestRunArtifact("account-settings", "summary.md")).toContain("Failed requests: 1");
   });
+});
 
-  test("records an incident in the ledger even when GitHub cannot be updated", async () => {
-    await seedLiveState(addressA);
+describe("live CLI confirmation bounds", () => {
+  const confirmArgs = [
+    "save",
+    "--live",
+    "--base-url",
+    "https://example.com",
+    "--out",
+    outsideOutput,
+    "--allow-confirm",
+    "--account",
+    addressA,
+    "--max-usd",
+    "1",
+  ];
+
+  async function confirmEnv(address: string, failures?: unknown[]): Promise<Record<string, string>> {
+    await seedLiveState(address);
     await installFakeAgentBrowser();
     await Bun.write(fakeLogPath, "");
-    const ghPath = resolve(fakeBinDirectory, "gh");
-    await Bun.write(ghPath, "#!/bin/sh\nexit 1\n");
-    Bun.spawnSync(["chmod", "+x", ghPath]);
-    const result = run(["account-settings", "--live", "--base-url", "https://example.com", "--out", outsideOutput], {
-      ...fakeEnv("Account\nShow small balances\nYour money", addressA),
-      FAKE_AGENT_BROWSER_HOSTS: JSON.stringify(["example.com", "exfil.example"]),
-    });
-    expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("The ledger disarmed account-settings; GitHub was not updated");
+    return {
+      ...fakeEnv("Account\nShow small balances\nYour money", address),
+      FAKE_AGENT_BROWSER_AUTHENTICATED: "1",
+      FAKE_AGENT_BROWSER_BALANCE: "$26.89",
+      FAKE_AGENT_BROWSER_REVIEW: "Deposit\n$1.00",
+      ...(failures ? { FAKE_AGENT_BROWSER_FAILURES: JSON.stringify(failures) } : {}),
+    };
+  }
+
+  test("proceeds to a capped confirmation with no prior clean runs", async () => {
+    const env = await confirmEnv(addressA);
+    Bun.spawnSync(["rm", "-rf", resolve(home, ".home-verify", "ledger.jsonl")]);
+    const result = run(confirmArgs, env);
+    expect(result.stderr).not.toContain("disarmed");
+    expect(result.stderr).not.toContain("clean current-main");
+    expect(result.exitCode).toBe(0);
+  });
+
+  test("records an incident without gating a later confirmation", async () => {
+    const incidentEnv = await confirmEnv(addressA, [
+      { method: "GET", url: "https://unexpected.example.net/probe", status: 500 },
+    ]);
+    const incident = run(confirmArgs, incidentEnv);
+    expect(incident.exitCode).toBe(1);
     const entries = await readLedger(resolve(home, ".home-verify", "ledger.jsonl"));
-    expect(entries.some((entry) => entry.type === "disarm" && entry.surface === "account-settings" && entry.incidents.includes("unexpected-host"))).toBe(true);
+    const recorded = entries.find((entry) => entry.incidents.includes("unexpected-host"));
+    expect(recorded?.surface).toBe("save");
+
+    const followUpEnv = await confirmEnv(addressA);
+    const followUp = run(confirmArgs, followUpEnv);
+    expect(followUp.stderr).not.toContain("disarmed");
+    expect(followUp.exitCode).toBe(0);
   });
 });

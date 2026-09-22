@@ -49,7 +49,7 @@ run_canary() {
 
 # cash-out is a live surface: it fills the payout handle from
 # HOME_VERIFY_CASHOUT_HANDLE and refuses before any fill when that variable is
-# unset, so the studio runner must set it to a cashtag Jesse owns.
+# unset, so the studio runner must set it to a payout handle the operator owns.
 for surface in landing sign-in home-panel balances activity save borrow invest send cash-out add-money account-settings coverage; do
   run_canary "$surface nightly" "$surface" || true
 done

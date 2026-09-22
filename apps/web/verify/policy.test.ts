@@ -3,7 +3,6 @@ import { confirmPolicyRefusal, requestedCaps, resolveVerifyRole, verifyPolicy } 
 
 const safe = {
   role: "factory" as const,
-  armed: true,
   amountUsd: 1,
   balanceUsd: 5,
   runSpendUsd: 0,
@@ -34,7 +33,6 @@ describe("verification roles and caps", () => {
   test("publishes the locked policy numbers", () => {
     expect(verifyPolicy).toEqual({
       factory: { perClickUsd: 1, perRunUsd: 2, perDayUsd: 5 },
-      cleanRunsToArm: 3,
     });
   });
 });
@@ -48,8 +46,7 @@ describe("confirmation refusals", () => {
     expect(confirmPolicyRefusal({ ...safe, balanceUsd: 26.89 })).toBeNull();
   });
 
-  test("refuses a disarmed surface and unknown balance or amount", () => {
-    expect(confirmPolicyRefusal({ ...safe, armed: false })).toContain("disarmed");
+  test("refuses unknown balance or amount without any arm state", () => {
     expect(confirmPolicyRefusal({ ...safe, amountUsd: null })).toContain("amount is not knowable");
     expect(confirmPolicyRefusal({ ...safe, balanceUsd: null })).toContain("balance is not knowable");
   });

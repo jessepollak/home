@@ -41,7 +41,7 @@ import {
   type LiveRecipient,
   type RequestFailure,
 } from "./live";
-import { appendLedger, armCommentId, armEvent, readLedger, recordArmEvent, spendForDay, spendForRun, surfaceArmState, withLedgerLock, type ArmAuthority, type ArmComment, type LedgerEntry } from "./ledger";
+import { appendLedger, readLedger, spendForDay, spendForRun, withLedgerLock, type LedgerEntry } from "./ledger";
 import { canaryReach, matchesConfirmLabel, readFeatureMap, type ReachStep } from "./map";
 import { confirmPolicyRefusal, requestedCaps, resolveVerifyRole, verifyPolicy, type VerifyRole } from "./policy";
 
@@ -57,24 +57,6 @@ function accountEmailOrExit(): string {
     console.error(error instanceof Error ? error.message : "HOME_VERIFY_ACCOUNT_EMAIL is not set.");
     process.exit(2);
   }
-}
-let cachedRepository: string | null = null;
-function verifyRepository(): string {
-  const configured = process.env.HOME_VERIFY_REPOSITORY?.trim();
-  if (configured) return configured;
-  if (cachedRepository) return cachedRepository;
-  const result = Bun.spawnSync({ cmd: ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], cwd: repositoryRoot, stdout: "pipe", stderr: "pipe" });
-  const resolvedName = result.stdout.toString().trim();
-  if (result.exitCode !== 0 || !resolvedName) {
-    throw new Error("Could not resolve the repository; set HOME_VERIFY_REPOSITORY or run from a checkout with a gh origin.");
-  }
-  cachedRepository = resolvedName;
-  return resolvedName;
-}
-function verifyAuthority(): ArmAuthority {
-  const repository = verifyRepository();
-  const configuredLogin = process.env.HOME_VERIFY_OPERATOR_LOGIN?.trim();
-  return { repository, operatorLogin: configuredLogin || repository.split("/")[0] };
 }
 let verifyRole: VerifyRole;
 try {
@@ -126,17 +108,21 @@ if (args[0] === "status") {
     }
   }
   for (const surface of surfaces.values()) {
-    if (surface.live !== "confirm") {
-      const label = statusHost === null ? surface.id : `${surface.id} @ ${statusHost}`;
-      console.log(`${label}: ${surface.live === "up-to-review" ? "review-bounded (rung 2)" : "read-only (rung 1)"}`);
-      continue;
-    }
-    const runHosts = [...new Set(entries.flatMap((entry) => entry.type === "run" && entry.surface === surface.id ? [entry.host] : []))];
-    const hosts = statusHost !== null ? [statusHost] : runHosts.length > 0 ? runHosts : [""];
-    for (const host of hosts) {
-      const state = surfaceArmState(entries, surface.id, currentMainRevision(), host);
-      const label = host === "" ? surface.id : `${surface.id} @ ${host}`;
-      console.log(`${label}: ${state.armed ? "armed" : "disarmed"} (${state.reason}; ${state.cleanRuns}/${verifyPolicy.cleanRunsToArm} clean Rung 2 runs)`);
+    const label = statusHost === null ? surface.id : `${surface.id} @ ${statusHost}`;
+    const state = surface.live === "confirm"
+      ? "confirm-bounded (rung 3 under caps)"
+      : surface.live === "up-to-review"
+        ? "review-bounded (rung 2)"
+        : "read-only (rung 1)";
+    console.log(`${label}: ${state}`);
+  }
+  const recentIncidents = entries.filter((entry) => entry.incidents.length > 0).slice(-5);
+  if (recentIncidents.length === 0) {
+    console.log("recent incidents: none");
+  } else {
+    console.log("recent incidents:");
+    for (const entry of recentIncidents) {
+      console.log(`  ${entry.timestamp} ${entry.surface} @ ${entry.host}: ${entry.incidents.join(", ")}`);
     }
   }
   process.exit(0);
@@ -157,39 +143,6 @@ if (args[0] === "gmail-auth") {
   } catch (error) {
     console.error(error instanceof Error ? error.message : "Gmail authorization failed.");
     process.exit(1);
-  }
-}
-
-if (args[0] === "arm") {
-  const surfaceId = args[1];
-  const byIndex = args.indexOf("--by");
-  const by = byIndex === -1 ? undefined : args[byIndex + 1];
-  if (!surfaceId || !surfaces.has(surfaceId) || !by) {
-    console.error("Usage: bun run verify arm <surface> --by <GitHub-comment-url>");
-    process.exit(2);
-  }
-  if (verifyRole !== "operator") {
-    console.error("verify arm requires the operator role; the factory role cannot re-arm a surface.");
-    process.exit(2);
-  }
-  try {
-    const authority = verifyAuthority();
-    const commentId = armCommentId(by, authority);
-    const result = Bun.spawnSync({
-      cmd: ["gh", "api", `repos/${authority.repository}/issues/comments/${commentId}`],
-      cwd: repositoryRoot,
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    if (result.exitCode !== 0) throw new Error("Could not resolve the operator re-arm comment.");
-    const comment = JSON.parse(result.stdout.toString()) as ArmComment;
-    const event = armEvent(surfaceId, by, comment, authority);
-    await recordArmEvent(ledgerPath, event);
-    console.log(`${surfaceId}: armed by ${by}`);
-    process.exit(0);
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : "Could not record arm event.");
-    process.exit(2);
   }
 }
 
@@ -464,7 +417,7 @@ if (!surfaceId || surfaceId.startsWith("-")) {
   console.error("Usage: bun run verify <surface-id> [--base-url <url>] [--out <dir>] [--allow-console] [--allow-domain <host>]");
   console.error("       bun run verify live-login --base-url <url> [--allow-domain <host>]");
   console.error("       bun run verify gmail-auth [--no-open] [--port <n>]");
-  console.error("       bun run verify status [--base-url <url>] | arm <surface> --by <GitHub-comment-url>");
+  console.error("       bun run verify status [--base-url <url>]");
   console.error("       bun run verify <surface-id> --live --base-url <url> --out <dir> [--recipient <0x-address|jesse.base.eth>] [--allow-domain <host>] [--allow-confirm --account <0x…> --max-usd <n> [--max-usd-total <n>]]");
   console.error("       bun run verify --list");
   process.exit(2);
@@ -553,9 +506,6 @@ if (live && outputInsideRepository(outputRoot, repositoryRoot)) {
   process.exit(2);
 }
 const ledgerEntries = live ? await readLedger(ledgerPath) : [];
-const armState = live
-  ? surfaceArmState(ledgerEntries, surfaceId, currentMainRevision(), baseUrl.host)
-  : { armed: false, cleanRuns: 0, reason: "insufficient-clean-runs" as const };
 if (live && allowConfirm) {
   const authority = decideConfirmGate(surface.live, "Continue", true);
   if (authority.action === "refuse") {
@@ -572,10 +522,6 @@ if (live && allowConfirm) {
     maxUsdTotal = caps.runCapUsd;
   } catch (error) {
     console.error(error instanceof Error ? error.message : "Invalid confirmation caps.");
-    process.exit(2);
-  }
-  if (!armState.armed) {
-    console.error(`Rung 3 is disarmed for ${surfaceId}; ${armState.cleanRuns}/${verifyPolicy.cleanRunsToArm} clean current-main Rung 2 runs are recorded.`);
     process.exit(2);
   }
 }
@@ -730,38 +676,11 @@ function runIncidents(): string[] {
   if (confirmPerformed && !finalEvidencePassed) incidents.push("post-confirm-failure");
   return [...new Set(incidents)];
 }
-function syncDisarmIssue(incidents: string[]): void {
-  try {
-    postDisarmIssue(incidents);
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    console.error(`The ledger disarmed ${surfaceId}; GitHub was not updated (${detail}).`);
-  }
-}
-
-function postDisarmIssue(incidents: string[]): void {
-  const title = `verify: ${surfaceId} disarmed`;
-  const listed = Bun.spawnSync({
-    cmd: ["gh", "issue", "list", "--repo", verifyRepository(), "--state", "open", "--search", `${title} in:title`, "--json", "number", "--jq", ".[0].number"],
-    cwd: repositoryRoot,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  if (listed.exitCode !== 0) throw new Error("Could not query the disarm issue.");
-  const number = listed.stdout.toString().trim();
-  const body = `Verifier incident for \`${surfaceId}\`: ${incidents.join(", ")}. Run id: \`${session}\`. The surface remains disarmed until Jesse comments \`/verify arm ${surfaceId}\` and that comment URL is recorded.`;
-  const result = number
-    ? Bun.spawnSync({ cmd: ["gh", "issue", "comment", number, "--repo", verifyRepository(), "--body", body], cwd: repositoryRoot, stdout: "pipe", stderr: "pipe" })
-    : Bun.spawnSync({ cmd: ["gh", "issue", "create", "--repo", verifyRepository(), "--title", title, "--body", body], cwd: repositoryRoot, stdout: "pipe", stderr: "pipe" });
-  if (result.exitCode !== 0) throw new Error("Could not create or update the disarm issue.");
-}
 async function reserveSpend(amountUsd: number): Promise<string | null> {
   return withLedgerLock(ledgerPath, async () => {
     const currentEntries = await readLedger(ledgerPath);
-    const currentArmState = surfaceArmState(currentEntries, surfaceId, currentMainRevision(), baseUrl.host);
     const refusal = confirmPolicyRefusal({
       role: verifyRole,
-      armed: currentArmState.armed,
       amountUsd,
       balanceUsd: renderedBalanceUsd,
       runSpendUsd: spendForRun(currentEntries, session),
@@ -804,13 +723,7 @@ async function recordLiveLedger(): Promise<void> {
     incidents,
     clean: rungReached >= 2 && finalEvidencePassed && incidents.length === 0,
   };
-  if (incidents.length > 0) {
-    await appendLedger(ledgerPath, { type: "disarm", timestamp: new Date().toISOString(), surface: surfaceId, incidents, runId: session });
-  }
   await appendLedger(ledgerPath, entry);
-  if (incidents.length > 0) {
-    syncDisarmIssue(incidents);
-  }
   ledgerRecorded = true;
 }
 try {
@@ -919,7 +832,6 @@ try {
         if (!liveRefusal && maxUsd !== null && maxUsdTotal !== null) {
           liveRefusal = confirmPolicyRefusal({
             role: verifyRole,
-            armed: armState.armed,
             amountUsd: parsedAmountUsd,
             balanceUsd: renderedBalanceUsd,
             runSpendUsd: spendForRun(ledgerEntries, session) + cumulativeAmountUsd,
