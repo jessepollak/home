@@ -14,6 +14,7 @@ import {
   defaultLiveRecipient,
   enabledButtonPredicate,
   enforceAmountCap,
+  inputPresentPredicate,
   enforceCumulativeAmountCap,
   hostObservationRefusal,
   isRecipientFillStep,
@@ -436,6 +437,37 @@ describe("live click readiness", () => {
     button.removeAttribute("aria-busy");
     button.textContent = "Different";
     button.setAttribute("aria-label", label);
+    expect(evaluate()).toBe(true);
+    await GlobalRegistrator.unregister();
+  });
+
+  test("builds an injection-safe input-present predicate for aria labels and label text", async () => {
+    const label = 'One "quote" and \\ a backslash';
+    const predicate = inputPresentPredicate(label);
+    expect(() => new Function(`return (${predicate});`)).not.toThrow();
+    await GlobalRegistrator.register();
+    const evaluate = () => new Function(`return (${predicate});`)() as boolean;
+    document.body.innerHTML = "";
+    expect(evaluate()).toBe(false);
+    const labelled = document.createElement("input");
+    labelled.setAttribute("aria-label", label);
+    document.body.append(labelled);
+    expect(evaluate()).toBe(true);
+    labelled.remove();
+    const wrapped = document.createElement("label");
+    wrapped.textContent = label;
+    wrapped.append(document.createElement("input"));
+    document.body.append(wrapped);
+    expect(evaluate()).toBe(true);
+    wrapped.querySelector("input")?.remove();
+    wrapped.textContent = "Different";
+    expect(evaluate()).toBe(false);
+    const associated = document.createElement("input");
+    associated.id = "sign-in-code";
+    const forLabel = document.createElement("label");
+    forLabel.setAttribute("for", "sign-in-code");
+    forLabel.textContent = label;
+    document.body.append(associated, forLabel);
     expect(evaluate()).toBe(true);
     await GlobalRegistrator.unregister();
   });

@@ -331,6 +331,11 @@ export function enabledButtonPredicate(label: string): string {
   return `[...document.querySelectorAll('button,[role="button"]')].some((node)=>node.disabled!==true&&!node.hasAttribute("disabled")&&node.getAttribute("aria-disabled")!=="true"&&node.getAttribute("aria-busy")!=="true"&&(node.getAttribute("aria-label")??node.textContent??"").trim()===${JSON.stringify(label)})`;
 }
 
+export function inputPresentPredicate(label: string): string {
+  const value = JSON.stringify(label);
+  return `[...document.querySelectorAll("input,textarea")].some((node)=>{const aria=node.getAttribute("aria-label");if(aria!==null&&aria.trim()===${value})return true;const id=node.getAttribute("id");const candidates=[node.closest("label"),...(id===null?[]:[...document.querySelectorAll("label[for]")].filter((entry)=>entry.getAttribute("for")===id))];return candidates.some((entry)=>entry!==null&&(entry.textContent??"").trim()===${value})})`;
+}
+
 export function accountAddressFromDocument(source: Document): string | null {
   const heading = source.getElementById("account-heading");
   const section = heading?.closest("section");

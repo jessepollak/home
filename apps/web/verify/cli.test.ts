@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { readLedger } from "./ledger";
-import { decideConfirmGate, enabledButtonPredicate, unexpectedNetworkHosts } from "./live";
+import { decideConfirmGate, enabledButtonPredicate, inputPresentPredicate, unexpectedNetworkHosts } from "./live";
 
 const repositoryRoot = resolve(import.meta.dir, "../../..");
 const home = resolve(tmpdir(), `home-verify-cli-test-${crypto.randomUUID()}`);
@@ -29,6 +29,13 @@ async function installFakeAgentBrowser(): Promise<void> {
   const bunxPath = resolve(fakeBinDirectory, "bunx");
   await Bun.write(bunxPath, `#!/bin/sh\nexec '${process.execPath}' '${fakePath}' "$@"\n`);
   Bun.spawnSync(["chmod", "755", bunxPath]);
+}
+
+async function seedGmailCredentials(): Promise<string> {
+  const path = resolve(home, "gmail.json");
+  await Bun.write(path, `${JSON.stringify({ client_id: "client-id", client_secret: "client-secret", refresh_token: "refresh-token" })}\n`);
+  Bun.spawnSync(["chmod", "600", path]);
+  return path;
 }
 
 function fakeEnv(body: string, address: string): Record<string, string> {
@@ -141,11 +148,12 @@ function liveJson(surfaceId: string): {
   };
 }
 
-function run(args: string[], extraEnv: Record<string, string | undefined> = {}, pathPrefix?: string) {
+function run(args: string[], extraEnv: Record<string, string | undefined> = {}, pathPrefix?: string, preload?: string) {
   const env: Record<string, string | undefined> = { ...process.env, HOME: home, CI: undefined, GITHUB_ACTIONS: undefined, ...extraEnv };
   if (pathPrefix) env.PATH = `${pathPrefix}:${env.PATH ?? ""}`;
+  const command = preload ? ["bun", "--preload", preload, "apps/web/verify/cli.ts", ...args] : ["bun", "apps/web/verify/cli.ts", ...args];
   const result = Bun.spawnSync({
-    cmd: ["bun", "apps/web/verify/cli.ts", ...args],
+    cmd: command,
     cwd: repositoryRoot,
     env,
     stdout: "pipe",
@@ -465,6 +473,45 @@ describe("click readiness", () => {
     expect(result.stderr).toContain("still disabled");
     expect(result.stderr).toContain("Send");
     expect(clickCalls()).toEqual([]);
+  });
+});
+
+describe("live login readiness", () => {
+  const preloadPath = resolve(import.meta.dir, "test-fixtures/fake-gmail-fetch.ts");
+
+  function runLiveLogin(extraEnv: Record<string, string | undefined>) {
+    return run(["live-login", "--base-url", "https://example.com"], {
+      PATH: `${fakeBinDirectory}:${process.env.PATH ?? ""}`,
+      FAKE_AGENT_BROWSER_LOG: fakeLogPath,
+      FAKE_AGENT_BROWSER_ADDRESS: addressA,
+      FAKE_AGENT_BROWSER_AUTHENTICATED: "1",
+      HOME_VERIFY_ACCOUNT_EMAIL: "bot@example.com",
+      ...extraEnv,
+    }, undefined, preloadPath);
+  }
+
+  test("waits for the sign-in sheet and the code entry before filling them", async () => {
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const gmailPath = await seedGmailCredentials();
+    const result = runLiveLogin({ HOME_VERIFY_GMAIL_CREDENTIALS: gmailPath });
+    expect(result.exitCode).toBe(0);
+    const calls = fakeCalls();
+    const emailWait = calls.findIndex((call) => call[0] === "wait" && call[1] === "--fn" && call[2] === inputPresentPredicate("Email address"));
+    expect(emailWait).toBeGreaterThan(-1);
+    expect(calls[emailWait + 1]).toEqual(["find", "label", "Email address", "fill", "bot@example.com", "--exact", "--json"]);
+    const codeWait = calls.findIndex((call) => call[0] === "wait" && call[1] === "--fn" && call[2] === inputPresentPredicate("Verification code"));
+    expect(codeWait).toBeGreaterThan(emailWait);
+    expect(calls[codeWait + 1]).toEqual(["eval", "--stdin", "--json"]);
+  });
+
+  test("fails the sign-in sheet wait before filling the email", async () => {
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = runLiveLogin({ FAKE_AGENT_BROWSER_FAIL_WAIT: "1" });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("The sign-in sheet did not render");
+    expect(fakeCalls().some((call) => call[0] === "find" && call[1] === "label" && call[2] === "Email address" && call[3] === "fill")).toBe(false);
   });
 });
 

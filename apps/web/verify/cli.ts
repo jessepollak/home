@@ -18,6 +18,7 @@ import {
   enforceAmountCap,
   enforceCumulativeAmountCap,
   hostObservationRefusal,
+  inputPresentPredicate,
   isRecipientFillStep,
   liveSessionExpired,
   liveStepError,
@@ -257,6 +258,15 @@ function waitForEnabledButton(label: string): void {
   }
 }
 
+function waitForInput(label: string, failure: string): void {
+  try {
+    command("wait", "--fn", inputPresentPredicate(label));
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "the wait timed out";
+    throw new Error(`${failure}: ${detail}`);
+  }
+}
+
 function jsonResult(output: string): unknown {
   if (!output) return null;
   const parsed = JSON.parse(output) as unknown;
@@ -384,12 +394,14 @@ async function runLiveLogin(accountEmail: string): Promise<never> {
     if (!currentPath().includes("account=signin")) {
       command("navigate", new URL("/?account=signin", baseUrl).toString());
     }
+    waitForInput("Email address", "The sign-in sheet did not render");
     command("find", "label", "Email address", "fill", accountEmail, "--exact");
     waitForEnabledButton("Continue with email");
     const submittedAt = Date.now();
     command("find", "role", "button", "click", "--name", "Continue with email", "--exact");
     const credentials = await readGmailCredentials(gmailCredentialsPath(process.env)) as Required<GmailCredentials>;
     const code = await pollGmailOtp(credentials, process.env.HOME_VERIFY_OTP_SENDER ?? defaultOtpSender, submittedAt);
+    waitForInput("Verification code", "The verification code entry did not render");
     secretCommand(`(()=>{const input=document.querySelector('input[aria-label="Verification code"],input[name="otp"]');if(!(input instanceof HTMLInputElement))throw new Error("Verification code field not found");const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value")?.set;setter?.call(input,${JSON.stringify(code)});input.dispatchEvent(new Event("input",{bubbles:true}));input.dispatchEvent(new Event("change",{bubbles:true}));return true})()`, "eval", "--stdin");
     secretCommand("", "find", "role", "button", "click", "--name", "Verify and continue", "--exact");
     command("wait", "--fn", `Boolean(document.querySelector("[data-app-main-authenticated]"))`);
