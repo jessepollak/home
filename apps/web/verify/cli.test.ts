@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { readLedger } from "./ledger";
-import { decideConfirmGate, enabledButtonPredicate, inputPresentPredicate, unexpectedNetworkHosts } from "./live";
+import { buttonPresentPredicate, decideConfirmGate, enabledButtonPredicate, inputPresentPredicate, unexpectedNetworkHosts } from "./live";
 
 const repositoryRoot = resolve(import.meta.dir, "../../..");
 const home = resolve(tmpdir(), `home-verify-cli-test-${crypto.randomUUID()}`);
@@ -120,6 +120,9 @@ function expectWaitBeforeEveryClick(): void {
     if (!(call[0] === "find" && call[1] === "role" && call[2] === "button" && call[3] === "click")) continue;
     const label = call[call.indexOf("--name") + 1];
     if (label === undefined) throw new Error("A click call is missing --name.");
+    const present = calls[index - 2];
+    expect(present?.slice(0, 3)).toEqual(["wait", "--fn", buttonPresentPredicate(label)]);
+    expect(present?.slice(3, 5)).toEqual(["--timeout", "30000"]);
     const wait = calls[index - 1];
     expect(wait?.[0]).toBe("wait");
     expect(wait?.[1]).toBe("--fn");
@@ -523,11 +526,26 @@ describe("click readiness", () => {
     const result = run(["send", "--out", outsideOutput], {
       PATH: `${fakeBinDirectory}:${process.env.PATH ?? ""}`,
       FAKE_AGENT_BROWSER_LOG: fakeLogPath,
-      FAKE_AGENT_BROWSER_FAIL_WAIT: "1",
+      FAKE_AGENT_BROWSER_FAIL_WAIT: "enabled",
     });
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("still disabled");
     expect(result.stderr).toContain("Send");
+    expect(clickCalls()).toEqual([]);
+  });
+
+  test("fails a click step whose target never renders without waiting out the enabled budget", async () => {
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = run(["send", "--out", outsideOutput], {
+      PATH: `${fakeBinDirectory}:${process.env.PATH ?? ""}`,
+      FAKE_AGENT_BROWSER_LOG: fakeLogPath,
+      FAKE_AGENT_BROWSER_FAIL_WAIT: "1",
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("The button “Send” did not render within 30 seconds");
+    expect(result.stderr).not.toContain("still disabled");
+    expect(fakeCalls().some((call) => call[0] === "wait" && call[2] === enabledButtonPredicate("Send"))).toBe(false);
     expect(clickCalls()).toEqual([]);
   });
 });

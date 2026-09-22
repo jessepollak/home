@@ -9,6 +9,7 @@ import {
   accountPattern,
   accountPinError,
   automationEnvironmentError,
+  buttonPresentPredicate,
   composeAllowedDomains,
   composeLiveAllowedDomains,
   confirmReviewOrderError,
@@ -261,6 +262,12 @@ function secretCommand(step: string, input: string, ...commandArgs: string[]): s
 }
 
 function waitForEnabledButton(label: string): void {
+  try {
+    command("wait", "--fn", buttonPresentPredicate(label), "--timeout", "30000");
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "the wait timed out";
+    throw new Error(`The button “${label}” did not render within 30 seconds: ${detail}`);
+  }
   try {
     command("wait", "--fn", enabledButtonPredicate(label));
   } catch (error) {

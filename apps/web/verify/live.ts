@@ -329,6 +329,11 @@ export function liveSessionExpired(documentText: string): boolean {
 
 const visibleNameScript = `const visibleName=(entry)=>[...entry.childNodes].map((child)=>child.nodeType===Node.TEXT_NODE?child.textContent??"":child instanceof Element&&!child.hidden&&child.getAttribute("aria-hidden")!=="true"?" "+visibleName(child)+" ":"").join("").replace(/\\s+/g," ").trim();`;
 
+export function buttonPresentPredicate(label: string): string {
+  const value = JSON.stringify(label);
+  return `[...document.querySelectorAll('button,[role="button"]')].some((node)=>{${visibleNameScript}return node.getAttribute("aria-label")?.trim()===${value}||visibleName(node)===${value}})`;
+}
+
 export function enabledButtonPredicate(label: string): string {
   const value = JSON.stringify(label);
   return `[...document.querySelectorAll('button,[role="button"]')].some((node)=>{${visibleNameScript}return node.disabled!==true&&!node.hasAttribute("disabled")&&node.getAttribute("aria-disabled")!=="true"&&node.getAttribute("aria-busy")!=="true"&&(node.getAttribute("aria-label")?.trim()===${value}||visibleName(node)===${value})})`;
