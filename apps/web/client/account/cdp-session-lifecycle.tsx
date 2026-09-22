@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AccountWalletContext, type AccountSessionStatus, type AccountWalletClient, type AccountWalletSdkBoundary, type BaseAccountLoginPhase } from "./cdp-client";
-import { connectBaseAccount, restoreBaseAccount, BaseAccountConnectorError, type BaseAccountConnector, type BaseAccountInvalidation, type BaseAccountRestorer, type ConnectedBaseAccount } from "./base-account-connector";
+import { connectBaseAccount, restoreBaseAccount, BaseAccountConnectorError, type BaseAccountConnector, type BaseAccountRestorer, type ConnectedBaseAccount } from "./base-account-connector";
 import { SessionValidationError, validateAccountSession, type SessionFetch, type VerifiedAccountSession } from "./session-client";
 import { createSiweMessage } from "viem/siwe";
 import {
@@ -20,7 +20,7 @@ import {
 } from "@/client/query/query-client";
 import { useAuthenticatedTransport } from "./cdp-authenticated-transport";
 import { useMoneyActionExecution } from "./cdp-money-action-execution";
-import { BaseAccountLoginError, baseLoginFailureFromConnector, clearCdpRenderHint, invalidationMessage, writeAccountProviderHint, writeCdpRestoreMarker } from "./cdp-wallet-provider-capabilities";
+import { BaseAccountLoginError, baseLoginFailureFromConnector, clearCdpRenderHint, writeAccountProviderHint, writeCdpRestoreMarker } from "./cdp-wallet-provider-capabilities";
 import { dataOwnerKey, ownerSessionBoundary } from "./owner-keys";
 import { useOwnerGenerationFence } from "./owner-generation-fence";
 import { finishHomeAuthRestore, sendHomeAuthSignOut } from "@/client/observability/auth-performance";
@@ -175,12 +175,41 @@ export function AccountWalletSessionOwner({
     await connection?.disconnect();
   }, []);
 
-  const loseVerification = useCallback((text: string) => {
+  const signOutLostIdentity = useCallback((pendingProvider: AccountProvider) => {
+    if (cleanupRef.current) return cleanupRef.current.catch(() => {});
+
     fence.advance();
     clearPrivate();
-    setStatus("signed-out");
-    setMessage(text);
-  }, [clearPrivate, fence]);
+    setStatus("signing-out");
+    setMessage(null);
+    providerRef.current = pendingProvider;
+    writeAccountProviderHint(`pending:${pendingProvider}`);
+
+    let cdpCleanupFailed = false;
+    const cleanup = Promise.resolve().then(async () => {
+      const results = await Promise.allSettled([disconnectBase(), sdkSignOut((phase) => {
+        if (phase.phase === "cdp-signout" && phase.outcome !== "success") {
+          cdpCleanupFailed = true;
+        }
+      })]);
+      const failure = results.find(
+        (result): result is PromiseRejectedResult => result.status === "rejected",
+      );
+      if (failure) throw failure.reason;
+      providerRef.current = "restore";
+      writeAccountProviderHint(null);
+      setStatus("signed-out");
+      setMessage("You are signed out.");
+    }).catch(() => {
+      if (cdpCleanupFailed) writeCdpRestoreMarker();
+      setStatus("signout-error");
+      setMessage("Sign-out did not finish. Retry sign out.");
+    }).finally(() => {
+      if (cleanupRef.current === cleanup) cleanupRef.current = null;
+    });
+    cleanupRef.current = cleanup;
+    return cleanup;
+  }, [clearPrivate, disconnectBase, fence, sdkSignOut]);
 
   const markUnavailable = useCallback((text: string) => {
     fence.advance();
@@ -189,10 +218,9 @@ export function AccountWalletSessionOwner({
     setMessage(text);
   }, [clearPrivate, fence]);
 
-  const onBaseInvalidated = useCallback((reason: BaseAccountInvalidation) => {
-    void disconnectBase();
-    loseVerification(invalidationMessage(reason));
-  }, [disconnectBase, loseVerification]);
+  const onBaseInvalidated = useCallback(() => {
+    void signOutLostIdentity("base-account");
+  }, [signOutLostIdentity]);
 
   const validate = useCallback(async () => {
     if (!isInitialized || !isSignedIn || !ownerKey) return;
@@ -200,6 +228,10 @@ export function AccountWalletSessionOwner({
     const controller = new AbortController();
     validationRef.current = controller;
     const generation = fence.capture();
+    let validationProvider: AccountProvider = authentication === "native-base"
+      ? "base-account"
+      : "cdp-embedded";
+    if (providerRef.current !== "restore") validationProvider = providerRef.current;
     const nextProvisional = provisionalSession?.smartAccount ? provisionalSession : null;
     setStatus("validating");
     setSession(nextProvisional);
@@ -213,17 +245,27 @@ export function AccountWalletSessionOwner({
       });
       fence.assertCurrent(generation);
       if (verified.accountProvider === "base-account") {
+        validationProvider = "base-account";
         if (!baseAccountEnabled || !verified.smartAccount) throw new Error("Base Account is unavailable.");
-        const connection = baseConnectionRef.current ?? await baseAccountRestorer(onBaseInvalidated);
-        fence.assertCurrent(generation);
+        const existingConnection = baseConnectionRef.current;
+        const connection = existingConnection ?? await baseAccountRestorer(onBaseInvalidated);
+        try {
+          fence.assertCurrent(generation);
+        } catch (error) {
+          if (!existingConnection) {
+            try { await connection.disconnect(); } finally { throw error; }
+          }
+          throw error;
+        }
         if (connection.address.toLowerCase() !== verified.smartAccount.address.toLowerCase()) {
           await connection.disconnect();
-          throw new Error("Base Account address mismatch.");
+          throw new SessionValidationError("address-mismatch");
         }
         baseConnectionRef.current = connection;
         providerRef.current = "base-account";
         writeAccountProviderHint("base-account");
       } else {
+        validationProvider = "cdp-embedded";
         providerRef.current = "cdp-embedded";
         writeAccountProviderHint("cdp-embedded");
         writeCdpRestoreMarker();
@@ -237,44 +279,17 @@ export function AccountWalletSessionOwner({
       setVerification("server");
       setStatus("verified");
       setMessage(null);
-    } catch (error) {
+    } catch (error) { // oxlint-disable-line home/no-silent-catch -- an aborted or superseded verification must not overwrite the newer attempt's state
       if (controller.signal.aborted || !fence.isCurrent(generation)) return;
       const missingBaseConnection = error instanceof BaseAccountConnectorError &&
         error.reason === "missing-connection";
-      const cdpIdentityGone = authentication === "cdp" &&
-        error instanceof SessionValidationError &&
-        (error.reason === "unauthenticated" || error.reason === "provider-disabled");
-      if (missingBaseConnection || cdpIdentityGone) {
-        fence.advance();
-        clearPrivate();
-        setStatus("signing-out");
-        setMessage(null);
-        const pendingProvider = missingBaseConnection ? "base-account" : "cdp-embedded";
-        providerRef.current = pendingProvider;
-        writeAccountProviderHint(`pending:${pendingProvider}`);
-        let cdpCleanupFailed = false;
-        const cleanup = (async () => {
-          const results = await Promise.allSettled([disconnectBase(), sdkSignOut((phase) => {
-            if (phase.phase === "cdp-signout" && phase.outcome !== "success") {
-              cdpCleanupFailed = true;
-            }
-          })]);
-          const failure = results.find(
-            (result): result is PromiseRejectedResult => result.status === "rejected",
-          );
-          if (failure) throw failure.reason;
-          providerRef.current = "restore";
-          writeAccountProviderHint(null);
-          setStatus("signed-out");
-          setMessage("You are signed out.");
-        })();
-        cleanupRef.current = cleanup;
-        try { await cleanup; }
-        catch {
-          if (cdpCleanupFailed) writeCdpRestoreMarker();
-          setStatus("signout-error");
-          setMessage("Sign-out did not finish. Retry sign out.");
-        } finally { cleanupRef.current = null; }
+      const sessionIdentityGone = error instanceof SessionValidationError && (
+        error.reason === "address-mismatch" ||
+        error.reason === "unauthenticated" ||
+        error.reason === "provider-disabled"
+      );
+      if (missingBaseConnection || sessionIdentityGone) {
+        await signOutLostIdentity(validationProvider);
         return;
       }
       await disconnectBase();
@@ -284,7 +299,7 @@ export function AccountWalletSessionOwner({
       setStatus("unavailable");
       setMessage(error instanceof Error ? error.message : "Account verification is unavailable.");
     }
-  }, [authentication, baseAccountEnabled, baseAccountRestorer, clearPrivate, disconnectBase, fence, getAccessToken, isInitialized, isSignedIn, onBaseInvalidated, ownerKey, provisionalSession, sdkSignOut, sessionFetch]);
+  }, [authentication, baseAccountEnabled, baseAccountRestorer, disconnectBase, fence, getAccessToken, isInitialized, isSignedIn, onBaseInvalidated, ownerKey, provisionalSession, sessionFetch, signOutLostIdentity]);
 
   const validateRef = useRef(validate);
   useLayoutEffect(() => { validateRef.current = validate; }, [validate]);
@@ -340,9 +355,10 @@ export function AccountWalletSessionOwner({
     const generation = fence.capture();
     fence.assertCurrent(generation);
     await verifyEmailOTP(flowId, otp);
+    await disconnectBase();
     providerRef.current = "cdp-embedded";
     writeAccountProviderHint("cdp-embedded");
-  }, [fence, verifyEmailOTP]);
+  }, [disconnectBase, fence, verifyEmailOTP]);
 
   const signInWithBaseAccount = useCallback(async (onPhase: (phase: BaseAccountLoginPhase) => void) => {
     if (!baseAccountEnabled) throw new BaseAccountLoginError("disabled");

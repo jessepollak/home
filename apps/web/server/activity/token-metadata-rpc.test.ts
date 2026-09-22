@@ -129,8 +129,8 @@ describe("Activity token metadata RPC fallback", () => {
     );
     const first = await resolver(addresses);
     const second = await resolver(addresses);
-    expect(first.size).toBe(ACTIVITY_TOKEN_RPC_BATCH_MAX);
-    expect(second.size).toBe(ACTIVITY_TOKEN_RPC_BATCH_MAX);
+    expect(first.size).toBe(ACTIVITY_TOKEN_RPC_BATCH_MAX); // oxlint-disable-line home/no-self-referential-expectation -- the constant is the specified bound; the assertion tests bounding, not the value
+    expect(second.size).toBe(ACTIVITY_TOKEN_RPC_BATCH_MAX); // oxlint-disable-line home/no-self-referential-expectation -- the constant is the specified bound; the assertion tests bounding, not the value
     expect(encodedCalls).toBe(ACTIVITY_TOKEN_RPC_BATCH_MAX * 2);
     expect(calls).toBe(1);
     expect(assertionSignal).toBeInstanceOf(AbortSignal);

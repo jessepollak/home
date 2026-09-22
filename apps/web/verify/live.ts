@@ -1,5 +1,11 @@
 import { relative, resolve } from "node:path";
-import { matchesConfirmLabel, type LiveAccess, type ReachStep } from "./map";
+import {
+  bareHostnamePattern,
+  matchesConfirmLabel,
+  type ExpectedLiveFailure,
+  type LiveAccess,
+  type ReachStep,
+} from "./map";
 
 export const accountPattern = /^0x[0-9a-fA-F]{40}$/;
 export const liveProviderOrigins = [
@@ -66,8 +72,6 @@ function reachStepSummary(step: ReachStep): string {
   return `expect “${step.text}”`;
 }
 
-const bareHostnamePattern = /^(?=.{1,253}$)(?:localhost|(?:(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)\.)*(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?))$/;
-
 export function composeAllowedDomains(
   baseUrl: URL,
   additionalDomains: string[],
@@ -82,6 +86,14 @@ export function composeAllowedDomains(
   const providerDomains = liveProviderOrigins.map((origin) => new URL(origin).hostname);
   const fixtureDomains = fixtureMode ? ["localhost", "127.0.0.1"] : [];
   return [...new Set([baseUrl.hostname.toLowerCase(), ...providerDomains, ...normalizedAdditional, ...fixtureDomains])];
+}
+
+export function composeLiveAllowedDomains(
+  baseUrl: URL,
+  featureMapHosts: readonly string[],
+  additionalDomains: string[],
+): string[] {
+  return composeAllowedDomains(baseUrl, [...featureMapHosts, ...additionalDomains], false);
 }
 
 export type ConfirmGateDecision =
@@ -234,6 +246,50 @@ function parseUsdToken(value: string): number | null {
   return amounts.length === 1 ? amounts[0] : null;
 }
 
+export type RequestFailure = { method: string; url: string; status: number | null };
+
+export function matchExpectedLiveFailure(
+  failure: RequestFailure,
+  expected: readonly ExpectedLiveFailure[],
+  baseUrl: URL,
+): ExpectedLiveFailure | null {
+  if (failure.status === null) return null;
+  let observed: URL;
+  try {
+    observed = new URL(failure.url);
+  } catch {
+    return null;
+  }
+  const method = failure.method.toUpperCase();
+  for (const entry of expected) {
+    if (entry.method.toUpperCase() !== method || entry.status !== failure.status) continue;
+    let target: URL;
+    try {
+      target = new URL(entry.url, baseUrl);
+    } catch {
+      continue;
+    }
+    if (target.origin === observed.origin && target.pathname === observed.pathname) return entry;
+  }
+  return null;
+}
+
+export function partitionLiveFailures(
+  failures: readonly RequestFailure[],
+  expected: readonly ExpectedLiveFailure[],
+  baseUrl: URL,
+): { expected: string[]; unexpected: string[] } {
+  const expectedLabels: string[] = [];
+  const unexpectedLabels: string[] = [];
+  for (const failure of failures) {
+    const label = `${failure.method.toUpperCase()} ${failure.url}${failure.status === null ? "" : ` (${failure.status})`}`;
+    const match = matchExpectedLiveFailure(failure, expected, baseUrl);
+    if (match) expectedLabels.push(`${label} — ${match.reason}`);
+    else unexpectedLabels.push(label);
+  }
+  return { expected: expectedLabels, unexpected: unexpectedLabels };
+}
+
 export function unexpectedNetworkHosts(urls: string[], allowedHosts: string[]): string[] {
   const allowed = new Set(allowedHosts.map((host) => host.toLowerCase()));
   const observed = urls.flatMap((value) => {
@@ -264,6 +320,15 @@ export function enforceCumulativeAmountCap(confirmed: number, next: number, cap:
   if (!Number.isFinite(cap) || cap <= 0) return "--max-usd-total must be a positive number.";
   if (total > cap) return `The cumulative confirmation amount $${total.toFixed(2)} exceeds the $${cap.toFixed(2)} run cap.`;
   return null;
+}
+
+export function liveSessionExpired(documentText: string): boolean {
+  const pending = documentText.includes("Verifying your session…") || documentText.includes("Finishing sign-out…");
+  return documentText.includes("Sign in to Home") && !pending;
+}
+
+export function enabledButtonPredicate(label: string): string {
+  return `[...document.querySelectorAll('button,[role="button"]')].some((node)=>node.disabled!==true&&!node.hasAttribute("disabled")&&node.getAttribute("aria-disabled")!=="true"&&node.getAttribute("aria-busy")!=="true"&&(node.getAttribute("aria-label")??node.textContent??"").trim()===${JSON.stringify(label)})`;
 }
 
 export function accountAddressFromDocument(source: Document): string | null {

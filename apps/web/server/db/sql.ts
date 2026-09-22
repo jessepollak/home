@@ -139,7 +139,7 @@ export function createPostgresSqlExecutor(
     } catch (error) {
       try {
         await client.query("ROLLBACK");
-      } catch {
+      } catch { // oxlint-disable-line home/no-silent-catch -- a failed rollback cannot mask the transaction error that is rethrown
       }
       throw error;
     } finally {

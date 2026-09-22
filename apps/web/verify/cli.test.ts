@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { readLedger } from "./ledger";
-import { decideConfirmGate, unexpectedNetworkHosts } from "./live";
+import { decideConfirmGate, enabledButtonPredicate, unexpectedNetworkHosts } from "./live";
 
 const repositoryRoot = resolve(import.meta.dir, "../../..");
 const home = resolve(tmpdir(), `home-verify-cli-test-${crypto.randomUUID()}`);
@@ -12,6 +12,38 @@ const addressA = "0x1111111111111111111111111111111111111111";
 const addressB = "0x2222222222222222222222222222222222222222";
 const commentUrl = "https://github.com/jessepollak/home/issues/1#issuecomment-123";
 const armHomes: string[] = [];
+const stateDirectory = resolve(home, ".home-verify", "example.com", "state");
+const statePath = resolve(stateDirectory, "browser-state.json");
+const fakeBinDirectory = resolve(home, "fake-bin");
+const fakeLogPath = resolve(home, "fake-agent-browser.log");
+
+async function seedLiveState(address: string): Promise<void> {
+  Bun.spawnSync(["mkdir", "-p", stateDirectory]);
+  await Bun.write(resolve(stateDirectory, "account"), `${address}\n`);
+  await Bun.write(statePath, "{}\n");
+}
+
+async function installFakeAgentBrowser(): Promise<void> {
+  Bun.spawnSync(["mkdir", "-p", fakeBinDirectory]);
+  const fakePath = resolve(import.meta.dir, "test-fixtures/fake-agent-browser.ts");
+  const bunxPath = resolve(fakeBinDirectory, "bunx");
+  await Bun.write(bunxPath, `#!/bin/sh\nexec '${process.execPath}' '${fakePath}' "$@"\n`);
+  Bun.spawnSync(["chmod", "755", bunxPath]);
+}
+
+function fakeEnv(body: string, address: string): Record<string, string> {
+  return {
+    PATH: `${fakeBinDirectory}:${process.env.PATH ?? ""}`,
+    FAKE_AGENT_BROWSER_LOG: fakeLogPath,
+    FAKE_AGENT_BROWSER_BODY: body,
+    FAKE_AGENT_BROWSER_ADDRESS: address,
+  };
+}
+
+function fakeCalls(): string[][] {
+  const log = Bun.spawnSync(["cat", fakeLogPath], { stdout: "pipe", stderr: "pipe" }).stdout.toString();
+  return log.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as string[]);
+}
 
 afterAll(() => {
   Bun.spawnSync(["rm", "-rf", home]);
@@ -57,6 +89,44 @@ async function armSurface(surface: string) {
     surface,
     by: "https://github.com/jessepollak/home/issues/1#issuecomment-1",
   })}\n`);
+}
+
+function clickCalls(): string[][] {
+  return fakeCalls().filter((call) => call[0] === "find" && call[1] === "role" && call[2] === "button" && call[3] === "click");
+}
+
+function expectWaitBeforeEveryClick(): void {
+  const calls = fakeCalls();
+  for (const [index, call] of calls.entries()) {
+    if (!(call[0] === "find" && call[1] === "role" && call[2] === "button" && call[3] === "click")) continue;
+    const label = call[call.indexOf("--name") + 1];
+    if (label === undefined) throw new Error("A click call is missing --name.");
+    const wait = calls[index - 1];
+    expect(wait?.[0]).toBe("wait");
+    expect(wait?.[1]).toBe("--fn");
+    expect(wait?.[2]).toBe(enabledButtonPredicate(label));
+    expect(wait?.[2]).toContain(JSON.stringify(label));
+  }
+}
+
+function latestRunArtifact(surfaceId: string, name: string): string {
+  const runDirectory = resolve(outsideOutput, surfaceId);
+  const listing = Bun.spawnSync(["ls", "-1", runDirectory], { stdout: "pipe", stderr: "pipe" }).stdout.toString();
+  const newest = listing.trim().split("\n").filter(Boolean).sort().at(-1);
+  expect(newest).toBeDefined();
+  const artifact = Bun.spawnSync(["cat", resolve(runDirectory, newest ?? "", name)], { stdout: "pipe", stderr: "pipe" });
+  expect(artifact.exitCode).toBe(0);
+  return artifact.stdout.toString();
+}
+
+function liveJson(surfaceId: string): {
+  expectedFailures: string[];
+  unexpectedHosts: string[];
+} {
+  return JSON.parse(latestRunArtifact(surfaceId, "live.json")) as {
+    expectedFailures: string[];
+    unexpectedHosts: string[];
+  };
 }
 
 function run(args: string[], extraEnv: Record<string, string | undefined> = {}, pathPrefix?: string) {
@@ -196,10 +266,7 @@ describe("live CLI preflight", () => {
 
   test("refuses account intent that differs from the saved pin before browser launch", async () => {
     await armSurface("send");
-    const stateDirectory = resolve(home, ".home-verify", "example.com", "state");
-    Bun.spawnSync(["mkdir", "-p", stateDirectory]);
-    await Bun.write(resolve(stateDirectory, "account"), `${addressA}\n`);
-    await Bun.write(resolve(stateDirectory, "browser-state.json"), "{}\n");
+    await seedLiveState(addressA);
     const result = run([
       "send",
       "--live",
@@ -217,5 +284,182 @@ describe("live CLI preflight", () => {
     ]);
     expect(result.exitCode).toBe(2);
     expect(result.stderr).toContain("does not match the pinned test account");
+  });
+});
+
+describe("live session state", () => {
+  test("waits out a restoring session instead of declaring it expired", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = run([
+      "account-settings",
+      "--live",
+      "--base-url",
+      "https://example.com",
+      "--out",
+      outsideOutput,
+    ], fakeEnv("Sign in to Home\nVerifying your session…", addressA));
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).not.toContain("expired");
+    const wait = fakeCalls().find((call) => call[0] === "wait" && call[1] === "--fn");
+    expect(wait?.[2]).toContain("Show small balances");
+    expect(wait?.[2]).toContain("Verifying your session");
+    expect(wait?.[2]).toContain("Finishing sign-out");
+    expect(wait?.[2]).toContain("Sign in to Home");
+    expect(wait?.[2]).not.toContain("account=signin");
+  });
+
+  test("re-saves the live session after an authenticated run", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = run([
+      "account-settings",
+      "--live",
+      "--base-url",
+      "https://example.com",
+      "--out",
+      outsideOutput,
+    ], fakeEnv("Account\nShow small balances\nYour money", addressA));
+    expect(result.exitCode).toBe(0);
+    const saves = fakeCalls().filter((call) => call[0] === "state" && call[1] === "save");
+    expect(saves.length).toBeGreaterThan(0);
+    expect(saves.every((call) => call[2] === statePath)).toBe(true);
+  });
+
+  test("never re-saves a state that detected sign-out", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = run([
+      "account-settings",
+      "--live",
+      "--base-url",
+      "https://example.com",
+      "--out",
+      outsideOutput,
+    ], fakeEnv("Sign in to Home", addressA));
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("session expired");
+    const saves = fakeCalls().filter((call) => call[0] === "state" && call[1] === "save");
+    expect(saves).toEqual([]);
+  });
+
+  test("re-saves the live session at the end of an authenticated run whose expectations failed", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = run([
+      "home-panel",
+      "--live",
+      "--base-url",
+      "https://example.com",
+      "--out",
+      outsideOutput,
+    ], {
+      ...fakeEnv("Account\nShow small balances\nYour money", addressA),
+      FAKE_AGENT_BROWSER_AUTHENTICATED: "1",
+      FAKE_AGENT_BROWSER_FAIL_EXPECT: "1",
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("expectation was not observed");
+    const calls = fakeCalls();
+    expect(calls.at(-1)?.[0]).toBe("close");
+    expect(calls.at(-2)?.slice(0, 3)).toEqual(["state", "save", statePath]);
+    expect(calls.filter((call) => call[0] === "state" && call[1] === "save").length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("click readiness", () => {
+  test("waits for every click target to become enabled in fixture mode", async () => {
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = run(["send", "--out", outsideOutput], {
+      PATH: `${fakeBinDirectory}:${process.env.PATH ?? ""}`,
+      FAKE_AGENT_BROWSER_LOG: fakeLogPath,
+      FAKE_AGENT_BROWSER_BODY: "Send",
+    });
+    expect(result.stderr).not.toContain("still disabled");
+    expect(clickCalls().length).toBeGreaterThan(0);
+    expectWaitBeforeEveryClick();
+  });
+
+  test("waits for every click target to become enabled in live mode", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = run(["save", "--live", "--base-url", "https://example.com", "--out", outsideOutput], {
+      ...fakeEnv("Account\nShow small balances\nYour money", addressA),
+      FAKE_AGENT_BROWSER_AUTHENTICATED: "1",
+    });
+    expect(result.exitCode).toBe(0);
+    expect(clickCalls().map((call) => call[call.indexOf("--name") + 1])).toEqual(["1", "Continue"]);
+    expectWaitBeforeEveryClick();
+  });
+
+  test("fails a click step whose target never becomes enabled", async () => {
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = run(["send", "--out", outsideOutput], {
+      PATH: `${fakeBinDirectory}:${process.env.PATH ?? ""}`,
+      FAKE_AGENT_BROWSER_LOG: fakeLogPath,
+      FAKE_AGENT_BROWSER_FAIL_WAIT: "1",
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("still disabled");
+    expect(result.stderr).toContain("Send");
+    expect(clickCalls()).toEqual([]);
+  });
+});
+
+describe("live expected failures", () => {
+  test("keeps a declared request failure out of the failing set", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = run([
+      "account-settings",
+      "--live",
+      "--base-url",
+      "https://example.com",
+      "--out",
+      outsideOutput,
+    ], {
+      ...fakeEnv("Account\nShow small balances\nYour money", addressA),
+      FAKE_AGENT_BROWSER_FAILURES: JSON.stringify([
+        { method: "GET", url: "https://example.com/api/session?cache=0", status: 401 },
+      ]),
+    });
+    expect(result.exitCode).toBe(0);
+    const expectedFailures = liveJson("account-settings").expectedFailures;
+    expect(expectedFailures).toHaveLength(1);
+    expect(expectedFailures[0]).toContain("GET https://example.com/api/session?cache=0 (401) — ");
+    expect(expectedFailures[0]).toMatch(/#\d+/);
+    const summary = latestRunArtifact("account-settings", "summary.md");
+    expect(summary).toContain("Expected failures: 1");
+    expect(summary).toContain("GET https://example.com/api/session?cache=0 (401)");
+  });
+
+  test("still fails an undeclared request failure", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = run([
+      "account-settings",
+      "--live",
+      "--base-url",
+      "https://example.com",
+      "--out",
+      outsideOutput,
+    ], {
+      ...fakeEnv("Account\nShow small balances\nYour money", addressA),
+      FAKE_AGENT_BROWSER_FAILURES: JSON.stringify([
+        { method: "GET", url: "https://example.com/api/balances", status: 500 },
+      ]),
+    });
+    expect(result.exitCode).toBe(1);
+    expect(liveJson("account-settings").expectedFailures).toEqual([]);
+    expect(latestRunArtifact("account-settings", "summary.md")).toContain("Failed requests: 1");
   });
 });

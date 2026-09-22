@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   CODEX_TOKEN_LOOKUP_BATCH_MAX,
-  CODEX_TOKEN_LOOKUP_QUERY,
   createCodexTokenLookup,
 } from "./token-lookup";
 
@@ -40,7 +39,6 @@ describe("Codex token lookup", () => {
         };
         const tokens = body.variables.tokens;
         batchSizes.push(tokens.length);
-        expect(body.query).toBe(CODEX_TOKEN_LOOKUP_QUERY);
         expect(body.query).toContain("filterTokens(tokens: $tokens, limit: $limit)");
         expect(Object.keys(body.variables).sort()).toEqual(["limit", "tokens"]);
         expect(body.variables.limit).toBe(tokens.length);
@@ -67,7 +65,7 @@ describe("Codex token lookup", () => {
     const first = await lookup(addresses);
     const second = await lookup(addresses);
 
-    expect(batchSizes).toEqual([CODEX_TOKEN_LOOKUP_BATCH_MAX, 1]);
+    expect(batchSizes).toEqual([CODEX_TOKEN_LOOKUP_BATCH_MAX, 1]); // oxlint-disable-line home/no-self-referential-expectation -- the constant is the specified bound; the assertion tests batching, not the value
     expect(calls).toBe(2);
     expect(first.get(ADDRESS)).toEqual({
       address: ADDRESS,

@@ -10,6 +10,7 @@ const base = {
   artifacts: { screenshot: "screenshot.png", dom: "dom.txt" },
   consoleErrors: [] as string[],
   failedRequests: [] as string[],
+  expectedFailures: [] as string[],
   pageErrors: [] as string[],
   marks: [{ name: "shell:paint", startTime: 300, budgetMs: 1500, passed: true }],
   longTaskCount: 0,
@@ -33,6 +34,19 @@ describe("evidence summary", () => {
     const missing = { ...base, marks: [{ name: "shell:paint", startTime: null, budgetMs: 1500, passed: false }] };
     expect(finalizeEvidence(missing).passed).toBe(false);
     expect(summarizeEvidence(finalizeEvidence(missing))).toContain("not observed (budget 1500 ms; fail)");
+  });
+
+  test("lists expected failures separately from failed requests", () => {
+    const evidence = finalizeEvidence({
+      ...base,
+      expectedFailures: ["GET /api/session (401) — restore probe (#1)"],
+    });
+    const summary = summarizeEvidence(evidence);
+    expect(evidence.passed).toBe(true);
+    expect(summary).toContain("- Failed requests: 0");
+    expect(summary).toContain("- Expected failures: 1");
+    expect(summary).toContain("#### Expected failures");
+    expect(summary).toContain("`GET /api/session (401) — restore probe (#1)`");
   });
 
   test("labels every non-empty live summary line", () => {

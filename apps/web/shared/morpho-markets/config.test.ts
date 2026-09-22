@@ -21,7 +21,7 @@ describe("verified Morpho market registry", () => {
       borrow: "enabled",
     });
     expect(getVerifiedMorphoMarket(DEFAULT_VERIFIED_MORPHO_MARKET.marketId.toUpperCase()))
-      .toBe(DEFAULT_VERIFIED_MORPHO_MARKET);
+      .toBe(DEFAULT_VERIFIED_MORPHO_MARKET); // oxlint-disable-line home/no-self-referential-expectation -- the lookup must return the canonical registry object
     expect(getVerifiedMorphoMarket(`0x${"00".repeat(32)}`)).toBeNull();
   });
 });

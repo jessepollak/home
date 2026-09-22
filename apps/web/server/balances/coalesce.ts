@@ -202,7 +202,7 @@ export function createBalancesService(dependencies: Dependencies = {}) {
           coinbase: 0,
           total: Math.max(0, nowMs() - startedAt),
         }, observed.coverage);
-      } catch {
+      } catch { // oxlint-disable-line home/no-silent-catch -- the background failure is reported through emitBalancesRead, which isolates the balances log sink
         emitBalancesRead(log, "background-error", {
           ...durationMs,
           price: 0,
@@ -428,7 +428,7 @@ function emitBalancesRead(
       durationMs,
       coverage,
     });
-  } catch {
+  } catch { // oxlint-disable-line home/no-silent-catch -- the balances log sink is isolated so observability cannot change the read result
   }
 }
 

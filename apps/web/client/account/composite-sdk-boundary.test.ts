@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { AccountWalletSdkBoundary } from "./cdp-client";
 import {
-  CDP_SIGN_OUT_TIMEOUT_MS,
   composeSdkBoundaries,
   type CompositeSdkBoundaryInput,
 } from "./composite-sdk-boundary";
@@ -498,7 +497,7 @@ const rows: Array<{ name: string; run: () => Promise<void> }> = [
         },
       }));
       const cleanup = sdk.signOut((phase) => phases.push(`${phase.phase}:${phase.outcome}`));
-      expect(scheduled[0]?.timeoutMs).toBe(CDP_SIGN_OUT_TIMEOUT_MS);
+      expect(scheduled[0]?.timeoutMs).toBe(2_500);
       scheduled[0]!.callback();
       await expect(cleanup).rejects.toThrow("timed out");
       expect(scheduled[0]?.cancelled).toBe(true);

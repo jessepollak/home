@@ -370,24 +370,40 @@ describe("SavingsMoneyDialog", () => {
     expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  test("a failing onConfirmed does not relabel the dispatched action", async () => {
+  test("reports a failing onConfirmed without relabeling the dispatched action", async () => {
+    const previousFetch = globalThis.fetch;
+    const reports: Array<{ input: string; init?: RequestInit }> = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      reports.push({ input: String(input), init });
+      return new Response(null, { status: 204 });
+    }) as typeof fetch;
     let closes = 0;
-    render(
-      <SavingsMoneyDialog
-        open mode="deposit" session={session} candidate={candidate}
-        prepareMoneyAction={async () => prepared()}
-        executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
-        onConfirmed={async () => { throw new Error("refresh failed"); }}
-        onClose={() => { closes += 1; }}
-      />,
-    );
+    try {
+      render(
+        <SavingsMoneyDialog
+          open mode="deposit" session={session} candidate={candidate}
+          prepareMoneyAction={async () => prepared()}
+          executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
+          onConfirmed={async () => { throw new Error("refresh failed"); }}
+          onClose={() => { closes += 1; }}
+        />,
+      );
 
-    typeAmount("1");
-    fireEvent.click(page().getByRole("button", { name: "Continue" }));
-    fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
+      typeAmount("1");
+      fireEvent.click(page().getByRole("button", { name: "Continue" }));
+      fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
 
-    await waitFor(() => expect(closes).toBe(1));
-    expect(page().queryByRole("alert")).toBeNull();
+      await waitFor(() => expect(closes).toBe(1));
+      expect(page().queryByRole("alert")).toBeNull();
+      expect(reports).toHaveLength(1);
+      expect(reports[0]?.input).toBe("/api/client-errors");
+      expect(JSON.parse(String(reports[0]?.init?.body))).toMatchObject({
+        name: "Error",
+        message: "refresh failed",
+      });
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
   });
 
   test("retries the same prepared action after an ambiguous dispatch", async () => {

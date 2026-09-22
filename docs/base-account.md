@@ -37,7 +37,7 @@ The challenge remains intentionally stateless. Single-use is enforced by the bro
 
 A Bearer-validated CDP profile can create only a `cdp-embedded` email session. Requests whose explicit or restored CDP profile resolves to `base-account` receive `403 BASE_ACCOUNT_DISABLED`; Home never derives a Base Account session from a CDP token.
 
-Account or chain changes during connection, signing, or verification invalidate the connector and hide the session. `POST /api/auth/base/logout` requires a same-origin request and clears `home-session`, `home-auth-challenge`, `home-cdp-session`, and `home-cdp-live`.
+A Base Account address change, chain change, or provider disconnect invalidation advances the owner-generation fence, clears private client state, clears the native Base server session through `POST /api/auth/base/logout`, and lands signed out; during connection, signing, or verification the connector also fails closed. The logout request requires the same origin and clears `home-session`, `home-auth-challenge`, `home-cdp-session`, and `home-cdp-live`.
 
 ## CDP render hint
 

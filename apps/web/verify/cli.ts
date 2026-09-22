@@ -10,18 +10,22 @@ import {
   accountPinError,
   automationEnvironmentError,
   composeAllowedDomains,
+  composeLiveAllowedDomains,
   confirmReviewOrderError,
   confirmTerminalOrderError,
   decideConfirmGate,
+  enabledButtonPredicate,
   enforceAmountCap,
   enforceCumulativeAmountCap,
   hostObservationRefusal,
   isRecipientFillStep,
+  liveSessionExpired,
   liveStepError,
   outputInsideRepository,
   parseBorrowReviewAmounts,
   parseUsdAmount,
   parseUsdAmountFromLabel,
+  partitionLiveFailures,
   recipientPlaceholderError,
   recipientRowError,
   resolveLiveRecipient,
@@ -29,6 +33,7 @@ import {
   unexpectedNetworkHosts,
   unlistedAmountClickError,
   type LiveRecipient,
+  type RequestFailure,
 } from "./live";
 import { appendLedger, armCommentId, armEvent, readLedger, recordArmEvent, spendForDay, spendForRun, surfaceArmState, withLedgerLock, type ArmComment, type LedgerEntry } from "./ledger";
 import { canaryReach, matchesConfirmLabel, readFeatureMap, type ReachStep } from "./map";
@@ -37,7 +42,7 @@ import { confirmPolicyRefusal, requestedCaps, resolveVerifyRole, verifyPolicy, t
 const args = Bun.argv.slice(2);
 const repositoryRoot = resolve(import.meta.dir, "../../..");
 const featureMapPath = resolve(repositoryRoot, ".agents/skills/browser-iteration/feature-map.md");
-const surfaces = await readFeatureMap(featureMapPath);
+const { surfaces, liveHosts, liveExpectedFailures } = await readFeatureMap(featureMapPath);
 const ledgerPath = resolve(homedir(), ".home-verify", "ledger.jsonl");
 let verifyRole: VerifyRole;
 try {
@@ -162,9 +167,11 @@ const hostKey = baseUrl.host.replaceAll(/[^a-zA-Z0-9._-]/g, "_");
 const stateDirectory = resolve(homedir(), ".home-verify", hostKey, "state");
 const statePath = resolve(stateDirectory, "browser-state.json");
 const pinPath = resolve(stateDirectory, "account");
-function resolveAllowedDomains(): string {
+function resolveAllowedDomains(): string[] {
   try {
-    return composeAllowedDomains(baseUrl, options("--allow-domain"), !live).join(",");
+    return live
+      ? composeLiveAllowedDomains(baseUrl, liveHosts, options("--allow-domain"))
+      : composeAllowedDomains(baseUrl, options("--allow-domain"), true);
   } catch (error) {
     console.error(error instanceof Error ? error.message : "Invalid --allow-domain value.");
     process.exit(2);
@@ -182,7 +189,7 @@ const browserEnv: Record<string, string | undefined> = {
   AGENT_BROWSER_HEADED: liveLogin ? "true" : undefined,
 };
 delete browserEnv.HOME_ACCESS_PASSWORD;
-if (!live) browserEnv.AGENT_BROWSER_ALLOWED_DOMAINS = allowedDomains;
+if (!live) browserEnv.AGENT_BROWSER_ALLOWED_DOMAINS = allowedDomains.join(",");
 
 function commandWithInput(input: string | undefined, ...commandArgs: string[]): string {
   const result = Bun.spawnSync({
@@ -210,6 +217,15 @@ function secretCommand(input: string, ...commandArgs: string[]): string {
     return commandWithInput(input, ...commandArgs);
   } catch {
     throw new Error(`agent-browser ${commandArgs[0]} failed while handling the deployment access gate.`);
+  }
+}
+
+function waitForEnabledButton(label: string): void {
+  try {
+    command("wait", "--fn", enabledButtonPredicate(label));
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "the wait timed out";
+    throw new Error(`The button “${label}” is still disabled: ${detail}`);
   }
 }
 
@@ -260,13 +276,19 @@ function requestUrls(output: string): string[] {
   });
 }
 
-function requestFailures(output: string): string[] {
+function requestFailures(output: string): RequestFailure[] {
   return networkItems(output).flatMap((item) => {
     if (typeof item !== "object" || item === null) return [];
     const request = item as Record<string, unknown>;
     const status = typeof request.status === "number" ? request.status : null;
     const failed = Boolean(request.failure ?? request.failed ?? request.errorText) || (status !== null && status >= 400);
-    return failed ? [`${request.method ?? "GET"} ${request.url ?? "unknown"}${status === null ? "" : ` (${status})`}`] : [];
+    return failed
+      ? [{
+        method: typeof request.method === "string" ? request.method : "GET",
+        url: typeof request.url === "string" ? request.url : "unknown",
+        status,
+      }]
+      : [];
   });
 }
 
@@ -284,10 +306,12 @@ function authenticatedAccountAddress(): string | null {
 }
 
 function sessionExpired(): boolean {
-  const result = jsonResult(command(
-    "eval",
-    `location.search.includes("account=signin")||document.body.innerText.includes("Sign in to Home")`,
-  ));
+  const result = jsonResult(command("eval", "document.body.innerText"));
+  return typeof result === "string" && liveSessionExpired(result);
+}
+
+function livePageAuthenticated(): boolean {
+  const result = jsonResult(command("eval", 'Boolean(document.querySelector("[data-app-main-authenticated]"))'));
   return result === true;
 }
 
@@ -296,6 +320,7 @@ function handleAccessGate(): void {
   const password = process.env.HOME_ACCESS_PASSWORD;
   if (!password) throw new Error("This deployment requires HOME_ACCESS_PASSWORD in the operator environment.");
   secretCommand(`(()=>{const input=document.querySelector('input[aria-label="Access password"],input[name="password"]');if(!(input instanceof HTMLInputElement))throw new Error("Access password field not found");const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value")?.set;setter?.call(input,${JSON.stringify(password)});input.dispatchEvent(new Event("input",{bubbles:true}));input.dispatchEvent(new Event("change",{bubbles:true}));return true})()`, "eval", "--stdin");
+  waitForEnabledButton("Continue");
   secretCommand("", "find", "role", "button", "click", "--name", "Continue", "--exact");
   secretCommand("", "wait", "--fn", `location.pathname!=="/access"`);
 }
@@ -304,6 +329,21 @@ async function ensurePrivateStateDirectory(): Promise<void> {
   await mkdir(stateDirectory, { recursive: true, mode: 0o700 });
   await chmod(resolve(stateDirectory, ".."), 0o700);
   await chmod(stateDirectory, 0o700);
+}
+
+async function saveLiveSession(): Promise<void> {
+  command("state", "save", statePath);
+  await chmod(statePath, 0o600);
+}
+
+async function saveLiveSessionIfAuthenticated(): Promise<"saved" | "not-authenticated" | "failed"> {
+  try {
+    if (!livePageAuthenticated()) return "not-authenticated";
+    await saveLiveSession();
+    return "saved";
+  } catch {
+    return "failed";
+  }
 }
 
 async function runLiveLogin(): Promise<never> {
@@ -317,6 +357,7 @@ async function runLiveLogin(): Promise<never> {
       command("navigate", new URL("/?account=signin", baseUrl).toString());
     }
     command("find", "label", "Email address", "fill", "j@pollak.io", "--exact");
+    waitForEnabledButton("Continue with email");
     const submittedAt = Date.now();
     command("find", "role", "button", "click", "--name", "Continue with email", "--exact");
     const credentials = await readGmailCredentials(gmailCredentialsPath(process.env)) as Required<GmailCredentials>;
@@ -507,6 +548,7 @@ function executeStep(step: ReachStep): string {
     return `goto ${step.path}`;
   }
   if (step.kind === "click") {
+    waitForEnabledButton(step.label);
     command("find", "role", "button", "click", "--name", step.label, "--exact");
     return `click ${step.label}`;
   }
@@ -545,6 +587,7 @@ let confirmIntent: { label: string; parsedAmountUsd: number; capUsd: number; tot
 let confirmClickAttempted = false;
 let stoppedBefore: string | null = null;
 let unexpectedHosts: string[] = [];
+let expectedFailures: string[] = [];
 let transactionHash: string | null = null;
 let actionId: string | null = null;
 async function writeEvidenceFile(path: string, contents: string): Promise<void> {
@@ -572,6 +615,7 @@ async function writeLiveEvidence(): Promise<void> {
     actionId,
     stoppedBefore,
     unexpectedHosts,
+    expectedFailures,
   }, null, 2)}\n`);
 }
 function observeUnexpectedHosts(): string[] {
@@ -580,7 +624,7 @@ function observeUnexpectedHosts(): string[] {
   const scriptUrls = Array.isArray(observedByScript)
     ? observedByScript.flatMap((host) => typeof host === "string" ? [`https://${host}`] : [])
     : [];
-  return unexpectedNetworkHosts([...requestUrls(networkOutput), ...scriptUrls], allowedDomains.split(","));
+  return unexpectedNetworkHosts([...requestUrls(networkOutput), ...scriptUrls], allowedDomains);
 }
 function runIncidents(): string[] {
   const incidents = [];
@@ -673,13 +717,14 @@ try {
     command("state", "load", statePath);
     command("navigate", new URL("/home?account=settings", baseUrl).toString());
     handleAccessGate();
-    command("wait", "--fn", `document.body.innerText.includes("Show small balances")||location.search.includes("account=signin")||document.body.innerText.includes("Sign in to Home")`);
+    command("wait", "--fn", `document.body.innerText.includes("Show small balances")||(${liveSessionExpired.toString()})(document.body.innerText)`);
     if (sessionExpired()) {
       throw new Error(`The live session expired; run verify live-login --base-url ${baseUrl.origin}.`);
     }
     const observedAccount = authenticatedAccountAddress();
     const pinError = accountPinError(observedAccount, pinnedAccount ?? "");
     if (pinError) throw new Error(pinError);
+    await saveLiveSession();
     if (allowConfirm) {
       command("navigate", new URL("/home", baseUrl).toString());
       command("wait", "--fn", `Boolean(document.querySelector('[aria-label="Total balance"]'))`);
@@ -844,7 +889,9 @@ try {
   unexpectedHosts = live ? observeUnexpectedHosts() : [];
   liveRefusal = hostObservationRefusal(unexpectedHosts) ?? liveRefusal;
   const pageErrors = [...messages(command("errors")), ...(liveRefusal ? [liveRefusal] : [])];
-  const failedRequests = requestFailures(networkOutput);
+  const failurePartition = partitionLiveFailures(requestFailures(networkOutput), live ? liveExpectedFailures : [], baseUrl);
+  const failedRequests = failurePartition.unexpected;
+  expectedFailures = failurePartition.expected;
   const finalizedEvidence = finalizeEvidence({
     surfaceId,
     baseUrl: baseUrl.origin,
@@ -854,6 +901,7 @@ try {
     artifacts: { screenshot: "screenshot.png", dom: "dom.txt" },
     consoleErrors,
     failedRequests,
+    expectedFailures,
     pageErrors,
     marks,
     longTaskCount: performance.longTaskCount ?? 0,
@@ -883,6 +931,12 @@ try {
     ? `${message} A confirm click may have been dispatched; check Activity before re-running because a re-run confirms again.`
     : message);
 } finally {
+  if (live) {
+    const sessionSave = await saveLiveSessionIfAuthenticated();
+    if (sessionSave === "failed") {
+      console.error("The authenticated live session could not be re-saved; run verify live-login before the next live run.");
+    }
+  }
   try {
     command("close");
   } catch {

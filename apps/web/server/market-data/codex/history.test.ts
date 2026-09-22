@@ -58,6 +58,7 @@ describe("Codex market history reader", () => {
     expect(seen.url).toBe(CODEX_GRAPHQL_ENDPOINT);
     expect(CODEX_BARS_QUERY).toContain("getBars");
     expect(CODEX_BARS_QUERY).toContain("symbolType: TOKEN");
+    // oxlint-disable-next-line home/no-self-referential-expectation -- the request must carry the canonical query document and configured history window
     expect(seen.body).toEqual({
       query: CODEX_BARS_QUERY,
       variables: {

@@ -209,7 +209,7 @@ export function createCdpWebhookSubscriptions(options: {
       }
       try {
         await ensure(normalizeAddress(address));
-      } catch (error) {
+      } catch (error) { // oxlint-disable-line home/no-silent-catch -- the injected subscription-failure logger reports the failure; subscription setup never fails the webhook response
         logFailure(error instanceof Error ? error.message : "subscription-failed");
       }
     },

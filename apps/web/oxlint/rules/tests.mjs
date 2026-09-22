@@ -1,5 +1,127 @@
 import { allowedMockModules } from "../policy/mock-modules.mjs";
 
+const testFileSuffix = /\.(?:test|pw)\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/u;
+const moduleSuffix = /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/u;
+const expectationMatchers = new Set([
+  "toBe",
+  "toEqual",
+  "toStrictEqual",
+  "toContain",
+  "toContainEqual",
+  "toMatch",
+  "toMatchObject",
+  "toHaveLength",
+  "toBeLessThan",
+  "toBeGreaterThan",
+]);
+
+function normalizedStem(name) {
+  return name.toLowerCase().replaceAll(/[^a-z0-9]+/gu, "-").replaceAll(/^-|-$/gu, "");
+}
+
+function resolvedImportPath(testRelativePath, source) {
+  const segments = source.startsWith("@/")
+    ? source.slice(2).split("/")
+    : [...testRelativePath.split("/").slice(0, -1), ...source.split("/")];
+  const resolved = normalizeRelativePath(segments.join("/"));
+  if (resolved === null) return null;
+  return source === "." ? [resolved, "index"].filter(Boolean).join("/") : resolved;
+}
+
+function directoryName(modulePath) {
+  return modulePath.split("/").slice(0, -1).join("/");
+}
+
+function expectedArgument(node) {
+  let current = node.callee;
+  const members = [];
+  while (current?.type === "MemberExpression" && !current.computed
+    && current.property.type === "Identifier") {
+    members.push(current.property.name);
+    current = current.object;
+  }
+  if (current?.type !== "CallExpression" || current.callee.type !== "Identifier"
+    || current.callee.name !== "expect") return null;
+  if (!members.some((name) => expectationMatchers.has(name))) return null;
+  return node.arguments[0] ?? null;
+}
+
+const transparentExpectedValue = new Set([
+  "TSAsExpression",
+  "TSNonNullExpression",
+  "TSSatisfiesExpression",
+  "TSTypeAssertion",
+]);
+
+function containsSubjectBinding(node, subjectBindings, subjectNamespaces) {
+  if (!node) return false;
+  if (node.type === "Identifier") return subjectBindings.has(node.name);
+  if (transparentExpectedValue.has(node.type)) {
+    return containsSubjectBinding(node.expression, subjectBindings, subjectNamespaces);
+  }
+  if (node.type === "ArrayExpression") {
+    return node.elements.some((element) => element && containsSubjectBinding(
+      element.type === "SpreadElement" ? element.argument : element,
+      subjectBindings,
+      subjectNamespaces,
+    ));
+  }
+  if (node.type === "ObjectExpression") {
+    return node.properties.some((property) => containsSubjectBinding(
+      property.type === "SpreadElement" ? property.argument : property.value,
+      subjectBindings,
+      subjectNamespaces,
+    ));
+  }
+  if (node.type === "TemplateLiteral") {
+    return node.expressions.some((expression) =>
+      containsSubjectBinding(expression, subjectBindings, subjectNamespaces));
+  }
+  if (node.type !== "MemberExpression" || node.object.type !== "Identifier"
+    || !subjectNamespaces.has(node.object.name)) return false;
+  return !node.computed || node.property.type === "Literal";
+}
+
+export const noSelfReferentialExpectation = {
+  meta: {
+    type: "problem", schema: [], messages: {
+      rejected: "Expectations must assert an independently derived value, not an identifier imported from the module under test.",
+    },
+  },
+  create(context) {
+    const relative = appsWebRelativeFilename(context);
+    if (!relative) return {};
+    const subjectPath = relative.replace(testFileSuffix, "");
+    if (subjectPath === relative) return {};
+    const stem = normalizedStem(subjectPath.split("/").pop() ?? "");
+    const subjectBindings = new Set();
+    const subjectNamespaces = new Set();
+    return {
+      ImportDeclaration(node) {
+        const source = sourceValue(node.source);
+        if (typeof source !== "string"
+          || !(source === "." || source.startsWith("./") || source.startsWith("../") || source.startsWith("@/"))) return;
+        const resolved = resolvedImportPath(relative, source);
+        if (resolved === null) return;
+        const resolvedModule = resolved.replace(moduleSuffix, "");
+        const importStem = normalizedStem(resolvedModule.split("/").pop() ?? "");
+        const matchingSameDirectoryStem = directoryName(resolvedModule) === directoryName(subjectPath)
+          && importStem === stem;
+        if (resolvedModule !== subjectPath && !matchingSameDirectoryStem) return;
+        for (const specifier of node.specifiers) {
+          if (specifier.type === "ImportNamespaceSpecifier") subjectNamespaces.add(specifier.local.name);
+          else subjectBindings.add(specifier.local.name);
+        }
+      },
+      CallExpression(node) {
+        const expected = expectedArgument(node);
+        if (!containsSubjectBinding(expected, subjectBindings, subjectNamespaces)) return;
+        context.report({ node: expected, messageId: "rejected" });
+      },
+    };
+  },
+};
+
 function sourceValue(node) {
   if (node?.type === "Literal" || node?.type === "StringLiteral") return node.value;
   if (node?.type === "TemplateLiteral" && node.expressions.length === 0) return node.quasis[0]?.value.cooked;

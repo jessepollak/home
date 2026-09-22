@@ -74,7 +74,7 @@ function emitReadFailure(
       outcome: "unavailable",
       reason: "read-failed",
     });
-  } catch {
+  } catch { // oxlint-disable-line home/no-silent-catch -- the balances error-path log sink is isolated so observability cannot change the error response
   }
 }
 
@@ -82,6 +82,6 @@ function fireAndForgetSubscription(run: () => Promise<void> | undefined): void {
   try {
     const pending = run();
     if (pending) void pending.catch(() => undefined);
-  } catch {
+  } catch { // oxlint-disable-line home/no-silent-catch -- subscription refresh is fire-and-forget and must not fail the balances response
   }
 }

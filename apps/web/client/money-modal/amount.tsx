@@ -101,7 +101,7 @@ export function triggerKeyHaptic(durationMs = 12): void {
   if (navigator.userActivation && !navigator.userActivation.isActive) return;
   try {
     navigator.vibrate(durationMs);
-  } catch {
+  } catch { // oxlint-disable-line home/no-silent-catch -- haptics are optional; a blocked vibration must not fail the key press
   }
 }
 
