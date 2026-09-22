@@ -436,10 +436,10 @@ export class FundingCore {
         this.deps.logUnmatchedWebhook?.({ providerId, reason: "region-mismatch" });
         return { accepted: true, matched: false };
       }
-      const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "onramp", paymentMethodId: order.paymentMethod, env: this.env, fetchImplementation: this.deps.fetchImplementation, sandbox: order.sandbox });
-      const verified = verifyWebhookForBinding(
-        () => onramp.verifyWebhook!(raw, headers, ctx),
-      );
+      const verified = verifyWebhookForBinding(() => {
+        const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "onramp", paymentMethodId: order.paymentMethod, env: this.env, fetchImplementation: this.deps.fetchImplementation, sandbox: order.sandbox });
+        return onramp.verifyWebhook!(raw, headers, ctx);
+      });
       if (verified?.providerOrderId !== providerOrderId) {
         this.deps.logUnmatchedWebhook?.({ providerId, reason: "region-mismatch" });
         return { accepted: true, matched: false };

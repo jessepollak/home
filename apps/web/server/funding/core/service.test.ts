@@ -572,6 +572,67 @@ describe("FundingCore", () => {
     await expect(core.handleWebhook("regional", raw, new Headers({ "x-signature": "us-secret" }))).rejects.toBe(unexpected);
   });
 
+  test("treats cross-region provider context configuration failures as unmatched", async () => {
+    const store = new MemoryFundingOrderStore();
+    const provider: FundingProvider = {
+      manifest: {
+        id: "regional-context", displayName: "Regional context", docsUrl: "https://example.com",
+        onramp: { apiOrigins: ["https://example.com"], reference: "home", webhook: { signatureHeader: "x-signature", env: { US: "US_HOOK", ID: "ID_HOOK" } } },
+        bindings: [
+          { region: "US", assetId: "base:usdc", currency: "USD", directions: { onramp: { paymentMethods: [{ id: "bank", label: "Bank" }], env: ["US_HOOK"] } } },
+          { region: "ID", assetId: "missing-asset", currency: "IDR", directions: { onramp: { paymentMethods: [{ id: "bank", label: "Bank" }], env: ["ID_HOOK"] } } },
+        ],
+      },
+      onramp: {
+        async createOrder() { return { outcome: "ambiguous" }; },
+        async getOrder() { return { state: "unknown", providerStatus: "unknown" }; },
+        verifyWebhook(_raw, headers, ctx) {
+          return ctx.binding.region === "US" && headers.get("x-signature") === "us-secret"
+            ? { providerOrderId: "regional-context-order" }
+            : null;
+        },
+      },
+    };
+    const reserved = await store.reserve({
+      id: "regional-context-home-order",
+      owner: { subject: session.user.subject, accountProvider: session.accountProvider },
+      destination: session.smartAccount!.address,
+      providerId: "regional-context",
+      region: "ID",
+      assetId: "missing-asset",
+      paymentMethod: "bank",
+      fiatAmount: "1000",
+      intentDigest: "regional-context-intent",
+      quote: { fiatAmount: "1000", tokenAmountAtomic: "100000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" },
+      quoteToken: "regional-context-token",
+      customerRef: null,
+      sandbox: false,
+      creationBlock: "1",
+      createdAt: "2026-09-12T00:00:00.000Z",
+    });
+    await store.completeDispatch(reserved.order.id, {
+      providerOrderId: "regional-context-order",
+      expectedTokenAmountAtomic: "100000",
+      fees: [],
+      expiresAt: null,
+      instructions: { kind: "bank-transfer", rail: "VA", accountNumber: "1", amount: "1000", currency: "IDR" },
+      expectedVersion: reserved.order.version,
+      updatedAt: "2026-09-12T00:00:01.000Z",
+    });
+    const events: Array<{ providerId: string; reason: "invalid" | "unmatched" | "region-mismatch" }> = [];
+    const core = new FundingCore({
+      providers: [provider],
+      store,
+      env: { US_HOOK: "us-secret", ID_HOOK: "id-secret" },
+      currentBaseBlock: async () => "1",
+      verifyReceipt: async () => null,
+      logUnmatchedWebhook: (event) => events.push(event),
+    });
+
+    await expect(core.handleWebhook("regional-context", new Uint8Array(), new Headers({ "x-signature": "us-secret" }))).resolves.toEqual({ accepted: true, matched: false });
+    expect(events).toEqual([{ providerId: "regional-context", reason: "region-mismatch" }]);
+  });
+
   test("verifies the receipt against a lower provider-settled amount and never a higher one", async () => {
     const verified: string[] = [];
     let settled = "1986000";
