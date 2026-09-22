@@ -19,10 +19,7 @@ import { IDRX_API_ORIGIN, IDRX_CHECKOUT_ORIGIN, idrxManifest } from "./manifest"
 const MINT_PATH = "/transaction/mint-request";
 const QUOTE_PATH = "/v2/transaction/mint-quote";
 const HISTORY_PATH = "/transaction/user-transaction-history";
-// The generic QRIS channel the IDRX checkout itself uses.
 const QRIS_CHANNEL = "QR";
-// IDRX quotes carry no expiry of their own: the fee schedule is per method and
-// per organization, not per request. Five minutes matches the local quote.
 const QUOTE_TTL_MS = 5 * 60_000;
 const HISTORY_TAKE = 10;
 const MAX_RESPONSE_BYTES = 64 * 1024;
@@ -114,10 +111,6 @@ export const idrxProvider: FundingProvider = {
         data,
         ctx.binding.paymentMethod.id === "qris",
       );
-      // With a quote the expected amount is the quoted net mint, which the
-      // core checks the created order against; the create echoes above are
-      // still checked against the requested amount, because IDRX deducts the
-      // QRIS fee only when the payment lands.
       const common = {
         providerOrderId,
         tokenAddress: ctx.binding.asset.address,
@@ -130,8 +123,6 @@ export const idrxProvider: FundingProvider = {
         if (!checkoutUrl) throw new Error("Missing IDRX checkout URL.");
         return created({
           ...common,
-          // The hosted session carries no fee lines; the quote already
-          // itemized them for this method.
           fees: paymentEchoes?.fees ?? input.quote?.fees ?? [],
           expiresAt: null,
           instructions: {
@@ -253,9 +244,6 @@ function createMintBody(
     };
   }
   if (ctx.binding.paymentMethod.id === "qris") {
-    // `flow: "hosted"` keeps the IDRX checkout page but opens it directly on
-    // QRIS, so the user pays with the method this order was quoted for and
-    // cannot switch to a Virtual Account (different fees) on that page.
     return {
       ...common,
       returnUrl: input.returnUrl,
@@ -278,11 +266,6 @@ function quoteChannel(
   return null;
 }
 
-// A quote is trusted only when its own arithmetic closes: the base amount is
-// the one asked for, the fees deducted from the mint explain the whole gap
-// between base and `toBeMinted`, and the fees added to the payment explain
-// the whole gap between base and `paymentAmount`. Anything else is a
-// mismatch, never something to display.
 function readQuote(
   data: JsonRecord,
   input: QuoteIntent,
@@ -355,9 +338,6 @@ async function classifyCreateFailure(response: Response): Promise<CreateOrderRes
       return { outcome: "ambiguous" };
     }
     const message = typeof payload.message === "string" ? payload.message : "";
-    // IDRX attaches a machine-readable `data.code` (for example
-    // `BANK_ACCOUNT_REQUIRED` when a VA channel needs a registered bank
-    // account) to validation rejections. No order exists in that case.
     if (
       response.status === 400 &&
       isRecord(payload.data) &&
@@ -375,9 +355,6 @@ async function classifyCreateFailure(response: Response): Promise<CreateOrderRes
   }
 }
 
-// The core stores the rejection message as providerStatus and shows it to
-// the user, so provider text never passes through; coded rejections map to
-// Home copy the user can act on.
 function rejectionCopy(code: string): string {
   if (code === "BANK_ACCOUNT_REQUIRED") {
     return "This bank transfer option is not available for this account yet. Choose another way to pay.";
@@ -464,9 +441,6 @@ function readPaymentEchoes(
   return { fees, paymentAmount };
 }
 
-// Live history records carry `paymentAmount` (what the user pays) and
-// `fees[]`; the invariant is paymentAmount = toBeMinted + sum(fees), whether
-// a fee is added on top (VA) or deducted from the mint (hosted QRIS).
 function readHistoryPaymentEchoes(
   data: JsonRecord,
   settledAtomic: bigint,
@@ -487,8 +461,6 @@ function readHistoryPaymentEchoes(
   return fees;
 }
 
-// A lowered mint is only acceptable when the record itemizes fees that cover
-// the shortfall, and the shortfall stays within a small share of the request.
 function assertBoundedShortfall(
   expectedAtomic: bigint,
   settledAtomic: bigint,
@@ -760,27 +732,14 @@ type Settlement = {
   fees: ProviderOrder["fees"];
 };
 
-// A provider may lower the settled amount only by fees it itemizes, and the
-// deduction may not exceed this share of the requested amount. IDRX deducts
-// the 0.7% QRIS fee from the mint; flat channel fees are paid on top and do
-// not lower it, so the cap is on the shortfall, not on the fee total.
 const MAX_SETTLEMENT_SHORTFALL_BASIS_POINTS = BigInt(500);
 
-// Validates a history record against the immutable intent and returns the
-// amount IDRX will actually mint. IDRX deducts a channel fee from the minted
-// amount for hosted QRIS (0.7% on 2026-09-14), so `toBeMinted` in the record
-// can be lower than the requested amount; it can never be higher.
 function readReconciliationSettlement(
   record: JsonRecord,
   input: ReconciliationIntent,
   ctx: ProviderContext,
 ): Settlement | null {
   try {
-    // `expectedTokenAmountAtomic` is the amount the core will verify on Base:
-    // the quoted net mint when the order was quoted, the requested amount
-    // otherwise. IDRX's record still speaks in the requested amount
-    // (`baseAmount`) minus the fee it deducted, so the record is checked
-    // against the requested amount and the settlement against the expected one.
     const expectedAtomic = BigInt(input.expectedTokenAmountAtomic);
     const requestedAtomic = input.fiatAmount === undefined
       ? expectedAtomic
@@ -995,8 +954,6 @@ function readExpiry(value: unknown): string {
   return expiry;
 }
 
-// The live IDRX API serialises amounts as JSON numbers (`"toBeMinted": 19860`,
-// `"paymentAmount": 23000`); fee entries and older responses use strings.
 function readDecimal(value: unknown): string {
   const text = typeof value === "number" && Number.isFinite(value)
     ? String(value)
@@ -1108,13 +1065,8 @@ function parseProviderJson(text: string): unknown {
     let cursor = index;
     while (/\s/.test(text[cursor] ?? "")) cursor += 1;
     if (text[cursor] !== ":") continue;
-    let key: unknown;
-    try {
-      key = JSON.parse(token);
-    } catch { // oxlint-disable-line home/no-silent-catch -- a quoted token that is not a JSON key is skipped while normalizing decimal fields
-      continue;
-    }
-    if (typeof key !== "string" || !decimalKeys.has(key)) continue;
+    const key = parseProviderJsonKey(token);
+    if (key === null || !decimalKeys.has(key)) continue;
     output += text.slice(index, cursor + 1);
     cursor += 1;
     const whitespaceStart = cursor;
@@ -1129,6 +1081,15 @@ function parseProviderJson(text: string): unknown {
     index = cursor + numeric[0].length;
   }
   return JSON.parse(output);
+}
+
+function parseProviderJsonKey(token: string): string | null {
+  try {
+    const key: unknown = JSON.parse(token);
+    return typeof key === "string" ? key : null;
+  } catch {
+    return null;
+  }
 }
 
 function isRecord(value: unknown): value is JsonRecord {

@@ -435,13 +435,10 @@ export class FundingCore {
         this.deps.logUnmatchedWebhook?.({ providerId, reason: "region-mismatch" });
         return { accepted: true, matched: false };
       }
-      let verified;
-      try {
-        const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "onramp", paymentMethodId: order.paymentMethod, env: this.env, fetchImplementation: this.deps.fetchImplementation, sandbox: order.sandbox });
-        verified = onramp.verifyWebhook(raw, headers, ctx);
-      } catch (error) { // oxlint-disable-line home/no-silent-catch -- a provider configuration error marks this binding unusable; the webhook is rejected as unmatched
-        if (!(error instanceof FundingProviderConfigurationError)) throw error;
-      }
+      const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "onramp", paymentMethodId: order.paymentMethod, env: this.env, fetchImplementation: this.deps.fetchImplementation, sandbox: order.sandbox });
+      const verified = verifyWebhookForBinding(
+        () => onramp.verifyWebhook!(raw, headers, ctx),
+      );
       if (verified?.providerOrderId !== providerOrderId) {
         this.deps.logUnmatchedWebhook?.({ providerId, reason: "region-mismatch" });
         return { accepted: true, matched: false };
@@ -476,18 +473,11 @@ export class FundingCore {
         tokenAddress: asset.address,
         destination: order.destination,
         fiatAmount: order.fiatAmount,
-        // The adapter bounds a lower settlement against the quoted amount, never
-        // against a settlement this core accepted earlier.
         expectedTokenAmountAtomic: order.quote.tokenAmountAtomic,
         tokenDecimals: asset.decimals,
       }, ctx);
     } catch { return order; }
     const nextState = observation.state === "sent" ? "sent-unverified" : observation.state;
-    // A provider may settle less than requested when it deducts its own fee
-    // after creation (IDRX hosted QRIS). Never more: the adapter is not
-    // allowed to raise what counts as received. And only once: the quoted
-    // amount stays the baseline, so repeated lowering cannot ratchet past the
-    // adapter's bound.
     const settled = settledAmount(observation, order.quote.tokenAmountAtomic, order.expectedTokenAmountAtomic);
     if (settled === undefined) return order;
     let updated = await this.deps.store.applyObservation(order.id, {
@@ -561,16 +551,11 @@ export class FundingCore {
   private quoteSecret() { return this.env.FUNDING_QUOTE_SECRET?.trim() ?? ""; }
 }
 
-// Returns the settled amount to store, null when the observation carries none
-// or nothing changes, or undefined when the reported amount is invalid and the
-// whole observation must be ignored.
 function settledAmount(observation: Observation, quoted: string, current: string): string | null | undefined {
   const reported = observation.settledTokenAmountAtomic;
   if (reported === undefined) return null;
   if (!/^[1-9][0-9]{0,77}$/.test(reported)) return undefined;
   if (BigInt(reported) > BigInt(quoted)) return undefined;
-  // A settlement was already accepted: it is frozen. The provider may only
-  // keep reporting the same amount.
   if (current !== quoted) return reported === current ? null : undefined;
   return reported === quoted ? null : reported;
 }
@@ -636,6 +621,16 @@ function instructionUrlIsSafe(
     );
   } catch {
     return false;
+  }
+}
+function verifyWebhookForBinding(
+  verify: () => { providerOrderId: string } | null,
+): { providerOrderId: string } | null {
+  try {
+    return verify();
+  } catch (error) {
+    if (error instanceof FundingProviderConfigurationError) return null;
+    throw error;
   }
 }
 function parseQuoteRequest(value: unknown): { providerId: string; region: string; paymentMethod: string; fiatAmount: string } | null {

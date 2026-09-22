@@ -532,10 +532,6 @@ function OrderStatus({
   );
 }
 
-// A provider may settle the order for less than the quote by fees it itemizes
-// after creation (IDRX hosted QRIS). Redirect orders skip the economics review,
-// so this is the only place the user sees the final receive amount and why it
-// is lower than what the quote said.
 function SettledAmounts({
   binding,
   order,

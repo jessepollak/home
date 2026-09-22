@@ -263,8 +263,6 @@ export type ReconciliationIntent = Readonly<{
   tokenAddress: `0x${string}`;
   destination: `0x${string}`;
   fiatAmount?: string;
-  // The quoted amount, even after the core accepted a lower settlement, so an
-  // adapter bounds every settlement against the same immutable baseline.
   expectedTokenAmountAtomic: string;
   tokenDecimals: number;
 }>;
@@ -328,14 +326,6 @@ export type Observation = {
   state: ReportedState;
   providerStatus: string;
   transactionHash?: `0x${string}` | null;
-  // The token amount the provider settles when it deducts its own fee from
-  // the mint after the order was created (IDRX hosted QRIS). Must be at
-  // most `expectedTokenAmountAtomic`, which is always the quoted amount; the
-  // core accepts one lower settlement per order, freezes it, and verifies
-  // the Base transfer against it instead of the requested one. `fees`
-  // itemizes the provider's charges as reported with that settlement, in the
-  // quote fee shape; the core stores them on the order and the status view
-  // renders them next to the settled receive amount.
   settledTokenAmountAtomic?: string;
   fees?: Quote["fees"];
 };
