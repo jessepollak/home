@@ -1,11 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { appendLedger, armAuthorityError, armCommentId, armEvent, armReplayError, readLedger, recordArmEvent, spendForDay, spendForRun, surfaceArmState, withLedgerLock, type ArmAuthority, type ArmComment, type LedgerDisarm, type LedgerEntry, type LedgerRun } from "./ledger";
+import { appendLedger, readLedger, spendForDay, spendForRun, withLedgerLock, type LedgerRun } from "./ledger";
 
 const temporaryDirectories: string[] = [];
-const revision = "abc123";
-const authority: ArmAuthority = { repository: "example-org/home", operatorLogin: "example-operator" };
 
 function run(overrides: Partial<LedgerRun> = {}): LedgerRun {
   return {
@@ -15,7 +13,7 @@ function run(overrides: Partial<LedgerRun> = {}): LedgerRun {
     host: "preview.example",
     surface: "send",
     role: "factory",
-    mainRevision: revision,
+    mainRevision: "abc123",
     rungReached: 2,
     amountsUsd: [],
     incidents: [],
@@ -37,6 +35,36 @@ describe("verification ledger", () => {
     await appendLedger(path, run());
     await appendLedger(path, run({ runId: "run-2" }));
     expect(await readLedger(path)).toHaveLength(2);
+  });
+
+  test("records incidents as evidence without altering later run records", async () => {
+    const directory = resolve(tmpdir(), `home-ledger-incidents-${crypto.randomUUID()}`);
+    Bun.spawnSync(["mkdir", "-p", directory]);
+    temporaryDirectories.push(directory);
+    const path = resolve(directory, "ledger.jsonl");
+    await appendLedger(path, run({ runId: "run-1", clean: false, incidents: ["unexpected-host"] }));
+    await appendLedger(path, run({ runId: "run-2", rungReached: 3, clean: true }));
+    const entries = await readLedger(path);
+    expect(entries[0].incidents).toEqual(["unexpected-host"]);
+    expect(entries[1].incidents).toEqual([]);
+    expect(entries[1].clean).toBe(true);
+  });
+
+  test("skips legacy arm and disarm events left in an existing ledger", async () => {
+    const directory = resolve(tmpdir(), `home-ledger-legacy-${crypto.randomUUID()}`);
+    Bun.spawnSync(["mkdir", "-p", directory]);
+    temporaryDirectories.push(directory);
+    const path = resolve(directory, "ledger.jsonl");
+    await Bun.write(path, [
+      JSON.stringify(run({ runId: "run-1", clean: false, incidents: ["unexpected-host"] })),
+      JSON.stringify({ type: "disarm", timestamp: "2026-09-22T00:00:01.000Z", host: "example.com", surface: "send", incidents: ["unexpected-host"] }),
+      JSON.stringify({ type: "arm", timestamp: "2026-09-22T00:00:02.000Z", host: "example.com", surface: "send", by: "https://github.com/example-org/home/issues/1#issuecomment-1" }),
+      "",
+    ].join("\n"));
+    await appendLedger(path, run({ runId: "run-2", rungReached: 3, clean: true }));
+    const entries = await readLedger(path);
+    expect(entries.map((entry) => entry.runId)).toEqual(["run-1", "run-2"]);
+    expect(entries.every((entry) => entry.type === "run")).toBe(true);
   });
 
   test("serializes spend reservations and releases the lock", async () => {
@@ -83,102 +111,6 @@ describe("verification ledger", () => {
     await Bun.write(resolve(lockPath, "owner.json"), JSON.stringify({ pid: 999999, timestamp: Date.now() }));
     await expect(withLedgerLock(path, async () => undefined)).rejects.toThrow("reserving spend");
     Bun.spawnSync(["rm", "-rf", lockPath]);
-  });
-
-  test("arms after three clean rung 2 runs on current main only", () => {
-    expect(surfaceArmState([run(), run({ runId: "2" })], "send", revision, "preview.example")).toEqual({
-      armed: false,
-      cleanRuns: 2,
-      reason: "insufficient-clean-runs",
-    });
-    expect(surfaceArmState([run(), run({ runId: "2" }), run({ runId: "3" })], "send", revision, "preview.example")).toEqual({
-      armed: true,
-      cleanRuns: 3,
-      reason: "clean-runs",
-    });
-    expect(surfaceArmState([
-      run(),
-      run({ runId: "2", clean: false }),
-      run({ runId: "3", incidents: ["unexpected-host"] }),
-      run({ runId: "4", mainRevision: "old" }),
-    ], "send", revision, "preview.example").armed).toBe(false);
-  });
-
-  test("arms only from clean runs on the same host", () => {
-    const previewRuns = [
-      run({ host: "preview.example" }),
-      run({ runId: "2", host: "preview.example" }),
-      run({ runId: "3", host: "preview.example" }),
-    ];
-    expect(surfaceArmState(previewRuns, "send", revision, "home.example")).toEqual({
-      armed: false,
-      cleanRuns: 0,
-      reason: "insufficient-clean-runs",
-    });
-    expect(surfaceArmState(previewRuns, "send", revision, "preview.example")).toEqual({
-      armed: true,
-      cleanRuns: 3,
-      reason: "clean-runs",
-    });
-  });
-
-  test("an incident disarms until a later Jesse arm event", () => {
-    const entries: LedgerEntry[] = [run(), run({ runId: "2" }), run({ runId: "3" })];
-    entries.push({
-      type: "disarm",
-      timestamp: "2026-09-21T13:00:00.000Z",
-      surface: "send",
-      incidents: ["ambiguous-result"],
-      runId: "4",
-    });
-    expect(surfaceArmState(entries, "send", revision, "preview.example").reason).toBe("incident");
-    const by = "https://github.com/example-org/home/issues/1#issuecomment-123";
-    entries.push(armEvent("send", by, { html_url: by, body: "/verify arm send", user: { login: "example-operator" }, created_at: "2026-09-21T13:30:00.000Z" }, authority));
-    expect(surfaceArmState(entries, "send", revision, "preview.example")).toEqual({ armed: true, cleanRuns: 0, reason: "jesse-arm" });
-  });
-
-  test("an incident run disarms even when the disarm entry is lost", () => {
-    const cleanRuns = [run(), run({ runId: "2" }), run({ runId: "3" })];
-    expect(surfaceArmState([...cleanRuns, run({ runId: "4", clean: false, incidents: ["ambiguous-result"] })], "send", revision, "preview.example")).toEqual({
-      armed: false,
-      cleanRuns: 0,
-      reason: "incident",
-    });
-    const by = "https://github.com/example-org/home/issues/1#issuecomment-123";
-    const armed = [...cleanRuns, armEvent("send", by, { html_url: by, body: "/verify arm send", user: { login: "example-operator" }, created_at: "2026-09-21T13:30:00.000Z" }, authority)];
-    expect(surfaceArmState([...armed, run({ runId: "5", clean: false, incidents: ["post-confirm-failure"] })], "send", revision, "preview.example")).toEqual({
-      armed: false,
-      cleanRuns: 0,
-      reason: "incident",
-    });
-  });
-
-  test("validates the re-arm repository, author, exact command, and resolved URL", () => {
-    const by = "https://github.com/example-org/home/pull/7#issuecomment-42";
-    const comment: ArmComment = { html_url: by, body: "/verify arm send", user: { login: "example-operator" }, created_at: "2026-09-21T13:00:00.000Z" };
-    expect(armCommentId(by, authority)).toBe("42");
-    expect(armEvent("send", by, comment, authority).by).toBe(by);
-    expect(() => armCommentId("https://github.com/other/repo/issues/1#issuecomment-42", authority)).toThrow("example-org/home");
-    expect(() => armCommentId(by, { ...authority, repository: "example-org/home.fork" })).toThrow("example-org/home.fork");
-    expect(armCommentId("https://github.com/example-org/home.fork/pull/7#issuecomment-42", { ...authority, repository: "example-org/home.fork" })).toBe("42");
-    expect(armAuthorityError("send", by, { ...comment, user: { login: "someone-else" } }, authority)).toContain("Only a comment authored by example-operator");
-    expect(armAuthorityError("send", by, comment, { ...authority, operatorLogin: "someone-else" })).toContain("someone-else");
-    expect(armAuthorityError("send", by, { ...comment, body: "/verify arm save" }, authority)).toContain("exactly");
-    expect(armAuthorityError("send", by, { ...comment, html_url: "https://github.com/example-org/home/issues/8#issuecomment-42" }, authority)).toContain("does not match");
-    expect(armAuthorityError("send", by, { ...comment, created_at: undefined }, authority)).toContain("creation time");
-  });
-
-  test("refuses a replayed re-arm comment and one that predates the latest disarm", () => {
-    const by = "https://github.com/example-org/home/issues/1#issuecomment-123";
-    const comment: ArmComment = { html_url: by, body: "/verify arm send", user: { login: "example-operator" }, created_at: "2026-09-22T00:00:00.000Z" };
-    const armed: LedgerEntry[] = [armEvent("send", by, comment, authority, new Date("2026-09-22T00:00:05.000Z"))];
-    expect(armed[0]).toMatchObject({ type: "arm", commentId: "123", createdAt: "2026-09-22T00:00:00.000Z" });
-    expect(armReplayError(armed, "send", "123", "2026-09-23T00:00:00.000Z")).toContain("already");
-    expect(armReplayError([], "send", "123", "2026-09-23T00:00:00.000Z")).toBeNull();
-    const disarm: LedgerDisarm = { type: "disarm", timestamp: "2026-09-25T00:00:00.000Z", surface: "send", incidents: ["ambiguous-result"], runId: "run-9" };
-    expect(armReplayError([disarm], "send", "124", "2026-09-24T00:00:00.000Z")).toContain("predates");
-    expect(armReplayError([disarm], "save", "124", "2026-09-24T00:00:00.000Z")).toBeNull();
-    expect(armReplayError([disarm], "send", "124", "2026-09-26T00:00:00.000Z")).toBeNull();
   });
 
   test("sums daily factory and per-run confirmed amounts", () => {
@@ -238,19 +170,5 @@ describe("verification ledger", () => {
     await expect(withLedgerLock(path, async () => "second")).rejects.toThrow("reserving spend");
     Bun.spawnSync(["rm", "-rf", lockPath]);
     await expect(withLedgerLock(path, async () => "after")).resolves.toBe("after");
-  });
-
-  test("serializes the arm replay check so one comment cannot append twice", async () => {
-    const directory = resolve(tmpdir(), `home-ledger-arm-${crypto.randomUUID()}`);
-    Bun.spawnSync(["mkdir", "-p", directory]);
-    temporaryDirectories.push(directory);
-    const path = resolve(directory, "ledger.jsonl");
-    const by = "https://github.com/example-org/home/issues/1#issuecomment-321";
-    const comment: ArmComment = { html_url: by, body: "/verify arm send", user: { login: "example-operator" }, created_at: "2026-09-23T00:00:00.000Z" };
-    const event = armEvent("send", by, comment, authority, new Date("2026-09-23T00:00:05.000Z"));
-    const results = await Promise.allSettled([recordArmEvent(path, event), recordArmEvent(path, event)]);
-    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
-    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
-    expect((await readLedger(path)).filter((entry) => entry.type === "arm")).toHaveLength(1);
   });
 });
