@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { appendLedger, armAuthorityError, armCommentId, armEvent, armReplayError, readLedger, spendForDay, spendForRun, surfaceArmState, withLedgerLock, type ArmComment, type LedgerDisarm, type LedgerEntry, type LedgerRun } from "./ledger";
+import { appendLedger, armAuthorityError, armCommentId, armEvent, armReplayError, readLedger, recordArmEvent, spendForDay, spendForRun, surfaceArmState, withLedgerLock, type ArmComment, type LedgerDisarm, type LedgerEntry, type LedgerRun } from "./ledger";
 
 const temporaryDirectories: string[] = [];
 const revision = "abc123";
@@ -234,5 +234,19 @@ describe("verification ledger", () => {
     await expect(withLedgerLock(path, async () => "second")).rejects.toThrow("reserving spend");
     Bun.spawnSync(["rm", "-rf", lockPath]);
     await expect(withLedgerLock(path, async () => "after")).resolves.toBe("after");
+  });
+
+  test("serializes the arm replay check so one comment cannot append twice", async () => {
+    const directory = resolve(tmpdir(), `home-ledger-arm-${crypto.randomUUID()}`);
+    Bun.spawnSync(["mkdir", "-p", directory]);
+    temporaryDirectories.push(directory);
+    const path = resolve(directory, "ledger.jsonl");
+    const by = "https://github.com/jessepollak/home/issues/1#issuecomment-321";
+    const comment: ArmComment = { html_url: by, body: "/verify arm send", user: { login: "jessepollak" }, created_at: "2026-09-23T00:00:00.000Z" };
+    const event = armEvent("send", by, comment, new Date("2026-09-23T00:00:05.000Z"));
+    const results = await Promise.allSettled([recordArmEvent(path, event), recordArmEvent(path, event)]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+    expect((await readLedger(path)).filter((entry) => entry.type === "arm")).toHaveLength(1);
   });
 });

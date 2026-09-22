@@ -30,7 +30,7 @@ import {
   unlistedAmountClickError,
   type LiveRecipient,
 } from "./live";
-import { appendLedger, armCommentId, armEvent, armReplayError, readLedger, spendForDay, spendForRun, surfaceArmState, withLedgerLock, type ArmComment, type LedgerEntry } from "./ledger";
+import { appendLedger, armCommentId, armEvent, readLedger, recordArmEvent, spendForDay, spendForRun, surfaceArmState, withLedgerLock, type ArmComment, type LedgerEntry } from "./ledger";
 import { canaryReach, matchesConfirmLabel, readFeatureMap, type ReachStep } from "./map";
 import { confirmPolicyRefusal, requestedCaps, resolveVerifyRole, verifyPolicy, type VerifyRole } from "./policy";
 
@@ -135,9 +135,7 @@ if (args[0] === "arm") {
     if (result.exitCode !== 0) throw new Error("Could not resolve the Jesse re-arm comment.");
     const comment = JSON.parse(result.stdout.toString()) as ArmComment;
     const event = armEvent(surfaceId, by, comment);
-    const replayError = armReplayError(await readLedger(ledgerPath), surfaceId, event.commentId, event.createdAt);
-    if (replayError) throw new Error(replayError);
-    await appendLedger(ledgerPath, event);
+    await recordArmEvent(ledgerPath, event);
     console.log(`${surfaceId}: armed by ${by}`);
     process.exit(0);
   } catch (error) {

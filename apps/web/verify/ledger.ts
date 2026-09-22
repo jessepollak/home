@@ -229,3 +229,11 @@ export function armEvent(surface: string, by: string, comment: ArmComment, now =
   const createdAt = comment.created_at ?? "";
   return { type: "arm", timestamp: now.toISOString(), surface, by, commentId: armCommentId(by), createdAt };
 }
+
+export async function recordArmEvent(path: string, event: LedgerArm): Promise<void> {
+  await withLedgerLock(path, async () => {
+    const replayError = armReplayError(await readLedger(path), event.surface, event.commentId, event.createdAt);
+    if (replayError) throw new Error(replayError);
+    await appendLedger(path, event);
+  });
+}
