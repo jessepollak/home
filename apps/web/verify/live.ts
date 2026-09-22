@@ -132,6 +132,17 @@ export function unlistedAmountClickError(label: string, isConfirmLabel: boolean)
   return containsAmount ? `Live verification refuses unlisted amount-bearing control “${label}”.` : null;
 }
 
+export function confirmTerminalOrderError(steps: ReachStep[], confirmLabels: string[]): string | null {
+  for (const [index, step] of steps.entries()) {
+    if (step.kind !== "click" || !matchesConfirmLabel(confirmLabels, step.label)) continue;
+    const next = steps[index + 1];
+    if (next?.kind !== "expect" || !/^(?:Sent|Deposited|Withdrawn|Borrowed|Repaid)(?:\s|$)/.test(next.text)) {
+      return `Live confirmation refuses “${step.label}” without an immediate terminal-success expect step.`;
+    }
+  }
+  return null;
+}
+
 export function confirmReviewOrderError(steps: ReachStep[], confirmLabels: string[]): string | null {
   for (const [index, step] of steps.entries()) {
     if (step.kind !== "click" || !matchesConfirmLabel(confirmLabels, step.label)) continue;
@@ -337,7 +348,7 @@ export function accountPinError(observed: string | null, pinned: string): string
 }
 
 export function automationEnvironmentError(env: Record<string, string | undefined>): string | null {
-  return env.CI || env.GITHUB_ACTIONS ? "Live verification is operator-only and cannot run in CI or GitHub Actions." : null;
+  return env.CI || env.GITHUB_ACTIONS ? "Live verification cannot run in CI or GitHub Actions." : null;
 }
 
 export function outputInsideRepository(output: string, repositoryRoot: string): boolean {

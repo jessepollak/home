@@ -72,6 +72,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 
 ### `landing`
 - **Live**: read-only
+- **Owned paths**: `apps/web/app/page.tsx`, `apps/web/client/landing/**`, `apps/web/client/home/shell-chrome.tsx`
 - **Reach**:
   1. `goto "/"`
   2. `expect "One home for your money."`
@@ -85,6 +86,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 
 ### `sign-in`
 - **Live**: read-only
+- **Owned paths**: `apps/web/client/account/account-screen.tsx`, `apps/web/client/account/sign-in-*.tsx`, `apps/web/server/auth/**`
 - **Reach**:
   1. `goto "/?account=signin"`
   2. `expect "Sign in to Home"`
@@ -97,6 +99,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 
 ### `home-panel`
 - **Live**: read-only
+- **Owned paths**: `apps/web/app/home/**`, `apps/web/client/home/home-panel.tsx`, `apps/web/client/home/shell*.tsx`, `apps/web/server/balances/**`
 - **Reach**:
   1. `goto "/home"`
   2. `expect "Home"`
@@ -115,6 +118,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 
 ### `balances`
 - **Live**: read-only
+- **Owned paths**: `apps/web/app/balances/**`, `apps/web/client/home/balances-*.tsx`, `apps/web/client/balances/**`, `apps/web/server/balances/**`, `apps/web/app/api/balances/**`
 - **Reach**:
   1. `goto "/balances"`
   2. `expect "Your money"`
@@ -132,6 +136,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 
 ### `activity`
 - **Live**: read-only
+- **Owned paths**: `apps/web/app/activity/**`, `apps/web/client/activity/**`, `apps/web/client/home/activity-panel.tsx`, `apps/web/app/api/activity/**`
 - **Reach**:
   1. `goto "/activity"`
   2. `expect "Activity"`
@@ -144,6 +149,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 
 ### `save`
 - **Live**: confirm
+- **Owned paths**: `apps/web/app/save/**`, `apps/web/client/savings/**`, `apps/web/shared/savings/**`, `apps/web/app/api/savings/**`, `apps/web/server/savings/**`, `apps/web/server/morpho/**`, `apps/web/server/actions/**`, `apps/web/server/money-actions/**`
 - **Confirm labels**: "Deposit $<amount>", "Withdraw $<amount>", "Retry"
 - **Reach**:
   1. `goto "/save?flow=save-deposit"`
@@ -155,6 +161,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
   4. `click "Continue"`
   5. `expect "Confirm"`
   6. `click "Deposit $1.00"`
+  7. `expect "Deposited $1.00"`
 - **Notes**: The smoke path also covers `/save?flow=save-withdraw`, closes via `Close deposit dialog` or Escape (`Close withdraw dialog`), and asserts focus returns to the `Deposit` or `Withdraw` opener.
 - **Expect**: section `role="region"`/`aria-label="Save"` hosted variant (savings-experience.tsx); vault radiogroup `aria-label="Vault"`; `Nothing saved yet` empty; action buttons `Get started` (unfunded) / `Deposit` + `Withdraw` (funded) (savings-experience.tsx); dialog labels from `closeLabel={Close ${mode} dialog}` and `primaryLabel` `Continue` → `Deposit $X`/`Withdraw $X`/`Retry` (savings-actions.tsx lines ~251–350).
 - **States**: cold loading (`data-shimmer="savings-hero"`, `savings-apy`); vaults loading `aria-busy`; vaults error `Vaults are temporarily unavailable.` + `Retry`; stale alerts `Saved balance stale…` / `Vault rates stale…`; deposit/withdraw amount → confirm → pending (`Waiting for your wallet…`) → error/failed.
@@ -164,6 +171,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 
 ### `borrow`
 - **Live**: confirm
+- **Owned paths**: `apps/web/app/borrow/**`, `apps/web/client/borrowing/**`, `apps/web/app/api/borrow/**`, `apps/web/server/borrowing/**`, `apps/web/server/morpho-markets/**`, `apps/web/server/actions/**`, `apps/web/server/money-actions/**`
 - **Confirm labels**: "Confirm action", "Retry"
 - **Reach**: Seed the signed-in state and borrow fixtures, go to `/borrow` or `/borrow/<marketId>`, then choose a `data-testid="borrow-market-card"` inside the `Borrow markets` list.
 - **Reach (live)**:
@@ -173,6 +181,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
   4. `click "Continue"`
   5. `expect "Confirm"`
   6. `click "Confirm action"`
+  7. `expect "Borrowed $1.00"`
 - **Verify**: manual
 - **Notes**: No smoke fixture exists for `/api/borrow*`; see Gaps.
 - **Expect**: heading `Borrow` (`#borrow-overview-title`, `#borrow-direct-title`, borrowing-experience.tsx); position actions including `Borrow`, `Supply`/`Withdraw collateral from Bitcoin position` (`aria-label`, line 539); `Back to Borrow`; `Market values are unavailable` + `Retry` error; collateral preview `data-testid="borrow-collateral-preview"`; action money modal title `Confirm`, footer `Confirm action`/`Retry`/`Back`/`Close` (lines ~712–782).
@@ -183,6 +192,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 
 ### `invest`
 - **Live**: read-only
+- **Owned paths**: `apps/web/app/invest/**`, `apps/web/client/invest/**`, `apps/web/client/trading/**`, `apps/web/app/api/invest/**`, `apps/web/app/api/market-prices/**`
 - **Reach**:
   1. `goto "/invest"`
   2. `expect "Invest"`
@@ -195,6 +205,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 
 ### `send` (money modal — steps individually)
 - **Live**: confirm
+- **Owned paths**: `apps/web/client/transfers/send-dialog.tsx`, `apps/web/client/money-modal/**`, `apps/web/app/api/actions/**`, `apps/web/server/actions/**`, `apps/web/server/money-actions/**`
 - **Confirm labels**: "Send $<amount>"
 - **Reach** (smoke-verified):
   1. Seed the signed-in fixture and install API fixtures.
@@ -211,7 +222,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
   6. `click "Continue"`
   7. `expect "Confirm"`
   8. `click "Send $1.00"`
-  9. `expect "Sent"`
+  9. `expect "Sent $1.00"`
 - **Notes**: The dialog is labelled by `send-title`. Live mode replaces `<recipient>` with the effective recipient only in that `To` fill step; any other step containing `<recipient>` refuses before browser launch. `--recipient` accepts a bare 40-hex `0x` address other than the zero address, or the name `jesse.base.eth` matched case-insensitively with surrounding whitespace ignored (mapped to the pinned `0x2211d1d0020daea8039e46cf1367962070d77da9`), and defaults to that pinned recipient when omitted; every other value refuses before browser launch. The product does not resolve recipient names yet (#720). Before the gated `Send $1.00` confirm click the verifier requires exactly one review `To` row to show the full recipient address (case-insensitive) and stops with `recipientMismatch` otherwise.
   1. **amount**: type digits via keypad buttons named `0`–`9`, `Decimal point`, `Delete last digit` (`role="group" aria-label="Amount keypad"`, client/money-modal/amount.tsx:581–601); quick chips group `Quick amounts` (`$10`/`$25`/`Max` when priced, amount.tsx:508+). Primary `Continue` disabled until positive amount (`isPositiveDecimalAmount`).
   2. **destination**: step title stays `Send`; field label `To` (AddressField `id="send-recipient"`); primary `Continue` disabled until `isTransferRecipient` (send-dialog.tsx).
@@ -228,6 +239,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 
 ### `cash-out` (Peer offramp inner steps)
 - **Live**: up-to-review
+- **Owned paths**: `apps/web/client/transfers/send-dialog.tsx`, `apps/web/app/api/funding/offramp/**`, `apps/web/server/funding/offramp/**`
 - **Confirm labels**: "Cash out $<amount>", "Withdraw $<amount>"
 - **Reach** (smoke-verified, `openPeerCashOutHandle`, smoke.pw.ts): 1) seed + `installApiFixtures`. 2) `Send` → digits `1` → `Continue`. 3) click `/Send to Zelle, Venmo, Cash App and more/` (CashoutItem, send-dialog.tsx). 4) click `Cash App` (payment-method button, payout step). 5) textbox `Cash App handle` (label `${selectedPlatform.label} handle`); attributes asserted: `autocomplete="off"`, `autocapitalize="none"`, `autocorrect="off"`, `spellcheck="false"`, `enterkeyhint="next"`, 16px font, ≥44px target. 6) `Continue` → textbox `Re-enter handle` (`enterkeyhint="done"`). 7) `Review` → confirm step.
 - **Reach (live)**:
@@ -251,6 +263,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 
 ### `add-money` (funding)
 - **Live**: up-to-review
+- **Owned paths**: `apps/web/client/funding/**`, `apps/web/app/api/funding/**`, `apps/web/server/funding/**`, `apps/web/shared/funding/**`
 - **Confirm labels**: "Confirm deposit"
 - **Reach** (smoke-verified IDRX path): 1) seed country `ID` (`localStorage["home.country.v1"]="ID"`) + `installApiFixtures`. 2) `signIn(page)` helper. 3) click `Add money` (funding-actions.tsx). 4) method step button `/Deposit IDR/` must contain `IDRX · Bank transfer · Mandiri` (smoke.pw.ts). 5) type `20000` via numpad. 6) `Review quote` → heading `Review quote`, row `Receive` contains `20.000,00 IDRX`. 7) `Confirm deposit` → heading `Review payment details`, row `Network` contains `Rp 100,00`. 8) `View payment instructions` → `123456789012` visible; then `Money received` (≤7s budget, smoke.pw.ts).
 - **Reach (live)**:
@@ -271,6 +284,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 
 ### `account-settings`
 - **Live**: read-only
+- **Owned paths**: `apps/web/client/account/account-settings.tsx`, `apps/web/client/home/shell-panels.tsx`, `apps/web/client/home/use-show-small-balances.ts`
 - **Reach**:
   1. `goto "/home?account=settings"`
   2. `expect "Account"`
@@ -283,6 +297,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 
 ### `access-gate`
 - **Live**: read-only
+- **Owned paths**: `apps/web/app/access/**`, `apps/web/app/api/access/**`, `apps/web/server/access/**`
 - **Reach** (smoke-verified): 1) clear cookies; goto `/home` (protected) → redirect `/access?next=%2Fhome`. 2) fill textbox `Access password`; wrong value → `Access denied. Try again.`; cookie `home-access` absent. 3) correct `HOME_ACCESS_PASSWORD` → `Continue` posts `/api/access`, then URL `/home` or `/?account=signin`. 4) heading `Access granted` on revisit; `Leave this deployment` posts `/api/access/logout` (no-JS form also asserted).
 - **Verify**: manual
 - **Expect**: headings `Enter access password` / `Access granted`; `Continue to Home` link; CSP header `frame-ancestors 'none'` on the protected response (tests/browser/access.pw.ts); hydrated form marker `form[data-hydrated="true"]`.
@@ -293,6 +308,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 
 ### `coverage`
 - **Live**: read-only
+- **Owned paths**: `apps/web/app/coverage/**`, `apps/web/client/coverage/**`, `apps/web/config/coverage.ts`, `apps/web/components/ui/coverage-table.tsx`
 - **Reach**:
   1. `goto "/coverage"`
   2. `expect "Local money coverage"`
@@ -305,6 +321,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 
 ### `dev-ui`
 - **Live**: read-only
+- **Owned paths**: `apps/web/app/dev/ui/**`, `apps/web/components/ui/**`
 - **Reach**: Run with `HOME_PLAYWRIGHT_SMOKE=1` or in development, go to `/dev/ui`, and otherwise expect `notFound()` (404).
 - **Verify**: manual
 - **Expect**: `Home UI theme` heading; swatch grid; `Stock type scale` card; `Buttons` section with `Primary`/`Outline`/`Destructive` (app/dev/ui/page.tsx).
@@ -315,6 +332,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 
 ### `toasts`
 - **Live**: read-only
+- **Owned paths**: `apps/web/client/home/action-toasts.tsx`, `apps/web/server/actions/**`, `apps/web/app/api/actions/**`
 - **Reach**: Complete a prepared action (smoke: send success) and observe the toast region.
 - **Verify**: manual
 - **Expect**: exact success copy e.g. `Sent $1.00 to 0x2222…222222` (smoke.pw.ts); renders only when `routeMode === "dashboard" && isVerified` (shell.tsx).
@@ -329,7 +347,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 - `borrow` (no smoke fixture for `/api/borrow*` at all), `activity`, `account-settings`, `invest` hub/category browsing beyond one asset-detail click, `dev-ui`, `coverage` filtering behavior (only font metrics asserted).
 - Journey stories: only `apps/web/stories/journeys/savings-deposit.stories.tsx` exists; every other surface above lacks one.
 
-**Reach depends on a live provider and cannot run against the fixture server** (needs a documented fixture or is operator-only):
+**Reach depends on a live provider and cannot run against the fixture server** (needs a documented fixture or the provisioned verifier Live mode):
 - Base-account/CDP sign-in (`client/account/base-account-connector.tsx`, `cdp-*`), real Coinbase onramp/offramp providers via `/api/funding/providers`, `/api/funding/quotes`, `/api/funding/provider-customers`, and `/api/funding/webhooks/[provider]` (smoke uses hand-written IDRX/PEER stubs instead of a documented shared fixture).
 - Invest `Memes` discovery (`/api/invest/discover`) and market prices (`/api/market-prices*`) when the fixture returns `{}` — smoke never asserts a meme shelf; treat as unknown rather than "empty".
 - `/api/webhooks/cdp` and trades (`/api/trades`, `client/trading/trade-actions.tsx` buttons are `disabled` — trading is not user-reachable today).

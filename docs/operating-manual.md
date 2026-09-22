@@ -63,12 +63,12 @@ Jesse alone approves and merges. The `main` branch requires one approving review
 All factory code changes use an issue, an isolated branch/worktree, a normal pull request to `main`, repository checks, fresh independent review, and Jesse-only merge. There is no direct-to-main exception.
 
 1. **One issue, one writer, one PR.** A blocked change stops and names its dependency instead of widening scope.
-2. **Implement and validate.** For user-visible or core-flow work, explore before editing and verify after editing with repository-pinned `agent-browser` under the [browser contract](browser-validation.md). Run focused checks and `bun check` unless the task sets a narrower validation contract.
+2. **Implement and validate.** For user-visible or core-flow work, run the required [verification ladder](#verification-ladder) rungs before the first edit and after the last edit, using repository-pinned `agent-browser` under the [browser contract](browser-validation.md). Run focused checks and `bun check` unless the task sets a narrower validation contract.
 3. **Independent review.** Review is fresh, read-only, scoped to the complete current diff, and time-boxed. The writer cannot review its own change.
 4. **Bounded repairs.** Blocking findings include correctness, security, privacy, data loss, and the money/auth invariants below. User-visible work also follows the [assignment-specific design review](ui-pr-previews.md#review-findings): unmet visual deliverables or unintended divergence from a selected design cannot be marked complete solely because technical checks pass. The factory gets at most two repair-and-review loops. Unresolved blockers stop for Jesse.
-5. **Rule-first recurring fixes.** A first occurrence is fixed without a new rule. When a `fix(...)` commit corrects an agent-produced pattern that has recurred (the second or later occurrence), the PR also ships a `home/*` rule with its contract test, or links a `dx(lint)` issue explaining why the pattern is not lintable. This soft policy targets demonstrated recurrence: in the sampled 30-day fix corpus, lint caught 6.7%, bots 23.6%, human review 8.4%, and 52.8% had unknown provenance. The [Caught-by report](gates.md#caught-by-report) now produces that corpus for any range and lists the review, bot, and production fixes as rule candidates for gardener triage.
-6. **CI and preview.** Required CI must be green on the exact independently reviewed head. User-visible work also needs the current Vercel preview and retained media in the PR description before handoff.
-7. **Operator actions.** PRs name exact non-secret post-merge environment, migration, provider-dashboard, or Vercel steps under **Operator action required**. Verify the affected path after Jesse confirms the action.
+5. **Rule-first recurring fixes.** Before editing, a lint-wave writer classifies every finding as a real swallow, unrecognised disposition, or intentional ignore; only a real swallow may become a `fix(` commit. Reviewers diff-check every `Caught-by: lint` fix for behaviour change. A rule is sound only if no behaviour-preserving rewrite flips its verdict. A first occurrence is fixed without a new rule. When a `fix(...)` commit corrects an agent-produced pattern that has recurred (the second or later occurrence), the PR also ships a `home/*` rule with its contract test, or links a `dx(lint)` issue explaining why the pattern is not lintable. The [Caught-by report](gates.md#caught-by-report) produces the corpus and rule candidates.
+6. **CI, preview, and evidence.** Required CI must be green on the exact independently reviewed head. User-visible work also needs the current Vercel preview, retained media, and one tool-produced evidence shape for every required verification rung in the PR description before handoff.
+7. **Operator actions.** PRs name exact non-secret post-merge environment, migration, provider-dashboard, Vercel, funding, cap-change, or re-arm steps under **Operator action required**. Verify the affected path after Jesse confirms the action.
 8. **Git.** Append normal commits to the owned branch; never rewrite published history or force-update `main`. Every scoped `fix(...)` commit carries exactly one provenance trailer: `Caught-by: lint`, `Caught-by: bot`, `Caught-by: review`, `Caught-by: browser`, or `Caught-by: production`. The trailer records the detector, not the repair author.
 9. **Communication.** Do not post routine progress receipts beyond the run-start comment. Comment for results, blockers, Jesse decisions, feedback replies, or handoff.
 
@@ -83,13 +83,23 @@ Coordinate ownership before editing these files:
 - `apps/web/server/money-actions/`
 - `apps/web/config/portfolio-assets.ts` and `apps/web/shared/savings/config.ts`
 
-## Risk-based live-money validation
+## Verification ladder
 
-For a feature whose purpose is to move money, a bounded live check is normally the strongest product evidence when safe and operator-authorized. Before execution, state the network and asset, maximum amount and loss/fees, destination control, expected state changes, privacy handling, ambiguous-result and retry behavior, and stop/recovery conditions.
+Home bounds verification risk by construction rather than prohibiting automation. Ambiguity is the primary danger: a small known loss is bounded, while an unknown recipient, amount, result, or retry state can compound. Every rung is tool-enforced and emits the same evidence shape; evidence, not attestation, satisfies a rung. Autonomy ratchets only from the recorded ledger.
 
-Never infer approval beyond that bound. Stop on an unexpected recipient, asset/network mismatch, quote outside the limit, ambiguous submission, missing expected state, privacy risk, or exhausted recovery condition. Do not retry an ambiguous money action without safe idempotency evidence.
+| Rung | What | Required when |
+|---|---|---|
+| 0 Fixture | `verify <surface>` against fixtures, with no network | Every agent, before the first and after the last edit, for every touched surface. |
+| 1 Preview read-only | `--live --base-url <PR preview>` on read-only surfaces with the bot session | Before `factory:review` when the diff touches any mapped surface. |
+| 2 Preview up-to-review | Walk to the Confirm screen, parse amount and recipient, then stop. | Before `factory:review` when the diff touches a money surface's client flow. |
+| 3 Preview confirm | Move real money on the bot account within policy caps. | Before `factory:review` when the diff touches `server/actions/**`, `server/money-actions/**`, calldata, or the confirm step, and the surface is armed. |
+| 4 Production canary | Scheduled read-only and up-to-review nightly; $1 confirm round trips weekly for save deposit/withdraw, borrow/repay, and send to `jesse.base.eth`. | Always; summaries post to the pinned `Verification canary` issue. |
 
-Automated runs receive no credentials, wallets, funded authority, provider or production access, or permission to perform a live check. Live validation is performed only by the authorized operator at the applicable human checkpoints. If unavailable or declined, write exactly **`Real money: not tested`** and name the uncertainty. Never print or attach secrets, payment details, private customer data, OTPs, recovery codes, or raw provider payloads.
+Rung 3 is armed per surface after three clean Rung 2 runs on the current `main`. Clean means no unexpected hosts, recipient or amount mismatch, budget failure, or console error. An unexpected host, mismatch, ambiguous result, or post-confirm failure appends an incident, immediately disarms the surface, and files or updates `verify: <surface> disarmed`. Only Jesse re-arms it by commenting `/verify arm <surface>`; the CLI records that comment URL through `verify arm <surface> --by <url>`.
+
+The bot-dedicated Home account is the mailbox configured by `HOME_VERIFY_ACCOUNT_EMAIL`, not Jesse's account. Its $5 balance is the blast-radius ceiling. Factory confirmation caps are $1 per click, $2 per run, and $5 per day across all factory runs, with a $5 balance ceiling. Cap changes are pull requests to `apps/web/verify/policy.ts`. Before confirmation the CLI reads the rendered Balances surface and refuses when the amount exceeds the balance or the balance cannot be known. The default send recipient is `jesse.base.eth` (`0x2211d1d0020daea8039e46cf1367962070d77da9`).
+
+Jesse's interventions are authority events only: fund or refill the bot account, change caps by pull request, re-arm a disarmed surface, and merge. The factory does not block on Jesse for ordinary verification. A handoff does not expand the ledger-derived authority. Write exactly **`Real money: not tested`** only when policy blocks a required rung because the surface is disarmed, a cap is exhausted, or the balance ceiling is below the amount. Never print or attach secrets, payment details, private customer data, OTPs, recovery codes, or raw provider payloads.
 
 ## PR evidence and media
 
@@ -116,4 +126,4 @@ Tests follow the [test policy](architecture.md#test-policy); `bun check` must pa
 
 Product docs ship with the feature. Setup, boundaries, how-it-works, and this manual stay in `docs/`. Pre-lock research stays on the issue; after lock, land only the durable current contract and link the issue.
 
-A fresh independent engineering review precedes Jesse review. Only Jesse gives final approval and merges. A factory handoff grants no deployment, funded, destructive, privileged-setting, database-cleanup, or merge authority.
+A fresh independent engineering review precedes Jesse review. Only Jesse gives final approval and merges. A handoff grants no deployment, destructive, privileged-setting, database-cleanup, or merge authority; funded authority is bounded by `apps/web/verify/policy.ts` and the verification ledger.

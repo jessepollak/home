@@ -39,5 +39,9 @@ if (command === "eval") {
   const statePath = rest[1];
   if (statePath) await writeFile(statePath, "{}\n", { mode: 0o600 });
   result = { saved: true };
+} else if (command === "screenshot") {
+  const screenshotPath = rest.filter((argument) => argument !== "--full")[0];
+  if (screenshotPath) await writeFile(screenshotPath, "", { mode: 0o600 });
+  result = { saved: true };
 }
 console.log(JSON.stringify({ data: { result } }));

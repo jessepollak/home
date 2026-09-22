@@ -43,6 +43,13 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile
 
+      - name: Verification evidence
+        continue-on-error: true
+        env:
+          BASE_REF: ${{ github.base_ref || 'main' }}
+          PR_BODY: ${{ github.event.pull_request.body || '' }}
+        run: node scripts/gates/verification-evidence.mjs
+
       - name: Check
         run: bun check
 

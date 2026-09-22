@@ -51,7 +51,7 @@ Interpretation limits:
 - Total assets are vault-wide, not a user balance.
 - Indexed vault liquidity is not the same as a particular account's currently withdrawable maximum.
 - Indexed position assets are not an authorization source for withdrawal.
-- Each prepared action uses current onchain limits and previews pinned to one Base block, simulates the exact approval/deposit or withdrawal call order through the verified smart account, and reconfirms the source block hash. A funded live deposit/withdrawal smoke test has not been performed. Live Base deposit and withdrawal remain **Unverified** and require an explicitly authorized operator run; factory/browser fixtures make no provider or funded call.
+- Each prepared action uses current onchain limits and previews pinned to one Base block, simulates the exact approval/deposit or withdrawal call order through the verified smart account, and reconfirms the source block hash. A funded live deposit/withdrawal smoke test has not been performed. Live Base deposit and withdrawal remain **Unverified** until the applicable verification-ladder rung produces evidence; fixture runs make no provider or funded call.
 
 The configured vault registry is transaction authority; the public Morpho listing remains display data and cannot activate another vault. New deposits require `capabilities.save: "enabled"`; `"reducing-only"` preserves withdrawals while blocking deposits, and an omitted capability fails closed.
 

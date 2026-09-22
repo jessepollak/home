@@ -32,4 +32,4 @@ Keep implementation details, migrations, test additions, adapters, and other tec
 
 ## Evidence planning
 
-For user-visible work, name the relevant browser path and current-head preview evidence. For money-moving work, plan risk-based live validation under the [operating manual](operating-manual.md#risk-based-live-money-validation). If it will not run, write `Real money: not tested` and name the remaining uncertainty.
+For user-visible work, name the relevant browser path and current-head preview evidence. For money-moving work, plan the required rungs under the [verification ladder](operating-manual.md#verification-ladder). If policy blocks a rung because the surface is disarmed, a cap is exhausted, or the balance ceiling is insufficient, write `Real money: not tested` and name that bound.

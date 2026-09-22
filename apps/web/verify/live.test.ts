@@ -9,6 +9,7 @@ import {
   composeAllowedDomains,
   composeLiveAllowedDomains,
   confirmReviewOrderError,
+  confirmTerminalOrderError,
   decideConfirmGate,
   defaultLiveRecipient,
   enabledButtonPredicate,
@@ -77,6 +78,24 @@ describe("live confirm gate", () => {
     expect(decideConfirmGate("read-only", "Continue", true).action).toBe("refuse");
     expect(decideConfirmGate("up-to-review", "Continue", true).action).toBe("refuse");
     expect(decideConfirmGate(undefined, "Continue", true).action).toBe("refuse");
+  });
+
+  test("requires a terminal success expect immediately after every mapped confirm click", () => {
+    const labels = ["Send $<amount>"];
+    expect(confirmTerminalOrderError([
+      { kind: "expect", text: "Confirm" },
+      { kind: "click", label: "Send $1.00" },
+      { kind: "expect", text: "Sent $1.00" },
+    ], labels)).toBeNull();
+    expect(confirmTerminalOrderError([
+      { kind: "expect", text: "Confirm" },
+      { kind: "click", label: "Send $1.00" },
+    ], labels)).toContain("terminal-success");
+    expect(confirmTerminalOrderError([
+      { kind: "expect", text: "Confirm" },
+      { kind: "click", label: "Send $1.00" },
+      { kind: "expect", text: "Waiting for your wallet" },
+    ], labels)).toContain("terminal-success");
   });
 
   test("requires a review expect immediately before every mapped confirm click", () => {
@@ -437,8 +456,8 @@ describe("live run guards", () => {
   });
 
   test("refuses CI environments", () => {
-    expect(automationEnvironmentError({ CI: "1" })).toContain("operator-only");
-    expect(automationEnvironmentError({ GITHUB_ACTIONS: "true" })).toContain("operator-only");
+    expect(automationEnvironmentError({ CI: "1" })).toContain("cannot run in CI");
+    expect(automationEnvironmentError({ GITHUB_ACTIONS: "true" })).toContain("cannot run in CI");
     expect(automationEnvironmentError({})).toBeNull();
   });
 

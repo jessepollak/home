@@ -14,6 +14,7 @@ export type Surface = {
   reach: ReachStep[];
   liveReach?: ReachStep[];
   confirmLabels: string[];
+  ownedPaths: string[];
   budgets: Record<string, number>;
   manual: boolean;
   live?: LiveAccess;
@@ -54,13 +55,15 @@ export function parseFeatureMap(markdown: string): FeatureMap {
     const liveReach = parsedLiveReach.length > 0 ? parsedLiveReach : undefined;
     const confirmText = body.match(/^- \*\*Confirm labels\*\*:\s*(.*)$/m)?.[1] ?? "";
     const confirmLabels = [...confirmText.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+    const ownedText = body.match(/^- \*\*Owned paths\*\*:\s*(.*)$/m)?.[1] ?? "";
+    const ownedPaths = [...ownedText.matchAll(/`([^`]+)`/g)].map((match) => match[1]);
     const budgets: Record<string, number> = {};
     for (const match of body.matchAll(/`([a-z][a-z:-]+)`\s*(?:≤|<=)\s*([\d_]+)\s*ms/g)) {
       budgets[match[1]] = Number(match[2].replaceAll("_", ""));
     }
     const manual = /^- \*\*Verify\*\*:\s*manual\s*$/m.test(body);
     const live = body.match(/^- \*\*Live\*\*:\s*(read-only|up-to-review|confirm)\s*$/m)?.[1] as LiveAccess | undefined;
-    surfaces.set(id, { id, reach, ...(liveReach ? { liveReach } : {}), confirmLabels, budgets, manual, live });
+    surfaces.set(id, { id, reach, ...(liveReach ? { liveReach } : {}), confirmLabels, ownedPaths, budgets, manual, live });
   }
   return {
     surfaces,
@@ -94,6 +97,33 @@ function parseReachBlock(body: string, heading: string): ReachStep[] {
     const parsed = parseReachStep(match[1]);
     return parsed ? [parsed] : [];
   });
+}
+
+export function canaryReach(surfaceId: string, operation: string | undefined, fallback: ReachStep[]): ReachStep[] {
+  if (operation === undefined) return fallback;
+  if (surfaceId === "save" && operation === "deposit") return fallback;
+  if (surfaceId === "save" && operation === "withdraw") return [
+    { kind: "goto", path: "/save?flow=save-withdraw" },
+    { kind: "expect", text: "Withdraw" },
+    { kind: "click", label: "1" },
+    { kind: "click", label: "Continue" },
+    { kind: "expect", text: "Confirm" },
+    { kind: "click", label: "Withdraw $1.00" },
+    { kind: "expect", text: "Withdrawn $1.00" },
+  ];
+  if (surfaceId === "borrow" && operation === "borrow") return fallback;
+  if (surfaceId === "borrow" && operation === "repay") return [
+    { kind: "goto", path: "/borrow" },
+    { kind: "expect", text: "Borrow" },
+    { kind: "click", label: "Repay" },
+    { kind: "click", label: "1" },
+    { kind: "click", label: "Continue" },
+    { kind: "expect", text: "Confirm" },
+    { kind: "click", label: "Confirm action" },
+    { kind: "expect", text: "Repaid $1.00" },
+  ];
+  if (surfaceId === "send" && operation === "send") return fallback;
+  throw new Error(`Unsupported canary operation ${operation} for ${surfaceId}.`);
 }
 
 export function matchesConfirmLabel(patterns: string[], label: string): boolean {
