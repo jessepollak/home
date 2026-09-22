@@ -524,6 +524,41 @@ describe("IDRX adapter behavior", () => {
     }
   });
 
+  test("allows requested pre-payment amounts on quoted orders but enforces the quote after payment", async () => {
+    const liveRecord = historyMintedQrisLiveFixture.records[0]!;
+    const cases = [
+      { userMintStatus: "NOT_AVAILABLE", paymentStatus: "WAITING_FOR_PAYMENT", expected: { state: "awaiting-payment", providerStatus: "NOT_AVAILABLE:WAITING_FOR_PAYMENT" } },
+      { userMintStatus: "NOT_AVAILABLE", paymentStatus: "EXPIRED", expected: { state: "expired", providerStatus: "NOT_AVAILABLE:EXPIRED" } },
+      { userMintStatus: "MINTED", paymentStatus: "PAID", expected: { state: "unknown", providerStatus: "INTENT_MISMATCH" } },
+    ] as const;
+    for (const scenario of cases) {
+      const ctx = createProviderContext({
+        manifest: idrxManifest,
+        region: "ID",
+        paymentMethodId: "qris",
+        env,
+        fetchImplementation: (async () => jsonFixture({
+          ...historyMintedQrisLiveFixture,
+          records: [{
+            ...liveRecord,
+            toBeMinted: 20000,
+            paymentAmount: 23000,
+            fees: [{ name: "Fees", amount: "3000" }],
+            userMintStatus: scenario.userMintStatus,
+            paymentStatus: scenario.paymentStatus,
+          }],
+        })) as unknown as typeof fetch,
+      });
+      await expect(idrxProvider.onramp!.getOrder({
+        ...reconciliationIntent,
+        providerOrderId: liveRecord.merchantOrderId,
+        destination: liveRecord.destinationWalletAddress as `0x${string}`,
+        fiatAmount: "20000",
+        expectedTokenAmountAtomic: "1986000",
+      }, ctx)).resolves.toEqual(scenario.expected);
+    }
+  });
+
   test("rejects a history record whose base amount differs from the requested amount", async () => {
     const liveRecord = historyMintedQrisLiveFixture.records[0]!;
     const ctx = createProviderContext({

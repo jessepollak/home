@@ -779,21 +779,25 @@ function readReconciliationSettlement(
     assertChainAliases(record, input.chainId);
     assertTokenAliases(record, ctx);
     assertDestinationAliases(record, input.destination);
-    const settledAtomic = readSettledAmount(
+    const reportedAtomic = readSettledAmount(
       record,
       requestedAtomic,
       input.tokenDecimals,
     );
-    if (settledAtomic > expectedAtomic) {
+    const fees = readHistoryPaymentEchoes(record, reportedAtomic, input.tokenDecimals);
+    const paymentStatus = typeof record.paymentStatus === "string"
+      ? record.paymentStatus
+      : "INVALID";
+    if (paymentStatus === "PAID" && reportedAtomic > expectedAtomic) {
       throw new Error("IDRX settled amount exceeds the expected amount.");
     }
-    if (expectedAtomic < requestedAtomic && settledAtomic !== expectedAtomic) {
+    if (paymentStatus === "PAID" && expectedAtomic < requestedAtomic && reportedAtomic !== expectedAtomic) {
       throw new Error("IDRX quoted settlement differs from the expected amount.");
     }
-    const fees = readHistoryPaymentEchoes(record, settledAtomic, input.tokenDecimals);
-    if (expectedAtomic === requestedAtomic && settledAtomic < requestedAtomic) {
-      assertBoundedShortfall(requestedAtomic, settledAtomic, fees, input.tokenDecimals);
+    if (paymentStatus === "PAID" && expectedAtomic === requestedAtomic && reportedAtomic < requestedAtomic) {
+      assertBoundedShortfall(requestedAtomic, reportedAtomic, fees, input.tokenDecimals);
     }
+    const settledAtomic = paymentStatus === "PAID" ? reportedAtomic : expectedAtomic;
     assertRailEchoes(
       record,
       channelForPaymentMethod(ctx.binding.paymentMethod.id),
