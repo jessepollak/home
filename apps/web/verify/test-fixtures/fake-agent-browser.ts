@@ -24,6 +24,10 @@ if (command === "eval") {
     result = process.env.FAKE_AGENT_BROWSER_PATH ?? "/home?account=settings";
   } else if (expression.includes("account-heading")) {
     result = process.env.FAKE_AGENT_BROWSER_ADDRESS ?? "";
+  } else if (expression.includes('[role="dialog"]')) {
+    result = process.env.FAKE_AGENT_BROWSER_REVIEW ?? "";
+  } else if (expression.includes('aria-label="Total balance"')) {
+    result = process.env.FAKE_AGENT_BROWSER_BALANCE ?? null;
   } else if (expression === "document.body.innerText") {
     result = process.env.FAKE_AGENT_BROWSER_BODY ?? "";
   } else if (expression.includes("data-app-main-authenticated")) {

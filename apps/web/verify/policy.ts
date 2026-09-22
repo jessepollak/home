@@ -4,14 +4,12 @@ export const verifyPolicy = {
     perRunUsd: 2,
     perDayUsd: 5,
   },
-  cleanRunsToArm: 3,
 } as const;
 
 export type VerifyRole = "operator" | "factory";
 
 export type ConfirmPolicyInput = {
   role: VerifyRole;
-  armed: boolean;
   amountUsd: number | null;
   balanceUsd: number | null;
   runSpendUsd: number;
@@ -61,7 +59,6 @@ export function requestedCaps(
 }
 
 export function confirmPolicyRefusal(input: ConfirmPolicyInput): string | null {
-  if (!input.armed) return "Rung 3 is disarmed for this surface.";
   if (input.amountUsd === null || !Number.isFinite(input.amountUsd) || input.amountUsd < 0) {
     return "The confirmation amount is not knowable.";
   }
