@@ -251,6 +251,7 @@ function statementOutcomes(state, node, inHelper) {
     return blockOutcomes(state, node, inHelper);
   }
   if (node.type === "TryStatement") {
+    if (node.finalizer && blockAlwaysThrows(state, node.finalizer, inHelper)) return 0;
     const block = blockOutcomes(state, node.block, inHelper);
     const handler = node.handler
       ? blockOutcomes(state, node.handler.body, inHelper)
@@ -281,6 +282,34 @@ function statementOutcomes(state, node, inHelper) {
     return statementOutcomes(state, node.body, inHelper);
   }
   return fallsThrough;
+}
+
+function statementAlwaysThrows(state, node, inHelper) {
+  if (node.type === "ThrowStatement") return true;
+  if (node.type === "BlockStatement") return blockAlwaysThrows(state, node, inHelper);
+  if (node.type === "IfStatement") {
+    return Boolean(node.alternate)
+      && statementAlwaysThrows(state, node.consequent, inHelper)
+      && statementAlwaysThrows(state, node.alternate, inHelper);
+  }
+  if (node.type === "LabeledStatement" || node.type === "WithStatement" || node.type === "DoWhileStatement") {
+    return statementAlwaysThrows(state, node.body, inHelper);
+  }
+  if (node.type === "TryStatement") {
+    if (node.finalizer && blockAlwaysThrows(state, node.finalizer, inHelper)) return true;
+    return Boolean(node.handler)
+      && statementAlwaysThrows(state, node.block, inHelper)
+      && statementAlwaysThrows(state, node.handler.body, inHelper);
+  }
+  return false;
+}
+
+function blockAlwaysThrows(state, block, inHelper) {
+  for (const statement of block.body) {
+    if (statementAlwaysThrows(state, statement, inHelper)) return true;
+    if (!(statementOutcomes(state, statement, inHelper) & fallsThrough)) return false;
+  }
+  return false;
 }
 
 function blockOutcomes(state, block, inHelper) {

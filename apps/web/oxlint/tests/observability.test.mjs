@@ -209,6 +209,34 @@ describe("no-silent-catch", () => {
     `, options)).toHaveLength(2);
   });
 
+  it("accepts a finalizer that always throws and rejects cleanup-only or conditional finalizers", async () => {
+    expect(await lint("no-silent-catch", `
+      async function validate(existingConnection: unknown, connection: { disconnect(): Promise<void> }, generation: number, fence: { assertCurrent(g: number): void }) {
+        try { fence.assertCurrent(generation); } catch (error) {
+          if (!existingConnection) {
+            try { await connection.disconnect(); } finally { throw error; }
+          }
+          throw error;
+        }
+      }
+      function dispose(error: unknown) {
+        try { run(); } catch (error) {
+          try { risky(); } finally { throw error; }
+        }
+      }
+    `, options)).toHaveLength(0);
+    expect(await lint("no-silent-catch", `
+      try { run(); } catch {
+        try { risky(); } finally { cleanup(); }
+      }
+    `, options)).toHaveLength(1);
+    expect(await lint("no-silent-catch", `
+      try { run(); } catch (error) {
+        try { risky(); } finally { if (condition) throw error; }
+      }
+    `, options)).toHaveLength(1);
+  });
+
   it("accepts collection cleanup and void-wrapped reporting calls", async () => {
     expect(await lint("no-silent-catch", `
       try { run(); } catch { pending.delete(key); }
