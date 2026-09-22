@@ -252,7 +252,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
   6. `click "Cash App"`
   7. `fill "Cash App handle" "$alice"` — live substitutes `HOME_VERIFY_CASHOUT_HANDLE` for `$alice`; unset refuses before any fill
   8. `click "Continue"`
-  9. `fill "Re-enter handle" "$alice"` — live substitutes `HOME_VERIFY_CASHOUT_HANDLE` for `$alice`; unset refuses before any fill
+  9. `fill "Re-enter handle" "$alice"` — live substitutes the Cash App canonical form of `HOME_VERIFY_CASHOUT_HANDLE` (leading `$` stripped, `shared/funding/cash-payee.ts`), because Review enables only when the re-entry equals the canonical handle (send-dialog.tsx `handleConfirmation !== canonicalHandle`); unset refuses before any fill
   10. `click "Review"`
   11. `expect "Confirm"`
 - **Verify**: manual

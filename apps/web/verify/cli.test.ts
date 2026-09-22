@@ -386,8 +386,22 @@ describe("live cash-out handle", () => {
     expect(result.exitCode).toBe(0);
     const handleFills = fakeCalls().filter((call) =>
       call[0] === "find" && call[1] === "label" && call[3] === "fill" && (call[2] === "Cash App handle" || call[2] === "Re-enter handle"));
-    expect(handleFills.map((call) => call[4])).toEqual(["$example", "$example"]);
+    expect(handleFills.map((call) => call[4])).toEqual(["$example", "example"]);
     expect(fakeCalls().some((call) => call.includes("$alice"))).toBe(false);
+  });
+
+  test("redacts the payout handle from text evidence", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const result = run(["cash-out", "--live", "--base-url", "https://example.com", "--out", outsideOutput], {
+      ...fakeEnv("Account\nShow small balances\nConfirm the payout handle exactly: zzpayout\nPayout handle $zzpayout", addressA),
+      HOME_VERIFY_CASHOUT_HANDLE: "$zzpayout",
+    });
+    expect(result.exitCode).toBe(0);
+    const dom = latestRunArtifact("cash-out", "dom.txt");
+    expect(dom).not.toContain("zzpayout");
+    expect(dom).toContain("Confirm the payout handle exactly: <payout-handle>");
   });
 
   test("refuses a live run without HOME_VERIFY_CASHOUT_HANDLE before any fill", async () => {

@@ -21,6 +21,7 @@ import {
   hostObservationRefusal,
   inputPresentPredicate,
   labelledInputFillScript,
+  cashoutHandleFillValue,
   isCashoutHandleFillStep,
   isRecipientFillStep,
   liveSessionExpired,
@@ -541,7 +542,7 @@ const reachSteps = selectedReach
   )
   .map((step): ReachStep =>
     live && liveCashoutHandle !== null && isCashoutHandleFillStep(step)
-      ? { ...step, value: liveCashoutHandle }
+      ? { ...step, value: cashoutHandleFillValue(step.label, liveCashoutHandle) }
       : step,
   );
 const toFillRecipient = live
@@ -677,8 +678,15 @@ let unexpectedHosts: string[] = [];
 let expectedFailures: string[] = [];
 let transactionHash: string | null = null;
 let actionId: string | null = null;
+function redactPayoutHandle(contents: string): string {
+  if (liveCashoutHandle === null) return contents;
+  const forms = new Set([liveCashoutHandle, cashoutHandleFillValue("Re-enter handle", liveCashoutHandle)].filter((form) => form.length >= 3));
+  let redacted = contents;
+  for (const form of forms) redacted = redacted.split(form).join("<payout-handle>");
+  return redacted;
+}
 async function writeEvidenceFile(path: string, contents: string): Promise<void> {
-  await writeFile(path, contents);
+  await writeFile(path, redactPayoutHandle(contents));
   if (live) await chmod(path, 0o600);
 }
 async function writeLiveEvidence(): Promise<void> {

@@ -6,6 +6,7 @@ import {
   type LiveAccess,
   type ReachStep,
 } from "./map";
+import { canonicalizeCashPayee } from "../shared/funding/cash-payee";
 
 export const accountPattern = /^0x[0-9a-fA-F]{40}$/;
 export const liveProviderOrigins = [
@@ -57,6 +58,10 @@ export function isCashoutHandleFillStep(step: ReachStep): step is Extract<ReachS
 export type CashoutHandleResolution =
   | { action: "use"; handle: string }
   | { action: "refuse"; reason: string };
+
+export function cashoutHandleFillValue(label: string, handle: string): string {
+  return label === "Re-enter handle" ? canonicalizeCashPayee("cashapp", handle) : handle;
+}
 
 export function resolveLiveCashoutHandle(value: string | undefined): CashoutHandleResolution {
   const handle = value?.trim();
