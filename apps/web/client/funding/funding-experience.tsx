@@ -2,7 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { RegionId } from "@/config/regions";
-import { useAccountWallet, type AccountWalletClient } from "@/client/account/cdp-client";
+import {
+  isServerVerified,
+  useAccountWallet,
+  type AccountWalletClient,
+} from "@/client/account/cdp-client";
 import { dataOwnerKey, uiBoundary } from "@/client/account/owner-keys";
 import {
   AddMoneyDialog,
@@ -25,7 +29,7 @@ export type FundingExperienceProps = {
 
 type FundingWallet = Pick<
   AccountWalletClient,
-  "ownerKey" | "status" | "session" | "fetchAccountResource"
+  "ownerKey" | "status" | "verification" | "session" | "fetchAccountResource"
 >;
 
 export function FundingExperience(props: FundingExperienceProps) {
@@ -67,7 +71,7 @@ function FundingExperienceBoundary({
   regionId = "GLOBAL",
 }: FundingExperienceForWalletProps) {
   const boundary = uiBoundary(wallet);
-  const session = wallet.status === "verified" ? wallet.session : null;
+  const session = isServerVerified(wallet) ? wallet.session : null;
   const address = session?.smartAccount?.address ?? null;
   const queryOwnerKey = session?.smartAccount ? dataOwnerKey(session) : null;
   const signedOut = !boundary || !session?.smartAccount || !address;
