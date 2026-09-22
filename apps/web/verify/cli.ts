@@ -382,6 +382,14 @@ function handleAccessGate(): void {
   secretCommand("waiting for the deployment access gate to clear", "", "wait", "--fn", `location.pathname!=="/access"`);
 }
 
+function settleBeforeLeaving(): void {
+  try {
+    command("wait", "--load", "networkidle", "--timeout", "30000");
+  } catch (error) {
+    console.error(`The page did not reach network idle before the next navigation: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 async function ensurePrivateStateDirectory(): Promise<void> {
   await mkdir(stateDirectory, { recursive: true, mode: 0o700 });
   await chmod(resolve(stateDirectory, ".."), 0o700);
@@ -801,6 +809,7 @@ try {
       const renderedBalance = jsonResult(command("eval", `document.querySelector('[aria-label="Total balance"] [data-slot="money-ticker"]')?.getAttribute("aria-label")||null`));
       renderedBalanceUsd = typeof renderedBalance === "string" ? parseUsdAmount(renderedBalance) : null;
       if (renderedBalanceUsd === null) throw new Error("The rendered account balance is not knowable; confirmation was refused.");
+      settleBeforeLeaving();
     }
   } else if (!live) {
     for (const [pattern, body] of fixtureRoutes()) {

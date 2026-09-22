@@ -393,6 +393,10 @@ describe("live rendered balance", () => {
     expect(balanceRead?.[1]).toContain('[data-slot="money-ticker"]');
     expect(balanceRead?.[1]).toContain("aria-label");
     const calls = fakeCalls();
+    const balanceIndex = calls.findIndex((call) => call[0] === "eval" && call[1]?.includes('[data-slot="money-ticker"]'));
+    const nextNavigate = calls.findIndex((call, index) => index > balanceIndex && call[0] === "navigate");
+    const settled = calls.slice(balanceIndex + 1, nextNavigate).find((call) => call[0] === "wait" && call[1] === "--load");
+    expect(settled).toEqual(["wait", "--load", "networkidle", "--timeout", "30000", "--json"]);
     const reviewRead = calls.findIndex((call) => call[0] === "eval" && call[1]?.includes('[role="dialog"]'));
     expect(reviewRead).toBeGreaterThan(-1);
     expect(calls[reviewRead - 1]?.slice(0, 2)).toEqual(["wait", "--fn"]);
