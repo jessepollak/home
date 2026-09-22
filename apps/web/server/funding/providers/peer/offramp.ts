@@ -47,6 +47,7 @@ import { PEER_CREATE_DEPOSIT_ABI, PEER_ESCROW_ABI, PEER_WITHDRAW_ABI } from "./a
 import {
   PEER_CURATOR_PRODUCTION_ORIGIN,
   PEER_CURATOR_SANDBOX_ORIGIN,
+  PEER_INDEXER_ENDPOINT,
   PEER_INDEXER_ORIGIN,
   PEER_PRODUCTION_CONTRACTS,
   PEER_SANDBOX_CONTRACTS,
@@ -319,7 +320,7 @@ function createPeerClients(ctx: OfframpContext): PeerClients {
     transport: rpcTransport,
     creationRateTransport: disabledTransport,
     curatorUrl,
-    indexerUrl: PEER_INDEXER_ORIGIN,
+    indexerUrl: PEER_INDEXER_ENDPOINT,
     features: {},
   });
   const sdk = new Zkp2pClient({
@@ -328,7 +329,7 @@ function createPeerClients(ctx: OfframpContext): PeerClients {
     runtimeEnv: environment,
     rpcTransport,
     baseApiUrl: curatorUrl,
-    indexerUrl: PEER_INDEXER_ORIGIN,
+    indexerUrl: PEER_INDEXER_ENDPOINT,
     timeouts: { api: 6_000 },
   });
   if (!sdk.escrowV2Address || getAddress(sdk.escrowV2Address) !== getAddress(ctx.deployment.contracts.escrow) ||
