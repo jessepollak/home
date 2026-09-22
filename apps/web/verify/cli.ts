@@ -28,6 +28,7 @@ import {
   liveStepError,
   outputInsideRepository,
   parseBorrowReviewAmounts,
+  parseRepayReviewAmountUsd,
   parseUsdAmount,
   parseUsdAmountFromLabel,
   partitionLiveFailures,
@@ -820,6 +821,8 @@ try {
           parsedAmountUsd = borrowReview.borrowedAmountUsd;
           borrowedAmount = borrowReview.borrowedAmount;
           collateralAmount = borrowReview.collateralAmount;
+        } else if (surfaceId === "borrow") {
+          parsedAmountUsd = parseRepayReviewAmountUsd(review);
         } else {
           parsedAmountUsd = parseUsdAmount(review);
         }

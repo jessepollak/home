@@ -117,7 +117,6 @@ export function canaryReach(surfaceId: string, operation: string | undefined, fa
     { kind: "goto", path: "/borrow" },
     { kind: "expect", text: "Borrow" },
     { kind: "click", label: "Repay" },
-    { kind: "click", label: "Decimal point" },
     { kind: "click", label: "1" },
     { kind: "click", label: "Continue" },
     { kind: "expect", text: "Confirm" },
