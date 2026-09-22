@@ -2,7 +2,6 @@
 
 import {
   BaseAccountConnectorError,
-  type BaseAccountInvalidation,
   type ConnectedBaseAccount,
 } from "./base-account-connector";
 import type { AccountProvider } from "@/shared/account/session-types";
@@ -132,15 +131,4 @@ export async function releaseBaseAccountConnection(
     return;
   }
   await connection.disconnect();
-}
-
-export function invalidationMessage(reason: BaseAccountInvalidation): string {
-  switch (reason) {
-    case "account-changed":
-      return "The connected Base Account changed. Sign in again to continue.";
-    case "chain-changed":
-      return "The Base Account network changed. Switch to Base and sign in again.";
-    default:
-      return "The Base Account disconnected. Sign in again to continue.";
-  }
 }

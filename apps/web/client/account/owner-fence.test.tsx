@@ -144,6 +144,7 @@ const triggerRows: Array<{
   name: string;
   initialProvider: VerifiedAccountSession["accountProvider"];
   trigger: (context: TriggerContext) => Promise<void> | void;
+  expectsLogout?: boolean;
 }> = [
   {
     name: "sign-out",
@@ -181,6 +182,7 @@ const triggerRows: Array<{
   {
     name: "restored Base address mismatch",
     initialProvider: "base-account",
+    expectsLogout: true,
     trigger: async ({ setServerSession }) => {
       setServerSession(session("base-account", "subject-a", ADDRESS_B));
       await currentClient().retrySessionValidation();
@@ -270,17 +272,19 @@ describe("owner generation fence", () => {
   });
 
   test("blocks prepared actions after every owner-generation trigger", async () => {
-    for (const { initialProvider, trigger } of triggerRows) {
+    for (const { initialProvider, trigger, expectsLogout } of triggerRows) {
       const provider = new ProviderFixture();
     let activeSession = session(initialProvider);
     let verificationLost = false;
     let serverPostsAfterPrepare = 0;
     let cdpDispatches = 0;
+    let signOutCalls = 0;
     const activeSdk = sdk({
       sendUserOperation: async () => {
         cdpDispatches += 1;
         return { userOperationHash: `0x${"ab".repeat(32)}` };
       },
+      signOut: async () => { signOutCalls += 1; },
     });
     const sessionFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
@@ -324,6 +328,10 @@ describe("owner generation fence", () => {
       });
       expect(cdpDispatches + provider.walletDispatches).toBe(0);
       expect(serverPostsAfterPrepare).toBe(0);
+      if (expectsLogout) {
+        await waitFor(() => expect(currentClient().status).toBe("signed-out"));
+        expect(signOutCalls).toBe(1);
+      }
       cleanup();
       observedClient = null;
       window.sessionStorage.clear();
