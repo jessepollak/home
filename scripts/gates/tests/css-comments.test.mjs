@@ -32,6 +32,24 @@ test("Python comments fail while # inside strings and docstrings is not a commen
   ]);
 });
 
+test("Python functional lines are exempt: shebang, encoding declaration, and inline pragmas", () => {
+  const forbidden = collectForbiddenComments([
+    { path: "client/landing/tool.py", content: "#!/usr/bin/env python3\n# -*- coding: utf-8 -*-\nvalue = []  # type: list[str]\nother = 1  # noqa: E501\nplain = 2  # noqa\n" },
+    { path: "server/second-line.py", content: "#!/usr/bin/env python3\n# coding=utf-8\n" },
+    { path: "app/encoding-first.py", content: "# coding: utf-8\n" },
+    { path: "client/landing/real.py", content: "# real comment\n" },
+    { path: "client/landing/near-miss.py", content: "# typing: not a pragma\n# noqa-ish note\n# coding: utf-8\n#!/usr/bin/env python3\n" },
+  ]);
+
+  assert.deepEqual(forbidden, [
+    { path: "client/landing/near-miss.py", line: 1, text: "typing: not a pragma" },
+    { path: "client/landing/near-miss.py", line: 2, text: "noqa-ish note" },
+    { path: "client/landing/near-miss.py", line: 3, text: "coding: utf-8" },
+    { path: "client/landing/near-miss.py", line: 4, text: "!/usr/bin/env python3" },
+    { path: "client/landing/real.py", line: 1, text: "real comment" },
+  ]);
+});
+
 test("test and story sources stay outside the comment policy", () => {
   const forbidden = collectForbiddenComments([
     { path: "components/fixture.test.css", content: "/* fixture comment */\n" },
@@ -43,10 +61,22 @@ test("test and story sources stay outside the comment policy", () => {
   assert.deepEqual(forbidden, []);
 });
 
+test("the gate scans only the five product layers and ignores sources outside them", () => {
+  const forbidden = collectForbiddenComments([
+    ...PRODUCT_LAYERS.map((layer) => ({ path: `${layer}/fixture.css`, content: "/* narrated */\n" })),
+    { path: "docs/fixture.css", content: "/* narrated */\n" },
+    { path: "scripts/fixture.py", content: "# narrated\n" },
+  ]);
+
+  assert.deepEqual(
+    forbidden.map(({ path }) => path).sort(),
+    PRODUCT_LAYERS.map((layer) => `${layer}/fixture.css`).sort(),
+  );
+});
+
 test("product CSS and Python carry no comments", async () => {
   const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
-  const files = (await loadSourceFiles(`${repoRoot}/apps/web`, { extensions: [".css", ".py"] }))
-    .filter((file) => PRODUCT_LAYERS.some((layer) => file.path.startsWith(`${layer}/`)));
+  const files = await loadSourceFiles(`${repoRoot}/apps/web`, { extensions: [".css", ".py"] });
 
   assert.ok(files.some((file) => file.path.endsWith(".css")), "CSS scan must find product stylesheets");
   assert.ok(files.some((file) => file.path.endsWith(".py")), "Python scan must find the landing asset generator");
