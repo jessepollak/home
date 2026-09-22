@@ -179,7 +179,16 @@ export function gmailAuthorizationUrl(clientId: string, redirectUri: string, sta
   return authorization;
 }
 
-export type GmailAuthOptions = { open?: boolean; port?: number };
+export type GmailAuthOptions = {
+  open?: boolean;
+  port?: number;
+  fetchImplementation?: typeof fetch;
+  tokenEndpoint?: string;
+  apiBaseUrl?: string;
+  revokeEndpoint?: string;
+  accountEmail?: string;
+  writeCredentials?: (path: string, credentials: Required<GmailCredentials>) => Promise<void>;
+};
 
 export async function runGmailAuth(path: string, options: GmailAuthOptions = {}): Promise<void> {
   const bootstrap = await readGmailCredentials(path, false);
@@ -221,29 +230,55 @@ export async function runGmailAuth(path: string, options: GmailAuthOptions = {})
     }
   }
   try {
-    const code = await codePromise;
-    const response = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: bootstrap.client_id,
-        client_secret: bootstrap.client_secret,
-        code,
-        grant_type: "authorization_code",
-        redirect_uri: redirectUri,
-      }),
-    });
-    if (!response.ok) throw new Error("Gmail OAuth token exchange failed.");
-    const body = await response.json() as { refresh_token?: string; scope?: string };
-    if (!body.refresh_token || !isReadonlyScopeGrant(body.scope)) {
-      throw new Error("Gmail OAuth did not return the required readonly grant.");
-    }
-    await writeGmailCredentials(path, {
-      client_id: bootstrap.client_id,
-      client_secret: bootstrap.client_secret,
-      refresh_token: body.refresh_token,
-    });
+    await completeGmailAuthorization(path, await codePromise, bootstrap, redirectUri, options);
   } finally {
     server.stop(true);
   }
+}
+
+export async function completeGmailAuthorization(
+  path: string,
+  code: string,
+  bootstrap: { client_id: string; client_secret: string },
+  redirectUri: string,
+  options: GmailAuthOptions = {},
+): Promise<void> {
+  const fetchImplementation = options.fetchImplementation ?? fetch;
+  const apiBaseUrl = options.apiBaseUrl ?? "https://gmail.googleapis.com/gmail/v1";
+  const response = await fetchImplementation(options.tokenEndpoint ?? "https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: bootstrap.client_id,
+      client_secret: bootstrap.client_secret,
+      code,
+      grant_type: "authorization_code",
+      redirect_uri: redirectUri,
+    }),
+  });
+  if (!response.ok) throw new Error("Gmail OAuth token exchange failed.");
+  const body = await response.json() as { access_token?: string; refresh_token?: string; scope?: string };
+  if (!body.refresh_token || !body.access_token || !isReadonlyScopeGrant(body.scope)) {
+    throw new Error("Gmail OAuth did not return the required readonly grant.");
+  }
+  const accountEmail = options.accountEmail?.trim() || verifyAccountEmail();
+  const profileResponse = await fetchImplementation(`${apiBaseUrl}/users/me/profile`, {
+    headers: { authorization: `Bearer ${body.access_token}` },
+  });
+  if (!profileResponse.ok) throw new Error("Gmail profile lookup failed.");
+  const grantedEmail = ((await profileResponse.json() as { emailAddress?: string }).emailAddress ?? "").trim();
+  if (grantedEmail.toLowerCase() !== accountEmail.toLowerCase()) {
+    await fetchImplementation(options.revokeEndpoint ?? "https://oauth2.googleapis.com/revoke", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ token: body.refresh_token }),
+    });
+    throw new Error(`Gmail authorization was granted by ${grantedEmail}, not the configured bot account ${accountEmail}; the grant was revoked.`);
+  }
+  await (options.writeCredentials ?? writeGmailCredentials)(path, {
+    client_id: bootstrap.client_id,
+    client_secret: bootstrap.client_secret,
+    refresh_token: body.refresh_token,
+  });
+  console.log(`Gmail readonly authorization saved for ${grantedEmail} to ${path}.`);
 }

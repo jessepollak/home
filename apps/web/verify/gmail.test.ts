@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { callbackDecision, defaultOtpSender, extractOtp, gmailAuthorizationUrl, gmailReadonlyScope, isReadonlyScopeGrant, pollGmailOtp, verifyAccountEmail, type GmailCredentials, type GmailMessage } from "./gmail";
+import { callbackDecision, completeGmailAuthorization, defaultOtpSender, extractOtp, gmailAuthorizationUrl, gmailReadonlyScope, isReadonlyScopeGrant, pollGmailOtp, verifyAccountEmail, type GmailCredentials, type GmailMessage } from "./gmail";
 
 const credentials: Required<GmailCredentials> = {
   client_id: "client-id",
@@ -178,5 +178,58 @@ describe("Gmail polling", () => {
     expect(isReadonlyScopeGrant(gmailReadonlyScope)).toBe(true);
     expect(isReadonlyScopeGrant(`${gmailReadonlyScope} https://www.googleapis.com/auth/gmail.modify`)).toBe(false);
     expect(isReadonlyScopeGrant(undefined)).toBe(false);
+  });
+});
+
+type GmailAuthCall = { url: string; body: string | undefined };
+
+function fakeGmailAuthFetch(profileEmail: string, calls: GmailAuthCall[]): typeof fetch {
+  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    calls.push({ url, body: init?.body === undefined ? undefined : String(init.body) });
+    if (url.includes("/token")) {
+      return Response.json({ access_token: "access-token", refresh_token: "refresh-token", scope: gmailReadonlyScope });
+    }
+    if (url.endsWith("/users/me/profile")) return Response.json({ emailAddress: profileEmail });
+    return new Response("", { status: 200 });
+  }) as typeof fetch;
+}
+
+const bootstrap = { client_id: "client-id", client_secret: "client-secret" };
+
+function captureLogs<T>(run: () => Promise<T>): Promise<{ result: T; logs: string[] }> {
+  const logs: string[] = [];
+  const originalLog = console.log;
+  console.log = (...values) => { logs.push(values.join(" ")); };
+  return Promise.resolve(run()).finally(() => { console.log = originalLog; }).then((result) => ({ result, logs }));
+}
+
+describe("Gmail authorization mailbox check", () => {
+  test("refuses a grant for another mailbox, revokes it, and writes nothing", async () => {
+    const calls: GmailAuthCall[] = [];
+    const writes: Array<Required<GmailCredentials>> = [];
+    await expect(completeGmailAuthorization("/tmp/gmail.json", "authorization-code", bootstrap, "http://127.0.0.1:58531/callback", {
+      accountEmail: "bot@example.com",
+      fetchImplementation: fakeGmailAuthFetch("person@example.com", calls),
+      writeCredentials: async (_path, credentials) => { writes.push(credentials); },
+    })).rejects.toThrow("Gmail authorization was granted by person@example.com, not the configured bot account bot@example.com; the grant was revoked.");
+    const revoke = calls.find((call) => call.url === "https://oauth2.googleapis.com/revoke");
+    expect(revoke?.body).toContain("token=refresh-token");
+    expect(writes).toHaveLength(0);
+  });
+
+  test("saves the grant and reports the mailbox when it matches the bot account", async () => {
+    const calls: GmailAuthCall[] = [];
+    const writes: Array<{ path: string; credentials: Required<GmailCredentials> }> = [];
+    const { logs } = await captureLogs(() => completeGmailAuthorization("/tmp/gmail.json", "authorization-code", bootstrap, "http://127.0.0.1:58531/callback", {
+      accountEmail: "bot@example.com",
+      fetchImplementation: fakeGmailAuthFetch("bot@example.com", calls),
+      writeCredentials: async (path, credentials) => { writes.push({ path, credentials }); },
+    }));
+    expect(writes).toHaveLength(1);
+    expect(writes[0].path).toBe("/tmp/gmail.json");
+    expect(writes[0].credentials.refresh_token).toBe("refresh-token");
+    expect(logs.join(" ")).toContain("Gmail readonly authorization saved for bot@example.com to /tmp/gmail.json.");
+    expect(calls.some((call) => call.url === "https://oauth2.googleapis.com/revoke")).toBe(false);
   });
 });

@@ -143,7 +143,6 @@ if (args[0] === "gmail-auth") {
   try {
     const path = gmailCredentialsPath(process.env);
     await runGmailAuth(path, { open: !hasFlag("--no-open"), port });
-    console.log(`Gmail readonly authorization saved to ${path}.`);
     process.exit(0);
   } catch (error) {
     console.error(error instanceof Error ? error.message : "Gmail authorization failed.");
