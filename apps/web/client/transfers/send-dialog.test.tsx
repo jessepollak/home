@@ -6,7 +6,7 @@ import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { encodeUsdcTransfer, getTransferAsset } from "@/shared/transfers/transfer-helpers";
 import { TransferExecutionError } from "@/shared/transfers/types";
 
-const { cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
+const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { SendDialog } = await import("./send-dialog");
 
 const ACCOUNT = "0x1111111111111111111111111111111111111111" as const;
@@ -263,6 +263,57 @@ describe("SendDialog Peer cash-out", () => {
       kind: "cash-out-withdraw",
       params: { providerId: "peer", region: "US", depositId: "0xescrow_7" },
     }]);
+  });
+});
+
+describe("SendDialog dismissal", () => {
+  test("vetoes Escape while the wallet request is pending and keeps its request context", async () => {
+    let closes = 0;
+    let dispatches = 0;
+    let releaseExecution!: (result: { id: string; status: "submitted" }) => void;
+    render(
+      <SendDialog
+        open immediate address={ACCOUNT} ownerBoundary="owner-pending-escape" resumeActionId={ACTION_ID}
+        prepareMoneyAction={async () => resumedAction()} resumeMoneyAction={async () => resumedAction()}
+        executeMoneyAction={() => {
+          dispatches += 1;
+          return new Promise((resolve) => { releaseExecution = resolve; });
+        }}
+        onClose={() => { closes += 1; }}
+      />,
+    );
+
+    fireEvent.click(await page().findByRole("button", { name: "Send $1.00" }));
+    expect(await page().findByText("Waiting for your wallet…")).toBeTruthy();
+    expect((page().getByRole("button", { name: "Close send dialog" }) as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => { fireEvent.keyDown(document, { key: "Escape" }); });
+
+    expect(page().getByRole("dialog", { name: "Confirm" })).toBeTruthy();
+    expect(page().getByText("Waiting for your wallet…")).toBeTruthy();
+    expect(page().getByRole("button", { name: `Copy ${RECIPIENT}` })).toBeTruthy();
+    expect(closes).toBe(0);
+    expect(dispatches).toBe(1);
+
+    await act(async () => { releaseExecution({ id: ACTION_ID, status: "submitted" }); });
+    await waitFor(() => expect(closes).toBe(1));
+  });
+
+  test("dismisses on Escape before a request is dispatched", async () => {
+    let closes = 0;
+    render(
+      <SendDialog
+        open immediate address={ACCOUNT} ownerBoundary="owner-amount-escape"
+        availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
+        prepareMoneyAction={async () => resumedAction()} resumeMoneyAction={async () => resumedAction()}
+        executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })}
+        onClose={() => { closes += 1; }}
+      />,
+    );
+
+    await act(async () => { fireEvent.keyDown(document, { key: "Escape" }); });
+
+    expect(closes).toBeGreaterThan(0);
   });
 });
 
