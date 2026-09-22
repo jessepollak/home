@@ -49,10 +49,18 @@ export function readCommitsForRange(range, cwd = process.cwd()) {
   return parseCommitLog(git(["log", range, commitLogFormat], cwd));
 }
 
-// Every well-formed Caught-by trailer value in a commit body. The provenance
-// gate accepts a commit only when exactly one value matches.
+// Every well-formed Caught-by trailer value in a commit body, in order and
+// with repeats, for callers that want the raw trailers.
 export function caughtByTrailerValues(body) {
   return [...body.matchAll(caughtByTrailer)].map((match) => match[1]);
+}
+
+// The distinct detectors a commit body names. A squash merge concatenates every
+// inner commit's body, so a multi-commit fix PR repeats the same trailer once
+// per commit; identical repeats are one detector, distinct values stay apart.
+// The gate and the report both classify commits from this set.
+export function caughtByDetectors(body) {
+  return [...new Set(caughtByTrailerValues(body))];
 }
 
 // The scope token of a scoped fix subject (fix(<scope>): ...), or null when the
@@ -65,8 +73,8 @@ export function fixScope(subject) {
 export function caughtByViolations(commits) {
   return commits.flatMap((commit) => {
     if (fixScope(commit.subject) === null) return [];
-    return caughtByTrailerValues(commit.body).length === 1
+    return caughtByDetectors(commit.body).length === 1
       ? []
-      : [`${commit.sha.slice(0, 12)} ${commit.subject} must include exactly one Caught-by trailer`];
+      : [`${commit.sha.slice(0, 12)} ${commit.subject} must name exactly one Caught-by detector`];
   });
 }

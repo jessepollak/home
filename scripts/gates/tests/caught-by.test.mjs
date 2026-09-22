@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 import {
+  caughtByDetectors,
   caughtByViolations,
   detectCommitRange,
   readCommitsForRange,
@@ -9,13 +11,56 @@ import {
 
 const commit = (subject, body = "") => ({ sha: "a".repeat(40), subject, body });
 
-test("requires exactly one allowed Caught-by trailer on scoped fix commits", () => {
+// The squash-merge message GitHub wrote for #742 (ab5f7eee on main): every inner
+// commit's body is concatenated, so the one detector appears once per commit.
+const squashedMainHead = {
+  sha: "ab5f7eee8478" + "0".repeat(28),
+  subject: "fix(lint): treat a throwing finally block as a catch disposition (#742)",
+  body: [
+    "* fix(lint): treat a throwing finally block as a catch disposition",
+    "",
+    "A `try`/`finally` whose finalizer always throws cannot fall through.",
+    "",
+    "Caught-by: lint",
+    "Co-authored-by: Toshi <toshi-noreply@coinbase.com>",
+    "",
+    "* docs(gates): count a throwing finally block as a disposition",
+    "",
+    "Caught-by: lint",
+    "Co-authored-by: Toshi <toshi-noreply@coinbase.com>",
+    "",
+    "---------",
+    "",
+    "Co-authored-by: Toshi <toshi-noreply@coinbase.com>",
+  ].join("\n"),
+};
+
+test("requires exactly one allowed Caught-by detector on scoped fix commits", () => {
   for (const value of ["lint", "bot", "review", "browser", "production"]) {
     assert.deepEqual(caughtByViolations([commit("fix(home): repair state", `details\n\nCaught-by: ${value}`)]), []);
   }
-  assert.match(caughtByViolations([commit("fix(home): repair state")])[0], /must include exactly one Caught-by trailer$/);
+  assert.match(caughtByViolations([commit("fix(home): repair state")])[0], /must name exactly one Caught-by detector$/);
   assert.equal(caughtByViolations([commit("fix(home): repair state", "Caught-by: guess")]).length, 1);
   assert.equal(caughtByViolations([commit("fix(home): repair state", "Caught-by: lint\nCaught-by: review")]).length, 1);
+});
+
+test("counts duplicate identical trailers from a squash body once", () => {
+  assert.deepEqual(caughtByDetectors(squashedMainHead.body), ["lint"]);
+  assert.deepEqual(caughtByViolations([squashedMainHead]), []);
+  assert.deepEqual(caughtByViolations([commit("fix(home): repair state", "Caught-by: review\n\n* inner\n\nCaught-by: review\n\nCaught-by: review")]), []);
+  // Two distinct detectors are still ambiguous, and repeating one of them does not settle it.
+  assert.equal(caughtByViolations([commit("fix(home): repair state", "Caught-by: lint\nCaught-by: lint\nCaught-by: review")]).length, 1);
+  assert.deepEqual(caughtByDetectors("Caught-by: lint\nCaught-by: bot\nCaught-by: lint"), ["lint", "bot"]);
+  assert.deepEqual(caughtByDetectors("no trailer here\nCaught-by: guess"), []);
+});
+
+test("the squash-merged main head ab5f7eee passes as HEAD^!", (t) => {
+  // Regression for main going red on 2026-09-22: the real commit must pass the
+  // gate on its own so the next push to main is green. Skipped when a shallow
+  // checkout does not contain the commit; the fixture above covers its shape.
+  const probe = spawnSync("git", ["cat-file", "-e", "ab5f7eee8478^{commit}"], { encoding: "utf8" });
+  if (probe.status !== 0) return t.skip("ab5f7eee is not in this checkout");
+  assert.deepEqual(caughtByViolations(readCommitsForRange("ab5f7eee8478^!")), []);
 });
 
 test("fetches and retries when the remote base ref is missing", () => {
