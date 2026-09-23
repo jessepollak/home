@@ -370,7 +370,7 @@ invest, send, account-settings, and coverage. Manual surfaces and fixture-imposs
 canary operations are explicitly skipped with reasons in the test. This only checks entry
 steps; it does not cover borrow markets, activity pagination, invest categories or memes,
 coverage filters, or dev-ui behavior.
-- Journey stories: only `apps/web/stories/journeys/savings-deposit.stories.tsx` exists; every other surface above lacks one.
+**Journey stories:** Only `apps/web/stories/journeys/savings-deposit.stories.tsx` exists; every other surface above lacks one.
 
 **Reach depends on a live provider and cannot run against the fixture server** (needs a documented fixture or the provisioned verifier Live mode):
 - Base-account/CDP sign-in (`client/account/base-account-connector.tsx`, `cdp-*`), real Coinbase onramp/offramp providers via `/api/funding/providers`, `/api/funding/quotes`, `/api/funding/provider-customers`, and `/api/funding/webhooks/[provider]` (smoke uses hand-written IDRX/PEER stubs instead of a documented shared fixture).

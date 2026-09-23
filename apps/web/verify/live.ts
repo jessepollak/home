@@ -101,7 +101,7 @@ function reachStepValues(step: ReachStep): string[] {
   return [step.text];
 }
 
-function reachStepSummary(step: ReachStep): string {
+export function reachStepSummary(step: ReachStep): string {
   if (step.kind === "fill") return `fill “${step.label}”`;
   if (step.kind === "click") return `click “${step.label}”`;
   if (step.kind === "click-prefix") return `click-prefix “${step.prefix}”`;
