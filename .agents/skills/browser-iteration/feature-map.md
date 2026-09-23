@@ -11,6 +11,9 @@ is in **Unknowns** — never invent a selector when Reach is ambiguous, snapshot
 
 **Keeping this current:** run a `chore(dx)` pass whenever `apps/web/app/**/page.tsx`, `apps/web/client/*/*-experience.tsx`, or
 `apps/web/tests/browser/*.pw.ts` changes. State that bracket in the PR body; do not silently drift this map.
+The CI Playwright replay in `apps/web/tests/browser/feature-map-replay.pw.ts` parses this map
+through `verify/map.ts` and executes every non-manual fixture Reach. Keep its explicit skip
+reasons and its canary dispositions aligned with the map when changing a Reach or fixture.
 
 Fixture baseline referenced throughout: `HOME_PLAYWRIGHT_SMOKE=1`, rootless
 `bun --cwd apps/web dev -- --port <port>` (`.agents/skills/browser-iteration/SKILL.md` §Factory loop),
@@ -362,9 +365,13 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 
 ## Gaps
 
-**No Playwright coverage and no journey story** (checked `apps/web/tests/browser/` and `apps/web/stories/journeys/`, which contains only `savings-deposit.stories.tsx`):
-- `borrow` (no smoke fixture for `/api/borrow*` at all), `activity`, `invest` hub/category browsing beyond one asset-detail click, `dev-ui`, `coverage` filtering behavior (only font metrics asserted).
-- Journey stories: only `apps/web/stories/journeys/savings-deposit.stories.tsx` exists; every other surface above lacks one.
+**Playwright Reach replay:** `apps/web/tests/browser/feature-map-replay.pw.ts` exercises the
+non-manual fixture Reaches for landing, sign-in, home-panel, balances, activity, save,
+invest, send, account-settings, and coverage. Manual surfaces and fixture-impossible
+canary operations are explicitly skipped with reasons in the test. This only checks entry
+steps; it does not cover borrow markets, activity pagination, invest categories or memes,
+coverage filters, or dev-ui behavior.
+**Journey stories:** Only `apps/web/stories/journeys/savings-deposit.stories.tsx` exists; every other surface above lacks one.
 
 **Reach depends on a live provider and cannot run against the fixture server** (needs a documented fixture or the provisioned verifier Live mode):
 - Base-account/CDP sign-in (`client/account/base-account-connector.tsx`, `cdp-*`), real Coinbase onramp/offramp providers via `/api/funding/providers`, `/api/funding/quotes`, `/api/funding/provider-customers`, and `/api/funding/webhooks/[provider]` (smoke uses hand-written IDRX/PEER stubs instead of a documented shared fixture).
