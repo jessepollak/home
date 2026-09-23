@@ -26,7 +26,9 @@ export type VerifiedMorphoMarketRef = {
   };
 };
 
-export { BASE_CHAIN_ID } from "@/shared/assets/base";
+export {
+  BASE_CHAIN_ID,
+} from "@/shared/assets/base";
 export const MORPHO_BLUE_ADDRESS =
   "0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb" as const satisfies MorphoAddress;
 export const MORPHO_USDC_CBBTC_MARKET_ID =
@@ -77,6 +79,7 @@ export const MORPHO_USDC_CBBTC_MARKET_PARAMS = {
   lltv: MORPHO_USDC_CBBTC_LLTV_WAD,
 } as const;
 
+/** @public exercised by shared/morpho-markets/config.test.ts */
 export function getVerifiedMorphoMarket(marketId: string): VerifiedMorphoMarketRef | null {
   return VERIFIED_MORPHO_MARKETS.find((market) => market.marketId.toLowerCase() === marketId.toLowerCase()) ?? null;
 }

@@ -41,7 +41,7 @@ function messageForBaseAccountError(error: unknown): string {
   }
 }
 
-export { SignInBlockedPanel } from "./sign-in-shell";
+
 
 function StatusMessage({
   children,

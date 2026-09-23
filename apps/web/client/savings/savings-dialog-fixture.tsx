@@ -16,6 +16,7 @@ export type SavingsDialogFixture = {
 
 const SavingsDialogFixtureContext = createContext<SavingsDialogFixture>({});
 
+/** @public Storybook decorator seam for SavingsMoneyDialog journey states. */
 export function SavingsDialogFixtureProvider({
   value,
   children,

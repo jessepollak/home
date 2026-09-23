@@ -56,6 +56,7 @@ export type PresentBalancesOptions = {
 export const HOME_MONEY_GROUP_PREVIEW_COUNT = 3;
 export const HOME_BALANCES_HUB_PREVIEW_COUNT = 4;
 
+/** @public exercised by shared/balances/present.test.ts */
 export function previewBalanceRows(
   rows: readonly BalanceRowModel[],
   hiddenRows: readonly BalanceRowModel[] = [],
@@ -152,6 +153,7 @@ export function presentMoneyGroups(snapshot: BalancesSnapshot): MoneyGroupPresen
   );
 }
 
+/** @public exercised by shared/balances/present.test.ts */
 export function presentBalanceRows(snapshot: BalancesSnapshot): BalanceRowModel[] {
   return presentMoneyGroups(snapshot).flatMap((group) => group.rows);
 }

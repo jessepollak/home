@@ -4,7 +4,6 @@ import { BASE_CHAIN_ID } from "@/shared/account/session-types";
 export const NATIVE_BASE_CHALLENGE_TTL_MS = 5 * 60 * 1000;
 export const NATIVE_BASE_STATEMENT = "Sign in to Home." as const;
 
-export type NativeBaseNonceRequest = Record<string, never>;
 export type NativeBaseChallenge = {
   nonce: string;
   chainId: typeof BASE_CHAIN_ID;
@@ -15,9 +14,6 @@ export type NativeBaseChallenge = {
   issuedAt: string;
   expirationTime: string;
 };
-export type NativeBaseNonceResponse = NativeBaseChallenge;
-export type NativeBaseNonceErrorCode = "AUTH_UNAVAILABLE" | "INVALID_REQUEST";
-
 const challengeKeys = [
   "nonce",
   "chainId",
@@ -77,5 +73,3 @@ export function parseNativeBaseChallenge(value: unknown): NativeBaseChallenge | 
     expirationTime,
   };
 }
-
-export const parseNativeBaseNonceResponse = parseNativeBaseChallenge;

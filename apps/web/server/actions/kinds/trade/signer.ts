@@ -14,11 +14,10 @@ import {
   parseRpcQuantity,
   resolveBaseRpcUrl,
 } from "@/server/chain/rpc";
-import { nonceBitmapPosition, PERMIT2_ADDRESS, TradePreparationError } from "./permit2";
+import { TradePreparationError } from "./permit2";
 import type {
   Address,
   Hex,
-  Permit2StateReader,
   SmartAccountSignatureVerifier,
   TradeSignerResolver,
 } from "@/shared/trading/server-types";
@@ -35,8 +34,7 @@ const smartWalletAbi = [
   { type: "function", name: "isValidSignature", stateMutability: "view", inputs: [{ name: "hash", type: "bytes32" }, { name: "signature", type: "bytes" }], outputs: [{ type: "bytes4" }] },
 ] as const;
 const factoryAbi = [{ type: "function", name: "getAddress", stateMutability: "view", inputs: [{ name: "owners", type: "bytes[]" }, { name: "nonce", type: "uint256" }], outputs: [{ type: "address" }] }] as const;
-const permit2Abi = [{ type: "function", name: "nonceBitmap", stateMutability: "view", inputs: [{ name: "owner", type: "address" }, { name: "wordPos", type: "uint256" }], outputs: [{ type: "uint256" }] }] as const;
-
+/** @public exercised by server/actions/kinds/trade/signer.test.ts */
 export function createTradeSignerResolver({
   getValidator,
   fetchImpl = fetch,
@@ -80,26 +78,6 @@ export function createTradeSignerResolver({
     const [derived] = decodeAbiParameters([{ type: "address" }], result);
     if (derived.toLowerCase() !== identity.smartAccount) unsupported();
     return { smartAccount: identity.smartAccount, signerAddress: candidate, ownerIndex: 0, deployed: false };
-  };
-}
-
-export function createPermit2StateReader({
-  fetchImpl = fetch,
-  rpcUrl = resolveBaseRpcUrl(),
-  timeoutMs = BASE_RPC_TIMEOUT_MS,
-}: { fetchImpl?: typeof fetch; rpcUrl?: string; timeoutMs?: number } = {}): Permit2StateReader {
-  const rpc = createRpc(fetchImpl, rpcUrl, timeoutMs);
-  return async (owner, nonce, signal) => {
-    if (await rpc.quantity("eth_chainId", [], signal) !== BigInt(8453)) unavailable();
-    const blockNumber = await rpc.quantity("eth_blockNumber", [], signal);
-    const { wordPos, mask } = nonceBitmapPosition(nonce);
-    const result = await rpc.call(PERMIT2_ADDRESS, encodeFunctionData({
-      abi: permit2Abi,
-      functionName: "nonceBitmap",
-      args: [owner, wordPos],
-    }), signal, blockNumber);
-    const [bitmap] = decodeAbiParameters([{ type: "uint256" }], result);
-    return { blockNumber, used: (bitmap & mask) !== BigInt(0) };
   };
 }
 

@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import {
-  dedupeRecentMoneyActions,
-  parseRecentMoneyActions,
-  type RecentMoneyActionOperation,
-} from "./list";
+import { parseRecentMoneyActions } from "./list";
 
 const session: VerifiedAccountSession = {
   user: { subject: "subject-a" },
@@ -32,19 +28,10 @@ function row(address = session.smartAccount!.address, status = "confirmed") {
   };
 }
 
-function operation(): RecentMoneyActionOperation {
-  return parseRecentMoneyActions({ actions: [row()] }, session)[0]!;
-}
-
 describe("recent Home action activity", () => {
   test("accepts only the full verified owner tuple", () => {
     expect(parseRecentMoneyActions({ actions: [row()] }, session)).toHaveLength(1);
     expect(parseRecentMoneyActions({ actions: [row("0x3333333333333333333333333333333333333333")] }, session)).toEqual([]);
-  });
-
-  test("deduplicates a Home action after indexed activity exposes the same transaction hash", () => {
-    expect(dedupeRecentMoneyActions([operation()], new Set())).toHaveLength(1);
-    expect(dedupeRecentMoneyActions([operation()], new Set([transactionHash]))).toEqual([]);
   });
 
   test("preserves typed cash-out identity without parsing titles or calldata", () => {

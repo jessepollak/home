@@ -446,6 +446,7 @@ async function withDeadline<T>(
   }
 }
 
+/** @public exercised by server/balances/read.test.ts */
 export function clearBalancesChainAssertionsForTests(): void {
   chainAssertions.clear();
 }

@@ -140,6 +140,7 @@ export function decimalFromBaseUnits(baseUnits: string, decimals: number): strin
   return fraction ? `${whole}.${fraction}` : whole;
 }
 
+/** @public exercised by client/money-modal/amount-units.test.ts */
 export function convertDisplayAmount(
   amount: string,
   from: MoneyPrimaryUnit,

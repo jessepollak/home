@@ -7,12 +7,15 @@ import {
 import {
   createCodexTrendingMemesPageReader,
   createErrorTrendingMemesPage,
-  createUnavailableTrendingMemesPage,
 } from "./codex/trending";
 import { INVEST_DISCOVER_VERSION, type InvestDiscoverResponse } from "@/shared/invest/contracts/discover";
 
-export { INVEST_DISCOVER_VERSION };
-export type { InvestDiscoverResponse } from "@/shared/invest/contracts/discover";
+export {
+  INVEST_DISCOVER_VERSION,
+};
+export type {
+  InvestDiscoverResponse,
+} from "@/shared/invest/contracts/discover";
 
 type FetchLike = (
   input: RequestInfo | URL,
@@ -77,16 +80,6 @@ export function getInvestDiscover(
     sharedReader = createInvestDiscoverReader({ apiKey });
   }
   return sharedReader(offset);
-}
-
-export function createUnavailableInvestDiscover(): InvestDiscoverResponse {
-  return {
-    version: INVEST_DISCOVER_VERSION,
-    provider: "codex",
-    fetchedAt: null,
-    icons: emptyAssetIconMap(),
-    memes: createUnavailableTrendingMemesPage(),
-  };
 }
 
 export function createErrorInvestDiscover(): InvestDiscoverResponse {

@@ -3,7 +3,6 @@
 import { useCallback, useMemo, useRef } from "react";
 import { TransferExecutionError } from "@/shared/transfers/types";
 
-export type OwnerGenerationIdentity = number;
 export type OwnerGenerationFence = {
   advance: (preserveOwnerKey?: string | null) => number;
   capture: () => number;

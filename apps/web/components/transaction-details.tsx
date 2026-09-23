@@ -6,10 +6,10 @@ import { MoneyModal, MoneyModalBody, MoneyModalHeader } from "@/client/money-mod
 import type { TransactionDetails } from "./transaction-explorer";
 
 export type {
-  TransactionDetailRow,
   TransactionDetails,
-  TransactionExplorerLink,
 } from "./transaction-explorer";
+
+
 
 export function TransactionDetailsModal({
   open,

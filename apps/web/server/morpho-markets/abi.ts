@@ -3,9 +3,10 @@ import "server-only";
 import type { MoneyActionCall } from "@/shared/money-actions/types";
 import type { MorphoAddress, VerifiedMorphoMarketRef } from "@/shared/morpho-markets/config";
 
+
+/** @public exercised by server/morpho-markets/rpc.test.ts */
 export {
   encodeCoinbaseExecuteBatch,
-  encodeImplementation,
 } from "@/server/chain/coinbase-smart-account";
 
 export type MorphoMoneyActionCall = MoneyActionCall & {

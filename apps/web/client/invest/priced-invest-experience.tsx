@@ -15,22 +15,10 @@ import {
   usePresentationRegionId,
 } from "./presentation-quote";
 import {
-  useInvestDiscover,
+
   type UseInvestDiscoverResult,
 } from "./use-invest-discover";
 import { useMarketPrices } from "./use-market-prices";
-
-export function PricedInvestExperience({
-  initialView,
-}: Pick<InvestExperienceProps, "initialView"> = {}) {
-  const discover = useInvestDiscover();
-  return (
-    <PricedInvestExperienceWithDiscover
-      initialView={initialView}
-      discover={discover}
-    />
-  );
-}
 
 export function PricedInvestExperienceWithDiscover({
   initialView,

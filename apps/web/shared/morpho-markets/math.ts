@@ -110,6 +110,7 @@ export function liquidationPriceRaw(debtAssets: bigint, collateralAssets: bigint
   return mulDivUp(requiredValue, ORACLE_PRICE_SCALE, collateralAssets);
 }
 
+/** @public exercised by server/borrowing/math.test.ts */
 export function parseTokenAmount(value: string, decimals: number): bigint {
   const normalized = value.trim();
   if (!/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(normalized)) throw new TypeError("Enter a positive decimal amount without commas or exponent notation.");

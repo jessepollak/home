@@ -41,4 +41,11 @@ function Toggle({
   )
 }
 
-export { Toggle, toggleVariants }
+export {
+  toggleVariants,
+};
+
+/** @public rendered by Storybook story components/ui/toggle.stories.tsx */
+export {
+  Toggle,
+};

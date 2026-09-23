@@ -37,9 +37,6 @@ export type MorphoVaultsResult = {
   source: MorphoSource;
   stale: boolean;
 };
-export type SavingsVaultsResponse = MorphoVaultsResult;
-export type SavingsVaultsErrorResponse = { error: "vault-data-unavailable"; message: string };
-
 export function parseVaultsResult(value: unknown): MorphoVaultsResult | null {
   if (
     !isRecord(value) ||

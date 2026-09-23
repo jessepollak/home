@@ -16,7 +16,10 @@ import {
   type MorphoMarketSnapshot,
 } from "@/server/morpho-markets/rpc";
 
-export { MorphoMarketRpcError as BorrowRpcError } from "@/server/morpho-markets/rpc";
+/** @public exercised by server/borrowing/rpc.test.ts */
+export {
+  MorphoMarketRpcError as BorrowRpcError,
+} from "@/server/morpho-markets/rpc";
 
 export type BorrowRpcReader = {
   readSnapshot(account: BorrowAddress, marketRef: BorrowMarketRef, signal?: AbortSignal): Promise<BorrowMarketSnapshot>;

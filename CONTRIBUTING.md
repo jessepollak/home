@@ -58,6 +58,9 @@ Do not add provider credentials or funded-wallet checks to pull-request CI.
 - Add behavioral tests for regressions that matter, with exact bigint fixtures for amounts. Follow the [test policy](docs/architecture.md#test-policy) for what to test and what to avoid.
 - Run `bun check`; run the browser smoke for shell, session, or action-flow changes, and the story tests for Storybook or owned-component changes. Keep live provider and funded-wallet checks out of CI.
 - Update the matching current doc in the same change when a delivered, user-visible, or execution contract changes.
+- **Delete what you replace.** When a change supersedes a component, hook, or module, remove the replaced code in the same PR; do not leave it as an unused alias or re-export.
+- **Keep the dead-code gate green.** `bun run --cwd apps/web knip` (part of `bun check`) must pass. A genuinely intentional public export carries a one-line `/** @public <reason> */` JSDoc; do not add it to silence a real orphan.
+- **Design-lane code has two homes.** Non-production design code lives inside a `*.stories.*` file or under `**/explorations/**`, nowhere else; see [design explorations](docs/design-explorations/README.md).
 - A funding provider contribution includes an **Acceptance** section beside the adapter using the shared [provider acceptance template](docs/integrations/README.md#provider-acceptance-template): rail/environment matrix, write hazards, owners/approvers, stop/recovery rules, evidence, and a dated scoped claim. Keep provider credentials, network probes, and funded checks out of pull-request CI; onramp status must match `apps/web/config/coverage.ts`.
 
 ## Factory delivery

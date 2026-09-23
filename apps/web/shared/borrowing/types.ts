@@ -1,7 +1,5 @@
-import type { ActionKind, MoneyActionDraft, PreparedMoneyAction } from "@/shared/money-actions/types";
-import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import type { BorrowMarketSnapshot } from "@/shared/borrowing/contract";
-import type { BorrowAssetRef, BorrowMarketId } from "./config";
+import type { ActionKind, MoneyActionDraft } from "@/shared/money-actions/types";
+import type { BorrowMarketId } from "./config";
 
 export type BorrowOperation =
   | "supply-collateral"
@@ -20,22 +18,6 @@ export type BorrowActionIntent = {
   maximumRepayBaseUnits?: string;
 };
 
-export type BorrowActionSummaryMetadata = {
-  product: "borrow";
-  operation: BorrowOperation;
-  marketId: BorrowMarketId;
-  loanAsset: Pick<BorrowAssetRef, "id" | "symbol">;
-  collateralAsset: Pick<BorrowAssetRef, "id" | "symbol">;
-  projectedHealthFactorWad: string | null;
-  projectedLiquidationPriceRaw: string | null;
-  borrowAprWad: string;
-  source: {
-    blockNumber: string;
-    blockHash: `0x${string}`;
-    blockTimestamp: string;
-  };
-};
-
 export type BorrowPreviewSummary = {
   operation: BorrowOperation;
   title: string;
@@ -50,10 +32,6 @@ export type BorrowPreviewSummary = {
   disabledReason?: string;
 };
 
-export type BorrowPreviewResponse =
-  | { status: "prepared"; action: PreparedMoneyAction; snapshot: BorrowMarketSnapshot }
-  | { status: "preview-only"; preview: BorrowPreviewSummary; snapshot: BorrowMarketSnapshot };
-
 export type BorrowActionPreparation = {
   draft: MoneyActionDraft;
   summary: Omit<BorrowPreviewSummary, "execution" | "disabledReason">;
@@ -63,11 +41,6 @@ export type BorrowActionPreparation = {
   simulationBlockTimestamp: string;
   simulationGap: string | null;
 };
-
-export type IssueBorrowAction = (
-  session: VerifiedAccountSession,
-  draft: MoneyActionDraft,
-) => Promise<PreparedMoneyAction>;
 
 export function parseBorrowActionIntent(value: unknown): BorrowActionIntent | null {
   if (!isRecord(value) || typeof value.marketId !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(value.marketId) ||

@@ -32,7 +32,10 @@ function renderSeedSdkOwnerKey(seed: AccountRenderSeed): string {
     : seed.session.user.subject;
 }
 
-export type { OwnerGenerationFence, OwnerGenerationIdentity } from "./owner-generation-fence";
+export type {
+  OwnerGenerationFence,
+} from "./owner-generation-fence";
+
 
 export function AccountWalletSessionOwner({
   children,

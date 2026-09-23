@@ -27,6 +27,7 @@ function defaultWriter(
 
 let writer: ObservabilityLogWriter = defaultWriter;
 
+/** @public exercised by app/api/client-errors/route.test.ts */
 export function setObservabilityLogWriterForTests(
   nextWriter?: ObservabilityLogWriter,
 ): void {

@@ -69,6 +69,7 @@ export class PeerOfframpSafetyError extends Error {
   }
 }
 
+/** @public exercised by server/funding/cash-out.test.ts */
 export function setPeerClientFactoryForTests(factory: PeerClientFactory | null): void {
   peerClientFactory = factory ?? createPeerClients;
 }

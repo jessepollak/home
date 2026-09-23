@@ -12,7 +12,7 @@ import {
   readNativeBaseSession,
 } from "@/server/auth/native-base-session";
 
-export { BASE_CHAIN_ID } from "@/shared/account/session-types";
+
 export type SessionPayload = VerifiedAccountSession;
 
 export type VerifiedEndUser = {

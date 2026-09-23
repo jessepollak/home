@@ -5,16 +5,11 @@ import { writeObservabilityEvent } from "@/server/observability/log";
 import type { ObservabilityEvent } from "@/server/observability/schema";
 import {
   CdpTokenBalancesError,
-  CDP_TOKEN_BALANCES_SOFT_PAGE_START_MS,
-  CDP_TOKEN_BALANCES_TIMEOUT_MS,
+
   createCdpTokenBalancesClient,
   type CdpTokenBalancesClient,
 } from "./enumerate-cdp";
 import type { BalancesEnumeration } from "./types";
-
-export const BALANCES_ENUMERATION_SOFT_PAGE_START_MS =
-  CDP_TOKEN_BALANCES_SOFT_PAGE_START_MS;
-export const BALANCES_ENUMERATION_HARD_PAGE_MS = CDP_TOKEN_BALANCES_TIMEOUT_MS;
 
 type Dependencies = {
   listBalances?: CdpTokenBalancesClient["listBalances"];

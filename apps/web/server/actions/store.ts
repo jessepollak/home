@@ -224,6 +224,7 @@ export function getActionsStore(): ActionsStore {
   return runtimeStore;
 }
 
+/** @public exercised by server/actions/prepare.test.ts */
 export function setActionsStoreForTests(store: ActionsStore | null): void {
   runtimeStore = store;
 }

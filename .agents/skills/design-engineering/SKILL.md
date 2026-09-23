@@ -20,6 +20,8 @@ By default, implement within the existing design system. The issue author sets w
 - **Explicit adoption:** implement the linked revision selected by Jesse through shared components. Verify the real flow and show matching state/data/viewport evidence; explain material deviations.
 - **Review every assignment against its acceptance criteria.** Visual quality is part of an exploration deliverable; implementation must meet correctness and the applicable current or selected design. Read-only review does not authorize edits.
 
+Non-production design-lane code has exactly two homes: inside a `*.stories.*` file, or under `**/explorations/**`; nowhere else ([design explorations](../../../docs/design-explorations/README.md)). The dead-code gate (`bun run --cwd apps/web knip`, part of `bun check`) ignores `**/explorations/**`, so an exploration does not need to masquerade as production code. When a change replaces a component, hook, or module, delete the replaced code in the same change rather than leaving an unused alias or re-export; a deliberately public export carries a one-line `/** @public <reason> */` JSDoc.
+
 For a requested comparison, keep data and viewport matched. If blind review is requested, use neutral labels and show the critic renders without the author's preference. Rankings are advice; Jesse selects. At selection, retain the accepted revision and rationale in [UI direction](../../../docs/ui-direction.md#carrying-decisions-forward); check transfer to another relevant surface before broad adoption.
 
 ## Why craft compounds

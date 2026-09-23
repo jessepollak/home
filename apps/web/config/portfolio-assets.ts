@@ -7,7 +7,6 @@ import {
   BASE_USDC,
 } from "@/shared/assets/base";
 
-export const PORTFOLIO_BASE_CHAIN_ID = BASE_CHAIN_ID;
 export const PORTFOLIO_NATIVE_ASSET_KEY = `eip155:${BASE_CHAIN_ID}/native` as const;
 export const PORTFOLIO_USDC_ADDRESS = BASE_USDC.address;
 export const PORTFOLIO_USDC_ASSET_KEY =
@@ -128,17 +127,6 @@ export function getDirectPortfolioAssets(): DirectPortfolioAsset[] {
   ];
   assertUniqueAssetKeys(assets.map(({ assetKey }) => assetKey));
   return assets;
-}
-
-export function assertPortfolioRegistry(): void {
-  const direct = getDirectPortfolioAssets();
-  assertUniqueAssetKeys([
-    ...direct.map(({ assetKey }) => assetKey),
-    ...portfolioVaults.map(({ address }) => assetKeyForErc20(address)),
-  ]);
-  if (portfolioVaults.length !== 3 || investPortfolioAssets.length !== 17) {
-    throw new Error("The supported portfolio inventory is outside its fixed bound.");
-  }
 }
 
 function assertUniqueAssetKeys(keys: readonly string[]): void {

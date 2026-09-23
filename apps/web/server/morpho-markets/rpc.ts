@@ -321,8 +321,6 @@ export function createMorphoMarketRpcReader(options: {
   };
 }
 
-export const getBaseMorphoMarkets = createMorphoMarketRpcReader();
-
 function morphoSimulationMessage(
   error: CoinbaseSmartAccountBatchSimulationError,
 ): string {

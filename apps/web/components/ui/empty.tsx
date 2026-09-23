@@ -98,6 +98,14 @@ export {
   EmptyHeader,
   EmptyTitle,
   EmptyDescription,
-  EmptyContent,
+};
+
+/** @public rendered by Storybook story components/ui/empty.stories.tsx */
+export {
   EmptyMedia,
-}
+};
+
+/** @public rendered by Storybook story components/ui/empty.stories.tsx */
+export {
+  EmptyContent,
+};

@@ -20,6 +20,7 @@ type RecorderDependencies = {
   send: (report: HomeAuthRestoreReport) => unknown;
 };
 
+/** @public exercised by client/observability/auth-performance.test.ts */
 export function createHomeAuthRestoreRecorder(dependencies: RecorderDependencies) {
   let route: HomeStartupRoute | null = null;
   let hint: HomeAuthHint = "none";
@@ -117,8 +118,6 @@ export async function sendHomeAuthReport(
   } catch {
   }
 }
-
-export const sendHomeAuthRestoreReport = sendHomeAuthReport;
 
 const recorder = createHomeAuthRestoreRecorder({
   now: () => typeof performance === "undefined" ? 0 : performance.now(),

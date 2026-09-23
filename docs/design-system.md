@@ -15,11 +15,11 @@ bunx shadcn add <name>
 
 Review every generated copy before committing it. Stock Tailwind scale utilities are allowed; replace hex/rgba, arbitrary-pixel, and raw palette classes with semantic tokens.
 
-The pinned `shadcn` CLI's own composition rules are installed as the committed [shadcn skill](../../.agents/skills/shadcn/SKILL.md) (`bunx skills add shadcn/ui --skill shadcn -a universal --copy -y`, recorded in `skills-lock.json`). Its `rules/` files are the source of composition guidance — starting from existing owned components and variants instead of hand-rolling UI. Home's own rules below still win where they are stricter.
+The pinned `shadcn` CLI's own composition rules are installed as the committed [shadcn skill](../../.agents/skills/shadcn/SKILL.md) (`bunx skills add shadcn/ui --skill shadcn -a universal --copy -y`, recorded in `skills-lock.json`). Its `rules/` files are the source of composition guidance — starting from existing owned components and variants instead of hand-rolling UI. Home's own rules below still win where they are stricter. Its component names are not Home's owned inventory: `NativeSelect`, `Textarea`, and `Tabs` have no copy under `apps/web/components/ui`, so add the owned component with the CLI before composing it.
 
 ## Component workshop
 
-Follow the [issue's design scope](../.agents/skills/design-engineering/SKILL.md#follow-the-issue-scope); default to implementation within the current system. The production-component instructions below govern maintenance, journey validation and adoption. An explicitly scoped exploration may use local candidate presentation in a clearly labeled `Explorations/` story group, reusing financial fixtures and behavior where practical. It is not a second production UI system. Preserve production isolation, enforced repository rules and required checks; document the boundary and stop at the task's review checkpoint. Do not exhaustively harden every candidate before selection.
+Follow the [issue's design scope](../.agents/skills/design-engineering/SKILL.md#follow-the-issue-scope); default to implementation within the current system. The production-component instructions below govern maintenance, journey validation and adoption. An explicitly scoped exploration may use local candidate presentation in a clearly labeled `Explorations/` story group, reusing financial fixtures and behavior where practical. Story-only candidates stay in that group rather than joining the `UI/<Component>` owned inventory. It is not a second production UI system. Preserve production isolation, enforced repository rules and required checks; document the boundary and stop at the task's review checkpoint. Do not exhaustively harden every candidate before selection.
 
 Storybook is a credential-free development and review workshop for Home's production components. From the repository root, install and run it without `apps/web/.env.local`, provider keys, a wallet, or a database:
 
@@ -108,7 +108,7 @@ Use the owned component contracts rather than restyling their slots:
 
 - `apps/web/components/ui/payout-mark.tsx` owns payout brand-mark presentation; product code supplies only the platform-derived glyph and variant.
 - `apps/web/components/money-ticker.tsx` preserves exact already-formatted money strings and animates them with `@number-flow/react`.
-- `apps/web/lib/haptic.ts` contains the small product haptic boundary.
+- `apps/web/client/money-modal/amount.tsx` owns the money-key haptic boundary (`triggerKeyHaptic`), guarded by reduced-motion and user-activation checks.
 - `apps/web/client/money-modal` owns amount entry, numpad, asset selection, review, and confirmation steps; its shell is the owned shadcn Drawer wrapper.
 
 These stay app-local because they encode Home product behavior, not general-purpose primitives.

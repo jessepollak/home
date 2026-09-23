@@ -44,6 +44,14 @@ export function Example() { return <div>{/* JSX */}</div>; }
     expect(found).toHaveLength(4);
   });
 
+  it("allows only one-line @public JSDoc with a reason on an export", async () => {
+    expect(await diagnostics("/** @public Shared contract consumed by external clones. */\nexport const shared = true;", "ts")).toHaveLength(0);
+    expect(await diagnostics("/** @public */\nexport const unexplained = true;", "ts")).toHaveLength(1);
+    expect(await diagnostics("/** @public Reason.\n * More detail. */\nexport const multiline = true;", "ts")).toHaveLength(1);
+    expect(await diagnostics("/** @public Not an export. */\nconst privateValue = true;", "ts")).toHaveLength(1);
+    expect(await diagnostics("/** @public Misplaced export annotation. */\nconst privateValue = true;\nexport const shared = privateValue;", "ts")).toHaveLength(1);
+  });
+
   it("allows oxlint disable directives only when they carry a reason", async () => {
     expect(await diagnostics("// oxlint-disable-next-line no-console -- console output is the fixture contract.\nconsole.log('ok');", "ts")).toHaveLength(0);
     expect(await diagnostics("// oxlint-disable-next-line no-console\nconsole.log('no reason');", "ts")).toHaveLength(1);

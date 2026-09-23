@@ -1,19 +1,11 @@
 
 import {
   BASE_CHAIN_ID,
-  type AccountProviderRequest,
+
   type VerifiedAccountSession,
 } from "@/shared/account/session-types";
 
 export type SessionResponse = VerifiedAccountSession;
-export type SessionRequestHeaders = { accountProvider?: AccountProviderRequest };
-export type SessionErrorCode =
-  | "UNAUTHENTICATED"
-  | "AUTH_UNAVAILABLE"
-  | "BASE_ACCOUNT_DISABLED"
-  | "INVALID_ACCOUNT_PROVIDER"
-  | "AMBIGUOUS_AUTHENTICATION";
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }

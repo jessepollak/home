@@ -1,0 +1,53 @@
+{
+  "$schema": "./node_modules/knip/schema.json",
+  // Keep genuinely dead production code visible while not reporting exports that
+  // are only referenced inside their own module.
+  "ignoreExportsUsedInFile": true,
+  // vitest.config.ts imports @storybook/addon-vitest/vitest-plugin, which knip's
+  // config loader cannot evaluate. Vitest still contributes test entry patterns
+  // through the plugin defaults, so skip reading the config file rather than
+  // editing vitest.config.ts.
+  "vitest": {
+    "config": []
+  },
+  "entry": [
+    // Custom Oxlint plugin rules and policies are loaded by the Oxlint runtime,
+    // never imported statically.
+    "oxlint/rules/*.mjs!",
+    "oxlint/policy/*.mjs!",
+    // Repo-level operator scripts run directly, never imported. The config is
+    // resolved from apps/web, so reach the root scripts with a relative pattern.
+    "../../scripts/*!",
+    "../../scripts/**/*!",
+    // Contract-only modules the runtime store/validator implementations satisfy
+    // structurally without importing.
+    "server/balances/price-observation-store.contract.ts!",
+    "server/balances/snapshot-store.contract.ts!",
+    "server/balances/webhook-subscription-store.contract.ts!",
+    // Config entry points: evaluated directly by tooling, never imported.
+    "vitest.config.ts!",
+    // Direct Bun entry points are invoked by package scripts rather than
+    // imported from production code.
+    "server/db/migrate.ts!",
+    "verify/cli.ts!"
+  ],
+  "ignore": [
+    // Non-production design-lane code lives under explorations/ or inside a
+    // story file; see docs/design-explorations/README.md.
+    "**/explorations/**",
+    // Test-only harnesses are excluded rather than treated as production roots.
+    "verify/test-fixtures/**",
+    "tests/**",
+    "server/funding/core/testing/**",
+    "client/account/dom-test-harness.ts",
+    "shared/balances/fixtures.ts",
+    // Deferred to #686: home and activity surfaces still carry exports that
+    // only their own tests exercise; clean up once #686 lands.
+    "client/home/**",
+    "client/activity/**",
+    "components/finance-rows.tsx",
+    // Deferred to #687: funding and transfers surfaces; clean up once #687 lands.
+    "client/funding/**",
+    "client/transfers/**"
+  ]
+}

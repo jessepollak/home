@@ -2,7 +2,6 @@
 import type { MoneyActionCall } from "@/shared/money-actions/types";
 import type { ActionSummaryResponse } from "./get";
 
-export type ConfirmActionRequest = { signature?: `0x${string}` };
 export type ConfirmActionResponse = {
   id: string;
   calls: MoneyActionCall[];

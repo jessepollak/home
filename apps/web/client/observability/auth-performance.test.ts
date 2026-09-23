@@ -3,7 +3,7 @@ import type { HomeAuthRestoreReport } from "@/shared/observability/client-perfor
 import {
   HOME_AUTH_RESTORE_TIMEOUT_MS,
   createHomeAuthRestoreRecorder,
-  sendHomeAuthRestoreReport,
+  sendHomeAuthReport,
 } from "./auth-performance";
 
 function fixture() {
@@ -103,7 +103,7 @@ describe("Home auth restore performance recorder", () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = (() => { throw new Error("transport failed"); }) as unknown as typeof fetch;
     try {
-      await expect(sendHomeAuthRestoreReport({
+      await expect(sendHomeAuthReport({
         version: 1,
         kind: "home-auth-phase",
         route: "/",

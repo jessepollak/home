@@ -210,11 +210,6 @@ export function getCodexMarketHistory(
   return sharedReader(assetId, range);
 }
 
-export function clearCodexMarketHistoryCacheForTests() {
-  sharedReader = null;
-  sharedKey = undefined;
-}
-
 async function fetchHistory({
   apiKey,
   identity,

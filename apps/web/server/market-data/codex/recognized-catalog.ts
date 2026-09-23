@@ -124,11 +124,6 @@ export function getCodexRecognizedTokenCatalog(
   return sharedReader(signal);
 }
 
-export function clearCodexRecognizedTokenCatalogCacheForTests(): void {
-  sharedReader = null;
-  sharedApiKey = undefined;
-}
-
 async function fetchCatalog({
   apiKey,
   fetchImpl,

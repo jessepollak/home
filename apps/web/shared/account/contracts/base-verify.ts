@@ -6,19 +6,10 @@ import {
 
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 
-export type NativeBaseVerifyRequest = {
-  address: `0x${string}`;
-  message: string;
-  signature: `0x${string}`;
-};
 export type NativeBaseVerifyResponse = VerifiedAccountSession & {
   accountProvider: "base-account";
   smartAccount: NonNullable<VerifiedAccountSession["smartAccount"]>;
 };
-export type NativeBaseVerifyErrorCode =
-  | "AUTH_UNAVAILABLE"
-  | "INVALID_AUTH_PROOF";
-
 export function parseNativeBaseSession(value: unknown): NativeBaseVerifyResponse | null {
   if (!value || typeof value !== "object") return null;
   const session = value as Partial<VerifiedAccountSession>;

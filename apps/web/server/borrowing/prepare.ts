@@ -10,7 +10,7 @@ import {
 } from "@/shared/borrowing/config";
 import { approveCall, borrowCall, repayCall, repaySharesCall, supplyCollateralCall, withdrawCollateralCall } from "./abi";
 import {
-  WAD,
+
   availableBorrowAssets,
   borrowCapacityAssets,
   healthFactorWad,
@@ -195,12 +195,4 @@ function titleFor(operation: BorrowOperation, market: BorrowMarketRef) {
     case "withdraw-collateral": return `Withdraw ${market.collateralToken.symbol} collateral`;
     case "close-position": return `Close ${market.collateralToken.symbol} / ${market.loanToken.symbol} position`;
   }
-}
-export function healthWarningLevel(healthFactor: bigint | null) {
-  if (healthFactor === null) return "no-debt" as const;
-  if (healthFactor < WAD) return "liquidatable" as const;
-  if (healthFactor < BORROW_HEALTH_CRITICAL_WAD) return "critical" as const;
-  if (healthFactor < BORROW_HEALTH_FLOOR_WAD) return "urgent" as const;
-  if (healthFactor < BORROW_HEALTH_BUFFER_WAD) return "warning" as const;
-  return "above-warning-threshold" as const;
 }

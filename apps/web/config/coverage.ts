@@ -200,6 +200,7 @@ const homeRoutes: Partial<Record<CountryCode, CoverageRecord["homeRoute"]>> = {
   US: { status: "sandbox", providerId: "coinbase", assetId: "base:usdc", paymentMethodIds: ["apple-pay"], evidence: null },
 };
 
+/** @public exercised by config/coverage.test.ts */
 export const coverageCountrySnapshot = countrySnapshotJson;
 const configuredCountryCodes = new Set<string>(countryRegionIds);
 

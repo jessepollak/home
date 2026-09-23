@@ -1,11 +1,10 @@
 import "server-only";
 
-import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { ConfirmActionResponse } from "@/shared/actions/contracts/confirm";
 import type { GetActionPendingResponse, GetActionResponse } from "@/shared/actions/contracts/get";
 import type { HandleActionResponse } from "@/shared/actions/contracts/handle";
 import type { ActionListItem, ListActionsResponse } from "@/shared/actions/contracts/list";
-import type { MoneyActionOwner, PreparedMoneyAction } from "@/shared/money-actions/types";
+import type { MoneyActionOwner } from "@/shared/money-actions/types";
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
 import { createTransferReceiptReader, type TransferReceiptStatus } from "./receipt";
 import { moneyActionOwner } from "@/server/money-actions/session";
@@ -411,13 +410,6 @@ function createDeadline(parentSignal: AbortSignal): {
       parentSignal.removeEventListener("abort", abortFromParent);
     },
   };
-}
-
-export function preparedActionFromResponse(
-  session: VerifiedAccountSession,
-  action: PreparedMoneyAction,
-): PreparedMoneyAction {
-  return { ...action, owner: moneyActionOwner(session)! };
 }
 
 function receiptState(receipt: TransferReceiptStatus): ActionReceiptState {

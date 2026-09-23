@@ -22,10 +22,14 @@ import {
   signedValue,
 } from "@/server/auth/signed-cookie";
 
-export { clearCookie, cookie, readCookie, readSignedValue, signedValue } from "@/server/auth/signed-cookie";
+/** @public exercised by server/auth/native-base-session.test.ts */
+export {
+  signedValue,
+} from "@/server/auth/signed-cookie";
 
 export const HOME_SESSION_COOKIE = "home-session";
 export const HOME_CHALLENGE_COOKIE = "home-auth-challenge";
+/** @public exercised by server/auth/native-base-session.test.ts */
 export const NATIVE_BASE_NONCE_TTL_MS = NATIVE_BASE_CHALLENGE_TTL_MS;
 export const NATIVE_BASE_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_BODY_BYTES = 96 * 1024;

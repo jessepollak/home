@@ -3,7 +3,7 @@ import {
   investAssets,
   stockAssets,
   type InvestAsset,
-  type InvestAssetId,
+
 } from "@/config/invest-assets";
 import { matchesMarketPriceAssetIdentity } from "@/shared/invest/contracts/market-price-history";
 import { unavailableMarketData, type MarketDataState } from "@/shared/invest/invest-market";
@@ -104,8 +104,4 @@ export function marketForAsset(
   if (asset.category === "stock") return markets.stockMarket;
   if (asset.category === "meme") return markets.memeMarket;
   return markets.cryptoMarket ?? unavailableMarketData;
-}
-
-export function isInvestAssetId(value: string): value is InvestAssetId {
-  return assetById.has(value);
 }
