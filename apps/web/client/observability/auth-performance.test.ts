@@ -117,4 +117,34 @@ describe("Home auth restore performance recorder", () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  test("sends the auth beacon to the same-origin endpoint with deployment credentials", async () => {
+    const originalFetch = globalThis.fetch;
+    const calls: { input: string; init?: RequestInit }[] = [];
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      calls.push({ input: String(input), init });
+      return new Response(null, { status: 204 });
+    }) as typeof fetch;
+
+    try {
+      await sendHomeAuthRestoreReport({
+        version: 1,
+        kind: "home-auth-phase",
+        route: "/home",
+        flow: "restore",
+        hint: "base",
+        outcome: "verified",
+        sessionSettledMs: 1_000,
+        totalMs: 1_000,
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.input).toBe("/api/client-performance");
+    expect(calls[0]?.init?.credentials).toBe("same-origin");
+    expect(calls[0]?.init?.method).toBe("POST");
+    expect(calls[0]?.init?.keepalive).toBe(true);
+  });
 });

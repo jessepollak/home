@@ -125,7 +125,7 @@ export async function sendHomeStartupReport(report: HomeStartupReport): Promise<
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(parsedReport),
-      credentials: "omit",
+      credentials: "same-origin",
       cache: "no-store",
       keepalive: true,
       referrerPolicy: "no-referrer",

@@ -78,4 +78,26 @@ describe("deployment access policy", () => {
     expect(response?.headers.get("cache-control")).toContain("private");
     expect(response?.headers.get("vary")).toContain("Cookie");
   });
+
+  test("requires the access cookie for the performance beacon", async () => {
+    const gated = enforceAccess(
+      request("/api/client-performance", { method: "POST" }),
+      enabled,
+      now,
+    )!;
+    expect(gated.status).toBe(401);
+    expect(await gated.json()).toEqual({ version: 1, error: { code: "ACCESS_REQUIRED" } });
+
+    const token = issueAccessToken(enabled, now);
+    const admitted = enforceAccess(
+      request("/api/client-performance", {
+        method: "POST",
+        headers: { cookie: `home-access=${token}` },
+      }),
+      enabled,
+      now,
+    );
+    expect(admitted?.status).toBe(200);
+    expect(admitted?.headers.get("x-middleware-next")).toBe("1");
+  });
 });

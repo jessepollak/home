@@ -66,7 +66,6 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 `unexpectedHosts`.
 
 - `GET /api/session` 401 — the restore path probes the session endpoint before the CDP SDK holds a server-accepted access token (#735).
-- `POST /api/client-performance` 401 — startup and restore beacons are sent with `credentials: "omit"`, which an access-gated deployment rejects before the handler (#736).
 - `GET https://api.cdp.coinbase.com/platform/v2/embedded-wallet-api/projects/75f1f0c7-83bf-47c7-a227-e94bb6d04f83/config` 404 — CDP SDK optional project config.
 
 ## Surfaces
