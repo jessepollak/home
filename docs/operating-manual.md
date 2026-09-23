@@ -85,21 +85,18 @@ Coordinate ownership before editing these files:
 
 ## Verification ladder
 
-Home bounds verification risk by construction rather than prohibiting automation. Ambiguity is the primary danger: a small known loss is bounded, while an unknown recipient, amount, result, or retry state can compound. Every rung is tool-enforced and emits the same evidence shape; evidence, not attestation, satisfies a rung. Autonomy ratchets only from the recorded ledger.
+Home bounds funded verification by the bot-dedicated account's small operator-held balance. The agent, not the CLI, reads and judges review facts, recipient, amount, and result. Evidence accompanies each session; only live confirmation needs the operator's authority.
 
 | Rung | What | Required when |
 |---|---|---|
-| 0 Fixture | `verify <surface>` against fixtures, with no network | Every agent, before the first and after the last edit, for every touched surface. |
-| 1 Preview read-only | `--live --base-url <PR preview>` on read-only surfaces with the bot session | Before `factory:review` when the diff touches any mapped surface. |
-| 2 Preview up-to-review | Walk to the Confirm screen, parse amount and recipient, then stop. | Before `factory:review` when the diff touches a money surface's client flow. |
-| 3 Preview confirm | Move real money on the bot account within policy caps. | Before `factory:review` when the diff touches `server/actions/**`, `server/money-actions/**`, calldata, or the confirm step. |
-| 4 Production canary | Scheduled read-only and up-to-review nightly; $0.10 confirm round trips weekly for save deposit/withdraw, borrow/repay, send to `jesse.base.eth`, and cash-out/withdraw. | Always; summaries and evidence stay on the runner under `~/.home-verify/canary/`. |
+| 0 Fixture | Agent-driven `verify start <surface>` → snapshot and commands → `verify finish`; CI replays Reach with Playwright. | Every touched surface before the first and after the last edit. |
+| 1 Preview read-only | Agent-driven `verify start <surface> --live --base-url <PR preview>` without confirmation authority. | Before `factory:review` for a mapped surface. |
+| 2 Preview review | Agent navigates to Confirm, reads actionable review facts, and stops. | Before `factory:review` for a touched money client flow. |
+| 3 Preview confirm | Operator-authorized `verify confirm` on the small-balance bot account, within session and daily confirm counts. | For touched action, calldata, or confirm paths when operator authority is available. |
 
-Rung 3 is not gated by prior clean runs: any confirm surface may be confirmed within the policy caps below. Each run is recorded in the append-only ledger with its rung, revision, host, role, and amounts. An unexpected host, recipient or amount mismatch, ambiguous result, or post-confirm failure is recorded as an incident on that run's ledger entry and reported in `verify status`, but it does not disarm anything or gate later runs; the caps remain the bound on spend.
+The CLI owns CI refusal, login provenance, host observation, the marked-control click fence, confirm count reservations, and evidence. It does not inspect review copy, prices, calldata, or provider traffic. The append-only ledger records a reservation before each live click plus the run's revision, host, role, action id, and incidents. Confirmations are limited to one per session by default (`--max-confirms` may set up to five) and five per UTC day. A failed click may still have dispatched: inspect Activity before retrying.
 
-The bot-dedicated Home account is the mailbox configured by `HOME_VERIFY_ACCOUNT_EMAIL`, not Jesse's account. Factory confirmation caps are $1 per click, $2 per run, and $5 per day across all factory runs; those caps are the bound on spend, not the amount: the mapped live Reach for every confirm surface enters $0.10 (`.agents/skills/browser-iteration/feature-map.md`), so a run spends dimes while the caps stay a ceiling. Cap changes are pull requests to `apps/web/verify/policy.ts`. Before confirmation the CLI reads the rendered Balances surface, records the rendered balance in evidence, and refuses only when the amount exceeds the balance or the balance cannot be known. The default send recipient is `jesse.base.eth` (`0x2211d1d0020daea8039e46cf1367962070d77da9`).
-
-Jesse's interventions are authority events only: fund or refill the bot account, change caps by pull request, and merge. The factory does not block on Jesse for ordinary verification. A handoff does not expand the ledger-derived authority. Write exactly **`Real money: not tested`** only when policy blocks a required rung because a cap is exhausted or the confirmation amount is unknowable. Never print or attach secrets, payment details, private customer data, OTPs, recovery codes, or raw provider payloads.
+`HOME_VERIFY_ACCOUNT_EMAIL` identifies the bot-dedicated Home mailbox, not Jesse's account. Only `verify live-login` can create a live state; its private provenance binds a hash of that mailbox, role, and creation time to the saved browser state. The operator keeps this account at a small balance; **that balance, not a CLI dollar parser or cap, bounds money at risk**. Jesse/operator funding and role decisions remain privileged. The factory can gather fixture and read-only evidence without confirmation authority. Write **`Real money: not tested`** when an operator confirmation was not authorized or a count limit was reached. Never print or attach secrets, payment details, private customer data, OTPs, recovery codes, or raw provider payloads.
 
 ## PR evidence and media
 
