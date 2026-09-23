@@ -11,6 +11,7 @@ import {
   MoneyAmountDisplay,
   MoneyAssetPicker,
   MoneyConfirmSummary,
+  MoneyConfirmFooter,
   MoneyModal,
   MoneyModalBody,
   MoneyModalFooter,
@@ -90,6 +91,7 @@ function OwnerBoundSavingsMoneyDialog({
   const [amountBaseUnits, setAmountBaseUnits] = useState<string | null>(null);
   const [preparedAction, setPreparedAction] = useState<PreparedMoneyAction | null>(null);
   const [attemptedAction, setAttemptedAction] = useState(false);
+  const [serverExpiredActionId, setServerExpiredActionId] = useState<string | null>(null);
   const [step, setStep] = useState<DialogStep>("amount");
   const [error, setError] = useState<string | null>(null);
   const ownerIdentity = savingsDialogOwnerIdentity(session);
@@ -101,6 +103,7 @@ function OwnerBoundSavingsMoneyDialog({
     expired: expiredPrepared,
     recheckExpired,
   } = useReactiveExpiry(preparedAction?.expiresAt ?? null);
+  const actionExpired = expiredPrepared || serverExpiredActionId === preparedAction?.id;
   const confirmAmount = amountBaseUnits ? formatUsdStablecoinAmount(amountBaseUnits) : "";
   const configuredAssetId = candidate.asset.symbol.toLocaleLowerCase();
   const assetId = selectedAssetId ?? configuredAssetId;
@@ -126,6 +129,7 @@ function OwnerBoundSavingsMoneyDialog({
     setAmountBaseUnits(null);
     setPreparedAction(null);
     setAttemptedAction(false);
+    setServerExpiredActionId(null);
     setStep("amount");
     setError(null);
   }
@@ -133,6 +137,7 @@ function OwnerBoundSavingsMoneyDialog({
   function goBack() {
     if (step === "confirm" || step === "error" || step === "failed") {
       setPreparedAction(null);
+      setServerExpiredActionId(null);
       setError(null);
       setStep("amount");
     }
@@ -182,6 +187,7 @@ function OwnerBoundSavingsMoneyDialog({
       }
       setPreparedAction(action);
       setAttemptedAction(false);
+      setServerExpiredActionId(null);
       setStep("confirm");
     } catch (caught) {
       setPreparedAction(null);
@@ -217,9 +223,14 @@ function OwnerBoundSavingsMoneyDialog({
       }
       reset();
       onClose();
-    } catch {
-      setAttemptedAction(true);
-      setError("The dispatch outcome is unresolved. Retry recording this same action; a new dispatch will not be created.");
+    } catch (caught) {
+      if (isRecord(caught) && caught.code === "ACTION_EXPIRED") {
+        setAttemptedAction(false);
+        setServerExpiredActionId(preparedAction.id);
+      } else {
+        setAttemptedAction(true);
+        setError("The dispatch outcome is unresolved. Retry recording this same action; a new dispatch will not be created.");
+      }
       setStep("confirm");
     }
   }
@@ -303,7 +314,7 @@ function OwnerBoundSavingsMoneyDialog({
           ) : null}
 
           {error ? <StatusMessage tone="error" role="alert">{error}</StatusMessage> : null}
-          {expiredPrepared && !attemptedAction && step === "confirm" ? (
+          {actionExpired && !attemptedAction && step === "confirm" ? (
             <StatusMessage tone="error" role="alert">
               This {mode} expired. Go back and continue again.
             </StatusMessage>
@@ -318,10 +329,11 @@ function OwnerBoundSavingsMoneyDialog({
           />
         ) : null}
 
-        {step === "confirm" ? (
-          <MoneyModalFooter
+        {step === "confirm" && preparedAction ? (
+          <MoneyConfirmFooter action={preparedAction}
+            actionExpired={actionExpired}
             primaryLabel={attemptedAction ? "Retry" : `${mode === "deposit" ? "Deposit" : "Withdraw"} ${confirmAmount}`}
-            primaryDisabled={!preparedReview || (expiredPrepared && !attemptedAction)}
+            primaryDisabled={!preparedReview || (actionExpired && !attemptedAction)}
             onPrimary={() => void confirm()}
             secondaryLabel="Back"
             onSecondary={goBack}

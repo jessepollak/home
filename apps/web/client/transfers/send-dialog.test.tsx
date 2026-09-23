@@ -20,7 +20,7 @@ function resumedAction(kind: PreparedMoneyAction["kind"] = "send"): PreparedMone
     kind,
     title: "Send USDC",
     createdAt: "2026-09-12T12:00:00.000Z",
-    expiresAt: "2026-09-12T12:10:00.000Z",
+    expiresAt: "2099-09-12T12:10:00.000Z",
     calls: [{ to: TOKEN, data: encodeUsdcTransfer(RECIPIENT, BigInt(1_000_000)), value: "0" }],
     amounts: [{
       assetId: "usdc",
@@ -154,6 +154,8 @@ describe("SendDialog Peer cash-out", () => {
     fireEvent.input(page().getByLabelText("Re-enter handle"), { target: { value: "alice" } });
     fireEvent.click(page().getByRole("button", { name: "Review" }));
     expect(await page().findByRole("button", { name: "Cash out $1.00" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Cash out $1.00" }).getAttribute("data-money-action-id")).toBe(ACTION_ID);
+    expect(page().getAllByRole("button", { name: "Back" }).every((button) => !button.hasAttribute("data-money-action-id"))).toBe(true);
     expect(document.body.textContent).toContain("≈ 1 USD");
     expect(document.body.textContent).toContain("About 1 min");
     expect(prepares).toEqual([{ kind: "cash-out", params: expect.objectContaining({ payoutHandle: "$alice", canonicalHandleConfirmation: "alice", amountBaseUnits: "1000000" }) }]);
@@ -260,6 +262,7 @@ describe("SendDialog Peer cash-out", () => {
     expect(page().queryByRole("button", { name: /Send to Zelle, Venmo, Cash App and more/ })).toBeNull();
     fireEvent.click(recovery);
     expect(await page().findByRole("button", { name: "Withdraw $2.00" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Withdraw $2.00" }).getAttribute("data-money-action-id")).toBe(ACTION_ID);
     expect(prepares).toEqual([{
       kind: "cash-out-withdraw",
       params: { providerId: "peer", region: "US", depositId: "0xescrow_7" },
@@ -337,6 +340,8 @@ describe("SendDialog resume", () => {
     );
 
     expect(await page().findByRole("button", { name: "Send $1.00" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Send $1.00" }).getAttribute("data-money-action-id")).toBe(ACTION_ID);
+    expect(page().getAllByRole("button", { name: "Back" }).every((button) => !button.hasAttribute("data-money-action-id"))).toBe(true);
     expect(page().getByRole("button", { name: `Copy ${RECIPIENT}` })).toBeTruthy();
     expect(invalidResumes).toBe(0);
 

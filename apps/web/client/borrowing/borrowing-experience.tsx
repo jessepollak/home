@@ -19,6 +19,7 @@ import {
   MoneyAmountDisplay,
   MoneyAssetPicker,
   MoneyConfirmSummary,
+  MoneyConfirmFooter,
   MoneyModal,
   MoneyModalBody,
   MoneyModalFooter,
@@ -775,7 +776,7 @@ function BorrowMoneyDialog({
           onPrimary={() => void prepare()}
         />
       ) : null}
-      {step === "confirm" ? <MoneyModalFooter primaryLabel={attempted ? "Retry" : "Confirm action"} primaryDisabled={preparedExpired && !attempted} onPrimary={() => void confirm()} secondaryLabel="Back" onSecondary={goBack} /> : null}
+      {step === "confirm" && preparedAction ? <MoneyConfirmFooter action={preparedAction} actionExpired={preparedExpired} primaryLabel={attempted ? "Retry" : "Confirm action"} primaryDisabled={preparedExpired && !attempted} onPrimary={() => void confirm()} secondaryLabel="Back" onSecondary={goBack} /> : null}
       {step === "error" || step === "failed" ? <MoneyModalFooter primaryLabel="Back" onPrimary={goBack} secondaryLabel="Close" onSecondary={onClose} /> : null}
     </MoneyModal>
   );

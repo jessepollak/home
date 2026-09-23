@@ -1,5 +1,6 @@
 "use client";
 
+import { useReactiveExpiry } from "@/client/actions/expiry";
 import { Button } from "@/components/ui/button";
 import {
   Drawer,
@@ -9,6 +10,8 @@ import {
   DrawerSwipeHandle,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import { MONEY_ACTION_ID_ATTRIBUTE } from "@/shared/money-actions";
+import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { ArrowLeft, X } from "lucide-react";
 import { createContext, useContext, useRef, type ReactNode, type RefObject } from "react";
 
@@ -85,13 +88,25 @@ export function MoneyModalBody({ children, className = "", hasFooter = false }: 
   );
 }
 
-export function MoneyModalFooter({ primaryLabel, onPrimary, primaryDisabled = false, primaryType = "button", secondaryLabel, onSecondary, secondaryDisabled = false }: {
+type MoneyModalFooterProps = {
   primaryLabel: ReactNode; onPrimary?: () => void; primaryDisabled?: boolean; primaryType?: "button" | "submit";
   secondaryLabel?: ReactNode; onSecondary?: () => void; secondaryDisabled?: boolean;
-}) {
+};
+
+export function MoneyModalFooter(props: MoneyModalFooterProps) {
+  return <FooterButtons {...props} />;
+}
+
+export function MoneyConfirmFooter({ action, actionExpired = false, ...props }: MoneyModalFooterProps & { action: PreparedMoneyAction; actionExpired?: boolean }) {
+  return <FooterButtons {...props} action={action} actionExpired={actionExpired} />;
+}
+
+function FooterButtons({ primaryLabel, onPrimary, primaryDisabled = false, primaryType = "button", secondaryLabel, onSecondary, secondaryDisabled = false, action, actionExpired = false }: MoneyModalFooterProps & { action?: PreparedMoneyAction; actionExpired?: boolean }) {
+  const { expired } = useReactiveExpiry(action?.expiresAt ?? null);
+  const active = action && !actionExpired && !expired && Number.isFinite(Date.parse(action.expiresAt));
   return (
     <DrawerFooter>
-      <Button size="lg" className="h-11" type={primaryType} disabled={primaryDisabled} onClick={onPrimary}>{primaryLabel}</Button>
+      <Button size="lg" className="h-11" type={primaryType} disabled={primaryDisabled} onClick={onPrimary} {...(active ? { [MONEY_ACTION_ID_ATTRIBUTE]: action.id } : {})}>{primaryLabel}</Button>
       {secondaryLabel && onSecondary ? <Button size="lg" variant="ghost" className="h-11" disabled={secondaryDisabled} onClick={onSecondary}>{secondaryLabel}</Button> : null}
     </DrawerFooter>
   );
