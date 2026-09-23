@@ -6,7 +6,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-export const scannedRoots = ["apps/web/live-login.ts", "apps/web/fixture-session.sh", "apps/web/gmail.ts", "apps/web/gmail.test.ts", "docs", ".agents"];
+export const scannedRoots = ["apps/web/live-login.ts", "apps/web/live-login.test.ts", "apps/web/fixture-session.sh", "apps/web/gmail.ts", "apps/web/gmail.test.ts", "docs", ".agents"];
 
 const personalEmailNeedle = ["@", "pollak.io"].join("");
 
