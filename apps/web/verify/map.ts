@@ -121,7 +121,7 @@ export function canaryReach(surfaceId: string, operation: string | undefined, fa
     { kind: "click", label: "Continue" },
     { kind: "expect", text: "Confirm" },
     { kind: "click", label: "Confirm action" },
-    { kind: "expect", text: "Repaid $0.10" },
+    { kind: "expect", text: "Repaid all Borrow debt" },
   ];
   if (surfaceId === "send" && operation === "send") return fallback;
   throw new Error(`Unsupported canary operation ${operation} for ${surfaceId}.`);

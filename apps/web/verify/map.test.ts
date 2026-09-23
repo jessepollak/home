@@ -72,7 +72,7 @@ describe("feature map parser", () => {
   test("provides fixed weekly round-trip reach variants", () => {
     const fallback = [{ kind: "goto" as const, path: "/fallback" }];
     expect(canaryReach("save", "withdraw", fallback)).toContainEqual({ kind: "expect", text: "Withdrawn $0.10" });
-    expect(canaryReach("borrow", "repay", fallback)).toContainEqual({ kind: "expect", text: "Repaid $0.10" });
+    expect(canaryReach("borrow", "repay", fallback)).toContainEqual({ kind: "expect", text: "Repaid all Borrow debt" });
     expect(canaryReach("send", "send", fallback)).toBe(fallback);
     expect(() => canaryReach("send", "withdraw", fallback)).toThrow("Unsupported canary operation");
   });
