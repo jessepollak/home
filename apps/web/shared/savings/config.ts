@@ -39,10 +39,6 @@ export const MORPHO_V1_CANDIDATE_ADDRESSES = BASE_MORPHO_USDC_VAULTS.map(
   ({ address }) => address,
 ) as readonly Address[];
 
-const candidateAddressSet = new Set(
-  MORPHO_V1_CANDIDATE_ADDRESSES.map((address) => address.toLowerCase()),
-);
-
 export function getVerifiedSaveVault(address: string): VerifiedSaveVaultRef | null {
   return VERIFIED_SAVE_VAULTS.find(
     (vault) => vault.address.toLowerCase() === address.toLowerCase(),
@@ -57,6 +53,3 @@ export function isSaveActionAllowed(
     (capability === "reducing-only" && operation === "withdraw");
 }
 
-export function isConfiguredMorphoVault(address: string): address is Address {
-  return candidateAddressSet.has(address.toLowerCase());
-}
