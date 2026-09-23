@@ -63,6 +63,9 @@ if [ "$mode" = weekly ] || { [ "$mode" = scheduled ] && [ "$(date -u +%u)" = "$w
     run_canary "borrow repay" borrow --canary-operation repay --allow-confirm || true
   fi
   run_canary "send to jesse.base.eth" send --canary-operation send --recipient jesse.base.eth --allow-confirm || true
+  if run_canary "cash-out" cash-out --canary-operation cash-out --allow-confirm; then
+    run_canary "cash-out withdraw" cash-out --canary-operation withdraw --allow-confirm || true
+  fi
 fi
 
 ln -sfn "$run_dir" "$canary_root/latest"

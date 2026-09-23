@@ -93,7 +93,7 @@ Home bounds verification risk by construction rather than prohibiting automation
 | 1 Preview read-only | `--live --base-url <PR preview>` on read-only surfaces with the bot session | Before `factory:review` when the diff touches any mapped surface. |
 | 2 Preview up-to-review | Walk to the Confirm screen, parse amount and recipient, then stop. | Before `factory:review` when the diff touches a money surface's client flow. |
 | 3 Preview confirm | Move real money on the bot account within policy caps. | Before `factory:review` when the diff touches `server/actions/**`, `server/money-actions/**`, calldata, or the confirm step. |
-| 4 Production canary | Scheduled read-only and up-to-review nightly; $0.10 confirm round trips weekly for save deposit/withdraw, borrow/repay, and send to `jesse.base.eth`. | Always; summaries and evidence stay on the runner under `~/.home-verify/canary/`. |
+| 4 Production canary | Scheduled read-only and up-to-review nightly; $0.10 confirm round trips weekly for save deposit/withdraw, borrow/repay, send to `jesse.base.eth`, and cash-out/withdraw. | Always; summaries and evidence stay on the runner under `~/.home-verify/canary/`. |
 
 Rung 3 is not gated by prior clean runs: any confirm surface may be confirmed within the policy caps below. Each run is recorded in the append-only ledger with its rung, revision, host, role, and amounts. An unexpected host, recipient or amount mismatch, ambiguous result, or post-confirm failure is recorded as an incident on that run's ledger entry and reported in `verify status`, but it does not disarm anything or gate later runs; the caps remain the bound on spend.
 

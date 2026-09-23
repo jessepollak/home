@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 export type ReachStep =
   | { kind: "goto"; path: string }
   | { kind: "click"; label: string }
+  | { kind: "click-prefix"; prefix: string; onNoMatch?: "note" }
   | { kind: "fill"; label: string; value: string }
   | { kind: "press"; key: string }
   | { kind: "expect"; text: string };
@@ -35,7 +36,7 @@ export type FeatureMap = {
 
 export const bareHostnamePattern = /^(?=.{1,253}$)(?:localhost|(?:(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)\.)*(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?))$/;
 
-const stepPattern = /^(goto|click|fill|press|expect)\s+"([^"]*)"(?:\s+"([^"]*)")?$/;
+const stepPattern = /^(goto|click|click-prefix|fill|press|expect)\s+"([^"]*)"(?:\s+"([^"]*)")?$/;
 const expectedFailurePattern = /^-\s+`?(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+([^\s`]+)`?\s+(\d{3})\s+—\s+(.+)$/;
 
 export async function readFeatureMap(path: string): Promise<FeatureMap> {
@@ -124,6 +125,19 @@ export function canaryReach(surfaceId: string, operation: string | undefined, fa
     { kind: "expect", text: "Repaid all Borrow debt" },
   ];
   if (surfaceId === "send" && operation === "send") return fallback;
+  if (surfaceId === "cash-out" && operation === "cash-out") return [
+    ...fallback,
+    { kind: "click", label: "Cash out $0.10" },
+    { kind: "expect", text: "Cashed out $0.10" },
+  ];
+  if (surfaceId === "cash-out" && operation === "withdraw") return [
+    { kind: "goto", path: "/home" },
+    { kind: "click", label: "Send" },
+    { kind: "click-prefix", prefix: "Withdraw ", onNoMatch: "note" },
+    { kind: "expect", text: "Confirm" },
+    { kind: "click-prefix", prefix: "Withdraw $" },
+    { kind: "expect", text: "Recovered $" },
+  ];
   throw new Error(`Unsupported canary operation ${operation} for ${surfaceId}.`);
 }
 
@@ -142,6 +156,7 @@ export function parseReachStep(source: string): ReachStep | null {
   const [, kind, first, second] = match;
   if (kind === "goto") return { kind, path: first };
   if (kind === "click") return { kind, label: first };
+  if (kind === "click-prefix") return { kind, prefix: first };
   if (kind === "fill" && second !== undefined) return { kind, label: first, value: second };
   if (kind === "press") return { kind, key: first };
   if (kind === "expect") return { kind, text: first };

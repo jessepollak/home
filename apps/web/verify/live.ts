@@ -59,8 +59,12 @@ export type CashoutHandleResolution =
   | { action: "use"; handle: string }
   | { action: "refuse"; reason: string };
 
+export function canonicalCashoutHandle(handle: string): string {
+  return canonicalizeCashPayee("cashapp", handle);
+}
+
 export function cashoutHandleFillValue(label: string, handle: string): string {
-  return label === "Re-enter handle" ? canonicalizeCashPayee("cashapp", handle) : handle;
+  return label === "Re-enter handle" ? canonicalCashoutHandle(handle) : handle;
 }
 
 export function resolveLiveCashoutHandle(value: string | undefined): CashoutHandleResolution {
@@ -87,6 +91,7 @@ export function recipientPlaceholderError(steps: ReachStep[]): string | null {
 function reachStepValues(step: ReachStep): string[] {
   if (step.kind === "fill") return [step.label, step.value];
   if (step.kind === "click") return [step.label];
+  if (step.kind === "click-prefix") return [step.prefix];
   if (step.kind === "goto") return [step.path];
   if (step.kind === "press") return [step.key];
   return [step.text];
@@ -95,6 +100,7 @@ function reachStepValues(step: ReachStep): string[] {
 function reachStepSummary(step: ReachStep): string {
   if (step.kind === "fill") return `fill “${step.label}”`;
   if (step.kind === "click") return `click “${step.label}”`;
+  if (step.kind === "click-prefix") return `click-prefix “${step.prefix}”`;
   if (step.kind === "goto") return `goto ${step.path}`;
   if (step.kind === "press") return `press ${step.key}`;
   return `expect “${step.text}”`;
@@ -164,7 +170,7 @@ export function confirmTerminalOrderError(steps: ReachStep[], confirmLabels: str
   for (const [index, step] of steps.entries()) {
     if (step.kind !== "click" || !matchesConfirmLabel(confirmLabels, step.label)) continue;
     const next = steps[index + 1];
-    if (next?.kind !== "expect" || !/^(?:Sent|Deposited|Withdrawn|Borrowed|Repaid)(?:\s|$)/.test(next.text)) {
+    if (next?.kind !== "expect" || !/^(?:Sent|Deposited|Withdrawn|Borrowed|Repaid|Cashed|Recovered)(?:\s|$)/.test(next.text)) {
       return `Live confirmation refuses “${step.label}” without an immediate terminal-success expect step.`;
     }
   }
@@ -214,6 +220,22 @@ export function reviewAndLabelAmountError(reviewAmount: number | null, labelAmou
 }
 
 const reviewToRowPattern = /^to(?:$|\s+\S)/i;
+
+const reviewPayoutHandleRowPattern = /^payout handle(?:$|\s+\S)/i;
+
+export function payoutHandleRowError(reviewText: string, canonicalHandle: string): string | null {
+  const expected = canonicalHandle.trim();
+  const lines = reviewLines(reviewText);
+  const rowIndexes = lines.flatMap((line, index) => reviewPayoutHandleRowPattern.test(line) ? [index] : []);
+  if (rowIndexes.length === 0) return "The review has no “Payout handle” row; confirmation was refused.";
+  if (rowIndexes.length > 1) return "The review must contain exactly one “Payout handle” row; confirmation was refused.";
+  const index = rowIndexes[0];
+  const inlineValue = lines[index].replace(/^payout handle\s*/i, "").trim();
+  const shown = (inlineValue.length > 0 ? inlineValue : lines[index + 1] ?? "").trim();
+  if (shown.length === 0) return "The review “Payout handle” row is empty; confirmation was refused.";
+  if (shown.toLowerCase() === expected.toLowerCase()) return null;
+  return "The review “Payout handle” row does not show the reviewed canonical payout handle; confirmation was refused.";
+}
 
 export function recipientRowError(reviewText: string, recipient: string): string | null {
   const expected = recipient.trim();
@@ -366,6 +388,23 @@ const visibleNameScript = `const visibleName=(entry)=>[...entry.childNodes].map(
 export function buttonPresentPredicate(label: string): string {
   const value = JSON.stringify(label);
   return `[...document.querySelectorAll('button,[role="button"]')].some((node)=>{${visibleNameScript}return node.getAttribute("aria-label")?.trim()===${value}||visibleName(node)===${value}})`;
+}
+
+export type ClickPrefixResolution =
+  | { action: "single"; label: string }
+  | { action: "none" }
+  | { action: "many"; candidates: string[] };
+
+export function resolveClickPrefix(prefix: string, names: readonly string[]): ClickPrefixResolution {
+  const candidates = names.map((name) => name.trim()).filter((name) => name.startsWith(prefix));
+  if (candidates.length === 1) return { action: "single", label: candidates[0]! };
+  if (candidates.length === 0) return { action: "none" };
+  return { action: "many", candidates };
+}
+
+export function clickPrefixNamesScript(prefix: string): string {
+  const value = JSON.stringify(prefix);
+  return `(()=>{const __homeVerifyPrefix=${value};return [...document.querySelectorAll('button,[role="button"]')].filter((node)=>node.getClientRects().length>0&&node.disabled!==true&&!node.hasAttribute("disabled")&&node.getAttribute("aria-disabled")!=="true"&&node.getAttribute("aria-busy")!=="true").map((node)=>{${visibleNameScript}return (node.getAttribute("aria-label")??visibleName(node)).trim()}).filter((name)=>name.startsWith(__homeVerifyPrefix))})()`;
 }
 
 export function enabledButtonPredicate(label: string): string {

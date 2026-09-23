@@ -241,7 +241,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 - **Unknowns**: none blocking; exact `MoneyConfirmSummary` fee row for sends (sends show no fee row — wallet shows fee; fixture `warnings` say `Network fee shown by wallet.`).
 
 ### `cash-out` (Peer offramp inner steps)
-- **Live**: up-to-review
+- **Live**: confirm
 - **Owned paths**: `apps/web/client/transfers/send-dialog.tsx`, `apps/web/app/api/funding/offramp/**`, `apps/web/server/funding/offramp/**`
 - **Confirm labels**: "Cash out $<amount>", "Withdraw $<amount>"
 - **Reach** (smoke-verified, `openPeerCashOutHandle`, smoke.pw.ts): 1) seed + `installApiFixtures`. 2) `Send` → digits `1` → `Continue`. 3) click `/Send to Zelle, Venmo, Cash App and more/` (CashoutItem, send-dialog.tsx). 4) click `Cash App` (payment-method button, payout step). 5) textbox `Cash App handle` (label `${selectedPlatform.label} handle`); attributes asserted: `autocomplete="off"`, `autocapitalize="none"`, `autocorrect="off"`, `spellcheck="false"`, `enterkeyhint="next"`, 16px font, ≥44px target. 6) `Continue` → textbox `Re-enter handle` (`enterkeyhint="done"`). 7) `Review` → confirm step.
@@ -257,9 +257,11 @@ request failure not listed here still fails the run, and unlisted hosts still fa
   9. `click "Continue"`
   10. `fill "Re-enter handle" "$alice"` — live substitutes the Cash App canonical form of `HOME_VERIFY_CASHOUT_HANDLE` (leading `$` stripped, `shared/funding/cash-payee.ts`), because Review enables only when the re-entry equals the canonical handle (send-dialog.tsx `handleConfirmation !== canonicalHandle`); unset refuses before any fill
   11. `click "Review"`
-  12. `expect "Confirm"`
+  12. `expect "Approximate receive"` — the deposit review's approximate fiat row, absent from a withdrawal review
+  13. `expect "Confirm"`
+- **Canary operations**: `--canary-operation cash-out` appends `click "Cash out $0.10"` and `expect "Cashed out $0.10"` (the deposit confirmation). `--canary-operation withdraw` is its own Reach: `goto "/home"`, `click "Send"`, `click-prefix "Withdraw "` (the in-flight recovery item), `expect "Confirm"`, `click-prefix "Withdraw $"` (the confirm control), `expect "Recovered $"`. Both require `HOME_VERIFY_CASHOUT_HANDLE`, and immediately before the confirm click the review must carry a `Payout handle` row equal to its Cash App canonical form; the canonical handle is recorded as `confirmIntent.recipient` and redacted from text evidence. When the first `click-prefix "Withdraw "` matches nothing, nothing is in flight: the run ends with exit 0, a `note` in `live.json`, `No in-flight Peer cash-out to withdraw.` in `summary.md`, and rung 2.
 - **Verify**: manual
-- **Expect**: modal title `Cash out with Peer` (send-dialog.tsx `modalTitle`); confirm rows `Provider`, `Payout app`, `Payout handle`, `Approximate receive`, `Estimated delivery`, `Network` = `Base` (send-dialog.tsx confirm rows); disclaimer `The fiat amount and delivery time are approximate, not guaranteed.`; primary `Cash out $X`.
+- **Expect**: modal title `Cash out with Peer` (send-dialog.tsx `modalTitle`); confirm rows `Provider`, `Payout app`, `Payout handle`, `Approximate receive`, `Estimated delivery`, `Network` = `Base` (send-dialog.tsx confirm rows); disclaimer `The fiat amount and delivery time are approximate, not guaranteed.`; primary `Cash out $X` or `Withdraw $X`, where the amount is the reviewed USDC amount rendered in dollars (`formatUsdStablecoinAmount`).
 - **States**: providers not loaded → CashoutItem absent (requires `PEER_OFFRAMP` stub registered after `installApiFixtures` via `route.fallback`, smoke.pw.ts); recovery items `Withdraw <amount>` for active orders; `Recover a Peer cash-out` button when `recoveryEligible` (send-dialog.tsx).
 - **Evidence**: screenshots; DOM snapshot; console/errors.
 - **Owned by**: `apps/web/client/transfers/send-dialog.tsx`, `/api/funding/providers?direction=offramp`, `/api/funding/offramp/orders`.

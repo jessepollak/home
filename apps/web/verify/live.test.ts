@@ -29,9 +29,12 @@ import {
   partitionLiveFailures,
   parseUsdAmount,
   parseUsdAmountFromLabel,
+  payoutHandleRowError,
   recipientPlaceholderError,
   recipientRowError,
+  resolveClickPrefix,
   resolveLiveRecipient,
+  clickPrefixNamesScript,
   reviewAndLabelAmountError,
   unexpectedNetworkHosts,
   unlistedAmountClickError,
@@ -180,6 +183,57 @@ describe("live review recipient row", () => {
     expect(recipientRowError("Confirm\nTo", recipient)).toContain("“To” row is empty");
     expect(recipientRowError(recipientReview("0x2222222222222222222222222222222222222222"), recipient)).toContain("instead");
     expect(recipientRowError(recipientReview(formatAddress(address)), recipient)).toContain("instead");
+  });
+});
+
+describe("live review payout handle row", () => {
+  const review = (handle: string) => `Confirm\n$0.10\nPayout handle\n${handle}\nNetwork\nBase`;
+
+  test("accepts the canonical handle the run registered, inline or on its own line", () => {
+    expect(payoutHandleRowError(review("example"), "example")).toBeNull();
+    expect(payoutHandleRowError(review("Example"), "example")).toBeNull();
+    expect(payoutHandleRowError("Confirm\n$0.10\nPayout handle example\nNetwork\nBase", "example")).toBeNull();
+  });
+
+  test("refuses an absent, empty, repeated, or different payout handle row", () => {
+    expect(payoutHandleRowError("Confirm\n$0.10\nNetwork\nBase", "example")).toContain("no “Payout handle” row");
+    expect(payoutHandleRowError("Confirm\nPayout handle", "example")).toContain("is empty");
+    expect(payoutHandleRowError(`Confirm\nPayout handle\nexample\nPayout handle\nexample`, "example")).toContain("exactly one");
+    expect(payoutHandleRowError(review("someoneelse"), "example")).toContain("does not show the reviewed canonical payout handle");
+    expect(payoutHandleRowError(review("someoneelse"), "example")).not.toContain("someoneelse");
+  });
+});
+
+describe("live click-prefix resolution", () => {
+  test("accepts exactly one match and refuses zero or many", () => {
+    expect(resolveClickPrefix("Withdraw ", ["Withdraw 0.1 USDC Peer cash-out · awaiting-buyer"])).toEqual({
+      action: "single",
+      label: "Withdraw 0.1 USDC Peer cash-out · awaiting-buyer",
+    });
+    expect(resolveClickPrefix("Withdraw ", ["Send", "Continue"])).toEqual({ action: "none" });
+    expect(resolveClickPrefix("Withdraw ", ["Withdraw $0.10", "Withdraw $0.20"])).toEqual({
+      action: "many",
+      candidates: ["Withdraw $0.10", "Withdraw $0.20"],
+    });
+    expect(resolveClickPrefix("Withdraw ", ["Withdraw $0.10"])).toEqual({ action: "single", label: "Withdraw $0.10" });
+  });
+
+  test("resolves the visible enabled control names from the DOM, honouring aria-label", async () => {
+    await GlobalRegistrator.register();
+    const names = (prefix: string) => new Function(`return (${clickPrefixNamesScript(prefix)});`)() as string[];
+    document.body.innerHTML = '<button type="button">Withdraw <span role="img" aria-label="$0.10" data-slot="money-ticker">$0.10</span></button><button type="button" disabled>Withdraw $9.99</button>';
+    expect(names("Withdraw $")).toEqual(["Withdraw $0.10"]);
+    expect(names("Withdraw ")).toEqual(["Withdraw $0.10"]);
+    expect(names("Deposit ")).toEqual([]);
+    document.body.innerHTML = '<button type="button">Withdraw $0.10</button><button type="button">Withdraw $0.20</button>';
+    expect(resolveClickPrefix("Withdraw ", names("Withdraw "))).toEqual({
+      action: "many",
+      candidates: ["Withdraw $0.10", "Withdraw $0.20"],
+    });
+    document.body.innerHTML = '<button type="button">Disable me</button>';
+    expect(names("Withdraw ")).toEqual([]);
+    expect(resolveClickPrefix("Withdraw ", names("Withdraw "))).toEqual({ action: "none" });
+    await GlobalRegistrator.unregister();
   });
 });
 

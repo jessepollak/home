@@ -39,6 +39,8 @@ if (command === "eval") {
     result = process.env.FAKE_AGENT_BROWSER_BALANCE ?? null;
   } else if (expression.includes("__homeVerifyHosts")) {
     result = JSON.parse(process.env.FAKE_AGENT_BROWSER_HOSTS ?? "[]") as unknown;
+  } else if (expression.includes("__homeVerifyPrefix")) {
+    result = JSON.parse(process.env.FAKE_AGENT_BROWSER_PREFIX_NAMES ?? "[]") as unknown;
   }
 } else if (command === "network" && rest[0] === "requests") {
   result = JSON.parse(process.env.FAKE_AGENT_BROWSER_FAILURES ?? "[]") as unknown;
