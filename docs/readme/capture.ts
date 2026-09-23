@@ -1,5 +1,5 @@
 // Capture the current UI against the same sample-only account boundary used by
-// apps/web/tests/browser/smoke.pw.ts. Browser API requests are locally fulfilled,
+// apps/web/tests/browser/fixtures/api.ts. Browser API requests are locally fulfilled,
 // while unexpected non-local requests are aborted and reported.
 import { chromium, type BrowserContext, type Page, type Route } from "@playwright/test";
 import { mkdir, readdir } from "node:fs/promises";

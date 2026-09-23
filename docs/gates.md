@@ -51,7 +51,7 @@ The **caught-by report** CI job writes the pull-request-range report to the run 
 
 ## Browser-smoke boundary
 
-The current **Chromium smoke** job runs the fixture-backed Playwright suite in GitHub Actions for every pull request and every push to `main`. It starts a CI-local fixture server; it does not exercise the hosted Vercel preview deployment.
+The current **Chromium smoke** job runs the per-surface fixture-backed Playwright suite (`apps/web/tests/browser/*.pw.ts`, with shared responses under `fixtures/`) in GitHub Actions for every pull request and every push to `main`. It starts a CI-local fixture server; it does not exercise the hosted Vercel preview deployment.
 
 The Jesse-locked [architecture](architecture.md#quality-bar) targets Playwright smoke on every hosted preview. That hosted-preview smoke target is not implemented yet; current PR/main fixture smoke must not be described as hosted-preview verification.
 

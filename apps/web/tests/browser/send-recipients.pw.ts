@@ -1,5 +1,5 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
-import { balancesSnapshot } from "./balances-fixtures";
+import { balancesSnapshot } from "./fixtures/balances";
 
 const OWNER = "0x1111111111111111111111111111111111111111";
 const PINNED_RECIPIENT = "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9";

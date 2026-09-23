@@ -1,5 +1,5 @@
-import { portfolioVaults } from "../../config/portfolio-assets";
-import { presentationRegions, type FiatCurrencyCode, type RegionId } from "../../config/regions";
+import { portfolioVaults } from "../../../config/portfolio-assets";
+import { presentationRegions, type FiatCurrencyCode, type RegionId } from "../../../config/regions";
 import {
   buildBalancesSnapshotFixture,
   catalogHolding,
@@ -7,8 +7,8 @@ import {
   priced,
   pricedCash,
   ready,
-} from "../../shared/balances/fixtures";
-import type { BalancesSnapshot, Holding } from "../../shared/balances/types";
+} from "../../../shared/balances/fixtures";
+import type { BalancesSnapshot, Holding } from "../../../shared/balances/types";
 
 export const SMOKE_OWNER = "0x1111111111111111111111111111111111111111" as const;
 export const RECOGNIZED_IMAGE_URL = "https://images.example.test/recognized.svg";
@@ -41,11 +41,7 @@ function quotedValue(region: RegionId, atoms: string): Holding["value"] {
 }
 
 export function recognizedCatalogHolding(region: RegionId): Holding {
-  return catalogHolding(
-    recognizedEntry,
-    "1230000000000000000",
-    quotedValue(region, "1820"),
-  );
+  return catalogHolding(recognizedEntry, "1230000000000000000", quotedValue(region, "1820"));
 }
 
 export function dustCatalogHolding(region: RegionId): Holding {
@@ -53,17 +49,10 @@ export function dustCatalogHolding(region: RegionId): Holding {
   return catalogHolding(
     dustEntry,
     "1000000000000000",
-    currency
-      ? priced(currency, "9", 3)
-      : { status: "unpriced", reason: "no-quote-currency" },
+    currency ? priced(currency, "9", 3) : { status: "unpriced", reason: "no-quote-currency" },
   );
 }
 
-/**
- * The browser fixture mirrors shared/balances/fixtures.ts: the builder supplies
- * every configured direct asset and all three vault shares, while these
- * overrides provide the positive holdings exercised by the smoke suite.
- */
 export function balancesSnapshot(region: RegionId = "US"): BalancesSnapshot {
   const currency = quoteCurrency(region);
   const snapshot = buildBalancesSnapshotFixture({

@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { balancesSnapshot, dustCatalogHolding, recognizedCatalogHolding } from "../tests/browser/balances-fixtures";
+import { balancesSnapshot, dustCatalogHolding, recognizedCatalogHolding } from "../tests/browser/fixtures/balances";
 import { fixtureRoutes } from "./fixtures";
 import { bareHostnamePattern, canaryReach, matchesConfirmLabel, parseFeatureMap, parseReachStep, readFeatureMap, type ReachStep } from "./map";
 
