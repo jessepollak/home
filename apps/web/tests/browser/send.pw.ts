@@ -1,20 +1,12 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
 import { installApiFixtures, RECIPIENT, seedSignedInSession } from "./fixtures/api";
+import { typeAmount } from "./fixtures/type-amount";
 
 function zeroDurationTransitions(locator: Locator) {
   return locator.evaluate((element) =>
     getComputedStyle(element).transitionDuration
       .split(",")
       .every((duration) => Number.parseFloat(duration) === 0));
-}
-
-async function typeAmount(page: Page, value: string) {
-  for (const char of value) {
-    await page.getByRole("button", {
-      name: char === "." ? "Decimal point" : char,
-      exact: true,
-    }).click();
-  }
 }
 
 test("ambiguous handle response retries without a second wallet dispatch and honors reduced motion", async ({ page }) => {

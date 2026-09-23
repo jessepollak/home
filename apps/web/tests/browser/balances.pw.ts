@@ -3,6 +3,7 @@ import type { RegionId } from "../../config/regions";
 import { ownerQueryPersistThrottleMs } from "../../client/query/query-client";
 import { scrollableBalancesSnapshot } from "./fixtures/balances";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
+import { trackHydrationErrors } from "./fixtures/hydration-errors";
 
 const BALANCES_PAINTED_BUDGET_MS = process.env.CI ? 3_500 : 1_000;
 
@@ -135,13 +136,7 @@ test("persisted balances paint before verification and settle without row shift"
   expect(coldPaint).toBeLessThan(BALANCES_PAINTED_BUDGET_MS);
   await waitForSettledPersistedBalances(page);
   await markPersistedQueriesStale(page);
-  const hydrationErrors: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error" && /hydrat/i.test(message.text())) hydrationErrors.push(message.text());
-  });
-  page.on("pageerror", (error) => {
-    if (/hydrat/i.test(error.message)) hydrationErrors.push(error.message);
-  });
+  const hydrationErrors = trackHydrationErrors(page);
   const sessionObserved = fixtures.delayNextSession();
   const balancesObserved = fixtures.delayNextBalances();
   const balancesReadsBeforeReload = fixtures.balancesReads();

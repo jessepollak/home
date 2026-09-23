@@ -1,5 +1,6 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 import { balancesSnapshot } from "./fixtures/balances";
+import { typeAmount } from "./fixtures/type-amount";
 
 const OWNER = "0x1111111111111111111111111111111111111111";
 const PINNED_RECIPIENT = "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9";
@@ -109,15 +110,6 @@ async function installRecipientFixtures(
     }
     return json(route, {});
   });
-}
-
-async function typeAmount(page: Page, value: string) {
-  for (const char of value) {
-    await page.getByRole("button", {
-      name: char === "." ? "Decimal point" : char,
-      exact: true,
-    }).click();
-  }
 }
 
 async function openDestinationStep(page: Page) {

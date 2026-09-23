@@ -10,15 +10,15 @@ marks by name). Selectors are quoted from the file that defines them; anything n
 is in **Unknowns** — never invent a selector when Reach is ambiguous, snapshot first.
 
 **Keeping this current:** run a `chore(dx)` pass whenever `apps/web/app/**/page.tsx`, `apps/web/client/*/*-experience.tsx`, or
-`apps/web/tests/browser/smoke.pw.ts` changes. State that bracket in the PR body; do not silently drift this map.
+`apps/web/tests/browser/*.pw.ts` changes. State that bracket in the PR body; do not silently drift this map.
 
 Fixture baseline referenced throughout: `HOME_PLAYWRIGHT_SMOKE=1`, rootless
 `bun --cwd apps/web dev -- --port <port>` (`.agents/skills/browser-iteration/SKILL.md` §Factory loop),
 session seed `sessionStorage["home:playwright-smoke:signed-in"]="1"` + `localStorage["home.country.v1"]`
-(tests/browser/smoke.pw.ts `seedSignedInSession`), API interception `installApiFixtures`
-(tests/browser/smoke.pw.ts); the send destination step's name and recent-recipient fixtures live in
+(tests/browser/fixtures/api.ts `seedSignedInSession`), API interception `installApiFixtures`
+(tests/browser/fixtures/api.ts); the send destination step's name and recent-recipient fixtures live in
 tests/browser/send-recipients.pw.ts `installRecipientFixtures`, with matching static responses in
-verify/fixtures.ts for the surface verifier. Balances snapshots from tests/browser/balances-fixtures.ts.
+verify/fixtures.ts for the surface verifier. Balances snapshots from tests/browser/fixtures/balances.ts.
 
 ## Surface index
 
@@ -29,17 +29,17 @@ verify/fixtures.ts for the surface verifier. Balances snapshots from tests/brows
 | `home-panel` | home | `/home` | signed-in recommended; signed-out redirects to `/?account=signin` | signed-in seed + `/api/session`, `/api/balances` fixtures | the `.` landing `Open dashboard`/post-OTP `router.replace("/home")` (shell.tsx) |
 | `balances` | home/balances | `/balances`, `/balances/cash`, `/balances/investments` | same as home-panel | signed-in seed + balances fixture; `scrollableBalancesSnapshot()` for reveal/scroll | Main navigation `Home` → "Your money" card `See all` (home-panel.tsx `SectionHeader`), or goto path |
 | `activity` | activity | `/activity` | same | signed-in seed + `/api/activity`, `/api/actions` fixtures | Home panel `Activity` card action (home-panel.tsx), goto path |
-| `save` | savings | `/save`, `?flow=save-deposit`, `?flow=save-withdraw` | same | `HOME_PLAYWRIGHT_SMOKE=1`; `/api/savings/vaults` fixture present in smoke.pw.ts `installApiFixtures` | Home panel Save card (`SavingsTeaser`), goto `/save?flow=save-deposit` |
+| `save` | savings | `/save`, `?flow=save-deposit`, `?flow=save-withdraw` | same | `HOME_PLAYWRIGHT_SMOKE=1`; `/api/savings/vaults` fixture present in tests/browser/fixtures/api.ts `installApiFixtures` | Home panel Save card (`SavingsTeaser`), goto `/save?flow=save-deposit` |
 | `borrow` | borrowing | `/borrow`, `/borrow/<marketId>` | same | session + borrow market fixtures | Home panel Borrow card (`AuthenticatedBorrowTeaser`), goto path |
 | `invest` | invest | `/invest`, `/invest/stocks|crypto|memes`, `/invest/<assetId>` | same | session + `/api/invest/discover`, `/api/market-prices` fixtures | Main navigation `Invest` button (primary-navigation.tsx), goto path |
 | `send` (money modal) | transfers/money-modal | overlay on any shell route: `?flow=send` | signed-in (button disabled pre-boundary, transfer-actions.tsx) | signed-in seed + `/api/actions/prepare`, `[id]/confirm`, `[id]/handle`, `/api/transfers/recipient-name`, `/api/transfers/recent-recipients` fixtures | `Send` button, `data-action-trigger` (transfer-actions.tsx) |
-| `add-money` (funding) | funding | overlay on any shell route: `?flow=add-money` or `?flow=receive`; `/fund` redirects to `/home?add-money=1` (app/fund/page.tsx) | signed-in for methods; signed-out shows `Sign in` link (add-money-dialog.tsx) | provider fixture (`/api/funding/providers`); smoke IDRX fixture in smoke.pw.ts | `Add money` button (funding-actions.tsx) |
-| `cash-out` (Peer offramp) | transfers/funding | inner steps of `send`: payout/handle/handle-confirm | signed-in, region with offramp provider | PEER_OFFRAMP stub in smoke.pw.ts `openPeerCashOutHandle` | `Send` → amount → `Continue` → `Send to Zelle, Venmo, Cash App and more` (send-dialog.tsx `CashoutItem`) |
+| `add-money` (funding) | funding | overlay on any shell route: `?flow=add-money` or `?flow=receive`; `/fund` redirects to `/home?add-money=1` (app/fund/page.tsx) | signed-in for methods; signed-out shows `Sign in` link (add-money-dialog.tsx) | provider fixture (`/api/funding/providers`); IDRX path in funding.pw.ts | `Add money` button (funding-actions.tsx) |
+| `cash-out` (Peer offramp) | transfers/funding | inner steps of `send`: payout/handle/handle-confirm | signed-in, region with offramp provider | PEER_OFFRAMP stub and `openPeerCashOutHandle` in mobile-geometry.pw.ts | `Send` → amount → `Continue` → `Send to Zelle, Venmo, Cash App and more` (send-dialog.tsx `CashoutItem`) |
 | `account-settings` | account | `/?account=settings` (dashboards commit `?account=settings`, shell.tsx `openAccountSettings`) | signed-in verified | signed-in seed | header profile mark (`ProfileMark`, shell-chrome.tsx) → settings; or goto `/home?account=settings` |
 | `access-gate` | access | `/access?next=%2Fhome` | anonymous (deployment gate; env-driven, app/access/page.tsx) | `HOME_ACCESS_PASSWORD` env (tests/browser/access.pw.ts) | protected request redirects to `/access` |
 | `coverage` | coverage | `/coverage` | public | none | goto `/coverage` (also `/coverage.csv`) |
 | `dev-ui` | coverage/dev | `/dev/ui` | public only when `HOME_PLAYWRIGHT_SMOKE=1` or dev (app/dev/ui/page.tsx) | `HOME_PLAYWRIGHT_SMOKE=1` | goto `/dev/ui` |
-| `toasts` | home | any dashboard route after action | signed-in | action fixture (smoke.pw.ts) | action completion (action-toasts.tsx) |
+| `toasts` | home | any dashboard route after action | signed-in | action fixture (tests/browser/fixtures/api.ts; send.pw.ts) | action completion (action-toasts.tsx) |
 
 API routes (no UI; listed for request-level assertions): `app/api/{access,access/logout,session,balances,activity,client-errors,client-performance,actions,actions/prepare,actions/[id],actions/[id]/confirm,actions/[id]/handle,auth/base/{nonce,verify,logout},borrow,borrow/markets/[marketId],funding/{providers,quotes,orders,orders/[id],offramp/orders,provider-customers,provider-customers/verification,webhooks/[provider]},invest/discover,market-prices,market-prices/history,savings/vaults,trades,transfers/{recipient-name,recent-recipients},webhooks/cdp}`. `/api/actions/*`, `/api/activity`, `/api/balances`, `/api/borrow`, `/api/borrow/markets/[marketId]`, and `/api/transfers/*` require `authorizeSession`; provider and public route authorization remains route-specific.
 
@@ -81,7 +81,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
   1. `goto "/"`
   2. `expect "One home for your money."`
 - **Notes**: Optionally use a 900×844 viewport for the pointer-fine layout used by smoke.
-- **Expect**: `h1` `One home for your money.` (client/home/shell-chrome.tsx, `landing-title`); subtitle `Invest in any asset, earn more on your savings, and grow your wealth.` (same file); buttons `Sign in` and, when `account.signInAvailability === "ready"`, `Create account` (shell-chrome.tsx); header `Sign in` in `role="banner"` (tests/browser/smoke.pw.ts "wide touch targets…" test); globe visual `SupportedGlobeDynamic` (app/page.tsx). Signed-in request 307s to `/home` (tests/browser/landing-route.pw.ts).
+- **Expect**: `h1` `One home for your money.` (client/home/shell-chrome.tsx, `landing-title`); subtitle `Invest in any asset, earn more on your savings, and grow your wealth.` (same file); buttons `Sign in` and, when `account.signInAvailability === "ready"`, `Create account` (shell-chrome.tsx); header `Sign in` in `role="banner"` (tests/browser/mobile-geometry.pw.ts "wide touch targets…" test); globe visual `SupportedGlobeDynamic` (app/page.tsx). Signed-in request 307s to `/home` (tests/browser/landing-route.pw.ts).
 - **States**: anonymous default; `isVerified` landing variant swaps in `Open dashboard` (shell-chrome.tsx); `sign-out-error` variant shows destructive Alert with `Retry sign out`.
 - **Evidence to capture**: screenshot (mobile + desktop); DOM text snapshot; console errors + failed requests (expected none; the globe renderer uses a local dynamic import and makes no application network request); perf marks: `shell:paint` fires here too (client/home/shell.tsx rAF), but `balances:painted`/`session:verified` are dashboard-only.
 - **Perf budgets (initial)**: `shell:paint` ≤ 1_500 ms.
@@ -95,7 +95,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
   1. `goto "/?account=signin"`
   2. `expect "Sign in to Home"`
 - **Notes**: The smoke path installs API fixtures, fills `Email address`, presses Enter, fills `Verification code` with `123456`, clicks `Verify and continue`, and expects `/home`.
-- **Expect**: dialog labelled `Sign in to Home` (client/account/account-screen.tsx); email + OTP steps; after verify `router.replace("/home")` (shell.tsx `AccountSignInSheet onVerified`). Signed-out visiting `/home`/`/save` lands on `/?account=signin` (smoke.pw.ts).
+- **Expect**: dialog labelled `Sign in to Home` (client/account/account-screen.tsx); email + OTP steps; after verify `router.replace("/home")` (shell.tsx `AccountSignInSheet onVerified`). Signed-out visiting `/home`/`/save` lands on `/?account=signin` (routing.pw.ts).
 - **States**: email step; OTP step; error/execution variants (`That code is not valid. Check the six digits and try again.`, `Try again`, and the resend countdown/`Resend code`); Base-account (CDP) connector variant (sign-in-base-account.tsx) — operator/live path.
 - **Evidence**: screenshot of dialog; DOM snapshot; console/errors; marks n/a (`shell:paint` may fire on the root page).
 - **Owned by**: `apps/web/client/account/{account-screen,sign-in-email,sign-in-otp,sign-in-shell,sign-in-copy}.tsx`, server `apps/web/server/auth/*` (`authorize.ts`, `render-session.ts`, `native-base-session.ts` per app/layout.tsx).
@@ -113,8 +113,8 @@ request failure not listed here still fails the run, and unlisted hosts still fa
   2. `expect "Total balance"`
   3. `expect "Your money"`
 - **Notes**: The verifier seeds the signed-in session and API fixtures. Optionally click `Send` for the money modal or exercise the card actions below.
-- **Expect**: `Total balance` card with `aria-label="Total balance"` and `aria-busy` while loading (home-panel.tsx); balance breakdown (`data-balance-breakdown`, `data-balance-segment="cash|saved|investments"`, home-panel.tsx); status line `[data-total-status]` when `statusLabel` present; money actions group `aria-label="Money actions"` with `Add money` and `Send`; `Your money` card (h2 `your-money-heading`) with `See all` action; Save card (`save-heading`), Borrow card (`borrow-heading`); Activity card (`activity-title`). Fixture-visible rows include `Recognized Coin` (balances-fixtures.ts recognizedCatalogHolding).
-- **States** (fixtures): loading → hold `/api/session`/`/api/balances` with `fixtures.delayNextSession()/delayNextBalances()` (smoke.pw.ts); empty → base fixture minus holdings (**no ready empty fixture exists — construct via `options.balances`**); unavailable → `status: "unavailable"` presentation (home-panel.tsx `Balance unavailable`); error state for action APIs is surfaced in the modal, not the panel.
+- **Expect**: `Total balance` card with `aria-label="Total balance"` and `aria-busy` while loading (home-panel.tsx); balance breakdown (`data-balance-breakdown`, `data-balance-segment="cash|saved|investments"`, home-panel.tsx); status line `[data-total-status]` when `statusLabel` present; money actions group `aria-label="Money actions"` with `Add money` and `Send`; `Your money` card (h2 `your-money-heading`) with `See all` action; Save card (`save-heading`), Borrow card (`borrow-heading`); Activity card (`activity-title`). Fixture-visible rows include `Recognized Coin` (tests/browser/fixtures/balances.ts `recognizedCatalogHolding`).
+- **States** (fixtures): loading → hold `/api/session`/`/api/balances` with `fixtures.delayNextSession()/delayNextBalances()` (balances.pw.ts and save.pw.ts); empty → base fixture minus holdings (**no ready empty fixture exists — construct via `options.balances`**); unavailable → `status: "unavailable"` presentation (home-panel.tsx `Balance unavailable`); error state for action APIs is surfaced in the modal, not the panel.
 - **Evidence**: screenshot; DOM text snapshot; console/errors; perf marks `shell:paint`, `session:verified` (shell.tsx:356), `balances:painted` (shell.tsx:402), `action:first-interactive` (client/transfers/transfer-actions.tsx:82). `balances:painted` keeps the smoke suite budget (CI 3,500 / local 1,000 ms); the CLI uses the initial cross-environment budget below without changing smoke.
 - **Perf budgets (initial)**: `shell:paint` ≤ 1_500 ms; `session:verified` ≤ 3_000 ms; `balances:painted` ≤ 3_500 ms; `action:first-interactive` ≤ 3_500 ms.
 - **Owned by**: `apps/web/client/home/`, data `apps/web/server/balances/*`, `/api/balances` route.
@@ -131,7 +131,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
   1. `goto "/balances"`
   2. `expect "Your money"`
 - **Notes**: The verifier seeds the signed-in session and balances fixture. Use `/balances/investments` with `scrollableBalancesSnapshot()` for anchoring work; the group section is `id="investments"`.
-- **Expect**: scroll container `[data-app-main-authenticated]` (shell-panels.tsx); balance rows `[data-balance-list] [data-kind="balance"]` (smoke.pw.ts); reveal window grows after scroll (`BALANCES_BATCH_SIZE = 10`, client/home/balances-panel.tsx); `Show small balances` switch lives in account settings, not this page (smoke.pw.ts touch test).
+- **Expect**: scroll container `[data-app-main-authenticated]` (shell-panels.tsx); balance rows `[data-balance-list] [data-kind="balance"]` (balances.pw.ts); reveal window grows after scroll (`BALANCES_BATCH_SIZE = 10`, client/home/balances-panel.tsx); `Show small balances` switch lives in account settings, not this page (mobile-geometry.pw.ts touch test).
 - **States**: loading shimmer (`LoadingMoneyGroup`, balances-panel.tsx); unavailable; empty (`BalancesEmpty`); ready with reveal batches; stale revalidation anchored to requested group (`cold and revalidated cached Balances…` smoke test).
 - **Evidence**: screenshot; DOM snapshot; console/errors; perf marks and scroll-offset assertions.
 - **Perf budgets (initial)**: `shell:paint` ≤ 1_500 ms; `session:verified` ≤ 3_000 ms; `balances:painted` ≤ 3_500 ms; `action:first-interactive` ≤ 3_500 ms.
@@ -167,7 +167,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
   6. `expect "Confirm"`
   7. `click "Deposit $0.10"`
   8. `expect "Deposited $0.10"`
-- **Notes**: The smoke path also covers `/save?flow=save-withdraw`, closes via `Close deposit dialog` or Escape (`Close withdraw dialog`), and asserts focus returns to the `Deposit` or `Withdraw` opener.
+- **Notes**: The Save smoke path opens a deep-linked Deposit and dismisses it with Close and browser Back; it also opens Deposit and Withdraw from their buttons, closes via Close or Escape, and asserts focus returns to the exact opener.
 - **Expect**: section `role="region"`/`aria-label="Save"` hosted variant (savings-experience.tsx); vault radiogroup `aria-label="Vault"`; `Nothing saved yet` empty; action buttons `Get started` (unfunded) / `Deposit` + `Withdraw` (funded) (savings-experience.tsx); dialog labels from `closeLabel={Close ${mode} dialog}` and `primaryLabel` `Continue` → `Deposit $X`/`Withdraw $X`/`Retry` (savings-actions.tsx lines ~251–350).
 - **States**: cold loading (`data-shimmer="savings-hero"`, `savings-apy`); vaults loading `aria-busy`; vaults error `Vaults are temporarily unavailable.` + `Retry`; stale alerts `Saved balance stale…` / `Vault rates stale…`; deposit/withdraw amount → confirm → pending (`Waiting for your wallet…`) → error/failed.
 - **Evidence**: screenshot; DOM snapshot; console/errors; marks `shell:paint`, and `action:first-interactive` when the Send boundary mounts (not Save-specific).
@@ -240,8 +240,8 @@ request failure not listed here still fails the run, and unlisted hosts still fa
   2. **destination**: step title stays `Send`; field label `To` (AddressField `id="send-recipient"`); primary `Continue` disabled until the typed value is a valid `0x` recipient or a resolved name (send-dialog.tsx `effectiveRecipient`). A `.eth` Basename/ENS value is resolved through `GET /api/transfers/recipient-name?name=…` and shows `Resolves to <full address>` under the field; while it resolves the field is described by `Resolving <name>…`; an unresolved or unsupported value shows an inline `role="alert"`/hint and never enables `Continue`. The account's own recent send recipients render below the `Or` separator under the group label `Recent recipients` (labelled by reverse-resolved name with the truncated address beneath, or the truncated address alone) and selecting one fills `To`.
   3. **confirm**: dialog title becomes `Confirm` (send-dialog.tsx `modalTitle`); summary via `MoneyConfirmSummary` rows `To` (CopyableValue full address), `Asset`, `Network` = `Base` (send-dialog.tsx); primary button `Send $1.00` where amount is `MoneyTicker(confirmAmount)` — smoke clicks `getByRole("button", { name: "Send $1.00" })`; secondary `Back`.
   4. **pending**: `Waiting for your wallet…` status (send-dialog.tsx); close disabled.
-  5. **error**: message + `Try again` (primary) and `Back`; the "ambiguous handle response retries without a second wallet dispatch" test asserts `Try again` then `Send $1.00` again and `sessionStorage["home:playwright-smoke:dispatch-count"] === "1"` (smoke.pw.ts).
-  6. **success/status**: dialog closes; toast `Sent $1.00 to 0x2222…222222` (exact text, smoke.pw.ts; toast owned by client/home/action-toasts.tsx).
+  5. **error**: message + `Try again` (primary) and `Back`; the "ambiguous handle response retries without a second wallet dispatch" test asserts `Try again` then `Send $1.00` again and `sessionStorage["home:playwright-smoke:dispatch-count"] === "1"` (send.pw.ts).
+  6. **success/status**: dialog closes; toast `Sent $1.00 to 0x2222…222222` (exact text, send.pw.ts; toast owned by client/home/action-toasts.tsx).
 - **Expect**: prepared action via `POST /api/actions/prepare` with a checksummed `0x` `recipient` and, for a name entry, `recipientName` re-resolved server-side (server rejects a name/address mismatch); recent recipients via `GET /api/transfers/recent-recipients` on dialog open, derived from this account's successfully dispatched durable send actions; confirm/handle via `/api/actions/[id]/{confirm,handle}` (smoke fixtures); dialog uses `data-money-sheet` / `data-money-sheet-grabber` (client/money-modal/money-modal.tsx) and reduced-motion transitions are `0s` (`drawer becomes instant…` smoke test).
 - **States**: asset picker (`aria-label="Asset"`, amount.tsx:443) with multiple assets; no catalog balance → `No catalog balance is available to send.`; rejected/unknown wallet results via `messageForError` (send-dialog.tsx); destination resolving/resolved/unresolved/unsupported-input states above; recent-recipients list empty (no confirmed sends) or populated; a superseded name resolution must not enable `Continue` (client/transfers/send-dialog-recipients.test.tsx).
 - **Evidence**: screenshots per step; DOM snapshot per step (re-snapshot after every material DOM change per SKILL.md); console/errors; startup and first-action marks.
@@ -253,7 +253,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 - **Live**: confirm
 - **Owned paths**: `apps/web/client/transfers/send-dialog.tsx`, `apps/web/app/api/funding/offramp/**`, `apps/web/server/funding/offramp/**`
 - **Confirm labels**: "Cash out $<amount>", "Withdraw $<amount>"
-- **Reach** (smoke-verified, `openPeerCashOutHandle`, smoke.pw.ts): 1) seed + `installApiFixtures`. 2) `Send` → digits `1` → `Continue`. 3) click `/Send to Zelle, Venmo, Cash App and more/` (CashoutItem, send-dialog.tsx). 4) click `Cash App` (payment-method button, payout step). 5) textbox `Cash App handle` (label `${selectedPlatform.label} handle`); attributes asserted: `autocomplete="off"`, `autocapitalize="none"`, `autocorrect="off"`, `spellcheck="false"`, `enterkeyhint="next"`, 16px font, ≥44px target. 6) `Continue` → textbox `Re-enter handle` (`enterkeyhint="done"`). 7) `Review` → confirm step.
+- **Reach** (smoke-verified through re-entry, `openPeerCashOutHandle`, mobile-geometry.pw.ts): 1) seed + `installApiFixtures`. 2) `Send` → digits `1` → `Continue`. 3) click `/Send to Zelle, Venmo, Cash App and more/` (CashoutItem, send-dialog.tsx). 4) click `Cash App` (payment-method button, payout step). 5) textbox `Cash App handle` (label `${selectedPlatform.label} handle`); smoke asserts 16px font and ≥44px portrait target. 6) fill `$alice`, click `Continue` → visible textbox `Re-enter handle`; smoke asserts 16px font and ≥44px portrait target. Input hints (`autocomplete`, `autocapitalize`, `autocorrect`, `spellcheck`, `enterkeyhint`) and `Review` → confirm behavior are asserted in client/transfers/send-dialog.test.tsx, not browser smoke.
 - **Reach (live)**:
   1. `goto "/home"`
   2. `click "Send"`
@@ -271,7 +271,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 - **Canary operations**: `--canary-operation cash-out` appends `click "Cash out $0.10"` and `expect "Cashed out $0.10"` (the deposit confirmation). `--canary-operation withdraw` is its own Reach: `goto "/home"`, `click "Send"`, `click "Decimal point"`, `click "1"`, `click "Continue"`, `expect "Use Peer to send via app"` (the destination step, where in-flight orders are listed), `click-prefix "Withdraw "` (the in-flight recovery item; the verifier waits up to 15 s for a match before concluding none), `expect "Confirm"`, `click-prefix "Withdraw $"` (the confirm control), `expect "Recovered $"`. Both require `HOME_VERIFY_CASHOUT_HANDLE`, and immediately before the confirm click the review must carry a `Payout handle` row equal to its Cash App canonical form; the canonical handle is recorded as `confirmIntent.recipient` and redacted from text evidence. When the first `click-prefix "Withdraw "` matches nothing, nothing is in flight: the run ends with exit 0, a `note` in `live.json`, `No in-flight Peer cash-out to withdraw.` in `summary.md`, and rung 2.
 - **Verify**: manual
 - **Expect**: modal title `Cash out with Peer` (send-dialog.tsx `modalTitle`); confirm rows `Provider`, `Payout app`, `Payout handle`, `Approximate receive`, `Estimated delivery`, `Network` = `Base` (send-dialog.tsx confirm rows); disclaimer `The fiat amount and delivery time are approximate, not guaranteed.`; primary `Cash out $X` or `Withdraw $X`, where the amount is the reviewed USDC amount rendered in dollars (`formatUsdStablecoinAmount`).
-- **States**: providers not loaded → CashoutItem absent (requires `PEER_OFFRAMP` stub registered after `installApiFixtures` via `route.fallback`, smoke.pw.ts); recovery items `Withdraw <amount>` for active orders; `Recover a Peer cash-out` button when `recoveryEligible` (send-dialog.tsx).
+- **States**: providers not loaded → CashoutItem absent (requires `PEER_OFFRAMP` stub registered after `installApiFixtures` via `route.fallback`, mobile-geometry.pw.ts); recovery items `Withdraw <amount>` for active orders; `Recover a Peer cash-out` button when `recoveryEligible` (send-dialog.tsx).
 - **Evidence**: screenshots; DOM snapshot; console/errors.
 - **Owned by**: `apps/web/client/transfers/send-dialog.tsx`, `/api/funding/providers?direction=offramp`, `/api/funding/offramp/orders`.
 - **Unknowns**: none blocking; server cashout error copy depends on `serverCashoutMessage` (send-dialog.tsx).
@@ -280,7 +280,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 - **Live**: up-to-review
 - **Owned paths**: `apps/web/client/funding/**`, `apps/web/app/api/funding/**`, `apps/web/server/funding/**`, `apps/web/shared/funding/**`
 - **Confirm labels**: "Confirm deposit"
-- **Reach** (smoke-verified IDRX path): 1) seed country `ID` (`localStorage["home.country.v1"]="ID"`) + `installApiFixtures`. 2) `signIn(page)` helper. 3) click `Add money` (funding-actions.tsx). 4) method step button `/Deposit IDR/` must contain `IDRX · Bank transfer · Mandiri` (smoke.pw.ts). 5) type `20000` via numpad. 6) `Review quote` → heading `Review quote`, row `Receive` contains `20.000,00 IDRX`. 7) `Confirm deposit` → heading `Review payment details`, row `Network` contains `Rp 100,00`. 8) `View payment instructions` → `123456789012` visible; then `Money received` (≤7s budget, smoke.pw.ts).
+- **Reach** (smoke-verified IDRX path, funding.pw.ts): 1) seed country `ID` (`localStorage["home.country.v1"]="ID"`) + `installApiFixtures`. 2) `signIn(page)` helper. 3) click `Add money` (funding-actions.tsx). 4) method step button `/Deposit IDR/` must contain `IDRX · Bank transfer · Mandiri` (funding.pw.ts). 5) type `20000` via numpad. 6) `Review quote` → heading `Review quote`, row `Receive` contains `20.000,00 IDRX`. 7) `Confirm deposit` → heading `Review payment details`, row `Network` contains `Rp 100,00`. 8) `View payment instructions` → `123456789012` visible; then `Money received` (≤7s budget, funding.pw.ts).
 - **Reach (live)**:
   1. `goto "/home"`
   2. `click "Add money"`
@@ -304,7 +304,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
   1. `goto "/home?account=settings"`
   2. `expect "Account"`
 - **Notes**: The verifier seeds the signed-in session and fixtures. The Chromium smoke opens the header profile mark with the keyboard, asserts focus enters the settings region, closes through Done and browser Back, restores the exact opener, exercises deep-link and forward-history entry, and verifies every primary-navigation `aria-controls` target remains unique and present. Live: the Peer option renders only where `PEER_OFFRAMP_ENABLED` is set on the target (`apps/web/server/funding/providers/peer/manifest.ts:51`); production keeps it off pending the provider README's staging and corridor confirmations, so the canary reports `did not render` for cash-out until then.
-- **Expect**: region `aria-label="Account settings"` receives programmatic focus without selecting an input; `Show small balances` switch (`getByRole("switch", { name: "Show small balances" })`, smoke.pw.ts; owned by client/home/use-show-small-balances.ts + account-settings region of shell-panels.tsx). Sign-out control and region selector live here (shell-panels.tsx passes `regionId`, `resolutionSource`, `onRegionChange`, `onSignOut` to client/account/account-settings.tsx).
+- **Expect**: region `aria-label="Account settings"` receives programmatic focus without selecting an input; `Show small balances` switch (`getByRole("switch", { name: "Show small balances" })`, mobile-geometry.pw.ts; owned by client/home/use-show-small-balances.ts + account-settings region of shell-panels.tsx). Sign-out control and region selector live here (shell-panels.tsx passes `regionId`, `resolutionSource`, `onRegionChange`, `onSignOut` to client/account/account-settings.tsx).
 - **States**: preference not ready (`isPreferenceReady`); region override messages (`preferenceMessage`).
 - **Evidence**: screenshot; DOM snapshot; console/errors.
 - **Owned by**: `apps/web/client/account/account-settings.tsx`, `apps/web/client/home/shell-panels.tsx`.
@@ -328,7 +328,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
   1. `goto "/coverage"`
   2. `expect "Local money coverage"`
 - **Notes**: Exercise the four native comboboxes for search, issuer, Home status, and priority plus the `sort` query parameter when validating filters.
-- **Expect**: `Local money coverage | Home` title; coverage table rows (components/ui/coverage-table.tsx); combobox font ≥16px on mobile/landscape (tests/browser/smoke.pw.ts).
+- **Expect**: `Local money coverage | Home` title; coverage table rows (components/ui/coverage-table.tsx); combobox font ≥16px on mobile/landscape (tests/browser/mobile-geometry.pw.ts).
 - **States**: filtered-empty result reports `Showing 0 of <total> countries and territories.` and an empty coverage table.
 - **Evidence**: screenshot (390×844 and 844×390); DOM snapshot; console/errors.
 - **Owned by**: `apps/web/app/coverage/page.tsx`, `apps/web/client/coverage/`, `apps/web/config/coverage.ts`.
@@ -350,7 +350,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 - **Owned paths**: `apps/web/client/home/action-toasts.tsx`, `apps/web/server/actions/**`, `apps/web/app/api/actions/**`
 - **Reach**: Complete a prepared action (smoke: send success) and observe the toast region.
 - **Verify**: manual
-- **Expect**: exact success copy e.g. `Sent $1.00 to 0x2222…222222` (smoke.pw.ts); renders only when `routeMode === "dashboard" && isVerified` (shell.tsx).
+- **Expect**: exact success copy e.g. `Sent $1.00 to 0x2222…222222` (send.pw.ts); renders only when `routeMode === "dashboard" && isVerified` (shell.tsx).
 - **States**: pending/confirmed/failed toast variants (client/home/action-toasts.tsx).
 - **Evidence**: screenshot; DOM snapshot; console/errors.
 - **Owned by**: `apps/web/client/home/action-toasts.tsx`, `/api/actions`.
@@ -370,4 +370,4 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 
 **Initial perf budgets**: the CLI budgets are deliberately broader than local smoke timing and apply only when listed on a surface. They establish a measured baseline for `shell:paint`, `session:verified`, and `action:first-interactive`; the existing smoke budget for `balances:painted` is unchanged.
 
-**Verification notes:** every selector quoted here was read from code or from `tests/browser/smoke.pw.ts`. Remaining Unknowns identify provider- or fixture-dependent behavior that code alone cannot confirm. The fixture baseline and kept-current trigger set are repository policy.
+**Verification notes:** every selector quoted here was read from code or from `tests/browser/*.pw.ts`. Remaining Unknowns identify provider- or fixture-dependent behavior that code alone cannot confirm. The fixture baseline and kept-current trigger set are repository policy.

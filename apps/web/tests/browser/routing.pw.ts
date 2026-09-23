@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { installApiFixtures, seedSignedInSession } from "./fixtures/api";
+import { trackHydrationErrors } from "./fixtures/hydration-errors";
 
 test("canonical routing preserves the shell and one balances read", async ({ page }) => {
   await seedSignedInSession(page);
@@ -147,13 +148,7 @@ test("representative canonical routes SSR and hydrate their selected panel", asy
     }
   });
   await installApiFixtures(page);
-  const hydrationErrors: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error" && /hydrat/i.test(message.text())) hydrationErrors.push(message.text());
-  });
-  page.on("pageerror", (error) => {
-    if (/hydrat/i.test(error.message)) hydrationErrors.push(error.message);
-  });
+  const hydrationErrors = trackHydrationErrors(page);
   const routes = [
     ["/home", ">Total balance<", "Home"],
     ["/balances/investments", 'aria-label="Your money"', "Your money"],

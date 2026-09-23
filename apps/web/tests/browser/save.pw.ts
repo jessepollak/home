@@ -21,9 +21,17 @@ test("Save flow dismissal preserves canonical routing and exact opener focus", a
   await seedSignedInSession(page);
   await installApiFixtures(page);
 
+  await page.goto("/home");
   await page.goto("/save?flow=save-deposit");
   await expect(page.getByRole("dialog", { name: "Deposit" })).toBeVisible();
   await page.getByRole("button", { name: "Close deposit dialog" }).click();
+  await expect(page.getByRole("dialog", { name: "Deposit" })).toBeHidden();
+  await expect(page).toHaveURL(/\/save$/);
+
+  await page.goto("/home");
+  await page.goto("/save?flow=save-deposit");
+  await expect(page.getByRole("dialog", { name: "Deposit" })).toBeVisible();
+  await page.goBack();
   await expect(page.getByRole("dialog", { name: "Deposit" })).toBeHidden();
   await expect(page).toHaveURL(/\/save$/);
 

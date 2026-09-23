@@ -169,6 +169,10 @@ test("mobile tab bar keeps browser-tab safe-area spacing", async ({ page, contex
     Number.parseFloat(getComputedStyle(wrapper).paddingBottom))).toBe(0);
   await expect.poll(async () => navigation.evaluate((nav) =>
     Math.round(window.innerHeight - nav.getBoundingClientRect().bottom))).toBe(0);
+  const tabHeights = await navigation.getByRole("button").evaluateAll((buttons) =>
+    buttons.map((button) => button.getBoundingClientRect().height));
+  expect(tabHeights.length).toBeGreaterThan(0);
+  for (const height of tabHeights) expect(height).toBeGreaterThanOrEqual(44);
 });
 
 test("wide touch targets stay large while fine-pointer targets stay compact", async ({ browser, page }) => {
