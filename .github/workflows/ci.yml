@@ -56,7 +56,9 @@ jobs:
           BASE_REF: ${{ github.base_ref || 'main' }}
           PR_BODY: ${{ github.event.pull_request.body || '' }}
           PR_TITLE: ${{ github.event.pull_request.title || '' }}
-        run: node scripts/gates/test-weight.mjs
+        shell: bash
+        run: |
+          node scripts/gates/test-weight.mjs 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Check
         run: bun check

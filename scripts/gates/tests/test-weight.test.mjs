@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { testWeightFindings } from "../test-weight.mjs";
+import { resolveBaseRef, testWeightFindings, testWeightReport } from "../test-weight.mjs";
 
 function patch(path, additions = [], deletions = []) {
   return `diff --git a/${path} b/${path}
@@ -22,6 +22,18 @@ for (const [name, diff, title, body, expected] of [
   ["commented browser call does not require a rung", patch(browser, ['// test("a", () => {});']), "feat(ui): test", "", ""],
   ["identifier containing test does not require a rung", patch(browser, ['contest("a");']), "feat(ui): test", "", ""],
   ["existing browser assertion does not require a rung", patch(browser, ["expect(1).toBe(1);"]), "feat(ui): test", "", ""],
+  ["rename and restructure in one browser file requires no rung", patch(browser,
+    ['test.describe("new group", () => {', 'test("renamed", () => {});'],
+    ['test.describe("old group", () => {', 'test("old", () => {});']), "feat(ui): test", "", ""],
+  ["genuinely added test alongside rename still requires rung", patch(browser,
+    ['test("renamed", () => {});', 'test("new", () => {});'],
+    ['test("old", () => {});']), "feat(ui): test", "", "Playwright-rung"],
+  ["net additions in one file cannot be canceled by removals in another", patch(browser,
+    ['test("new", () => {});']) + patch("apps/web/tests/browser/old.pw.ts", [],
+    ['test("removed", () => {});']), "feat(ui): test", "", "Playwright-rung"],
+  ["rename across browser paths offsets its removed declaration", patch(browser,
+    ['test("renamed", () => {});'], ['test("old", () => {});'])
+    .replace(`--- a/${browser}`, "--- a/apps/web/tests/browser/old.pw.ts"), "feat(ui): test", "", ""],
   ["unscoped fix does not require weight", patch(unit, ["one", "two"]), "fix: test", "", ""],
   ["scoped fix exceeding product lines requires reason", patch(unit, ["one", "two"]) + patch(product, ["one"]), "fix(ui): test", "", "Test-weight"],
   ["equal added test and product lines pass", patch(unit, ["one"]) + patch(product, ["one"]), "fix(ui): test", "", ""],
@@ -30,6 +42,11 @@ for (const [name, diff, title, body, expected] of [
   ["story test lines count", patch("apps/web/stories/screen.stories.tsx", ["one", "two"]), "fix(ui): test", "", "Test-weight"],
   ["regular browser assertion lines count", patch(browser, ["expect(1).toBe(1);"]), "fix(ui): test", "", "Test-weight"],
   ["test helper under tests does not count as product", patch(unit, ["one", "two"]) + patch("apps/web/tests/helpers/fixtures.ts", ["one"]), "fix(ui): test", "", "Test-weight"],
+  ["any file under tests counts as tests", patch("apps/web/tests/helpers/fixture-data.json", ["one", "two"]) + patch(product, ["one"]), "fix(ui): test", "", "Test-weight"],
+  ["stories of any extension count as tests", patch("apps/web/client/screen.stories.mdx", ["one", "two"]) + patch(product, ["one"]), "fix(ui): test", "", "Test-weight"],
+  ["fixture source counts as tests, not product", patch("apps/web/client/data-fixture.ts", ["one", "two"]) + patch(product, ["one"]), "fix(ui): test", "", "Test-weight"],
+  ["oxlint test files count as tests", patch("apps/web/oxlint/tests/rule.ts", ["one", "two"]) + patch(product, ["one"]), "fix(ui): test", "", "Test-weight"],
+  ["mjs tests count as tests", patch("apps/web/client/screen.test.mjs", ["one", "two"]) + patch(product, ["one"]), "fix(ui): test", "", "Test-weight"],
   ["status paths are not exempt without a convention", patch("apps/web/shared/actions/status.test.ts", ["one", "two"]) + patch("apps/web/shared/actions/status.ts", ["one"]), "fix(ui): test", "", "Test-weight"],
   ["amount paths are not exempt without a convention", patch("apps/web/shared/amount/parse.test.ts", ["one", "two"]) + patch("apps/web/shared/amount/parse.ts", ["one"]), "fix(ui): test", "", "Test-weight"],
   ["non-web files do not contribute", patch(unit, ["one"]) + patch("scripts/gates/test-weight.mjs", ["one"]), "fix(ui): test", "", "Test-weight"],
@@ -42,6 +59,21 @@ for (const [name, diff, title, body, expected] of [
     if (expected) assert.ok(findings.some((finding) => finding.includes(expected)));
   });
 }
+
+test("the report counts test lines and the positive browser delta per file", () => {
+  const report = testWeightReport(
+    patch(browser, ['test("new", () => {});', "expect(1).toBe(1);"], ['test("old", () => {});'])
+      + patch("apps/web/tests/browser/second.pw.ts", ['test.describe("new", () => {'])
+      + patch(product, ["product"], ["old product"]),
+    "fix(ui): test", "Playwright-rung: journey",
+  );
+  assert.deepEqual(report, {
+    findings: ["Scoped fix adds 3 test lines versus 2 added/deleted product lines; add a PR-body line Test-weight: <reason>."],
+    netNewPlaywright: 1,
+    addedTests: 3,
+    productLines: 2,
+  });
+});
 
 for (const rung of ["layout", "scrolling", "focus", "history", "persisted-state", "media-query", "hydration", "dispatch", "journey"]) {
   test(`accepts Playwright rung ${rung}`, () => {
@@ -71,3 +103,36 @@ test("a scoped fix with a browser call needs both declarations", () => {
   assert.equal(testWeightFindings(patch(browser, ['test("a", () => {});']), "fix(ui): test", "").length, 2);
   assert.deepEqual(testWeightFindings(patch(browser, ['test("a", () => {});']), "fix(ui): test", "Playwright-rung: journey\nTest-weight: browser dispatch requires fixtures"), []);
 });
+
+test("uses an existing base ref without fetching", () => {
+  const calls = [];
+  const gitRunner = (args) => { calls.push(args); return ""; };
+  assert.equal(resolveBaseRef({ base: "main", gitRunner }), "origin/main");
+  assert.deepEqual(calls, [["rev-parse", "--verify", "origin/main"]]);
+});
+
+test("fetches and retries when the remote base ref is missing", () => {
+  const calls = [];
+  let verifyAttempts = 0;
+  const gitRunner = (args) => {
+    calls.push(args);
+    if (args[0] === "rev-parse" && verifyAttempts++ === 0) throw new Error("missing ref");
+    return "";
+  };
+  assert.equal(resolveBaseRef({ base: "main", gitRunner }), "origin/main");
+  assert.deepEqual(calls, [
+    ["rev-parse", "--verify", "origin/main"],
+    ["fetch", "--no-tags", "--depth=200", "origin", "main"],
+    ["rev-parse", "--verify", "origin/main"],
+  ]);
+});
+
+for (const failure of ["rev-parse", "fetch"]) {
+  test(`reports an unresolved base ref after ${failure} fails`, () => {
+    const gitRunner = (args) => {
+      if (args[0] === "rev-parse" || args[0] === failure) throw new Error("missing ref");
+      return "";
+    };
+    assert.throws(() => resolveBaseRef({ base: "main", gitRunner }), /could not resolve base ref origin\/main/);
+  });
+}
