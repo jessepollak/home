@@ -774,6 +774,47 @@ test("IDRX funding reaches review, payment instructions, and receipt", async ({ 
   await expect(page.getByText("Money received")).toBeVisible({ timeout: 7_000 });
 });
 
+test("Add money opens on-screen with a tappable deposit row while the order read is in flight", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedSignedInSession(page, "ID");
+  await installApiFixtures(page);
+  let releaseOrders = () => {};
+  const ordersGate = new Promise<void>((resolve) => { releaseOrders = resolve; });
+  await page.route("**/api/funding/orders**", async (route) => {
+    if (route.request().method() === "GET") await ordersGate;
+    return route.fallback();
+  });
+
+  await page.goto("/home");
+  // shell:paint is marked from a mount effect, so it proves React hydrated the
+  // shell. Clicking Add money before hydration silently drops the push to
+  // ?flow=add-money on slower runners and the sheet never mounts.
+  await expect.poll(() => page.evaluate(() =>
+    performance.getEntriesByName("shell:paint", "mark").length,
+  )).toBeGreaterThan(0);
+  await page.getByRole("button", { name: "Add money" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add money" });
+  await expect(dialog).toBeVisible();
+  await expect.poll(async () => (await dialog.boundingBox())?.y ?? Number.POSITIVE_INFINITY)
+    .toBeLessThan(844);
+  await expect(page.locator("body")).toHaveCSS("overflow", "hidden");
+
+  const deposit = dialog.getByRole("button", { name: /Deposit IDR/ });
+  await expect(deposit).toBeInViewport();
+  // The drawer slides in over 350ms; poll until its entrance settles so the
+  // geometry check does not sample a mid-animation frame. Reduced-motion hosts
+  // zero the transition, so this resolves on the first poll there.
+  await expect.poll(async () => {
+    const box = await deposit.boundingBox();
+    return box !== null && box.y >= 0 && box.y + box.height <= 844;
+  }).toBe(true);
+
+  releaseOrders();
+  await expect(deposit).toBeEnabled();
+  await deposit.click();
+  await expect(page.getByRole("button", { name: "2", exact: true })).toBeVisible();
+});
+
 const PEER_OFFRAMP = {
   version: 2,
   direction: "offramp",

@@ -934,7 +934,41 @@ describe("Home shell routing and intents", () => {
     expect(await page().findByRole("dialog", { name: "Send" })).toBeTruthy();
     expect(page().getAllByRole("dialog", { name: "Send" })).toHaveLength(1);
   });
+
+  test("keeps an in-progress Add money open when the session verifies", async () => {
+    const pendingSession = deferred<Response>();
+    syncLocation("/home");
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        sessionFetch={() => pendingSession.promise}
+        applyInboundUrlIntent
+      />,
+    );
+
+    fireEvent.click(await page().findByRole("button", { name: "Add money" }));
+    await page().findByRole("dialog", { name: "Add money" });
+
+    await act(async () => {
+      pendingSession.resolve(Response.json(session()));
+      await pendingSession.promise;
+    });
+    await waitFor(() => expect(page().queryByRole("dialog", { name: "Add money" })).toBeTruthy());
+
+    expect(page().getAllByRole("dialog", { name: "Add money" })).toHaveLength(1);
+    expectSheetOpen(page().getByRole("dialog", { name: "Add money" }));
+    expect(window.location.search).toBe("?flow=add-money");
+  });
 });
+
+// A closing Base UI drawer stays in the test DOM until its exit transition
+// completes, which happy-dom never does, so presence alone cannot tell an open
+// sheet from one on its way out. Base UI's documented open-state attribute can
+// (see its animation handbook); the real-browser closure is covered by the
+// Playwright smoke.
+function expectSheetOpen(dialog: HTMLElement) {
+  expect(dialog.hasAttribute("data-open")).toBe(true);
+}
 
 describe("Balances scope scroll interleavings (#485)", () => {
   const balancesLocation = { panel: "balances" as const, account: null, shelf: null, asset: null, group: null, market: null };

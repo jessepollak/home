@@ -245,6 +245,7 @@ export function HomeShell({
   }, [routeMode]);
 
   const applyUrlState = useCallback((intent: ReturnType<typeof readHomeInboundPanelState>) => {
+    appliedUrlIntentRef.current = true;
     setActiveNavigation(intent.panel);
     setMountedPanels((current) => current.has(intent.panel)
       ? current
