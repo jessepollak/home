@@ -70,11 +70,38 @@ export function fixScope(subject) {
   return match ? match[1] : null;
 }
 
+const squashedSubject = /^\* ([a-z]+\([^)]+\): .+)$/gm;
+
+// The inner commits a GitHub squash merge lists as "* <subject>" bullets, each
+// with the body that follows it. Null when the body is not a squash of
+// conventional commits, so the commit is judged as a single fix.
+export function squashedCommits(body) {
+  const bullets = [...body.matchAll(squashedSubject)];
+  if (bullets.length === 0) return null;
+  return bullets.map((bullet, index) => ({
+    subject: bullet[1],
+    body: body.slice(bullet.index + bullet[0].length, bullets[index + 1]?.index ?? body.length),
+  }));
+}
+
+// A squash merge of several fixes legitimately names one detector per inner
+// fix (a production defect and the review finding on its patch, for example),
+// so each inner fix is held to exactly one detector rather than the whole body.
 export function caughtByViolations(commits) {
   return commits.flatMap((commit) => {
     if (fixScope(commit.subject) === null) return [];
-    return caughtByDetectors(commit.body).length === 1
-      ? []
-      : [`${commit.sha.slice(0, 12)} ${commit.subject} must name exactly one Caught-by detector`];
+    const sha = commit.sha.slice(0, 12);
+    const inner = squashedCommits(commit.body);
+    if (inner === null) {
+      return caughtByDetectors(commit.body).length === 1
+        ? []
+        : [`${sha} ${commit.subject} must name exactly one Caught-by detector`];
+    }
+    return inner.flatMap((section) => {
+      if (fixScope(section.subject) === null) return [];
+      return caughtByDetectors(section.body).length === 1
+        ? []
+        : [`${sha} ${commit.subject}: squashed commit "${section.subject}" must name exactly one Caught-by detector`];
+    });
   });
 }

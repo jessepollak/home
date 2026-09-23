@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   caughtByDetectors,
   caughtByViolations,
+  squashedCommits,
   detectCommitRange,
   readCommitsForRange,
 } from "../caught-by.mjs";
@@ -52,6 +53,37 @@ test("counts duplicate identical trailers from a squash body once", () => {
   assert.equal(caughtByViolations([commit("fix(home): repair state", "Caught-by: lint\nCaught-by: lint\nCaught-by: review")]).length, 1);
   assert.deepEqual(caughtByDetectors("Caught-by: lint\nCaught-by: bot\nCaught-by: lint"), ["lint", "bot"]);
   assert.deepEqual(caughtByDetectors("no trailer here\nCaught-by: guess"), []);
+});
+
+test("holds each squashed fix to one detector instead of the whole merge", () => {
+  const twoFixes = [
+    "* fix(funding): address the Peer indexer by its GraphQL endpoint",
+    "",
+    "Caught-by: production",
+    "Closes #767",
+    "",
+    "* fix(funding): register the offramp orders provider-error code with observability",
+    "",
+    "Caught-by: review",
+  ].join("\n");
+  assert.deepEqual(caughtByViolations([commit("fix(funding): address the Peer indexer (#768)", twoFixes)]), []);
+  assert.deepEqual(squashedCommits(twoFixes).map((section) => section.subject), [
+    "fix(funding): address the Peer indexer by its GraphQL endpoint",
+    "fix(funding): register the offramp orders provider-error code with observability",
+  ]);
+  assert.equal(squashedCommits("Caught-by: lint\n\n* a plain bullet"), null);
+  const missingInner = twoFixes.replace("Caught-by: review", "");
+  assert.match(caughtByViolations([commit("fix(funding): squash (#1)", missingInner)])[0], /squashed commit "fix\(funding\): register the offramp orders provider-error code with observability" must name exactly one/);
+  const doubledInner = twoFixes.replace("Caught-by: review", "Caught-by: review\nCaught-by: bot");
+  assert.equal(caughtByViolations([commit("fix(funding): squash (#1)", doubledInner)]).length, 1);
+  const docsOnlyTrailer = "* fix(home): repair state\n\nCaught-by: lint\n\n* docs(home): explain\n";
+  assert.deepEqual(caughtByViolations([commit("fix(home): repair state (#2)", docsOnlyTrailer)]), []);
+});
+
+test("the squash-merged main head 79b790da passes as HEAD^!", (t) => {
+  const probe = spawnSync("git", ["cat-file", "-e", "79b790dadbe4^{commit}"], { encoding: "utf8" });
+  if (probe.status !== 0) return t.skip("79b790da is not in this checkout");
+  assert.deepEqual(caughtByViolations(readCommitsForRange("79b790dadbe4^!")), []);
 });
 
 test("the squash-merged main head ab5f7eee passes as HEAD^!", (t) => {
