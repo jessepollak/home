@@ -12,6 +12,7 @@ import {
   type PriceBalancesResult,
   type ValuationMode,
 } from "./price";
+import { borrowReadComplete, readBorrowPositions as defaultReadBorrow } from "./borrow";
 import { readBalances as defaultReadBalances } from "./read";
 import { resolveBalances as defaultResolveBalances } from "./resolve";
 import { assembleBalancesSnapshot } from "./snapshot";
@@ -30,10 +31,12 @@ import type {
   BalancesEnumeration,
   BalancesRead,
   BalancesUniverse,
+  BorrowRead,
 } from "./types";
 import { getBalancesUniverse } from "./universe";
 
 export const BALANCES_BACKSTOP_MS = 120_000;
+export const BALANCES_BORROW_RETRY_MS = 30_000;
 
 type Dependencies = {
   store?: BalanceSnapshotStore;
@@ -48,6 +51,7 @@ type Dependencies = {
     owner: PortfolioAddress,
     signal?: AbortSignal,
   ) => Promise<BalancesRead>;
+  readBorrow?: (owner: PortfolioAddress, at: BalancesRead["block"]) => Promise<BorrowRead>;
   resolveBalances?: (
     read: BalancesRead,
     enumeration: BalancesEnumeration,
@@ -60,6 +64,7 @@ type Dependencies = {
   now?: () => Date;
   nowMs?: () => number;
   backstopMs?: number;
+  borrowRetryMs?: number;
   log?: (event: ObservabilityEvent) => unknown;
   schedule?: (task: Promise<unknown> | (() => Promise<unknown>)) => void;
 };
@@ -83,9 +88,11 @@ export function createBalancesService(dependencies: Dependencies = {}) {
   const readBalances = dependencies.readBalances ?? defaultReadBalances;
   const resolveBalances = dependencies.resolveBalances ?? defaultResolveBalances;
   const priceBalances = dependencies.priceBalances ?? defaultPriceBalances;
+  const readBorrow = dependencies.readBorrow ?? defaultReadBorrow;
   const now = dependencies.now ?? (() => new Date());
   const nowMs = dependencies.nowMs ?? (() => Date.now());
   const backstopMs = dependencies.backstopMs ?? BALANCES_BACKSTOP_MS;
+  const borrowRetryMs = dependencies.borrowRetryMs ?? BALANCES_BORROW_RETRY_MS;
   const log = dependencies.log ?? writeObservabilityEvent;
   const schedule = dependencies.schedule ?? ((task) => {
     void (typeof task === "function" ? task() : task);
@@ -120,9 +127,7 @@ export function createBalancesService(dependencies: Dependencies = {}) {
       Date.parse(row.staleAt!) > Date.parse(row.observedAt);
     const expired = row !== null &&
       current.getTime() - Date.parse(row.observedAt) > backstopMs;
-    const degraded = row !== null && (
-      row.coverage.catalog === "unavailable" || row.coverage.registry === "partial"
-    );
+    const degraded = row !== null && needsFullObservation(row, current, borrowRetryMs);
     const required = signaled || expired || degraded;
 
     if (row && !hot) {
@@ -142,10 +147,12 @@ export function createBalancesService(dependencies: Dependencies = {}) {
         ? await observeRegistryOnly(owner, row!, durationMs)
         : await observeFull(owner, row, durationMs);
       const winner = await persistObserved(owner, observed, durationMs);
-      if (registryOnly && required) scheduleRevalidation(owner, row!, "background-full");
+      const refresh = registryOnly &&
+        (signaled || expired || needsFullObservation(observed, current, borrowRetryMs));
+      if (refresh) scheduleRevalidation(owner, row!, "background-full");
       return {
         read: winner ?? observed,
-        stale: registryOnly && required,
+        stale: refresh,
         outcome: registryOnly ? "registry-only" : "full",
         durationMs,
       };
@@ -232,9 +239,11 @@ export function createBalancesService(dependencies: Dependencies = {}) {
       readBalances(await universeRequest, owner));
     const enumerationRequest = timeStage(nowMs, durationMs, "enumerate", () =>
       enumerateBalances(owner, undefined, row?.enumerationCursor));
-    const [registryRead, enumeration] = await Promise.all([
+    const borrowRequest = registryRequest.then((registryRead) => readBorrow(owner, registryRead.block));
+    const [registryRead, enumeration, borrow] = await Promise.all([
       registryRequest,
       enumerationRequest,
+      borrowRequest,
     ]);
     const resolved = await timeStage(nowMs, durationMs, "resolve", () =>
       resolveBalances(registryRead, enumeration));
@@ -243,6 +252,7 @@ export function createBalancesService(dependencies: Dependencies = {}) {
       : resolved;
     return {
       ...resumed,
+      borrow,
       observedAt: row && enumeration.status === "unavailable"
         ? row.observedAt
         : resumed.observedAt,
@@ -263,10 +273,12 @@ export function createBalancesService(dependencies: Dependencies = {}) {
       const universe = await readUniverse();
       return readBalances(universe, owner);
     });
+    const borrow = await readBorrow(owner, registryRead.block);
     const withEnrichment = await timeStage(nowMs, durationMs, "resolve", () =>
       resolveBalances(registryRead, unavailableEnumeration()));
     return {
       ...withEnrichment,
+      borrow,
       observedAt: row.observedAt,
       holdings: [
         ...withEnrichment.holdings.filter((holding) => holding.source === "registry"),
@@ -306,6 +318,7 @@ export function createBalancesService(dependencies: Dependencies = {}) {
         region,
         read: observed.read,
         holdings: priced.holdings,
+        borrow: priced.borrow,
         stale: observed.stale || priced.revalidating,
       });
       emitBalancesRead(log, observed.outcome, {
@@ -331,6 +344,16 @@ export function createBalancesService(dependencies: Dependencies = {}) {
   };
 }
 
+function needsFullObservation(
+  read: Pick<BalancesRead, "coverage" | "borrow" | "observedAt">,
+  current: Date,
+  borrowRetryMs: number,
+): boolean {
+  if (read.coverage.catalog === "unavailable" || read.coverage.registry === "partial") return true;
+  return !borrowReadComplete(read.borrow) &&
+    current.getTime() - Date.parse(read.observedAt) >= borrowRetryMs;
+}
+
 function observationFromRead(
   owner: PortfolioAddress,
   read: BalancesRead,
@@ -343,6 +366,7 @@ function observationFromRead(
     blockTimestamp: read.block.timestamp,
     observedAt: read.observedAt,
     enumerationCursor: read.enumerationCursor ?? null,
+    borrow: read.borrow ?? null,
     holdings: read.holdings,
     coverage: read.coverage,
   };
@@ -450,5 +474,6 @@ function readFromRow(row: BalanceSnapshotRow): BalancesRead {
     holdings: row.holdings,
     coverage: row.coverage,
     enumerationCursor: row.enumerationCursor,
+    borrow: row.borrow,
   };
 }

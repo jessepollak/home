@@ -20,6 +20,7 @@ describePostgres("PostgresBalanceSnapshotStore production contract", () => {
     const migration = await readMigrationSql("005_balances.sql");
     await client.unsafe("DROP TABLE IF EXISTS balance_snapshots");
     await client.unsafe(migration);
+    await client.unsafe(await readMigrationSql("007_balance_borrow.sql"));
     executor = bunExecutor(client);
   });
   afterAll(async () => {

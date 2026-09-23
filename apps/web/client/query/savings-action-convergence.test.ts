@@ -62,7 +62,7 @@ function fakeClock() {
 
 function balances(usdc: string, shares: string) {
   return {
-    version: 3,
+    version: 4,
     holdings: [
       { id: "usdc", key: USDC_KEY, balance: { status: "ready", baseUnits: usdc } },
       { id: "morpho-vault", key: VAULT_KEY, balance: { status: "ready", baseUnits: shares } },

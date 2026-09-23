@@ -3,8 +3,10 @@ import { verifiedLocalCashAssets } from "@/config/portfolio-assets";
 import { getTransferAsset } from "@/shared/transfers/transfer-helpers";
 import {
   balancesSnapshotFixture,
+  borrowPosition,
   buildBalancesSnapshotFixture,
   catalogHolding,
+  FIXTURE_BORROW_MARKET_ID,
   FIXTURE_CATALOG,
   priced,
   ready,
@@ -13,7 +15,10 @@ import {
 import {
   selectAssetCount,
   selectBalanceBaseUnits,
+  selectBalanceTotals,
+  selectBorrowPositions,
   selectCash,
+  selectCollateralHoldings,
   selectMoneyGroups,
   selectSendable,
   selectVaultPositions,
@@ -160,5 +165,48 @@ describe("balance selectors", () => {
     expect(selectBalanceBaseUnits(snapshot, "usdc")).toBeNull();
     expect(selectBalanceBaseUnits(snapshot, "eth")).toBe("0");
     expect(selectBalanceBaseUnits(snapshot, "missing")).toBeNull();
+  });
+});
+
+describe("borrow selectors", () => {
+  test("expose net totals, positions, and positive collateral holdings without changing money groups", () => {
+    const base = buildBalancesSnapshotFixture({
+      registry: { cbbtc: { balance: ready("100000"), value: priced("USD", "5000") } },
+    });
+    const snapshot = buildBalancesSnapshotFixture({
+      registry: { cbbtc: { balance: ready("100000"), value: priced("USD", "5000") } },
+      borrow: {
+        coverage: "complete",
+        positions: [borrowPosition({
+          collateralBaseUnits: "200000",
+          collateralValue: priced("USD", "10000"),
+          debtBaseUnits: "30000000",
+          debtValue: priced("USD", "3000"),
+        })],
+      },
+    });
+
+    expect(selectMoneyGroups(snapshot)).toEqual(selectMoneyGroups(base));
+    expect(selectBorrowPositions(snapshot)).toHaveLength(1);
+    expect(selectCollateralHoldings(snapshot).map((holding) => holding.collateral.marketId))
+      .toEqual([FIXTURE_BORROW_MARKET_ID]);
+    expect(selectBalanceTotals(snapshot).net.negative).toBe(false);
+    expect(selectBalanceTotals(snapshot).net.status).toBe("complete");
+  });
+
+  test("omit collateral holdings for a borrow-only position", () => {
+    const snapshot = buildBalancesSnapshotFixture({
+      borrow: {
+        coverage: "complete",
+        positions: [borrowPosition({
+          collateralBaseUnits: "0",
+          collateralValue: priced("USD", "0"),
+          debtBaseUnits: "1",
+          debtValue: priced("USD", "1"),
+        })],
+      },
+    });
+    expect(selectCollateralHoldings(snapshot)).toEqual([]);
+    expect(selectBorrowPositions(snapshot)[0]?.debt.sign).toBe(-1);
   });
 });

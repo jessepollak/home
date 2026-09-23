@@ -30,6 +30,7 @@ export class MemoryBalanceSnapshotStore implements BalanceSnapshotStore {
       staleAt: existing?.staleAt ?? null,
       hotUntil: existing?.hotUntil ?? null,
       enumerationCursor: row.enumerationCursor ?? null,
+      borrow: row.borrow ?? null,
     }));
     return true;
   }

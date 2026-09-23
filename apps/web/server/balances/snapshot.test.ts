@@ -7,7 +7,7 @@ import {
   FIXTURE_WALLET_TOKEN,
   walletHolding,
 } from "@/shared/balances/fixtures";
-import type { ExactDecimal, Holding } from "@/shared/balances/types";
+import type { BalancesBorrow, ExactDecimal, Holding } from "@/shared/balances/types";
 import { assembleBalancesSnapshot } from "./snapshot";
 import type { BalancesRead } from "./types";
 
@@ -17,6 +17,8 @@ const read: BalancesRead = {
   holdings: [],
   coverage: { registry: "complete", catalog: "complete" },
 };
+
+const noBorrow: BalancesBorrow = { coverage: "complete", positions: [] };
 
 function fixtureHolding(id: string): Holding {
   const holding = balancesSnapshotFixture.holdings.find(
@@ -95,6 +97,7 @@ describe("balances snapshot", () => {
     const snapshot = assembleBalancesSnapshot({
       owner: FIXTURE_OWNER_ADDRESS,
       region: "US",
+      borrow: noBorrow,
       read: { ...read, coverage: balancesSnapshotFixture.coverage },
       holdings,
     });
@@ -189,6 +192,7 @@ describe("balances snapshot", () => {
     const snapshot = assembleBalancesSnapshot({
       owner: FIXTURE_OWNER_ADDRESS,
       region: "US",
+      borrow: noBorrow,
       read,
       holdings: [...holdings],
     });
@@ -214,6 +218,7 @@ describe("balances snapshot", () => {
       const snapshot = assembleBalancesSnapshot({
         owner: FIXTURE_OWNER_ADDRESS,
         region: "US",
+        borrow: noBorrow,
         read: { ...read, coverage },
         holdings: [
           registryHolding("usdc", "1000000", priced("10")),
@@ -232,6 +237,7 @@ describe("balances snapshot", () => {
     const snapshot = assembleBalancesSnapshot({
       owner: FIXTURE_OWNER_ADDRESS,
       region: "US",
+      borrow: noBorrow,
       read: {
         ...read,
         coverage: { registry: "complete", catalog: "unavailable" },

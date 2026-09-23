@@ -477,7 +477,7 @@ describe("owner generation fence", () => {
       const view = render(owner(activeSdk));
       await waitFor(() => expect(currentClient().status).toBe("verified"));
       queryClient.setQueryData(ownerQueryKey(dataOwnerKey, "balances", "US"), {
-        version: 3,
+        version: 4,
         holdings: [{ id: "usdc", balance: { status: "ready", baseUnits: "1000000" } }],
       });
       const action = await currentClient().prepareMoneyAction("send", { amountBaseUnits: "1000000" });

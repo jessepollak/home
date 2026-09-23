@@ -9,7 +9,7 @@ import {
 } from "./fresh-until-moved";
 import { ownerQueryKey, ownerQueryMeta } from "./query-client";
 import { parseBalancesSnapshot } from "@/shared/balances/contract";
-import type { BalancesSnapshot } from "@/shared/balances/types";
+import { BALANCES_VERSION, type BalancesSnapshot } from "@/shared/balances/types";
 
 export const afterActionScopes = [
   "balances",
@@ -234,7 +234,7 @@ function selectAffectedBalances(
 }
 
 function isBalancesSnapshot(value: unknown): value is BalancesSnapshot {
-  return isRecord(value) && value.version === 3 && Array.isArray(value.holdings);
+  return isRecord(value) && value.version === BALANCES_VERSION && Array.isArray(value.holdings);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

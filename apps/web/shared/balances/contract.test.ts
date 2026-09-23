@@ -1,13 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { BalancesResponseError, expectedRegistryHoldings, parseBalancesSnapshot } from "./contract";
 import {
+  FIXTURE_BORROW_APR_WAD,
+  FIXTURE_BORROW_MARKET_ID,
   FIXTURE_CATALOG,
   FIXTURE_OWNER_ADDRESS,
   FIXTURE_WALLET_TOKEN,
   balancesSnapshotFixture,
+  borrowPosition,
   buildBalancesSnapshotFixture,
   catalogHolding,
   priced,
+  pricedCash,
   ready,
   walletHolding,
 } from "./fixtures";
@@ -278,5 +282,69 @@ describe("parseBalancesSnapshot", () => {
     const tampered = clone(snapshot);
     tampered.holdings = tampered.holdings.map((h) => (h.id === "eth" ? { ...h, value: priced("USD", "1") } : h));
     expect(() => parseBalancesSnapshot(tampered, session, "GLOBAL")).toThrow(BalancesResponseError);
+  });
+});
+
+describe("parseBalancesSnapshot borrow and net totals", () => {
+  function withBorrow(): BalancesSnapshot {
+    return buildBalancesSnapshotFixture({
+      region: "US",
+      registry: {
+        usdc: { balance: ready("12340000"), value: priced("USD", "1234"), cashValue: pricedCash("USD", "1234") },
+      },
+      borrow: {
+        coverage: "complete",
+        positions: [borrowPosition({
+          collateralBaseUnits: "100000",
+          collateralValue: priced("USD", "10000"),
+          debtBaseUnits: "30010000",
+          debtValue: priced("USD", "3001"),
+        })],
+      },
+    });
+  }
+
+  test("accepts a snapshot with a collateral holding, a signed debt line, and net totals", () => {
+    const snapshot = withBorrow();
+    const parsed = parseBalancesSnapshot(clone(snapshot), session, "US");
+    expect(parsed).toEqual(snapshot);
+    expect(parsed.borrow.positions[0]).toMatchObject({
+      marketId: FIXTURE_BORROW_MARKET_ID,
+      collateral: { source: "borrow", collateral: { marketId: FIXTURE_BORROW_MARKET_ID } },
+      debt: { sign: -1, marketId: FIXTURE_BORROW_MARKET_ID, balance: { baseUnits: "30010000" } },
+      borrowAprWad: FIXTURE_BORROW_APR_WAD,
+    });
+    expect(parsed.totals.net).toMatchObject({ status: "complete", currency: "USD", negative: false });
+  });
+
+  test.each([
+    ["an unconfigured market", (value: BalancesSnapshot) => {
+      value.borrow.positions[0]!.marketId = `0x${"00".repeat(32)}` as `0x${string}`;
+    }],
+    ["a collateral key that does not match the market", (value: BalancesSnapshot) => {
+      value.borrow.positions[0]!.collateral.key = "eip155:8453/erc20:0x1111111111111111111111111111111111111111";
+    }],
+    ["a debt line without the negative sign", (value: BalancesSnapshot) => {
+      (value.borrow.positions[0]!.debt as { sign: number }).sign = 1;
+    }],
+    ["a duplicate market position", (value: BalancesSnapshot) => {
+      value.borrow.positions.push(value.borrow.positions[0]!);
+    }],
+    ["a missing APR", (value: BalancesSnapshot) => {
+      (value.borrow.positions[0] as { borrowAprWad?: string }).borrowAprWad = "5.1";
+    }],
+    ["a complete net total over a partial borrow read", (value: BalancesSnapshot) => {
+      value.borrow.coverage = "partial";
+    }],
+    ["a net total without a sign", (value: BalancesSnapshot) => {
+      delete (value.totals.net as { negative?: boolean }).negative;
+    }],
+    ["missing totals", (value: BalancesSnapshot) => {
+      delete (value as { totals?: unknown }).totals;
+    }],
+  ])("rejects %s", (_name, mutate) => {
+    const value = clone(withBorrow());
+    mutate(value);
+    expect(() => parseBalancesSnapshot(value, session, "US")).toThrow(BalancesResponseError);
   });
 });

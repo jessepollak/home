@@ -75,9 +75,13 @@ The Codex catalog reader remains the three-page, 512-entry, 60 s shared cache. I
 
 All amount and valuation math remains bigint / exact-decimal based; no amount crosses through JavaScript `Number`.
 
-### 4. One snapshot (contract v3) and coverage
+### 4. One snapshot (contract v4) and coverage
 
-`GET /api/balances?region=XX` keeps the locked `shared/balances/types.ts` v3 shape. Registry, catalog, and wallet rows all use `holdings[]`; the parser continues to require positive lowercase non-registry ERC-20 rows with source-specific ids and keys.
+`GET /api/balances?region=XX` returns the `shared/balances/types.ts` v4 shape. Registry, catalog, and wallet rows all use `holdings[]`; the parser continues to require positive lowercase non-registry ERC-20 rows with source-specific ids and keys. v4 adds `borrow` and `totals` (#794); `holdings[]` and the gross `total` are unchanged.
+
+- **`borrow.positions[]`** has one entry per configured Borrow market where the owner has collateral or debt. `collateral` is a `Holding` with `source: "borrow"`, `collateral: { marketId }`, and the market's collateral asset key. It is priced by the balances pricer with the same quote and FX that price that asset in the wallet. `debt` is a signed Borrow line (`sign: -1`, market id, loan asset, raw accrued debt, and region-currency `value` converted with the same loan-asset quote and FX). `borrowAprWad` is the market's variable borrow APR (per-second rate × seconds per year), the value the Borrow surface already labels APR.
+- **`borrow.coverage`** is `complete` only when every configured market was read. A failed, timed-out, or never-observed market read is `partial`. So is a stored nonzero position in a market that is no longer configured, so its debt is never silently dropped from a complete net. It is never a zero position. Each market is read at the registry read's block (number and hash), so a collateral supply or withdraw is counted in exactly one of the wallet and Morpho. If the pinned block cannot be read or is no longer canonical, that market is `unavailable`; the reader never falls back to `latest`. The Morpho reader verifies `eth_chainId` once per reader instance, so a pinned read fits the 4 s deadline.
+- **`totals`** has `cash` (cash-currency holdings plus savings vaults), `investments` (every other holding plus Borrow collateral), `borrow` (a positive magnitude of all debt), and `net = cash + investments − borrow`, with `net.negative` carrying the sign. Each component follows the gross-total rules: `complete` only when every contribution is known and priced, `partial` when a known nonzero sum is missing something, and `unavailable` otherwise. Partial Borrow coverage makes Investments and Borrow incomplete, so `net` can never be `complete` without a full Borrow read, and a gross total is never reported as a complete net. Regions without a quote currency report every total as `no-quote-currency`. The gross `total` stays for current consumers until Home adopts `totals` (#789).
 
 Coverage now means:
 
@@ -91,13 +95,13 @@ Coverage now means:
 
 CDP unavailability never turns `/api/balances` into a 502. A registry read failure retains the existing fail-closed registry row semantics and can still cause the route-level read failure behavior when the pinned pass itself cannot complete.
 
-Server composition is: `enumerate(owner)` and `read(registry, owner)` concurrently → `resolve` → `price` → `snapshot`. Caller abort signals do not cancel shared owner work.
+Server composition is: `enumerate(owner)` concurrently with `read(registry, owner)` followed by `readBorrow(owner, registryBlock)` (one Morpho position read per configured Borrow market at the registry block, bounded at 4 s) → `resolve` → `price` → `snapshot`. Caller abort signals do not cancel shared owner work.
 
 ### 5. One client query, persisted whole
 
 `client/balances/use-balances.ts`:
 
-- Key `ownerQueryKey(owner, "balances", region)`, `meta: ownerQueryMeta(owner, "owner")` — **persisted including catalog rows**. This reverses #337's "do not cache recognized rows" rule, which stated no rationale: they are the same private data class as USDC in the same owner-scoped localStorage blob, cleared on every owner-generation bump; positive catalog rows are typically < 20 (≈ 100 KB at a 512-row worst case, under the 5 MB quota and the 24 h TTL). Cache buster becomes `home-query-v2` (the storage prefix stays `home.query.v1:`, which the smoke test keys on) so v2 snapshots are dropped, not migrated.
+- Key `ownerQueryKey(owner, "balances", region)`, `meta: ownerQueryMeta(owner, "owner")` — **persisted including catalog rows**. This reverses #337's "do not cache recognized rows" rule, which stated no rationale: they are the same private data class as USDC in the same owner-scoped localStorage blob, cleared on every owner-generation bump; positive catalog rows are typically < 20 (≈ 100 KB at a 512-row worst case, under the 5 MB quota and the 24 h TTL). The cache buster is `home-query-v3` since contract v4 (the storage prefix stays `home.query.v1:`, which the smoke test keys on), so persisted snapshots without `borrow` and `totals` are dropped, not migrated.
 - Region defaults to `usePresentationRegionId()`; the Save panel gains the same `PresentationRegionProvider` Invest already has (`feature-panels.tsx:32`) so Save and Home share one key. USDC base units are region-independent anyway.
 - `staleTime` 15 s, `refetchOnWindowFocus: true`, `placeholderData: keepPreviousData` for the same owner, `retry: false`.
 - Reload: the root layout derives an optional provisional owner seed only from an HMAC-valid Home session or complete CDP render-hint pair. SSR and the initial hydration still render the loading shell; `restoreOwnerQueries` remains in the first passive effect (never during render), but it can now select that signed owner's snapshot before SDK/native session restoration finishes → cash, registry, and catalog rows paint without a network wait. Provisional status never enables the balance query, transport, actions, validation, or CDP activation, so the first network balance read still requires server verification. The seed is one-shot: a matching provider-native owner retains the cache, while mismatch, signed-out settlement, sign-in/out, or verification loss clears it and unchanged layout props cannot restore it. `balances:painted` fires on `ready` only; the later verified refetch animates changed values through `MoneyTicker`. Measure `presentBalanceRows` on a 512-row fixture against the `balances:painted` budget.
@@ -113,7 +117,8 @@ Server composition is: `enumerate(owner)` and `read(registry, owner)` concurrent
 | `selectVaultPositions(snapshot)` → `{vaultAddress, position: {assetsRaw} \| null}[]` | `summarizeSavingsPortfolio` (`portfolio-summary.ts:85-95` already accepts this) replaces `/api/savings/positions` |
 | `selectSendable(snapshot)` → registry ERC-20/native with `balance.status === "ready" && baseUnits !== "0"`, carrying `balanceBaseUnits` | `send-availability.ts`; `MoneyAmountDisplay` takes `availableAmount` (`amount.tsx:216`) so `parseAvailableDecimal(balanceLabel)` is retired, not moved |
 | `selectCash(snapshot)` → ordered cash rows for the region (selected local, canonical USD, `unsupported` placeholder) | presenter |
-| `selectTotal(snapshot)` | Home hero |
+| `selectTotal(snapshot)` | Home hero (gross) |
+| `selectBalanceTotals(snapshot)`, `selectBorrowPositions(snapshot)`, `selectCollateralHoldings(snapshot)` | Home net total, Borrow row, and collateral-as-Investments (#789) |
 
 ### 6. One row
 
@@ -158,6 +163,7 @@ create table balance_snapshots (
   enumeration_cursor text,               -- next CDP page when a bounded scan is incomplete
   holdings     jsonb not null,           -- pre-pricing holdings with provenance (registry pinned, catalog/wallet from CDP)
   coverage     jsonb not null,
+  borrow       jsonb,                    -- per-market Morpho collateral, accrued debt, and APR; null for rows observed before #794
   primary key (chain_id, address)
 );
 ```
@@ -170,6 +176,7 @@ Rules:
 - **Serving as observed.** `observed_at` is the last full observation's pin time; registry-only refreshes update registry rows and coverage without moving it. `fetchedAt` on the wire is `observed_at`, never the response time. `stale: true` means a required re-observe is pending or failed and is not included in this response; the presenter shows the observation age. Never fresh, never zero.
 - **Stale maxima.** Send and Save take their maxima from the snapshot even when stale; the flow shows the observation age beside the max; the server's pinned read at `prepare` remains the authority (§Boundary).
 - **Prices never per owner.** Stored token and FX observations are read concurrently and applied at response time. Existing balance rows never await Codex or Coinbase: a missing or expired valuation is returned honestly as unpriced and refreshed through the route's retained `after()` work. Only creation of a previously absent balance row may bootstrap providers synchronously. `price_observations` remains last-good global exact data; Coinbase uses `fx:USD:<currency>` and `fx:USD:ETH` keys, while USD is arithmetic identity and needs no provider or store row. `valuation_attempts` records every provider outcome without erasing last-good values. Unavailable attempts retry after 60 seconds; missing, invalid, and stale attempts retry after 15 minutes. Safe values remain displayable for 24 hours and routine refreshes are silent. The route is `private, no-store`.
+- **Borrow rides the observation.** Full and hot registry-only observations both re-read Borrow positions at the registry block, so `/confirm` and `/handle` hot windows and activity webhooks refresh collateral and debt with the wallet. A row with a missing or partially unavailable Borrow read is degraded, but only once `BALANCES_BORROW_RETRY_MS` (30 s) has passed since its `observedAt`: then it is served stale and re-observed in the background, like partial registry coverage. Inside that interval the row is served without `stale` and schedules no background full, so a Morpho or RPC outage cannot drive a full observation (including CDP) on every client poll; `borrow.coverage` stays `partial` and the totals stay non-complete throughout. A hot registry-only read decides this from its fresh Borrow read, not the stored row.
 - **Dropping the row never affects correctness**; it costs one re-observe and any open hot window.
 
 Enumeration cost moves from "every 60 s per active user" to "once per activity event", which is what makes the all-tokens phase affordable for dusty wallets.
