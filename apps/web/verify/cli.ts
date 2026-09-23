@@ -24,6 +24,7 @@ import {
   canonicalCashoutHandle,
   cashoutHandleFillValue,
   clickPrefixNamesScript,
+  clickPrefixPresentPredicate,
   isCashoutHandleFillStep,
   isRecipientFillStep,
   liveSessionExpired,
@@ -323,6 +324,11 @@ function authenticatedAccountAddress(): string | null {
 }
 
 function prefixButtonNames(prefix: string): string[] {
+  try {
+    command("wait", "--fn", clickPrefixPresentPredicate(prefix), "--timeout", "15000");
+  } catch {
+    return [];
+  }
   const result = jsonResult(command("eval", clickPrefixNamesScript(prefix)));
   return Array.isArray(result) ? result.filter((name): name is string => typeof name === "string") : [];
 }

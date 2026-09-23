@@ -90,6 +90,10 @@ describe("feature map parser", () => {
     expect(canaryReach("cash-out", "withdraw", fallback)).toEqual([
       { kind: "goto", path: "/home" },
       { kind: "click", label: "Send" },
+      { kind: "click", label: "Decimal point" },
+      { kind: "click", label: "1" },
+      { kind: "click", label: "Continue" },
+      { kind: "expect", text: "Use Peer to send via app" },
       { kind: "click-prefix", prefix: "Withdraw ", onNoMatch: "note" },
       { kind: "expect", text: "Confirm" },
       { kind: "click-prefix", prefix: "Withdraw $" },

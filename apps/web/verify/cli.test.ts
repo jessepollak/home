@@ -349,7 +349,7 @@ describe("live cash-out confirmation and recovery", () => {
     const env = await cashoutEnv({ FAKE_AGENT_BROWSER_PREFIX_NAMES: "[]" });
     const result = run([...cashoutArgs, "--canary-operation", "withdraw"], env);
     expect(result.exitCode).toBe(0);
-    expect(clickCalls().map((call) => call[call.indexOf("--name") + 1])).toEqual(["Send"]);
+    expect(clickCalls().map((call) => call[call.indexOf("--name") + 1])).toEqual(["Send", "Decimal point", "1", "Continue"]);
     expect(latestRunArtifact("cash-out", "live.json")).toContain('"note": "No in-flight Peer cash-out to withdraw."');
     expect(latestRunArtifact("cash-out", "summary.md")).toContain("No in-flight Peer cash-out to withdraw.");
     const entries = await readLedger(resolve(home, ".home-verify", "ledger.jsonl"));
@@ -364,7 +364,7 @@ describe("live cash-out confirmation and recovery", () => {
     });
     const result = run([...cashoutArgs, "--canary-operation", "withdraw"], env);
     expect(result.exitCode).toBe(0);
-    expect(clickCalls().map((call) => call[call.indexOf("--name") + 1])).toEqual(["Send", "Withdraw $0.10", "Withdraw $0.10"]);
+    expect(clickCalls().map((call) => call[call.indexOf("--name") + 1])).toEqual(["Send", "Decimal point", "1", "Continue", "Withdraw $0.10", "Withdraw $0.10"]);
     expect(latestRunArtifact("cash-out", "live.json")).toContain('"label": "Withdraw $0.10"');
   });
 
@@ -376,7 +376,7 @@ describe("live cash-out confirmation and recovery", () => {
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("click-prefix “Withdraw ”");
     expect(result.stderr).toContain("Withdraw $0.10; Withdraw $0.20");
-    expect(clickCalls().map((call) => call[call.indexOf("--name") + 1])).toEqual(["Send"]);
+    expect(clickCalls().map((call) => call[call.indexOf("--name") + 1])).toEqual(["Send", "Decimal point", "1", "Continue"]);
   });
 });
 

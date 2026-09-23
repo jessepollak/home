@@ -402,6 +402,10 @@ export function resolveClickPrefix(prefix: string, names: readonly string[]): Cl
   return { action: "many", candidates };
 }
 
+export function clickPrefixPresentPredicate(prefix: string): string {
+  return `${clickPrefixNamesScript(prefix)}.length>0`;
+}
+
 export function clickPrefixNamesScript(prefix: string): string {
   const value = JSON.stringify(prefix);
   return `(()=>{const __homeVerifyPrefix=${value};return [...document.querySelectorAll('button,[role="button"]')].filter((node)=>node.getClientRects().length>0&&node.disabled!==true&&!node.hasAttribute("disabled")&&node.getAttribute("aria-disabled")!=="true"&&node.getAttribute("aria-busy")!=="true").map((node)=>{${visibleNameScript}return (node.getAttribute("aria-label")??visibleName(node)).trim()}).filter((name)=>name.startsWith(__homeVerifyPrefix))})()`;
