@@ -6,6 +6,10 @@ import {
   formatUsdStablecoinAmount,
 } from "@/shared/formatting";
 import {
+  normalizeResolvedRecipientAddress,
+  normalizeTransferRecipientName,
+} from "./recipient-name";
+import {
   TransferExecutionError,
   type TransferAsset,
   type TransferAssetId,
@@ -56,14 +60,9 @@ export function isTransferRecipient(value: string): boolean {
 }
 
 export function normalizeTransferRecipient(value: string): `0x${string}` {
-  const normalized = value.trim();
-  if (
-    !addressPattern.test(normalized) ||
-    /^0x0{40}$/i.test(normalized)
-  ) {
-    throw new TransferExecutionError("invalid-request");
-  }
-  return normalized.toLowerCase() as `0x${string}`;
+  const normalized = normalizeResolvedRecipientAddress(value);
+  if (!normalized) throw new TransferExecutionError("invalid-request");
+  return normalized;
 }
 
 export function parseTransferAmount(
@@ -124,7 +123,8 @@ export function assertTransferRequest(value: TransferRequest): void {
     !value ||
     typeof value.assetId !== "string" ||
     typeof value.recipient !== "string" ||
-    typeof value.amountBaseUnits !== "string"
+    typeof value.amountBaseUnits !== "string" ||
+    (value.recipientName !== undefined && typeof value.recipientName !== "string")
   ) {
     throw new TransferExecutionError("invalid-request");
   }
@@ -133,10 +133,13 @@ export function assertTransferRequest(value: TransferRequest): void {
     throw new TransferExecutionError("invalid-request");
   }
   const recipient = normalizeTransferRecipient(value.recipient);
+  if (value.recipientName !== undefined && normalizeTransferRecipientName(value.recipientName) === null) {
+    throw new TransferExecutionError("invalid-request");
+  }
   if (
     asset.kind === "erc20" &&
     asset.contractAddress !== null &&
-    recipient === asset.contractAddress.toLowerCase()
+    recipient.toLowerCase() === asset.contractAddress.toLowerCase()
   ) {
     throw new TransferExecutionError("invalid-request");
   }
@@ -157,7 +160,7 @@ export function encodeErc20Transfer(
   }
   return {
     to: token.toLowerCase() as `0x${string}`,
-    data: `${ERC20_TRANSFER_SELECTOR}${normalizedRecipient.slice(2).padStart(64, "0")}${amountBaseUnits
+    data: `${ERC20_TRANSFER_SELECTOR}${normalizedRecipient.slice(2).toLowerCase().padStart(64, "0")}${amountBaseUnits
       .toString(16)
       .padStart(64, "0")}`,
     value: BigInt(0),
@@ -205,7 +208,7 @@ export function transferRequestFromAction(
   try {
     const request = {
       assetId: spend.assetId,
-      recipient,
+      recipient: normalizeTransferRecipient(recipient),
       amountBaseUnits: spend.amountBaseUnits,
     } satisfies TransferRequest;
     assertTransferRequest(request);

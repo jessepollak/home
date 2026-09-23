@@ -15,12 +15,18 @@ import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle }
 import { CopyableValue } from "@/components/copyable-value";
 import { PayoutMethodMarks } from "@/components/payout-method-marks";
 import { atomicToDecimal } from "@/shared/formatting/atomic";
-import { formatUsdStablecoinAmount } from "@/shared/formatting";
+import { formatAddress, formatUsdStablecoinAmount } from "@/shared/formatting";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import type { RegionId } from "@/config/regions";
 import { readProviderBindings, type FundingOfframpBinding } from "@/shared/funding/contracts/providers";
 import { readCashoutOrdersResponse, type CashoutOrderSummary } from "@/shared/funding/contracts/offramp-orders";
 import { canonicalizeCashPayee } from "@/shared/funding/cash-payee";
+import {
+  readRecentTransferRecipientsResponse,
+  readTransferRecipientNameResponse,
+  type RecentTransferRecipient,
+} from "@/shared/transfers/contracts/recipients";
+import { normalizeTransferRecipientName } from "@/shared/transfers/recipient-name";
 import {
   MoneyAmountDisplay,
   MoneyAssetPicker,
@@ -101,6 +107,11 @@ export function SendDialog({
 }) {
   const [assetId, setAssetId] = useState<string | null>(() => availableAssets?.[0]?.id ?? null);
   const [recipient, setRecipient] = useState("");
+  const [resolution, setResolution] = useState<{ name: string; address: `0x${string}` | null } | null>(null);
+  const [recentRecipientState, setRecentRecipientState] = useState<{
+    ownerBoundary: string;
+    recipients: ReadonlyArray<RecentTransferRecipient>;
+  } | null>(null);
   const [amount, setAmount] = useState("");
   const [amountChangeSource, setAmountChangeSource] =
     useState<MoneyAmountChangeSource>("programmatic");
@@ -127,15 +138,33 @@ export function SendDialog({
     setAmountChangeSource(source);
     setAmount(value);
   }
+  function changeRecipient(value: string) {
+    setRecipient(value);
+  }
 
   if (assetId && !selectedStillAvailable) {
     setAssetId(activeAssetId);
     if (amount !== "") changeAmount("", "programmatic");
   }
+  const trimmedRecipient = recipient.trim();
+  const typedAddress = isTransferRecipient(trimmedRecipient) ? normalizeTransferRecipient(trimmedRecipient) : null;
+  const typedName = typedAddress === null ? normalizeTransferRecipientName(trimmedRecipient) : null;
+  const settledResolution = typedName !== null && resolution?.name === typedName ? resolution : null;
+  const resolvedRecipient = settledResolution?.address ?? null;
+  const resolving = typedName !== null && settledResolution === null;
+  const unresolved = settledResolution !== null && settledResolution.address === null;
+  const recipientName = typedName !== null && resolvedRecipient !== null ? typedName : undefined;
+  const effectiveRecipient = typedAddress ?? resolvedRecipient;
+  const recipientHint = typedAddress !== null || typedName !== null || trimmedRecipient.length === 0
+    ? null
+    : "Enter a 0x address or a name like jesse.base.eth.";
   const selectedAsset = activeAssetId ? getTransferAsset(activeAssetId) : null;
   const pricing = useMoneyAssetPricing(selectedAsset?.symbol ?? "");
   const selectedAvailability = availableAssets?.find((asset) => asset.id === activeAssetId);
   const resourceBoundary = `${ownerBoundary ?? ""}:${regionId}`;
+  const recentRecipients = ownerBoundary && recentRecipientState?.ownerBoundary === ownerBoundary
+    ? recentRecipientState.recipients
+    : [];
   const providersLoaded = providersLoadedFor === resourceBoundary;
   const ordersLoaded = ordersLoadedFor === resourceBoundary;
   const eligibleOfframps = (providersLoaded ? offramps : []).filter((binding) => selectedAsset?.symbol === "USDC" && binding.assetId === "base:usdc");
@@ -145,6 +174,47 @@ export function SendDialog({
     id: asset.id, label: asset.symbol, description: asset.name, currency: asset.cashCurrency,
     mark: presentPortfolioAssetMark({ assetKey: asset.assetKey, name: asset.name, symbol: asset.symbol, currency: asset.cashCurrency }, assetMarkResolution),
   })) ?? [], [assetMarkResolution, availableAssets]);
+
+  useEffect(() => {
+    if (!open || step !== "destination" || !fetchAccountResource || typedName === null) return;
+    const requestedName = typedName;
+    let cancelled = false;
+    void fetchAccountResource(`/api/transfers/recipient-name?name=${encodeURIComponent(requestedName)}`)
+      .then((value) => {
+        if (cancelled) return;
+        const resolved = readTransferRecipientNameResponse(value);
+        setResolution({
+          name: requestedName,
+          address: resolved && resolved.name === requestedName ? resolved.address : null,
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setResolution({ name: requestedName, address: null });
+      });
+    return () => { cancelled = true; };
+  }, [fetchAccountResource, open, step, typedName]);
+
+  useEffect(() => {
+    if (!open || !ownerBoundary || !fetchAccountResource) return;
+    if (recentRecipientState?.ownerBoundary === ownerBoundary) return;
+    const requestedOwnerBoundary = ownerBoundary;
+    let cancelled = false;
+    void fetchAccountResource("/api/transfers/recent-recipients")
+      .then((value) => {
+        if (!cancelled) {
+          setRecentRecipientState({
+            ownerBoundary: requestedOwnerBoundary,
+            recipients: readRecentTransferRecipientsResponse(value),
+          });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRecentRecipientState({ ownerBoundary: requestedOwnerBoundary, recipients: [] });
+        }
+      });
+    return () => { cancelled = true; };
+  }, [fetchAccountResource, open, ownerBoundary, recentRecipientState]);
 
   useEffect(() => {
     if (!open || !ownerBoundary || !fetchAccountResource) return;
@@ -223,6 +293,7 @@ export function SendDialog({
 
   function reset() {
     setAssetId(availableAssets?.[0]?.id ?? null); setRecipient(""); changeAmount("", "programmatic");
+    setResolution(null);
     setRequest(null); setCashout(null); setSelectedOfframp(null); setSelectedPlatform(null); setPayoutHandle("");
     setCanonicalHandle(""); setHandleConfirmation(""); setAction(null); setStep("amount"); setError(null);
   }
@@ -256,8 +327,13 @@ export function SendDialog({
 
   async function prepareSend() {
     try {
-      if (!address || !selectedAsset || !activeAssetId) throw new TransferExecutionError("unavailable");
-      const next: TransferRequest = { assetId: activeAssetId, recipient: normalizeTransferRecipient(recipient), amountBaseUnits: parseTransferAmount(amount.replace(/\.$/, ""), selectedAsset.decimals) };
+      if (!address || !selectedAsset || !activeAssetId || !effectiveRecipient) throw new TransferExecutionError("unavailable");
+      const next: TransferRequest = {
+        assetId: activeAssetId,
+        recipient: effectiveRecipient,
+        amountBaseUnits: parseTransferAmount(amount.replace(/\.$/, ""), selectedAsset.decimals),
+        ...(recipientName === undefined ? {} : { recipientName }),
+      };
       assertTransferRequest(next); setRequest(next); setCashout(null); setStep("pending"); setError(null);
       const prepared = await prepareMoneyAction("send", next);
       setAction(prepared); onReview?.(prepared.id); setStep("confirm");
@@ -330,6 +406,7 @@ export function SendDialog({
         setStep("error");
         return;
       }
+      if (request) setRecentRecipientState(null);
       reset(); onClose();
     } catch (caught) {
       if (isUnavailableReview(caught)) {
@@ -372,9 +449,22 @@ export function SendDialog({
           {!selectedAsset && providersLoaded && ordersLoaded && recoveryEligible && !recoveryAttempted && visibleActiveOrders.length === 0 ? <Button variant="ghost" size="sm" onClick={() => void recoverCashouts()}>Recover a Peer cash-out</Button> : null}
         </> : null}
         {step === "destination" ? <div className="grid gap-4">
-          <AddressField id="send-recipient" label="To" value={recipient} onChange={setRecipient} />
+          <AddressField
+            id="send-recipient"
+            label="To"
+            value={recipient}
+            onChange={changeRecipient}
+            aria-describedby={resolvedRecipient || resolving || unresolved || recipientHint ? "send-recipient-status" : undefined}
+          />
+          <div id="send-recipient-status" className="grid gap-2">
+            {resolvedRecipient && typedName ? <StatusMessage>Resolves to <CopyableValue value={resolvedRecipient} presentation="full" valueKind="address" /></StatusMessage> : null}
+            {resolving && typedName ? <StatusMessage aria-busy="true">Resolving {typedName}…</StatusMessage> : null}
+            {unresolved && typedName ? <StatusMessage tone="error">{`We couldn't resolve ${typedName}. Check the name and try again.`}</StatusMessage> : null}
+            {recipientHint ? <StatusMessage>{recipientHint}</StatusMessage> : null}
+          </div>
           <FieldSeparator>Or</FieldSeparator>
           <div className="grid gap-1">
+            {recentRecipients.length > 0 ? <RecentRecipients recipients={recentRecipients} onSelect={changeRecipient} /> : null}
             {visibleActiveOrders.map((order) => <RecoveryItem key={order.depositId} order={order} onWithdraw={() => void prepareWithdraw(order)} />)}
             {eligibleOfframps.length > 0 ? <CashoutItem binding={eligibleOfframps[0]!} onSelect={() => { setSelectedOfframp(eligibleOfframps[0]!); setStep("payout"); }} /> : null}
             {providersLoaded && ordersLoaded && recoveryEligible && !recoveryAttempted && visibleActiveOrders.length === 0 ? <Button variant="ghost" size="sm" onClick={() => void recoverCashouts()}>Recover a Peer cash-out</Button> : null}
@@ -435,13 +525,31 @@ export function SendDialog({
         {error ? <StatusMessage tone="error" role="alert">{error}</StatusMessage> : null}
       </MoneyModalBody>
       {step === "amount" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!selectedAsset || !isPositiveDecimalAmount(amount)} onPrimary={() => { setError(null); setStep("destination"); }} /> : null}
-      {step === "destination" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!isTransferRecipient(recipient)} onPrimary={() => void prepareSend()} /> : null}
+      {step === "destination" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={effectiveRecipient === null || resolving} onPrimary={() => void prepareSend()} /> : null}
       {step === "handle" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!payoutHandle.trim()} onPrimary={() => { const normalized = canonicalizeCashPayee(selectedPlatform?.platform ?? "", payoutHandle); setCanonicalHandle(normalized); setHandleConfirmation(""); setStep("handle-confirm"); }} /> : null}
       {step === "handle-confirm" ? <MoneyModalFooter primaryLabel="Review" primaryDisabled={!canonicalHandle || handleConfirmation !== canonicalHandle} onPrimary={() => void prepareCashout()} /> : null}
       {step === "confirm" ? <MoneyModalFooter primaryLabel={cashout ? <>{cashout.operation === "withdraw" ? "Withdraw" : "Cash out"} <MoneyTicker value={confirmAmount} /></> : <>Send <MoneyTicker value={confirmAmount} /></>} onPrimary={() => void confirm()} secondaryLabel="Back" onSecondary={back} /> : null}
       {step === "error" ? <MoneyModalFooter primaryLabel="Try again" onPrimary={() => { setError(null); setStep("confirm"); }} secondaryLabel="Back" onSecondary={back} /> : null}
     </MoneyModal>
   );
+}
+
+function RecentRecipients({ recipients, onSelect }: { recipients: ReadonlyArray<RecentTransferRecipient>; onSelect: (address: `0x${string}`) => void }) {
+  return <div role="group" aria-labelledby="send-recent-recipients-label" className="grid gap-1">
+    <p id="send-recent-recipients-label" className="px-1 text-sm text-muted-foreground">Recent recipients</p>
+    {recipients.map((recipient) => <Item
+      key={recipient.address}
+      render={<Button variant="ghost" press="none" />}
+      className="flex-nowrap items-center text-left"
+      onClick={() => onSelect(recipient.address)}
+    >
+      <ItemContent className="min-w-0">
+        <ItemTitle>{recipient.name ?? formatAddress(recipient.address)}</ItemTitle>
+        {recipient.name ? <ItemDescription lines={1}>{formatAddress(recipient.address)}</ItemDescription> : null}
+      </ItemContent>
+      <ItemActions aria-hidden="true"><ChevronRight className="size-4 text-muted-foreground" /></ItemActions>
+    </Item>)}
+  </div>;
 }
 
 function CashoutItem({ binding, onSelect }: { binding: FundingOfframpBinding; onSelect: () => void }) {

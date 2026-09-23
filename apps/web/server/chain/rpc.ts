@@ -3,6 +3,7 @@ import "server-only";
 import { BASE_CHAIN_ID } from "@/shared/assets/base";
 
 export const DEFAULT_BASE_RPC_URL = "https://mainnet.base.org";
+export const DEFAULT_ETHEREUM_RPC_URL = "https://ethereum.reth.rs/rpc";
 export const BASE_RPC_TIMEOUT_MS = 6_000;
 export const UINT256_MAX = (BigInt(1) << BigInt(256)) - BigInt(1);
 
@@ -92,22 +93,13 @@ export function inspectBaseRpcUrl(
 export function resolveBaseRpcUrl(
   configuredUrl: string | undefined = process.env.BASE_RPC_URL,
 ): string {
-  const rawUrl = configuredUrl?.trim() || DEFAULT_BASE_RPC_URL;
-  const url = parseRpcUrl(rawUrl);
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new BaseRpcError("BASE_RPC_URL must use HTTP or HTTPS.");
-  }
-  if (url.protocol === "http:" && !isLoopbackHostname(url.hostname)) {
-    throw new BaseRpcError(
-      "Insecure BASE_RPC_URL values are allowed only for loopback development.",
-    );
-  }
-  if (url.username || url.password || url.hash) {
-    throw new BaseRpcError(
-      "BASE_RPC_URL must not contain user info or a URL fragment.",
-    );
-  }
-  return url.toString().replace(/\/$/, "");
+  return resolveRpcUrl(configuredUrl, DEFAULT_BASE_RPC_URL, "BASE_RPC_URL");
+}
+
+export function resolveEthereumRpcUrl(
+  configuredUrl: string | undefined = process.env.ETHEREUM_RPC_URL,
+): string {
+  return resolveRpcUrl(configuredUrl, DEFAULT_ETHEREUM_RPC_URL, "ETHEREUM_RPC_URL");
 }
 
 export async function baseRpc(
@@ -314,11 +306,34 @@ function rpcErrorMessage(error: Record<string, unknown> | null): string {
     : "Base RPC rejected the request.";
 }
 
-function parseRpcUrl(rawUrl: string): URL {
+function resolveRpcUrl(
+  configuredUrl: string | undefined,
+  fallbackUrl: string,
+  variableName: "BASE_RPC_URL" | "ETHEREUM_RPC_URL",
+): string {
+  const rawUrl = configuredUrl?.trim() || fallbackUrl;
+  const url = parseRpcUrl(rawUrl, variableName);
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new BaseRpcError(`${variableName} must use HTTP or HTTPS.`);
+  }
+  if (url.protocol === "http:" && !isLoopbackHostname(url.hostname)) {
+    throw new BaseRpcError(
+      `Insecure ${variableName} values are allowed only for loopback development.`,
+    );
+  }
+  if (url.username || url.password || url.hash) {
+    throw new BaseRpcError(
+      `${variableName} must not contain user info or a URL fragment.`,
+    );
+  }
+  return url.toString().replace(/\/$/, "");
+}
+
+function parseRpcUrl(rawUrl: string, variableName = "BASE_RPC_URL"): URL {
   try {
     return new URL(rawUrl);
   } catch (error) {
-    throw new BaseRpcError("BASE_RPC_URL must be a valid URL.", { cause: error });
+    throw new BaseRpcError(`${variableName} must be a valid URL.`, { cause: error });
   }
 }
 

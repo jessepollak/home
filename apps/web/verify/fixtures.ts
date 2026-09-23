@@ -1,6 +1,7 @@
 import { balancesSnapshot } from "../tests/browser/balances-fixtures";
 
 const owner = "0x1111111111111111111111111111111111111111";
+const recentRecipient = "0x2211d1d0020daea8039e46cf1367962070d77da9";
 
 export function fixtureRoutes() {
   const balances = balancesSnapshot("US");
@@ -20,6 +21,11 @@ export function fixtureRoutes() {
     ["**/api/client-performance", { ok: true }],
     ["**/api/funding/providers**", { providers: [] }],
     ["**/api/funding/offramp/orders**", { version: 3, recoveryEligible: false, orders: [] }],
+    ["**/api/transfers/recipient-name**", { version: 1, name: "jesse.base.eth", address: recentRecipient }],
+    ["**/api/transfers/recent-recipients**", {
+      version: 1,
+      recipients: [{ address: recentRecipient, name: "jesse.base.eth" }],
+    }],
     ["**/api/basename-profile**", { profile: null }],
   ] as const;
 }

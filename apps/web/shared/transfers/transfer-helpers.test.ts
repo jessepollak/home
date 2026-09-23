@@ -12,6 +12,7 @@ import {
 import { TransferExecutionError } from "./types";
 
 const RECIPIENT = "0x2222222222222222222222222222222222222222" as const;
+const CHECKSUMMED_RECIPIENT = "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9" as const;
 
 describe("transfer amount helpers", () => {
   test("parses human amounts into exact integer base units without floating point", () => {
@@ -31,6 +32,8 @@ describe("transfer amount helpers", () => {
     }
     expect(() => normalizeTransferRecipient("0x1234")).toThrow(TransferExecutionError);
     expect(() => normalizeTransferRecipient("0x0000000000000000000000000000000000000000")).toThrow(TransferExecutionError);
+    expect(normalizeTransferRecipient("0x2211d1d0020daea8039e46cf1367962070d77da9"))
+      .toBe("0x2211d1D0020DAEA8039E46Cf1367962070d77DA9");
   });
 
   test("encodes catalog ERC-20 transfers with the token as target", () => {
@@ -67,6 +70,26 @@ describe("transferRequestFromAction re-validates a resumed send against the cata
   });
   const action = (calls: Array<{ to: `0x${string}`; data: `0x${string}`; value: string }>, amounts: ReturnType<typeof amount>[], kind = "send") => ({
     id: "a", kind: kind as "send", title: "Send", calls, amounts, warnings: [], expiresAt: "2099-01-01T00:00:00.000Z", owner: OWNER, createdAt: "2026-09-12T00:00:00.000Z",
+  });
+
+  test("resumes a legacy draft whose checksum address casing was preserved in calldata", () => {
+    const call = erc20(usdc, BigInt(1000000), CHECKSUMMED_RECIPIENT);
+    const mixedCaseCall = {
+      ...call,
+      data: call.data.replace(
+        CHECKSUMMED_RECIPIENT.slice(2).toLowerCase(),
+        CHECKSUMMED_RECIPIENT.slice(2),
+      ) as `0x${string}`,
+    };
+
+    expect(transferRequestFromAction(action(
+      [mixedCaseCall],
+      [amount(usdc, "1000000")],
+    ))).toEqual({
+      assetId: "usdc",
+      recipient: CHECKSUMMED_RECIPIENT,
+      amountBaseUnits: "1000000",
+    });
   });
 
   test.each([

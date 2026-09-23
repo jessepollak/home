@@ -43,6 +43,10 @@ export function resolveLiveRecipient(value: string | undefined): RecipientResolu
   };
 }
 
+export function recipientFillValue(recipient: LiveRecipient | null): string | null {
+  return recipient === null ? null : recipient.name ?? recipient.address;
+}
+
 export function isRecipientFillStep(step: ReachStep): step is Extract<ReachStep, { kind: "fill" }> {
   return step.kind === "fill" && step.label === "To" && step.value === "<recipient>";
 }

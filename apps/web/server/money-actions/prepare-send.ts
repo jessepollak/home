@@ -2,15 +2,21 @@ import "server-only";
 
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { MoneyActionDraft, PreparedMoneyAction } from "@/shared/money-actions/types";
+import { normalizeTransferRecipientName } from "@/shared/transfers/recipient-name";
 import {
   assertTransferRequest,
   encodeErc20Transfer,
   getTransferAsset,
+  normalizeTransferRecipient,
 } from "@/shared/transfers/transfer-helpers";
 import { TransferExecutionError, type TransferRequest } from "@/shared/transfers/types";
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
 import { issueMoneyAction } from "./issue";
 import { privateError, privateJson } from "@/server/http/private-response";
+import {
+  resolveTransferRecipientName,
+  type TransferRecipientNameResolver,
+} from "@/server/transfers/recipient-resolver";
 
 /** @public exercised by server/money-actions/prepare-send.test.ts */
 export function createPrepareSendMoneyActionHandler(dependencies: {
@@ -32,7 +38,7 @@ export function createPrepareSendMoneyActionHandler(dependencies: {
       assertTransferRequest(body);
       const action = dependencies.issue
         ? await dependencies.issue(session, body)
-        : await issueSendMoneyAction(session, body, dependencies.now?.() ?? new Date());
+        : await issueSendMoneyAction(session, body, dependencies.now?.() ?? new Date(), { signal: request.signal });
       return privateJson(action, 201);
     } catch {
       return privateError("INVALID_SEND_REQUEST", "Use a valid Base recipient, asset, and integer amount.", 400);
@@ -44,31 +50,34 @@ export async function issueSendMoneyAction(
   session: VerifiedAccountSession,
   request: TransferRequest,
   now = new Date(),
+  options: { signal?: AbortSignal; resolveName?: TransferRecipientNameResolver } = {},
 ): Promise<PreparedMoneyAction> {
-  return issueMoneyAction(session, buildSendMoneyActionDraft(request, now));
+  const normalizedRequest = normalizeSendRequest(request);
+  await assertRecipientNameBoundary(normalizedRequest, options.resolveName ?? resolveTransferRecipientName, options.signal);
+  return issueMoneyAction(session, buildSendMoneyActionDraft(normalizedRequest, now));
 }
 
 export function buildSendMoneyActionDraft(
   request: TransferRequest,
   now = new Date(),
 ): MoneyActionDraft {
-  assertTransferRequest(request);
-  const call = buildServerTransferCall(request);
-  const asset = getTransferAsset(request.assetId);
+  const normalizedRequest = normalizeSendRequest(request);
+  const call = buildServerTransferCall(normalizedRequest);
+  const asset = getTransferAsset(normalizedRequest.assetId);
   if (!asset) throw new TransferExecutionError("invalid-request");
   return {
     kind: "send",
     title: `Send ${asset.symbol}`,
     calls: [{ to: call.to, data: call.data, value: call.value.toString(10) }],
     amounts: [{
-      assetId: request.assetId,
+      assetId: normalizedRequest.assetId,
       symbol: asset.symbol,
       decimals: asset.decimals,
-      amountBaseUnits: request.amountBaseUnits,
+      amountBaseUnits: normalizedRequest.amountBaseUnits,
       direction: "spend",
     }],
     warnings: [
-      `Recipient: ${request.recipient}`,
+      `Recipient: ${normalizedRequest.recipient}`,
       `Execution target: ${call.to}`,
       "Your wallet will show the Base network fee before you sign.",
     ],
@@ -85,11 +94,40 @@ export function buildServerTransferCall(request: TransferRequest): {
   const asset = getTransferAsset(request.assetId);
   if (!asset) throw new TransferExecutionError("invalid-request");
   const amount = BigInt(request.amountBaseUnits);
+  const recipient = normalizeTransferRecipient(request.recipient);
   if (asset.kind === "native") {
-    return { to: request.recipient, value: amount, data: "0x" };
+    return { to: recipient, value: amount, data: "0x" };
   }
   if (!asset.contractAddress) throw new TransferExecutionError("invalid-request");
-  return encodeErc20Transfer(asset.contractAddress, request.recipient, amount);
+  return encodeErc20Transfer(asset.contractAddress, recipient, amount);
+}
+
+async function assertRecipientNameBoundary(
+  request: TransferRequest,
+  resolveName: TransferRecipientNameResolver,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (request.recipientName === undefined) return;
+  const name = normalizeTransferRecipientName(request.recipientName);
+  if (!name) throw new TransferExecutionError("invalid-request");
+  const resolved = await resolveName(name, { signal });
+  if (
+    resolved === null ||
+    normalizeTransferRecipient(resolved) !== normalizeTransferRecipient(request.recipient)
+  ) {
+    throw new TransferExecutionError("invalid-request");
+  }
+}
+
+function normalizeSendRequest(request: TransferRequest): TransferRequest {
+  assertTransferRequest(request);
+  return {
+    ...request,
+    recipient: normalizeTransferRecipient(request.recipient),
+    ...(request.recipientName === undefined
+      ? {}
+      : { recipientName: normalizeTransferRecipientName(request.recipientName)! }),
+  };
 }
 
 function isTransferRequest(value: unknown): value is TransferRequest {
@@ -97,10 +135,12 @@ function isTransferRequest(value: unknown): value is TransferRequest {
     value &&
     typeof value === "object" &&
     !Array.isArray(value) &&
-    Object.keys(value).every((key) => ["assetId", "recipient", "amountBaseUnits"].includes(key)) &&
+    Object.keys(value).every((key) => ["assetId", "recipient", "amountBaseUnits", "recipientName"].includes(key)) &&
     typeof (value as TransferRequest).assetId === "string" &&
     typeof (value as TransferRequest).recipient === "string" &&
-    typeof (value as TransferRequest).amountBaseUnits === "string",
+    typeof (value as TransferRequest).amountBaseUnits === "string" &&
+    ((value as TransferRequest).recipientName === undefined ||
+      typeof (value as TransferRequest).recipientName === "string"),
   );
 }
 

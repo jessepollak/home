@@ -92,7 +92,7 @@ async function prepare(
   dependencies: { prepareSavings?: typeof prepareSavingsAction },
 ) {
   if (kind === "send") {
-    return issueSendMoneyAction(session, params as TransferRequest);
+    return issueSendMoneyAction(session, params as TransferRequest, new Date(), { signal });
   }
   if (kind === "cash-out") {
     return issueMoneyAction(session, await prepareCashoutAction(session, params, signal));
