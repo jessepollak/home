@@ -1,15 +1,33 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import { recentSendRecipientAddresses } from "@/shared/transfers/recent-recipients";
 import { getTransferAsset } from "@/shared/transfers/transfer-helpers";
-import type { TransferRequest } from "@/shared/transfers/types";
+import { TransferExecutionError, type TransferRequest } from "@/shared/transfers/types";
+import { setActionsStoreForTests, type ActionsStore } from "@/server/actions/store";
 import {
   buildSendMoneyActionDraft,
   createPrepareSendMoneyActionHandler,
+  issueSendMoneyAction,
 } from "./prepare-send";
 
 const OWNER = "0x1111111111111111111111111111111111111111" as const;
 const RECIPIENT = "0x2222222222222222222222222222222222222222" as const;
+const JESSE = "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9" as const;
+const USDC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 const NOW = new Date("2026-09-13T12:00:00.000Z");
+
+type InsertInput = Parameters<ActionsStore["insert"]>[0];
+
+afterEach(() => setActionsStoreForTests(null));
+
+function session(): VerifiedAccountSession {
+  return {
+    user: { subject: "prepare-send-test-user" },
+    smartAccount: { address: OWNER, chainId: 8453 },
+    accountProvider: "cdp-embedded",
+  };
+}
 
 function authorized() {
   return Response.json({
@@ -19,14 +37,14 @@ function authorized() {
   });
 }
 
-function request(assetId: string, amountBaseUnits: string): Request {
+function request(assetId: string, amountBaseUnits: string, extra: Record<string, unknown> = {}): Request {
   return new Request("https://home.test/api/money-actions/send", {
     method: "POST",
     headers: {
       "content-type": "application/json",
       [ACCOUNT_PROVIDER_HEADER]: "cdp-embedded",
     },
-    body: JSON.stringify({ assetId, recipient: RECIPIENT, amountBaseUnits }),
+    body: JSON.stringify({ assetId, recipient: RECIPIENT, amountBaseUnits, ...extra }),
   });
 }
 
@@ -71,6 +89,17 @@ describe("prepare send", () => {
     });
   }
 
+  test("authors a recipient warning the recent-recipient list can derive", () => {
+    const draft = buildSendMoneyActionDraft({
+      assetId: "usdc",
+      recipient: JESSE,
+      amountBaseUnits: "1000000",
+    }, NOW);
+
+    expect(recentSendRecipientAddresses([{ kind: draft.kind, summary: { warnings: draft.warnings } }]))
+      .toEqual([JESSE]);
+  });
+
   test.each([
     ["unknown", "unregistered asset"],
     ["recognized:0x9999999999999999999999999999999999999999", "recognized-only asset"],
@@ -89,5 +118,107 @@ describe("prepare send", () => {
         message: "Use a valid Base recipient, asset, and integer amount.",
       },
     });
+  });
+
+  test("re-resolves a named recipient and stores the resolved checksummed address", async () => {
+    const stored: InsertInput[] = [];
+    setActionsStoreForTests({
+      insert: async (input: InsertInput) => { stored.push(input); },
+    } as unknown as ActionsStore);
+    const resolved: Array<{ name: string; signal: AbortSignal | undefined }> = [];
+
+    const action = await issueSendMoneyAction(session(), {
+      assetId: "usdc",
+      recipient: JESSE,
+      amountBaseUnits: "1000000",
+      recipientName: "JESSE.BASE.ETH",
+    }, new Date(), {
+      signal: AbortSignal.timeout(1_000),
+      resolveName: async (name, options) => {
+        resolved.push({ name, signal: options?.signal });
+        return name === "jesse.base.eth" ? JESSE : null;
+      },
+    });
+
+    expect(resolved.map((entry) => entry.name)).toEqual(["jesse.base.eth"]);
+    expect(resolved[0]?.signal).toBeInstanceOf(AbortSignal);
+    expect(action.calls[0]?.to).toBe(USDC);
+    expect(action.calls[0]?.data).toContain(JESSE.slice(2).toLowerCase());
+    expect(stored[0]?.summary.warnings[0]).toBe(`Recipient: ${JESSE}`);
+  });
+
+  test("refuses a named send whose resolution does not match the submitted address", async () => {
+    setActionsStoreForTests({ insert: async () => {} } as unknown as ActionsStore);
+
+    await expect(issueSendMoneyAction(session(), {
+      assetId: "usdc",
+      recipient: RECIPIENT,
+      amountBaseUnits: "1000000",
+      recipientName: "jesse.base.eth",
+    }, new Date(), { resolveName: async () => JESSE })).rejects.toMatchObject({
+      reason: "invalid-request",
+    } satisfies Partial<TransferExecutionError>);
+  });
+
+  test("refuses a named send the server resolver cannot confirm", async () => {
+    setActionsStoreForTests({ insert: async () => {} } as unknown as ActionsStore);
+
+    await expect(issueSendMoneyAction(session(), {
+      assetId: "usdc",
+      recipient: JESSE,
+      amountBaseUnits: "1000000",
+      recipientName: "jesse.base.eth",
+    }, new Date(), { resolveName: async () => null })).rejects.toMatchObject({
+      reason: "invalid-request",
+    } satisfies Partial<TransferExecutionError>);
+  });
+
+  test("refuses a malformed recipient name before issuing anything", async () => {
+    let inserts = 0;
+    setActionsStoreForTests({
+      insert: async () => { inserts += 1; },
+    } as unknown as ActionsStore);
+
+    await expect(issueSendMoneyAction(session(), {
+      assetId: "usdc",
+      recipient: JESSE,
+      amountBaseUnits: "1000000",
+      recipientName: "jesse",
+    }, new Date(), { resolveName: async () => JESSE })).rejects.toMatchObject({
+      reason: "invalid-request",
+    } satisfies Partial<TransferExecutionError>);
+    expect(inserts).toBe(0);
+  });
+
+  test("does not consult the resolver for a plain address send", async () => {
+    setActionsStoreForTests({ insert: async () => {} } as unknown as ActionsStore);
+    let calls = 0;
+
+    const action = await issueSendMoneyAction(session(), {
+      assetId: "usdc",
+      recipient: RECIPIENT,
+      amountBaseUnits: "1000000",
+    }, new Date(), {
+      resolveName: async () => {
+        calls += 1;
+        return RECIPIENT;
+      },
+    });
+
+    expect(calls).toBe(0);
+    expect(action.kind).toBe("send");
+  });
+
+  test("returns 400 for a malformed name or an unsupported request key", async () => {
+    const handler = createPrepareSendMoneyActionHandler({
+      authorize: async () => authorized(),
+      issue: async () => { throw new Error("malformed request reached issuance"); },
+    });
+
+    const malformedName = await handler(request("usdc", "1", { recipientName: "jesse" }));
+    const extraKey = await handler(request("usdc", "1", { recipientName: "jesse.base.eth", memo: "hi" }));
+
+    expect(malformedName.status).toBe(400);
+    expect(extraKey.status).toBe(400);
   });
 });

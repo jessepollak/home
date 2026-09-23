@@ -157,7 +157,7 @@ describe("SendDialog Peer cash-out", () => {
     expect(document.body.textContent).toContain("≈ 1 USD");
     expect(document.body.textContent).toContain("About 1 min");
     expect(prepares).toEqual([{ kind: "cash-out", params: expect.objectContaining({ payoutHandle: "$alice", canonicalHandleConfirmation: "alice", amountBaseUnits: "1000000" }) }]);
-    await waitFor(() => expect(fetches).toHaveLength(2));
+    await waitFor(() => expect(fetches.filter((url) => url.startsWith("/api/funding"))).toHaveLength(2));
   });
 
   test("renders cash-out handle fields with input hints", async () => {
@@ -221,6 +221,7 @@ describe("SendDialog Peer cash-out", () => {
       <SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-peer-empty-recovery" regionId="US"
         availableAssets={[]}
         fetchAccountResource={async (url) => {
+          if (url.startsWith("/api/transfers/recent-recipients")) return { version: 1, recipients: [] };
           if (url.startsWith("/api/funding/providers")) return await providerRead;
           orderReads += 1;
           return { version: 3, recoveryEligible: true, orders: [] };

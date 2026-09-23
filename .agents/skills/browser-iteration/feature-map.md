@@ -16,7 +16,9 @@ Fixture baseline referenced throughout: `HOME_PLAYWRIGHT_SMOKE=1`, rootless
 `bun --cwd apps/web dev -- --port <port>` (`.agents/skills/browser-iteration/SKILL.md` §Factory loop),
 session seed `sessionStorage["home:playwright-smoke:signed-in"]="1"` + `localStorage["home.country.v1"]`
 (tests/browser/smoke.pw.ts `seedSignedInSession`), API interception `installApiFixtures`
-(tests/browser/smoke.pw.ts), balances snapshots from tests/browser/balances-fixtures.ts.
+(tests/browser/smoke.pw.ts); the send destination step's name and recent-recipient fixtures live in
+tests/browser/send-recipients.pw.ts `installRecipientFixtures`, with matching static responses in
+verify/fixtures.ts for the surface verifier. Balances snapshots from tests/browser/balances-fixtures.ts.
 
 ## Surface index
 
@@ -30,7 +32,7 @@ session seed `sessionStorage["home:playwright-smoke:signed-in"]="1"` + `localSto
 | `save` | savings | `/save`, `?flow=save-deposit`, `?flow=save-withdraw` | same | `HOME_PLAYWRIGHT_SMOKE=1`; `/api/savings/vaults` fixture present in smoke.pw.ts `installApiFixtures` | Home panel Save card (`SavingsTeaser`), goto `/save?flow=save-deposit` |
 | `borrow` | borrowing | `/borrow`, `/borrow/<marketId>` | same | session + borrow market fixtures | Home panel Borrow card (`AuthenticatedBorrowTeaser`), goto path |
 | `invest` | invest | `/invest`, `/invest/stocks|crypto|memes`, `/invest/<assetId>` | same | session + `/api/invest/discover`, `/api/market-prices` fixtures | Main navigation `Invest` button (primary-navigation.tsx), goto path |
-| `send` (money modal) | transfers/money-modal | overlay on any shell route: `?flow=send` | signed-in (button disabled pre-boundary, transfer-actions.tsx) | signed-in seed + `/api/actions/prepare`, `[id]/confirm`, `[id]/handle` fixtures | `Send` button, `data-action-trigger` (transfer-actions.tsx) |
+| `send` (money modal) | transfers/money-modal | overlay on any shell route: `?flow=send` | signed-in (button disabled pre-boundary, transfer-actions.tsx) | signed-in seed + `/api/actions/prepare`, `[id]/confirm`, `[id]/handle`, `/api/transfers/recipient-name`, `/api/transfers/recent-recipients` fixtures | `Send` button, `data-action-trigger` (transfer-actions.tsx) |
 | `add-money` (funding) | funding | overlay on any shell route: `?flow=add-money` or `?flow=receive`; `/fund` redirects to `/home?add-money=1` (app/fund/page.tsx) | signed-in for methods; signed-out shows `Sign in` link (add-money-dialog.tsx) | provider fixture (`/api/funding/providers`); smoke IDRX fixture in smoke.pw.ts | `Add money` button (funding-actions.tsx) |
 | `cash-out` (Peer offramp) | transfers/funding | inner steps of `send`: payout/handle/handle-confirm | signed-in, region with offramp provider | PEER_OFFRAMP stub in smoke.pw.ts `openPeerCashOutHandle` | `Send` → amount → `Continue` → `Send to Zelle, Venmo, Cash App and more` (send-dialog.tsx `CashoutItem`) |
 | `account-settings` | account | `/?account=settings` (dashboards commit `?account=settings`, shell.tsx `openAccountSettings`) | signed-in verified | signed-in seed | header profile mark (`ProfileMark`, shell-chrome.tsx) → settings; or goto `/home?account=settings` |
@@ -39,7 +41,7 @@ session seed `sessionStorage["home:playwright-smoke:signed-in"]="1"` + `localSto
 | `dev-ui` | coverage/dev | `/dev/ui` | public only when `HOME_PLAYWRIGHT_SMOKE=1` or dev (app/dev/ui/page.tsx) | `HOME_PLAYWRIGHT_SMOKE=1` | goto `/dev/ui` |
 | `toasts` | home | any dashboard route after action | signed-in | action fixture (smoke.pw.ts) | action completion (action-toasts.tsx) |
 
-API routes (no UI; listed for request-level assertions): `app/api/{access,access/logout,session,balances,activity,client-errors,client-performance,actions,actions/prepare,actions/[id],actions/[id]/confirm,actions/[id]/handle,auth/base/{nonce,verify,logout},borrow,borrow/markets/[marketId],funding/{providers,quotes,orders,orders/[id],offramp/orders,provider-customers,provider-customers/verification,webhooks/[provider]},invest/discover,market-prices,market-prices/history,savings/vaults,trades,webhooks/cdp}`. `/api/actions/*`, `/api/activity`, `/api/balances`, `/api/borrow`, and `/api/borrow/markets/[marketId]` require `authorizeSession`; provider and public route authorization remains route-specific.
+API routes (no UI; listed for request-level assertions): `app/api/{access,access/logout,session,balances,activity,client-errors,client-performance,actions,actions/prepare,actions/[id],actions/[id]/confirm,actions/[id]/handle,auth/base/{nonce,verify,logout},borrow,borrow/markets/[marketId],funding/{providers,quotes,orders,orders/[id],offramp/orders,provider-customers,provider-customers/verification,webhooks/[provider]},invest/discover,market-prices,market-prices/history,savings/vaults,trades,transfers/{recipient-name,recent-recipients},webhooks/cdp}`. `/api/actions/*`, `/api/activity`, `/api/balances`, `/api/borrow`, `/api/borrow/markets/[marketId]`, and `/api/transfers/*` require `authorizeSession`; provider and public route authorization remains route-specific.
 
 ## Live hosts
 
@@ -56,6 +58,8 @@ each call. `verify --live` composes this list with the base host, the CDP provid
 - `checkout.idrx.co` — IDRX checkout redirect (`apps/web/server/funding/providers/idrx/manifest.ts:6`).
 - `skala.ripio.com` — Ripio onramp API and payment redirect (`apps/web/server/funding/providers/ripio/manifest.ts:5`).
 - `kyc.ripio.com` — Ripio customer KYC handoff (`apps/web/server/funding/providers/ripio/manifest.ts:6`).
+
+Recipient-name resolution is server-side (`apps/web/server/transfers/recipient-resolver.ts`), so the browser still calls only `api.ensideas.com` for names; the resolver origin is not a new browser host.
 
 ## Live expected failures
 
@@ -207,7 +211,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 
 ### `send` (money modal — steps individually)
 - **Live**: confirm
-- **Owned paths**: `apps/web/client/transfers/send-dialog.tsx`, `apps/web/client/money-modal/**`, `apps/web/app/api/actions/**`, `apps/web/server/actions/**`, `apps/web/server/money-actions/**`
+- **Owned paths**: `apps/web/client/transfers/send-dialog.tsx`, `apps/web/client/money-modal/**`, `apps/web/shared/transfers/**`, `apps/web/app/api/actions/**`, `apps/web/app/api/transfers/**`, `apps/web/server/actions/**`, `apps/web/server/money-actions/**`, `apps/web/server/transfers/**`
 - **Confirm labels**: "Send $<amount>"
 - **Reach** (smoke-verified):
   1. Seed the signed-in fixture and install API fixtures.
@@ -215,6 +219,11 @@ request failure not listed here still fails the run, and unlisted hosts still fa
   3. `expect "Recognized Coin"`
   4. `click "Send"`
   5. `expect "Send"`
+  6. `click "1"`
+  7. `click "Continue"`
+  8. `expect "Recent recipients"`
+  9. `fill "To" "jesse.base.eth"`
+  10. `expect "Resolves to"`
 - **Reach (live)**:
   1. `goto "/home"`
   2. `click "Send"`
@@ -226,18 +235,18 @@ request failure not listed here still fails the run, and unlisted hosts still fa
   8. `expect "Confirm"`
   9. `click "Send $0.10"`
   10. `expect "Sent $0.10"`
-- **Notes**: The dialog is labelled by `send-title`. Live mode replaces `<recipient>` with the effective recipient only in that `To` fill step; any other step containing `<recipient>` refuses before browser launch. `--recipient` accepts a bare 40-hex `0x` address other than the zero address, or the name `jesse.base.eth` matched case-insensitively with surrounding whitespace ignored (mapped to the pinned `0x2211d1d0020daea8039e46cf1367962070d77da9`), and defaults to that pinned recipient when omitted; every other value refuses before browser launch. The product does not resolve recipient names yet (#720). Before the gated `Send $1.00` confirm click the verifier requires exactly one review `To` row to show the full recipient address (case-insensitive) and stops with `recipientMismatch` otherwise.
+- **Notes**: The dialog is labelled by `send-title`. Live mode replaces `<recipient>` with the effective recipient's **name** only in that `To` fill step, so the run exercises the product's own resolution path; any other step containing `<recipient>` refuses before browser launch. `--recipient` accepts a bare 40-hex `0x` address other than the zero address, or the name `jesse.base.eth` matched case-insensitively with surrounding whitespace ignored (its pinned address is `0x2211d1d0020daea8039e46cf1367962070d77da9`), and defaults to that pinned name when omitted; every other value refuses before browser launch. Before the gated `Send $0.10` confirm click the verifier requires exactly one review `To` row to show the full **pinned address** of the effective recipient (case-insensitive) and stops with `recipientMismatch` otherwise. Fixture-backed coverage for the destination step's name and recent-recipient behavior is tests/browser/send-recipients.pw.ts (`installRecipientFixtures`); the verifier's fixture mode reaches the same steps through verify/fixtures.ts.
   1. **amount**: type digits via keypad buttons named `0`–`9`, `Decimal point`, `Delete last digit` (`role="group" aria-label="Amount keypad"`, client/money-modal/amount.tsx:581–601); quick chips group `Quick amounts` (`$10`/`$25`/`Max` when priced, amount.tsx:508+). Primary `Continue` disabled until positive amount (`isPositiveDecimalAmount`).
-  2. **destination**: step title stays `Send`; field label `To` (AddressField `id="send-recipient"`); primary `Continue` disabled until `isTransferRecipient` (send-dialog.tsx).
+  2. **destination**: step title stays `Send`; field label `To` (AddressField `id="send-recipient"`); primary `Continue` disabled until the typed value is a valid `0x` recipient or a resolved name (send-dialog.tsx `effectiveRecipient`). A `.eth` Basename/ENS value is resolved through `GET /api/transfers/recipient-name?name=…` and shows `Resolves to <full address>` under the field; while it resolves the field is described by `Resolving <name>…`; an unresolved or unsupported value shows an inline `role="alert"`/hint and never enables `Continue`. The account's own recent send recipients render below the `Or` separator under the group label `Recent recipients` (labelled by reverse-resolved name with the truncated address beneath, or the truncated address alone) and selecting one fills `To`.
   3. **confirm**: dialog title becomes `Confirm` (send-dialog.tsx `modalTitle`); summary via `MoneyConfirmSummary` rows `To` (CopyableValue full address), `Asset`, `Network` = `Base` (send-dialog.tsx); primary button `Send $1.00` where amount is `MoneyTicker(confirmAmount)` — smoke clicks `getByRole("button", { name: "Send $1.00" })`; secondary `Back`.
   4. **pending**: `Waiting for your wallet…` status (send-dialog.tsx); close disabled.
   5. **error**: message + `Try again` (primary) and `Back`; the "ambiguous handle response retries without a second wallet dispatch" test asserts `Try again` then `Send $1.00` again and `sessionStorage["home:playwright-smoke:dispatch-count"] === "1"` (smoke.pw.ts).
   6. **success/status**: dialog closes; toast `Sent $1.00 to 0x2222…222222` (exact text, smoke.pw.ts; toast owned by client/home/action-toasts.tsx).
-- **Expect**: prepared action via `POST /api/actions/prepare`; confirm/handle via `/api/actions/[id]/{confirm,handle}` (smoke fixtures); dialog uses `data-money-sheet` / `data-money-sheet-grabber` (client/money-modal/money-modal.tsx) and reduced-motion transitions are `0s` (`drawer becomes instant…` smoke test).
-- **States**: asset picker (`aria-label="Asset"`, amount.tsx:443) with multiple assets; no catalog balance → `No catalog balance is available to send.`; rejected/unknown wallet results via `messageForError` (send-dialog.tsx).
+- **Expect**: prepared action via `POST /api/actions/prepare` with a checksummed `0x` `recipient` and, for a name entry, `recipientName` re-resolved server-side (server rejects a name/address mismatch); recent recipients via `GET /api/transfers/recent-recipients` on dialog open, derived from this account's successfully dispatched durable send actions; confirm/handle via `/api/actions/[id]/{confirm,handle}` (smoke fixtures); dialog uses `data-money-sheet` / `data-money-sheet-grabber` (client/money-modal/money-modal.tsx) and reduced-motion transitions are `0s` (`drawer becomes instant…` smoke test).
+- **States**: asset picker (`aria-label="Asset"`, amount.tsx:443) with multiple assets; no catalog balance → `No catalog balance is available to send.`; rejected/unknown wallet results via `messageForError` (send-dialog.tsx); destination resolving/resolved/unresolved/unsupported-input states above; recent-recipients list empty (no confirmed sends) or populated; a superseded name resolution must not enable `Continue` (client/transfers/send-dialog-recipients.test.tsx).
 - **Evidence**: screenshots per step; DOM snapshot per step (re-snapshot after every material DOM change per SKILL.md); console/errors; startup and first-action marks.
 - **Perf budgets (initial)**: `shell:paint` ≤ 1_500 ms; `session:verified` ≤ 3_000 ms; `balances:painted` ≤ 3_500 ms; `action:first-interactive` ≤ 3_500 ms.
-- **Owned by**: `apps/web/client/transfers/send-dialog.tsx`, `apps/web/client/money-modal/`, `apps/web/server/actions/` (prepare/confirm/handle/list), routes `apps/web/app/api/actions/**`.
+- **Owned by**: `apps/web/client/transfers/send-dialog.tsx`, `apps/web/client/money-modal/`, `apps/web/shared/transfers/`, `apps/web/server/actions/` (prepare/confirm/handle/list), `apps/web/server/money-actions/`, `apps/web/server/transfers/`, routes `apps/web/app/api/actions/**` and `apps/web/app/api/transfers/**`.
 - **Unknowns**: none blocking; exact `MoneyConfirmSummary` fee row for sends (sends show no fee row — wallet shows fee; fixture `warnings` say `Network fee shown by wallet.`).
 
 ### `cash-out` (Peer offramp inner steps)
@@ -355,6 +364,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 
 **Reach depends on a live provider and cannot run against the fixture server** (needs a documented fixture or the provisioned verifier Live mode):
 - Base-account/CDP sign-in (`client/account/base-account-connector.tsx`, `cdp-*`), real Coinbase onramp/offramp providers via `/api/funding/providers`, `/api/funding/quotes`, `/api/funding/provider-customers`, and `/api/funding/webhooks/[provider]` (smoke uses hand-written IDRX/PEER stubs instead of a documented shared fixture).
+- Real Basename/ENS resolution and reverse labels: the fixture server serves `/api/transfers/recipient-name` and `/api/transfers/recent-recipients` from static bodies, so Base L2 Basename resolution, mainnet ENS resolution, and forward-verified reverse labels (`apps/web/server/transfers/recipient-resolver.ts`) are only exercised by verifier Live mode or a non-fixture run.
 - Invest `Memes` discovery (`/api/invest/discover`) and market prices (`/api/market-prices*`) when the fixture returns `{}` — smoke never asserts a meme shelf; treat as unknown rather than "empty".
 - `/api/webhooks/cdp` and trades (`/api/trades`, `client/trading/trade-actions.tsx` buttons are `disabled` — trading is not user-reachable today).
 

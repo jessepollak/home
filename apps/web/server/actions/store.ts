@@ -183,6 +183,24 @@ export class ActionsStore {
     );
   }
 
+  async listDispatchedSends(owner: MoneyActionOwner, limit: number): Promise<ActionRow[]> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+      throw new Error("The dispatched send limit must be between 1 and 100.");
+    }
+    const result = await this.sql.query<RawActionRow>(
+      `SELECT * FROM actions
+       WHERE owner_key = $1 AND kind = 'send' AND confirmed_at IS NOT NULL
+         AND (provider_handle IS NOT NULL OR transaction_hash IS NOT NULL OR handle_recorded_at IS NOT NULL)
+       ORDER BY confirmed_at DESC LIMIT $2`,
+      [actionOwnerKey(owner), limit],
+      { timeoutMs: 5_000 },
+    );
+    return result.rows.flatMap((row) => {
+      const normalized = normalizeActionRowOrNull(row);
+      return normalized ? [normalized] : [];
+    });
+  }
+
   async list(owner: MoneyActionOwner): Promise<ActionRow[]> {
     const key = actionOwnerKey(owner);
     await this.sql.query(

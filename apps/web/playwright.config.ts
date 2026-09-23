@@ -84,7 +84,7 @@ process.env.HOME_ACCESS_SIGNING_SECRET = accessSigningSecret;
 
 export default defineConfig({
   testDir: "./tests/browser",
-  testMatch: ["smoke.pw.ts", "landing-route.pw.ts", "access.pw.ts"],
+  testMatch: ["smoke.pw.ts", "send-recipients.pw.ts", "landing-route.pw.ts", "access.pw.ts"],
   fullyParallel: false,
   workers: 1,
   // Hosted runners are 3-5x slower and render fonts differently; a real failure

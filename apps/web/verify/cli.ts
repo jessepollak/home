@@ -36,6 +36,7 @@ import {
   parseUsdAmountFromLabel,
   partitionLiveFailures,
   payoutHandleRowError,
+  recipientFillValue,
   recipientPlaceholderError,
   recipientRowError,
   resolveClickPrefix,
@@ -510,7 +511,7 @@ const canonicalCashoutPayoutHandle = cashoutOperation === "cash-out" && liveCash
 const reachSteps = selectedReach
   .map((step): ReachStep =>
     isRecipientFillStep(step)
-      ? { ...step, value: live ? effectiveRecipient?.address ?? step.value : recipientOption ?? step.value }
+      ? { ...step, value: live ? recipientFillValue(effectiveRecipient) ?? step.value : recipientOption ?? step.value }
       : step,
   )
   .map((step): ReachStep =>
@@ -518,9 +519,7 @@ const reachSteps = selectedReach
       ? { ...step, value: cashoutHandleFillValue(step.label, liveCashoutHandle) }
       : step,
   );
-const toFillRecipient = live
-  ? reachSteps.flatMap((step) => (step.kind === "fill" && step.label === "To" ? [step.value] : []))[0] ?? null
-  : null;
+const expectedReviewRecipient = live ? effectiveRecipient?.address ?? null : null;
 if (live && outputInsideRepository(outputRoot, repositoryRoot)) {
   console.error("Live evidence --out must be outside the repository root.");
   process.exit(2);
@@ -854,8 +853,8 @@ try {
         ));
         const review = typeof evaluatedReview === "string" ? evaluatedReview : "";
         reviewText = review;
-        if (toFillRecipient !== null) {
-          recipientMismatch = recipientRowError(review, toFillRecipient);
+        if (expectedReviewRecipient !== null) {
+          recipientMismatch = recipientRowError(review, expectedReviewRecipient);
           if (recipientMismatch) {
             record.status = "failed";
             stoppedBefore = step.label;

@@ -83,6 +83,30 @@ describePostgres("actions schema and store", () => {
     expect((await store.recordHandle(baseOwner, id, { providerHandle: walletHandle }))?.provider_handle).toBe(walletHandle);
   });
 
+  test("lists bounded dispatched sends across history with owner isolation", async () => {
+    const older = randomUUID();
+    const newer = randomUUID();
+    const reviewedOnly = randomUUID();
+    const other = randomUUID();
+    for (const [id, actionOwner] of [[older, owner], [newer, owner], [reviewedOnly, owner], [other, otherOwner]] as const) {
+      await store.insert({ id, owner: actionOwner, kind: "send", summary, pending: { calls }, createdAt: "2020-01-01T00:00:00.000Z" });
+      await store.confirm(actionOwner, id);
+    }
+    await store.recordHandle(owner, older, { providerHandle: `0x${"11".repeat(32)}` });
+    await store.recordHandle(owner, newer, { transactionHash: `0x${"22".repeat(32)}` });
+    await store.recordHandle(otherOwner, other, { providerHandle: `0x${"33".repeat(32)}` });
+    await sql.query("UPDATE actions SET confirmed_at = CASE id WHEN $1 THEN $3::timestamptz WHEN $2 THEN $4::timestamptz ELSE $5::timestamptz END", [
+      older,
+      newer,
+      "2020-01-01T00:00:00.000Z",
+      "2020-02-01T00:00:00.000Z",
+      "2020-03-01T00:00:00.000Z",
+    ]);
+
+    expect((await store.listDispatchedSends(owner, 1)).map(({ id }) => id)).toEqual([newer]);
+    expect((await store.listDispatchedSends(owner, 10)).map(({ id }) => id)).toEqual([newer, older]);
+  });
+
   test("lazy GC deletes stale drafts and lists only recent confirmed owner rows", async () => {
     const stale = randomUUID();
     const recent = randomUUID();

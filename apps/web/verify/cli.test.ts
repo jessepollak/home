@@ -2,7 +2,14 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { readLedger } from "./ledger";
-import { buttonPresentPredicate, decideConfirmGate, enabledButtonPredicate, inputPresentPredicate, unexpectedNetworkHosts } from "./live";
+import {
+  buttonPresentPredicate,
+  decideConfirmGate,
+  enabledButtonPredicate,
+  inputPresentPredicate,
+  recipientFillValue,
+  unexpectedNetworkHosts,
+} from "./live";
 
 const repositoryRoot = resolve(import.meta.dir, "../../..");
 const home = resolve(tmpdir(), `home-verify-cli-test-${crypto.randomUUID()}`);
@@ -10,6 +17,7 @@ Bun.spawnSync(["mkdir", "-p", home]);
 const outsideOutput = resolve(home, "evidence");
 const addressA = "0x1111111111111111111111111111111111111111";
 const addressB = "0x2222222222222222222222222222222222222222";
+const pinnedRecipient = "0x2211d1d0020daea8039e46cf1367962070d77da9";
 const stateDirectory = resolve(home, ".home-verify", "example.com", "state");
 const statePath = resolve(stateDirectory, "browser-state.json");
 const fakeBinDirectory = resolve(home, "fake-bin");
@@ -95,6 +103,22 @@ function liveJson(surfaceId: string): {
   };
 }
 
+function sendLiveJson(): {
+  recipientMismatch: string | null;
+  stoppedBefore: string | null;
+  confirmIntent: unknown;
+} {
+  return JSON.parse(latestRunArtifact("send", "live.json")) as {
+    recipientMismatch: string | null;
+    stoppedBefore: string | null;
+    confirmIntent: unknown;
+  };
+}
+
+function recipientFills(): string[][] {
+  return fakeCalls().filter((call) => call[0] === "find" && call[1] === "label" && call[2] === "To");
+}
+
 function run(args: string[], extraEnv: Record<string, string | undefined> = {}, pathPrefix?: string, preload?: string) {
   const env: Record<string, string | undefined> = { ...process.env, HOME: home, CI: undefined, GITHUB_ACTIONS: undefined, ...extraEnv };
   if (pathPrefix) env.PATH = `${pathPrefix}:${env.PATH ?? ""}`;
@@ -154,6 +178,12 @@ describe("live CLI policy", () => {
       ["https://example.com/home", "https://unexpected.example.net/image.png"],
       ["example.com"],
     )).toEqual(["unexpected.example.net"]);
+  });
+
+  test("fills a name recipient from the pinned name and reviews its pinned address", () => {
+    expect(recipientFillValue({ name: "jesse.base.eth", address: pinnedRecipient })).toBe("jesse.base.eth");
+    expect(recipientFillValue({ name: null, address: addressB })).toBe(addressB);
+    expect(recipientFillValue(null)).toBeNull();
   });
 });
 
@@ -535,6 +565,57 @@ describe("live session state", () => {
     expect(calls.at(-1)?.[0]).toBe("close");
     expect(calls.at(-2)?.slice(0, 3)).toEqual(["state", "save", statePath]);
     expect(calls.filter((call) => call[0] === "state" && call[1] === "save").length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("live send recipient resolution", () => {
+  test("fills the requested name and rejects a review To row that does not show its pinned address", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const body = [
+      "Account",
+      "Show small balances",
+      "Confirm",
+      "$0.10",
+      "You're sending USDC",
+      "To",
+      pinnedRecipient,
+      "Asset",
+      "USDC",
+      "Network",
+      "Base",
+      "Send $0.10",
+    ].join("\n");
+
+    const result = run([
+      "send",
+      "--live",
+      "--base-url",
+      "https://example.com",
+      "--out",
+      outsideOutput,
+      "--recipient",
+      "jesse.base.eth",
+      "--allow-confirm",
+      "--account",
+      addressA,
+      "--max-usd",
+      "1",
+    ], {
+      ...fakeEnv(body, addressA),
+      FAKE_AGENT_BROWSER_AUTHENTICATED: "1",
+      FAKE_AGENT_BROWSER_BALANCE: "$26.89",
+      FAKE_AGENT_BROWSER_REVIEW: body.replace(pinnedRecipient, "jesse.base.eth"),
+    });
+
+    expect(recipientFills().map((call) => call.slice(0, 6)))
+      .toEqual([["find", "label", "To", "fill", "jesse.base.eth", "--exact"]]);
+    expect(result.exitCode).toBe(1);
+    const live = sendLiveJson();
+    expect(live.recipientMismatch).toBe(`The review “To” row shows “jesse.base.eth” instead of “${pinnedRecipient}”; confirmation was refused.`);
+    expect(live.stoppedBefore).toBe("Send $0.10");
+    expect(live.confirmIntent).toBeNull();
   });
 });
 

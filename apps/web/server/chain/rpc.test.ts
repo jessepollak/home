@@ -8,6 +8,7 @@ import {
   parseRpcDataWord,
   parseRpcQuantity,
   resolveBaseRpcUrl,
+  resolveEthereumRpcUrl,
 } from "./rpc";
 
 type FixtureRequest = { id: number; method: string; params: unknown[] };
@@ -31,8 +32,11 @@ describe("Base RPC client", () => {
   test("resolves safe endpoints", () => {
     expect(resolveBaseRpcUrl("")).toBe("https://mainnet.base.org");
     expect(resolveBaseRpcUrl("http://127.0.0.1:8545/")).toBe("http://127.0.0.1:8545");
+    expect(resolveEthereumRpcUrl("")).toBe("https://ethereum.reth.rs/rpc");
+    expect(resolveEthereumRpcUrl("https://ethereum.example.test/rpc/")).toBe("https://ethereum.example.test/rpc");
     expect(inspectBaseRpcUrl("")).toEqual({ source: "public-default", hostClass: "public-base", protocol: "https" });
     expect(() => resolveBaseRpcUrl("http://example.com")).toThrow("loopback");
+    expect(() => resolveEthereumRpcUrl("http://example.com")).toThrow("loopback");
   });
 
   test("unwraps singles and preserves exact quantities", async () => {

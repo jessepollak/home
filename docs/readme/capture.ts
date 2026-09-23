@@ -217,6 +217,7 @@ async function installFixtures(context: BrowserContext) {
     if (path === "/api/invest/discover") return json(route, investDiscover());
     if (path === "/api/borrow") return json(route, borrowSnapshot());
     if (path === "/api/actions") return json(route, { actions: [] });
+    if (path === "/api/transfers/recent-recipients") return json(route, { version: 1, recipients: [] });
 
     unexpectedRequests.push(`local API ${route.request().method()} ${requestUrl.href}`);
     await route.abort("blockedbyclient");

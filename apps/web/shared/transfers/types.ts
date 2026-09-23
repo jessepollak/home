@@ -20,6 +20,7 @@ export type TransferRequest = {
   assetId: TransferAssetId;
   recipient: `0x${string}`;
   amountBaseUnits: string;
+  recipientName?: string;
 };
 
 export type TransferFailureReason =
