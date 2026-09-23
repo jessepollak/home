@@ -52,7 +52,6 @@ type MoneyModalHeaderProps = {
   title: string;
   titleId: string;
   onClose: () => void;
-  closeDisabled?: boolean;
   closeLabel?: string;
 } & (
   | { onBack: () => void; backDisabled?: boolean; assetControl?: never }
@@ -60,9 +59,8 @@ type MoneyModalHeaderProps = {
 );
 
 export function MoneyModalHeader(props: MoneyModalHeaderProps) {
-  const { title, titleId, onClose, closeDisabled = false, closeLabel = "Close" } = props;
-  const pending = useContext(MoneyModalPendingContext);
-  const isCloseDisabled = pending || closeDisabled;
+  const { title, titleId, onClose, closeLabel = "Close" } = props;
+  const isCloseDisabled = useContext(MoneyModalPendingContext);
   const onBack = "onBack" in props ? props.onBack : undefined;
   const backDisabled = "backDisabled" in props ? props.backDisabled ?? false : false;
   const assetControl = "assetControl" in props ? props.assetControl : undefined;

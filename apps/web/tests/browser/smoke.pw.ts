@@ -103,7 +103,7 @@ function savingsVaultsBody(stateAsOf: string, fetchedAt: string) {
 
 async function installApiFixtures(
   page: Page,
-  options: { balances?: BalancesSnapshot | ((region: RegionId) => BalancesSnapshot) } = {},
+  options: { balances?: BalancesSnapshot } = {},
 ) {
   let status: ActionStatus = "unconfirmed";
   let balancesReads = 0;
@@ -141,9 +141,7 @@ async function installApiFixtures(
       resolveBalancesObserved?.();
       resolveBalancesObserved = null;
       if (delayedBalances) await delayedBalances;
-      const fixture = typeof options.balances === "function"
-        ? options.balances(region)
-        : options.balances ?? balancesSnapshot(region);
+      const fixture = options.balances ?? balancesSnapshot(region);
       return json(route, fixture);
     }
     if (path === "/api/actions/prepare" && request.method() === "POST") {
