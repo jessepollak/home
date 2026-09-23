@@ -13,6 +13,7 @@ import { noLocalFormatting } from "./rules/formatting.mjs";
 import { noRawButtons, noRawFields } from "./rules/raw-elements.mjs";
 import { noRestyle } from "./rules/no-restyle.mjs";
 import {
+  noComputedStyleInComponentTests,
   exactMockModules,
   noPresentationClassReads,
   noRealWaits,
@@ -34,7 +35,6 @@ import { noLiteralJsxColors } from "./rules/jsx-colors.mjs";
 import { isolateInstrumentationCalls, noSilentCatch } from "./rules/observability.mjs";
 import { noAmountFallback } from "./rules/amounts.mjs";
 import { noComments } from "./rules/no-comments.mjs";
-import { noComputedStyleInComponentTests } from "./rules/no-computed-style-in-component-tests.mjs";
 
 const homePlugin = {
   meta: { name: "home" },
