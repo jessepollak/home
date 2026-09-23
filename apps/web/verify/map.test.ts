@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { balancesSnapshot, dustCatalogHolding, recognizedCatalogHolding } from "../tests/browser/fixtures/balances";
 import { fixtureRoutes } from "./fixtures";
-import { bareHostnamePattern, canaryReach, matchesConfirmLabel, parseFeatureMap, parseReachStep, readFeatureMap, type ReachStep } from "./map";
+import { bareHostnamePattern, canaryReach, effectiveBudgets, matchesConfirmLabel, parseFeatureMap, parseReachStep, readFeatureMap, type ReachStep } from "./map";
 
 
 const featureMapPath = resolve(import.meta.dir, "../../../.agents/skills/browser-iteration/feature-map.md");
@@ -46,6 +46,13 @@ const fixtureVisibleStrings = (() => {
 })();
 
 describe("feature map parser", () => {
+  test("keeps a live-only budget out of the fixture budgets", () => {
+    const map = parseFeatureMap("### `sample`\n- **Perf budgets (initial)**: `session:verified` ≤ 3_000 ms; `shell:paint` ≤ 1_500 ms\n- **Live perf budgets**: `session:verified` ≤ 10_000 ms\n");
+    const surface = map.surfaces.get("sample")!;
+    expect(effectiveBudgets(surface, false)).toEqual({ "session:verified": 3000, "shell:paint": 1500 });
+    expect(effectiveBudgets(surface, true)).toEqual({ "session:verified": 10000, "shell:paint": 1500 });
+  });
+
   test("parses the supported Reach grammar, Live access, and budgets", () => {
     const map = parseFeatureMap(`### \`sample\`\n- **Reach**:\n  1. \`goto "/home"\`\n  2. \`click "Send"\`\n  3. \`fill "To" "0x123"\`\n  4. \`press "Enter"\`\n  5. \`expect "Confirm"\`\n- **Reach (live)**:\n  1. \`goto "/home"\`\n  2. \`expect "Confirm"\`\n  3. \`click "Send $1.00"\`\n- **Live**: confirm\n- **Owned paths**: \`apps/web/client/sample/**\`, \`apps/web/server/sample.ts\`\n- **Confirm labels**: "Send $<amount>", "Retry"\n- **Expect**: ready.\n- **Perf budgets (initial)**: \`shell:paint\` ≤ 1_500 ms.\n`);
     expect(map.surfaces.get("sample")).toEqual({
@@ -65,6 +72,7 @@ describe("feature map parser", () => {
       confirmLabels: ["Send $<amount>", "Retry"],
       ownedPaths: ["apps/web/client/sample/**", "apps/web/server/sample.ts"],
       budgets: { "shell:paint": 1500 },
+      liveBudgets: {},
       manual: false,
       live: "confirm",
     });
