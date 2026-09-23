@@ -138,7 +138,7 @@ These proofs establish readiness for operator pilots. External operator adoption
 
 Independent work can proceed in parallel when dependencies allow. Operator discovery runs alongside steps 1–3. Start from existing work rather than restarting features to fit this outline.
 
-Track outcomes: successful money journeys, repeated customer use, operator setup/support effort, upgrade adoption, and local-stablecoin holders/balances. Define measurements before setting numerical targets. Operators see their own customers' activity through their dashboard; Home upstream receives no customer telemetry unless an operator opts in. Avoid double-counting funds when reporting balances or TVL.
+Track outcomes: successful money journeys, repeated customer use, operator setup/support effort, upgrade adoption, and local-stablecoin holders/balances. Define measurements before setting numerical targets. Operators see their own customers' activity through their dashboard, stored in their own deployment; Home upstream receives no customer telemetry ([architecture](architecture.md)). Avoid double-counting funds when reporting balances or TVL.
 
 ## 6. PRDs and agent handoffs
 
