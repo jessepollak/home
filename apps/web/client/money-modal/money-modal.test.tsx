@@ -60,6 +60,28 @@ describe("MoneyModal dismissal contract", () => {
     expect(page().getByRole("dialog", { name: "Blocked" })).toBeTruthy();
   });
 
+  test("rejects dismissal during a pending request and accepts it after settlement", async () => {
+    const events: string[] = [];
+    const onCancel = () => { events.push("cancel"); };
+    const onClose = () => { events.push("close"); };
+    const renderModal = (pending: boolean) => (
+      <MoneyModal open labelledBy="pending-title" immediate pending={pending} onCancel={onCancel} onClose={onClose}>
+        <h2 id="pending-title">Pending request</h2>
+      </MoneyModal>
+    );
+    const { rerender } = render(renderModal(true));
+    await act(async () => fireEvent.keyDown(document, { key: "Escape" }));
+    await act(async () => fireEvent.click(document.querySelector("[data-slot=drawer-overlay]")!));
+    expect(page().getByRole("dialog", { name: "Pending request" })).toBeTruthy();
+    expect(events).toEqual([]);
+
+    rerender(renderModal(false));
+    await act(async () => fireEvent.click(document.querySelector("[data-slot=drawer-overlay]")!));
+    expect(events).toEqual(["cancel"]);
+    await act(async () => fireEvent.keyDown(document, { key: "Escape" }));
+    expect(events).toEqual(["cancel", "cancel"]);
+  });
+
   test("moves focus into the drawer, locks scroll, then restores both on close", async () => {
     function Harness() {
       const [open, setOpen] = useState(false);

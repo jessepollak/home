@@ -39,11 +39,11 @@ export function AppDrawer({ open, labelledBy, describedBy, immediate = false, in
   );
 }
 
-export function MoneyModal({ open, labelledBy, describedBy, immediate = false, onCancel, onClose, children }: {
-  open: boolean; labelledBy: string; describedBy?: string; immediate?: boolean;
+export function MoneyModal({ open, labelledBy, describedBy, immediate = false, pending = false, onCancel, onClose, children }: {
+  open: boolean; labelledBy: string; describedBy?: string; immediate?: boolean; pending?: boolean;
   onCancel: () => boolean | void; onClose: () => void; children: ReactNode;
 }) {
-  return <AppDrawer open={open} labelledBy={labelledBy} describedBy={describedBy} immediate={immediate} onCancel={onCancel} onClose={onClose}>{children}</AppDrawer>;
+  return <AppDrawer open={open} labelledBy={labelledBy} describedBy={describedBy} immediate={immediate} onCancel={() => pending ? false : onCancel()} onClose={onClose}>{children}</AppDrawer>;
 }
 
 type MoneyModalHeaderProps = {

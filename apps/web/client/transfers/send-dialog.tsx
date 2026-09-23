@@ -225,11 +225,6 @@ export function SendDialog({
     setRequest(null); setCashout(null); setSelectedOfframp(null); setSelectedPlatform(null); setPayoutHandle("");
     setCanonicalHandle(""); setHandleConfirmation(""); setAction(null); setStep("amount"); setError(null);
   }
-  function closeIfAllowed() {
-    if (step === "pending") return false;
-    onClose();
-    return true;
-  }
   function back() {
     setError(null);
     if (step === "destination") setStep("amount");
@@ -356,14 +351,14 @@ export function SendDialog({
     onAssetChange: (next: string) => { setAssetId(next); changeAmount("", "programmatic"); },
   };
   return (
-    <MoneyModal open={open} labelledBy="send-title" immediate={immediate} onCancel={closeIfAllowed} onClose={() => { reset(); (onClosed ?? onClose)(); }}>
+    <MoneyModal open={open} labelledBy="send-title" immediate={immediate} pending={step === "pending"} onCancel={onClose} onClose={() => { reset(); (onClosed ?? onClose)(); }}>
       <MoneyModalHeader
         title={modalTitle}
         titleId="send-title"
         {...(step === "amount"
           ? { assetControl: <MoneyAssetPicker {...amountAssetProps} /> }
           : step === "pending" ? {} : { onBack: back })}
-        onClose={closeIfAllowed}
+        onClose={onClose}
         closeDisabled={step === "pending"}
         closeLabel="Close send dialog"
       />

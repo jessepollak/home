@@ -618,11 +618,6 @@ function BorrowMoneyDialog({
     return () => window.clearTimeout(timer);
   }, [preparedAction, preparedExpiresAt]);
 
-  function closeIfAllowed() {
-    if (step === "pending") return false;
-    onClose();
-    return true;
-  }
 
   function goBack() {
     setPreparedAction(null);
@@ -713,14 +708,14 @@ function BorrowMoneyDialog({
   };
 
   return (
-    <MoneyModal open labelledBy="borrow-action-title" describedBy={step === "pending" ? "borrow-action-pending" : undefined} onCancel={closeIfAllowed} onClose={onClose}>
+    <MoneyModal open labelledBy="borrow-action-title" describedBy={step === "pending" ? "borrow-action-pending" : undefined} pending={step === "pending"} onCancel={onClose} onClose={onClose}>
       <MoneyModalHeader
         title={title}
         titleId="borrow-action-title"
         {...(step === "amount"
           ? closesWithoutDebt ? {} : { assetControl: <MoneyAssetPicker {...amountAssetProps} /> }
           : step === "pending" ? {} : { onBack: goBack })}
-        onClose={closeIfAllowed}
+        onClose={onClose}
         closeDisabled={step === "pending"}
         closeLabel="Close Borrow action"
       />
@@ -783,7 +778,7 @@ function BorrowMoneyDialog({
         />
       ) : null}
       {step === "confirm" ? <MoneyModalFooter primaryLabel={attempted ? "Retry" : "Confirm action"} primaryDisabled={preparedExpired && !attempted} onPrimary={() => void confirm()} secondaryLabel="Back" onSecondary={goBack} /> : null}
-      {step === "error" || step === "failed" ? <MoneyModalFooter primaryLabel="Back" onPrimary={goBack} secondaryLabel="Close" onSecondary={closeIfAllowed} /> : null}
+      {step === "error" || step === "failed" ? <MoneyModalFooter primaryLabel="Back" onPrimary={goBack} secondaryLabel="Close" onSecondary={onClose} /> : null}
     </MoneyModal>
   );
 }
