@@ -28,7 +28,7 @@ async function executeReach(page: Page, step: ReachStep) {
     const scope = await dialog.count() ? dialog : page;
     return expect(scope.getByText(step.text, { exact: false }).filter({ visible: true }).first()).toBeVisible();
   }
-  throw new Error(`Fixture replay does not support click-prefix ${step.prefix}`);
+  throw new Error("Fixture replay encountered an unsupported Reach step.");
 }
 
 test("every mapped surface has an explicit fixture disposition", async () => {

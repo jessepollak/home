@@ -49,7 +49,7 @@ function browserCommand(session: string, live: boolean, input: string | undefine
     AGENT_BROWSER_MAX_OUTPUT: "12000", AGENT_BROWSER_DEFAULT_TIMEOUT: live ? "600000" : "25000" };
   delete env.HOME_ACCESS_PASSWORD;
   if (!live && fixtureAllowedDomains) env.AGENT_BROWSER_ALLOWED_DOMAINS = fixtureAllowedDomains;
-  const result = Bun.spawnSync({ cmd: ["bunx", "agent-browser", ...args, "--json"], cwd: repositoryRoot,
+  const result = Bun.spawnSync({ cmd: ["bunx", "agent-browser", "--session", session, ...args, "--json"], cwd: repositoryRoot,
     env, stdin: input === undefined ? undefined : Buffer.from(input), stdout: "pipe", stderr: "pipe" });
   if (result.exitCode !== 0) throw new Error(`agent-browser ${args[0]} failed: ${result.stderr.toString().trim() || result.stdout.toString().trim() || result.exitCode}`);
   return result.stdout.toString().trim();
@@ -157,8 +157,7 @@ if (verb === "live-login") {
     const code = await pollGmailOtp(credentials, process.env.HOME_VERIFY_OTP_SENDER ?? defaultOtpSender, submittedAt);
     secretFill(session, "Verification code", code);
     run("find", "role", "button", "click", "--name", "Verify and continue", "--exact");
-    run("navigate", new URL("/home?account=settings", base).toString());
-    run("wait", "--text", "Show small balances");
+    run("wait", "--url", `${base.origin}/home*`);
     const statePath = resolve(directory, "browser-state.json");
     run("state", "save", statePath);
     await chmod(statePath, 0o600);
@@ -204,6 +203,10 @@ if (verb !== "start") {
 }
 if (verb !== "start" && !["snapshot", "click", "fill", "press", "goto", "confirm", "finish"].includes(verb ?? "")) {
   console.error("Use verify start <surface>, snapshot, click, fill, press, goto, confirm, or finish.");
+  process.exit(2);
+}
+if (verb !== "start" && ["--live", "--allow-confirm", "--max-confirms", "--allow-domain", "--base-url", "--out", "--allow-console"].some((name) => commandArgs.includes(name))) {
+  console.error("Session authority and options are fixed at start.");
   process.exit(2);
 }
 const args = verb === "start" ? commandArgs : active!.options;
@@ -413,20 +416,27 @@ try {
     if (count !== 1) throw new Error("Exactly one marked money control is required.");
     const id = browserField(run("get", "attr", selector, MONEY_ACTION_ID_ATTRIBUTE), "value");
     if (typeof id !== "string" || !id) throw new Error("The marked money control has no action id.");
-    if (live) await reserveConfirm(id);
-    actionIds.push(id);
-    clickAttempted = true;
-    await saveActive();
-    await writeLiveEvidence();
-    run("click", selector);
-    confirmed += 1;
-    clickAttempted = false;
-    steps.push({ step: "confirm", status: "done" });
-    await saveActive();
-    await writeLiveEvidence();
-    console.log(`Confirmed marked action ${id}.`);
-    exitCode = 0;
-    keepOpen = true;
+    const enabled = browserField(run("is", "enabled", selector), "enabled");
+    if (enabled === false) {
+      exitCode = await recover(new Error("The marked money control is disabled; inspect the snapshot and retry when ready."), "confirm disabled");
+      keepOpen = true;
+    } else {
+      if (enabled !== true) throw new Error("The marked money control readiness is unavailable.");
+      if (live) await reserveConfirm(id);
+      actionIds.push(id);
+      clickAttempted = true;
+      await saveActive();
+      await writeLiveEvidence();
+      run("click", selector);
+      confirmed += 1;
+      clickAttempted = false;
+      steps.push({ step: "confirm", status: "done" });
+      await saveActive();
+      await writeLiveEvidence();
+      console.log(`Confirmed marked action ${id}.`);
+      exitCode = 0;
+      keepOpen = true;
+    }
   } else if (verb === "goto" || verb === "click" || verb === "fill" || verb === "press") {
     if (verb === "press" && live) throw new Error("Live verification refuses press steps.");
     if (verb === "goto") {
@@ -462,7 +472,11 @@ try {
     } else if (verb === "fill") {
       if (commandArgs.length !== 2) { exitCode = await recover(new Error("Usage: verify fill <label> <value>"), "fill usage"); keepOpen = true; }
       else {
-        try { run("find", "label", commandArgs[0], "fill", commandArgs[1], "--exact"); enforceHosts(); steps.push({ step: `fill ${commandArgs[0]}`, status: "done" }); await saveActive(); exitCode = 0; keepOpen = true; }
+        try {
+          if (commandArgs[0].startsWith("@")) run("fill", commandArgs[0], commandArgs[1]);
+          else run("find", "label", commandArgs[0], "fill", commandArgs[1], "--exact");
+          enforceHosts(); steps.push({ step: `fill ${commandArgs[0]}`, status: "done" }); await saveActive(); exitCode = 0; keepOpen = true;
+        }
         catch (error) { if (error instanceof Error && error.message.startsWith("Unexpected network hosts")) throw error; exitCode = await recover(error, `fill ${commandArgs[0]}`); keepOpen = true; }
       }
     } else {

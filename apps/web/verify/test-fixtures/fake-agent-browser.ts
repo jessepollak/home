@@ -1,7 +1,8 @@
 import { appendFile, writeFile } from "node:fs/promises";
 
 const argv = Bun.argv.slice(2);
-const args = argv[0] === "agent-browser" ? argv.slice(1) : argv;
+const commandArgs = argv[0] === "agent-browser" ? argv.slice(1) : argv;
+const args = commandArgs[0] === "--session" ? commandArgs.slice(2) : commandArgs;
 const logPath = process.env.FAKE_AGENT_BROWSER_LOG;
 if (!logPath) { console.error("FAKE_AGENT_BROWSER_LOG is not set."); process.exit(2); }
 await appendFile(logPath, `${JSON.stringify(args)}\n`);
@@ -23,6 +24,8 @@ if (command === "snapshot") {
   data = { value: rest[2] === "data-money-action-id" ? rest[1] === "[data-money-action-id]" ? marked[0] ?? null : refs[rest[1]]?.marker ?? null : null };
 } else if (command === "get" && rest[0] === "url") {
   data = { url: process.env.FAKE_AGENT_BROWSER_URL ?? "https://example.com/?account=signin" };
+} else if (command === "is" && rest[0] === "enabled") {
+  data = { enabled: process.env.FAKE_AGENT_BROWSER_DISABLED !== "1" };
 } else if (command === "eval" && rest[0] === "--stdin") {
   const { GlobalRegistrator } = await import("@happy-dom/global-registrator");
   await GlobalRegistrator.register();

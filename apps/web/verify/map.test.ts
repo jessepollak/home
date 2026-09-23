@@ -8,6 +8,7 @@ describe("feature map guidance", () => {
     expect(parseReachStep('click "Send"')).toEqual({ kind: "click", label: "Send" });
     expect(parseReachStep('fill "To" "jesse.base.eth"')).toEqual({ kind: "fill", label: "To", value: "jesse.base.eth" });
     expect(parseReachStep("a paragraph")).toBeNull();
+    expect(parseReachStep('click-prefix "Withdraw"')).toBeNull();
     const map = parseFeatureMap('### `send`\n- **Reach**:\n  1. `goto "/home"`\n  2. `click "Send"`\n- **Canary operations**: `click "Cash out"`\n');
     expect(map.surfaces.get("send")?.reach).toEqual([{ kind: "goto", path: "/home" }, { kind: "click", label: "Send" }]);
   });
