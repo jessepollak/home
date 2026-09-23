@@ -22,13 +22,18 @@ function loadStylesheet(id, baseDir) {
 }
 
 const entrypoint = path.join(projectRoot, "app/globals.css");
-const designSystem = fs.existsSync(entrypoint)
-  ? await __unstable__loadDesignSystem(fs.readFileSync(entrypoint, "utf8"), { base: projectRoot, loadStylesheet })
-  : null;
+let designSystem = null;
+try {
+  if (fs.existsSync(entrypoint)) {
+    designSystem = await __unstable__loadDesignSystem(fs.readFileSync(entrypoint, "utf8"), { base: projectRoot, loadStylesheet });
+  }
+} catch {
+  designSystem = null;
+}
 
-/** True when Tailwind can resolve the candidate, or when the theme is unavailable. */
+/** True only when the project theme can resolve the candidate. */
 export function isKnownClass(candidate) {
-  if (!designSystem) return true;
+  if (!designSystem) return false;
   return designSystem.candidatesToCss([candidate])[0] !== null;
 }
 

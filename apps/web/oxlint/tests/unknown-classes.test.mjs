@@ -92,4 +92,15 @@ describe("home/no-unknown-tailwind-classes", () => {
     expect(await diagnostics('import { cn } from "cn"; export const v = cn({ "panel-fade": true });')).toHaveLength(1);
     expect(await diagnostics('import { cn } from "cn"; export const v = cn("p-4", { "text-muted-foreground": true });')).toHaveLength(0);
   });
+  it("reports when the project theme is missing, even without class literals", async () => {
+    const entrypoint = path.join(mirror, "app/globals.css");
+    await rm(entrypoint);
+    try {
+      const found = await diagnostics("export const value = 1;");
+      expect(found).toHaveLength(1);
+      expect(found[0].message).toContain("project theme could not load");
+    } finally {
+      await symlink(path.join(appsWebDir, "app/globals.css"), entrypoint);
+    }
+  });
 });

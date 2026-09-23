@@ -315,40 +315,9 @@
     },
     {
       "files": [
-        "**/*.test.{ts,tsx}",
-        "**/*.pw.ts",
-        "tests/helpers/**/*.{ts,tsx}"
-      ],
-      "excludeFiles": [
-        "**/migrations/**"
-      ],
-      "rules": {
-        "home/no-source-reads": "error",
-        "home/no-real-waits": "error",
-        "home/no-presentation-class-reads": "error"
-      }
-    },
-    {
-      "files": [
         "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
-        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
-      ],
-      "rules": {
-        "home/no-computed-style-in-component-tests": "error"
-      }
-    },
-    {
-      "files": [
-        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
-        "**/*.pw.{ts,tsx}"
-      ],
-      "rules": {
-        "home/no-self-referential-expectation": "error"
-      }
-    },
-    {
-      "files": [
-        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.pw.{ts,tsx}",
         "tests/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "**/tests/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "**/testing/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
@@ -356,11 +325,17 @@
         "**/*smoke-fixture*.{ts,tsx}"
       ],
       "rules": {
+        "home/no-source-reads": "error",
+        "home/no-real-waits": "error",
+        "home/no-presentation-class-reads": "error",
+        "home/no-computed-style-in-component-tests": "error",
+        "home/no-self-referential-expectation": "error",
         "home/exact-mock-modules": "error"
       }
     },
     {
       "files": [
+        "oxlint/tests/**",
         "tests/helpers/migrations.ts",
         "tests/well-known/apple-pay-domain-association.test.ts"
       ],

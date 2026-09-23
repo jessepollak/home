@@ -40,6 +40,14 @@ await mkdir(path.join(mirror, "components/ui"), { recursive: true });
 await symlink(path.join(appsWebDir, "components/ui/button.tsx"), path.join(mirror, "components/ui/button.tsx"));
 
 const fixtures = {
+  "app/comment.mjs": "export const value = 1; // unexplained",
+  "client/comment.ts": "export const value = 1; /* narrative */",
+  "components/comment.jsx": "export const value = 1; // narrative",
+  "server/comment.ts": "import \"server-only\"; export const value = 1; // narrative",
+  "shared/comment.tsx": "export const value = 1; /* narrative */",
+  "shared/comment-clean.ts": ["/** @public Shared contract for external consumers. */", "export const value = 1;"].join(String.fromCharCode(10)),
+  "client/comment-clean.test.ts": ["// test code is excluded", "export const value = 1;"].join(String.fromCharCode(10)),
+  "client/comment-clean.stories.tsx": ["// story code is excluded", "export const value = 1;"].join(String.fromCharCode(10)),
   "client/storybook.tsx": 'import x from "@storybook/test"; export { x }; export * from "msw"; const a = import(`storybook`); const b = require("msw/browser"); export { a, b };',
   "config/storybook.ts": 'export { setupWorker } from "msw/browser";',
   "types/storybook.d.ts": 'import type { Meta } from "@storybook/nextjs-vite"; export type M = Meta;',
@@ -186,6 +194,7 @@ const contracts = [
   ["money amounts preserve unavailable state instead of defaulting to zero", () => { assertHits("shared/formatting/amount-fallback.ts", "home(no-amount-fallback)", 3); assertClean("shared/formatting/amount-fallback-clean.ts"); }],
   ["literal utility styles reject all supported expression forms", () => { assertHits("client/styles.tsx", "home(no-literal-utility-styles)", 4); assertClean("client/styles-clean.tsx"); }],
   ["raw controls use owned wrappers in every product layer", () => { assertHits("app/raw.tsx", "home(no-raw-buttons)"); assertHits("client/raw.tsx", "home(no-raw-buttons)"); assertHits("components/raw.tsx", "home(no-raw-buttons)"); }],
+  ["product comments are rejected in all five layers while documented exceptions and tests stay clean", () => { for (const file of ["app/comment.mjs", "client/comment.ts", "components/comment.jsx", "server/comment.ts", "shared/comment.tsx"]) assertHits(file, "home(no-comments)"); assertClean("shared/comment-clean.ts"); assertClean("client/comment-clean.test.ts"); assertClean("client/comment-clean.stories.tsx"); }],
   ["silent catches fail while typed recovery values pass in every covered layer", () => { assertHits("app/silent-catch.ts", "home(no-silent-catch)"); assertHits("client/silent-catch.ts", "home(no-silent-catch)"); assertHits("server/silent-catch.ts", "home(no-silent-catch)"); assertClean("app/handled-catch.ts"); assertClean("client/handled-catch.ts"); }],
   ["self-referential expectations fail while independent assertions pass", () => { assertHits("client/policy.test.ts", "home(no-self-referential-expectation)"); assertClean("client/policy-clean.test.ts"); }],
 

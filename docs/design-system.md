@@ -102,7 +102,7 @@ Use the owned component contracts rather than restyling their slots:
 1. Style components and product surfaces with Tailwind utilities. Oxlint bans hex/rgba, arbitrary-pixel, and raw palette classes; use semantic tokens instead. Keep utilities inline at the product use site: the Home Oxlint rule `home/no-detached-class-constants` follows identifiers and static object/array lookups in `className` and `cn()` to local static class strings and rejects them. Unknown aggregate keys are rejected only when every reachable value is a non-empty static class string; dynamic data and predicate-only roles stay allowed. Reusable presentation belongs in owned component variants; dynamic composition (ternaries, templates, props, `cva()`) stays allowed.
 2. Raw `@base-ui/react` imports are allowed only in `apps/web/components/ui`.
 3. Raw `button`, `input`, and `select` elements outside `components/ui` are banned except for the shrinking audited allowlist. Use the owned wrappers.
-4. Home's `home/no-restyle` Oxlint rule rejects restyling of owned UI components in product code. Callers may use layout classes; reusable presentation belongs in variants or explicit component contracts.
+4. `home/no-restyle` checks literal class tokens on `className` passed to a directly imported `components/ui` component (alias or relative import) in product code. It permits tokens with layout prefixes, and rejects other literal tokens as appearance changes. Dynamic expressions without literal tokens and classes on non-owned components are outside this rule; reusable presentation belongs in variants or explicit component contracts.
 
 ## Home-owned product pieces
 
