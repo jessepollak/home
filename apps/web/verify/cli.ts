@@ -710,7 +710,7 @@ function runIncidents(): string[] {
   const incidents = [];
   if (unexpectedHosts.length > 0) incidents.push("unexpected-host");
   if (liveRefusal?.includes("recipient does not match")) incidents.push("recipient-mismatch");
-  if (liveRefusal?.includes("does not match")) incidents.push("amount-mismatch");
+  if (liveRefusal?.includes("transfer differs from the prepared amount") || liveRefusal?.includes("send value differs from the prepared amount")) incidents.push("amount-mismatch");
   if (confirmClickAttempted && !confirmPerformed) incidents.push("ambiguous-result");
   if (confirmPerformed && !finalEvidencePassed) incidents.push("post-confirm-failure");
   return [...new Set(incidents)];
@@ -808,6 +808,10 @@ try {
     process.exit(0);
   }
   let afterReview = active?.afterReview ?? false;
+  if (active && live && !afterReview) {
+    const reviewTitle = jsonResult(command("eval", `(() => [...document.querySelectorAll('[role="dialog"]')].filter(node => node.getClientRects().length).at(-1)?.querySelector('h1,h2,[role="heading"]')?.textContent?.trim() ?? null)()`));
+    afterReview = typeof reviewTitle === "string" && /^(?:Confirm|Review)(?:\s|$)/i.test(reviewTitle);
+  }
   if (verb === "snapshot") {
     const snapshot = command("snapshot", "-i");
     steps.push({ step: "snapshot", status: "done" });
@@ -841,9 +845,11 @@ try {
     if (verb === "press" && live) throw new Error("Live verification refuses press steps.");
     if (verb === "fill" && live) {
       const approved = reachSteps.flatMap((item) => item.kind === "fill" ? [item.label] : []);
+      if (original.kind === "fill" && !approved.includes(original.label)) throw new Error(`Live verification refuses an unlisted fill for “${original.label}”.`);
       const error = liveStepError(surface.live, original, approved);
       if (error) throw new Error(error);
-      if (isCashoutHandleFillStep(original) && liveCashoutHandle !== null && original.value !== cashoutHandleFillValue(original.label, liveCashoutHandle)) {
+      if (original.kind === "fill" && (original.label === "Cash App handle" || original.label === "Re-enter handle") &&
+          liveCashoutHandle !== null && original.value !== cashoutHandleFillValue(original.label, liveCashoutHandle)) {
         throw new Error("The payout handle must match the pinned handle.");
       }
       if (original.kind === "fill" && original.label === "To" && effectiveRecipient && original.value !== recipientFillValue(effectiveRecipient)) {

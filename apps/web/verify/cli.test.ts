@@ -879,6 +879,48 @@ describe("agent-driven session commands", () => {
     expect(entries.some((entry) => entry.surface === "send" && entry.amountsUsd.includes(0.1))).toBe(true);
   });
 
+  test("confirm refuses an action from another account or a missing prepare response", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    for (const override of [
+      preparedEnv("send", "Send $0.10", { owner: { address: addressB } }),
+      { ...preparedEnv("send", "Send $0.10"), FAKE_AGENT_BROWSER_HAR: JSON.stringify({ log: { entries: [{ request: { method: "POST", url: "https://example.com/api/actions/prepare" }, response: { status: 401, content: { text: "{}" } } }] } }) },
+    ]) {
+      await Bun.write(fakeLogPath, "");
+      const env = { ...fakeEnv("Account\nShow small balances", addressA), FAKE_AGENT_BROWSER_AUTHENTICATED: "1",
+        FAKE_AGENT_BROWSER_BALANCE: "$26.89", ...override };
+      expect(run(["start", "send", "--live", "--base-url", "https://example.com", "--out", outsideOutput,
+        "--allow-confirm", "--account", addressA, "--max-usd", "1"], env).exitCode).toBe(0);
+      const confirm = run(["confirm"], env);
+      expect(confirm.exitCode).toBe(1);
+      expect(fakeCalls().some((call) => call[0] === "click")).toBe(false);
+    }
+  });
+
+  test("a fresh review snapshot stops an unlisted click", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const env = { ...fakeEnv("Account\nShow small balances", addressA), FAKE_AGENT_BROWSER_AUTHENTICATED: "1",
+      FAKE_AGENT_BROWSER_REVIEW: "Confirm", FAKE_AGENT_BROWSER_BALANCE: "$26.89" };
+    expect(run(["start", "send", "--live", "--base-url", "https://example.com", "--out", outsideOutput], env).exitCode).toBe(0);
+    const click = run(["click", "Unknown action"], env);
+    expect(click.exitCode).toBe(1);
+    expect(fakeCalls().some((call) => call[0] === "find" && call.includes("Unknown action"))).toBe(false);
+  });
+
+  test("a live session refuses unlisted fills before touching the browser field", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const env = { ...fakeEnv("Account\nShow small balances", addressA), FAKE_AGENT_BROWSER_AUTHENTICATED: "1" };
+    expect(run(["start", "send", "--live", "--base-url", "https://example.com", "--out", outsideOutput], env).exitCode).toBe(0);
+    const fill = run(["fill", "Password", "unused"], env);
+    expect(fill.exitCode).toBe(1);
+    expect(fill.stderr).toContain("unlisted fill");
+    expect(fakeCalls().some((call) => call[0] === "find" && call.includes("Password"))).toBe(false);
+  });
+
   test("a plain click refuses an identified money control", async () => {
     await seedLiveState(addressA);
     await installFakeAgentBrowser();
