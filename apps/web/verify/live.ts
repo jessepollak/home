@@ -298,7 +298,11 @@ export function liveSessionExpired(documentText: string): boolean {
   return documentText.includes("Sign in to Home") && !pending;
 }
 
-const visibleNameScript = `const visibleName=(entry)=>[...entry.childNodes].map((child)=>child.nodeType===Node.TEXT_NODE?child.textContent??"":child instanceof Element&&!child.hidden&&child.getAttribute("aria-hidden")!=="true"?" "+(child.getAttribute("aria-label")??visibleName(child))+" ":"").join("").replace(/\\s+/g," ").trim();`;
+export const visibleNameScript = `const visibleName=(entry)=>[...entry.childNodes].map((child)=>child.nodeType===Node.TEXT_NODE?child.textContent??"":child instanceof Element&&!child.hidden&&child.getAttribute("aria-hidden")!=="true"?" "+(child.getAttribute("aria-label")??visibleName(child))+" ":"").join("").replace(/\\s+/g," ").trim();`;
+
+export function refVisibleNameScript(html: string, ariaLabel: string | null): string {
+  return `(()=>{const __homeVerifyRefHtml=${JSON.stringify(html)};const __homeVerifyRefLabel=${JSON.stringify(ariaLabel)};const template=document.createElement("template");template.innerHTML=__homeVerifyRefHtml;${visibleNameScript}return (__homeVerifyRefLabel?.trim()||visibleName(template.content)).trim()})()`;
+}
 
 export function buttonPresentPredicate(label: string): string {
   const value = JSON.stringify(label);

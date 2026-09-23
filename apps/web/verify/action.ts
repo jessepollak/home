@@ -1,6 +1,7 @@
 import { decodeFunctionData, erc20Abi, isAddress, getAddress } from "viem";
 import type { PreparedMoneyAction, MoneyActionCall } from "../shared/money-actions/types";
 import { BASE_USDC } from "../shared/assets/base";
+import { visibleNameScript } from "./live";
 
 export type ActionCheck = { amountUsd: number; recipient: string | null };
 
@@ -120,5 +121,9 @@ export function preparedFromHar(har: unknown, origin: string, id: string): unkno
 }
 
 export function confirmControlScript(attribute: string): string {
-  return `(() => [...document.querySelectorAll(${JSON.stringify(`button[${attribute}],[role="button"][${attribute}]`)})].filter(node => node.getClientRects().length && !node.disabled && node.getAttribute("aria-disabled")!=="true").map(node => ({id:node.getAttribute(${JSON.stringify(attribute)}),name:node.getAttribute("aria-label")||node.innerText})))()`;
+  return `(() => [...document.querySelectorAll(${JSON.stringify(`button[${attribute}],[role="button"][${attribute}]`)})].filter(node => node.getClientRects().length && !node.disabled && node.getAttribute("aria-disabled")!=="true").map(node => {${visibleNameScript}return {id:node.getAttribute(${JSON.stringify(attribute)}),name:(node.getAttribute("aria-label")?.trim()||visibleName(node))}}))()`;
+}
+
+export function protectedControlScript(attribute: string, label: string): string {
+  return `(() => [...document.querySelectorAll(${JSON.stringify(`button[${attribute}],[role="button"][${attribute}]`)})].some(node => {${visibleNameScript}return node.getClientRects().length>0 && (node.getAttribute("aria-label")?.trim()||visibleName(node))===${JSON.stringify(label)}}))()`;
 }

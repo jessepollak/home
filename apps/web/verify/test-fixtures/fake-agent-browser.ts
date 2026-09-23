@@ -30,8 +30,16 @@ if (command === "eval") {
     result = process.env.FAKE_AGENT_BROWSER_PATH ?? "/home?account=settings";
   } else if (expression.includes("account-heading")) {
     result = process.env.FAKE_AGENT_BROWSER_ADDRESS ?? "";
+  } else if (expression.includes('__homeVerifyRefHtml=')) {
+    const { GlobalRegistrator } = await import("@happy-dom/global-registrator");
+    await GlobalRegistrator.register();
+    try { result = new Function(`return ${expression}`)() as unknown; }
+    finally { await GlobalRegistrator.unregister(); }
   } else if (expression.includes('data-money-action-id') && expression.includes('getClientRects')) {
-    result = expression.includes('.some(') ? false : JSON.parse(process.env.FAKE_AGENT_BROWSER_CONTROLS ?? "[]") as unknown;
+    const controls = JSON.parse(process.env.FAKE_AGENT_BROWSER_CONTROLS ?? "[]") as Array<{ id: string; name: string }>;
+    result = expression.includes('.some(')
+      ? controls.some((control) => expression.includes(JSON.stringify(control.name)))
+      : controls;
   } else if (expression.includes('[role="dialog"]')) {
     result = process.env.FAKE_AGENT_BROWSER_REVIEW ?? "";
   } else if (expression.includes('aria-label="Total balance"')) {
@@ -54,12 +62,12 @@ if (command === "eval") {
     const prefix = JSON.parse(expression.slice(start, end)) as string;
     result = Array.isArray(configured) ? configured : (configured[prefix] ?? []);
   }
-} else if (command === "get" && (rest[0] === "attr" || rest[0] === "text")) {
-  const refs = JSON.parse(process.env.FAKE_AGENT_BROWSER_REFS ?? "{}") as Record<string, { text: string; attributes?: Record<string, string> }>;
+} else if (command === "get" && (rest[0] === "attr" || rest[0] === "html")) {
+  const refs = JSON.parse(process.env.FAKE_AGENT_BROWSER_REFS ?? "{}") as Record<string, { text?: string; html?: string; attributes?: Record<string, string> }>;
   const ref = refs[rest[1]];
   console.log(JSON.stringify({ success: true, data: rest[0] === "attr"
     ? { value: ref?.attributes?.[rest[2]] ?? null }
-    : { text: ref?.text ?? "" }, error: null }));
+    : { html: ref?.html ?? ref?.text ?? "" }, error: null }));
   process.exit(0);
 } else if (command === "network" && rest[0] === "har" && rest[1] === "stop") {
   if (rest[2]) await writeFile(rest[2], process.env.FAKE_AGENT_BROWSER_HAR ?? JSON.stringify({ log: { entries: [] } }), { mode: 0o600 });

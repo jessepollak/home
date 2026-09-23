@@ -2,7 +2,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/pr
 import { createHash } from "node:crypto";
 import { homedir, tmpdir } from "node:os";
 import { MONEY_ACTION_ID_ATTRIBUTE } from "../shared/money-actions";
-import { checkPreparedAction, confirmControlScript, preparedFromHar } from "./action";
+import { checkPreparedAction, confirmControlScript, preparedFromHar, protectedControlScript } from "./action";
 import { resolve } from "node:path";
 import { finalizeEvidence, summarizeEvidence, type MarkResult } from "./evidence";
 import { fixtureRoutes, requiresSignedInFixture } from "./fixtures";
@@ -36,6 +36,7 @@ import {
   parseUsdAmount,
   partitionLiveFailures,
   recipientFillValue,
+  refVisibleNameScript,
   recipientPlaceholderError,
   resolveClickPrefix,
   resolveLiveCashoutHandle,
@@ -269,7 +270,7 @@ function waitForInput(label: string, failure: string): void {
   }
 }
 
-function browserGetField(output: string, field: "value" | "text"): unknown {
+function browserGetField(output: string, field: "value" | "html"): unknown {
   const parsed = JSON.parse(output) as { data?: Record<string, unknown> };
   if (!parsed.data || !Object.hasOwn(parsed.data, field)) throw new Error(`agent-browser get did not return ${field}.`);
   return parsed.data[field];
@@ -856,7 +857,9 @@ try {
   let drivenSteps: ReachStep[] = reachSteps;
   if (verb === "goto") {
     const target = commandArgs[0];
-    if (!target || !target.startsWith("/") || target.startsWith("//") || new URL(target, baseUrl).origin !== baseUrl.origin || target.startsWith("/api/")) throw new Error("Goto must be an app path on the pinned origin.");
+    if (!target || !target.startsWith("/") || target.startsWith("//")) throw new Error("Goto must be an app path on the pinned origin.");
+    const route = new URL(target, baseUrl);
+    if (route.origin !== baseUrl.origin || /^\/api(?:\/|$)/.test(route.pathname)) throw new Error("Goto must be an app path on the pinned origin.");
     drivenSteps = [{ kind: "goto", path: target }];
   } else if (verb === "fill") {
     if (commandArgs.length !== 2) throw new Error("Usage: verify fill <label> <value>");
@@ -934,19 +937,19 @@ try {
       catch (error) { await recoverStepFailure(error, record); }
       const protectedRef = browserGetField(attrOutput, "value");
       if (protectedRef !== null) throw new Error("Plain click refuses an identified prepared money control; use verify confirm.");
-      let textOutput = "";
-      try { textOutput = command("get", "text", step.label); }
+      let labelOutput = "";
+      try { labelOutput = command("get", "attr", step.label, "aria-label"); }
       catch (error) { await recoverStepFailure(error, record); }
-      const text = browserGetField(textOutput, "text");
-      let name = typeof text === "string" ? text.trim() : "";
-      if (!name) {
-        let labelOutput = "";
-        try { labelOutput = command("get", "attr", step.label, "aria-label"); }
+      const label = browserGetField(labelOutput, "value");
+      let htmlOutput = "";
+      if (typeof label !== "string" || !label.trim()) {
+        try { htmlOutput = command("get", "html", step.label); }
         catch (error) { await recoverStepFailure(error, record); }
-        const label = browserGetField(labelOutput, "value");
-        name = typeof label === "string" ? label.trim() : "";
       }
-      if (!name) throw new Error("The clicked reference has no visible name.");
+      const html = htmlOutput ? browserGetField(htmlOutput, "html") : "";
+      if (typeof html !== "string") throw new Error("The clicked reference has no readable contents.");
+      const name = jsonResult(command("eval", refVisibleNameScript(html, typeof label === "string" ? label : null)));
+      if (typeof name !== "string" || !name) throw new Error("The clicked reference has no visible name.");
       clickRef = step.label;
       step = { kind: "click", label: name };
     }
@@ -982,6 +985,7 @@ try {
           liveRefusal = "The confirm control has no unique prepared action id.";
           record.status = "failed";
           stoppedBefore = step.label;
+          await writeLiveEvidence();
           break;
         }
         const preparedId: string = controls[0].id;
@@ -1009,8 +1013,8 @@ try {
             role: verifyRole,
             amountUsd: parsedAmountUsd,
             balanceUsd: renderedBalanceUsd,
-            runSpendUsd: spendForRun(ledgerEntries, session) + cumulativeAmountUsd,
-            todayFactorySpendUsd: spendForDay(ledgerEntries, new Date().toISOString().slice(0, 10)) + cumulativeAmountUsd,
+            runSpendUsd: spendForRun(ledgerEntries, session),
+            todayFactorySpendUsd: spendForDay(ledgerEntries, new Date().toISOString().slice(0, 10)),
             clickCapUsd: maxUsd,
             runCapUsd: maxUsdTotal,
           });
@@ -1047,7 +1051,7 @@ try {
         command("click", `[${MONEY_ACTION_ID_ATTRIBUTE}="${actionId}"]`);
       } else {
         if (step.kind === "click") {
-          const protectedControl = jsonResult(command("eval", `(() => [...document.querySelectorAll('button,[role="button"]')].some(node => node.getClientRects().length && (node.getAttribute('aria-label')||node.innerText).trim() === ${JSON.stringify(step.label)} && node.hasAttribute(${JSON.stringify(MONEY_ACTION_ID_ATTRIBUTE)})))()`));
+          const protectedControl = jsonResult(command("eval", protectedControlScript(MONEY_ACTION_ID_ATTRIBUTE, step.label)));
           if (protectedControl) throw new Error("Plain click refuses a prepared money control; use verify confirm.");
         }
         try {

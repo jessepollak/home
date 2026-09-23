@@ -106,7 +106,7 @@ function expectWaitBeforeEveryClick(): void {
 function latestRunArtifact(surfaceId: string, name: string): string {
   const runDirectory = resolve(outsideOutput, surfaceId);
   const listing = Bun.spawnSync(["ls", "-1", runDirectory], { stdout: "pipe", stderr: "pipe" }).stdout.toString();
-  const newest = listing.trim().split("\n").filter(Boolean).sort().at(-1);
+  const newest = listing.trim().split("\n").filter((entry) => /^\d{4}-\d{2}-\d{2}T/.test(entry)).sort().at(-1);
   expect(newest).toBeDefined();
   const artifact = Bun.spawnSync(["cat", resolve(runDirectory, newest ?? "", name)], { stdout: "pipe", stderr: "pipe" });
   expect(artifact.exitCode).toBe(0);
@@ -886,6 +886,47 @@ describe("agent-driven session commands", () => {
     expect(entries.some((entry) => entry.surface === "send" && entry.amountsUsd.includes(0.1))).toBe(true);
   });
 
+  test("counts two distinct prepared confirmations once each against the run cap", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const ledgerPath = resolve(home, ".home-verify", "ledger.jsonl");
+    const before = (await readLedger(ledgerPath)).length;
+    const env = { ...fakeEnv("Account\nShow small balances", addressA), FAKE_AGENT_BROWSER_AUTHENTICATED: "1",
+      FAKE_AGENT_BROWSER_BALANCE: "$26.89", FAKE_AGENT_BROWSER_MARKS: JSON.stringify(["shell:paint", "session:verified", "balances:painted", "action:first-interactive"].map((name) => ({ name, startTime: 100 }))),
+      ...preparedEnv("send", "Send $0.10") };
+    expect(run(["start", "send", "--live", "--base-url", "https://example.com", "--out", outsideOutput,
+      "--allow-confirm", "--account", addressA, "--max-usd", "0.20", "--max-usd-total", "0.20"], env).exitCode).toBe(0);
+    expect(run(["confirm"], env).exitCode).toBe(0);
+    const secondId = "22222222-2222-4222-8222-222222222222";
+    const next = preparedEnv("send", "Send $0.10", { id: secondId });
+    const nextEnv = { ...env, FAKE_AGENT_BROWSER_HAR: next.FAKE_AGENT_BROWSER_HAR,
+      FAKE_AGENT_BROWSER_CONTROLS: JSON.stringify([{ id: secondId, name: "Send $0.10" }]) };
+    expect(run(["confirm"], nextEnv).exitCode).toBe(0);
+    expect(fakeCalls().filter((call) => call[0] === "click")).toEqual([
+      ["click", `[data-money-action-id="${actionId}"]`, "--json"],
+      ["click", `[data-money-action-id="${secondId}"]`, "--json"],
+    ]);
+    expect(run(["finish"], nextEnv).exitCode).toBe(0);
+    expect((await readLedger(ledgerPath)).slice(before).flatMap((entry) => entry.amountsUsd)).toEqual([0.1, 0.1]);
+  });
+
+  test("records a missing confirm marker before refusing without a click", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const env = { ...fakeEnv("Account\nShow small balances", addressA), FAKE_AGENT_BROWSER_AUTHENTICATED: "1",
+      FAKE_AGENT_BROWSER_BALANCE: "$26.89", FAKE_AGENT_BROWSER_CONTROLS: "[]" };
+    const result = run(["send", "--live", "--base-url", "https://example.com", "--out", outsideOutput,
+      "--allow-confirm", "--account", addressA, "--max-usd", "1"], env);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("click Send $0.10");
+    const live = JSON.parse(latestRunArtifact("send", "live.json")) as { steps: Array<{ step: string; status: string }>; stoppedBefore: string };
+    expect(live.steps.at(-1)).toEqual({ step: "click Send $0.10", status: "failed" });
+    expect(live.stoppedBefore).toBe("Send $0.10");
+    expect(fakeCalls().some((call) => call[0] === "click")).toBe(false);
+  });
+
   test("confirm refuses an action from another account or a missing prepare response", async () => {
     await seedLiveState(addressA);
     await installFakeAgentBrowser();
@@ -943,6 +984,30 @@ describe("agent-driven session commands", () => {
     expect(fakeCalls().some((call) => call[0] === "click")).toBe(false);
   });
 
+  test("fixture plain click refuses a marked control by its visible name", async () => {
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const env = { ...fakeEnv("Send", addressA), ...preparedEnv("send", "Send $0.10") };
+    expect(run(["start", "send", "--session", "fixture-money", "--out", outsideOutput], env).exitCode).toBe(0);
+    const click = run(["click", "Send $0.10", "--session", "fixture-money"], env);
+    expect(click.exitCode).toBe(1);
+    expect(click.stderr).toContain("Plain click refuses a prepared money control");
+    expect(fakeCalls().some((call) => call[0] === "click" || (call[0] === "find" && call.includes("Send $0.10")))).toBe(false);
+  });
+
+  test("ref clicks use child aria-labels, not rendered shadow digits", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const env = { ...fakeEnv("Account\nShow small balances", addressA), FAKE_AGENT_BROWSER_AUTHENTICATED: "1",
+      FAKE_AGENT_BROWSER_REFS: JSON.stringify({ "@e4": { html: 'Send <span aria-hidden="true">$.</span><span role="img" aria-label="$0.10"><span aria-hidden="true">digits</span></span>' } }) };
+    expect(run(["start", "send", "--live", "--base-url", "https://example.com", "--session", "ref-money-name", "--out", outsideOutput], env).exitCode).toBe(0);
+    const click = run(["click", "@e4", "--session", "ref-money-name"], env);
+    expect(click.exitCode).toBe(1);
+    expect(click.stderr).toContain("Plain click refuses a money confirm");
+    expect(fakeCalls().some((call) => call[0] === "click")).toBe(false);
+  });
+
   test("clicks a non-money @ref in fixture and live sessions using the real get response fields", async () => {
     await seedLiveState(addressA);
     await installFakeAgentBrowser();
@@ -956,7 +1021,8 @@ describe("agent-driven session commands", () => {
       const click = run(["click", "@e1", "--session", name], env);
       expect(click.exitCode).toBe(0);
       expect(fakeCalls()).toContainEqual(["get", "attr", "@e1", "data-money-action-id", "--json"]);
-      expect(fakeCalls()).toContainEqual(["get", "text", "@e1", "--json"]);
+      expect(fakeCalls()).toContainEqual(["get", "html", "@e1", "--json"]);
+      expect(fakeCalls().some((call) => call[0] === "eval" && call[1]?.includes("__homeVerifyRefHtml"))).toBe(true);
       expect(fakeCalls()).toContainEqual(["click", "@e1", "--json"]);
       expect(run(["finish", "--session", name], env).exitCode).toBe(0);
     }
@@ -989,7 +1055,7 @@ describe("agent-driven session commands", () => {
       expect(click.exitCode).toBe(1);
       expect(click.stderr).toContain("identified prepared money control");
       expect(fakeCalls()).toContainEqual(["get", "attr", "@e2", "data-money-action-id", "--json"]);
-      expect(fakeCalls().some((call) => call[0] === "get" && call[1] === "text")).toBe(false);
+      expect(fakeCalls().some((call) => call[0] === "get" && call[1] === "html")).toBe(false);
       expect(fakeCalls().some((call) => call[0] === "click")).toBe(false);
       expect(run(["snapshot", "--session", name], env).exitCode).toBe(2);
     }
@@ -1012,17 +1078,17 @@ describe("agent-driven session commands", () => {
     expect(run(["finish", "--session", "beta"], env).exitCode).toBe(0);
   });
 
-  test("recovers from a missing click, label, or page with a fresh snapshot and no ledger entry", async () => {
-    await seedLiveState(addressA);
-    await installFakeAgentBrowser();
-    const ledgerPath = resolve(home, ".home-verify", "ledger.jsonl");
-    const failures = [
-      { surface: "account-settings", command: ["click", "Missing button"], fail: ["find", "role", "button", "click", "--name", "Missing button"] },
-      { surface: "send", command: ["fill", "To", "jesse.base.eth"], fail: ["find", "label", "To", "fill"] },
-      { surface: "account-settings", command: ["goto", "/missing"], fail: ["navigate", "https://example.com/missing"] },
-    ];
-    for (const [index, failure] of failures.entries()) {
+  const failures = [
+    { surface: "account-settings", command: ["click", "Missing button"], fail: ["find", "role", "button", "click", "--name", "Missing button"] },
+    { surface: "send", command: ["fill", "To", "jesse.base.eth"], fail: ["find", "label", "To", "fill"] },
+    { surface: "account-settings", command: ["goto", "/missing"], fail: ["navigate", "https://example.com/missing"] },
+  ];
+  for (const [index, failure] of failures.entries()) {
+    test(`recovers a failed ${failure.command[0]} with a fresh snapshot and no ledger entry`, async () => {
+      await seedLiveState(addressA);
+      await installFakeAgentBrowser();
       await Bun.write(fakeLogPath, "");
+      const ledgerPath = resolve(home, ".home-verify", "ledger.jsonl");
       const name = `recover-${index}`;
       const env = { ...fakeEnv("Account\nShow small balances", addressA), FAKE_AGENT_BROWSER_AUTHENTICATED: "1",
         FAKE_AGENT_BROWSER_MARKS: JSON.stringify(["shell:paint", "session:verified", "balances:painted", "action:first-interactive"].map((name) => ({ name, startTime: 100 }))) };
@@ -1038,14 +1104,14 @@ describe("agent-driven session commands", () => {
       expect(run(["snapshot", "--session", name], env).exitCode).toBe(0);
       expect(run([...failure.command, "--session", name], env).exitCode).toBe(0);
       expect(run(["finish", "--session", name], env).exitCode).toBe(0);
-    }
-  });
+    });
+  }
 
-  test("policy refusals for live press and unsafe goto terminate the session", async () => {
-    await seedLiveState(addressA);
-    await installFakeAgentBrowser();
-    const commands = [["press", "Enter"], ["goto", "/api/actions"], ["goto", "https://another.example/"]];
-    for (const [index, action] of commands.entries()) {
+  const policyActions = [["press", "Enter"], ["goto", "/api/actions"], ["goto", "/api"], ["goto", "/home/../api/x"], ["goto", "/./api/x"], ["goto", "https://another.example/"]];
+  for (const [index, action] of policyActions.entries()) {
+    test(`refuses live ${action.join(" ")} and terminates the session`, async () => {
+      await seedLiveState(addressA);
+      await installFakeAgentBrowser();
       await Bun.write(fakeLogPath, "");
       const name = `policy-${index}`;
       const env = { ...fakeEnv("Account\nShow small balances", addressA), FAKE_AGENT_BROWSER_AUTHENTICATED: "1" };
@@ -1055,8 +1121,8 @@ describe("agent-driven session commands", () => {
       expect(result.stderr).toContain(index === 0 ? "refuses press" : "Goto must be an app path");
       expect(fakeCalls().some((call) => call[0] === "press" || (call[0] === "navigate" && call[1]?.includes("another.example")))).toBe(false);
       expect(run(["snapshot", "--session", name], env).exitCode).toBe(2);
-    }
-  });
+    });
+  }
 
   test("a review reached by snapshot records rung 2 without a Reach expect step", async () => {
     await seedLiveState(addressA);

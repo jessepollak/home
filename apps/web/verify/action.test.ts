@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { resolve } from "node:path";
 import { encodeFunctionData, erc20Abi } from "viem";
 import { checkPreparedAction, decodeSendRecipient, preparedFromHar } from "./action";
 import { BASE_USDC } from "../shared/assets/base";
@@ -58,5 +59,23 @@ describe("prepared action authority", () => {
     expect(() => preparedFromHar({ log: { entries: [entry(prepared("send"), 401)] } }, "https://example.com", id)).toThrow("found 0");
     expect(() => preparedFromHar({ log: { entries: [entry(prepared("send")), entry(prepared("send"))] } }, "https://example.com", id)).toThrow("found 2");
     expect(() => preparedFromHar({ log: { entries: [{ ...entry(prepared("send")), response: { status: 201, content: {} } }] } }, "https://example.com", id)).toThrow("unavailable");
+  });
+});
+
+describe("rendered money control names", () => {
+  test("uses a real MoneyTicker's visible name for confirm, plain-click fencing, and ref clicks", () => {
+    const result = Bun.spawnSync(["bun", "apps/web/verify/test-fixtures/confirm-control.ts"], {
+      cwd: resolve(import.meta.dir, "../../.."), stdout: "pipe", stderr: "pipe",
+    });
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout.toString())).toEqual({
+      confirm: [{ id, name: "Send $0.10" }],
+      protected: true,
+      incorrectName: false,
+      ref: "Send $0.10",
+      labelledConfirm: [{ id, name: "Send USDC" }],
+      labelledProtected: true,
+      labelledRef: "Send USDC",
+    });
   });
 });
