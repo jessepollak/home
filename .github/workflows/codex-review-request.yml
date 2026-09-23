@@ -1,0 +1,32 @@
+name: Codex review request
+
+# Codex reviews only pull requests whose author has a linked ChatGPT account, and honours `@codex review` only from
+# such accounts, so the factory bot's pull requests get no review on their own. This posts the trigger under Jesse's
+# identity with a fine-grained token limited to pull-request write on this repository (secret CODEX_REVIEW_TOKEN).
+# `pull_request_target` runs this file as it is on the base branch, so a pull request cannot rewrite it, and the job
+# never checks the pull request's code out. A missing secret or a failed comment is a warning, never a red check:
+# a failing check here would send the factory into a repair run for a defect the pull request does not have.
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review, synchronize]
+
+permissions: {}
+
+jobs:
+  request:
+    name: ask Codex to review a factory pull request
+    if: github.event.pull_request.user.login == 'jessepollakj' && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Comment `@codex review`
+        env:
+          GH_TOKEN: ${{ secrets.CODEX_REVIEW_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::CODEX_REVIEW_TOKEN is not set; skipping the Codex review request"
+            exit 0
+          fi
+          gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" -f body='@codex review' --jq '.html_url' \
+            || echo "::warning::could not post the Codex review request"
