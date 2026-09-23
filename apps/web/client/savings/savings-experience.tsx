@@ -276,7 +276,7 @@ export function SavingsExperience({
     if (loadState.status !== "ready") return [];
     return preferredSavingsCandidates(loadState.data.candidates);
   }, [loadState]);
-  const candidates = allCandidates.slice(0, 2);
+  const candidates = allCandidates;
   const selected =
     candidates.find(
       (candidate) =>

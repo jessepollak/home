@@ -66,6 +66,16 @@ describe("Morpho V1 normalization", () => {
     expect(result?.totalAssetsRaw).toBe(uint256);
   });
 
+  test("binds provider metadata to the canonical configured address identity", () => {
+    const vault = validVault();
+    vault.name = "Stale provider label";
+
+    expect(normalizeVaultCandidate(vault, source)).toMatchObject({
+      vaultAddress: configuredVault,
+      name: "Gauntlet USDC Prime",
+    });
+  });
+
   test("rejects candidates on the wrong chain or underlying", () => {
     const wrongChain = validVault();
     wrongChain.chain.id = "1";

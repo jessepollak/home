@@ -4,7 +4,7 @@ import {
   BASE_CHAIN_ID,
   BASE_USDC_ADDRESS,
   BASE_USDC_DECIMALS,
-  isConfiguredMorphoVault,
+  getVerifiedSaveVault,
 } from "@/shared/savings/config";
 import {
   MORPHO_API_VERSION,
@@ -38,15 +38,17 @@ export function normalizeVaultCandidate(
   const chainId = readSafeInteger(chain.id, "vault.chain.id");
   const assetAddress = readAddress(asset.address, "vault.asset.address");
   const decimals = readSafeInteger(asset.decimals, "vault.asset.decimals");
+  const configuredVault = getVerifiedSaveVault(address);
 
   if (
     chainId !== BASE_CHAIN_ID ||
     assetAddress.toLowerCase() !== BASE_USDC_ADDRESS.toLowerCase() ||
     decimals !== BASE_USDC_DECIMALS ||
-    !isConfiguredMorphoVault(address)
+    !configuredVault
   ) {
     return null;
   }
+  readString(vault.name, "vault.name");
 
   const state = vault.state === null ? null : asRecord(vault.state, "vault.state");
   const liquidity =
@@ -57,7 +59,7 @@ export function normalizeVaultCandidate(
   return {
     version: MORPHO_API_VERSION,
     vaultAddress: address,
-    name: readString(vault.name, "vault.name"),
+    name: configuredVault.name,
     symbol: readString(vault.symbol, "vault.symbol"),
     listed: readBoolean(vault.listed, "vault.listed"),
     chainId: BASE_CHAIN_ID,

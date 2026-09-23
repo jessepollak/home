@@ -36,6 +36,8 @@ The public schema and sample responses were checked with a small bounded set of 
 
 No vault is selected by default. The configured shortlist is a comparison set, not an investment recommendation. The three addresses were retained because they were listed V1 Base USDC vaults and were the three largest by reported total assets in the bounded discovery response at verification time.
 
+The contract address is the canonical identity of each configured vault, and each displayed name is the verified onchain `name()` for that exact address. Registry `id` values are opaque legacy compatibility keys retained for stored references and id-based activity mapping; they carry no identity, display, or ordering meaning, so no surface may derive a vault label from id text.
+
 Snapshot values below came directly from Morpho GraphQL. Amounts were preserved as integer base units and formatted using six decimals. APY is variable and may already have changed.
 
 | Candidate | Vault address | Curator address | Version | Current net APY | V1 fee rate | Total assets | Indexed liquidity | State as of |

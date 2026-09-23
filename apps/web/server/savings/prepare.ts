@@ -299,7 +299,7 @@ async function createReviewMetadata(
     fetchedAt: null,
     stateAsOf: null,
   };
-  let vaultName = configuredVault?.name ?? "Configured USDC vault";
+  const vaultName = configuredVault?.name ?? "Configured USDC vault";
 
   if (readVaults) {
     try {
@@ -315,7 +315,6 @@ async function createReviewMetadata(
         isValidIso(candidate.source.fetchedAt) &&
         isValidIso(candidate.stateAsOf)
       ) {
-        vaultName = candidate.name;
         const preparedAtMs = preparedAt.getTime();
         const fetchedAtMs = Date.parse(candidate.source.fetchedAt);
         const stateAsOfMs = Date.parse(candidate.stateAsOf);
