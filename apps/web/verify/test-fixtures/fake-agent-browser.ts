@@ -41,8 +41,10 @@ if (command === "eval") {
     result = JSON.parse(process.env.FAKE_AGENT_BROWSER_HOSTS ?? "[]") as unknown;
   } else if (expression.includes("__homeVerifyPrefix")) {
     const configured = JSON.parse(process.env.FAKE_AGENT_BROWSER_PREFIX_NAMES ?? "[]") as string[] | Record<string, string[]>;
-    const prefixMatch = /__homeVerifyPrefix=("(?:[^"\\]|\\.)*")/.exec(expression);
-    const prefix = prefixMatch ? (JSON.parse(prefixMatch[1]!) as string) : "";
+    const marker = "__homeVerifyPrefix=";
+    const start = expression.indexOf(marker) + marker.length;
+    const end = expression.indexOf(";return", start);
+    const prefix = JSON.parse(expression.slice(start, end)) as string;
     result = Array.isArray(configured) ? configured : (configured[prefix] ?? []);
   }
 } else if (command === "network" && rest[0] === "requests") {
