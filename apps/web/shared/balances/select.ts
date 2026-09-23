@@ -3,7 +3,14 @@ import { presentationRegions, type FiatCurrencyCode } from "@/config/regions";
 import { exactDecimalToFraction } from "@/shared/balances/math";
 import { getTransferAsset } from "@/shared/transfers/transfer-helpers";
 import type { TransferAsset } from "@/shared/transfers/types";
-import type { BalancesSnapshot, ExactDecimal, Holding } from "./types";
+import type {
+  BalancesSnapshot,
+  BalancesTotals,
+  BorrowCollateralHolding,
+  BorrowPosition,
+  ExactDecimal,
+  Holding,
+} from "./types";
 
 export type SendableBalance = TransferAsset & { balanceBaseUnits: string; imageUrl?: string };
 
@@ -139,6 +146,23 @@ export function selectAssetCount(snapshot: BalancesSnapshot): number {
 
 export function selectTotal(snapshot: BalancesSnapshot): BalancesSnapshot["total"] {
   return snapshot.total;
+}
+
+/** @public Home net-worth consumer lands in #789; exercised by shared/balances/select.test.ts */
+export function selectBalanceTotals(snapshot: BalancesSnapshot): BalancesTotals {
+  return snapshot.totals;
+}
+
+/** @public Home Borrow row lands in #789; exercised by shared/balances/select.test.ts */
+export function selectBorrowPositions(snapshot: BalancesSnapshot): BorrowPosition[] {
+  return snapshot.borrow.positions;
+}
+
+/** @public Home Investments consumer lands in #789; exercised by shared/balances/select.test.ts */
+export function selectCollateralHoldings(snapshot: BalancesSnapshot): BorrowCollateralHolding[] {
+  return snapshot.borrow.positions.flatMap((position) =>
+    position.collateral.balance.baseUnits === "0" ? [] : [position.collateral]
+  ).sort(compareHoldings);
 }
 
 function compareHoldings(left: Holding, right: Holding): number {

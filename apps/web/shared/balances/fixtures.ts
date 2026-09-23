@@ -1,14 +1,20 @@
 
 import { PORTFOLIO_USDC_ASSET_KEY } from "@/config/portfolio-assets";
 import { presentationRegions, type FiatCurrencyCode, type RegionId } from "@/config/regions";
+import { DEFAULT_BORROW_MARKET } from "@/shared/borrowing/config";
 import { expectedRegistryHoldings } from "./contract";
+import { computeBalancesTotals } from "./totals";
 import {
   BALANCES_CHAIN_ID,
   BALANCES_VERSION,
   catalogHoldingId,
   erc20AssetKey,
   walletHoldingId,
+  type BalancesBorrow,
   type BalancesSnapshot,
+  type BalancesTotals,
+  type BorrowMarketKey,
+  type BorrowPosition,
   type ExactDecimal,
   type Holding,
   type HoldingBalance,
@@ -67,6 +73,8 @@ export type BalancesFixtureOptions = {
   catalog?: Holding[];
   coverage?: Partial<BalancesSnapshot["coverage"]>;
   total?: Partial<BalancesSnapshot["total"]>;
+  borrow?: BalancesBorrow;
+  totals?: Partial<BalancesTotals>;
   fetchedAt?: string;
 };
 
@@ -195,6 +203,12 @@ export function buildBalancesSnapshotFixture(options: BalancesFixtureOptions = {
           ...options.total,
         };
 
+  const borrow = options.borrow ?? { coverage: "complete", positions: [] };
+  const totals = {
+    ...computeBalancesTotals({ quoteCurrency, holdings, coverage, borrow }),
+    ...options.totals,
+  };
+
   return {
     version: BALANCES_VERSION,
     owner: { address: owner, chainId: BALANCES_CHAIN_ID },
@@ -205,6 +219,54 @@ export function buildBalancesSnapshotFixture(options: BalancesFixtureOptions = {
     holdings,
     coverage,
     total,
+    borrow,
+    totals,
+  };
+}
+
+export const FIXTURE_BORROW_MARKET_ID = DEFAULT_BORROW_MARKET.marketId.toLowerCase() as BorrowMarketKey;
+export const FIXTURE_BORROW_APR_WAD = "51000000000000000";
+
+export function borrowPosition(options: {
+  collateralBaseUnits: string;
+  collateralValue: HoldingValue;
+  debtBaseUnits: string;
+  debtValue: HoldingValue;
+  marketId?: BorrowMarketKey;
+  borrowAprWad?: string;
+}): BorrowPosition {
+  const marketId = options.marketId ?? FIXTURE_BORROW_MARKET_ID;
+  const collateralToken = DEFAULT_BORROW_MARKET.collateralToken;
+  const loanToken = DEFAULT_BORROW_MARKET.loanToken;
+  return {
+    marketId,
+    collateral: {
+      key: erc20AssetKey(collateralToken.address),
+      id: `borrow-collateral:${marketId}`,
+      kind: "erc20",
+      source: "borrow",
+      name: "Bitcoin",
+      symbol: collateralToken.symbol,
+      decimals: collateralToken.decimals,
+      contractAddress: collateralToken.address.toLowerCase() as `0x${string}`,
+      cashCurrency: null,
+      balance: { status: "ready", baseUnits: options.collateralBaseUnits },
+      value: options.collateralValue,
+      collateral: { marketId },
+    },
+    debt: {
+      sign: -1,
+      marketId,
+      asset: {
+        key: erc20AssetKey(loanToken.address),
+        name: "US dollar",
+        symbol: loanToken.symbol,
+        decimals: loanToken.decimals,
+      },
+      balance: { status: "ready", baseUnits: options.debtBaseUnits },
+      value: options.debtValue,
+    },
+    borrowAprWad: options.borrowAprWad ?? FIXTURE_BORROW_APR_WAD,
   };
 }
 

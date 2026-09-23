@@ -5,6 +5,7 @@ import {
   BALANCES_CHAIN_ID,
   BALANCES_VERSION,
   type BalancesAddress,
+  type BalancesBorrow,
   type BalancesSnapshot,
   type Holding,
 } from "@/shared/balances/types";
@@ -13,6 +14,7 @@ import {
   exactDecimalToFraction,
   roundFractionPreservingPositive,
 } from "@/shared/balances/math";
+import { computeBalancesTotals } from "@/shared/balances/totals";
 import type { BalancesRead } from "./types";
 
 export function assembleBalancesSnapshot({
@@ -20,12 +22,14 @@ export function assembleBalancesSnapshot({
   region,
   read,
   holdings,
+  borrow,
   stale = false,
 }: {
   owner: BalancesAddress;
   region: RegionId;
   read: BalancesRead;
   holdings: Holding[];
+  borrow: BalancesBorrow;
   stale?: boolean;
 }): BalancesSnapshot {
   const quoteCurrency = presentationRegions[region].currency.code;
@@ -83,6 +87,13 @@ export function assembleBalancesSnapshot({
     holdings,
     coverage: read.coverage,
     total,
+    borrow,
+    totals: computeBalancesTotals({
+      quoteCurrency,
+      holdings,
+      coverage: read.coverage,
+      borrow,
+    }),
     ...(stale ? { stale: true as const } : {}),
   };
 }

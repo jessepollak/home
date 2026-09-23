@@ -7,6 +7,9 @@ import {
   createBalancesPricer,
   mapWithConcurrency,
 } from "./price";
+import { DEFAULT_BORROW_MARKET } from "@/shared/borrowing/config";
+import { exactDecimalToFraction } from "@/shared/balances/math";
+import type { Holding } from "@/shared/balances/types";
 import type { BalancesRead, ReadHolding } from "./types";
 import { MemoryPriceObservationStore } from "./memory-price-observation-store";
 import type { PriceObservation, PriceObservationStore } from "./price-observation-store";
@@ -179,6 +182,82 @@ describe("balances pricing", () => {
     expect(maximum).toBe(4);
     for (const [index, gate] of gates.entries()) gate.resolve(index * 10);
     await expect(pending).resolves.toEqual([0, 10, 20, 30, 40, 50]);
+  });
+
+  test("prices Borrow collateral and debt with the same quotes as wallet holdings", async () => {
+    const cbbtcAddress = DEFAULT_BORROW_MARKET.collateralToken.address.toLowerCase() as `0x${string}`;
+    const usdcAddress = DEFAULT_BORROW_MARKET.loanToken.address.toLowerCase() as `0x${string}`;
+    const walletCbbtc: ReadHolding = {
+      key: `eip155:8453/erc20:${cbbtcAddress}`,
+      id: "cbbtc",
+      kind: "erc20",
+      source: "registry",
+      name: "Bitcoin",
+      symbol: "cbBTC",
+      decimals: 8,
+      contractAddress: cbbtcAddress,
+      cashCurrency: null,
+      balance: { status: "ready", baseUnits: "50000000" },
+    };
+    const marketId = DEFAULT_BORROW_MARKET.marketId.toLowerCase() as `0x${string}`;
+    const price = createTestPricer({
+      readPrices: async (inputs) => inputs.map((input) => ({
+        ...quote(input.assetKey, "fresh"),
+        unitPrice: input.address.toLowerCase() === cbbtcAddress
+          ? { atoms: "100000", scale: 0 }
+          : { atoms: "1", scale: 0 },
+      })),
+      readExchangeRates: async () => rates(),
+    });
+
+    const result = await price({
+      ...read,
+      holdings: [walletCbbtc],
+      borrow: {
+        markets: [{
+          marketId,
+          status: "ready",
+          blockNumber: "1",
+          collateralRaw: "100000000",
+          debtAssetsRaw: "30000000",
+          borrowAprWad: "51000000000000000",
+        }],
+      },
+    }, "DE");
+
+    const euros = (value: Holding["value"]) => {
+      if (value.status !== "priced") return null;
+      const fraction = exactDecimalToFraction(value.amount);
+      return (fraction.numerator / fraction.denominator).toString();
+    };
+    expect(euros(result.holdings[0]!.value)).toBe("45000");
+    expect(result.borrow.coverage).toBe("complete");
+    const [position] = result.borrow.positions;
+    expect(position?.collateral).toMatchObject({
+      key: walletCbbtc.key,
+      source: "borrow",
+      collateral: { marketId },
+      value: { status: "priced", currency: "EUR" },
+    });
+    expect(euros(position!.collateral.value)).toBe("90000");
+    expect(position?.debt).toMatchObject({
+      sign: -1,
+      marketId,
+      asset: { key: `eip155:8453/erc20:${usdcAddress}`, decimals: 6 },
+      balance: { status: "ready", baseUnits: "30000000" },
+      value: { status: "priced", currency: "EUR" },
+    });
+    expect(euros(position!.debt.value)).toBe("27");
+    expect(position?.borrowAprWad).toBe("51000000000000000");
+  });
+
+  test("a missing borrow read prices no positions and marks Borrow partial", async () => {
+    const price = createTestPricer({
+      readPrices: async (inputs) => inputs.map((input) => quote(input.assetKey, "fresh")),
+      readExchangeRates: async () => rates(),
+    });
+    const result = await price(read, "US");
+    expect(result.borrow).toEqual({ coverage: "partial", positions: [] });
   });
 
   test("isolates one failed Codex batch without losing other batch prices", async () => {

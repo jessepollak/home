@@ -5,6 +5,8 @@ import type { BalanceObservation, BalanceSnapshotStore } from "./snapshot-store"
 
 const ADDRESS = "0x1111111111111111111111111111111111111111" as const;
 const OTHER = "0x2222222222222222222222222222222222222222" as const;
+const MARKET = `0x${"ab".repeat(32)}` as const;
+const OTHER_MARKET = `0x${"cd".repeat(32)}` as const;
 
 export function balanceSnapshotStoreContract(options: {
   name: string;
@@ -92,6 +94,29 @@ export function balanceSnapshotStoreContract(options: {
       await store.markStaleMany(8453, [ADDRESS, OTHER], new Date("2026-09-13T12:00:20.000Z"));
       expect((await store.get(8453, ADDRESS))?.staleAt).toBe("2026-09-13T12:00:20.000Z");
       expect((await store.get(8453, OTHER))?.staleAt).toBe("2026-09-13T12:00:20.000Z");
+    });
+
+    test("Borrow reads round-trip and a row without one reads back as null", async () => {
+      await store.putObservation(observation("10", "2026-09-13T12:00:10.000Z"));
+      expect((await store.get(8453, ADDRESS))?.borrow).toBeNull();
+      const borrow = {
+        markets: [
+          {
+            marketId: MARKET,
+            status: "ready" as const,
+            blockNumber: "11",
+            collateralRaw: "100000",
+            debtAssetsRaw: "30010000",
+            borrowAprWad: "51000000000000000",
+          },
+          { marketId: OTHER_MARKET, status: "unavailable" as const },
+        ],
+      };
+      await store.putObservation({ ...observation("11", "2026-09-13T12:00:11.000Z"), borrow });
+      await store.markStale(8453, ADDRESS, new Date("2026-09-13T12:00:20.000Z"));
+      expect((await store.get(8453, ADDRESS))?.borrow).toEqual(borrow);
+      expect(await store.putObservation({ ...observation("10", "2026-09-13T12:00:30.000Z"), borrow: null })).toBeFalse();
+      expect((await store.get(8453, ADDRESS))?.borrow).toEqual(borrow);
     });
 
     test("signals no-op when no observation row exists", async () => {

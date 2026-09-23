@@ -81,7 +81,7 @@ describe("owner query cache boundary", () => {
     const state = dehydrateOwnerQueries(client, ownerKey);
     const storage = memoryStorage();
     const persister = createOwnerQueryPersister(storage, ownerKey);
-    persister?.persistClient({ timestamp: Date.now(), buster: "home-query-v2", clientState: state });
+    persister?.persistClient({ timestamp: Date.now(), buster: "home-query-v3", clientState: state });
     persister?.flush();
     const restored = createHomeQueryClient();
 
@@ -106,7 +106,7 @@ describe("owner query cache boundary", () => {
     const persister = createOwnerQueryPersister(storage, "owner-a", 0);
 
     expect(() => {
-      persister?.persistClient({ timestamp: Date.now(), buster: "home-query-v2", clientState: { mutations: [], queries: [] } });
+      persister?.persistClient({ timestamp: Date.now(), buster: "home-query-v3", clientState: { mutations: [], queries: [] } });
       persister?.flush();
     }).not.toThrow();
     expect(restoreOwnerQueries(client, storage, "owner-a")).toBe(false);
@@ -122,7 +122,7 @@ describe("owner query cache boundary", () => {
     attacker.setQueryData(ownerQueryKey("owner-b", "balances", "US"), { amount: "99" });
     storage.setItem(`${ownerQueryCachePrefix}owner-a`, JSON.stringify({
       timestamp: Date.now(),
-      buster: "home-query-v2",
+      buster: "home-query-v3",
       clientState: dehydrateOwnerQueries(attacker, "owner-b"),
     }));
 
@@ -158,7 +158,7 @@ describe("owner query cache boundary", () => {
     const persister = createOwnerQueryPersister(storage, ownerKey);
     persister?.persistClient({
       timestamp: Date.now(),
-      buster: "home-query-v2",
+      buster: "home-query-v3",
       clientState: dehydrated,
     });
     persister?.flush();

@@ -120,8 +120,15 @@ export class MorphoMarketRpcError extends Error {
   }
 }
 
+export type MorphoPinnedBlock = { number: string; hash: `0x${string}` };
+
 export type MorphoMarketRpcReader = {
-  readSnapshot(account: MorphoAddress, marketRef: VerifiedMorphoMarketRef, signal?: AbortSignal): Promise<MorphoMarketSnapshot>;
+  readSnapshot(
+    account: MorphoAddress,
+    marketRef: VerifiedMorphoMarketRef,
+    signal?: AbortSignal,
+    at?: MorphoPinnedBlock,
+  ): Promise<MorphoMarketSnapshot>;
   simulateBatch(
     calls: readonly MoneyActionCall[],
     account: MorphoAddress,
@@ -144,6 +151,7 @@ export function createMorphoMarketRpcReader(options: {
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 30_000) {
     throw new MorphoMarketRpcError("The Base RPC timeout must be 1-30000ms.");
   }
+  let chainVerified = false;
   const batchSimulator = createCoinbaseSmartAccountBatchSimulator({
     fetchImpl,
     rpcUrl,
@@ -172,19 +180,25 @@ export function createMorphoMarketRpcReader(options: {
   }
 
   return {
-    async readSnapshot(account, marketRef, externalSignal) {
+    async readSnapshot(account, marketRef, externalSignal, at) {
       assertAddress(account, "account");
       return withTimeout(externalSignal, async (signal) => {
-        const chain = await rpc(fetchImpl, rpcUrl, request(1, "eth_chainId", []), signal);
-        if (readQuantity(chain.result, "chain id", UINT256_MAX) !== BigInt(BASE_CHAIN_ID)) {
-          throw new MorphoMarketRpcError("The configured RPC is not Base mainnet.");
+        if (!chainVerified) {
+          const chain = await rpc(fetchImpl, rpcUrl, request(1, "eth_chainId", []), signal);
+          if (readQuantity(chain.result, "chain id", UINT256_MAX) !== BigInt(BASE_CHAIN_ID)) {
+            throw new MorphoMarketRpcError("The configured RPC is not Base mainnet.");
+          }
+          chainVerified = true;
         }
         const block = readBlock((await rpc(
           fetchImpl,
           rpcUrl,
-          request(2, "eth_getBlockByNumber", ["latest", false]),
+          request(2, "eth_getBlockByNumber", [at ? `0x${BigInt(at.number).toString(16)}` : "latest", false]),
           signal,
         )).result);
+        if (at && (block.number !== BigInt(at.number) || block.hash.toLowerCase() !== at.hash.toLowerCase())) {
+          throw new MorphoMarketRpcError("The pinned Base block is not canonical.");
+        }
         const calls = await rpcBatch(fetchImpl, rpcUrl, [
           callRequest(3, marketRef.morpho, encodeMarketParams(marketRef.marketId), block.numberHex),
           callRequest(4, marketRef.morpho, encodeMarket(marketRef.marketId), block.numberHex),

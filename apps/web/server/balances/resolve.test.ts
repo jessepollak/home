@@ -283,6 +283,7 @@ describe("balances resolution", () => {
       owner: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       region: "US",
       read: withoutIcons,
+      borrow: { coverage: "complete", positions: [] },
       holdings,
     });
 

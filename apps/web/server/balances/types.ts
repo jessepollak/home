@@ -4,6 +4,7 @@ import type { FiatCurrencyCode } from "@/config/regions";
 import type {
   AssetKey,
   BalancesCoverage,
+  BorrowMarketKey,
   ExactDecimal,
   Holding,
   HoldingBalance,
@@ -52,10 +53,26 @@ export type ReadHolding = UniverseEntry & {
   underlyingBalance?: HoldingBalance;
 };
 
+export type BorrowMarketRead =
+  | {
+      marketId: BorrowMarketKey;
+      status: "ready";
+      blockNumber: string;
+      collateralRaw: string;
+      debtAssetsRaw: string;
+      borrowAprWad: string;
+    }
+  | { marketId: BorrowMarketKey; status: "unavailable" };
+
+export type BorrowRead = {
+  markets: BorrowMarketRead[];
+};
+
 export type BalancesRead = {
   block: { number: string; hash: `0x${string}`; timestamp: string };
   observedAt: string;
   holdings: ReadHolding[];
   coverage: BalancesCoverage;
   enumerationCursor?: string | null;
+  borrow?: BorrowRead | null;
 };

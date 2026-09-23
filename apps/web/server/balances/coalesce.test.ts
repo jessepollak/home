@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseBalancesSnapshot } from "@/shared/balances/contract";
+import { DEFAULT_BORROW_MARKET } from "@/shared/borrowing/config";
 import {
   buildBalancesSnapshotFixture,
   priced as fixturePriced,
@@ -9,7 +10,26 @@ import type { Holding } from "@/shared/balances/types";
 import { createBalancesService } from "./coalesce";
 import { MemoryBalanceSnapshotStore } from "./memory-snapshot-store";
 import type { BalanceObservation } from "./snapshot-store";
-import type { BalancesEnumeration, BalancesRead, ReadHolding } from "./types";
+import { borrowReadComplete } from "./borrow";
+import type { BalancesEnumeration, BalancesRead, BorrowRead, ReadHolding } from "./types";
+
+const borrowMarketId = DEFAULT_BORROW_MARKET.marketId.toLowerCase() as `0x${string}`;
+function readyBorrow(): BorrowRead {
+  return {
+    markets: [{
+      marketId: borrowMarketId,
+      status: "ready",
+      blockNumber: "11",
+      collateralRaw: "0",
+      debtAssetsRaw: "0",
+      borrowAprWad: "0",
+    }],
+  };
+}
+
+function unavailableBorrow(): BorrowRead {
+  return { markets: [{ marketId: borrowMarketId, status: "unavailable" }] };
+}
 
 const owner = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as const;
 const observedAt = "2026-09-13T12:00:00.000Z";
@@ -71,6 +91,7 @@ function observation(overrides: Partial<BalanceObservation> = {}): BalanceObserv
     observedAt: value.observedAt,
     holdings: value.holdings,
     coverage: value.coverage,
+    borrow: readyBorrow(),
     ...overrides,
   };
 }
@@ -97,12 +118,15 @@ function setup(options: {
   registryRead?: () => Promise<BalancesRead>;
   enumerate?: (cursor?: string | null) => Promise<BalancesEnumeration>;
   price?: (read: BalancesRead) => Holding[];
+  readBorrow?: (at: BalancesRead["block"]) => Promise<BorrowRead>;
 }) {
   const store = options.store ?? new MemoryBalanceSnapshotStore();
   const configuredNow = options.now;
   const events: unknown[] = [];
   let reads = 0;
   let enumerations = 0;
+  let borrowReads = 0;
+  const borrowPins: Array<BalancesRead["block"]> = [];
   let clock = 0;
   const scheduled: Array<() => Promise<unknown>> = [];
   const service = createBalancesService({
@@ -147,8 +171,14 @@ function setup(options: {
             : "complete",
       },
     }),
+    readBorrow: async (_owner, at) => {
+      borrowReads += 1;
+      borrowPins.push(at);
+      return options.readBorrow?.(at) ?? readyBorrow();
+    },
     priceBalances: async (value) => ({
       holdings: options.price?.(value) ?? priced(value.holdings),
+      borrow: { coverage: borrowReadComplete(value.borrow) ? "complete" : "partial", positions: [] },
       revalidating: false,
       durationMs: { store: 0, codex: 0, coinbase: 0 },
     } as never),
@@ -159,6 +189,9 @@ function setup(options: {
     events,
     reads: () => reads,
     enumerations: () => enumerations,
+    borrowReads: () => borrowReads,
+    borrowPins: () => borrowPins,
+    pending: () => scheduled.length,
     flush: async () => { await Promise.all(scheduled.splice(0).map((task) => task())); },
   };
 }
@@ -335,6 +368,117 @@ describe("balance observations", () => {
     await fixture.flush();
     expect(fixture.reads()).toBe(1);
     expect(fixture.enumerations()).toBe(1);
+  });
+
+  test("a full observation reads and persists Borrow positions alongside holdings", async () => {
+    const fixture = setup({});
+    const snapshot = await fixture.service(owner, "US");
+    expect(fixture.borrowReads()).toBe(1);
+    expect(snapshot.borrow.coverage).toBe("complete");
+    expect(fixture.borrowPins()).toEqual([read("11").block]);
+    expect((await fixture.store.get(8453, owner))?.borrow).toEqual(readyBorrow());
+  });
+
+  test("a failed Borrow read marks Borrow partial, persists no zero, and retries after the interval", async () => {
+    let failing = true;
+    let current = new Date("2026-09-13T12:00:30.000Z");
+    const fixture = setup({
+      now: () => current,
+      registryRead: async () => read("11", current.toISOString(), [registry]),
+      readBorrow: async () => failing ? unavailableBorrow() : readyBorrow(),
+    });
+    const first = await fixture.service(owner, "US");
+    expect(first.borrow.coverage).toBe("partial");
+    expect(first.totals.net.status).not.toBe("complete");
+    expect((await fixture.store.get(8453, owner))?.borrow?.markets[0]?.status).toBe("unavailable");
+
+    failing = false;
+    current = new Date("2026-09-13T12:00:50.000Z");
+    const within = await fixture.service(owner, "US");
+    expect(within.stale).toBeUndefined();
+    expect(within.borrow.coverage).toBe("partial");
+    expect(within.totals.net.status).not.toBe("complete");
+    expect(fixture.pending()).toBe(0);
+
+    current = new Date("2026-09-13T12:01:00.000Z");
+    const due = await fixture.service(owner, "US");
+    expect(due.stale).toBeTrue();
+    expect(due.borrow.coverage).toBe("partial");
+    await fixture.flush();
+    expect(fixture.borrowReads()).toBe(2);
+    expect((await fixture.store.get(8453, owner))?.borrow).toEqual(readyBorrow());
+  });
+
+  test("a Borrow outage across consecutive full observations waits the retry interval before another", async () => {
+    let current = new Date("2026-09-13T12:01:00.000Z");
+    let block = 11;
+    const fixture = setup({
+      now: () => current,
+      registryRead: async () => read(String(block++), current.toISOString(), [registry]),
+      readBorrow: async () => unavailableBorrow(),
+    });
+    await fixture.store.putObservation(observation({ borrow: unavailableBorrow() }));
+
+    const first = await fixture.service(owner, "US");
+    expect(first.stale).toBeTrue();
+    expect(fixture.pending()).toBe(1);
+    await fixture.flush();
+    expect(fixture.reads()).toBe(1);
+    expect((await fixture.store.get(8453, owner))?.observedAt).toBe("2026-09-13T12:01:00.000Z");
+
+    current = new Date("2026-09-13T12:01:20.000Z");
+    const second = await fixture.service(owner, "US");
+    expect(second.stale).toBeUndefined();
+    expect(second.borrow.coverage).toBe("partial");
+    expect(second.totals.net.status).not.toBe("complete");
+    expect(fixture.pending()).toBe(0);
+    expect(fixture.reads()).toBe(1);
+
+    current = new Date("2026-09-13T12:01:30.000Z");
+    const third = await fixture.service(owner, "US");
+    expect(third.stale).toBeTrue();
+    expect(fixture.pending()).toBe(1);
+  });
+
+  test("a hot-window Borrow failure is flagged stale from the fresh read, subject to the interval", async () => {
+    const due = setup({ now: "2026-09-13T12:00:45.000Z", readBorrow: async () => unavailableBorrow() });
+    await due.store.putObservation(observation());
+    await due.store.markHot(8453, owner, new Date("2026-09-13T12:01:00.000Z"));
+    const flagged = await due.service(owner, "US");
+    expect(due.reads()).toBe(1);
+    expect(flagged.stale).toBeTrue();
+    expect(flagged.borrow.coverage).toBe("partial");
+    expect(due.pending()).toBe(1);
+
+    const recent = setup({ now: "2026-09-13T12:00:45.000Z", readBorrow: async () => unavailableBorrow() });
+    await recent.store.putObservation(observation({ observedAt: "2026-09-13T12:00:30.000Z" }));
+    await recent.store.markHot(8453, owner, new Date("2026-09-13T12:01:00.000Z"));
+    const waiting = await recent.service(owner, "US");
+    expect(waiting.stale).toBeUndefined();
+    expect(waiting.borrow.coverage).toBe("partial");
+    expect(waiting.totals.net.status).not.toBe("complete");
+    expect(recent.pending()).toBe(0);
+  });
+
+  test("a stored row observed before Borrow was tracked is served stale and revalidated", async () => {
+    const fixture = setup({});
+    await fixture.store.putObservation({ ...observation(), borrow: null });
+    const snapshot = await fixture.service(owner, "US");
+    expect(snapshot.stale).toBeTrue();
+    expect(snapshot.borrow.coverage).toBe("partial");
+    await fixture.flush();
+    expect(fixture.borrowReads()).toBe(1);
+  });
+
+  test("a hot row re-reads Borrow with the registry after an action", async () => {
+    const fixture = setup({});
+    await fixture.store.putObservation(observation());
+    await fixture.store.markHot(8453, owner, new Date("2026-09-13T12:01:00.000Z"));
+    await fixture.service(owner, "US");
+    expect(fixture.reads()).toBe(1);
+    expect(fixture.borrowReads()).toBe(1);
+    expect(fixture.enumerations()).toBe(0);
+    expect(fixture.borrowPins()).toEqual([read("11").block]);
   });
 
   test("the 120 second backstop causes a full re-observe", async () => {

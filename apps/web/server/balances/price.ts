@@ -12,6 +12,7 @@ import {
 } from "@/server/market-data/codex/raw-quotes";
 import {
   BALANCES_PRICE_MAX_AGE_MS,
+  type BalancesBorrow,
   type ExactDecimal,
   type Holding,
   type HoldingCashValue,
@@ -26,6 +27,7 @@ import {
   type Fraction,
 } from "@/shared/balances/math";
 import type { FxQuote, NativeEthQuote, PriceQuote } from "@/shared/balances/quotes";
+import { assembleBorrow, borrowPricingPairs } from "./borrow";
 import { getCoinbaseExchangeRates } from "./fx-coinbase";
 import type { BalancesRead, ReadHolding } from "./types";
 import {
@@ -49,6 +51,7 @@ type ExchangeRates = Awaited<ReturnType<typeof getCoinbaseExchangeRates>>;
 export type ValuationMode = "cached" | "bootstrap";
 export type PriceBalancesResult = {
   holdings: Holding[];
+  borrow: BalancesBorrow;
   revalidating: boolean;
   durationMs: { store: number; codex: number; coinbase: number };
 };
@@ -84,8 +87,13 @@ export function createBalancesPricer(dependencies: Dependencies = {}) {
     const startedStore = nowMs();
     const currentTime = now();
     const quoteCurrency = presentationRegions[region].currency.code;
-    const tokenInputs = pricingInputs(read.holdings);
-    const fxKeys = neededFxKeys(read.holdings, quoteCurrency);
+    const borrowPairs = borrowPricingPairs(read.borrow);
+    const pricingHoldings = [
+      ...read.holdings,
+      ...borrowPairs.flatMap((pair) => [pair.collateral, pair.debt]),
+    ];
+    const tokenInputs = pricingInputs(pricingHoldings);
+    const fxKeys = neededFxKeys(pricingHoldings, quoteCurrency);
     const allKeys = [...tokenInputs.map(({ assetKey }) => assetKey), ...fxKeys];
     let stored: PriceObservation[] = [];
     let attempts: ValuationAttempt[] = [];
@@ -128,7 +136,12 @@ export function createBalancesPricer(dependencies: Dependencies = {}) {
       ?? quoteFromObservation(storedByKey.get(input.assetKey), input, currentTime));
     const rates = ratesFromObservations(fxKeys, storedByKey, currentTime);
     const holdings = read.holdings.map((holding) => priceHolding(holding, quoteCurrency, prices, rates, currentTime));
-    return { holdings, revalidating, durationMs };
+    const borrow = assembleBorrow(
+      read.borrow,
+      borrowPairs,
+      (holding) => priceHolding(holding, quoteCurrency, prices, rates, currentTime),
+    );
+    return { holdings, borrow, revalidating, durationMs };
   };
 
   function scheduleRefresh(work: RefreshWork): void {
@@ -211,7 +224,7 @@ export const priceBalances = createBalancesPricer();
 
 function pricingInputs(holdings: readonly ReadHolding[]): CodexRawQuoteInput[] {
   const registry = holdings.filter((holding) => holding.source === "registry" && holding.kind !== "native").map(pricingInput);
-  const discovered = holdings.filter((holding) => (holding.source === "catalog" || holding.marketDataResolved === true) && positivePricingAmount(holding)).map(pricingInput);
+  const discovered = holdings.filter((holding) => (holding.source === "catalog" || holding.source === "borrow" || holding.marketDataResolved === true) && positivePricingAmount(holding)).map(pricingInput);
   return uniqueInputs([...registry, ...discovered]);
 }
 

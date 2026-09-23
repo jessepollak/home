@@ -2,7 +2,7 @@ import "server-only";
 
 import { getSqlExecutor, type SqlExecutor } from "@/server/db/sql";
 import type { BalancesCoverage } from "@/shared/balances/types";
-import type { ReadHolding } from "./types";
+import type { BorrowRead, ReadHolding } from "./types";
 import { emitServerEvent } from "@/server/observability/log";
 import { MemoryBalanceSnapshotStore } from "./memory-snapshot-store";
 
@@ -18,12 +18,13 @@ export type BalanceSnapshotRow = {
   enumerationCursor: string | null;
   holdings: ReadHolding[];
   coverage: BalancesCoverage;
+  borrow: BorrowRead | null;
 };
 
 export type BalanceObservation = Omit<
   BalanceSnapshotRow,
-  "staleAt" | "hotUntil" | "enumerationCursor"
-> & { enumerationCursor?: string | null };
+  "staleAt" | "hotUntil" | "enumerationCursor" | "borrow"
+> & { enumerationCursor?: string | null; borrow?: BorrowRead | null };
 
 export interface BalanceSnapshotStore {
   get(chainId: number, address: `0x${string}`): Promise<BalanceSnapshotRow | null>;
@@ -49,8 +50,8 @@ export class PostgresBalanceSnapshotStore implements BalanceSnapshotStore {
   async putObservation(row: BalanceObservation): Promise<boolean> {
     const result = await this.sql.query(
       `INSERT INTO balance_snapshots
-       (chain_id,address,block_number,block_hash,block_timestamp,observed_at,enumeration_cursor,holdings,coverage)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb)
+       (chain_id,address,block_number,block_hash,block_timestamp,observed_at,enumeration_cursor,holdings,coverage,borrow)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb)
        ON CONFLICT (chain_id,address) DO UPDATE SET
          block_number=EXCLUDED.block_number,
          block_hash=EXCLUDED.block_hash,
@@ -58,14 +59,16 @@ export class PostgresBalanceSnapshotStore implements BalanceSnapshotStore {
          observed_at=EXCLUDED.observed_at,
          enumeration_cursor=EXCLUDED.enumeration_cursor,
          holdings=EXCLUDED.holdings,
-         coverage=EXCLUDED.coverage
+         coverage=EXCLUDED.coverage,
+         borrow=EXCLUDED.borrow
        WHERE EXCLUDED.block_number > balance_snapshots.block_number
           OR (EXCLUDED.block_number = balance_snapshots.block_number
               AND EXCLUDED.observed_at > balance_snapshots.observed_at)
        RETURNING 1`,
       [row.chainId, row.address.toLowerCase(), row.blockNumber, row.blockHash,
         row.blockTimestamp, row.observedAt, row.enumerationCursor ?? null,
-        JSON.stringify(row.holdings), JSON.stringify(row.coverage)],
+        JSON.stringify(row.holdings), JSON.stringify(row.coverage),
+        row.borrow ? JSON.stringify(row.borrow) : null],
     );
     return result.rowCount === 1;
   }
@@ -124,6 +127,7 @@ function fromDatabaseRow(row: DatabaseRow): BalanceSnapshotRow {
       : String(row.enumeration_cursor),
     holdings: parseJson<ReadHolding[]>(row.holdings),
     coverage: parseJson<BalancesCoverage>(row.coverage),
+    borrow: row.borrow === null || row.borrow === undefined ? null : parseJson<BorrowRead>(row.borrow),
   };
 }
 

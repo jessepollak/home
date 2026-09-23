@@ -69,7 +69,7 @@ function persistValuation(ownerKey: string, amount: string): void {
   const persister = createOwnerQueryPersister(window.localStorage, ownerKey);
   persister?.persistClient({
     timestamp: Date.now(),
-    buster: "home-query-v2",
+    buster: "home-query-v3",
     clientState: dehydrate(client, {
       shouldDehydrateQuery: (query) => shouldPersistOwnerQuery(query, ownerKey),
     }),

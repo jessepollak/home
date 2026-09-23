@@ -4,6 +4,7 @@ import {
   portfolioVaults,
   PORTFOLIO_USDC_ASSET_KEY,
 } from "@/config/portfolio-assets";
+import { getBorrowMarketRef, type BorrowAssetRef } from "@/shared/borrowing/config";
 import {
   presentationRegions,
   type FiatCurrencyCode,
@@ -17,7 +18,14 @@ import {
   nativeAssetKey,
   walletHoldingId,
   type BalancesSession,
+  type BalancesBorrow,
   type BalancesSnapshot,
+  type BalancesTotal,
+  type BalancesTotals,
+  type BorrowCollateralHolding,
+  type BorrowDebtLine,
+  type BorrowMarketKey,
+  type BorrowPosition,
   type ExactDecimal,
   type Holding,
   type HoldingBalance,
@@ -160,27 +168,9 @@ export function parseBalancesSnapshot(
   );
   if ((value.coverage.registry === "partial") !== registryUnavailable) fail("coverage.registry");
 
-  if (!isRecord(value.total)) fail("total");
-  const total = value.total;
-  switch (total.status) {
-    case "complete":
-    case "partial":
-      if (!validateDecimal(total.value) || total.currency !== quoteCurrency || quoteCurrency === null) {
-        fail("total value");
-      }
-      break;
-    case "unavailable":
-      if (total.value !== null || total.currency !== quoteCurrency) fail("total unavailable");
-      break;
-    case "no-quote-currency":
-      if (total.value !== null || total.currency !== null || quoteCurrency !== null) {
-        fail("total no-quote-currency");
-      }
-      break;
-    default:
-      fail("total status");
-  }
-  if (quoteCurrency === null && total.status !== "no-quote-currency") fail("total status vs currency");
+  const total = validateTotal(value.total, quoteCurrency, "total");
+  const borrow = validateBorrow(value.borrow, quoteCurrency);
+  const totals = validateTotals(value.totals, quoteCurrency, borrow);
   if (value.stale !== undefined && value.stale !== true) fail("stale flag");
 
   return {
@@ -199,12 +189,158 @@ export function parseBalancesSnapshot(
       registry: value.coverage.registry as BalancesSnapshot["coverage"]["registry"],
       catalog: value.coverage.catalog as BalancesSnapshot["coverage"]["catalog"],
     },
-    total: {
-      status: total.status,
-      value: total.value as ExactDecimal | null,
-      currency: total.currency as FiatCurrencyCode | null,
-    },
+    total,
+    borrow,
+    totals,
     ...(value.stale === true ? { stale: true as const } : {}),
+  };
+}
+
+function validateTotal(
+  raw: unknown,
+  quoteCurrency: FiatCurrencyCode | null,
+  label: string,
+): BalancesTotal {
+  if (!isRecord(raw)) fail(label);
+  switch (raw.status) {
+    case "complete":
+    case "partial":
+      if (!validateDecimal(raw.value) || raw.currency !== quoteCurrency || quoteCurrency === null) {
+        fail(`${label} value`);
+      }
+      break;
+    case "unavailable":
+      if (raw.value !== null || raw.currency !== quoteCurrency) fail(`${label} unavailable`);
+      break;
+    case "no-quote-currency":
+      if (raw.value !== null || raw.currency !== null || quoteCurrency !== null) {
+        fail(`${label} no-quote-currency`);
+      }
+      break;
+    default:
+      fail(`${label} status`);
+  }
+  if (quoteCurrency === null && raw.status !== "no-quote-currency") fail(`${label} status vs currency`);
+  return {
+    status: raw.status,
+    value: raw.value as ExactDecimal | null,
+    currency: raw.currency as FiatCurrencyCode | null,
+  };
+}
+
+function validateTotals(
+  raw: unknown,
+  quoteCurrency: FiatCurrencyCode | null,
+  borrow: BalancesBorrow,
+): BalancesTotals {
+  if (!isRecord(raw)) fail("totals");
+  const cash = validateTotal(raw.cash, quoteCurrency, "totals.cash");
+  const investments = validateTotal(raw.investments, quoteCurrency, "totals.investments");
+  const debt = validateTotal(raw.borrow, quoteCurrency, "totals.borrow");
+  const net = validateTotal(raw.net, quoteCurrency, "totals.net");
+  if (!isRecord(raw.net) || typeof raw.net.negative !== "boolean") fail("totals.net sign");
+  const negative = raw.net.negative;
+  if (net.value === null && negative) fail("totals.net sign without value");
+  if (borrow.coverage === "partial" && (debt.status === "complete" || net.status === "complete")) {
+    fail("totals complete with partial borrow");
+  }
+  if (net.status === "complete" && [cash, investments, debt].some((entry) => entry.status !== "complete")) {
+    fail("totals.net complete with incomplete component");
+  }
+  return { cash, investments, borrow: debt, net: { ...net, negative } };
+}
+
+function validateBorrow(raw: unknown, quoteCurrency: FiatCurrencyCode | null): BalancesBorrow {
+  if (!isRecord(raw) || (raw.coverage !== "complete" && raw.coverage !== "partial") || !Array.isArray(raw.positions)) {
+    fail("borrow");
+  }
+  const seen = new Set<string>();
+  const positions = raw.positions.map((entry): BorrowPosition => {
+    if (!isRecord(entry) || typeof entry.marketId !== "string") fail("borrow position");
+    const market = getBorrowMarketRef(entry.marketId);
+    const marketId = entry.marketId as BorrowMarketKey;
+    if (!market || marketId !== market.marketId.toLowerCase() || seen.has(marketId)) fail("borrow market");
+    seen.add(marketId);
+    if (!readInteger(entry.borrowAprWad)) fail("borrow apr");
+    const collateral = validateCollateral(entry.collateral, market.collateralToken, marketId, quoteCurrency);
+    const debt = validateDebt(entry.debt, market.loanToken, marketId, quoteCurrency);
+    if (collateral.balance.baseUnits === "0" && debt.balance.baseUnits === "0") fail("empty borrow position");
+    return { marketId, collateral, debt, borrowAprWad: entry.borrowAprWad };
+  });
+  return { coverage: raw.coverage, positions };
+}
+
+function validateCollateral(
+  raw: unknown,
+  asset: BorrowAssetRef,
+  marketId: BorrowMarketKey,
+  quoteCurrency: FiatCurrencyCode | null,
+): BorrowCollateralHolding {
+  if (!isRecord(raw)) fail("borrow collateral");
+  const key = erc20AssetKey(asset.address);
+  const balance = validateBalance(raw.balance);
+  if (
+    raw.source !== "borrow" ||
+    raw.kind !== "erc20" ||
+    raw.key !== key ||
+    raw.id !== `borrow-collateral:${marketId}` ||
+    normalizeNullableAddress(raw.contractAddress) !== asset.address.toLowerCase() ||
+    raw.decimals !== asset.decimals ||
+    !readBoundedText(raw.name) ||
+    !readBoundedText(raw.symbol) ||
+    (raw.cashCurrency ?? null) !== null ||
+    !isRecord(raw.collateral) ||
+    raw.collateral.marketId !== marketId ||
+    raw.underlying !== undefined ||
+    raw.underlyingBalance !== undefined ||
+    raw.cashValue !== undefined ||
+    raw.imageUrl !== undefined ||
+    balance.status !== "ready"
+  ) {
+    fail("borrow collateral holding");
+  }
+  return {
+    key,
+    id: raw.id,
+    kind: "erc20",
+    source: "borrow",
+    name: raw.name,
+    symbol: raw.symbol,
+    decimals: asset.decimals,
+    contractAddress: asset.address.toLowerCase() as `0x${string}`,
+    cashCurrency: null,
+    balance,
+    value: validateValue(raw.value, balance, quoteCurrency),
+    collateral: { marketId },
+  };
+}
+
+function validateDebt(
+  raw: unknown,
+  asset: BorrowAssetRef,
+  marketId: BorrowMarketKey,
+  quoteCurrency: FiatCurrencyCode | null,
+): BorrowDebtLine {
+  if (!isRecord(raw) || !isRecord(raw.asset)) fail("borrow debt");
+  const key = erc20AssetKey(asset.address);
+  const balance = validateBalance(raw.balance);
+  if (
+    raw.sign !== -1 ||
+    raw.marketId !== marketId ||
+    raw.asset.key !== key ||
+    raw.asset.decimals !== asset.decimals ||
+    !readBoundedText(raw.asset.name) ||
+    !readBoundedText(raw.asset.symbol) ||
+    balance.status !== "ready"
+  ) {
+    fail("borrow debt line");
+  }
+  return {
+    sign: -1,
+    marketId,
+    asset: { key, name: raw.asset.name, symbol: raw.asset.symbol, decimals: asset.decimals },
+    balance,
+    value: validateValue(raw.value, balance, quoteCurrency),
   };
 }
 

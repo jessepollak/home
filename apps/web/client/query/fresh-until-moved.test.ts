@@ -57,7 +57,7 @@ const session: VerifiedAccountSession = {
 
 function balancesSnapshot(balance: string | null) {
   return {
-    version: 3,
+    version: 4,
     holdings: balance === null
       ? []
       : [{

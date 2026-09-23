@@ -177,6 +177,21 @@ describe("Base Morpho market RPC", () => {
       .rejects.toThrow("changed during batch simulation");
   });
 
+  test("reads at a pinned block, rejects a non-canonical pin, and verifies the chain once per reader", async () => {
+    const source = fixture();
+    const reader = createMorphoMarketRpcReader({ fetchImpl: source.fetchImpl, rpcUrl: "https://rpc.example.test" });
+    const snapshot = await reader.readSnapshot(OWNER, DEFAULT_VERIFIED_MORPHO_MARKET, undefined, { number: "100", hash: BLOCK_HASH });
+    expect(snapshot.source.blockNumber).toBe("100");
+    await expect(reader.readSnapshot(OWNER, DEFAULT_VERIFIED_MORPHO_MARKET, undefined, {
+      number: "100",
+      hash: `0x${"cd".repeat(32)}`,
+    })).rejects.toThrow("not canonical");
+    const requests = source.requests.flat() as Array<{ id: number; method: string; params: unknown[] }>;
+    expect(requests.filter(({ method }) => method === "eth_chainId")).toHaveLength(1);
+    expect(requests.filter(({ id }) => id === 2).map(({ params }) => params[0])).toEqual(["0x64", "0x64"]);
+    expect(requests.some(({ params }) => params.includes("latest"))).toBeFalse();
+  });
+
   test("fails closed if onchain market parameters differ from the verified market", async () => {
     const source = fixture({ wrongLltv: true });
     await expect(createMorphoMarketRpcReader({
