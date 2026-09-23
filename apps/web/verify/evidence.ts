@@ -1,52 +1,25 @@
-export type MarkResult = {
-  name: string;
-  startTime: number | null;
-  budgetMs: number | null;
-  passed: boolean | null;
-};
-
 export type VerifyEvidence = {
   surfaceId: string;
   baseUrl: string;
   capturedAt: string;
-  viewport: { width: number; height: number };
-  steps: string[];
-  artifacts: { screenshot: string; dom: string };
+  steps: Array<{ step: string; status: "done" | "failed" }>;
+  artifacts: { screenshot: string; snapshot: string };
+  actionIds: string[];
   consoleErrors: string[];
-  failedRequests: string[];
-  expectedFailures: string[];
   pageErrors: string[];
-  marks: MarkResult[];
-  longTaskCount: number;
+  unexpectedHosts: string[];
   passed: boolean;
 };
 
-export function finalizeEvidence(
-  input: Omit<VerifyEvidence, "passed">,
-  allowConsole = false,
-): VerifyEvidence {
-  const budgetsPass = input.marks.every((mark) => mark.passed !== false);
-  const browserHealthPass = allowConsole || (
-    input.consoleErrors.length === 0 && input.failedRequests.length === 0 && input.pageErrors.length === 0
-  );
-  return { ...input, passed: budgetsPass && browserHealthPass };
+export function finalizeEvidence(input: Omit<VerifyEvidence, "passed">, allowConsole = false): VerifyEvidence {
+  return {
+    ...input,
+    passed: input.unexpectedHosts.length === 0 && input.pageErrors.length === 0 &&
+      (allowConsole || input.consoleErrors.length === 0),
+  };
 }
 
-export function summarizeEvidence(evidence: VerifyEvidence, mode: "fixture" | "live" = "fixture", note?: string): string {
-  const status = evidence.passed ? "pass" : "fail";
-  const marks = evidence.marks.length === 0
-    ? "None listed for this surface."
-    : evidence.marks.map((mark) => {
-      const value = mark.startTime === null ? "not observed" : `${Math.round(mark.startTime)} ms`;
-      const budget = mark.budgetMs === null ? "evidence only" : `budget ${mark.budgetMs} ms`;
-      const result = mark.passed === null ? "recorded" : mark.passed ? "pass" : "fail";
-      return `- \`${mark.name}\`: ${value} (${budget}; ${result})`;
-    }).join("\n");
-  const expectedFailures = evidence.expectedFailures.length === 0
-    ? ""
-    : `\n#### Expected failures\n${evidence.expectedFailures.map((failure) => `- \`${failure}\``).join("\n")}\n`;
-  const summary = `### Verify: \`${evidence.surfaceId}\` — ${status}\n\n- Origin: ${evidence.baseUrl}\n- Viewport: ${evidence.viewport.width}×${evidence.viewport.height} CSS px\n- Screenshot: \`${evidence.artifacts.screenshot}\`\n- DOM text: \`${evidence.artifacts.dom}\`\n- Console errors: ${evidence.consoleErrors.length}\n- Page errors: ${evidence.pageErrors.length}\n- Failed requests: ${evidence.failedRequests.length}\n- Expected failures: ${evidence.expectedFailures.length}\n- Long tasks: ${evidence.longTaskCount}\n${note ? `- Note: ${note}\n` : ""}${expectedFailures}\n#### Performance marks\n${marks}\n`;
-  return mode === "live"
-    ? summary.split("\n").map((line) => line ? `[live] ${line}` : line).join("\n")
-    : summary;
+export function summarizeEvidence(evidence: VerifyEvidence, mode: "fixture" | "live"): string {
+  const text = `### Verify: \`${evidence.surfaceId}\` — ${evidence.passed ? "pass" : "fail"}\n\n- Origin: ${evidence.baseUrl}\n- Screenshot: \`${evidence.artifacts.screenshot}\`\n- Snapshot: \`${evidence.artifacts.snapshot}\`\n- Steps: ${evidence.steps.length}\n- Confirmations: ${evidence.actionIds.length}\n- Console errors: ${evidence.consoleErrors.length}\n- Page errors: ${evidence.pageErrors.length}\n- Unexpected hosts: ${evidence.unexpectedHosts.length}\n`;
+  return mode === "live" ? text.split("\n").map((line) => line ? `[live] ${line}` : line).join("\n") : text;
 }

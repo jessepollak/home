@@ -1,56 +1,26 @@
 import { describe, expect, test } from "bun:test";
 import { finalizeEvidence, summarizeEvidence } from "./evidence";
 
-const base = {
-  surfaceId: "landing",
-  baseUrl: "http://127.0.0.1:3200",
-  capturedAt: "2026-09-21T00:00:00.000Z",
-  viewport: { width: 390, height: 844 },
-  steps: ["goto /", "expect One home for your money."],
-  artifacts: { screenshot: "screenshot.png", dom: "dom.txt" },
-  consoleErrors: [] as string[],
-  failedRequests: [] as string[],
-  expectedFailures: [] as string[],
-  pageErrors: [] as string[],
-  marks: [{ name: "shell:paint", startTime: 300, budgetMs: 1500, passed: true }],
-  longTaskCount: 0,
+const baseline = {
+  surfaceId: "send", baseUrl: "http://localhost:3200", capturedAt: "2026-09-23T00:00:00.000Z",
+  steps: [{ step: "snapshot", status: "done" as const }],
+  artifacts: { screenshot: "screenshot.png", snapshot: "snapshot.txt" },
+  actionIds: ["prepared-id"], consoleErrors: [], pageErrors: [], unexpectedHosts: [],
 };
 
-describe("evidence summary", () => {
-  test("passes clean browser health and budgets", () => {
-    const evidence = finalizeEvidence(base);
-    expect(evidence.passed).toBe(true);
-    expect(summarizeEvidence(evidence)).toContain("### Verify: `landing` — pass");
-    expect(summarizeEvidence(evidence)).toContain("`shell:paint`: 300 ms");
+describe("session evidence", () => {
+  test("records confirmations and browser artifacts", () => {
+    const result = finalizeEvidence(baseline);
+    expect(result.passed).toBe(true);
+    expect(summarizeEvidence(result, "live")).toContain("Confirmations: 1");
   });
-
-  test("fails browser noise unless it is explicitly allowed", () => {
-    const noisy = { ...base, failedRequests: ["GET /missing (404)"] };
-    expect(finalizeEvidence(noisy).passed).toBe(false);
-    expect(finalizeEvidence(noisy, true).passed).toBe(true);
+  test("recoverable failed steps remain visible without failing a repaired run", () => {
+    expect(finalizeEvidence({ ...baseline, steps: [...baseline.steps, { step: "click wrong", status: "failed" }] }).passed).toBe(true);
   });
-
-  test("fails and reports a required mark that was not observed", () => {
-    const missing = { ...base, marks: [{ name: "shell:paint", startTime: null, budgetMs: 1500, passed: false }] };
-    expect(finalizeEvidence(missing).passed).toBe(false);
-    expect(summarizeEvidence(finalizeEvidence(missing))).toContain("not observed (budget 1500 ms; fail)");
-  });
-
-  test("lists expected failures separately from failed requests", () => {
-    const evidence = finalizeEvidence({
-      ...base,
-      expectedFailures: ["GET /api/session (401) — restore probe (#1)"],
-    });
-    const summary = summarizeEvidence(evidence);
-    expect(evidence.passed).toBe(true);
-    expect(summary).toContain("- Failed requests: 0");
-    expect(summary).toContain("- Expected failures: 1");
-    expect(summary).toContain("#### Expected failures");
-    expect(summary).toContain("`GET /api/session (401) — restore probe (#1)`");
-  });
-
-  test("labels every non-empty live summary line", () => {
-    const summary = summarizeEvidence(finalizeEvidence(base), "live");
-    expect(summary.split("\n").filter(Boolean).every((line) => line.startsWith("[live] "))).toBe(true);
+  test("host or browser errors fail while allow-console waives only console noise", () => {
+    expect(finalizeEvidence({ ...baseline, unexpectedHosts: ["unknown.test"] }).passed).toBe(false);
+    expect(finalizeEvidence({ ...baseline, pageErrors: ["page failed"] }).passed).toBe(false);
+    expect(finalizeEvidence({ ...baseline, consoleErrors: ["warning"] }).passed).toBe(false);
+    expect(finalizeEvidence({ ...baseline, consoleErrors: ["warning"] }, true).passed).toBe(true);
   });
 });

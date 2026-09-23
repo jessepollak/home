@@ -11,7 +11,9 @@ export type LedgerRun = {
   role: VerifyRole;
   mainRevision: string;
   rungReached: 0 | 1 | 2 | 3;
-  amountsUsd: number[];
+  confirmCount?: number;
+  actionIds?: string[];
+  amountsUsd?: number[];
   incidents: string[];
   clean: boolean;
 };
@@ -38,7 +40,7 @@ export type LedgerLockOptions = {
 };
 
 function reservationRefusal(lockPath: string): Error {
-  return new Error(`Another verification run is reserving spend; confirmation was refused. If no verification run is active, remove ${lockPath} (rm -rf ${lockPath}) and retry.`);
+  return new Error(`Another verification run is reserving a confirmation; confirmation was refused. If no verification run is active, remove ${lockPath} (rm -rf ${lockPath}) and retry.`);
 }
 
 function processIsAlive(pid: number): boolean {
@@ -124,16 +126,14 @@ export async function readLedger(path: string): Promise<LedgerEntry[]> {
   }
 }
 
-export function spendForDay(entries: LedgerEntry[], date: string, role: VerifyRole = "factory"): number {
-  return entries.reduce((total, entry) => {
-    if (entry.type !== "run" || entry.role !== role || !entry.timestamp.startsWith(date)) return total;
-    return total + entry.amountsUsd.reduce((sum, amount) => sum + amount, 0);
-  }, 0);
+export function confirmsForDay(entries: LedgerEntry[], date: string): number {
+  return entries.reduce((total, entry) => entry.timestamp.startsWith(date)
+    ? total + (entry.confirmCount ?? entry.amountsUsd?.length ?? 0)
+    : total, 0);
 }
 
-export function spendForRun(entries: LedgerEntry[], runId: string): number {
-  return entries.reduce((total, entry) => {
-    if (entry.type !== "run" || entry.runId !== runId) return total;
-    return total + entry.amountsUsd.reduce((sum, amount) => sum + amount, 0);
-  }, 0);
+export function confirmsForRun(entries: LedgerEntry[], runId: string): number {
+  return entries.reduce((total, entry) => entry.runId === runId
+    ? total + (entry.confirmCount ?? entry.amountsUsd?.length ?? 0)
+    : total, 0);
 }
