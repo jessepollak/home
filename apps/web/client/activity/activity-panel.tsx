@@ -16,42 +16,20 @@ import { TransactionDetailsModal } from "@/components/transaction-details";
 import { OperationActivityRow } from "@/client/actions/operation-row";
 import { presentOperationDetails } from "@/client/actions/operation-details";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
+import type { RegionId } from "@/config/regions";
 import {
   presentActivityTransferDetails,
   presentActivityTransferRow,
 } from "./activity-presenter";
 import { mergeActivityFeed } from "./activity-feed";
-import { useActivity, type UseActivityResult } from "./use-activity";
+import { type UseActivityResult } from "./use-activity";
 import { ShimmerRows } from "@/client/home/panel-shared";
 import {
   ACTIVITY_TEASER_LIMIT,
   type ActivityDirection,
   type ActivityPanelDensity,
-  type ActivityPanelProps,
   type ActivityTransfer,
 } from "./types";
-
-export function ActivityPanel({
-  session,
-  fetchActivity,
-  regionId = "GLOBAL",
-  density = "page",
-  header,
-}: ActivityPanelProps) {
-  const activity = useActivity(session, fetchActivity);
-  const ownerKey = session?.smartAccount
-    ? `${session.accountProvider}:${session.user.subject}:${session.smartAccount.address.toLowerCase()}`
-    : "signed-out";
-  return (
-    <ActivityPanelView
-      key={ownerKey}
-      activity={activity}
-      regionId={regionId}
-      density={density}
-      header={header}
-    />
-  );
-}
 
 export function ActivityPanelView({
   activity,
@@ -64,7 +42,7 @@ export function ActivityPanelView({
   activity: UseActivityResult;
   operations?: readonly RecentMoneyActionOperation[];
   actionsStatus?: "loading" | "ready" | "error";
-  regionId?: ActivityPanelProps["regionId"];
+  regionId?: RegionId;
   density?: ActivityPanelDensity;
   header?: ReactNode | null;
 }) {
@@ -277,7 +255,7 @@ function TransferActivityRow({
   onActivate,
 }: {
   transfer: ActivityTransfer;
-  regionId: NonNullable<ActivityPanelProps["regionId"]>;
+  regionId: RegionId;
   onActivate: () => void;
 }) {
   const model = presentActivityTransferRow(transfer, { regionId });
