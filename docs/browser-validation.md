@@ -16,7 +16,7 @@ This contract applies to every user-visible UI change and core-flow implementati
    4. add one assertion to the relevant surface file in `apps/web/tests/browser/*.pw.ts` only when the failure is principally observable through layout or geometry, scrolling, focus, history, persisted browser state, media queries, hydration/first paint, browser dispatch integration, or a critical cross-page journey;
    5. otherwise, add no Playwright test.
 
-The [test-weight CI gate](gates.md#browser-test-ladder-boundary) asks for a PR-body `Playwright-rung` when a browser file gains net-new Playwright test/describe declarations and a `Test-weight` reason when a scoped fix adds more test than product lines.
+The [browser-test ladder CI steps](gates.md#browser-test-ladder-boundary) require a PR-body `Playwright-rung` when a browser file gains net-new Playwright test/describe declarations (hard gate), and ask for a `Test-weight` reason when a scoped fix adds more test than product lines (soft gate; zero-product fixes are exempt).
 
 3. **Does proof require provider-authenticated or live-money behavior?**
    - **No:** use ordinary `agent-browser` iteration.
