@@ -25,6 +25,7 @@ import {
   matchExpectedLiveFailure,
   outputInsideRepository,
   parseBorrowReviewAmounts,
+  parseRepayReviewAmountUsd,
   partitionLiveFailures,
   parseUsdAmount,
   parseUsdAmountFromLabel,
@@ -227,6 +228,22 @@ describe("live amount cap", () => {
     expect(parseUsdAmountFromLabel("Confirm action")).toBeNull();
     expect(reviewAndLabelAmountError(1, 2)).toContain("does not match");
     expect(reviewAndLabelAmountError(1, 1)).toBeNull();
+  });
+
+  test("caps a repay-all by its maximum repayment rather than a two-decimal USD figure", () => {
+    expect(parseRepayReviewAmountUsd([
+      "Confirm",
+      "0.100001 USDC",
+      "Repay all USDC debt",
+      "You spend (USDC)",
+      "Estimated 0.100001 USDC",
+      "Maximum repayment (USDC)",
+      "0.100003 USDC",
+      "Variable rate",
+      "4.78%",
+    ].join("\n"))).toBe(0.100003);
+    expect(parseRepayReviewAmountUsd("Confirm\nYou spend (USDC)\n0.10 USDC")).toBe(0.1);
+    expect(parseRepayReviewAmountUsd("Confirm\nRepay")).toBeNull();
   });
 
   test("caps a borrow by its labelled received amount and records collateral separately", () => {

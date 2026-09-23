@@ -246,6 +246,12 @@ export function parseBorrowReviewAmounts(text: string): BorrowReviewAmounts {
   };
 }
 
+export function parseRepayReviewAmountUsd(text: string): number | null {
+  const lines = reviewLines(text);
+  const maximum = valueAfterLabel(lines, /^Maximum repayment\s*\((?:USDC|USD)\)$/i) ?? valueAfterLabel(lines, /^You spend\s*\((?:USDC|USD)\)$/i);
+  return maximum === null ? null : parseUsdStablecoinToken(maximum);
+}
+
 function reviewLines(text: string): string[] {
   return text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 }
