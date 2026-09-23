@@ -8,7 +8,9 @@ import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { getHomeQueryClient } from "@/client/query/query-client";
 
 const replaceCalls: string[] = [];
+const actualNavigation = await import("next/navigation");
 mock.module("next/navigation", () => ({
+  ...actualNavigation,
   useRouter: () => ({
     replace: (href: string) => replaceCalls.push(href),
   }),
