@@ -292,8 +292,8 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 - **Reach**:
   1. `goto "/home?account=settings"`
   2. `expect "Account"`
-- **Notes**: The verifier seeds the signed-in session and fixtures. The interactive path clicks the header profile mark; `Done` closes the settings panel. Live: the Peer option renders only where `PEER_OFFRAMP_ENABLED` is set on the target (`apps/web/server/funding/providers/peer/manifest.ts:51`); production keeps it off pending the provider README's staging and corridor confirmations, so the canary reports `did not render` for cash-out until then.
-- **Expect**: `Show small balances` switch (`getByRole("switch", { name: "Show small balances" })`, smoke.pw.ts wide-touch test; owned by client/home/use-show-small-balances.ts + account-settings region of shell-panels.tsx). Sign-out control and region selector live here (shell-panels.tsx passes `regionId`, `resolutionSource`, `onRegionChange`, `onSignOut` to client/account/account-settings.tsx).
+- **Notes**: The verifier seeds the signed-in session and fixtures. The Chromium smoke opens the header profile mark with the keyboard, asserts focus enters the settings region, closes through Done and browser Back, restores the exact opener, exercises deep-link and forward-history entry, and verifies every primary-navigation `aria-controls` target remains unique and present. Live: the Peer option renders only where `PEER_OFFRAMP_ENABLED` is set on the target (`apps/web/server/funding/providers/peer/manifest.ts:51`); production keeps it off pending the provider README's staging and corridor confirmations, so the canary reports `did not render` for cash-out until then.
+- **Expect**: region `aria-label="Account settings"` receives programmatic focus without selecting an input; `Show small balances` switch (`getByRole("switch", { name: "Show small balances" })`, smoke.pw.ts; owned by client/home/use-show-small-balances.ts + account-settings region of shell-panels.tsx). Sign-out control and region selector live here (shell-panels.tsx passes `regionId`, `resolutionSource`, `onRegionChange`, `onSignOut` to client/account/account-settings.tsx).
 - **States**: preference not ready (`isPreferenceReady`); region override messages (`preferenceMessage`).
 - **Evidence**: screenshot; DOM snapshot; console/errors.
 - **Owned by**: `apps/web/client/account/account-settings.tsx`, `apps/web/client/home/shell-panels.tsx`.
@@ -348,7 +348,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 ## Gaps
 
 **No Playwright coverage and no journey story** (checked `apps/web/tests/browser/` and `apps/web/stories/journeys/`, which contains only `savings-deposit.stories.tsx`):
-- `borrow` (no smoke fixture for `/api/borrow*` at all), `activity`, `account-settings`, `invest` hub/category browsing beyond one asset-detail click, `dev-ui`, `coverage` filtering behavior (only font metrics asserted).
+- `borrow` (no smoke fixture for `/api/borrow*` at all), `activity`, `invest` hub/category browsing beyond one asset-detail click, `dev-ui`, `coverage` filtering behavior (only font metrics asserted).
 - Journey stories: only `apps/web/stories/journeys/savings-deposit.stories.tsx` exists; every other surface above lacks one.
 
 **Reach depends on a live provider and cannot run against the fixture server** (needs a documented fixture or the provisioned verifier Live mode):

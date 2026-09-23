@@ -35,6 +35,7 @@ import {
 export function DashboardShell({
   mainRef,
   panelStageRef,
+  settingsRegionRef,
   isUnavailable,
   unavailableMessage,
   retrySessionValidation,
@@ -77,6 +78,7 @@ export function DashboardShell({
 }: {
   mainRef: RefObject<HTMLElement | null>;
   panelStageRef: RefObject<HTMLElement | null>;
+  settingsRegionRef: RefObject<HTMLElement | null>;
   isUnavailable: boolean;
   unavailableMessage: string | null;
   retrySessionValidation: () => Promise<void>;
@@ -136,117 +138,121 @@ export function DashboardShell({
           </Alert>
         ) : null}
 
-        {isAccountSettingsOpen ? (
-          <div>
-            <AccountSettings
-              regionId={regionId}
-              onRegionChange={selectRegion}
-              resolutionSource={resolutionSource}
-              preferenceMessage={preferenceMessage}
-              isPreferenceReady={isPreferenceReady}
-              accountAddress={isVerified ? accountAddress : null}
-              accountOwnerKey={isVerified ? accountOwnerKey : null}
-              showSmallBalances={showSmallBalances}
-              onShowSmallBalancesChange={onShowSmallBalancesChange}
-              onSignOut={signOut}
-            />
-          </div>
-        ) : isSignedOut ? (
+        {isSignedOut ? (
           <section aria-busy="true" aria-label="Signed out">
             <span className="sr-only">Signed out</span>
           </section>
         ) : (
           <section
-            ref={panelStageRef}
+            ref={isAccountSettingsOpen ? settingsRegionRef : panelStageRef}
             className="outline-none"
             id="navigation-panel"
             tabIndex={-1}
             aria-labelledby={
-              isHomeNestedPanelId(activeNavigation) || nestedChromeTitle
+              isAccountSettingsOpen || isHomeNestedPanelId(activeNavigation) || nestedChromeTitle
                 ? undefined
                 : `${activeNavigation}-nav`
             }
             aria-label={
-              activeNavigation === savePanelId ? "Savings" : nestedChromeTitle ?? undefined
+              isAccountSettingsOpen
+                ? "Account settings"
+                : activeNavigation === savePanelId
+                  ? "Savings"
+                  : nestedChromeTitle ?? undefined
             }
-            aria-busy={isChecking}
+            aria-busy={isAccountSettingsOpen ? undefined : isChecking}
           >
-            <div>
-              {mountedPanels.has("home") ? (
-                <MountedShellPanel active={activeNavigation === "home"}>
-                  <HomePanel
-                    assetBalances={paintedAssetBalances}
-                    activitySession={activitySession}
-                    sendAvailability={sendAvailability}
-                    assetMarkResolution={assetMarkResolution}
-                    fetchActivity={fetchActivity}
-                    fetchOperations={fetchOperations}
-                    onOpenSave={() => navigateTo(savePanelId)}
-                    onOpenBorrow={() => navigateTo(borrowPanelId)}
-                    onOpenBalances={(group) => navigateTo(balancesPanelId, group ?? null)}
-                    onOpenActivity={() => navigateTo(activityPanelId)}
-                    initialAddMoney={urlAddMoney}
-                    returnedFromProvider={urlReturnedFromProvider}
-                    initialSendFlow={urlSendFlow}
-                    initialSendActionId={urlSendActionId}
-                    regionId={regionId}
-                  />
-                </MountedShellPanel>
-              ) : null}
-              {balancesMounted ? (
-                <MountedShellPanel active={activeNavigation === balancesPanelId}>
-                  <BalancesPage
-                    active={activeNavigation === balancesPanelId}
-                    assetBalances={paintedAssetBalances}
-                    showSmallBalances={showSmallBalances}
-                    revealSmallBalances={revealSmallBalances}
-                    onRevealSmallBalancesChange={onRevealSmallBalancesChange}
-                    isChecking={isChecking}
-                    revealedCount={balancesReveal.count}
-                    onRevealMore={balancesReveal.extend}
-                  />
-                </MountedShellPanel>
-              ) : null}
-              {mountedPanels.has(activityPanelId) ? (
-                <MountedShellPanel active={activeNavigation === activityPanelId}>
-                  <ActivityPage
-                    activitySession={activitySession}
-                    fetchActivity={fetchActivity}
-                    fetchOperations={fetchOperations}
-                    regionId={regionId}
-                    showSessionShimmer={!activitySession && (
-                      paintedAssetBalances.status === "loading" ||
-                      paintedAssetBalances.revalidating === true
-                    )}
-                  />
-                </MountedShellPanel>
-              ) : null}
-              {mountedPanels.has(savePanelId) ? (
-                <MountedShellPanel active={activeNavigation === savePanelId}>
-                  <SavingsPanel
-                    regionId={regionId}
-                    isVerified={isVerified}
-                    isChecking={isChecking}
-                    content={savingsContent}
-                  />
-                </MountedShellPanel>
-              ) : null}
-              {mountedPanels.has(borrowPanelId) ? (
-                <MountedShellPanel active={activeNavigation === borrowPanelId}>
-                  <AuthenticatedBorrowExperience
-                    selectedMarketId={borrowMarket}
-                    onSelectMarket={onSelectBorrowMarket}
-                    regionId={regionId}
-                    assetMarkResolution={assetMarkResolution}
-                  />
-                </MountedShellPanel>
-              ) : null}
-              {mountedPanels.has("invest") ? (
-                <MountedShellPanel active={activeNavigation === "invest"}>
-                  <InvestPanel regionId={regionId} content={investContent} />
-                </MountedShellPanel>
-              ) : null}
-            </div>
+            {isAccountSettingsOpen ? (
+              <AccountSettings
+                regionId={regionId}
+                onRegionChange={selectRegion}
+                resolutionSource={resolutionSource}
+                preferenceMessage={preferenceMessage}
+                isPreferenceReady={isPreferenceReady}
+                accountAddress={isVerified ? accountAddress : null}
+                accountOwnerKey={isVerified ? accountOwnerKey : null}
+                showSmallBalances={showSmallBalances}
+                onShowSmallBalancesChange={onShowSmallBalancesChange}
+                onSignOut={signOut}
+              />
+            ) : (
+              <div>
+                {mountedPanels.has("home") ? (
+                  <MountedShellPanel active={activeNavigation === "home"}>
+                    <HomePanel
+                      assetBalances={paintedAssetBalances}
+                      activitySession={activitySession}
+                      sendAvailability={sendAvailability}
+                      assetMarkResolution={assetMarkResolution}
+                      fetchActivity={fetchActivity}
+                      fetchOperations={fetchOperations}
+                      onOpenSave={() => navigateTo(savePanelId)}
+                      onOpenBorrow={() => navigateTo(borrowPanelId)}
+                      onOpenBalances={(group) => navigateTo(balancesPanelId, group ?? null)}
+                      onOpenActivity={() => navigateTo(activityPanelId)}
+                      initialAddMoney={urlAddMoney}
+                      returnedFromProvider={urlReturnedFromProvider}
+                      initialSendFlow={urlSendFlow}
+                      initialSendActionId={urlSendActionId}
+                      regionId={regionId}
+                    />
+                  </MountedShellPanel>
+                ) : null}
+                {balancesMounted ? (
+                  <MountedShellPanel active={activeNavigation === balancesPanelId}>
+                    <BalancesPage
+                      active={activeNavigation === balancesPanelId}
+                      assetBalances={paintedAssetBalances}
+                      showSmallBalances={showSmallBalances}
+                      revealSmallBalances={revealSmallBalances}
+                      onRevealSmallBalancesChange={onRevealSmallBalancesChange}
+                      isChecking={isChecking}
+                      revealedCount={balancesReveal.count}
+                      onRevealMore={balancesReveal.extend}
+                    />
+                  </MountedShellPanel>
+                ) : null}
+                {mountedPanels.has(activityPanelId) ? (
+                  <MountedShellPanel active={activeNavigation === activityPanelId}>
+                    <ActivityPage
+                      activitySession={activitySession}
+                      fetchActivity={fetchActivity}
+                      fetchOperations={fetchOperations}
+                      regionId={regionId}
+                      showSessionShimmer={!activitySession && (
+                        paintedAssetBalances.status === "loading" ||
+                        paintedAssetBalances.revalidating === true
+                      )}
+                    />
+                  </MountedShellPanel>
+                ) : null}
+                {mountedPanels.has(savePanelId) ? (
+                  <MountedShellPanel active={activeNavigation === savePanelId}>
+                    <SavingsPanel
+                      regionId={regionId}
+                      isVerified={isVerified}
+                      isChecking={isChecking}
+                      content={savingsContent}
+                    />
+                  </MountedShellPanel>
+                ) : null}
+                {mountedPanels.has(borrowPanelId) ? (
+                  <MountedShellPanel active={activeNavigation === borrowPanelId}>
+                    <AuthenticatedBorrowExperience
+                      selectedMarketId={borrowMarket}
+                      onSelectMarket={onSelectBorrowMarket}
+                      regionId={regionId}
+                      assetMarkResolution={assetMarkResolution}
+                    />
+                  </MountedShellPanel>
+                ) : null}
+                {mountedPanels.has("invest") ? (
+                  <MountedShellPanel active={activeNavigation === "invest"}>
+                    <InvestPanel regionId={regionId} content={investContent} />
+                  </MountedShellPanel>
+                ) : null}
+              </div>
+            )}
           </section>
         )}
         </div>

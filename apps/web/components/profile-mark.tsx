@@ -16,7 +16,7 @@ export function ProfileMark({
   ownerKey?: string | null;
   address?: string | null;
   disabled?: boolean;
-  onClick?: () => void;
+  onClick?: (button: HTMLButtonElement) => void;
 }) {
   return (
     <ProfileMarkButton
@@ -41,7 +41,7 @@ function ProfileMarkButton({
   ownerKey?: string | null;
   address?: string | null;
   disabled?: boolean;
-  onClick?: () => void;
+  onClick?: (button: HTMLButtonElement) => void;
 }) {
   const profile = useBasenameProfile({
     ownerKey,
@@ -71,7 +71,7 @@ function ProfileMarkButton({
       size="icon-lg"
       aria-label="Account"
       disabled={disabled}
-      onClick={onClick}
+      onClick={(event) => onClick?.(event.currentTarget)}
     >
       <span
         className={`relative isolate grid size-8 place-items-center overflow-hidden rounded-full bg-muted text-sm font-semibold text-foreground ${showShimmer ? "animate-pulse" : ""}`}
