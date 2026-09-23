@@ -252,9 +252,9 @@ describe("SendDialog Peer cash-out", () => {
     );
 
     fireEvent.click(page().getByRole("button", { name: "1" }));
-    await waitFor(() => expect(page().queryByRole("button", { name: /Withdraw 2 USDC.*Peer cash-out.*awaiting-buyer/ })).toBeNull());
+    await waitFor(() => expect(page().queryByRole("button", { name: /Withdraw \$2\.00.*Peer cash-out.*awaiting-buyer/ })).toBeNull());
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
-    const recovery = await page().findByRole("button", { name: /Withdraw 2 USDC.*Peer cash-out.*awaiting-buyer/ });
+    const recovery = await page().findByRole("button", { name: /Withdraw \$2\.00.*Peer cash-out.*awaiting-buyer/ });
     expect(recovery).toBeTruthy();
     expect(page().queryByRole("button", { name: /Send to Zelle, Venmo, Cash App and more/ })).toBeNull();
     fireEvent.click(recovery);
@@ -369,7 +369,7 @@ describe("SendDialog resume", () => {
         executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />,
     );
 
-    const recovery = await page().findByRole("button", { name: /Withdraw 2 USDC.*Peer cash-out.*awaiting-buyer/ });
+    const recovery = await page().findByRole("button", { name: /Withdraw \$2\.00.*Peer cash-out.*awaiting-buyer/ });
     expect(recovery).toBeTruthy();
     fireEvent.click(recovery);
     expect(await page().findByText("You're withdrawing from Peer")).toBeTruthy();

@@ -466,7 +466,9 @@ function CashoutItem({ binding, onSelect }: { binding: FundingOfframpBinding; on
 }
 
 function RecoveryItem({ order, onWithdraw }: { order: CashoutOrderSummary; onWithdraw: () => void }) {
-  const amount = `${atomicToDecimal(order.remainingAmountAtomic, order.assetDecimals)} ${order.assetSymbol}`;
+  const amount = order.assetSymbol === "USDC"
+    ? formatUsdStablecoinAmount(order.remainingAmountAtomic, order.assetDecimals)
+    : `${atomicToDecimal(order.remainingAmountAtomic, order.assetDecimals)} ${order.assetSymbol}`;
   return <Item
     render={<Button variant="ghost" press="none" />}
     className="flex-nowrap items-center text-left"
