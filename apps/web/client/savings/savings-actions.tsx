@@ -11,6 +11,7 @@ import {
   MoneyAmountDisplay,
   MoneyAssetPicker,
   MoneyConfirmSummary,
+  MoneyConfirmFooter,
   MoneyModal,
   MoneyModalBody,
   MoneyModalFooter,
@@ -318,8 +319,8 @@ function OwnerBoundSavingsMoneyDialog({
           />
         ) : null}
 
-        {step === "confirm" ? (
-          <MoneyModalFooter
+        {step === "confirm" && preparedAction ? (
+          <MoneyConfirmFooter action={preparedAction}
             primaryLabel={attemptedAction ? "Retry" : `${mode === "deposit" ? "Deposit" : "Withdraw"} ${confirmAmount}`}
             primaryDisabled={!preparedReview || (expiredPrepared && !attemptedAction)}
             onPrimary={() => void confirm()}

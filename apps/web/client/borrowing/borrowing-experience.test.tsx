@@ -151,6 +151,7 @@ describe("BorrowExperience redesign", () => {
     expect(numpadKey.compareDocumentPosition(preview) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
     await dialog.findByText("Network");
+    expect(dialog.getByRole("button", { name: "Confirm action" }).getAttribute("data-money-action-id")).toBe("11111111-1111-4111-8111-111111111111");
     expect(dialog.getByText("Base")).toBeTruthy();
     expect(dialog.getByText("Variable rate")).toBeTruthy();
     expect(dialog.getByText("Locked as collateral (cbBTC)")).toBeTruthy();
@@ -204,6 +205,7 @@ describe("BorrowExperience redesign", () => {
     fireEvent.click(dialog.getByRole("button", { name: "1" }));
     fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
     await dialog.findByText("Network");
+    expect(dialog.getByRole("button", { name: "Confirm action" }).getAttribute("data-money-action-id")).toBe("11111111-1111-4111-8111-111111111111");
     expect(requests).toEqual([{ kind: "borrow", params: { marketId: BORROW_MARKET_ID, operation: "borrow", amountBaseUnits: "1000000" } }]);
     expect(dialog.queryByText(/Locked as collateral/)).toBeNull();
   });
@@ -296,6 +298,7 @@ describe("BorrowExperience redesign", () => {
     fireEvent.click(dialog.getByRole("button", { name: "5" }));
     fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
     expect(await dialog.findByText(partialWarning)).toBeTruthy();
+    expect(dialog.getByRole("button", { name: "Confirm action" }).getAttribute("data-money-action-id")).toBe("11111111-1111-4111-8111-111111111111");
     expect(requests).toEqual([{ kind: "repay", params: { marketId: BORROW_MARKET_ID, operation: "repay", amountBaseUnits: "5000000" } }]);
   });
 
@@ -310,6 +313,7 @@ describe("BorrowExperience redesign", () => {
     expect(dialog.getByText("Maximum repayment")).toBeTruthy();
     fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
     await dialog.findByText("Maximum repayment (USDC)");
+    expect(dialog.getByRole("button", { name: "Confirm action" }).getAttribute("data-money-action-id")).toBe("11111111-1111-4111-8111-111111111111");
     expect(dialog.queryByText(/This is a partial repayment/)).toBeNull();
     expect(requests[0]).toEqual({ kind: "repay", params: { marketId: BORROW_MARKET_ID, operation: "repay-all", maximumRepayBaseUnits: expectedMaximum } });
 
@@ -381,6 +385,7 @@ describe("BorrowExperience redesign", () => {
     fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
     fireEvent.click(await dialog.findByRole("button", { name: "Confirm action" }));
     expect(await dialog.findByText(/This Borrow review expired/)).toBeTruthy();
+    expect(dialog.getByRole("button", { name: "Confirm action" }).hasAttribute("data-money-action-id")).toBe(false);
     expect(document.body.textContent).not.toContain("dispatch outcome is unresolved");
   });
 
@@ -393,8 +398,35 @@ describe("BorrowExperience redesign", () => {
     fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
     const confirm = await dialog.findByRole("button", { name: "Confirm action" });
     await waitFor(() => expect((confirm as HTMLButtonElement).disabled).toBe(true));
+    expect(confirm.hasAttribute("data-money-action-id")).toBe(false);
     expect(dialog.getByText(/Go back and prepare this action again/)).toBeTruthy();
   });
+
+  for (const { label, operation } of [
+    { label: "Add collateral", operation: "supply-collateral" },
+    { label: "Withdraw collateral from Bitcoin position", operation: "withdraw-collateral" },
+  ] as const) {
+    test(`marks only the ${operation} confirm control`, async () => {
+      render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(detail())} prepareMoneyAction={async () => {
+        const action = prepared();
+        if (action.metadata?.product !== "borrow") throw new Error("missing borrow metadata");
+        return {
+          ...action, kind: operation,
+          amounts: [{ assetId: BORROW_COLLATERAL_TOKEN.id, symbol: "cbBTC", decimals: 8, amountBaseUnits: "100000000", direction: operation === "supply-collateral" ? "spend" as const : "receive" as const }],
+          metadata: { ...action.metadata, operation },
+        };
+      }} executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />);
+      const body = within(document.body);
+      fireEvent.click(await body.findByRole("button", { name: label }));
+      const dialog = within(await body.findByRole("dialog", { name: operation === "supply-collateral" ? "Add collateral" : "Withdraw collateral" }));
+      expect(dialog.getByRole("button", { name: "Continue" }).hasAttribute("data-money-action-id")).toBe(false);
+      fireEvent.click(dialog.getByRole("button", { name: "1" }));
+      fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
+      const confirm = await dialog.findByRole("button", { name: "Confirm action" });
+      expect(confirm.getAttribute("data-money-action-id")).toBe("11111111-1111-4111-8111-111111111111");
+      expect(dialog.getAllByRole("button", { name: "Back" }).every((button) => !button.hasAttribute("data-money-action-id"))).toBe(true);
+    });
+  }
 });
 
 describe("Borrow asset identity", () => {

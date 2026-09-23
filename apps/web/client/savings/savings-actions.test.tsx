@@ -134,11 +134,30 @@ describe("SavingsMoneyDialog", () => {
     typeAmount("1.234567");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     expect(await page().findByRole("button", { name: "Deposit $1.234567" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Deposit $1.234567" }).getAttribute("data-money-action-id")).toBe("action-1");
+    expect(page().getAllByRole("button", { name: "Back" }).every((button) => !button.hasAttribute("data-money-action-id"))).toBe(true);
     expect(document.body.textContent).toContain("Base (8453)");
     expect(document.body.textContent).toContain("3.50% · stale");
     expect(document.body.textContent).toContain("10% (current)");
     expect(document.body.textContent).toContain("no minimum-shares protection");
     expect(requests).toEqual([{ kind: "savings-deposit", input: { kind: "deposit", vaultAddress: VAULT, amountBaseUnits: "1234567" } }]);
+  });
+
+  test("marks only the prepared Save withdrawal confirm control", async () => {
+    render(
+      <SavingsMoneyDialog
+        open mode="withdraw" session={session} candidate={candidate}
+        prepareMoneyAction={async () => prepared("savings-withdraw")}
+        executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
+        onClose={() => {}}
+      />,
+    );
+    typeAmount("1");
+    expect(page().getByRole("button", { name: "Continue" }).hasAttribute("data-money-action-id")).toBe(false);
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    const confirm = await page().findByRole("button", { name: "Withdraw $1.00" });
+    expect(confirm.getAttribute("data-money-action-id")).toBe("action-1");
+    expect(page().getAllByRole("button", { name: "Back" }).every((button) => !button.hasAttribute("data-money-action-id"))).toBe(true);
   });
 
   test("offers deterministic currency fixtures through the shared asset picker", async () => {

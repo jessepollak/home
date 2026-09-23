@@ -1,5 +1,6 @@
 export {
   AppDrawer,
+  MoneyConfirmFooter,
   MoneyModal,
   MoneyModalBody,
   MoneyModalFooter,
