@@ -190,7 +190,8 @@
       ],
       "excludeFiles": [
         "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
-        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**"
       ],
       "rules": {
         "home/no-comments": "error"
@@ -202,7 +203,8 @@
       ],
       "excludeFiles": [
         "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
-        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**"
       ],
       "rules": {
         "home/no-restyle": "error",
@@ -215,7 +217,8 @@
       ],
       "excludeFiles": [
         "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
-        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**"
       ],
       "rules": {
         "home/no-unknown-tailwind-classes": "error",
@@ -237,7 +240,8 @@
       "excludeFiles": [
         "components/ui/**",
         "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
-        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**"
       ],
       "rules": {
         "home/no-detached-class-constants": "error"
@@ -248,7 +252,8 @@
         "server/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
       ],
       "excludeFiles": [
-        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.d.ts"
       ],
       "rules": {
         "home/require-server-only": "error"
@@ -262,7 +267,8 @@
         "client/landing/globe-geometry.ts",
         "client/landing/supported-globe.tsx",
         "shared/formatting/**",
-        "**/*.test.{ts,tsx}"
+        "**/*.test.{ts,tsx}",
+        "**/tests/**"
       ],
       "rules": {
         "home/no-local-formatting": "error"
@@ -275,7 +281,8 @@
       "excludeFiles": [
         "client/landing/supported-globe.tsx",
         "components/ui/**",
-        "**/*.test.{ts,tsx}"
+        "**/*.test.{ts,tsx}",
+        "**/tests/**"
       ],
       "rules": {
         "home/no-raw-buttons": "error"
@@ -287,7 +294,8 @@
       ],
       "excludeFiles": [
         "components/ui/**",
-        "**/*.test.{ts,tsx}"
+        "**/*.test.{ts,tsx}",
+        "**/tests/**"
       ],
       "rules": {
         "home/no-raw-fields": "error"
@@ -298,7 +306,8 @@
         "{app,client,components}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
       ],
       "excludeFiles": [
-        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**"
       ],
       "rules": {
         "home/no-relative-location-assignment": "error"
@@ -351,7 +360,9 @@
         "server/actions/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
       ],
       "excludeFiles": [
-        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**",
+        "**/testing/**"
       ],
       "rules": {
         "home/no-amount-fallback": "error"
@@ -364,6 +375,7 @@
       ],
       "excludeFiles": [
         "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**",
         "**/testing/**",
         "**/*test-harness.{ts,tsx}",
         "**/*smoke-fixture*.{ts,tsx}",
@@ -391,6 +403,7 @@
       ],
       "excludeFiles": [
         "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**",
         "**/testing/**",
         "**/*test-harness.{ts,tsx}",
         "**/*smoke-fixture*.{ts,tsx}",
