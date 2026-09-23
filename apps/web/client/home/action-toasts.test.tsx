@@ -140,6 +140,72 @@ describe("action toast owner fence", () => {
     expect(view.queryByText("Repaid $125.00")).toBeNull();
   });
 
+  test("narrates a Peer cash-out spend and its recovery receive amounts", async () => {
+    const queryKey = ownerQueryKey(activityOwnerKey(session), "actions");
+    const cashOut = {
+      ...row,
+      id: "55555555-5555-4555-8555-555555555555",
+      kind: "cash-out",
+      summary: {
+        ...row.summary,
+        amounts: [
+          { assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "100000", direction: "spend" },
+        ],
+        warnings: [],
+      },
+    };
+    const withdrawal = {
+      ...cashOut,
+      id: "66666666-6666-4666-8666-666666666666",
+      kind: "cash-out-withdraw",
+      summary: {
+        ...cashOut.summary,
+        amounts: [
+          { assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "100000", direction: "receive" },
+        ],
+      },
+    };
+    const view = render(
+      <ActionToasts
+        session={session}
+        fetchOperations={async () => ({ actions: [] })}
+        dismissAfterMs={0}
+      />,
+    );
+    await waitFor(() => expect(getHomeQueryClient().getQueryData(queryKey)).toBeTruthy());
+
+    void act(() => getHomeQueryClient().setQueryData(queryKey, { actions: [cashOut] }));
+    await waitFor(() => expect(view.getByText("Cashing out $0.10")).toBeTruthy());
+    expect(view.queryByText("Cashing out 0.1 USDC")).toBeNull();
+
+    void act(() => getHomeQueryClient().setQueryData(queryKey, { actions: [{ ...cashOut, status: "confirmed" }] }));
+    await waitFor(() => expect(view.getByText("Cashed out $0.10")).toBeTruthy());
+
+    void act(() => getHomeQueryClient().setQueryData(queryKey, { actions: [{ ...withdrawal, status: "pending" }] }));
+    await waitFor(() => expect(view.getByText("Recovering $0.10")).toBeTruthy());
+
+    void act(() => getHomeQueryClient().setQueryData(queryKey, { actions: [{ ...withdrawal, status: "confirmed" }] }));
+    await waitFor(() => expect(view.getByText("Recovered $0.10")).toBeTruthy());
+  });
+
+  test("names the failure verb for both Peer cash-out kinds", async () => {
+    const view = render(
+      <ActionToasts
+        session={session}
+        fetchOperations={async () => ({ actions: [] })}
+        dismissAfterMs={0}
+      />,
+    );
+
+    act(() => announceActionFailure("cash-out", "Wallet unavailable"));
+    expect((await view.findByRole("alert")).textContent).toContain("Cash-out failed: Wallet unavailable");
+
+    act(() => announceActionFailure("cash-out-withdraw", "Escrow unavailable"));
+    await waitFor(() => expect(
+      view.queryAllByText("Cash-out withdrawal failed: Escrow unavailable").length,
+    ).toBeGreaterThan(0));
+  });
+
   test("closes all active toasts when the owner boundary changes", async () => {
     const view = render(
       <ActionToasts

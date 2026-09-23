@@ -153,7 +153,7 @@ describe("SendDialog Peer cash-out", () => {
     expect((page().getByRole("button", { name: "Review" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.input(page().getByLabelText("Re-enter handle"), { target: { value: "alice" } });
     fireEvent.click(page().getByRole("button", { name: "Review" }));
-    expect(await page().findByRole("button", { name: "Cash out 1 USDC" })).toBeTruthy();
+    expect(await page().findByRole("button", { name: "Cash out $1.00" })).toBeTruthy();
     expect(document.body.textContent).toContain("≈ 1 USD");
     expect(document.body.textContent).toContain("About 1 min");
     expect(prepares).toEqual([{ kind: "cash-out", params: expect.objectContaining({ payoutHandle: "$alice", canonicalHandleConfirmation: "alice", amountBaseUnits: "1000000" }) }]);
@@ -258,7 +258,7 @@ describe("SendDialog Peer cash-out", () => {
     expect(recovery).toBeTruthy();
     expect(page().queryByRole("button", { name: /Send to Zelle, Venmo, Cash App and more/ })).toBeNull();
     fireEvent.click(recovery);
-    expect(await page().findByRole("button", { name: "Withdraw 2 USDC" })).toBeTruthy();
+    expect(await page().findByRole("button", { name: "Withdraw $2.00" })).toBeTruthy();
     expect(prepares).toEqual([{
       kind: "cash-out-withdraw",
       params: { providerId: "peer", region: "US", depositId: "0xescrow_7" },
@@ -387,7 +387,7 @@ describe("SendDialog resume", () => {
       />,
     );
 
-    expect(await page().findByRole("button", { name: "Withdraw 2 USDC" })).toBeTruthy();
+    expect(await page().findByRole("button", { name: "Withdraw $2.00" })).toBeTruthy();
     expect(document.body.textContent).toContain("You're withdrawing from Peer");
     expect(document.body.textContent).toContain("Cash App");
     expect(invalidResumes).toBe(0);
@@ -460,7 +460,7 @@ describe("SendDialog resume", () => {
       />,
     );
 
-    fireEvent.click(await page().findByRole("button", { name: "Cash out 1 USDC" }));
+    fireEvent.click(await page().findByRole("button", { name: "Cash out $1.00" }));
     expect((await page().findByRole("alert")).textContent).toBe(
       "The wallet request was rejected. Your reviewed cash-out is still ready to retry.",
     );
