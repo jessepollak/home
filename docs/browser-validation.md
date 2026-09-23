@@ -182,6 +182,14 @@ The CLI shells out to the repository-pinned `agent-browser`; it never reads or p
 
 Each run writes `<out>/<surface-id>/{evidence.json,summary.md,screenshot.png,dom.txt}`. The bundle contains the screenshot and DOM `innerText`, console/page errors and failed requests, named Home performance marks and listed initial budgets, and the long-task count. Browser noise or a failed/missing listed budget makes the command non-zero; `--allow-console` records but permits browser noise for a deliberately noisy investigation. The CLI does not run an accessibility audit. Paste `summary.md` into PR evidence and retain the screenshot only when the PR media policy requires it. This evidence does not replace Playwright regression coverage or the required exact-PID server cleanup.
 
+The CI Playwright journey `tests/browser/feature-map-replay.pw.ts` parses this same map through
+`verify/map.ts` and executes each non-manual fixture Reach with exact button names,
+exact field labels, and visible text expectations. Each step reports its surface and
+number; manual surfaces and fixture-impossible canaries appear as named skips with
+reasons. Run `bun run --cwd apps/web test:browser-smoke feature-map-replay.pw.ts`
+after changing a Reach. This replay does not replace the separate agent-browser
+iteration loop, provider verification, or state-specific browser tests.
+
 ### Live mode
 
 Live verification runs only on an operator laptop or the provisioned studio factory runner and refuses when `CI` or `GITHUB_ACTIONS` is set. It targets a deployed environment and the bot-dedicated Home account configured by `HOME_VERIFY_ACCOUNT_EMAIL`; authority comes only from the verifier policy and ledger.
