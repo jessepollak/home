@@ -85,21 +85,17 @@ Coordinate ownership before editing these files:
 
 ## Verification ladder
 
-Home bounds verification risk by construction rather than prohibiting automation. Ambiguity is the primary danger: a small known loss is bounded, while an unknown recipient, amount, result, or retry state can compound. Every rung is tool-enforced and emits the same evidence shape; evidence, not attestation, satisfies a rung. Autonomy ratchets only from the recorded ledger.
+Home bounds verification risk by construction rather than prohibiting automation. Ambiguity is the primary danger: an unknown recipient, amount, result, or retry state can compound. Agents drive the pinned browser directly under the [browser-validation contract](browser-validation.md); observed facts and screenshots under the PR evidence rules, not a CLI bundle, satisfy a rung.
 
 | Rung | What | Required when |
 |---|---|---|
-| 0 Fixture | `verify <surface>` against fixtures, with no network | Every agent, before the first and after the last edit, for every touched surface. |
-| 1 Preview read-only | `--live --base-url <PR preview>` on read-only surfaces with the bot session | Before `factory:review` when the diff touches any mapped surface. |
-| 2 Preview up-to-review | Walk to the Confirm screen, parse amount and recipient, then stop. | Before `factory:review` when the diff touches a money surface's client flow. |
-| 3 Preview confirm | Move real money on the bot account within policy caps. | Before `factory:review` when the diff touches `server/actions/**`, `server/money-actions/**`, calldata, or the confirm step. |
-| 4 Production canary | Scheduled read-only and up-to-review nightly; $0.10 confirm round trips weekly for save deposit/withdraw, borrow/repay, send to `jesse.base.eth`, and cash-out/withdraw. | Always; summaries and evidence stay on the runner under `~/.home-verify/canary/`. |
+| 0 Fixture | Pinned `agent-browser` in a fixture session, without provider calls | Before the first and after the last edit for every touched surface. |
+| 1 Preview read-only | Read-only surface with a provisioned bot session | Before `factory:review` when the diff touches a mapped surface. |
+| 2 Preview up-to-review | Walk to the review screen, read amount, recipient/handle and account, then stop. | Before `factory:review` when the diff touches a money client flow. |
+| 3 Preview confirm | Live confirm on the bot account under the browser skill's money rules, at most once per session. | Before `factory:review` when the diff touches `server/actions/**`, `server/money-actions/**`, calldata, or the confirm step. |
+| 4 Production canary (retired) | The scheduled CLI canary and its LaunchAgent were removed in #796. | Not required; a future agent-driven canary needs its own authorization. |
 
-Rung 3 is not gated by prior clean runs: any confirm surface may be confirmed within the policy caps below. Each run is recorded in the append-only ledger with its rung, revision, host, role, and amounts. An unexpected host, recipient or amount mismatch, ambiguous result, or post-confirm failure is recorded as an incident on that run's ledger entry and reported in `verify status`, but it does not disarm anything or gate later runs; the caps remain the bound on spend.
-
-The bot-dedicated Home account is the mailbox configured by `HOME_VERIFY_ACCOUNT_EMAIL`, not Jesse's account. Factory confirmation caps are $1 per click, $2 per run, and $5 per day across all factory runs; those caps are the bound on spend, not the amount: the mapped live Reach for every confirm surface enters $0.10 (`.agents/skills/browser-iteration/feature-map.md`), so a run spends dimes while the caps stay a ceiling. Cap changes are pull requests to `apps/web/verify/policy.ts`. Before confirmation the CLI reads the rendered Balances surface, records the rendered balance in evidence, and refuses only when the amount exceeds the balance or the balance cannot be known. The default send recipient is `jesse.base.eth` (`0x2211d1d0020daea8039e46cf1367962070d77da9`).
-
-Jesse's interventions are authority events only: fund or refill the bot account, change caps by pull request, and merge. The factory does not block on Jesse for ordinary verification. A handoff does not expand the ledger-derived authority. Write exactly **`Real money: not tested`** only when policy blocks a required rung because a cap is exhausted or the confirmation amount is unknowable. Never print or attach secrets, payment details, private customer data, OTPs, recovery codes, or raw provider payloads.
+The bot-dedicated Home account is configured by `HOME_VERIFY_ACCOUNT_EMAIL`, not Jesse's account. Credential provisioning decides which runners may go live; operators, the studio factory and future agents follow the same skill rules. The account's small operator-set balance is the hard money bound, not an old CLI cap. A marked `data-money-action-id` control may be pressed only for an authorized live confirm after matching review amount, recipient/handle and account to the task; record every confirmation in PR or issue evidence. If outcome is uncertain, check Activity before any retry. State `Real money: not tested` whenever the required live check was not performed, with the exact reason. Never print or attach secrets, private customer data, OTPs, recovery codes or raw provider payloads.
 
 ## PR evidence and media
 
@@ -133,4 +129,4 @@ Tests follow the [test policy](architecture.md#test-policy); `bun check` must pa
 
 Product docs ship with the feature. Setup, boundaries, how-it-works, and this manual stay in `docs/`. Pre-lock research stays on the issue; after lock, land only the durable current contract and link the issue.
 
-A fresh independent engineering review precedes Jesse review. Only Jesse gives final approval and merges. A handoff grants no deployment, destructive, privileged-setting, database-cleanup, or merge authority; funded authority is bounded by `apps/web/verify/policy.ts` and the verification ledger.
+A fresh independent engineering review precedes Jesse review. Only Jesse gives final approval and merges. A handoff grants no deployment, destructive, privileged-setting, database-cleanup, or merge authority; a funded action needs explicit task authorization under the browser-iteration skill.

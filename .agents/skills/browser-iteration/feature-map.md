@@ -13,15 +13,16 @@ is in **Unknowns** — never invent a selector when Reach is ambiguous, snapshot
 `apps/web/tests/browser/*.pw.ts` changes. State that bracket in the PR body; do not silently drift this map.
 The CI Playwright replay in `apps/web/tests/browser/feature-map-replay.pw.ts` parses this map
 through `verify/map.ts` and executes every non-manual fixture Reach. Keep its explicit skip
-reasons and its canary dispositions aligned with the map when changing a Reach or fixture.
+reasons aligned with the map when changing a Reach or fixture. Reach guides the agent; it never
+authorizes a money click. Full-text snapshots reveal facts hidden by interactive-only snapshots;
+scope huge trees (notably coverage's globe), and prefer current `@refs` when names churn.
 
 Fixture baseline referenced throughout: `HOME_PLAYWRIGHT_SMOKE=1`, rootless
-`bun --cwd apps/web dev -- --port <port>` (`.agents/skills/browser-iteration/SKILL.md` §Factory loop),
-session seed `sessionStorage["home:playwright-smoke:signed-in"]="1"` + `localStorage["home.country.v1"]`
-(tests/browser/fixtures/api.ts `seedSignedInSession`), API interception `installApiFixtures`
-(tests/browser/fixtures/api.ts); the send destination step's name and recent-recipient fixtures live in
-tests/browser/send-recipients.pw.ts `installRecipientFixtures`, with matching static responses in
-verify/fixtures.ts for the surface verifier. Balances snapshots from tests/browser/fixtures/balances.ts.
+`bun --cwd apps/web dev -- --port 3199` ([browser validation](../../../docs/browser-validation.md#fixture-session-on-port-3199)).
+`fixture-session` seeds `sessionStorage["home:playwright-smoke:signed-in"]="1"` before navigation
+and installs the [shared fixture routes](../../../apps/web/tests/browser/feature-map/fixtures.ts).
+The Playwright replay uses `tests/browser/fixtures/api.ts` and the same static recipient routes.
+Fixtures are session-local; balances snapshots come from `tests/browser/fixtures/balances.ts`.
 
 ## Surface index
 
@@ -35,7 +36,7 @@ verify/fixtures.ts for the surface verifier. Balances snapshots from tests/brows
 | `save` | savings | `/save`, `?flow=save-deposit`, `?flow=save-withdraw` | same | `HOME_PLAYWRIGHT_SMOKE=1`; `/api/savings/vaults` fixture present in tests/browser/fixtures/api.ts `installApiFixtures` | Home panel Save card (`SavingsTeaser`), goto `/save?flow=save-deposit` |
 | `borrow` | borrowing | `/borrow`, `/borrow/<marketId>` | same | session + borrow market fixtures | Home panel Borrow card (`AuthenticatedBorrowTeaser`), goto path |
 | `invest` | invest | `/invest`, `/invest/stocks|crypto|memes`, `/invest/<assetId>` | same | session + `/api/invest/discover`, `/api/market-prices` fixtures | Main navigation `Invest` button (primary-navigation.tsx), goto path |
-| `send` (money modal) | transfers/money-modal | overlay on any shell route: `?flow=send` | signed-in (button disabled pre-boundary, transfer-actions.tsx) | signed-in seed + `/api/actions/prepare`, `[id]/confirm`, `[id]/handle`, `/api/transfers/recipient-name`, `/api/transfers/recent-recipients` fixtures | `Send` button, `data-action-trigger` (transfer-actions.tsx) |
+| `send` (money modal) | transfers/money-modal | overlay on any shell route: `?flow=send` | signed-in (button disabled pre-boundary, transfer-actions.tsx) | signed-in seed + `/api/actions/prepare`, `[id]` pending-review, `/api/transfers/recipient-name`, `/api/transfers/recent-recipients` fixtures (confirmation is not part of routine verification) | `Send` button, `data-action-trigger` (transfer-actions.tsx) |
 | `add-money` (funding) | funding | overlay on any shell route: `?flow=add-money` or `?flow=receive`; `/fund` redirects to `/home?add-money=1` (app/fund/page.tsx) | signed-in for methods; signed-out shows `Sign in` link (add-money-dialog.tsx) | provider fixture (`/api/funding/providers`); IDRX path in funding.pw.ts | `Add money` button (funding-actions.tsx) |
 | `cash-out` (Peer offramp) | transfers/funding | inner steps of `send`: payout/handle/handle-confirm | signed-in, region with offramp provider | PEER_OFFRAMP stub and `openPeerCashOutHandle` in mobile-geometry.pw.ts | `Send` → amount → `Continue` → `Send to Zelle, Venmo, Cash App and more` (send-dialog.tsx `CashoutItem`) |
 | `account-settings` | account | `/?account=settings` (dashboards commit `?account=settings`, shell.tsx `openAccountSettings`) | signed-in verified | signed-in seed | header profile mark (`ProfileMark`, shell-chrome.tsx) → settings; or goto `/home?account=settings` |
@@ -48,15 +49,13 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 
 ## Live hosts
 
-Hosts Home is known to call from the browser on a deployed environment, with the code that issues
-each call. `verify --live` composes this list with the base host, the CDP provider origins in
-`apps/web/verify/live.ts`, and repeated `--allow-domain` values; any other hostname stays in
-`unexpectedHosts` and fails the run.
+Hosts Home is known to call from the browser on a deployed environment. These are
+observations for reviewing browser requests, not automatic permission to widen origins.
 
 - `media.thegrid.id`, `token-media.defined.fi` — token artwork returned by the Codex token-image lookup (`apps/web/server/market-data/codex/token-images.ts:68`) and rendered by asset marks such as the borrow market header (`apps/web/client/borrowing/borrowing-experience.tsx:440`) and the invest list; both observed in the first studio canary on 2026-09-22.
 - `api.ensideas.com` — Basename profile lookup (`apps/web/client/account/basename-profile.ts:9`); observed in the first production run on 2026-09-21.
 - `api.cdp.coinbase.com` — CDP browser session and Coinbase onramp API (`apps/web/server/funding/providers/coinbase/manifest.ts:5`).
-- `secure-wallet.cdp.coinbase.com` — CDP embedded-wallet origin (`apps/web/verify/live.ts:6`).
+- `secure-wallet.cdp.coinbase.com` — CDP embedded-wallet origin.
 - `pay.coinbase.com` — Coinbase onramp embed and redirect (`apps/web/server/funding/providers/coinbase/manifest.ts:6`; rendered by `apps/web/client/funding/order-flow.tsx:685`).
 - `checkout.idrx.co` — IDRX checkout redirect (`apps/web/server/funding/providers/idrx/manifest.ts:6`).
 - `skala.ripio.com` — Ripio onramp API and payment redirect (`apps/web/server/funding/providers/ripio/manifest.ts:5`).
@@ -66,11 +65,8 @@ Recipient-name resolution is server-side (`apps/web/server/transfers/recipient-r
 
 ## Live expected failures
 
-Deployments return these request failures on every load. `verify --live` matches failures from the
-browser network log by exact method, path, and status (query strings and fragments ignored) and
-reports them as expected failures in `live.json` and `summary.md` instead of failing the run. Any
-request failure not listed here still fails the run, and unlisted hosts still fail as
-`unexpectedHosts`.
+These request failures have been observed on deployments. Inspect browser network results;
+do not silently ignore a new failure or treat this list as permission to broaden origins.
 
 - `GET /api/session` 401 — the restore path probes the session endpoint before the CDP SDK holds a server-accepted access token (#735).
 - `GET https://api.cdp.coinbase.com/platform/v2/embedded-wallet-api/projects/75f1f0c7-83bf-47c7-a227-e94bb6d04f83/config` 404 — CDP SDK optional project config.
@@ -115,10 +111,10 @@ request failure not listed here still fails the run, and unlisted hosts still fa
   1. `goto "/home"`
   2. `expect "Total balance"`
   3. `expect "Your money"`
-- **Notes**: The verifier seeds the signed-in session and API fixtures. Optionally click `Send` for the money modal or exercise the card actions below.
+- **Notes**: The fixture-session helper seeds signed-in state and API fixtures. Optionally open `Send` for the money modal or exercise the card actions below.
 - **Expect**: `Total balance` card with `aria-label="Total balance"` and `aria-busy` while loading (home-panel.tsx); balance breakdown (`data-balance-breakdown`, `data-balance-segment="cash|saved|investments"`, home-panel.tsx); status line `[data-total-status]` when `statusLabel` present; money actions group `aria-label="Money actions"` with `Add money` and `Send`; `Your money` card (h2 `your-money-heading`) with `See all` action; Save card (`save-heading`), Borrow card (`borrow-heading`); Activity card (`activity-title`). Fixture-visible rows include `Recognized Coin` (tests/browser/fixtures/balances.ts `recognizedCatalogHolding`).
 - **States** (fixtures): loading → hold `/api/session`/`/api/balances` with `fixtures.delayNextSession()/delayNextBalances()` (balances.pw.ts and save.pw.ts); empty → base fixture minus holdings (**no ready empty fixture exists — construct via `options.balances`**); unavailable → `status: "unavailable"` presentation (home-panel.tsx `Balance unavailable`); error state for action APIs is surfaced in the modal, not the panel.
-- **Evidence**: screenshot; DOM text snapshot; console/errors; perf marks `shell:paint`, `session:verified` (shell.tsx:356), `balances:painted` (shell.tsx:402), `action:first-interactive` (client/transfers/transfer-actions.tsx:82). `balances:painted` keeps the smoke suite budget (CI 3,500 / local 1,000 ms); the CLI uses the initial cross-environment budget below without changing smoke.
+- **Evidence**: screenshot; DOM text snapshot; console/errors; perf marks `shell:paint`, `session:verified` (shell.tsx:356), `balances:painted` (shell.tsx:402), `action:first-interactive` (client/transfers/transfer-actions.tsx:82). `balances:painted` keeps the smoke suite budget (CI 3,500 / local 1,000 ms); the historical initial budget below does not change smoke.
 - **Perf budgets (initial)**: `shell:paint` ≤ 1_500 ms; `session:verified` ≤ 3_000 ms; `balances:painted` ≤ 3_500 ms; `action:first-interactive` ≤ 3_500 ms.
 - **Live perf budgets**: `session:verified` ≤ 10_000 ms
 - **Owned by**: `apps/web/client/home/`, data `apps/web/server/balances/*`, `/api/balances` route.
@@ -134,7 +130,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 - **Reach (live)**:
   1. `goto "/balances"`
   2. `expect "Your money"`
-- **Notes**: The verifier seeds the signed-in session and balances fixture. Use `/balances/investments` with `scrollableBalancesSnapshot()` for anchoring work; the group section is `id="investments"`.
+- **Notes**: The fixture-session helper seeds signed-in state and balances fixture. Use `/balances/investments` with `scrollableBalancesSnapshot()` for anchoring work; the group section is `id="investments"`.
 - **Expect**: scroll container `[data-app-main-authenticated]` (shell-panels.tsx); balance rows `[data-balance-list] [data-kind="balance"]` (balances.pw.ts); reveal window grows after scroll (`BALANCES_BATCH_SIZE = 10`, client/home/balances-panel.tsx); `Show small balances` switch lives in account settings, not this page (mobile-geometry.pw.ts touch test).
 - **States**: loading shimmer (`LoadingMoneyGroup`, balances-panel.tsx); unavailable; empty (`BalancesEmpty`); ready with reveal batches; stale revalidation anchored to requested group (`cold and revalidated cached Balances…` smoke test).
 - **Evidence**: screenshot; DOM snapshot; console/errors; perf marks and scroll-offset assertions.
@@ -149,7 +145,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 - **Reach**:
   1. `goto "/activity"`
   2. `expect "Activity"`
-- **Notes**: The verifier seeds the signed-in session and API fixtures. Add `/api/activity` fixture rows when exercising populated states; the Home Activity card is the interactive entry point.
+- **Notes**: The fixture-session helper seeds signed-in state and API fixtures. Add `/api/activity` fixture rows when exercising populated states; the Home Activity card is the interactive entry point.
 - **Expect**: `Activity` heading (`#activity-title`, client/activity/activity-panel.tsx `DefaultActivityHeader`); empty state `No activity yet`; end marker `End of activity`; error `Try again` button; later-page failure shows a concise `Retry`; rows expose `View <direction> <symbol> transaction details` activation labels (activity-panel.tsx `TransferActivityRow`).
 - **States**: loading shimmer (`ActivityPage`, client/home/activity-panel.tsx `ShimmerRows count={4}`); empty (`No activity yet`); error (`Try again`); success list; automatic continuation while the sentinel is visible (client/activity/use-activity.ts: bounded 3-page bursts with a 250 ms yield); later-page failure keeps rows and retries the exact cursor; authoritative exhaustion only at a null cursor; repeated, non-advancing, or cyclic cursors stop without further requests; offscreen, unmounted, or owner-changed continuation stops and fences stale work.
 - **Evidence**: screenshot; DOM snapshot; console/errors; marks `shell:paint` (dashboard).
@@ -194,7 +190,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
   7. `click "Confirm action"`
   8. `expect "Borrowed $0.10"`
 - **Verify**: manual
-- **Notes**: No smoke fixture exists for `/api/borrow*`; see Gaps. Live: the `1` chip renders only when the pinned account holds the market's collateral (`You need cbBTC in this wallet before you can borrow.`); the production bot account held none on 2026-09-22, so the canary reports `did not render` until it is funded.
+- **Notes**: No smoke fixture exists for `/api/borrow*`; see Gaps. Live: the `1` chip renders only when the pinned account holds the market's collateral (`You need cbBTC in this wallet before you can borrow.`); the production bot account held none on 2026-09-22, so that control remains unavailable until the account holds collateral.
 - **Expect**: heading `Borrow` (`#borrow-overview-title`, `#borrow-direct-title`, borrowing-experience.tsx); position actions including `Borrow`, `Supply`/`Withdraw collateral from Bitcoin position` (`aria-label`, line 539); `Back to Borrow`; `Market values are unavailable` + `Retry` error; collateral preview `data-testid="borrow-collateral-preview"`; action money modal title `Confirm`, footer `Confirm action`/`Retry`/`Back`/`Close` (lines ~712–782).
 - **States**: loading/error via `overview.refetch()`/`detail.refetch()` buttons; amount → confirm → pending (`Waiting for your wallet…`, `#borrow-action-pending`) → error/failed.
 - **Evidence**: screenshot; DOM snapshot; console/errors.
@@ -240,7 +236,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
   8. `expect "Confirm"`
   9. `click "Send $0.10"`
   10. `expect "Sent $0.10"`
-- **Notes**: The dialog is labelled by `send-title`. Live mode replaces `<recipient>` with the effective recipient's **name** only in that `To` fill step, so the run exercises the product's own resolution path; any other step containing `<recipient>` refuses before browser launch. `--recipient` accepts a bare 40-hex `0x` address other than the zero address, or the name `jesse.base.eth` matched case-insensitively with surrounding whitespace ignored (its pinned address is `0x2211d1d0020daea8039e46cf1367962070d77da9`), and defaults to that pinned name when omitted; every other value refuses before browser launch. Before the gated `Send $0.10` confirm click the verifier requires exactly one review `To` row to show the full **pinned address** of the effective recipient (case-insensitive) and stops with `recipientMismatch` otherwise. Fixture-backed coverage for the destination step's name and recent-recipient behavior is tests/browser/send-recipients.pw.ts (`installRecipientFixtures`); the verifier's fixture mode reaches the same steps through verify/fixtures.ts.
+- **Notes**: The dialog is labelled by `send-title`. In live Reach, `<recipient>` means the recipient explicitly authorized by the task; never type the placeholder. Before any live confirm, read the full review and match the `To` address, amount and signed-in account against that task. Routine UI verification stops before the marked confirm control. Fixture-backed name and recent-recipient behavior is in tests/browser/send-recipients.pw.ts; the fixture-session helper stages static recipient, prepare and pending-review responses through tests/browser/feature-map/fixtures.ts so Send reaches review without a provider or confirmation.
   1. **amount**: type digits via keypad buttons named `0`–`9`, `Decimal point`, `Delete last digit` (`role="group" aria-label="Amount keypad"`, client/money-modal/amount.tsx:581–601); quick chips group `Quick amounts` (`$10`/`$25`/`Max` when priced, amount.tsx:508+). Primary `Continue` disabled until positive amount (`isPositiveDecimalAmount`).
   2. **destination**: step title stays `Send`; field label `To` (AddressField `id="send-recipient"`); primary `Continue` disabled until the typed value is a valid `0x` recipient or a resolved name (send-dialog.tsx `effectiveRecipient`). A `.eth` Basename/ENS value is resolved through `GET /api/transfers/recipient-name?name=…` and shows `Resolves to <full address>` under the field; while it resolves the field is described by `Resolving <name>…`; an unresolved or unsupported value shows an inline `role="alert"`/hint and never enables `Continue`. The account's own recent send recipients render below the `Or` separator under the group label `Recent recipients` (labelled by reverse-resolved name with the truncated address beneath, or the truncated address alone) and selecting one fills `To`.
   3. **confirm**: dialog title becomes `Confirm` (send-dialog.tsx `modalTitle`); summary via `MoneyConfirmSummary` rows `To` (CopyableValue full address), `Asset`, `Network` = `Base` (send-dialog.tsx); primary button `Send $1.00` where amount is `MoneyTicker(confirmAmount)` — smoke clicks `getByRole("button", { name: "Send $1.00" })`; secondary `Back`.
@@ -269,13 +265,13 @@ request failure not listed here still fails the run, and unlisted hosts still fa
   5. `click "Continue"`
   6. `click "Available payout apps: Cash App, Zelle Send to Zelle, Venmo, Cash App and more Use Peer to send via app"` (the payout marks contribute their `Available payout apps:` name; the list follows the US corridor order)
   7. `click "Cash App"`
-  8. `fill "Cash App handle" "$alice"` — live substitutes `HOME_VERIFY_CASHOUT_HANDLE` for `$alice`; unset refuses before any fill
+  8. `fill "Cash App handle" "$alice"` — `$alice` is a fixture-only placeholder; live work uses only an explicitly authorized payout handle
   9. `click "Continue"`
-  10. `fill "Re-enter handle" "$alice"` — live substitutes the Cash App canonical form of `HOME_VERIFY_CASHOUT_HANDLE` (leading `$` stripped, `shared/funding/cash-payee.ts`), because Review enables only when the re-entry equals the canonical handle (send-dialog.tsx `handleConfirmation !== canonicalHandle`); unset refuses before any fill
+  10. `fill "Re-enter handle" "$alice"` — live work re-enters the task's authorized handle in canonical form (leading `$` stripped, `shared/funding/cash-payee.ts`); stop if it differs
   11. `click "Review"`
   12. `expect "Approximate receive"` — the deposit review's approximate fiat row, absent from a withdrawal review
   13. `expect "Confirm"`
-- **Canary operations**: `--canary-operation cash-out` appends `click "Cash out $0.10"` and `expect "Cashed out $0.10"` (the deposit confirmation). `--canary-operation withdraw` is its own Reach: `goto "/home"`, `click "Send"`, `click "Decimal point"`, `click "1"`, `click "Continue"`, `expect "Use Peer to send via app"` (the destination step, where in-flight orders are listed), `click-prefix "Withdraw "` (the in-flight recovery item, which reads `Withdraw $0.10 Peer cash-out · awaiting-buyer`; it is marked as opening a review, so the amount-bearing-control refusal does not apply to it, and the verifier waits up to 15 s for a match before concluding none), `expect "Confirm"`, `click-prefix "Withdraw $"` (the confirm control), `expect "Recovered $"`. Both require `HOME_VERIFY_CASHOUT_HANDLE`, and immediately before the confirm click the review must carry a `Payout handle` row equal to its Cash App canonical form; the canonical handle is recorded as `confirmIntent.recipient` and redacted from text evidence. When the first `click-prefix "Withdraw "` matches nothing, nothing is in flight: the run ends with exit 0, a `note` in `live.json`, `No in-flight Peer cash-out to withdraw.` in `summary.md`, and rung 2.
+- **Withdrawal recovery**: In-flight Peer cash-outs appear on Send's destination step as `Withdraw …` controls. Open an authorized in-flight item, read the recovered amount and payout-handle review, and stop before its marked confirmation unless this task explicitly authorizes a live confirm. No in-flight item means no recovery action; do not manufacture one.
 - **Verify**: manual
 - **Expect**: modal title `Cash out with Peer` (send-dialog.tsx `modalTitle`); confirm rows `Provider`, `Payout app`, `Payout handle`, `Approximate receive`, `Estimated delivery`, `Network` = `Base` (send-dialog.tsx confirm rows); disclaimer `The fiat amount and delivery time are approximate, not guaranteed.`; primary `Cash out $X` or `Withdraw $X`, where the amount is the reviewed USDC amount rendered in dollars (`formatUsdStablecoinAmount`).
 - **States**: providers not loaded → CashoutItem absent (requires `PEER_OFFRAMP` stub registered after `installApiFixtures` via `route.fallback`, mobile-geometry.pw.ts); recovery items `Withdraw <amount>` for active orders; `Recover a Peer cash-out` button when `recoveryEligible` (send-dialog.tsx).
@@ -310,7 +306,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 - **Reach**:
   1. `goto "/home?account=settings"`
   2. `expect "Account"`
-- **Notes**: The verifier seeds the signed-in session and fixtures. The Chromium smoke opens the header profile mark with the keyboard, asserts focus enters the settings region, closes through Done and browser Back, restores the exact opener, exercises deep-link and forward-history entry, and verifies every primary-navigation `aria-controls` target remains unique and present. Live: the Peer option renders only where `PEER_OFFRAMP_ENABLED` is set on the target (`apps/web/server/funding/providers/peer/manifest.ts:51`); production keeps it off pending the provider README's staging and corridor confirmations, so the canary reports `did not render` for cash-out until then.
+- **Notes**: The fixture-session helper seeds signed-in state and fixtures. The Chromium smoke opens the header profile mark with the keyboard, asserts focus enters the settings region, closes through Done and browser Back, restores the exact opener, exercises deep-link and forward-history entry, and verifies every primary-navigation `aria-controls` target remains unique and present. Live: the Peer option renders only where `PEER_OFFRAMP_ENABLED` is set on the target (`apps/web/server/funding/providers/peer/manifest.ts:51`); production keeps it off pending the provider README's staging and corridor confirmations, so cash-out remains unavailable there until then.
 - **Expect**: region `aria-label="Account settings"` receives programmatic focus without selecting an input; `Show small balances` switch (`getByRole("switch", { name: "Show small balances" })`, mobile-geometry.pw.ts; owned by client/home/use-show-small-balances.ts + account-settings region of shell-panels.tsx). Sign-out control and region selector live here (shell-panels.tsx passes `regionId`, `resolutionSource`, `onRegionChange`, `onSignOut` to client/account/account-settings.tsx).
 - **States**: preference not ready (`isPreferenceReady`); region override messages (`preferenceMessage`).
 - **Evidence**: screenshot; DOM snapshot; console/errors.
@@ -367,18 +363,17 @@ request failure not listed here still fails the run, and unlisted hosts still fa
 
 **Playwright Reach replay:** `apps/web/tests/browser/feature-map-replay.pw.ts` exercises the
 non-manual fixture Reaches for landing, sign-in, home-panel, balances, activity, save,
-invest, send, account-settings, and coverage. Manual surfaces and fixture-impossible
-canary operations are explicitly skipped with reasons in the test. This only checks entry
+invest, send, account-settings, and coverage. Manual surfaces are explicitly skipped with reasons in the test. This only checks entry
 steps; it does not cover borrow markets, activity pagination, invest categories or memes,
 coverage filters, or dev-ui behavior.
 **Journey stories:** Only `apps/web/stories/journeys/savings-deposit.stories.tsx` exists; every other surface above lacks one.
 
-**Reach depends on a live provider and cannot run against the fixture server** (needs a documented fixture or the provisioned verifier Live mode):
+**Reach depends on a live provider and cannot run against the fixture server** (needs a documented fixture or an authorized live agent session):
 - Base-account/CDP sign-in (`client/account/base-account-connector.tsx`, `cdp-*`), real Coinbase onramp/offramp providers via `/api/funding/providers`, `/api/funding/quotes`, `/api/funding/provider-customers`, and `/api/funding/webhooks/[provider]` (smoke uses hand-written IDRX/PEER stubs instead of a documented shared fixture).
-- Real Basename/ENS resolution and reverse labels: the fixture server serves `/api/transfers/recipient-name` and `/api/transfers/recent-recipients` from static bodies, so Base L2 Basename resolution, mainnet ENS resolution, and forward-verified reverse labels (`apps/web/server/transfers/recipient-resolver.ts`) are only exercised by verifier Live mode or a non-fixture run.
+- Real Basename/ENS resolution and reverse labels: the fixture-session helper intercepts `/api/transfers/recipient-name` and `/api/transfers/recent-recipients` with static bodies, so Base L2 Basename resolution, mainnet ENS resolution, and forward-verified reverse labels (`apps/web/server/transfers/recipient-resolver.ts`) are only exercised by an authorized live agent session or a non-fixture run.
 - Invest `Memes` discovery (`/api/invest/discover`) and market prices (`/api/market-prices*`) when the fixture returns `{}` — smoke never asserts a meme shelf; treat as unknown rather than "empty".
 - `/api/webhooks/cdp` and trades (`/api/trades`, `client/trading/trade-actions.tsx` buttons are `disabled` — trading is not user-reachable today).
 
-**Initial perf budgets**: the CLI budgets are deliberately broader than local smoke timing and apply only when listed on a surface. They establish a measured baseline for `shell:paint`, `session:verified`, and `action:first-interactive`; the existing smoke budget for `balances:painted` is unchanged. A surface's `Live perf budgets` line overrides those marks only under `--live`: `session:verified` allows 10_000 ms there because the live CDP sign-in round trip varies with the runner's network (the studio canary measured 3_327 ms against 3_000 ms while every other mark and request passed); fixture runs keep 3_000 ms.
+**Performance observations**: the listed initial and live mark budgets are historical baselines, not CLI gates. Read named browser performance marks if performance is in scope; explain deviations in evidence rather than claiming a pass from a static number.
 
 **Verification notes:** every selector quoted here was read from code or from `tests/browser/*.pw.ts`. Remaining Unknowns identify provider- or fixture-dependent behavior that code alone cannot confirm. The fixture baseline and kept-current trigger set are repository policy.

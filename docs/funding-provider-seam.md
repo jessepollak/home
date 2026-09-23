@@ -181,7 +181,7 @@ These steps can now be completed from a clone of `main`; use the exact commands 
 6. `bun test apps/web/server/funding` runs the adapter conformance test against your manifest and fixtures if you added any.
 7. Open a PR with a short clip of step 5 and a line in your README saying when and against which environment you ran it.
 
-For completed **local development**, that clip and line prove only the path and environment exercised. The crew reviews the diff; Jesse merges; hosted Home can then make the provider eligible by setting env when he chooses. Live acceptance follows the [verification ladder](operating-manual.md#verification-ladder). Provider constraints may require a protected hosted run, as in the [Ripio playbook](../apps/web/server/funding/providers/ripio/ACCEPTANCE.md); verifier credentials and funded authority remain bounded by policy, while provider enablement, deployment, and merge remain outside that authority.
+For completed **local development**, that clip and line prove only the path and environment exercised. The crew reviews the diff; Jesse merges; hosted Home can then make the provider eligible by setting env when he chooses. Live acceptance follows the [verification ladder](operating-manual.md#verification-ladder). Provider constraints may require a protected hosted run, as in the [Ripio playbook](../apps/web/server/funding/providers/ripio/ACCEPTANCE.md); bot-account credentials and live confirmation follow the browser-iteration skill; provider enablement, deployment and merge remain outside that authority.
 
 `docs/integrations/README.md` is those seven steps with the exact paths, plus what the core enforces so the adapter does not have to.
 

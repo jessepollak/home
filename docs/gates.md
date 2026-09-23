@@ -6,7 +6,7 @@
 - No unresolved CSS custom properties, so every referenced token resolves in the theme.
 - No comments in CSS or Python under the five product layers beyond a third-party notice header and Python functional lines (shebang, encoding declaration, `# type:`/`# noqa`), so the [comment policy](architecture.md#comment-policy) covers the source formats Oxlint cannot parse.
 - Every `process.env` read is declared in `.env.example`, so a clone knows which variables it needs.
-- No personal-email literal under `apps/web/verify`, `scripts/verify`, `docs`, or `.agents`, so the bot mailbox stays operator configuration (`HOME_VERIFY_ACCOUNT_EMAIL`) instead of a committed address.
+- No personal-email literal under `apps/web/verify`, `docs`, or `.agents`, so the bot mailbox stays runtime configuration (`HOME_VERIFY_ACCOUNT_EMAIL`) instead of a committed address.
 - Custom lint rules are non-vacuous, proven against temporary-mirror fixtures rather than a clean source tree.
 
 The full check suite also covers:
@@ -23,7 +23,7 @@ The **Dead code (knip)** CI step runs `bun run --cwd apps/web knip`, and `bun ch
 
 ## Surface verification boundary
 
-`bun run --cwd apps/web verify <surface-id>` is a local, fixture-backed evidence command over the repository [feature map](../.agents/skills/browser-iteration/feature-map.md). It captures screenshot and DOM text, browser errors and failed requests, performance marks/budgets, and long-task count into an evidence bundle whose `summary.md` is ready for PR evidence. It is not a durable regression suite; Playwright remains the only committed automated browser regression layer. See [browser validation](browser-validation.md#surface-verify-cli) for setup, output, and cleanup.
+Use the repository-pinned `agent-browser` directly for [fixture and live browser validation](browser-validation.md). The [feature map](../.agents/skills/browser-iteration/feature-map.md) supplies Reach guidance; agents report observed facts and screenshots under PR evidence rules. Playwright remains the only committed automated browser regression layer.
 
 Each surface declares machine-readable **Owned paths**. The `verification-evidence` CI step maps the pull-request diff to those paths and checks the PR's `## Verification` table for every affected surface, its required rung, an evidence pointer, and incidents. Read-only changes require Rung 1, money-client changes require Rung 2, and action/calldata/confirm-step changes on confirm surfaces require Rung 3. The step is soft (`continue-on-error`) while the map is calibrated. A follow-up PR makes it hard after three consecutive mapped pull requests report no false-positive surface or rung; until then, a failure is a required handoff finding but does not block CI.
 
