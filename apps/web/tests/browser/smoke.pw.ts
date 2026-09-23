@@ -1012,6 +1012,19 @@ const PEER_OFFRAMP = {
   }],
 };
 
+const IDRX_TWO_METHODS = {
+  version: 3,
+  direction: "onramp",
+  providers: [{
+    direction: "onramp", providerId: "idrx", displayName: "IDRX", region: "ID", assetId: "base:idrx",
+    assetSymbol: "IDRX", assetDecimals: 2, currency: "IDR", quotes: false, customerSetup: null,
+    paymentMethods: [
+      { id: "bank-va-mandiri", label: "Bank transfer · Mandiri" },
+      { id: "bank-va-bca", label: "Bank transfer · BCA" },
+    ],
+  }],
+};
+
 async function inputMetrics(locator: Locator) {
   return locator.evaluate((element) => {
     const style = getComputedStyle(element);
@@ -1019,6 +1032,52 @@ async function inputMetrics(locator: Locator) {
   });
 }
 
+/** Reads an option row's rendered height; layout metrics only exist in a real browser. */
+async function optionHeight(locator: Locator) {
+  return locator.evaluate((element) => element.getBoundingClientRect().height);
+}
+
+async function expectTouchHeight(option: Locator, label: string) {
+  await expect(option).toBeVisible();
+  expect(Math.round(await optionHeight(option)), `${label} option height`).toBeGreaterThanOrEqual(44);
+}
+
+/**
+ * The home shell records these marks only after hydration and server-session
+ * verification, so a click gated on one cannot land before React has attached
+ * its handlers (a click that silently does nothing on a slow runner).
+ */
+async function waitForHomeMark(page: Page, mark: "session:verified" | "action:first-interactive") {
+  await expect.poll(() => page.evaluate((name) =>
+    performance.getEntriesByName(name, "mark").length, mark), {
+    timeout: process.env.CI ? 10_000 : 5_000,
+  }).toBeGreaterThan(0);
+}
+
+async function openPaymentMethodSelect(page: Page) {
+  await page.goto("/home");
+  // The transfer actions are marked interactive only once the wallet boundary
+  // is verified, which the Add money sheet needs before it will open.
+  await waitForHomeMark(page, "action:first-interactive");
+  await page.getByRole("button", { name: "Add money" }).click();
+  await page.getByRole("button", { name: /Deposit IDR/ }).click();
+  await page.getByRole("combobox", { name: "Payment method" }).click();
+}
+
+async function openCountryCombobox(page: Page) {
+  await page.goto("/home?account=settings");
+  await waitForHomeMark(page, "session:verified");
+  await page.getByRole("combobox", { name: "Country" }).click();
+}
+
+async function installPickerFixtures(page: Page) {
+  await seedSignedInSession(page, "ID");
+  await installApiFixtures(page);
+  await page.route("**/api/funding/providers**", async (route) => {
+    if (new URL(route.request().url()).searchParams.get("region") !== "ID") return route.fallback();
+    return json(route, IDRX_TWO_METHODS);
+  });
+}
 
 test("coverage native selects keep a mobile-zoom-safe font size", async ({ page }) => {
   // A landscape iPhone's CSS width crosses the 768px breakpoint, so cover both
@@ -1086,6 +1145,32 @@ test("mobile cash-out handle fields meet touch-target and zoom-safe metrics", as
       await expect(confirmation).toHaveAttribute("enterkeyhint", "done");
     }
   }
+});
+
+test("shared picker options meet the mobile touch height without regressing desktop density", async ({ page }) => {
+  // Row height is only observable in a real browser, so this is the sole proof
+  // for the primitives' min-height seam: one mobile assertion per shared primitive
+  // (Select and Combobox), plus one desktop check that the fine-pointer override
+  // restores the prior compact density.
+  await installPickerFixtures(page);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openPaymentMethodSelect(page);
+  await expectTouchHeight(page.getByRole("option", { name: "Bank transfer · Mandiri" }), "Select");
+  await page.keyboard.press("Escape");
+
+  await openCountryCombobox(page);
+  const country = page.getByRole("option", { name: "Indonesia" });
+  await country.scrollIntoViewIfNeeded();
+  await expectTouchHeight(country, "Combobox");
+  await page.keyboard.press("Escape");
+
+  // Below md the 44px min-height always applies; a fine-pointer desktop width
+  // must hit md:pointer-fine:min-h-0 and restore the compact row.
+  await page.setViewportSize({ width: 900, height: 844 });
+  await openPaymentMethodSelect(page);
+  expect(Math.round(await optionHeight(page.getByRole("option", { name: "Bank transfer · Mandiri" }))))
+    .toBeLessThanOrEqual(32);
 });
 
 test("mobile tab bar keeps browser-tab bottom spacing and touch targets", async ({ page, context }) => {
