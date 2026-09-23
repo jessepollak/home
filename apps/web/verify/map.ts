@@ -17,6 +17,7 @@ export type Surface = {
   confirmLabels: string[];
   ownedPaths: string[];
   budgets: Record<string, number>;
+  liveBudgets: Record<string, number>;
   manual: boolean;
   live?: LiveAccess;
 };
@@ -43,6 +44,18 @@ export async function readFeatureMap(path: string): Promise<FeatureMap> {
   return parseFeatureMap(await readFile(path, "utf8"));
 }
 
+function parseBudgets(text: string): Record<string, number> {
+  const budgets: Record<string, number> = {};
+  for (const match of text.matchAll(/`([a-z][a-z:-]+)`\s*(?:≤|<=)\s*([\d_]+)\s*ms/g)) {
+    budgets[match[1]] = Number(match[2].replaceAll("_", ""));
+  }
+  return budgets;
+}
+
+export function effectiveBudgets(surface: Pick<Surface, "budgets" | "liveBudgets">, live: boolean): Record<string, number> {
+  return live ? { ...surface.budgets, ...surface.liveBudgets } : surface.budgets;
+}
+
 export function parseFeatureMap(markdown: string): FeatureMap {
   const surfaces = new Map<string, Surface>();
   const sections = markdown.split(/^###\s+/m).slice(1);
@@ -58,13 +71,12 @@ export function parseFeatureMap(markdown: string): FeatureMap {
     const confirmLabels = [...confirmText.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
     const ownedText = body.match(/^- \*\*Owned paths\*\*:\s*(.*)$/m)?.[1] ?? "";
     const ownedPaths = [...ownedText.matchAll(/`([^`]+)`/g)].map((match) => match[1]);
-    const budgets: Record<string, number> = {};
-    for (const match of body.matchAll(/`([a-z][a-z:-]+)`\s*(?:≤|<=)\s*([\d_]+)\s*ms/g)) {
-      budgets[match[1]] = Number(match[2].replaceAll("_", ""));
-    }
+    const liveBudgetPattern = /^- \*\*Live perf budgets\*\*:.*$/m;
+    const liveBudgets = parseBudgets(body.match(liveBudgetPattern)?.[0] ?? "");
+    const budgets = parseBudgets(body.replace(liveBudgetPattern, ""));
     const manual = /^- \*\*Verify\*\*:\s*manual\s*$/m.test(body);
     const live = body.match(/^- \*\*Live\*\*:\s*(read-only|up-to-review|confirm)\s*$/m)?.[1] as LiveAccess | undefined;
-    surfaces.set(id, { id, reach, ...(liveReach ? { liveReach } : {}), confirmLabels, ownedPaths, budgets, manual, live });
+    surfaces.set(id, { id, reach, ...(liveReach ? { liveReach } : {}), confirmLabels, ownedPaths, budgets, liveBudgets, manual, live });
   }
   return {
     surfaces,

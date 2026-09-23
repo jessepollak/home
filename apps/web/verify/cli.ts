@@ -49,7 +49,7 @@ import {
   type RequestFailure,
 } from "./live";
 import { appendLedger, readLedger, spendForDay, spendForRun, withLedgerLock, type LedgerEntry } from "./ledger";
-import { canaryReach, matchesConfirmLabel, readFeatureMap, type ReachStep } from "./map";
+import { canaryReach, effectiveBudgets, matchesConfirmLabel, readFeatureMap, type ReachStep } from "./map";
 import { confirmPolicyRefusal, requestedCaps, resolveVerifyRole, verifyPolicy, type VerifyRole } from "./policy";
 
 const args = Bun.argv.slice(2);
@@ -945,7 +945,8 @@ try {
     }
     if (step.kind === "expect" && /^(?:Confirm|Review)/i.test(step.text)) afterReview = true;
   }
-  const requiredMarks = Object.keys(surface.budgets);
+  const budgets = effectiveBudgets(surface, live);
+  const requiredMarks = Object.keys(budgets);
   if (requiredMarks.length > 0) {
     try {
       command("wait", "--fn", requiredMarks.map((name) => `performance.getEntriesByName(${JSON.stringify(name)},"mark").length>0`).join("&&"));
@@ -959,10 +960,10 @@ try {
   const domText = typeof dom === "string" ? dom : JSON.stringify(dom, null, 2);
   await writeEvidenceFile(domPath, domText);
   const performance = jsonResult(command("eval", `({marks:performance.getEntriesByType("mark").map((entry)=>({name:entry.name,startTime:entry.startTime})),longTaskCount:(window.__homeVerifyLongTasks||[]).length})`)) as { marks?: Array<{ name: string; startTime: number }>; longTaskCount?: number };
-  const markNames = new Set([...Object.keys(surface.budgets), ...(performance.marks ?? []).map((mark) => mark.name).filter((name) => ["shell:paint", "session:verified", "balances:painted", "action:first-interactive"].includes(name))]);
+  const markNames = new Set([...Object.keys(budgets), ...(performance.marks ?? []).map((mark) => mark.name).filter((name) => ["shell:paint", "session:verified", "balances:painted", "action:first-interactive"].includes(name))]);
   const marks: MarkResult[] = [...markNames].map((name) => {
     const startTime = performance.marks?.find((mark) => mark.name === name)?.startTime ?? null;
-    const budgetMs = surface.budgets[name] ?? null;
+    const budgetMs = budgets[name] ?? null;
     return { name, startTime, budgetMs, passed: budgetMs === null ? null : startTime !== null && startTime <= budgetMs };
   });
   const consoleErrors = messages(command("console"), "error");
