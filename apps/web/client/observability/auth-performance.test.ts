@@ -127,7 +127,7 @@ describe("Home auth restore performance recorder", () => {
     }) as typeof fetch;
 
     try {
-      await sendHomeAuthRestoreReport({
+      await sendHomeAuthReport({
         version: 1,
         kind: "home-auth-phase",
         route: "/home",
