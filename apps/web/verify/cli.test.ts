@@ -2,6 +2,8 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { readLedger } from "./ledger";
+import { encodeFunctionData, erc20Abi } from "viem";
+import { BASE_USDC } from "../shared/assets/base";
 import {
   buttonPresentPredicate,
   decideConfirmGate,
@@ -22,6 +24,24 @@ const stateDirectory = resolve(home, ".home-verify", "example.com", "state");
 const statePath = resolve(stateDirectory, "browser-state.json");
 const fakeBinDirectory = resolve(home, "fake-bin");
 const fakeLogPath = resolve(home, "fake-agent-browser.log");
+const actionId = "11111111-1111-4111-8111-111111111111";
+function preparedEnv(kind: string, label: string, extra: Record<string, unknown> = {}): Record<string, string> {
+  const spend = kind === "send" || kind === "cash-out" || kind === "savings-deposit" || kind === "repay";
+  const action = {
+    id: actionId, kind, owner: { address: addressA, subject: "fixture", chainId: 8453, accountProvider: "cdp-embedded" },
+    expiresAt: "2099-01-01T00:00:00.000Z",
+    amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "100000", direction: spend ? "spend" : "receive" },
+      ...(kind.startsWith("savings-") ? [{ assetId: "vault", symbol: "vault shares", decimals: 18, amountBaseUnits: "100000000000000000", direction: spend ? "receive" : "spend" }] : [])],
+    calls: [{ to: BASE_USDC.address, data: encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [pinnedRecipient, BigInt(100000)] }), value: "0" }],
+    ...(kind === "cash-out" ? { metadata: { product: "cashout", operation: "deposit", canonicalHandle: "zzpayout" } } : {}),
+    ...(kind === "cash-out-withdraw" ? { metadata: { product: "cashout", operation: "withdraw" } } : {}),
+    ...extra,
+  };
+  return {
+    FAKE_AGENT_BROWSER_CONTROLS: JSON.stringify([{ id: actionId, name: label }]),
+    FAKE_AGENT_BROWSER_HAR: JSON.stringify({ log: { entries: [{ request: { method: "POST", url: "https://example.com/api/actions/prepare" }, response: { status: 201, content: { text: JSON.stringify(action) } } }] } }),
+  };
+}
 
 async function seedLiveState(address: string): Promise<void> {
   Bun.spawnSync(["mkdir", "-p", stateDirectory]);
@@ -103,16 +123,8 @@ function liveJson(surfaceId: string): {
   };
 }
 
-function sendLiveJson(): {
-  recipientMismatch: string | null;
-  stoppedBefore: string | null;
-  confirmIntent: unknown;
-} {
-  return JSON.parse(latestRunArtifact("send", "live.json")) as {
-    recipientMismatch: string | null;
-    stoppedBefore: string | null;
-    confirmIntent: unknown;
-  };
+function sendLiveJson(): { stoppedBefore: string | null; confirmIntent: unknown } {
+  return JSON.parse(latestRunArtifact("send", "live.json")) as { stoppedBefore: string | null; confirmIntent: unknown };
 }
 
 function recipientFills(): string[][] {
@@ -352,6 +364,7 @@ describe("live cash-out confirmation and recovery", () => {
       FAKE_AGENT_BROWSER_AUTHENTICATED: "1",
       FAKE_AGENT_BROWSER_BALANCE: "$26.89",
       HOME_VERIFY_CASHOUT_HANDLE: "$zzpayout",
+      ...preparedEnv("cash-out", "Cash out $0.10"),
       ...extra,
     };
   }
@@ -360,19 +373,19 @@ describe("live cash-out confirmation and recovery", () => {
     const env = await cashoutEnv({ FAKE_AGENT_BROWSER_REVIEW: depositReview("zzpayout") });
     const result = run([...cashoutArgs, "--canary-operation", "cash-out"], env);
     expect(result.exitCode).toBe(0);
-    expect(clickCalls().map((call) => call[call.indexOf("--name") + 1])).toContain("Cash out $0.10");
+    expect(fakeCalls()).toContainEqual(["click", `[data-money-action-id="${actionId}"]`, "--json"]);
     const live = latestRunArtifact("cash-out", "live.json");
     expect(live).toContain("<payout-handle>");
     expect(live).not.toContain("zzpayout");
     expect(live).toContain('"label": "Cash out $0.10"');
   });
 
-  test("refuses the deposit before the click when the review shows a different payout handle", async () => {
-    const env = await cashoutEnv({ FAKE_AGENT_BROWSER_REVIEW: depositReview("otherpayout") });
+  test("refuses the deposit before the click when the prepared payout handle differs", async () => {
+    const env = await cashoutEnv(preparedEnv("cash-out", "Cash out $0.10", { metadata: { product: "cashout", operation: "deposit", canonicalHandle: "otherpayout" } }));
     const result = run([...cashoutArgs, "--canary-operation", "cash-out"], env);
     expect(result.exitCode).toBe(1);
     expect(clickCalls().map((call) => call[call.indexOf("--name") + 1])).not.toContain("Cash out $0.10");
-    expect(latestRunArtifact("cash-out", "evidence.json")).toContain("does not show the reviewed canonical payout handle");
+    expect(latestRunArtifact("cash-out", "evidence.json")).toContain("prepared payout handle does not match");
   });
 
   test("ends the withdrawal recovery with a note when nothing is in flight", async () => {
@@ -392,11 +405,12 @@ describe("live cash-out confirmation and recovery", () => {
   test("recovers an in-flight cash-out by resolving both prefix controls", async () => {
     const env = await cashoutEnv({
       FAKE_AGENT_BROWSER_PREFIX_NAMES: JSON.stringify({ "Withdraw ": [recoveryRowName], "Withdraw $": ["Withdraw $0.10"] }),
-      FAKE_AGENT_BROWSER_REVIEW: "Confirm\n$0.10\nProvider\nPeer\nPayout app\nCash App\nNetwork\nBase",
+      ...preparedEnv("cash-out-withdraw", "Withdraw $0.10"),
     });
     const result = run([...cashoutArgs, "--canary-operation", "withdraw"], env);
     expect(result.exitCode).toBe(0);
-    expect(clickCalls().map((call) => call[call.indexOf("--name") + 1])).toEqual(["Send", "Decimal point", "1", "Continue", recoveryRowName, "Withdraw $0.10"]);
+    expect(clickCalls().map((call) => call[call.indexOf("--name") + 1])).toEqual(["Send", "Decimal point", "1", "Continue", recoveryRowName]);
+    expect(fakeCalls()).toContainEqual(["click", `[data-money-action-id="${actionId}"]`, "--json"]);
     expect(latestRunArtifact("cash-out", "live.json")).toContain('"label": "Withdraw $0.10"');
   });
 
@@ -434,11 +448,8 @@ describe("live rendered balance", () => {
     const nextNavigate = calls.findIndex((call, index) => index > balanceIndex && call[0] === "navigate");
     const settled = calls.slice(balanceIndex + 1, nextNavigate).find((call) => call[0] === "wait" && call[1] === "--load");
     expect(settled).toEqual(["wait", "--load", "networkidle", "--timeout", "30000", "--json"]);
-    const reviewRead = calls.findIndex((call) => call[0] === "eval" && call[1]?.includes('[role="dialog"]'));
-    expect(reviewRead).toBeGreaterThan(-1);
-    expect(calls[reviewRead - 1]?.slice(0, 2)).toEqual(["wait", "--fn"]);
-    expect(calls[reviewRead - 1]?.[2]).toContain("aria-disabled");
-    expect(calls[reviewRead - 1]?.[2]).toContain(JSON.stringify("Send $0.10"));
+    expect(calls.some((call) => call[0] === "eval" && call[1]?.includes('[role="dialog"]'))).toBe(false);
+    expect(calls.some((call) => call[0] === "network" && call[1] === "har" && call[2] === "start")).toBe(true);
   });
 
   test("refuses confirmation when the hero ticker is absent", async () => {
@@ -571,7 +582,7 @@ describe("live session state", () => {
 });
 
 describe("live send recipient resolution", () => {
-  test("fills the requested name and rejects a review To row that does not show its pinned address", async () => {
+  test("fills the pinned name and rejects a prepared transfer to another recipient", async () => {
     await seedLiveState(addressA);
     await installFakeAgentBrowser();
     await Bun.write(fakeLogPath, "");
@@ -608,14 +619,14 @@ describe("live send recipient resolution", () => {
       ...fakeEnv(body, addressA),
       FAKE_AGENT_BROWSER_AUTHENTICATED: "1",
       FAKE_AGENT_BROWSER_BALANCE: "$26.89",
-      FAKE_AGENT_BROWSER_REVIEW: body.replace(pinnedRecipient, "jesse.base.eth"),
+      ...preparedEnv("send", "Send $0.10", { calls: [{ to: BASE_USDC.address, data: encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [addressB, BigInt(100000)] }), value: "0" }] }),
     });
 
     expect(recipientFills().map((call) => call.slice(0, 6)))
       .toEqual([["find", "label", "To", "fill", "jesse.base.eth", "--exact"]]);
     expect(result.exitCode).toBe(1);
     const live = sendLiveJson();
-    expect(live.recipientMismatch).toBe(`The review “To” row shows “jesse.base.eth” instead of “${pinnedRecipient}”; confirmation was refused.`);
+    expect(latestRunArtifact("send", "evidence.json")).toContain("prepared recipient does not match the pinned recipient");
     expect(live.stoppedBefore).toBe("Send $0.10");
     expect(live.confirmIntent).toBeNull();
   });
@@ -835,6 +846,55 @@ describe("live expected failures", () => {
   });
 });
 
+describe("agent-driven session commands", () => {
+  test("starts, snapshots, navigates, and finishes a policy-bound session", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const env = { ...fakeEnv("Account\nShow small balances", addressA), FAKE_AGENT_BROWSER_AUTHENTICATED: "1" };
+    const start = run(["start", "account-settings", "--live", "--base-url", "https://example.com", "--out", outsideOutput], env);
+    expect(start.exitCode).toBe(0);
+    expect(run(["snapshot"], env).exitCode).toBe(0);
+    expect(run(["goto", "/home"], env).exitCode).toBe(0);
+    const finish = run(["finish"], env);
+    expect(finish.exitCode).toBe(0);
+    expect(finish.stdout).toContain("summary.md");
+    expect(fakeCalls().some((call) => call[0] === "close")).toBe(true);
+  });
+
+  test("confirms only a pinned prepared action and records its spend", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const env = { ...fakeEnv("Account\nShow small balances", addressA), FAKE_AGENT_BROWSER_AUTHENTICATED: "1",
+      FAKE_AGENT_BROWSER_BALANCE: "$26.89", FAKE_AGENT_BROWSER_MARKS: JSON.stringify(["shell:paint", "session:verified", "balances:painted", "action:first-interactive"].map((name) => ({ name, startTime: 100 }))),
+      ...preparedEnv("send", "Send $0.10") };
+    expect(run(["start", "send", "--live", "--base-url", "https://example.com", "--out", outsideOutput,
+      "--allow-confirm", "--account", addressA, "--max-usd", "1"], env).exitCode).toBe(0);
+    const result = run(["confirm"], env);
+    expect(result.exitCode).toBe(0);
+    expect(fakeCalls()).toContainEqual(["click", `[data-money-action-id="${actionId}"]`, "--json"]);
+    expect(run(["finish"], env).exitCode).toBe(0);
+    const entries = await readLedger(resolve(home, ".home-verify", "ledger.jsonl"));
+    expect(entries.some((entry) => entry.surface === "send" && entry.amountsUsd.includes(0.1))).toBe(true);
+  });
+
+  test("a plain click refuses an identified money control", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const env = { ...fakeEnv("Account\nShow small balances", addressA), FAKE_AGENT_BROWSER_AUTHENTICATED: "1",
+      FAKE_AGENT_BROWSER_BALANCE: "$26.89", ...preparedEnv("send", "Send $0.10") };
+    const start = run(["start", "send", "--live", "--base-url", "https://example.com", "--out", outsideOutput,
+      "--allow-confirm", "--account", addressA, "--max-usd", "1"], env);
+    expect(start.exitCode).toBe(0);
+    const click = run(["click", "Send $0.10"], env);
+    expect(click.exitCode).toBe(1);
+    expect(click.stderr).toContain("Plain click refuses a money confirm");
+    expect(fakeCalls().some((call) => call[0] === "click")).toBe(false);
+  });
+});
+
 describe("live CLI confirmation bounds", () => {
   const confirmArgs = [
     "save",
@@ -859,6 +919,7 @@ describe("live CLI confirmation bounds", () => {
       FAKE_AGENT_BROWSER_AUTHENTICATED: "1",
       FAKE_AGENT_BROWSER_BALANCE: "$26.89",
       FAKE_AGENT_BROWSER_REVIEW: "Deposit\n$0.10",
+      ...preparedEnv("savings-deposit", "Deposit $0.10"),
       ...(failures ? { FAKE_AGENT_BROWSER_FAILURES: JSON.stringify(failures) } : {}),
     };
   }

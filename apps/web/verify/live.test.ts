@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { resolve } from "node:path";
-import { formatAddress } from "../shared/formatting";
 import {
   accountAddressFromDocument,
   accountPinError,
@@ -24,25 +23,18 @@ import {
   liveStepError,
   matchExpectedLiveFailure,
   outputInsideRepository,
-  parseBorrowReviewAmounts,
-  parseRepayReviewAmountUsd,
   partitionLiveFailures,
   parseUsdAmount,
-  parseUsdAmountFromLabel,
-  payoutHandleRowError,
   recipientPlaceholderError,
-  recipientRowError,
   resolveClickPrefix,
   resolveLiveRecipient,
   clickPrefixNamesScript,
-  reviewAndLabelAmountError,
   unexpectedNetworkHosts,
   unlistedAmountClickError,
 } from "./live";
 
 const address = "0x1111111111111111111111111111111111111111";
 const defaultRecipient = "0x2211d1d0020daea8039e46cf1367962070d77da9";
-const recipientReview = (to: string) => `Confirm\n$1.00\nYou're sending USDC\nTo\n${to}\nAsset\nUSDC\nNetwork\nBase`;
 
 describe("live confirm gate", () => {
   test("runs ordinary controls without confirmation authority", () => {
@@ -157,53 +149,6 @@ describe("live recipient policy", () => {
   });
 });
 
-describe("live review recipient row", () => {
-  const recipient = defaultLiveRecipient.address;
-
-  test("accepts a rendered To row that equals the effective recipient", () => {
-    expect(recipientRowError(recipientReview(recipient), recipient)).toBeNull();
-    expect(recipientRowError(recipientReview(recipient.toUpperCase()), recipient)).toBeNull();
-    expect(recipientRowError(`Confirm\nTo ${recipient}\nAsset`, recipient)).toBeNull();
-  });
-
-  test("refuses the shared-format truncation even of the effective recipient", () => {
-    expect(formatAddress(recipient)).toBe("0x2211…d77da9");
-    expect(formatAddress(recipient)).not.toBe(recipient);
-    expect(recipientRowError(recipientReview(formatAddress(recipient)), recipient)).toContain("instead");
-    expect(recipientRowError(`Confirm\nTo\n${formatAddress(recipient)}\nAsset`, recipient)).toContain("instead");
-  });
-
-  test("refuses a review with more than one To row", () => {
-    expect(recipientRowError(`Confirm\nTo\n${recipient}\nTo ${address}\nAsset`, recipient)).toContain("exactly one");
-    expect(recipientRowError(`Confirm\nTo\n${recipient}\nTo\n${recipient}\nAsset`, recipient)).toContain("exactly one");
-  });
-
-  test("refuses an absent, empty, or mismatched To row", () => {
-    expect(recipientRowError("Confirm\n$1.00\nAsset\nUSDC", recipient)).toContain("no “To” row");
-    expect(recipientRowError("Confirm\nTo", recipient)).toContain("“To” row is empty");
-    expect(recipientRowError(recipientReview("0x2222222222222222222222222222222222222222"), recipient)).toContain("instead");
-    expect(recipientRowError(recipientReview(formatAddress(address)), recipient)).toContain("instead");
-  });
-});
-
-describe("live review payout handle row", () => {
-  const review = (handle: string) => `Confirm\n$0.10\nPayout handle\n${handle}\nNetwork\nBase`;
-
-  test("accepts the canonical handle the run registered, inline or on its own line", () => {
-    expect(payoutHandleRowError(review("example"), "example")).toBeNull();
-    expect(payoutHandleRowError(review("Example"), "example")).toBeNull();
-    expect(payoutHandleRowError("Confirm\n$0.10\nPayout handle example\nNetwork\nBase", "example")).toBeNull();
-  });
-
-  test("refuses an absent, empty, repeated, or different payout handle row", () => {
-    expect(payoutHandleRowError("Confirm\n$0.10\nNetwork\nBase", "example")).toContain("no “Payout handle” row");
-    expect(payoutHandleRowError("Confirm\nPayout handle", "example")).toContain("is empty");
-    expect(payoutHandleRowError(`Confirm\nPayout handle\nexample\nPayout handle\nexample`, "example")).toContain("exactly one");
-    expect(payoutHandleRowError(review("someoneelse"), "example")).toContain("does not show the reviewed canonical payout handle");
-    expect(payoutHandleRowError(review("someoneelse"), "example")).not.toContain("someoneelse");
-  });
-});
-
 describe("live click-prefix resolution", () => {
   test("accepts exactly one match and refuses zero or many", () => {
     expect(resolveClickPrefix("Withdraw ", ["Withdraw 0.1 USDC Peer cash-out · awaiting-buyer"])).toEqual({
@@ -274,55 +219,6 @@ describe("live amount cap", () => {
   test("refuses fee-row-first and two-candidate reviews", () => {
     expect(parseUsdAmount("Fee\n$0.01\nAmount\n$1.00")).toBeNull();
     expect(parseUsdAmount("Amount\n$1.00\nTotal\n$2.00")).toBeNull();
-    expect(reviewAndLabelAmountError(parseUsdAmount("Fee\n$0.01\nAmount\n$1.00"), 1)).toContain("exactly one");
-  });
-
-  test("refuses a mismatch between review and clicked label", () => {
-    expect(parseUsdAmountFromLabel("Send $1.00")).toBe(1);
-    expect(parseUsdAmountFromLabel("Confirm action")).toBeNull();
-    expect(reviewAndLabelAmountError(1, 2)).toContain("does not match");
-    expect(reviewAndLabelAmountError(1, 1)).toBeNull();
-  });
-
-  test("caps a repay-all by its maximum repayment rather than a two-decimal USD figure", () => {
-    expect(parseRepayReviewAmountUsd([
-      "Confirm",
-      "0.100001 USDC",
-      "Repay all USDC debt",
-      "You spend (USDC)",
-      "Estimated 0.100001 USDC",
-      "Maximum repayment (USDC)",
-      "0.100003 USDC",
-      "Variable rate",
-      "4.78%",
-    ].join("\n"))).toBe(0.100003);
-    expect(parseRepayReviewAmountUsd("Confirm\nYou spend (USDC)\n0.10 USDC")).toBe(0.1);
-    expect(parseRepayReviewAmountUsd("Confirm\nRepay")).toBeNull();
-  });
-
-  test("caps a borrow by its labelled received amount and records collateral separately", () => {
-    const amounts = parseBorrowReviewAmounts([
-      "Confirm",
-      "Borrow USDC",
-      "Locked as collateral (cbBTC)",
-      "0.0001 cbBTC",
-      "You receive (USDC)",
-      "25.50 USDC",
-    ].join("\n"));
-    expect(amounts).toEqual({
-      borrowedAmount: "25.50 USDC",
-      collateralAmount: "0.0001 cbBTC",
-      borrowedAmountUsd: 25.5,
-    });
-    expect(enforceAmountCap(amounts.borrowedAmountUsd, 25)).toContain("exceeds");
-  });
-
-  test("refuses borrow reviews without a labelled received amount", () => {
-    expect(parseBorrowReviewAmounts("Locked as collateral (cbBTC)\n0.0001 cbBTC\nLiquidation price\n$45,000.00")).toEqual({
-      borrowedAmount: null,
-      collateralAmount: "0.0001 cbBTC",
-      borrowedAmountUsd: null,
-    });
   });
 
   test("refuses unparseable, invalid-cap, and above-cap amounts", () => {
@@ -625,23 +521,4 @@ describe("live run guards", () => {
     expect(rendered.parsedAmount).toBe(1);
   });
 
-  test("matches the recipient text rendered by the send review row components", () => {
-    const result = Bun.spawnSync({
-      cmd: ["bun", "apps/web/verify/test-fixtures/send-review-row.ts"],
-      cwd: resolve(import.meta.dir, "../../.."),
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    expect(result.exitCode).toBe(0);
-    const rendered = JSON.parse(result.stdout.toString()) as {
-      rows: Array<{ label: string; value: string }>;
-      renderedMatch: string | null;
-      truncatedValue: string;
-      truncatedMatch: string | null;
-    };
-    expect(rendered.rows).toContainEqual({ label: "To", value: defaultRecipient });
-    expect(rendered.renderedMatch).toBeNull();
-    expect(rendered.truncatedValue).toBe(formatAddress(defaultRecipient));
-    expect(rendered.truncatedMatch).toContain("instead");
-  });
 });

@@ -210,100 +210,11 @@ export function parseUsdAmount(text: string): number | null {
   return amounts.length === 1 ? amounts[0] : null;
 }
 
-export function parseUsdAmountFromLabel(label: string): number | null {
-  const amounts = distinctUsdAmounts(label);
-  return amounts.length === 1 ? amounts[0] : null;
-}
-
-export function reviewAndLabelAmountError(reviewAmount: number | null, labelAmount: number | null): string | null {
-  if (reviewAmount === null) return "The review must contain exactly one distinct USD amount; confirmation was refused.";
-  if (labelAmount !== null && labelAmount !== reviewAmount) {
-    return `The review amount $${reviewAmount.toFixed(2)} does not match the confirm label amount $${labelAmount.toFixed(2)}.`;
-  }
-  return null;
-}
-
-const reviewToRowPattern = /^to(?:$|\s+\S)/i;
-
-const reviewPayoutHandleRowPattern = /^payout handle(?:$|\s+\S)/i;
-
-export function payoutHandleRowError(reviewText: string, canonicalHandle: string): string | null {
-  const expected = canonicalHandle.trim();
-  const lines = reviewLines(reviewText);
-  const rowIndexes = lines.flatMap((line, index) => reviewPayoutHandleRowPattern.test(line) ? [index] : []);
-  if (rowIndexes.length === 0) return "The review has no “Payout handle” row; confirmation was refused.";
-  if (rowIndexes.length > 1) return "The review must contain exactly one “Payout handle” row; confirmation was refused.";
-  const index = rowIndexes[0];
-  const inlineValue = lines[index].replace(/^payout handle\s*/i, "").trim();
-  const shown = (inlineValue.length > 0 ? inlineValue : lines[index + 1] ?? "").trim();
-  if (shown.length === 0) return "The review “Payout handle” row is empty; confirmation was refused.";
-  if (shown.toLowerCase() === expected.toLowerCase()) return null;
-  return "The review “Payout handle” row does not show the reviewed canonical payout handle; confirmation was refused.";
-}
-
-export function recipientRowError(reviewText: string, recipient: string): string | null {
-  const expected = recipient.trim();
-  const lines = reviewLines(reviewText);
-  const rowIndexes = lines.flatMap((line, index) => reviewToRowPattern.test(line) ? [index] : []);
-  if (rowIndexes.length === 0) return "The review has no “To” row; confirmation was refused.";
-  if (rowIndexes.length > 1) return "The review must contain exactly one “To” row; confirmation was refused.";
-  const index = rowIndexes[0];
-  const inlineValue = lines[index].replace(/^to\s*/i, "").trim();
-  const shown = (inlineValue.length > 0 ? inlineValue : lines[index + 1] ?? "").trim();
-  if (shown.length === 0) return "The review “To” row is empty; confirmation was refused.";
-  if (shown.toLowerCase() === expected.toLowerCase()) return null;
-  return `The review “To” row shows “${shown}” instead of “${expected}”; confirmation was refused.`;
-}
-
-export type BorrowReviewAmounts = {
-  borrowedAmount: string | null;
-  collateralAmount: string | null;
-  borrowedAmountUsd: number | null;
-};
-
-export function parseBorrowReviewAmounts(text: string): BorrowReviewAmounts {
-  const lines = reviewLines(text);
-  const borrowedAmount = valueAfterLabel(lines, /^You receive\s*\((?:USDC|USD)\)$/i);
-  const collateralAmount = valueAfterLabel(lines, /^Locked as collateral(?:\s|\()/i);
-  return {
-    borrowedAmount,
-    collateralAmount,
-    borrowedAmountUsd: borrowedAmount === null ? null : parseUsdStablecoinToken(borrowedAmount),
-  };
-}
-
-export function parseRepayReviewAmountUsd(text: string): number | null {
-  const lines = reviewLines(text);
-  const maximum = valueAfterLabel(lines, /^Maximum repayment\s*\((?:USDC|USD)\)$/i) ?? valueAfterLabel(lines, /^You spend\s*\((?:USDC|USD)\)$/i);
-  return maximum === null ? null : parseUsdStablecoinToken(maximum);
-}
-
-function reviewLines(text: string): string[] {
-  return text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-}
-
-function valueAfterLabel(lines: string[], label: RegExp): string | null {
-  const index = lines.findIndex((line) => label.test(line));
-  return index === -1 ? null : lines[index + 1] ?? null;
-}
-
-function parseUsdStablecoinToken(value: string): number | null {
-  const match = value.match(/^(?:Estimated\s+)?(?:Up to\s+)?([0-9][0-9,]*(?:\.[0-9]+)?)\s+(?:USDC|USD)$/i);
-  if (!match) return parseUsdToken(value);
-  const amount = Number(match[1].replaceAll(",", ""));
-  return Number.isFinite(amount) && amount >= 0 ? amount : null;
-}
-
 function distinctUsdAmounts(value: string): number[] {
   const amounts = [...value.matchAll(/(?:US\$|USD\s*|\$)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)(?=\s|$|US\$|USD|\$)/gim)]
     .map((match) => Number(match[1].replaceAll(",", "")))
     .filter((amount) => Number.isFinite(amount) && amount >= 0);
   return [...new Set(amounts)];
-}
-
-function parseUsdToken(value: string): number | null {
-  const amounts = distinctUsdAmounts(value);
-  return amounts.length === 1 ? amounts[0] : null;
 }
 
 export type RequestFailure = { method: string; url: string; status: number | null };

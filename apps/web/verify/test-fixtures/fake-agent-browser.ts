@@ -25,6 +25,8 @@ if (command === "eval") {
     result = process.env.FAKE_AGENT_BROWSER_PATH ?? "/home?account=settings";
   } else if (expression.includes("account-heading")) {
     result = process.env.FAKE_AGENT_BROWSER_ADDRESS ?? "";
+  } else if (expression.includes('data-money-action-id') && expression.includes('getClientRects')) {
+    result = expression.includes('.some(') ? false : JSON.parse(process.env.FAKE_AGENT_BROWSER_CONTROLS ?? "[]") as unknown;
   } else if (expression.includes('[role="dialog"]')) {
     result = process.env.FAKE_AGENT_BROWSER_REVIEW ?? "";
   } else if (expression.includes('aria-label="Total balance"')) {
@@ -34,7 +36,7 @@ if (command === "eval") {
   } else if (expression.includes("data-app-main-authenticated")) {
     result = process.env.FAKE_AGENT_BROWSER_AUTHENTICATED === "1";
   } else if (expression.includes("performance.getEntriesByType")) {
-    result = { marks: [], longTaskCount: 0 };
+    result = { marks: JSON.parse(process.env.FAKE_AGENT_BROWSER_MARKS ?? "[]") as unknown, longTaskCount: 0 };
   } else if (expression.includes('[data-slot="money-ticker"]')) {
     result = process.env.FAKE_AGENT_BROWSER_BALANCE ?? null;
   } else if (expression.includes("__homeVerifyHosts")) {
@@ -47,6 +49,9 @@ if (command === "eval") {
     const prefix = JSON.parse(expression.slice(start, end)) as string;
     result = Array.isArray(configured) ? configured : (configured[prefix] ?? []);
   }
+} else if (command === "network" && rest[0] === "har" && rest[1] === "stop") {
+  if (rest[2]) await writeFile(rest[2], process.env.FAKE_AGENT_BROWSER_HAR ?? JSON.stringify({ log: { entries: [] } }), { mode: 0o600 });
+  result = { saved: true };
 } else if (command === "network" && rest[0] === "requests") {
   result = JSON.parse(process.env.FAKE_AGENT_BROWSER_FAILURES ?? "[]") as unknown;
 } else if (command === "state" && rest[0] === "save") {

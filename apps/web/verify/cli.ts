@@ -1,5 +1,8 @@
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { homedir, tmpdir } from "node:os";
+import { MONEY_ACTION_ID_ATTRIBUTE } from "../shared/money-actions";
+import { checkPreparedAction, confirmControlScript, preparedFromHar } from "./action";
 import { resolve } from "node:path";
 import { finalizeEvidence, summarizeEvidence, type MarkResult } from "./evidence";
 import { fixtureRoutes, requiresSignedInFixture } from "./fixtures";
@@ -30,19 +33,13 @@ import {
   liveSessionExpired,
   liveStepError,
   outputInsideRepository,
-  parseBorrowReviewAmounts,
-  parseRepayReviewAmountUsd,
   parseUsdAmount,
-  parseUsdAmountFromLabel,
   partitionLiveFailures,
-  payoutHandleRowError,
   recipientFillValue,
   recipientPlaceholderError,
-  recipientRowError,
   resolveClickPrefix,
   resolveLiveCashoutHandle,
   resolveLiveRecipient,
-  reviewAndLabelAmountError,
   unexpectedNetworkHosts,
   unlistedAmountClickError,
   type LiveRecipient,
@@ -52,7 +49,15 @@ import { appendLedger, readLedger, spendForDay, spendForRun, withLedgerLock, typ
 import { canaryReach, effectiveBudgets, matchesConfirmLabel, readFeatureMap, type ReachStep } from "./map";
 import { confirmPolicyRefusal, requestedCaps, resolveVerifyRole, verifyPolicy, type VerifyRole } from "./policy";
 
-const args = Bun.argv.slice(2);
+const verb = ["start", "snapshot", "click", "fill", "press", "goto", "confirm", "finish"].includes(Bun.argv[2] ?? "") ? Bun.argv[2] : null;
+const activePath = resolve(homedir(), ".home-verify", "active-session.json");
+type ActiveSession = { options: string[]; browserSession: string; role: VerifyRole; handleHash: string | null; steps: Array<{ step: string; status: "pending" | "done" | "failed" }>; afterReview: boolean; pinnedAccount: string | null; renderedBalanceUsd: number | null; cumulativeAmountUsd: number; confirmedAmountsUsd: number[]; confirmPerformed: boolean; confirmClickAttempted: boolean; spendReserved: boolean; actionId: string | null; confirmIntent: unknown; destination: string };
+let active: ActiveSession | null = null;
+if (verb && verb !== "start") {
+  try { active = JSON.parse(await readFile(activePath, "utf8")) as ActiveSession; }
+  catch { console.error("No active verify session; run verify start <surface> first."); process.exit(2); }
+}
+const args = verb === "start" ? Bun.argv.slice(3) : active ? active.options : Bun.argv.slice(2);
 const repositoryRoot = resolve(import.meta.dir, "../../..");
 const featureMapPath = resolve(repositoryRoot, ".agents/skills/browser-iteration/feature-map.md");
 const { surfaces, liveHosts, liveExpectedFailures } = await readFeatureMap(featureMapPath);
@@ -70,6 +75,10 @@ try {
   verifyRole = resolveVerifyRole(process.env.HOME_VERIFY_ROLE);
 } catch (error) {
   console.error(error instanceof Error ? error.message : "Invalid verification role.");
+  process.exit(2);
+}
+if (active && active.role !== verifyRole) {
+  console.error("The verify role changed during the active session.");
   process.exit(2);
 }
 function revision(name: string): string {
@@ -184,7 +193,7 @@ function resolveAllowedDomains(): string[] {
 const allowedDomains = resolveAllowedDomains();
 const allowedDomainFlags = options("--allow-domain").map((domain) => domain.toLowerCase());
 const sessionSurface = liveLogin ? "live-login" : args[0] ?? "unknown";
-const session = `home-verify-${sessionSurface}-${crypto.randomUUID().slice(0, 8)}`;
+const session = active?.browserSession ?? `home-verify-${sessionSurface}-${crypto.randomUUID().slice(0, 8)}`;
 const browserEnv: Record<string, string | undefined> = {
   ...process.env,
   AGENT_BROWSER_SESSION: session,
@@ -508,6 +517,11 @@ const cashoutOperation = surfaceId === "cash-out" ? option("--canary-operation")
 const canonicalCashoutPayoutHandle = cashoutOperation === "cash-out" && liveCashoutHandle !== null
   ? canonicalCashoutHandle(liveCashoutHandle)
   : null;
+const handleHash = liveCashoutHandle === null ? null : createHash("sha256").update(liveCashoutHandle).digest("hex");
+if (active && active.handleHash !== handleHash) {
+  console.error("The pinned payout handle changed during the active session.");
+  process.exit(2);
+}
 const reachSteps = selectedReach
   .map((step): ReachStep =>
     isRecipientFillStep(step)
@@ -519,7 +533,6 @@ const reachSteps = selectedReach
       ? { ...step, value: cashoutHandleFillValue(step.label, liveCashoutHandle) }
       : step,
   );
-const expectedReviewRecipient = live ? effectiveRecipient?.address ?? null : null;
 if (live && outputInsideRepository(outputRoot, repositoryRoot)) {
   console.error("Live evidence --out must be outside the repository root.");
   process.exit(2);
@@ -560,7 +573,7 @@ if (live) {
     }
   }
 }
-let pinnedAccount: string | null = null;
+let pinnedAccount: string | null = active?.pinnedAccount ?? null;
 if (liveWithSession) {
   try {
     pinnedAccount = (await readFile(pinPath, "utf8")).trim();
@@ -569,25 +582,30 @@ if (liveWithSession) {
     console.error(`No saved live session exists for ${baseUrl.host}; run verify live-login --base-url ${baseUrl.origin}.`);
     process.exit(2);
   }
+  if (active?.pinnedAccount && active.pinnedAccount.toLowerCase() !== pinnedAccount.toLowerCase()) {
+    console.error("The pinned account changed during the active session.");
+    process.exit(2);
+  }
   if (allowConfirm && accountIntent && accountIntent.toLowerCase() !== pinnedAccount.toLowerCase()) {
     console.error(`--account ${accountIntent} does not match the pinned test account ${pinnedAccount}.`);
     process.exit(2);
   }
 }
 
-const destination = live
+const destination = active?.destination ?? (live
   ? resolve(outputRoot, surfaceId, new Date().toISOString())
-  : resolve(outputRoot, surfaceId);
-if (live) {
+  : resolve(outputRoot, surfaceId));
+if (live && !active) {
   await mkdir(resolve(outputRoot, surfaceId), { recursive: true, mode: 0o700 });
   await chmod(resolve(outputRoot, surfaceId), 0o700);
   await mkdir(destination, { mode: 0o700 });
   await chmod(destination, 0o700);
-} else {
+} else if (!active) {
   await mkdir(destination, { recursive: true });
 }
 const tempDirectory = await mkdtemp(resolve(tmpdir(), "home-verify-"));
 const initPath = resolve(tempDirectory, `init-${session}.js`);
+const harPath = resolve(tempDirectory, `prepare-${session}.har`);
 const screenshotPath = resolve(destination, "screenshot.png");
 const domPath = resolve(destination, "dom.txt");
 const evidencePath = resolve(destination, "evidence.json");
@@ -624,29 +642,30 @@ const init = `${!live && requiresSignedInFixture(surfaceId) ? 'sessionStorage.se
 await writeFile(initPath, init, { mode: 0o600 });
 let exitCode = 1;
 let parsedAmountUsd: number | null = null;
-let reviewText: string | null = null;
-let recipientMismatch: string | null = null;
-let borrowedAmount: string | null = null;
-let collateralAmount: string | null = null;
-let confirmPerformed = false;
+
+let confirmPerformed = active?.confirmPerformed ?? false;
 let liveRefusal: string | null = null;
-let renderedBalanceUsd: number | null = null;
+let renderedBalanceUsd: number | null = active?.renderedBalanceUsd ?? null;
 let finalEvidencePassed = false;
 let ledgerRecorded = false;
-const confirmedAmountsUsd: number[] = [];
-let spendReserved = false;
+const confirmedAmountsUsd: number[] = active?.confirmedAmountsUsd ?? [];
+let spendReserved = active?.spendReserved ?? false;
 type StepRecord = { step: string; status: "pending" | "done" | "failed" };
-const steps: StepRecord[] = [];
-let cumulativeAmountUsd = 0;
-let confirmIntent: { label: string; parsedAmountUsd: number; capUsd: number; totalCapUsd: number; recipient: LiveRecipient | null; timestamp: string } | null = null;
-let confirmClickAttempted = false;
+const steps: StepRecord[] = active?.steps ?? [];
+let cumulativeAmountUsd = active?.cumulativeAmountUsd ?? 0;
+let confirmIntent: { label: string; parsedAmountUsd: number; capUsd: number; totalCapUsd: number; recipient: LiveRecipient | null; timestamp: string } | null = active?.confirmIntent as typeof confirmIntent ?? null;
+let confirmClickAttempted = active?.confirmClickAttempted ?? false;
 let stoppedBefore: string | null = null;
 let note: string | null = null;
 let withdrawalEmpty = false;
 let unexpectedHosts: string[] = [];
 let expectedFailures: string[] = [];
 let transactionHash: string | null = null;
-let actionId: string | null = null;
+let actionId: string | null = active?.actionId ?? null;
+async function saveActive(afterReview: boolean): Promise<void> {
+  await mkdir(resolve(homedir(), ".home-verify"), { recursive: true, mode: 0o700 });
+  await writeFile(activePath, JSON.stringify({ options: args, browserSession: session, role: verifyRole, handleHash, steps, afterReview, pinnedAccount, renderedBalanceUsd, cumulativeAmountUsd, confirmedAmountsUsd, confirmPerformed, confirmClickAttempted, spendReserved, actionId, confirmIntent, destination } satisfies ActiveSession), { mode: 0o600 });
+}
 function redactPayoutHandle(contents: string): string {
   if (liveCashoutHandle === null) return contents;
   const forms = new Set([liveCashoutHandle, cashoutHandleFillValue("Re-enter handle", liveCashoutHandle)].filter((form) => form.length >= 3));
@@ -669,10 +688,6 @@ async function writeLiveEvidence(): Promise<void> {
     confirmIntent,
     confirmPerformed,
     parsedAmountUsd,
-    reviewText,
-    recipientMismatch,
-    borrowedAmount,
-    collateralAmount,
     cumulativeAmountUsd,
     renderedBalanceUsd,
     transactionHash,
@@ -694,7 +709,7 @@ function observeUnexpectedHosts(): string[] {
 function runIncidents(): string[] {
   const incidents = [];
   if (unexpectedHosts.length > 0) incidents.push("unexpected-host");
-  if (recipientMismatch) incidents.push("recipient-mismatch");
+  if (liveRefusal?.includes("recipient does not match")) incidents.push("recipient-mismatch");
   if (liveRefusal?.includes("does not match")) incidents.push("amount-mismatch");
   if (confirmClickAttempted && !confirmPerformed) incidents.push("ambiguous-result");
   if (confirmPerformed && !finalEvidencePassed) incidents.push("post-confirm-failure");
@@ -751,8 +766,11 @@ async function recordLiveLedger(): Promise<void> {
   ledgerRecorded = true;
 }
 try {
+  if (verb === "start" && await Bun.file(activePath).exists()) throw new Error("An active verify session already exists; finish it before starting another.");
+  if (!active) {
   command("open", "--init-script", initPath);
   command("set", "viewport", "390", "844");
+  if (live) command("network", "har", "start", "--content", "text");
   if (liveWithSession) {
     await ensurePrivateStateDirectory();
     command("state", "load", statePath);
@@ -782,8 +800,56 @@ try {
   command("console", "--clear");
   command("errors", "--clear");
   if (!live) command("network", "requests", "--clear");
-  let afterReview = false;
-  for (const original of reachSteps) {
+  }
+  if (verb === "start") {
+    await saveActive(false);
+    await rm(tempDirectory, { recursive: true, force: true });
+    console.log(`Session started: ${surfaceId}. Run verify snapshot for current controls.`);
+    process.exit(0);
+  }
+  let afterReview = active?.afterReview ?? false;
+  if (verb === "snapshot") {
+    const snapshot = command("snapshot", "-i");
+    steps.push({ step: "snapshot", status: "done" });
+    await saveActive(afterReview);
+    await rm(tempDirectory, { recursive: true, force: true });
+    console.log(redactPayoutHandle(snapshot));
+    process.exit(0);
+  }
+  const commandArgs = Bun.argv.slice(3);
+  let drivenSteps: ReachStep[] = reachSteps;
+  if (verb === "goto") {
+    const target = commandArgs[0];
+    if (!target || !target.startsWith("/") || target.startsWith("//") || new URL(target, baseUrl).origin !== baseUrl.origin || target.startsWith("/api/")) throw new Error("Goto must be an app path on the pinned origin.");
+    drivenSteps = [{ kind: "goto", path: target }];
+  } else if (verb === "fill") {
+    if (commandArgs.length !== 2) throw new Error("Usage: verify fill <label> <value>");
+    drivenSteps = [{ kind: "fill", label: commandArgs[0], value: commandArgs[1] }];
+  } else if (verb === "press") {
+    drivenSteps = [{ kind: "press", key: commandArgs[0] ?? "" }];
+  } else if (verb === "click") {
+    if (commandArgs.length !== 1 || !commandArgs[0]) throw new Error("Usage: verify click <@ref|name>");
+    drivenSteps = [{ kind: "click", label: commandArgs[0] }];
+  } else if (verb === "confirm") {
+    const controls = jsonResult(command("eval", confirmControlScript(MONEY_ACTION_ID_ATTRIBUTE)));
+    if (!Array.isArray(controls) || controls.length !== 1 || typeof controls[0]?.name !== "string") throw new Error("A unique prepared money control is required.");
+    drivenSteps = [{ kind: "click", label: controls[0].name }];
+  } else if (verb === "finish") {
+    drivenSteps = [];
+  }
+  for (const original of drivenSteps) {
+    if (verb === "press" && live) throw new Error("Live verification refuses press steps.");
+    if (verb === "fill" && live) {
+      const approved = reachSteps.flatMap((item) => item.kind === "fill" ? [item.label] : []);
+      const error = liveStepError(surface.live, original, approved);
+      if (error) throw new Error(error);
+      if (isCashoutHandleFillStep(original) && liveCashoutHandle !== null && original.value !== cashoutHandleFillValue(original.label, liveCashoutHandle)) {
+        throw new Error("The payout handle must match the pinned handle.");
+      }
+      if (original.kind === "fill" && original.label === "To" && effectiveRecipient && original.value !== recipientFillValue(effectiveRecipient)) {
+        throw new Error("The recipient must match the pinned recipient.");
+      }
+    }
     let step: ResolvedReachStep;
     let opensReview = false;
     if (original.kind === "click-prefix") {
@@ -823,8 +889,18 @@ try {
     steps.push(record);
     if (live) console.error(`[live] ${new Date().toISOString()} ${description}`);
     let confirmStep = false;
+    let clickRef: string | null = null;
     if (live && step.kind === "click") {
-      confirmStep = matchesConfirmLabel(surface.confirmLabels, step.label);
+      if (verb === "click" && step.label.startsWith("@")) {
+        const protectedRef = jsonResult(command("get", "attr", step.label, MONEY_ACTION_ID_ATTRIBUTE));
+        if (protectedRef !== null && protectedRef !== undefined) throw new Error("Plain click refuses a prepared money control; use verify confirm.");
+        const name = jsonResult(command("get", "text", step.label));
+        if (typeof name !== "string" || !name.trim()) throw new Error("The clicked reference has no visible name.");
+        clickRef = step.label;
+        step = { kind: "click", label: name.trim() };
+      }
+      confirmStep = verb === "confirm" || matchesConfirmLabel(surface.confirmLabels, step.label);
+      if (verb === "click" && confirmStep) throw new Error("Plain click refuses a money confirm; use verify confirm.");
       const amountClickError = opensReview ? null : unlistedAmountClickError(step.label, confirmStep);
       if (amountClickError) {
         record.status = "failed";
@@ -849,45 +925,30 @@ try {
       }
       if (confirmStep) {
         waitForEnabledButton(step.label);
-        const evaluatedReview = jsonResult(command(
-          "eval",
-          `(()=>{const dialogs=[...document.querySelectorAll('[role="dialog"]')].filter((node)=>node.getClientRects().length>0);return (dialogs.at(-1)||document.body).innerText})()`,
-        ));
-        const review = typeof evaluatedReview === "string" ? evaluatedReview : "";
-        reviewText = review;
-        if (expectedReviewRecipient !== null) {
-          recipientMismatch = recipientRowError(review, expectedReviewRecipient);
-          if (recipientMismatch) {
-            record.status = "failed";
-            stoppedBefore = step.label;
-            liveRefusal = recipientMismatch;
-            await writeLiveEvidence();
-            break;
-          }
+        const controls = jsonResult(command("eval", confirmControlScript(MONEY_ACTION_ID_ATTRIBUTE)));
+        if (!Array.isArray(controls) || controls.length !== 1 || typeof controls[0]?.id !== "string" || !/^[0-9a-f-]{36}$/i.test(controls[0].id) || controls[0].name !== step.label) {
+          liveRefusal = "The confirm control has no unique prepared action id.";
+          record.status = "failed";
+          stoppedBefore = step.label;
+          break;
         }
-        if (canonicalCashoutPayoutHandle !== null) {
-          const payoutHandleMismatch = payoutHandleRowError(review, canonicalCashoutPayoutHandle);
-          if (payoutHandleMismatch) {
-            record.status = "failed";
-            stoppedBefore = step.label;
-            liveRefusal = payoutHandleMismatch;
-            await writeLiveEvidence();
-            break;
-          }
+        const preparedId: string = controls[0].id;
+        actionId = preparedId;
+        command("network", "har", "stop", harPath);
+        await chmod(harPath, 0o600);
+        try {
+          const prepared = preparedFromHar(JSON.parse(await readFile(harPath, "utf8")), baseUrl.origin, preparedId);
+          const checked = checkPreparedAction(prepared, preparedId, surfaceId, option("--canary-operation") ?? null,
+            effectiveRecipient?.address ?? null, canonicalCashoutPayoutHandle, pinnedAccount ?? "");
+          parsedAmountUsd = checked.amountUsd;
+        } catch (error) {
+          liveRefusal = error instanceof Error ? error.message : "The prepared action could not be checked.";
+          record.status = "failed";
+          stoppedBefore = step.label;
+          await writeLiveEvidence();
+          break;
         }
-        if (surfaceId === "borrow" && option("--canary-operation") !== "repay") {
-          const borrowReview = parseBorrowReviewAmounts(review);
-          parsedAmountUsd = borrowReview.borrowedAmountUsd;
-          borrowedAmount = borrowReview.borrowedAmount;
-          collateralAmount = borrowReview.collateralAmount;
-        } else if (surfaceId === "borrow") {
-          parsedAmountUsd = parseRepayReviewAmountUsd(review);
-        } else {
-          parsedAmountUsd = parseUsdAmount(review);
-        }
-        const labelAmount = parseUsdAmountFromLabel(step.label);
-        liveRefusal = reviewAndLabelAmountError(parsedAmountUsd, labelAmount) ??
-          enforceAmountCap(parsedAmountUsd, maxUsd ?? Number.NaN);
+        liveRefusal = enforceAmountCap(parsedAmountUsd, maxUsd ?? Number.NaN);
         if (!liveRefusal && parsedAmountUsd !== null) {
           liveRefusal = enforceCumulativeAmountCap(cumulativeAmountUsd, parsedAmountUsd, maxUsdTotal ?? Number.NaN);
         }
@@ -930,13 +991,23 @@ try {
       }
     }
     try {
-      executeStep(step);
+      if (confirmStep && actionId) {
+        command("click", `[${MONEY_ACTION_ID_ATTRIBUTE}="${actionId}"]`);
+      } else {
+        if (live && step.kind === "click") {
+          const protectedControl = jsonResult(command("eval", `(() => [...document.querySelectorAll('button,[role="button"]')].some(node => node.getClientRects().length && (node.getAttribute('aria-label')||node.innerText).trim() === ${JSON.stringify(step.label)} && node.hasAttribute(${JSON.stringify(MONEY_ACTION_ID_ATTRIBUTE)})))()`));
+          if (protectedControl) throw new Error("Plain click refuses a prepared money control; use verify confirm.");
+        }
+        if (clickRef) command("click", clickRef);
+        else executeStep(step);
+      }
       record.status = "done";
       if (confirmStep && parsedAmountUsd !== null) {
         confirmPerformed = true;
         cumulativeAmountUsd += parsedAmountUsd;
         confirmedAmountsUsd.push(parsedAmountUsd);
         await writeLiveEvidence();
+        if (verb === "confirm") command("network", "har", "start", "--content", "text");
       }
     } catch (error) {
       record.status = "failed";
@@ -944,6 +1015,18 @@ try {
       throw error;
     }
     if (step.kind === "expect" && /^(?:Confirm|Review)/i.test(step.text)) afterReview = true;
+  }
+  if (verb && verb !== "finish") {
+    if (liveRefusal || stoppedBefore) throw new Error(liveRefusal ?? `Verification stopped before ${stoppedBefore}.`);
+    if (live) {
+      unexpectedHosts = observeUnexpectedHosts();
+      const hostError = hostObservationRefusal(unexpectedHosts);
+      if (hostError) throw new Error(hostError);
+    }
+    await saveActive(afterReview);
+    await rm(tempDirectory, { recursive: true, force: true });
+    console.log(steps.at(-1)?.step ?? "done");
+    process.exit(0);
   }
   const budgets = effectiveBudgets(surface, live);
   const requiredMarks = Object.keys(budgets);
@@ -994,7 +1077,7 @@ try {
   await writeEvidenceFile(summaryPath, summarizeEvidence(evidence, live ? "live" : "fixture", note ?? undefined));
   if (live) {
     transactionHash = domText.match(/\b0x[0-9a-fA-F]{64}\b/)?.[0] ?? null;
-    actionId = domText.match(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i)?.[0] ?? null;
+    actionId = actionId ?? domText.match(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i)?.[0] ?? null;
     await writeLiveEvidence();
   }
   console.log(summaryPath);
@@ -1042,5 +1125,6 @@ try {
     }
   }
   await rm(tempDirectory, { recursive: true, force: true });
+  if (verb && verb !== "start") await rm(activePath, { force: true });
 }
 process.exit(exitCode);
