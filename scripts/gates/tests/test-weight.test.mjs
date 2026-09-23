@@ -100,6 +100,14 @@ test("verify test source is not product, while non-test verify source is", () =>
   assert.deepEqual(report.findings, []);
 });
 
+test("verify test-fixture helpers count as test, not product", () => {
+  const report = testWeightReport(patch("apps/web/verify/cli.test.ts", ["a", "b", "c"])
+    + patch("apps/web/verify/test-fixtures/fake-agent-browser.ts", ["d", "e", "f"])
+    + patch(verify, ["new"]), "fix(verify): fixture", "");
+  assert.deepEqual([report.addedTests, report.productLines], [6, 1]);
+  assert.equal(report.findings.length, 1);
+});
+
 test("the report counts test lines and the positive browser delta across files", () => {
   const report = testWeightReport(
     patch(browser, ['test("new", () => {});', "expect(1).toBe(1);"], ['test("old", () => {});'])

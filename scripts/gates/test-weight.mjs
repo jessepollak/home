@@ -12,6 +12,7 @@ function isTestFile(path) {
   const name = path.slice(path.lastIndexOf("/") + 1);
   return path.startsWith("apps/web/tests/")
     || path.startsWith("apps/web/oxlint/tests/")
+    || path.includes("/test-fixtures/")
     || /^fixtures?\.[cm]?[jt]sx?$/.test(name)
     || /\.stories\./.test(name)
     || /\.test\.mjs$/.test(name)
