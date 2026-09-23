@@ -92,6 +92,6 @@ Configure `CDP_API_KEY_ID` and `CDP_API_KEY_SECRET` in production. On the first 
 
 Confirm registration through the `balances-webhook-subscription` server events and by listing webhook subscriptions with the CDP CLI/API. Then send a real test delivery, confirm `/api/webhooks/cdp` returns 200, and confirm the next authenticated balance read fully re-observes. A missed delivery remains bounded by the 120-second balance backstop.
 
-Funding origin and client-IP derivation trust Vercel to own `x-forwarded-host`, `x-forwarded-proto`, and `x-forwarded-for`. Do not expose a bare `next start` server directly to untrusted clients without a proxy that overwrites those headers.
+Funding origin and client-IP derivation trust Vercel to own `x-forwarded-host`, `x-forwarded-proto`, and `x-forwarded-for`. The default country uses Vercel's `x-vercel-ip-country` ([country resolution](regional-money.md#country-resolution)); off Vercel it is absent and the default is `US`. Do not expose a bare `next start` server directly to untrusted clients without a proxy that overwrites those headers.
 
 The action contract is [Actions](actions.md) under [Architecture](architecture.md): Home records confirmed actions, while CDP/Base and Base receipts provide execution status. A green deployment does not authorize a real-money launch.

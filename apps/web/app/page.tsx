@@ -1,4 +1,4 @@
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { SupportedGlobeDynamic } from "@/client/landing/supported-globe-dynamic";
 import { PortfolioHomeExperience } from "@/client/home/home-experience";
@@ -8,6 +8,7 @@ import {
   searchParamsToString,
 } from "@/config/shell-location";
 import { readRenderSession } from "@/server/auth/render-session";
+import { readRequestCountry } from "@/server/region/request-country";
 
 export default async function HomePage({ searchParams }: PageProps<"/">) {
   const query = await searchParams;
@@ -19,7 +20,7 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
 
   return (
     <PortfolioHomeExperience
-      detectedCountry={null}
+      detectedCountry={readRequestCountry(await headers())}
       landingVisual={<SupportedGlobeDynamic />}
       routeMode="landing"
       initialSearch={search}

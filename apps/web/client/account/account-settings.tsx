@@ -27,9 +27,9 @@ import {
 
 const sourceLabels: Record<ResolutionSource, string> = {
   explicit: "Your country choice",
-  persisted: "Saved country choice",
-  detected: "Suggested country",
-  fallback: "No country selected",
+  persisted: "Saved country",
+  detected: "Country from your location",
+  fallback: "Default country",
 };
 
 export function AccountSettings({
