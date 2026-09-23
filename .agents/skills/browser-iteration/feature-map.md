@@ -12,9 +12,9 @@ is in **Unknowns** — never invent a selector when Reach is ambiguous, snapshot
 **Keeping this current:** run a `chore(dx)` pass whenever `apps/web/app/**/page.tsx`, `apps/web/client/*/*-experience.tsx`, or
 `apps/web/tests/browser/*.pw.ts` changes. State that bracket in the PR body; do not silently drift this map.
 The CI Playwright replay in `apps/web/tests/browser/feature-map-replay.pw.ts` parses this map
-through `verify/map.ts` and executes every non-manual fixture Reach. Keep its explicit skip
+through `apps/web/tests/browser/feature-map/map.ts` and executes every non-manual fixture Reach. Keep its explicit skip
 reasons aligned with the map when changing a Reach or fixture. Reach guides the agent; it never
-authorizes a money click. Full-text snapshots reveal facts hidden by interactive-only snapshots;
+authorizes a money click. Full-text snapshots reveal facts hidden by interactive-only snapshots; number-flow amounts appear as images (for example `image "$1.00"`), not text;
 scope huge trees (notably coverage's globe), and prefer current `@refs` when names churn.
 
 Fixture baseline referenced throughout: `HOME_PLAYWRIGHT_SMOKE=1`, rootless
@@ -271,7 +271,7 @@ do not silently ignore a new failure or treat this list as permission to broaden
   11. `click "Review"`
   12. `expect "Approximate receive"` — the deposit review's approximate fiat row, absent from a withdrawal review
   13. `expect "Confirm"`
-- **Withdrawal recovery**: In-flight Peer cash-outs appear on Send's destination step as `Withdraw …` controls. Open an authorized in-flight item, read the recovered amount and payout-handle review, and stop before its marked confirmation unless Rung 3 applies or this task explicitly authorizes a live confirm. No in-flight item means no recovery action; do not manufacture one.
+- **Withdrawal recovery**: In-flight Peer cash-outs appear on Send's destination step as `Withdraw …` controls. Open an authorized in-flight item, read the recovered amount and payout-handle review, and stop before its marked confirmation unless Rung 3 applies or Jesse directly authorizes a live confirm. No in-flight item means no recovery action; do not manufacture one.
 - **Verify**: manual
 - **Expect**: modal title `Cash out with Peer` (send-dialog.tsx `modalTitle`); confirm rows `Provider`, `Payout app`, `Payout handle`, `Approximate receive`, `Estimated delivery`, `Network` = `Base` (send-dialog.tsx confirm rows); disclaimer `The fiat amount and delivery time are approximate, not guaranteed.`; primary `Cash out $X` or `Withdraw $X`, where the amount is the reviewed USDC amount rendered in dollars (`formatUsdStablecoinAmount`).
 - **States**: providers not loaded → CashoutItem absent (requires `PEER_OFFRAMP` stub registered after `installApiFixtures` via `route.fallback`, mobile-geometry.pw.ts); recovery items `Withdraw <amount>` for active orders; `Recover a Peer cash-out` button when `recoveryEligible` (send-dialog.tsx).

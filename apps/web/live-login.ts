@@ -1,13 +1,13 @@
 import { chmod, lstat, mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
-import { defaultOtpSender, gmailCredentialsPath, pollGmailOtp, readGmailCredentials, runGmailAuth, verifyAccountEmail, type GmailCredentials } from "./verify/gmail";
+import { defaultOtpSender, gmailCredentialsPath, pollGmailOtp, readGmailCredentials, runGmailAuth, verifyAccountEmail, type GmailCredentials } from "./gmail";
 
 type BrowserCommand = (args: string[], input?: string) => string;
 type LoginOptions = { command?: BrowserCommand; home?: string; env?: Record<string, string | undefined>; getOtp?: (email: string, submittedAt: number) => Promise<string> };
 
 function browserCommand(env: Record<string, string | undefined>, session: string): BrowserCommand {
-  const browserEnv: Record<string, string | undefined> = { ...env, AGENT_BROWSER_SESSION: session, AGENT_BROWSER_HEADED: "true" };
+  const browserEnv: Record<string, string | undefined> = { ...env, AGENT_BROWSER_SESSION: session, AGENT_BROWSER_HEADED: env.AGENT_BROWSER_HEADED ?? "true" };
   delete browserEnv.HOME_ACCESS_PASSWORD;
   delete browserEnv.AGENT_BROWSER_ALLOWED_DOMAINS;
   return (args, input) => {

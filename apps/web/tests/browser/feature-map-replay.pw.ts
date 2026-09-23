@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { fixtureRoutes, requiresSignedInFixture } from "./feature-map/fixtures";
 
-import { readFeatureMap, type ReachStep } from "../../verify/map";
+import { readFeatureMap, type ReachStep } from "./feature-map/map";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 
 const mapPromise = readFeatureMap(resolve(__dirname, "../../../../.agents/skills/browser-iteration/feature-map.md"));

@@ -44,6 +44,25 @@ test("OTP and gated password are passed only via stdin, never argv or output", a
   }
 });
 
+test("defaults to headed browser but preserves a provisioned runner's override", async () => {
+  const home = Bun.spawnSync(["mktemp", "-d", resolve(tmpdir(), "home-headed-test-XXXXXX")]).stdout.toString().trim();
+  directories.push(home);
+  const browserPath = resolve(home, "bunx");
+  const observedPath = resolve(home, "headed");
+  await Bun.write(browserPath, '#!/bin/sh\nprintf "%s" "$AGENT_BROWSER_HEADED" > "$FAKE_HEADED_LOG"\nexit 1\n');
+  Bun.spawnSync(["chmod", "755", browserPath]);
+  for (const [setting, expected] of [[undefined, "true"], ["false", "false"]] as const) {
+    const env = {
+      HOME_VERIFY_ACCOUNT_EMAIL: "bot@example.com",
+      PATH: home,
+      FAKE_HEADED_LOG: observedPath,
+      ...(setting === undefined ? {} : { AGENT_BROWSER_HEADED: setting }),
+    };
+    await expect(liveLogin(["--base-url", "https://example.com"], { home, env })).rejects.toThrow("Browser open failed");
+    expect(Bun.spawnSync(["cat", observedPath]).stdout.toString()).toBe(expected);
+  }
+});
+
 test("refuses missing account, unsafe state name and non-HTTPS origin before browser launch", async () => {
   const calls: string[][] = [];
   const command = (args: string[]) => { calls.push(args); return ""; };

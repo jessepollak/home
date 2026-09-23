@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
-import { readFeatureMap } from "../../../verify/map";
+import { readFeatureMap } from "./map";
 
 const path = resolve(import.meta.dir, "../../../../../.agents/skills/browser-iteration/feature-map.md");
 
