@@ -331,6 +331,15 @@
     {
       "files": [
         "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "rules": {
+        "home/no-computed-style-in-component-tests": "error"
+      }
+    },
+    {
+      "files": [
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "**/*.pw.{ts,tsx}"
       ],
       "rules": {

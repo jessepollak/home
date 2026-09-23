@@ -34,6 +34,7 @@ import { noLiteralJsxColors } from "./rules/jsx-colors.mjs";
 import { isolateInstrumentationCalls, noSilentCatch } from "./rules/observability.mjs";
 import { noAmountFallback } from "./rules/amounts.mjs";
 import { noComments } from "./rules/no-comments.mjs";
+import { noComputedStyleInComponentTests } from "./rules/no-computed-style-in-component-tests.mjs";
 
 const homePlugin = {
   meta: { name: "home" },
@@ -54,6 +55,7 @@ const homePlugin = {
     "no-source-reads": noSourceReads,
     "no-real-waits": noRealWaits,
     "no-presentation-class-reads": noPresentationClassReads,
+    "no-computed-style-in-component-tests": noComputedStyleInComponentTests,
     "no-self-referential-expectation": noSelfReferentialExpectation,
     "exact-mock-modules": exactMockModules,
     "no-chained-type-assertions": noChainedTypeAssertions,
