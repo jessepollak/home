@@ -252,7 +252,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
   3. `click "Decimal point"`
   4. `click "1"`
   5. `click "Continue"`
-  6. `click "Send to Zelle, Venmo, Cash App and more Use Peer to send via app"`
+  6. `click "Available payout apps: Cash App, Zelle Send to Zelle, Venmo, Cash App and more Use Peer to send via app"` (the payout marks contribute their `Available payout apps:` name; the list follows the US corridor order)
   7. `click "Cash App"`
   8. `fill "Cash App handle" "$alice"` — live substitutes `HOME_VERIFY_CASHOUT_HANDLE` for `$alice`; unset refuses before any fill
   9. `click "Continue"`
