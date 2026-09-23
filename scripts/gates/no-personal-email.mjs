@@ -3,7 +3,7 @@
 // address, so this gate fails on any personal-email literal in those surfaces.
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 export const scannedRoots = ["apps/web/live-login.ts", "apps/web/fixture-session.sh", "apps/web/verify", "docs", ".agents"];
@@ -26,7 +26,6 @@ export function personalEmailFindings(entries) {
 export function repositoryEntries(root) {
   const paths = execFileSync("git", ["ls-files", "--", ...scannedRoots], { cwd: root, encoding: "utf8" })
     .split("\n")
-    .filter(Boolean)
-    .filter((path) => existsSync(resolve(root, path)));
+    .filter(Boolean);
   return paths.map((path) => ({ path, content: readFileSync(resolve(root, path), "utf8") }));
 }

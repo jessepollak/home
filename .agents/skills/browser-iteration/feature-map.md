@@ -271,7 +271,7 @@ do not silently ignore a new failure or treat this list as permission to broaden
   11. `click "Review"`
   12. `expect "Approximate receive"` — the deposit review's approximate fiat row, absent from a withdrawal review
   13. `expect "Confirm"`
-- **Withdrawal recovery**: In-flight Peer cash-outs appear on Send's destination step as `Withdraw …` controls. Open an authorized in-flight item, read the recovered amount and payout-handle review, and stop before its marked confirmation unless this task explicitly authorizes a live confirm. No in-flight item means no recovery action; do not manufacture one.
+- **Withdrawal recovery**: In-flight Peer cash-outs appear on Send's destination step as `Withdraw …` controls. Open an authorized in-flight item, read the recovered amount and payout-handle review, and stop before its marked confirmation unless Rung 3 applies or this task explicitly authorizes a live confirm. No in-flight item means no recovery action; do not manufacture one.
 - **Verify**: manual
 - **Expect**: modal title `Cash out with Peer` (send-dialog.tsx `modalTitle`); confirm rows `Provider`, `Payout app`, `Payout handle`, `Approximate receive`, `Estimated delivery`, `Network` = `Base` (send-dialog.tsx confirm rows); disclaimer `The fiat amount and delivery time are approximate, not guaranteed.`; primary `Cash out $X` or `Withdraw $X`, where the amount is the reviewed USDC amount rendered in dollars (`formatUsdStablecoinAmount`).
 - **States**: providers not loaded → CashoutItem absent (requires `PEER_OFFRAMP` stub registered after `installApiFixtures` via `route.fallback`, mobile-geometry.pw.ts); recovery items `Withdraw <amount>` for active orders; `Recover a Peer cash-out` button when `recoveryEligible` (send-dialog.tsx).
