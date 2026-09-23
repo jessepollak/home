@@ -30,6 +30,9 @@ export function useHomeRegion({
   useEffect(() => {
     const persistedCountry = readAnonymousCountryPreference(() => window.localStorage);
     const resolved = resolvePresentation({ persistedCountry, detectedCountry });
+    if (resolved.source !== "persisted") {
+      writeAnonymousCountryPreference(() => window.localStorage, resolved.region.id);
+    }
     const hydrationFrame = window.requestAnimationFrame(() => {
       setInternalRegionId(resolved.region.id);
       onRegionChange?.(resolved.region.id);

@@ -53,7 +53,7 @@ export function PricedInvestExperienceWithDiscover({
 
 function usePersistedPresentationRegion(): RegionId {
   const [regionId] = useState<RegionId>(() => {
-    if (typeof window === "undefined") return "GLOBAL";
+    if (typeof window === "undefined") return resolvePresentation({}).region.id;
     return resolvePresentation({
       persistedCountry: readAnonymousCountryPreference(
         () => window.localStorage,
