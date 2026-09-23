@@ -387,25 +387,27 @@ describe("live cash-out confirmation and recovery", () => {
     expect(recorded?.rungReached).toBe(2);
   });
 
+  const recoveryRowName = "Withdraw $0.10 Peer cash-out · awaiting-buyer";
+
   test("recovers an in-flight cash-out by resolving both prefix controls", async () => {
     const env = await cashoutEnv({
-      FAKE_AGENT_BROWSER_PREFIX_NAMES: JSON.stringify(["Withdraw $0.10"]),
+      FAKE_AGENT_BROWSER_PREFIX_NAMES: JSON.stringify({ "Withdraw ": [recoveryRowName], "Withdraw $": ["Withdraw $0.10"] }),
       FAKE_AGENT_BROWSER_REVIEW: "Confirm\n$0.10\nProvider\nPeer\nPayout app\nCash App\nNetwork\nBase",
     });
     const result = run([...cashoutArgs, "--canary-operation", "withdraw"], env);
     expect(result.exitCode).toBe(0);
-    expect(clickCalls().map((call) => call[call.indexOf("--name") + 1])).toEqual(["Send", "Decimal point", "1", "Continue", "Withdraw $0.10", "Withdraw $0.10"]);
+    expect(clickCalls().map((call) => call[call.indexOf("--name") + 1])).toEqual(["Send", "Decimal point", "1", "Continue", recoveryRowName, "Withdraw $0.10"]);
     expect(latestRunArtifact("cash-out", "live.json")).toContain('"label": "Withdraw $0.10"');
   });
 
   test("refuses a prefix that matches more than one visible control", async () => {
     const env = await cashoutEnv({
-      FAKE_AGENT_BROWSER_PREFIX_NAMES: JSON.stringify(["Withdraw $0.10", "Withdraw $0.20"]),
+      FAKE_AGENT_BROWSER_PREFIX_NAMES: JSON.stringify([recoveryRowName, "Withdraw $0.20 Peer cash-out · matched"]),
     });
     const result = run([...cashoutArgs, "--canary-operation", "withdraw"], env);
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("click-prefix “Withdraw ”");
-    expect(result.stderr).toContain("Withdraw $0.10; Withdraw $0.20");
+    expect(result.stderr).toContain(`${recoveryRowName}; Withdraw $0.20 Peer cash-out · matched`);
     expect(clickCalls().map((call) => call[call.indexOf("--name") + 1])).toEqual(["Send", "Decimal point", "1", "Continue"]);
   });
 });

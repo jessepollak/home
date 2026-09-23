@@ -94,7 +94,7 @@ describe("feature map parser", () => {
       { kind: "click", label: "1" },
       { kind: "click", label: "Continue" },
       { kind: "expect", text: "Use Peer to send via app" },
-      { kind: "click-prefix", prefix: "Withdraw ", onNoMatch: "note" },
+      { kind: "click-prefix", prefix: "Withdraw ", onNoMatch: "note", opens: "review" },
       { kind: "expect", text: "Confirm" },
       { kind: "click-prefix", prefix: "Withdraw $" },
       { kind: "expect", text: "Recovered $" },

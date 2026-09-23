@@ -40,7 +40,12 @@ if (command === "eval") {
   } else if (expression.includes("__homeVerifyHosts")) {
     result = JSON.parse(process.env.FAKE_AGENT_BROWSER_HOSTS ?? "[]") as unknown;
   } else if (expression.includes("__homeVerifyPrefix")) {
-    result = JSON.parse(process.env.FAKE_AGENT_BROWSER_PREFIX_NAMES ?? "[]") as unknown;
+    const configured = JSON.parse(process.env.FAKE_AGENT_BROWSER_PREFIX_NAMES ?? "[]") as string[] | Record<string, string[]>;
+    const marker = "__homeVerifyPrefix=";
+    const start = expression.indexOf(marker) + marker.length;
+    const end = expression.indexOf(";return", start);
+    const prefix = JSON.parse(expression.slice(start, end)) as string;
+    result = Array.isArray(configured) ? configured : (configured[prefix] ?? []);
   }
 } else if (command === "network" && rest[0] === "requests") {
   result = JSON.parse(process.env.FAKE_AGENT_BROWSER_FAILURES ?? "[]") as unknown;

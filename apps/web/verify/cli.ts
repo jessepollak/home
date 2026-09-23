@@ -785,10 +785,12 @@ try {
   let afterReview = false;
   for (const original of reachSteps) {
     let step: ResolvedReachStep;
+    let opensReview = false;
     if (original.kind === "click-prefix") {
       const resolution = resolveClickPrefix(original.prefix, prefixButtonNames(original.prefix));
       if (resolution.action === "single") {
         step = { kind: "click", label: resolution.label };
+        opensReview = original.opens === "review";
       } else {
         const detail = resolution.action === "none"
           ? "no visible enabled button matches"
@@ -823,7 +825,7 @@ try {
     let confirmStep = false;
     if (live && step.kind === "click") {
       confirmStep = matchesConfirmLabel(surface.confirmLabels, step.label);
-      const amountClickError = unlistedAmountClickError(step.label, confirmStep);
+      const amountClickError = opensReview ? null : unlistedAmountClickError(step.label, confirmStep);
       if (amountClickError) {
         record.status = "failed";
         stoppedBefore = step.label;

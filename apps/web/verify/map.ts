@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 export type ReachStep =
   | { kind: "goto"; path: string }
   | { kind: "click"; label: string }
-  | { kind: "click-prefix"; prefix: string; onNoMatch?: "note" }
+  | { kind: "click-prefix"; prefix: string; onNoMatch?: "note"; opens?: "review" }
   | { kind: "fill"; label: string; value: string }
   | { kind: "press"; key: string }
   | { kind: "expect"; text: string };
@@ -137,7 +137,7 @@ export function canaryReach(surfaceId: string, operation: string | undefined, fa
     { kind: "click", label: "1" },
     { kind: "click", label: "Continue" },
     { kind: "expect", text: "Use Peer to send via app" },
-    { kind: "click-prefix", prefix: "Withdraw ", onNoMatch: "note" },
+    { kind: "click-prefix", prefix: "Withdraw ", onNoMatch: "note", opens: "review" },
     { kind: "expect", text: "Confirm" },
     { kind: "click-prefix", prefix: "Withdraw $" },
     { kind: "expect", text: "Recovered $" },
