@@ -39,19 +39,12 @@ export function testWeightReport(diff, title, body) {
   let path = "";
   let oldPath = "";
   let inHunk = false;
-  let filePlaywrightDelta = 0;
-  let netNewPlaywright = 0;
+  let playwrightDelta = 0;
   let addedTests = 0;
   let productLines = 0;
 
-  function finishFile() {
-    netNewPlaywright += Math.max(0, filePlaywrightDelta);
-    filePlaywrightDelta = 0;
-  }
-
   for (const line of diff.split("\n")) {
     if (line.startsWith("diff --git ")) {
-      finishFile();
       path = "";
       oldPath = "";
       inHunk = false;
@@ -65,14 +58,14 @@ export function testWeightReport(diff, title, body) {
       if (line.startsWith("+") && !line.startsWith("+++")) {
         if (isTestFile(path)) addedTests += 1;
         else if (isProductFile(path)) productLines += 1;
-        if (isBrowserFile(path) && isPlaywrightDeclaration(line.slice(1))) filePlaywrightDelta += 1;
+        if (isBrowserFile(path) && isPlaywrightDeclaration(line.slice(1))) playwrightDelta += 1;
       } else if (line.startsWith("-") && !line.startsWith("---")) {
         if (isProductFile(oldPath)) productLines += 1;
-        if (isBrowserFile(oldPath) && isPlaywrightDeclaration(line.slice(1))) filePlaywrightDelta -= 1;
+        if (isBrowserFile(oldPath) && isPlaywrightDeclaration(line.slice(1))) playwrightDelta -= 1;
       }
     }
   }
-  finishFile();
+  const netNewPlaywright = Math.max(0, playwrightDelta);
 
   const findings = [];
   if (netNewPlaywright > 0) {
