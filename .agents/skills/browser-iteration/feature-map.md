@@ -259,6 +259,7 @@ request failure not listed here still fails the run, and unlisted hosts still fa
   10. `fill "Re-enter handle" "$alice"` — live substitutes the Cash App canonical form of `HOME_VERIFY_CASHOUT_HANDLE` (leading `$` stripped, `shared/funding/cash-payee.ts`), because Review enables only when the re-entry equals the canonical handle (send-dialog.tsx `handleConfirmation !== canonicalHandle`); unset refuses before any fill
   11. `click "Review"`
   12. `expect "Confirm"`
+  13. `expect "Approximate receive"` — the Peer quote (curator round trip, a few seconds) has rendered; an empty Confirm sheet is not a pass
 - **Verify**: manual
 - **Expect**: modal title `Cash out with Peer` (send-dialog.tsx `modalTitle`); confirm rows `Provider`, `Payout app`, `Payout handle`, `Approximate receive`, `Estimated delivery`, `Network` = `Base` (send-dialog.tsx confirm rows); disclaimer `The fiat amount and delivery time are approximate, not guaranteed.`; primary `Cash out $X`.
 - **States**: providers not loaded → CashoutItem absent (requires `PEER_OFFRAMP` stub registered after `installApiFixtures` via `route.fallback`, smoke.pw.ts); recovery items `Withdraw <amount>` for active orders; `Recover a Peer cash-out` button when `recoveryEligible` (send-dialog.tsx).
