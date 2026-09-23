@@ -7,6 +7,9 @@
 - [ ] `bun check` / CI green
 - [ ] Smoke the changed surface (or N/A — say why)
 
+<!-- Optional: for a new Playwright test, uncomment and complete: Playwright-rung: <layout|scrolling|focus|history|persisted-state|media-query|hydration|dispatch|journey> -->
+<!-- Optional: for a scoped fix with more added test than product lines, uncomment and complete: Test-weight: <reason> -->
+
 ## Verification
 
 | surface | rung reached | evidence pointer | incidents |

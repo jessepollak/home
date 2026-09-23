@@ -15,6 +15,9 @@ This contract applies to every user-visible UI change and core-flow implementati
    3. reuse an existing Chromium smoke path if it already fails on the bug;
    4. add one assertion to the existing fixture-backed Playwright suite only when the failure is principally observable through layout or geometry, scrolling, focus, history, persisted browser state, media queries, hydration/first paint, browser dispatch integration, or a critical cross-page journey;
    5. otherwise, add no Playwright test.
+
+The [test-weight CI gate](gates.md#browser-test-ladder-boundary) asks for a PR-body `Playwright-rung` when a browser file gains net-new Playwright test/describe declarations and a `Test-weight` reason when a scoped fix adds more test than product lines.
+
 3. **Does proof require provider-authenticated or live-money behavior?**
    - **No:** use ordinary `agent-browser` iteration.
    - **Yes:** use the verifier Live mode and applicable provider runbook under the [verification ladder](operating-manual.md#verification-ladder). The CLI may hold the bot account's credentials and funded authority within policy; it remains outside PR CI. A committed provider-specific harness is allowed only when the acceptance flow needs one and does not become the ordinary feature-iteration API. Deterministic tests of every safety and orchestration rule remain required.
