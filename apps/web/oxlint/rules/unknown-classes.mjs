@@ -1,5 +1,5 @@
 import { allowedCustomClasses } from "../policy/custom-classes.mjs";
-import { isKnownClass } from "../policy/design-system.mjs";
+import { designSystem, isKnownClass } from "../policy/design-system.mjs";
 
 const message =
   "Unknown Tailwind class '{{className}}'; use a theme-backed utility or register the custom class in oxlint/policy/custom-classes.mjs.";
@@ -87,8 +87,9 @@ function unknownToken(value) {
 }
 
 export const noUnknownTailwindClasses = {
-  meta: { type: "problem", schema: [], messages: { unknown: message } },
+  meta: { type: "problem", schema: [], messages: { unknown: message, theme: "Cannot validate Tailwind classes: the project theme could not load." } },
   create(context) {
+    if (!designSystem) return { Program(node) { context.report({ node, messageId: "theme" }); } };
     function report(node, values) {
       const token = values.map(unknownToken).find((candidate) => candidate !== null);
       if (token) context.report({ node, messageId: "unknown", data: { className: token } });
