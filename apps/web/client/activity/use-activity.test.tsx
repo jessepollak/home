@@ -164,6 +164,7 @@ describe("useActivity pagination", () => {
 
   test("keeps one fixed window, blocks concurrent loads, and appends deduplicated ordered pages", async () => {
     const pendingSecond = deferred<unknown>();
+    const pendingThird = deferred<unknown>();
     const queries: string[] = [];
     let firstTransfer: ActivityTransfer | null = null;
     const fetchActivity: FetchActivity = async (query) => {
@@ -173,12 +174,7 @@ describe("useActivity pagination", () => {
         return page(query, WALLET_A, [firstTransfer], "cursor-1");
       }
       if (queries.length === 2) return pendingSecond.promise;
-      return page(
-        query,
-        WALLET_A,
-        [transfer(query, WALLET_A, "event-10", "10")],
-        null,
-      );
+      return pendingThird.promise;
     };
     const view = render(
       <HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} />,
@@ -210,7 +206,16 @@ describe("useActivity pagination", () => {
     await waitFor(() =>
       expect(view.getByTestId("ids").textContent).toBe("event-30,event-20"),
     );
+    await waitFor(() => expect(queries).toHaveLength(3));
+    expect(view.getByTestId("ids").textContent).toBe("event-30,event-20");
 
+    await act(async () => {
+      const thirdQuery = queries[2]!;
+      pendingThird.resolve(
+        page(thirdQuery, WALLET_A, [transfer(thirdQuery, WALLET_A, "event-10", "10")], null),
+      );
+      await pendingThird.promise;
+    });
     await waitFor(() => expect(view.getByTestId("cursor").textContent).toBe("end"), waitedFor);
     expect(view.getByTestId("ids").textContent).toBe(
       "event-30,event-20,event-10",
