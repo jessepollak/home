@@ -854,6 +854,13 @@ describe("agent-driven session commands", () => {
     const env = { ...fakeEnv("Account\nShow small balances", addressA), FAKE_AGENT_BROWSER_AUTHENTICATED: "1" };
     const start = run(["start", "account-settings", "--live", "--base-url", "https://example.com", "--out", outsideOutput], env);
     expect(start.exitCode).toBe(0);
+    const before = fakeCalls().length;
+    const ledgerBefore = (await readLedger(resolve(home, ".home-verify", "ledger.jsonl"))).length;
+    const duplicate = run(["start", "account-settings", "--live", "--base-url", "https://example.com", "--out", outsideOutput], env);
+    expect(duplicate.exitCode).toBe(2);
+    expect(duplicate.stderr).not.toContain("could not be re-saved");
+    expect(fakeCalls()).toHaveLength(before);
+    expect((await readLedger(resolve(home, ".home-verify", "ledger.jsonl"))).length).toBe(ledgerBefore);
     expect(run(["snapshot"], env).exitCode).toBe(0);
     expect(run(["goto", "/home"], env).exitCode).toBe(0);
     const finish = run(["finish"], env);
@@ -934,6 +941,136 @@ describe("agent-driven session commands", () => {
     expect(click.exitCode).toBe(1);
     expect(click.stderr).toContain("Plain click refuses a money confirm");
     expect(fakeCalls().some((call) => call[0] === "click")).toBe(false);
+  });
+
+  test("clicks a non-money @ref in fixture and live sessions using the real get response fields", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const env = { ...fakeEnv("Account\nShow small balances", addressA), FAKE_AGENT_BROWSER_AUTHENTICATED: "1",
+      FAKE_AGENT_BROWSER_REFS: JSON.stringify({ "@e1": { text: "Home" } }) };
+    for (const mode of ["fixture", "live"] as const) {
+      const name = `ref-${mode}`;
+      const flags = mode === "live" ? ["--live", "--base-url", "https://example.com"] : [];
+      expect(run(["start", "account-settings", "--session", name, "--out", outsideOutput, ...flags], env).exitCode).toBe(0);
+      const click = run(["click", "@e1", "--session", name], env);
+      expect(click.exitCode).toBe(0);
+      expect(fakeCalls()).toContainEqual(["get", "attr", "@e1", "data-money-action-id", "--json"]);
+      expect(fakeCalls()).toContainEqual(["get", "text", "@e1", "--json"]);
+      expect(fakeCalls()).toContainEqual(["click", "@e1", "--json"]);
+      expect(run(["finish", "--session", name], env).exitCode).toBe(0);
+    }
+  });
+
+  test("uses an aria-label when a safe @ref has no text", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const env = { ...fakeEnv("Account\nShow small balances", addressA), FAKE_AGENT_BROWSER_AUTHENTICATED: "1",
+      FAKE_AGENT_BROWSER_REFS: JSON.stringify({ "@e3": { text: "", attributes: { "aria-label": "Back" } } }) };
+    expect(run(["start", "account-settings", "--live", "--base-url", "https://example.com", "--session", "ref-label", "--out", outsideOutput], env).exitCode).toBe(0);
+    expect(run(["click", "@e3", "--session", "ref-label"], env).exitCode).toBe(0);
+    expect(fakeCalls()).toContainEqual(["get", "attr", "@e3", "aria-label", "--json"]);
+    expect(fakeCalls()).toContainEqual(["click", "@e3", "--json"]);
+    expect(run(["finish", "--session", "ref-label"], env).exitCode).toBe(0);
+  });
+
+  test("refuse a money-marked @ref through its attribute even when its name is harmless", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    for (const mode of ["fixture", "live"] as const) {
+      await Bun.write(fakeLogPath, "");
+      const name = `protected-${mode}`;
+      const env = { ...fakeEnv("Account\nShow small balances", addressA), FAKE_AGENT_BROWSER_AUTHENTICATED: "1",
+        FAKE_AGENT_BROWSER_REFS: JSON.stringify({ "@e2": { text: "Continue", attributes: { "data-money-action-id": actionId } } }) };
+      const flags = mode === "live" ? ["--live", "--base-url", "https://example.com"] : [];
+      expect(run(["start", "send", "--session", name, "--out", outsideOutput, ...flags], env).exitCode).toBe(0);
+      const click = run(["click", "@e2", "--session", name], env);
+      expect(click.exitCode).toBe(1);
+      expect(click.stderr).toContain("identified prepared money control");
+      expect(fakeCalls()).toContainEqual(["get", "attr", "@e2", "data-money-action-id", "--json"]);
+      expect(fakeCalls().some((call) => call[0] === "get" && call[1] === "text")).toBe(false);
+      expect(fakeCalls().some((call) => call[0] === "click")).toBe(false);
+      expect(run(["snapshot", "--session", name], env).exitCode).toBe(2);
+    }
+  });
+
+  test("keeps named sessions independent, and refuses to replace a running session before browser work", async () => {
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const env = fakeEnv("Home", addressA);
+    for (const name of ["alpha", "beta"]) {
+      expect(run(["start", "account-settings", "--session", name, "--out", outsideOutput], env).exitCode).toBe(0);
+    }
+    const before = fakeCalls().length;
+    const duplicate = run(["start", "account-settings", "--session", "alpha", "--out", outsideOutput], env);
+    expect(duplicate.exitCode).toBe(2);
+    expect(duplicate.stderr).not.toContain("could not be re-saved");
+    expect(fakeCalls()).toHaveLength(before);
+    expect(run(["snapshot", "--session", "beta"], env).exitCode).toBe(0);
+    expect(run(["finish", "--session", "alpha"], env).exitCode).toBe(0);
+    expect(run(["finish", "--session", "beta"], env).exitCode).toBe(0);
+  });
+
+  test("recovers from a missing click, label, or page with a fresh snapshot and no ledger entry", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    const ledgerPath = resolve(home, ".home-verify", "ledger.jsonl");
+    const failures = [
+      { surface: "account-settings", command: ["click", "Missing button"], fail: ["find", "role", "button", "click", "--name", "Missing button"] },
+      { surface: "send", command: ["fill", "To", "jesse.base.eth"], fail: ["find", "label", "To", "fill"] },
+      { surface: "account-settings", command: ["goto", "/missing"], fail: ["navigate", "https://example.com/missing"] },
+    ];
+    for (const [index, failure] of failures.entries()) {
+      await Bun.write(fakeLogPath, "");
+      const name = `recover-${index}`;
+      const env = { ...fakeEnv("Account\nShow small balances", addressA), FAKE_AGENT_BROWSER_AUTHENTICATED: "1",
+        FAKE_AGENT_BROWSER_MARKS: JSON.stringify(["shell:paint", "session:verified", "balances:painted", "action:first-interactive"].map((name) => ({ name, startTime: 100 }))) };
+      expect(run(["start", failure.surface, "--live", "--base-url", "https://example.com", "--session", name, "--out", outsideOutput], env).exitCode).toBe(0);
+      const before = (await readLedger(ledgerPath)).length;
+      const result = run([...failure.command, "--session", name], { ...env, FAKE_AGENT_BROWSER_FAIL_CALL: JSON.stringify(failure.fail) });
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("browser");
+      expect(result.stdout).toContain("result");
+      expect(fakeCalls().at(-1)?.[0]).toBe("snapshot");
+      expect(fakeCalls().some((call) => call[0] === "close")).toBe(false);
+      expect((await readLedger(ledgerPath)).length).toBe(before);
+      expect(run(["snapshot", "--session", name], env).exitCode).toBe(0);
+      expect(run([...failure.command, "--session", name], env).exitCode).toBe(0);
+      expect(run(["finish", "--session", name], env).exitCode).toBe(0);
+    }
+  });
+
+  test("policy refusals for live press and unsafe goto terminate the session", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    const commands = [["press", "Enter"], ["goto", "/api/actions"], ["goto", "https://another.example/"]];
+    for (const [index, action] of commands.entries()) {
+      await Bun.write(fakeLogPath, "");
+      const name = `policy-${index}`;
+      const env = { ...fakeEnv("Account\nShow small balances", addressA), FAKE_AGENT_BROWSER_AUTHENTICATED: "1" };
+      expect(run(["start", "account-settings", "--live", "--base-url", "https://example.com", "--session", name, "--out", outsideOutput], env).exitCode).toBe(0);
+      const result = run([...action, "--session", name], env);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain(index === 0 ? "refuses press" : "Goto must be an app path");
+      expect(fakeCalls().some((call) => call[0] === "press" || (call[0] === "navigate" && call[1]?.includes("another.example")))).toBe(false);
+      expect(run(["snapshot", "--session", name], env).exitCode).toBe(2);
+    }
+  });
+
+  test("a review reached by snapshot records rung 2 without a Reach expect step", async () => {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const name = "review-rung";
+    const env = { ...fakeEnv("Account\nShow small balances", addressA), FAKE_AGENT_BROWSER_AUTHENTICATED: "1", FAKE_AGENT_BROWSER_REVIEW: "Confirm" };
+    const ledgerPath = resolve(home, ".home-verify", "ledger.jsonl");
+    const before = (await readLedger(ledgerPath)).length;
+    expect(run(["start", "save", "--live", "--base-url", "https://example.com", "--session", name, "--out", outsideOutput], env).exitCode).toBe(0);
+    expect(run(["snapshot", "--session", name], env).exitCode).toBe(0);
+    expect(run(["finish", "--session", name], env).exitCode).toBe(0);
+    const entries = await readLedger(ledgerPath);
+    expect(entries.slice(before).at(-1)?.rungReached).toBe(2);
   });
 });
 

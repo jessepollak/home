@@ -9,6 +9,11 @@ if (!logPath) {
 }
 await appendFile(logPath, `${JSON.stringify(args)}\n`);
 const [command = "", ...rest] = args;
+const failCall = JSON.parse(process.env.FAKE_AGENT_BROWSER_FAIL_CALL ?? "[]") as string[];
+if (failCall.length > 0 && failCall.every((part, index) => args[index] === part)) {
+  console.error(`The browser ${command} step failed.`);
+  process.exit(1);
+}
 let result: unknown = null;
 if (command === "wait" && rest.includes("--text") && process.env.FAKE_AGENT_BROWSER_FAIL_EXPECT === "1") {
   console.error("The expectation was not observed.");
@@ -49,6 +54,13 @@ if (command === "eval") {
     const prefix = JSON.parse(expression.slice(start, end)) as string;
     result = Array.isArray(configured) ? configured : (configured[prefix] ?? []);
   }
+} else if (command === "get" && (rest[0] === "attr" || rest[0] === "text")) {
+  const refs = JSON.parse(process.env.FAKE_AGENT_BROWSER_REFS ?? "{}") as Record<string, { text: string; attributes?: Record<string, string> }>;
+  const ref = refs[rest[1]];
+  console.log(JSON.stringify({ success: true, data: rest[0] === "attr"
+    ? { value: ref?.attributes?.[rest[2]] ?? null }
+    : { text: ref?.text ?? "" }, error: null }));
+  process.exit(0);
 } else if (command === "network" && rest[0] === "har" && rest[1] === "stop") {
   if (rest[2]) await writeFile(rest[2], process.env.FAKE_AGENT_BROWSER_HAR ?? JSON.stringify({ log: { entries: [] } }), { mode: 0o600 });
   result = { saved: true };

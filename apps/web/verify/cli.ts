@@ -49,15 +49,27 @@ import { appendLedger, readLedger, spendForDay, spendForRun, withLedgerLock, typ
 import { canaryReach, effectiveBudgets, matchesConfirmLabel, readFeatureMap, type ReachStep } from "./map";
 import { confirmPolicyRefusal, requestedCaps, resolveVerifyRole, verifyPolicy, type VerifyRole } from "./policy";
 
-const verb = ["start", "snapshot", "click", "fill", "press", "goto", "confirm", "finish"].includes(Bun.argv[2] ?? "") ? Bun.argv[2] : null;
-const activePath = resolve(homedir(), ".home-verify", "active-session.json");
+const invocation = Bun.argv.slice(2);
+const sessionFlags = invocation.flatMap((argument, index) => argument === "--session" ? [index] : []);
+const sessionName = sessionFlags.length === 0 ? "active-session" : invocation[sessionFlags[0] + 1];
+if (sessionFlags.length > 1 || !sessionName || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(sessionName)) {
+  console.error("--session requires one safe name of 1–64 letters, digits, dots, underscores, or hyphens.");
+  process.exit(2);
+}
+const activePath = resolve(homedir(), ".home-verify", `${sessionName}.json`);
+const invocationArgs = sessionFlags.length ? invocation.filter((_, index) => index !== sessionFlags[0] && index !== sessionFlags[0] + 1) : invocation;
+const verb = ["start", "snapshot", "click", "fill", "press", "goto", "confirm", "finish"].includes(invocationArgs[0] ?? "") ? invocationArgs[0] : null;
+if (verb === "start" && await Bun.file(activePath).exists()) {
+  console.error(`An active verify session named ${sessionName} already exists; finish it before starting another.`);
+  process.exit(2);
+}
 type ActiveSession = { options: string[]; browserSession: string; role: VerifyRole; handleHash: string | null; steps: Array<{ step: string; status: "pending" | "done" | "failed" }>; afterReview: boolean; pinnedAccount: string | null; renderedBalanceUsd: number | null; cumulativeAmountUsd: number; confirmedAmountsUsd: number[]; confirmPerformed: boolean; confirmClickAttempted: boolean; spendReserved: boolean; actionId: string | null; confirmIntent: unknown; destination: string };
 let active: ActiveSession | null = null;
 if (verb && verb !== "start") {
   try { active = JSON.parse(await readFile(activePath, "utf8")) as ActiveSession; }
   catch { console.error("No active verify session; run verify start <surface> first."); process.exit(2); }
 }
-const args = verb === "start" ? Bun.argv.slice(3) : active ? active.options : Bun.argv.slice(2);
+const args = verb === "start" ? invocationArgs.slice(1) : active ? active.options : invocationArgs;
 const repositoryRoot = resolve(import.meta.dir, "../../..");
 const featureMapPath = resolve(repositoryRoot, ".agents/skills/browser-iteration/feature-map.md");
 const { surfaces, liveHosts, liveExpectedFailures } = await readFeatureMap(featureMapPath);
@@ -255,6 +267,12 @@ function waitForInput(label: string, failure: string): void {
     const detail = error instanceof Error ? error.message : "the wait timed out";
     throw new Error(`${failure}: ${detail}`);
   }
+}
+
+function browserGetField(output: string, field: "value" | "text"): unknown {
+  const parsed = JSON.parse(output) as { data?: Record<string, unknown> };
+  if (!parsed.data || !Object.hasOwn(parsed.data, field)) throw new Error(`agent-browser get did not return ${field}.`);
+  return parsed.data[field];
 }
 
 function jsonResult(output: string): unknown {
@@ -648,6 +666,7 @@ let liveRefusal: string | null = null;
 let renderedBalanceUsd: number | null = active?.renderedBalanceUsd ?? null;
 let finalEvidencePassed = false;
 let ledgerRecorded = false;
+let observedReview = active?.afterReview ?? false;
 const confirmedAmountsUsd: number[] = active?.confirmedAmountsUsd ?? [];
 let spendReserved = active?.spendReserved ?? false;
 type StepRecord = { step: string; status: "pending" | "done" | "failed" };
@@ -748,7 +767,9 @@ async function reserveSpend(amountUsd: number): Promise<string | null> {
 async function recordLiveLedger(): Promise<void> {
   if (!live || ledgerRecorded) return;
   const incidents = runIncidents();
-  const rungReached = confirmPerformed ? 3 : withdrawalEmpty || steps.some((step) => step.status === "done" && (step.step.startsWith("expect Confirm") || step.step.startsWith("expect Review"))) ? 2 : 1;
+  const rungReached = confirmPerformed ? 3 : withdrawalEmpty || observedReview || steps.some((step) =>
+    step.status === "done" && (step.step.startsWith("expect Confirm") || step.step.startsWith("expect Review"))) ||
+    (stoppedBefore !== null && matchesConfirmLabel(surface?.confirmLabels ?? [], stoppedBefore)) ? 2 : 1;
   const entry: LedgerEntry = {
     type: "run",
     timestamp: new Date().toISOString(),
@@ -766,7 +787,6 @@ async function recordLiveLedger(): Promise<void> {
   ledgerRecorded = true;
 }
 try {
-  if (verb === "start" && await Bun.file(activePath).exists()) throw new Error("An active verify session already exists; finish it before starting another.");
   if (!active) {
   command("open", "--init-script", initPath);
   command("set", "viewport", "390", "844");
@@ -812,6 +832,18 @@ try {
     const reviewTitle = jsonResult(command("eval", `(() => [...document.querySelectorAll('[role="dialog"]')].filter(node => node.getClientRects().length).at(-1)?.querySelector('h1,h2,[role="heading"]')?.textContent?.trim() ?? null)()`));
     afterReview = typeof reviewTitle === "string" && /^(?:Confirm|Review)(?:\s|$)/i.test(reviewTitle);
   }
+  observedReview = afterReview;
+  async function recoverStepFailure(error: unknown, record: StepRecord): Promise<never> {
+    record.status = "failed";
+    if (!active || !verb) throw error;
+    const snapshot = command("snapshot", "-i");
+    steps.push({ step: "snapshot", status: "done" });
+    await saveActive(afterReview);
+    await rm(tempDirectory, { recursive: true, force: true });
+    console.error(error instanceof Error ? error.message : "The browser step failed.");
+    console.log(redactPayoutHandle(snapshot));
+    process.exit(1);
+  }
   if (verb === "snapshot") {
     const snapshot = command("snapshot", "-i");
     steps.push({ step: "snapshot", status: "done" });
@@ -820,7 +852,7 @@ try {
     console.log(redactPayoutHandle(snapshot));
     process.exit(0);
   }
-  const commandArgs = Bun.argv.slice(3);
+  const commandArgs = invocationArgs.slice(1);
   let drivenSteps: ReachStep[] = reachSteps;
   if (verb === "goto") {
     const target = commandArgs[0];
@@ -896,15 +928,29 @@ try {
     if (live) console.error(`[live] ${new Date().toISOString()} ${description}`);
     let confirmStep = false;
     let clickRef: string | null = null;
-    if (live && step.kind === "click") {
-      if (verb === "click" && step.label.startsWith("@")) {
-        const protectedRef = jsonResult(command("get", "attr", step.label, MONEY_ACTION_ID_ATTRIBUTE));
-        if (protectedRef !== null && protectedRef !== undefined) throw new Error("Plain click refuses a prepared money control; use verify confirm.");
-        const name = jsonResult(command("get", "text", step.label));
-        if (typeof name !== "string" || !name.trim()) throw new Error("The clicked reference has no visible name.");
-        clickRef = step.label;
-        step = { kind: "click", label: name.trim() };
+    if (verb === "click" && step.kind === "click" && step.label.startsWith("@")) {
+      let attrOutput = "";
+      try { attrOutput = command("get", "attr", step.label, MONEY_ACTION_ID_ATTRIBUTE); }
+      catch (error) { await recoverStepFailure(error, record); }
+      const protectedRef = browserGetField(attrOutput, "value");
+      if (protectedRef !== null) throw new Error("Plain click refuses an identified prepared money control; use verify confirm.");
+      let textOutput = "";
+      try { textOutput = command("get", "text", step.label); }
+      catch (error) { await recoverStepFailure(error, record); }
+      const text = browserGetField(textOutput, "text");
+      let name = typeof text === "string" ? text.trim() : "";
+      if (!name) {
+        let labelOutput = "";
+        try { labelOutput = command("get", "attr", step.label, "aria-label"); }
+        catch (error) { await recoverStepFailure(error, record); }
+        const label = browserGetField(labelOutput, "value");
+        name = typeof label === "string" ? label.trim() : "";
       }
+      if (!name) throw new Error("The clicked reference has no visible name.");
+      clickRef = step.label;
+      step = { kind: "click", label: name };
+    }
+    if (live && step.kind === "click") {
       confirmStep = verb === "confirm" || matchesConfirmLabel(surface.confirmLabels, step.label);
       if (verb === "click" && confirmStep) throw new Error("Plain click refuses a money confirm; use verify confirm.");
       const amountClickError = opensReview ? null : unlistedAmountClickError(step.label, confirmStep);
@@ -1000,12 +1046,16 @@ try {
       if (confirmStep && actionId) {
         command("click", `[${MONEY_ACTION_ID_ATTRIBUTE}="${actionId}"]`);
       } else {
-        if (live && step.kind === "click") {
+        if (step.kind === "click") {
           const protectedControl = jsonResult(command("eval", `(() => [...document.querySelectorAll('button,[role="button"]')].some(node => node.getClientRects().length && (node.getAttribute('aria-label')||node.innerText).trim() === ${JSON.stringify(step.label)} && node.hasAttribute(${JSON.stringify(MONEY_ACTION_ID_ATTRIBUTE)})))()`));
           if (protectedControl) throw new Error("Plain click refuses a prepared money control; use verify confirm.");
         }
-        if (clickRef) command("click", clickRef);
-        else executeStep(step);
+        try {
+          if (clickRef) command("click", clickRef);
+          else executeStep(step);
+        } catch (error) {
+          await recoverStepFailure(error, record);
+        }
       }
       record.status = "done";
       if (confirmStep && parsedAmountUsd !== null) {
@@ -1020,7 +1070,10 @@ try {
       await writeLiveEvidence();
       throw error;
     }
-    if (step.kind === "expect" && /^(?:Confirm|Review)/i.test(step.text)) afterReview = true;
+    if (step.kind === "expect" && /^(?:Confirm|Review)/i.test(step.text)) {
+      afterReview = true;
+      observedReview = true;
+    }
   }
   if (verb && verb !== "finish") {
     if (liveRefusal || stoppedBefore) throw new Error(liveRefusal ?? `Verification stopped before ${stoppedBefore}.`);
