@@ -130,12 +130,6 @@ function OwnerBoundSavingsMoneyDialog({
     setError(null);
   }
 
-  function closeIfAllowed() {
-    if (step === "pending") return false;
-    onClose();
-    return true;
-  }
-
   function goBack() {
     if (step === "confirm" || step === "error" || step === "failed") {
       setPreparedAction(null);
@@ -248,7 +242,8 @@ function OwnerBoundSavingsMoneyDialog({
         immediate={motion === "reduced"}
         labelledBy="savings-action-title"
         describedBy={step === "pending" ? "savings-action-pending" : undefined}
-        onCancel={closeIfAllowed}
+        pending={step === "pending"}
+        onCancel={onClose}
         onClose={() => {
           reset();
           onClose();
@@ -263,8 +258,7 @@ function OwnerBoundSavingsMoneyDialog({
             : step === "pending"
               ? {}
               : { onBack: goBack })}
-          onClose={closeIfAllowed}
-          closeDisabled={step === "pending"}
+          onClose={onClose}
           closeLabel={`Close ${mode} dialog`}
         />
 
@@ -339,7 +333,7 @@ function OwnerBoundSavingsMoneyDialog({
             primaryLabel="Back"
             onPrimary={goBack}
             secondaryLabel="Close"
-            onSecondary={closeIfAllowed}
+            onSecondary={onClose}
           />
         ) : null}
 

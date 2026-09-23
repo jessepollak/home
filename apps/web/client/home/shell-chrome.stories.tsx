@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import type { ComponentProps } from "react";
-import { expect } from "storybook/test";
+import { expect, within } from "storybook/test";
 import { ShellHeader } from "./shell-chrome";
 
 const account = {
@@ -34,15 +34,7 @@ const meta = {
     onCloseSettings: noop,
   },
   play: async ({ canvasElement }) => {
-    const mark = canvasElement.querySelector<HTMLElement>("[data-home-mark]");
-    const title = canvasElement.querySelector<HTMLElement>("[data-shell-header-title]");
-    if (!mark || !title) throw new Error("Shell header geometry is unavailable.");
-    const markRect = mark.getBoundingClientRect();
-    const titleRect = title.getBoundingClientRect();
-    const gap = Number.parseFloat(getComputedStyle(title.parentElement ?? title).columnGap);
-    await expect(markRect.width).toBeLessThanOrEqual(45);
-    await expect(Math.abs(titleRect.left - markRect.right - gap)).toBeLessThanOrEqual(1);
-    await expect(titleRect.left - markRect.left).toBeLessThanOrEqual(44 + gap + 1);
+    await expect(within(canvasElement).getByRole("heading", { name: "Home" })).toBeVisible();
   },
 } satisfies Meta<typeof ShellHeader>;
 

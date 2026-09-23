@@ -10,7 +10,9 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { ArrowLeft, X } from "lucide-react";
-import { useRef, type ReactNode, type RefObject } from "react";
+import { createContext, useContext, useRef, type ReactNode, type RefObject } from "react";
+
+const MoneyModalPendingContext = createContext(false);
 
 export function AppDrawer({ open, labelledBy, describedBy, immediate = false, initialFocusRef, onCancel, onClose, children }: {
   open: boolean; labelledBy: string; describedBy?: string; immediate?: boolean;
@@ -39,18 +41,17 @@ export function AppDrawer({ open, labelledBy, describedBy, immediate = false, in
   );
 }
 
-export function MoneyModal({ open, labelledBy, describedBy, immediate = false, onCancel, onClose, children }: {
-  open: boolean; labelledBy: string; describedBy?: string; immediate?: boolean;
+export function MoneyModal({ open, labelledBy, describedBy, immediate = false, pending = false, onCancel, onClose, children }: {
+  open: boolean; labelledBy: string; describedBy?: string; immediate?: boolean; pending?: boolean;
   onCancel: () => boolean | void; onClose: () => void; children: ReactNode;
 }) {
-  return <AppDrawer open={open} labelledBy={labelledBy} describedBy={describedBy} immediate={immediate} onCancel={onCancel} onClose={onClose}>{children}</AppDrawer>;
+  return <MoneyModalPendingContext value={pending}><AppDrawer open={open} labelledBy={labelledBy} describedBy={describedBy} immediate={immediate} onCancel={() => pending ? false : onCancel()} onClose={onClose}>{children}</AppDrawer></MoneyModalPendingContext>;
 }
 
 type MoneyModalHeaderProps = {
   title: string;
   titleId: string;
   onClose: () => void;
-  closeDisabled?: boolean;
   closeLabel?: string;
 } & (
   | { onBack: () => void; backDisabled?: boolean; assetControl?: never }
@@ -58,7 +59,8 @@ type MoneyModalHeaderProps = {
 );
 
 export function MoneyModalHeader(props: MoneyModalHeaderProps) {
-  const { title, titleId, onClose, closeDisabled = false, closeLabel = "Close" } = props;
+  const { title, titleId, onClose, closeLabel = "Close" } = props;
+  const isCloseDisabled = useContext(MoneyModalPendingContext);
   const onBack = "onBack" in props ? props.onBack : undefined;
   const backDisabled = "backDisabled" in props ? props.backDisabled ?? false : false;
   const assetControl = "assetControl" in props ? props.assetControl : undefined;
@@ -69,7 +71,7 @@ export function MoneyModalHeader(props: MoneyModalHeaderProps) {
       </div>
       <DrawerTitle id={titleId} variant="money">{title}</DrawerTitle>
       <div className="flex min-w-0 justify-end overflow-hidden">
-        <Button autoFocus={!onBack || backDisabled} data-initial-focus={!onBack || backDisabled ? "" : undefined} variant="ghost" size="icon-lg" className="size-11 shrink-0" aria-label={closeLabel} disabled={closeDisabled} onClick={onClose}><X className="size-4" aria-hidden="true" /></Button>
+        <Button autoFocus={!isCloseDisabled && (!onBack || backDisabled)} data-initial-focus={!isCloseDisabled && (!onBack || backDisabled) ? "" : undefined} variant="ghost" size="icon-lg" className="size-11 shrink-0" aria-label={closeLabel} disabled={isCloseDisabled} onClick={onClose}><X className="size-4" aria-hidden="true" /></Button>
       </div>
     </DrawerHeader>
   );
