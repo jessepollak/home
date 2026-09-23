@@ -46,7 +46,7 @@ There are **six capability workstreams and two shared quality workstreams**. All
 | **Save and spend** | Customers can earn on their money and use it day to day. | Dollar yield and local-currency yield wherever an accessible product exists; deposit/withdraw, balances and variable APY; P2P send/receive; one usable card program with funding, controls, purchases, declines, refunds, and Activity. |
 | **Invest** | Customers can discover, understand, buy, hold, and sell investments. | All stocks on Base, plus memes and major crypto assets; search, good charts, basic research, buying/selling, holdings, and valuation. Stocks remain central to the experience. |
 | **Credit** | Customers can do more with their capital. | All available Base borrow markets for Coinbase assets (cb assets); market discovery, collateral, borrowing capacity, rates, loan health, borrow/repay, and collateral withdrawal. |
-| **Operator platform** | An operator can launch, configure, support, and update a Home. | Guided Vercel setup; protected admin dashboard; brand/colors, regions, assets, products, and provider settings; secure credential setup and connection checks; customer access controls; basic user/transaction support lookup; an update and recovery path. |
+| **Operator platform** | An operator can launch, configure, run, grow, and support a Home as a business. | Guided Vercel setup; protected admin dashboard; brand/colors, regions, assets, products, and provider settings; secure credential setup and connection checks; customer access controls; an update and recovery path; plus the operator business tools below: fees, growth, analytics, and support. |
 | **Identity and account** | Customers can access their account and unlock the services they need. | Sign-in/out and recovery; one identity integration with verification status, retry, and resume; verification when required by a capability; country, currency, and language preferences. Reuse verification where downstream providers accept it. |
 
 ### Shared quality workstreams
@@ -59,6 +59,13 @@ There are **six capability workstreams and two shared quality workstreams**. All
 ### Scope details that matter
 
 **Deployment access.** The optional shared deployment password is a replaceable pre-release access control in front of Home authentication. It is one bounded Operator platform foundation and does not identify customers, establish administrators, authorize support or configuration, or change the eight equal MVP workstreams. Future administration composes deployment access when enabled, a verified Home session, and separate administrator authorization with its own bootstrap and recovery.
+
+**Operator business tools.** Operators need to earn revenue, grow, see how their business performs, and talk to their customers. MVP includes:
+
+- **Fees.** The operator sets a swap fee and a destination wallet. The fee is disclosed on review and collected in the same transaction as the swap, so it lands directly at the destination. Revenue appears in the dashboard. Fees on other money actions come later.
+- **Growth.** Customers invite others through a link; the operator sees attribution and runs one reward program. Product research selects the first reward mechanic. Revenue-share rewards come later.
+- **Analytics.** Operators get real visibility into their own business: acquisition, activation, product adoption, retention, balances, and revenue, plus a searchable customer list and customer detail. Data lives in the operator's own deployment; admin access to individual customers is authorized and audited.
+- **Support.** Customers chat with the operator inside Home; operators answer from an admin inbox beside the customer's account context. Delivery is in-app only. LLM assistance using operator-supplied model keys comes after MVP, and the v1 data model should anticipate it.
 
 **Regional languages.** Basic language support covers the supported regions: core journeys, account settings, transaction review, confirmations, actionable errors, and operator setup essentials. Define the region-to-language mapping. Let users choose language independently of country/currency, persist it, and format amounts/dates correctly. Review translated financial copy, text expansion, and right-to-left layouts where needed. Record limitations in provider-hosted screens.
 
@@ -74,7 +81,7 @@ There are **six capability workstreams and two shared quality workstreams**. All
 
 ### After MVP
 
-Keep these outside the initial release: index products and deeper investment research; recurring investing; undercollateralized credit and non-cb collateral expansion; general AI/natural-language customization; additional hosting targets; a plugin marketplace; sophisticated staff permissions, billing, or revenue-sharing systems; additional card/identity providers; and a separate personal-edition onboarding flow.
+Keep these outside the initial release: index products and deeper investment research; recurring investing; undercollateralized credit and non-cb collateral expansion; general AI/natural-language customization; additional hosting targets; a plugin marketplace; sophisticated staff permissions; fees beyond swaps, revenue-share referral rewards, and LLM-assisted support; offline (email/push) support replies; additional card/identity providers; and a separate personal-edition onboarding flow.
 
 These preserve the longer-term vision. They do not defer the agreed regional coverage, local yield where available, stock/meme/major coverage, cb-asset markets, languages, or design quality.
 
@@ -131,7 +138,7 @@ These proofs establish readiness for operator pilots. External operator adoption
 
 Independent work can proceed in parallel when dependencies allow. Operator discovery runs alongside steps 1–3. Start from existing work rather than restarting features to fit this outline.
 
-Track outcomes: successful money journeys, repeated customer use, operator setup/support effort, upgrade adoption, and local-stablecoin holders/balances. Define measurements before setting numerical targets. Use operator-local or consented reporting; the current architecture has no upstream customer telemetry. Avoid double-counting funds when reporting balances or TVL.
+Track outcomes: successful money journeys, repeated customer use, operator setup/support effort, upgrade adoption, and local-stablecoin holders/balances. Define measurements before setting numerical targets. Operators see their own customers' activity through their dashboard; Home upstream receives no customer telemetry unless an operator opts in. Avoid double-counting funds when reporting balances or TVL.
 
 ## 6. PRDs and agent handoffs
 
