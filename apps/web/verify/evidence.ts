@@ -32,7 +32,7 @@ export function finalizeEvidence(
   return { ...input, passed: budgetsPass && browserHealthPass };
 }
 
-export function summarizeEvidence(evidence: VerifyEvidence, mode: "fixture" | "live" = "fixture"): string {
+export function summarizeEvidence(evidence: VerifyEvidence, mode: "fixture" | "live" = "fixture", note?: string): string {
   const status = evidence.passed ? "pass" : "fail";
   const marks = evidence.marks.length === 0
     ? "None listed for this surface."
@@ -45,7 +45,7 @@ export function summarizeEvidence(evidence: VerifyEvidence, mode: "fixture" | "l
   const expectedFailures = evidence.expectedFailures.length === 0
     ? ""
     : `\n#### Expected failures\n${evidence.expectedFailures.map((failure) => `- \`${failure}\``).join("\n")}\n`;
-  const summary = `### Verify: \`${evidence.surfaceId}\` — ${status}\n\n- Origin: ${evidence.baseUrl}\n- Viewport: ${evidence.viewport.width}×${evidence.viewport.height} CSS px\n- Screenshot: \`${evidence.artifacts.screenshot}\`\n- DOM text: \`${evidence.artifacts.dom}\`\n- Console errors: ${evidence.consoleErrors.length}\n- Page errors: ${evidence.pageErrors.length}\n- Failed requests: ${evidence.failedRequests.length}\n- Expected failures: ${evidence.expectedFailures.length}\n- Long tasks: ${evidence.longTaskCount}\n${expectedFailures}\n#### Performance marks\n${marks}\n`;
+  const summary = `### Verify: \`${evidence.surfaceId}\` — ${status}\n\n- Origin: ${evidence.baseUrl}\n- Viewport: ${evidence.viewport.width}×${evidence.viewport.height} CSS px\n- Screenshot: \`${evidence.artifacts.screenshot}\`\n- DOM text: \`${evidence.artifacts.dom}\`\n- Console errors: ${evidence.consoleErrors.length}\n- Page errors: ${evidence.pageErrors.length}\n- Failed requests: ${evidence.failedRequests.length}\n- Expected failures: ${evidence.expectedFailures.length}\n- Long tasks: ${evidence.longTaskCount}\n${note ? `- Note: ${note}\n` : ""}${expectedFailures}\n#### Performance marks\n${marks}\n`;
   return mode === "live"
     ? summary.split("\n").map((line) => line ? `[live] ${line}` : line).join("\n")
     : summary;

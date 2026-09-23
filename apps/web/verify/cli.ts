@@ -21,7 +21,10 @@ import {
   hostObservationRefusal,
   inputPresentPredicate,
   labelledInputFillScript,
+  canonicalCashoutHandle,
   cashoutHandleFillValue,
+  clickPrefixNamesScript,
+  clickPrefixPresentPredicate,
   isCashoutHandleFillStep,
   isRecipientFillStep,
   liveSessionExpired,
@@ -32,8 +35,10 @@ import {
   parseUsdAmount,
   parseUsdAmountFromLabel,
   partitionLiveFailures,
+  payoutHandleRowError,
   recipientPlaceholderError,
   recipientRowError,
+  resolveClickPrefix,
   resolveLiveCashoutHandle,
   resolveLiveRecipient,
   reviewAndLabelAmountError,
@@ -318,6 +323,16 @@ function authenticatedAccountAddress(): string | null {
   return typeof result === "string" && accountPattern.test(result) ? result : null;
 }
 
+function prefixButtonNames(prefix: string): string[] {
+  try {
+    command("wait", "--fn", clickPrefixPresentPredicate(prefix), "--timeout", "15000");
+  } catch {
+    return [];
+  }
+  const result = jsonResult(command("eval", clickPrefixNamesScript(prefix)));
+  return Array.isArray(result) ? result.filter((name): name is string => typeof name === "string") : [];
+}
+
 function sessionExpired(): boolean {
   const result = jsonResult(command("eval", "document.body.innerText"));
   return typeof result === "string" && liveSessionExpired(result);
@@ -478,7 +493,7 @@ if (live && (recipientPlaceholder || recipientOption !== undefined)) {
   }
   effectiveRecipient = resolution.recipient;
 }
-const cashoutHandleRequired = selectedReach.some(isCashoutHandleFillStep);
+const cashoutHandleRequired = surfaceId === "cash-out" || selectedReach.some(isCashoutHandleFillStep);
 let liveCashoutHandle: string | null = null;
 if (live && cashoutHandleRequired) {
   const resolution = resolveLiveCashoutHandle(process.env.HOME_VERIFY_CASHOUT_HANDLE);
@@ -488,6 +503,10 @@ if (live && cashoutHandleRequired) {
   }
   liveCashoutHandle = resolution.handle;
 }
+const cashoutOperation = surfaceId === "cash-out" ? option("--canary-operation") ?? "cash-out" : null;
+const canonicalCashoutPayoutHandle = cashoutOperation === "cash-out" && liveCashoutHandle !== null
+  ? canonicalCashoutHandle(liveCashoutHandle)
+  : null;
 const reachSteps = selectedReach
   .map((step): ReachStep =>
     isRecipientFillStep(step)
@@ -576,7 +595,9 @@ const evidencePath = resolve(destination, "evidence.json");
 const summaryPath = resolve(destination, "summary.md");
 const livePath = resolve(destination, "live.json");
 
-function executeStep(step: ReachStep): string {
+type ResolvedReachStep = Exclude<ReachStep, { kind: "click-prefix" }>;
+
+function executeStep(step: ResolvedReachStep): string {
   if (step.kind === "goto") {
     command("navigate", new URL(step.path, baseUrl).toString());
     if (live) handleAccessGate();
@@ -621,6 +642,8 @@ let cumulativeAmountUsd = 0;
 let confirmIntent: { label: string; parsedAmountUsd: number; capUsd: number; totalCapUsd: number; recipient: LiveRecipient | null; timestamp: string } | null = null;
 let confirmClickAttempted = false;
 let stoppedBefore: string | null = null;
+let note: string | null = null;
+let withdrawalEmpty = false;
 let unexpectedHosts: string[] = [];
 let expectedFailures: string[] = [];
 let transactionHash: string | null = null;
@@ -656,6 +679,7 @@ async function writeLiveEvidence(): Promise<void> {
     transactionHash,
     actionId,
     stoppedBefore,
+    note,
     unexpectedHosts,
     expectedFailures,
   }, null, 2)}\n`);
@@ -710,7 +734,7 @@ async function reserveSpend(amountUsd: number): Promise<string | null> {
 async function recordLiveLedger(): Promise<void> {
   if (!live || ledgerRecorded) return;
   const incidents = runIncidents();
-  const rungReached = confirmPerformed ? 3 : steps.some((step) => step.status === "done" && (step.step.startsWith("expect Confirm") || step.step.startsWith("expect Review"))) ? 2 : 1;
+  const rungReached = confirmPerformed ? 3 : withdrawalEmpty || steps.some((step) => step.status === "done" && (step.step.startsWith("expect Confirm") || step.step.startsWith("expect Review"))) ? 2 : 1;
   const entry: LedgerEntry = {
     type: "run",
     timestamp: new Date().toISOString(),
@@ -760,7 +784,31 @@ try {
   command("errors", "--clear");
   if (!live) command("network", "requests", "--clear");
   let afterReview = false;
-  for (const step of reachSteps) {
+  for (const original of reachSteps) {
+    let step: ResolvedReachStep;
+    if (original.kind === "click-prefix") {
+      const resolution = resolveClickPrefix(original.prefix, prefixButtonNames(original.prefix));
+      if (resolution.action === "single") {
+        step = { kind: "click", label: resolution.label };
+      } else {
+        const detail = resolution.action === "none"
+          ? "no visible enabled button matches"
+          : `${resolution.candidates.length} visible buttons match: ${resolution.candidates.join("; ")}`;
+        const message = `Live verification refuses click-prefix “${original.prefix}”: ${detail}.`;
+        if (resolution.action === "none" && original.onNoMatch === "note") {
+          steps.push({ step: `click-prefix "${original.prefix}" (nothing in flight)`, status: "done" });
+          note = "No in-flight Peer cash-out to withdraw.";
+          withdrawalEmpty = true;
+          break;
+        }
+        steps.push({ step: `click-prefix "${original.prefix}"`, status: "failed" });
+        liveRefusal = message;
+        stoppedBefore = `click-prefix ${original.prefix}`;
+        throw new Error(message);
+      }
+    } else {
+      step = original;
+    }
     const description = step.kind === "goto"
       ? `goto ${step.path}`
       : step.kind === "click"
@@ -816,6 +864,16 @@ try {
             break;
           }
         }
+        if (canonicalCashoutPayoutHandle !== null) {
+          const payoutHandleMismatch = payoutHandleRowError(review, canonicalCashoutPayoutHandle);
+          if (payoutHandleMismatch) {
+            record.status = "failed";
+            stoppedBefore = step.label;
+            liveRefusal = payoutHandleMismatch;
+            await writeLiveEvidence();
+            break;
+          }
+        }
         if (surfaceId === "borrow" && option("--canary-operation") !== "repay") {
           const borrowReview = parseBorrowReviewAmounts(review);
           parsedAmountUsd = borrowReview.borrowedAmountUsd;
@@ -863,7 +921,7 @@ try {
           parsedAmountUsd,
           capUsd: maxUsd,
           totalCapUsd: maxUsdTotal,
-          recipient: effectiveRecipient,
+          recipient: canonicalCashoutPayoutHandle === null ? effectiveRecipient : { name: null, address: canonicalCashoutPayoutHandle },
           timestamp: new Date().toISOString(),
         };
         confirmClickAttempted = true;
@@ -931,7 +989,7 @@ try {
   const evidence = liveRefusal ? { ...finalizedEvidence, passed: false } : finalizedEvidence;
   finalEvidencePassed = evidence.passed;
   await writeEvidenceFile(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
-  await writeEvidenceFile(summaryPath, summarizeEvidence(evidence, live ? "live" : "fixture"));
+  await writeEvidenceFile(summaryPath, summarizeEvidence(evidence, live ? "live" : "fixture", note ?? undefined));
   if (live) {
     transactionHash = domText.match(/\b0x[0-9a-fA-F]{64}\b/)?.[0] ?? null;
     actionId = domText.match(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i)?.[0] ?? null;

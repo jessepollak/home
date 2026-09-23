@@ -10,6 +10,7 @@ const featureMapPath = resolve(import.meta.dir, "../../../.agents/skills/browser
 function reachStepStrings(step: ReachStep): string[] {
   if (step.kind === "fill") return [step.label, step.value];
   if (step.kind === "click") return [step.label];
+  if (step.kind === "click-prefix") return [step.prefix];
   if (step.kind === "goto") return [step.path];
   if (step.kind === "press") return [step.key];
   return [step.text];
@@ -77,11 +78,47 @@ describe("feature map parser", () => {
     expect(() => canaryReach("send", "withdraw", fallback)).toThrow("Unsupported canary operation");
   });
 
+  test("confirms a cash-out deposit from the mapped live Reach and recovers a withdrawal by prefix", () => {
+    const fallback = [
+      { kind: "expect" as const, text: "Confirm" },
+    ];
+    expect(canaryReach("cash-out", "cash-out", fallback)).toEqual([
+      { kind: "expect", text: "Confirm" },
+      { kind: "click", label: "Cash out $0.10" },
+      { kind: "expect", text: "Cashed out $0.10" },
+    ]);
+    expect(canaryReach("cash-out", "withdraw", fallback)).toEqual([
+      { kind: "goto", path: "/home" },
+      { kind: "click", label: "Send" },
+      { kind: "click", label: "Decimal point" },
+      { kind: "click", label: "1" },
+      { kind: "click", label: "Continue" },
+      { kind: "expect", text: "Use Peer to send via app" },
+      { kind: "click-prefix", prefix: "Withdraw ", onNoMatch: "note" },
+      { kind: "expect", text: "Confirm" },
+      { kind: "click-prefix", prefix: "Withdraw $" },
+      { kind: "expect", text: "Recovered $" },
+    ]);
+  });
+
+  test("parses click-prefix and keeps it out of the plain click grammar", () => {
+    expect(parseReachStep('click-prefix "Withdraw $"')).toEqual({ kind: "click-prefix", prefix: "Withdraw $" });
+    expect(parseReachStep('click-prefix "Withdraw $" extra')).toBeNull();
+    expect(parseReachStep('click-prefix Withdraw')).toBeNull();
+    expect(parseFeatureMap('### `sample`\n- **Reach**:\n  1. `click-prefix "Withdraw $"`\n').surfaces.get("sample")?.reach).toEqual([
+      { kind: "click-prefix", prefix: "Withdraw $" },
+    ]);
+  });
+
   test("matches exact confirm labels with an amount placeholder", () => {
     const labels = ["Send $<amount>", "Retry"];
     expect(matchesConfirmLabel(labels, "Send $1.00")).toBe(true);
     expect(matchesConfirmLabel(labels, "Send $1,234.50")).toBe(true);
     expect(matchesConfirmLabel(["Cash out $<amount>"], "Cash out 1 USDC")).toBe(true);
+    const cashoutLabels = ["Cash out $<amount>", "Withdraw $<amount>"];
+    expect(matchesConfirmLabel(cashoutLabels, "Cash out $0.10")).toBe(true);
+    expect(matchesConfirmLabel(cashoutLabels, "Withdraw $0.10")).toBe(true);
+    expect(matchesConfirmLabel(cashoutLabels, "Withdraw 0.1 USDC Peer cash-out · awaiting-buyer")).toBe(false);
     expect(matchesConfirmLabel(labels, "Retry")).toBe(true);
     expect(matchesConfirmLabel(labels, "Send now")).toBe(false);
     expect(matchesConfirmLabel(labels, "Retry action")).toBe(false);
@@ -141,6 +178,8 @@ describe("feature map parser", () => {
     expect(surfaces.get("borrow")?.liveReach?.at(-1)).toEqual({ kind: "expect", text: "Borrowed $0.10" });
     expect(surfaces.get("cash-out")?.liveReach).toContainEqual({ kind: "click", label: "Available payout apps: Cash App, Zelle Send to Zelle, Venmo, Cash App and more Use Peer to send via app" });
     expect(surfaces.get("cash-out")?.liveReach?.at(-1)).toEqual({ kind: "expect", text: "Confirm" });
+    expect(surfaces.get("cash-out")?.liveReach?.at(-2)).toEqual({ kind: "expect", text: "Approximate receive" });
+    expect(surfaces.get("cash-out")?.live).toBe("confirm");
     expect(surfaces.get("cash-out")?.confirmLabels).toContain("Withdraw $<amount>");
     expect(surfaces.get("add-money")?.liveReach).toContainEqual({ kind: "click", label: "Deposit USD Coinbase · Apple Pay" });
     expect(surfaces.get("add-money")?.liveReach?.at(-1)).toEqual({ kind: "expect", text: "Review quote" });

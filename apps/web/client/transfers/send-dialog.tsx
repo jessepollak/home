@@ -15,6 +15,7 @@ import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle }
 import { CopyableValue } from "@/components/copyable-value";
 import { PayoutMethodMarks } from "@/components/payout-method-marks";
 import { atomicToDecimal } from "@/shared/formatting/atomic";
+import { formatUsdStablecoinAmount } from "@/shared/formatting";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import type { RegionId } from "@/config/regions";
 import { readProviderBindings, type FundingOfframpBinding } from "@/shared/funding/contracts/providers";
@@ -339,7 +340,9 @@ export function SendDialog({
   }
 
   const confirmAmount = request ? formatSendConfirmAmount(request.amountBaseUnits, request.assetId)
-    : cashout ? `${atomicToDecimal(cashout.amountBaseUnits, cashout.decimals)} ${cashout.symbol}` : "";
+    : cashout ? (cashout.symbol === "USDC"
+      ? formatUsdStablecoinAmount(cashout.amountBaseUnits, cashout.decimals)
+      : `${atomicToDecimal(cashout.amountBaseUnits, cashout.decimals)} ${cashout.symbol}`) : "";
   const requestAsset = request ? getTransferAsset(request.assetId) : selectedAsset;
   const offrampName = cashout?.providerName ?? selectedOfframp?.displayName;
   const modalTitle = step === "confirm" || step === "pending" || step === "error" ? "Confirm" : cashout || ["payout", "handle", "handle-confirm"].includes(step) ? `Cash out${offrampName ? ` with ${offrampName}` : ""}` : "Send";
@@ -457,7 +460,9 @@ function CashoutItem({ binding, onSelect }: { binding: FundingOfframpBinding; on
 }
 
 function RecoveryItem({ order, onWithdraw }: { order: CashoutOrderSummary; onWithdraw: () => void }) {
-  const amount = `${atomicToDecimal(order.remainingAmountAtomic, order.assetDecimals)} ${order.assetSymbol}`;
+  const amount = order.assetSymbol === "USDC"
+    ? formatUsdStablecoinAmount(order.remainingAmountAtomic, order.assetDecimals)
+    : `${atomicToDecimal(order.remainingAmountAtomic, order.assetDecimals)} ${order.assetSymbol}`;
   return <Item
     render={<Button variant="ghost" press="none" />}
     className="flex-nowrap items-center text-left"

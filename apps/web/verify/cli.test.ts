@@ -133,7 +133,7 @@ describe("verify status", () => {
       expect(result.stdout).toContain("save @ example.com: confirm-bounded (rung 3 under caps)");
       expect(result.stdout).toContain("borrow @ example.com: confirm-bounded (rung 3 under caps)");
       expect(result.stdout).toContain("landing @ example.com: read-only (rung 1)");
-      expect(result.stdout).toContain("cash-out @ example.com: review-bounded (rung 2)");
+      expect(result.stdout).toContain("cash-out @ example.com: confirm-bounded (rung 3 under caps)");
       expect(result.stdout).toContain("caps: $1.00 click; $2.00 run; $5.00 day");
       expect(result.stdout).toContain("recent incidents:");
       expect(result.stdout).toContain("send @ example.com: unexpected-host");
@@ -294,6 +294,89 @@ describe("live cash-out handle", () => {
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("HOME_VERIFY_CASHOUT_HANDLE");
     expect(fakeCalls().some((call) => call[3] === "fill")).toBe(false);
+  });
+});
+
+describe("live cash-out confirmation and recovery", () => {
+  const depositReview = (handle: string) => `Confirm\n$0.10\nProvider\nPeer\nPayout app\nCash App\nPayout handle\n${handle}\nNetwork\nBase`;
+  const cashoutArgs = [
+    "cash-out",
+    "--live",
+    "--base-url",
+    "https://example.com",
+    "--out",
+    outsideOutput,
+    "--allow-confirm",
+    "--account",
+    addressA,
+    "--max-usd",
+    "1",
+  ];
+
+  async function cashoutEnv(extra: Record<string, string | undefined>) {
+    await seedLiveState(addressA);
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    return {
+      ...fakeEnv("Account\nShow small balances\nCashed out $0.10\nRecovered $0.10", addressA),
+      FAKE_AGENT_BROWSER_AUTHENTICATED: "1",
+      FAKE_AGENT_BROWSER_BALANCE: "$26.89",
+      HOME_VERIFY_CASHOUT_HANDLE: "$zzpayout",
+      ...extra,
+    };
+  }
+
+  test("confirms the deposit when the review shows the canonical payout handle", async () => {
+    const env = await cashoutEnv({ FAKE_AGENT_BROWSER_REVIEW: depositReview("zzpayout") });
+    const result = run([...cashoutArgs, "--canary-operation", "cash-out"], env);
+    expect(result.exitCode).toBe(0);
+    expect(clickCalls().map((call) => call[call.indexOf("--name") + 1])).toContain("Cash out $0.10");
+    const live = latestRunArtifact("cash-out", "live.json");
+    expect(live).toContain("<payout-handle>");
+    expect(live).not.toContain("zzpayout");
+    expect(live).toContain('"label": "Cash out $0.10"');
+  });
+
+  test("refuses the deposit before the click when the review shows a different payout handle", async () => {
+    const env = await cashoutEnv({ FAKE_AGENT_BROWSER_REVIEW: depositReview("otherpayout") });
+    const result = run([...cashoutArgs, "--canary-operation", "cash-out"], env);
+    expect(result.exitCode).toBe(1);
+    expect(clickCalls().map((call) => call[call.indexOf("--name") + 1])).not.toContain("Cash out $0.10");
+    expect(latestRunArtifact("cash-out", "evidence.json")).toContain("does not show the reviewed canonical payout handle");
+  });
+
+  test("ends the withdrawal recovery with a note when nothing is in flight", async () => {
+    const env = await cashoutEnv({ FAKE_AGENT_BROWSER_PREFIX_NAMES: "[]" });
+    const result = run([...cashoutArgs, "--canary-operation", "withdraw"], env);
+    expect(result.exitCode).toBe(0);
+    expect(clickCalls().map((call) => call[call.indexOf("--name") + 1])).toEqual(["Send", "Decimal point", "1", "Continue"]);
+    expect(latestRunArtifact("cash-out", "live.json")).toContain('"note": "No in-flight Peer cash-out to withdraw."');
+    expect(latestRunArtifact("cash-out", "summary.md")).toContain("No in-flight Peer cash-out to withdraw.");
+    const entries = await readLedger(resolve(home, ".home-verify", "ledger.jsonl"));
+    const recorded = entries.filter((entry) => entry.surface === "cash-out").at(-1);
+    expect(recorded?.rungReached).toBe(2);
+  });
+
+  test("recovers an in-flight cash-out by resolving both prefix controls", async () => {
+    const env = await cashoutEnv({
+      FAKE_AGENT_BROWSER_PREFIX_NAMES: JSON.stringify(["Withdraw $0.10"]),
+      FAKE_AGENT_BROWSER_REVIEW: "Confirm\n$0.10\nProvider\nPeer\nPayout app\nCash App\nNetwork\nBase",
+    });
+    const result = run([...cashoutArgs, "--canary-operation", "withdraw"], env);
+    expect(result.exitCode).toBe(0);
+    expect(clickCalls().map((call) => call[call.indexOf("--name") + 1])).toEqual(["Send", "Decimal point", "1", "Continue", "Withdraw $0.10", "Withdraw $0.10"]);
+    expect(latestRunArtifact("cash-out", "live.json")).toContain('"label": "Withdraw $0.10"');
+  });
+
+  test("refuses a prefix that matches more than one visible control", async () => {
+    const env = await cashoutEnv({
+      FAKE_AGENT_BROWSER_PREFIX_NAMES: JSON.stringify(["Withdraw $0.10", "Withdraw $0.20"]),
+    });
+    const result = run([...cashoutArgs, "--canary-operation", "withdraw"], env);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("click-prefix “Withdraw ”");
+    expect(result.stderr).toContain("Withdraw $0.10; Withdraw $0.20");
+    expect(clickCalls().map((call) => call[call.indexOf("--name") + 1])).toEqual(["Send", "Decimal point", "1", "Continue"]);
   });
 });
 

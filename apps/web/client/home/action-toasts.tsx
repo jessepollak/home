@@ -143,7 +143,7 @@ function actionToastMessage(action: ToastAction, status: ToastAction["status"]):
     return status === "pending" ? "Closing Borrow position" : "Closed Borrow position";
   }
   const amount = action.summary.amounts.find((candidate) =>
-    operation === "withdraw" || operation === "borrow"
+    operation === "withdraw" || operation === "cash-out-withdraw" || operation === "borrow"
       ? candidate.direction === "receive" && !candidate.estimated && !candidate.maximum
       : candidate.direction === "spend" && !candidate.estimated && !candidate.maximum,
   );
@@ -162,11 +162,13 @@ function actionToastMessage(action: ToastAction, status: ToastAction["status"]):
   if (operation === "withdraw-collateral") return `${status === "pending" ? "Withdrawing collateral" : "Withdrew collateral"} ${formatted}`;
   if (operation === "borrow") return `${status === "pending" ? "Borrowing" : "Borrowed"} ${formatted}`;
   if (operation === "repay") return `${status === "pending" ? "Repaying" : "Repaid"} ${formatted}`;
+  if (operation === "cash-out") return `${status === "pending" ? "Cashing out" : "Cashed out"} ${formatted}`;
+  if (operation === "cash-out-withdraw") return `${status === "pending" ? "Recovering" : "Recovered"} ${formatted}`;
   if (operation === "close-position") return status === "pending" ? "Closing Borrow position" : "Closed Borrow position";
   return null;
 }
 
-function operationKind(kind: string, borrowOperation?: string): "send" | "deposit" | "withdraw" | "supply-collateral" | "withdraw-collateral" | "borrow" | "repay" | "close-position" | null {
+function operationKind(kind: string, borrowOperation?: string): "send" | "deposit" | "withdraw" | "cash-out" | "cash-out-withdraw" | "supply-collateral" | "withdraw-collateral" | "borrow" | "repay" | "close-position" | null {
   if (borrowOperation === "borrow" || borrowOperation === "supply-and-borrow") return "borrow";
   if (borrowOperation === "repay" || borrowOperation === "repay-all") return "repay";
   if (borrowOperation === "close-position") return "close-position";
@@ -175,6 +177,8 @@ function operationKind(kind: string, borrowOperation?: string): "send" | "deposi
   if (kind === "send") return "send";
   if (kind === "savings-deposit") return "deposit";
   if (kind === "savings-withdraw") return "withdraw";
+  if (kind === "cash-out") return "cash-out";
+  if (kind === "cash-out-withdraw") return "cash-out-withdraw";
   if (kind === "supply-collateral") return "supply-collateral";
   if (kind === "withdraw-collateral") return "withdraw-collateral";
   if (kind === "borrow") return "borrow";
@@ -187,6 +191,8 @@ function failedVerb(kind: string): string {
     case "send": return "Send";
     case "savings-deposit": return "Deposit";
     case "savings-withdraw": return "Withdrawal";
+    case "cash-out": return "Cash-out";
+    case "cash-out-withdraw": return "Cash-out withdrawal";
     case "supply-collateral": return "Adding collateral";
     case "withdraw-collateral": return "Withdrawing collateral";
     case "borrow": return "Borrow";
