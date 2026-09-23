@@ -618,7 +618,6 @@ function BorrowMoneyDialog({
     return () => window.clearTimeout(timer);
   }, [preparedAction, preparedExpiresAt]);
 
-
   function goBack() {
     setPreparedAction(null);
     setServerExpiredActionId(null);
@@ -716,7 +715,6 @@ function BorrowMoneyDialog({
           ? closesWithoutDebt ? {} : { assetControl: <MoneyAssetPicker {...amountAssetProps} /> }
           : step === "pending" ? {} : { onBack: goBack })}
         onClose={onClose}
-        closeDisabled={step === "pending"}
         closeLabel="Close Borrow action"
       />
       <MoneyModalBody hasFooter={step !== "pending"} className="gap-4 pt-4">

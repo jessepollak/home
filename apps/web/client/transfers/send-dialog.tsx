@@ -359,7 +359,6 @@ export function SendDialog({
           ? { assetControl: <MoneyAssetPicker {...amountAssetProps} /> }
           : step === "pending" ? {} : { onBack: back })}
         onClose={onClose}
-        closeDisabled={step === "pending"}
         closeLabel="Close send dialog"
       />
       <MoneyModalBody hasFooter={["amount", "destination", "handle", "handle-confirm", "confirm", "error"].includes(step)} className="gap-4 pt-4">

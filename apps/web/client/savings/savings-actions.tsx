@@ -130,7 +130,6 @@ function OwnerBoundSavingsMoneyDialog({
     setError(null);
   }
 
-
   function goBack() {
     if (step === "confirm" || step === "error" || step === "failed") {
       setPreparedAction(null);
@@ -260,7 +259,6 @@ function OwnerBoundSavingsMoneyDialog({
               ? {}
               : { onBack: goBack })}
           onClose={onClose}
-          closeDisabled={step === "pending"}
           closeLabel={`Close ${mode} dialog`}
         />
 

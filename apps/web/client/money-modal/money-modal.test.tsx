@@ -60,22 +60,33 @@ describe("MoneyModal dismissal contract", () => {
     expect(page().getByRole("dialog", { name: "Blocked" })).toBeTruthy();
   });
 
-  test("rejects dismissal during a pending request and accepts it after settlement", async () => {
+  test("vetoes dismissal while pending", async () => {
     const events: string[] = [];
-    const onCancel = () => { events.push("cancel"); };
-    const onClose = () => { events.push("close"); };
-    const renderModal = (pending: boolean) => (
-      <MoneyModal open labelledBy="pending-title" immediate pending={pending} onCancel={onCancel} onClose={onClose}>
-        <h2 id="pending-title">Pending request</h2>
-      </MoneyModal>
+    render(
+      <MoneyModal open labelledBy="pending-title" immediate pending onCancel={() => { events.push("cancel"); }} onClose={() => events.push("close")}>
+        <MoneyModalHeader title="Pending request" titleId="pending-title" onClose={() => events.push("header close")} />
+      </MoneyModal>,
     );
-    const { rerender } = render(renderModal(true));
+
+    const close = page().getByRole("button", { name: "Close" });
+    expect(close.hasAttribute("disabled")).toBe(true);
     await act(async () => fireEvent.keyDown(document, { key: "Escape" }));
     await act(async () => fireEvent.click(document.querySelector("[data-slot=drawer-overlay]")!));
     expect(page().getByRole("dialog", { name: "Pending request" })).toBeTruthy();
     expect(events).toEqual([]);
+  });
 
+  test("allows dismissal after pending clears", async () => {
+    const events: string[] = [];
+    const renderModal = (pending: boolean) => (
+      <MoneyModal open labelledBy="pending-title" immediate pending={pending} onCancel={() => { events.push("cancel"); }} onClose={() => events.push("close")}>
+        <MoneyModalHeader title="Pending request" titleId="pending-title" onClose={() => events.push("header close")} />
+      </MoneyModal>
+    );
+    const { rerender } = render(renderModal(true));
     rerender(renderModal(false));
+
+    expect(page().getByRole("button", { name: "Close" }).hasAttribute("disabled")).toBe(false);
     await act(async () => fireEvent.click(document.querySelector("[data-slot=drawer-overlay]")!));
     expect(events).toEqual(["cancel"]);
     await act(async () => fireEvent.keyDown(document, { key: "Escape" }));
