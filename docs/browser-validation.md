@@ -13,7 +13,7 @@ This contract applies to every user-visible UI change and core-flow implementati
    1. unit-test a Home-owned function when its output is the behavior;
    2. component-test Home roles, labels, handlers, and states;
    3. reuse an existing Chromium smoke path if it already fails on the bug;
-   4. add one assertion to the existing fixture-backed Playwright suite only when the failure is principally observable through layout or geometry, scrolling, focus, history, persisted browser state, media queries, hydration/first paint, browser dispatch integration, or a critical cross-page journey;
+   4. add one assertion to the relevant surface file in `apps/web/tests/browser/*.pw.ts` only when the failure is principally observable through layout or geometry, scrolling, focus, history, persisted browser state, media queries, hydration/first paint, browser dispatch integration, or a critical cross-page journey;
    5. otherwise, add no Playwright test.
 
 The [test-weight CI gate](gates.md#browser-test-ladder-boundary) asks for a PR-body `Playwright-rung` when a browser file gains net-new Playwright test/describe declarations and a `Test-weight` reason when a scoped fix adds more test than product lines.

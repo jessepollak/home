@@ -28,9 +28,17 @@ for (const [name, diff, title, body, expected] of [
   ["genuinely added test alongside rename still requires rung", patch(browser,
     ['test("renamed", () => {});', 'test("new", () => {});'],
     ['test("old", () => {});']), "feat(ui): test", "", "Playwright-rung"],
-  ["net additions in one file cannot be canceled by removals in another", patch(browser,
+  ["genuinely added test across browser files requires rung", patch(browser,
+    ['test("renamed", () => {});', 'test("new", () => {});'])
+    + patch("apps/web/tests/browser/old.pw.ts", [], ['test("old", () => {});']), "feat(ui): test", "", "Playwright-rung"],
+  ["moving a test between browser files requires no rung", patch(browser,
     ['test("new", () => {});']) + patch("apps/web/tests/browser/old.pw.ts", [],
-    ['test("removed", () => {});']), "feat(ui): test", "", "Playwright-rung"],
+    ['test("removed", () => {});']), "feat(ui): test", "", ""],
+  ["deleting a browser file and adding more declarations elsewhere requires rung", patch(browser,
+    ['test("new", () => {});', 'test("extra", () => {});'])
+    + patch("apps/web/tests/browser/old.pw.ts", [], ['test("removed", () => {});'])
+      .replace("+++ b/apps/web/tests/browser/old.pw.ts", "+++ /dev/null"),
+    "feat(ui): test", "", "Playwright-rung"],
   ["rename across browser paths offsets its removed declaration", patch(browser,
     ['test("renamed", () => {});'], ['test("old", () => {});'])
     .replace(`--- a/${browser}`, "--- a/apps/web/tests/browser/old.pw.ts"), "feat(ui): test", "", ""],
@@ -61,7 +69,7 @@ for (const [name, diff, title, body, expected] of [
   });
 }
 
-test("the report counts test lines and the positive browser delta per file", () => {
+test("the report counts test lines and the positive browser delta across files", () => {
   const report = testWeightReport(
     patch(browser, ['test("new", () => {});', "expect(1).toBe(1);"], ['test("old", () => {});'])
       + patch("apps/web/tests/browser/second.pw.ts", ['test.describe("new", () => {'])
@@ -74,6 +82,16 @@ test("the report counts test lines and the positive browser delta per file", () 
     addedTests: 3,
     productLines: 2,
   });
+});
+
+test("the report cancels equal additions and removals across browser files", () => {
+  const report = testWeightReport(
+    patch(browser, ['test("moved", () => {});'])
+      + patch("apps/web/tests/browser/old.pw.ts", [], ['test("original", () => {});']),
+    "feat(ui): test", "",
+  );
+  assert.equal(report.netNewPlaywright, 0);
+  assert.deepEqual(report.findings, []);
 });
 
 for (const rung of ["layout", "scrolling", "focus", "history", "persisted-state", "media-query", "hydration", "dispatch", "journey"]) {

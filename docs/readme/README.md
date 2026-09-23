@@ -15,7 +15,7 @@ The root README's inline gallery features Home, Save, Invest, and Send. All capt
 
 ## Provenance and safety boundary
 
-[`capture.ts`](capture.ts) renders the actual application code on the same `HOME_PLAYWRIGHT_SMOKE=1` sample account-provider boundary used by `apps/web/playwright.config.ts` and `apps/web/tests/browser/smoke.pw.ts`. Browser requests to the known local `/api/**` routes are fulfilled with fixed samples, and the exact public Basename resolver request made by `ProfileMark` is fulfilled locally with an empty profile. The browser context blocks service workers, aborts unexpected non-local requests, and fails the capture if one is observed. Unknown local API routes are also aborted and reported rather than reaching the development server.
+[`capture.ts`](capture.ts) renders the actual application code on the same `HOME_PLAYWRIGHT_SMOKE=1` sample account-provider boundary used by `apps/web/playwright.config.ts` and `apps/web/tests/browser/fixtures/api.ts`. Browser requests to the known local `/api/**` routes are fulfilled with fixed samples, and the exact public Basename resolver request made by `ProfileMark` is fulfilled locally with an empty profile. The browser context blocks service workers, aborts unexpected non-local requests, and fails the capture if one is observed. Unknown local API routes are also aborted and reported rather than reaching the development server.
 
 The browser fixture process does not require provider credentials and does not send real API, auth, wallet, funding, or transaction requests. It does not sign, dispatch, submit, or confirm a transaction. The balances, prices, rates, positions, addresses, and timestamps in the images are illustrative fixture data. Rates are variable examples, not promised returns.
 
