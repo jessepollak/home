@@ -16,7 +16,7 @@ const APPLE_PAY_URL = "https://pay.coinbase.com/embedded/apple-pay";
 
 type FundingWallet = Pick<
   AccountWalletClient,
-  "ownerKey" | "status" | "session" | "fetchAccountResource"
+  "ownerKey" | "status" | "verification" | "session" | "fetchAccountResource"
 >;
 
 function fundingBinding() {
@@ -60,6 +60,7 @@ function verifiedWallet(address: `0x${string}` = ADDRESS_A): FundingWallet {
   return {
     ownerKey: `owner-${address}`,
     status: "verified",
+    verification: "server",
     session: {
       user: { subject: `subject-${address}` },
       smartAccount: { address, chainId: 8453 },
@@ -560,7 +561,12 @@ describe("FundingExperience", () => {
 
     view.rerender(
       <FundingExperienceForWallet
-        wallet={{ ...verifiedWallet(ADDRESS_B), status: "validating", session: null }}
+        wallet={{
+          ...verifiedWallet(ADDRESS_B),
+          status: "validating",
+          verification: "provisional",
+          session: null,
+        }}
         navigateToRedirect={() => {}}
         initialStep="receive"
       />,
@@ -577,6 +583,7 @@ describe("FundingExperience", () => {
           wallet={{
             ownerKey: null,
             status: "signed-out",
+            verification: null,
             session: null,
             fetchAccountResource: async () => {
               throw new Error("signed out");

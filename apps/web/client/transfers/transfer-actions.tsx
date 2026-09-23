@@ -10,6 +10,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import {
+  isServerVerified,
   useAccountWallet,
   type AccountWalletClient,
 } from "@/client/account/cdp-client";
@@ -42,6 +43,7 @@ type TransferWallet = Pick<
   AccountWalletClient,
   | "ownerKey"
   | "status"
+  | "verification"
   | "session"
   | "prepareMoneyAction"
   | "fetchAccountResource"
@@ -72,8 +74,9 @@ export function TransferActionsForWallet({
     mountedServerSnapshot,
   );
   const boundary = uiBoundary(wallet);
-  const verifiedAddress =
-    wallet.status === "verified" ? wallet.session?.smartAccount?.address ?? null : null;
+  const verifiedAddress = isServerVerified(wallet)
+    ? wallet.session.smartAccount?.address ?? null
+    : null;
   const routeOpen = routing ? routing.state.flow === "send" : initialOpen;
   const visibleSend = modalOwner === boundary && (routing ? routeOpen : sendOpen);
   const dropPrivate = modalOwner !== null && modalOwner !== boundary;

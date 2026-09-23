@@ -23,13 +23,14 @@ const ADDRESS = "0x1111111111111111111111111111111111111111" as const;
 
 type FundingWallet = Pick<
   AccountWalletClient,
-  "ownerKey" | "status" | "session" | "fetchAccountResource"
+  "ownerKey" | "status" | "verification" | "session" | "fetchAccountResource"
 >;
 
 function verifiedWallet(): FundingWallet {
   return {
     ownerKey: "funding-owner",
     status: "verified",
+    verification: "server",
     session: {
       user: { subject: "funding-subject" },
       smartAccount: { address: ADDRESS, chainId: 8453 },

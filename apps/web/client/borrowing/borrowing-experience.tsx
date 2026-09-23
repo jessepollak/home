@@ -9,7 +9,11 @@ import {
   type AssetMarkResolution,
 } from "@/client/asset-mark/presentation";
 import { canonicalUsdcAsset } from "@/config/portfolio-assets";
-import { useAccountWallet, type AccountWalletClient } from "@/client/account/cdp-client";
+import {
+  isServerVerified,
+  useAccountWallet,
+  type AccountWalletClient,
+} from "@/client/account/cdp-client";
 import { dataOwnerKey as ownerDataKey } from "@/client/account/owner-keys";
 import {
   MoneyAmountDisplay,
@@ -127,7 +131,7 @@ export function AuthenticatedBorrowExperience({
   const account = useAccountWallet();
   return (
     <BorrowExperience
-      session={account.status === "verified" ? account.session : null}
+      session={isServerVerified(account) ? account.session : null}
       fetchAccountResource={account.fetchAccountResource}
       prepareMoneyAction={account.prepareMoneyAction}
       executeMoneyAction={account.executeMoneyAction}

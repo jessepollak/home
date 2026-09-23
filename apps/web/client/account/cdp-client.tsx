@@ -76,6 +76,20 @@ export type AccountWalletClient = {
   signOut: (options?: { onNavigationSafe?: () => void }) => Promise<void>;
 };
 
+export type ServerVerifiedAccount = {
+  status: "verified";
+  verification: "server";
+  session: VerifiedAccountSession;
+};
+
+export function isServerVerified(
+  account: Pick<AccountWalletClient, "status" | "verification" | "session">,
+): account is ServerVerifiedAccount {
+  return account.status === "verified" &&
+    account.verification === "server" &&
+    account.session !== null;
+}
+
 export const AccountWalletContext = createContext<AccountWalletClient | null>(null);
 
 export function createBlockedAccountWalletClient(

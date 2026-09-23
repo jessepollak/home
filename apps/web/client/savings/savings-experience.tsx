@@ -22,7 +22,7 @@ import { ArrowLeft } from "lucide-react";
 import { MoneyTicker } from "@/components/money-ticker";
 import { AddressText } from "@/components/address-text";
 import { useOptionalAppChrome } from "@/components/app-chrome";
-import { useAccountWallet } from "@/client/account/cdp-client";
+import { isServerVerified, useAccountWallet } from "@/client/account/cdp-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type {
   OperationResult,
@@ -116,7 +116,7 @@ type PositionState =
 export function AuthenticatedSavingsExperience() {
   const account = useAccountWallet();
   const region = usePresentationRegionId();
-  const session = account.status === "verified" ? account.session : null;
+  const session = isServerVerified(account) ? account.session : null;
   const balancesSession = session?.smartAccount
     ? {
         subject: session.user.subject,
