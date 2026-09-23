@@ -60,6 +60,39 @@ describe("MoneyModal dismissal contract", () => {
     expect(page().getByRole("dialog", { name: "Blocked" })).toBeTruthy();
   });
 
+  test("vetoes dismissal while pending", async () => {
+    const events: string[] = [];
+    render(
+      <MoneyModal open labelledBy="pending-title" immediate pending onCancel={() => { events.push("cancel"); }} onClose={() => events.push("close")}>
+        <MoneyModalHeader title="Pending request" titleId="pending-title" onClose={() => events.push("header close")} />
+      </MoneyModal>,
+    );
+
+    const close = page().getByRole("button", { name: "Close" });
+    expect(close.hasAttribute("disabled")).toBe(true);
+    await act(async () => fireEvent.keyDown(document, { key: "Escape" }));
+    await act(async () => fireEvent.click(document.querySelector("[data-slot=drawer-overlay]")!));
+    expect(page().getByRole("dialog", { name: "Pending request" })).toBeTruthy();
+    expect(events).toEqual([]);
+  });
+
+  test("allows dismissal after pending clears", async () => {
+    const events: string[] = [];
+    const renderModal = (pending: boolean) => (
+      <MoneyModal open labelledBy="pending-title" immediate pending={pending} onCancel={() => { events.push("cancel"); }} onClose={() => events.push("close")}>
+        <MoneyModalHeader title="Pending request" titleId="pending-title" onClose={() => events.push("header close")} />
+      </MoneyModal>
+    );
+    const { rerender } = render(renderModal(true));
+    rerender(renderModal(false));
+
+    expect(page().getByRole("button", { name: "Close" }).hasAttribute("disabled")).toBe(false);
+    await act(async () => fireEvent.click(document.querySelector("[data-slot=drawer-overlay]")!));
+    expect(events).toEqual(["cancel"]);
+    await act(async () => fireEvent.keyDown(document, { key: "Escape" }));
+    expect(events).toEqual(["cancel", "cancel"]);
+  });
+
   test("moves focus into the drawer, locks scroll, then restores both on close", async () => {
     function Harness() {
       const [open, setOpen] = useState(false);

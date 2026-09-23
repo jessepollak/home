@@ -11,7 +11,28 @@ import {
 const { act, cleanup, fireEvent, render, waitFor } = await import(
   "@testing-library/react"
 );
-const { ActivityPanel, ActivityPanelView } = await import("./activity-panel");
+const { ActivityPanelView } = await import("./activity-panel");
+const { ConnectedActivityPanel } = await import("@/client/home/activity-panel");
+
+const noOperations = async () => ({ actions: [] });
+
+function ActivityPanel({
+  session,
+  fetchActivity,
+}: {
+  session: VerifiedAccountSession | null;
+  fetchActivity: FetchActivity;
+}) {
+  return (
+    <ConnectedActivityPanel
+      density="page"
+      activitySession={session}
+      fetchActivity={fetchActivity}
+      fetchOperations={noOperations}
+      regionId="US"
+    />
+  );
+}
 
 const waitedFor = { timeout: 5_000 };
 
@@ -194,7 +215,7 @@ afterEach(() => {
   });
 });
 
-describe("ActivityPanel", () => {
+describe("ConnectedActivityPanel", () => {
   test("initial load stays pending until both sources settle", () => {
     const activityPage = pageFor("to=2026-09-13T12%3A00%3A00.000Z", WALLET_A);
     const view = render(

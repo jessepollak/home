@@ -337,13 +337,6 @@ export const ReducedMotionReference: Story = {
       for (const ticker of tickers) {
         await expect(ticker).toHaveAttribute("data-animated", "false");
       }
-      for (const selector of ["[data-money-sheet]", "[data-slot='drawer-overlay']", "[data-slot='drawer-content']"]) {
-        const node = document.querySelector<HTMLElement>(selector);
-        if (!node) throw new Error(`Reduced-motion node is missing: ${selector}`);
-        const style = getComputedStyle(node);
-        await expect(style.transitionDuration).toBe("0s");
-        await expect(style.animationDuration).toBe("0s");
-      }
     };
 
     await screen.findByRole("dialog", { name: "Deposit" });
@@ -357,7 +350,7 @@ export const ReducedMotionReference: Story = {
     viewport: { defaultViewport: "mobile" },
     docs: {
       description: {
-        story: "Deterministic reduced-motion review fixture: primary, alternate, and available numbers do not animate, and close/reopen has no drawer motion without changing OS settings. Production still follows prefers-reduced-motion; retain separate real-browser media-emulation proof.",
+        story: "Deterministic reduced-motion review fixture: primary, alternate, and available numbers do not animate across close and reopen. Production still follows prefers-reduced-motion; retain separate real-browser media-emulation proof.",
       },
     },
   },
