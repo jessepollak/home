@@ -7,6 +7,7 @@ Figma is Home's design source. Paper is retired.
 - Canonical funded screen: [`Home — funded`](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=13-19) (`13:19`)
 - Approved final design: [`Home — final`](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=92-922) (`92:922`) — Jesse approved it on 2026-09-23 as the final Home design; production adoption is a separate issue
 - Component and frame inventory: [figma-mapping.json](figma-mapping.json)
+- Real-world references: [Mobbin](mobbin.md), through the [References](#references) workflow
 
 ## What belongs in Figma
 
@@ -23,6 +24,15 @@ The live route also renders `HomeProductTile` twice for Save and Borrow. Jesse's
 The canonical viewport remains 390×844. `ShellHeader` and `TabBar` are fixed around a vertically scrollable content frame whose DOM order mirrors `HomePanel`: total balance, money actions, Your money, Save/Borrow, then Activity. The Screens section (`11:768`) reads in this order: `Home — final` (`92:922`), the approved final design; `Home — funded` (`13:19`), the current-production baseline until the production adoption PR lands; then a nested `History (superseded)` section (`145:1638`) holding v1 (`65:503`), v2 (`81:700`), and the three explorations with their annotations. Approval of the Figma frame does not by itself change production.
 
 The funded baseline intentionally preserves the credential-free browser fixture's mixed states below the fold: Save is loading and Activity shows its recovery treatment. The retained Figma inner-content export documents that below-fold structure; the retained browser comparison is the canonical 390×844 viewport, so below-fold browser parity remains a manual inspection rather than paired screenshot evidence. The Figma recovery treatment is simplified text plus a secondary action, while production uses a destructive `Alert`; that difference is retained explicitly rather than presented as exact fidelity.
+
+## References
+
+[Mobbin](mobbin.md) is the reference source for how shipped products solve the same problem; its plan, access path, smoke, and terms constraints live there.
+
+- **When to consult.** Search Mobbin before any new screen, for any pattern question, and whenever a comment asks how others do it. Search `search_flows` for a journey and `search_screens` for one screen, with one plain-language intent per query and the platform that matches the Home surface (`ios` for the 390 px mobile layout, `web` for desktop). If Mobbin is unavailable, continue and say `Mobbin unavailable: <reason>` rather than inventing references.
+- **How to cite.** Every reference is one line: app, screen or flow name, Mobbin URL, and the date it was consulted, for example `OKX — Apply for a loan (flow) — https://mobbin.com/flows/2938274e-a291-4ed1-81f8-0dd82685ce2c — 2026-09-23`. Cite the durable `mobbin_url`, never the expiring `image_url`. Citations go in the design PR (or the issue comment when there is no PR) and on the Figma References group label; images do not.
+- **Where references go.** Selected screens live only in a `References` section of the [Home Figma file](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home) on the canonical `Home` page, beside Screens and Components and never inside them. Inside References, group screens by pattern (for example `Borrow row`, `Loan application`, `Activity feed`), each group labeled with its citations. Whoever edits the Figma file places them: Jesse with Mobbin's Copy to Figma plugin, or a Figma comment-pass worker that downloads the MCP `image_url` and places the file with `use_figma`. The first placement creates the section and records its node ID here. Keep a small curated set per pattern, and never commit, attach, or re-host the images anywhere else. Reference screens are not Home components, are never instanced, and never get a Code Connect mapping.
+- **Critique rule.** Every design PR has a `## References` section that names each reference by citation and says what the design borrowed from it and what it rejected, with the reason. A design with no relevant reference says so and names the queries it ran; a run without Mobbin says `Mobbin unavailable: <reason>`. The critic checks that the design adapts patterns to Home's tokens and components rather than copying another product's screen, artwork, or brand.
 
 ## Code Connect
 
