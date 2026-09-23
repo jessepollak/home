@@ -141,7 +141,7 @@ describe("feature map parser", () => {
     expect(surfaces.get("save")?.liveReach?.at(-1)).toEqual({ kind: "expect", text: "Deposited $0.10" });
     expect(surfaces.get("borrow")?.liveReach?.at(-3)).toEqual({ kind: "expect", text: "Confirm" });
     expect(surfaces.get("borrow")?.liveReach?.at(-1)).toEqual({ kind: "expect", text: "Borrowed $0.10" });
-    expect(surfaces.get("cash-out")?.liveReach).toContainEqual({ kind: "click", label: "Send to Zelle, Venmo, Cash App and more Use Peer to send via app" });
+    expect(surfaces.get("cash-out")?.liveReach).toContainEqual({ kind: "click", label: "Available payout apps: Cash App, Zelle Send to Zelle, Venmo, Cash App and more Use Peer to send via app" });
     expect(surfaces.get("cash-out")?.liveReach?.at(-1)).toEqual({ kind: "expect", text: "Confirm" });
     expect(surfaces.get("cash-out")?.confirmLabels).toContain("Withdraw $<amount>");
     expect(surfaces.get("add-money")?.liveReach).toContainEqual({ kind: "click", label: "Deposit USD Coinbase · Apple Pay" });
