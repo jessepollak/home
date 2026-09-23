@@ -59,6 +59,11 @@ describe("prepared action authority", () => {
     expect(() => preparedFromHar({ log: { entries: [entry(prepared("send"), 401)] } }, "https://example.com", id)).toThrow("found 0");
     expect(() => preparedFromHar({ log: { entries: [entry(prepared("send")), entry(prepared("send"))] } }, "https://example.com", id)).toThrow("found 2");
     expect(() => preparedFromHar({ log: { entries: [{ ...entry(prepared("send")), response: { status: 201, content: {} } }] } }, "https://example.com", id)).toThrow("unavailable");
+    const fixtureEntry = { ...entry(prepared("send"), 200), response: { status: 200, content: { encoding: "base64", text: Buffer.from(JSON.stringify(prepared("send"))).toString("base64") } } };
+    expect(preparedFromHar({ log: { entries: [fixtureEntry] } }, "https://example.com", id, 200)).toEqual(prepared("send"));
+    expect(() => preparedFromHar({ log: { entries: [fixtureEntry] } }, "https://example.com", id)).toThrow("found 0");
+    const malformed = { ...fixtureEntry, response: { status: 200, content: { encoding: "base64", text: "not valid base64" } } };
+    expect(() => preparedFromHar({ log: { entries: [malformed] } }, "https://example.com", id, 200)).toThrow("invalid");
   });
 });
 

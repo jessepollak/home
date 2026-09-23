@@ -5,7 +5,7 @@ import { MONEY_ACTION_ID_ATTRIBUTE } from "../shared/money-actions";
 import { checkPreparedAction, confirmControlScript, preparedFromHar, protectedControlScript } from "./action";
 import { resolve } from "node:path";
 import { finalizeEvidence, summarizeEvidence, type MarkResult } from "./evidence";
-import { fixtureRoutes, requiresSignedInFixture } from "./fixtures";
+import { fixtureAccount, fixtureRecipient, fixtureRoutes, requiresSignedInFixture } from "./fixtures";
 import { defaultOtpSender, gmailCredentialsPath, pollGmailOtp, readGmailCredentials, runGmailAuth, verifyAccountEmail, type GmailCredentials } from "./gmail";
 import {
   accountAddressFromDocument,
@@ -513,7 +513,7 @@ if (live) {
     process.exit(2);
   }
 }
-let effectiveRecipient: LiveRecipient | null = null;
+let effectiveRecipient: LiveRecipient | null = !live && surfaceId === "send" ? { name: "jesse.base.eth", address: fixtureRecipient } : null;
 if (live && (recipientPlaceholder || recipientOption !== undefined)) {
   const resolution = resolveLiveRecipient(recipientOption);
   if (resolution.action === "refuse") {
@@ -592,7 +592,7 @@ if (live) {
     }
   }
 }
-let pinnedAccount: string | null = active?.pinnedAccount ?? null;
+let pinnedAccount: string | null = active?.pinnedAccount ?? (!live && requiresSignedInFixture(surfaceId) ? fixtureAccount : null);
 if (liveWithSession) {
   try {
     pinnedAccount = (await readFile(pinPath, "utf8")).trim();
@@ -791,7 +791,7 @@ try {
   if (!active) {
   command("open", "--init-script", initPath);
   command("set", "viewport", "390", "844");
-  if (live) command("network", "har", "start", "--content", "text");
+  command("network", "har", "start", "--content", live ? "text" : "all");
   if (liveWithSession) {
     await ensurePrivateStateDirectory();
     command("state", "load", statePath);
@@ -854,22 +854,30 @@ try {
     process.exit(0);
   }
   const commandArgs = invocationArgs.slice(1);
+  async function recoverUsage(message: string): Promise<never> {
+    const record: StepRecord = { step: `${verb} usage`, status: "pending" };
+    steps.push(record);
+    return await recoverStepFailure(new Error(message), record);
+  }
   let drivenSteps: ReachStep[] = reachSteps;
   if (verb === "goto") {
+    if (commandArgs.length !== 1) await recoverUsage("Usage: verify goto </path>");
     const target = commandArgs[0];
     if (!target || !target.startsWith("/") || target.startsWith("//")) throw new Error("Goto must be an app path on the pinned origin.");
     const route = new URL(target, baseUrl);
     if (route.origin !== baseUrl.origin || /^\/api(?:\/|$)/.test(route.pathname)) throw new Error("Goto must be an app path on the pinned origin.");
     drivenSteps = [{ kind: "goto", path: target }];
   } else if (verb === "fill") {
-    if (commandArgs.length !== 2) throw new Error("Usage: verify fill <label> <value>");
+    if (commandArgs.length !== 2) await recoverUsage("Usage: verify fill <label> <value>");
     drivenSteps = [{ kind: "fill", label: commandArgs[0], value: commandArgs[1] }];
   } else if (verb === "press") {
-    drivenSteps = [{ kind: "press", key: commandArgs[0] ?? "" }];
+    if (commandArgs.length !== 1 || !commandArgs[0]) await recoverUsage("Usage: verify press <key>");
+    drivenSteps = [{ kind: "press", key: commandArgs[0] }];
   } else if (verb === "click") {
-    if (commandArgs.length !== 1 || !commandArgs[0]) throw new Error("Usage: verify click <@ref|name>");
+    if (commandArgs.length !== 1 || !commandArgs[0]) await recoverUsage("Usage: verify click <@ref|name>");
     drivenSteps = [{ kind: "click", label: commandArgs[0] }];
   } else if (verb === "confirm") {
+    if (!live && surfaceId !== "send") throw new Error(`no fixture prepared action for ${surfaceId}`);
     const controls = jsonResult(command("eval", confirmControlScript(MONEY_ACTION_ID_ATTRIBUTE)));
     if (!Array.isArray(controls) || controls.length !== 1 || typeof controls[0]?.name !== "string") throw new Error("A unique prepared money control is required.");
     drivenSteps = [{ kind: "click", label: controls[0].name }];
@@ -953,30 +961,32 @@ try {
       clickRef = step.label;
       step = { kind: "click", label: name };
     }
-    if (live && step.kind === "click") {
+    if ((live || verb === "confirm") && step.kind === "click") {
       confirmStep = verb === "confirm" || matchesConfirmLabel(surface.confirmLabels, step.label);
       if (verb === "click" && confirmStep) throw new Error("Plain click refuses a money confirm; use verify confirm.");
-      const amountClickError = opensReview ? null : unlistedAmountClickError(step.label, confirmStep);
-      if (amountClickError) {
-        record.status = "failed";
-        stoppedBefore = step.label;
-        liveRefusal = amountClickError;
-        await writeLiveEvidence();
-        break;
-      }
-      const decision = decideConfirmGate(surface.live, step.label, allowConfirm, confirmStep, afterReview);
-      if (decision.action === "refuse") {
-        record.status = "failed";
-        stoppedBefore = step.label;
-        await writeLiveEvidence();
-        throw new Error(decision.reason);
-      }
-      if (decision.action === "stop") {
-        record.status = "failed";
-        stoppedBefore = step.label;
-        if (!confirmStep) liveRefusal = decision.reason;
-        await writeLiveEvidence();
-        break;
+      if (live) {
+        const amountClickError = opensReview ? null : unlistedAmountClickError(step.label, confirmStep);
+        if (amountClickError) {
+          record.status = "failed";
+          stoppedBefore = step.label;
+          liveRefusal = amountClickError;
+          await writeLiveEvidence();
+          break;
+        }
+        const decision = decideConfirmGate(surface.live, step.label, allowConfirm, confirmStep, afterReview);
+        if (decision.action === "refuse") {
+          record.status = "failed";
+          stoppedBefore = step.label;
+          await writeLiveEvidence();
+          throw new Error(decision.reason);
+        }
+        if (decision.action === "stop") {
+          record.status = "failed";
+          stoppedBefore = step.label;
+          if (!confirmStep) liveRefusal = decision.reason;
+          await writeLiveEvidence();
+          break;
+        }
       }
       if (confirmStep) {
         waitForEnabledButton(step.label);
@@ -993,7 +1003,7 @@ try {
         command("network", "har", "stop", harPath);
         await chmod(harPath, 0o600);
         try {
-          const prepared = preparedFromHar(JSON.parse(await readFile(harPath, "utf8")), baseUrl.origin, preparedId);
+          const prepared = preparedFromHar(JSON.parse(await readFile(harPath, "utf8")), baseUrl.origin, preparedId, live ? 201 : 200);
           const checked = checkPreparedAction(prepared, preparedId, surfaceId, option("--canary-operation") ?? null,
             effectiveRecipient?.address ?? null, canonicalCashoutPayoutHandle, pinnedAccount ?? "");
           parsedAmountUsd = checked.amountUsd;
@@ -1004,44 +1014,46 @@ try {
           await writeLiveEvidence();
           break;
         }
-        liveRefusal = enforceAmountCap(parsedAmountUsd, maxUsd ?? Number.NaN);
-        if (!liveRefusal && parsedAmountUsd !== null) {
-          liveRefusal = enforceCumulativeAmountCap(cumulativeAmountUsd, parsedAmountUsd, maxUsdTotal ?? Number.NaN);
+        if (live) {
+          liveRefusal = enforceAmountCap(parsedAmountUsd, maxUsd ?? Number.NaN);
+          if (!liveRefusal && parsedAmountUsd !== null) {
+            liveRefusal = enforceCumulativeAmountCap(cumulativeAmountUsd, parsedAmountUsd, maxUsdTotal ?? Number.NaN);
+          }
+          if (!liveRefusal && maxUsd !== null && maxUsdTotal !== null) {
+            liveRefusal = confirmPolicyRefusal({
+              role: verifyRole,
+              amountUsd: parsedAmountUsd,
+              balanceUsd: renderedBalanceUsd,
+              runSpendUsd: spendForRun(ledgerEntries, session),
+              todayFactorySpendUsd: spendForDay(ledgerEntries, new Date().toISOString().slice(0, 10)),
+              clickCapUsd: maxUsd,
+              runCapUsd: maxUsdTotal,
+            });
+          }
+          if (liveRefusal || parsedAmountUsd === null || maxUsd === null || maxUsdTotal === null) {
+            record.status = "failed";
+            stoppedBefore = step.label;
+            await writeLiveEvidence();
+            break;
+          }
+          unexpectedHosts = observeUnexpectedHosts();
+          liveRefusal = hostObservationRefusal(unexpectedHosts);
+          if (!liveRefusal && parsedAmountUsd !== null) liveRefusal = await reserveSpend(parsedAmountUsd);
+          if (liveRefusal) {
+            record.status = "failed";
+            stoppedBefore = step.label;
+            await writeLiveEvidence();
+            break;
+          }
+          confirmIntent = {
+            label: step.label,
+            parsedAmountUsd,
+            capUsd: maxUsd,
+            totalCapUsd: maxUsdTotal,
+            recipient: canonicalCashoutPayoutHandle === null ? effectiveRecipient : { name: null, address: canonicalCashoutPayoutHandle },
+            timestamp: new Date().toISOString(),
+          };
         }
-        if (!liveRefusal && maxUsd !== null && maxUsdTotal !== null) {
-          liveRefusal = confirmPolicyRefusal({
-            role: verifyRole,
-            amountUsd: parsedAmountUsd,
-            balanceUsd: renderedBalanceUsd,
-            runSpendUsd: spendForRun(ledgerEntries, session),
-            todayFactorySpendUsd: spendForDay(ledgerEntries, new Date().toISOString().slice(0, 10)),
-            clickCapUsd: maxUsd,
-            runCapUsd: maxUsdTotal,
-          });
-        }
-        if (liveRefusal || parsedAmountUsd === null || maxUsd === null || maxUsdTotal === null) {
-          record.status = "failed";
-          stoppedBefore = step.label;
-          await writeLiveEvidence();
-          break;
-        }
-        unexpectedHosts = observeUnexpectedHosts();
-        liveRefusal = hostObservationRefusal(unexpectedHosts);
-        if (!liveRefusal && parsedAmountUsd !== null) liveRefusal = await reserveSpend(parsedAmountUsd);
-        if (liveRefusal) {
-          record.status = "failed";
-          stoppedBefore = step.label;
-          await writeLiveEvidence();
-          break;
-        }
-        confirmIntent = {
-          label: step.label,
-          parsedAmountUsd,
-          capUsd: maxUsd,
-          totalCapUsd: maxUsdTotal,
-          recipient: canonicalCashoutPayoutHandle === null ? effectiveRecipient : { name: null, address: canonicalCashoutPayoutHandle },
-          timestamp: new Date().toISOString(),
-        };
         confirmClickAttempted = true;
         await writeLiveEvidence();
       }
@@ -1067,7 +1079,7 @@ try {
         cumulativeAmountUsd += parsedAmountUsd;
         confirmedAmountsUsd.push(parsedAmountUsd);
         await writeLiveEvidence();
-        if (verb === "confirm") command("network", "har", "start", "--content", "text");
+        if (verb === "confirm") command("network", "har", "start", "--content", live ? "text" : "all");
       }
     } catch (error) {
       record.status = "failed";

@@ -2,6 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { readLedger } from "./ledger";
+import { fixturePreparedSendAction } from "./fixtures";
 import { encodeFunctionData, erc20Abi } from "viem";
 import { BASE_USDC } from "../shared/assets/base";
 import {
@@ -40,6 +41,17 @@ function preparedEnv(kind: string, label: string, extra: Record<string, unknown>
   return {
     FAKE_AGENT_BROWSER_CONTROLS: JSON.stringify([{ id: actionId, name: label }]),
     FAKE_AGENT_BROWSER_HAR: JSON.stringify({ log: { entries: [{ request: { method: "POST", url: "https://example.com/api/actions/prepare" }, response: { status: 201, content: { text: JSON.stringify(action) } } }] } }),
+  };
+}
+
+function fixtureConfirmEnv(overrides: Record<string, unknown> = {}): Record<string, string> {
+  const action = { ...fixturePreparedSendAction(), ...overrides };
+  return {
+    FAKE_AGENT_BROWSER_CONTROLS: JSON.stringify([{ id: action.id, name: "Send $1.00" }]),
+    FAKE_AGENT_BROWSER_HAR: JSON.stringify({ log: { entries: [{
+      request: { method: "POST", url: "http://127.0.0.1:3200/api/actions/prepare" },
+      response: { status: 200, content: { encoding: "base64", text: Buffer.from(JSON.stringify(action)).toString("base64") } },
+    }] } }),
   };
 }
 
@@ -867,6 +879,66 @@ describe("agent-driven session commands", () => {
     expect(finish.exitCode).toBe(0);
     expect(finish.stdout).toContain("summary.md");
     expect(fakeCalls().some((call) => call[0] === "close")).toBe(true);
+  });
+
+  test("fixture confirm checks a base64 HAR action and clicks without caps or ledger spend", async () => {
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const env = { ...fakeEnv("Sent $1.00", addressA), ...fixtureConfirmEnv(),
+      FAKE_AGENT_BROWSER_MARKS: JSON.stringify(["shell:paint", "session:verified", "balances:painted", "action:first-interactive"].map((name) => ({ name, startTime: 100 }))) };
+    const ledgerPath = resolve(home, ".home-verify", "ledger.jsonl");
+    const before = (await readLedger(ledgerPath)).length;
+    expect(run(["start", "send", "--session", "fixture-confirm", "--out", outsideOutput], env).exitCode).toBe(0);
+    const route = fakeCalls().find((call) => call[0] === "network" && call[1] === "route" && call[2] === "**/api/actions/prepare");
+    expect(route).toBeDefined();
+    expect(JSON.parse(route?.[4] ?? "{}") as unknown).toMatchObject({ owner: { address: addressA }, kind: "send" });
+    expect(fakeCalls()).toContainEqual(["network", "har", "start", "--content", "all", "--json"]);
+    expect(run(["confirm", "--session", "fixture-confirm"], env).exitCode).toBe(0);
+    expect(fakeCalls()).toContainEqual(["click", `[data-money-action-id="${actionId}"]`, "--json"]);
+    expect(run(["finish", "--session", "fixture-confirm"], env).exitCode).toBe(0);
+    expect((await readLedger(ledgerPath)).length).toBe(before);
+  });
+
+  test("fixture confirm refuses an owner or recipient differing from the pinned fixtures", async () => {
+    await installFakeAgentBrowser();
+    for (const [index, override] of [
+      { owner: { ...fixturePreparedSendAction().owner, address: addressB } },
+      { calls: [{ to: BASE_USDC.address, data: encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [addressB, BigInt(1_000_000)] }), value: "0" }] },
+    ].entries()) {
+      await Bun.write(fakeLogPath, "");
+      const name = `fixture-refusal-${index}`;
+      const env = { ...fakeEnv("Send", addressA), ...fixtureConfirmEnv(override) };
+      expect(run(["start", "send", "--session", name, "--out", outsideOutput], env).exitCode).toBe(0);
+      const result = run(["confirm", "--session", name], env);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain(index === 0 ? "different surface" : "recipient does not match");
+      expect(fakeCalls().some((call) => call[0] === "click")).toBe(false);
+    }
+  });
+
+  test("fixture confirm refuses a surface without a prepared action fixture", async () => {
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const env = fakeEnv("Save", addressA);
+    expect(run(["start", "save", "--session", "no-fixture-action", "--out", outsideOutput], env).exitCode).toBe(0);
+    const result = run(["confirm", "--session", "no-fixture-action"], env);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("no fixture prepared action for save");
+    expect(fakeCalls().some((call) => call[0] === "click")).toBe(false);
+  });
+
+  test("an unquoted click name reports usage and leaves its session open", async () => {
+    await installFakeAgentBrowser();
+    await Bun.write(fakeLogPath, "");
+    const env = fakeEnv("Home", addressA);
+    expect(run(["start", "account-settings", "--session", "usage", "--out", outsideOutput], env).exitCode).toBe(0);
+    const failed = run(["click", "Decimal", "point", "--session", "usage"], env);
+    expect(failed.exitCode).toBe(1);
+    expect(failed.stderr).toContain("Usage: verify click <@ref|name>");
+    expect(fakeCalls().at(-1)?.[0]).toBe("snapshot");
+    expect(fakeCalls().some((call) => call[0] === "close")).toBe(false);
+    expect(run(["click", "Decimal point", "--session", "usage"], env).exitCode).toBe(0);
+    expect(run(["finish", "--session", "usage"], env).exitCode).toBe(0);
   });
 
   test("confirms only a pinned prepared action and records its spend", async () => {

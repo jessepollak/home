@@ -102,18 +102,24 @@ export function decodeSendRecipient(call: MoneyActionCall, amount: bigint): stri
   return getAddress(decoded.args[0]);
 }
 
-export function preparedFromHar(har: unknown, origin: string, id: string): unknown {
+export function preparedFromHar(har: unknown, origin: string, id: string, expectedStatus: 200 | 201 = 201): unknown {
   if (!har || typeof har !== "object" || !('log' in har)) throw new Error("The prepare capture is invalid.");
   const entries = (har as { log?: { entries?: unknown } }).log?.entries;
   if (!Array.isArray(entries)) throw new Error("The prepare capture has no entries.");
   const prepared = entries.flatMap((entry): unknown[] => {
     if (!entry || typeof entry !== "object") return [];
-    const item = entry as { request?: { method?: string; url?: string }; response?: { status?: number; content?: { text?: string; encoding?: string } } };
-    if (item.request?.method !== "POST" || item.request.url !== `${origin}/api/actions/prepare` || item.response?.status !== 201) return [];
+    const item = entry as { request?: { method?: string; url?: string }; response?: { status?: number; content?: { text?: string; encoding?: string | null } } };
+    if (item.request?.method !== "POST" || item.request.url !== `${origin}/api/actions/prepare` || item.response?.status !== expectedStatus) return [];
     const text = item.response.content?.text;
-    if (typeof text !== "string" || item.response.content?.encoding) throw new Error("The prepare response body is unavailable.");
+    const encoding = item.response.content?.encoding;
+    if (typeof text !== "string" || (encoding !== undefined && encoding !== null && encoding !== "base64")) throw new Error("The prepare response body is unavailable.");
     let parsed: unknown;
-    try { parsed = JSON.parse(text); } catch { throw new Error("The prepare response body is invalid."); }
+    try {
+      const body = encoding === "base64"
+        ? /^[A-Za-z0-9+/]*={0,2}$/.test(text) && text.length % 4 === 0 ? Buffer.from(text, "base64").toString("utf8") : ""
+        : text;
+      parsed = JSON.parse(body);
+    } catch { throw new Error("The prepare response body is invalid."); }
     return parsed && typeof parsed === "object" && "id" in parsed && parsed.id === id ? [parsed] : [];
   });
   if (prepared.length !== 1) throw new Error(`Expected one prepared action for ${id}; found ${prepared.length}.`);
