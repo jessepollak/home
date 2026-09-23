@@ -3,11 +3,13 @@
 This is the enumerated map of every user-reachable surface in `apps/web`, written for agents that
 drive the app with the repository-pinned `agent-browser` (see
 `.agents/skills/browser-iteration/SKILL.md`, normalized by `docs/browser-validation.md`). Read it
-before starting a browser session: pick the **surface id** you are changing, follow its **Reach**
-steps from a fresh fixture session, assert the **Expect** facts, exercise every listed **State** you
-touched, and capture the listed **Evidence** (screenshot, DOM text snapshot, console/errors, perf
-marks by name). Selectors are quoted from the file that defines them; anything not confirmed in code
-is in **Unknowns** — never invent a selector when Reach is ambiguous, snapshot first.
+before starting a browser session: pick the **surface id** you are changing, run `verify start
+<surface-id>` and `verify snapshot`, and use **Reach** as guidance rather than a literal script.
+Assert the **Expect** facts, exercise every listed **State** you touched, and run `verify finish`
+to capture **Evidence** (screenshot, DOM text snapshot, console/errors, perf marks by name).
+Use `verify confirm` for a prepared money control, never `verify click`. Selectors are quoted from
+the file that defines them; anything not confirmed in code is in **Unknowns** — never invent a
+selector when Reach is ambiguous, snapshot first.
 
 **Keeping this current:** run a `chore(dx)` pass whenever `apps/web/app/**/page.tsx`, `apps/web/client/*/*-experience.tsx`, or
 `apps/web/tests/browser/*.pw.ts` changes. State that bracket in the PR body; do not silently drift this map.

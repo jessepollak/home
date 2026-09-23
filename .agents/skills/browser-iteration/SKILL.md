@@ -15,7 +15,7 @@ Follow [`docs/browser-validation.md`](../../../docs/browser-validation.md); it i
 
 ## Pick the surface first
 
-Read [`feature-map.md`](./feature-map.md) before driving Home. Pick one surface id, follow its Reach steps, assert its Expect facts, exercise the States touched by the change, and capture the listed Evidence. Never invent a selector for a remaining Unknown; take a fresh snapshot instead.
+Read [`feature-map.md`](./feature-map.md) before driving Home. Pick one surface id, start `verify start <surface-id>`, and use `verify snapshot` to choose each next action. Reach steps guide navigation rather than prescribe a literal click sequence; assert the Expect facts, exercise the touched States, and finish with `verify finish` to capture Evidence. Never invent a selector for a remaining Unknown; take a fresh snapshot instead. Only `verify confirm` may press a prepared money control.
 
 ## Start by loading matching upstream guidance
 
