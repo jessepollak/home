@@ -160,6 +160,39 @@ describe("SavingsMoneyDialog", () => {
     expect(page().getAllByRole("button", { name: "Back" }).every((button) => !button.hasAttribute("data-money-action-id"))).toBe(true);
   });
 
+  test("removes the Save confirm marker when the server expires a prepared action", async () => {
+    for (const mode of ["deposit", "withdraw"] as const) {
+      let executions = 0;
+      render(
+        <SavingsMoneyDialog
+          open mode={mode} session={session} candidate={candidate}
+          prepareMoneyAction={async () => prepared(mode === "deposit" ? "savings-deposit" : "savings-withdraw")}
+          executeMoneyAction={async () => {
+            executions += 1;
+            throw Object.assign(new Error("Expired"), { status: 410, code: "ACTION_EXPIRED" });
+          }}
+          onClose={() => {}}
+        />,
+      );
+      typeAmount("1");
+      fireEvent.click(page().getByRole("button", { name: "Continue" }));
+      const label = `${mode === "deposit" ? "Deposit" : "Withdraw"} $1.00`;
+      const confirm = await page().findByRole("button", { name: label });
+      expect(confirm.getAttribute("data-money-action-id")).toBe("action-1");
+      fireEvent.click(confirm);
+      expect((await page().findByRole("alert")).textContent).toBe(`This ${mode} expired. Go back and continue again.`);
+      const expiredConfirm = page().getByRole("button", { name: label }) as HTMLButtonElement;
+      expect(expiredConfirm.disabled).toBe(true);
+      expect(expiredConfirm.hasAttribute("data-money-action-id")).toBe(false);
+      expect(page().queryByRole("button", { name: "Retry" })).toBeNull();
+      expect(executions).toBe(1);
+      fireEvent.click(page().getAllByRole("button", { name: "Back" }).at(-1)!);
+      fireEvent.click(page().getByRole("button", { name: "Continue" }));
+      expect((await page().findByRole("button", { name: label })).getAttribute("data-money-action-id")).toBe("action-1");
+      cleanup();
+    }
+  });
+
   test("offers deterministic currency fixtures through the shared asset picker", async () => {
     let selected = "";
     const view = render(
