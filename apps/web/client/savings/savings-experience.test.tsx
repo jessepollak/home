@@ -10,8 +10,9 @@ import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
 
 const reducedMotionQuery = "(prefers-reduced-motion: reduce)";
+let reducedMotion = false;
 window.matchMedia = ((query: string) => ({
-  matches: query === reducedMotionQuery,
+  get matches() { return query === reducedMotionQuery && reducedMotion; },
   media: query,
   onchange: null,
   addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {},
@@ -135,7 +136,20 @@ function preparedAction(
   };
 }
 
+function growthAuthority() {
+  return {
+    accountIdentity: `subject-a:${ADDRESS_A}`,
+    assetIdentity: `${BASE_USDC_ADDRESS.toLowerCase()}:8453:6`,
+    blockNumber: "51026404",
+    blockHash: "0xabc",
+    blockTimestamp: String(Math.floor((TEST_NOW - 60_000) / 1000)),
+    snapshotStale: false,
+    registryCoverageComplete: true,
+  };
+}
+
 afterEach(() => {
+  reducedMotion = false;
   jest.useRealTimers();
   cleanup();
   getHomeQueryClient().clear();
@@ -417,15 +431,7 @@ describe("Save simplify", () => {
         session={session()}
         balanceStatus="ready"
         balancePositions={balancePositions({ [GAUNTLET]: authoritative })}
-        growthAuthority={{
-          accountIdentity: `subject-a:${ADDRESS_A}`,
-          assetIdentity: `${BASE_USDC_ADDRESS.toLowerCase()}:8453:6`,
-          blockNumber: "51026404",
-          blockHash: "0xabc",
-          blockTimestamp: String(Math.floor((TEST_NOW - 60_000) / 1000)),
-          snapshotStale: false,
-          registryCoverageComplete: true,
-        }}
+        growthAuthority={growthAuthority()}
         prepareMoneyAction={async (_endpoint, input) => {
           prepares.push(input);
           return preparedAction("savings-withdraw", authoritative);
@@ -439,9 +445,10 @@ describe("Save simplify", () => {
     void act(() => document.dispatchEvent(new Event("visibilitychange")));
     expect(page().queryByRole("img", { name: authoritativeLabel })).not.toBeNull();
     const save = page().getByRole("region", { name: "Save" });
+    // The hero is the first ticker in document order; the vault row keeps the raw position.
     const hero = save.querySelector("[data-slot='money-ticker']");
     expect(hero?.getAttribute("aria-label")).not.toBe(authoritativeLabel);
-    expect(hero?.getAttribute("data-animated")).toBe("false");
+    expect(hero?.getAttribute("data-animated")).toBe("true");
     expect(hero?.getAttribute("role")).toBe("img");
     expect(hero?.hasAttribute("aria-live")).toBe(false);
     expect(hero?.closest("p")?.hasAttribute("aria-live")).toBe(false);
@@ -454,6 +461,31 @@ describe("Save simplify", () => {
     expect(prepares).toEqual([
       { kind: "withdraw", vaultAddress: GAUNTLET, amountBaseUnits: authoritative },
     ]);
+  });
+
+  test("holds the authoritative hero value and disables ticker animation under reduced motion", async () => {
+    reducedMotion = true;
+    const authoritative = "1000000000000000";
+    const authoritativeLabel = "$1,000,000,000.00";
+    render(
+      <SavingsExperience
+        now={testNow}
+        initialData={initialData}
+        session={session()}
+        balanceStatus="ready"
+        balancePositions={balancePositions({ [GAUNTLET]: authoritative })}
+        growthAuthority={growthAuthority()}
+      />,
+    );
+
+    await page().findAllByRole("img", { name: authoritativeLabel });
+    const hero = () => page()
+      .getByRole("region", { name: "Save" })
+      .querySelector("[data-slot='money-ticker']");
+    expect(hero()?.getAttribute("aria-label")).toBe(authoritativeLabel);
+    expect(hero()?.getAttribute("data-animated")).toBe("false");
+    void act(() => document.dispatchEvent(new Event("visibilitychange")));
+    expect(hero()?.getAttribute("aria-label")).toBe(authoritativeLabel);
   });
 
   test("shows metadata failure beside a verified funded balance and Retry refetches", async () => {

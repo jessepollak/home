@@ -1,8 +1,9 @@
 import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 import type { RegionId } from "../../config/regions";
-import type { BalancesSnapshot } from "../../shared/balances/types";
+import type { BalancesSnapshot, Holding } from "../../shared/balances/types";
 import { balancesSnapshot, scrollableBalancesSnapshot } from "./balances-fixtures";
 import { portfolioVaults, PORTFOLIO_USDC_ADDRESS } from "../../config/portfolio-assets";
+import { formatUsdStablecoinAmount } from "../../shared/formatting";
 import { ownerQueryPersistThrottleMs } from "../../client/query/query-client";
 
 // Local laptops paint balances in ~350-620ms; hosted CI runners measure 1.0-2.2s.
@@ -15,6 +16,9 @@ const USER_OPERATION_HASH = `0x${"ab".repeat(32)}`;
 const TRANSACTION_HASH = `0x${"cd".repeat(32)}`;
 const CREATED_AT = new Date().toISOString();
 const EXPIRES_AT = new Date(Date.now() + 10 * 60_000).toISOString();
+// A live 3.5% estimate on this position moves the rendered six-decimal value every sample.
+const LIVE_SAVINGS_BASE_UNITS = "1000000000000";
+const LIVE_SAVINGS_AUTHORITATIVE_LABEL = formatUsdStablecoinAmount(LIVE_SAVINGS_BASE_UNITS);
 
 type ActionStatus = "unconfirmed" | "pending" | "confirmed";
 
@@ -61,6 +65,44 @@ function seedSignedInSession(page: Page, country = "US") {
     sessionStorage.setItem("home:playwright-smoke:signed-in", "1");
     localStorage.setItem("home.country.v1", region);
   }, country);
+}
+
+function savingsVaultsBody(stateAsOf: string, fetchedAt: string) {
+  return {
+    version: "v1",
+    chainId: 8453,
+    asset: { address: PORTFOLIO_USDC_ADDRESS, symbol: "USDC", decimals: 6 },
+    candidates: [{
+      version: "v1",
+      vaultAddress: portfolioVaults[0].address,
+      name: portfolioVaults[0].name,
+      symbol: portfolioVaults[0].symbol,
+      listed: true,
+      chainId: 8453,
+      asset: { address: PORTFOLIO_USDC_ADDRESS, symbol: "USDC", decimals: 6 },
+      curatorAddress: null,
+      grossApy: 0.04,
+      netApy: 0.035,
+      feeRate: 0.1,
+      totalAssetsRaw: "100000000",
+      liquidityRaw: "50000000",
+      stateAsOf,
+      blockNumber: "51026404",
+      source: {
+        provider: "Morpho GraphQL",
+        endpoint: "https://api.morpho.org/graphql",
+        query: "vaults",
+        fetchedAt,
+      },
+    }],
+    source: {
+      provider: "Morpho GraphQL",
+      endpoint: "https://api.morpho.org/graphql",
+      query: "vaults",
+      fetchedAt,
+    },
+    stale: false,
+  };
 }
 
 async function installApiFixtures(
@@ -264,41 +306,7 @@ async function installApiFixtures(
       });
     }
     if (path === "/api/savings/vaults") {
-      return json(route, {
-        version: "v1",
-        chainId: 8453,
-        asset: { address: PORTFOLIO_USDC_ADDRESS, symbol: "USDC", decimals: 6 },
-        candidates: [{
-          version: "v1",
-          vaultAddress: portfolioVaults[0].address,
-          name: portfolioVaults[0].name,
-          symbol: portfolioVaults[0].symbol,
-          listed: true,
-          chainId: 8453,
-          asset: { address: PORTFOLIO_USDC_ADDRESS, symbol: "USDC", decimals: 6 },
-          curatorAddress: null,
-          grossApy: 0.04,
-          netApy: 0.035,
-          feeRate: 0.1,
-          totalAssetsRaw: "100000000",
-          liquidityRaw: "50000000",
-          stateAsOf: "2026-09-12T12:00:00.000Z",
-          blockNumber: "51026404",
-          source: {
-            provider: "Morpho GraphQL",
-            endpoint: "https://api.morpho.org/graphql",
-            query: "vaults",
-            fetchedAt: "2026-09-12T12:00:01.000Z",
-          },
-        }],
-        source: {
-          provider: "Morpho GraphQL",
-          endpoint: "https://api.morpho.org/graphql",
-          query: "vaults",
-          fetchedAt: "2026-09-12T12:00:01.000Z",
-        },
-        stale: false,
-      });
+      return json(route, savingsVaultsBody("2026-09-12T12:00:00.000Z", "2026-09-12T12:00:01.000Z"));
     }
     if (path === "/api/basename-profile") return json(route, { profile: null });
     return json(route, {});
@@ -328,6 +336,39 @@ async function installApiFixtures(
       releaseDelayedBalances = null;
     },
   };
+}
+
+/** Fresh snapshot timestamps make the estimate eligible, so only the motion policy can freeze it. */
+function liveSavingsBalancesSnapshot(region: RegionId): BalancesSnapshot {
+  const snapshot = balancesSnapshot(region);
+  return {
+    ...snapshot,
+    block: { ...snapshot.block, timestamp: String(Math.floor(Date.now() / 1000)) },
+    holdings: snapshot.holdings.map((holding): Holding =>
+      holding.kind === "vault-share"
+        && holding.contractAddress?.toLowerCase() === portfolioVaults[0].address.toLowerCase()
+        ? { ...holding, underlyingBalance: { status: "ready", baseUnits: LIVE_SAVINGS_BASE_UNITS } }
+        : holding),
+  };
+}
+
+async function observeTickerLabels(ticker: Locator, windowMs: number) {
+  return ticker.evaluate(async (element, durationMs) => {
+    const labels = new Set<string>();
+    const startedAt = performance.now();
+    while (performance.now() - startedAt < durationMs) {
+      labels.add(element.getAttribute("aria-label") ?? "");
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    }
+    return [...labels];
+  }, windowMs);
+}
+
+function zeroDurationTransitions(locator: Locator) {
+  return locator.evaluate((element) =>
+    getComputedStyle(element).transitionDuration
+      .split(",")
+      .every((duration) => Number.parseFloat(duration) === 0));
 }
 
 async function signIn(page: Page) {
@@ -497,6 +538,37 @@ test("ambiguous handle response retries without a second wallet dispatch", async
     sessionStorage.getItem("home:playwright-smoke:dispatch-count"),
   )).toBe("1");
   await expect(page.getByText("Sent $1.00 to 0x2222…222222", { exact: true })).toBeVisible();
+  expect(await page.locator('[data-slot="toast"]').evaluate((element) =>
+    getComputedStyle(element).transitionDuration
+      .split(",")
+      .some((duration) => Number.parseFloat(duration) > 0))).toBe(true);
+});
+
+test("reduced motion resolves the toast enter, swipe, and exit instantly", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  await page.goto("/home");
+  await page.getByRole("button", { name: "Send" }).click();
+  await typeAmount(page, "1");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("textbox", { name: "To" }).fill(RECIPIENT);
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Send $1.00" }).click();
+  const confirm = page.getByRole("dialog", { name: "Confirm" });
+  await expect(confirm.getByRole("button", { name: "Try again" })).toBeVisible();
+  await confirm.getByRole("button", { name: "Try again" }).click();
+  await confirm.getByRole("button", { name: "Send $1.00" }).click();
+
+  const toast = page.locator('[data-slot="toast"]');
+  await expect(toast.getByText("Sent $1.00 to 0x2222…222222", { exact: true })).toBeVisible();
+  expect(await toast.evaluate((element) => element.getAnimations().length)).toBe(0);
+  expect(await zeroDurationTransitions(toast)).toBe(true);
+  expect(await zeroDurationTransitions(toast.locator('[data-slot="toast-content"]'))).toBe(true);
+
+  // Base UI hides the close affordance from the accessibility tree until the stack expands.
+  await toast.locator('[data-slot="toast-close"]').click();
+  await expect(toast).toHaveCount(0);
 });
 
 /** Swipes the drawer grabber down past the dismiss threshold (half the popup height). */
@@ -624,6 +696,40 @@ test("drawer becomes instant when reduced motion is requested", async ({ page })
     '[data-slot="drawer-overlay"], [data-slot="drawer-popup"], [data-slot="drawer-content"]',
   ).evaluateAll((elements) => elements.map((element) => getComputedStyle(element).transitionDuration));
   expect(transitions).toEqual(["0s", "0s", "0s"]);
+});
+
+test("reduced motion holds the Save estimate and skeleton pulse still", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedSignedInSession(page);
+  const fixtures = await installApiFixtures(page, { balances: liveSavingsBalancesSnapshot });
+  const liveReadAt = new Date().toISOString();
+  await page.route("**/api/savings/vaults**", (route) =>
+    json(route, savingsVaultsBody(liveReadAt, liveReadAt)));
+  const balancesObserved = fixtures.delayNextBalances();
+
+  await page.goto("/save");
+  const skeleton = page.locator('[data-slot="skeleton"][data-shimmer="savings-hero"]');
+  await expect(skeleton).toBeVisible();
+  expect(await skeleton.evaluate((element) => getComputedStyle(element).animationName)).not.toBe("none");
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect.poll(() => skeleton.evaluate((element) =>
+    getComputedStyle(element).animationName)).toBe("none");
+
+  await balancesObserved;
+  fixtures.releaseBalances();
+  const hero = page.getByRole("region", { name: "Save" })
+    .locator('[data-slot="money-ticker"]').first();
+  await expect(hero).toHaveAttribute("aria-label", LIVE_SAVINGS_AUTHORITATIVE_LABEL);
+  expect(await observeTickerLabels(hero, 1_300)).toEqual([LIVE_SAVINGS_AUTHORITATIVE_LABEL]);
+
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await expect.poll(() => observeTickerLabels(hero, 600).then((labels) =>
+    labels.some((label) => label !== LIVE_SAVINGS_AUTHORITATIVE_LABEL))).toBe(true);
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect.poll(() => hero.getAttribute("aria-label")).toBe(LIVE_SAVINGS_AUTHORITATIVE_LABEL);
+  expect(await observeTickerLabels(hero, 700)).toEqual([LIVE_SAVINGS_AUTHORITATIVE_LABEL]);
 });
 
 test("canonical routing preserves the shell and one balances read", async ({ page }) => {
@@ -846,10 +952,10 @@ test("IDRX funding reaches review, payment instructions, and receipt", async ({ 
   await typeAmount(page, "20000");
   await page.getByRole("button", { name: "Review quote", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Review quote" })).toBeVisible();
-  await expect(page.getByText("Receive", { exact: true }).locator("..")).toContainText("20.000,00 IDRX");
+  await expect(page.getByText("Receive", { exact: true }).locator("..")).toContainText("20.000,00\u00a0IDRX");
   await page.getByRole("button", { name: "Confirm deposit", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Review payment details" })).toBeVisible();
-  await expect(page.getByText("Network", { exact: true }).locator("..")).toContainText("Rp 100,00");
+  await expect(page.getByText("Network", { exact: true }).locator("..")).toContainText("Rp\u00a0100,00");
   await page.getByRole("button", { name: "View payment instructions" }).click();
   await expect(page.getByText("123456789012", { exact: true })).toBeVisible();
   await expect(page.getByText("Money received")).toBeVisible({ timeout: 7_000 });
