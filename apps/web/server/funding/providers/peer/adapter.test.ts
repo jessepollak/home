@@ -139,6 +139,24 @@ describe("Peer funding provider", () => {
     expect(peerProvider.onramp).toBeUndefined();
   });
 
+  test("queries the production indexer at its GraphQL endpoint when listing orders", async () => {
+    const requests: string[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      requests.push(`${init?.method ?? "GET"} ${url}`);
+      if (url.startsWith("https://indexer.zkp2p.xyz/v1/graphql")) return Response.json({ data: { deposits: [] } });
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+    try {
+      await expect(peerProvider.offramp!.listOrders({ owner: OWNER, inFlight: true, onMalformedPayee: "throw" }, context())).resolves.toEqual([]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    expect(requests.some((request) => request.startsWith("POST https://indexer.zkp2p.xyz/v1/graphql"))).toBe(true);
+    expect(requests.every((request) => request.startsWith("POST https://indexer.zkp2p.xyz/v1/graphql"))).toBe(true);
+  });
+
   test("implements capabilities, estimate, payee registration, order reads, and full withdrawal", async () => {
     installFakeClients();
     const ctx = context();

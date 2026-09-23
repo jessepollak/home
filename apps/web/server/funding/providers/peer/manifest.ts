@@ -5,6 +5,7 @@ import type { FundingProviderManifest } from "@/shared/funding/provider-contract
 export const PEER_CURATOR_PRODUCTION_ORIGIN = "https://api.zkp2p.xyz" as const;
 export const PEER_CURATOR_SANDBOX_ORIGIN = "https://api-staging.zkp2p.xyz" as const;
 export const PEER_INDEXER_ORIGIN = "https://indexer.zkp2p.xyz" as const;
+export const PEER_INDEXER_ENDPOINT = `${PEER_INDEXER_ORIGIN}/v1/graphql` as const;
 
 export const PEER_PRODUCTION_CONTRACTS = {
   escrow: "0x777777779d229cdF3110e9de47943791c26300Ef",

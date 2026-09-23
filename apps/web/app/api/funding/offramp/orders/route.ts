@@ -44,17 +44,15 @@ export async function GET(request: Request): Promise<Response> {
     });
   } catch (error) {
     if (error instanceof CashoutPreparationError) return fundingError("OFFRAMP_ORDERS_UNAVAILABLE", error.message, 424);
-    if (error instanceof FundingProviderConfigurationError) {
-      emitServerEvent("funding-order", {
-        route: "/api/funding/offramp/orders",
-        code: error.code,
-        outcome: "unavailable",
-        owner: {
-          subject: authorized.session.user.subject,
-          accountProvider: authorized.session.accountProvider,
-        },
-      });
-    }
+    emitServerEvent("funding-order", {
+      route: "/api/funding/offramp/orders",
+      code: error instanceof FundingProviderConfigurationError ? error.code : "OFFRAMP_ORDERS_PROVIDER_ERROR",
+      outcome: "unavailable",
+      owner: {
+        subject: authorized.session.user.subject,
+        accountProvider: authorized.session.accountProvider,
+      },
+    });
     return fundingError("OFFRAMP_ORDERS_UNAVAILABLE", "Cash-out status is temporarily unavailable.", 502);
   }
 }
