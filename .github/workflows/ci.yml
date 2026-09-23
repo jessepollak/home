@@ -50,6 +50,15 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body || '' }}
         run: node scripts/gates/verification-evidence.mjs
 
+      - name: Playwright rung
+        env:
+          BASE_REF: ${{ github.base_ref || 'main' }}
+          PR_BODY: ${{ github.event.pull_request.body || '' }}
+        shell: bash
+        run: |
+          set -o pipefail
+          node scripts/gates/test-weight.mjs --check=rung 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Test weight
         continue-on-error: true
         env:
@@ -58,7 +67,8 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title || '' }}
         shell: bash
         run: |
-          node scripts/gates/test-weight.mjs 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          set -o pipefail
+          node scripts/gates/test-weight.mjs --check=weight 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Check
         run: bun check
