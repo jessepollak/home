@@ -68,7 +68,6 @@ Recipient-name resolution is server-side (`apps/web/server/transfers/recipient-r
 These request failures have been observed on deployments. Inspect browser network results;
 do not silently ignore a new failure or treat this list as permission to broaden origins.
 
-- `GET /api/session` 401 — the restore path probes the session endpoint before the CDP SDK holds a server-accepted access token (#735).
 - `GET https://api.cdp.coinbase.com/platform/v2/embedded-wallet-api/projects/75f1f0c7-83bf-47c7-a227-e94bb6d04f83/config` 404 — CDP SDK optional project config.
 
 ## Surfaces

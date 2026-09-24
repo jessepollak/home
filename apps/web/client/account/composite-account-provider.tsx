@@ -127,7 +127,9 @@ export default function CompositeAccountProvider({
   ));
   const cdpCleanupInFlightRef = useRef(false);
   const emailSwitchInFlightRef = useRef(false);
-  const native = useNativeBaseIdentity(baseAccountEnabled);
+  const native = useNativeBaseIdentity(baseAccountEnabled, {
+    restoreOnMount: renderSeed?.source === "home-session",
+  });
 
   const activate = useCallback((): Promise<CdpBoundary> => {
     cdpCleanup.require();
