@@ -60,7 +60,7 @@ function activityPageBody(windowEnd: string | null) {
 
 type ActionStatus = "unconfirmed" | "pending" | "confirmed";
 
-function action() {
+export function preparedSendFixtureAction(recipient = RECIPIENT) {
   return {
     id: ACTION_ID,
     owner: {
@@ -73,13 +73,13 @@ function action() {
     title: "Send USDC",
     calls: [{
       to: USDC,
-      data: `0xa9059cbb${RECIPIENT.slice(2).padStart(64, "0")}${BigInt(1_000_000).toString(16).padStart(64, "0")}`,
+      data: `0xa9059cbb${recipient.slice(2).padStart(64, "0")}${BigInt(1_000_000).toString(16).padStart(64, "0")}`,
       value: "0",
     }],
     amounts: [{
       assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1000000", direction: "spend",
     }],
-    warnings: [`Recipient: ${RECIPIENT}`, "Network fee shown by wallet."],
+    warnings: [`Recipient: ${recipient}`, "Network fee shown by wallet."],
     createdAt: CREATED_AT,
     expiresAt: EXPIRES_AT,
   };
@@ -112,7 +112,7 @@ export async function installApiFixtures(
   let handleRecorded = false;
   let failHandleResponseOnce = true;
   let fundingStatusReads = 0;
-  const currentAction = action();
+  const currentAction = preparedSendFixtureAction();
 
   await page.route("**/api/**", async (route) => {
     const request = route.request();

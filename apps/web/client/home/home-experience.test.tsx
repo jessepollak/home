@@ -75,7 +75,9 @@ Object.defineProperties(window.history, {
   back: { configurable: true, value: popHistory },
 });
 
+const actualNavigation = await import("next/navigation");
 mock.module("next/navigation", () => ({
+  ...actualNavigation,
   useRouter: () => ({
     replace: (href: string) => replaceHistory(href),
     push: (href: string) => pushHistory(href),

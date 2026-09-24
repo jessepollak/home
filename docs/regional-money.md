@@ -12,6 +12,17 @@ The underlying asset remains explicit in account details, receive instructions a
 
 Native-currency denomination is distinct from valuation. A balance denominated in BRL can lead with reais; USDC valued in BRL belongs to a separately labeled estimated total. No silent FX conversion or assumption that all tokens sell/redeem at par. Keep quote fees/minimum received accurate; show a material peg/valuation discrepancy where it affects the balance or action. Currency formatting does not imply a bank deposit or guaranteed redemption.
 
+## Country resolution
+
+Every visitor resolves to a configured country, so balances always have a quote currency; `GLOBAL` is never an outcome. Precedence, highest first: the country the user picked, the country stored on this device, the request's edge geolocation, then `US`.
+
+- **Geolocation.** The landing (`/`) and shell (`/[...shell]`) pages read Vercel's `x-vercel-ip-country` header on the server (`apps/web/server/region/request-country.ts`). A missing header, an unknown or reserved code (`XX`, `T1`), or a country not in `countryRegionIds` resolves to `US`.
+- **Setting it.** Home has no server-side user profile; the country lives in `localStorage` under `home.country.v1`. On the first page load with no stored country — which includes sign-up — Home writes the resolved country there, so it stays put when the user travels.
+- **Backfill.** Existing devices storing `GLOBAL`, an unsupported value, or nothing are backfilled lazily: the next page load (for example, the next sign-in) writes their geolocated country, or `US`. No batch job runs.
+- **User choice wins.** Geolocation only fills an empty or `GLOBAL` slot. A stored country, including one chosen in Account, is never overwritten.
+
+The country is presentation and funding-route selection, not a compliance boundary: the user can choose any configured country in Account. Region-gated funding routes follow the resolved country — Coinbase onramp (Apple Pay) and Peer offramp (Cash App, Zelle) in `US`, Peer offramp (Monzo, Revolut) in `GB`, Ripio onramp in `AR`, `BR` and `CO`, and IDRX onramp in `ID`. Before this change, every device without a stored choice resolved to `US`, so a non-US visitor with no stored choice now sees their own country's routes (or none) instead of the US routes. Save, Borrow and Invest are not region-gated, and restricted Invest assets stay restricted in every country.
+
 ## Roster grounded in Base's dashboard
 
 Read the [International Stablecoins dashboard](https://dune.com/base_ds/international-stablecoins) and its [source registry query](https://dune.com/queries/4780995) directly. The source lists 34 contract rows, 33 unique token names and 21 non-USD currencies, including two TRYB contracts with different decimals; the issuer-confirmed deployment is `0xfb8718a69aed7726afb3f04d2bd4bfde1bdcb294` (6 decimals). Its displayed last-run age was four days; the aggregate coverage table was older and omitted some source entries. Use the underlying registry for discovery, then verify selected issuers/contracts rather than treating supply charts as live routing evidence.

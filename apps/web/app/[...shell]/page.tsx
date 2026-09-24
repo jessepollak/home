@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import type { ShellPanelId } from "@/config/navigation";
 import { DashboardExperience } from "@/client/home/dashboard-experience";
 import { parseShellLocation, searchParamsToString } from "@/config/shell-location";
+import { readRequestCountry } from "@/server/region/request-country";
 
 const shellTitles: Record<ShellPanelId, string> = {
   home: "Home",
@@ -35,6 +37,7 @@ export default async function ShellPage({
   const query = await searchParams;
   return (
     <DashboardExperience
+      detectedCountry={readRequestCountry(await headers())}
       initialLocation={parseShellLocation(shellPathname(shell))}
       initialSearch={searchParamsToString(query)}
     />

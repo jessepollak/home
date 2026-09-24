@@ -442,14 +442,7 @@ export function normalizeRegionId(
   return isRegionId(normalized) ? normalized : null;
 }
 
-function normalizeDetectedCountry(
-  value: string | null | undefined,
-): CountryCode | null {
-  const normalized = normalizeRegionId(value);
-  return normalized && normalized !== "GLOBAL" ? normalized : null;
-}
-
-function normalizeSelectableRegion(
+export function normalizeCountryCode(
   value: string | null | undefined,
 ): CountryCode | null {
   const normalized = normalizeRegionId(value);
@@ -461,17 +454,17 @@ export function resolvePresentation({
   persistedCountry,
   detectedCountry,
 }: ResolvePresentationInput): ResolvedPresentation {
-  const explicit = normalizeSelectableRegion(explicitCountry);
+  const explicit = normalizeCountryCode(explicitCountry);
   if (explicit) {
     return { region: presentationRegions[explicit], source: "explicit" };
   }
 
-  const persisted = normalizeSelectableRegion(persistedCountry);
+  const persisted = normalizeCountryCode(persistedCountry);
   if (persisted) {
     return { region: presentationRegions[persisted], source: "persisted" };
   }
 
-  const detected = normalizeDetectedCountry(detectedCountry);
+  const detected = normalizeCountryCode(detectedCountry);
   if (detected) {
     return { region: presentationRegions[detected], source: "detected" };
   }

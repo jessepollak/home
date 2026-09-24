@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { brand } from "@/config/brand";
 import { Button } from "@/components/ui/button";
 import { AccessForm } from "./access-form";
@@ -18,7 +19,11 @@ export default async function AccessPage({
   const next = parseSafeAccessDestination(
     typeof query.next === "string" ? query.next : undefined,
   );
-  const accessCookie = (await cookies()).get(ACCESS_COOKIE_NAME)?.value;
+  if (config.kind === "disabled") redirect(next);
+
+  const accessCookie = config.kind === "enabled"
+    ? (await cookies()).get(ACCESS_COOKIE_NAME)?.value
+    : undefined;
   const hasAccess = config.kind === "enabled" && Boolean(
     accessCookie && readAccessToken(accessCookie, config),
   );
@@ -29,7 +34,7 @@ export default async function AccessPage({
         <div className="grid gap-2">
           <p className="text-sm font-semibold">{brand.name}</p>
           <h1 id="access-heading" className="text-2xl font-semibold tracking-tight">
-            {hasAccess ? "Access granted" : "Enter access password"}
+            {hasAccess ? "Access granted" : config.kind === "misconfigured" ? "Access unavailable" : "Enter access password"}
           </h1>
           {!hasAccess && config.kind === "enabled" ? (
             <p className="text-sm text-muted-foreground">
@@ -42,10 +47,6 @@ export default async function AccessPage({
           <p role="alert" className="text-sm text-muted-foreground">
             Access is temporarily unavailable.
           </p>
-        ) : config.kind === "disabled" ? (
-          <a className="text-sm font-medium text-primary underline-offset-4 hover:underline" href={next}>
-            Continue to Home
-          </a>
         ) : hasAccess ? (
           <div className="grid gap-4">
             <a className="text-sm font-medium text-primary underline-offset-4 hover:underline" href={next}>

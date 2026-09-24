@@ -1,16 +1,18 @@
-import { balancesSnapshot } from "../tests/browser/fixtures/balances";
+import { balancesSnapshot } from "../fixtures/balances";
+import { preparedSendFixtureAction } from "../fixtures/api";
 import {
   actionsBody,
   basenameProfileBody,
   fundingOfframpOrdersBody,
   fundingProvidersBody,
   sessionBody,
-} from "../tests/browser/fixtures/bodies";
+} from "../fixtures/bodies";
 
 const recentRecipient = "0x2211d1d0020daea8039e46cf1367962070d77da9";
 
 export function fixtureRoutes() {
   const balances = balancesSnapshot("US");
+  const prepared = preparedSendFixtureAction(recentRecipient);
   return [
     ["**/api/session", sessionBody],
     ["**/api/balances**", {
@@ -18,6 +20,14 @@ export function fixtureRoutes() {
       holdings: balances.holdings.map((holding) => ({ ...holding, imageUrl: undefined })),
     }],
     ["**/api/actions", actionsBody],
+    ["**/api/actions/prepare", prepared],
+    [`**/api/actions/${prepared.id}`, {
+      id: prepared.id,
+      kind: prepared.kind,
+      summary: { title: prepared.title, amounts: prepared.amounts, warnings: prepared.warnings, expiresAt: prepared.expiresAt },
+      calls: prepared.calls,
+      expiresAt: prepared.expiresAt,
+    }],
     ["**/api/activity**", {}],
     ["**/api/borrow**", {}],
     ["**/api/client-performance", { ok: true }],

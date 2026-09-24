@@ -112,7 +112,7 @@ Use the owned component contracts rather than restyling their slots:
 - `apps/web/components/money-ticker.tsx` preserves exact already-formatted money strings and animates them with `@number-flow/react`.
 - `apps/web/client/money-modal/amount.tsx` owns the money-key haptic boundary (`triggerKeyHaptic`), guarded by reduced-motion and user-activation checks.
 - `apps/web/client/money-modal` owns amount entry, numpad, asset selection, review, and confirmation steps; its shell is the owned shadcn Drawer wrapper.
-- A confirm step renders `MoneyConfirmFooter` with its prepared action, never a bare `MoneyModalFooter`. Only the primary control carries `data-money-action-id` (`MONEY_ACTION_ID_ATTRIBUTE` in `shared/money-actions`), and only while that action is unexpired. The verifier finds the money control by this marker.
+- A confirm step renders `MoneyConfirmFooter` with its prepared action, never a bare `MoneyModalFooter`. Only the primary control carries `data-money-action-id` (`MONEY_ACTION_ID_ATTRIBUTE` in `shared/money-actions`), and only while that action is unexpired. Agents must check this marker with `agent-browser get attr @ref data-money-action-id` before any click.
 
 These stay app-local because they encode Home product behavior, not general-purpose primitives.
 

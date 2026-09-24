@@ -5,13 +5,16 @@ import { PricedInvestExperienceWithDiscover } from "@/client/invest/priced-inves
 import { investViewFromLocation } from "@/client/invest/invest-location";
 import { useInvestDiscover } from "@/client/invest/use-invest-discover";
 import { AuthenticatedSavingsExperience } from "@/client/savings/savings-experience";
+import type { CountryCode } from "@/config/regions";
 import type { ShellLocation } from "@/config/shell-location";
 import { PortfolioHomeExperience } from "./home-experience";
 
 export function DashboardExperience({
+  detectedCountry,
   initialLocation,
   initialSearch,
 }: {
+  detectedCountry: CountryCode | null;
   initialLocation: ShellLocation;
   initialSearch?: string;
 }) {
@@ -23,7 +26,7 @@ export function DashboardExperience({
 
   return (
     <PortfolioHomeExperience
-      detectedCountry={null}
+      detectedCountry={detectedCountry}
       initialPanel={initialLocation.panel}
       initialLocation={initialLocation}
       investContent={

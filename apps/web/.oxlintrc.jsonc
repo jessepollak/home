@@ -337,7 +337,9 @@
       "files": [
         "oxlint/tests/**",
         "tests/helpers/migrations.ts",
-        "tests/well-known/apple-pay-domain-association.test.ts"
+        "tests/well-known/apple-pay-domain-association.test.ts",
+        // #800 replays checked-in Reach data; this parser is not a source-assertion test.
+        "tests/browser/feature-map/map.ts"
       ],
       "rules": {
         "home/no-source-reads": "off"
