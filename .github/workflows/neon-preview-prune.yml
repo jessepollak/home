@@ -9,9 +9,9 @@
 # is < 6, so main + five previews = six total leaves four slots free.
 # Never deletes main / production / default / protected / non-preview branches.
 #
-# Runs on every non-main push so headroom is restored before the next new
-# branch deploys; GitHub throttles the schedule to hours apart, so the cron is
-# only a backstop.
+# Runs on every non-main push, alongside (not before) that push's Vercel
+# deploy, so headroom is restored for the next new branch; GitHub throttles
+# the schedule to hours apart, so the cron is only a backstop.
 #
 # Assumptions (see docs/vercel-deploy.md):
 # - Vercel-Managed and Neon-Managed integrations name preview DBs
@@ -125,14 +125,17 @@ jobs:
             ] | sort_by(.created_at)
           ' <<<"$all")"
 
-          # Stale = the git branch's most recent PR is closed or merged.
-          # Branches without a PR yet are never stale.
+          # Stale = no open PR for the git branch and at least one closed or
+          # merged PR. Branches without a PR yet are never stale; lookup errors
+          # count as not stale.
           stale='[]'
           while IFS= read -r name; do
             [ -z "$name" ] && continue
             ref="${name#preview/}"
-            state="$(gh pr list --head "$ref" --state all --limit 1 --json state --jq '.[0].state // ""')" || state=""
-            if [ "$state" = "MERGED" ] || [ "$state" = "CLOSED" ]; then
+            open="$(gh pr list --head "$ref" --state open --limit 1 --json number --jq 'length')" || open=""
+            [ "$open" = "0" ] || continue
+            any="$(gh pr list --head "$ref" --state all --limit 1 --json number --jq 'length')" || any=""
+            if [ "$any" = "1" ]; then
               stale="$(jq -c --arg n "$name" '. + [$n]' <<<"$stale")"
             fi
           done < <(jq -r '.[].name' <<<"$preview")
@@ -140,7 +143,7 @@ jobs:
           count="$(jq 'length' <<<"$preview")"
           echo "Deletable preview/* count: ${count} (exclusive keep_below ${PREVIEW_KEEP_BELOW}; keep newest $((PREVIEW_KEEP_BELOW - 1)))"
           jq -r '.[] | "- \(.name) (\(.id), created \(.created_at))"' <<<"$preview"
-          echo "Stale (PR closed or merged): $(jq -r 'if length == 0 then "none" else join(", ") end' <<<"$stale")"
+          echo "Stale (no open PR; closed or merged): $(jq -r 'if length == 0 then "none" else join(", ") end' <<<"$stale")"
 
           # Stale previews first, then the oldest open ones until below threshold.
           plan="$(jq -c --argjson stale "$stale" --argjson keep "$PREVIEW_KEEP_BELOW" '
