@@ -20,7 +20,7 @@ import { presentBalances } from "@/shared/balances/present";
 import type { BalancesSnapshot } from "@/shared/balances/types";
 import type { ComponentProps } from "react";
 import { HomeOverview, HomeSectionHeading } from "./home-overview";
-import { HomeHeaderStatus, homeBalancesStatus } from "./home-status";
+import { HomeHeaderStatus, headerStatus, homeBalancesStatus } from "./home-status";
 import { ShellHeader } from "./shell-chrome";
 import type { HomeAssetBalancesPresentation } from "./home-types";
 
@@ -230,8 +230,9 @@ type HomeOverviewStoryProps = {
   operations?: RecentMoneyActionOperation[];
   cashRate: string | null;
   borrowOfferRate: string | null;
-  onReload: () => void;
+  onRetry: () => void;
   onOpenAccount: () => void;
+  interruption?: { kind: "offline" | "interrupted" } | null;
 };
 
 function HomeOverviewStory({
@@ -240,10 +241,11 @@ function HomeOverviewStory({
   operations = [],
   cashRate,
   borrowOfferRate,
-  onReload,
+  onRetry,
   onOpenAccount,
+  interruption = null,
 }: HomeOverviewStoryProps) {
-  const status = homeBalancesStatus(assetBalances);
+  const status = headerStatus({ interruption, coverage: homeBalancesStatus(assetBalances) });
   return (
     <div>
       <ShellHeader
@@ -262,7 +264,7 @@ function HomeOverviewStory({
         onOpenSettings={noop}
         onCloseSettings={noop}
         status={status ? (
-          <HomeHeaderStatus status={status} onReload={onReload} onOpenAccount={onOpenAccount} />
+          <HomeHeaderStatus status={status} onRetry={onRetry} onOpenAccount={onOpenAccount} />
         ) : null}
       />
       <main className={shellContentFrameClassName}>
@@ -311,7 +313,7 @@ const meta = {
     operations: [borrowOperation()],
     cashRate: "4.20% APY",
     borrowOfferRate: null,
-    onReload: fn(),
+    onRetry: fn(),
     onOpenAccount: fn(),
   },
   parameters: {
@@ -463,8 +465,8 @@ export const PartialBalances: Story = {
       return node;
     });
     await expect(detail.textContent).toContain("Some balances are unavailable");
-    await userEvent.click(within(detail).getByRole("button", { name: "Reload" }));
-    await expect(args.onReload).toHaveBeenCalled();
+    await userEvent.click(within(detail).getByRole("button", { name: "Retry" }));
+    await expect(args.onRetry).toHaveBeenCalled();
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(canvasElement.ownerDocument.querySelector("[data-home-status-detail]")).toBeNull());
     await expect(canvasElement.querySelector("[data-total-status='partial']")).not.toBeNull();
@@ -523,10 +525,35 @@ export const NoCountry: Story = {
       if (!node) throw new Error("status detail not open");
       return node;
     });
-    await expect(within(detail).queryByRole("button", { name: "Reload" })).toBeNull();
+    await expect(within(detail).queryByRole("button", { name: "Retry" })).toBeNull();
     await userEvent.click(within(detail).getByRole("button", { name: "Open Account" }));
     await expect(args.onOpenAccount).toHaveBeenCalled();
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(canvasElement.ownerDocument.querySelector("[data-home-status-detail]")).toBeNull());
+  },
+};
+
+export const Offline: Story = {
+  args: { interruption: { kind: "offline" }, operations: [] },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const message = "You’re offline. Home will update when you reconnect.";
+    await userEvent.click(canvas.getByRole("button", { name: message }));
+    const detail = await within(canvasElement.ownerDocument.body).findByRole("dialog", { name: "Status" });
+    await expect(detail.textContent).toContain(message);
+    await expect(within(detail).queryByRole("button")).toBeNull();
+  },
+};
+
+export const Interrupted: Story = {
+  args: { interruption: { kind: "interrupted" }, operations: [] },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    const message = "Home can’t refresh right now. Some information may be out of date.";
+    await userEvent.click(canvas.getByRole("button", { name: message }));
+    const detail = await within(canvasElement.ownerDocument.body).findByRole("dialog", { name: "Status" });
+    await expect(detail.textContent).toContain(message);
+    await userEvent.click(within(detail).getByRole("button", { name: "Retry" }));
+    await expect(args.onRetry).toHaveBeenCalled();
   },
 };

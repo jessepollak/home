@@ -15,21 +15,21 @@ import type { HomeAssetBalancesPresentation } from "./home-types";
 
 export type HomeBalancesStatus = {
   message: string;
-  recovery: "reload" | "choose-country";
+  recovery: "retry" | "choose-country" | "none";
 };
 
 export function homeBalancesStatus(
   assetBalances: HomeAssetBalancesPresentation | undefined,
 ): HomeBalancesStatus | null {
   if (!assetBalances || assetBalances.status === "loading") return null;
+  if (assetBalances.status === "unavailable") {
+    return { message: "Balances are unavailable", recovery: "retry" };
+  }
   if (assetBalances.needsCountry && assetBalances.statusLabel) {
     return { message: assetBalances.statusLabel, recovery: "choose-country" };
   }
-  if (assetBalances.status === "unavailable") {
-    return { message: "Balances are unavailable", recovery: "reload" };
-  }
   if (assetBalances.totalStatus !== "complete" || summaryIncomplete(assetBalances.summary)) {
-    return { message: "Some balances are unavailable", recovery: "reload" };
+    return { message: "Some balances are unavailable", recovery: "retry" };
   }
   return null;
 }
@@ -52,13 +52,29 @@ export function useReloadHomeBalances(): () => void {
   }, [queryClient]);
 }
 
+export function headerStatus({
+  interruption,
+  coverage,
+}: {
+  interruption: { kind: "offline" | "interrupted" } | null;
+  coverage: HomeBalancesStatus | null;
+}): HomeBalancesStatus | null {
+  if (interruption?.kind === "offline") {
+    return { message: "You’re offline. Home will update when you reconnect.", recovery: "none" };
+  }
+  if (interruption?.kind === "interrupted") {
+    return { message: "Home can’t refresh right now. Some information may be out of date.", recovery: "retry" };
+  }
+  return coverage;
+}
+
 export function HomeHeaderStatus({
   status,
-  onReload,
+  onRetry,
   onOpenAccount,
 }: {
   status: HomeBalancesStatus;
-  onReload: () => void;
+  onRetry: () => void;
   onOpenAccount: () => void;
 }) {
   return (
@@ -76,24 +92,24 @@ export function HomeHeaderStatus({
       >
         <CircleAlert aria-hidden="true" />
       </PopoverTrigger>
-      <PopoverContent align="end" aria-label="Balance status" data-home-status-detail="">
+      <PopoverContent align="end" aria-label="Status" data-home-status-detail="">
         <div className="flex items-center gap-2">
           <PopoverDescription className="min-w-0 flex-1">{status.message}</PopoverDescription>
-          {status.recovery === "reload" ? (
+          {status.recovery === "retry" ? (
             <Button
               variant="ghost"
               size="icon"
               className="size-11 md:pointer-fine:size-8"
-              aria-label="Reload"
-              onClick={onReload}
+              aria-label="Retry"
+              onClick={onRetry}
             >
               <RotateCw aria-hidden="true" />
             </Button>
-          ) : (
+          ) : status.recovery === "choose-country" ? (
             <Button variant="secondary" size="lg" className="h-11 md:pointer-fine:h-8" onClick={onOpenAccount}>
               Open Account
             </Button>
-          )}
+          ) : null}
         </div>
       </PopoverContent>
     </Popover>

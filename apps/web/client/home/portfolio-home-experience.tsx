@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useBalances } from "@/client/balances";
+import { useInterruption } from "@/client/status/use-interruption";
 import { useAccountWallet } from "@/client/account/cdp-client";
 import { presentBalances } from "@/shared/balances/present";
 import { resolvePresentation, type RegionId } from "@/config/regions";
@@ -29,6 +30,11 @@ export function PortfolioHomeExperience(
   const balances = useBalances(session, selectedRegion, account.fetchBalances, {
     enabled: account.verification === "server",
   });
+  const interruptionStatus = useInterruption(
+    balances.observation,
+    props.routeMode === "dashboard" && account.status === "verified" && account.verification === "server",
+    balances.retry,
+  );
   const presentAssetBalances = useCallback(
     (showSmallBalances: boolean) => presentBalances(balances, { showSmallBalances }),
     [balances],
@@ -46,6 +52,9 @@ export function PortfolioHomeExperience(
     <HomeExperience
       {...props}
       balancesRevalidating={balances.revalidating === true}
+      interruption={interruptionStatus.interruption}
+      interruptionAnnouncement={interruptionStatus.announcement}
+      onRetryInterruption={interruptionStatus.retry}
       presentAssetBalances={presentAssetBalances}
       sendAvailability={sendAvailability}
       assetMarkResolution={assetMarkResolution}

@@ -11,6 +11,7 @@ import {
   priced,
   pricedCash,
   ready,
+  unavailableBalance,
 } from "@/shared/balances/fixtures";
 import {
   presentBalances,
@@ -900,10 +901,56 @@ describe("Home shell routing and intents", () => {
       return node!;
     });
     expect(detail.textContent).toContain("Balances are unavailable");
-    expect(within(detail).getByRole("button", { name: "Reload" })).toBeTruthy();
+    expect(within(detail).getByRole("button", { name: "Retry" })).toBeTruthy();
     fireEvent.click(summary.getByRole("button", { description: "Open Borrow" }));
     expect(`${window.location.pathname}${window.location.search}`).toBe("/borrow");
     await waitFor(() => expect(document.querySelector("[data-home-status]")).toBeNull());
+  });
+
+  test("keeps interruption status across Invest and nested chrome, hiding and restoring Home-only coverage", async () => {
+    const accountSdk = sdk({ isSignedIn: true, ownerKey: OWNER });
+    const country = presentBalances({
+      status: "ready", snapshot: buildBalancesSnapshotFixture({ region: "GLOBAL" }), error: null,
+    });
+    const partial = presentBalances({
+      status: "ready", snapshot: buildBalancesSnapshotFixture({
+        registry: { eth: { balance: unavailableBalance, value: { status: "unavailable" } } },
+      }), error: null,
+    });
+    const view = render(<HomeHarness accountSdk={accountSdk} assetBalances={country}
+      investContent={<NestedInvestFixture />} interruption={{ kind: "offline" }} />);
+    await waitForVerifiedShell();
+    const offline = "You’re offline. Home will update when you reconnect.";
+    expect(page().getByRole("button", { name: offline })).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: offline }));
+    const detail = await page().findByRole("dialog", { name: "Status" });
+    expect(detail.textContent).toContain(offline);
+    expect(within(detail).queryByRole("button")).toBeNull();
+    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" }))
+      .getByRole("button", { name: "Invest" }));
+    expect(page().getByRole("button", { name: offline })).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Open asset details" }));
+    expect(page().getByRole("button", { name: offline })).toBeTruthy();
+    const interrupted = "Home can’t refresh right now. Some information may be out of date.";
+    view.rerender(<HomeHarness accountSdk={accountSdk} assetBalances={country}
+      investContent={<NestedInvestFixture />} interruption={{ kind: "interrupted" }} />);
+    expect(page().getByRole("button", { name: interrupted })).toBeTruthy();
+    view.rerender(<HomeHarness accountSdk={accountSdk} assetBalances={country}
+      investContent={<NestedInvestFixture />} interruption={null} />);
+    expect(document.querySelector("[data-home-status]")).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "Back to Invest" }));
+    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" }))
+      .getByRole("button", { name: "Home" }));
+    expect(page().getByRole("button", { name: "Choose a country in Account to set how money is shown" })).toBeTruthy();
+    view.rerender(<HomeHarness accountSdk={accountSdk} assetBalances={partial}
+      investContent={<NestedInvestFixture />} interruption={null} />);
+    expect(page().getByRole("button", { name: "Some balances are unavailable" })).toBeTruthy();
+    view.rerender(<HomeHarness accountSdk={accountSdk} assetBalances={partial}
+      investContent={<NestedInvestFixture />} interruption={{ kind: "interrupted" }} />);
+    expect(page().getByRole("button", { name: interrupted })).toBeTruthy();
+    view.rerender(<HomeHarness accountSdk={accountSdk} assetBalances={partial}
+      investContent={<NestedInvestFixture />} interruption={null} />);
+    expect(page().getByRole("button", { name: "Some balances are unavailable" })).toBeTruthy();
   });
 
   test("opens Borrow from the Borrow Cash row without adding a bottom navigation item", async () => {
