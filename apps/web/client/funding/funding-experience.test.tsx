@@ -6,8 +6,9 @@ import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { getHomeQueryClient } from "@/client/query/query-client";
 
 const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
-const { FundingExperienceForWallet } = await import("./funding-experience");
-const { shouldPollFundingOrder } = await import("./order-flow");
+const { FundingExperienceForWallet, preloadAddMoneySheet } = await import("./funding-experience");
+await preloadAddMoneySheet();
+const { shouldPollFundingOrder } = await import("./order-polling");
 
 const ADDRESS_A = "0x1111111111111111111111111111111111111111" as const;
 const ADDRESS_B = "0x2222222222222222222222222222222222222222" as const;

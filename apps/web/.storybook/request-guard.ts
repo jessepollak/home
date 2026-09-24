@@ -11,6 +11,10 @@ const STORYBOOK_RUNTIME_PATHS = [
   "/currency-flags/",
   "/asset-marks/",
   "/home-mark/",
+  "/client/",
+  "/components/",
+  "/config/",
+  "/shared/",
 ] as const;
 
 export function isStorybookRuntimeRequest(request: Request, storybookOrigin: string): boolean {

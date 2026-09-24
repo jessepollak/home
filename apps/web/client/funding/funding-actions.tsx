@@ -8,6 +8,7 @@ import { Plus } from "lucide-react";
 import type { RegionId } from "@/config/regions";
 import {
   commitClientUrl,
+  commitFlowUrl,
   flowHref,
   isCanonicalShellPathname,
   withoutFlowHref,
@@ -15,7 +16,9 @@ import {
 } from "@/config/shell-location";
 import { useAccountWallet } from "@/client/account/cdp-client";
 import { useOptionalHomeShellRouting } from "@/client/home/panel-routing";
-import { FundingExperienceForWallet } from "./funding-experience";
+import { uiBoundary } from "@/client/account/owner-keys";
+import { useIdlePreload } from "@/client/money-modal/deferred-sheet";
+import { FundingExperienceForWallet, preloadAddMoneySheet } from "./funding-experience";
 import type { AddMoneyStep } from "./add-money-dialog";
 
 const subscribeToMountedState = () => () => {};
@@ -57,6 +60,7 @@ export function FundingActionsForWallet({
     mountedClientSnapshot,
     mountedServerSnapshot,
   );
+  useIdlePreload(preloadAddMoneySheet, uiBoundary(wallet) !== null);
   const routedFlow = routing?.state.flow === "add-money" || routing?.state.flow === "receive"
     ? routing.state.flow
     : null;
@@ -68,12 +72,9 @@ export function FundingActionsForWallet({
   const routeOpen = requestedFlow !== null && (routing !== null || !dismissed);
   const open = routing ? routeOpen : userOpen || routeOpen;
 
-  function setFundingFlow(flow: FundingFlow, mode: "push" | "replace") {
-    if (routing) {
-      routing.setFlow(flow, { mode });
-      return;
-    }
-    commitClientUrl(flowHref(pathname, flow), mode);
+  function setFundingFlow(flow: FundingFlow, mode: "push" | "replace"): boolean {
+    if (routing) return routing.setFlow(flow, { mode });
+    return commitFlowUrl(flowHref(pathname, flow), mode);
   }
 
   function close() {
@@ -125,11 +126,12 @@ export function FundingActionsForWallet({
       <Button
         size="lg"
         className="h-11"
+        onPointerDown={() => void preloadAddMoneySheet()}
         onClick={() => {
-          openedInAppRef.current = true;
+          void preloadAddMoneySheet();
           setDismissed(false);
           setUserOpen(true);
-          setFundingFlow("add-money", "push");
+          if (setFundingFlow("add-money", "push")) openedInAppRef.current = true;
         }}
       >
         <Plus className="size-4" aria-hidden="true" />

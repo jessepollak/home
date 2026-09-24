@@ -17,12 +17,13 @@ import {
 import { uiBoundary } from "@/client/account/owner-keys";
 import {
   commitClientUrl,
+  commitFlowUrl,
   flowHref,
   withoutFlowHref,
 } from "@/config/shell-location";
 import { markHomePerformance } from "@/client/observability/perf-marks";
 import { useOptionalHomeShellRouting } from "@/client/home/panel-routing";
-import { SendDialog } from "./send-dialog";
+import { deferSheet, useIdlePreload } from "@/client/money-modal/deferred-sheet";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import type { TransferAssetAvailability } from "@/shared/transfers/types";
 import type { RegionId } from "@/config/regions";
@@ -30,6 +31,8 @@ import type { RegionId } from "@/config/regions";
 const subscribeToMountedState = () => () => {};
 const mountedClientSnapshot = () => true;
 const mountedServerSnapshot = () => false;
+
+const SendSheet = deferSheet(() => import("./send-dialog").then((module) => module.SendDialog));
 
 export type TransferActionsProps = {
   initialOpen?: boolean;
@@ -84,6 +87,7 @@ export function TransferActionsForWallet({
   useEffect(() => {
     if (boundary) markHomePerformance("action:first-interactive");
   }, [boundary]);
+  useIdlePreload(SendSheet.preload, Boolean(boundary));
 
   useEffect(() => {
     if (!routeOpen || !boundary) return;
@@ -96,11 +100,13 @@ export function TransferActionsForWallet({
 
   const openSend = () => {
     if (!boundary) return;
-    openedInAppRef.current = true;
+    void SendSheet.preload();
     setModalOwner(boundary);
     setSendOpen(true);
-    if (routing) routing.setFlow("send");
-    else commitClientUrl(flowHref(window.location.pathname, "send"));
+    const pushed = routing
+      ? routing.setFlow("send")
+      : commitFlowUrl(flowHref(window.location.pathname, "send"));
+    if (pushed) openedInAppRef.current = true;
   };
   const close = () => {
     setSendOpen(false);
@@ -134,6 +140,7 @@ export function TransferActionsForWallet({
         size="lg"
         className="h-11"
         disabled={!boundary}
+        onPointerDown={() => void SendSheet.preload()}
         onClick={openSend}
       >
         Send
@@ -141,7 +148,7 @@ export function TransferActionsForWallet({
 
       {mounted
         ? createPortal(
-            <SendDialog
+            <SendSheet
               open={visibleSend}
               address={verifiedAddress}
               immediate={dropPrivate}

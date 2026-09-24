@@ -17,7 +17,7 @@ mock.module("next/navigation", () => ({
   usePathname: () => "/home",
 }));
 
-const { act } = await import("@testing-library/react");
+const { act, waitFor } = await import("@testing-library/react");
 const { hydrateRoot } = await import("react-dom/client");
 const { FundingActionsForWallet } = await import("./funding-actions");
 
@@ -83,12 +83,44 @@ describe("FundingActions hydration", () => {
       expect(fixture.serverMarkup).toContain("Add money");
       expect(fixture.serverMarkup).not.toContain('data-slot="drawer-popup"');
       expect(fixture.hydrationErrors).toEqual([]);
-      const drawer = document.body.querySelector('[data-slot="drawer-popup"]');
-      expect(drawer).not.toBeNull();
+      const drawer = await waitFor(() => {
+        const popup = document.body.querySelector('[data-slot="drawer-popup"]');
+        expect(popup).not.toBeNull();
+        return popup;
+      });
       expect(drawer?.textContent).toContain("Receive on Base");
       expect(drawer?.textContent).toContain("0x1111…111111");
       expect(drawer?.closest(".action-row")).toBeNull();
     } finally {
+      await unmount(fixture.root, fixture.container);
+    }
+  });
+
+  test("closing an inbound flow reopened by the trigger clears the flow instead of leaving the page", async () => {
+    window.history.replaceState(null, "", "/home?flow=add-money");
+    const back = mock(() => {});
+    const originalBack = window.history.back;
+    Object.defineProperty(window.history, "back", { configurable: true, value: back });
+    const fixture = await hydrateFundingActions(
+      <FundingActionsForWallet wallet={verifiedWallet()} initialFlow="add-money" />,
+    );
+
+    try {
+      const trigger = Array.from(fixture.container.querySelectorAll("button"))
+        .find((button) => button.textContent?.includes("Add money"));
+      await act(async () => trigger?.click());
+      expect(`${window.location.pathname}${window.location.search}`).toBe("/home?flow=add-money");
+      const close = await waitFor(() => {
+        const button = document.body.querySelector<HTMLButtonElement>('[data-slot="drawer-popup"] button[aria-label="Close add money"]');
+        expect(button).not.toBeNull();
+        return button;
+      });
+      await act(async () => close?.click());
+
+      expect(back).not.toHaveBeenCalled();
+      expect(`${window.location.pathname}${window.location.search}`).toBe("/home");
+    } finally {
+      Object.defineProperty(window.history, "back", { configurable: true, value: originalBack });
       await unmount(fixture.root, fixture.container);
     }
   });

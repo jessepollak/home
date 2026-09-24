@@ -27,7 +27,7 @@ export type HomeShellRouting = {
   setFlow: (
     flow: ShellFlow,
     options?: { actionId?: string | null; mode?: "push" | "replace" },
-  ) => void;
+  ) => boolean;
   clearFlow: (options?: {
     mode?: "push" | "replace";
     fundingReturn?: boolean;

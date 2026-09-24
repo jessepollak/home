@@ -112,6 +112,7 @@ Use the owned component contracts rather than restyling their slots:
 - `apps/web/components/money-ticker.tsx` preserves exact already-formatted money strings and animates them with `@number-flow/react`.
 - `apps/web/client/money-modal/amount.tsx` owns the money-key haptic boundary (`triggerKeyHaptic`), guarded by reduced-motion and user-activation checks.
 - `apps/web/client/money-modal` owns amount entry, numpad, asset selection, review, and confirmation steps; its shell is the owned shadcn Drawer wrapper.
+- Shell entry points never import a Drawer-backed sheet statically. They mount it through `deferSheet` (`client/money-modal/deferred-sheet.tsx`), preload it on the trigger's pointer-down, and idle-preload the Home primary actions (Send, Add money) once the account is verified, so Base UI Drawer and the sheet flows stay out of the shell's initial chunks.
 - A confirm step renders `MoneyConfirmFooter` with its prepared action, never a bare `MoneyModalFooter`. Only the primary control carries `data-money-action-id` (`MONEY_ACTION_ID_ATTRIBUTE` in `shared/money-actions`), and only while that action is unexpired. Agents must check this marker with `agent-browser get attr @ref data-money-action-id` before any click.
 
 These stay app-local because they encode Home product behavior, not general-purpose primitives.
@@ -134,4 +135,17 @@ Next.js 16 does not print a First Load JS column. `/dashboard` initial JS is the
 | Shell client chunk, gzip | 119,307 B | 185,189 B |
 | All client JS, gzip | 854,662 B | 929,100 B |
 
-The JS growth (+8.7 % gzipped) is the Base UI runtime — Drawer, Select, Field, Toast, Tabs, ToggleGroup, `useRender`, floating-ui — replacing the hand-rolled sheet physics, toast queue, and Radix Select. It lands in the shell's main client chunk because `MoneyModal` is imported statically. Two follow-ups can recover most of it: `motion` is now imported only by `components/home-mark.tsx` and can be dropped or lazy-loaded, and the Drawer-backed money sheets can be `next/dynamic`-loaded on first open, the same deferral wave 4 applied to the wallet SDK. The CSS drop (−26 %) is the BEM sheet, the alias layer, and most CSS Modules leaving.
+The JS growth (+8.7 % gzipped) is the Base UI runtime — Drawer, Select, Field, Toast, Tabs, ToggleGroup, `useRender`, floating-ui — replacing the hand-rolled sheet physics, toast queue, and Radix Select. It landed in the shell's main client chunk because `MoneyModal` was imported statically. The CSS drop (−26 %) is the BEM sheet, the alias layer, and most CSS Modules leaving.
+
+### Sheet and motion deferral ([#368](https://github.com/jessepollak/home/issues/368))
+
+After [#804](https://github.com/jessepollak/home/pull/804) the shell renders at `/[...shell]` (`/dashboard` only redirects to `/home`), so the same method measures that route: build-manifest root files plus unique `[...shell]/page` client-reference chunks, gzip level 9.
+
+| Measure | `main` (`e76eaf7`) | Deferred sheets, no `motion` |
+| --- | ---: | ---: |
+| Shell initial JS | 1,825,853 B | 1,478,491 B |
+| Shell initial JS, gzip | 581,802 B | 474,715 B |
+| Largest initial chunk, gzip | 194,189 B | 71,647 B |
+| All client JS, gzip | 1,195,060 B | 1,187,792 B |
+
+The Drawer-backed sheets (Send, Add money, Save, Borrow, transaction details, and sign-in) load through `deferSheet`; `motion` loads only when a pointer first enters the full Home mark, and the navigation indicator is a CSS transform. Base UI Combobox and floating-ui still reach the initial path through Account settings' `CountrySelect`, and `@adraffy/ens-normalize` through `client/transfers` → `shared/transfers/recipient-name`.

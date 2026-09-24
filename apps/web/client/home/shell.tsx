@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 import { useRouter } from "next/navigation";
-import { AccountSignInSheet } from "@/client/account/account-screen";
+import { deferSheet } from "@/client/money-modal/deferred-sheet";
 import { useAccountWallet } from "@/client/account/cdp-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { BorrowMarketId } from "@/shared/borrowing/config";
@@ -20,6 +20,7 @@ import {
 } from "@/config/navigation";
 import {
   commitClientUrl,
+  commitFlowUrl,
   flowHref,
   homeHrefWithOverlays,
   isClientHistoryEntry,
@@ -57,6 +58,8 @@ import { HomeHeaderStatus, homeBalancesStatus, useReloadHomeBalances } from "./h
 import { DashboardShell } from "./shell-panels";
 import { ActionToasts } from "./action-toasts";
 import { useHomeRegion } from "./use-home-region";
+
+const AccountSignInSheet = deferSheet(() => import("@/client/account/account-screen").then((module) => module.AccountSignInSheet));
 
 const loadingAssetBalances: HomeAssetBalancesPresentation = {
   status: "loading",
@@ -282,8 +285,9 @@ export function HomeShell({
       options.actionId ?? null,
       new URLSearchParams(window.location.search),
     );
-    commitClientUrl(href, options.mode ?? "push");
+    const pushed = commitFlowUrl(href, options.mode ?? "push");
     applyUrlState(currentUrlIntent());
+    return pushed;
   }, [applyUrlState, currentUrlIntent]);
 
   const clearFlow = useCallback((options: {
@@ -375,6 +379,9 @@ export function HomeShell({
     if (isUnavailable) markHomeStartupOutcome("unavailable");
     else if (isSignedOut) markHomeStartupOutcome("signed-out");
   }, [isSignedOut, isUnavailable]);
+  useEffect(() => {
+    if (isSignedOut) void AccountSignInSheet.preload();
+  }, [isSignedOut]);
   const showAllAssetBalances = showSmallBalances || revealSmallBalances;
   const paintedAssetBalances = useMemo(
     () => mayPaintBalances

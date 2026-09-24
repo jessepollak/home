@@ -35,10 +35,8 @@ import {
   formatPresentationPercentage,
   formatUsdStablecoinAmount,
 } from "@/shared/formatting";
-import {
-  SavingsMoneyDialog,
-  type SavingsActionMode,
-} from "@/client/savings/savings-actions";
+import type { SavingsActionMode } from "@/client/savings/savings-actions";
+import { deferSheet } from "@/client/money-modal/deferred-sheet";
 import {
   BASE_USDC_ADDRESS,
   BASE_USDC_DECIMALS,
@@ -112,6 +110,8 @@ type PositionState =
       refreshError: boolean;
     }
   | { status: "error" };
+
+const SavingsMoneySheet = deferSheet(() => import("@/client/savings/savings-actions").then((module) => module.SavingsMoneyDialog));
 
 export function AuthenticatedSavingsExperience() {
   const account = useAccountWallet();
@@ -357,6 +357,7 @@ export function SavingsExperience({
   );
 
   function openAction(mode: SavingsActionMode) {
+    void SavingsMoneySheet.preload();
     pendingFocusModeRef.current = mode;
     if (!routing) {
       setActionMode(mode);
@@ -633,6 +634,7 @@ export function SavingsExperience({
             ref={depositOpenerRef}
             size="lg"
             disabled={!actionsReady}
+            onPointerDown={() => void SavingsMoneySheet.preload()}
             onClick={() => openAction("deposit")}
           >
             {funded ? "Deposit" : "Get started"}
@@ -643,6 +645,7 @@ export function SavingsExperience({
               size="lg"
               variant="outline"
               disabled={!actionsReady || !canWithdraw}
+              onPointerDown={() => void SavingsMoneySheet.preload()}
               onClick={() => openAction("withdraw")}
             >
               Withdraw
@@ -652,7 +655,7 @@ export function SavingsExperience({
       ) : null}
 
       {session && selected && prepareMoneyAction && executeMoneyAction ? (
-        <SavingsMoneyDialog
+        <SavingsMoneySheet
           open={visibleActionMode !== null}
           mode={visibleActionMode ?? "deposit"}
           session={session}
