@@ -152,8 +152,8 @@ These questions refine delivery; they do not reopen the agreed MVP breadth.
 
 | Question | Next useful output |
 | --- | --- |
-| Which card provider? | Evaluate Rain (name confirmed by Jesse) and StraitsX, including regional eligibility and partner access; recommend one for MVP. Neither is selected yet. |
-| Which identity provider? | Jesse has no strong preference. Evaluate providers against supported regions/documents, mobile completion and recovery, downstream card/ramp acceptance, privacy/data handling, operator setup, and integration effort; recommend one for MVP. |
+| Which card provider? | **Rain** (Jesse, September 23), using Rain's debit-from-balance model. Integrate against Rain's API docs first; provider contact and account come later. Record program country eligibility and KYC acceptance when confirmed (#639). |
+| Which identity provider? | **Sumsub** (Jesse, September 23), built against public docs and fixtures first; Persona is the fallback. Confirm whether Rain accepts Sumsub-shared KYC before live verification (#640, #639). |
 | What needs Peer input? | Jesse is already in contact and can bring Peer in as needed. Consolidate specific unresolved integration and corridor questions before requesting an introduction. |
 | How does dashboard configuration work? | Propose a focused evolution of current typed configuration and deployment secrets, including validation, administrator authority, and upgrade behavior. |
 | What are the exact coverage inventories? | Specify language mappings, existing yield products, stock and meme/major catalog sources, cb-asset identities, market sources, and refresh rules. |
