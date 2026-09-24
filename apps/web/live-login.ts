@@ -3,6 +3,7 @@ import { chmod, lstat, mkdir, open } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { defaultOtpSender, gmailCredentialsPath, pollGmailOtp, readGmailCredentials, runGmailAuth, verifyAccountEmail, type GmailCredentials } from "./gmail";
+import { pinnedAgentBrowser } from "./pinned-agent-browser";
 
 type BrowserCommand = (args: string[], input?: string) => string;
 type LoginOptions = { command?: BrowserCommand; home?: string; env?: Record<string, string | undefined>; getOtp?: (email: string, submittedAt: number) => Promise<string> };
@@ -51,9 +52,10 @@ function browserCommand(env: Record<string, string | undefined>, session: string
   delete browserEnv.HOME_ACCESS_PASSWORD;
   for (const key of Object.keys(browserEnv)) if (key.startsWith("HOME_VERIFY_")) delete browserEnv[key];
   delete browserEnv.AGENT_BROWSER_ALLOWED_DOMAINS;
+  const browser = pinnedAgentBrowser(resolve(import.meta.dir, "../.."), browserEnv);
   return (args, input) => {
     const result = Bun.spawnSync({
-      cmd: ["bunx", "agent-browser", ...args, "--json"],
+      cmd: [browser, ...args, "--json"],
       env: browserEnv,
       stdin: input === undefined ? undefined : Buffer.from(input),
       stdout: "pipe",

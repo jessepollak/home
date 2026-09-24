@@ -18,6 +18,7 @@ const PLATFORM_ALLOWLIST = [
   "NEXT_DEPLOYMENT_ID",
   "NEXT_RUNTIME",
   "NODE_ENV",
+  "PATH",
   "VERCEL",
   "VERCEL_ENV",
   "VERCEL_PROJECT_PRODUCTION_URL", // Vercel-owned production deployment hostname
