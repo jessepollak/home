@@ -87,6 +87,22 @@ export function InvestExperience({
     return () => { active = false; };
   }, [routing]);
 
+  const lastRoutingRef = useRef({ panel: routing?.state.panel ?? null, popRevision: routing?.popRevision ?? 0 });
+  useEffect(() => {
+    if (!routing) return;
+    const lastRouting = lastRoutingRef.current;
+    lastRoutingRef.current = { panel: routing.state.panel, popRevision: routing.popRevision };
+    if (
+      lastRouting.panel === "invest" ||
+      routing.state.location.panel !== "invest" ||
+      lastRouting.popRevision !== routing.popRevision ||
+      routing.state.location.shelf ||
+      routing.state.location.asset
+    ) return;
+    setView({ screen: "hub" });
+    setInAppChildDepth(0);
+  }, [routing]);
+
   const go = useCallback((next: InvestView) => {
     setView(next);
     setInAppChildDepth((depth) => depth + 1);

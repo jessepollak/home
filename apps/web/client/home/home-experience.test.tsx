@@ -95,6 +95,7 @@ const { CdpAccountProvider } = await import("@/client/account/cdp-client");
 const { AccountWalletSessionOwner } = await import("@/client/account/cdp-session-lifecycle");
 const { BASE_CHAIN_ID } = await import("@/client/account/session-client");
 const { useNestedAppChrome } = await import("@/components/app-chrome");
+const { InvestExperience } = await import("@/client/invest/invest-experience");
 const { HomeExperience } = await import("./home-experience");
 
 const OWNER = "home-user";
@@ -825,6 +826,77 @@ describe("Home shell routing and intents", () => {
     fireEvent.click(summary.getByRole("button", { description: "Open Invest" }));
     expect(`${window.location.pathname}${window.location.search}`).toBe("/invest");
     expect(page().getByRole("region", { name: "Invest module" })).toBeTruthy();
+  });
+
+  test("returns a kept-mounted Invest category to the hub on primary tab entry", async () => {
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        investContent={<InvestExperience />}
+      />,
+    );
+    await waitForVerifiedShell();
+    const navigation = within(page().getByRole("navigation", { name: "Main navigation" }));
+    fireEvent.click(navigation.getByRole("button", { name: "Invest" }));
+    const cryptoShelf = page().getByRole("heading", { name: "Crypto", level: 3 }).closest("section")!;
+    fireEvent.click(within(cryptoShelf).getByRole("button", { name: "See all ›" }));
+    expect(window.location.pathname).toBe("/invest/crypto");
+    expect(page().getByRole("heading", { level: 1, name: "Crypto" })).toBeTruthy();
+
+    const entriesBeforeSameTab = pushCalls.length;
+    fireEvent.click(navigation.getByRole("button", { name: "Invest" }));
+    expect(window.location.pathname).toBe("/invest/crypto");
+    expect(pushCalls).toHaveLength(entriesBeforeSameTab);
+    expect(page().getByRole("heading", { level: 1, name: "Crypto" })).toBeTruthy();
+
+    fireEvent.click(navigation.getByRole("button", { name: "Home" }));
+    expect(window.location.pathname).toBe("/home");
+    fireEvent.click(navigation.getByRole("button", { name: "Invest" }));
+    expect(window.location.pathname).toBe("/invest");
+    expect(await page().findByRole("heading", { level: 1, name: "Invest" })).toBeTruthy();
+    expect(page().queryByRole("button", { name: "Back to Invest" })).toBeNull();
+    expect(page().getByRole("heading", { name: "Crypto", level: 3 })).toBeTruthy();
+  });
+
+  test("returns a deep-linked Invest asset detail to the hub when the Invest tab is entered from Balances", async () => {
+    syncLocation("/invest/nvdac");
+    historyEntries = ["/balances", "/invest/nvdac"];
+    historyStates = [{}, {}];
+    historyCursor = 1;
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        initialPanel="invest"
+        initialLocation={{ panel: "invest", account: null, shelf: null, asset: "nvdac", group: null, market: null }}
+        investContent={<InvestExperience initialView={{ screen: "detail", assetId: "nvdac", from: "hub" }} />}
+      />,
+    );
+    await waitForVerifiedShell();
+    expect(page().getByRole("heading", { level: 1, name: "NVIDIA" })).toBeTruthy();
+    act(() => popHistory());
+    expect(window.location.pathname).toBe("/balances");
+    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Invest" }));
+    expect(window.location.pathname).toBe("/invest");
+    expect(await page().findByRole("heading", { level: 1, name: "Invest" })).toBeTruthy();
+    expect(page().queryByRole("heading", { level: 1, name: "NVIDIA" })).toBeNull();
+    expect(page().queryByRole("button", { name: "Back" })).toBeNull();
+  });
+
+  test("synchronizes Invest view with browser Back from a category", async () => {
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        investContent={<InvestExperience />}
+      />,
+    );
+    await waitForVerifiedShell();
+    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Invest" }));
+    const cryptoShelf = page().getByRole("heading", { name: "Crypto", level: 3 }).closest("section")!;
+    fireEvent.click(within(cryptoShelf).getByRole("button", { name: "See all ›" }));
+    expect(window.location.pathname).toBe("/invest/crypto");
+    act(() => popHistory());
+    expect(window.location.pathname).toBe("/invest");
+    expect(await page().findByRole("heading", { level: 1, name: "Invest" })).toBeTruthy();
   });
 
   test("keeps panel selection and browser history synchronized", async () => {
