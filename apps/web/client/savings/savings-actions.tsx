@@ -11,6 +11,7 @@ import {
   MoneyAmountDisplay,
   MoneyAssetPicker,
   MoneyConfirmSummary,
+  moneyConfirmFromRow,
   MoneyConfirmFooter,
   MoneyModal,
   MoneyModalBody,
@@ -23,6 +24,7 @@ import {
   type MoneyAmountChangeSource,
 } from "@/client/money-modal";
 import type {
+  MoneyActionOwner,
   OperationResult,
   PreparedMoneyAction,
 } from "@/shared/money-actions/types";
@@ -303,7 +305,7 @@ function OwnerBoundSavingsMoneyDialog({
               <MoneyConfirmSummary
                 amount={confirmAmount}
                 lead={mode === "deposit" ? "Deposit to Save" : "Withdraw from Save"}
-                rows={preparedReview ? savingsReviewRows(preparedReview) : [
+                rows={preparedReview && preparedAction ? savingsReviewRows(preparedReview, preparedAction.owner) : [
                   { label: "Review", value: "Prepared facts unavailable" },
                 ]}
               />
@@ -364,7 +366,7 @@ function savingsDialogOwnerIdentity(session: VerifiedAccountSession): string {
   return `${session.user.subject}\u0000${session.smartAccount?.address.toLowerCase() ?? ""}\u0000${session.smartAccount?.chainId ?? ""}\u0000${session.accountProvider}`;
 }
 
-function savingsReviewRows(review: SavingsPreparedReview) {
+function savingsReviewRows(review: SavingsPreparedReview, owner: MoneyActionOwner) {
   const apy = review.discoveryRate.status === "unavailable"
     ? "Unavailable"
     : `${formatPresentationPercentage(Number(review.discoveryRate.netApy))} · ${review.discoveryRate.status}`;
@@ -378,6 +380,7 @@ function savingsReviewRows(review: SavingsPreparedReview) {
     ? "Estimated shares; no minimum-shares protection"
     : "Exact USDC; reverts if shares are insufficient";
   return [
+    moneyConfirmFromRow(owner),
     { label: "Vault", value: review.vaultName },
     { label: "Network", value: `${review.network.name} (${review.network.chainId})` },
     { label: "Discovery APY", value: apy },

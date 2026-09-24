@@ -31,6 +31,7 @@ import {
   MoneyAmountDisplay,
   MoneyAssetPicker,
   MoneyConfirmSummary,
+  moneyConfirmFromRow,
   MoneyConfirmFooter,
   MoneyModal,
   MoneyModalBody,
@@ -520,6 +521,7 @@ export function SendDialog({
         </div> : null}
         {(request || cashout) && (!request || requestAsset) && (step === "confirm" || busy || step === "error") ? <>
           <MoneyConfirmSummary amount={confirmAmount} lead={cashout ? (cashout.operation === "withdraw" ? `You're withdrawing from ${cashout.providerName}` : `You're cashing out with ${cashout.providerName}`) : `You're sending ${requestAsset?.symbol ?? ""}`} rows={cashout ? [
+            ...(action ? [moneyConfirmFromRow(action.owner)] : []),
             { label: "Provider", value: cashout.providerName },
             { label: "Payout app", value: cashout.platformLabel },
             ...(cashout.canonicalHandle ? [{ label: "Payout handle", value: cashout.canonicalHandle }] : []),
@@ -529,6 +531,7 @@ export function SendDialog({
             ] : []),
             { label: "Network", value: "Base" },
           ] : [
+            ...(action ? [moneyConfirmFromRow(action.owner)] : []),
             { label: "To", value: <CopyableValue value={request!.recipient} presentation="full" valueKind="address" className="sm:justify-end" />, fullValue: true },
             { label: "Asset", value: requestAsset?.symbol ?? "" }, { label: "Network", value: "Base" },
           ]} />

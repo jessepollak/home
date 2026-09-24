@@ -10,7 +10,7 @@ type LoginOptions = { command?: BrowserCommand; home?: string; env?: Record<stri
 
 const verificationKeys = [
   "HOME_VERIFY_ACCOUNT_EMAIL", "HOME_ACCESS_PASSWORD", "HOME_VERIFY_GMAIL_CREDENTIALS",
-  "HOME_VERIFY_OTP_SENDER", "HOME_VERIFY_CASHOUT_HANDLE", "HOME_VERIFY_PRODUCTION_URL",
+  "HOME_VERIFY_OTP_SENDER", "HOME_VERIFY_CASHOUT_HANDLE", "HOME_VERIFY_ACCOUNT_ADDRESS", "HOME_VERIFY_PRODUCTION_URL",
 ] as const;
 
 export async function loadVerificationEnv(env: Record<string, string | undefined> = process.env, home = homedir()): Promise<Record<string, string | undefined>> {
@@ -45,6 +45,15 @@ export async function loadVerificationEnv(env: Record<string, string | undefined
   } finally {
     await file?.close();
   }
+}
+
+export async function checkAccount(address: string | undefined, options: { env?: Record<string, string | undefined>; home?: string } = {}): Promise<void> {
+  const env = await loadVerificationEnv(options.env ?? process.env, options.home);
+  const anchor = env.HOME_VERIFY_ACCOUNT_ADDRESS;
+  if (!anchor) throw new Error("HOME_VERIFY_ACCOUNT_ADDRESS is not provisioned.");
+  if (!/^0x[0-9a-fA-F]{40}$/.test(anchor)) throw new Error("HOME_VERIFY_ACCOUNT_ADDRESS must be a full 0x address.");
+  if (!address || !/^0x[0-9a-fA-F]{40}$/.test(address)) throw new Error("--check-account needs the review's full 0x address.");
+  if (anchor.toLowerCase() !== address.toLowerCase()) throw new Error("Review account does not match HOME_VERIFY_ACCOUNT_ADDRESS.");
 }
 
 function browserCommand(env: Record<string, string | undefined>, session: string): BrowserCommand {
@@ -145,6 +154,9 @@ if (import.meta.main) {
       const port = option(args, "--port");
       if (port !== undefined && (!/^\d+$/.test(port) || Number(port) > 65535)) throw new Error("--port must be 0–65535.");
       await runGmailAuth(gmailCredentialsPath(env), { accountEmail, open: !args.includes("--no-open"), port: port === undefined ? undefined : Number(port) });
+    } else if (args[0] === "--check-account") {
+      await checkAccount(args[1]);
+      console.log("account matches");
     } else {
       console.log(await liveLogin(args));
     }

@@ -14,6 +14,7 @@ import {
 } from "@/shared/borrowing/config";
 import type { BorrowMarketSnapshot, BorrowOverviewResponse } from "@/shared/borrowing/contract";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
+import { formatAddress } from "@/shared/formatting";
 
 const { act, cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const {
@@ -203,6 +204,8 @@ describe("BorrowExperience redesign", () => {
     fireEvent.click(dialog.getByRole("button", { name: "1" }));
     fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
     await dialog.findByText("Network");
+    expect(dialog.getByText("From").closest("dl")?.querySelector("dt")?.textContent).toBe("From");
+    expect(dialog.getByRole("button", { name: `Copy ${formatAddress(prepared().owner.address)}` })).toBeTruthy();
     expect(dialog.getByRole("button", { name: "Confirm action" }).getAttribute("data-money-action-id")).toBe("11111111-1111-4111-8111-111111111111");
     expect(requests).toEqual([{ kind: "borrow", params: { marketId: BORROW_MARKET_ID, operation: "borrow", amountBaseUnits: "1000000" } }]);
     expect(dialog.queryByText(/Locked as collateral/)).toBeNull();

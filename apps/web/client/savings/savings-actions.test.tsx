@@ -6,6 +6,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { useState } from "react";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
+import { formatAddress } from "@/shared/formatting";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
 import type { SavingsMoneyDialogProps } from "./savings-actions";
@@ -136,6 +137,8 @@ describe("SavingsMoneyDialog", () => {
     expect(await page().findByRole("button", { name: "Deposit $1.234567" })).toBeTruthy();
     expect(page().getByRole("button", { name: "Deposit $1.234567" }).getAttribute("data-money-action-id")).toBe("action-1");
     expect(page().getAllByRole("button", { name: "Back" }).every((button) => !button.hasAttribute("data-money-action-id"))).toBe(true);
+    expect(page().getByText("From").closest("dl")?.querySelector("dt")?.textContent).toBe("From");
+    expect(page().getByRole("button", { name: `Copy ${formatAddress(prepared().owner.address)}` })).toBeTruthy();
     expect(document.body.textContent).toContain("Base (8453)");
     expect(document.body.textContent).toContain("3.50% · stale");
     expect(document.body.textContent).toContain("10% (current)");
@@ -157,6 +160,8 @@ describe("SavingsMoneyDialog", () => {
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     const confirm = await page().findByRole("button", { name: "Withdraw $1.00" });
     expect(confirm.getAttribute("data-money-action-id")).toBe("action-1");
+    expect(page().getByText("From").closest("dl")?.querySelector("dt")?.textContent).toBe("From");
+    expect(page().getByRole("button", { name: `Copy ${formatAddress(prepared("savings-withdraw").owner.address)}` })).toBeTruthy();
     expect(page().getAllByRole("button", { name: "Back" }).every((button) => !button.hasAttribute("data-money-action-id"))).toBe(true);
   });
 

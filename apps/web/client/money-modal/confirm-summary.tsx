@@ -1,9 +1,15 @@
 "use client";
 
+import { AddressText } from "@/components/address-text";
 import { MoneyTicker } from "@/components/money-ticker";
+import type { MoneyActionOwner } from "@/shared/money-actions/types";
 import type { ReactNode } from "react";
 
 export type MoneyConfirmRow = { label: string; value: ReactNode; fullValue?: boolean };
+
+export function moneyConfirmFromRow(owner: MoneyActionOwner): MoneyConfirmRow {
+  return { label: "From", value: <AddressText address={owner.address} className="justify-end" /> };
+}
 
 export function MoneyConfirmSummary({ amount, lead, rows }: { amount: string; lead: string; rows: readonly MoneyConfirmRow[] }) {
   return (

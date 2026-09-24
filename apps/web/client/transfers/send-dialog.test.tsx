@@ -4,6 +4,7 @@ import { page } from "@/tests/helpers/dom";
 import { afterEach, describe, expect, test } from "bun:test";
 import { useState, type ComponentProps } from "react";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
+import { formatAddress } from "@/shared/formatting";
 import { encodeUsdcTransfer, getTransferAsset } from "@/shared/transfers/transfer-helpers";
 import { TransferExecutionError } from "@/shared/transfers/types";
 
@@ -162,6 +163,8 @@ describe("SendDialog review", () => {
     expect(await page().findByRole("button", { name: "Send $1.00" })).toBeTruthy();
     expect(page().queryByText("Waiting for your wallet…")).toBeNull();
     expect(page().queryByText("Preparing review…")).toBeNull();
+    expect(page().getByText("From").closest("dl")?.querySelector("dt")?.textContent).toBe("From");
+    expect(page().getByRole("button", { name: `Copy ${formatAddress(resumedAction().owner.address)}` })).toBeTruthy();
     expect(reviews).toEqual([ACTION_ID]);
     expect(resumes).toEqual([]);
   });
@@ -201,6 +204,8 @@ describe("SendDialog Peer cash-out", () => {
     expect(await page().findByRole("button", { name: "Cash out $1.00" })).toBeTruthy();
     expect(page().getByRole("button", { name: "Cash out $1.00" }).getAttribute("data-money-action-id")).toBe(ACTION_ID);
     expect(page().getAllByRole("button", { name: "Back" }).every((button) => !button.hasAttribute("data-money-action-id"))).toBe(true);
+    expect(page().getByText("From").closest("dl")?.querySelector("dt")?.textContent).toBe("From");
+    expect(page().getByRole("button", { name: `Copy ${formatAddress(cashoutAction().owner.address)}` })).toBeTruthy();
     expect(document.body.textContent).toContain("≈ 1 USD");
     expect(document.body.textContent).toContain("About 1 min");
     expect(prepares).toEqual([{ kind: "cash-out", params: expect.objectContaining({ payoutHandle: "$alice", canonicalHandleConfirmation: "alice", amountBaseUnits: "1000000" }) }]);
@@ -308,6 +313,8 @@ describe("SendDialog Peer cash-out", () => {
     fireEvent.click(recovery);
     expect(await page().findByRole("button", { name: "Withdraw $2.00" })).toBeTruthy();
     expect(page().getByRole("button", { name: "Withdraw $2.00" }).getAttribute("data-money-action-id")).toBe(ACTION_ID);
+    expect(page().getByText("From").closest("dl")?.querySelector("dt")?.textContent).toBe("From");
+    expect(page().getByRole("button", { name: `Copy ${formatAddress(withdrawAction().owner.address)}` })).toBeTruthy();
     expect(prepares).toEqual([{
       kind: "cash-out-withdraw",
       params: { providerId: "peer", region: "US", depositId: "0xescrow_7" },
