@@ -12,6 +12,7 @@ import { emitFundingProviderFailure } from "./provider-failure";
 import type { FundingOrder, FundingOrderOwner, FundingOrderStore } from "./store";
 import { MemoryFundingProviderCustomerStore, type FundingProviderCustomer, type FundingProviderCustomerStore } from "./customer-store";
 import { awaitBalanceSignal } from "@/server/balances/signal";
+import type { FundingUserTokenVault, ProviderUserTokenCreateOrder, FundingUserTokenBinding } from "./provider-user-token";
 
 export const AMBIGUOUS_ORDER_RECOVERY_DELAY_MS = 24 * 60 * 60 * 1_000;
 
@@ -32,6 +33,8 @@ export type FundingCoreDependencies = {
   providers: ReadonlyArray<FundingProvider>;
   store: FundingOrderStore;
   customerStore?: FundingProviderCustomerStore;
+  userTokenVault?: FundingUserTokenVault;
+  userTokenProviders?: ReadonlyMap<string, ProviderUserTokenCreateOrder>;
   env?: Environment;
   fetchImplementation?: typeof fetch;
   currentBaseBlock: () => Promise<string>;
@@ -394,13 +397,25 @@ export class FundingCore {
     if (!reserved.created) return publicOrder(reserved.order);
     const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "onramp", paymentMethodId: claims.paymentMethod, env: this.env, fetchImplementation: this.deps.fetchImplementation, sandbox: claims.sandbox });
     const dispatchStartedAt = Date.now();
-    const result = await onramp.createOrder({ homeOrderId: id, destination: session.smartAccount.address, fiatAmount: claims.fiatAmount, quote: claims.quote, customerRef: claims.customerRef ?? undefined, clientIp: resolveClientIp(headers, this.env, claims.sandbox), returnUrl: `${returnOrigin}/fund?return=funding` }, ctx);
+    const createWithToken = this.deps.userTokenProviders?.get(claims.providerId);
+    const tokenBinding: FundingUserTokenBinding | null = createWithToken && this.deps.userTokenVault &&
+      claims.subject === owner.subject && claims.accountProvider === owner.accountProvider &&
+      claims.destination === session.smartAccount.address && claims.sandbox === sandbox && claims.region === binding.region
+      ? { owner, providerId: claims.providerId, region: binding.region, sandbox: claims.sandbox, destination: session.smartAccount.address.toLowerCase() } : null;
+    const tokenRead = tokenBinding ? await this.deps.userTokenVault!.readForDispatch(tokenBinding) : null;
+    const stored = tokenRead?.credential ?? null;
+    const intent = { homeOrderId: id, destination: session.smartAccount.address, fiatAmount: claims.fiatAmount, quote: claims.quote, customerRef: claims.customerRef ?? undefined, clientIp: resolveClientIp(headers, this.env, claims.sandbox), returnUrl: `${returnOrigin}/fund?return=funding` };
+    const dispatched = tokenBinding && createWithToken
+      ? await createWithToken(intent, { userAuthToken: stored?.token ?? null }, ctx)
+      : { result: await onramp.createOrder(intent, ctx), userAuthToken: null, credentialRejected: false };
+    const result = dispatched.result;
     if (result.outcome === "ambiguous") {
       const ambiguous = await this.deps.store.markDispatchAmbiguous(id, reserved.order.version, this.now().toISOString());
       this.logTransition(ambiguous, "ORDER_AMBIGUOUS", "unavailable", "/api/funding/orders", dispatchStartedAt);
       return publicOrder(ambiguous);
     }
     if (result.outcome === "rejected") {
+      if (tokenBinding && stored && dispatched.credentialRejected) await this.deps.userTokenVault!.clearAfterRejection(tokenBinding, stored);
       const rejected = await this.deps.store.applyObservation(id, { state: "failed", providerStatus: result.message, expectedVersion: reserved.order.version, updatedAt: this.now().toISOString() });
       if (!rejected) throw new FundingCoreError("ORDER_STATE_CHANGED", 409);
       if (rejected.state !== reserved.order.state) this.logTransition(rejected, "ORDER_REJECTED", "rejected", "/api/funding/orders", dispatchStartedAt);
@@ -420,6 +435,7 @@ export class FundingCore {
       return publicOrder(ambiguous);
     }
     const created = await this.deps.store.completeDispatch(id, { ...result.order, expectedVersion: reserved.order.version, updatedAt: this.now().toISOString() });
+    if (tokenBinding && tokenRead && dispatched.userAuthToken) await this.deps.userTokenVault!.capture(tokenBinding, dispatched.userAuthToken, tokenRead.expectedEnvelope);
     this.logTransition(created, "ORDER_CREATED", "ok", "/api/funding/orders", dispatchStartedAt);
     return publicOrder(created);
   }

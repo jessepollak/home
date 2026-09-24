@@ -1,7 +1,9 @@
 import "server-only";
 
 import { authorizeSession } from "@/server/auth/authorize";
-import { fundingProviders } from "@/server/funding/providers";
+import { fundingProviders, fundingUserTokenProviders } from "@/server/funding/providers";
+import { FundingUserTokenVault, type FundingUserTokenDiagnostic } from "./provider-user-token";
+import { createRuntimeFundingProviderUserTokenStore } from "./user-token-store";
 import { readCurrentBaseBlock, verifyBaseFundingReceipt } from "./base-receipt";
 import { createRuntimeFundingOrderStore } from "./postgres-store";
 import { createRuntimeFundingProviderCustomerStore } from "./customer-store";
@@ -18,6 +20,10 @@ export function getFundingCore(): FundingCore {
     providers: fundingProviders,
     store: createRuntimeFundingOrderStore(),
     customerStore: createRuntimeFundingProviderCustomerStore(),
+    userTokenProviders: fundingUserTokenProviders,
+    userTokenVault: new FundingUserTokenVault({ store: createRuntimeFundingProviderUserTokenStore(), env: process.env, now: () => new Date(), diagnose: (code: FundingUserTokenDiagnostic, binding) => {
+      emitServerEvent("funding-order", { route: "/api/funding/orders", code: `USER_TOKEN_${code.toUpperCase().replaceAll("-", "_")}`, outcome: code === "captured" || code === "cleared-after-rejection" || code === "expired" ? "ok" : "unavailable", provider: binding.providerId, region: binding.region, sandbox: binding.sandbox });
+    } }),
     currentBaseBlock: () => readCurrentBaseBlock(),
     verifyReceipt: (order, hash) => verifyBaseFundingReceipt(order, hash),
     markStale: (address, at) => getBalanceSnapshotStore().markStale(8453, address, at),

@@ -23,7 +23,7 @@ Quote and create omit `phoneNumber`, `email`, `agreementAcceptedAt`, `phoneNumbe
 
 The US onramp binding declares `minimumFiatAmount: "2"`. Home rejects amounts at or below $2 before calling Coinbase. September 24, 2026 production quotes at $2.05 and below failed; $2.07 succeeded, yielding 2.02 USDC after a $0.05 fee. Coinbase HTTP 400 quote rejections map to `QUOTE_BELOW_MINIMUM` or `QUOTE_DECLINED` without exposing provider error text.
 
-Coinbase may include a top-level `userAuthToken` in its response. Home ignores it: it is not returned to the browser, logged, or persisted. Secure caching to reduce repeat Coinbase verification is a follow-up; never put it in `customer_ref` or plaintext ad hoc storage.
+Coinbase may include a top-level `userAuthToken` in its response. It is never returned to the browser, logged, placed in `customer_ref`, or stored in plaintext; the only persistence path is the encrypted vault described in [Reusable Embedded Orders verification token](#reusable-embedded-orders-verification-token).
 
 ## Iframe and domain requirements
 
@@ -96,3 +96,7 @@ Tests lock contact-field omission, exact purchase amount, one create, generic st
 - In CDP Portal, allowlist and verify Home's production and preview domains for Apple Pay. `localhost` needs no registration.
 - Confirm the existing CDP API credentials remain configured in Vercel.
 - Never set `COINBASE_ONRAMP_MODE` on production Vercel; it is only for local dry runs.
+
+## Reusable Embedded Orders verification token
+
+The generic provider adapter still drops top-level `userAuthToken`. The server-only create channel receives/sends it for the exact owner account-provider, subject, Coinbase provider ID, US region, sandbox mode and destination tuple; only a validated created response can capture it. The credential is encrypted outside `funding_orders` and never enters public order JSON, signed quotes, shared types or logs. Local reuse expires at 55 days. A rejection after reuse clears that envelope for the next purchase without retry; ambiguity does not clear it. Without a configured keyring, the existing first-purchase flow is unchanged. Before provisioning production keys, verify token return and same-wallet reuse in a non-funded sandbox check; see [the runbook](../../../../../../docs/secrets-at-rest.md).
