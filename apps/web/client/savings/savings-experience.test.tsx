@@ -20,6 +20,7 @@ window.matchMedia = ((query: string) => ({
 })) as typeof window.matchMedia;
 const { act, cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const { SavingsExperience } = await import("./savings-experience");
+const { PresentationRegionProvider } = await import("@/client/invest/presentation-quote");
 
 const ADDRESS_A = "0x1111111111111111111111111111111111111111";
 const CURATOR = "0x1234567890abcdef1234567890abcdef12345678";
@@ -228,6 +229,81 @@ describe("Save simplify", () => {
     fireEvent.click(await page().findByRole("button", { name: "Get started" }));
     await waitFor(() => expect(document.body.textContent).toContain("$50.00 available"));
     expect(document.body.textContent).not.toContain("Updated");
+  });
+
+  test("floors the deposit available label while Max uses exact USDC base units", async () => {
+    const prepares: unknown[] = [];
+    render(
+      <SavingsExperience
+        now={testNow}
+        initialData={initialData}
+        session={session()}
+        balanceStatus="ready"
+        balancePositions={balancePositions()}
+        availableUsdcBaseUnits="7899998"
+        prepareMoneyAction={async (_endpoint, input) => {
+          prepares.push(input);
+          return preparedAction("savings-deposit", "7899998");
+        }}
+        executeMoneyAction={async () => ({ id: "action-1", status: "confirmed" })}
+      />,
+    );
+
+    fireEvent.click(await page().findByRole("button", { name: "Get started" }));
+    expect(await page().findByText("$7.89 available")).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Max" }));
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    await page().findByRole("dialog", { name: "Confirm" });
+    expect(prepares).toEqual([
+      { kind: "deposit", vaultAddress: GAUNTLET, amountBaseUnits: "7899998" },
+    ]);
+  });
+
+  test("floors the withdraw available label while Max uses exact vault base units", async () => {
+    const prepares: unknown[] = [];
+    render(
+      <SavingsExperience
+        now={testNow}
+        initialData={initialData}
+        session={session()}
+        balanceStatus="ready"
+        balancePositions={balancePositions({ [GAUNTLET]: "7899998" })}
+        prepareMoneyAction={async (_endpoint, input) => {
+          prepares.push(input);
+          return preparedAction("savings-withdraw", "7899998");
+        }}
+        executeMoneyAction={async () => ({ id: "action-1", status: "confirmed" })}
+      />,
+    );
+
+    fireEvent.click(await page().findByRole("button", { name: "Withdraw" }));
+    expect(await page().findByText("$7.89 available")).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Max" }));
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    await page().findByRole("dialog", { name: "Confirm" });
+    expect(prepares).toEqual([
+      { kind: "withdraw", vaultAddress: GAUNTLET, amountBaseUnits: "7899998" },
+    ]);
+  });
+
+  test("keeps the available balance exact in comma-decimal regions", async () => {
+    render(
+      <PresentationRegionProvider regionId="DE">
+        <SavingsExperience
+          now={testNow}
+          initialData={initialData}
+          session={session()}
+          balanceStatus="ready"
+          balancePositions={balancePositions()}
+          availableUsdcBaseUnits="1234567890"
+          prepareMoneyAction={async () => preparedAction("savings-deposit", "1234567890")}
+          executeMoneyAction={async () => ({ id: "action-1", status: "confirmed" })}
+        />
+      </PresentationRegionProvider>,
+    );
+
+    fireEvent.click(await page().findByRole("button", { name: "Get started" }));
+    expect(await page().findByText("1,234.56 USDC available")).toBeTruthy();
   });
 
   test("sums every funded vault from the balances snapshot", async () => {
