@@ -142,7 +142,8 @@ function preparedAction(
       limitBaseUnits: "250000000",
       previewSharesBaseUnits: "24000000000000000000",
       shareDecimals: 18,
-      exchangeConstraint: "deposit-preview-no-minimum-shares",
+      exchangeConstraint: "deposit-minimum-shares-or-revert",
+      minimumSharesBaseUnits: "23976000000000000000",
       discoveryRate: {
         status: "current",
         netApy: String(vault.netApy),

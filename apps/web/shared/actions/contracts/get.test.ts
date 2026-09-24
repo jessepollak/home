@@ -31,8 +31,9 @@ function pendingSavings(operation: "deposit" | "withdraw") {
         previewSharesBaseUnits: "1000000000000000000",
         shareDecimals: 18,
         exchangeConstraint: operation === "deposit"
-          ? "deposit-preview-no-minimum-shares"
+          ? "deposit-minimum-shares-or-revert"
           : "withdraw-exact-assets-or-revert",
+        ...(operation === "deposit" ? { minimumSharesBaseUnits: "999000000000000000" } : {}),
         discoveryRate: {
           status: "current",
           netApy: "0.04",
@@ -68,6 +69,15 @@ describe("pending action response parser", () => {
       });
     },
   );
+
+  test("retains an already-stored legacy deposit on reload", () => {
+    const value = pendingSavings("deposit");
+    value.summary.metadata.exchangeConstraint = "deposit-preview-no-minimum-shares";
+    value.summary.metadata = { ...value.summary.metadata, minimumSharesBaseUnits: undefined };
+    expect(parsePendingActionResponse(value, ID, session)?.metadata).toMatchObject({
+      product: "savings", exchangeConstraint: "deposit-preview-no-minimum-shares",
+    });
+  });
 
   test("drops malformed savings metadata instead of restoring untrusted review facts", () => {
     const value = pendingSavings("deposit");

@@ -374,9 +374,6 @@ function savingsReviewRows(review: SavingsPreparedReview) {
     review.shareDecimals,
     "vault shares",
   );
-  const constraint = review.exchangeConstraint === "deposit-preview-no-minimum-shares"
-    ? "Estimated shares; no minimum-shares protection"
-    : "Exact USDC; reverts if shares are insufficient";
   return [
     { label: "Vault", value: review.vaultName },
     { label: "Network", value: `${review.network.name} (${review.network.chainId})` },
@@ -384,7 +381,11 @@ function savingsReviewRows(review: SavingsPreparedReview) {
     { label: "Current vault fee", value: fee },
     { label: "Amount", value: formatUsdStablecoinAmount(review.exactUsdcBaseUnits) },
     { label: "Share preview", value: preview },
-    { label: "Exchange constraint", value: constraint },
+    ...(review.operation === "deposit" && review.minimumSharesBaseUnits !== null
+      ? [{ label: "Minimum shares", value: formatExactPresentationTokenAmount(
+          review.minimumSharesBaseUnits, review.shareDecimals, "vault shares",
+        ) }]
+      : [{ label: "Exchange constraint", value: "Exact USDC; reverts if shares are insufficient" }]),
     { label: "Valid until", value: formatPresentationDate(review.expiresAt, { style: "date-time-zone" }) },
   ];
 }

@@ -73,7 +73,8 @@ function prepared(
       limitBaseUnits: "500000000",
       previewSharesBaseUnits: amountBaseUnits.padEnd(18, "0"),
       shareDecimals: 18,
-      exchangeConstraint: deposit ? "deposit-preview-no-minimum-shares" : "withdraw-exact-assets-or-revert",
+      exchangeConstraint: deposit ? "deposit-minimum-shares-or-revert" : "withdraw-exact-assets-or-revert",
+      ...(deposit ? { minimumSharesBaseUnits: amountBaseUnits.padEnd(18, "0") } : {}),
       discoveryRate: { status: "stale", netApy: "0.035", fetchedAt: "2026-09-12T12:00:01.000Z", stateAsOf: "2026-09-12T12:00:00.000Z" },
       source: { blockNumber: "51026404", blockHash: `0x${"ab".repeat(32)}`, blockTimestamp: "1789214400" },
     },
@@ -139,7 +140,9 @@ describe("SavingsMoneyDialog", () => {
     expect(document.body.textContent).toContain("Base (8453)");
     expect(document.body.textContent).toContain("3.50% · stale");
     expect(document.body.textContent).toContain("10% (current)");
-    expect(document.body.textContent).toContain("no minimum-shares protection");
+    expect(document.body.textContent).toContain("Minimum shares");
+    expect(document.body.textContent).toContain("Minimum shares0.1234567 vault shares");
+    expect(document.body.textContent).not.toContain("no minimum-shares protection");
     expect(requests).toEqual([{ kind: "savings-deposit", input: { kind: "deposit", vaultAddress: VAULT, amountBaseUnits: "1234567" } }]);
   });
 

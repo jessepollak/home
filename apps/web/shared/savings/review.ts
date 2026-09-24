@@ -12,6 +12,7 @@ export type SavingsPreparedReview = {
   expiresAt: string;
   exactUsdcBaseUnits: string;
   previewSharesBaseUnits: string;
+  minimumSharesBaseUnits: string | null;
   shareDecimals: number;
   limitBaseUnits: string;
   exchangeConstraint: SavingsMoneyActionMetadata["exchangeConstraint"];
@@ -29,7 +30,7 @@ export function readSavingsPreparedReview(
   action: PreparedMoneyAction,
 ): SavingsPreparedReview | null {
   const metadata = action.metadata;
-  if (!isSavingsMetadata(metadata)) return null;
+  if (!isSavingsMetadata(metadata) || metadata.exchangeConstraint === "deposit-preview-no-minimum-shares") return null;
   const expectedKind = metadata.operation === "deposit"
     ? "savings-deposit"
     : "savings-withdraw";
@@ -65,6 +66,7 @@ export function readSavingsPreparedReview(
     expiresAt: action.expiresAt,
     exactUsdcBaseUnits: usdc.amountBaseUnits,
     previewSharesBaseUnits: metadata.previewSharesBaseUnits,
+    minimumSharesBaseUnits: metadata.operation === "deposit" ? metadata.minimumSharesBaseUnits! : null,
     shareDecimals: metadata.shareDecimals,
     limitBaseUnits: metadata.limitBaseUnits,
     exchangeConstraint: metadata.exchangeConstraint,
@@ -82,9 +84,14 @@ export function isSavingsMetadata(
   const network = item.network;
   const discoveryRate = item.discoveryRate;
   const operation = item.operation;
-  const expectedConstraint = operation === "deposit"
-    ? "deposit-preview-no-minimum-shares"
-    : "withdraw-exact-assets-or-revert";
+  const validConstraint = operation === "withdraw"
+    ? item.exchangeConstraint === "withdraw-exact-assets-or-revert" && item.minimumSharesBaseUnits === undefined
+    : (item.exchangeConstraint === "deposit-preview-no-minimum-shares" && item.minimumSharesBaseUnits === undefined) ||
+      (item.exchangeConstraint === "deposit-minimum-shares-or-revert" &&
+        typeof item.minimumSharesBaseUnits === "string" &&
+        integer.test(item.minimumSharesBaseUnits) && item.minimumSharesBaseUnits !== "0" &&
+        typeof item.previewSharesBaseUnits === "string" && integer.test(item.previewSharesBaseUnits) &&
+        BigInt(item.minimumSharesBaseUnits) <= BigInt(item.previewSharesBaseUnits));
 
   return item.product === "savings" &&
     (operation === "deposit" || operation === "withdraw") &&
@@ -101,7 +108,7 @@ export function isSavingsMetadata(
     integer.test(item.previewSharesBaseUnits) && item.previewSharesBaseUnits !== "0" &&
     typeof item.shareDecimals === "number" && Number.isInteger(item.shareDecimals) &&
     item.shareDecimals >= 0 && item.shareDecimals <= 255 &&
-    item.exchangeConstraint === expectedConstraint &&
+    validConstraint &&
     isDiscoveryRate(discoveryRate) &&
     Boolean(source && typeof source === "object" && !Array.isArray(source) &&
       typeof (source as Record<string, unknown>).blockNumber === "string" &&

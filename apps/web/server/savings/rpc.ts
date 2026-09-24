@@ -10,6 +10,7 @@ import {
 } from "@/server/chain/rpc";
 import {
   SELECTOR,
+  MORPHO_GENERAL_ADAPTER1_ADDRESS,
   SavingsActionAbiError,
   encodeAddressCall,
   encodeNoArgs,
@@ -234,7 +235,7 @@ function createPinnedReads(
       call(
         "USDC allowance",
         BASE_USDC_ADDRESS,
-        encodeTwoAddressCall(SELECTOR.allowance, account, vault),
+        encodeTwoAddressCall(SELECTOR.allowance, account, MORPHO_GENERAL_ADAPTER1_ADDRESS),
       ),
       call("max deposit", vault, encodeAddressCall(SELECTOR.maxDeposit, account)),
       call("preview deposit", vault, encodeUintCall(SELECTOR.previewDeposit, amount)),

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
+import { MORPHO_GENERAL_ADAPTER1_ADDRESS } from "./abi";
 import {
   SAVINGS_ACTION_RPC_CONCURRENCY,
   SAVINGS_ACTION_RPC_TIMEOUT_MS,
@@ -99,6 +100,10 @@ describe("savings action RPC state", () => {
     expect(requests.every((body) => !Array.isArray(body))).toBeTrue();
     const calls = singles.filter((entry) => entry.method === "eth_call");
     expect(calls).toHaveLength(8);
+    expect(calls.find((entry) => (entry.params[0] as { data: string }).data.startsWith("0xdd62ed3e"))?.params[0]).toEqual({
+      to: BASE_USDC_ADDRESS,
+      data: `0xdd62ed3e${addressWord(ACCOUNT).slice(2)}${addressWord(MORPHO_GENERAL_ADAPTER1_ADDRESS).slice(2)}`,
+    });
     expect(calls.every((entry) => entry.params[1] === "0x10")).toBeTrue();
     expect((requests.at(-1) as { params: unknown[] }).params[0]).toBe("0x10");
     expect(SAVINGS_ACTION_RPC_TIMEOUT_MS).toBe(10_000);
