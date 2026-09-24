@@ -30,6 +30,8 @@ import { resetHostScroll } from "./reset-host-scroll";
 
 export type { InvestView };
 
+const investDetailFromStateKey = "investDetailFrom";
+
 export type InvestExperienceProps = {
   stockMarket?: MarketDataState;
   memeMarket?: MarketDataState;
@@ -56,8 +58,20 @@ export function InvestExperience({
   onRetryLoadMoreMemes,
 }: InvestExperienceProps = {}) {
   const routing = useOptionalHomeShellRouting();
-  const [view, setView] = useState<InvestView>(() => initialView ?? { screen: "hub" });
+  const [view, setView] = useState<InvestView>(() =>
+    routing?.state.location.panel === "invest"
+      ? investViewFromLocation(routing.state.location)
+      : initialView ?? { screen: "hub" },
+  );
   const [inAppChildDepth, setInAppChildDepth] = useState(0);
+  const [appliedRootRevision, setAppliedRootRevision] = useState(routing?.rootRequest?.revision ?? 0);
+  if (routing?.rootRequest && appliedRootRevision !== routing.rootRequest.revision) {
+    setAppliedRootRevision(routing.rootRequest.revision);
+    if (routing.rootRequest.panel === "invest") {
+      setView({ screen: "hub" });
+      setInAppChildDepth(0);
+    }
+  }
   const hostRef = useRef<HTMLDivElement>(null);
   const currentViewKey = viewKey(view);
   const markets = { stockMarket, memeMarket, cryptoMarket };
@@ -77,8 +91,19 @@ export function InvestExperience({
       if (!active) return;
       setView((previous) => {
         const next = investViewFromLocation(routing.state.location);
-        if (next.screen === "detail" && previous.screen === "category" && !routing.state.location.shelf) {
-          return { ...next, from: previous.shelfId };
+        if (next.screen === "detail") {
+          const state: unknown = window.history.state;
+          const from = state && typeof state === "object"
+            ? (state as Record<string, unknown>)[investDetailFromStateKey]
+            : null;
+          if (from === "hub") return next;
+          if (typeof from === "string") {
+            const shelf = getDiscoverShelf(from);
+            if (shelf) return { ...next, from: shelf.id };
+          }
+          if (previous.screen === "category" && !routing.state.location.shelf) {
+            return { ...next, from: previous.shelfId };
+          }
         }
         return next;
       });
@@ -90,7 +115,9 @@ export function InvestExperience({
   const go = useCallback((next: InvestView) => {
     setView(next);
     setInAppChildDepth((depth) => depth + 1);
-    commitClientUrl(investHref(next));
+    commitClientUrl(investHref(next), "push", {
+      [investDetailFromStateKey]: next.screen === "detail" ? next.from : null,
+    });
   }, []);
 
   const leaveChild = useCallback((parent: InvestView) => {
@@ -99,7 +126,9 @@ export function InvestExperience({
       window.history.back();
       return;
     }
-    commitClientUrl(investHref(parent), "replace");
+    commitClientUrl(investHref(parent), "replace", {
+      [investDetailFromStateKey]: parent.screen === "detail" ? parent.from : null,
+    });
   }, [inAppChildDepth]);
 
   const chromeTitle =

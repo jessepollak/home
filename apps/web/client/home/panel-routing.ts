@@ -24,6 +24,7 @@ export type HomeInboundPanelState = {
 export type HomeShellRouting = {
   state: HomeInboundPanelState;
   popRevision: number;
+  rootRequest: { panel: ShellPanelId; revision: number } | null;
   setFlow: (
     flow: ShellFlow,
     options?: { actionId?: string | null; mode?: "push" | "replace" },

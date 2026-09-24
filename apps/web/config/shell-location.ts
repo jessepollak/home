@@ -314,15 +314,19 @@ export function subscribeBeforeClientUrlCommit(listener: () => void): () => void
 export function commitClientUrl(
   href: string,
   mode: "push" | "replace" = "push",
+  extraState?: Record<string, unknown>,
 ): void {
   if (typeof window === "undefined") return;
   for (const listener of beforeClientUrlCommitListeners) listener();
   if (mode === "replace") {
-    window.history.replaceState(window.history.state, "", href);
+    window.history.replaceState(extraState
+      ? { ...window.history.state, ...extraState }
+      : window.history.state, "", href);
   } else {
     window.history.pushState({
       ...historyStateWithScrollTop(window.history.state, 0),
       [SHELL_CLIENT_ENTRY_STATE_KEY]: true,
+      ...extraState,
     }, "", href);
   }
 }

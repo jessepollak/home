@@ -173,6 +173,7 @@ export function HomeShell({
   const [urlSendActionId, setUrlSendActionId] = useState<string | null>(initialSendActionId);
   const [urlIntent, setUrlIntent] = useState<HomeInboundPanelState>(initialUrlIntent);
   const [popRevision, setPopRevision] = useState(0);
+  const [rootRequest, setRootRequest] = useState<{ panel: ShellPanelId; revision: number } | null>(null);
   const [settingsOpenedInApp, setSettingsOpenedInApp] = useState(false);
   const [borrowMarketOpenedInApp, setBorrowMarketOpenedInApp] = useState(false);
   const mainRef = useRef<HTMLElement>(null);
@@ -608,7 +609,9 @@ export function HomeShell({
     settingsOpenerRef.current = null;
     settingsFocusHandoffRef.current = true;
     const skipHistory = activeNavigation === nextNavigation && !isAccountSettingsOpen &&
-      (nextNavigation !== "borrow" || urlIntent.location.market === market);
+      (nextNavigation !== "borrow" || urlIntent.location.market === market) &&
+      (nextNavigation !== "invest" || window.location.pathname === shellHref({ panel: nextNavigation }));
+    setRootRequest((request) => ({ panel: nextNavigation, revision: (request?.revision ?? 0) + 1 }));
     setIsAccountSettingsOpen(false);
     setSettingsOpenedInApp(false);
     if (nextNavigation !== "borrow") setBorrowMarketOpenedInApp(false);
@@ -752,9 +755,10 @@ export function HomeShell({
   const routingValue = useMemo(() => ({
     state: urlIntent,
     popRevision,
+    rootRequest,
     setFlow,
     clearFlow,
-  }), [clearFlow, popRevision, setFlow, urlIntent]);
+  }), [clearFlow, popRevision, rootRequest, setFlow, urlIntent]);
 
   return (
     <HomeShellRoutingProvider value={routingValue}>
