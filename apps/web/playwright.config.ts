@@ -97,6 +97,7 @@ export default defineConfig({
     env: {
       ...process.env,
       HOME_PLAYWRIGHT_SMOKE: "1",
+      HOME_OPERATOR_ADDRESSES: "0x1111111111111111111111111111111111111111",
       HOME_SESSION_SECRET: "playwright-smoke-home-session-secret-32-bytes!!",
       HOME_ACCESS_REQUIRED: "1",
       HOME_ACCESS_SIGNING_SECRET: accessSigningSecret,

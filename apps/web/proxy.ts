@@ -39,7 +39,13 @@ export function canonicalDevelopmentNavigationResponse(
 export function proxy(request: NextRequest): NextResponse {
   const accessResponse = enforceAccess(request, readAccessConfig());
   if (accessResponse) return accessResponse;
-  return canonicalDevelopmentNavigationResponse(request);
+  const response = canonicalDevelopmentNavigationResponse(request);
+  const path = request.nextUrl.pathname;
+  if (path === "/admin" || path.startsWith("/admin/") || path === "/api/admin" || path.startsWith("/api/admin/")) {
+    response.headers.set("Cache-Control", "private, no-store, max-age=0");
+    response.headers.set("Vary", "Cookie, Authorization, X-Home-Account-Provider");
+  }
+  return response;
 }
 
 export const config = {
