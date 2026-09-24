@@ -1,6 +1,9 @@
 import "server-only";
 
-import type { ActivityResponse } from "@/shared/activity/contract";
+import {
+  ACTIVITY_CONTRACT_VERSION,
+  type ActivityResponse,
+} from "@/shared/activity/contract";
 import {
   authorizeSession,
   type SessionAuthorizer,
@@ -11,7 +14,8 @@ import type {
   ObservabilityEvent,
 } from "@/server/observability/schema";
 import { privateError, privateJson } from "@/server/http/private-response";
-import type { ActivityReader } from "./types";
+import { isActivityValuationCurrency } from "@/shared/activity/valuation";
+import type { ActivityReadRequest, ActivityReader } from "./types";
 
 type ActivityReadObservation = Extract<
   ObservabilityEvent,
@@ -147,7 +151,10 @@ export function createActivityHandler(dependencies: {
         pageCount: 1,
         rowCount: page.transfers.length,
       });
-      return privateJson(page satisfies ActivityResponse, 200);
+      return privateJson(
+        { version: ACTIVITY_CONTRACT_VERSION, ...page } satisfies ActivityResponse,
+        200,
+      );
     } catch (error) {
       const finishedAt = clock();
       emitActivityObservation(observe, {
@@ -216,18 +223,24 @@ function elapsedMs(finishedAt: number, startedAt: number): number {
 function parseActivityRequest(
   request: Request,
   now: Date,
-): { to: string; cursor: string | null } | null {
+): ActivityReadRequest | null {
   const parameters = new URL(request.url).searchParams;
-  const allowed = new Set(["to", "cursor"]);
+  const allowed = new Set(["to", "cursor", "currency"]);
   for (const key of parameters.keys()) {
     if (!allowed.has(key)) return null;
   }
-  if (parameters.getAll("to").length !== 1 || parameters.getAll("cursor").length > 1) {
+  if (
+    parameters.getAll("to").length !== 1 ||
+    parameters.getAll("cursor").length > 1 ||
+    parameters.getAll("currency").length > 1
+  ) {
     return null;
   }
 
   const to = parameters.get("to");
   const cursor = parameters.get("cursor");
+  const currency = parameters.get("currency") ?? "USD";
+  if (!isActivityValuationCurrency(currency)) return null;
   if (typeof to !== "string" || to.length > 64) return null;
   const toDate = new Date(to);
   if (
@@ -238,7 +251,7 @@ function parseActivityRequest(
   ) {
     return null;
   }
-  return { to, cursor };
+  return { to, cursor, currency };
 }
 
 function activityReadError(error: unknown): Response {

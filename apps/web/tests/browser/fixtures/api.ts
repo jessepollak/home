@@ -19,13 +19,15 @@ const TRANSACTION_HASH = `0x${"cd".repeat(32)}`;
 const CREATED_AT = new Date().toISOString();
 const EXPIRES_AT = new Date(Date.now() + 10 * 60_000).toISOString();
 
-function activityPageBody(windowEnd: string | null) {
+function activityPageBody(windowEnd: string | null, currency: string) {
   const to = windowEnd ?? new Date().toISOString();
   const toTime = new Date(to).getTime();
   const wallet = sessionBody.smartAccount.address.toLowerCase();
   return {
+    version: 1,
     walletAddress: wallet,
     chainId: 8453,
+    currency,
     window: { from: new Date(toTime - 24 * 60 * 60_000).toISOString(), to },
     transfers: [{
       id: `8453:${USDC}:received-fixture`,
@@ -45,6 +47,17 @@ function activityPageBody(windowEnd: string | null) {
       transactionHash: `0x${"12".repeat(32)}`,
       logIndex: "1",
       blockTimestamp: new Date(toTime - 60 * 60_000).toISOString(),
+      valuation: currency === "USD"
+        ? {
+          status: "priced",
+          currency,
+          amount: { atoms: "25000000000000000000", scale: 18 },
+          method: "peg",
+          peg: "USD",
+          close: null,
+          fx: null,
+        }
+        : { status: "unpriced", currency, reason: "fx-unavailable" },
     }],
     nextCursor: null,
     source: {
@@ -261,7 +274,12 @@ export async function installApiFixtures(
     if (path === "/api/savings/vaults") {
       return json(route, savingsVaultsBody("2026-09-12T12:00:00.000Z", "2026-09-12T12:00:01.000Z"));
     }
-    if (path === "/api/activity") return json(route, activityPageBody(url.searchParams.get("to")));
+    if (path === "/api/activity") {
+      return json(
+        route,
+        activityPageBody(url.searchParams.get("to"), url.searchParams.get("currency") ?? "USD"),
+      );
+    }
     if (path === "/api/basename-profile") return json(route, basenameProfileBody);
     return json(route, {});
   });

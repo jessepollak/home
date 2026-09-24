@@ -355,6 +355,8 @@ function TransferActivityRow({
       contextTitle={model.fullDate}
       value={<MoneyTicker value={model.value} />}
       valueTone={model.valueTone}
+      valueContext={model.valueContext ?? undefined}
+      valueContextTitle={model.valueContext ?? undefined}
       onActivate={onActivate}
       activateLabel={`View ${model.directionLabel.toLowerCase()} ${transfer.tokenSymbol ?? "unknown token"} transaction details`}
     />

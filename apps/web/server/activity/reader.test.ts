@@ -13,6 +13,7 @@ const WALLET = "0x1111111111111111111111111111111111111111" as const;
 const OTHER = "0x2222222222222222222222222222222222222222" as const;
 const UNKNOWN = "0x4444444444444444444444444444444444444444" as const;
 const TO = "2026-09-07T12:00:00.000Z";
+delete process.env.CODEX_API_KEY;
 
 function incomingTransfer(
   tokenAddress: `0x${string}`,
@@ -79,7 +80,7 @@ describe("recent activity reader", () => {
 
     const page = await reader(
       { address: WALLET, chainId: 8453, verification: "session-smart-account" },
-      { to: TO, cursor: "cursor-a" },
+      { to: TO, cursor: "cursor-a", currency: "USD" },
       signal,
     );
 
@@ -100,6 +101,91 @@ describe("recent activity reader", () => {
       to: TO,
     });
     expect(page.nextCursor).toBe("next-page");
+  });
+
+  test("attaches one batched valuation per page and keeps history when valuation fails or stalls", async () => {
+    const known = "0x5555555555555555555555555555555555555555" as const;
+    const listTransfers = async () => transferPage([
+      incomingTransfer(known, "b", "2"),
+      incomingTransfer(UNKNOWN, "a", "1"),
+    ], null);
+    const resolveMetadata = async () => ({
+      metadata: new Map([
+        [known, { assetId: null, tokenSymbol: "TEST", tokenDecimals: 18 }],
+        [UNKNOWN, { assetId: null, tokenSymbol: null, tokenDecimals: null }],
+      ]),
+      nftLikeContracts: new Set<string>(),
+    });
+    const account = { address: WALLET, chainId: 8453, verification: "session-smart-account" } as const;
+    const request = { to: TO, cursor: null, currency: "EUR" } as const;
+    const batches: number[] = [];
+
+    const priced = await createActivityReader(listTransfers, resolveMetadata, async (transfers, currency) => {
+      batches.push(transfers.length);
+      return transfers.map(() => ({ status: "unpriced" as const, currency, reason: "no-recent-close" as const }));
+    })(account, request);
+    expect(batches).toEqual([2]);
+    expect(priced.currency).toBe("EUR");
+    expect(priced.transfers.map((transfer) => transfer.valuation.status === "unpriced" && transfer.valuation.reason)).toEqual([
+      "no-recent-close",
+      "no-recent-close",
+    ]);
+
+    for (const valueTransfers of [
+      async () => {
+        throw new Error("valuation failed");
+      },
+      () => new Promise<never>(() => undefined),
+    ]) {
+      const page = await createActivityReader(listTransfers, resolveMetadata, valueTransfers, 5)(account, request);
+      expect(page.transfers.map(({ logId, amountBaseUnits, valuation }) => ({ logId, amountBaseUnits, valuation }))).toEqual([
+        { logId: "b", amountBaseUnits: "1", valuation: { status: "unpriced", currency: "EUR", reason: "quote-unavailable" } },
+        { logId: "a", amountBaseUnits: "1", valuation: { status: "unpriced", currency: "EUR", reason: "unknown-token" } },
+      ]);
+    }
+  });
+
+  test("aborts in-flight valuation work when the page budget expires", async () => {
+    const known = "0x5555555555555555555555555555555555555555" as const;
+    let valuationSignal: AbortSignal | undefined;
+    await createActivityReader(
+      async () => transferPage([incomingTransfer(known, "b", "2")], null),
+      async () => ({
+        metadata: new Map([[known, { assetId: null, tokenSymbol: "TEST", tokenDecimals: 18 }]]),
+        nftLikeContracts: new Set<string>(),
+      }),
+      (_transfers, _currency, signal) => {
+        valuationSignal = signal;
+        return new Promise<never>(() => undefined);
+      },
+      5,
+    )(
+      { address: WALLET, chainId: 8453, verification: "session-smart-account" },
+      { to: TO, cursor: null, currency: "USD" },
+    );
+    expect(valuationSignal?.aborted).toBe(true);
+  });
+
+  test("keeps pegged stablecoin values that need no quote when the valuation budget expires", async () => {
+    const usdc = activityAssets.find((asset) => asset.id === "usdc")!;
+    const address = usdc.tokenAddress.toLowerCase() as `0x${string}`;
+    const page = await createActivityReader(
+      async () => transferPage([{ ...incomingTransfer(address, "usdc", "1"), amountBaseUnits: "12340000" }], null),
+      async () => ({
+        metadata: new Map([[address, { assetId: "usdc", tokenSymbol: "USDC", tokenDecimals: 6 }]]),
+        nftLikeContracts: new Set<string>(),
+      }),
+      () => new Promise<never>(() => undefined),
+      5,
+    )(
+      { address: WALLET, chainId: 8453, verification: "session-smart-account" },
+      { to: TO, cursor: null, currency: "USD" },
+    );
+    expect(page.transfers[0]!.valuation).toMatchObject({
+      status: "priced",
+      method: "peg",
+      amount: { atoms: "12340000000000000000", scale: 18 },
+    });
   });
 
   test("selects only accepted sources and defaults safely to SQL", () => {
@@ -177,7 +263,7 @@ describe("recent activity reader", () => {
 
     const page = await reader(
       { address: WALLET, chainId: 8453, verification: "session-smart-account" },
-      { to: TO, cursor: null },
+      { to: TO, cursor: null, currency: "USD" },
     );
 
     expect(page.transfers.map(({ assetId, tokenSymbol, tokenDecimals, amountBaseUnits, logId }) => ({
@@ -210,7 +296,7 @@ describe("recent activity reader", () => {
 
     const page = await reader(
       { address: WALLET, chainId: 8453, verification: "session-smart-account" },
-      { to: TO, cursor: null },
+      { to: TO, cursor: null, currency: "USD" },
     );
     expect(page.transfers.map(({ logId }) => logId)).toEqual(["keep"]);
     expect(page.nextCursor).toBe("source-next");
@@ -230,7 +316,7 @@ describe("recent activity reader", () => {
 
     const page = await reader(
       { address: WALLET, chainId: 8453, verification: "session-smart-account" },
-      { to: TO, cursor: null },
+      { to: TO, cursor: null, currency: "USD" },
     );
     expect(page.transfers.map(({ assetId, tokenSymbol, tokenDecimals }) => ({
       assetId,
@@ -265,10 +351,11 @@ describe("recent activity reader", () => {
       verification: "session-smart-account",
     } as const;
 
-    const first = await reader(account, { to: TO, cursor: null });
+    const first = await reader(account, { to: TO, cursor: null, currency: "USD" });
     const second = await reader(account, {
       to: TO,
       cursor: first.nextCursor,
+      currency: "USD",
     });
 
     expect(first.nextCursor).toBe("source-page-2");

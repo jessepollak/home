@@ -4,9 +4,10 @@ import { getHomeQueryClient } from "@/client/query/query-client";
 import { afterEach, describe, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
-  type ActivityPage,
-  type FetchActivity,
-} from "./types";
+  ACTIVITY_CONTRACT_VERSION,
+  type ActivityResponse,
+} from "@/shared/activity/contract";
+import type { FetchActivity } from "./types";
 
 const { act, cleanup, fireEvent, render, waitFor } = await import(
   "@testing-library/react"
@@ -128,7 +129,7 @@ function pageFor(
     nextCursor?: string | null;
     empty?: boolean;
   } = {},
-): ActivityPage {
+): ActivityResponse {
   const parameters = new URLSearchParams(query);
   const to = parameters.get("to")!;
   const toTime = new Date(to).getTime();
@@ -139,9 +140,11 @@ function pageFor(
   const logId = options.id ?? "event-1";
   const tokenAddress = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const;
   return {
+    version: ACTIVITY_CONTRACT_VERSION,
     walletAddress,
     chainId: 8453,
     window: { from, to },
+    currency: "USD",
     transfers: options.empty
       ? []
       : [
@@ -163,6 +166,7 @@ function pageFor(
             transactionHash: `0x${(options.id === "event-2" ? "b" : "a").repeat(64)}`,
             logIndex: "1",
             blockTimestamp: new Date(toTime - 60_000).toISOString(),
+            valuation: { status: "unpriced", currency: "USD", reason: "quote-unavailable" },
           },
         ],
     nextCursor: options.nextCursor ?? null,

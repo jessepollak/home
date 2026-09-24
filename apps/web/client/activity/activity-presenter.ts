@@ -1,6 +1,7 @@
 import {
   formatAddress,
   formatExactPresentationTokenAmount,
+  formatFiatAmount,
   formatPresentationDate,
   formatPresentationTokenAmount,
 } from "@/shared/formatting";
@@ -12,6 +13,11 @@ import {
   type TransactionDetails,
 } from "@/components/transaction-explorer";
 import type { ActivityDirection, ActivityTransfer } from "./types";
+import type {
+  ActivityPricedValuation,
+  ActivityValuationUnpricedReason,
+} from "@/shared/activity/valuation";
+import type { ExactDecimal } from "@/shared/balances/types";
 
 export type ActivityIconKey = "incoming" | "outgoing" | "self";
 
@@ -25,7 +31,16 @@ export type ActivityRowViewModel = {
   fullDate: string;
   shortDate: string;
   value: string;
+  valueContext: string | null;
+  priced: boolean;
 };
+
+const unpricedReasonLabels = {
+  "unknown-token": "Not priced · token details unavailable",
+  "no-recent-close": "Not priced · no market close within 1 hour before transfer",
+  "quote-unavailable": "Not priced · market data unavailable",
+  "fx-unavailable": "Not priced · exchange rate unavailable",
+} as const satisfies Record<ActivityValuationUnpricedReason, string>;
 
 export type ActivityPresenterOptions = {
   regionId?: RegionId;
@@ -77,12 +92,36 @@ export function presentActivityTransferRow(
       timeZone: options.timeZone,
       style: "activity-short",
     }),
-    value: `${direction.sign}${formatActivityAmount(
-      transfer,
-      true,
-      options.regionId,
-    )}`,
+    ...presentRowValue(transfer, direction.sign, options.regionId),
   };
+}
+
+function presentRowValue(
+  transfer: ActivityTransfer,
+  sign: string,
+  regionId?: RegionId,
+): Pick<ActivityRowViewModel, "value" | "valueContext" | "priced"> {
+  const quantity = `${sign}${formatActivityAmount(transfer, true, regionId)}`;
+  if (transfer.valuation.status !== "priced") {
+    return { value: quantity, valueContext: null, priced: false };
+  }
+  return {
+    value: `${sign}${formatValuationAmount(transfer.valuation, regionId)}`,
+    valueContext: quantity,
+    priced: true,
+  };
+}
+
+export function formatValuationAmount(
+  valuation: ActivityPricedValuation,
+  regionId?: RegionId,
+): string {
+  return formatFiatAmount(
+    BigInt(valuation.amount.atoms),
+    valuation.amount.scale,
+    valuation.currency,
+    { fractionDigits: 2, markTiny: true, regionId },
+  );
 }
 
 export function presentActivityTransferDetails(
@@ -104,6 +143,7 @@ export function presentActivityTransferDetails(
         options.regionId,
       )}`,
     },
+    ...presentValuationDetails(transfer, direction.sign, options),
     {
       label: "From",
       value: transfer.fromAddress,
@@ -135,6 +175,78 @@ export function presentActivityTransferDetails(
     rows,
     explorer: transactionExplorerLink(transfer.transactionHash),
   };
+}
+
+function presentValuationDetails(
+  transfer: ActivityTransfer,
+  sign: string,
+  options: ActivityPresenterOptions,
+): TransactionDetailRow[] {
+  const valuation = transfer.valuation;
+  if (valuation.status !== "priced") {
+    return [{ label: "Value", value: unpricedReasonLabels[valuation.reason] }];
+  }
+  const symbol = transfer.tokenSymbol ?? "token";
+  const rows: TransactionDetailRow[] = [
+    { label: "Value", value: `${sign}${formatValuationAmount(valuation, options.regionId)}` },
+  ];
+  if (valuation.method === "peg" && valuation.peg) {
+    rows.push({
+      label: "Valuation",
+      value: `Stablecoin peg · 1 ${symbol} = 1 ${valuation.peg}`,
+    });
+  }
+  if (valuation.close) {
+    rows.push(
+      {
+        label: "Valuation",
+        value: `Historical close · ${valuation.close.provider} ${valuation.close.resolutionMinutes}-minute USD bar`,
+      },
+      {
+        label: "Quote time",
+        value: formatPresentationDate(valuation.close.closedAt, {
+          regionId: options.regionId,
+          timeZone: options.timeZone,
+          style: "activity-full",
+        }),
+      },
+      {
+        label: "Unit price",
+        value: `${formatFiatAmount(
+          BigInt(valuation.close.priceUsd.atoms),
+          valuation.close.priceUsd.scale,
+          "USD",
+          {
+            fractionDigits: Math.max(2, Math.min(valuation.close.priceUsd.scale, 10)),
+            minimumFractionDigits: 2,
+            markTiny: true,
+            regionId: options.regionId,
+          },
+        )} per ${symbol}`,
+      },
+    );
+  }
+  if (valuation.fx) {
+    rows.push({
+      label: "Exchange rate",
+      value: `1 ${valuation.fx.base} = ${trimRate(valuation.fx.rate)} ${valuation.fx.quote} · ${valuation.fx.provider} daily rate ${valuation.fx.date} UTC${valuation.fx.provisional ? " (provisional until the UTC day closes)" : ""}`,
+    });
+  }
+  return rows;
+}
+
+function exactDecimalString(value: ExactDecimal): string {
+  if (value.scale === 0) return value.atoms;
+  const padded = value.atoms.padStart(value.scale + 1, "0");
+  const whole = padded.slice(0, -value.scale);
+  const fraction = padded.slice(-value.scale).replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}` : whole;
+}
+
+function trimRate(value: ExactDecimal): string {
+  const [whole, fraction = ""] = exactDecimalString(value).split(".");
+  const significant = fraction.slice(0, whole === "0" ? 10 : 6).replace(/0+$/, "");
+  return significant ? `${whole}.${significant}` : whole!;
 }
 
 function formatActivityAmount(

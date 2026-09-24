@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
+  ACTIVITY_CONTRACT_VERSION,
   ActivityResponseError,
   compareActivityTransferKeys,
   parseActivityPage,
+  type ActivityResponse,
 } from "./contract";
-import type { ActivityPage } from "./types";
+import { computeActivityValuationAmount } from "./valuation";
 
 const WALLET = "0x1111111111111111111111111111111111111111" as const;
 const OTHER = "0x2222222222222222222222222222222222222222" as const;
@@ -16,11 +18,13 @@ const session: VerifiedAccountSession = {
   accountProvider: "cdp-embedded",
 };
 
-function validPage(): ActivityPage {
+function validPage(): ActivityResponse {
   return {
+    version: ACTIVITY_CONTRACT_VERSION,
     walletAddress: WALLET,
     chainId: 8453,
     window: { from: "2026-08-07T12:00:00.000Z", to: TO },
+    currency: "USD",
     transfers: [
       {
         id: "8453:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913:event-2",
@@ -40,6 +44,20 @@ function validPage(): ActivityPage {
         transactionHash: `0x${"d".repeat(64)}`,
         logIndex: "2",
         blockTimestamp: "2026-09-07T11:00:00.000Z",
+        valuation: {
+          status: "priced",
+          currency: "USD",
+          amount: computeActivityValuationAmount({
+            amountBaseUnits: "1000001",
+            tokenDecimals: 6,
+            unitPrice: null,
+            fxRate: null,
+          }),
+          method: "peg",
+          peg: "USD",
+          close: null,
+          fx: null,
+        },
       },
       {
         id: "8453:0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf:event-1",
@@ -59,6 +77,7 @@ function validPage(): ActivityPage {
         transactionHash: `0x${"c".repeat(64)}`,
         logIndex: "1",
         blockTimestamp: "2026-09-06T11:00:00.000Z",
+        valuation: { status: "unpriced", currency: "USD", reason: "no-recent-close" },
       },
     ],
     nextCursor: "cursor",
@@ -194,9 +213,13 @@ describe("activity response parser", () => {
     });
   });
 
-  test("rejects another wallet, forged token metadata, invalid direction, duplicate rows, and unstable windows", () => {
+  test("rejects an unversioned or unknown contract version, another wallet, forged token metadata, invalid direction, duplicate rows, and unstable windows", () => {
     const base = validPage();
+    const { version: _version, ...unversioned } = base;
     const cases: unknown[] = [
+      unversioned,
+      { ...base, version: 2 },
+      { ...base, version: "1" },
       { ...base, walletAddress: OTHER },
       {
         ...base,
@@ -300,5 +323,140 @@ describe("activity response parser", () => {
         TO,
       ),
     ).toThrow(ActivityResponseError);
+  });
+});
+
+describe("activity valuation parser", () => {
+  const TEST_TOKEN = "0x5555555555555555555555555555555555555555" as const;
+
+  function volatilePage(valuation: unknown, currency = "USD"): unknown {
+    const base = validPage();
+    return {
+      ...base,
+      currency,
+      transfers: [{
+        ...base.transfers[0],
+        id: `8453:${TEST_TOKEN}:event-2`,
+        assetId: null,
+        tokenAddress: TEST_TOKEN,
+        tokenSymbol: "TEST",
+        tokenDecimals: 18,
+        amountBaseUnits: "56780000000000000000",
+        valuation,
+      }],
+    };
+  }
+
+  const close = {
+    provider: "Codex",
+    closedAt: "2026-09-07T10:30:00.000Z",
+    resolutionMinutes: 15,
+    priceUsd: { atoms: "2173291", scale: 7 },
+  } as const;
+
+  function historicalValuation(overrides: Record<string, unknown> = {}) {
+    return {
+      status: "priced",
+      currency: "USD",
+      amount: computeActivityValuationAmount({
+        amountBaseUnits: "56780000000000000000",
+        tokenDecimals: 18,
+        unitPrice: close.priceUsd,
+        fxRate: null,
+      }),
+      method: "historical-close",
+      peg: null,
+      close,
+      fx: null,
+      ...overrides,
+    };
+  }
+
+  test("keeps a consistent historical close valuation with its provenance", () => {
+    const page = parseActivityPage(volatilePage(historicalValuation()), session, TO);
+    const valuation = page.transfers[0]!.valuation;
+    expect(valuation).toMatchObject({ status: "priced", method: "historical-close", close });
+    if (valuation.status !== "priced") throw new Error("expected priced");
+    expect(valuation.amount).toEqual(computeActivityValuationAmount({
+      amountBaseUnits: "56780000000000000000",
+      tokenDecimals: 18,
+      unitPrice: { atoms: "2173291", scale: 7 },
+      fxRate: null,
+    }));
+  });
+
+  test("downgrades inconsistent or unsupported valuations to unpriced without dropping the transfer", () => {
+    const invalid = [
+      historicalValuation({ amount: { atoms: "1234", scale: 2 } }),
+      historicalValuation({ close: { ...close, closedAt: "2026-09-07T09:59:59.000Z" } }),
+      historicalValuation({ close: { ...close, closedAt: "2026-09-07T11:15:00.000Z" } }),
+      historicalValuation({ method: "spot" }),
+      historicalValuation({ method: "peg", peg: "USD", close: null }),
+      historicalValuation({ currency: "EUR" }),
+      { status: "unpriced", currency: "USD", reason: "zero" },
+      null,
+    ];
+    for (const valuation of invalid) {
+      const page = parseActivityPage(volatilePage(valuation), session, TO);
+      expect(page.transfers).toHaveLength(1);
+      expect(page.transfers[0]!.valuation).toEqual({
+        status: "unpriced",
+        currency: "USD",
+        reason: "quote-unavailable",
+      });
+    }
+  });
+
+  test("requires the page currency to match the requested presentation currency", () => {
+    expect(() => parseActivityPage(volatilePage(historicalValuation()), session, TO, "EUR"))
+      .toThrow(ActivityResponseError);
+    const eurRate = { atoms: "86078", scale: 5 };
+    const eurValuation = historicalValuation({
+      currency: "EUR",
+      amount: computeActivityValuationAmount({
+        amountBaseUnits: "56780000000000000000",
+        tokenDecimals: 18,
+        unitPrice: close.priceUsd,
+        fxRate: eurRate,
+      }),
+      fx: {
+        provider: "Coinbase",
+        base: "USD",
+        quote: "EUR",
+        date: "2026-09-07",
+        rate: eurRate,
+        provisional: false,
+      },
+    });
+    const page = parseActivityPage(volatilePage(eurValuation, "EUR"), session, TO, "EUR");
+    expect(page.currency).toBe("EUR");
+    expect(page.transfers[0]!.valuation).toMatchObject({ status: "priced", currency: "EUR" });
+
+    const wrongDay = parseActivityPage(
+      volatilePage({ ...eurValuation, fx: { ...(eurValuation.fx as unknown as object), date: "2026-09-06" } }, "EUR"),
+      session,
+      TO,
+      "EUR",
+    );
+    expect(wrongDay.transfers[0]!.valuation.status).toBe("unpriced");
+  });
+
+  test("applies the stablecoin peg only to verified peg contracts", () => {
+    const pegValuation = {
+      status: "priced",
+      currency: "USD",
+      amount: computeActivityValuationAmount({
+        amountBaseUnits: "56780000000000000000",
+        tokenDecimals: 18,
+        unitPrice: null,
+        fxRate: null,
+      }),
+      method: "peg",
+      peg: "USD",
+      close: null,
+      fx: null,
+    };
+    const page = parseActivityPage(volatilePage(pegValuation), session, TO);
+    expect(page.transfers[0]!.valuation.status).toBe("unpriced");
   });
 });

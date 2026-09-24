@@ -208,7 +208,7 @@ async function installFixtures(context: BrowserContext) {
       const from = new Date(Date.parse(to) - 31 * 24 * 60 * 60 * 1_000).toISOString();
       return json(route, {
         walletAddress: OWNER, chainId: 8453, recordedOperations: "available",
-        window: { from, to }, transfers: [], nextCursor: null,
+        window: { from, to }, currency: requestUrl.searchParams.get("currency") ?? "USD", transfers: [], nextCursor: null,
         source: { provider: "cdp-sql", cached: false, stale: false, executionTimestamp: to, executionTimeMs: 1, fetchedAt: to },
       });
     }

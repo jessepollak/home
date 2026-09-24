@@ -12,8 +12,16 @@ import {
   activityAssetsByContract,
   sanitizeDynamicActivityTokenMetadata,
 } from "@/shared/activity/metadata";
+import {
+  isActivityValuationCurrency,
+  parseActivityTransferValuation,
+} from "@/shared/activity/valuation";
+import type { FiatCurrencyCode } from "@/config/regions";
 
-export type ActivityResponse = ActivityPage;
+export const ACTIVITY_CONTRACT_VERSION = 1;
+export type ActivityResponse = ActivityPage & {
+  version: typeof ACTIVITY_CONTRACT_VERSION;
+};
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const hashPattern = /^0x[0-9a-fA-F]{64}$/;
 const decimalIntegerPattern = /^(?:0|[1-9][0-9]*)$/;
@@ -47,8 +55,13 @@ export function parseActivityPage(
   value: unknown,
   expectedSession: VerifiedAccountSession,
   expectedWindowEnd: string,
+  expectedCurrency: FiatCurrencyCode = "USD",
 ): ActivityPage {
-  if (!isVerifiedActivitySession(expectedSession) || !isRecord(value)) {
+  if (
+    !isVerifiedActivitySession(expectedSession) ||
+    !isRecord(value) ||
+    value.version !== ACTIVITY_CONTRACT_VERSION
+  ) {
     throw new ActivityResponseError();
   }
 
@@ -57,6 +70,8 @@ export function parseActivityPage(
     walletAddress.toLowerCase() !==
       expectedSession.smartAccount.address.toLowerCase() ||
     value.chainId !== ACTIVITY_BASE_CHAIN_ID ||
+    !isActivityValuationCurrency(expectedCurrency) ||
+    value.currency !== expectedCurrency ||
     !isRecord(value.window)
   ) {
     throw new ActivityResponseError();
@@ -84,7 +99,7 @@ export function parseActivityPage(
   }
 
   const transfers = value.transfers.map((transfer) =>
-    parseTransfer(transfer, walletAddress, from, to),
+    parseTransfer(transfer, walletAddress, from, to, expectedCurrency),
   );
   assertStrictDescending(transfers);
 
@@ -92,6 +107,7 @@ export function parseActivityPage(
     walletAddress: walletAddress.toLowerCase() as `0x${string}`,
     chainId: ACTIVITY_BASE_CHAIN_ID,
     window: { from, to },
+    currency: expectedCurrency,
     transfers,
     nextCursor: value.nextCursor,
     source: parseSource(value.source),
@@ -103,6 +119,7 @@ function parseTransfer(
   walletAddress: `0x${string}`,
   from: string,
   to: string,
+  expectedCurrency: FiatCurrencyCode,
 ): ActivityTransfer {
   if (!isRecord(value)) {
     throw new ActivityResponseError();
@@ -172,6 +189,16 @@ function parseTransfer(
     transactionHash,
     logIndex: value.logIndex as string,
     blockTimestamp,
+    valuation: parseActivityTransferValuation(
+      value.valuation,
+      {
+        tokenAddress: normalizedTokenAddress,
+        tokenDecimals: tokenMetadata.tokenDecimals,
+        amountBaseUnits: value.amountBaseUnits as string,
+        blockTimestamp,
+      },
+      expectedCurrency,
+    ),
   };
 }
 
