@@ -172,10 +172,8 @@ export function FundingOrderFlow({
       const parsed = readQuoteDraft(value);
       if (!parsed) throw new Error("quote");
       setDraft(parsed);
-    } catch {
-      setError(
-        "This quote could not be created. Check your details and try again.",
-      );
+    } catch (error) {
+      setError(quoteErrorCopy(error));
     } finally {
       setBusy(false);
     }
@@ -929,6 +927,17 @@ function confirmOrderErrorCopy(error: unknown): string {
     return "This deposit changed while Home was confirming it. Close and reopen Add money to check the existing order before trying again.";
   }
   return "Home could not confirm the order response. Retry to recover this same order; no new quote or provider request will be created.";
+}
+
+function quoteErrorCopy(error: unknown): string {
+  if (typeof error === "object" && error !== null && "code" in error) {
+    if ((error.code === "QUOTE_BELOW_MINIMUM" || error.code === "QUOTE_DECLINED") &&
+      "serverMessage" in error && typeof error.serverMessage === "string" && error.serverMessage.length <= 200) {
+      return error.serverMessage;
+    }
+    if (error.code === "QUOTE_UNAVAILABLE") return "Quotes are unavailable right now. Try again shortly.";
+  }
+  return "This quote could not be created. Try again.";
 }
 
 function resolveAmbiguousErrorCopy(error: unknown): string {

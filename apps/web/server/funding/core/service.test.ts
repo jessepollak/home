@@ -16,6 +16,7 @@ import {
   type FundingOrderTransitionEvent,
 } from "./service";
 import { FundingProviderConfigurationError, resolveFundingMode, resolveWebhookEnvironment } from "./provider-context";
+import { FundingQuoteRejectedError } from "./quote-rejection";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 
 const session: VerifiedAccountSession = { user: { subject: "user" }, accountProvider: "base-account", smartAccount: { address: "0x1111111111111111111111111111111111111111", chainId: 8453 } };
@@ -250,6 +251,67 @@ describe("FundingCore", () => {
     events.length = 0;
     expect(await core.listProviders("US", session)).toEqual([]);
     expect(events).toEqual([]);
+  });
+
+  test("rejects Coinbase-like minimum amounts before calling the provider and quotes larger amounts", async () => {
+    let calls = 0;
+    let fetches = 0;
+    const quoteManifest = {
+      id: "coinbase-fixture", displayName: "Coinbase", docsUrl: "https://example.com",
+      onramp: { apiOrigins: ["https://example.com"], reference: "provider" as const, quotes: true },
+      bindings: [{ region: "US" as const, assetId: "base:usdc", currency: "USD" as const, directions: {
+        onramp: { paymentMethods: [{ id: "apple-pay", label: "Apple Pay" }], env: ["FIXTURE_KEY"], minimumFiatAmount: "2.00" },
+      } }],
+    } satisfies FundingProviderManifest;
+    const core = new FundingCore({
+      providers: [{ manifest: quoteManifest, onramp: {
+        async createQuote(input) { calls += 1; return { fiatAmount: input.fiatAmount, tokenAmountAtomic: "2020000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" }; },
+        async createOrder() { return { outcome: "ambiguous" }; },
+        async getOrder() { return { state: "unknown", providerStatus: "unknown" }; },
+      } }],
+      store: new MemoryFundingOrderStore(),
+      env: { FIXTURE_KEY: "set", ["FUNDING_" + "QUOTE_SECRET"]: "q".repeat(32) },
+      fetchImplementation: (async () => { fetches += 1; throw new Error("unexpected fetch"); }) as unknown as typeof fetch,
+      currentBaseBlock: async () => "1", verifyReceipt: async () => null,
+    });
+    const request = (fiatAmount: string) => core.createQuote(session,
+      { providerId: "coinbase-fixture", region: "US", paymentMethod: "apple-pay", fiatAmount }, "https://home.example");
+    for (const amount of ["2", "0.10"]) {
+      await expect(request(amount)).rejects.toMatchObject({ code: "QUOTE_BELOW_MINIMUM", status: 422,
+        publicMessage: "Coinbase needs more than $2 after fees. Enter a larger amount." });
+    }
+    expect(calls).toBe(0);
+    expect(fetches).toBe(0);
+    expect((await request("2.07")).quote.fiatAmount).toBe("2.07");
+    expect(calls).toBe(1);
+  });
+
+  test("maps typed provider quote rejections to public copy without provider text", async () => {
+    for (const [reason, minimum, code, publicMessage] of [
+      ["below-minimum", "2", "QUOTE_BELOW_MINIMUM", "Coinbase needs more than $2 after fees. Enter a larger amount."],
+      ["below-minimum", undefined, "QUOTE_BELOW_MINIMUM", "This amount is below Coinbase's minimum. Enter a larger amount."],
+      ["declined", "2", "QUOTE_DECLINED", "Coinbase couldn't quote this amount. Try a different amount."],
+    ] as const) {
+      const quoteManifest: FundingProviderManifest = {
+        id: "coinbase-fixture", displayName: "Coinbase", docsUrl: "https://example.com",
+        onramp: { apiOrigins: ["https://example.com"], reference: "provider", quotes: true },
+        bindings: [{ region: "US", assetId: "base:usdc", currency: "USD", directions: { onramp: {
+          paymentMethods: [{ id: "apple-pay", label: "Apple Pay" }], env: ["FIXTURE_KEY"], minimumFiatAmount: minimum,
+        } } }],
+      };
+      const core = new FundingCore({
+        providers: [{ manifest: quoteManifest, onramp: {
+          async createQuote() { throw new FundingQuoteRejectedError(reason); },
+          async createOrder() { return { outcome: "ambiguous" }; },
+          async getOrder() { return { state: "unknown", providerStatus: "unknown" }; },
+        } }],
+        store: new MemoryFundingOrderStore(),
+        env: { FIXTURE_KEY: "set", ["FUNDING_" + "QUOTE_SECRET"]: "q".repeat(32) },
+        currentBaseBlock: async () => "1", verifyReceipt: async () => null,
+      });
+      await expect(core.createQuote(session, { providerId: "coinbase-fixture", region: "US", paymentMethod: "apple-pay", fiatAmount: "2.07" }, "https://home.example"))
+        .rejects.toMatchObject({ code, status: 422, publicMessage });
+    }
   });
 
   test("rejects quote tokens when the core sandbox mode changes", async () => {

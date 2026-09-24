@@ -51,6 +51,7 @@ export type FundingProviderManifest = {
       onramp?: {
         paymentMethods: ReadonlyArray<FundingPaymentMethod>;
         env: ReadonlyArray<string>;
+        minimumFiatAmount?: string;
       };
       offramp?: {
         paymentMethods: ReadonlyArray<FundingPaymentMethod>;

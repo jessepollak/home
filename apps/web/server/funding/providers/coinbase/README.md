@@ -19,6 +19,10 @@ The verified Home session supplies the Base destination. Each request uses a sho
 
 Quote and create omit `phoneNumber`, `email`, `agreementAcceptedAt`, `phoneNumberVerifiedAt`, `smsVerificationId`, and `emailVerificationId`. Those omissions select **Embedded Orders**, where Coinbase collects and verifies contact, OTP, identity, limits-upgrade, and agreement information in its hosted experience. In standard Headless mode the integrator supplies verified contact/agreement fields and may receive an Apple Pay button link instead. Cross-Platform FundModal is a separate popup SDK and is not used here. See Coinbase's official [Onramp overview](https://docs.cdp.coinbase.com/onramp-&-offramp/introduction/welcome) and [Create an Onramp Order API reference](https://docs.cdp.coinbase.com/api-reference/v2/rest-api/onramp/create-an-onramp-order).
 
+### Minimum amount
+
+The US onramp binding declares `minimumFiatAmount: "2"`. Home rejects amounts at or below $2 before calling Coinbase. September 24, 2026 production quotes at $2.05 and below failed; $2.07 succeeded, yielding 2.02 USDC after a $0.05 fee. Coinbase HTTP 400 quote rejections map to `QUOTE_BELOW_MINIMUM` or `QUOTE_DECLINED` without exposing provider error text.
+
 Coinbase may include a top-level `userAuthToken` in its response. Home ignores it: it is not returned to the browser, logged, or persisted. Secure caching to reduce repeat Coinbase verification is a follow-up; never put it in `customer_ref` or plaintext ad hoc storage.
 
 ## Iframe and domain requirements

@@ -30,6 +30,7 @@ export const coinbaseManifest = {
         onramp: {
           paymentMethods: [{ id: "apple-pay", label: "Apple Pay" }],
           env: COINBASE_ONRAMP_ENV,
+          minimumFiatAmount: "2",
         },
       },
     },

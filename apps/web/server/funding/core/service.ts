@@ -7,6 +7,7 @@ import type { FundingDirection, FundingProvider, Instruction, Observation, Quote
 import { decimalToAtomic } from "@/shared/formatting/atomic";
 import { FUNDING_BINDING_ENVIRONMENT_CODE, FUNDING_CONFIGURATION_CODE, FundingProviderConfigurationError, createProviderContext, environmentAvailable, resolveFundingMode, type FundingConfigurationCode } from "./provider-context";
 import { authenticateFundingQuote, isFundingQuoteExpired, signFundingQuote } from "./quote-token";
+import { FundingQuoteRejectedError } from "./quote-rejection";
 import { emitFundingProviderFailure } from "./provider-failure";
 import type { FundingOrder, FundingOrderOwner, FundingOrderStore } from "./store";
 import { MemoryFundingProviderCustomerStore, type FundingProviderCustomer, type FundingProviderCustomerStore } from "./customer-store";
@@ -291,6 +292,14 @@ export class FundingCore {
     if (!parsed || !provider || !binding || !directional || !asset || !onramp || !onrampManifest || !session.smartAccount || !directionAvailable(provider, "onramp", sandbox) || !environmentAvailable(directional.env, this.env) || (!onramp.createQuote && binding.currency !== asset.fiatCurrency)) {
       throw new FundingCoreError("INVALID_QUOTE_REQUEST", 400);
     }
+    const minimum = directional.minimumFiatAmount;
+    if (minimum !== undefined) {
+      const decimals = Math.max(parsed.fiatAmount.split(".")[1]?.length ?? 0, minimum.split(".")[1]?.length ?? 0);
+      if (BigInt(decimalToAtomic(parsed.fiatAmount, decimals)) <= BigInt(decimalToAtomic(minimum, decimals))) {
+        throw new FundingCoreError("QUOTE_BELOW_MINIMUM", 422, undefined,
+          minimumQuoteMessage(provider.manifest.displayName, minimum));
+      }
+    }
     const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "onramp", paymentMethodId: parsed.paymentMethod, env: this.env, fetchImplementation: this.deps.fetchImplementation, sandbox });
     const customer = onrampManifest.customer
       ? await this.customerStore.get(ownerFor(session), provider.manifest.id, binding.region)
@@ -299,14 +308,25 @@ export class FundingCore {
       throw new FundingCoreError("CUSTOMER_VERIFICATION_REQUIRED", 409);
     }
     const customerRef = customer?.customerRef ?? null;
-    const quote: Quote = onramp.createQuote
-      ? await onramp.createQuote({
-          destination: session.smartAccount.address,
-          fiatAmount: parsed.fiatAmount,
-          returnUrl: `${returnOrigin}/fund?return=funding`,
-          ...(customerRef ? { customerRef } : {}),
-        }, ctx)
-      : localOneToOneQuote(parsed.fiatAmount, asset.decimals, this.now());
+    let quote: Quote;
+    try {
+      quote = onramp.createQuote
+        ? await onramp.createQuote({
+            destination: session.smartAccount.address,
+            fiatAmount: parsed.fiatAmount,
+            returnUrl: `${returnOrigin}/fund?return=funding`,
+            ...(customerRef ? { customerRef } : {}),
+          }, ctx)
+        : localOneToOneQuote(parsed.fiatAmount, asset.decimals, this.now());
+    } catch (error) {
+      if (!(error instanceof FundingQuoteRejectedError)) throw error;
+      if (error.reason === "below-minimum") {
+        throw new FundingCoreError("QUOTE_BELOW_MINIMUM", 422, undefined,
+          minimumQuoteMessage(provider.manifest.displayName, minimum));
+      }
+      throw new FundingCoreError("QUOTE_DECLINED", 422, undefined,
+        `${provider.manifest.displayName} couldn't quote this amount. Try a different amount.`);
+    }
     if (quote.fiatAmount !== parsed.fiatAmount || !validAtomic(quote.tokenAmountAtomic) || Date.parse(quote.expiresAt) <= this.now().getTime()) {
       throw new FundingCoreError("INVALID_PROVIDER_QUOTE", 502);
     }
@@ -622,11 +642,18 @@ export function ambiguousOrderRecoveryAvailableAt(
   return availableAt;
 }
 
+function minimumQuoteMessage(displayName: string, minimum?: string): string {
+  if (!minimum) return `This amount is below ${displayName}'s minimum. Enter a larger amount.`;
+  const formattedMinimum = minimum.includes(".") ? minimum.replace(/0+$/, "").replace(/\.$/, "") : minimum;
+  return `${displayName} needs more than $${formattedMinimum} after fees. Enter a larger amount.`;
+}
+
 export class FundingCoreError extends Error {
   constructor(
     readonly code: string,
     readonly status: number,
     readonly availableAt?: string,
+    readonly publicMessage?: string,
   ) {
     super(code);
   }

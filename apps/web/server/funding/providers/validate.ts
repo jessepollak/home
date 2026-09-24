@@ -32,6 +32,12 @@ export function validateFundingProviders(providers: ReadonlyArray<FundingProvide
         if (!directional) continue;
         if (!provider[direction] || !manifest[direction]) fail(`${manifest.id} binding declares ${direction} without a matching port and manifest.`);
         if (directional.paymentMethods.length === 0) fail(`${manifest.id} ${direction} binding has no payment methods.`);
+        const minimum = binding.directions.onramp?.minimumFiatAmount;
+        if (direction === "onramp" && minimum !== undefined &&
+          (typeof minimum !== "string" || minimum.length > 64 ||
+            !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(minimum) || !/[1-9]/.test(minimum))) {
+          fail(`${manifest.id} onramp minimum fiat amount must be a positive decimal.`);
+        }
         const methods = new Set<string>();
         for (const method of directional.paymentMethods) {
           if (!method.id || methods.has(method.id)) fail(`${manifest.id} ${direction} payment method ids must be unique per binding.`);

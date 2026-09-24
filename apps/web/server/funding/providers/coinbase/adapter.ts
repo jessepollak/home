@@ -15,6 +15,7 @@ import type {
 } from "@/shared/funding/provider-contract";
 import { atomicToDecimal, decimalToAtomic } from "@/shared/formatting/atomic";
 import { emitFundingProviderFailure, type FundingProviderFailureCode } from "../../core/provider-failure";
+import { FundingQuoteRejectedError } from "../../core/quote-rejection";
 import {
   COINBASE_ONRAMP_API_ORIGIN,
   COINBASE_ONRAMP_REDIRECT_ORIGIN,
@@ -65,6 +66,8 @@ export function createCoinbaseProvider(
       );
       if (response.status !== 201) {
         emitHttpFailure(response.status, startedAt);
+        const rejection = response.status === 400 ? await classifyQuoteRejection(response) : null;
+        if (rejection) throw rejection;
         throw new Error("Coinbase quote request failed.");
       }
       let text: string;
@@ -375,6 +378,19 @@ function observationFromResponse(
     providerStatus,
     ...(txHash ? { transactionHash: txHash } : {}),
   };
+}
+
+async function classifyQuoteRejection(response: Response): Promise<FundingQuoteRejectedError | null> {
+  try {
+    const payload = parseProviderJson(await readBoundedText(response));
+    if (!isRecord(payload) || (typeof payload.errorType !== "string" && typeof payload.errorMessage !== "string")) return null;
+    const description = [payload.errorType, payload.errorMessage].filter((value): value is string => typeof value === "string").join(" ");
+    const reason = /minimum|too low|too small|too_low|too_small|below|at least|less than/i.test(description)
+      ? "below-minimum" : "declined";
+    return new FundingQuoteRejectedError(reason);
+  } catch {
+    return null;
+  }
 }
 
 async function classifyCreateFailure(
