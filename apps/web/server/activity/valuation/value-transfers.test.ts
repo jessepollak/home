@@ -35,6 +35,7 @@ function transfer(overrides: Partial<UnvaluedActivityTransfer> = {}): UnvaluedAc
     tokenAddress,
     tokenSymbol: "TEST",
     tokenDecimals: 18,
+    tokenImageUrl: null,
     walletAddress: WALLET,
     fromAddress: OTHER,
     toAddress: WALLET,

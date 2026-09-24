@@ -20,6 +20,7 @@ function transfer(id: string, blockTimestamp: string, transactionHash = HASH_A):
     tokenAddress: TOKEN,
     tokenSymbol: "USDC",
     tokenDecimals: 6,
+    tokenImageUrl: null,
     walletAddress: WALLET,
     fromAddress: OTHER,
     toAddress: WALLET,

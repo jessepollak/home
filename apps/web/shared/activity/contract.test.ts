@@ -34,6 +34,7 @@ function validPage(): ActivityResponse {
         tokenAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
         tokenSymbol: "USDC",
         tokenDecimals: 6,
+        tokenImageUrl: null,
         walletAddress: WALLET,
         fromAddress: OTHER,
         toAddress: WALLET,
@@ -67,6 +68,7 @@ function validPage(): ActivityResponse {
         tokenAddress: "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
         tokenSymbol: "cbBTC",
         tokenDecimals: 8,
+        tokenImageUrl: null,
         walletAddress: WALLET,
         fromAddress: WALLET,
         toAddress: OTHER,
@@ -296,6 +298,47 @@ describe("activity response parser", () => {
         TO,
       )).toThrow(ActivityResponseError);
     }
+  });
+
+  test("accepts only canonical safe exact-contract images, with a broader curated host policy", () => {
+    const base = validPage();
+    const address = "0x4444444444444444444444444444444444444444";
+    const dynamic = {
+      ...base.transfers[0],
+      id: `8453:${address}:image`,
+      logId: "image",
+      tokenAddress: address,
+      assetId: null,
+      tokenSymbol: "ZORA",
+      tokenDecimals: 18,
+    };
+    const parse = (transfer: unknown) => parseActivityPage(
+      { ...base, transfers: [transfer], nextCursor: null }, session, TO,
+    ).transfers[0]!;
+    const providerImage = "https://token-media.defined.fi/zora.svg";
+    expect(parse({ ...dynamic, tokenImageUrl: providerImage }).tokenImageUrl).toBe(providerImage);
+    expect(parse({ ...dynamic, tokenImageUrl: "https://media.thegrid.id/icon.png" }).tokenImageUrl)
+      .toBe("https://media.thegrid.id/icon.png");
+    expect(parse({ ...dynamic, tokenImageUrl: undefined }).tokenImageUrl).toBeNull();
+    expect(parse({ ...dynamic, tokenImageUrl: null }).tokenImageUrl).toBeNull();
+    expect(parse({ ...base.transfers[0], tokenImageUrl: "https://icons.example/usdc.svg" }).tokenImageUrl)
+      .toBe("https://icons.example/usdc.svg");
+    for (const image of [
+      "https://not-token-media.defined.fi/icon.png",
+      "http://token-media.defined.fi/icon.png",
+      "javascript:alert(1)",
+      "https://user:password@token-media.defined.fi/icon.png",
+      "https://token-media.defined.fi/icon.png#fragment",
+      `https://token-media.defined.fi/${"x".repeat(2048)}`,
+      " https://token-media.defined.fi/icon.png ",
+      42,
+    ]) {
+      expect(() => parse({ ...dynamic, tokenImageUrl: image })).toThrow(ActivityResponseError);
+    }
+    expect(() => parse({ ...dynamic, tokenSymbol: null, tokenDecimals: null, tokenImageUrl: providerImage }))
+      .toThrow(ActivityResponseError);
+    expect(() => parse({ ...base.transfers[0], tokenImageUrl: "http://icons.example/usdc.svg" }))
+      .toThrow(ActivityResponseError);
   });
 
   test("rejects malformed amounts and rows outside the bounded window", () => {

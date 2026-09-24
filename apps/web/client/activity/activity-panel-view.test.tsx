@@ -22,6 +22,7 @@ function transfer(id: string, minute: number): ActivityTransfer {
     tokenAddress: TOKEN,
     tokenSymbol: "USDC",
     tokenDecimals: 6,
+    tokenImageUrl: null,
     walletAddress: WALLET,
     fromAddress: OTHER,
     toAddress: WALLET,
@@ -138,6 +139,25 @@ describe("combined Activity panel", () => {
     expect(view.getByRole("region", { name: "Activity" }).querySelector("[data-slot='card']")).toBeNull();
     expect(view.container.querySelector("[data-activity-loader]")).not.toBeNull();
     expect(view.container.querySelector("[data-shimmer='row']")).toBeNull();
+  });
+
+  test("renders exact-contract logos and bounded fallback marks for long and missing symbols", () => {
+    const zora = "0x1111111111166b7fe7bd91427724b487980afc69" as const;
+    const credits = "0x4444444444444444444444444444444444444444" as const;
+    const unknown = "0x5555555555555555555555555555555555555555" as const;
+    const imageUrl = "https://token-media.defined.fi/zora.png";
+    const rows = [
+      { ...transfer("logo", 3), id: `8453:${zora}:logo`, tokenAddress: zora, assetId: null, tokenSymbol: "ZORA", tokenDecimals: 18, tokenImageUrl: imageUrl },
+      { ...transfer("credits", 2), id: `8453:${credits}:credits`, tokenAddress: credits, assetId: null, tokenSymbol: "CREDITS", tokenDecimals: 18 },
+      { ...transfer("unknown", 1), id: `8453:${unknown}:unknown`, tokenAddress: unknown, assetId: null, tokenSymbol: null, tokenDecimals: null },
+    ];
+    const view = render(<ActivityPanelView activity={ready(rows)} />);
+    const logo = view.getByRole("button", { description: "View received ZORA transaction details" });
+    expect(logo.querySelector("img")?.getAttribute("src")).toBe(imageUrl);
+    const longSymbol = view.getByRole("button", { description: "View received CREDITS transaction details" });
+    expect(longSymbol.querySelector("[data-mark-inner]")?.textContent).toBe("CR");
+    const missingSymbol = view.getByRole("button", { description: "View received unknown token transaction details" });
+    expect(missingSymbol.querySelector("[data-mark-inner]")?.textContent).toBe("?");
   });
 
   test("marks money in with the gain tone and leaves money out in the default tone", () => {

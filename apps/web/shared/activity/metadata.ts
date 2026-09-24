@@ -30,7 +30,32 @@ export type ActivityTokenMetadata = {
   assetId: ActivityAsset["id"] | null;
   tokenSymbol: string | null;
   tokenDecimals: number | null;
+  tokenImageUrl: string | null;
 };
+
+export const ACTIVITY_PROVIDER_IMAGE_HOSTS = ["token-media.defined.fi", "media.thegrid.id"] as const;
+
+export function sanitizeActivityTokenImageUrl(
+  value: unknown,
+  source: "registry" | "dynamic",
+): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 2048) return null;
+  try {
+    const url = new URL(trimmed);
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      url.hash ||
+      (source === "dynamic" && !ACTIVITY_PROVIDER_IMAGE_HOSTS.some((host) => host === url.hostname))
+    ) return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
 
 export const activityAssetsByContract = new Map<string, ActivityAsset>(
   activityAssets.map((asset) => [asset.tokenAddress.toLowerCase(), asset]),
@@ -67,9 +92,9 @@ export function sanitizeDynamicActivityTokenMetadata(input: {
     tokenDecimals === null ||
     reviewedActivitySymbolSkeletons.has(activitySymbolSkeleton(tokenSymbol))
   ) {
-    return { assetId: null, tokenSymbol: null, tokenDecimals: null };
+    return { assetId: null, tokenSymbol: null, tokenDecimals: null, tokenImageUrl: null };
   }
-  return { assetId: null, tokenSymbol, tokenDecimals };
+  return { assetId: null, tokenSymbol, tokenDecimals, tokenImageUrl: null };
 }
 
 export function registryActivityTokenMetadata(
@@ -81,6 +106,7 @@ export function registryActivityTokenMetadata(
         assetId: asset.id,
         tokenSymbol: asset.symbol,
         tokenDecimals: asset.decimals,
+        tokenImageUrl: null,
       }
     : null;
 }

@@ -104,6 +104,7 @@ export function createActivityReader(
             assetId: null,
             tokenSymbol: null,
             tokenDecimals: null,
+            tokenImageUrl: null,
           },
         ])),
         nftLikeContracts: new Set(),
@@ -117,6 +118,7 @@ export function createActivityReader(
         assetId: null,
         tokenSymbol: null,
         tokenDecimals: null,
+        tokenImageUrl: null,
       };
       return [{ ...transfer, ...token }];
     });

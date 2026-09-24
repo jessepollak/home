@@ -11,6 +11,7 @@ import {
 import {
   activityAssetsByContract,
   sanitizeDynamicActivityTokenMetadata,
+  sanitizeActivityTokenImageUrl,
 } from "@/shared/activity/metadata";
 import {
   isActivityValuationCurrency,
@@ -179,6 +180,7 @@ function parseTransfer(
     tokenAddress: normalizedTokenAddress as `0x${string}`,
     tokenSymbol: tokenMetadata.tokenSymbol,
     tokenDecimals: tokenMetadata.tokenDecimals,
+    tokenImageUrl: tokenMetadata.tokenImageUrl,
     walletAddress: transferWallet.toLowerCase() as `0x${string}`,
     fromAddress: fromAddress.toLowerCase() as `0x${string}`,
     toAddress: toAddress.toLowerCase() as `0x${string}`,
@@ -205,7 +207,14 @@ function parseTransfer(
 function parseTokenMetadata(
   value: Record<string, unknown>,
   asset: ActivityAsset | undefined,
-): Pick<ActivityTransfer, "assetId" | "tokenSymbol" | "tokenDecimals"> {
+): Pick<ActivityTransfer, "assetId" | "tokenSymbol" | "tokenDecimals" | "tokenImageUrl"> {
+  const image = value.tokenImageUrl;
+  const tokenImageUrl = image === undefined || image === null
+    ? null
+    : sanitizeActivityTokenImageUrl(image, asset ? "registry" : "dynamic");
+  if (image !== undefined && image !== null &&
+    (typeof image !== "string" || tokenImageUrl === null || image !== tokenImageUrl)
+  ) throw new ActivityResponseError();
   if (asset) {
     if (
       value.assetId !== asset.id ||
@@ -218,12 +227,14 @@ function parseTokenMetadata(
       assetId: asset.id,
       tokenSymbol: asset.symbol,
       tokenDecimals: asset.decimals,
+      tokenImageUrl,
     };
   }
 
   if (value.assetId !== null) throw new ActivityResponseError();
   if (value.tokenSymbol === null && value.tokenDecimals === null) {
-    return { assetId: null, tokenSymbol: null, tokenDecimals: null };
+    if (tokenImageUrl !== null) throw new ActivityResponseError();
+    return { assetId: null, tokenSymbol: null, tokenDecimals: null, tokenImageUrl: null };
   }
   if (value.tokenSymbol === null || value.tokenDecimals === null) {
     throw new ActivityResponseError();
@@ -239,7 +250,7 @@ function parseTokenMetadata(
   ) {
     throw new ActivityResponseError();
   }
-  return sanitized;
+  return { ...sanitized, tokenImageUrl };
 }
 
 function parseSource(value: unknown): ActivityPage["source"] {

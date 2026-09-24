@@ -45,6 +45,7 @@ export type ActivityTransfer = {
   tokenAddress: `0x${string}`;
   tokenSymbol: string | null;
   tokenDecimals: number | null;
+  tokenImageUrl: string | null;
   walletAddress: `0x${string}`;
   fromAddress: `0x${string}`;
   toAddress: `0x${string}`;

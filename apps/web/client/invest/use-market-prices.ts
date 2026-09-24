@@ -47,7 +47,7 @@ export function useMarketPrices({
   freshnessMs = MARKET_PRICE_DISPLAY_FRESHNESS_MS,
   refreshCooldownMs = VISIBILITY_REFRESH_COOLDOWN_MS,
 }: UseMarketPricesOptions = {}): PricedInvestMarketProps {
-  const [, setAgeRevision] = useState(0);
+  const [ageRevision, setAgeRevision] = useState(0);
   const marketQuery = useHomeQuery({
     queryKey: publicQueryKey("market-prices", endpoint),
     staleTime: refreshCooldownMs,
@@ -77,7 +77,7 @@ export function useMarketPrices({
     const delay = Math.max(0, nextExpiry - now() + 1);
     const timeout = window.setTimeout(() => setAgeRevision((value) => value + 1), delay);
     return () => window.clearTimeout(timeout);
-  }, [freshnessMs, marketResponse, now]);
+  }, [ageRevision, freshnessMs, marketResponse, now]);
 
   return useMemo(() => {
     const marketProps: PricedInvestMarketProps = {

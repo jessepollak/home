@@ -48,6 +48,7 @@ function transfer(
     tokenAddress,
     tokenSymbol: "USDC",
     tokenDecimals: 6,
+    tokenImageUrl: null,
     walletAddress,
     fromAddress: OTHER,
     toAddress: walletAddress,
