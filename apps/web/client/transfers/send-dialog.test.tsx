@@ -2,6 +2,7 @@ import "@/client/account/dom-test-harness";
 
 import { page } from "@/tests/helpers/dom";
 import { afterEach, describe, expect, test } from "bun:test";
+import { useState, type ComponentProps } from "react";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { encodeUsdcTransfer, getTransferAsset } from "@/shared/transfers/transfer-helpers";
 import { TransferExecutionError } from "@/shared/transfers/types";
@@ -120,6 +121,50 @@ describe("SendDialog availability", () => {
     expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
+});
+
+describe("SendDialog review", () => {
+  test("keeps the prepared review on screen when the route adopts its action id", async () => {
+    const resumes: string[] = [];
+    const reviews: string[] = [];
+    let releasePrepare!: (action: PreparedMoneyAction) => void;
+    function RoutedSend() {
+      const [actionId, setActionId] = useState<string | null>(null);
+      return <SendDialog
+        open immediate address={ACCOUNT} ownerBoundary="owner-routed-review" resumeActionId={actionId}
+        availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
+        prepareMoneyAction={() => new Promise((resolve) => { releasePrepare = resolve; })}
+        resumeMoneyAction={(id) => { resumes.push(id); return new Promise(() => {}); }}
+        executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })}
+        onReview={(id) => { reviews.push(id); setActionId(id); }}
+        onClose={() => {}}
+      />;
+    }
+    render(<RoutedSend />);
+
+    fireEvent.click(page().getByRole("button", { name: "1" }));
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { readText: async () => RECIPIENT } });
+    try {
+      fireEvent.click(page().getByRole("button", { name: "Paste address" }));
+      await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
+    } finally {
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+    }
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+
+    expect(await page().findByText("Preparing review…")).toBeTruthy();
+    expect((page().getByRole("button", { name: "Close send dialog" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(page().queryByText("Waiting for your wallet…")).toBeNull();
+
+    await act(async () => { releasePrepare(resumedAction()); });
+
+    expect(await page().findByRole("button", { name: "Send $1.00" })).toBeTruthy();
+    expect(page().queryByText("Waiting for your wallet…")).toBeNull();
+    expect(page().queryByText("Preparing review…")).toBeNull();
+    expect(reviews).toEqual([ACTION_ID]);
+    expect(resumes).toEqual([]);
+  });
 });
 
 describe("SendDialog Peer cash-out", () => {
@@ -362,6 +407,37 @@ describe("SendDialog resume", () => {
 
     expect(await page().findByRole("button", { name: "Continue" })).toBeTruthy();
     expect(invalidResumes).toBe(1);
+  });
+
+  test("finishes resuming a review when balances and the wallet client change while the action is loading", async () => {
+    const pending: Array<(action: PreparedMoneyAction) => void> = [];
+    let invalidResumes = 0;
+    const resume = (_id: string) => new Promise<PreparedMoneyAction>((resolve) => { pending.push(resolve); });
+    const dialog = (
+      resumeMoneyAction: ComponentProps<typeof SendDialog>["resumeMoneyAction"],
+      availableAssets?: ComponentProps<typeof SendDialog>["availableAssets"],
+    ) => (
+      <SendDialog
+        open immediate address={ACCOUNT} ownerBoundary="owner-resume-balances" resumeActionId={ACTION_ID}
+        availableAssets={availableAssets}
+        prepareMoneyAction={async () => resumedAction()} resumeMoneyAction={resumeMoneyAction}
+        executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })}
+        onInvalidResume={() => { invalidResumes += 1; }} onClose={() => {}}
+      />
+    );
+    const view = render(dialog(resume));
+    expect(await page().findByText("Preparing review…")).toBeTruthy();
+
+    view.rerender(dialog((id) => resume(id), [{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]));
+    expect(pending).toHaveLength(2);
+    await act(async () => {
+      pending[0]!(resumedAction("savings-deposit"));
+      pending[1]!(resumedAction());
+    });
+
+    expect(await page().findByRole("button", { name: "Send $1.00" })).toBeTruthy();
+    expect(page().queryByText("Preparing review…")).toBeNull();
+    expect(invalidResumes).toBe(0);
   });
 
   test("offers withdrawal recovery on the amount step when there are no sendable balances", async () => {
