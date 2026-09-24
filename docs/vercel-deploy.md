@@ -26,6 +26,12 @@ Before that setting change, an operator must configure cross-instance Vercel Fir
 
 After the setting change, the operator runs unauthenticated live probes for the exact Apple file, protected pages and APIs, and rejected CDP/funding webhook deliveries, then separately verifies deployment access, Home sign-in, Home sign-out, and access logout. These live probes must record the deployment and commit without recording the shared credential. Local tests and preview evidence do not establish that production, Deployment Protection, Firewall, or webhook delivery was verified.
 
+### Administrator access
+
+Set server-only `HOME_OPERATOR_ADDRESSES` to comma-separated `0x` + 40-hex-character Base smart-account addresses and redeploy. Blank, malformed, or duplicate entries deny every administrator; surrounding ASCII whitespace is accepted. Rotation or recovery means editing the list and redeploying: new addresses are admitted, removed addresses are denied, and customer sessions and data remain untouched. The deployment access gate, when enabled, runs first; a valid Home session and separate operator decision follow. `/admin` pages require a server-reverified native session, not a CDP render hint; the admin API also accepts verified CDP bearer authentication. Account entry and admin shell presentation await #638.
+
+On an authorized protected deployment, supply deployment access separately, then probe `curl -i https://<host>/api/admin/session`: without Home authentication expect 401, with a non-admin session expect 403, and with an administrator session expect 200 and the address. Check `Cache-Control` includes `private` and `no-store` for each; do not record access cookies, bearer tokens, or personal data. These are manual protected-deployment checks, not proof from local CI.
+
 ### Skew Protection
 
 For the Vercel project `home-web`, **Project Settings → Advanced → Skew Protection** is enabled with a 12-hour max age.

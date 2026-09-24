@@ -66,12 +66,14 @@ describe("API route composition", () => {
         const name = `${verb} /api/${routeUrlPath(path)}`;
         expect(response.status, name).toBe(401);
         const body = await response.json() as { error?: { code?: unknown; message?: unknown } };
-        expect(body, name).toEqual({
-          error: {
-            code: expect.stringMatching(/^[A-Z][A-Z0-9_]+$/),
-            message: expect.any(String),
-          },
-        });
+        expect(body, name).toEqual(path.startsWith("admin/")
+          ? { error: { code: "UNAUTHENTICATED" } }
+          : {
+              error: {
+                code: expect.stringMatching(/^[A-Z][A-Z0-9_]+$/),
+                message: expect.any(String),
+              },
+            });
         const cacheControl = response.headers.get("cache-control") ?? "";
         expect(cacheControl, name).toContain("private");
         expect(cacheControl, name).toContain("no-store");

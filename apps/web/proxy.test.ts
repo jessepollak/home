@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { NextRequest } from "next/server";
-import { canonicalDevelopmentNavigationResponse } from "./proxy";
+import { canonicalDevelopmentNavigationResponse, proxy } from "./proxy";
 
 const navigationHeaders = {
   "sec-fetch-dest": "document",
@@ -83,4 +83,25 @@ describe("development canonical host proxy", () => {
       "http://localhost:3000/.well-known/apple-developer-merchantid-domain-association-other",
     );
   });
+});
+
+test("proxy protects every admin path after deployment access and leaves other paths unchanged", () => {
+  const prior = process.env.HOME_ACCESS_REQUIRED;
+  try {
+    delete process.env.HOME_ACCESS_REQUIRED;
+    for (const path of ["/admin", "/admin/nope", "/api/admin/session", "/api/admin/nope"]) {
+      const response = proxy(new NextRequest(`https://home.test${path}`));
+      expect(response.headers.get("cache-control")).toContain("private");
+      expect(response.headers.get("cache-control")).toContain("no-store");
+      expect(response.headers.get("vary")).toContain("Cookie");
+    }
+    expect(proxy(new NextRequest("https://home.test/home")).headers.get("cache-control")).toBeNull();
+    process.env.HOME_ACCESS_REQUIRED = "1";
+    const protectedResponse = proxy(new NextRequest("https://home.test/admin/nope"));
+    expect(protectedResponse.status).toBe(503);
+    expect(protectedResponse.headers.get("cache-control")).toContain("no-store");
+  } finally {
+    if (prior === undefined) delete process.env.HOME_ACCESS_REQUIRED;
+    else process.env.HOME_ACCESS_REQUIRED = prior;
+  }
 });
