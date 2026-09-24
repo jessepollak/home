@@ -16,6 +16,7 @@ export async function executeCodexGraphql({
   fetchImpl,
   timeoutMs = CODEX_REQUEST_TIMEOUT_MS,
   signal,
+  allowPartialData = false,
 }: {
   apiKey: string;
   query: string;
@@ -23,6 +24,7 @@ export async function executeCodexGraphql({
   fetchImpl: FetchLike;
   timeoutMs?: number;
   signal?: AbortSignal;
+  allowPartialData?: boolean;
 }): Promise<unknown> {
   const controller = new AbortController();
   const abort = () => controller.abort(signal?.reason);
@@ -51,7 +53,11 @@ export async function executeCodexGraphql({
 
     const parsed = parseJsonWithNumberLexemes(await response.text());
     const envelope = readRecord(parsed);
-    if (Array.isArray(envelope?.errors) && envelope.errors.length > 0) {
+    if (
+      Array.isArray(envelope?.errors) &&
+      envelope.errors.length > 0 &&
+      !(allowPartialData && readRecord(envelope.data))
+    ) {
       throw new CodexMarketDataError("Codex market data returned an error.");
     }
     if (envelope?.data === null || envelope?.data === undefined) {

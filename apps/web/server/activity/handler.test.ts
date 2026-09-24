@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { activityAssets, type ActivityPage } from "@/shared/activity/types";
+import { ACTIVITY_CONTRACT_VERSION } from "@/shared/activity/contract";
 import { createBaseErc20TransferHistory } from "@/server/chain-data/base-erc20-transfers";
 import { createCdpSqlHttpTransport } from "@/server/chain-data/cdp-sql-client";
 import { ChainDataError } from "@/server/chain-data/errors";
@@ -39,6 +40,7 @@ function page(): ActivityPage {
     walletAddress: VERIFIED,
     chainId: 8453,
     window: { from: "2026-08-07T12:00:00.000Z", to: TO },
+    currency: "USD",
     transfers: [],
     nextCursor: null,
     source: {
@@ -84,7 +86,7 @@ describe("activity route handler", () => {
     };
     const handler = createActivityHandler(dependencies);
     const request = new Request(
-      `http://localhost/api/activity?to=${encodeURIComponent(TO)}&cursor=next`,
+      `http://localhost/api/activity?to=${encodeURIComponent(TO)}&cursor=next&currency=EUR`,
     );
     const response = await handler(request);
 
@@ -97,9 +99,10 @@ describe("activity route handler", () => {
         chainId: 8453,
         verification: "session-smart-account",
       },
-      request: { to: TO, cursor: "next" },
+      request: { to: TO, cursor: "next", currency: "EUR" },
       signal: request.signal,
     });
+    expect(await response.json()).toEqual({ version: ACTIVITY_CONTRACT_VERSION, ...page() });
   });
 
 
@@ -112,6 +115,9 @@ describe("activity route handler", () => {
       `to=${encodeURIComponent(TO)}&cursor=first&cursor=second`,
       `to=${encodeURIComponent(TO)}&cursor=`,
       "to=not-a-date",
+      `to=${encodeURIComponent(TO)}&currency=XYZ`,
+      `to=${encodeURIComponent(TO)}&currency=usd`,
+      `to=${encodeURIComponent(TO)}&currency=USD&currency=EUR`,
     ]) {
       let calls = 0;
       const handler = createActivityHandler({
@@ -255,7 +261,7 @@ describe("activity route handler", () => {
         chainId: 8453,
         verification: "session-smart-account",
       },
-      request: { to: TO, cursor: null },
+      request: { to: TO, cursor: null, currency: "USD" },
     });
   });
 

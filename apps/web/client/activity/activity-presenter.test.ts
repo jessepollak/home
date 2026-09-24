@@ -3,6 +3,7 @@ import {
   presentActivityTransferDetails,
   presentActivityTransferRow,
 } from "./activity-presenter";
+import { computeActivityValuationAmount } from "@/shared/activity/valuation";
 import {
   activityAssets,
   type ActivityAsset,
@@ -48,6 +49,7 @@ function transfer(
     transactionHash: TRANSACTION_HASH,
     logIndex: "1",
     blockTimestamp: "2026-09-07T11:05:00.000Z",
+    valuation: { status: "unpriced", currency: "USD", reason: "quote-unavailable" },
     ...overrides,
   };
 }
@@ -184,5 +186,130 @@ describe("presentActivityTransferRow", () => {
     expect(presentActivityTransferDetails(transfer("self"), UTC).title).toBe(
       "Self transfer USDC",
     );
+  });
+});
+
+describe("activity transfer valuation presentation", () => {
+  const TEST = "0x5555555555555555555555555555555555555555" as const;
+  const priceUsd = { atoms: "2173291", scale: 7 };
+
+  function volatile(
+    direction: ActivityDirection,
+    amountBaseUnits = "56780000000000000000",
+    valuation?: ActivityTransfer["valuation"],
+  ): ActivityTransfer {
+    return transfer(direction, {
+      id: `8453:${TEST}:test-${direction}`,
+      assetId: null,
+      tokenAddress: TEST,
+      tokenSymbol: "TEST",
+      tokenDecimals: 18,
+      amountBaseUnits,
+      valuation: valuation ?? {
+        status: "priced",
+        currency: "USD",
+        amount: computeActivityValuationAmount({
+          amountBaseUnits,
+          tokenDecimals: 18,
+          unitPrice: priceUsd,
+          fxRate: null,
+        }),
+        method: "historical-close",
+        peg: null,
+        close: {
+          provider: "Codex",
+          closedAt: "2026-09-07T11:00:00.000Z",
+          resolutionMinutes: 15,
+          priceUsd,
+        },
+        fx: null,
+      },
+    });
+  }
+
+  test("puts signed fiat above signed native quantity for every direction", () => {
+    expect(presentActivityTransferRow(volatile("incoming"), UTC)).toMatchObject({
+      value: "+$12.34",
+      valueContext: "+56 TEST",
+      priced: true,
+    });
+    expect(presentActivityTransferRow(volatile("outgoing"), UTC)).toMatchObject({
+      value: "−$12.34",
+      valueContext: "−56 TEST",
+    });
+    expect(presentActivityTransferRow(volatile("self"), UTC)).toMatchObject({
+      directionLabel: "Self transfer",
+      value: "$12.34",
+      valueContext: "56 TEST",
+    });
+  });
+
+  test("marks sub-cent value instead of rounding it to zero", () => {
+    expect(presentActivityTransferRow(volatile("incoming", "1000"), UTC)).toMatchObject({
+      value: "+<$0.01",
+      priced: true,
+    });
+  });
+
+  test("keeps native quantity as the only amount when the transfer is unpriced", () => {
+    const unpriced = volatile("incoming", "56780000000000000000", {
+      status: "unpriced",
+      currency: "USD",
+      reason: "no-recent-close",
+    });
+    expect(presentActivityTransferRow(unpriced, UTC)).toMatchObject({
+      value: "+56 TEST",
+      valueContext: null,
+      priced: false,
+    });
+    expect(presentActivityTransferDetails(unpriced, UTC).rows).toContainEqual({
+      label: "Value",
+      value: "Not priced · no market close within 1 hour before transfer",
+    });
+  });
+
+  test("shows the same value plus quote time, source, and method in details", () => {
+    const rows = presentActivityTransferDetails(volatile("incoming"), UTC).rows;
+    expect(rows).toContainEqual({ label: "Amount", value: "+56.78 TEST" });
+    expect(rows).toContainEqual({ label: "Value", value: "+$12.34" });
+    expect(rows).toContainEqual({
+      label: "Valuation",
+      value: "Historical close · Codex 15-minute USD bar",
+    });
+    expect(rows).toContainEqual({ label: "Quote time", value: "Sep 7, 2026, 11:00 AM" });
+    expect(rows).toContainEqual({ label: "Unit price", value: "$0.2173291 per TEST" });
+  });
+
+  test("describes stablecoin peg and daily FX provenance", () => {
+    const rows = presentActivityTransferDetails(transfer("incoming", {
+      amountBaseUnits: "10000000",
+      valuation: {
+        status: "priced",
+        currency: "EUR",
+        amount: computeActivityValuationAmount({
+          amountBaseUnits: "10000000",
+          tokenDecimals: 6,
+          unitPrice: null,
+          fxRate: { atoms: "8608", scale: 4 },
+        }),
+        method: "peg",
+        peg: "USD",
+        close: null,
+        fx: {
+          provider: "Coinbase",
+          base: "USD",
+          quote: "EUR",
+          date: "2026-09-07",
+          rate: { atoms: "8608", scale: 4 },
+          provisional: true,
+        },
+      },
+    }), { ...UTC, regionId: "US" }).rows;
+    expect(rows).toContainEqual({ label: "Value", value: "+€8.61" });
+    expect(rows).toContainEqual({ label: "Valuation", value: "Stablecoin peg · 1 USDC = 1 USD" });
+    expect(rows).toContainEqual({
+      label: "Exchange rate",
+      value: "1 USD = 0.8608 EUR · Coinbase daily rate 2026-09-07 UTC (provisional until the UTC day closes)",
+    });
   });
 });

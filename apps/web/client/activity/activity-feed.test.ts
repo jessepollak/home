@@ -29,6 +29,7 @@ function transfer(id: string, blockTimestamp: string, transactionHash = HASH_A):
     transactionHash,
     logIndex: "1",
     blockTimestamp,
+    valuation: { status: "unpriced", currency: "USD", reason: "quote-unavailable" },
   };
 }
 

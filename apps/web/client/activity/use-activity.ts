@@ -27,6 +27,8 @@ import {
   initialActivityWindowEnd,
 } from "@/client/query/after-action";
 import { dataOwnerKey } from "@/client/account/owner-keys";
+import type { RegionId } from "@/config/regions";
+import { presentationMoneyMetadata } from "@/shared/formatting";
 
 export const activityStaleTimeMs = 10_000;
 export const activityContinuationBurstPages = 3;
@@ -71,7 +73,9 @@ type ScopedFlag = {
 export function useActivity(
   session: VerifiedAccountSession | null,
   fetchActivity: FetchActivity,
+  regionId: RegionId = "GLOBAL",
 ): UseActivityResult {
+  const currency = presentationMoneyMetadata(regionId).currency;
   const validSession = isVerifiedActivitySession(session) ? session : null;
   const ownerKey = validSession ? activityOwnerKey(validSession) : null;
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
@@ -91,7 +95,7 @@ export function useActivity(
 
   const query = useHomeInfiniteQuery({
     queryKey: ownerKey
-      ? ownerQueryKey(ownerKey, "activity", windowEnd)
+      ? ownerQueryKey(ownerKey, "activity", windowEnd, currency)
       : ["unauthenticated", "activity-disabled"],
     enabled: ownerKey !== null,
     initialPageParam: null as string | null,
@@ -99,16 +103,22 @@ export function useActivity(
     retry: false,
     refetchOnWindowFocus: true,
     meta: ownerKey ? ownerQueryMeta(ownerKey, "owner") : undefined,
-    queryFn: async ({ pageParam, signal }) => {
+    queryFn: async ({ pageParam, queryKey, signal }) => {
       if (!expectedSession) throw new Error("Activity is unavailable.");
       const queryString = new URLSearchParams({
         to: windowEnd,
         ...(pageParam ? { cursor: pageParam } : {}),
+        currency,
       }).toString();
       const page = parseActivityPage(
         await fetchActivity(queryString, signal),
         expectedSession,
         windowEnd,
+        currency,
+      );
+      retainKnownValuations(
+        page,
+        queryClient.getQueryData<{ pages: ActivityPage[] }>(queryKey)?.pages ?? [],
       );
       if (pageParam && page.nextCursor === pageParam) {
         throw new Error("Activity cursor did not advance.");
@@ -124,7 +134,7 @@ export function useActivity(
     return mergeActivityPages(pages);
   }, [query.data?.pages]);
 
-  const continuationScope = `${ownerKey ?? "signed-out"}\u0000${windowEnd}`;
+  const continuationScope = `${ownerKey ?? "signed-out"}\u0000${windowEnd}\u0000${currency}`;
   const scopeRef = useRef(continuationScope);
   const [continuingFlag, setContinuingFlag] = useState<ScopedFlag>({
     scope: continuationScope,
@@ -338,6 +348,11 @@ function mergeActivityPages(pages: ActivityPage[]): ActivityPage {
       const existing = seen.get(transfer.id);
       if (existing) {
         if (!sameActivityTransfer(existing, transfer)) throw new Error("Activity overlap changed.");
+        if (existing.valuation.status !== "priced" && transfer.valuation.status === "priced") {
+          const index = transfers.indexOf(existing);
+          transfers[index] = transfer;
+          seen.set(transfer.id, transfer);
+        }
         continue;
       }
       if (previous && compareActivityTransferKeys(previous, transfer) <= 0) {
@@ -357,8 +372,36 @@ function mergeActivityPages(pages: ActivityPage[]): ActivityPage {
 }
 
 function sameActivityTransfer(left: ActivityTransfer, right: ActivityTransfer): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return JSON.stringify(withoutValuation(left)) === JSON.stringify(withoutValuation(right));
 }
+
+function withoutValuation(transfer: ActivityTransfer): Omit<ActivityTransfer, "valuation"> {
+  const { valuation, ...rest } = transfer;
+  void valuation;
+  return rest;
+}
+
+function retainKnownValuations(page: ActivityPage, previousPages: readonly ActivityPage[]) {
+  const known = new Map<string, ActivityTransfer>();
+  for (const previous of previousPages) {
+    if (previous.currency !== page.currency) continue;
+    for (const transfer of previous.transfers) {
+      if (transfer.valuation.status === "priced") known.set(transfer.id, transfer);
+    }
+  }
+  if (known.size === 0) return;
+  page.transfers = page.transfers.map((transfer) => {
+    const previous = known.get(transfer.id);
+    return previous &&
+      transfer.valuation.status === "unpriced" &&
+      transientUnpricedReasons.has(transfer.valuation.reason) &&
+      sameActivityTransfer(previous, transfer)
+      ? { ...transfer, valuation: previous.valuation }
+      : transfer;
+  });
+}
+
+const transientUnpricedReasons = new Set(["quote-unavailable", "fx-unavailable"]);
 
 function readActivityFailure(reason: unknown): { code: string | null; message: string | null } {
   if (!reason || typeof reason !== "object") return { code: null, message: null };

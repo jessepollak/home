@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { shellContentFrameClassName } from "@/components/shell-layout";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import type { ActivityPage, ActivityTransfer } from "@/shared/activity/types";
+import { computeActivityValuationAmount } from "@/shared/activity/valuation";
 import {
   borrowPosition,
   buildBalancesSnapshotFixture,
@@ -52,6 +53,20 @@ function transfer(
     transactionHash: `0x${day.toString(16).padStart(64, "0")}`,
     logIndex: "1",
     blockTimestamp: `2026-09-${String(day).padStart(2, "0")}T12:00:00.000Z`,
+    valuation: {
+      status: "priced",
+      currency: "USD",
+      amount: computeActivityValuationAmount({
+        amountBaseUnits,
+        tokenDecimals: 6,
+        unitPrice: null,
+        fxRate: null,
+      }),
+      method: "peg",
+      peg: "USD",
+      close: null,
+      fx: null,
+    },
   };
 }
 
@@ -83,6 +98,7 @@ function activityPage(transfers: ActivityTransfer[], nextCursor: string | null):
   return {
     walletAddress: WALLET,
     chainId: 8453,
+    currency: "USD",
     window: { from: "2026-08-23T12:00:00.000Z", to: "2026-09-23T12:00:00.000Z" },
     transfers,
     nextCursor,

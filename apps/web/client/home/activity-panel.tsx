@@ -69,7 +69,7 @@ export function ConnectedActivityPanel({
   regionId: RegionId;
 }) {
   const ownerKey = activitySession?.smartAccount ? activityOwnerKey(activitySession) : null;
-  const activity = useActivity(activitySession, fetchActivity);
+  const activity = useActivity(activitySession, fetchActivity, regionId);
   const actions = useHomeQuery({
     queryKey: ownerKey
       ? ownerQueryKey(ownerKey, "actions")

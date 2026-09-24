@@ -12,6 +12,7 @@ This map points to Home's current product, engineering, delivery, setup, and int
 ## Core contracts
 
 - [Actions](actions.md) — prepare → confirm → dispatch → handle, records, status, retries, and owner fencing.
+- [Activity valuation](activity-valuation.md) — transfer-time fiat value, peg and historical-close methods, currency, and unpriced states.
 - [Balances](balances.md) — enumeration, pinned reads, resolution, pricing, snapshots, and cache behavior.
 - [Borrow](borrow.md) and [Morpho markets](morpho-markets.md) — isolated-market product and protocol boundaries.
 - [Funding provider seam](funding-provider-seam.md) — adapter contract, order lifecycle, receipt rules, and provider rollout evidence.

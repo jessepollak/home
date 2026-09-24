@@ -2,7 +2,11 @@ import {
   getDirectPortfolioAssets,
   portfolioVaults,
 } from "@/config/portfolio-assets";
+import type { FiatCurrencyCode } from "@/config/regions";
 import { BASE_CHAIN_ID } from "@/shared/assets/base";
+import type { ActivityTransferValuation } from "./valuation";
+
+export type { ActivityTransferValuation } from "./valuation";
 
 export const ACTIVITY_BASE_CHAIN_ID = BASE_CHAIN_ID;
 export const ACTIVITY_PAGE_SIZE = 25 as const;
@@ -51,6 +55,7 @@ export type ActivityTransfer = {
   transactionHash: `0x${string}`;
   logIndex: string;
   blockTimestamp: string;
+  valuation: ActivityTransferValuation;
 };
 
 export type ActivitySource = {
@@ -69,6 +74,7 @@ export type ActivityPage = {
     from: string;
     to: string;
   };
+  currency: FiatCurrencyCode;
   transfers: ActivityTransfer[];
   nextCursor: string | null;
   source: ActivitySource;

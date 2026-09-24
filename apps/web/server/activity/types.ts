@@ -1,5 +1,6 @@
 import "server-only";
 
+import type { FiatCurrencyCode } from "@/config/regions";
 import type { ActivityPage } from "@/shared/activity/types";
 
 export type VerifiedActivityAccount = {
@@ -11,6 +12,7 @@ export type VerifiedActivityAccount = {
 export type ActivityReadRequest = {
   to: string;
   cursor: string | null;
+  currency: FiatCurrencyCode;
 };
 
 export type ActivityReader = (

@@ -4,6 +4,12 @@ import { getHomeQueryClient } from "@/client/query/query-client";
 import { afterEach, describe, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { ActivityPage, ActivityTransfer, FetchActivity } from "./types";
+import {
+  ACTIVITY_CONTRACT_VERSION,
+  type ActivityResponse,
+} from "@/shared/activity/contract";
+import type { RegionId } from "@/config/regions";
+import { computeActivityValuationAmount } from "@/shared/activity/valuation";
 
 const { act, cleanup, fireEvent, render, waitFor } = await import(
   "@testing-library/react"
@@ -54,6 +60,7 @@ function transfer(
     blockTimestamp: new Date(
       new Date(to).getTime() - (1000 - Number(blockNumber)) * 60_000,
     ).toISOString(),
+    valuation: { status: "unpriced", currency: "USD", reason: "quote-unavailable" },
   };
 }
 
@@ -62,15 +69,17 @@ function page(
   walletAddress: typeof WALLET_A | typeof WALLET_B,
   transfers: ActivityTransfer[],
   nextCursor: string | null,
-): ActivityPage {
+): ActivityResponse {
   const to = new URLSearchParams(query).get("to")!;
   return {
+    version: ACTIVITY_CONTRACT_VERSION,
     walletAddress,
     chainId: 8453,
     window: {
       from: new Date(new Date(to).getTime() - 31 * 24 * 60 * 60 * 1000).toISOString(),
       to,
     },
+    currency: (new URLSearchParams(query).get("currency") ?? "USD") as ActivityPage["currency"],
     transfers,
     nextCursor,
     source: {
@@ -102,12 +111,14 @@ function HookHarness({
   owner,
   fetchActivity,
   testId = "",
+  regionId,
 }: {
   owner: VerifiedAccountSession | null;
   fetchActivity: FetchActivity;
   testId?: string;
+  regionId?: RegionId;
 }) {
-  const activity = useActivity(owner, fetchActivity);
+  const activity = useActivity(owner, fetchActivity, regionId);
   return (
     <div>
       <output data-testid={`${testId}status`}>{activity.status}</output>
@@ -117,6 +128,10 @@ function HookHarness({
             {activity.page.transfers.map((item) => item.logId).join(",")}
           </output>
           <output data-testid="cursor">{activity.page.nextCursor ?? "end"}</output>
+          <output data-testid={`${testId}valuations`}>
+            {activity.page.transfers.map((item) => item.valuation.status).join(",")}
+          </output>
+          <button type="button" onClick={activity.retry}>refetch</button>
           <output data-testid="loading-more">
             {String(activity.loadingMore)}
           </output>
@@ -143,6 +158,51 @@ afterEach(() => {
 });
 
 describe("useActivity pagination", () => {
+  test("requests the region's presentation currency and keeps a known value through a transient quote failure", async () => {
+    const queries: string[] = [];
+    const fetchActivity: FetchActivity = async (query) => {
+      queries.push(query);
+      const row = transfer(query, WALLET_A, "event-30", "30");
+      const currency = new URLSearchParams(query).get("currency") as ActivityPage["currency"];
+      row.valuation = queries.length === 1
+        ? {
+            status: "priced",
+            currency,
+            amount: computeActivityValuationAmount({
+              amountBaseUnits: "30",
+              tokenDecimals: 6,
+              unitPrice: null,
+              fxRate: { atoms: "86", scale: 2 },
+            }),
+            method: "peg",
+            peg: "USD",
+            close: null,
+            fx: {
+              provider: "Coinbase",
+              base: "USD",
+              quote: currency,
+              date: row.blockTimestamp.slice(0, 10),
+              rate: { atoms: "86", scale: 2 },
+              provisional: false,
+            },
+          }
+        : { status: "unpriced", currency, reason: "quote-unavailable" };
+      return page(query, WALLET_A, [row], null);
+    };
+    const view = render(
+      <HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} regionId="DE" />,
+    );
+
+    await waitFor(() => expect(view.getByTestId("valuations").textContent).toBe("priced"));
+    expect(new URLSearchParams(queries[0]).get("currency")).toBe("EUR");
+    fireEvent.click(view.getByText("refetch"));
+    await waitFor(() => expect(queries).toHaveLength(2));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(view.getByTestId("valuations").textContent).toBe("priced");
+  });
+
   test("two hooks for one owner share one activity query", async () => {
     const queries: string[] = [];
     const fetchActivity: FetchActivity = async (query) => {

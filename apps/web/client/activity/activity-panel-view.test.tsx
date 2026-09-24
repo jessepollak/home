@@ -32,6 +32,7 @@ function transfer(id: string, minute: number): ActivityTransfer {
     transactionHash: `0x${minute.toString(16).padStart(64, "0")}`,
     logIndex: "1",
     blockTimestamp: `2026-09-15T12:${String(minute).padStart(2, "0")}:00.000Z`,
+    valuation: { status: "unpriced", currency: "USD", reason: "quote-unavailable" },
   };
 }
 
@@ -74,6 +75,7 @@ function ready(
     walletAddress: WALLET,
     chainId: 8453,
     window: { from: "2026-08-15T12:00:00.000Z", to: "2026-09-15T12:10:00.000Z" },
+    currency: "USD",
     transfers,
     nextCursor,
     source: {

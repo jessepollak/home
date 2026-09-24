@@ -20,5 +20,6 @@ export {
   formatWadPercent,
   moneyChangeTone,
   presentationCurrencyMetadata,
+  presentationMoneyMetadata,
   scaleDecimalByExact,
 } from "./money";
