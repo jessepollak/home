@@ -663,10 +663,10 @@ export function SavingsExperience({
           availableLabel={
             visibleActionMode === "deposit"
               ? availableUsdcBaseUnits
-                ? `${formatUsdStablecoinAmount(availableUsdcBaseUnits)} available`
+                ? savingsAvailableLabel(availableUsdcBaseUnits)
                 : undefined
               : selectedAmount !== null
-                ? `${formatUsdStablecoinAmount(selectedAmount.toString())} available`
+                ? savingsAvailableLabel(selectedAmount)
                 : undefined
           }
           availableBaseUnits={
@@ -682,6 +682,11 @@ export function SavingsExperience({
       ) : null}
     </section>
   );
+}
+
+function savingsAvailableLabel(baseUnits: string | bigint): string {
+  const cents = BigInt(baseUnits) / BigInt(10) ** BigInt(BASE_USDC_DECIMALS - 2);
+  return `${formatUsdStablecoinAmount(cents, 2)} available`;
 }
 
 function availableBalanceOrPositions(state: PositionState): boolean {
