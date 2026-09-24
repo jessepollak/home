@@ -38,10 +38,10 @@ export function fixtureRoutes() {
     ["**/api/client-performance", { ok: true }],
     ["**/api/funding/providers**", fundingProvidersBody],
     ["**/api/funding/offramp/orders**", fundingOfframpOrdersBody],
-    ["**/api/transfers/recipient-name**", { version: 1, name: "jesse.base.eth", address: recentRecipient }],
+    ["**/api/transfers/recipient-name**", { version: 1, name: "example.base.eth", address: recentRecipient }],
     ["**/api/transfers/recent-recipients**", {
       version: 1,
-      recipients: [{ address: recentRecipient, name: "jesse.base.eth" }],
+      recipients: [{ address: recentRecipient, name: "example.base.eth" }],
     }],
     ["**/api/basename-profile**", basenameProfileBody],
   ] as const;

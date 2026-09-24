@@ -8,22 +8,22 @@ describe("readTransferRecipientNameResponse", () => {
   test("reads a versioned resolution and normalizes it", () => {
     expect(readTransferRecipientNameResponse({
       version: 1,
-      name: "JESSE.BASE.ETH",
+      name: "EXAMPLE.BASE.ETH",
       address: "0x2211D1D0020DAEA8039E46CF1367962070D77DA9",
     })).toEqual({
-      name: "jesse.base.eth",
+      name: "example.base.eth",
       address: "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9",
     });
   });
 
   test.each([
-    [{ version: 2, name: "jesse.base.eth", address: "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9" }, "version"],
-    [{ name: "jesse.base.eth", address: "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9" }, "missing version"],
-    [{ version: 1, name: "jesse", address: "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9" }, "invalid name"],
-    [{ version: 1, name: "jesse.base.eth", address: "0x0000000000000000000000000000000000000000" }, "zero address"],
-    [{ version: 1, name: "jesse.base.eth", address: "not-an-address" }, "invalid address"],
+    [{ version: 2, name: "example.base.eth", address: "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9" }, "version"],
+    [{ name: "example.base.eth", address: "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9" }, "missing version"],
+    [{ version: 1, name: "example", address: "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9" }, "invalid name"],
+    [{ version: 1, name: "example.base.eth", address: "0x0000000000000000000000000000000000000000" }, "zero address"],
+    [{ version: 1, name: "example.base.eth", address: "not-an-address" }, "invalid address"],
     [null, "null"],
-    ["jesse.base.eth", "string"],
+    ["example.base.eth", "string"],
   ])("refuses %p (%s)", (value) => {
     expect(readTransferRecipientNameResponse(value)).toBeNull();
   });
@@ -34,11 +34,11 @@ describe("readRecentTransferRecipientsResponse", () => {
     expect(readRecentTransferRecipientsResponse({
       version: 1,
       recipients: [
-        { address: "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9", name: "JESSE.BASE.ETH" },
+        { address: "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9", name: "EXAMPLE.BASE.ETH" },
         { address: "0x2222222222222222222222222222222222222222", name: null },
       ],
     })).toEqual([
-      { address: "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9", name: "jesse.base.eth" },
+      { address: "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9", name: "example.base.eth" },
       { address: "0x2222222222222222222222222222222222222222", name: null },
     ]);
   });
@@ -47,14 +47,14 @@ describe("readRecentTransferRecipientsResponse", () => {
     expect(readRecentTransferRecipientsResponse({
       version: 1,
       recipients: [
-        { address: "0x2211d1d0020daea8039e46cf1367962070d77da9", name: "jesse.base.eth" },
+        { address: "0x2211d1d0020daea8039e46cf1367962070d77da9", name: "example.base.eth" },
         { address: "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9", name: null },
         { address: "0x2222222222222222222222222222222222222222", name: null },
         { address: "0x3333333333333333333333333333333333333333", name: null },
         { address: "0x4444444444444444444444444444444444444444", name: null },
       ],
     })).toEqual([
-      { address: "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9", name: "jesse.base.eth" },
+      { address: "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9", name: "example.base.eth" },
       { address: "0x2222222222222222222222222222222222222222", name: null },
       { address: "0x3333333333333333333333333333333333333333", name: null },
     ]);

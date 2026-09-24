@@ -26,7 +26,7 @@ For a local database, run `bun run db:up` before setting `DATABASE_URL` and appl
 
 Administrator access is separate from deployment access and customer sign-in. Set the server-only `HOME_OPERATOR_ADDRESSES` to a comma-separated list of Base smart-account addresses (each `0x` plus 40 hex digits), then redeploy. Editing the list and redeploying admits new addresses and denies removed ones without changing customer sessions or data; blank or malformed lists deny all. On a protected deployment, verify `curl -i https://<host>/api/admin/session` without Home authentication returns 401 with `Cache-Control: private, no-store`; a non-admin Home session returns 403, and an administrator returns 200. Supply protected-deployment access separately and never include tokens in recorded output. Account entry and shell presentation await #638.
 
-For Vercel settings, see [Vercel deploy](vercel-deploy.md). For CDP configuration, see [CDP setup](cdp-setup.md). For funding adapters, see the [issuer integration guide](integrations/README.md).
+Use the [operator checklist](operator-checklist.md) for values and destinations. For Vercel settings, see [Vercel deploy](vercel-deploy.md). For CDP configuration, see [CDP setup](cdp-setup.md). For funding adapters, see the [issuer integration guide](integrations/README.md).
 
 ## Before publishing
 

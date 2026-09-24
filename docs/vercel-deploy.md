@@ -1,10 +1,10 @@
 # Vercel deploy (bun monorepo)
 
-This is an operator build-settings note, not production authorization.
+This is an operator build-settings note, not production authorization. Use the [operator checklist](operator-checklist.md) for instance-specific values and where to configure them.
 
-## Home application: `home-web`
+## Home application
 
-The existing `home-web` Vercel project uses **Root Directory** `apps/web`; Vercel runs `bun run build` there, which is `bun run db:migrate && next build`, so migrations run in the production build step (the gate skips previews and unset `DATABASE_URL`).
+Your Home Vercel project uses **Root Directory** `apps/web`; Vercel runs `bun run build` there, which is `bun run db:migrate && next build`, so migrations run in the production build step (the gate skips non-production Vercel builds and unset `DATABASE_URL`).
 
 | Setting | Value |
 | --- | --- |
@@ -34,7 +34,7 @@ On an authorized protected deployment, supply deployment access separately, then
 
 ### Skew Protection
 
-For the Vercel project `home-web`, **Project Settings → Advanced → Skew Protection** is enabled with a 12-hour max age.
+For your Home Vercel project, enable **Project Settings → Advanced → Skew Protection** with a 12-hour max age.
 
 Next exposes the serving deployment ID to client code, and Home adds it as the `x-deployment-id` header on client requests to `/api/*`. No environment variable is required. We use the explicit header rather than the alternative experimental `experimental.useSkewCookie` option.
 
@@ -46,13 +46,13 @@ curl -sI -H "x-deployment-id: <old dpl id>" https://<preview>/api/market-prices 
 curl -sI -H "x-deployment-id: <current dpl id>" https://<preview>/api/market-prices # 200
 ```
 
-## Storybook workshop: separate `home-storybook` project
+## Storybook workshop: separate project
 
-Storybook must use a separate Vercel project; it is not another output of `home-web`. The intended `home-storybook` settings are:
+Storybook must use a separate Vercel project (for example, `<project>-storybook`); it is not another output of your Home application project. Configure the Storybook project as follows:
 
 | Setting | Value |
 | --- | --- |
-| Owner and source | Same Vercel team as `home-web`; GitHub repository `jessepollak/home` |
+| Owner and source | Same Vercel team as the Home project; this repository or your fork |
 | Root Directory | `apps/web` |
 | Framework preset | Other |
 | Install Command | `bun install --frozen-lockfile` |
@@ -60,16 +60,16 @@ Storybook must use a separate Vercel project; it is not another output of `home-
 | Output Directory | `storybook-static` |
 | Production Branch | `main` |
 | Git integration | Current-main production deployment and a distinct, immutable preview deployment for each PR head |
-| Deployment protection | Vercel Authentication on production and previews, unless Jesse chooses a stricter existing convention |
+| Deployment protection | Vercel Authentication on production and previews, unless the operator chooses a stricter existing convention |
 | Environment variables | None; do not copy Home, provider, wallet, or database variables |
 
-Do not add `apps/web/vercel.json`: both projects share that root, so a repository-level override could change the production Home application. Per-project Vercel settings are the isolation boundary. Project creation, team ownership, Git integration, and deployment protection are privileged Jesse actions; these documented settings do not claim that `home-storybook` or any hosted URL exists.
+Do not add `apps/web/vercel.json`: both projects share that root, so a repository-level override could change the production Home application. Per-project Vercel settings are the isolation boundary. Project creation, team ownership, Git integration, and deployment protection are privileged operator actions; these documented settings do not claim that a hosted Storybook project or URL exists.
 
 When this project is created before Storybook reaches `main`, the initial production deployment from `main` is expected to fail because that branch does not yet contain the Storybook build script. Keep **Production Branch** set to `main`; create or trigger the PR-head preview instead of temporarily treating the feature branch as production. After merge, verify that the first `main` deployment succeeds before calling current-main hosting complete.
 
 A review reference records the project owner, relevant settings, commit SHA, deployment-specific URL, and direct [manager and canvas story links](design-system.md#component-workshop). Do not use a moving branch or project alias as the approval reference. Protected hosted access follows the provisioned paths in the [browser-validation contract](browser-validation.md); credential-free local start and static build remain the separate reproduction path.
 
-After Jesse provisions the project, verify without weakening protection:
+After the operator provisions the project, verify without weakening protection:
 
 - From `main`, confirm the deployment identifies the current `main` commit and opens a manager link and its canvas link at the deployment-specific URL.
 - From a PR, confirm Git integration creates a different preview tied to the current PR-head commit; select stories, change mobile/desktop viewports, and exercise the dialog from both manager and canvas links.
@@ -81,11 +81,11 @@ After Jesse provisions the project, verify without weakening protection:
 
 Copy names from [`.env.example`](../.env.example); keep values in Vercel or gitignored `apps/web/.env.local`. Never expose server keys with `NEXT_PUBLIC_`. The legacy `FUNDING_SANDBOX` flag is rejected. Keep `COINBASE_ONRAMP_MODE`, `PEER_OFFRAMP_MODE`, and the currently unused generic sandbox override `FUNDING_SANDBOX_CLIENT_IP` unset on production Vercel; Coinbase Embedded Orders does not consume that override.
 
-Actions and balance observations require server-only `DATABASE_URL`; Home connects to PostgreSQL via `pg`, so Neon works as a regular Postgres database; keep `?sslmode=require` (or `verify-full`) in the URL and use Neon's pooled hostname on Vercel. The production build runs `bun run db:migrate` automatically before Next.js builds, so there is nothing to run by hand. Preview and development deployments skip migrations even when `DATABASE_URL` is present because previews currently share the production database; this remains the safe default until Neon preview branches land in [#403](https://github.com/jessepollak/home/issues/403). `HOME_MIGRATE_ON_BUILD=1` is an emergency explicit override. Configure server-only `BASE_RPC_URL` and `ETHEREUM_RPC_URL` for hosted Base and mainnet ENS reads. Email sign-in requires the CDP project ID plus server validation keys. See [CDP setup](cdp-setup.md) for allowed origins.
+Actions and balance observations require server-only `DATABASE_URL`; Home connects to PostgreSQL via `pg`, so Neon works as a regular Postgres database; keep `?sslmode=require` (or `verify-full`) in the URL and use Neon's pooled hostname on Vercel. The production build runs `bun run db:migrate` automatically before Next.js builds, so there is nothing to run by hand. With [Neon preview branches](#neon-preview-branches) enabled, each preview Git branch (one per PR) gets one `preview/<git-branch>` database branch copied from its parent. Every preview deployment of that Git branch reuses the same database branch, so data written by an earlier revision persists into later ones until the branch is deleted; treat preview data as production data. Non-production Vercel builds still skip migrations unless `HOME_MIGRATE_ON_BUILD=1` is set, even with a preview branch, so a PR adding a migration runs against the parent's schema until merge. Without preview branches, previews share the production database; keep the migration skip and **never** set `HOME_MIGRATE_ON_BUILD=1` for previews in that setup. Configure server-only `BASE_RPC_URL` and `ETHEREUM_RPC_URL` for hosted Base and mainnet ENS reads. Email sign-in requires the CDP project ID plus server validation keys. See [CDP setup](cdp-setup.md) for allowed origins.
 
 ## Neon preview branches
 
-Vercel-Managed and Neon-Managed integrations name preview database branches `preview/<git-branch>` ([Neon branch cleanup](https://neon.com/docs/guides/vercel-branch-cleanup)). Two workflows manage them, and both no-op (exit 0) without repository secret `NEON_API_KEY` and `NEON_PROJECT_ID` configured as a repository variable or secret, so forks without Neon stay green:
+Vercel-Managed and Neon-Managed integrations create preview database branches named `preview/<git-branch>` ([Neon branch cleanup](https://neon.com/docs/guides/vercel-branch-cleanup)). Two workflows manage cleanup, not branch creation; both no-op (exit 0) without repository secret `NEON_API_KEY` and `NEON_PROJECT_ID` configured as a repository variable or secret, so forks without Neon stay green:
 
 - `.github/workflows/neon-preview-cleanup.yml` deletes `preview/<head_ref>` when a PR closes. This is the primary path.
 - `.github/workflows/neon-preview-prune.yml` keeps headroom under Neon Free's 10-total-branch cap. The Neon integration is a required preview deployment step, so when the project is full a new branch's preview fails before building with "Resource provisioning failed". The prune runs on every push to a branch other than `main`, with a schedule and manual dispatch as backstops; GitHub runs the schedule hours apart, so it cannot be relied on alone. Each run first deletes stale previews, whose git branch has no open PR and at least one closed or merged PR (a push after merge recreates the database after PR-close cleanup has run), then deletes the oldest remaining `preview/*` branches until the count is below the exclusive `keep_below` threshold. The default is 6, so the newest five preview branches survive, leaving `main + five previews = six total`: four slots under the 10-branch cap. It never deletes `main`, `production`, default, protected, or non-`preview/*` branches.
