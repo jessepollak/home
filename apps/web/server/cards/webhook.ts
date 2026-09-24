@@ -7,6 +7,7 @@ import type { CardEvent } from "./store";
 type JwksClient = { getJwks(): Promise<unknown> };
 type CardEventStore = { insert(event: CardEvent): Promise<boolean> };
 type PublicJwk = JsonWebKey & { kid: string; kty: "RSA"; n: string; e: string };
+export type ImmersveWebhookResult = "accepted" | "rejected" | "unavailable";
 const JWKS_TTL_MS = 5 * 60_000;
 const JWKS_REFETCH_MS = 60_000;
 const EVENT_RETENTION_MS = 30 * 24 * 60 * 60_000;
@@ -48,33 +49,37 @@ export function createImmersveWebhookHandler(dependencies: {
     finally { loading = null; }
   }
 
-  return async function handle(raw: Uint8Array, headers: Headers, topic: string): Promise<boolean> {
-    if (!isImmersveWebhookTopic(topic)) return false;
+  return async function handle(raw: Uint8Array, headers: Headers, topic: string): Promise<ImmersveWebhookResult> {
+    if (!isImmersveWebhookTopic(topic)) return "rejected";
     const delivery = headers.get("x-delivery-id");
     const kid = headers.get("x-key-id");
     const signature = headers.get("x-signature");
     if (!delivery || !/^[A-Za-z0-9_-]{1,128}:[1-9][0-9]{0,8}$/.test(delivery) ||
-        !kid || !ID.test(kid) || !signature || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(signature) || signature.length > 2048) return false;
-    let key = (await keys()).find((item) => item.kid === kid);
-    if (!key && now() - lastFetchedAt >= JWKS_REFETCH_MS) key = (await keys(true)).find((item) => item.kid === kid);
-    if (!key) return false;
+        !kid || !ID.test(kid) || !signature || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(signature) || signature.length > 2048) return "rejected";
+    let key: PublicJwk | undefined;
+    try {
+      key = (await keys()).find((item) => item.kid === kid);
+      if (!key && now() - lastFetchedAt >= JWKS_REFETCH_MS) key = (await keys(true)).find((item) => item.kid === kid);
+    } catch { return "unavailable"; }
+    if (!key) return "unavailable";
     let valid = false;
     try {
       const signed = Buffer.concat([Buffer.from(`${delivery}:${kid}:`, "utf8"), Buffer.from(raw)]);
       valid = verify("RSA-SHA256", signed, { key: createPublicKey({ key: { kty: "RSA", n: key.n, e: key.e }, format: "jwk" }), padding: constants.RSA_PKCS1_PADDING }, Buffer.from(signature, "base64"));
-    } catch { return false; }
-    if (!valid) return false;
+    } catch { return "rejected"; }
+    if (!valid) return "rejected";
     let parsed: unknown;
     try { parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw)) as unknown; }
-    catch { return false; }
+    catch { return "rejected"; }
     if (!isObject(parsed) || typeof parsed.messageId !== "string" || !ID.test(parsed.messageId) ||
         parsed.topic !== topic || parsed.keyId !== kid || parsed.issuer !== new URL(dependencies.config.origin).host ||
         !Number.isSafeInteger(parsed.deliveryAttempt) || delivery !== `${parsed.messageId}:${parsed.deliveryAttempt}` ||
-        !isRecentCreatedAt(parsed.createdAt, now())) return false;
+        !isRecentCreatedAt(parsed.createdAt, now())) return "rejected";
     const event = projectEvent(parsed, dependencies.config.mode);
-    if (!event) return false;
-    await dependencies.store.insert(event);
-    return true;
+    if (!event) return "rejected";
+    try { await dependencies.store.insert(event); }
+    catch { return "unavailable"; }
+    return "accepted";
   };
 }
 
