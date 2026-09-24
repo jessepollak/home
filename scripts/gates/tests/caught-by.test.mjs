@@ -13,7 +13,9 @@ import {
 const commit = (subject, body = "") => ({ sha: "a".repeat(40), subject, body });
 
 // The squash-merge message GitHub wrote for #742 (ab5f7eee on main): every inner
-// commit's body is concatenated, so the one detector appears once per commit.
+// commit's body is concatenated, so the one detector appears once per commit. The
+// co-author trailer is anonymized here; only the Caught-by shape matters, and the
+// real commit is asserted verbatim further down.
 const squashedMainHead = {
   sha: "ab5f7eee8478" + "0".repeat(28),
   subject: "fix(lint): treat a throwing finally block as a catch disposition (#742)",
@@ -23,16 +25,16 @@ const squashedMainHead = {
     "A `try`/`finally` whose finalizer always throws cannot fall through.",
     "",
     "Caught-by: lint",
-    "Co-authored-by: Toshi <toshi-noreply@coinbase.com>",
+    "Co-authored-by: automation <automation@example.com>",
     "",
     "* docs(gates): count a throwing finally block as a disposition",
     "",
     "Caught-by: lint",
-    "Co-authored-by: Toshi <toshi-noreply@coinbase.com>",
+    "Co-authored-by: automation <automation@example.com>",
     "",
     "---------",
     "",
-    "Co-authored-by: Toshi <toshi-noreply@coinbase.com>",
+    "Co-authored-by: automation <automation@example.com>",
   ].join("\n"),
 };
 

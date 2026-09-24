@@ -1,11 +1,10 @@
 name: Codex review request
 
-# Codex reviews only pull requests whose author has a linked ChatGPT account, and honours `@codex review` only from
-# such accounts, so the factory bot's pull requests get no review on their own. This posts the trigger under Jesse's
-# identity with a fine-grained token limited to pull-request write on this repository (secret CODEX_REVIEW_TOKEN).
-# `pull_request_target` runs this file as it is on the base branch, so a pull request cannot rewrite it, and the job
-# never checks the pull request's code out. A missing secret or a failed comment is a warning, never a red check:
-# a failing check here would send the factory into a repair run for a defect the pull request does not have.
+# Codex honours `@codex review` only from accounts with a linked ChatGPT account, so the bot's pull requests get no
+# review on their own; this posts the trigger under Jesse's identity (secret CODEX_REVIEW_TOKEN, limited to
+# pull-request write on this repository). `pull_request_target` runs this file as it is on the base branch, so a pull
+# request cannot rewrite it and the job never checks the pull request's code out. A missing secret or a failed comment
+# is a warning, never a red check.
 on:
   pull_request_target:
     types: [opened, reopened, ready_for_review, synchronize]

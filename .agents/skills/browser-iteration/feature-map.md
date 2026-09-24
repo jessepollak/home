@@ -52,7 +52,7 @@ API routes (no UI; listed for request-level assertions): `app/api/{access,access
 Hosts Home is known to call from the browser on a deployed environment. These are
 observations for reviewing browser requests, not automatic permission to widen origins.
 
-- `media.thegrid.id`, `token-media.defined.fi` — token artwork returned by the Codex token-image lookup (`apps/web/server/market-data/codex/token-images.ts:68`) and rendered by asset marks such as the borrow market header (`apps/web/client/borrowing/borrowing-experience.tsx:440`) and the invest list; both observed in the first studio canary on 2026-09-22.
+- `media.thegrid.id`, `token-media.defined.fi` — token artwork returned by the Codex token-image lookup (`apps/web/server/market-data/codex/token-images.ts:68`) and rendered by asset marks such as the borrow market header (`apps/web/client/borrowing/borrowing-experience.tsx:440`) and the invest list; both observed in the first provisioned live canary on 2026-09-22.
 - `api.ensideas.com` — Basename profile lookup (`apps/web/client/account/basename-profile.ts:9`); observed in the first production run on 2026-09-21.
 - `api.cdp.coinbase.com` — CDP browser session and Coinbase onramp API (`apps/web/server/funding/providers/coinbase/manifest.ts:5`).
 - `secure-wallet.cdp.coinbase.com` — CDP embedded-wallet origin.
@@ -221,7 +221,7 @@ do not silently ignore a new failure or treat this list as permission to broaden
   6. `click "1"`
   7. `click "Continue"`
   8. `expect "Recent recipients"`
-  9. `fill "To" "jesse.base.eth"`
+  9. `fill "To" "<name>.eth"`
   10. `expect "Resolves to"`
 - **Reach (live)**:
   1. `goto "/home"`

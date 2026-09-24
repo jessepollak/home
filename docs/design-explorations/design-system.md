@@ -147,7 +147,7 @@ Columns:
 
 ## Pattern inventory
 
-Mobbin was searched through the Toshi MCP Gateway on 2026-09-23, iOS only, with `search_flows` and `search_screens` in standard mode, which spends no credits. Twenty finance apps appear below, including Cash App, Revolut, Monzo, Wise, Coinbase, Kraken, Chime and PayPal. Revision 2 ran new searches:
+Mobbin was searched through the agent harness's MCP gateway on 2026-09-23, iOS only, with `search_flows` and `search_screens` in standard mode, which spends no credits. Twenty finance apps appear below, including Cash App, Revolut, Monzo, Wise, Coinbase, Kraken, Chime and PayPal. Revision 2 ran new searches:
 - asset detail and price charts, for Robinhood, Coinbase, Revolut, PayPal, MoonPay, Plum, Perplexity, N26 and Vivid;
 - amount entry with the system number keyboard;
 - one-box-per-digit verification codes;
