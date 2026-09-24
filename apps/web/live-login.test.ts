@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { liveLogin } from "./live-login";
+import { liveLogin, loadVerificationEnv } from "./live-login";
 
 const directories: string[] = [];
 afterEach(() => { for (const path of directories.splice(0)) Bun.spawnSync(["rm", "-rf", path]); });
@@ -32,16 +32,81 @@ test("OTP and gated password are passed only via stdin, never argv or output", a
     const argv = JSON.stringify(calls.map((call) => call.args));
     expect(argv).not.toContain(password);
     expect(argv).not.toContain(otp);
+    expect(argv).not.toContain("bot@example.com");
     expect(argv).not.toContain("HOME_ACCESS_PASSWORD");
     expect(path).not.toContain(password);
     expect(path).not.toContain(otp);
     expect(calls.filter((call) => call.args[0] === "eval" && call.args[1] === "--stdin").map((call) => call.input)).toEqual(gated
-      ? [expect.stringContaining(password), expect.stringContaining(otp)]
-      : [expect.stringContaining(otp)]);
+      ? [expect.stringContaining(password), expect.stringContaining("bot@example.com"), expect.stringContaining(otp)]
+      : [expect.stringContaining("bot@example.com"), expect.stringContaining(otp)]);
     expect(Bun.spawnSync(["ls", "-ld", path]).stdout.toString()).toStartWith("-rw-------");
     expect(Bun.spawnSync(["ls", "-ld", resolve(home, ".home-verify")]).stdout.toString()).toStartWith("drwx------");
     expect(calls.at(-1)?.args).toEqual(["close"]);
   }
+});
+
+async function privateEnvFile(contents: string): Promise<{ home: string; path: string }> {
+  const home = Bun.spawnSync(["mktemp", "-d", resolve(tmpdir(), "home-env-test-XXXXXX")]).stdout.toString().trim();
+  directories.push(home);
+  expect(Bun.spawnSync(["mkdir", "-m", "700", resolve(home, ".home-verify")]).exitCode).toBe(0);
+  const path = resolve(home, ".home-verify/live.env");
+  await Bun.write(path, contents);
+  expect(Bun.spawnSync(["chmod", "600", path]).exitCode).toBe(0);
+  return { home, path };
+}
+
+test("loads only allowed literal values from the private file, splitting on the first equals and honoring environment precedence", async () => {
+  const { home, path } = await privateEnvFile([
+    "HOME_VERIFY_ACCOUNT_EMAIL=file@example.com",
+    "HOME_ACCESS_PASSWORD=file=secret",
+    "HOME_VERIFY_GMAIL_CREDENTIALS=/private/gmail.json",
+    "HOME_VERIFY_OTP_SENDER=sender@example.com",
+    "HOME_VERIFY_CASHOUT_HANDLE=$pinned",
+    "HOME_VERIFY_PRODUCTION_URL=https://example.com",
+    "",
+  ].join("\n"));
+  const env = await loadVerificationEnv({ HOME_VERIFY_ACCOUNT_EMAIL: "env@example.com", HOME_VERIFY_ENV_FILE: path }, home);
+  expect(env.HOME_VERIFY_ACCOUNT_EMAIL).toBe("env@example.com");
+  expect(env.HOME_ACCESS_PASSWORD).toBe("file=secret");
+  expect(env.HOME_VERIFY_GMAIL_CREDENTIALS).toBe("/private/gmail.json");
+  expect(env.HOME_VERIFY_OTP_SENDER).toBe("sender@example.com");
+  expect(env.HOME_VERIFY_CASHOUT_HANDLE).toBe("$pinned");
+  expect(env.HOME_VERIFY_PRODUCTION_URL).toBe("https://example.com");
+  expect((await loadVerificationEnv({}, home)).HOME_VERIFY_ACCOUNT_EMAIL).toBe("file@example.com");
+});
+
+test("live login reads file settings without putting account or access password in browser argv", async () => {
+  const { home } = await privateEnvFile("HOME_VERIFY_ACCOUNT_EMAIL=file@example.com\nHOME_ACCESS_PASSWORD=gate=secret\n");
+  const calls: Array<{ args: string[]; input?: string }> = [];
+  const command = (args: string[], input?: string) => {
+    calls.push({ args, input });
+    if (args[0] === "eval" && args[1] === "location.pathname") return "/access";
+    if (args[0] === "state") Bun.spawnSync(["touch", args[2]]);
+    return "";
+  };
+  await liveLogin(["--base-url", "https://example.com"], { home, env: {}, command, getOtp: async () => "123456" });
+  const argv = JSON.stringify(calls.map((call) => call.args));
+  for (const secret of ["file@example.com", "gate=secret", "123456"]) expect(argv).not.toContain(secret);
+  expect(calls.some(({ input }) => input?.includes("gate=secret"))).toBe(true);
+  expect(calls.some(({ input }) => input?.includes("file@example.com"))).toBe(true);
+});
+
+test("refuses symlinks, permissive permissions, and non-allowlisted or malformed lines without printing values", async () => {
+  const { home, path } = await privateEnvFile("HOME_ACCESS_PASSWORD=private-value\n");
+  const env = { HOME_VERIFY_ENV_FILE: path };
+  expect(Bun.spawnSync(["chmod", "644", path]).exitCode).toBe(0);
+  await expect(loadVerificationEnv(env, home)).rejects.toThrow("inaccessible to group and others");
+  expect(Bun.spawnSync(["chmod", "600", path]).exitCode).toBe(0);
+  for (const contents of ["UNEXPECTED_KEY=private-value", "HOME_ACCESS_PASSWORD=private-value\nexport HOME_VERIFY_ACCOUNT_EMAIL=x", "HOME_ACCESS_PASSWORD=a\nHOME_ACCESS_PASSWORD=b"]) {
+    await Bun.write(path, contents);
+    await expect(loadVerificationEnv(env, home)).rejects.toThrow("invalid or duplicate key/line");
+  }
+  await Bun.write(path, "HOME_ACCESS_PASSWORD=private-value");
+  const link = resolve(home, "linked.env");
+  expect(Bun.spawnSync(["ln", "-s", path, link]).exitCode).toBe(0);
+  await expect(loadVerificationEnv({ HOME_VERIFY_ENV_FILE: link }, home)).rejects.toThrow("not a symlink");
+  await expect(loadVerificationEnv({ HOME_VERIFY_ENV_FILE: resolve(home, "missing.env") }, home)).rejects.toThrow("Could not read verification env file");
+  expect((await loadVerificationEnv({ HOME_VERIFY_ACCOUNT_EMAIL: "env@example.com" }, resolve(home, "missing-home"))).HOME_VERIFY_ACCOUNT_EMAIL).toBe("env@example.com");
 });
 
 test("defaults to headed browser but preserves a provisioned runner's override", async () => {
@@ -49,11 +114,13 @@ test("defaults to headed browser but preserves a provisioned runner's override",
   directories.push(home);
   const browserPath = resolve(home, "bunx");
   const observedPath = resolve(home, "headed");
-  await Bun.write(browserPath, '#!/bin/sh\nprintf "%s" "$AGENT_BROWSER_HEADED" > "$FAKE_HEADED_LOG"\nexit 1\n');
+  await Bun.write(browserPath, '#!/bin/sh\nif [ -n "$HOME_VERIFY_ACCOUNT_EMAIL" ] || [ -n "$HOME_VERIFY_GMAIL_CREDENTIALS" ] || [ -n "$HOME_VERIFY_CASHOUT_HANDLE" ] || [ -n "$HOME_ACCESS_PASSWORD" ]; then printf leaked > "$FAKE_HEADED_LOG"; else printf "%s" "$AGENT_BROWSER_HEADED" > "$FAKE_HEADED_LOG"; fi\nexit 1\n');
   Bun.spawnSync(["chmod", "755", browserPath]);
   for (const [setting, expected] of [[undefined, "true"], ["false", "false"]] as const) {
     const env = {
       HOME_VERIFY_ACCOUNT_EMAIL: "bot@example.com",
+      HOME_VERIFY_CASHOUT_HANDLE: "$pinned",
+      HOME_ACCESS_PASSWORD: "gate=secret",
       PATH: home,
       FAKE_HEADED_LOG: observedPath,
       ...(setting === undefined ? {} : { AGENT_BROWSER_HEADED: setting }),
