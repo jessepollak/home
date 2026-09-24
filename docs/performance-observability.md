@@ -39,6 +39,7 @@ In Vercel logs, search `home.observability.v2`, then use:
 - `kind=home-auth-phase outcome=timeout` for incomplete restore rate (partial phase fields show the last fixed milestone reached);
 - `kind=balances-read` and `outcome in (served-row,revalidating)` for warm cache-first read ratio;
 - foreground `kind=balances-read` outcomes with `durationMs.total` for p50/p75/p95; split `durationMs.valuation-store`, `durationMs.codex`, and `durationMs.coinbase`, and verify cached outcomes keep both provider fields at zero; use `background-full`, `background-resume`, and `background-error` separately for revalidation health and stage timing;
+- `balances-read.incomplete` flags registry, catalog, and Borrow coverage gaps (0 or 1) and counts unreadable balances and unpriced positive balances by reason (capped at 10,000); catalog-only gaps on successful reads indicate expected long-tail enumeration, while `outcome=error` indicates a failed read (its counts, like background events without a priced snapshot, are zero);
 - `kind=portfolio-balance-source` for incomplete or unavailable enumeration reason and page count.
 
 Verify after at least 200 balance reads or seven days, whichever is later. Capture warm versus cold distributions, catalog coverage, unavailable/stale rates, `/home` startup split by cache provenance, and Speed Insights LCP/INP for only `/` and the canonical L1 labels. Runtime log retention is plan-dependent, so record the before/after summary on the tracking issues during that window.

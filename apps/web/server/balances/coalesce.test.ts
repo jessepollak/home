@@ -2,11 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { parseBalancesSnapshot } from "@/shared/balances/contract";
 import { DEFAULT_BORROW_MARKET } from "@/shared/borrowing/config";
 import {
+  borrowPosition,
   buildBalancesSnapshotFixture,
   priced as fixturePriced,
   ready,
 } from "@/shared/balances/fixtures";
-import type { Holding } from "@/shared/balances/types";
+import type { BalancesBorrow, Holding } from "@/shared/balances/types";
 import { createBalancesService } from "./coalesce";
 import { MemoryBalanceSnapshotStore } from "./memory-snapshot-store";
 import type { BalanceObservation } from "./snapshot-store";
@@ -118,6 +119,7 @@ function setup(options: {
   registryRead?: () => Promise<BalancesRead>;
   enumerate?: (cursor?: string | null) => Promise<BalancesEnumeration>;
   price?: (read: BalancesRead) => Holding[];
+  pricedBorrow?: BalancesBorrow;
   readBorrow?: (at: BalancesRead["block"]) => Promise<BorrowRead>;
 }) {
   const store = options.store ?? new MemoryBalanceSnapshotStore();
@@ -178,7 +180,7 @@ function setup(options: {
     },
     priceBalances: async (value) => ({
       holdings: options.price?.(value) ?? priced(value.holdings),
-      borrow: { coverage: borrowReadComplete(value.borrow) ? "complete" : "partial", positions: [] },
+      borrow: options.pricedBorrow ?? { coverage: borrowReadComplete(value.borrow) ? "complete" : "partial", positions: [] },
       revalidating: false,
       durationMs: { store: 0, codex: 0, coinbase: 0 },
     } as never),
@@ -228,7 +230,71 @@ describe("balance observations", () => {
         total: expect.any(Number),
       },
       coverage: { registry: "complete", catalog: "complete" },
+      incomplete: {
+        registry: 0, catalog: 0, borrow: 0, balanceUnavailable: 0, valueUnavailable: 0,
+        priceUnavailable: 2, priceStale: 0, fxUnavailable: 0, belowMarketGate: 0, noQuoteCurrency: 0,
+      },
     }]);
+  });
+
+  test("counts final snapshot coverage and positive holding and Borrow valuation gaps", async () => {
+    const unavailable = {
+      ...catalog,
+      id: "unavailable",
+      key: "eip155:8453/erc20:0x3333333333333333333333333333333333333333" as const,
+      balance: { status: "unavailable" as const, baseUnits: null },
+    };
+    const noQuote = {
+      ...catalog,
+      id: "no-quote",
+      key: "eip155:8453/erc20:0x4444444444444444444444444444444444444444" as const,
+    };
+    const zero = { ...catalog, id: "zero", balance: { status: "ready" as const, baseUnits: "0" } };
+    const borrow = borrowPosition({
+      collateralBaseUnits: "100000",
+      collateralValue: { status: "unpriced", reason: "fx-unavailable" },
+      debtBaseUnits: "1000000",
+      debtValue: { status: "unpriced", reason: "below-market-gate" },
+    });
+    const fixture = setup({
+      store: new MemoryBalanceSnapshotStore(),
+      pricedBorrow: { coverage: "partial", positions: [borrow] },
+      price: (value) => value.holdings.map((holding) => ({
+        ...holding,
+        value: holding.id === "eth"
+          ? { status: "unpriced", reason: "price-stale" }
+          : holding.id === "unavailable"
+            ? { status: "unavailable" }
+            : holding.id === "no-quote"
+              ? { status: "unpriced", reason: "no-quote-currency" }
+              : { status: "unpriced", reason: "price-unavailable" },
+      })),
+    });
+    await fixture.store.putObservation(observation({
+      holdings: [registry, catalog, unavailable, noQuote, zero],
+      coverage: { registry: "partial", catalog: "incomplete" },
+    }));
+
+    await fixture.service(owner, "US");
+    expect(fixture.events).toContainEqual(expect.objectContaining({
+      outcome: "revalidating",
+      incomplete: {
+        registry: 1, catalog: 1, borrow: 1, balanceUnavailable: 1, valueUnavailable: 0,
+        priceUnavailable: 1, priceStale: 1, fxUnavailable: 1, belowMarketGate: 1, noQuoteCurrency: 1,
+      },
+    }));
+  });
+
+  test("a failed read emits zero incompleteness", async () => {
+    const fixture = setup({ registryRead: async () => { throw new Error("rpc unavailable"); } });
+    await expect(fixture.service(owner, "US")).rejects.toThrow("rpc unavailable");
+    expect(fixture.events).toContainEqual(expect.objectContaining({
+      outcome: "error",
+      incomplete: {
+        registry: 0, catalog: 0, borrow: 0, balanceUnavailable: 0, valueUnavailable: 0,
+        priceUnavailable: 0, priceStale: 0, fxUnavailable: 0, belowMarketGate: 0, noQuoteCurrency: 0,
+      },
+    }));
   });
 
   test("a fresh partial row with a cursor is served without foreground enumeration", async () => {
