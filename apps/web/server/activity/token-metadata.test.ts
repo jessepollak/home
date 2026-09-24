@@ -118,6 +118,29 @@ describe("Activity token metadata resolver", () => {
     expect(result.nftLikeContracts.has(spoof)).toBe(false);
   });
 
+  test("keeps unknown metadata when Codex and RPC both return phishing symbols", async () => {
+    const rpcCalls: string[][] = [];
+    const resolve = createActivityTokenMetadataResolver({
+      codexLookup: async () => new Map([
+        [UNKNOWN, { address: UNKNOWN, name: "bad", symbol: "claim-usdc.com", decimals: 18 }],
+      ]),
+      rpcLookup: async (addresses) => {
+        rpcCalls.push([...addresses]);
+        return new Map([
+          [UNKNOWN, { kind: "metadata" as const, symbol: "U5DC", decimals: 18 }],
+        ]);
+      },
+    });
+
+    const result = await resolve([UNKNOWN]);
+    expect(rpcCalls).toEqual([[UNKNOWN]]);
+    expect(result.metadata.get(UNKNOWN)).toEqual({
+      assetId: null,
+      tokenSymbol: null,
+      tokenDecimals: null,
+    });
+  });
+
   test("drops only contracts positively classified by a decimals revert", async () => {
     const resolve = createActivityTokenMetadataResolver({
       codexLookup: async () => new Map(),

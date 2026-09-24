@@ -1,6 +1,34 @@
+import { getDirectPortfolioAssets } from "@/config/portfolio-assets";
 import { activityAssets, type ActivityAsset } from "./types";
 
 const unsafeSymbolPattern = /[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/u;
+const symbolPattern = /^[A-Za-z0-9][A-Za-z0-9._+-]*$/;
+const urlLikeSymbolPattern = /www|http|\.[a-z]{2,}/i;
+const addressLikeSymbolPattern = /^0x[0-9a-f]{8,}/i;
+
+function activitySymbolSkeleton(symbol: string): string {
+  return symbol.toLowerCase()
+    .replace(/[\s._+-]/g, "")
+    .replace(/rn/g, "m")
+    .replace(/vv/g, "w")
+    .replace(/0/g, "o")
+    .replace(/[1i]/g, "l")
+    .replace(/2/g, "z")
+    .replace(/3/g, "e")
+    .replace(/4/g, "a")
+    .replace(/5/g, "s")
+    .replace(/[689g]/g, "b")
+    .replace(/7/g, "t");
+}
+
+const reviewedActivitySymbolSkeletons = new Set(
+  [
+    ...activityAssets.map((asset) => asset.symbol),
+    ...getDirectPortfolioAssets()
+      .filter((asset) => asset.kind === "native")
+      .map((asset) => asset.symbol),
+  ].map(activitySymbolSkeleton),
+);
 
 export type ActivityTokenMetadata = {
   assetId: ActivityAsset["id"] | null;
@@ -12,16 +40,14 @@ export const activityAssetsByContract = new Map<string, ActivityAsset>(
   activityAssets.map((asset) => [asset.tokenAddress.toLowerCase(), asset]),
 );
 
-export const activityRegistrySymbols = new Set(
-  activityAssets.map((asset) => asset.symbol.toLowerCase()),
-);
-
 export function sanitizeActivityTokenSymbol(value: unknown): string | null {
   if (typeof value !== "string" || unsafeSymbolPattern.test(value)) return null;
   const symbol = value.trim();
   if (
-    symbol.length === 0 ||
-    symbol.length > 64
+    symbol.length > 16 ||
+    !symbolPattern.test(symbol) ||
+    urlLikeSymbolPattern.test(symbol) ||
+    addressLikeSymbolPattern.test(symbol)
   ) {
     return null;
   }
@@ -43,7 +69,7 @@ export function sanitizeDynamicActivityTokenMetadata(input: {
   if (
     tokenSymbol === null ||
     tokenDecimals === null ||
-    activityRegistrySymbols.has(tokenSymbol.toLowerCase())
+    reviewedActivitySymbolSkeletons.has(activitySymbolSkeleton(tokenSymbol))
   ) {
     return { assetId: null, tokenSymbol: null, tokenDecimals: null };
   }
