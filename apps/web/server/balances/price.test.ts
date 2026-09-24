@@ -7,7 +7,7 @@ import {
   createBalancesPricer,
   mapWithConcurrency,
 } from "./price";
-import { DEFAULT_BORROW_MARKET } from "@/shared/borrowing/config";
+import { BORROW_MARKETS, DEFAULT_BORROW_MARKET } from "@/shared/borrowing/config";
 import { exactDecimalToFraction } from "@/shared/balances/math";
 import type { Holding } from "@/shared/balances/types";
 import type { BalancesRead, ReadHolding } from "./types";
@@ -214,14 +214,14 @@ describe("balances pricing", () => {
       ...read,
       holdings: [walletCbbtc],
       borrow: {
-        markets: [{
-          marketId,
-          status: "ready",
+        markets: BORROW_MARKETS.map((market) => ({
+          marketId: market.marketId.toLowerCase() as `0x${string}`,
+          status: "ready" as const,
           blockNumber: "1",
-          collateralRaw: "100000000",
-          debtAssetsRaw: "30000000",
+          collateralRaw: market.marketId.toLowerCase() === marketId ? "100000000" : "0",
+          debtAssetsRaw: market.marketId.toLowerCase() === marketId ? "30000000" : "0",
           borrowAprWad: "51000000000000000",
-        }],
+        })),
       },
     }, "DE");
 

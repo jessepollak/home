@@ -5,47 +5,39 @@ import type { BorrowAddress, BorrowMarketRef } from "@/shared/borrowing/config";
 import { BORROW_HEALTH_FLOOR_WAD } from "@/shared/borrowing/config";
 import type { BorrowMarketSnapshot } from "@/shared/borrowing/contract";
 import {
-  availableBorrowAssets,
-  borrowCapacityAssets,
-  minimumCollateralForHealthFactor,
+  availableBorrowAssets, borrowCapacityAssets, minimumCollateralForHealthFactor,
   policyMaximumDebtAssets,
 } from "@/shared/morpho-markets/math";
 import {
-  createMorphoMarketRpcReader,
-  type MorphoMarketRpcReader,
-  type MorphoMarketSnapshot,
+  createMorphoMarketRpcReader, type MorphoMarketRpcReader, type MorphoMarketSnapshot,
 } from "@/server/morpho-markets/rpc";
 
-/** @public exercised by server/borrowing/rpc.test.ts */
-export {
-  MorphoMarketRpcError as BorrowRpcError,
-} from "@/server/morpho-markets/rpc";
+export type BorrowRpcReadResult =
+  | { market: BorrowMarketRef; snapshot: BorrowMarketSnapshot; error?: never }
+  | { market: BorrowMarketRef; error: Error; snapshot?: never };
 
 export type BorrowRpcReader = {
+  readSnapshots(account: BorrowAddress, markets: readonly BorrowMarketRef[], signal?: AbortSignal): Promise<BorrowRpcReadResult[]>;
   readSnapshot(account: BorrowAddress, marketRef: BorrowMarketRef, signal?: AbortSignal): Promise<BorrowMarketSnapshot>;
-  simulateBatch(
-    calls: readonly MoneyActionCall[],
-    account: BorrowAddress,
-    blockNumber: string,
-    expectedBlockHash: `0x${string}`,
-    signal?: AbortSignal,
-  ): Promise<void>;
+  simulateBatch(calls: readonly MoneyActionCall[], account: BorrowAddress, blockNumber: string, expectedBlockHash: `0x${string}`, signal?: AbortSignal): Promise<void>;
 };
 
 export function createBorrowRpcReader(options: {
-  fetchImpl?: typeof fetch;
-  rpcUrl?: string;
-  timeoutMs?: number;
-  now?: () => Date;
+  fetchImpl?: typeof fetch; rpcUrl?: string; timeoutMs?: number; now?: () => Date;
 } = {}): BorrowRpcReader {
-  const reader = createMorphoMarketRpcReader(options);
-  return projectBorrowReader(reader);
+  return projectBorrowReader(createMorphoMarketRpcReader(options));
 }
 
 export const getBaseBorrowing = createBorrowRpcReader();
 
 function projectBorrowReader(reader: MorphoMarketRpcReader): BorrowRpcReader {
   return {
+    async readSnapshots(account, markets, signal) {
+      const results = await reader.readSnapshots(account, markets, signal);
+      return results.map((result, index): BorrowRpcReadResult => result.snapshot
+        ? { market: markets[index], snapshot: projectBorrowSnapshot(result.snapshot, markets[index].availability) }
+        : { market: markets[index], error: result.error! });
+    },
     async readSnapshot(account, marketRef, signal) {
       const snapshot = await reader.readSnapshot(account, marketRef, signal);
       return projectBorrowSnapshot(snapshot, marketRef.availability);
@@ -56,10 +48,7 @@ function projectBorrowReader(reader: MorphoMarketRpcReader): BorrowRpcReader {
   };
 }
 
-function projectBorrowSnapshot(
-  snapshot: MorphoMarketSnapshot,
-  borrowMode: BorrowMarketRef["availability"],
-): BorrowMarketSnapshot {
+function projectBorrowSnapshot(snapshot: MorphoMarketSnapshot, borrowMode: BorrowMarketRef["availability"]): BorrowMarketSnapshot {
   const collateral = BigInt(snapshot.position.collateralRaw);
   const debt = BigInt(snapshot.position.debtAssetsRaw);
   const oraclePrice = BigInt(snapshot.state.oraclePriceRaw);
@@ -68,40 +57,20 @@ function projectBorrowSnapshot(
   const borrowShares = BigInt(snapshot.position.borrowSharesRaw);
   const liquidity = BigInt(snapshot.state.liquidityAssetsRaw);
   const lltvWad = BigInt(snapshot.market.lltvWad);
-  const policyMaxDebt = policyMaximumDebtAssets(
-    borrowCapacityAssets(collateral, oraclePrice, lltvWad),
-    BORROW_HEALTH_FLOOR_WAD,
-  );
+  const policyMaxDebt = policyMaximumDebtAssets(borrowCapacityAssets(collateral, oraclePrice, lltvWad), BORROW_HEALTH_FLOOR_WAD);
   const availableBorrow = availableBorrowAssets({
-    positionBorrowShares: borrowShares,
-    totalBorrowAssets,
-    totalBorrowShares,
-    maxDebtAssets: policyMaxDebt,
-    liquidityAssets: liquidity,
+    positionBorrowShares: borrowShares, totalBorrowAssets, totalBorrowShares,
+    maxDebtAssets: policyMaxDebt, liquidityAssets: liquidity,
   });
-  const policyRequiredCollateral = minimumCollateralForHealthFactor(
-    debt,
-    oraclePrice,
-    lltvWad,
-    BORROW_HEALTH_FLOOR_WAD,
-  );
-  const withdrawableCollateral = collateral > policyRequiredCollateral
-    ? collateral - policyRequiredCollateral
-    : BigInt("0");
-
+  const policyRequiredCollateral = minimumCollateralForHealthFactor(debt, oraclePrice, lltvWad, BORROW_HEALTH_FLOOR_WAD);
+  const withdrawableCollateral = collateral > policyRequiredCollateral ? collateral - policyRequiredCollateral : BigInt(0);
   return {
-    chainId: snapshot.chainId,
-    walletAddress: snapshot.walletAddress,
-    version: "1",
-    market: snapshot.market,
+    chainId: snapshot.chainId, walletAddress: snapshot.walletAddress, version: "1", market: snapshot.market,
     eligibility: {
-      mode: borrowMode,
-      newRisk: borrowMode === "enabled",
+      mode: borrowMode, newRisk: borrowMode === "enabled",
       reason: borrowMode === "enabled" ? null : "This verified market is available only for risk reduction.",
     },
-    source: snapshot.source,
-    state: snapshot.state,
-    wallet: snapshot.wallet,
+    source: snapshot.source, state: snapshot.state, wallet: snapshot.wallet,
     position: {
       collateralRaw: snapshot.position.collateralRaw,
       borrowSharesRaw: snapshot.position.borrowSharesRaw,

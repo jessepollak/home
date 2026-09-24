@@ -218,7 +218,7 @@ describe("presentation money formatting", () => {
       { actual: formatBasisPoints("455"), expected: "4.55%" },
       { actual: formatHealthFactor("1235000000000000000"), expected: "1.24" },
       { actual: formatHealthFactor(null), expected: "No debt" },
-      { actual: formatOracleUsd("800000000000000000000000000000000000000"), expected: "$80,000.00" },
+      { actual: formatOracleUsd("800000000000000000000000000000000000000", { loanDecimals: 6, collateralDecimals: 8 }), expected: "$80,000.00" },
     ];
     for (const entry of cases) expect(entry.actual).toBe(entry.expected);
 
@@ -231,7 +231,7 @@ describe("presentation money formatting", () => {
     expect(() => formatWadPercent("-1")).toThrow(TypeError);
     expect(() => formatBasisPoints("-1")).toThrow(TypeError);
     expect(() => formatHealthFactor("-1")).toThrow(TypeError);
-    expect(() => formatOracleUsd("-1")).toThrow(TypeError);
+    expect(() => formatOracleUsd("-1", { loanDecimals: 6, collateralDecimals: 8 })).toThrow(TypeError);
   });
 
   test("keeps ordinary and tiny market prices exact within display bounds", () => {

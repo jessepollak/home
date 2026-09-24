@@ -11,7 +11,7 @@ import {
   PORTFOLIO_NATIVE_ASSET_KEY,
   PORTFOLIO_USDC_ASSET_KEY,
 } from "@/config/portfolio-assets";
-import { BASE_CBBTC } from "@/shared/assets/base";
+import { BASE_BORROW_COLLATERAL_ASSETS } from "@/shared/assets/base";
 
 type CurrencyMarkProps = {
   assetKey?: string | null;
@@ -29,7 +29,7 @@ const brandMarkFiles: ReadonlyMap<string, string> = new Map([
   [PORTFOLIO_USDC_ASSET_KEY, "usdc"],
   [PORTFOLIO_NATIVE_ASSET_KEY, "eth"],
   [assetKeyForErc20("0x4200000000000000000000000000000000000006"), "eth"],
-  [assetKeyForErc20(BASE_CBBTC.address), "btc"],
+  ...BASE_BORROW_COLLATERAL_ASSETS.map((asset) => [assetKeyForErc20(asset.address), asset.brandMark] as const),
 ]);
 
 function assetBrandMarkSrc(assetKey: string | null | undefined): string | null {

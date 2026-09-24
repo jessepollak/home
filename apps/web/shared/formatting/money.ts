@@ -487,11 +487,25 @@ export function formatHealthFactor(
   });
 }
 
+export type OraclePriceDecimals = {
+  loanDecimals: number;
+  collateralDecimals: number;
+};
+
+export function oraclePriceScaleDecimals({ loanDecimals, collateralDecimals }: OraclePriceDecimals): number {
+  const scale = 36 + loanDecimals - collateralDecimals;
+  if (![loanDecimals, collateralDecimals].every((value) => Number.isSafeInteger(value) && value >= 0 && value <= 36) || scale < 0) {
+    throw new RangeError("Oracle price decimals are invalid.");
+  }
+  return scale;
+}
+
 export function formatOracleUsd(
   raw: AtomicAmount,
+  decimals: OraclePriceDecimals,
   regionId: RegionId = "GLOBAL",
 ): string {
-  return formatFiatAmount(parseUnsignedAtomicAmount(raw), 34, "USD", {
+  return formatFiatAmount(parseUnsignedAtomicAmount(raw), oraclePriceScaleDecimals(decimals), "USD", {
     fractionDigits: 2,
     regionId,
   });

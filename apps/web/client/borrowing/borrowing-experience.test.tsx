@@ -1,17 +1,12 @@
 import "@/client/account/dom-test-harness";
 
 import { getHomeQueryClient } from "@/client/query/query-client";
+import { dataOwnerKey } from "@/client/account/owner-keys";
+import { ownerQueryKey } from "@/client/query/query-client";
+import { borrowOverviewBody } from "@/tests/browser/fixtures/bodies";
 import { afterEach, describe, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import {
-  BORROW_COLLATERAL_TOKEN,
-  BORROW_IRM_ADDRESS,
-  BORROW_LLTV_WAD,
-  BORROW_LOAN_TOKEN,
-  BORROW_MARKET_ID,
-  BORROW_ORACLE_ADDRESS,
-  MORPHO_BLUE_ADDRESS,
-} from "@/shared/borrowing/config";
+import { MORPHO_BLUE_ADDRESS, VERIFIED_MORPHO_MARKETS } from "@/shared/morpho-markets/config";
 import type { BorrowMarketSnapshot, BorrowOverviewResponse } from "@/shared/borrowing/contract";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { formatAddress } from "@/shared/formatting";
@@ -31,6 +26,10 @@ const OWNER = "0x1111111111111111111111111111111111111111" as const;
 const OWNER_B = "0x2222222222222222222222222222222222222222" as const;
 const BLOCK_HASH = `0x${"ab".repeat(32)}` as `0x${string}`;
 const CBBTC_IMAGE = "https://assets.example/cbbtc.png";
+const BORROW_MARKET = VERIFIED_MORPHO_MARKETS[0]!;
+const BORROW_MARKET_ID = BORROW_MARKET.marketId;
+const BORROW_LOAN_TOKEN = BORROW_MARKET.loanToken;
+const BORROW_COLLATERAL_TOKEN = BORROW_MARKET.collateralToken;
 const assetMarkResolution = {
   images: { [BORROW_COLLATERAL_TOKEN.id]: CBBTC_IMAGE },
   pending: false,
@@ -40,12 +39,12 @@ function session(address: `0x${string}` = OWNER, subject = "borrow-ui-user"): Ve
   return { user: { subject }, smartAccount: { address, chainId: 8453 }, accountProvider: "cdp-embedded" };
 }
 
-function detail(overrides: Partial<BorrowMarketSnapshot> = {}): BorrowMarketSnapshot {
+function detail(overrides: Partial<BorrowMarketSnapshot> = {}, market = BORROW_MARKET): BorrowMarketSnapshot {
   return {
     version: "1",
     chainId: 8453,
     walletAddress: OWNER,
-    market: { id: BORROW_MARKET_ID, morpho: MORPHO_BLUE_ADDRESS, loanToken: BORROW_LOAN_TOKEN, collateralToken: BORROW_COLLATERAL_TOKEN, oracle: BORROW_ORACLE_ADDRESS, irm: BORROW_IRM_ADDRESS, lltvWad: BORROW_LLTV_WAD.toString(), rank: 1 },
+    market: { id: market.marketId, morpho: market.morpho, loanToken: market.loanToken, collateralToken: market.collateralToken, oracle: market.oracle, irm: market.irm, lltvWad: market.lltvWad.toString(), rank: market.rank },
     eligibility: { mode: "enabled", newRisk: true, reason: null },
     source: { provider: "Base JSON-RPC", blockNumber: "100", blockHash: BLOCK_HASH, blockTimestamp: "1788897600", fetchedAt: "2026-09-13T12:00:00.000Z" },
     state: { oraclePriceRaw: "800000000000000000000000000000000000000", borrowRatePerSecondWad: "1000000000", borrowAprWad: "31536000000000000", totalSupplyAssetsRaw: "1000000000", totalBorrowAssetsRaw: "500000000", totalBorrowSharesRaw: "500000000", liquidityAssetsRaw: "500000000", lastUpdateTimestamp: "1788897500" },
@@ -63,20 +62,28 @@ function noPosition(overrides: Partial<BorrowMarketSnapshot> = {}): BorrowMarket
   });
 }
 
-function overview({ position = true, unavailable = false, owner = OWNER }: { position?: boolean; unavailable?: boolean; owner?: `0x${string}` } = {}): BorrowOverviewResponse {
-  const snapshot = detail({ walletAddress: owner });
+function overview({ position = true, unavailable = false, owner = OWNER, snapshots }: { position?: boolean; unavailable?: boolean; owner?: `0x${string}`; snapshots?: BorrowMarketSnapshot[] } = {}): BorrowOverviewResponse {
+  const markets = (snapshots ?? [detail()]).map((snapshot) => ({ ...snapshot, walletAddress: owner }));
+  const source = markets[0]?.source ?? null;
   return {
-    version: "1",
+    version: "2",
     chainId: 8453,
     owner: { address: owner, accountProvider: "cdp-embedded" },
-    discovery: { status: unavailable ? "partial" : "complete", candidateCount: 1, verifiedCount: unavailable ? 0 : 1, reason: unavailable ? "Current verified chain state is unavailable. Missing values are unavailable, not zero." : null, fetchedAt: "2026-09-13T12:00:00.000Z" },
-    opportunities: [{
+    discovery: {
+      status: unavailable ? "partial" : "complete",
+      sourceBlock: unavailable || !source ? null : { provider: source.provider, blockNumber: source.blockNumber, blockHash: source.blockHash, blockTimestamp: source.blockTimestamp },
+      candidateCount: markets.length,
+      verifiedCount: unavailable ? 0 : markets.length,
+      reason: unavailable ? "Current verified chain state is unavailable. Missing values are unavailable, not zero." : null,
+      fetchedAt: "2026-09-13T12:00:00.000Z",
+    },
+    opportunities: markets.map((snapshot) => ({
       market: snapshot.market,
       availability: unavailable
-        ? { status: "unavailable", mode: "enabled", reason: "Current verified chain state is unavailable for this market.", source: null }
-        : { status: "available", mode: "enabled", reason: null, source: snapshot.source },
-    }],
-    positions: position && !unavailable ? [{ market: snapshot.market, source: snapshot.source, collateralRaw: snapshot.position.collateralRaw, borrowSharesRaw: snapshot.position.borrowSharesRaw, debtAssetsRaw: snapshot.position.debtAssetsRaw, healthFactorWad: snapshot.position.healthFactorWad }] : [],
+        ? { status: "unavailable" as const, mode: snapshot.eligibility.mode, reason: "Current verified chain state is unavailable for this market." as const, source: null }
+        : { status: "available" as const, mode: snapshot.eligibility.mode, reason: null, source: snapshot.source, snapshot },
+    })),
+    positions: position && !unavailable ? markets.map((snapshot) => ({ market: snapshot.market, source: snapshot.source, collateralRaw: snapshot.position.collateralRaw, borrowSharesRaw: snapshot.position.borrowSharesRaw, debtAssetsRaw: snapshot.position.debtAssetsRaw, healthFactorWad: snapshot.position.healthFactorWad })) : [],
   };
 }
 
@@ -107,7 +114,7 @@ function prepared(operation: "borrow" | "supply-and-borrow" | "repay" | "repay-a
   };
 }
 
-function accountFetch(snapshot: BorrowMarketSnapshot, response = overview({ position: BigInt(snapshot.position.debtAssetsRaw) > BigInt(0) })) {
+function accountFetch(snapshot: BorrowMarketSnapshot, response = overview({ position: BigInt(snapshot.position.debtAssetsRaw) > BigInt(0), snapshots: [snapshot] })) {
   return async (path: string) => path === "/api/borrow" ? response : snapshot;
 }
 
@@ -207,7 +214,7 @@ describe("BorrowExperience redesign", () => {
       },
     });
     const requests: Array<{ kind: string; params: unknown }> = [];
-    render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(snapshot, overview({ position: false }))} prepareMoneyAction={async (kind, params) => { requests.push({ kind, params }); return prepared("borrow"); }} executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />);
+    render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(snapshot, overview({ position: false, snapshots: [snapshot] }))} prepareMoneyAction={async (kind, params) => { requests.push({ kind, params }); return prepared("borrow"); }} executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />);
     const body = within(document.body);
     const availableTicker = await body.findByRole("img", { name: "150.00 USDC" });
     expect(availableTicker.getAttribute("data-reserve-digits")).toBe("false");
@@ -525,5 +532,85 @@ describe("Borrow bigint helpers", () => {
     const active = overview().positions[0];
     const collateralOnly = { ...active, borrowSharesRaw: "0", debtAssetsRaw: "0", healthFactorWad: null };
     expect(borrowTeaserPositionDescription(collateralOnly, "US")).toBe("No debt · 0.5000 cbBTC locked");
+  });
+});
+
+describe("Borrow multi-market overview", () => {
+  test("renders five registry identities, exact symbols and address-derived marks without per-card detail requests", async () => {
+    const requests: string[] = [];
+    render(<BorrowExperience session={session()} fetchAccountResource={async (path) => { requests.push(path); return borrowOverviewBody(); }} />);
+    const body = within(document.body);
+    await waitFor(() => expect(body.getAllByTestId("borrow-market-card")).toHaveLength(5));
+    for (const [name, symbol, mark] of [
+      ["Bitcoin", "cbBTC", "btc"], ["XRP", "cbXRP", "xrp"], ["Staked ETH", "cbETH", "eth"],
+      ["Dogecoin", "cbDOGE", "doge"], ["Cardano", "cbADA", "ada"],
+    ]) {
+      const heading = body.getByRole("heading", { name });
+      const card = heading.closest("[data-testid=borrow-market-card]");
+      expect(card).toBeTruthy();
+      expect(card!.textContent).toContain(`Borrow USDC with ${symbol}`);
+      expect(heading.parentElement?.previousElementSibling?.querySelector("img")?.getAttribute("src")).toBe(`/asset-marks/${mark}.svg`);
+    }
+    await waitFor(() => expect(getHomeQueryClient().getQueryData(ownerQueryKey(dataOwnerKey(session()), "borrow", "detail", VERIFIED_MORPHO_MARKETS[2]!.marketId))).toBeTruthy());
+    expect(requests).toEqual(["/api/borrow"]);
+  });
+
+  test("leaves an unavailable market visible without presenting a zero balance", async () => {
+    render(<BorrowExperience session={session()} fetchAccountResource={async () => borrowOverviewBody({ unavailableMarketId: VERIFIED_MORPHO_MARKETS[1]!.marketId })} />);
+    const body = within(document.body);
+    const heading = await body.findByRole("heading", { name: "XRP" });
+    const card = within(heading.closest("[data-testid=borrow-market-card]") as HTMLElement);
+    expect((card.getByRole("button", { name: "Borrow" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(card.getByText("Current verified chain state is unavailable for this market.")).toBeTruthy();
+    expect(card.queryByText(/\$0\.00/)).toBeNull();
+  });
+
+  test.each([
+    ["Staked ETH", 2, "3059024445000000000000000000", "$3,059.02", "cbETH"],
+    ["XRP", 1, "1504740000000000000000000000000000000", "$1.50", "cbXRP"],
+  ] as const)("formats %s liquidation price with the registry token decimals", async (name, index, raw, dollars, symbol) => {
+    const market = VERIFIED_MORPHO_MARKETS[index]!;
+    const snapshot = detail({ position: { ...detail().position, liquidationPriceRaw: raw } }, market);
+    render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(snapshot)} />);
+    const body = within(document.body);
+    await body.findByRole("heading", { name });
+    expect(body.getByText(`Liquidation around ${dollars} per ${symbol}`)).toBeTruthy();
+  });
+});
+
+describe("Borrow direct market refresh", () => {
+  test("uses the detail endpoint when opening a market from a cached overview", async () => {
+    const fixture = borrowOverviewBody();
+    const requests: string[] = [];
+    const fetchAccountResource = async (path: string) => {
+      requests.push(path);
+      return path === "/api/borrow" ? fixture : fixture.opportunities[0]!.availability.status === "available" ? fixture.opportunities[0]!.availability.snapshot : null;
+    };
+    const view = render(<BorrowExperience session={session()} fetchAccountResource={fetchAccountResource} />);
+    await within(document.body).findByRole("heading", { name: "Cardano" });
+    view.rerender(<BorrowExperience session={session()} selectedMarketId={BORROW_MARKET_ID} fetchAccountResource={fetchAccountResource} />);
+    await waitFor(() => expect(requests).toContain(`/api/borrow/markets/${BORROW_MARKET_ID}`));
+    expect(requests.filter((path) => path === "/api/borrow")).toHaveLength(1);
+  });
+});
+
+describe("Borrow overview action refresh", () => {
+  test("refreshes the embedded snapshot after a completed action", async () => {
+    const updated = detail({ position: { ...detail().position, debtAssetsRaw: "200000000" } });
+    let reads = 0;
+    const fetchAccountResource = async (path: string) => {
+      if (path !== "/api/borrow") throw new Error("Overview must not fetch per-card detail.");
+      reads += 1;
+      return overview({ snapshots: [reads === 1 ? detail() : updated] });
+    };
+    render(<BorrowExperience session={session()} fetchAccountResource={fetchAccountResource} prepareMoneyAction={async () => prepared()} executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />);
+    const body = within(document.body);
+    fireEvent.click(await body.findByRole("button", { name: "Borrow more" }));
+    const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
+    fireEvent.click(dialog.getByRole("button", { name: "1" }));
+    fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
+    fireEvent.click(await dialog.findByRole("button", { name: "Confirm action" }));
+    await waitFor(() => expect(reads).toBeGreaterThanOrEqual(2));
+    await waitFor(() => expect(body.getByRole("img", { name: /200\.00.*USDC/ })).toBeTruthy());
   });
 });
