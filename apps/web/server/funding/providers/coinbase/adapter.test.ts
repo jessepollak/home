@@ -735,7 +735,7 @@ describe("Coinbase headless funding adapter", () => {
           quotes: true,
         }),
       ]);
-      await expect(missingSecret.listProviders("US", session)).resolves.toEqual([]);
+      await expect(missingSecret.listProviders("US", session)).rejects.toThrow("PROVIDERS_UNAVAILABLE");
     }
   });
 });

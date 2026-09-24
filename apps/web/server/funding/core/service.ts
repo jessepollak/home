@@ -59,6 +59,7 @@ export class FundingCore {
     session: VerifiedAccountSession,
     direction: FundingDirection = "onramp",
   ) {
+    let corridorDiscoveryFailed = false;
     const listed = this.deps.providers.flatMap((provider) => {
       let sandbox: boolean;
       try {
@@ -69,6 +70,7 @@ export class FundingCore {
           reason: "configuration",
           code: error instanceof FundingProviderConfigurationError ? error.code : FUNDING_CONFIGURATION_CODE,
         });
+        if (corridorMatchesRegionAndDirection(provider, region, direction)) corridorDiscoveryFailed = true;
         return [];
       }
       return provider.manifest.bindings.flatMap((binding) => {
@@ -85,6 +87,7 @@ export class FundingCore {
           reason: "configuration",
           code: FUNDING_BINDING_ENVIRONMENT_CODE,
         });
+        corridorDiscoveryFailed = true;
         return [];
       }
       const asset = getFundingAsset(binding.assetId);
@@ -92,7 +95,6 @@ export class FundingCore {
       return [{ provider, binding, directional, asset, sandbox }];
       });
     });
-    let corridorDiscoveryFailed = false;
     const results = await Promise.all(listed.map(async ({ provider, binding, directional, asset, sandbox }) => {
       if (direction === "onramp") {
         const manifest = provider.manifest.onramp;
@@ -706,6 +708,13 @@ function localOneToOneQuote(fiatAmount: string, decimals: number, now: Date): Qu
   }
 }
 function validAtomic(value: string) { return /^(0|[1-9][0-9]*)$/.test(value); }
+function corridorMatchesRegionAndDirection(
+  provider: FundingProvider,
+  region: string,
+  direction: FundingDirection,
+): boolean {
+  return provider.manifest.bindings.some((binding) => binding.region === region && binding.directions[direction]);
+}
 function instructionUrlIsSafe(
   instruction: Instruction,
   redirectOrigins: ReadonlyArray<string> | undefined,
