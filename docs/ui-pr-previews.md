@@ -8,12 +8,12 @@ PRs that change user-visible UI or core flows. Skip docs-only, CI-only, and pure
 
 ## What
 
-The **Vercel preview link** (posted automatically on every PR) is the primary proof. Add to the PR description:
+Keep `## Preview` visible after the short `## Review` brief. The **Vercel preview link** (posted automatically on every PR) is the primary proof. Add to Preview:
 
 - **Non-motion UI:** retain screenshots that help review the changed route on the current head; ~390px is the default mobile viewport. The comparison is adaptive, not a fixed before/after matrix.
 - **Motion / animation:** retain a short video or GIF (roughly 30 seconds or less) when stills cannot show the transition — timing, interruption, or gesture reversal.
 
-Put every retained screenshot or clip directly in the PR description as a GitHub attachment in one compact Markdown table. Each row label describes the visible state and viewport. Choose the adaptive form that carries useful evidence.
+Put every retained screenshot or clip directly in Preview as a GitHub attachment in one compact Markdown table. Each row label describes the visible state and CSS-pixel viewport. There is no screenshot cap; choose the adaptive form that carries useful evidence. Keep only labels, the link, and media here; browser observations, limitations, cleanup, and findings belong in the collapsed Evidence section.
 
 When the pre-change baseline materially improves judgment, use a paired comparison. Pair identical state, data, and CSS-pixel viewport; **After is the current PR head**:
 
@@ -32,17 +32,17 @@ Do not commit media or upload only one representative from a larger retained set
 
 Capture the live implementation in a real browser — preview, production, or localhost on the PR head. Design comps, empty scaffolds, and unlabeled `/dev` harness shots are not proof. If you push new UI changes after capturing, replace the screenshot; do not keep stale ones.
 
-When Storybook is useful for design review, add optional **Before / Proposed / Implemented** references inside this same Preview section; do not create a manifest, duplicate approval fields, or another evidence system.
+When Storybook is useful for design review, add optional **Before / Proposed / Implemented** media references inside this same Preview section; record approval links and observed facts in Evidence. Do not create a manifest, duplicate approval fields, or another evidence system.
 
 - **Before:** the current Home behavior when it helps, with state/data and CSS-pixel viewport.
-- **Proposed:** the Storybook commit, commit-specific deployment URL, direct manager and canvas URLs, selected capture, and concise observable criteria. “Commit-specific” means later pushes cannot silently change the reviewed artifact. Label it unreviewed until Jesse leaves an actual [unmarked GitHub comment or review](operating-manual.md#jesse-review-pickup) tied to that revision. A concrete approval reference includes that Jesse link and all of the preceding fields; factory review or an unreviewed proposal is never approval.
-- **Implemented:** current-head proof of the same production component in Home at matching state/data/viewport, captured and exercised with the [agent-browser contract](browser-validation.md). Record mode, route, viewport, exercised path, recovery and Back behavior, final semantic state, browser console/error results, and the exact owned fixture-server cleanup result.
+- **Proposed:** show the selected Storybook capture with state/viewport label here. In Evidence, record the Storybook commit, commit-specific deployment URL, direct manager and canvas URLs, observable criteria, and whether Jesse has reviewed it. “Commit-specific” means later pushes cannot silently change the reviewed artifact. An approval reference includes an actual [unmarked GitHub comment or review](operating-manual.md#jesse-review-pickup) tied to that revision; factory review or an unreviewed proposal is never approval.
+- **Implemented:** current-head media of the same production component in Home at matching state/data/viewport, captured and exercised with the [agent-browser contract](browser-validation.md). Record mode, route, viewport, exercised path, recovery and Back behavior, final semantic state, browser console/error results, and the exact owned fixture-server cleanup result in Evidence.
 
 Run the workshop loop for a journey-level proposal, and record its terminal result in the PR:
 
 1. **Discover** owned components and their documented props with the MCP docs tools (`docs-list`, `docs-show`, `stories-find-by-component`) instead of re-inventing them.
 2. **Compose** or refresh the journey story under `apps/web/stories/journeys/` from production components with MSW-backed existing request boundaries.
-3. **Run story tests** with the MCP `test-run` tool (`bun run --cwd apps/web test:stories`); a failing `play` fails the run, and the a11y audit reports what it finds. Paste the passing-story list and any a11y finding; do not describe a failing run as green.
+3. **Run story tests** with the MCP `test-run` tool (`bun run --cwd apps/web test:stories`); a failing `play` fails the run, and the a11y audit reports what it finds. In Evidence, give counts/commands and any a11y finding; do not describe a failing run as green.
 4. **Capture proof** of the rendered canvas at the proposal's CSS-pixel viewport (390×844 for mobile) with the pinned `agent-browser`.
 
 The loop produces the review evidence above; it does not replace the `agent-browser` Home verification an implemented change still needs.
@@ -55,7 +55,7 @@ Storybook proves only the fixture-backed component scenario it renders. It does 
 
 ### Review findings
 
-Keep findings separate from the screenshot tables. When a user-visible PR records review findings, publish them in their own table:
+Keep findings separate from the screenshot tables. When a user-visible PR records review findings, publish them in their own table inside Evidence, not Preview:
 
 | Severity | Evidence | Judgment / action |
 |---|---|---|

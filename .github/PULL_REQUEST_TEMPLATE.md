@@ -1,14 +1,23 @@
-## Summary
+## Review
 
-<!-- What changed, why, and the issue. -->
+**Changes for the user:**
+- User-visible change
 
-## Test plan
+**Your call:** none
 
-- [ ] `bun check` / CI green
-- [ ] Smoke the changed surface (or N/A — say why)
+**Not verified / risk:** none
 
-<!-- Optional: for a new Playwright test, uncomment and complete: Playwright-rung: <layout|scrolling|focus|history|persisted-state|media-query|hydration|dispatch|journey> -->
-<!-- Optional: for a scoped fix with more added test than product lines, uncomment and complete: Test-weight: <reason> -->
+<!-- Keep Review at 150 words or fewer. On every push rewrite for the current head; never append history, implementation narration, or test inventories. Put durable rationale in commits, docs, or the issue. -->
+
+## Preview
+
+<!-- User-visible work: Vercel preview link and EVERY retained screenshot/clip as GitHub user-attachments in one compact table. Label state and CSS-pixel viewport; pair Before/After at matching state, data, and viewport when useful. No screenshot cap. Only labels and media here; put browser observations, limitations, cleanup, and review findings in Evidence. Otherwise write N/A: docs-only / CI-only / pure server. -->
+
+| State + viewport | Evidence |
+| --- | --- |
+| Changed state — 390×844 CSS px | GitHub attachment |
+
+<details><summary>Evidence</summary>
 
 ## Verification
 
@@ -16,25 +25,25 @@
 | --- | --- | --- | --- |
 | N/A | 0 | N/A | none |
 
-<!-- Add one row for every mapped surface touched by the PR and a line for each: Verified: <surface> rung <n> (with safe evidence) or Not verified: <surface> rung <n> — <reason>. The verification-evidence check derives the required rung from the feature map's Owned paths. Link the agent-posted screenshots and observed facts under the PR evidence rules; do not paste secrets or raw provider payloads. -->
+<!-- Add a row for each mapped surface and a Verified: <surface> rung <n> or Not verified: <surface> rung <n> — <reason> line. Keep browser observations, console/errors, exact fixture cleanup, limitations, and any separate Severity | Evidence | Judgment / action findings table here. -->
+
+## Test plan
+
+- [ ] `bun check` / CI green
+- [ ] Smoke the changed surface (or N/A — say why)
+
+<!-- Optional for new Playwright declarations: Playwright-rung: <layout|scrolling|focus|history|persisted-state|media-query|hydration|dispatch|journey> -->
+<!-- Optional for scoped fixes with more test than product lines: Test-weight: <reason> -->
 
 ## Real money
 
-<!-- For money-moving work, summarize the Rung 3 or Jesse-directly-authorized live check and link its safe evidence; write exactly "Real money: not tested" only if a required rung is blocked by insufficient bot balance or a confirm amount or recipient that cannot be established from review. Name that bound. Before a live check, state network, asset, maximum amount/loss, destination/control assumptions, expected balance changes, privacy handling, ambiguity/retry behavior, and stop/recovery conditions. Never include secrets, payment details, customer data, OTPs, recovery codes, or raw provider payloads. For other work write N/A. -->
+<!-- Money-moving work: report authorized live checks and safe evidence; use exactly "Real money: not tested" only for a required rung blocked by bot balance, review amount/recipient, or missing account anchor, and name the bound. Before live checks state network, asset, maximum loss, destination/control assumptions, expected balances, privacy, retry, and stop conditions. No secrets, payment details, customer data, or raw provider payloads. Otherwise N/A. -->
 
 ## Operator action required
 
-<!-- Optional. If this PR needs an operator action after merge, state exact environment variable names, non-secret setting values, and commands. Never include secret values, credentials, tokens, private keys, or customer data. The PR remains unready for approval until Jesse completes it and the affected path is verified. Otherwise write N/A. -->
+<!-- If needed, give exact variable names, non-secret settings, commands, and verification; never secret values. Otherwise N/A. -->
 
-## Preview
+</details>
 
-<!-- User-visible changes only: include the current Vercel Home preview link and every retained screenshot or clip directly below as a GitHub user-attachment in one compact table. Labels must describe the visible state and CSS-pixel viewport. Use Before/After when the baseline materially improves judgment, pairing the same state, data, and viewport with the current PR head as After; otherwise use the current-head-only form below. Do not commit media, leave retained media as bare links, omit part of the retained set, or manufacture a screenshot matrix. Refresh affected media after UI changes.
-
-| State + viewport | Evidence |
-| --- | --- |
-| Descriptive state — 390×844 CSS px | GitHub screenshot or clip attachment |
-
-Keep review findings separate from screenshot evidence in a `Severity | Evidence | Judgment / action` table when findings are recorded. Also summarize agent-browser mode (factory fixture/operator), route, viewport, exercised path including recovery/Back, final state, console/errors, and exact owned fixture-server cleanup. Include Storybook Before/Proposed/Implemented references only when useful; they do not create a separate approval system. State limitations. See docs/browser-validation.md and docs/ui-pr-previews.md. Otherwise write N/A: docs-only / CI-only / pure server. -->
-
-<!-- Last line: `Closes #<issue>` for implementation PRs, `Refs #<issue>` for design proposals. -->
+<!-- Last line: Closes #<issue> for implementation, Refs #<issue> for proposals. Exactly once. -->
 Closes #

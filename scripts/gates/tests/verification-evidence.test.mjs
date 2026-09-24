@@ -150,3 +150,11 @@ test("passes complete evidence and fails missing, low, or pointerless rows", () 
     ["landing needs an evidence pointer for Rung 1."],
   );
 });
+
+test("reads the pull-request template's Verification section inside the collapsed Evidence block", () => {
+  const template = readFileSync(new URL("../../../.github/PULL_REQUEST_TEMPLATE.md", import.meta.url), "utf8");
+  const body = template.replace("| N/A | 0 | N/A | none |", "| landing | 1 | preview capture | none |")
+    .replace("## Test plan", "Verified: landing rung 1\n\n## Test plan");
+  assert.equal(parseVerificationRows(body).get("landing").rung, 1);
+  assert.deepEqual(verificationEvidenceFindings(["apps/web/client/landing/page.tsx"], body, surfaces), []);
+});

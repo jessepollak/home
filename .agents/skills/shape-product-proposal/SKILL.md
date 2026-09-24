@@ -37,6 +37,6 @@ Reuse a suitable delivery issue when one exists. Jesse files new issues and adds
 
 ## Plan proportional evidence
 
-User-visible work names the browser path and current-head preview proof. Every retained screenshot or clip belongs directly in the PR description in a compact Markdown table with a descriptive state and viewport label; do not manufacture a screenshot matrix.
+User-visible work names the browser path in collapsed Evidence and keeps current-head preview proof visible. Every retained screenshot or clip belongs in the PR description’s visible Preview table with a descriptive state and CSS-pixel viewport label; do not manufacture a screenshot matrix.
 
 For a feature whose purpose is to move money, apply the verification ladder in `docs/operating-manual.md`. A provisioned agent may use the bot account only under the browser-iteration skill's live-confirm rules. The dedicated bot account's small balance bounds money risk. State `Real money: not tested` only when a required live rung is blocked by insufficient bot balance or an amount or recipient that cannot be established from the review; name the exact bound rather than calling the live path proven.
