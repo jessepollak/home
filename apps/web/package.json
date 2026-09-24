@@ -21,7 +21,8 @@
     "figma:connect:parse": "figma connect parse --exit-on-unreadable-files --outFile /dev/null",
     "figma:connect:publish": "figma connect publish --exit-on-unreadable-files",
     "figma:variables": "node scripts/figma-variables.mjs",
-    "figma:variables:dry-run": "node scripts/figma-variables.mjs --dry-run"
+    "figma:variables:dry-run": "node scripts/figma-variables.mjs --dry-run",
+    "secrets:rotate": "bun --conditions=react-server ../../scripts/secret-envelopes.ts"
   },
   "dependencies": {
     "@base-org/account": "2.5.10",

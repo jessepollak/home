@@ -277,6 +277,15 @@ describe("observability schema", () => {
     })).toMatchObject({ code: "OFFRAMP_ORDERS_PROVIDER_ERROR", outcome: "unavailable" });
   });
 
+  test("allows only closed user token diagnostics without credential fields", () => {
+    for (const code of ["USER_TOKEN_KEY_UNAVAILABLE", "USER_TOKEN_EXPIRED", "USER_TOKEN_UNREADABLE", "USER_TOKEN_PRESERVED_UNREADABLE", "USER_TOKEN_CAPTURE_CONFLICT", "USER_TOKEN_STORE_FAILURE", "USER_TOKEN_CLEARED_AFTER_REJECTION", "USER_TOKEN_REJECTION_CLEAR_CONFLICT", "USER_TOKEN_CAPTURED"]) {
+      const event = normalizeObservabilityEvent({ kind: "funding-order", route: "/api/funding/orders", code, outcome: "ok", provider: "coinbase", region: "US", sandbox: true, durationMs: 0 });
+      expect(event.code).toBe(code);
+      expect(Object.keys(event).sort()).toEqual(["code", "durationMs", "kind", "level", "outcome", "provider", "region", "route", "sandbox", "schema"].sort());
+    }
+    expect(normalizeObservabilityEvent({ kind: "funding-order", route: "/api/funding/orders", code: "USER_TOKEN_PRIVATE", outcome: "unavailable", durationMs: 0 }).code).toBe("ORDER_UNAVAILABLE");
+  });
+
   test("normalizes out-of-enum funding-order codes to ORDER_UNAVAILABLE", () => {
     expect(normalizeObservabilityEvent({
       kind: "funding-order",

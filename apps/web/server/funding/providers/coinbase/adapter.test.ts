@@ -1,4 +1,6 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
+import { FundingUserTokenVault } from "@/server/funding/core/provider-user-token";
+import { MemoryFundingProviderUserTokenStore } from "@/server/funding/core/user-token-store";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { createProviderContext } from "@/server/funding/core/provider-context";
@@ -12,7 +14,7 @@ import type {
   QuoteIntent,
   ReconciliationIntent,
 } from "@/shared/funding/provider-contract";
-import { createCoinbaseProvider } from "./adapter";
+import { createCoinbaseProvider, createCoinbaseUserTokenCreateOrder } from "./adapter";
 import { coinbaseManifest } from "./manifest";
 
 const DESTINATION = "0x1111111111111111111111111111111111111111" as const;
@@ -471,11 +473,64 @@ describe("Coinbase headless funding adapter", () => {
     expect(lines.join("\n")).not.toContain(userAuthToken);
   });
 
-  test("never returns, logs, or persists a provider userAuthToken", async () => {
+  test("private credential channel sends only supplied token and captures only validated created responses", async () => {
+    const token = "synthetic-private-credential";
+    const bodies: Array<Record<string, unknown>> = [];
+    const lines: string[] = [];
+    setObservabilityLogWriterForTests((line) => lines.push(line));
+    const create = createCoinbaseUserTokenCreateOrder({ generateJwtImplementation: async () => "synthetic-jwt" });
+    const ctx = context((async (_url: unknown, init: RequestInit) => {
+      bodies.push(JSON.parse(String(init.body)));
+      return createResponse({}, {}, { userAuthToken: token });
+    }) as typeof fetch);
+    const created = await create(intent, { userAuthToken: token }, ctx);
+    expect(bodies[0]?.userAuthToken).toBe(token);
+    expect(created.userAuthToken).toBe(token);
+    expect(created.credentialRejected).toBe(false);
+    expect(JSON.stringify(created.result)).not.toContain(token);
+    await provider.onramp!.createOrder(intent, ctx);
+    expect(bodies[1]).not.toHaveProperty("userAuthToken");
+    for (const response of [createResponse({ purchaseAmount: "1" }, {}, { userAuthToken: token }), createResponse({}, {}, { userAuthToken: "\nmalformed" }), Response.json({ errorMessage: "rejected", userAuthToken: token }, { status: 400 })]) {
+      const output = await create(intent, { userAuthToken: null }, context((async () => response) as unknown as typeof fetch));
+      expect(output.userAuthToken).toBeNull();
+      expect(output.credentialRejected).toBe(false);
+    }
+    expect(lines.join("\n")).not.toContain(token);
+  });
+
+  test("JWT failure rejects before sending the stored token", async () => {
+    let httpCalls = 0;
+    const create = createCoinbaseUserTokenCreateOrder({ generateJwtImplementation: async () => { throw new Error("synthetic JWT failure"); } });
+    const result = await create(intent, { userAuthToken: "synthetic-stored-token" }, context((async () => {
+      httpCalls += 1;
+      return createResponse();
+    }) as unknown as typeof fetch));
+    expect(result).toEqual({ result: { outcome: "rejected", message: "Coinbase could not authorize this funding order." }, userAuthToken: null, credentialRejected: false });
+    expect(httpCalls).toBe(0);
+  });
+
+  test("provider rejection marks the credential only when the request included it", async () => {
+    const create = createCoinbaseUserTokenCreateOrder({ generateJwtImplementation: async () => "synthetic-jwt" });
+    for (const userAuthToken of ["synthetic-stored-token", null]) {
+      let requestBody: Record<string, unknown> | null = null;
+      const result = await create(intent, { userAuthToken }, context((async (_url: unknown, init: RequestInit) => {
+        requestBody = JSON.parse(String(init.body));
+        return Response.json({ errorMessage: "invalid" }, { status: 400 });
+      }) as typeof fetch));
+      expect(requestBody).toBeTruthy();
+      expect(requestBody!.userAuthToken).toBe(userAuthToken ?? undefined);
+      expect(result.result.outcome).toBe("rejected");
+      expect(result.credentialRejected).toBe(userAuthToken !== null);
+    }
+  });
+
+  test("never returns, logs, or persists plaintext provider userAuthToken outside the vault", async () => {
     const userAuthToken = "synthetic-user-auth-token-must-not-escape";
     const requestBodies: Array<Record<string, unknown>> = [];
     const lines: string[] = [];
     const store = new MemoryFundingOrderStore();
+    const tokenStore = new MemoryFundingProviderUserTokenStore();
+    const secretEnv = { HOME_SECRET_ENCRYPTION_KEY: randomBytes(32).toString("base64url"), HOME_SECRET_KEY_VERSION: "1" };
     const session: VerifiedAccountSession = {
       user: { subject: "subject-token-safety" },
       smartAccount: { address: DESTINATION, chainId: 8453 },
@@ -485,7 +540,10 @@ describe("Coinbase headless funding adapter", () => {
     const core = new FundingCore({
       providers: [provider],
       store,
+      userTokenProviders: new Map([["coinbase", createCoinbaseUserTokenCreateOrder({ generateJwtImplementation: async () => "synthetic-jwt" })]]),
+      userTokenVault: new FundingUserTokenVault({ store: tokenStore, env: secretEnv, now: () => new Date(), diagnose: () => undefined }),
       env: {
+        ...secretEnv,
         ...env,
         FUNDING_QUOTE_SECRET: "synthetic-quote-secret-at-least-32-characters",
       },
@@ -522,6 +580,10 @@ describe("Coinbase headless funding adapter", () => {
     expect(requestBodies.filter((body) => body.isQuote !== true)).toHaveLength(1);
     expect(JSON.stringify(publicResult)).not.toContain(userAuthToken);
     expect(JSON.stringify(stored)).not.toContain(userAuthToken);
+    expect(JSON.stringify(quote)).not.toContain(userAuthToken);
+    const encrypted = await tokenStore.get({ owner: { subject: session.user.subject, accountProvider: session.accountProvider }, providerId: "coinbase", region: "US", sandbox: false });
+    expect(encrypted?.envelope).toMatch(/^v1\./);
+    expect(JSON.stringify(encrypted)).not.toContain(userAuthToken);
     expect(lines.join("\n")).not.toContain(userAuthToken);
   });
 

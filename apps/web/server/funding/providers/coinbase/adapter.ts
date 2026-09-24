@@ -13,6 +13,7 @@ import type {
   QuoteIntent,
   ReconciliationIntent,
 } from "@/shared/funding/provider-contract";
+import type { ProviderUserTokenCreateOrder } from "../../core/provider-user-token";
 import { atomicToDecimal, decimalToAtomic } from "@/shared/formatting/atomic";
 import { emitFundingProviderFailure, type FundingProviderFailureCode } from "../../core/provider-failure";
 import { FundingQuoteRejectedError } from "../../core/quote-rejection";
@@ -86,60 +87,7 @@ export function createCoinbaseProvider(
     },
 
     async createOrder(input, ctx) {
-      const startedAt = Date.now();
-      const body = createOrderBody(input, ctx);
-      if (!body) {
-        return {
-          outcome: "rejected",
-          message: "A current funding quote is required.",
-        };
-      }
-
-      let token: string;
-      try {
-        token = await createJwt(ctx, "POST", ORDERS_PATH, generateJwtImplementation);
-      } catch {
-        emitFailure("PROVIDER_TRANSPORT", startedAt);
-        return {
-          outcome: "rejected",
-          message: "Coinbase could not authorize this funding order.",
-        };
-      }
-
-      let response: Response;
-      try {
-        response = await ctx.fetch(ORDERS_URL, {
-          method: "POST",
-          headers: requestHeaders(token),
-          body: JSON.stringify(body),
-          cache: "no-store",
-        });
-      } catch {
-        emitFailure("PROVIDER_TRANSPORT", startedAt);
-        return { outcome: "ambiguous" };
-      }
-
-      if (response.status !== 201) {
-        return classifyCreateFailure(response, startedAt);
-      }
-
-      let payload: unknown;
-      try {
-        payload = parseProviderJson(await readBoundedText(response));
-      } catch {
-        emitFailure("PROVIDER_INVALID_RESPONSE", startedAt);
-        return { outcome: "ambiguous" };
-      }
-
-      try {
-        return {
-          outcome: "created",
-          order: orderFromResponse(payload, input, ctx),
-        };
-      } catch {
-        emitFailure("ORDER_ECHO_MISMATCH", startedAt);
-        return { outcome: "ambiguous" };
-      }
+      return (await createOrderWithUserToken(input, { userAuthToken: null }, ctx, generateJwtImplementation)).result;
     },
 
     async getOrder(input, ctx) {
@@ -185,6 +133,72 @@ export function createCoinbaseProvider(
     },
   };
 }
+
+async function createOrderWithUserToken(
+  input: OrderIntent, credential: { userAuthToken: string | null }, ctx: ProviderContext, generateJwtImplementation: JwtGenerator,
+): ReturnType<ProviderUserTokenCreateOrder> {
+  const startedAt = Date.now();
+  const body = createOrderBody(input, ctx);
+  if (body && credential.userAuthToken) body.userAuthToken = credential.userAuthToken;
+  if (!body) {
+    return { result: {
+      outcome: "rejected",
+      message: "A current funding quote is required.",
+    }, userAuthToken: null, credentialRejected: false };
+  }
+
+  let token: string;
+  try {
+    token = await createJwt(ctx, "POST", ORDERS_PATH, generateJwtImplementation);
+  } catch {
+    emitFailure("PROVIDER_TRANSPORT", startedAt);
+    return { result: {
+      outcome: "rejected",
+      message: "Coinbase could not authorize this funding order.",
+    }, userAuthToken: null, credentialRejected: false };
+  }
+
+  let response: Response;
+  try {
+    response = await ctx.fetch(ORDERS_URL, {
+      method: "POST",
+      headers: requestHeaders(token),
+      body: JSON.stringify(body),
+      cache: "no-store",
+    });
+  } catch {
+    emitFailure("PROVIDER_TRANSPORT", startedAt);
+    return { result: { outcome: "ambiguous" }, userAuthToken: null, credentialRejected: false };
+  }
+
+  if (response.status !== 201) {
+    const result = await classifyCreateFailure(response, startedAt);
+    return { result, userAuthToken: null, credentialRejected: Boolean(body.userAuthToken) && result.outcome === "rejected" };
+  }
+
+  let payload: unknown;
+  try {
+    payload = parseProviderJson(await readBoundedText(response));
+  } catch {
+    emitFailure("PROVIDER_INVALID_RESPONSE", startedAt);
+    return { result: { outcome: "ambiguous" }, userAuthToken: null, credentialRejected: false };
+  }
+
+  try {
+    const order = orderFromResponse(payload, input, ctx);
+    const responseToken = isRecord(payload) ? payload.userAuthToken : null;
+    return { result: { outcome: "created", order }, userAuthToken: typeof responseToken === "string" && /^[\x21-\x7e]{1,2048}$/.test(responseToken) ? responseToken : null, credentialRejected: false };
+  } catch {
+    emitFailure("ORDER_ECHO_MISMATCH", startedAt);
+    return { result: { outcome: "ambiguous" }, userAuthToken: null, credentialRejected: false };
+  }
+}
+
+export function createCoinbaseUserTokenCreateOrder(options: CoinbaseProviderOptions = {}): ProviderUserTokenCreateOrder {
+  const generateJwtImplementation = options.generateJwtImplementation ?? generateJwt;
+  return (input, credential, ctx) => createOrderWithUserToken(input, credential, ctx, generateJwtImplementation);
+}
+export const coinbaseUserTokenCreateOrder = createCoinbaseUserTokenCreateOrder();
 
 export const coinbaseProvider = createCoinbaseProvider();
 
