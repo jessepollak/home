@@ -265,6 +265,7 @@ describe("SendDialog Peer cash-out", () => {
     expect(page().getByRole("button", { name: `Copy ${formatAddress(cashoutAction().owner.address)}` })).toBeTruthy();
     expect(document.body.textContent).toContain("≈ 1 USD");
     expect(document.body.textContent).toContain("About 1 min");
+    expect(document.body.textContent).toContain("approximate, not guaranteed");
     expect(prepares).toEqual([{ kind: "cash-out", params: expect.objectContaining({ payoutHandle: "$alice", canonicalHandleConfirmation: "alice", amountBaseUnits: "1000000" }) }]);
     await waitFor(() => expect(fetches.filter((url) => url.startsWith("/api/funding"))).toHaveLength(2));
   });
@@ -577,6 +578,7 @@ describe("SendDialog resume", () => {
     expect(await page().findByRole("button", { name: "Withdraw $2.00" })).toBeTruthy();
     expect(document.body.textContent).toContain("You're withdrawing from Peer");
     expect(document.body.textContent).toContain("Cash App");
+    expect(document.body.textContent).not.toContain("approximate, not guaranteed");
     expect(invalidResumes).toBe(0);
   });
 
