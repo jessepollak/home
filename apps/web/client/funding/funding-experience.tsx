@@ -240,6 +240,7 @@ function FundingExperienceBoundary({
       onBack={goBack}
       onSelectReceive={() => navigateTo("receive")}
       providerBindings={providerBindings}
+      providersLoaded={providerQuery.isSuccess}
       providerBindingsDisabled={!ordersQuery.isSuccess}
       customerSetupReady={customerSetupReady}
       fundingReadError={fundingReadError}

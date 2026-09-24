@@ -3,6 +3,7 @@ import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type {
   FundingProvider,
   FundingProviderManifest,
+  OfframpCatalog,
   Instruction,
   QuoteIntent,
 } from "@/shared/funding/provider-contract";
@@ -18,9 +19,25 @@ import {
 import { FundingProviderConfigurationError, resolveFundingMode, resolveWebhookEnvironment } from "./provider-context";
 import { FundingQuoteRejectedError } from "./quote-rejection";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
+import { fundingProviders } from "@/server/funding/providers";
+import { euroAreaPeerCountries } from "@/server/funding/providers/peer/manifest";
 
 const session: VerifiedAccountSession = { user: { subject: "user" }, accountProvider: "base-account", smartAccount: { address: "0x1111111111111111111111111111111111111111", chainId: 8453 } };
 const manifest = { id: "fixture", displayName: "Fixture", docsUrl: "https://example.com", onramp: { apiOrigins: ["https://example.com"], reference: "home" }, bindings: [{ region: "ID", assetId: "base:idrx", currency: "IDR", directions: { onramp: { paymentMethods: [{ id: "bank", label: "Bank" }], env: ["FIXTURE_KEY"] } } }] } as const satisfies FundingProviderManifest;
+const discoveryCatalog: OfframpCatalog = {
+  asOf: "2026-09-12T00:00:00.000Z", maxAgeSeconds: 300,
+  platforms: [{ id: "cashapp", label: "Cash App", currencies: ["USD"], handleHint: "Cashtag", minimumAmountAtomic: "10000", maximumAmountAtomic: null, estimateSemantics: "approximate", etaSemantics: "historical-not-guaranteed", requiresIdentityAttestation: false, requiresAccessPolicy: false }],
+};
+function discoveryProvider(id: string, capabilities: NonNullable<FundingProvider["offramp"]>["capabilities"]): FundingProvider {
+  return {
+    manifest: {
+      id, displayName: "Offramp", docsUrl: "https://example.com",
+      offramp: { production: { apiOrigins: ["https://off.example"], contracts: { escrow: "0x1111111111111111111111111111111111111111", intentGuardian: "0x2222222222222222222222222222222222222222", intentGatingService: "0x3333333333333333333333333333333333333333" } } },
+      bindings: [{ region: "US", assetId: "base:usdc", currency: "USD", directions: { offramp: { paymentMethods: [{ id: "cashapp", label: "Cash App" }], env: ["OFFRAMP_ENABLED"], confirmedBy: "fixture" } } }],
+    },
+    offramp: { capabilities } as NonNullable<FundingProvider["offramp"]>,
+  };
+}
 beforeEach(() => setObservabilityLogWriterForTests(() => undefined));
 afterEach(() => setObservabilityLogWriterForTests());
 
@@ -98,6 +115,40 @@ function setup(
 }
 
 describe("FundingCore", () => {
+  test("lists only the bound EUR Revolut cash-out corridor in each euro-area country", async () => {
+    const core = new FundingCore({
+      providers: fundingProviders,
+      store: new MemoryFundingOrderStore(),
+      env: {
+        PEER_OFFRAMP_ENABLED: "1",
+        CDP_API_KEY_ID: "configured", CDP_API_KEY_SECRET: "configured",
+        RIPIO_CLIENT_ID_AR: "configured", RIPIO_CLIENT_SECRET_AR: "configured", RIPIO_WEBHOOK_SECRET_AR: "configured",
+        RIPIO_CLIENT_ID_BR: "configured", RIPIO_CLIENT_SECRET_BR: "configured", RIPIO_WEBHOOK_SECRET_BR: "configured",
+        RIPIO_CLIENT_ID_CO: "configured", RIPIO_CLIENT_SECRET_CO: "configured", RIPIO_WEBHOOK_SECRET_CO: "configured",
+        IDRX_CLIENT_ID: "configured", IDRX_CLIENT_SECRET: "configured", IDRX_CUSTOMER_NAME: "configured",
+      },
+      currentBaseBlock: async () => "1", verifyReceipt: async () => null,
+    });
+
+    for (const region of euroAreaPeerCountries) {
+      const offramps = await core.listProviders(region, session, "offramp");
+      expect(offramps.map((binding) => ({ providerId: binding.providerId, currency: binding.currency, methods: binding.paymentMethods.map((method) => method.id) }))).toEqual([
+        { providerId: "peer", currency: "EUR", methods: ["revolut"] },
+      ]);
+      expect(await core.listProviders(region, session, "onramp")).toEqual([]);
+    }
+    for (const [region, currency, methods] of [
+      ["US", "USD", ["cashapp", "zelle"]],
+      ["GB", "GBP", ["monzo", "revolut"]],
+    ] as const) {
+      const offramps = await core.listProviders(region, session, "offramp");
+      expect(offramps.map((binding) => ({ providerId: binding.providerId, currency: binding.currency, methods: binding.paymentMethods.map((method) => method.id) }))).toEqual([
+        { providerId: "peer", currency, methods: [...methods] },
+      ]);
+    }
+    expect(await core.listProviders("AU", session, "offramp")).toEqual([]);
+    expect(await core.listProviders("AU", session, "onramp")).toEqual([]);
+  });
   test("returns the provider handoff URL only from the explicit verification POST", async () => {
     const { core } = customerSetup();
     const started = await core.startProviderCustomerVerification(
@@ -172,27 +223,94 @@ describe("FundingCore", () => {
       .toThrow("must be exactly sandbox");
   });
 
-  test("reports hidden offramp discovery failures without request data", async () => {
+  test("withholds the offramp corridor and reports hidden discovery failures without request data", async () => {
     const events: Array<{ providerId: string; reason: "configuration" | "provider"; code: string }> = [];
+    const provider = discoveryProvider("offramp-fixture", async () => { throw new Error("provider unavailable"); });
+    const core = new FundingCore({
+      providers: [provider], store: new MemoryFundingOrderStore(), env: { OFFRAMP_ENABLED: "1" },
+      currentBaseBlock: async () => "1", verifyReceipt: async () => null,
+      logProviderDiscoveryFailure: (event) => { events.push(event); },
+    });
+    await expect(core.listProviders("US", session, "offramp")).rejects.toThrow("PROVIDERS_UNAVAILABLE");
+    expect(events).toEqual([{
+      providerId: "offramp-fixture",
+      reason: "provider",
+      code: "FUNDING_PROVIDER_CONFIGURATION",
+    }]);
+  });
+
+  test("keeps an unbound country empty and withholds a stale offramp catalog", async () => {
     const provider: FundingProvider = {
       manifest: {
         id: "offramp-fixture", displayName: "Offramp", docsUrl: "https://example.com",
         offramp: { production: { apiOrigins: ["https://off.example"], contracts: { escrow: "0x1111111111111111111111111111111111111111", intentGuardian: "0x2222222222222222222222222222222222222222", intentGatingService: "0x3333333333333333333333333333333333333333" } } },
         bindings: [{ region: "US", assetId: "base:usdc", currency: "USD", directions: { offramp: { paymentMethods: [{ id: "cashapp", label: "Cash App" }], env: ["OFFRAMP_ENABLED"], confirmedBy: "fixture" } } }],
       },
-      offramp: { capabilities: async () => { throw new Error("provider unavailable"); } } as unknown as NonNullable<FundingProvider["offramp"]>,
+      offramp: {
+        capabilities: async () => ({
+          platforms: [{
+            id: "cashapp", label: "Cash App", currencies: ["USD"], handleHint: "$cashtag",
+            minimumAmountAtomic: "1000000", maximumAmountAtomic: null,
+            estimateSemantics: "approximate", etaSemantics: "historical-not-guaranteed",
+            requiresIdentityAttestation: false, requiresAccessPolicy: false,
+          }],
+          asOf: "2020-01-01T00:00:00.000Z",
+          maxAgeSeconds: 60,
+        }),
+      } as unknown as NonNullable<FundingProvider["offramp"]>,
     };
     const core = new FundingCore({
       providers: [provider], store: new MemoryFundingOrderStore(), env: { OFFRAMP_ENABLED: "1" },
       currentBaseBlock: async () => "1", verifyReceipt: async () => null,
+    });
+    expect(await core.listProviders("AU", session, "offramp")).toEqual([]);
+    await expect(core.listProviders("US", session, "offramp")).rejects.toThrow("PROVIDERS_UNAVAILABLE");
+  });
+
+  test("rejects stale offramp discovery and logs a scrubbed provider failure", async () => {
+    const events: Array<{ providerId: string; reason: string; code: string }> = [];
+    const core = new FundingCore({
+      providers: [discoveryProvider("stale-fixture", async () => discoveryCatalog)],
+      store: new MemoryFundingOrderStore(), env: { OFFRAMP_ENABLED: "1" },
+      currentBaseBlock: async () => "1", verifyReceipt: async () => null,
+      now: () => new Date("2026-09-12T00:06:00.000Z"),
       logProviderDiscoveryFailure: (event) => { events.push(event); },
     });
-    expect(await core.listProviders("US", session, "offramp")).toEqual([]);
-    expect(events).toEqual([{
-      providerId: "offramp-fixture",
-      reason: "provider",
-      code: "FUNDING_PROVIDER_CONFIGURATION",
-    }]);
+
+    await expect(core.listProviders("US", session, "offramp")).rejects.toThrow("PROVIDERS_UNAVAILABLE");
+    expect(events).toEqual([{ providerId: "stale-fixture", reason: "provider", code: "FUNDING_PROVIDER_CONFIGURATION" }]);
+  });
+
+  test("returns a successful offramp binding when another provider discovery fails", async () => {
+    const events: Array<{ providerId: string; reason: string; code: string }> = [];
+    const core = new FundingCore({
+      providers: [
+        discoveryProvider("down-fixture", async () => { throw new Error("provider unavailable"); }),
+        discoveryProvider("working-fixture", async () => discoveryCatalog),
+      ],
+      store: new MemoryFundingOrderStore(), env: { OFFRAMP_ENABLED: "1" },
+      currentBaseBlock: async () => "1", verifyReceipt: async () => null,
+      now: () => new Date("2026-09-12T00:01:00.000Z"),
+      logProviderDiscoveryFailure: (event) => { events.push(event); },
+    });
+
+    expect(await core.listProviders("US", session, "offramp")).toEqual([
+      expect.objectContaining({ providerId: "working-fixture", region: "US", paymentMethods: [expect.objectContaining({ platform: "cashapp" })] }),
+    ]);
+    expect(events).toEqual([{ providerId: "down-fixture", reason: "provider", code: "FUNDING_PROVIDER_CONFIGURATION" }]);
+  });
+
+  test("withholds a bound offramp corridor whose provider configuration fails", async () => {
+    const events: Array<{ providerId: string; reason: string; code: string }> = [];
+    const core = new FundingCore({
+      providers: [discoveryProvider("unconfigured-fixture", async () => { throw new FundingProviderConfigurationError("missing configuration"); })],
+      store: new MemoryFundingOrderStore(), env: { OFFRAMP_ENABLED: "1" },
+      currentBaseBlock: async () => "1", verifyReceipt: async () => null,
+      logProviderDiscoveryFailure: (event) => { events.push(event); },
+    });
+
+    await expect(core.listProviders("US", session, "offramp")).rejects.toThrow("PROVIDERS_UNAVAILABLE");
+    expect(events).toEqual([{ providerId: "unconfigured-fixture", reason: "configuration", code: "FUNDING_PROVIDER_CONFIGURATION" }]);
   });
 
   test("fails discovery closed and reports the scrubbed legacy sandbox migration code", async () => {

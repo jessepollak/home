@@ -1,5 +1,6 @@
 import "server-only";
 
+import type { CountryCode } from "@/config/regions";
 import type { FundingProviderManifest } from "@/shared/funding/provider-contract";
 
 export const PEER_CURATOR_PRODUCTION_ORIGIN = "https://api.zkp2p.xyz" as const;
@@ -23,6 +24,13 @@ export const PEER_SANDBOX_CONTRACTS = {
 
 const productionDecision =
   "operator decision 2026-09-22: validate in production under the verification ladder and bot-account balance; Peer written corridor confirmation not yet received";
+const euroAreaDecision =
+  "product decision 2026-09-23 (#807): Revolut EUR cash-out for configured euro-area countries under the verification ladder; Peer written corridor confirmation not yet received";
+
+export const euroAreaPeerCountries = [
+  "AT", "BE", "BG", "HR", "CY", "EE", "FI", "FR", "DE", "GR", "IE",
+  "IT", "LV", "LT", "LU", "MT", "NL", "PT", "SK", "SI", "ES",
+] as const satisfies ReadonlyArray<CountryCode>;
 
 export const peerManifest = {
   id: "peer",
@@ -70,5 +78,17 @@ export const peerManifest = {
         },
       },
     },
+    ...euroAreaPeerCountries.map((region) => ({
+      region,
+      assetId: "base:usdc",
+      currency: "EUR",
+      directions: {
+        offramp: {
+          paymentMethods: [{ id: "revolut", label: "Revolut" }],
+          env: ["PEER_OFFRAMP_ENABLED"],
+          confirmedBy: euroAreaDecision,
+        },
+      },
+    } as const)),
   ],
 } as const satisfies FundingProviderManifest;

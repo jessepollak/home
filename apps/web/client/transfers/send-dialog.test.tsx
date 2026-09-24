@@ -171,6 +171,63 @@ describe("SendDialog review", () => {
 });
 
 describe("SendDialog Peer cash-out", () => {
+  test("names only the payout apps in the loaded regional binding", async () => {
+    for (const [region, currency, methods, title] of [
+      ["DE", "EUR", [{ id: "revolut", label: "Revolut" }], "Send to Revolut"],
+      ["US", "USD", [{ id: "cashapp", label: "Cash App" }, { id: "zelle", label: "Zelle" }], "Send to Cash App or Zelle"],
+      ["GB", "GBP", [{ id: "monzo", label: "Monzo" }, { id: "revolut", label: "Revolut" }, { id: "other", label: "Other" }], "Send to Monzo, Revolut or Other"],
+    ] as const) {
+      const view = render(
+        <SendDialog open immediate address={ACCOUNT} ownerBoundary={`owner-${region}`} regionId={region}
+          availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
+          fetchAccountResource={async (url) => url.startsWith("/api/funding/providers")
+            ? { ...offrampResponse, providers: [{ ...offrampResponse.providers[0], region, currency, paymentMethods: methods.map((method) => ({ ...offrampResponse.providers[0]!.paymentMethods[0], ...method, platform: method.id })) }] }
+            : { version: 3, recoveryEligible: false, orders: [] }}
+          prepareMoneyAction={async () => cashoutAction()} resumeMoneyAction={async () => cashoutAction()}
+          executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />,
+      );
+      fireEvent.click(page().getByRole("button", { name: "1" }));
+      fireEvent.click(page().getByRole("button", { name: "Continue" }));
+      expect(await page().findByRole("button", { name: new RegExp(title) })).toBeTruthy();
+      expect(page().queryByText(/Venmo/)).toBeNull();
+      view.unmount();
+    }
+  });
+
+  test("shows the empty corridor only after a successful empty provider read", async () => {
+    let resolveProviders!: (value: unknown) => void;
+    const pendingProviders = new Promise<unknown>((resolve) => { resolveProviders = resolve; });
+    render(
+      <SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-au" regionId="AU"
+        availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
+        fetchAccountResource={async (url) => url.startsWith("/api/funding/providers") ? pendingProviders : { version: 3, recoveryEligible: false, orders: [] }}
+        prepareMoneyAction={async () => cashoutAction()} resumeMoneyAction={async () => cashoutAction()}
+        executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />,
+    );
+    fireEvent.click(page().getByRole("button", { name: "1" }));
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    expect(page().queryByText("Cash out isn't available in Australia yet.")).toBeNull();
+    await act(async () => { resolveProviders({ version: 2, direction: "offramp", providers: [] }); await pendingProviders; });
+    expect(page().getByRole("status").textContent).toBe("Cash out isn't available in Australia yet.");
+    expect(page().getByLabelText("To")).toBeTruthy();
+  });
+
+  test("does not report an unavailable corridor when the selected asset is not USDC", async () => {
+    render(
+      <SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-de-eth" regionId="DE"
+        availableAssets={[{ ...getTransferAsset("eth")!, balanceBaseUnits: "1000000000000000000", balanceLabel: "$4,000.00" }]}
+        fetchAccountResource={async (url) => url.startsWith("/api/funding/providers")
+          ? { ...offrampResponse, providers: [{ ...offrampResponse.providers[0], region: "DE", currency: "EUR" }] }
+          : { version: 3, recoveryEligible: false, orders: [] }}
+        prepareMoneyAction={async () => cashoutAction()} resumeMoneyAction={async () => cashoutAction()}
+        executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />,
+    );
+    fireEvent.click(page().getByRole("button", { name: "1" }));
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    await act(async () => {});
+    expect(page().queryByText(/Cash out isn't available/)).toBeNull();
+    expect(page().queryByRole("button", { name: /Send to Cash App/ })).toBeNull();
+  });
   test("shows the route only after eligible discovery and requires verbatim canonical-handle confirmation", async () => {
     const prepares: Array<{ kind: string; params: unknown }> = [];
     const fetches: string[] = [];
@@ -191,7 +248,7 @@ describe("SendDialog Peer cash-out", () => {
 
     fireEvent.click(page().getByRole("button", { name: "1" }));
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
-    const peer = await page().findByRole("button", { name: /Available payout apps: Cash App.*Send to Zelle, Venmo, Cash App and more.*Use Peer to send via app/ });
+    const peer = await page().findByRole("button", { name: /Available payout apps: Cash App.*Send to Cash App.*Use Peer to send via app/ });
     expect(peer).toBeTruthy();
     fireEvent.click(peer);
     fireEvent.click(page().getByRole("button", { name: "Cash App" }));
@@ -226,7 +283,7 @@ describe("SendDialog Peer cash-out", () => {
 
     fireEvent.click(page().getByRole("button", { name: "1" }));
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
-    const peer = await page().findByRole("button", { name: /Send to Zelle, Venmo, Cash App and more/ });
+    const peer = await page().findByRole("button", { name: /Send to Cash App/ });
     fireEvent.click(peer);
     fireEvent.click(page().getByRole("button", { name: "Cash App" }));
 
@@ -258,11 +315,52 @@ describe("SendDialog Peer cash-out", () => {
     fireEvent.click(page().getByRole("button", { name: "1" }));
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     await waitFor(() => {
-      expect(page().queryByRole("button", { name: /Send to Zelle, Venmo, Cash App and more/ })).toBeNull();
+      expect(page().queryByRole("button", { name: /Send to Cash App/ })).toBeNull();
       expect(page().queryByRole("button", { name: "Recover a Peer cash-out" })).toBeNull();
       expect(page().getByLabelText("To")).toBeTruthy();
+      expect(page().queryByText(/Cash out isn't available/)).toBeNull();
       expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
     });
+  });
+
+  test("keeps recovery available and retries failed provider discovery without showing an empty corridor", async () => {
+    let providerReads = 0;
+    let resolveRetry!: (value: unknown) => void;
+    const retryRead = new Promise<unknown>((resolve) => { resolveRetry = resolve; });
+    render(
+      <SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-discovery-down" regionId="DE"
+        availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
+        fetchAccountResource={async (url) => {
+          if (url.startsWith("/api/funding/providers")) {
+            providerReads += 1;
+            if (providerReads === 1) throw new Error("offline");
+            return retryRead;
+          }
+          return { version: 3, recoveryEligible: true, orders: [] };
+        }}
+        prepareMoneyAction={async () => resumedAction()} resumeMoneyAction={async () => resumedAction()}
+        executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />,
+    );
+    fireEvent.click(page().getByRole("button", { name: "1" }));
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    expect(await page().findByText("Cash out is unavailable right now.")).toBeTruthy();
+    expect(page().getByRole("button", { name: "Recover a Peer cash-out" })).toBeTruthy();
+    expect(page().queryByText(/Cash out isn't available/)).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "Try again" }));
+    expect(providerReads).toBe(2);
+    expect(page().queryByText(/Cash out isn't available/)).toBeNull();
+    expect(page().getByRole("button", { name: "Recover a Peer cash-out" })).toBeTruthy();
+    await act(async () => {
+      resolveRetry({ ...offrampResponse, providers: [{
+        ...offrampResponse.providers[0], region: "DE", currency: "EUR",
+        paymentMethods: [{ ...offrampResponse.providers[0]!.paymentMethods[0], id: "revolut", label: "Revolut", platform: "revolut" }],
+      }] });
+      await retryRead;
+    });
+    expect(page().getByRole("button", { name: /Send to Revolut/ })).toBeTruthy();
+    expect(page().queryByText("Cash out is unavailable right now.")).toBeNull();
+    expect(page().getByRole("button", { name: "Recover a Peer cash-out" })).toBeTruthy();
+    expect(page().queryByText(/Cash out isn't available/)).toBeNull();
   });
 
   test("waits for settled reads and hides an empty explicit recovery result", async () => {
@@ -309,7 +407,7 @@ describe("SendDialog Peer cash-out", () => {
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     const recovery = await page().findByRole("button", { name: /Withdraw \$2\.00.*Peer cash-out.*awaiting-buyer/ });
     expect(recovery).toBeTruthy();
-    expect(page().queryByRole("button", { name: /Send to Zelle, Venmo, Cash App and more/ })).toBeNull();
+    expect(page().queryByRole("button", { name: /Send to Cash App/ })).toBeNull();
     fireEvent.click(recovery);
     expect(await page().findByRole("button", { name: "Withdraw $2.00" })).toBeTruthy();
     expect(page().getByRole("button", { name: "Withdraw $2.00" }).getAttribute("data-money-action-id")).toBe(ACTION_ID);

@@ -92,6 +92,7 @@ export class FundingCore {
       return [{ provider, binding, directional, asset, sandbox }];
       });
     });
+    let corridorDiscoveryFailed = false;
     const results = await Promise.all(listed.map(async ({ provider, binding, directional, asset, sandbox }) => {
       if (direction === "onramp") {
         const manifest = provider.manifest.onramp;
@@ -124,7 +125,15 @@ export class FundingCore {
           sandbox,
         });
         const catalog = await provider.offramp.capabilities(ctx);
-        if (!capabilityIsFresh(catalog.asOf, catalog.maxAgeSeconds, this.now())) return [];
+        if (!capabilityIsFresh(catalog.asOf, catalog.maxAgeSeconds, this.now())) {
+          corridorDiscoveryFailed = true;
+          this.deps.logProviderDiscoveryFailure?.({
+            providerId: provider.manifest.id,
+            reason: "provider",
+            code: FUNDING_CONFIGURATION_CODE,
+          });
+          return [];
+        }
         const platforms = directional.paymentMethods.flatMap((method) => {
           const capability = catalog.platforms.find((candidate) => candidate.id === method.id);
           if (!capability || !capability.currencies.includes(binding.currency)) return [];
@@ -160,10 +169,13 @@ export class FundingCore {
           reason: error instanceof FundingProviderConfigurationError ? "configuration" : "provider",
           code: error instanceof FundingProviderConfigurationError ? error.code : FUNDING_CONFIGURATION_CODE,
         });
+        corridorDiscoveryFailed = true;
         return [];
       }
     }));
-    return results.flat();
+    const providers = results.flat();
+    if (providers.length === 0 && corridorDiscoveryFailed) throw new FundingCoreError("PROVIDERS_UNAVAILABLE", 503);
+    return providers;
   }
 
   async listProviderCustomers(session: VerifiedAccountSession, region: string) {

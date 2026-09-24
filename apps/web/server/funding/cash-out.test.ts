@@ -125,6 +125,17 @@ describe("Peer cash-out action preparation", () => {
     })).rejects.toMatchObject({ code: "identity-mismatch" });
   });
 
+  test("rejects a euro-area cash-out aimed at another market's platform or currency", async () => {
+    for (const overrides of [
+      { region: "DE", platform: "zelle", currency: "EUR" },
+      { region: "DE", platform: "revolut", currency: "USD" },
+    ]) {
+      await expect(prepareCashoutAction(session, { ...input(), ...overrides }, undefined, {
+        env: { PEER_OFFRAMP_ENABLED: "1" },
+      })).rejects.toMatchObject({ code: "unavailable" });
+    }
+  });
+
   test("requires the exact enablement value for direct preparation", async () => {
     for (const disabled of [undefined, "0", "false"]) {
       await expect(prepareCashoutAction(session, input(), undefined, { env: { PEER_OFFRAMP_ENABLED: disabled } })).rejects.toMatchObject({ code: "unavailable" });
