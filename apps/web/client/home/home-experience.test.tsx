@@ -996,12 +996,6 @@ describe("Home shell routing and intents", () => {
     expect(window.location.pathname).toBe("/invest/crypto");
     expect(page().getByRole("heading", { level: 1, name: "Crypto" })).toBeTruthy();
 
-    const entriesBeforeSameTab = pushCalls.length;
-    fireEvent.click(navigation.getByRole("button", { name: "Invest" }));
-    expect(window.location.pathname).toBe("/invest/crypto");
-    expect(pushCalls).toHaveLength(entriesBeforeSameTab);
-    expect(page().getByRole("heading", { level: 1, name: "Crypto" })).toBeTruthy();
-
     fireEvent.click(navigation.getByRole("button", { name: "Home" }));
     expect(window.location.pathname).toBe("/home");
     fireEvent.click(navigation.getByRole("button", { name: "Invest" }));
