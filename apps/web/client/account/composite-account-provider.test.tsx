@@ -53,6 +53,7 @@ const nativeListeners = new Set<() => void>();
 let nativeIdentity: VerifiedAccountSession | null = null;
 let nativeInitializationError: "provider-unavailable" | undefined;
 let nativeRestores = 0;
+let nativeMountRestore: boolean | null = null;
 let restoreNative: () => Promise<void> = async () => {
   nativeInitializationError = undefined;
   for (const listener of nativeListeners) listener();
@@ -142,7 +143,8 @@ mock.module("@coinbase/cdp-hooks", () => ({
 
 mock.module("./native-base-bridge", () => ({
   default: ({ children }: { children: ReactNode }) => children,
-  useNativeBaseIdentity: (enabled = true) => {
+  useNativeBaseIdentity: (enabled = true, options?: { restoreOnMount?: boolean }) => {
+    nativeMountRestore = enabled && (options?.restoreOnMount ?? true);
     const identity = useNativeIdentity();
     const availableIdentity = enabled ? identity : null;
     const boundary = {
@@ -309,6 +311,7 @@ afterEach(() => {
   nativeIdentity = null;
   nativeInitializationError = undefined;
   nativeRestores = 0;
+  nativeMountRestore = null;
   restoreNative = async () => {
     nativeInitializationError = undefined;
     for (const listener of nativeListeners) listener();
@@ -317,6 +320,25 @@ afterEach(() => {
   getHomeQueryClient().clear();
   window.localStorage.clear();
   window.sessionStorage.clear();
+});
+
+describe("composite native restore plan", () => {
+  test.each([
+    { rendered: "a CDP render hint", renderSeed: { session: CDP_SESSION, source: "cdp-hint" as const }, marker: false, probes: false },
+    { rendered: "no seed", renderSeed: null, marker: false, probes: false },
+    { rendered: "no seed with a CDP restore marker", renderSeed: null, marker: true, probes: false },
+    { rendered: "a Home session", renderSeed: { session: NATIVE_SESSION, source: "home-session" as const }, marker: false, probes: true },
+    { rendered: "a Home session with a CDP restore marker", renderSeed: { session: NATIVE_SESSION, source: "home-session" as const }, marker: true, probes: true },
+  ])("native session probe on mount after the server rendered $rendered: $probes", ({ renderSeed, marker, probes }) => {
+    if (marker) writeCdpRestoreMarker();
+    render(
+      <CompositeAccountProvider projectId="project-id" baseAccountEnabled renderSeed={renderSeed}>
+        <ClientProbe />
+      </CompositeAccountProvider>,
+    );
+
+    expect(nativeMountRestore).toBe(probes);
+  });
 });
 
 describe("composite account provider switches", () => {

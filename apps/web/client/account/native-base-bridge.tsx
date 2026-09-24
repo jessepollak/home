@@ -31,10 +31,14 @@ export type NativeBaseIdentity = {
   boundary: AccountWalletSdkBoundary;
 };
 
-export function useNativeBaseIdentity(enabled = true): NativeBaseIdentity {
+export function useNativeBaseIdentity(
+  enabled = true,
+  { restoreOnMount = true }: { restoreOnMount?: boolean } = {},
+): NativeBaseIdentity {
   const [identity, setIdentity] = useState<VerifiedAccountSession | null>(null);
-  const [isSettled, setIsSettled] = useState(!enabled);
-  const [hasSettled, setHasSettled] = useState(!enabled);
+  const [mountRestore] = useState(() => restoreOnMount);
+  const [isSettled, setIsSettled] = useState(!enabled || !mountRestore);
+  const [hasSettled, setHasSettled] = useState(!enabled || !mountRestore);
   const [initializationError, setInitializationError] = useState<
     "provider-unavailable" | undefined
   >();
@@ -65,11 +69,11 @@ export function useNativeBaseIdentity(enabled = true): NativeBaseIdentity {
   }, [enabled]);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !mountRestore) return;
     const controller = new AbortController();
     queueMicrotask(() => void restore(controller.signal));
     return () => controller.abort();
-  }, [enabled, restore]);
+  }, [enabled, mountRestore, restore]);
 
   const availableIdentity = enabled ? identity : null;
   const availableInitializationError = enabled ? initializationError : undefined;
@@ -129,7 +133,9 @@ export default function NativeBaseAccountBridge({
   children: ReactNode;
   renderSeed: AccountRenderSeed | null;
 }) {
-  const { boundary } = useNativeBaseIdentity(true);
+  const { boundary } = useNativeBaseIdentity(true, {
+    restoreOnMount: renderSeed?.source === "home-session",
+  });
   useEffect(() => {
     startHomeAuthRestore(readHomeAuthRestoreHint());
   }, []);
