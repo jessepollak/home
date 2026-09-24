@@ -340,7 +340,9 @@ type Story = StoryObj<typeof meta>;
 export const Funded: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await expect(canvas.getByLabelText("Total balance").textContent).toContain("$60.54");
+    const hero = canvas.getByLabelText("Total balance");
+    await expect(hero.textContent).toContain("$60.54");
+    await expect(within(hero).queryByText("Partial")).toBeNull();
     const legend = [...canvasElement.querySelectorAll("[data-breakdown-item]")]
       .map((item) => item.getAttribute("data-breakdown-item"));
     await expect(legend).toEqual(["borrow", "cash", "investments"]);
@@ -517,6 +519,7 @@ export const PartialBalances: Story = {
     const canvas = within(canvasElement);
     await expect(canvasElement.querySelector("[data-home-status]")).toBeNull();
     await expect(canvasElement.querySelector("[data-total-status='partial']")).not.toBeNull();
+    await expect(within(canvas.getByLabelText("Total balance")).getByText("Partial")).toBeVisible();
     const borrow = canvas.getByRole("button", { description: "Open Borrow" });
     await expect(borrow.textContent).toContain("—");
     await expect(borrow.querySelector("[data-slot='item-actions']")).toBeNull();
@@ -536,6 +539,7 @@ export const PartialBorrowPosition: Story = {
     const borrow = canvas.getByRole("button", { description: "Open Borrow" });
     await expect(borrow.textContent).toContain("$30.01");
     await expect(borrow.querySelector("[data-value-tone]")?.getAttribute("data-value-tone")).toBe("muted");
+    await expect(within(canvas.getByLabelText("Total balance")).getByText("Partial")).toBeVisible();
   },
 };
 

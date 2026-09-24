@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { Banknote, ChartLine, HandCoins } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BalanceRow } from "@/components/finance-rows";
@@ -85,7 +86,12 @@ function HomeTotalBalance({
       aria-busy={isLoading || isRevalidating || undefined}
     >
       <CardContent inset="hero">
-        <p className="text-sm text-muted-foreground">Total balance</p>
+        <div className="flex items-center gap-2">
+          <p className="text-sm text-muted-foreground">Total balance</p>
+          {!isLoading && totalStatus === "partial" ? (
+            <Badge variant="secondary">{assetBalances?.statusLabel}</Badge>
+          ) : null}
+        </div>
         {isLoading ? (
           <div className="space-y-3 pt-1" data-shimmer="hero">
             <Skeleton className="h-10 w-48" />

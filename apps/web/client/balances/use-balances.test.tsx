@@ -129,7 +129,7 @@ describe("useBalances", () => {
     expect(view.getByText(/:stale:refresh-error$/).textContent).toContain(
       balancesSnapshotFixture.fetchedAt,
     );
-    expect(view.container.querySelector("[data-status-label]")?.textContent).toBe("Some balances are unavailable");
+    expect(view.container.querySelector("[data-status-label]")?.textContent).toBe("Partial");
     expect(document.body.textContent).not.toContain("Updated");
     expect(document.body.textContent).not.toContain("ago");
 

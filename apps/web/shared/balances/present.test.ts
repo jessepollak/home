@@ -248,7 +248,7 @@ describe("balance presentation", () => {
       status: "ready",
       displayTotal: "$3,852.88",
       totalStatus: "partial",
-      statusLabel: "Some balances are unavailable",
+      statusLabel: "Partial",
       breakdown: [
         { id: "cash", label: "Cash", value: "$2,234.68", weight: 580 },
         { id: "investments", label: "Investments", value: "$1,618.20", weight: 420 },
@@ -366,7 +366,7 @@ describe("balance presentation", () => {
     const presentation = presentBalances({ status: "ready", snapshot, error: null });
 
     expect(presentation.totalStatus).toBe("partial");
-    expect(presentation.statusLabel).toBe("Some balances are unavailable");
+    expect(presentation.statusLabel).toBe("Partial");
   });
 
   test("never presents a gross total as net when the Borrow read is incomplete", () => {
@@ -383,7 +383,7 @@ describe("balance presentation", () => {
     const presentation = presentBalances({ status: "ready", snapshot, error: null });
 
     expect(presentation.totalStatus).toBe("partial");
-    expect(presentation.statusLabel).toBe("Some balances are unavailable");
+    expect(presentation.statusLabel).toBe("Partial");
     expect(presentation.summary?.borrow).toEqual({ kind: "unavailable" });
     expect(presentation.breakdown.some((item) => item.id === "borrow")).toBeFalse();
   });

@@ -148,7 +148,7 @@ export function presentBalances(
       : unavailable
         ? "Balance unavailable"
         : net.status === "partial"
-          ? "Some balances are unavailable"
+          ? "Partial"
           : undefined,
     ...(noCurrency ? { needsCountry: true as const } : {}),
     groups,
