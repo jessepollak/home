@@ -594,11 +594,6 @@ function OrderStatus({
             onRefetch={onRefetch}
           />
         ) : null}
-        {order.providerStatus ? (
-          <p className="text-sm text-muted-foreground">
-            Status: {order.providerStatus}
-          </p>
-        ) : null}
         {resolutionError ? (
           <FundingNotice tone="error" role="alert">
             {resolutionError}

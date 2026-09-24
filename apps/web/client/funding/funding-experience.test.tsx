@@ -297,8 +297,32 @@ describe("FundingExperience", () => {
     };
     render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="US" />);
     expect(await page().findByRole("heading", { name: "Sandbox complete — no real funds moved" })).toBeTruthy();
+    expect(page().queryByText("ONRAMP_ORDER_STATUS_COMPLETED")).toBeNull();
+    expect(document.body.textContent).not.toContain("ONRAMP_ORDER_STATUS_COMPLETED");
     expect(page().getAllByText("Sandbox — not a real deposit")).toHaveLength(1);
     expect(statusCalls).toBe(0);
+  });
+
+  test.each([
+    ["ONRAMP_ORDER_STATUS_PENDING_PAYMENT", "awaiting-payment", "Deposit pending"],
+    ["HTTP_503", "failed", "Deposit not completed"],
+    ["AUTHORIZATION_ERROR", "failed", "Deposit not completed"],
+  ])("hides raw provider status %s on a resumed %s order", async (providerStatus, state, title) => {
+    const order = { id: "11111111-1111-4111-8111-111111111111", providerId: "ripio", state, fiatAmount: "1000", providerStatus, instructions: null };
+    const wallet = {
+      ...verifiedWallet(),
+      fetchAccountResource: async (path: string) => {
+        if (path.startsWith("/api/funding/providers")) return { providers: [fundingBinding()] };
+        if (path.startsWith("/api/funding/orders")) return { order };
+        throw new Error("unexpected request");
+      },
+    };
+
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+    expect(await page().findByRole("heading", { name: title })).toBeTruthy();
+    expect(page().queryByText(providerStatus)).toBeNull();
+    expect(page().queryByText(`Status: ${providerStatus}`)).toBeNull();
+    expect(document.body.textContent).not.toContain(providerStatus);
   });
 
   test("retries a lost order response with the exact original quote token", async () => {
