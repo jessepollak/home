@@ -8,6 +8,7 @@ This map points to Home's current product, engineering, delivery, setup, and int
 - [Architecture](architecture.md) — the normative technical direction and seams; it wins when another document disagrees.
 - [Contributing](../CONTRIBUTING.md) — local checks, app boundaries, and the engineering contribution contract.
 - [Repository README](../README.md#get-started) — install and run Home; [Fork and extend](fork-and-extend.md) covers operator customization.
+- [Operator checklist](operator-checklist.md) — instance-specific hosting, integrations, and environment configuration.
 
 ## Core contracts
 

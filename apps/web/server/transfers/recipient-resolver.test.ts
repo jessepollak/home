@@ -12,21 +12,21 @@ import {
 } from "./recipient-resolver";
 import { getAddress } from "viem";
 
-const JESSE = "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9" as const;
-const JESSE_LOWER = JESSE.toLowerCase() as `0x${string}`;
+const RECIPIENT = "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9" as const;
+const RECIPIENT_LOWER = RECIPIENT.toLowerCase() as `0x${string}`;
 const OTHER = "0x2222222222222222222222222222222222222222" as const;
 
 describe("reverseResolverUrl", () => {
   test("targets the bounded reverse-label resolver path", () => {
-    expect(reverseResolverUrl(JESSE)).toBe(`https://api.ensideas.com/ens/resolve/${JESSE}`);
+    expect(reverseResolverUrl(RECIPIENT)).toBe(`https://api.ensideas.com/ens/resolve/${RECIPIENT}`);
   });
 });
 
 describe("parseResolvedRecipientName", () => {
   test("reads a normalized name and ignores anything that is not a recipient name", () => {
-    expect(parseResolvedRecipientName({ name: "JESSE.BASE.ETH" })).toBe("jesse.base.eth");
+    expect(parseResolvedRecipientName({ name: "EXAMPLE.BASE.ETH" })).toBe("example.base.eth");
     expect(parseResolvedRecipientName({ ens: "vitalik.eth" })).toBe("vitalik.eth");
-    expect(parseResolvedRecipientName({ displayName: "jesse" })).toBeNull();
+    expect(parseResolvedRecipientName({ displayName: "example" })).toBeNull();
     expect(parseResolvedRecipientName({})).toBeNull();
   });
 });
@@ -34,10 +34,10 @@ describe("parseResolvedRecipientName", () => {
 describe("resolveTransferRecipientName", () => {
   test("uses the Base resolver for Basenames and returns a checksummed address", async () => {
     const requested: string[] = [];
-    const resolved = await resolveTransferRecipientName("JESSE.BASE.ETH", {
+    const resolved = await resolveTransferRecipientName("EXAMPLE.BASE.ETH", {
       resolveBasename: async (name) => {
         requested.push(`base:${name}`);
-        return JESSE_LOWER;
+        return RECIPIENT_LOWER;
       },
       resolveEnsName: async (name) => {
         requested.push(`mainnet:${name}`);
@@ -45,8 +45,8 @@ describe("resolveTransferRecipientName", () => {
       },
     });
 
-    expect(resolved).toBe(JESSE);
-    expect(requested).toEqual(["base:jesse.base.eth"]);
+    expect(resolved).toBe(RECIPIENT);
+    expect(requested).toEqual(["base:example.base.eth"]);
   });
 
   test("uses mainnet ENS for other .eth names", async () => {
@@ -54,7 +54,7 @@ describe("resolveTransferRecipientName", () => {
     const resolved = await resolveTransferRecipientName("vitalik.eth", {
       resolveBasename: async (name) => {
         requested.push(`base:${name}`);
-        return JESSE;
+        return RECIPIENT;
       },
       resolveEnsName: async (name) => {
         requested.push(`mainnet:${name}`);
@@ -67,19 +67,19 @@ describe("resolveTransferRecipientName", () => {
   });
 
   test("returns nothing when resolution fails, resolves to zero, or input is unsupported", async () => {
-    expect(await resolveTransferRecipientName("jesse.base.eth", {
+    expect(await resolveTransferRecipientName("example.base.eth", {
       resolveBasename: async () => { throw new Error("offline"); },
     })).toBeNull();
-    expect(await resolveTransferRecipientName("jesse.base.eth", {
+    expect(await resolveTransferRecipientName("example.base.eth", {
       resolveBasename: async () => "0x0000000000000000000000000000000000000000",
     })).toBeNull();
-    expect(await resolveTransferRecipientName("jesse", {
+    expect(await resolveTransferRecipientName("example", {
       resolveEnsName: async () => OTHER,
     })).toBeNull();
   });
 
   test("refuses a timeout outside the supported bound", async () => {
-    await expect(resolveTransferRecipientName("jesse.base.eth", { timeoutMs: 0 }))
+    await expect(resolveTransferRecipientName("example.base.eth", { timeoutMs: 0 }))
       .rejects.toThrow("The recipient resolver timeout must be 1-10000ms.");
   });
 });
@@ -87,18 +87,18 @@ describe("resolveTransferRecipientName", () => {
 describe("resolveTransferRecipientLabels", () => {
   test("keeps only reverse labels whose forward resolution matches the address", async () => {
     const requested: string[] = [];
-    const labels = await resolveTransferRecipientLabels([JESSE_LOWER, JESSE, OTHER], {
+    const labels = await resolveTransferRecipientLabels([RECIPIENT_LOWER, RECIPIENT, OTHER], {
       fetchImpl: async (input) => {
         requested.push(String(input));
-        return String(input).endsWith(JESSE)
-          ? Response.json({ name: "jesse.base.eth" })
+        return String(input).endsWith(RECIPIENT)
+          ? Response.json({ name: "example.base.eth" })
           : Response.json({ name: "spoofed.eth" });
       },
-      resolveName: async (name) => name === "jesse.base.eth" ? JESSE : JESSE,
+      resolveName: async (name) => name === "example.base.eth" ? RECIPIENT : RECIPIENT,
     });
 
     expect(labels.size).toBe(1);
-    expect(labels.get(JESSE)).toBe("jesse.base.eth");
+    expect(labels.get(RECIPIENT)).toBe("example.base.eth");
     expect(labels.get(OTHER)).toBeUndefined();
     expect(requested).toHaveLength(2);
   });
@@ -106,7 +106,7 @@ describe("resolveTransferRecipientLabels", () => {
   test("bounds reverse lookups and tolerates resolver failures", async () => {
     let calls = 0;
     const labels = await resolveTransferRecipientLabels(
-      [JESSE, OTHER, "0x3333333333333333333333333333333333333333", "0x4444444444444444444444444444444444444444"],
+      [RECIPIENT, OTHER, "0x3333333333333333333333333333333333333333", "0x4444444444444444444444444444444444444444"],
       {
         fetchImpl: async () => {
           calls += 1;
@@ -152,13 +152,13 @@ describe("resolveTransferRecipientNameCached", () => {
   test("reuses a resolved name without re-resolving", async () => {
     const name = "cache-hit.base.eth";
     const first = await resolveTransferRecipientNameCached(name, {
-      resolveBasename: async () => JESSE_LOWER,
+      resolveBasename: async () => RECIPIENT_LOWER,
     });
-    expect(first).toBe(JESSE);
+    expect(first).toBe(RECIPIENT);
     const second = await resolveTransferRecipientNameCached(name, {
       resolveBasename: async () => { throw new Error("should not run"); },
     });
-    expect(second).toBe(JESSE);
+    expect(second).toBe(RECIPIENT);
   });
 
   test("does not cache an unresolved name", async () => {
@@ -168,9 +168,9 @@ describe("resolveTransferRecipientNameCached", () => {
     });
     expect(first).toBeNull();
     const second = await resolveTransferRecipientNameCached(name, {
-      resolveBasename: async () => JESSE,
+      resolveBasename: async () => RECIPIENT,
     });
-    expect(second).toBe(JESSE);
+    expect(second).toBe(RECIPIENT);
   });
 });
 
@@ -211,9 +211,9 @@ describe("resolveEnsAddressPreferringBase", () => {
     const requested: (number | undefined)[] = [];
     const resolved = await resolveEnsAddressPreferringBase(async (coinType) => {
       requested.push(coinType);
-      return coinType === BASE_COIN_TYPE ? JESSE : OTHER;
+      return coinType === BASE_COIN_TYPE ? RECIPIENT : OTHER;
     });
-    expect(resolved).toBe(JESSE);
+    expect(resolved).toBe(RECIPIENT);
     expect(requested).toEqual([BASE_COIN_TYPE]);
   });
 

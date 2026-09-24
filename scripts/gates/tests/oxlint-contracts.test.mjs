@@ -31,7 +31,11 @@ async function mirrorFile(relativePath) {
 
 await mirrorFile(".oxlintrc.jsonc");
 await mirrorFile("oxlint");
-await symlink(path.join(appsWebDir, "node_modules"), path.join(mirror, "node_modules"), "dir");
+await mkdir(path.join(mirror, "node_modules"));
+for (const entry of await readdir(path.join(appsWebDir, "node_modules"))) {
+  if (entry === "ignored.ts") continue;
+  await symlink(path.join(appsWebDir, "node_modules", entry), path.join(mirror, "node_modules", entry));
+}
 await symlink(path.join(appsWebDir, "components.json"), path.join(mirror, "components.json"));
 await symlink(path.join(appsWebDir, "tsconfig.json"), path.join(mirror, "tsconfig.json"));
 await mkdir(path.join(mirror, "app"), { recursive: true });

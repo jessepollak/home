@@ -221,7 +221,7 @@ do not silently ignore a new failure or treat this list as permission to broaden
   6. `click "1"`
   7. `click "Continue"`
   8. `expect "Recent recipients"`
-  9. `fill "To" "jesse.base.eth"`
+  9. `fill "To" "example.base.eth"`
   10. `expect "Resolves to"`
 - **Reach (live)**:
   1. `goto "/home"`

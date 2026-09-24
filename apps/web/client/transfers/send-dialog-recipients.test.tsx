@@ -10,7 +10,7 @@ const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-libr
 const { SendDialog } = await import("./send-dialog");
 
 const ACCOUNT = "0x1111111111111111111111111111111111111111" as const;
-const JESSE = "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9" as const;
+const RECIPIENT = "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9" as const;
 const OTHER = "0x2222222222222222222222222222222222222222" as const;
 const USDC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 const ACTION_ID = "11111111-1111-4111-8111-111111111111";
@@ -46,7 +46,7 @@ function preparedAction(recipient: `0x${string}`): PreparedMoneyAction {
 }
 
 function renderDialog({
-  resolves = { "jesse.base.eth": JESSE },
+  resolves = { "example.base.eth": RECIPIENT },
   recent = [],
   holdNames = [],
 }: {
@@ -89,7 +89,7 @@ function renderDialog({
         prepares.push({ kind, params });
         return preparedAction((params as { recipient: `0x${string}` }).recipient);
       }}
-      resumeMoneyAction={async () => preparedAction(JESSE)}
+      resumeMoneyAction={async () => preparedAction(RECIPIENT)}
       executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })}
       onClose={() => {}}
     />,
@@ -130,7 +130,7 @@ function continueButton(): HTMLButtonElement {
 }
 
 function resolvedAddressControl(): Element | null {
-  const controls = document.querySelectorAll(`button[aria-label="Copy ${JESSE}"]`);
+  const controls = document.querySelectorAll(`button[aria-label="Copy ${RECIPIENT}"]`);
   return controls[controls.length - 1] ?? null;
 }
 
@@ -139,7 +139,7 @@ describe("SendDialog recipient names", () => {
     const { prepares } = renderDialog();
     await openDestinationStep();
 
-    await pasteRecipient("JESSE.BASE.ETH");
+    await pasteRecipient("EXAMPLE.BASE.ETH");
 
     await waitFor(() => expect(resolvedAddressControl()).toBeTruthy());
     expect(continueButton().disabled).toBe(false);
@@ -151,9 +151,9 @@ describe("SendDialog recipient names", () => {
       kind: "send",
       params: {
         assetId: "usdc",
-        recipient: JESSE,
+        recipient: RECIPIENT,
         amountBaseUnits: "1000000",
-        recipientName: "jesse.base.eth",
+        recipientName: "example.base.eth",
       },
     }]);
     expect(resolvedAddressControl()).toBeTruthy();
@@ -163,12 +163,12 @@ describe("SendDialog recipient names", () => {
     const { requested } = renderDialog();
     await openDestinationStep();
 
-    await pasteRecipient("jesse.base.eth");
+    await pasteRecipient("example.base.eth");
     await waitFor(() => expect(resolvedAddressControl()).toBeTruthy());
     const nameRequests = () => requested.filter((url) => url.startsWith("/api/transfers/recipient-name"));
     expect(nameRequests()).toHaveLength(1);
 
-    fireEvent.change(sendField(), { target: { value: "JESSE.BASE.ETH " } });
+    fireEvent.change(sendField(), { target: { value: "EXAMPLE.BASE.ETH " } });
 
     expect(resolvedAddressControl()).toBeTruthy();
     expect(continueButton().disabled).toBe(false);
@@ -199,7 +199,7 @@ describe("SendDialog recipient names", () => {
     await page().findAllByRole("alert");
 
     await act(async () => {
-      releases.get("first.base.eth")!({ version: 1, name: "first.base.eth", address: JESSE });
+      releases.get("first.base.eth")!({ version: 1, name: "first.base.eth", address: RECIPIENT });
     });
     await waitFor(() => expect(resolvedAddressControl()).toBeNull());
     expect(continueButton().disabled).toBe(true);
@@ -208,19 +208,19 @@ describe("SendDialog recipient names", () => {
   test("fills To from a recent recipient labelled by name or truncated address", async () => {
     renderDialog({
       recent: [
-        { address: JESSE, name: "jesse.base.eth" },
+        { address: RECIPIENT, name: "example.base.eth" },
         { address: OTHER, name: null },
       ],
     });
     await openDestinationStep();
 
     expect(document.body.textContent).toContain("Recent recipients");
-    const named = await page().findByRole("button", { name: /jesse\.base\.eth/ });
+    const named = await page().findByRole("button", { name: /example\.base\.eth/ });
     expect(document.body.textContent).toContain(formatAddress(OTHER));
 
     fireEvent.click(named);
 
-    expect(sendField().value).toBe(formatAddress(JESSE));
+    expect(sendField().value).toBe(formatAddress(RECIPIENT));
     expect(continueButton().disabled).toBe(false);
   });
 
@@ -228,14 +228,14 @@ describe("SendDialog recipient names", () => {
     const { prepares } = renderDialog();
     await openDestinationStep();
 
-    await pasteRecipient("jesse");
+    await pasteRecipient("example");
     await waitFor(() => expect(document.body.textContent)
-      .toContain("Enter a 0x address or a name like jesse.base.eth."));
+      .toContain("Enter a 0x address or a name like example.base.eth."));
     expect(continueButton().disabled).toBe(true);
 
     await pasteRecipient(OTHER);
     await waitFor(() => expect(continueButton().disabled).toBe(false));
-    expect(document.body.textContent).not.toContain("Enter a 0x address or a name like jesse.base.eth.");
+    expect(document.body.textContent).not.toContain("Enter a 0x address or a name like example.base.eth.");
     expect(document.body.textContent).not.toContain("We couldn't resolve");
 
     fireEvent.click(continueButton());
@@ -253,7 +253,7 @@ describe("SendDialog recipient names", () => {
       requested.push(url);
       if (url.startsWith("/api/funding/providers")) return { version: 2, direction: "offramp", providers: [] };
       if (url.startsWith("/api/funding/offramp/orders")) return { version: 3, recoveryEligible: false, orders: [] };
-      if (url.startsWith("/api/transfers/recent-recipients")) return { version: 1, recipients: [{ address: JESSE, name: "jesse.base.eth" }] };
+      if (url.startsWith("/api/transfers/recent-recipients")) return { version: 1, recipients: [{ address: RECIPIENT, name: "example.base.eth" }] };
       return {};
     };
     const dialog = (open: boolean) => (
@@ -266,7 +266,7 @@ describe("SendDialog recipient names", () => {
         availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
         fetchAccountResource={fetchAccountResource}
         prepareMoneyAction={async (_kind, params) => preparedAction((params as { recipient: `0x${string}` }).recipient)}
-        resumeMoneyAction={async () => preparedAction(JESSE)}
+        resumeMoneyAction={async () => preparedAction(RECIPIENT)}
         executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" as const })}
         onClose={() => {}}
       />

@@ -56,7 +56,7 @@ async function installRecipientFixtures(
   page: Page,
   options: { resolves?: Record<string, string>; recents?: Array<{ address: string; name: string | null }> } = {},
 ) {
-  const resolves = options.resolves ?? { "jesse.base.eth": PINNED_RECIPIENT };
+  const resolves = options.resolves ?? { "example.base.eth": PINNED_RECIPIENT };
   const recents = options.recents ?? [];
   await page.route("**/api/**", async (route) => {
     const request = route.request();
@@ -132,7 +132,7 @@ test("resolves a Basename into the destination and the review address", async ({
   await page.goto("/home");
   await openDestinationStep(page);
 
-  await page.getByRole("textbox", { name: "To" }).fill("jesse.base.eth");
+  await page.getByRole("textbox", { name: "To" }).fill("example.base.eth");
 
   await expect(page.getByText(PINNED_RECIPIENT, { exact: true })).toBeVisible();
   const review = await openReview(page);
@@ -160,7 +160,7 @@ test("fills To from a recent recipient and reviews the full address", async ({ p
   await seedSignedInSession(page);
   await installRecipientFixtures(page, {
     recents: [
-      { address: PINNED_RECIPIENT, name: "jesse.base.eth" },
+      { address: PINNED_RECIPIENT, name: "example.base.eth" },
       { address: RECENT_RECIPIENT, name: null },
     ],
   });
@@ -168,7 +168,7 @@ test("fills To from a recent recipient and reviews the full address", async ({ p
   await openDestinationStep(page);
 
   await expect(page.getByText("Recent recipients")).toBeVisible();
-  await page.getByRole("button", { name: /jesse\.base\.eth/ }).click();
+  await page.getByRole("button", { name: /example\.base\.eth/ }).click();
 
   await expect(page.getByRole("textbox", { name: "To" })).toHaveValue("0x2211…d77DA9");
   const review = await openReview(page);

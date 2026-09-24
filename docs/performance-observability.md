@@ -26,7 +26,7 @@ Valuation follows the same stale-while-revalidate boundary. A request serving an
 
 ## Production verification
 
-After deployment, enable Speed Insights for the `home-web` Vercel project. This hosted setting can affect usage and is not changed by source code.
+After deployment, enable Speed Insights for your Home Vercel project. This hosted setting can affect usage and is not changed by source code.
 
 In Vercel logs, search `home.observability.v2`, then use:
 

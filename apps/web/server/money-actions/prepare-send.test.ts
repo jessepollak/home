@@ -12,8 +12,8 @@ import {
 } from "./prepare-send";
 
 const OWNER = "0x1111111111111111111111111111111111111111" as const;
-const RECIPIENT = "0x2222222222222222222222222222222222222222" as const;
-const JESSE = "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9" as const;
+const OTHER = "0x2222222222222222222222222222222222222222" as const;
+const RECIPIENT = "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9" as const;
 const USDC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 const NOW = new Date("2026-09-13T12:00:00.000Z");
 
@@ -44,7 +44,7 @@ function request(assetId: string, amountBaseUnits: string, extra: Record<string,
       "content-type": "application/json",
       [ACCOUNT_PROVIDER_HEADER]: "cdp-embedded",
     },
-    body: JSON.stringify({ assetId, recipient: RECIPIENT, amountBaseUnits, ...extra }),
+    body: JSON.stringify({ assetId, recipient: OTHER, amountBaseUnits, ...extra }),
   });
 }
 
@@ -59,7 +59,7 @@ describe("prepare send", () => {
     test(`authors exact ${entry.assetId} calldata from catalog metadata`, () => {
       const transfer = {
         assetId: entry.assetId,
-        recipient: RECIPIENT,
+        recipient: OTHER,
         amountBaseUnits: entry.amountBaseUnits,
       } satisfies TransferRequest;
       const asset = getTransferAsset(entry.assetId)!;
@@ -75,14 +75,14 @@ describe("prepare send", () => {
       expect(draft.calls).toHaveLength(1);
       if (entry.native) {
         expect(draft.calls[0]).toEqual({
-          to: RECIPIENT,
+          to: OTHER,
           data: "0x",
           value: entry.amountBaseUnits,
         });
       } else {
         expect(draft.calls[0]).toEqual({
           to: asset.contractAddress!.toLowerCase() as `0x${string}`,
-          data: `0xa9059cbb${RECIPIENT.slice(2).padStart(64, "0")}${BigInt(entry.amountBaseUnits).toString(16).padStart(64, "0")}`,
+          data: `0xa9059cbb${OTHER.slice(2).padStart(64, "0")}${BigInt(entry.amountBaseUnits).toString(16).padStart(64, "0")}`,
           value: "0",
         });
       }
@@ -92,12 +92,12 @@ describe("prepare send", () => {
   test("authors a recipient warning the recent-recipient list can derive", () => {
     const draft = buildSendMoneyActionDraft({
       assetId: "usdc",
-      recipient: JESSE,
+      recipient: RECIPIENT,
       amountBaseUnits: "1000000",
     }, NOW);
 
     expect(recentSendRecipientAddresses([{ kind: draft.kind, summary: { warnings: draft.warnings } }]))
-      .toEqual([JESSE]);
+      .toEqual([RECIPIENT]);
   });
 
   test.each([
@@ -129,22 +129,22 @@ describe("prepare send", () => {
 
     const action = await issueSendMoneyAction(session(), {
       assetId: "usdc",
-      recipient: JESSE,
+      recipient: RECIPIENT,
       amountBaseUnits: "1000000",
-      recipientName: "JESSE.BASE.ETH",
+      recipientName: "EXAMPLE.BASE.ETH",
     }, new Date(), {
       signal: AbortSignal.timeout(1_000),
       resolveName: async (name, options) => {
         resolved.push({ name, signal: options?.signal });
-        return name === "jesse.base.eth" ? JESSE : null;
+        return name === "example.base.eth" ? RECIPIENT : null;
       },
     });
 
-    expect(resolved.map((entry) => entry.name)).toEqual(["jesse.base.eth"]);
+    expect(resolved.map((entry) => entry.name)).toEqual(["example.base.eth"]);
     expect(resolved[0]?.signal).toBeInstanceOf(AbortSignal);
     expect(action.calls[0]?.to).toBe(USDC);
-    expect(action.calls[0]?.data).toContain(JESSE.slice(2).toLowerCase());
-    expect(stored[0]?.summary.warnings[0]).toBe(`Recipient: ${JESSE}`);
+    expect(action.calls[0]?.data).toContain(RECIPIENT.slice(2).toLowerCase());
+    expect(stored[0]?.summary.warnings[0]).toBe(`Recipient: ${RECIPIENT}`);
   });
 
   test("refuses a named send whose resolution does not match the submitted address", async () => {
@@ -152,10 +152,10 @@ describe("prepare send", () => {
 
     await expect(issueSendMoneyAction(session(), {
       assetId: "usdc",
-      recipient: RECIPIENT,
+      recipient: OTHER,
       amountBaseUnits: "1000000",
-      recipientName: "jesse.base.eth",
-    }, new Date(), { resolveName: async () => JESSE })).rejects.toMatchObject({
+      recipientName: "example.base.eth",
+    }, new Date(), { resolveName: async () => RECIPIENT })).rejects.toMatchObject({
       reason: "invalid-request",
     } satisfies Partial<TransferExecutionError>);
   });
@@ -165,9 +165,9 @@ describe("prepare send", () => {
 
     await expect(issueSendMoneyAction(session(), {
       assetId: "usdc",
-      recipient: JESSE,
+      recipient: RECIPIENT,
       amountBaseUnits: "1000000",
-      recipientName: "jesse.base.eth",
+      recipientName: "example.base.eth",
     }, new Date(), { resolveName: async () => null })).rejects.toMatchObject({
       reason: "invalid-request",
     } satisfies Partial<TransferExecutionError>);
@@ -181,10 +181,10 @@ describe("prepare send", () => {
 
     await expect(issueSendMoneyAction(session(), {
       assetId: "usdc",
-      recipient: JESSE,
+      recipient: RECIPIENT,
       amountBaseUnits: "1000000",
-      recipientName: "jesse",
-    }, new Date(), { resolveName: async () => JESSE })).rejects.toMatchObject({
+      recipientName: "example",
+    }, new Date(), { resolveName: async () => RECIPIENT })).rejects.toMatchObject({
       reason: "invalid-request",
     } satisfies Partial<TransferExecutionError>);
     expect(inserts).toBe(0);
@@ -196,12 +196,12 @@ describe("prepare send", () => {
 
     const action = await issueSendMoneyAction(session(), {
       assetId: "usdc",
-      recipient: RECIPIENT,
+      recipient: OTHER,
       amountBaseUnits: "1000000",
     }, new Date(), {
       resolveName: async () => {
         calls += 1;
-        return RECIPIENT;
+        return OTHER;
       },
     });
 
@@ -215,8 +215,8 @@ describe("prepare send", () => {
       issue: async () => { throw new Error("malformed request reached issuance"); },
     });
 
-    const malformedName = await handler(request("usdc", "1", { recipientName: "jesse" }));
-    const extraKey = await handler(request("usdc", "1", { recipientName: "jesse.base.eth", memo: "hi" }));
+    const malformedName = await handler(request("usdc", "1", { recipientName: "example" }));
+    const extraKey = await handler(request("usdc", "1", { recipientName: "example.base.eth", memo: "hi" }));
 
     expect(malformedName.status).toBe(400);
     expect(extraKey.status).toBe(400);
