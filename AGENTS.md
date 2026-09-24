@@ -44,6 +44,7 @@ Pointers, not new rules. Each line is the shortest path to the doc or file that 
 - **Money-loop gates.** Do not restate them from memory: [architecture](docs/architecture.md) and [actions](docs/actions.md). The durable flow is `apps/web/server/actions/` (prepare, confirm, handle, list); calldata builders remain in `apps/web/server/money-actions/{issue,prepare-send}.ts`.
 - **Recurring fix policy.** Follow the [rule-first policy](docs/operating-manual.md#delivery-loop) for recurring agent-produced patterns.
 - **Commits** are conventional, lowercase, imperative, scoped to the feature lane: `feat(funding)`, `fix(balances)`, `docs(ops)`, `test(money-modal)`, `ops(dx)`.
+- **Public text stays public-safe.** This repository is public: issues, PRs, comments, and commits carry no tool-attribution trailers ("Generated with …") and name no private hosts, machine paths, internal tools, model routing, or spend.
 - **Docs ship in the same PR as the code** ([docs policy](docs/operating-manual.md#docs)). The pairs that have drifted before: a new environment variable means `.env.example`; a change to sign-in means `docs/base-account.md`; a renamed CI job means `docs/gates.md`; a change to what a clone can run means the README "Get started" path.
 
 ## UI direction
