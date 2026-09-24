@@ -97,21 +97,38 @@ test("reports a missing rung and accepts a suffixed surface cell", () => {
 test("mapped PRs need a matching evidence or named blocker line without relaxing table/rung checks", () => {
   const files = ["apps/web/server/actions/confirm.ts"];
   const noLines = body.replace("Verified: landing rung 1\nVerified: send rung 3\n", "");
-  assert.deepEqual(verificationEvidenceFindings(files, noLines, surfaces), [
-    "A mapped surface needs a Verified: or Not verified: line at its required rung (with a reason for a blocker).",
-  ]);
-  assert.deepEqual(verificationEvidenceFindings(files, `${noLines}\nVerified: landing rung 1`, surfaces), [
-    "A mapped surface needs a Verified: or Not verified: line at its required rung (with a reason for a blocker).",
-  ]);
+  const missingSend = ["send needs a Verified: or Not verified: line at Rung 3 (with a reason for a blocker)."];
+  assert.deepEqual(verificationEvidenceFindings(files, noLines, surfaces), missingSend);
+  assert.deepEqual(verificationEvidenceFindings(files, `${noLines}\nVerified: landing rung 1`, surfaces), missingSend);
   assert.deepEqual(verificationEvidenceFindings(files, `${noLines}\nNot verified: send rung 3 — bot account not provisioned`, surfaces), []);
-  assert.deepEqual(verificationEvidenceFindings(files, `${noLines}\nNot verified: send rung 3`, surfaces), [
-    "A mapped surface needs a Verified: or Not verified: line at its required rung (with a reason for a blocker).",
-  ]);
-  assert.deepEqual(verificationEvidenceFindings(files, `${noLines}\nVerified: send rung 2`, surfaces), [
-    "A mapped surface needs a Verified: or Not verified: line at its required rung (with a reason for a blocker).",
-  ]);
+  assert.deepEqual(verificationEvidenceFindings(files, `${noLines}\nNot verified: send rung 3`, surfaces), missingSend);
+  assert.deepEqual(verificationEvidenceFindings(files, `${noLines}\nVerified: send rung 2`, surfaces), missingSend);
   assert.deepEqual(verificationEvidenceFindings(files, body.replace("| send | 3 |", "| send | 2 |"), surfaces), [
     "send reports Rung 2; Rung 3 is required.",
+  ]);
+});
+
+test("requires an individual line for both send and borrow at their required rung", () => {
+  const affected = realMap.filter((surface) => surface.id === "send" || surface.id === "borrow");
+  const files = ["apps/web/server/actions/confirm.ts"];
+  const oneLine = `## Verification
+
+| surface | rung reached | evidence pointer | incidents |
+| --- | --- | --- | --- |
+| send | 3 | /tmp/send/summary.md | none |
+| borrow | 3 | /tmp/borrow/summary.md | none |
+
+Verified: send rung 3
+`;
+  const missingBorrow = ["borrow needs a Verified: or Not verified: line at Rung 3 (with a reason for a blocker)."];
+  assert.deepEqual(verificationEvidenceFindings(files, oneLine, affected), missingBorrow);
+  assert.deepEqual(verificationEvidenceFindings(files, `${oneLine}Verified: borrow rung 3\n`, affected), []);
+  assert.deepEqual(verificationEvidenceFindings(files, `${oneLine}Not verified: borrow rung 3 — bot unavailable\n`, affected), []);
+  assert.deepEqual(verificationEvidenceFindings(files, `${oneLine}Not verified: borrow rung 2 — bot unavailable\n`, affected), missingBorrow);
+  const lowerRung = oneLine.replace("| borrow | 3 |", "| borrow | 2 |").replace("Verified: send rung 3", "Verified: borrow rung 3");
+  assert.deepEqual(verificationEvidenceFindings(["apps/web/server/borrowing/prepare.ts"], lowerRung, affected), []);
+  assert.deepEqual(verificationEvidenceFindings(["apps/web/server/borrowing/prepare.ts"], lowerRung.replace("Verified: borrow rung 3", "Not verified: borrow rung 3 — blocked"), affected), [
+    "borrow needs a Verified: or Not verified: line at Rung 2 (with a reason for a blocker).",
   ]);
 });
 
