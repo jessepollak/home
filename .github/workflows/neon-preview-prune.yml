@@ -1,10 +1,17 @@
-# Safety net for Neon Free’s 10-branch project cap: keep the newest five
-# preview branches, so the project holds main + five previews = six total,
-# four slots under the 10-branch cap. Runs every 15 minutes.
+# Keeps Neon Free’s 10-branch project cap from blocking Vercel previews. The
+# Neon integration is a required preview deployment step, so a new git branch
+# fails with “Resource provisioning failed” when the project is full.
 #
-# If preview/* count is >= 6 (the exclusive keep_below threshold), delete the
-# oldest preview branches until count is < 6, so the newest five survive.
+# Each run first deletes stale previews: preview/<ref> whose git branch has
+# only closed or merged PRs (a push after merge recreates the DB after
+# PR-close cleanup ran). Then, if preview/* count is >= 6 (the exclusive
+# keep_below threshold), it deletes the oldest remaining previews until count
+# is < 6, so main + five previews = six total leaves four slots free.
 # Never deletes main / production / default / protected / non-preview branches.
+#
+# Runs on every non-main push so headroom is restored before the next new
+# branch deploys; GitHub throttles the schedule to hours apart, so the cron is
+# only a backstop.
 #
 # Assumptions (see docs/vercel-deploy.md):
 # - Vercel-Managed and Neon-Managed integrations name preview DBs
@@ -20,8 +27,11 @@ name: Prune Neon preview branches
 
 on:
   schedule:
-    # Every 15 minutes; aggressive safety net for Neon Free’s 10-branch cap.
+    # Backstop only; GitHub runs this far less often than every 15 minutes.
     - cron: "*/15 * * * *"
+  push:
+    branches-ignore:
+      - main
   workflow_dispatch:
     inputs:
       keep_below:
@@ -39,10 +49,11 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   prune:
-    name: Prune preview/* to newest five
+    name: Prune stale preview/* and keep newest five
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -50,6 +61,8 @@ jobs:
       NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID || secrets.NEON_PROJECT_ID }}
       PREVIEW_KEEP_BELOW: ${{ github.event.inputs.keep_below || '6' }}
       DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
     steps:
       - name: Require Neon credentials
         id: creds
@@ -112,19 +125,40 @@ jobs:
             ] | sort_by(.created_at)
           ' <<<"$all")"
 
+          # Stale = the git branch's most recent PR is closed or merged.
+          # Branches without a PR yet are never stale.
+          stale='[]'
+          while IFS= read -r name; do
+            [ -z "$name" ] && continue
+            ref="${name#preview/}"
+            state="$(gh pr list --head "$ref" --state all --limit 1 --json state --jq '.[0].state // ""')" || state=""
+            if [ "$state" = "MERGED" ] || [ "$state" = "CLOSED" ]; then
+              stale="$(jq -c --arg n "$name" '. + [$n]' <<<"$stale")"
+            fi
+          done < <(jq -r '.[].name' <<<"$preview")
+
           count="$(jq 'length' <<<"$preview")"
           echo "Deletable preview/* count: ${count} (exclusive keep_below ${PREVIEW_KEEP_BELOW}; keep newest $((PREVIEW_KEEP_BELOW - 1)))"
           jq -r '.[] | "- \(.name) (\(.id), created \(.created_at))"' <<<"$preview"
+          echo "Stale (PR closed or merged): $(jq -r 'if length == 0 then "none" else join(", ") end' <<<"$stale")"
 
-          if [ "$count" -lt "$PREVIEW_KEEP_BELOW" ]; then
-            echo "Count is below ${PREVIEW_KEEP_BELOW}; no-op."
+          # Stale previews first, then the oldest open ones until below threshold.
+          plan="$(jq -c --argjson stale "$stale" --argjson keep "$PREVIEW_KEEP_BELOW" '
+            map(select(.name as $n | any($stale[]; . == $n))) as $s
+            | map(select(.name as $n | any($stale[]; . == $n) | not)) as $rest
+            | (($rest | length) - $keep + 1) as $extra
+            | $s + $rest[0:(if $extra > 0 then $extra else 0 end)]
+          ' <<<"$preview")"
+
+          to_delete="$(jq 'length' <<<"$plan")"
+          if [ "$to_delete" -eq 0 ]; then
+            echo "No stale previews and count is below ${PREVIEW_KEEP_BELOW}; no-op."
             exit 0
           fi
 
-          to_delete=$((count - PREVIEW_KEEP_BELOW + 1))
-          echo "Deleting ${to_delete} oldest preview/* branch(es) to leave count < ${PREVIEW_KEEP_BELOW}."
+          echo "Deleting ${to_delete} preview/* branch(es): stale first, then oldest, to leave count < ${PREVIEW_KEEP_BELOW}."
 
-          mapfile -t rows < <(jq -c --argjson n "$to_delete" '.[0:$n][]' <<<"$preview")
+          mapfile -t rows < <(jq -c '.[]' <<<"$plan")
           for row in "${rows[@]}"; do
             id="$(jq -r '.id' <<<"$row")"
             name="$(jq -r '.name' <<<"$row")"
