@@ -379,6 +379,52 @@ export const KeyboardOrder: Story = {
   },
 };
 
+const indexedDepositTransfer = transfer("sent", 21, "outgoing", "12000000");
+
+export const IndexedActionContext: Story = {
+  args: {
+    activity: {
+      ...readyActivity,
+      page: activityPage([
+        indexedDepositTransfer,
+        transfer("received", 22, "incoming", "25000000"),
+      ], null),
+      loadingMore: false,
+      continuing: false,
+    },
+    operations: [{
+      action: {
+        id: "morpho-deposit",
+        kind: "savings-deposit",
+        title: "Deposit USDC into Morpho",
+        amounts: [{
+          direction: "spend",
+          assetId: "usdc",
+          symbol: "USDC",
+          decimals: 6,
+          amountBaseUnits: "12000000",
+        }],
+        warnings: [],
+        expiresAt: "2026-09-21T12:00:00.000Z",
+        createdAt: "2026-09-21T12:00:00.000Z",
+      },
+      status: "pending",
+      transactionHash: indexedDepositTransfer.transactionHash,
+      createdAt: "2026-09-21T12:00:00.000Z",
+      updatedAt: "2026-09-21T12:01:00.000Z",
+    }],
+  },
+  play: async ({ canvasElement }) => {
+    const activity = within(within(canvasElement).getByRole("region", { name: "Activity" }));
+    const action = activity.getByRole("button", { description: "View Deposit USDC into Morpho transaction details" });
+    await expect(action.textContent).toContain("Deposit USDC into Morpho");
+    await expect(action.textContent).toContain("Confirmed");
+    await expect(activity.queryByRole("button", { description: "View sent USDC transaction details" })).toBeNull();
+    await expect(activity.queryByText("Sent")).toBeNull();
+    await expect(activity.getByRole("button", { description: "View received USDC transaction details" })).toBeVisible();
+  },
+};
+
 export const ActivityDetailReturn: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
