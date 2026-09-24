@@ -90,6 +90,13 @@ export function isServerVerified(
     account.session !== null;
 }
 
+export function isSessionSettling(
+  account: Pick<AccountWalletClient, "status" | "verification">,
+): boolean {
+  return account.status === "restoring" || account.status === "validating" ||
+    (account.status === "verified" && account.verification !== "server");
+}
+
 export const AccountWalletContext = createContext<AccountWalletClient | null>(null);
 
 export function createBlockedAccountWalletClient(

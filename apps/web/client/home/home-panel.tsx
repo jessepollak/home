@@ -22,6 +22,7 @@ import { useOptionalHomeShellRouting } from "./panel-routing";
 export function HomePanel({
   assetBalances,
   activitySession,
+  sessionSettling,
   sendAvailability,
   assetMarkResolution,
   fetchActivity,
@@ -37,6 +38,7 @@ export function HomePanel({
 }: {
   assetBalances?: HomeAssetBalancesPresentation;
   activitySession: VerifiedAccountSession | null;
+  sessionSettling: boolean;
   sendAvailability: readonly (TransferAssetAvailability & { imageUrl?: string })[];
   assetMarkResolution?: AssetMarkResolution;
   fetchActivity: FetchActivity;
@@ -58,7 +60,7 @@ export function HomePanel({
     ),
     pending: false,
   };
-  const showSessionShimmer = !activitySession && (isLoading || isRevalidating);
+  const showSessionShimmer = !activitySession && (sessionSettling || isLoading || isRevalidating);
   const cashRate = useSavingsRateLabel(regionId);
   const borrowOfferRate = useBorrowOfferRate({
     enabled: assetBalances?.summary?.borrow.kind === "none",

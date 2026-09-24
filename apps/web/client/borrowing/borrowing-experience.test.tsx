@@ -117,6 +117,23 @@ afterEach(() => {
 });
 
 describe("BorrowExperience redesign", () => {
+  for (const selectedMarketId of [null, BORROW_MARKET_ID]) {
+    test(`shows loading instead of sign-in while ${selectedMarketId ? "direct market" : "overview"} session settles`, () => {
+      render(<BorrowExperience session={null} sessionSettling selectedMarketId={selectedMarketId} />);
+      const body = within(document.body);
+      const loading = body.getByText("Loading Borrow overview").closest("[aria-busy]");
+      expect(loading?.getAttribute("aria-busy")).toBe("true");
+      expect(body.queryByText("Sign in to view Borrow")).toBeNull();
+    });
+
+    test(`shows sign-in on ${selectedMarketId ? "direct market" : "overview"} with settled signed-out session`, () => {
+      render(<BorrowExperience session={null} selectedMarketId={selectedMarketId} />);
+      const body = within(document.body);
+      expect(body.getByText("Sign in to view Borrow")).toBeTruthy();
+      expect(body.queryByText("Loading Borrow overview")).toBeNull();
+    });
+  }
+
   test("renders the exact-contract cbBTC image and canonical Bitcoin identity in the market heading", async () => {
     render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(detail())} assetMarkResolution={assetMarkResolution} />);
     const body = within(document.body);

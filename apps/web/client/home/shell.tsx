@@ -9,7 +9,7 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import { deferSheet } from "@/client/money-modal/deferred-sheet";
-import { useAccountWallet } from "@/client/account/cdp-client";
+import { isSessionSettling, useAccountWallet } from "@/client/account/cdp-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { BorrowMarketId } from "@/shared/borrowing/config";
 import {
@@ -348,6 +348,7 @@ export function HomeShell({
   }, [forwardRequest]);
 
   const isChecking = account.status === "restoring" || account.status === "validating";
+  const sessionSettling = isSessionSettling(account);
   const isVerified = account.status === "verified" && account.verification === "server";
   const mayPaintBalances = account.verification !== null;
   useEffect(() => {
@@ -819,6 +820,7 @@ export function HomeShell({
           revealSmallBalances={revealSmallBalances}
           onRevealSmallBalancesChange={setRevealSmallBalances}
           activitySession={activitySession}
+          sessionSettling={sessionSettling}
           fetchActivity={account.fetchActivity}
           fetchOperations={account.fetchOperations}
           navigateTo={navigateTo}

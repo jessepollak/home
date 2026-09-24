@@ -412,6 +412,61 @@ describe("Home shell auth and privacy", () => {
     expect(replaceCalls).toEqual([]);
   });
 
+  for (const initialPanel of ["home", "activity"] as const) {
+    test(`keeps ${initialPanel === "home" ? "the Home feed" : "/activity"} loading with cached balances until server verification`, async () => {
+      const pendingSession = deferred<Response>();
+      let activityReads = 0;
+      const sessionFetch: SessionFetch = async (input) => {
+        const url = String(input);
+        if (url.startsWith("/api/session")) return pendingSession.promise;
+        if (url.startsWith("/api/activity?")) {
+          activityReads += 1;
+          const query = new URLSearchParams(url.split("?")[1]);
+          const to = query.get("to")!;
+          return Response.json({
+            version: 1,
+            walletAddress: ADDRESS,
+            chainId: 8453,
+            window: {
+              from: new Date(new Date(to).getTime() - 31 * 24 * 60 * 60 * 1000).toISOString(),
+              to,
+            },
+            currency: query.get("currency"),
+            transfers: [],
+            nextCursor: null,
+            source: {
+              provider: "cdp-sql", cached: false, stale: false,
+              executionTimestamp: to, executionTimeMs: 1, fetchedAt: to,
+            },
+          });
+        }
+        if (url === "/api/actions") return Response.json({ version: "1", actions: [] });
+        throw new Error(`Unexpected read: ${url}`);
+      };
+      render(
+        <HomeHarness
+          accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER, provisionalSession: session() })}
+          sessionFetch={sessionFetch}
+          initialPanel={initialPanel}
+        />,
+      );
+
+      expect(page().getAllByText("$12.34").length).toBeGreaterThan(0);
+      const activity = page().getAllByRole("region", { name: "Activity", busy: true }).at(-1)!;
+      expect(activity.getAttribute("aria-busy")).toBe("true");
+      expect(page().queryByText("No activity yet")).toBeNull();
+      expect(activityReads).toBe(0);
+
+      await act(async () => {
+        pendingSession.resolve(Response.json(session()));
+        await pendingSession.promise;
+      });
+      await waitFor(() => expect(activityReads).toBe(1));
+      await waitFor(() => expect(page().getAllByText("No activity yet").length).toBeGreaterThan(0));
+      expect(page().queryAllByRole("region", { name: "Activity", busy: true })).toHaveLength(0);
+    });
+  }
+
   test("hides the previous owner's balances immediately during an owner switch", async () => {
     const pendingSession = deferred<Response>();
     const view = render(
