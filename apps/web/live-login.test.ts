@@ -75,6 +75,55 @@ test("loads only allowed literal values from the private file, splitting on the 
   expect((await loadVerificationEnv({}, home)).HOME_VERIFY_ACCOUNT_EMAIL).toBe("file@example.com");
 });
 
+test("empty environment values and an empty env-file override use the private default file", async () => {
+  const { home } = await privateEnvFile([
+    "HOME_VERIFY_ACCOUNT_EMAIL=file@example.com",
+    "HOME_ACCESS_PASSWORD=file=secret",
+    "HOME_VERIFY_GMAIL_CREDENTIALS=/private/gmail.json",
+    "HOME_VERIFY_OTP_SENDER=sender@example.com",
+    "HOME_VERIFY_CASHOUT_HANDLE=$pinned",
+    "HOME_VERIFY_PRODUCTION_URL=https://example.com",
+  ].join("\n"));
+  const empty = {
+    HOME_VERIFY_ACCOUNT_EMAIL: "", HOME_ACCESS_PASSWORD: "", HOME_VERIFY_GMAIL_CREDENTIALS: "",
+    HOME_VERIFY_OTP_SENDER: "", HOME_VERIFY_CASHOUT_HANDLE: "", HOME_VERIFY_PRODUCTION_URL: "",
+    HOME_VERIFY_ENV_FILE: "",
+  };
+  const loaded = await loadVerificationEnv(empty, home);
+  expect(loaded.HOME_VERIFY_ACCOUNT_EMAIL).toBe("file@example.com");
+  expect(loaded.HOME_ACCESS_PASSWORD).toBe("file=secret");
+  expect(loaded.HOME_VERIFY_GMAIL_CREDENTIALS).toBe("/private/gmail.json");
+  expect(loaded.HOME_VERIFY_OTP_SENDER).toBe("sender@example.com");
+  expect(loaded.HOME_VERIFY_CASHOUT_HANDLE).toBe("$pinned");
+  expect(loaded.HOME_VERIFY_PRODUCTION_URL).toBe("https://example.com");
+  expect(loaded.HOME_VERIFY_ENV_FILE).toBeUndefined();
+});
+
+test("uses the provisioned production URL when --base-url is omitted, preserving flag precedence and HTTPS validation", async () => {
+  const { home } = await privateEnvFile("HOME_VERIFY_ACCOUNT_EMAIL=file@example.com\nHOME_VERIFY_PRODUCTION_URL=https://example.com\n");
+  const calls: string[][] = [];
+  const command = (args: string[]) => {
+    calls.push(args);
+    if (args[0] === "state") Bun.spawnSync(["touch", args[2]]);
+    return "";
+  };
+  const options = { home, command, getOtp: async () => "123456" };
+  await liveLogin(["--session", "file-url"], { ...options, env: { HOME_VERIFY_ACCOUNT_EMAIL: "", HOME_VERIFY_ENV_FILE: "", HOME_VERIFY_PRODUCTION_URL: "" } });
+  expect(calls.find((args) => args[0] === "open")?.[1]).toBe("https://example.com/?account=signin");
+  calls.length = 0;
+  await liveLogin(["--session", "flag-url", "--base-url", "https://override.example"], { ...options, env: {} });
+  expect(calls.find((args) => args[0] === "open")?.[1]).toBe("https://override.example/?account=signin");
+  calls.length = 0;
+  await liveLogin(["--session", "env-url"], { ...options, env: { HOME_VERIFY_PRODUCTION_URL: "https://environment.example" } });
+  expect(calls.find((args) => args[0] === "open")?.[1]).toBe("https://environment.example/?account=signin");
+  calls.length = 0;
+  await expect(liveLogin([], { ...options, env: { HOME_VERIFY_PRODUCTION_URL: "http://example.com" } })).rejects.toThrow("HTTPS origin");
+  expect(calls).toEqual([]);
+  const withoutHost = await privateEnvFile("HOME_VERIFY_ACCOUNT_EMAIL=file@example.com\n");
+  await expect(liveLogin([], { ...options, home: withoutHost.home, env: { HOME_VERIFY_PRODUCTION_URL: "" } })).rejects.toThrow("Specify --base-url");
+  expect(calls).toEqual([]);
+});
+
 test("live login reads file settings without putting account or access password in browser argv", async () => {
   const { home } = await privateEnvFile("HOME_VERIFY_ACCOUNT_EMAIL=file@example.com\nHOME_ACCESS_PASSWORD=gate=secret\n");
   const calls: Array<{ args: string[]; input?: string }> = [];
