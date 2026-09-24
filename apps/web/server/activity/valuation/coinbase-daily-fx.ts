@@ -61,9 +61,14 @@ export function createCoinbaseDailyFxReader(options: {
     const results = new Map<string, DailyFxResult>();
     const missing: [string, DailyFxRequest][] = [];
     const currentMs = now().getTime();
+    const currentDate = new Date(currentMs).toISOString().slice(0, 10);
     for (const [key, request] of unique) {
       const cached = cache.get(key);
-      if (cached && currentMs - cached.storedAt <= cached.ttlMs) {
+      if (
+        cached &&
+        currentMs - cached.storedAt <= cached.ttlMs &&
+        !(cached.value.provisional && request.date < currentDate)
+      ) {
         results.set(key, cached.value);
       } else {
         missing.push([key, request]);

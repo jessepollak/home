@@ -15,6 +15,7 @@ import {
   pricedCash,
   ready,
 } from "../../apps/web/shared/balances/fixtures";
+import { ACTIVITY_CONTRACT_VERSION } from "../../apps/web/shared/activity/contract";
 
 const captureUrl = new URL(process.env.HOME_CAPTURE_BASE_URL ?? "http://localhost:3199");
 if (captureUrl.protocol !== "http:" || !["localhost", "127.0.0.1"].includes(captureUrl.hostname)) {
@@ -206,9 +207,24 @@ async function installFixtures(context: BrowserContext) {
     if (path === "/api/activity") {
       const to = requestUrl.searchParams.get("to") ?? now();
       const from = new Date(Date.parse(to) - 31 * 24 * 60 * 60 * 1_000).toISOString();
+      const currency = requestUrl.searchParams.get("currency") ?? "USD";
       return json(route, {
+        version: ACTIVITY_CONTRACT_VERSION,
         walletAddress: OWNER, chainId: 8453, recordedOperations: "available",
-        window: { from, to }, currency: requestUrl.searchParams.get("currency") ?? "USD", transfers: [], nextCursor: null,
+        window: { from, to }, currency,
+        transfers: [{
+          id: `8453:${USDC}:readme-received`, logId: "readme-received", chainId: 8453,
+          assetId: "usdc", tokenAddress: USDC, tokenSymbol: "USDC", tokenDecimals: 6,
+          walletAddress: OWNER, fromAddress: "0x2222222222222222222222222222222222222222",
+          toAddress: OWNER, direction: "incoming", amountBaseUnits: "25000000",
+          blockNumber: "1", blockHash: `0x${"ef".repeat(32)}`,
+          transactionHash: `0x${"12".repeat(32)}`, logIndex: "1",
+          blockTimestamp: new Date(Date.parse(to) - 60 * 60_000).toISOString(),
+          valuation: currency === "USD"
+            ? { status: "priced", currency, amount: { atoms: "25000000000000000000", scale: 18 }, method: "peg", peg: "USD", close: null, fx: null }
+            : { status: "unpriced", currency, reason: "fx-unavailable" },
+        }],
+        nextCursor: null,
         source: { provider: "cdp-sql", cached: false, stale: false, executionTimestamp: to, executionTimeMs: 1, fetchedAt: to },
       });
     }
@@ -284,7 +300,8 @@ try {
 
   await page.goto(`${BASE_URL}/home`);
   await page.getByText("$4,280.32", { exact: true }).waitFor();
-  await page.getByText("$2,676.32", { exact: true }).waitFor();
+  await page.getByText("$2,676.32", { exact: true }).first().waitFor();
+  await page.getByRole("region", { name: "Activity" }).getByText("Received", { exact: true }).waitFor({ state: "visible" });
   await page.waitForTimeout(1_000);
   await capture(page, "home.png");
 

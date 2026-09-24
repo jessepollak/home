@@ -77,6 +77,38 @@ describe("Coinbase daily FX reader", () => {
     expect(calls).toBe(2);
   });
 
+  test("refreshes a provisional rate at UTC midnight while retaining completed-day cache entries", async () => {
+    let nowMs = Date.parse("2026-09-10T23:59:30.000Z");
+    let calls = 0;
+    const reader = createCoinbaseDailyFxReader({
+      now: () => new Date(nowMs),
+      fetchImpl: (async () => {
+        calls += 1;
+        return rateResponse("USD", "EUR", calls === 3 ? "0.87" : "0.86");
+      }),
+    });
+    const provisional = { base: "USD", quote: "EUR", date: "2026-09-10" } as const;
+    const completed = { base: "USD", quote: "EUR", date: "2026-09-09" } as const;
+
+    const beforeMidnight = await reader([provisional, completed]);
+    expect(beforeMidnight.get(dailyFxKey(provisional))?.provisional).toBe(true);
+    expect(beforeMidnight.get(dailyFxKey(completed))?.provisional).toBe(false);
+    expect(calls).toBe(2);
+
+    nowMs = Date.parse("2026-09-11T00:00:10.000Z");
+    const afterMidnight = await reader([provisional, completed]);
+    expect(afterMidnight.get(dailyFxKey(provisional))).toEqual({
+      rate: { atoms: "87", scale: 2 },
+      provisional: false,
+    });
+    expect(afterMidnight.get(dailyFxKey(completed))).toEqual(
+      beforeMidnight.get(dailyFxKey(completed)),
+    );
+    expect(calls).toBe(3);
+    expect((await reader([provisional, completed])).get(dailyFxKey(provisional))?.provisional).toBe(false);
+    expect(calls).toBe(3);
+  });
+
   test("returns no rate for mismatched payloads, failures, and future dates", async () => {
     const reader = createCoinbaseDailyFxReader({
       now: () => new Date("2026-09-10T12:00:00.000Z"),
