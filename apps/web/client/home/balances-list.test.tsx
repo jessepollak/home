@@ -75,9 +75,13 @@ describe("HomeBalanceRowView", () => {
     view.rerender(
       <HomeBalancesList rows={[registryInitialsRow]} isLoading={false} />,
     );
+    expect(view.container.querySelector("img")?.getAttribute("src")).toBe("/asset-marks/xrp.svg");
+    view.rerender(
+      <HomeBalancesList rows={[{ ...registryInitialsRow, key: "eip155:8453/erc20:0x0000000000000000000000000000000000000bad" }]} isLoading={false} />,
+    );
     expect(view.container.querySelector("img")).toBeNull();
     expect(view.container.querySelector("[data-shimmer='mark']")).toBeNull();
-    expect(view.container.querySelector("[data-mark]")?.textContent).toBe("XR");
+    expect(view.container.querySelector("[data-mark]")?.textContent).toBe("CB");
 
     view.rerender(
       <HomeBalancesList

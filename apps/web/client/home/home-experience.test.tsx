@@ -5,7 +5,9 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { useState, type ComponentProps } from "react";
 import type { AccountWalletSdkBoundary } from "@/client/account/cdp-client";
 import type { SessionFetch, VerifiedAccountSession } from "@/client/account/session-client";
-import { BORROW_MARKET_ID } from "@/shared/borrowing/config";
+import { DEFAULT_BORROW_MARKET } from "@/shared/borrowing/config";
+
+const BORROW_MARKET_ID = DEFAULT_BORROW_MARKET.marketId;
 import {
   buildBalancesSnapshotFixture,
   priced,
@@ -1179,7 +1181,7 @@ describe("Home shell routing and intents", () => {
     expect(borrowRow.textContent).toContain("Borrow Cash");
     fireEvent.click(borrowRow);
     expect(`${window.location.pathname}${window.location.search}`).toBe("/borrow");
-    expect(await page().findByText("Borrow USDC using your Bitcoin on Base.")).toBeTruthy();
+    expect(await page().findByText("Borrow USDC against your crypto on Base.")).toBeTruthy();
     expect(within(page().getByRole("navigation", { name: "Main navigation" })).queryByRole("button", { name: "Borrow" })).toBeNull();
   });
 
@@ -1203,7 +1205,7 @@ describe("Home shell routing and intents", () => {
 
     await waitForVerifiedShell();
     expect(page().getAllByRole("main")).toHaveLength(1);
-    expect(await page().findByText("Borrow USDC using your Bitcoin on Base.")).toBeTruthy();
+    expect(await page().findByText("Borrow USDC against your crypto on Base.")).toBeTruthy();
     expect(page().queryByText("Market and position")).toBeNull();
     expect(`${window.location.pathname}${window.location.search}`).toBe(`/borrow/${BORROW_MARKET_ID}`);
   });
@@ -1228,7 +1230,7 @@ describe("Home shell routing and intents", () => {
 
     await waitForVerifiedShell();
     expect(page().getByRole("heading", { name: "Activity" })).toBeTruthy();
-    expect(page().queryByText("Borrow USDC using your Bitcoin on Base.")).toBeNull();
+    expect(page().queryByText("Borrow USDC against your crypto on Base.")).toBeNull();
     expect(pushCalls).toEqual([]);
   });
 

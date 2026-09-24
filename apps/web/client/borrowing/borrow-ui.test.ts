@@ -1,13 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  BORROW_COLLATERAL_TOKEN,
-  BORROW_IRM_ADDRESS,
-  BORROW_LLTV_WAD,
-  BORROW_LOAN_TOKEN,
-  BORROW_MARKET_ID,
-  BORROW_ORACLE_ADDRESS,
-  MORPHO_BLUE_ADDRESS,
-} from "@/shared/borrowing/config";
+import { MORPHO_BLUE_ADDRESS, VERIFIED_MORPHO_MARKETS } from "@/shared/morpho-markets/config";
 import type { BorrowMarketSnapshot } from "@/shared/borrowing/contract";
 import type { BorrowOperation } from "@/shared/borrowing/types";
 import type { ActionKind } from "@/shared/money-actions/types";
@@ -18,6 +10,13 @@ import {
   buildBorrowPreparedIntent,
 } from "./borrow-ui";
 
+const MARKET = VERIFIED_MORPHO_MARKETS[0]!;
+const BORROW_MARKET_ID = MARKET.marketId;
+const BORROW_LOAN_TOKEN = MARKET.loanToken;
+const BORROW_COLLATERAL_TOKEN = MARKET.collateralToken;
+const BORROW_ORACLE_ADDRESS = MARKET.oracle;
+const BORROW_IRM_ADDRESS = MARKET.irm;
+const BORROW_LLTV_WAD = MARKET.lltvWad;
 const OWNER = "0x1111111111111111111111111111111111111111" as const;
 
 function snapshot(debtAssetsRaw = "1000000"): BorrowMarketSnapshot {

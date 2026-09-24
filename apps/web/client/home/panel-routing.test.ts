@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { BORROW_MARKET_ID } from "@/shared/borrowing/config";
+import { DEFAULT_BORROW_MARKET } from "@/shared/borrowing/config";
+
+const BORROW_MARKET_ID = DEFAULT_BORROW_MARKET.marketId;
 import { homeHrefWithOverlays, type ShellLocation } from "@/config/shell-location";
 import { readHomeInboundPanelState } from "./panel-routing";
 

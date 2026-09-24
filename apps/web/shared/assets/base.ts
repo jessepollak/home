@@ -26,14 +26,87 @@ export const BASE_USDC = {
   issuerDocsUrl: "https://developers.circle.com/stablecoins/usdc-contract-addresses",
 } as const;
 
+export type BaseBrandMark = "btc" | "eth" | "xrp" | "doge" | "ada";
+
+export type BaseCollateralAsset = {
+  id: string;
+  chainId: typeof BASE_CHAIN_ID;
+  name: string;
+  displayName: string;
+  symbol: string;
+  decimals: number;
+  address: BaseAddress;
+  brandMark: BaseBrandMark;
+  identitySource: string;
+};
+
 export const BASE_CBBTC = {
   id: "cbbtc",
   chainId: BASE_CHAIN_ID,
   name: "Coinbase Wrapped BTC",
+  displayName: "Bitcoin",
   symbol: "cbBTC",
   decimals: 8,
   address: "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
-} as const;
+  brandMark: "btc",
+  identitySource: "https://www.coinbase.com/cbbtc/proof-of-reserves",
+} as const satisfies BaseCollateralAsset;
+
+export const BASE_CBXRP = {
+  id: "cbxrp",
+  chainId: BASE_CHAIN_ID,
+  name: "Coinbase Wrapped XRP",
+  displayName: "XRP",
+  symbol: "cbXRP",
+  decimals: 6,
+  address: "0xcb585250f852C6c6bf90434AB21A00f02833a4af",
+  brandMark: "xrp",
+  identitySource: "https://www.coinbase.com/cbxrp/proof-of-reserves",
+} as const satisfies BaseCollateralAsset;
+
+export const BASE_CBETH = {
+  id: "cbeth",
+  chainId: BASE_CHAIN_ID,
+  name: "Coinbase Wrapped Staked ETH",
+  displayName: "Staked ETH",
+  symbol: "cbETH",
+  decimals: 18,
+  address: "0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22",
+  brandMark: "eth",
+  identitySource: "https://www.coinbase.com/price/coinbase-wrapped-staked-eth",
+} as const satisfies BaseCollateralAsset;
+
+export const BASE_CBDOGE = {
+  id: "cbdoge",
+  chainId: BASE_CHAIN_ID,
+  name: "Coinbase Wrapped DOGE",
+  displayName: "Dogecoin",
+  symbol: "cbDOGE",
+  decimals: 8,
+  address: "0xcbD06E5A2B0C65597161de254AA074E489dEb510",
+  brandMark: "doge",
+  identitySource: "https://www.coinbase.com/cbdoge/proof-of-reserves",
+} as const satisfies BaseCollateralAsset;
+
+export const BASE_CBADA = {
+  id: "cbada",
+  chainId: BASE_CHAIN_ID,
+  name: "Coinbase Wrapped ADA",
+  displayName: "Cardano",
+  symbol: "cbADA",
+  decimals: 6,
+  address: "0xcbADA732173e39521CDBE8bf59a6Dc85A9fc7b8c",
+  brandMark: "ada",
+  identitySource: "https://www.coinbase.com/cbada/proof-of-reserves",
+} as const satisfies BaseCollateralAsset;
+
+export const BASE_BORROW_COLLATERAL_ASSETS = [
+  BASE_CBBTC,
+  BASE_CBXRP,
+  BASE_CBETH,
+  BASE_CBDOGE,
+  BASE_CBADA,
+] as const satisfies readonly BaseCollateralAsset[];
 
 export const BASE_MORPHO_USDC_VAULTS = [
   {

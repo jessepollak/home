@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ComponentProps, type ReactNode } from "react";
+import { useEffect, useState, type ComponentProps, type ReactNode } from "react";
 import { CurrencyMark } from "@/components/currency-mark";
 import {
   presentPortfolioAssetMark,
@@ -17,9 +17,11 @@ import {
 } from "@/client/account/cdp-client";
 import { dataOwnerKey as ownerDataKey } from "@/client/account/owner-keys";
 import {
+  browserHomeQueryClient,
   ownerQueryKey,
   ownerQueryMeta,
   useHomeQuery,
+  useHomeQueryClient,
 } from "@/client/query/query-client";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -128,14 +130,9 @@ export function useBorrowOfferRate({
   const session = account.status === "verified" ? account.session : null;
   const overview = useBorrowOverview(enabled ? session : null, account.fetchAccountResource);
   const leading = overview.data ? leadingBorrowOffer(overview.data.opportunities) : null;
-  const detail = useBorrowDetail(
-    session,
-    leading?.market.id ?? null,
-    account.fetchAccountResource,
-    enabled,
-  );
-  if (!enabled || !detail.data) return null;
-  return `${formatWadPercent(detail.data.state.borrowAprWad, regionId)} APR`;
+  const snapshot = leading?.availability.status === "available" ? leading.availability.snapshot : null;
+  if (!enabled || !snapshot) return null;
+  return `${formatWadPercent(snapshot.state.borrowAprWad, regionId)} APR`;
 }
 
 export function BorrowExperience(props: BorrowExperienceProps) {
@@ -154,8 +151,8 @@ function BorrowExperienceInner({
   regionId = "GLOBAL",
   assetMarkResolution,
 }: BorrowExperienceProps) {
-  const overview = useBorrowOverview(session, fetchAccountResource);
   const configuredSelection = selectedMarketId && getBorrowMarketRef(selectedMarketId) ? selectedMarketId : null;
+  const overview = useBorrowOverview(configuredSelection ? null : session, fetchAccountResource);
 
   if (configuredSelection) {
     return (
@@ -178,7 +175,7 @@ function BorrowExperienceInner({
     <section className="space-y-4" aria-labelledby="borrow-overview-title">
       <div className="space-y-1">
         <h2 className="text-2xl font-semibold tracking-tight" id="borrow-overview-title">Borrow</h2>
-        <p className="text-sm text-muted-foreground">Borrow USDC using your Bitcoin on Base.</p>
+        <p className="text-sm text-muted-foreground">Borrow USDC against your crypto on Base.</p>
       </div>
 
       {!session?.smartAccount && !sessionSettling ? <BorrowNotice title="Sign in to view Borrow" /> : null}
@@ -211,9 +208,7 @@ function BorrowExperienceInner({
                 <BorrowMarketCard
                   key={opportunity.market.id}
                   opportunity={opportunity}
-                  position={overview.data?.positions.find((entry) => entry.market.id === opportunity.market.id) ?? null}
                   session={session}
-                  fetchAccountResource={fetchAccountResource}
                   prepareMoneyAction={prepareMoneyAction}
                   executeMoneyAction={executeMoneyAction}
                   regionId={regionId}
@@ -262,7 +257,7 @@ function BorrowDirectMarket({
     <section className="space-y-4" aria-labelledby="borrow-direct-title">
       <div className="space-y-1">
         <h2 className="text-2xl font-semibold tracking-tight" id="borrow-direct-title">Borrow</h2>
-        <p className="text-sm text-muted-foreground">Borrow USDC using your Bitcoin on Base.</p>
+        <p className="text-sm text-muted-foreground">Borrow USDC against your crypto on Base.</p>
       </div>
       {!session?.smartAccount && !sessionSettling ? <BorrowNotice title="Sign in to view Borrow" /> : null}
       {(!session?.smartAccount && sessionSettling) || (session?.smartAccount && detail.isPending) ? <BorrowOverviewLoading /> : null}
@@ -278,7 +273,7 @@ function BorrowDirectMarket({
               <BorrowMarketHeading market={snapshot.market} assetMarkResolution={assetMarkResolution} />
               <p className="text-sm text-muted-foreground">
                 {BigInt(snapshot.wallet.collateralBalanceRaw) === BigInt(0) && !hasCollateral
-                  ? "You need cbBTC in this wallet before you can borrow."
+                  ? `You need ${snapshot.market.collateralToken.symbol} in this wallet before you can borrow.`
                   : snapshot.eligibility.reason ?? "New borrowing is not currently available for this market."}
               </p>
               <Button variant="secondary" onClick={onClose}>Back to Borrow</Button>
@@ -304,27 +299,22 @@ function BorrowDirectMarket({
 
 function BorrowMarketCard({
   opportunity,
-  position,
   session,
-  fetchAccountResource,
   prepareMoneyAction,
   executeMoneyAction,
   regionId,
   assetMarkResolution,
 }: {
   opportunity: BorrowOverviewOpportunity;
-  position: BorrowOverviewPosition | null;
   session: VerifiedAccountSession;
-  fetchAccountResource?: FetchAccountResource;
   prepareMoneyAction?: PrepareMoneyAction;
   executeMoneyAction?: ExecuteMoneyAction;
   regionId: RegionId;
   assetMarkResolution?: AssetMarkResolution;
 }) {
-  const detail = useBorrowDetail(session, opportunity.market.id, fetchAccountResource, opportunity.availability.status === "available");
   const [dialog, setDialog] = useState<BorrowDialogState>(null);
-  const snapshot = detail.data ?? null;
-  const hasDebt = snapshot ? BigInt(snapshot.position.debtAssetsRaw) > BigInt(0) : Boolean(position && BigInt(position.debtAssetsRaw) > BigInt(0));
+  const snapshot = opportunity.availability.status === "available" ? opportunity.availability.snapshot : null;
+  const hasDebt = snapshot ? BigInt(snapshot.position.debtAssetsRaw) > BigInt(0) : false;
 
   return (
     <Card className="overflow-hidden" data-testid="borrow-market-card" role="listitem">
@@ -336,15 +326,8 @@ function BorrowMarketCard({
               <p className="text-sm text-muted-foreground">{opportunity.availability.reason}</p>
               <Button disabled className="w-full sm:w-auto">Borrow</Button>
             </div>
-          ) : detail.isPending && !snapshot ? (
-            <div className="space-y-3" aria-busy="true"><Skeleton className="h-5 w-40" /><Skeleton className="h-12 w-full" /><span className="sr-only">Loading Bitcoin market</span></div>
-          ) : detail.isError && !snapshot ? (
-            <BorrowNotice tone="error" role="alert" title="Market values are unavailable" action={<Button variant="secondary" onClick={() => void detail.refetch()}>Retry</Button>}>
-              Wallet balances and borrowing limits could not be verified.
-            </BorrowNotice>
           ) : snapshot ? (
             <>
-              {detail.isError ? <BorrowNotice tone="error" role="alert" title="Market values could not be refreshed">Showing the last verified values.</BorrowNotice> : null}
               {hasDebt ? (
                 <BorrowPositionSummary snapshot={snapshot} regionId={regionId} />
               ) : (
@@ -372,6 +355,26 @@ function BorrowMarketCard({
   );
 }
 
+export function collateralDisplayName(marketId: BorrowMarketId): string {
+  const market = getBorrowMarketRef(marketId);
+  if (!market) throw new Error("Borrow market is not configured.");
+  return market.collateralDisplay.name;
+}
+
+function parseTrustedSnapshot(value: unknown, owner: `0x${string}`): BorrowMarketSnapshot | null {
+  const snapshot = parseSnapshot(value, owner);
+  const market = snapshot ? getBorrowMarketRef(snapshot.market.id) : null;
+  if (!snapshot || !market || snapshot.market.rank !== market.rank) return null;
+  for (const [actual, trusted] of [
+    [snapshot.market.loanToken, market.loanToken],
+    [snapshot.market.collateralToken, market.collateralToken],
+  ] as const) {
+    if (actual.address.toLowerCase() !== trusted.address.toLowerCase() ||
+      actual.symbol !== trusted.symbol || actual.decimals !== trusted.decimals || actual.name !== trusted.name) return null;
+  }
+  return snapshot;
+}
+
 function BorrowMarketHeading({
   market,
   assetMarkResolution,
@@ -390,7 +393,7 @@ function BorrowMarketHeading({
         pending={mark.pending}
       />
       <div className="min-w-0">
-        <h3 className="truncate text-base font-semibold">{mark.name}</h3>
+        <h3 className="truncate text-base font-semibold">{collateralDisplayName(market.id)}</h3>
         <p className="truncate text-sm text-muted-foreground">Borrow {market.loanToken.symbol} with {market.collateralToken.symbol}</p>
       </div>
     </div>
@@ -419,7 +422,7 @@ function BorrowOpenSummary({ snapshot, regionId }: { snapshot: BorrowMarketSnaps
     ? `${formatToken(snapshot.position.collateralRaw, snapshot.market.collateralToken, regionId)} locked as collateral`
     : hasWalletCollateral
       ? `Backed by ${formatToken(snapshot.wallet.collateralBalanceRaw, snapshot.market.collateralToken, regionId)} in your wallet`
-      : "You need cbBTC in this wallet before you can borrow.";
+      : `You need ${snapshot.market.collateralToken.symbol} in this wallet before you can borrow.`;
   return (
     <div className="space-y-1">
       <p className="text-xl font-semibold tabular-nums"><MoneyTicker className="overflow-x-auto" reserveDigits={false} value={formatToken(available, snapshot.market.loanToken, regionId)} /> available</p>
@@ -439,14 +442,14 @@ function BorrowPositionSummary({ snapshot, regionId }: { snapshot: BorrowMarketS
           <p className="font-semibold tabular-nums"><MoneyTicker className="overflow-x-auto" value={formatToken(snapshot.position.debtAssetsRaw, snapshot.market.loanToken, regionId)} /></p>
         </div>
         <div className="min-w-0 rounded-lg bg-muted/50 p-3">
-          <p className="text-xs text-muted-foreground">Bitcoin locked</p>
+          <p className="text-xs text-muted-foreground">{collateralDisplayName(snapshot.market.id)} locked</p>
           <p className="font-semibold tabular-nums"><MoneyTicker className="overflow-x-auto" value={formatToken(snapshot.position.collateralRaw, snapshot.market.collateralToken, regionId)} /></p>
         </div>
       </div>
       <LiquidationBufferMeter
         healthFactorWad={snapshot.position.healthFactorWad}
         liquidationPriceRaw={snapshot.position.liquidationPriceRaw}
-        collateralSymbol={snapshot.market.collateralToken.symbol}
+        market={snapshot.market}
         regionId={regionId}
         showHealth
       />
@@ -481,11 +484,11 @@ function BorrowCardActions({ snapshot, onOpen }: { snapshot: BorrowMarketSnapsho
         ))}
       </div>
       {hasDebt || hasCollateral ? (
-        <div className="grid grid-cols-2 gap-2" role="group" aria-label="Manage Bitcoin position">
+        <div className="grid grid-cols-2 gap-2" role="group" aria-label={`Manage ${collateralDisplayName(snapshot.market.id)} position`}>
           <Button className="min-h-11 h-auto w-full whitespace-normal" size="sm" variant="outline" disabled={!hasWalletCollateral} onClick={() => onOpen("supply-collateral")}>
             <span className="py-2">Add collateral</span>
           </Button>
-          <Button aria-label="Withdraw collateral from Bitcoin position" className="min-h-11 h-auto w-full whitespace-normal" size="sm" variant="outline" disabled={!hasCollateral || (hasDebt && !canNewRisk) || BigInt(snapshot.position.withdrawableCollateralRaw) === BigInt(0)} onClick={() => onOpen("withdraw-collateral")}>
+          <Button aria-label={`Withdraw collateral from ${collateralDisplayName(snapshot.market.id)} position`} className="min-h-11 h-auto w-full whitespace-normal" size="sm" variant="outline" disabled={!hasCollateral || (hasDebt && !canNewRisk) || BigInt(snapshot.position.withdrawableCollateralRaw) === BigInt(0)} onClick={() => onOpen("withdraw-collateral")}>
             <span className="py-2">Withdraw</span>
           </Button>
         </div>
@@ -500,13 +503,13 @@ function BorrowCardActions({ snapshot, onOpen }: { snapshot: BorrowMarketSnapsho
 export function LiquidationBufferMeter({
   healthFactorWad,
   liquidationPriceRaw,
-  collateralSymbol,
+  market,
   regionId,
   showHealth = false,
 }: {
   healthFactorWad: string | null;
   liquidationPriceRaw: string | null;
-  collateralSymbol: string;
+  market: BorrowMarketIdentity;
   regionId: RegionId;
   showHealth?: boolean;
 }) {
@@ -517,7 +520,7 @@ export function LiquidationBufferMeter({
   const belowFloor = healthFactor < BORROW_HEALTH_FLOOR_WAD;
   const copy = healthFactor <= WAD
     ? "Immediate liquidation risk"
-    : `Bitcoin can fall ${formatBufferPercent(bps)} before liquidation`;
+    : `${collateralDisplayName(market.id)} can fall ${formatBufferPercent(bps)} before liquidation`;
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
@@ -537,7 +540,7 @@ export function LiquidationBufferMeter({
         <span className="absolute -top-0.5 h-3 w-0.5 bg-muted-foreground/60" style={{ left: "40%" }} aria-hidden="true" />
         <span className="absolute -top-0.5 h-3 w-0.5 bg-muted-foreground/60" style={{ left: "66%" }} aria-hidden="true" />
       </div>
-      {liquidationPriceRaw ? <p className="text-xs text-muted-foreground">Liquidation around {formatOracleUsd(liquidationPriceRaw, regionId)} per {collateralSymbol}</p> : null}
+      {liquidationPriceRaw ? <p className="text-xs text-muted-foreground">Liquidation around {formatOracleUsd(liquidationPriceRaw, { loanDecimals: market.loanToken.decimals, collateralDecimals: market.collateralToken.decimals }, regionId)} per {market.collateralToken.symbol}</p> : null}
     </div>
   );
 }
@@ -559,7 +562,8 @@ export function BorrowNotice({ action, children, role = "status", title, tone = 
 function useBorrowOverview(session: VerifiedAccountSession | null, fetchAccountResource?: FetchAccountResource) {
   const owner = session?.smartAccount?.address ?? null;
   const key = session?.smartAccount ? ownerDataKey(session) : null;
-  return useHomeQuery({
+  const queryClient = useHomeQueryClient(browserHomeQueryClient());
+  const overview = useHomeQuery({
     queryKey: key ? ownerQueryKey(key, "borrow", "overview") : ["unauthenticated", "borrow-overview-disabled"],
     enabled: Boolean(key && owner && fetchAccountResource),
     staleTime: 15_000,
@@ -573,10 +577,25 @@ function useBorrowOverview(session: VerifiedAccountSession | null, fetchAccountR
     select: (value): BorrowOverviewResponse => {
       if (!owner) throw new Error("Borrow is unavailable.");
       const parsed = parseBorrowOverview(value, owner);
-      if (!parsed) throw new Error("Borrow overview response is invalid.");
+      if (!parsed || parsed.opportunities.some((entry) => entry.availability.status === "available" && (
+        !parseTrustedSnapshot(entry.availability.snapshot, owner) ||
+        entry.availability.snapshot.market.id !== entry.market.id ||
+        !parsed.discovery.sourceBlock ||
+        entry.availability.snapshot.source.blockHash !== parsed.discovery.sourceBlock.blockHash
+      ))) throw new Error("Borrow overview response is invalid.");
       return parsed;
     },
   });
+  useEffect(() => {
+    if (!key || !overview.data) return;
+    for (const opportunity of overview.data.opportunities) {
+      if (opportunity.availability.status !== "available") continue;
+      const detailKey = ownerQueryKey(key, "borrow", "detail", opportunity.market.id);
+      if ((queryClient.getQueryState(detailKey)?.dataUpdatedAt ?? 0) > overview.dataUpdatedAt) continue;
+      queryClient.setQueryData(detailKey, opportunity.availability.snapshot);
+    }
+  }, [key, overview.data, overview.dataUpdatedAt, queryClient]);
+  return overview;
 }
 
 function useBorrowDetail(session: VerifiedAccountSession | null, marketId: BorrowMarketId | null, fetchAccountResource: FetchAccountResource | undefined, enabled: boolean) {
@@ -585,7 +604,7 @@ function useBorrowDetail(session: VerifiedAccountSession | null, marketId: Borro
   return useHomeQuery({
     queryKey: key && marketId ? ownerQueryKey(key, "borrow", "detail", marketId) : ["unauthenticated", "borrow-detail-disabled"],
     enabled: Boolean(enabled && marketId && key && owner && fetchAccountResource),
-    staleTime: 15_000,
+    staleTime: 0,
     retry: false,
     refetchOnWindowFocus: true,
     meta: key ? ownerQueryMeta(key, "owner") : undefined,
@@ -596,7 +615,7 @@ function useBorrowDetail(session: VerifiedAccountSession | null, marketId: Borro
     },
     select: (value): BorrowMarketSnapshot => {
       if (!owner) throw new Error("Borrow is unavailable.");
-      const parsed = parseSnapshot(value, owner);
+      const parsed = parseTrustedSnapshot(value, owner);
       if (!parsed) throw new Error("Borrow market response is invalid.");
       return parsed;
     },
@@ -654,18 +673,18 @@ function formatBufferPercent(bps: bigint): string {
   return fraction === BigInt(0) ? `${whole}%` : `${whole}.${fraction}%`;
 }
 
-function bufferCopy(healthFactorWad: string | null): string {
+function bufferCopy(healthFactorWad: string | null, marketId: BorrowMarketId): string {
   const healthFactor = healthFactorWad === null ? null : BigInt(healthFactorWad);
   const bps = liquidationBufferBps(healthFactor);
   if (bps === null || healthFactor === null) return "No debt";
-  return healthFactor <= WAD ? "Immediate liquidation risk" : `Bitcoin can fall ${formatBufferPercent(bps)}`;
+  return healthFactor <= WAD ? "Immediate liquidation risk" : `${collateralDisplayName(marketId)} can fall ${formatBufferPercent(bps)}`;
 }
 
 /** @public exercised by client/borrowing/borrowing-experience.test.tsx */
 export function borrowTeaserPositionDescription(position: BorrowOverviewPosition, regionId: RegionId): string {
   return BigInt(position.debtAssetsRaw) === BigInt(0)
     ? `No debt · ${formatToken(position.collateralRaw, position.market.collateralToken, regionId)} locked`
-    : `${formatToken(position.debtAssetsRaw, position.market.loanToken, regionId)} borrowed · ${bufferCopy(position.healthFactorWad)}`;
+    : `${formatToken(position.debtAssetsRaw, position.market.loanToken, regionId)} borrowed · ${bufferCopy(position.healthFactorWad, position.market.id)}`;
 }
 
 export function recommendedRepayMaximumBaseUnits(debtBaseUnits: string, walletBaseUnits: string, ratePerSecondWad: string): string {

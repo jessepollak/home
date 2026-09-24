@@ -5,6 +5,7 @@ import {
   basenameProfileBody,
   fundingOfframpOrdersBody,
   fundingProvidersBody,
+  borrowOverviewBody,
   sessionBody,
 } from "../fixtures/bodies";
 
@@ -12,6 +13,7 @@ const recentRecipient = "0x2211d1d0020daea8039e46cf1367962070d77da9";
 
 export function fixtureRoutes() {
   const balances = balancesSnapshot("US");
+  const borrowOverview = borrowOverviewBody();
   const prepared = preparedSendFixtureAction(recentRecipient);
   return [
     ["**/api/session", sessionBody],
@@ -29,7 +31,10 @@ export function fixtureRoutes() {
       expiresAt: prepared.expiresAt,
     }],
     ["**/api/activity**", {}],
-    ["**/api/borrow**", {}],
+    ["**/api/borrow", borrowOverview],
+    ...borrowOverview.opportunities.flatMap((entry) => entry.availability.status === "available"
+      ? [[`**/api/borrow/markets/${entry.market.id}`, entry.availability.snapshot] as const]
+      : []),
     ["**/api/client-performance", { ok: true }],
     ["**/api/funding/providers**", fundingProvidersBody],
     ["**/api/funding/offramp/orders**", fundingOfframpOrdersBody],

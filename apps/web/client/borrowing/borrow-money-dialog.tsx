@@ -39,6 +39,7 @@ import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { buildBorrowPreparedIntent } from "./borrow-ui";
 import {
   BorrowNotice,
+  collateralDisplayName,
   LiquidationBufferMeter,
   formatToken,
   openingBorrowAvailableBaseUnits,
@@ -143,7 +144,7 @@ export function BorrowMoneyDialog({
         ? recommendedOpeningCollateralBaseUnits(snapshot, amountBaseUnits ?? "0")
         : undefined;
       if (operation === "supply-and-borrow" && collateralAmountBaseUnits === null) {
-        throw new BorrowActionClientError("That amount needs more cbBTC than is currently available in this wallet.");
+        throw new BorrowActionClientError(`That amount needs more ${snapshot.market.collateralToken.symbol} than is currently available in this wallet.`);
       }
       const intent = buildBorrowPreparedIntent({
         snapshot,
@@ -251,13 +252,13 @@ export function BorrowMoneyDialog({
                 <MoneyNumpad value={amount} maxDecimals={primaryAsset.decimals} onChange={changeAmount} />
                 {operation === "supply-and-borrow" ? (
                   <div className="min-h-[4.5rem] rounded-lg border bg-muted/40 px-3 py-2 text-sm" data-testid="borrow-collateral-preview">
-                    <p className="font-medium">Bitcoin collateral</p>
+                    <p className="font-medium">{collateralDisplayName(snapshot.market.id)} collateral</p>
                     <p className="text-muted-foreground">
                       {openingCollateralBaseUnits
                         ? `This borrow will lock ${formatToken(openingCollateralBaseUnits, snapshot.market.collateralToken, regionId)} as collateral.`
                         : isPositiveDecimalAmount(amount)
-                          ? "That amount needs more cbBTC than is available in this wallet."
-                          : "Enter an amount to preview the cbBTC that will be locked."}
+                          ? `That amount needs more ${snapshot.market.collateralToken.symbol} than is available in this wallet.`
+                          : `Enter an amount to preview the ${snapshot.market.collateralToken.symbol} that will be locked.`}
                     </p>
                   </div>
                 ) : null}
@@ -334,7 +335,7 @@ function BorrowPreparedReview({ action, snapshot, regionId }: { action: Prepared
         <LiquidationBufferMeter
           healthFactorWad={metadata.projectedHealthFactorWad}
           liquidationPriceRaw={metadata.projectedLiquidationPriceRaw}
-          collateralSymbol={snapshot.market.collateralToken.symbol}
+          market={snapshot.market}
           regionId={regionId}
         />
       ) : null}

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseBalancesSnapshot } from "@/shared/balances/contract";
-import { DEFAULT_BORROW_MARKET } from "@/shared/borrowing/config";
+import { BORROW_MARKETS } from "@/shared/borrowing/config";
 import {
   borrowPosition,
   buildBalancesSnapshotFixture,
@@ -14,22 +14,24 @@ import type { BalanceObservation } from "./snapshot-store";
 import { borrowReadComplete } from "./borrow";
 import type { BalancesEnumeration, BalancesRead, BorrowRead, ReadHolding } from "./types";
 
-const borrowMarketId = DEFAULT_BORROW_MARKET.marketId.toLowerCase() as `0x${string}`;
+const borrowMarketId = BORROW_MARKETS[0].marketId.toLowerCase() as `0x${string}`;
 function readyBorrow(): BorrowRead {
   return {
-    markets: [{
-      marketId: borrowMarketId,
-      status: "ready",
+    markets: BORROW_MARKETS.map((market) => ({
+      marketId: market.marketId.toLowerCase() as `0x${string}`,
+      status: "ready" as const,
       blockNumber: "11",
       collateralRaw: "0",
       debtAssetsRaw: "0",
       borrowAprWad: "0",
-    }],
+    })),
   };
 }
 
 function unavailableBorrow(): BorrowRead {
-  return { markets: [{ marketId: borrowMarketId, status: "unavailable" }] };
+  return { markets: readyBorrow().markets.map((market) => market.marketId === borrowMarketId
+    ? { marketId: borrowMarketId, status: "unavailable" as const }
+    : market) };
 }
 
 const owner = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as const;
