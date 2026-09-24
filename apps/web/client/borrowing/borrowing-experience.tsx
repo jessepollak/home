@@ -11,6 +11,7 @@ import { canonicalUsdcAsset } from "@/config/portfolio-assets";
 import { deferSheet } from "@/client/money-modal/deferred-sheet";
 import {
   isServerVerified,
+  isSessionSettling,
   useAccountWallet,
   type AccountWalletClient,
 } from "@/client/account/cdp-client";
@@ -72,6 +73,7 @@ type ExecuteMoneyAction = AccountWalletClient["executeMoneyAction"];
 
 type BorrowExperienceProps = {
   session: VerifiedAccountSession | null;
+  sessionSettling?: boolean;
   fetchAccountResource?: FetchAccountResource;
   prepareMoneyAction?: PrepareMoneyAction;
   executeMoneyAction?: ExecuteMoneyAction;
@@ -103,6 +105,7 @@ export function AuthenticatedBorrowExperience({
   return (
     <BorrowExperience
       session={isServerVerified(account) ? account.session : null}
+      sessionSettling={isSessionSettling(account)}
       fetchAccountResource={account.fetchAccountResource}
       prepareMoneyAction={account.prepareMoneyAction}
       executeMoneyAction={account.executeMoneyAction}
@@ -142,6 +145,7 @@ export function BorrowExperience(props: BorrowExperienceProps) {
 
 function BorrowExperienceInner({
   session,
+  sessionSettling = false,
   fetchAccountResource,
   prepareMoneyAction,
   executeMoneyAction,
@@ -158,6 +162,7 @@ function BorrowExperienceInner({
       <BorrowDirectMarket
         key={configuredSelection}
         session={session}
+        sessionSettling={sessionSettling}
         fetchAccountResource={fetchAccountResource}
         prepareMoneyAction={prepareMoneyAction}
         executeMoneyAction={executeMoneyAction}
@@ -176,8 +181,8 @@ function BorrowExperienceInner({
         <p className="text-sm text-muted-foreground">Borrow USDC using your Bitcoin on Base.</p>
       </div>
 
-      {!session?.smartAccount ? <BorrowNotice title="Sign in to view Borrow" /> : null}
-      {session?.smartAccount && overview.isPending ? <BorrowOverviewLoading /> : null}
+      {!session?.smartAccount && !sessionSettling ? <BorrowNotice title="Sign in to view Borrow" /> : null}
+      {(!session?.smartAccount && sessionSettling) || (session?.smartAccount && overview.isPending) ? <BorrowOverviewLoading /> : null}
       {session?.smartAccount && overview.isError ? (
         <BorrowNotice
           tone="error"
@@ -224,6 +229,7 @@ function BorrowExperienceInner({
 
 function BorrowDirectMarket({
   session,
+  sessionSettling,
   fetchAccountResource,
   prepareMoneyAction,
   executeMoneyAction,
@@ -233,6 +239,7 @@ function BorrowDirectMarket({
   assetMarkResolution,
 }: {
   session: VerifiedAccountSession | null;
+  sessionSettling: boolean;
   fetchAccountResource?: FetchAccountResource;
   prepareMoneyAction?: PrepareMoneyAction;
   executeMoneyAction?: ExecuteMoneyAction;
@@ -257,8 +264,8 @@ function BorrowDirectMarket({
         <h2 className="text-2xl font-semibold tracking-tight" id="borrow-direct-title">Borrow</h2>
         <p className="text-sm text-muted-foreground">Borrow USDC using your Bitcoin on Base.</p>
       </div>
-      {!session?.smartAccount ? <BorrowNotice title="Sign in to view Borrow" /> : null}
-      {session?.smartAccount && detail.isPending ? <BorrowOverviewLoading /> : null}
+      {!session?.smartAccount && !sessionSettling ? <BorrowNotice title="Sign in to view Borrow" /> : null}
+      {(!session?.smartAccount && sessionSettling) || (session?.smartAccount && detail.isPending) ? <BorrowOverviewLoading /> : null}
       {session?.smartAccount && detail.isError ? (
         <BorrowNotice tone="error" role="alert" title="Borrow is unavailable" action={<Button variant="secondary" onClick={() => void detail.refetch()}>Retry</Button>}>
           Current wallet, market, and position values could not be verified.

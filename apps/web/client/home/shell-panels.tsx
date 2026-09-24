@@ -61,6 +61,7 @@ export function DashboardShell({
   revealSmallBalances,
   onRevealSmallBalancesChange,
   activitySession,
+  sessionSettling,
   fetchActivity,
   fetchOperations,
   navigateTo,
@@ -104,6 +105,7 @@ export function DashboardShell({
   revealSmallBalances: boolean;
   onRevealSmallBalancesChange: (value: boolean) => void;
   activitySession: VerifiedAccountSession | null;
+  sessionSettling: boolean;
   fetchActivity: FetchActivity;
   fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
   navigateTo: (panel: ShellPanelId, group?: MoneyGroupId | null, market?: BorrowMarketId | null) => void;
@@ -182,6 +184,7 @@ export function DashboardShell({
                     <HomePanel
                       assetBalances={paintedAssetBalances}
                       activitySession={activitySession}
+                      sessionSettling={sessionSettling}
                       sendAvailability={sendAvailability}
                       assetMarkResolution={assetMarkResolution}
                       fetchActivity={fetchActivity}
@@ -219,6 +222,7 @@ export function DashboardShell({
                       fetchOperations={fetchOperations}
                       regionId={regionId}
                       showSessionShimmer={!activitySession && (
+                        sessionSettling ||
                         paintedAssetBalances.status === "loading" ||
                         paintedAssetBalances.revalidating === true
                       )}
