@@ -625,6 +625,33 @@ describe("FundingExperience", () => {
     expect(page().getByText(/3[,.]000/)).toBeTruthy();
   });
 
+  test("shows safe quote errors without suggesting the entered details are wrong", async () => {
+    for (const [code, serverMessage, expected] of [
+      ["QUOTE_BELOW_MINIMUM", "Coinbase needs more than $2 after fees. Enter a larger amount.", "Coinbase needs more than $2 after fees. Enter a larger amount."],
+      ["QUOTE_DECLINED", "Coinbase couldn't quote this amount. Try a different amount.", "Coinbase couldn't quote this amount. Try a different amount."],
+      ["QUOTE_UNAVAILABLE", "provider outage", "Quotes are unavailable right now. Try again shortly."],
+      ["UNKNOWN", "provider details", "This quote could not be created. Try again."],
+      ["QUOTE_BELOW_MINIMUM", "x".repeat(201), "This quote could not be created. Try again."],
+    ] as const) {
+      const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+        if (path.startsWith("/api/funding/providers")) return { providers: [applePayBinding()] };
+        if (path.startsWith("/api/funding/orders?")) return { order: null };
+        if (path === "/api/funding/quotes") throw Object.assign(new Error("quote rejected"), { code, serverMessage });
+        throw new Error("unexpected request");
+      } };
+      const view = render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="US" />);
+      fireEvent.click(await page().findByRole("button", { name: /Deposit USD/ }));
+      fireEvent.click(page().getByRole("button", { name: "2" }));
+      fireEvent.click(page().getByRole("button", { name: "5" }));
+      fireEvent.click(page().getByRole("button", { name: "Review quote" }));
+      const alert = await page().findByRole("alert");
+      expect(alert.textContent).toContain(expected);
+      expect(alert.textContent).not.toContain("Check your details");
+      view.unmount();
+      getHomeQueryClient().clear();
+    }
+  });
+
   test("renders Apple Pay only after economics review and refetches only for trusted messages", async () => {
     const navigations: string[] = [];
     const requests: Array<{ path: string; method?: string }> = [];

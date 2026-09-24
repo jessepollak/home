@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { createProviderContext } from "@/server/funding/core/provider-context";
 import { FundingCore } from "@/server/funding/core/service";
+import { FundingQuoteRejectedError } from "@/server/funding/core/quote-rejection";
 import { MemoryFundingOrderStore } from "@/server/funding/core/store";
 import { describeFundingAdapter } from "@/server/funding/core/testing/describeFundingAdapter";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
@@ -171,6 +172,7 @@ describe("Coinbase headless funding adapter", () => {
           onramp: {
             paymentMethods: [{ id: "apple-pay", label: "Apple Pay" }],
             env: ["CDP_API_KEY_ID", "CDP_API_KEY_SECRET"],
+            minimumFiatAmount: "2",
           },
         },
       },
@@ -232,6 +234,25 @@ describe("Coinbase headless funding adapter", () => {
     });
     expect(Date.parse(quote.expiresAt)).toBeGreaterThanOrEqual(before + 180_000);
     expect(Date.parse(quote.expiresAt)).toBeLessThanOrEqual(after + 180_000);
+  });
+
+  test("classifies only well-formed Coinbase 400 quote rejections without exposing provider text", async () => {
+    for (const [response, reason] of [
+      [Response.json({ errorType: "PAYMENT_TOO_SMALL", errorMessage: "Must be at least the minimum" }, { status: 400 }), "below-minimum"],
+      [Response.json({ errorType: "INVALID_METHOD", errorMessage: "Payment declined" }, { status: 400 }), "declined"],
+    ] as const) {
+      const rejection: unknown = await provider.onramp!.createQuote!(quoteIntent, context((async () => response) as unknown as typeof fetch))
+        .catch((error: unknown) => error);
+      expect(rejection).toBeInstanceOf(FundingQuoteRejectedError);
+      expect(rejection).toMatchObject({ reason, message: "Funding quote rejected." });
+    }
+    for (const response of [new Response("not JSON", { status: 400 }), Response.json({ errorType: "MINIMUM" }, { status: 500 })]) {
+      const rejection: unknown = await provider.onramp!.createQuote!(quoteIntent, context((async () => response) as unknown as typeof fetch))
+        .catch((error: unknown) => error);
+      expect(rejection).toBeInstanceOf(Error);
+      expect(rejection).not.toBeInstanceOf(FundingQuoteRejectedError);
+      expect(rejection).toMatchObject({ message: "Coinbase quote request failed." });
+    }
   });
 
   test("rejects quote fee currencies and inconsistent fee equations", async () => {

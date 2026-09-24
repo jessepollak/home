@@ -15,7 +15,7 @@ export async function POST(request: Request): Promise<Response> {
   try { body = await request.json(); } catch { return fundingError("INVALID_QUOTE_REQUEST", "A valid funding request is required.", 400); }
   try { return fundingJson(await getFundingCore().createQuote(authorized.session, body, fundingRequestOrigin(request))); }
   catch (error) {
-    if (error instanceof FundingCoreError) return fundingError(error.code, "The funding quote could not be created.", error.status);
+    if (error instanceof FundingCoreError) return fundingError(error.code, error.publicMessage ?? "The funding quote could not be created.", error.status);
     if (error instanceof FundingProviderConfigurationError) {
       emitServerEvent("funding-order", {
         route: "/api/funding/quotes",

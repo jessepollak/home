@@ -56,6 +56,19 @@ describe("funding provider registry validation", () => {
     expect(() => validateFundingProviders([duplicateA, duplicateB])).toThrow("invalid or duplicated");
   });
 
+  test("accepts positive onramp minimum decimals and rejects zero or invalid values", () => {
+    for (const minimumFiatAmount of ["2", "2.50", "0.01"]) {
+      const valid = fixture();
+      valid.manifest.bindings[0]!.directions.onramp!.minimumFiatAmount = minimumFiatAmount;
+      expect(() => validateFundingProviders([valid])).not.toThrow();
+    }
+    for (const minimumFiatAmount of ["0", "0.00", "-2", "2e1", "2.", "02", "a".repeat(65)]) {
+      const invalid = fixture();
+      invalid.manifest.bindings[0]!.directions.onramp!.minimumFiatAmount = minimumFiatAmount;
+      expect(() => validateFundingProviders([invalid])).toThrow("minimum fiat amount must be a positive decimal");
+    }
+  });
+
   test("accepts shared and per-region webhook environment declarations", () => {
     const shared = fixture();
     shared.manifest.onramp!.webhook = { signatureHeader: "x-signature", env: "FIXTURE_KEY" };
