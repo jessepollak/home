@@ -322,12 +322,184 @@ describe("FundingExperience", () => {
     fireEvent.click(page().getByRole("button", { name: "Confirm deposit" }));
     await page().findByText("Don't try again yet");
     await page().findByText(
-      "Home could not confirm whether the provider created this deposit. It kept the original order and will not send it twice. Contact the operator before starting another deposit.",
+      "Home is waiting to learn whether the provider created this deposit, and will not send it again. You can clear this order 24 hours after its quote expires.",
     );
-    expect(page().queryByRole("button", { name: "Back" })).toBeNull();
+    expect(page().getByRole("button", { name: "Back" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Clear old order" })).toBeTruthy();
     expect(page().getByRole("button", { name: "Close add money" })).toBeTruthy();
     expect(quoteCalls).toBe(1);
     expect(orderBodies).toEqual([{ quoteToken: "original-signed-token" }, { quoteToken: "original-signed-token" }]);
+
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    fireEvent.click(await page().findByRole("button", { name: /Deposit ARS/ }));
+    expect(await page().findByText("Don't try again yet")).toBeTruthy();
+    expect(quoteCalls).toBe(1);
+    expect(orderBodies).toEqual([{ quoteToken: "original-signed-token" }, { quoteToken: "original-signed-token" }]);
+  });
+
+  test("shows typed create conflicts instead of generic retry copy", async () => {
+    for (const [code, message] of [
+      ["AMBIGUOUS_ORDER_OPEN", "Home is still waiting on an earlier deposit. Close and reopen Add money to resume it; no new provider request was created."],
+      ["ORDER_STATE_CHANGED", "This deposit changed while Home was confirming it. Close and reopen Add money to check the existing order before trying again."],
+    ] as const) {
+      const wallet = {
+        ...verifiedWallet(),
+        fetchAccountResource: async (path: string) => {
+          if (path.startsWith("/api/funding/providers")) return { providers: [fundingBinding()] };
+          if (path.startsWith("/api/funding/orders?")) return { order: null };
+          if (path === "/api/funding/quotes") return { quoteToken: "signed-token", quote: { fiatAmount: "1000", tokenAmountAtomic: "1000000000000000000000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" } };
+          if (path === "/api/funding/orders") throw Object.assign(new Error(code), { code });
+          throw new Error("unexpected request");
+        },
+      };
+
+      const view = render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+      fireEvent.click(await page().findByRole("button", { name: /Deposit ARS/ }));
+      for (const key of ["1", "0", "0", "0"]) fireEvent.click(page().getByRole("button", { name: key }));
+      fireEvent.click(page().getByRole("button", { name: "Review quote" }));
+      fireEvent.click(await page().findByRole("button", { name: "Confirm deposit" }));
+      expect((await page().findByRole("alert")).textContent).toContain(message);
+      view.unmount();
+      getHomeQueryClient().clear();
+    }
+  });
+
+  test("clears an eligible resumed ambiguous order, refetches remaining open orders, and Back returns to funding methods", async () => {
+    const requests: Array<{ path: string; body: unknown }> = [];
+    const ambiguous = { id: "11111111-1111-4111-8111-111111111111", providerId: "ripio", state: "dispatch-ambiguous", fiatAmount: "1000", providerStatus: null, instructions: null };
+    const resolved = { ...ambiguous, state: "cancelled" };
+    let cleared = false;
+    let openOrderReads = 0;
+    const wallet = {
+      ...verifiedWallet(),
+      fetchAccountResource: async (path: string, options?: { body?: unknown }) => {
+        requests.push({ path, body: options?.body });
+        if (path.startsWith("/api/funding/providers")) return { providers: [fundingBinding()] };
+        if (path.startsWith("/api/funding/orders?")) {
+          openOrderReads += 1;
+          return { order: cleared ? { ...ambiguous, id: "22222222-2222-4222-8222-222222222222", state: "awaiting-payment" } : ambiguous };
+        }
+        if (path.endsWith("/resolve")) { cleared = true; return { version: 1, order: resolved }; }
+        throw new Error("unexpected request");
+      },
+    };
+
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+    await page().findByText("Don't try again yet");
+    expect(page().getByRole("button", { name: "Back" })).toBeTruthy();
+    expect(page().getByText(/Home is waiting to learn whether the provider created this deposit/)).toBeTruthy();
+
+    fireEvent.click(page().getByRole("button", { name: "Clear old order" }));
+    await page().findByText("Order cleared");
+    expect(requests.find((request) => request.path.endsWith("/resolve"))).toEqual({
+      path: "/api/funding/orders/11111111-1111-4111-8111-111111111111/resolve",
+      body: { version: 1 },
+    });
+    await waitFor(() => expect(openOrderReads).toBe(2));
+    expect(page().getByText("Order cleared")).toBeTruthy();
+
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    expect(await page().findByRole("button", { name: /Receive crypto/ })).toBeTruthy();
+    expect(page().queryByText("Don't try again yet")).toBeNull();
+
+    fireEvent.click(page().getByRole("button", { name: /Deposit ARS/ }));
+    expect(await page().findByText("Deposit pending")).toBeTruthy();
+    expect(page().queryByRole("button", { name: "Review quote" })).toBeNull();
+    expect(requests.some((request) => request.path === "/api/funding/quotes" || request.path === "/api/funding/orders")).toBe(false);
+  });
+
+  test("an open order resumes only for its own binding when one provider has several in the region", async () => {
+    const usdBinding = { ...fundingBinding(), assetId: "base:usdc", assetSymbol: "USDC", assetDecimals: 6, currency: "USD", paymentMethods: [{ id: "card", label: "Card" }] };
+    const ambiguous = { id: "11111111-1111-4111-8111-111111111111", providerId: "ripio", region: "AR", assetId: "base:wars", paymentMethod: "bank_transfer", state: "dispatch-ambiguous", fiatAmount: "1000", providerStatus: null, instructions: null };
+    const requests: string[] = [];
+    const wallet = {
+      ...verifiedWallet(),
+      fetchAccountResource: async (path: string) => {
+        requests.push(path);
+        if (path.startsWith("/api/funding/providers")) return { providers: [usdBinding, fundingBinding()] };
+        if (path.startsWith("/api/funding/orders?")) return { order: ambiguous };
+        throw new Error("unexpected request");
+      },
+    };
+
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+    await page().findByText("Don't try again yet");
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    fireEvent.click(await page().findByRole("button", { name: /Deposit USD/ }));
+    await waitFor(() => expect(page().queryByText("Don't try again yet")).toBeNull());
+    expect(page().queryByRole("button", { name: "Clear old order" })).toBeNull();
+
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    fireEvent.click(await page().findByRole("button", { name: /Deposit ARS/ }));
+    expect(await page().findByText("Don't try again yet")).toBeTruthy();
+    expect(requests.some((path) => path === "/api/funding/quotes" || path === "/api/funding/orders" || path.endsWith("/resolve"))).toBe(false);
+  });
+
+  test("Back then the matching provider resumes ambiguity without another quote or create", async () => {
+    let quoteCalls = 0;
+    let createCalls = 0;
+    const ambiguous = { id: "11111111-1111-4111-8111-111111111111", providerId: "ripio", state: "dispatch-ambiguous", fiatAmount: "1000", providerStatus: null, instructions: null };
+    const wallet = {
+      ...verifiedWallet(),
+      fetchAccountResource: async (path: string) => {
+        if (path.startsWith("/api/funding/providers")) return { providers: [fundingBinding()] };
+        if (path.startsWith("/api/funding/orders?")) return { order: ambiguous };
+        if (path === "/api/funding/quotes") { quoteCalls += 1; throw new Error("unexpected quote"); }
+        if (path === "/api/funding/orders") { createCalls += 1; throw new Error("unexpected create"); }
+        throw new Error("unexpected request");
+      },
+    };
+
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+    await page().findByText("Don't try again yet");
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    expect(await page().findByRole("button", { name: /Receive crypto/ })).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: /Deposit ARS/ }));
+    expect(await page().findByText("Don't try again yet")).toBeTruthy();
+    expect(quoteCalls).toBe(0);
+    expect(createCalls).toBe(0);
+  });
+
+  test("does not reopen a terminal order from the open-order cache after Back", async () => {
+    const received = { id: "11111111-1111-4111-8111-111111111111", providerId: "ripio", state: "received", fiatAmount: "1000", providerStatus: "complete", instructions: null };
+    const wallet = {
+      ...verifiedWallet(),
+      fetchAccountResource: async (path: string) => {
+        if (path.startsWith("/api/funding/providers")) return { providers: [fundingBinding()] };
+        if (path.startsWith("/api/funding/orders?")) return { order: received };
+        throw new Error("unexpected request");
+      },
+    };
+
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+    await page().findByText("Money received");
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    fireEvent.click(await page().findByRole("button", { name: /Deposit ARS/ }));
+    expect(await page().findByRole("button", { name: "Review quote" })).toBeTruthy();
+    expect(page().queryByText("Money received")).toBeNull();
+  });
+
+  test("shows the server recovery time when an ambiguous order is not ready", async () => {
+    const ambiguous = { id: "11111111-1111-4111-8111-111111111111", providerId: "ripio", state: "dispatch-ambiguous", fiatAmount: "1000", providerStatus: null, instructions: null };
+    const wallet = {
+      ...verifiedWallet(),
+      fetchAccountResource: async (path: string) => {
+        if (path.startsWith("/api/funding/providers")) return { providers: [fundingBinding()] };
+        if (path.startsWith("/api/funding/orders?")) return { order: ambiguous };
+        if (path.endsWith("/resolve")) throw Object.assign(new Error("not ready"), {
+          serverMessage: "This order can be cleared after Sep 13, 2026, 12:05 AM UTC.",
+        });
+        throw new Error("unexpected request");
+      },
+    };
+
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+    await page().findByText("Don't try again yet");
+    fireEvent.click(page().getByRole("button", { name: "Clear old order" }));
+    expect((await page().findByRole("alert")).textContent).toContain(
+      "This order can be cleared after Sep 13, 2026, 12:05 AM UTC.",
+    );
+    expect(page().getByText("Don't try again yet")).toBeTruthy();
   });
 
   test("late ambiguous resume never overrides an explicit Receive selection", async () => {

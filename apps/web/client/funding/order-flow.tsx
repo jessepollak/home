@@ -32,10 +32,12 @@ import {
   type MoneyAmountChangeSource,
 } from "@/client/money-modal";
 import {
+  browserHomeQueryClient,
   ownerQueryKey,
   ownerQueryMeta,
   publicQueryKey,
   useHomeQuery,
+  useHomeQueryClient,
 } from "@/client/query/query-client";
 import type { FundingBinding } from "@/shared/funding/contracts/providers";
 import {
@@ -48,6 +50,10 @@ import {
   type FundingOrderSummary,
   type Instruction,
 } from "@/shared/funding/contracts/order";
+import {
+  FUNDING_ORDER_RESOLUTION_VERSION,
+  readResolveFundingOrderResponse,
+} from "@/shared/funding/contracts/order-resolution";
 
 type AccountFetch = (
   path: string,
@@ -91,6 +97,9 @@ export function FundingOrderFlow({
   );
   const [showInstructions, setShowInstructions] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [resolvingAmbiguous, setResolvingAmbiguous] = useState(false);
+  const [resolutionError, setResolutionError] = useState<string | null>(null);
+  const [clearedOrderId, setClearedOrderId] = useState<string | null>(null);
   const [confirmationAttempted, setConfirmationAttempted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const openedRedirectOrderRef = useRef<string | null>(
@@ -102,12 +111,14 @@ export function FundingOrderFlow({
     setAmount(value);
   }
 
+  const queryClient = useHomeQueryClient(browserHomeQueryClient());
+  const orderQueryKey = order
+    ? queryOwnerKey
+      ? ownerQueryKey(queryOwnerKey, "funding-order", order.id)
+      : publicQueryKey("funding-order-isolated", order.id)
+    : publicQueryKey("funding-order-disabled");
   const orderQuery = useHomeQuery({
-    queryKey: order
-      ? queryOwnerKey
-        ? ownerQueryKey(queryOwnerKey, "funding-order", order.id)
-        : publicQueryKey("funding-order-isolated", order.id)
-      : publicQueryKey("funding-order-disabled"),
+    queryKey: orderQueryKey,
     enabled: shouldPollFundingOrder(order),
     initialData: order ?? undefined,
     initialDataUpdatedAt: () => Date.now(),
@@ -183,6 +194,36 @@ export function FundingOrderFlow({
     finally { setBusy(false); }
   }
 
+  async function resolveAmbiguousOrder() {
+    if (!currentOrder || currentOrder.state !== "dispatch-ambiguous" || resolvingAmbiguous) return;
+    setResolvingAmbiguous(true);
+    setResolutionError(null);
+    try {
+      const value = await fetchAccountResource(
+        `/api/funding/orders/${currentOrder.id}/resolve`,
+        {
+          method: "POST",
+          body: { version: FUNDING_ORDER_RESOLUTION_VERSION },
+        },
+      );
+      const resolved = readResolveFundingOrderResponse(value);
+      if (!resolved) throw new Error("resolution");
+      setClearedOrderId(resolved.order.id);
+      setOrder(resolved.order);
+      queryClient.setQueryData(orderQueryKey, resolved.order);
+      if (queryOwnerKey) {
+        void queryClient.invalidateQueries({
+          queryKey: ownerQueryKey(queryOwnerKey, "funding-open-order", binding.region),
+          refetchType: "all",
+        });
+      }
+    } catch (resolveFailure) {
+      setResolutionError(resolveAmbiguousErrorCopy(resolveFailure));
+    } finally {
+      setResolvingAmbiguous(false);
+    }
+  }
+
   async function confirmOrder() {
     if (busy || !draft) return;
     setBusy(true);
@@ -196,10 +237,17 @@ export function FundingOrderFlow({
       const next = readFundingOrder(value);
       if (!next) throw new Error("order");
       setOrder(next);
-    } catch {
-      setError(
-        "Home could not confirm the order response. Retry to recover this same order; no new quote or provider request will be created.",
-      );
+      if (
+        queryOwnerKey &&
+        (next.state === "dispatch-ambiguous" || !terminal(next.state, next.sandbox))
+      ) {
+        queryClient.setQueryData(
+          ownerQueryKey(queryOwnerKey, "funding-open-order", binding.region),
+          { order: next },
+        );
+      }
+    } catch (orderError) {
+      setError(confirmOrderErrorCopy(orderError));
     } finally {
       setBusy(false);
     }
@@ -227,11 +275,23 @@ export function FundingOrderFlow({
         <MoneyModalHeader
           title={`Deposit ${binding.currency}`}
           titleId={titleId}
-          {...(currentOrder.state === "dispatch-ambiguous" ? {} : { onBack })}
+          onBack={onBack}
           onClose={onClose}
           closeLabel="Close add money"
         />
-        <OrderStatus binding={binding} order={currentOrder} onRefetch={orderQuery.refetch} />
+        <OrderStatus
+          binding={binding}
+          order={currentOrder}
+          onRefetch={orderQuery.refetch}
+          cleared={currentOrder.id === clearedOrderId && currentOrder.state === "cancelled"}
+          {...(currentOrder.state === "dispatch-ambiguous"
+            ? {
+                onResolve: () => void resolveAmbiguousOrder(),
+                resolving: resolvingAmbiguous,
+                resolutionError,
+              }
+            : {})}
+        />
       </>
     );
   }
@@ -501,15 +561,28 @@ function OrderStatus({
   binding,
   order,
   onRefetch,
+  onResolve,
+  resolving = false,
+  resolutionError = null,
+  cleared = false,
 }: {
   binding: FundingBinding;
   order: FundingOrderSummary;
   onRefetch?: () => Promise<unknown>;
+  onResolve?: () => void;
+  resolving?: boolean;
+  resolutionError?: string | null;
+  cleared?: boolean;
 }) {
-  const copy = stateCopy(order.state, order.sandbox);
+  const copy = cleared
+    ? {
+        title: "Order cleared",
+        body: "Home closed this deposit attempt without sending another request. You can start a new deposit.",
+      }
+    : stateCopy(order.state, order.sandbox);
   return (
     <>
-      <MoneyModalBody hasFooter={false} className="gap-4 pt-4">
+      <MoneyModalBody hasFooter={Boolean(onResolve)} className="gap-4 pt-4">
         <h3 className="text-lg font-semibold">{copy.title}</h3>
         {order.sandbox ? <SandboxBadge /> : null}
         {copy.body ? <FundingNotice>{copy.body}</FundingNotice> : null}
@@ -526,8 +599,19 @@ function OrderStatus({
             Status: {order.providerStatus}
           </p>
         ) : null}
+        {resolutionError ? (
+          <FundingNotice tone="error" role="alert">
+            {resolutionError}
+          </FundingNotice>
+        ) : null}
       </MoneyModalBody>
-
+      {onResolve ? (
+        <MoneyModalFooter
+          primaryLabel={resolving ? "Clearing old order…" : "Clear old order"}
+          primaryDisabled={resolving}
+          onPrimary={onResolve}
+        />
+      ) : null}
     </>
   );
 }
@@ -816,7 +900,7 @@ function stateCopy(state: string, sandbox = false) {
   if (state === "dispatch-ambiguous")
     return {
       title: "Don't try again yet",
-      body: "Home could not confirm whether the provider created this deposit. It kept the original order and will not send it twice. Contact the operator before starting another deposit.",
+      body: "Home is waiting to learn whether the provider created this deposit, and will not send it again. You can clear this order 24 hours after its quote expires.",
     };
   if (state === "sent-unverified")
     return sandbox
@@ -854,6 +938,29 @@ function terminal(state: string, sandbox = false) {
     "refunded",
   ].includes(state);
 }
+function confirmOrderErrorCopy(error: unknown): string {
+  const code = typeof error === "object" && error !== null && "code" in error
+    ? error.code
+    : null;
+  if (code === "AMBIGUOUS_ORDER_OPEN") {
+    return "Home is still waiting on an earlier deposit. Close and reopen Add money to resume it; no new provider request was created.";
+  }
+  if (code === "ORDER_STATE_CHANGED") {
+    return "This deposit changed while Home was confirming it. Close and reopen Add money to check the existing order before trying again.";
+  }
+  return "Home could not confirm the order response. Retry to recover this same order; no new quote or provider request will be created.";
+}
+
+function resolveAmbiguousErrorCopy(error: unknown): string {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "serverMessage" in error &&
+    typeof error.serverMessage === "string"
+  ) return error.serverMessage;
+  return "This order cannot be cleared yet. Home waits 24 hours after its quote expires.";
+}
+
 function positiveDecimal(value: string) {
   return /^(0|[1-9][0-9]*)(\.[0-9]+)?$/.test(value) && /[1-9]/.test(value);
 }

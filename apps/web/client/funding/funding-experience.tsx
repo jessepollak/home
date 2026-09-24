@@ -12,7 +12,8 @@ import {
   AddMoneyDialog,
   type AddMoneyStep,
 } from "./add-money-dialog";
-import { readFundingOrder, readProviderId, type FundingOrderSummary } from "@/shared/funding/contracts/order";
+import { shouldPollFundingOrder } from "./order-flow";
+import { readFundingOrder, type FundingOrderSummary } from "@/shared/funding/contracts/order";
 import { readProviderBindings, type FundingBinding } from "@/shared/funding/contracts/providers";
 import { readFundingProviderCustomers, type FundingProviderCustomerSummary } from "@/shared/funding/contracts/provider-customers";
 import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
@@ -158,7 +159,7 @@ function FundingExperienceBoundary({
     const resumed = readFundingOrder(orderValue);
     if (!resumed || stepRef.current !== "method") return;
     const binding = providerBindings.find(
-      (candidate) => candidate.providerId === readProviderId(orderValue),
+      (candidate) => orderMatchesBinding(resumed, candidate),
     );
     if (!binding) return;
     queueMicrotask(() => {
@@ -187,6 +188,7 @@ function FundingExperienceBoundary({
   }, [customersQuery.data, ordersQuery.data, ordersQuery.isSuccess, providerBindings, returnedFromVerification]);
 
   const customerSetupReady = customersQuery.isSuccess || !customerSetupRequired;
+  const openOrder = readFundingOrder(ordersQuery.data);
   const fundingReadError = providerQuery.isError
     ? {
         message: "Funding methods are unavailable. Try again.",
@@ -246,11 +248,23 @@ function FundingExperienceBoundary({
       queryOwnerKey={queryOwnerKey}
       onSelectBinding={(binding) => {
         setSelectedBinding(binding);
-        setInitialOrder(null);
+        setInitialOrder(
+          openOrder && orderMatchesBinding(openOrder, binding) &&
+            (openOrder.state === "dispatch-ambiguous" || shouldPollFundingOrder(openOrder))
+            ? openOrder
+            : null,
+        );
         setInitialCustomer(readFundingProviderCustomers(customersQuery.data).find((customer) => customer.providerId === binding.providerId) ?? null);
         navigateTo("order");
       }}
       onOpenRedirect={navigateToRedirect}
     />
   );
+}
+
+function orderMatchesBinding(order: FundingOrderSummary, binding: FundingBinding): boolean {
+  return order.providerId === binding.providerId &&
+    (order.region === undefined || order.region === binding.region) &&
+    (order.assetId === undefined || order.assetId === binding.assetId) &&
+    (order.paymentMethod === undefined || binding.paymentMethods.some((method) => method.id === order.paymentMethod));
 }

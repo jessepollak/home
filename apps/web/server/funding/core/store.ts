@@ -54,6 +54,7 @@ export interface FundingOrderStore {
   getOwned(id: string, owner: FundingOrderOwner): Promise<FundingOrder | null>;
   getByIntent(owner: FundingOrderOwner, intentDigest: string): Promise<FundingOrder | null>;
   getOpen(owner: FundingOrderOwner, region: string): Promise<FundingOrder | null>;
+  getDispatchAmbiguous(owner: FundingOrderOwner, region: string, providerId: string): Promise<FundingOrder | null>;
   getByProviderOrderId(providerId: string, providerOrderId: string): Promise<FundingOrder | null>;
   completeDispatch(id: string, input: {
     providerOrderId: string;
@@ -65,6 +66,12 @@ export interface FundingOrderStore {
     updatedAt: string;
   }): Promise<FundingOrder>;
   markDispatchAmbiguous(id: string, expectedVersion: number, updatedAt: string): Promise<FundingOrder>;
+  resolveDispatchAmbiguous(
+    id: string,
+    owner: FundingOrderOwner,
+    expectedVersion: number,
+    updatedAt: string,
+  ): Promise<FundingOrder | null>;
   applyObservation(id: string, input: {
     state: ReportedState | "sent-unverified";
     providerStatus: string;
@@ -125,9 +132,18 @@ export class MemoryFundingOrderStore implements FundingOrderStore {
 
   async getOpen(owner: FundingOrderOwner, region: string) {
     return cloneOrNull([...this.orders.values()].reverse().find((order) =>
-      sameOwner(order.owner, owner) && order.region === region
-        && (!isTerminalFundingState(order.state) || order.state === "dispatch-ambiguous")
-        && !(order.sandbox && order.state === "sent-unverified"),
+      sameOwner(order.owner, owner) &&
+      order.region === region &&
+      isOpenFundingOrder(order),
+    ));
+  }
+
+  async getDispatchAmbiguous(owner: FundingOrderOwner, region: string, providerId: string) {
+    return cloneOrNull([...this.orders.values()].find((order) =>
+      sameOwner(order.owner, owner) &&
+      order.region === region &&
+      order.providerId === providerId &&
+      order.state === "dispatch-ambiguous",
     ));
   }
 
@@ -160,6 +176,28 @@ export class MemoryFundingOrderStore implements FundingOrderStore {
     const order = this.required(id);
     if (order.state !== "reserving" || order.version !== expectedVersion) throw new Error("funding-order-already-dispatched");
     Object.assign(order, { state: "dispatch-ambiguous" as const, updatedAt, instructions: null, version: order.version + 1 });
+    return clone(order);
+  }
+
+  async resolveDispatchAmbiguous(
+    id: string,
+    owner: FundingOrderOwner,
+    expectedVersion: number,
+    updatedAt: string,
+  ) {
+    const order = this.orders.get(id);
+    if (
+      !order ||
+      !sameOwner(order.owner, owner) ||
+      order.state !== "dispatch-ambiguous" ||
+      order.version !== expectedVersion
+    ) return null;
+    Object.assign(order, {
+      state: "cancelled" as const,
+      updatedAt,
+      instructions: null,
+      version: order.version + 1,
+    });
     return clone(order);
   }
 
@@ -226,6 +264,12 @@ function ownerKey(owner: FundingOrderOwner, suffix: string): string {
 }
 function sameOwner(left: FundingOrderOwner, right: FundingOrderOwner): boolean {
   return left.subject === right.subject && left.accountProvider === right.accountProvider;
+}
+function isOpenFundingOrder(order: FundingOrder): boolean {
+  return (
+    (!isTerminalFundingState(order.state) || order.state === "dispatch-ambiguous") &&
+    !(order.sandbox && order.state === "sent-unverified")
+  );
 }
 function clone<T>(value: T): T { return structuredClone(value); }
 function cloneOrNull(value: FundingOrder | undefined): FundingOrder | null { return value ? clone(value) : null; }

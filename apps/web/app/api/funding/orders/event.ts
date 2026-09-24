@@ -2,7 +2,7 @@ import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { emitServerEvent } from "@/server/observability/log";
 
 export function emitUnknownFundingOrderRouteFailure(fields: {
-  route: "/api/funding/orders" | "/api/funding/orders/:id";
+  route: "/api/funding/orders" | "/api/funding/orders/:id" | "/api/funding/orders/:id/resolve";
   code: string;
   session: VerifiedAccountSession;
   startedAt: number;

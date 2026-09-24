@@ -6,6 +6,7 @@ import type { FundingOrder, FundingOrderOwner, FundingOrderStore, FundingReserva
 
 type Row = Record<string, unknown>;
 const TERMINAL_SQL = "'dispatch-ambiguous','received','expired','cancelled','failed','refunded'";
+const OPEN_SQL = `(state NOT IN (${TERMINAL_SQL}) OR state='dispatch-ambiguous') AND NOT (sandbox=true AND state='sent-unverified')`;
 const PROGRESS_SQL = "ARRAY['reserving','unknown','awaiting-payment','payment-received','settling','sent','sent-unverified']";
 
 export class PostgresFundingOrderStore implements FundingOrderStore {
@@ -35,13 +36,17 @@ export class PostgresFundingOrderStore implements FundingOrderStore {
 
   async getOwned(id: string, owner: FundingOrderOwner) { return this.one("SELECT * FROM funding_orders WHERE id=$1 AND account_provider=$2 AND owner_subject=$3", [id, owner.accountProvider, owner.subject]); }
   async getByIntent(owner: FundingOrderOwner, intentDigest: string) { return this.one("SELECT * FROM funding_orders WHERE account_provider=$1 AND owner_subject=$2 AND intent_digest=$3", [owner.accountProvider, owner.subject, intentDigest]); }
-  async getOpen(owner: FundingOrderOwner, region: string) { return this.one(`SELECT * FROM funding_orders WHERE account_provider=$1 AND owner_subject=$2 AND region=$3 AND (state NOT IN (${TERMINAL_SQL}) OR state='dispatch-ambiguous') AND NOT (sandbox=true AND state='sent-unverified') ORDER BY updated_at DESC LIMIT 1`, [owner.accountProvider, owner.subject, region]); }
+  async getOpen(owner: FundingOrderOwner, region: string) { return this.one(`SELECT * FROM funding_orders WHERE account_provider=$1 AND owner_subject=$2 AND region=$3 AND ${OPEN_SQL} ORDER BY updated_at DESC LIMIT 1`, [owner.accountProvider, owner.subject, region]); }
+  async getDispatchAmbiguous(owner: FundingOrderOwner, region: string, providerId: string) { return this.one("SELECT * FROM funding_orders WHERE account_provider=$1 AND owner_subject=$2 AND region=$3 AND provider_id=$4 AND state='dispatch-ambiguous' ORDER BY updated_at ASC LIMIT 1", [owner.accountProvider, owner.subject, region, providerId]); }
   async getByProviderOrderId(providerId: string, providerOrderId: string) { return this.one("SELECT * FROM funding_orders WHERE provider_id=$1 AND provider_order_id=$2", [providerId, providerOrderId]); }
   async completeDispatch(id: string, input: Parameters<FundingOrderStore["completeDispatch"]>[1]) {
     return this.updated(`UPDATE funding_orders SET state='awaiting-payment', provider_order_id=$2, expected_token_amount_atomic=$3, fees=$4::jsonb, expires_at=$5, instructions=$6::jsonb, version=version+1, updated_at=$8 WHERE id=$1 AND state='reserving' AND version=$7 RETURNING *`, [id, input.providerOrderId, input.expectedTokenAmountAtomic, JSON.stringify(input.fees), input.expiresAt, JSON.stringify(input.instructions), input.expectedVersion, input.updatedAt]);
   }
   async markDispatchAmbiguous(id: string, expectedVersion: number, updatedAt: string) {
     return this.updated(`UPDATE funding_orders SET state='dispatch-ambiguous', instructions=NULL, version=version+1, updated_at=$3 WHERE id=$1 AND state='reserving' AND version=$2 RETURNING *`, [id, expectedVersion, updatedAt]);
+  }
+  async resolveDispatchAmbiguous(id: string, owner: FundingOrderOwner, expectedVersion: number, updatedAt: string) {
+    return this.updatedOrNull(`UPDATE funding_orders SET state='cancelled', instructions=NULL, version=version+1, updated_at=$5 WHERE id=$1 AND account_provider=$2 AND owner_subject=$3 AND state='dispatch-ambiguous' AND version=$4 RETURNING *`, [id, owner.accountProvider, owner.subject, expectedVersion, updatedAt]);
   }
   async applyObservation(id: string, input: Parameters<FundingOrderStore["applyObservation"]>[1]) {
     const terminal = ["expired", "cancelled", "failed", "refunded"].includes(input.state);
