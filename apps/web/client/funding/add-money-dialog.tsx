@@ -50,6 +50,7 @@ export function AddMoneyDialog({
   onBack,
   onSelectReceive,
   providerBindings,
+  providersLoaded,
   providerBindingsDisabled,
   customerSetupReady,
   fundingReadError,
@@ -70,6 +71,7 @@ export function AddMoneyDialog({
   onBack: () => void;
   onSelectReceive: () => void;
   providerBindings: ReadonlyArray<FundingBinding>;
+  providersLoaded: boolean;
   providerBindingsDisabled: boolean;
   customerSetupReady: boolean;
   fundingReadError: { message: string; retry: () => void } | null;
@@ -114,6 +116,8 @@ export function AddMoneyDialog({
         <MethodBody
           onSelectReceive={onSelectReceive}
           providerBindings={providerBindings}
+          providersLoaded={providersLoaded}
+          countryName={presentationRegions[regionId].countryName}
           providerBindingsDisabled={providerBindingsDisabled}
           customerSetupReady={customerSetupReady}
           fundingReadError={fundingReadError}
@@ -154,6 +158,8 @@ export function AddMoneyDialog({
 export function MethodBody({
   onSelectReceive,
   providerBindings,
+  providersLoaded,
+  countryName,
   providerBindingsDisabled,
   customerSetupReady,
   fundingReadError,
@@ -161,6 +167,8 @@ export function MethodBody({
 }: {
   onSelectReceive: () => void;
   providerBindings: ReadonlyArray<FundingBinding>;
+  providersLoaded: boolean;
+  countryName: string;
   providerBindingsDisabled: boolean;
   customerSetupReady: boolean;
   fundingReadError: { message: string; retry: () => void } | null;
@@ -239,6 +247,11 @@ export function MethodBody({
           </div>
         </CardContent>
       </Card>
+      {providersLoaded && !fundingReadError && providerBindings.length === 0 ? (
+        <Alert role="status">
+          <AlertDescription>No local deposit method in {countryName} yet.</AlertDescription>
+        </Alert>
+      ) : null}
     </MoneyModalBody>
   );
 }

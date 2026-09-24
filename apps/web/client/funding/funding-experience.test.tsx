@@ -84,6 +84,23 @@ afterEach(() => {
 });
 
 describe("FundingExperience", () => {
+  test("shows the local deposit empty state only after providers load, without hiding Receive", async () => {
+    let resolveProviders!: (value: unknown) => void;
+    const providerRead = new Promise<unknown>((resolve) => { resolveProviders = resolve; });
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers")) return providerRead;
+      if (path.startsWith("/api/funding/orders?")) return { order: null };
+      throw new Error("unexpected request");
+    } };
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="DE" />);
+    expect(page().getByRole("button", { name: /Receive crypto/ })).toBeTruthy();
+    expect(page().queryByText("No local deposit method in Germany yet.")).toBeNull();
+
+    await act(async () => { resolveProviders({ providers: [] }); await providerRead; });
+    expect((await page().findByRole("status")).textContent).toBe("No local deposit method in Germany yet.");
+    expect(page().getByRole("button", { name: /Receive crypto/ })).toBeTruthy();
+    expect(page().queryByRole("button", { name: /Deposit EUR/ })).toBeNull();
+  });
   test("does not present a disabled regional candidate as receive support", async () => {
     await act(async () => {
       render(
@@ -170,6 +187,7 @@ describe("FundingExperience", () => {
     await waitFor(() => expect(orderReads).toBe(1));
     expect(receive.hasAttribute("disabled")).toBe(false);
     expect(page().queryByRole("alert")).toBeNull();
+    expect(await page().findByRole("status")).toHaveProperty("textContent", "No local deposit method in Argentina yet.");
   });
 
   test("keeps a provider-list failure visible for retry", async () => {
@@ -197,6 +215,7 @@ describe("FundingExperience", () => {
     );
     expect(page().getByRole("button", { name: /Receive crypto/ })).toBeTruthy();
     expect(page().getByRole("button", { name: "Retry" })).toBeTruthy();
+    expect(page().queryByText(/No local deposit method/)).toBeNull();
   });
 
   test("derives provider row copy from the binding and summarizes extra methods", async () => {

@@ -89,7 +89,7 @@ async function openPeerCashOutHandle(page: Page) {
   await page.getByRole("button", { name: "Send" }).click();
   await page.getByRole("button", { name: "1", exact: true }).click();
   await page.getByRole("button", { name: "Continue" }).click();
-  await page.getByRole("button", { name: /Send to Zelle, Venmo, Cash App and more/ }).click();
+  await page.getByRole("button", { name: /Send to Cash App/ }).click();
   await page.getByRole("button", { name: "Cash App" }).click();
 }
 

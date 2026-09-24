@@ -17,7 +17,7 @@ import { PayoutMethodMarks } from "@/components/payout-method-marks";
 import { atomicToDecimal } from "@/shared/formatting/atomic";
 import { formatAddress, formatUsdStablecoinAmount } from "@/shared/formatting";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
-import type { RegionId } from "@/config/regions";
+import { presentationRegions, type RegionId } from "@/config/regions";
 import { readProviderBindings, type FundingOfframpBinding } from "@/shared/funding/contracts/providers";
 import { readCashoutOrdersResponse, type CashoutOrderSummary } from "@/shared/funding/contracts/offramp-orders";
 import { canonicalizeCashPayee } from "@/shared/funding/cash-payee";
@@ -119,8 +119,9 @@ export function SendDialog({
     useState<MoneyAmountChangeSource>("programmatic");
   const [request, setRequest] = useState<TransferRequest | null>(null);
   const [cashout, setCashout] = useState<CashoutRequest | null>(null);
-  const [offramps, setOfframps] = useState<ReadonlyArray<FundingOfframpBinding>>([]);
+  const [offramps, setOfframps] = useState<ReadonlyArray<FundingOfframpBinding> | null>([]);
   const [providersLoadedFor, setProvidersLoadedFor] = useState<string | null>(null);
+  const [providerRetry, setProviderRetry] = useState(0);
   const [activeOrders, setActiveOrders] = useState<ReadonlyArray<CashoutOrderSummary>>([]);
   const [ordersLoadedFor, setOrdersLoadedFor] = useState<string | null>(null);
   const [recoveryEligible, setRecoveryEligible] = useState(false);
@@ -169,7 +170,7 @@ export function SendDialog({
     : [];
   const providersLoaded = providersLoadedFor === resourceBoundary;
   const ordersLoaded = ordersLoadedFor === resourceBoundary;
-  const eligibleOfframps = (providersLoaded ? offramps : []).filter((binding) => selectedAsset?.symbol === "USDC" && binding.assetId === "base:usdc");
+  const eligibleOfframps = (providersLoaded ? offramps ?? [] : []).filter((binding) => selectedAsset?.symbol === "USDC" && binding.assetId === "base:usdc");
   const visibleActiveOrders = ordersLoaded ? activeOrders : [];
   const recoveryAttempted = recoveryAttemptedFor === resourceBoundary;
   const assetOptions = useMemo(() => availableAssets?.map((asset) => ({
@@ -224,10 +225,10 @@ export function SendDialog({
     const requestedBoundary = resourceBoundary;
     void fetchAccountResource(`/api/funding/providers?region=${encodeURIComponent(regionId)}&direction=offramp`)
       .then((value) => { if (!cancelled) setOfframps(readProviderBindings(value).filter((binding): binding is FundingOfframpBinding => binding.direction === "offramp")); })
-      .catch(() => { if (!cancelled) setOfframps([]); })
+      .catch(() => { if (!cancelled) setOfframps(null); })
       .finally(() => { if (!cancelled) setProvidersLoadedFor(requestedBoundary); });
     return () => { cancelled = true; };
-  }, [fetchAccountResource, open, ownerBoundary, regionId, resourceBoundary]);
+  }, [fetchAccountResource, open, ownerBoundary, regionId, resourceBoundary, providerRetry]);
 
   useEffect(() => {
     if (!open || !ownerBoundary || !fetchAccountResource) return;
@@ -481,6 +482,11 @@ export function SendDialog({
             {recentRecipients.length > 0 ? <RecentRecipients recipients={recentRecipients} onSelect={changeRecipient} /> : null}
             {visibleActiveOrders.map((order) => <RecoveryItem key={order.depositId} order={order} onWithdraw={() => void prepareWithdraw(order)} />)}
             {eligibleOfframps.length > 0 ? <CashoutItem binding={eligibleOfframps[0]!} onSelect={() => { setSelectedOfframp(eligibleOfframps[0]!); setStep("payout"); }} /> : null}
+            {providersLoaded && offramps === null ? <>
+              <StatusMessage>Cash out is unavailable right now.</StatusMessage>
+              <Button variant="ghost" size="sm" onClick={() => setProviderRetry((count) => count + 1)}>Try again</Button>
+            </> : null}
+            {providersLoaded && offramps?.length === 0 ? <StatusMessage>Cash out isn&apos;t available in {presentationRegions[regionId].countryName} yet.</StatusMessage> : null}
             {providersLoaded && ordersLoaded && recoveryEligible && !recoveryAttempted && visibleActiveOrders.length === 0 ? <Button variant="ghost" size="sm" onClick={() => void recoverCashouts()}>Recover a Peer cash-out</Button> : null}
           </div>
         </div> : null}
@@ -570,6 +576,8 @@ function RecentRecipients({ recipients, onSelect }: { recipients: ReadonlyArray<
 }
 
 function CashoutItem({ binding, onSelect }: { binding: FundingOfframpBinding; onSelect: () => void }) {
+  const labels = binding.paymentMethods.map((method) => method.label);
+  const destination = labels.length === 1 ? labels[0] : `${labels.slice(0, -1).join(", ")} or ${labels.at(-1)}`;
   return <Item
     render={<Button variant="ghost" press="none" />}
     className="flex-nowrap items-center text-left"
@@ -577,7 +585,7 @@ function CashoutItem({ binding, onSelect }: { binding: FundingOfframpBinding; on
   >
     <ItemMedia><PayoutMethodMarks methods={binding.paymentMethods} /></ItemMedia>
     <ItemContent className="min-w-0">
-      <ItemTitle>Send to Zelle, Venmo, Cash App and more</ItemTitle>
+      <ItemTitle>{`Send to ${destination}`}</ItemTitle>
       <ItemDescription lines={1}>Use Peer to send via app</ItemDescription>
     </ItemContent>
     <ItemActions aria-hidden="true"><ChevronRight className="size-4 text-muted-foreground" /></ItemActions>

@@ -101,7 +101,7 @@ Use the portfolio from [GitHub #539](https://github.com/jessepollak/home/issues/
 | AUD → AUDD | AUDD Mint | [#556](https://github.com/jessepollak/home/issues/556) |
 | SGD → XSGD | StraitsX | [#557](https://github.com/jessepollak/home/issues/557) |
 
-**Peer.xyz is required in MVP as an offramp only** (Jesse, September 23), alongside the regional issuer routes above. Peer onramp is out of MVP. Cash-out is enabled in production for the US and GB; add regions by binding. Define each binding's payment methods, liquidity, fees, status, and recovery paths, and record missing or blocked paths explicitly. Peer does not replace any agreed regional route, and its bindings are additional to the thirteen listed above.
+**Peer.xyz is required in MVP as an offramp only** (Jesse, September 23), alongside the regional issuer routes above. Peer onramp is out of MVP. Cash-out is enabled in production for the US and GB; the 21 configured euro-area countries also have a Revolut EUR binding under the same Peer switch, with live validation and Peer's written corridor confirmation outstanding. Add regions by binding. Define each binding's payment methods, liquidity, fees, status, and recovery paths, and record missing or blocked paths explicitly. Peer does not replace any agreed regional route, and its bindings are additional to the thirteen listed above.
 
 For each binding, track country/audience, local payment rail, exact Base asset, cash-in, cash-out, fees, status/recovery, provider access, and evidence. Confirm exits separately: earlier onramp research did not establish every withdrawal route.
 
