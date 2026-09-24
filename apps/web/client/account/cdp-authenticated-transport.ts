@@ -22,6 +22,7 @@ import {
 } from "@/client/query/after-action";
 import { redirectOnAccessRequired, type AccessNavigation } from "./access-response";
 import { dataOwnerKey } from "./owner-keys";
+import { ResourceFailure } from "./resource-failure";
 
 type MoneyActionApiFetch = (path: string, init?: RequestInit) => Promise<unknown>;
 
@@ -122,11 +123,11 @@ export function useAuthenticatedTransport({
       query?: string,
     ): Promise<unknown> => {
       if (!session || status !== "verified" || verification !== "server" || !ownerKey) {
-        throw new Error("Authenticated resource is unavailable.");
+        throw new ResourceFailure("session");
       }
       const accessToken = await getAccessToken();
       if (authentication === "cdp" && !accessToken) {
-        throw new Error("Authenticated resource is unavailable.");
+        throw new ResourceFailure("session");
       }
 
       const skewHeaders = deploymentHeaders();
@@ -149,10 +150,10 @@ export function useAuthenticatedTransport({
         );
       } catch (error) {
         if (signal?.aborted) throw error;
-        throw new Error("Authenticated resource is unavailable.");
+        throw new ResourceFailure("network");
       }
       if (await redirectOnAccessRequired(response, accessNavigation)) {
-        throw new Error("Deployment access is required.");
+        throw new ResourceFailure("access", "Deployment access is required.");
       }
       if (!response.ok) {
         let details = { code: null as string | null, serverMessage: null as string | null };
@@ -161,14 +162,14 @@ export function useAuthenticatedTransport({
         } catch {
         }
         throwIfDeploymentExpired(response, skewHeaders, details.code);
-        const unavailable = new Error("Authenticated resource is unavailable.");
+        const unavailable = new ResourceFailure("http", undefined, response.status);
         Object.assign(unavailable, { status: response.status, ...details });
         throw unavailable;
       }
       try {
         return await response.json();
       } catch {
-        throw new Error("Authenticated resource is unavailable.");
+        throw new ResourceFailure("parse");
       }
     },
     [accessNavigation, authentication, getAccessToken, ownerKey, session, sessionFetch, status, verification],

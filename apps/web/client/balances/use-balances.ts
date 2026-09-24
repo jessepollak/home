@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useRef } from "react";
 import { keepPreviousData } from "@tanstack/react-query";
 import { dataOwnerKey } from "@/client/account/owner-keys";
+import { isInterruptionEligible } from "@/client/account/resource-failure";
 import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
 import type { RegionId } from "@/config/regions";
 import { parseBalancesSnapshot } from "@/shared/balances/contract";
@@ -19,6 +20,14 @@ export type RecoverableBalancesState = BalancesState & {
   revalidating?: true;
   refreshError?: true;
   retry: () => Promise<void>;
+  observation: {
+    identity: string | null;
+    fetchStatus: "fetching" | "paused" | "idle";
+    errorUpdatedAt: number;
+    dataUpdatedAt: number;
+    failureEligible: boolean;
+    hasData: boolean;
+  };
 };
 
 export const balancesStaleTimeMs = 15_000;
@@ -105,11 +114,19 @@ export function useBalances(
   }, [refetch]);
 
   return useMemo(() => {
+    const observation = {
+      identity: ownerKey ? `${ownerKey}\u0000${region}` : null,
+      fetchStatus: query.fetchStatus,
+      errorUpdatedAt: query.errorUpdatedAt,
+      dataUpdatedAt: query.dataUpdatedAt,
+      failureEligible: isInterruptionEligible(query.error),
+      hasData: query.data !== undefined,
+    };
     if (!ownerKey) {
-      return { status: "unavailable", snapshot: null, error: null, retry };
+      return { status: "unavailable", snapshot: null, error: null, retry, observation };
     }
     if (query.isPending) {
-      return { status: "loading", snapshot: null, error: null, retry };
+      return { status: "loading", snapshot: null, error: null, retry, observation };
     }
     if (query.data) {
       const snapshot = query.isError
@@ -120,6 +137,7 @@ export function useBalances(
         snapshot,
         error: null,
         retry,
+        observation,
         ...(query.isFetching ? { revalidating: true as const } : {}),
         ...(query.isError ? { refreshError: true as const } : {}),
       };
@@ -130,10 +148,11 @@ export function useBalances(
         snapshot: null,
         error: "balances-unavailable",
         retry,
+        observation,
       };
     }
-    return { status: "loading", snapshot: null, error: null, retry };
-  }, [ownerKey, query.data, query.isError, query.isFetching, query.isPending, retry]);
+    return { status: "loading", snapshot: null, error: null, retry, observation };
+  }, [ownerKey, region, query.data, query.dataUpdatedAt, query.error, query.errorUpdatedAt, query.fetchStatus, query.isError, query.isFetching, query.isPending, retry]);
 }
 
 function isBalancesSession(value: BalancesQuerySession | null): value is BalancesQuerySession {

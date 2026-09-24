@@ -25,6 +25,9 @@ export type HomeExperienceProps = {
   landingVisual?: ReactNode;
   routeMode?: "landing" | "dashboard";
   balancesRevalidating?: boolean;
+  interruption?: { kind: "offline" | "interrupted" } | null;
+  interruptionAnnouncement?: "offline" | "interrupted" | null;
+  onRetryInterruption?: () => void;
   initialAddMoney?: boolean;
   returnedFromProvider?: boolean;
   initialSendFlow?: boolean;

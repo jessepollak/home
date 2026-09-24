@@ -138,6 +138,24 @@ describe("useBalances", () => {
     expect(calls).toBe(3);
   });
 
+  test("two retries while one balances request is in flight issue only one GET", async () => {
+    let calls = 0;
+    let finish: ((value: typeof balancesSnapshotFixture) => void) | undefined;
+    const fetchBalances: FetchBalances = () => {
+      calls += 1;
+      if (calls === 1) return Promise.resolve(balancesSnapshotFixture);
+      return new Promise((resolve) => { finish = resolve; });
+    };
+    const view = render(<RetryHarness fetchBalances={fetchBalances} />);
+    await waitFor(() => expect(view.getByText(/:current:current$/)).toBeTruthy());
+    view.getByRole("button", { name: "retry balances" }).click();
+    await waitFor(() => expect(calls).toBe(2));
+    view.getByRole("button", { name: "retry balances" }).click();
+    expect(calls).toBe(2);
+    finish?.(balancesSnapshotFixture);
+    await waitFor(() => expect(view.getByText(/:current:current$/)).toBeTruthy());
+  });
+
   test("fails closed when the response scope does not match the verified owner", async () => {
     const mismatched = {
       ...balancesSnapshotFixture,
