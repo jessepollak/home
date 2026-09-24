@@ -95,6 +95,7 @@ const { CdpAccountProvider } = await import("@/client/account/cdp-client");
 const { AccountWalletSessionOwner } = await import("@/client/account/cdp-session-lifecycle");
 const { BASE_CHAIN_ID } = await import("@/client/account/session-client");
 const { useNestedAppChrome } = await import("@/components/app-chrome");
+const { InvestExperience } = await import("@/client/invest/invest-experience");
 const { HomeExperience } = await import("./home-experience");
 
 const OWNER = "home-user";
@@ -556,6 +557,103 @@ describe("Home shell routing and intents", () => {
       getHomeQueryClient().clear();
       resetHistory();
     }
+  });
+
+  test("active Invest tab pushes its root only when the current path is nested", async () => {
+    syncLocation("/invest/crypto");
+    historyEntries = ["/invest/crypto"];
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} initialPanel="invest" />);
+    await waitForVerifiedShell();
+
+    const investTab = within(page().getByRole("navigation", { name: "Main navigation" }))
+      .getByRole("button", { name: "Invest" });
+    fireEvent.click(investTab);
+    expect(window.location.pathname).toBe("/invest");
+    expect(pushCalls).toEqual(["/invest"]);
+
+    fireEvent.click(investTab);
+    expect(pushCalls).toEqual(["/invest"]);
+    act(() => popHistory());
+    expect(window.location.pathname).toBe("/invest/crypto");
+  });
+
+  test("restores a crypto detail's category Back after the active Invest tab and browser Back", async () => {
+    syncLocation("/invest");
+    historyEntries = ["/invest"];
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        initialPanel="invest"
+        investContent={<InvestExperience />}
+      />,
+    );
+    await waitForVerifiedShell();
+
+    fireEvent.click(within(page().getByRole("region", { name: "Crypto" }))
+      .getByRole("button", { name: "See all ›" }));
+    expect(window.location.pathname).toBe("/invest/crypto");
+    fireEvent.click(page().getByRole("button", { name: /Bitcoin/ }));
+    expect(window.location.pathname).toBe("/invest/cbbtc");
+    expect(window.history.state.investDetailFrom).toBe("crypto");
+
+    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" }))
+      .getByRole("button", { name: "Invest" }));
+    expect(window.location.pathname).toBe("/invest");
+    await act(async () => { popHistory(); await Promise.resolve(); });
+    expect(window.location.pathname).toBe("/invest/cbbtc");
+    expect(page().getByRole("button", { name: /^Back$/ })).toBeTruthy();
+
+    fireEvent.click(page().getByRole("button", { name: /^Back$/ }));
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/invest/crypto");
+      expect(document.querySelector("[data-shell-header-title]")?.textContent).toBe("Crypto");
+      expect(page().getAllByRole("region", { name: "Crypto" }).length).toBeGreaterThan(0);
+      expect(page().getByRole("button", { name: "Back to Invest" })).toBeTruthy();
+    });
+  });
+
+  test("returns to the Invest overview after Account settings unmounts a nested Invest view", async () => {
+    syncLocation("/invest/crypto");
+    historyEntries = ["/invest/crypto"];
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        initialPanel="invest"
+        investContent={<InvestExperience initialView={{ screen: "category", shelfId: "crypto" }} />}
+      />,
+    );
+    const accountTrigger = await waitForVerifiedShell();
+    expect(page().getByRole("button", { name: "Back to Invest" })).toBeTruthy();
+    expect(window.location.pathname).toBe("/invest/crypto");
+    fireEvent.click(accountTrigger);
+    expect(window.location.search).toBe("?account=settings");
+    expect(await page().findByRole("region", { name: "Account settings" })).toBeTruthy();
+
+    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" }))
+      .getByRole("button", { name: "Invest" }));
+    expect(window.location.pathname).toBe("/invest");
+    expect(pushCalls).toEqual(["/invest/crypto?account=settings", "/invest"]);
+    expect(page().queryAllByRole("button", { name: "Back to Invest" })).toHaveLength(0);
+    expect(page().getByRole("region", { name: "Crypto" })).toBeTruthy();
+  });
+
+  test("browser Back from Account settings restores the nested Invest view", async () => {
+    syncLocation("/invest/crypto");
+    historyEntries = ["/invest/crypto"];
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        initialPanel="invest"
+        investContent={<InvestExperience initialView={{ screen: "category", shelfId: "crypto" }} />}
+      />,
+    );
+    const accountTrigger = await waitForVerifiedShell();
+    fireEvent.click(accountTrigger);
+    expect(await page().findByRole("region", { name: "Account settings" })).toBeTruthy();
+
+    act(() => popHistory());
+    expect(window.location.pathname).toBe("/invest/crypto");
+    expect(await page().findByRole("button", { name: "Back to Invest" })).toBeTruthy();
   });
 
   test("uses a Back button for nested Invest chrome and preserves its action", async () => {

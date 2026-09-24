@@ -41,6 +41,87 @@ test("canonical routing preserves the shell and one balances read", async ({ pag
   expect(fixtures.balancesReads()).toBe(1);
 });
 
+test("switching away from nested Invest and back opens the Invest overview", async ({ page }) => {
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  await page.goto("/home");
+  await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
+
+  const navigation = page.getByRole("navigation", { name: "Main navigation" });
+  await navigation.getByRole("button", { name: "Invest", exact: true }).click();
+  await expect(page).toHaveURL(/\/invest$/);
+  await page.getByRole("region", { name: "Crypto" }).getByRole("button", { name: "See all ›" }).click();
+  await expect(page).toHaveURL(/\/invest\/crypto$/);
+  await expect(page.locator("[data-shell-header-title]").first()).toHaveText("Crypto");
+
+  await navigation.getByRole("button", { name: "Home", exact: true }).click();
+  await expect(page).toHaveURL(/\/home$/);
+  await navigation.getByRole("button", { name: "Invest", exact: true }).click();
+  await expect(page).toHaveURL(/\/invest$/);
+  await expect(page.locator("[data-shell-header-title]").first()).toHaveText("Invest");
+  await expect(page.getByRole("button", { name: "Back to Invest" })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Crypto" })).toBeVisible();
+
+  await page.getByRole("region", { name: "Crypto" }).getByRole("button", { name: "See all ›" }).click();
+  await navigation.getByRole("button", { name: "Home", exact: true }).click();
+  await page.getByRole("region", { name: "Your money" })
+    .getByRole("button", { name: /^Investments/ }).click();
+  await expect(page).toHaveURL(/\/invest$/);
+  await expect(page.locator("[data-shell-header-title]").first()).toHaveText("Invest");
+  await expect(page.getByRole("button", { name: "Back to Invest" })).toHaveCount(0);
+});
+
+test("tapping active Invest from a category pushes a root entry that Back restores", async ({ page }) => {
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  await page.goto("/home");
+  await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
+
+  const investTab = page.getByRole("navigation", { name: "Main navigation" })
+    .getByRole("button", { name: "Invest", exact: true });
+  await investTab.click();
+  await expect(page).toHaveURL(/\/invest$/);
+  await page.getByRole("region", { name: "Crypto" }).getByRole("button", { name: "See all ›" }).click();
+  await expect(page).toHaveURL(/\/invest\/crypto$/);
+  await investTab.click();
+  await expect(page).toHaveURL(/\/invest$/);
+  await expect(page.locator("[data-shell-header-title]").first()).toHaveText("Invest");
+  await expect(page.getByRole("button", { name: "Back to Invest" })).toHaveCount(0);
+  await investTab.click();
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\/invest\/crypto$/);
+  await expect(page.locator("[data-shell-header-title]").first()).toHaveText("Crypto");
+  await expect(page.getByRole("button", { name: "Back to Invest" })).toBeVisible();
+  await page.goBack();
+  await expect(page).toHaveURL(/\/invest$/);
+  await expect(page.locator("[data-shell-header-title]").first()).toHaveText("Invest");
+});
+
+test("tapping active Invest from a crypto asset preserves category Back after browser Back", async ({ page }) => {
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  await page.goto("/home");
+  await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
+
+  const investTab = page.getByRole("navigation", { name: "Main navigation" })
+    .getByRole("button", { name: "Invest", exact: true });
+  await investTab.click();
+  await page.getByRole("region", { name: "Crypto" }).getByRole("button", { name: "See all ›" }).click();
+  await expect(page).toHaveURL(/\/invest\/crypto$/);
+  await page.getByRole("button", { name: /Bitcoin/ }).click();
+  await expect(page).toHaveURL(/\/invest\/cbbtc$/);
+
+  await investTab.click();
+  await expect(page).toHaveURL(/\/invest$/);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/invest\/cbbtc$/);
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(page).toHaveURL(/\/invest\/crypto$/);
+  await expect(page.locator("[data-shell-header-title]").first()).toHaveText("Crypto");
+  await expect(page.getByRole("button", { name: "Back to Invest" })).toBeVisible();
+});
+
 test("Account settings moves focus into the view and restores it to the account trigger", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await seedSignedInSession(page);
