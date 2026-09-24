@@ -674,6 +674,7 @@ export function SavingsExperience({
               ? availableUsdcBaseUnits
               : (selectedAmount?.toString() ?? null)
           }
+          availableStale={balanceStale || balanceRefreshError}
           prepareMoneyAction={prepareMoneyAction}
           executeMoneyAction={executeMoneyAction}
           onClose={closeAction}
