@@ -52,6 +52,7 @@ export type SavingsMoneyDialogProps = {
   candidate: MorphoVaultCandidate;
   availableLabel?: string;
   availableBaseUnits?: string | null;
+  availableStale?: boolean;
   prepareMoneyAction: AccountWalletClient["prepareMoneyAction"];
   executeMoneyAction: AccountWalletClient["executeMoneyAction"];
   onClose: () => void;
@@ -73,6 +74,7 @@ function OwnerBoundSavingsMoneyDialog({
   candidate,
   availableLabel,
   availableBaseUnits,
+  availableStale = false,
   prepareMoneyAction,
   executeMoneyAction,
   onClose,
@@ -114,6 +116,11 @@ function OwnerBoundSavingsMoneyDialog({
   const assetRouteConfigured = assetId === configuredAssetId
     && assetLabel.toLocaleUpperCase() === candidate.asset.symbol.toLocaleUpperCase()
     && assetDecimals === candidate.asset.decimals;
+  const knownAvailable = !availableStale && availableBaseUnits != null && /^\d+$/.test(availableBaseUnits)
+    ? BigInt(availableBaseUnits)
+    : null;
+  const nothingAvailable = knownAvailable === BigInt(0);
+  const amountExceedsAvailable = amountExceedsKnownAvailable(amount, knownAvailable);
   const pricing = useMoneyAssetPricing(assetLabel);
   const title = step === "confirm" || step === "pending" || step === "error" || step === "failed"
     ? "Confirm"
@@ -156,11 +163,8 @@ function OwnerBoundSavingsMoneyDialog({
         throw new SavingsActionClientError("Verify a Base smart account to continue.");
       }
       const nextAmount = parseUsdcAmount(amount);
-      if (availableBaseUnits) {
-        const available = BigInt(availableBaseUnits);
-        if (BigInt(nextAmount) > available) {
-          throw Object.assign(new Error("limit"), { status: 409, code: "SAVINGS_ACTION_LIMIT_EXCEEDED" });
-        }
+      if (knownAvailable !== null && BigInt(nextAmount) > knownAvailable) {
+        throw Object.assign(new Error("limit"), { status: 409, code: "SAVINGS_ACTION_LIMIT_EXCEEDED" });
       }
       const preparationIdentity = ownerIdentity;
       setAmountBaseUnits(nextAmount);
@@ -292,6 +296,13 @@ function OwnerBoundSavingsMoneyDialog({
                 nativeSymbol={assetLabel}
               />
               <MoneyNumpad value={amount} maxDecimals={assetDecimals} onChange={changeAmount} />
+              {assetRouteConfigured && nothingAvailable ? (
+                <StatusMessage>
+                  {mode === "withdraw" ? "Nothing saved to withdraw." : `No ${assetLabel} available to deposit.`}
+                </StatusMessage>
+              ) : assetRouteConfigured && amountExceedsAvailable ? (
+                <StatusMessage>That&apos;s more than you have available.</StatusMessage>
+              ) : null}
               {!assetRouteConfigured ? (
                 <StatusMessage>
                   {assetLabel} is available for presentation review only. Savings actions remain {candidate.asset.symbol}-only.
@@ -326,7 +337,7 @@ function OwnerBoundSavingsMoneyDialog({
         {step === "amount" ? (
           <MoneyModalFooter
             primaryLabel="Continue"
-            primaryDisabled={!assetRouteConfigured || !isPositiveDecimalAmount(amount)}
+            primaryDisabled={!assetRouteConfigured || !isPositiveDecimalAmount(amount) || amountExceedsAvailable}
             onPrimary={() => void continueFromAmount()}
           />
         ) : null}
@@ -360,6 +371,17 @@ function OwnerBoundSavingsMoneyDialog({
       </MoneyModal>
     </MoneyMotionProvider>
   );
+}
+
+function amountExceedsKnownAvailable(amount: string, available: bigint | null): boolean {
+  if (available === null) return false;
+  let parsedAmount: string;
+  try {
+    parsedAmount = parseUsdcAmount(amount);
+  } catch {
+    return false;
+  }
+  return BigInt(parsedAmount) > available;
 }
 
 function savingsDialogOwnerIdentity(session: VerifiedAccountSession): string {

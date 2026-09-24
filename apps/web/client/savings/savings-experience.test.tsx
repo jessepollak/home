@@ -188,6 +188,38 @@ describe("Save simplify", () => {
     ]);
   });
 
+  test("defers a stale wallet balance cap to deposit preparation", async () => {
+    const prepares: unknown[] = [];
+    render(
+      <SavingsExperience
+        now={testNow}
+        initialData={initialData}
+        session={session()}
+        balanceStatus="ready"
+        balancePositions={balancePositions()}
+        availableUsdcBaseUnits="50000000"
+        balanceStale
+        prepareMoneyAction={async (_endpoint, input) => {
+          prepares.push(input);
+          return preparedAction("savings-deposit");
+        }}
+        executeMoneyAction={async () => ({ id: "action-1", status: "confirmed" })}
+      />,
+    );
+
+    fireEvent.click(await page().findByRole("button", { name: "Get started" }));
+    fireEvent.click(await page().findByRole("button", { name: "1" }));
+    fireEvent.click(page().getByRole("button", { name: "0" }));
+    fireEvent.click(page().getByRole("button", { name: "0" }));
+    const continueButton = page().getByRole("button", { name: "Continue" }) as HTMLButtonElement;
+    expect(continueButton.disabled).toBe(false);
+    fireEvent.click(continueButton);
+    await page().findByRole("dialog", { name: "Confirm" });
+    expect(prepares).toEqual([
+      { kind: "deposit", vaultAddress: GAUNTLET, amountBaseUnits: "100000000" },
+    ]);
+  });
+
   test("condenses the selected vault curator address while preserving copy access", async () => {
     render(
       <SavingsExperience

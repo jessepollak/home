@@ -138,6 +138,8 @@ type DialogStorySurfaceProps = {
   mode?: SavingsActionMode;
   motion?: SavingsDialogMotion;
   storyCandidate?: MorphoVaultCandidate;
+  availableLabel?: string;
+  availableBaseUnits?: string;
   executeMoneyAction?: AccountWalletClient["executeMoneyAction"];
 };
 
@@ -145,6 +147,8 @@ function DialogStorySurface({
   mode = "deposit",
   motion = "system",
   storyCandidate = candidate,
+  availableLabel,
+  availableBaseUnits,
   executeMoneyAction = rejectedExecution,
 }: DialogStorySurfaceProps) {
   const [open, setOpen] = useState(true);
@@ -177,8 +181,8 @@ function DialogStorySurface({
           mode={mode}
           session={session}
           candidate={storyCandidate}
-          availableLabel={selectedAssetId === "idrx" ? "Rp 250 available" : selectedAssetId === "eurc" ? "€250.00 available" : "$250.00 available"}
-          availableBaseUnits={selectedAssetId === "idrx" ? "25000" : "250000000"}
+          availableLabel={availableLabel ?? (selectedAssetId === "idrx" ? "Rp 250 available" : selectedAssetId === "eurc" ? "€250.00 available" : "$250.00 available")}
+          availableBaseUnits={availableBaseUnits ?? (selectedAssetId === "idrx" ? "25000" : "250000000")}
           prepareMoneyAction={prepareStoryAction}
           executeMoneyAction={executeMoneyAction}
           onClose={() => setOpen(false)}
@@ -255,16 +259,34 @@ export const AmountEntry: Story = {
   },
 };
 
-export const ValidationFailure: Story = {
+export const AmountExceedsAvailable: Story = {
   play: async ({ canvasElement }) => {
     const screen = within(canvasElement.ownerDocument.body);
     for (const digit of "999") {
       await userEvent.click(await screen.findByRole("button", { name: digit }));
     }
-    await userEvent.click(await screen.findByRole("button", { name: "Continue" }));
-    await expect(await screen.findByRole("alert")).toHaveTextContent(
-      "exceeds the current onchain account balance or vault limit",
-    );
+    await expect(await screen.findByRole("button", { name: "Continue" })).toBeDisabled();
+    await expect(await screen.findByText("That's more than you have available.")).toBeVisible();
+    await expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  },
+};
+
+export const WithdrawNothingSaved: Story = {
+  args: {
+    mode: "withdraw",
+    availableLabel: "$0.00 available",
+    availableBaseUnits: "0",
+  },
+  play: async ({ canvasElement }) => {
+    const screen = within(canvasElement.ownerDocument.body);
+    await expect(await screen.findByRole("dialog", { name: "Withdraw" })).toBeVisible();
+    await expect(await screen.findByText("Nothing saved to withdraw.")).toBeVisible();
+    for (const digit of "0.10") {
+      await userEvent.click(await screen.findByRole("button", { name: digit === "." ? "Decimal point" : digit }));
+    }
+    await expect(await screen.findByRole("button", { name: "Continue" })).toBeDisabled();
+    await expect(await screen.findByText("Nothing saved to withdraw.")).toBeVisible();
+    await expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   },
 };
 

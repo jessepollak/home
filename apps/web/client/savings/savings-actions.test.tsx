@@ -149,6 +149,99 @@ describe("SavingsMoneyDialog", () => {
     expect(requests).toEqual([{ kind: "savings-deposit", input: { kind: "deposit", vaultAddress: VAULT, amountBaseUnits: "1234567" } }]);
   });
 
+  test("explains an empty withdrawal balance before entry and blocks preparation", () => {
+    let prepareCalls = 0;
+    render(
+      <SavingsMoneyDialog
+        open mode="withdraw" session={session} candidate={candidate}
+        availableLabel="$0.00 available" availableBaseUnits="0"
+        prepareMoneyAction={async () => { prepareCalls += 1; return prepared("savings-withdraw"); }}
+        executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
+        onClose={() => {}}
+      />,
+    );
+    expect(page().getByRole("status").textContent).toBe("Nothing saved to withdraw.");
+    typeAmount("0.10");
+    const continueButton = page().getByRole("button", { name: "Continue" }) as HTMLButtonElement;
+    expect(continueButton.disabled).toBe(true);
+    expect(page().getByRole("status").textContent).toBe("Nothing saved to withdraw.");
+    fireEvent.click(continueButton);
+    expect(prepareCalls).toBe(0);
+    expect(page().queryByRole("alert")).toBeNull();
+  });
+
+  test("explains an empty deposit balance before entry", () => {
+    render(
+      <SavingsMoneyDialog
+        open mode="deposit" session={session} candidate={candidate}
+        availableLabel="$0.00 available" availableBaseUnits="0"
+        prepareMoneyAction={async () => prepared()}
+        executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
+        onClose={() => {}}
+      />,
+    );
+    expect(page().getByRole("status").textContent).toBe("No USDC available to deposit.");
+  });
+
+  test("blocks an amount above a non-zero available deposit balance", () => {
+    let prepareCalls = 0;
+    render(
+      <SavingsMoneyDialog
+        open mode="deposit" session={session} candidate={candidate}
+        availableLabel="$50.00 available" availableBaseUnits="50000000"
+        prepareMoneyAction={async () => { prepareCalls += 1; return prepared(); }}
+        executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
+        onClose={() => {}}
+      />,
+    );
+    typeAmount("60");
+    expect(page().getByRole("status").textContent).toBe("That's more than you have available.");
+    const continueButton = page().getByRole("button", { name: "Continue" }) as HTMLButtonElement;
+    expect(continueButton.disabled).toBe(true);
+    fireEvent.click(continueButton);
+    expect(prepareCalls).toBe(0);
+    expect(page().queryByRole("alert")).toBeNull();
+  });
+
+  test("defers a stale available balance to server preparation", async () => {
+    const requests: unknown[] = [];
+    render(
+      <SavingsMoneyDialog
+        open mode="deposit" session={session} candidate={candidate}
+        availableLabel="$0.00 available" availableBaseUnits="0" availableStale
+        prepareMoneyAction={async (_kind, input) => { requests.push(input); return prepared("savings-deposit", "60000000"); }}
+        executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
+        onClose={() => {}}
+      />,
+    );
+    expect(page().queryByRole("status")).toBeNull();
+    typeAmount("60");
+    const continueButton = page().getByRole("button", { name: "Continue" }) as HTMLButtonElement;
+    expect(continueButton.disabled).toBe(false);
+    fireEvent.click(continueButton);
+    expect(await page().findByRole("button", { name: "Deposit $60.00" })).toBeTruthy();
+    expect(requests).toEqual([{ kind: "deposit", vaultAddress: VAULT, amountBaseUnits: "60000000" }]);
+  });
+
+  test("defers a malformed available balance to server preparation", async () => {
+    const requests: unknown[] = [];
+    render(
+      <SavingsMoneyDialog
+        open mode="withdraw" session={session} candidate={candidate}
+        availableLabel="$1.50 available" availableBaseUnits="1.5"
+        prepareMoneyAction={async (_kind, input) => { requests.push(input); return prepared("savings-withdraw"); }}
+        executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
+        onClose={() => {}}
+      />,
+    );
+    typeAmount("1");
+    const continueButton = page().getByRole("button", { name: "Continue" }) as HTMLButtonElement;
+    expect(continueButton.disabled).toBe(false);
+    fireEvent.click(continueButton);
+    expect(await page().findByRole("button", { name: "Withdraw $1.00" })).toBeTruthy();
+    expect(requests).toEqual([{ kind: "withdraw", vaultAddress: VAULT, amountBaseUnits: "1000000" }]);
+  });
+
   test("marks only the prepared Save withdrawal confirm control", async () => {
     render(
       <SavingsMoneyDialog
