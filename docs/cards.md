@@ -6,7 +6,7 @@ Status: design of record for [#821](https://github.com/jessepollak/home/issues/8
 
 A verified, eligible customer gets a virtual card that spends USDC they moved from their Home smart account into their **card balance**.
 
-- **Card balance is a separate place, not a second copy.** On Base, Immersve funding is deposit-based: the customer transfers USDC from their smart account to the program's partner Funds Storage contract, which credits their Immersve Funding Source. Wallet USDC drops by the deposit; the card balance rises. Home will show the card balance as one non-sendable provider position, not add it again as spendable cash ([architecture](architecture.md), [product strategy](product-strategy.md)). Whether it belongs in the *cash total* is an open product decision for Jesse. A stale wallet snapshot plus a fresh Immersve credit can transiently double-count; action confirm/handle invalidation must heat the wallet snapshot and the card observation must show its own provenance and age. Immersve balance is not necessarily spendable.
+- **One balance is the target.** Jesse decided (September 24, 2026) that the card balance and the cash balance should be one and the same. On Base, Immersve funding is deposit-based: the customer transfers USDC from their smart account to the program's partner Funds Storage contract, which credits their Immersve Funding Source, so wallet USDC drops by the deposit and the card balance rises. Until a single-balance mechanism exists (Q6), Home counts the card balance inside the cash total as a non-sendable component with its own provenance and age, never as a second copy of wallet USDC ([architecture](architecture.md), [product strategy](product-strategy.md)). A stale wallet snapshot plus a fresh Immersve credit can transiently double-count; action confirm/handle invalidation must heat the wallet snapshot. Immersve balance is not necessarily spendable.
 - **Moving money back** uses Immersve's withdrawal intent: Home asks Immersve for the intent, the customer signs the returned execution transaction, and the Base receipt decides the outcome.
 - **Purchases** are Immersve payment events (`Holding`, `Cleared`, `Reversed`) projected into Activity. They are provider observations, not onchain transfers and not Home Actions.
 
@@ -38,7 +38,7 @@ Public shared sandbox credentials are revocable; no real personal data is sent t
 ## Delivery slices
 
 1. **Provider foundation (no UI or money action).** `server/cards` validated config and read-only JWKS/supported-regions client, verified public webhook ingress at listener URL `…/api/cards/webhooks/immersve` + `/<topic>`, mode-scoped event dedupe, `009_cards.sql`, synthetic SIWE probe.
-2. **Card journey and enrollment.** Subject to Q1/Q2, owner-linked cardholder identity and encrypted token rotation, funding-source creation, `card-fund` Action with every prepare gate above, card balance/Activity projection, card lifecycle routes and UI, feature-map/browser coverage. The cash-total question requires Jesse's decision.
+2. **Card journey and enrollment.** Subject to Q1/Q2, owner-linked cardholder identity and encrypted token rotation, funding-source creation, `card-fund` Action with every prepare gate above, card balance inside the cash total and Activity projection, card lifecycle routes and UI, feature-map/browser coverage.
 3. **Identity.** Immersve-hosted KYC, contact and expected-spend prerequisites, activation; partner Sumsub once confirmed.
 4. **Withdraw.** Withdrawal intent through Actions.
 
@@ -53,4 +53,4 @@ The `card_events` record holds only verified notification identity, topic, and a
 3. Can one Home program serve many operators, or does each operator contract directly? Program country eligibility and US timing. Can Home credentials read `GET /api/funding-channel/{id}`? Published shared credentials returned HTTP 403.
 4. Partner-conducted KYC with Sumsub: accepted, and with what statement and evidence payload?
 5. Fees, numeric limits, deposit crediting/finality on Base, spendable-balance rules, refund visibility, PCI-safe detail display options. Does an unexecuted withdrawal intent past `expiresAt` re-credit the Funding Source after its immediate debit?
-6. Should the provider card position join Home's cash total or appear separately? Jesse owns this product decision.
+6. Can card authorizations draw directly from the customer's smart account at spend time (allowance or just-in-time funding, or automatic top-up from the wallet) so the customer has one balance? If not, what is the lowest-friction automatic top-up pattern?
