@@ -1,7 +1,7 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { liveLogin, loadVerificationEnv } from "./live-login";
+import { checkAccount, liveLogin, loadVerificationEnv } from "./live-login";
 
 const directories: string[] = [];
 afterEach(() => { for (const path of directories.splice(0)) Bun.spawnSync(["rm", "-rf", path]); });
@@ -55,6 +55,53 @@ async function privateEnvFile(contents: string): Promise<{ home: string; path: s
   return { home, path };
 }
 
+test("checks the review account against a private anchor without exposing either address", async () => {
+  const anchor = "0x1234567890abcdef1234567890abcdef12345678";
+  const review = "0x1234567890ABCDEF1234567890ABCDEF12345678";
+  const mismatch = "0xabcdef1234567890abcdef1234567890abcdef12";
+  const { home } = await privateEnvFile(`HOME_VERIFY_ACCOUNT_ADDRESS=${anchor}\n`);
+  const options = { home, env: { HOME_VERIFY_ACCOUNT_ADDRESS: "" } };
+  await expect(checkAccount(review, options)).resolves.toBeUndefined();
+  for (const [address, message] of [
+    [mismatch, "Review account does not match HOME_VERIFY_ACCOUNT_ADDRESS."],
+    ["0x1234", "--check-account needs the review's full 0x address."],
+    [undefined, "--check-account needs the review's full 0x address."],
+  ] as const) {
+    const error = await checkAccount(address, options).catch((caught: Error) => caught);
+    if (!(error instanceof Error)) throw new Error("Expected checkAccount to reject.");
+    expect(error.message).toBe(message);
+    expect(error.message).not.toContain(anchor);
+    expect(error.message).not.toContain(review);
+    expect(error.message).not.toContain(mismatch);
+  }
+  const missing = await privateEnvFile("HOME_VERIFY_ACCOUNT_EMAIL=bot@example.com\n");
+  await expect(checkAccount(review, { home: missing.home, env: {} })).rejects.toThrow("HOME_VERIFY_ACCOUNT_ADDRESS is not provisioned.");
+  const malformed = await privateEnvFile("HOME_VERIFY_ACCOUNT_ADDRESS=0x1234\n");
+  await expect(checkAccount(review, { home: malformed.home, env: {} })).rejects.toThrow("HOME_VERIFY_ACCOUNT_ADDRESS must be a full 0x address.");
+});
+
+test("--check-account reports only match status and fails without launching a browser", async () => {
+  const anchor = "0x1234567890abcdef1234567890abcdef12345678";
+  const mismatch = "0xabcdef1234567890abcdef1234567890abcdef12";
+  const { path } = await privateEnvFile(`HOME_VERIFY_ACCOUNT_ADDRESS=${anchor}\n`);
+  const run = (address: string) => Bun.spawnSync(["bun", "run", "--silent", "--cwd", "apps/web", "live-login", "--check-account", address], {
+    cwd: resolve(import.meta.dir, "../.."),
+    env: { ...process.env, HOME_VERIFY_ENV_FILE: path, HOME_VERIFY_ACCOUNT_ADDRESS: "", HOME_VERIFY_ACCOUNT_EMAIL: "" },
+    stdout: "pipe", stderr: "pipe",
+  });
+  const match = run(anchor);
+  expect(match.exitCode).toBe(0);
+  expect(match.stdout.toString().trim()).toBe("account matches");
+  const failure = run(mismatch);
+  expect(failure.exitCode).toBe(1);
+  expect(failure.stdout.toString()).toBe("");
+  expect(failure.stderr.toString()).toContain("Review account does not match HOME_VERIFY_ACCOUNT_ADDRESS.");
+  for (const output of [match.stdout, match.stderr, failure.stdout, failure.stderr]) {
+    expect(output.toString()).not.toContain(anchor);
+    expect(output.toString()).not.toContain(mismatch);
+  }
+});
+
 test("loads only allowed literal values from the private file, splitting on the first equals and honoring environment precedence", async () => {
   const { home, path } = await privateEnvFile([
     "HOME_VERIFY_ACCOUNT_EMAIL=file@example.com",
@@ -62,6 +109,7 @@ test("loads only allowed literal values from the private file, splitting on the 
     "HOME_VERIFY_GMAIL_CREDENTIALS=/private/gmail.json",
     "HOME_VERIFY_OTP_SENDER=sender@example.com",
     "HOME_VERIFY_CASHOUT_HANDLE=$pinned",
+    "HOME_VERIFY_ACCOUNT_ADDRESS=0x000000000000000000000000000000000000b07a",
     "HOME_VERIFY_PRODUCTION_URL=https://example.com",
     "",
   ].join("\n"));
@@ -71,6 +119,7 @@ test("loads only allowed literal values from the private file, splitting on the 
   expect(env.HOME_VERIFY_GMAIL_CREDENTIALS).toBe("/private/gmail.json");
   expect(env.HOME_VERIFY_OTP_SENDER).toBe("sender@example.com");
   expect(env.HOME_VERIFY_CASHOUT_HANDLE).toBe("$pinned");
+  expect(env.HOME_VERIFY_ACCOUNT_ADDRESS).toBe("0x000000000000000000000000000000000000b07a");
   expect(env.HOME_VERIFY_PRODUCTION_URL).toBe("https://example.com");
   expect((await loadVerificationEnv({}, home)).HOME_VERIFY_ACCOUNT_EMAIL).toBe("file@example.com");
 });
@@ -82,11 +131,12 @@ test("empty environment values and an empty env-file override use the private de
     "HOME_VERIFY_GMAIL_CREDENTIALS=/private/gmail.json",
     "HOME_VERIFY_OTP_SENDER=sender@example.com",
     "HOME_VERIFY_CASHOUT_HANDLE=$pinned",
+    "HOME_VERIFY_ACCOUNT_ADDRESS=0x000000000000000000000000000000000000b07a",
     "HOME_VERIFY_PRODUCTION_URL=https://example.com",
   ].join("\n"));
   const empty = {
     HOME_VERIFY_ACCOUNT_EMAIL: "", HOME_ACCESS_PASSWORD: "", HOME_VERIFY_GMAIL_CREDENTIALS: "",
-    HOME_VERIFY_OTP_SENDER: "", HOME_VERIFY_CASHOUT_HANDLE: "", HOME_VERIFY_PRODUCTION_URL: "",
+    HOME_VERIFY_OTP_SENDER: "", HOME_VERIFY_CASHOUT_HANDLE: "", HOME_VERIFY_ACCOUNT_ADDRESS: "", HOME_VERIFY_PRODUCTION_URL: "",
     HOME_VERIFY_ENV_FILE: "",
   };
   const loaded = await loadVerificationEnv(empty, home);
@@ -95,6 +145,7 @@ test("empty environment values and an empty env-file override use the private de
   expect(loaded.HOME_VERIFY_GMAIL_CREDENTIALS).toBe("/private/gmail.json");
   expect(loaded.HOME_VERIFY_OTP_SENDER).toBe("sender@example.com");
   expect(loaded.HOME_VERIFY_CASHOUT_HANDLE).toBe("$pinned");
+  expect(loaded.HOME_VERIFY_ACCOUNT_ADDRESS).toBe("0x000000000000000000000000000000000000b07a");
   expect(loaded.HOME_VERIFY_PRODUCTION_URL).toBe("https://example.com");
   expect(loaded.HOME_VERIFY_ENV_FILE).toBeUndefined();
 });
@@ -192,11 +243,12 @@ test("defaults to headed browser but preserves a provisioned runner's override",
 });
 
 test("refuses missing account, unsafe state name and non-HTTPS origin before browser launch", async () => {
+  const { home } = await privateEnvFile("");
   const calls: string[][] = [];
   const command = (args: string[]) => { calls.push(args); return ""; };
   const env = { HOME_VERIFY_ACCOUNT_EMAIL: "bot@example.com" };
-  await expect(liveLogin(["--base-url", "https://example.com"], { command, env: {} })).rejects.toThrow("HOME_VERIFY_ACCOUNT_EMAIL");
-  await expect(liveLogin(["--session", "../escape", "--base-url", "https://example.com"], { command, env })).rejects.toThrow("--session");
-  await expect(liveLogin(["--base-url", "http://example.com"], { command, env })).rejects.toThrow("HTTPS");
+  await expect(liveLogin(["--base-url", "https://example.com"], { home, command, env: {} })).rejects.toThrow("HOME_VERIFY_ACCOUNT_EMAIL");
+  await expect(liveLogin(["--session", "../escape", "--base-url", "https://example.com"], { home, command, env })).rejects.toThrow("--session");
+  await expect(liveLogin(["--base-url", "http://example.com"], { home, command, env })).rejects.toThrow("HTTPS");
   expect(calls).toEqual([]);
 });

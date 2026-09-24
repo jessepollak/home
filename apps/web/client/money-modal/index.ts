@@ -17,6 +17,7 @@ export {
 
 export {
   MoneyConfirmSummary,
+  moneyConfirmFromRow,
 } from "./confirm-summary";
 
 export {

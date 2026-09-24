@@ -9,6 +9,7 @@ import {
   MoneyAmountDisplay,
   MoneyAssetPicker,
   MoneyConfirmSummary,
+  moneyConfirmFromRow,
   MoneyConfirmFooter,
   MoneyModal,
   MoneyModalBody,
@@ -322,6 +323,7 @@ function BorrowPreparedReview({ action, snapshot, regionId }: { action: Prepared
           amount={amount}
           lead={action.title}
           rows={[
+            moneyConfirmFromRow(action.owner),
             ...movementRows,
             { label: "Variable rate", value: formatWadPercent(metadata?.borrowAprWad ?? snapshot.state.borrowAprWad, regionId) },
             { label: "Network", value: "Base" },
