@@ -254,7 +254,7 @@ In local Next development, request URLs can report the bind address rather than 
 - `GET /api/funding/orders?region=` is added as the owner-scoped resume endpoint used when Add money opens. It has the same private/no-store response contract as the specified status route.
 - Coinbase moved behind the manifest seam on Sept 12 (`providers/coinbase/{manifest,adapter}.ts`, registered in `providers/index.ts`); the legacy Ripio store/reconciliation stack was removed under [closed #293](https://github.com/jessepollak/home/issues/293).
 
-### Astra fix round (September 12, 2026)
+### Review fix round (September 12, 2026)
 
 The signed quote token is now retained with the reservation and reused after a lost client response; retries correlate to the same owner-scoped intent digest and cannot redispatch. Add money presents a separate quote review (receive amount, fees, expiry) before confirmation. Ambiguous orders remain resumable, while late resume reads cannot replace an explicit user-selected screen.
 

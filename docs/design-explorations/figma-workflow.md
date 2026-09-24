@@ -87,7 +87,7 @@ The `Home states` section (`190:2821`) follows Jesse's two state reviews, and no
 
 1. Jesse comments or edits the canonical Figma page.
 2. Jesse comments `process Figma comments` on issue #683.
-3. The worker reads comments through `GET /v1/files/ixgttt6IurKynsvMJpLYDC/comments` using `~/.config/home-factory/figma-token`. The token is loaded only into the request environment and is never printed, captured, or committed.
+3. The worker reads comments through `GET /v1/files/ixgttt6IurKynsvMJpLYDC/comments` using a private token file outside the repo. The token is loaded only into the request environment and is never printed, captured, or committed.
 4. The worker reads changed frames and component structure through the Figma MCP, compares them with the current React owner and a real browser render, and classifies each thread.
 5. The worker revises the existing owned nodes in place with `use_figma`, or implements an approved result through the production-component Storybook/code loop. Existing published component IDs and Code Connect mappings are preserved unless Jesse explicitly authorizes a migration.
 6. The worker replies to every newly processed thread through the Figma comments REST API, reports component-definition changes that need publication, refreshes screenshots, and records residual differences. Older answered threads are not duplicated. The REST comments API cannot set `resolved_at` (no endpoint; `POST`/`PUT`/`resolve` variants return 404) and the Plugin API does not expose comments, so verified-satisfied threads are reported for a single manual Figma-UI resolve action rather than closed programmatically. The exact open-and-satisfied thread IDs live in [figma-mapping.json](figma-mapping.json) `commentHygiene`.
