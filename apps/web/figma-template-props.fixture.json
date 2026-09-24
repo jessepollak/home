@@ -2,7 +2,7 @@
   "12:27": {"Label#12:14":"Add money","Show icon#12:15":[true,false],"Icon#271:0":["instance","unconnected:rotate-cw","unconnected:chevron-right","unconnected:circle-help","unconnected:",""],"variant":["default","outline","secondary","ghost","destructive","link"],"size":["touch","xs","sm","default","lg","icon-sm","icon","icon-lg"],"state":["default","hover","pressed","focus","disabled","loading"]},
   "158:1841": {"Label#158:0":"Pending","Show icon#158:7":[false,true],"variant":["default","secondary","destructive","outline","ghost","link"]},
   "158:1862": {"Title#158:14":"Verify to raise your limit","Description#158:17":"You can add up to $500 a week until you verify your identity.","Show icon#158:20":[true,false],"Show action#158:23":[true,false],"Action#311:0":"Verify","variant":["default","destructive"]},
-  "269:5270": {"CardContent#269:2":"slot","variant":["flush","default"],"inset":["list","legacy","default","hero"]},
+  "269:5270": {"CardContent#269:2":"slot","variant":["flush","default"],"inset":["list","default","hero"]},
   "161:1818": {"Title#161:0":"Jesse Pollak","Description#161:16":"Sent Sep 23","Show media#161:32":[true,false],"Show description#161:48":[true,false],"Show actions#161:64":[true,false],"variant":["default","outline","muted","flush"],"size":["default","sm","xs"],"state":["default","hover","focus"]},
   "158:1872": {"orientation":["horizontal","vertical"]},
   "158:1866": {"shape":["line","block","circle"]},

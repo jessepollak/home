@@ -20,25 +20,15 @@
       { "name": "Account", "nodeId": "333:13090", "url": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13090", "contents": "Empty destination for future screens and proposals" },
       { "name": "Card", "nodeId": "333:13091", "url": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13091", "contents": "Card proposal #636 309:7257" },
       { "name": "Shell / desktop", "nodeId": "333:13092", "url": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13092", "contents": "Desktop proposal #694 322:11819" },
-      { "name": "References", "nodeId": "333:13093", "url": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13093", "contents": "Private Mobbin References 174:2891" },
-      { "name": "Archive (pending deletion, #841)", "nodeId": "333:13094", "url": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13094", "contents": "Archive 145:1638 (Home — funded, v1, v2, explorations and annotations); deprecated MoneyNumpad 166:1739 and MoneyNumpadKey 166:1738" }
+      { "name": "References", "nodeId": "333:13093", "url": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13093", "contents": "Private Mobbin References 174:2891" }
     ]
   },
   "pageLayout841": {
     "moved": {
       "11:768": "333:13084", "190:2821": "333:13084", "311:12034": "333:13084",
       "308:5918": "333:13088", "309:7257": "333:13091", "322:11819": "333:13092",
-      "174:2891": "333:13093", "145:1638": "333:13094", "166:1739": "333:13094", "166:1738": "333:13094"
+      "174:2891": "333:13093"
     }
-  },
-  "archiveCleanup841": {
-    "namedVersion": "Before archive cleanup (#841)",
-    "saved": false,
-    "reason": "The Figma Plugin API available to this run rejected saveVersionHistoryAsync as unsupported; the Figma REST API has no endpoint to create a named version. Jesse's precondition for deletion was not met.",
-    "lastAutomaticVersion": { "id": "2402628470002735473", "createdAt": "2026-09-24T03:59:51Z" },
-    "pendingDeletionPage": "333:13094",
-    "pendingDeletionNodes": ["145:1638", "166:1739", "166:1738", "12:28"],
-    "deletedNodeIds": []
   },
   "source": {
     "mainSha": "a06425173ba39fddd39350c0817e58bdfd9b3904",
@@ -58,7 +48,7 @@
       "#841, before Code Connect moved to #684: add_code_connect_map with label React reported success for 28 rows; none returned already mapped. Every one of those nodes is in apps/web/figma-components.json components, where #684's templates supersede them; #841 makes no further Code Connect calls. get_code_connect_map still reads back {}."
     ],
     "limitation": "Code Connect maps Figma to code metadata; it does not synchronize React changes into Figma or Figma edits into code automatically.",
-    "actionRequiredFromJesse": "Publish #841 changes: FinanceRow 96:1147, CurrencyMarkSlot 12:59, ShimmerRow 274:6015, CopyableValue 282:5961, MoneyConfirmRow 166:1802, Card 269:5270 and Home/Mono tight. Save the named version Before archive cleanup (#841), or approve the 2026-09-24 03:59:51 UTC automatic version, so the Archive page contents and then Card 12:28 can be deleted.",
+    "actionRequiredFromJesse": "Publish #841 changes: FinanceRow 96:1147, CurrencyMarkSlot 12:59, ShimmerRow 274:6015, CopyableValue 282:5961, MoneyConfirmRow 166:1802, Card 269:5270 and Home/Mono tight. Publish the library to remove the #882 deletions from the published library.",
     "nodeOwnership": "apps/web/figma-components.json"
   },
   "components": [
@@ -106,12 +96,11 @@
       "figmaName": "Card",
       "nodeId": "269:5270",
       "nodeUrl": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=269-5270",
-      "legacyVariantNodeId": "12:28",
       "codeSourcePath": "apps/web/components/ui/card.tsx",
       "codeComponentName": "Card",
-      "codeConnectStatus": "#684 template on the set 269:5270; the legacy variant 12:28 has no template and keeps its old hand mapping until the Archive cleanup deletes it",
-      "publishStatus": "CURRENT",
-      "fidelityNotes": "Card set 269:5270 received a set-level mapping in #841 before Code Connect moved to #684, whose publish supersedes it. Its variant=flush, inset=hero 301:5912 is HomeTotalBalance: 16px padding and an 8px CardContent slot gap around MoneyTicker and BalanceAllocation (SignedBalanceBar). Every TotalBalanceCard in Home — final and Home states uses flush/hero. This 12:28 variant is inset=legacy, with 20 instances only on the Archive page pending deletion; its old variant mapping stays until the Archive and then this variant can be deleted."
+      "codeConnectStatus": "#684 template on the set 269:5270; publish the #882 deletion of the legacy variant",
+      "publishStatus": "CHANGED (legacy variant deleted in #882; needs publish)",
+      "fidelityNotes": "Card set 269:5270 has four variants: 269:5196 (flush/list), 269:5244 (default/default), 273:5531 (default/list), and 301:5912 (flush/hero). The flush/hero HomeTotalBalance has 16px padding and an 8px CardContent slot gap around MoneyTicker and BalanceAllocation (SignedBalanceBar). Every TotalBalanceCard in Home — final and Home states uses flush/hero. The inset options are list, default and hero."
     },
     {
       "figmaName": "SectionHeader",
@@ -163,7 +152,7 @@
           { "name": "Layout=Title aligned, Value tone=Success", "nodeId": "112:1136", "bodyNodeId": "267:4945", "note": "Money in. Value text bound to color/market-gain (#137333, mirrors --market-gain in apps/web/app/globals.css) per Jesse comment 1938656305. Code currently maps valueTone success/accent -> ItemTitle tone primary (blue); production adoption must move success to market-gain. #841: lone value centred (PROPOSED)." },
           { "name": "Layout=Title aligned, Value tone=Error", "nodeId": "112:1147", "bodyNodeId": "267:4948", "note": "Value text bound to color/destructive; mirrors code valueTone error -> ItemTitle tone destructive. Kept in the set and on the all-variants board; not used on Home and not featured in the usage reference (comment 1938656455). #841: lone value centred (PROPOSED)." },
           { "name": "Layout=Title aligned, Value tone=Muted", "nodeId": "112:1158", "bodyNodeId": "267:4951", "note": "Value text bound to color/muted-foreground; mirrors code valueTone muted -> ItemTitle tone muted. Used for overdue/inactive amounts (Overdue −$4.20 in the usage reference, comment 1938656455). #841: lone value centred (PROPOSED)." },
-          { "name": "Layout=Centered (legacy), Value tone=Default", "nodeId": "12:60", "bodyNodeId": "267:4942", "note": "Preserves the original FinanceRow component id and its Code Connect mapping. Its body was already centred before #841. Used only by Home — funded and superseded frames on the Archive page pending deletion — never in Home — final. Partial matrix: the legacy layout carries only the Default tone." }
+          { "name": "Layout=Centered (legacy), Value tone=Default", "nodeId": "12:60", "bodyNodeId": "267:4942", "note": "Preserves the original FinanceRow component id and its Code Connect mapping. Its body was already centred before #841. The sole instance is on the Components review board — never in Home — final. Partial matrix: the legacy layout carries only the Default tone." }
         ],
         "properties": [
           "Label#96:0 (TEXT)",
@@ -218,7 +207,7 @@
       "codeComponentName": "(removed)",
       "codeConnectStatus": "not mapped by #684 (code removed the More rows in #789); an older hand mapping may remain",
       "publishStatus": "CURRENT",
-      "fidelityNotes": "Represents the separate ghost Button + Item + ChevronRight composition used for each More row. Not used on Home — final; retained for the funded baseline."
+      "fidelityNotes": "Represents the separate ghost Button + Item + ChevronRight composition used for each More row. No Figma instances remain."
     },
     {
       "figmaName": "TabItem",
@@ -253,7 +242,6 @@
       "reviewStatus": "approved-final (Jesse, 2026-09-23)",
       "annotationNodeId": "103:1136",
       "annotationNodeUrl": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=103-1136",
-      "supersedesForReview": "81:700",
       "fullyComponentized": true,
       "fidelityNotes": "The approved final Home design at 390x844, first in Screens on the Home page, and the production Home layout since #789. TotalBalanceCard 273:5644 uses Card variant=flush, inset=hero 301:5912. A lone FinanceRow value beside a two-line label is centred in Figma (proposed; code top-aligns it). Every Your money row (Cash, Investments, Borrow Cash) and every Activity row (six) is a single genericized FinanceRow instance (Layout=Title aligned) configured only through component properties, named semantically (Balance / …, Activity / …). Money-in Activity values (Received ×2, Borrowed) use Value tone=Success (color/market-gain); the rest use Default. Borrow Cash's value context reads 5.1% APR (Jesse decision on #789: loans quote APR, Cash stays APY). Rows are inset 32 px from the frame edge (16 px content + 16 px card padding), 326 px wide."
     },
@@ -274,69 +262,6 @@
         "246:4067": "status revealed: the header status popover open over the partial state (stories home-overview--partial-balances and home-overview--no-country)"
       },
       "fidelityNotes": "Section after Screens on the Home page holding one frame per non-funded state. #791 run 12 rebuilt every frame on library instances, as in Home — final; #841 confirmed every TotalBalanceCard (294:5881, 295:5892, 295:6088, 295:6455, 295:6650, 295:6802) uses Card variant=flush, inset=hero 301:5912, and YourMoneyCard uses Card variant=default, inset=list, each filled through its CardContent slot. A lone FinanceRow value beside a two-line label is centred in Figma (proposed; code top-aligns it); the ShimmerRow mark is now a centred 40px circle (code parity). the feed is ActivityHeading (16 px inset) over ActivityRows (4 px inset). BalanceAllocation is a SignedBalanceBar instance (items=cash+investments on no Borrow, items=cash on partial and status revealed). Loading uses a MoneyTicker label over Skeleton instances in the hero and three ShimmerRow instances in Your money and in Activity (code: ShimmerRows count 3, bg-foreground/10). Empty uses an Empty instance with the outline Add money Button at size=lg, 44 px (code: size=lg className=h-11). Activity error keeps the centered muted 'Activity unavailable' text (Home/Small; code renders a plain p) with a 44 px ghost icon Button. Status revealed uses a Popover instance (components/ui/popover.tsx), placed against the header status trigger. Cash and Investments rows use the CurrencyMarkSlot Kind=Cash (217:3741) and Kind=Investments (217:3753) glyph marks. The partial frames dim the net amount and show unread rows as a muted em dash with no chevron. Hidden stand-ins (TotalStatus, ActivityEmpty, ActivityNux, hidden rows) and the 20 absolute skeleton rectangles were deleted; frame IDs are unchanged."
-    },
-    {
-      "figmaName": "Home — funded",
-      "nodeId": "13:19",
-      "nodeUrl": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=13-19",
-      "codeSourcePath": "apps/web/client/home/home-panel.tsx",
-      "codeComponentName": "HomePanel",
-      "codeConnectStatus": "not-applicable-plain-frame",
-      "reviewStatus": "historical-baseline-pending-deletion",
-      "fidelityNotes": "Historical funded viewport on the Archive page 333:13094 pending deletion (#841)."
-    },
-    {
-      "figmaName": "Home — selected direction v2",
-      "nodeId": "81:700",
-      "nodeUrl": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=81-700",
-      "codeSourcePath": "apps/web/client/home/home-panel.tsx",
-      "codeComponentName": "HomePanel",
-      "codeConnectStatus": "not-applicable-selected-proposal-frame",
-      "reviewStatus": "superseded-by-final",
-      "annotationNodeId": "83:889",
-      "supersededBy": "92:922",
-      "fidelityNotes": "Superseded v2 on the Archive page 333:13094 pending deletion (#841), inside section 145:1638. Its two comments (1937331613, 1937331766) are resolved in Home — final."
-    },
-    {
-      "figmaName": "Home — selected direction",
-      "nodeId": "65:503",
-      "nodeUrl": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=65-503",
-      "codeSourcePath": "apps/web/client/home/home-panel.tsx",
-      "codeComponentName": "HomePanel",
-      "codeConnectStatus": "not-applicable-selected-proposal-frame",
-      "reviewStatus": "superseded-history",
-      "annotationNodeId": "65:814",
-      "fidelityNotes": "Superseded v1 on the Archive page 333:13094 pending deletion (#841), inside section 145:1638."
-    },
-    {
-      "figmaName": "Home — negative debt (exploration)",
-      "nodeId": "54:140",
-      "nodeUrl": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=54-140",
-      "codeSourcePath": "apps/web/client/home/home-panel.tsx",
-      "codeComponentName": "HomePanel",
-      "codeConnectStatus": "not-applicable-exploration-frame",
-      "reviewStatus": "superseded-history-pending-deletion",
-      "fidelityNotes": "Superseded exploration on the Archive page 333:13094 pending deletion (#841), inside section 145:1638."
-    },
-    {
-      "figmaName": "Home — money summary rows (exploration)",
-      "nodeId": "54:322",
-      "nodeUrl": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=54-322",
-      "codeSourcePath": "apps/web/client/home/home-panel.tsx",
-      "codeComponentName": "HomePanel",
-      "codeConnectStatus": "not-applicable-exploration-frame",
-      "reviewStatus": "superseded-history-pending-deletion",
-      "fidelityNotes": "Superseded exploration on the Archive page 333:13094 pending deletion (#841), inside section 145:1638."
-    },
-    {
-      "figmaName": "Home — infinite activity (exploration)",
-      "nodeId": "54:577",
-      "nodeUrl": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=54-577",
-      "codeSourcePath": "apps/web/client/activity/activity-panel.tsx",
-      "codeComponentName": "ActivityPanelView",
-      "codeConnectStatus": "not-applicable-exploration-frame",
-      "reviewStatus": "superseded-history-pending-deletion",
-      "fidelityNotes": "Superseded exploration on the Archive page 333:13094 pending deletion (#841), inside section 145:1638."
     }
   ],
   "tokens": {
@@ -375,7 +300,7 @@
   "componentInventory": {
     "note": "Final Components-section inventory, grouped under category headings (Shell, Money / balance, Actions, Rows, Marks, Feedback / loading, Navigation). Every component and set appears once with a description naming its code owner or saying design-only; a programmatic audit (2026-09-23) reports zero overlaps among the section's top-level children and all 33 components/variants described. publishStatus is read from Figma getPublishStatusAsync on 2026-09-23.",
     "categories": {
-      "Shell": ["ShellHeader 11:773", "Card 12:28", "SectionHeader 12:33"],
+      "Shell": ["ShellHeader 11:773", "Card 269:5270", "SectionHeader 12:33"],
       "Money / balance": ["MoneyTicker 12:2", "SignedBalanceBar 91:927", "MoneyBreakdownItem 12:20", "MoneyGroupHeader 12:39"],
       "Actions": ["Button 12:27"],
       "Rows": ["FinanceRow 96:1147", "MoreRow 12:79", "FinanceRow — all variants 131:1285 (board)", "FinanceRow — usage reference 116:1154 (board)"],
@@ -384,7 +309,7 @@
       "Navigation": ["TabItem 12:94", "TabBar 12:95"]
     },
     "publishChecklist": {
-      "expectInPublishDialog": "#841: FinanceRow 96:1147, CurrencyMarkSlot 12:59, ShimmerRow 274:6015, CopyableValue 282:5961, MoneyConfirmRow 166:1802, Card 269:5270 and new Home/Mono tight text style. Earlier unpublished changes may also appear; see design-system.md publish checklist. Moving the deprecated numpad parts between pages does not change them.",
+      "expectInPublishDialog": "#841: FinanceRow 96:1147, CurrencyMarkSlot 12:59, ShimmerRow 274:6015, CopyableValue 282:5961, MoneyConfirmRow 166:1802, Card 269:5270 and new Home/Mono tight text style. #882 deletions of MoneyNumpad, MoneyNumpadKey and the legacy Card variant also require publication. Earlier unpublished changes may also appear; see design-system.md publish checklist.",
       "codeConnectAfterPublish": ["#684 owns Code Connect and publishes its templates for the nodes in apps/web/figma-components.json; #841's 28 earlier writes are superseded by that publish. Do not replace existing mappings to address the read-back."]
     },
     "items": [
@@ -399,7 +324,7 @@
       { "name": "MoneyGroupHeader", "nodeId": "12:39", "variantsOrProps": "Label, Amount", "owner": "apps/web/client/home/balances-panel.tsx", "publish": "CHANGED (description) — Jesse must publish" },
       { "name": "MoreRow", "nodeId": "12:79", "variantsOrProps": "Label, Show chevron", "owner": "none since #789 (not mapped; see apps/web/figma-components.json notMapped)", "publish": "CURRENT" },
       { "name": "SectionHeader", "nodeId": "12:33", "variantsOrProps": "Title, Show See all", "owner": "apps/web/client/home/home-overview.tsx (HomeSectionHeading)", "publish": "CHANGED (description) — Jesse must publish" },
-      { "name": "Card", "nodeId": "12:28", "variantsOrProps": "inset=legacy variant of set 269:5270; Archive-only, pending deletion", "owner": "apps/web/components/ui/card.tsx", "publish": "Set description changed in #841 — Jesse must publish" },
+      { "name": "Card", "nodeId": "269:5270", "variantsOrProps": "flush/list 269:5196 | default/default 269:5244 | default/list 273:5531 | flush/hero 301:5912; inset=list|default|hero", "owner": "apps/web/components/ui/card.tsx", "publish": "Legacy variant deleted in #882 — Jesse must publish" },
       { "name": "MoneyTicker", "nodeId": "12:2", "variantsOrProps": "Label, Amount", "owner": "apps/web/components/money-ticker.tsx", "publish": "CURRENT" },
       { "name": "ShellHeader", "nodeId": "11:773", "variantsOrProps": "Title, Show status", "owner": "apps/web/client/home/shell-chrome.tsx", "publish": "CHANGED — Jesse must publish" },
       { "name": "TabBar", "nodeId": "12:95", "variantsOrProps": "one instance per screen", "owner": "apps/web/components/primary-navigation.tsx", "publish": "CHANGED (nests TabItem) — Jesse must publish" },
@@ -407,7 +332,7 @@
     ]
   },
   "residualDifferences": [
-    "Home — final (92:922) is the production Home layout since #789; Home — funded (13:19), v1 (65:503), v2 (81:700), and the explorations are on the Archive page (333:13094) pending deletion (#841).",
+    "Home — final (92:922) is the production Home layout since #789; the funded baseline, v1, v2 and explorations were deleted in #882.",
     "#789 changed the FinanceRow Value context default and every visible Borrow Cash value context from 5.1% APY to 5.1% APR in Home — final, FinanceRow — all variants (131:1285), and FinanceRow — usage reference (116:1154). Production formats rates with two decimals (5.10% APR, 4.20% APY) to match the Save and Borrow surfaces; Figma shows one decimal.",
     "Production Activity values are token amounts (+25.00 USDC) and contexts are dates (Sep 22, 5:00 AM); Figma shows fiat values and 'Today · USDC'. Fiat Activity values need priced transfer data, which is new backend data and out of scope for #789.",
     "Production loading rows render ShimmerRows (pulsing mark, no chevron); in #841 the Figma loading mark became a centred 40px circle to match code's CurrencyMark pending. ShimmerRow Show media and Show context remain proposed: code ShimmerRows accepts only count and always draws both lines and the mark.",
@@ -417,9 +342,9 @@
     "In a component set the text-property default is shared by every variant, so MoneyBreakdownItem definitions all read 'Cash', Button definitions both read 'Add money', and TabItem definitions both read 'Home'; every instance overrides the label. The variant grid differs by dot colour, fill, and icon.",
     "The browser uses the system sans stack while Figma resolves SF Pro/Inter text styles; glyph metrics and rasterization differ slightly.",
     "MoneyTicker and navigation transitions are static in Figma; Figma does not execute pagination, network, retry, focus, history, account switching, reduced motion, or wallet behavior.",
-    "Updating shared component definitions (marks, MoneyBreakdownItem borrow) also refreshes the superseded frames and the funded baseline, since they instance the same nodes; this is intended component behavior and does not change any frame structure. The FinanceRow Centered (legacy) variant preserves the funded baseline's amount alignment.",
+    "The FinanceRow Centered (legacy) variant remains on the Components review board only; no live screen uses it.",
     "The rendered US flag mark uses twemoji artwork scaled uniformly; its intrinsic aspect is compact rather than a 1.9:1 physical flag, acceptable at the 32px mark scale.",
-    "Run 24 regrouped Home components (11:767) under seven category headings. #841 moved Screens (11:768) and Home states (190:2821) to the Home page and Archive (145:1638) to its pending-deletion page; it deleted no nodes. The #841 audit found zero overlapping sections per page, zero children outside their sections and zero overlapping children inside sections.",
-    "Borrow Cash's context copy was shortened to the Jesse-approved one-line 'Against your investments' in Home — final (113:1204) and the FinanceRow — usage reference (116:1179); it renders on one line at the 326 px Home row width. Superseded frames (v2 81:700, v1 65:503) retain their historical 'Borrow against your investments' copy."
+    "Run 24 regrouped Home components (11:767) under seven category headings. #841 moved Screens (11:768) and Home states (190:2821) to the Home page and the historical Archive section to its own page. #882 deleted the Archive page and deprecated components. The #841 audit found zero overlapping sections per page, zero children outside their sections and zero overlapping children inside sections.",
+    "Borrow Cash's context copy was shortened to the Jesse-approved one-line 'Against your investments' in Home — final (113:1204) and the FinanceRow — usage reference (116:1179); it renders on one line at the 326 px Home row width. Superseded v1/v2 frames with the historical copy were deleted in #882."
   ]
 }
