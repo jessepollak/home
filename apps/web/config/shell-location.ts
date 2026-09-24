@@ -326,3 +326,16 @@ export function commitClientUrl(
     }, "", href);
   }
 }
+
+export function commitFlowUrl(
+  href: string,
+  mode: "push" | "replace" = "push",
+): boolean {
+  if (typeof window === "undefined") return false;
+  const current = `${window.location.pathname}${window.location.search}`;
+  const target = new URL(href, window.location.origin);
+  const unchanged = `${target.pathname}${target.search}` === current;
+  const pushed = mode === "push" && !unchanged;
+  commitClientUrl(href, pushed ? "push" : "replace");
+  return pushed;
+}

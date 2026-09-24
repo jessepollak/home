@@ -4,6 +4,7 @@ import { Plus } from "lucide-react";
 import type { FetchActivity } from "@/client/activity";
 import { Button } from "@/components/ui/button";
 import { FundingActions } from "@/client/funding/funding-actions";
+import { preloadAddMoneySheet } from "@/client/funding/funding-experience";
 import { useSavingsRateLabel } from "@/client/savings/use-savings-rate-label";
 import { useBorrowOfferRate } from "@/client/borrowing/borrowing-experience";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
@@ -70,6 +71,7 @@ export function HomePanel({
       variant="outline"
       size="lg"
       className="h-11"
+      onPointerDown={() => void preloadAddMoneySheet()}
       onClick={() => routing.setFlow("add-money", { mode: "push" })}
     >
       <Plus className="size-4" aria-hidden="true" />

@@ -15,7 +15,7 @@ import { ActivityLoader } from "@/components/activity-loader";
 import { CurrencyMark } from "@/components/currency-mark";
 import { MoneyTicker } from "@/components/money-ticker";
 import { ActivityRow } from "@/components/finance-rows";
-import { TransactionDetailsModal } from "@/components/transaction-details";
+import { deferSheet } from "@/client/money-modal/deferred-sheet";
 import { OperationActivityRow } from "@/client/actions/operation-row";
 import { presentOperationDetails } from "@/client/actions/operation-details";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
@@ -29,6 +29,8 @@ import { mergeActivityFeed } from "./activity-feed";
 import { type UseActivityResult } from "./use-activity";
 import { ShimmerRows } from "@/client/home/panel-shared";
 import type { ActivityPanelDensity, ActivityTransfer } from "./types";
+
+const TransactionDetailsSheet = deferSheet(() => import("@/components/transaction-details").then((module) => module.TransactionDetailsModal));
 
 export function ActivityPanelView({
   activity,
@@ -147,7 +149,7 @@ export function ActivityPanelView({
         <ActivityUnavailable message="Some activity is unavailable" onReload={retryFailedSources} />
       ) : null}
       {!hasRows ? (exhausted && !historyUnknown ? <ActivityEmpty plain={plain} action={emptyAction} /> : null) : (
-        <ol className="list-none p-0">
+        <ol className="list-none p-0" onPointerDown={() => void TransactionDetailsSheet.preload()}>
           {items.map((item) => item.kind === "transfer" ? (
             <TransferActivityRow
               key={`transfer:${item.id}`}
@@ -187,7 +189,7 @@ export function ActivityPanelView({
         )
       ) : null}
 
-      <TransactionDetailsModal
+      <TransactionDetailsSheet
         open={selectedTransfer !== null || selectedOperation !== null}
         titleId="activity-transaction-details-title"
         details={details}

@@ -76,13 +76,14 @@ Object.defineProperties(window.history, {
 });
 
 const actualNavigation = await import("next/navigation");
+const router = {
+  replace: (href: string) => replaceHistory(href),
+  push: (href: string) => pushHistory(href),
+  back: popHistory,
+};
 mock.module("next/navigation", () => ({
   ...actualNavigation,
-  useRouter: () => ({
-    replace: (href: string) => replaceHistory(href),
-    push: (href: string) => pushHistory(href),
-    back: popHistory,
-  }),
+  useRouter: () => router,
   usePathname: () => "/",
   useSearchParams: () => new URLSearchParams(window.location.search),
 }));

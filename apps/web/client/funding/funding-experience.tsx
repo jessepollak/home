@@ -8,15 +8,17 @@ import {
   type AccountWalletClient,
 } from "@/client/account/cdp-client";
 import { dataOwnerKey, uiBoundary } from "@/client/account/owner-keys";
-import {
-  AddMoneyDialog,
-  type AddMoneyStep,
-} from "./add-money-dialog";
-import { shouldPollFundingOrder } from "./order-flow";
+import { deferSheet } from "@/client/money-modal/deferred-sheet";
+import type { AddMoneyStep } from "./add-money-dialog";
+import { shouldPollFundingOrder } from "./order-polling";
 import { readFundingOrder, type FundingOrderSummary } from "@/shared/funding/contracts/order";
 import { readProviderBindings, type FundingBinding } from "@/shared/funding/contracts/providers";
 import { readFundingProviderCustomers, type FundingProviderCustomerSummary } from "@/shared/funding/contracts/provider-customers";
 import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
+
+const AddMoneySheet = deferSheet(() => import("./add-money-dialog").then((module) => module.AddMoneyDialog));
+
+export const preloadAddMoneySheet = AddMoneySheet.preload;
 
 export type FundingExperienceProps = {
   returnedFromProvider?: boolean;
@@ -228,7 +230,7 @@ function FundingExperienceBoundary({
   }
 
   return (
-    <AddMoneyDialog
+    <AddMoneySheet
       open={open}
       step={signedOut ? "method" : step}
       address={address}

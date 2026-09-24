@@ -20,12 +20,11 @@ const {
   BorrowExperience,
   borrowTeaserPositionDescription,
   openingBorrowAvailableBaseUnits,
-  parseClientTokenAmount,
   presentBorrowAssetMark,
   recommendedOpeningCollateralBaseUnits,
   recommendedRepayMaximumBaseUnits,
-  selectPrimaryBorrowAsset,
 } = await import("./borrowing-experience");
+const { parseClientTokenAmount, selectPrimaryBorrowAsset } = await import("./borrow-money-dialog");
 
 const OWNER = "0x1111111111111111111111111111111111111111" as const;
 const OWNER_B = "0x2222222222222222222222222222222222222222" as const;

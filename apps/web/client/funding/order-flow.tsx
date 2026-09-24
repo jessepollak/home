@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select";
 import { MoneyTicker } from "@/components/money-ticker";
 import { CopyableValue } from "@/components/copyable-value";
+import { isTerminalFundingOrderState as terminal, shouldPollFundingOrder } from "./order-polling";
 import {
   formatFiatAmount,
   formatPresentationDate,
@@ -921,22 +922,6 @@ function stateCopy(state: string, sandbox = false) {
     title: "Deposit pending",
     body: "Complete the payment instructions. Home will keep checking the provider and Base receipt.",
   };
-}
-export function shouldPollFundingOrder(
-  order: Pick<FundingOrderSummary, "state" | "sandbox"> | null | undefined,
-) {
-  return Boolean(order && !terminal(order.state, order.sandbox));
-}
-
-function terminal(state: string, sandbox = false) {
-  return (sandbox && state === "sent-unverified") || [
-    "received",
-    "dispatch-ambiguous",
-    "failed",
-    "cancelled",
-    "expired",
-    "refunded",
-  ].includes(state);
 }
 function confirmOrderErrorCopy(error: unknown): string {
   const code = typeof error === "object" && error !== null && "code" in error

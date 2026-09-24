@@ -18,7 +18,7 @@ window.matchMedia = ((query: string) => ({
   addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {},
   dispatchEvent: () => true,
 })) as typeof window.matchMedia;
-const { act, cleanup, fireEvent, render, within } = await import("@testing-library/react");
+const { act, cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const { SavingsExperience } = await import("./savings-experience");
 
 const ADDRESS_A = "0x1111111111111111111111111111111111111111";
@@ -176,7 +176,7 @@ describe("Save simplify", () => {
 
     await page().findByRole("button", { name: "Get started" });
     fireEvent.click(page().getByRole("button", { name: "Get started" }));
-    fireEvent.click(page().getByRole("button", { name: "1" }));
+    fireEvent.click(await page().findByRole("button", { name: "1" }));
     fireEvent.click(page().getByRole("button", { name: "0" }));
     fireEvent.click(page().getByRole("button", { name: "0" }));
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
@@ -226,7 +226,7 @@ describe("Save simplify", () => {
     );
 
     fireEvent.click(await page().findByRole("button", { name: "Get started" }));
-    expect(document.body.textContent).toContain("$50.00 available");
+    await waitFor(() => expect(document.body.textContent).toContain("$50.00 available"));
     expect(document.body.textContent).not.toContain("Updated");
   });
 

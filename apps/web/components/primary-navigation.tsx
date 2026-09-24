@@ -1,7 +1,6 @@
 "use client";
 
 import { ChartNoAxesCombined, House } from "lucide-react";
-import { motion, useReducedMotion } from "motion/react";
 import { Button } from "@/components/ui/button";
 import {
   shellChromeCompensationClassName,
@@ -28,21 +27,21 @@ export function PrimaryNavigation({
   activeNavigation,
   onNavigate,
 }: PrimaryNavigationProps) {
-  const reducedMotion = useReducedMotion();
+  const activeIndex = navigationItems.findIndex((item) =>
+    activeNavigation === item.id ||
+    (item.id === "home" && isHomeNestedPanelId(activeNavigation)));
 
   return (
     <div
       className={`order-2 w-full shrink-0 bg-background pb-[var(--shell-safe-area-bottom)] sm:order-1 sm:pb-0 ${shellChromeCompensationClassName}`}
     >
       <nav
-        className={`${shellWidthClassName} grid min-h-shell-mobile-navigation grid-cols-2 border-t sm:border-x sm:border-b`}
+        className={`${shellWidthClassName} relative grid min-h-shell-mobile-navigation grid-cols-2 border-t sm:border-x sm:border-b`}
       aria-label="Main navigation"
     >
-      {navigationItems.map((item) => {
+      {navigationItems.map((item, index) => {
         const Icon = navigationIcons[item.id];
-        const isActive =
-          activeNavigation === item.id ||
-          (item.id === "home" && isHomeNestedPanelId(activeNavigation));
+        const isActive = index === activeIndex;
 
         return (
           <Button
@@ -50,24 +49,25 @@ export function PrimaryNavigation({
             id={`${item.id}-nav`}
             variant="navigation"
             size="lg"
-            className="relative h-full min-h-11 min-w-0"
+            className="h-full min-h-11 min-w-0"
             onClick={() => onNavigate(item.id)}
             aria-current={isActive ? "page" : undefined}
             aria-controls="navigation-panel"
           >
-            {isActive ? (
-              <motion.span
-                layoutId="primary-navigation-indicator"
-                className="absolute inset-x-6 bottom-1 h-0.5 rounded-full bg-primary"
-                transition={reducedMotion ? { duration: 0 } : { duration: 0.12, ease: "easeOut" }}
-                aria-hidden="true"
-              />
-            ) : null}
             <Icon className="size-5 transition-transform group-active/button:scale-95 group-active/button:duration-0 motion-reduce:transition-none motion-reduce:group-active/button:scale-none" aria-hidden="true" />
             <span className="truncate transition-colors motion-reduce:transition-none">{item.label}</span>
           </Button>
         );
       })}
+      {activeIndex >= 0 ? (
+        <span
+          className="pointer-events-none absolute bottom-1 left-0 w-1/2 px-6 transition-transform duration-120 ease-out motion-reduce:transition-none"
+          style={{ transform: `translateX(${activeIndex * 100}%)` }}
+          aria-hidden="true"
+        >
+          <span className="block h-0.5 rounded-full bg-primary" />
+        </span>
+      ) : null}
       </nav>
     </div>
   );

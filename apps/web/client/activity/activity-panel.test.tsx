@@ -326,7 +326,7 @@ describe("ConnectedActivityPanel", () => {
       view.getByRole("button", { description: "View received USDC transaction details" }),
     );
     fireEvent.click(detailsButton);
-    expect(view.getByRole("dialog", { name: "Received USDC" })).toBeTruthy();
+    expect(await view.findByRole("dialog", { name: "Received USDC" })).toBeTruthy();
 
     view.rerender(
       <ActivityPanel
