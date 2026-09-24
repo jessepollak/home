@@ -13,8 +13,11 @@ const verificationKeys = [
 ] as const;
 
 export async function loadVerificationEnv(env: Record<string, string | undefined> = process.env, home = homedir()): Promise<Record<string, string | undefined>> {
-  if (verificationKeys.every((key) => env[key] !== undefined)) return { ...env };
-  const path = resolve(env.HOME_VERIFY_ENV_FILE ?? resolve(home, ".home-verify/live.env"));
+  const configured = { ...env };
+  for (const key of verificationKeys) if (configured[key] === "") delete configured[key];
+  if (configured.HOME_VERIFY_ENV_FILE === "") delete configured.HOME_VERIFY_ENV_FILE;
+  if (verificationKeys.every((key) => configured[key] !== undefined)) return configured;
+  const path = resolve(configured.HOME_VERIFY_ENV_FILE ?? resolve(home, ".home-verify/live.env"));
   let file;
   try {
     const entry = await lstat(path);
@@ -33,9 +36,9 @@ export async function loadVerificationEnv(env: Record<string, string | undefined
       }
       values[match[1]] = match[2];
     }
-    return { ...values, ...env };
+    return { ...values, ...configured };
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT" && env.HOME_VERIFY_ENV_FILE === undefined) return { ...env };
+    if ((error as NodeJS.ErrnoException).code === "ENOENT" && configured.HOME_VERIFY_ENV_FILE === undefined) return configured;
     if (error instanceof Error && error.message.startsWith("Verification env file")) throw error;
     throw new Error("Could not read verification env file.");
   } finally {
@@ -82,9 +85,10 @@ export async function liveLogin(args: string[], options: LoginOptions = {}): Pro
   const email = verifyAccountEmail(env);
   const name = option(args, "--session") ?? "home-live";
   if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(name)) throw new Error("--session must be a short alphanumeric name (hyphens and underscores allowed).");
-  const base = option(args, "--base-url");
-  if (!base) throw new Error("Specify --base-url <deployed-url>.");
-  const url = new URL(base);
+  const base = option(args, "--base-url") ?? env.HOME_VERIFY_PRODUCTION_URL;
+  if (!base) throw new Error("Specify --base-url <deployed-url> or set HOME_VERIFY_PRODUCTION_URL.");
+  let url: URL;
+  try { url = new URL(base); } catch { throw new Error("--base-url must be an HTTPS origin."); }
   if (url.protocol !== "https:" || url.username || url.password || url.pathname !== "/" || url.search || url.hash) throw new Error("--base-url must be an HTTPS origin.");
   const directory = resolve(options.home ?? homedir(), ".home-verify");
   const path = resolve(directory, `${name}.state.json`);
