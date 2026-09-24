@@ -160,7 +160,7 @@ export function SendDialog({
   const effectiveRecipient = typedAddress ?? resolvedRecipient;
   const recipientHint = typedAddress !== null || typedName !== null || trimmedRecipient.length === 0
     ? null
-    : "Enter a 0x address or a name like jesse.base.eth.";
+    : "Enter a 0x address or a name like example.base.eth.";
   const selectedAsset = activeAssetId ? getTransferAsset(activeAssetId) : null;
   const pricing = useMoneyAssetPricing(selectedAsset?.symbol ?? "");
   const selectedAvailability = availableAssets?.find((asset) => asset.id === activeAssetId);

@@ -3,7 +3,7 @@ import type { ActionRow, ActionsStore } from "@/server/actions/store";
 import { createRecentTransferRecipientsHandler, createTransferRecipientNameHandler } from "./handlers";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111" as const;
-const JESSE = "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9" as const;
+const RECIPIENT = "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9" as const;
 const OTHER = "0x2222222222222222222222222222222222222222" as const;
 
 function authorize(subject = "owner-a") {
@@ -49,22 +49,22 @@ describe("recipient name handler", () => {
   test("resolves a supported name for the verified session", async () => {
     const handler = createTransferRecipientNameHandler({
       authorize: authorize(),
-      resolve: async (name) => (name === "jesse.base.eth" ? JESSE : null),
+      resolve: async (name) => (name === "example.base.eth" ? RECIPIENT : null),
     });
 
-    const response = await handler(request("/api/transfers/recipient-name?name=JESSE.BASE.ETH"));
+    const response = await handler(request("/api/transfers/recipient-name?name=EXAMPLE.BASE.ETH"));
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       version: 1,
-      name: "jesse.base.eth",
-      address: JESSE,
+      name: "example.base.eth",
+      address: RECIPIENT,
     });
   });
 
   test.each([
     ["/api/transfers/recipient-name", "missing name"],
-    ["/api/transfers/recipient-name?name=jesse", "unsupported name"],
+    ["/api/transfers/recipient-name?name=example", "unsupported name"],
     ["/api/transfers/recipient-name?name=0x0000000000000000000000000000000000000000", "address"],
   ])("refuses %s (%s) without calling the resolver", async (path) => {
     let calls = 0;
@@ -72,7 +72,7 @@ describe("recipient name handler", () => {
       authorize: authorize(),
       resolve: async () => {
         calls += 1;
-        return JESSE;
+        return RECIPIENT;
       },
     });
 
@@ -102,11 +102,11 @@ describe("recipient name handler", () => {
       authorize: async () => Response.json({ error: { code: "AUTH_REQUIRED" } }, { status: 401 }),
       resolve: async () => {
         calls += 1;
-        return JESSE;
+        return RECIPIENT;
       },
     });
 
-    const response = await handler(request("/api/transfers/recipient-name?name=jesse.base.eth"));
+    const response = await handler(request("/api/transfers/recipient-name?name=example.base.eth"));
 
     expect(response.status).toBe(401);
     expect(calls).toBe(0);
@@ -118,13 +118,13 @@ describe("recent recipients handler", () => {
     const handler = createRecentTransferRecipientsHandler({
       authorize: authorize(),
       store: store([
-        sendRow("11111111-1111-4111-8111-111111111101", JESSE, "2026-09-12T12:03:00.000Z"),
+        sendRow("11111111-1111-4111-8111-111111111101", RECIPIENT, "2026-09-12T12:03:00.000Z"),
         { ...sendRow("11111111-1111-4111-8111-111111111102", OTHER, "2026-09-12T12:02:00.000Z"), kind: "savings-deposit" },
-        sendRow("11111111-1111-4111-8111-111111111103", JESSE, "2026-09-12T12:01:00.000Z"),
+        sendRow("11111111-1111-4111-8111-111111111103", RECIPIENT, "2026-09-12T12:01:00.000Z"),
         sendRow("11111111-1111-4111-8111-111111111104", OTHER, "2026-09-12T12:00:00.000Z"),
       ]),
       resolveLabels: async (addresses) => new Map(addresses.flatMap((address) =>
-        address === JESSE ? [[address, "jesse.base.eth"] as const] : [])),
+        address === RECIPIENT ? [[address, "example.base.eth"] as const] : [])),
     });
 
     const response = await handler(request("/api/transfers/recent-recipients"));
@@ -133,7 +133,7 @@ describe("recent recipients handler", () => {
     expect(await response.json()).toEqual({
       version: 1,
       recipients: [
-        { address: JESSE, name: "jesse.base.eth" },
+        { address: RECIPIENT, name: "example.base.eth" },
         { address: OTHER, name: null },
       ],
     });

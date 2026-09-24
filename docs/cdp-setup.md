@@ -24,7 +24,7 @@ CDP Token Balances page tokens are standard base64 and may include `=` padding.
 
 ## Preview auth
 
-Email OTP is only testable on `http://localhost:3000` and the production alias (`https://home-web-jessepollaks-projects.vercel.app`) right now. Those origins stay on Embedded Wallet CORS. Vercel preview hosts are not allowlisted, so email sign-in fails there (`We could not send a code…`). This is a CDP client rejection after the app loads, not Vercel Deployment Protection. Base Account uses Home-native SIWE and does not depend on CDP origin allowlisting. Background: [#67](https://github.com/jessepollak/home/issues/67). Hosting notes: [Vercel deploy](vercel-deploy.md).
+Email OTP is testable on `http://localhost:3000` and your production origin when both are on Embedded Wallet CORS. Unless you allowlist a preview origin, email sign-in fails on that preview (`We could not send a code…`). This is a CDP client rejection after the app loads, not Vercel Deployment Protection. Base Account uses Home-native SIWE and does not depend on CDP origin allowlisting. Background: [#67](https://github.com/jessepollak/home/issues/67). Hosting notes: [Vercel deploy](vercel-deploy.md); configure your origins with the [operator checklist](operator-checklist.md#cdp).
 
 **Default (A).** Smoke auth on localhost or production. PR previews stay UI/layout.
 
@@ -32,7 +32,7 @@ Email OTP is only testable on `http://localhost:3000` and the production alias (
 
 ### Embedded Wallet CORS vs Onramp
 
-[CDP Domain Allowlisting](https://docs.cdp.coinbase.com/wallets/security-and-policies/domain-allowlisting) for Embedded Wallets requires exact origins (scheme + host + port). No wildcards. Maximum **50** domains. Portal-only — there is no public manage API.
+[CDP Domain Allowlisting](https://docs.cdp.coinbase.com/wallets/security-and-policies/domain-allowlisting) for Embedded Wallets requires exact origins (scheme + host + port). No wildcards. Maximum **50** domains. Portal-only — there is no public manage API. See the [operator checklist](operator-checklist.md#cdp) for origins to configure.
 
 Onramp’s domain list is a **separate** Portal surface and does support `https://*.domain.com`. That list does **not** fix email OTP, Embedded Wallet CORS, or SIWE. Add an Onramp origin only when testing Fund / buy on that host.
 
@@ -44,14 +44,7 @@ Prefer Vercel’s [Git branch URL](https://vercel.com/docs/deployments/generated
 https://<project>-git-<sanitized-branch>-<scope>.vercel.app
 ```
 
-This repository’s current Vercel project, as used for production smoke:
-
-| Piece | Value |
-|---|---|
-| Project | `home-web` |
-| Scope | `jessepollaks-projects` |
-| Production | `https://home-web-jessepollaks-projects.vercel.app` |
-| Branch alias | `https://home-web-git-<sanitized-branch>-jessepollaks-projects.vercel.app` |
+Use your Home Vercel project's `<project>` name and its team `<scope>`; your production origin is the one configured for that project. Record what to configure with the [operator checklist](operator-checklist.md#hosting-project).
 
 Sanitize the branch: lowercase; each run of characters outside `[a-z0-9]` becomes one `-`. Example: `cursor/headless-fund-onramp-caa5` → `cursor-headless-fund-onramp-caa5`.
 
