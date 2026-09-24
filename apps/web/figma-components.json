@@ -57,13 +57,12 @@
     { "figmaName": "AssetDetailHeader", "nodeId": "166:1917", "reason": "DESIGN-ONLY: rendered inline in asset-detail-screen.tsx, not an exported component." },
     { "figmaName": "SystemKeyboard", "nodeId": "274:5688", "reason": "DESIGN-ONLY placeholder for the OS keyboard." },
     { "figmaName": "Icon", "nodeId": "156:1726", "reason": "Code imports lucide-react glyphs directly." },
-    { "figmaName": "MoneyNumpad", "nodeId": "166:1739", "reason": "DEPRECATED: moved to the Archive page pending deletion (#841); code still renders it until native-input adoption." },
-    { "figmaName": "MoneyNumpadKey", "nodeId": "166:1738", "reason": "DEPRECATED Figma sub-part of MoneyNumpad, on the Archive page pending deletion (#841)." },
     { "figmaName": "MoneyConfirmRow", "nodeId": "166:1802", "reason": "Figma sub-part of MoneyConfirmSummary." },
     { "figmaName": "TransactionAmount", "nodeId": "282:5882", "reason": "Rendered inline in TransactionDetailsModal, not an exported component." },
-    { "figmaName": "MoreRow", "nodeId": "12:79", "reason": "Code removed the More rows in #789; kept in Figma for Archive frames." }
+    { "figmaName": "MoreRow", "nodeId": "12:79", "reason": "Code removed the More rows in #789; no instance remains in Figma." }
   ],
   "notInFigma": [
+    { "source": "client/money-modal/amount.tsx", "reason": "Figma node deleted in #882; code still renders MoneyNumpad until native-input adoption." },
     { "source": "components/ui/table.tsx", "reason": "Desktop-only; P2 in the gap matrix." },
     { "source": "components/ui/data-table.tsx", "reason": "Desktop-only; P2 in the gap matrix." },
     { "source": "components/ui/coverage-table.tsx", "reason": "Internal coverage tooling; P2." },
