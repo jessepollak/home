@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { ArrowDown, PiggyBank } from "lucide-react";
+import { ArrowDown, HandCoins, PiggyBank } from "lucide-react";
 import { expect, within } from "storybook/test";
+import { GlyphMark } from "./currency-mark";
 import { ActivityRow, BalanceRow } from "./finance-rows";
 
 function textEdge(element: HTMLElement, edge: "left" | "right") {
@@ -16,16 +17,37 @@ async function expectAligned(left: HTMLElement, right: HTMLElement, edge: "left"
   await expect(Math.abs(textEdge(left, edge) - textEdge(right, edge))).toBeLessThanOrEqual(1);
 }
 
-function FinanceRowStory({ row }: { row: "activity" | "balance" }) {
+function FinanceRowStory({ row }: { row: "activity" | "balance" | "borrow" | "nux" }) {
   return (
     <ul className="w-[30rem] max-w-full list-none p-0">
-      {row === "activity" ? (
+      {row === "borrow" ? (
+        <BalanceRow
+          icon={<GlyphMark size="sm"><HandCoins /></GlyphMark>}
+          iconTone="mark"
+          label="Borrow Cash"
+          context="Against your investments"
+          value="$30.01"
+          valueContext="5.10% APR"
+          onActivate={() => {}}
+          activateLabel="Open Borrow"
+        />
+      ) : row === "nux" ? (
+        <BalanceRow
+          icon={<GlyphMark size="sm"><HandCoins /></GlyphMark>}
+          iconTone="mark"
+          label="Borrow Cash"
+          context="Borrow at 5.10% APR"
+          onActivate={() => {}}
+          activateLabel="Open Borrow"
+        />
+      ) : row === "activity" ? (
         <ActivityRow
           icon={<ArrowDown className="size-4" />}
           iconTone="incoming"
           label="Received"
           context={<time dateTime="2026-09-20T20:48:00.000Z">Sep 20, 8:48 PM</time>}
           value="+425 USDC"
+          valueTone="success"
           onActivate={() => {}}
           activateLabel="View Received transaction details"
         />
@@ -62,6 +84,7 @@ export const Activity: Story = {
       canvas.getByText("Sep 20, 8:48 PM", { exact: true }),
       "left",
     );
+    await expect(canvas.getByText("+425 USDC").getAttribute("data-value-tone")).toBe("success");
   },
 };
 
@@ -79,5 +102,27 @@ export const Balance: Story = {
       canvas.getByText("USD", { exact: true }),
       "right",
     );
+  },
+};
+
+export const TitleAlignedValue: Story = {
+  args: { row: "borrow" },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const label = canvas.getByText("Borrow Cash", { exact: true });
+    const value = canvas.getByText("$30.01", { exact: true });
+    const valueContext = canvas.getByText("5.10% APR", { exact: true });
+    await expect(Math.abs(label.getBoundingClientRect().top - value.getBoundingClientRect().top))
+      .toBeLessThanOrEqual(1);
+    await expect(valueContext.getBoundingClientRect().top).toBeGreaterThanOrEqual(value.getBoundingClientRect().bottom - 1);
+    await expectAligned(value, valueContext, "right");
+  },
+};
+
+export const NuxWithoutValue: Story = {
+  args: { row: "nux" },
+  play: async ({ canvasElement }) => {
+    await expect(canvasElement.querySelector("[data-slot=finance-row-value]")).toBeNull();
+    await expect(canvasElement.querySelector("[data-slot=item-actions]")).not.toBeNull();
   },
 };

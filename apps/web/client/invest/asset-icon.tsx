@@ -10,6 +10,7 @@ export function AssetIcon({ mark }: AssetIconProps) {
   return (
     <span className={styles.icon} role="img" aria-label={`${mark.name} icon`}>
       <CurrencyMark
+        assetKey={mark.assetKey}
         currency={mark.currency}
         src={mark.imageUrl}
         symbol={mark.symbol}

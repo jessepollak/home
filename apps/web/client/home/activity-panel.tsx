@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useCallback, type ReactNode } from "react";
 import {
   ActivityPanelView,
   type ActivityPanelDensity,
@@ -58,9 +58,11 @@ export function ConnectedActivityPanel({
   fetchActivity,
   fetchOperations,
   regionId,
+  emptyAction,
 }: {
   density: ActivityPanelDensity;
   header?: ReactNode | null;
+  emptyAction?: ReactNode;
   activitySession: VerifiedAccountSession | null;
   fetchActivity: FetchActivity;
   fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
@@ -83,6 +85,8 @@ export function ConnectedActivityPanel({
       : [],
   });
   const actionStatus = actions.isPending ? "loading" : actions.isError ? "error" : "ready";
+  const refetchActions = actions.refetch;
+  const retryActions = useCallback(() => { void refetchActions(); }, [refetchActions]);
 
   return (
     <ActivityPanelView
@@ -93,6 +97,8 @@ export function ConnectedActivityPanel({
       regionId={regionId}
       density={density}
       header={header}
+      emptyAction={emptyAction}
+      retryActions={retryActions}
     />
   );
 }

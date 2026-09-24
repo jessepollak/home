@@ -19,6 +19,45 @@ const TRANSACTION_HASH = `0x${"cd".repeat(32)}`;
 const CREATED_AT = new Date().toISOString();
 const EXPIRES_AT = new Date(Date.now() + 10 * 60_000).toISOString();
 
+function activityPageBody(windowEnd: string | null) {
+  const to = windowEnd ?? new Date().toISOString();
+  const toTime = new Date(to).getTime();
+  const wallet = sessionBody.smartAccount.address.toLowerCase();
+  return {
+    walletAddress: wallet,
+    chainId: 8453,
+    window: { from: new Date(toTime - 24 * 60 * 60_000).toISOString(), to },
+    transfers: [{
+      id: `8453:${USDC}:received-fixture`,
+      logId: "received-fixture",
+      chainId: 8453,
+      assetId: "usdc",
+      tokenAddress: USDC,
+      tokenSymbol: "USDC",
+      tokenDecimals: 6,
+      walletAddress: wallet,
+      fromAddress: RECIPIENT,
+      toAddress: wallet,
+      direction: "incoming",
+      amountBaseUnits: "25000000",
+      blockNumber: "1",
+      blockHash: `0x${"ef".repeat(32)}`,
+      transactionHash: `0x${"12".repeat(32)}`,
+      logIndex: "1",
+      blockTimestamp: new Date(toTime - 60 * 60_000).toISOString(),
+    }],
+    nextCursor: null,
+    source: {
+      provider: "cdp-sql",
+      cached: false,
+      stale: false,
+      executionTimestamp: to,
+      executionTimeMs: 1,
+      fetchedAt: to,
+    },
+  };
+}
+
 type ActionStatus = "unconfirmed" | "pending" | "confirmed";
 
 function action() {
@@ -222,6 +261,7 @@ export async function installApiFixtures(
     if (path === "/api/savings/vaults") {
       return json(route, savingsVaultsBody("2026-09-12T12:00:00.000Z", "2026-09-12T12:00:01.000Z"));
     }
+    if (path === "/api/activity") return json(route, activityPageBody(url.searchParams.get("to")));
     if (path === "/api/basename-profile") return json(route, basenameProfileBody);
     return json(route, {});
   });

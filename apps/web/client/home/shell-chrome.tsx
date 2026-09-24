@@ -28,6 +28,7 @@ export function ShellHeader({
   onSignOut,
   onOpenSettings,
   onCloseSettings,
+  status,
 }: {
   isAccountSettingsOpen: boolean;
   nestedChromeTitle: string | null;
@@ -43,6 +44,7 @@ export function ShellHeader({
   onSignOut: () => void;
   onOpenSettings: (opener: HTMLButtonElement) => void;
   onCloseSettings: () => void;
+  status?: ReactNode;
 }) {
   const dashboardTitle = isAccountSettingsOpen
     ? "Account"
@@ -91,7 +93,8 @@ export function ShellHeader({
           <HomeMark onClick={() => { if (isVerified) onHome(); }} />
         </div>
       )}
-      <div className="flex shrink-0 items-center">
+      <div className="flex shrink-0 items-center gap-1">
+        {status && !isAccountSettingsOpen ? status : null}
         <div className="flex" hidden={isAccountSettingsOpen} data-shell-account-action="">
           <HeaderAccountAction
             status={account.status}

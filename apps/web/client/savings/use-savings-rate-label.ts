@@ -1,9 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { PiggyBank } from "lucide-react";
-import { HomeProductTile } from "@/client/home/product-tile";
-import { MoneyTicker } from "@/components/money-ticker";
 import { useAccountWallet } from "@/client/account/cdp-client";
 import { useBalances } from "@/client/balances";
 import type { RegionId } from "@/config/regions";
@@ -18,16 +15,12 @@ import {
   MORPHO_V1_CANDIDATE_ADDRESSES,
 } from "@/shared/savings/config";
 import { parseVaultsResult } from "@/shared/savings/contracts/vaults";
-import { presentSavedSubtotal } from "@/shared/balances/present";
 import { selectVaultPositions } from "@/shared/balances/select";
 import {
   nextSavingsRateExpiryAt,
   summarizeSavingsPortfolio,
 } from "./portfolio-summary";
-import {
-  savingsTeaserApyLabel,
-  savingsTeaserBalanceLabel,
-} from "./savings-teaser-apy";
+import { savingsTeaserApyLabel } from "./savings-teaser-apy";
 
 const BASE_USDC_ASSET = {
   address: BASE_USDC_ADDRESS,
@@ -35,18 +28,9 @@ const BASE_USDC_ASSET = {
   decimals: BASE_USDC_DECIMALS,
 } as const;
 
-export function SavingsTeaser({
-  headingId = "save-heading",
-  onOpen,
-  regionId,
-}: {
-  headingId?: string;
-  onOpen: () => void;
-  regionId: RegionId;
-}) {
+export function useSavingsRateLabel(regionId: RegionId): string | null {
   const account = useAccountWallet();
   const session = account.status === "verified" ? account.session : null;
-  const sessionKey = session?.smartAccount ? session.smartAccount.address : null;
   const balancesSession = session?.smartAccount
     ? {
         subject: session.user.subject,
@@ -115,61 +99,12 @@ export function SavingsTeaser({
       nowMs: rateNowMs,
     });
   }, [metadataQuery.data, positions, rateNowMs]);
-  const sessionSettling = account.status === "restoring" || account.status === "validating";
-  const loading = sessionSettling ||
-    (!metadataQuery.data && !metadataQuery.isError) ||
-    Boolean(sessionKey && balances.status === "loading");
 
-  if (loading) {
-    return (
-      <HomeProductTile
-        actionLabel="Earn"
-        busy
-        headingId={headingId}
-        icon={<PiggyBank className="size-4" aria-hidden="true" />}
-        onOpen={onOpen}
-        primary="Earn"
-        secondary="Loading savings rate…"
-        title="Save"
-      />
-    );
-  }
-
-  const balance = summary?.balance.status === "available" ? summary.balance : null;
-  const hasSavings = Boolean(
-    sessionKey && balance && BigInt(balance.totalBaseUnits) > BigInt(0),
-  );
-  const knownEmpty = !sessionKey || balance?.totalBaseUnits === "0";
-  const savedSubtotal = balances.snapshot ? presentSavedSubtotal(balances.snapshot) : null;
-  const savingsAmount = savingsTeaserBalanceLabel({
+  if (!metadataQuery.data) return null;
+  return savingsTeaserApyLabel({
     summary,
-    savedSubtotal,
-    regionId,
+    candidates: metadataQuery.data.candidates,
+    metadata: metadataQuery.data,
+    nowMs: rateNowMs,
   });
-  const description = metadataQuery.data
-    ? savingsTeaserApyLabel({
-        summary,
-        candidates: metadataQuery.data.candidates,
-        metadata: metadataQuery.data,
-        nowMs: rateNowMs,
-      })
-    : null;
-  const primary = hasSavings
-    ? <MoneyTicker value={savingsAmount} align="start" reserveDigits={false} />
-    : knownEmpty
-      ? "Earn"
-      : "Save";
-  const secondary = description ?? (metadataQuery.isError ? "Savings unavailable" : "Savings rate unavailable");
-
-  return (
-    <HomeProductTile
-      actionLabel={hasSavings ? "Manage" : "Earn"}
-      headingId={headingId}
-      icon={<PiggyBank className="size-4" aria-hidden="true" />}
-      onOpen={onOpen}
-      primary={primary}
-      secondary={secondary}
-      title="Save"
-    />
-  );
 }

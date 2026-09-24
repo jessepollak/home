@@ -144,21 +144,14 @@ export function selectAssetCount(snapshot: BalancesSnapshot): number {
   return groups.cash.length + groups.investments.length;
 }
 
-export function selectTotal(snapshot: BalancesSnapshot): BalancesSnapshot["total"] {
-  return snapshot.total;
-}
-
-/** @public Home net-worth consumer lands in #789; exercised by shared/balances/select.test.ts */
 export function selectBalanceTotals(snapshot: BalancesSnapshot): BalancesTotals {
   return snapshot.totals;
 }
 
-/** @public Home Borrow row lands in #789; exercised by shared/balances/select.test.ts */
 export function selectBorrowPositions(snapshot: BalancesSnapshot): BorrowPosition[] {
   return snapshot.borrow.positions;
 }
 
-/** @public Home Investments consumer lands in #789; exercised by shared/balances/select.test.ts */
 export function selectCollateralHoldings(snapshot: BalancesSnapshot): BorrowCollateralHolding[] {
   return snapshot.borrow.positions.flatMap((position) =>
     position.collateral.balance.baseUnits === "0" ? [] : [position.collateral]

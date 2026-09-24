@@ -63,7 +63,12 @@ function loading(): UseActivityResult {
 function ready(
   transfers: ActivityTransfer[],
   nextCursor: string | null = null,
-  overrides: { loadingMore?: boolean; continuing?: boolean } = {},
+  overrides: {
+    loadingMore?: boolean;
+    continuing?: boolean;
+    loadMoreError?: boolean;
+    retryLoadMore?: () => void;
+  } = {},
 ): UseActivityResult {
   const page: ActivityPage = {
     walletAddress: WALLET,
@@ -84,12 +89,12 @@ function ready(
     status: "ready",
     page,
     loadingMore: overrides.loadingMore === true,
-    loadMoreError: false,
+    loadMoreError: overrides.loadMoreError === true,
     continuing: overrides.continuing === true,
     retry: noop,
     refresh: noop,
     setSentinelVisible: noop,
-    retryLoadMore: noop,
+    retryLoadMore: overrides.retryLoadMore ?? noop,
   };
 }
 
@@ -111,19 +116,37 @@ function failed(retry: () => void = noop): UseActivityResult {
 afterEach(cleanup);
 
 describe("combined Activity panel", () => {
-  test("applies the teaser limit after interleaving into one semantic list", () => {
+  test("interleaves every loaded row into one uncarded feed list with a spinner continuation", () => {
     const view = render(
       <ActivityPanelView
-        activity={ready([transfer("transfer-6", 6), transfer("transfer-4", 4), transfer("transfer-2", 2)])}
+        activity={ready(
+          [transfer("transfer-6", 6), transfer("transfer-4", 4), transfer("transfer-2", 2)],
+          "cursor-1",
+          { loadingMore: true },
+        )}
         operations={[operation("action-5", 5), operation("action-3", 3), operation("action-1", 1)]}
-        density="teaser"
+        density="feed"
+        header={<h2 id="activity-title">Activity</h2>}
       />,
     );
 
     expect(view.getAllByRole("list")).toHaveLength(1);
-    expect(view.getAllByRole("button", { description: /transaction details/ })).toHaveLength(5);
-    expect(view.queryByText("action-1")).toBeNull();
-    expect(view.getByRole("list").textContent).toMatch(/Received.*action-5.*Received.*action-3.*Received/);
+    expect(view.getAllByRole("button", { description: /transaction details/ })).toHaveLength(6);
+    expect(view.getByRole("list").textContent).toMatch(/Received.*action-5.*Received.*action-3.*Received.*action-1/);
+    expect(view.getByRole("region", { name: "Activity" }).querySelector("[data-slot='card']")).toBeNull();
+    expect(view.container.querySelector("[data-activity-loader]")).not.toBeNull();
+    expect(view.container.querySelector("[data-shimmer='row']")).toBeNull();
+  });
+
+  test("marks money in with the gain tone and leaves money out in the default tone", () => {
+    const outgoing = { ...transfer("sent", 3), direction: "outgoing" as const, fromAddress: WALLET, toAddress: OTHER };
+    const view = render(
+      <ActivityPanelView activity={ready([transfer("received", 4), outgoing])} density="feed" />,
+    );
+    const tones = [...view.container.querySelectorAll("[data-value-tone]")]
+      .map((value) => value.getAttribute("data-value-tone"));
+
+    expect(tones).toEqual(["success", "default"]);
   });
 
   test("keeps recorded actions visible and retries when onchain activity fails", () => {
@@ -138,6 +161,140 @@ describe("combined Activity panel", () => {
 
     fireEvent.click(view.getByRole("button", { name: "Try again" }));
     expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  test("shows a centered muted Activity unavailable line with a reload icon instead of an alert", () => {
+    const retry = mock(() => undefined);
+    const retryActions = mock(() => undefined);
+    const view = render(
+      <ActivityPanelView
+        activity={failed(retry)}
+        actionsStatus="error"
+        density="feed"
+        retryActions={retryActions}
+      />,
+    );
+
+    expect(view.queryByRole("alert")).toBeNull();
+    expect(view.queryByRole("button", { name: "Try again" })).toBeNull();
+    const unavailable = view.container.querySelector<HTMLElement>("[data-activity-unavailable]");
+    expect(within(unavailable!).getByRole("status").textContent).toBe("Activity unavailable");
+
+    fireEvent.click(within(unavailable!).getByRole("button", { name: "Reload activity" }));
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(retryActions).toHaveBeenCalledTimes(1);
+  });
+
+  test("keeps loaded rows and names the missing source in the Home feed", () => {
+    const view = render(
+      <ActivityPanelView
+        activity={failed()}
+        operations={[operation("recorded-action", 5)]}
+        density="feed"
+      />,
+    );
+
+    expect(view.getByText("recorded-action")).toBeTruthy();
+    expect(view.getByRole("status").textContent).toBe("Some activity is unavailable");
+    expect(view.queryByRole("alert")).toBeNull();
+  });
+
+  test("retries an older page from the Home feed without a red alert", () => {
+    const retryLoadMore = mock(() => undefined);
+    const view = render(
+      <ActivityPanelView
+        activity={ready([transfer("transfer-2", 2)], "cursor-1", { loadMoreError: true, retryLoadMore })}
+        density="feed"
+      />,
+    );
+
+    expect(view.queryByRole("alert")).toBeNull();
+    const unavailable = view.container.querySelector<HTMLElement>("[data-activity-unavailable]");
+    expect(unavailable?.textContent).toContain("More activity unavailable");
+    fireEvent.click(within(unavailable!).getByRole("button", { name: "Reload activity" }));
+    expect(retryLoadMore).toHaveBeenCalledTimes(1);
+  });
+
+  test("shows one Home feed status line when recorded actions and an older page both fail", () => {
+    const retryLoadMore = mock(() => undefined);
+    const retryActions = mock(() => undefined);
+    const view = render(
+      <ActivityPanelView
+        activity={ready([transfer("transfer-2", 2)], "cursor-1", { loadMoreError: true, retryLoadMore })}
+        actionsStatus="error"
+        density="feed"
+        retryActions={retryActions}
+      />,
+    );
+
+    const lines = view.container.querySelectorAll<HTMLElement>("[data-activity-unavailable]");
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.textContent).toContain("Some activity is unavailable");
+    fireEvent.click(within(lines[0]!).getByRole("button", { name: "Reload activity" }));
+    expect(retryActions).toHaveBeenCalledTimes(1);
+    expect(retryLoadMore).toHaveBeenCalledTimes(1);
+  });
+
+  test("offers a centered Add money prompt when the Home feed is empty", () => {
+    const view = render(
+      <ActivityPanelView
+        activity={ready([])}
+        density="feed"
+        emptyAction={<button type="button">Add money</button>}
+      />,
+    );
+
+    const prompt = view.container.querySelector<HTMLElement>("[data-activity-nux]");
+    expect(prompt?.textContent).toContain("No activity yet");
+    expect(within(prompt!).getByRole("button", { name: "Add money" })).toBeTruthy();
+    expect(view.container.querySelector("[data-activity-unavailable]")).toBeNull();
+  });
+
+  test("does not claim an empty feed when recorded actions fail on the Home feed", () => {
+    const view = render(
+      <ActivityPanelView
+        activity={ready([])}
+        actionsStatus="error"
+        density="feed"
+        emptyAction={<button type="button">Add money</button>}
+      />,
+    );
+
+    expect(view.container.querySelector("[data-activity-nux]")).toBeNull();
+    expect(view.queryByText("No activity yet")).toBeNull();
+    expect(view.queryByRole("button", { name: "Add money" })).toBeNull();
+    expect(view.container.querySelector("[data-activity-unavailable]")?.textContent)
+      .toContain("Activity unavailable");
+  });
+
+  test("names an actions-source failure instead of an empty feed on the page", () => {
+    const view = render(
+      <ActivityPanelView
+        activity={ready([])}
+        actionsStatus="error"
+        emptyAction={<button type="button">Add money</button>}
+      />,
+    );
+
+    expect(view.getByText(/Recorded Home actions are unavailable/)).toBeTruthy();
+    expect(view.queryByText("No activity yet")).toBeNull();
+    expect(view.queryByRole("button", { name: "Add money" })).toBeNull();
+  });
+
+  test("shows the bundled mark for an action keyed by id or by asset key", () => {
+    const amount = { direction: "spend" as const, symbol: "USDC", decimals: 6, amountBaseUnits: "1000000" };
+    const byKey = operation("Saved", 5);
+    byKey.action.amounts = [{ ...amount, assetId: `eip155:8453/erc20:${TOKEN}` }];
+    const byId = operation("Sent", 6);
+    byId.action.amounts = [{ ...amount, assetId: "usdc" }];
+    const spoofed = operation("Other", 7);
+    spoofed.action.amounts = [{ ...amount, assetId: "eip155:8453/erc20:0x0000000000000000000000000000000000000bad" }];
+    const view = render(
+      <ActivityPanelView activity={ready([])} operations={[byKey, byId, spoofed]} />,
+    );
+    const sources = [...view.container.querySelectorAll("img")].map((image) => image.getAttribute("src"));
+
+    expect(sources).toEqual(["/asset-marks/usdc.svg", "/asset-marks/usdc.svg"]);
   });
 
   test("keeps onchain rows visible and names an actions-source failure", () => {
@@ -197,7 +354,7 @@ describe("combined Activity panel", () => {
     expect(view.getByText("recorded-action")).toBeTruthy();
   });
 
-  test("shows the same sparse fallbacks in page and teaser modes", () => {
+  test("shows the same sparse fallbacks in page and feed modes", () => {
     const operations = [
       operation("hashed-fallback", 6, `0x${"d".repeat(64)}` as const),
       operation("hashless-fallback", 4),
@@ -205,23 +362,23 @@ describe("combined Activity panel", () => {
     const page = render(
       <ActivityPanelView activity={ready([], "cursor-1")} operations={operations} />,
     );
-    const teaser = render(
-      <ActivityPanelView activity={ready([], "cursor-1")} operations={operations} density="teaser" />,
+    const feed = render(
+      <ActivityPanelView activity={ready([], "cursor-1")} operations={operations} density="feed" />,
     );
 
-    for (const view of [page, teaser]) {
+    for (const view of [page, feed]) {
       expect(within(view.container).getByText("hashed-fallback")).toBeTruthy();
       expect(within(view.container).getByText("hashless-fallback")).toBeTruthy();
       expect(within(view.container).queryByText("No activity yet")).toBeNull();
     }
   });
 
-  test("teaser still dedupes actions whose transfer is loaded", () => {
+  test("the feed still dedupes actions whose transfer is loaded", () => {
     const view = render(
       <ActivityPanelView
         activity={ready([transfer("onchain", 5)], "cursor-1")}
         operations={[operation("twin", 6, `0x${(5).toString(16).padStart(64, "0")}` as const), operation("recorded-action", 4)]}
-        density="teaser"
+        density="feed"
       />,
     );
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ComponentProps, type ReactNode } from "react";
-import { Bitcoin, LoaderCircle } from "lucide-react";
+import { LoaderCircle } from "lucide-react";
 import { CurrencyMark } from "@/components/currency-mark";
 import {
   presentPortfolioAssetMark,
@@ -37,7 +37,6 @@ import {
   useHomeQuery,
   useHomeQueryClient,
 } from "@/client/query/query-client";
-import { HomeProductTile } from "@/client/home/product-tile";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -74,6 +73,7 @@ import {
   toSharesUp,
 } from "@/shared/borrowing/math";
 import type { BorrowOperation } from "@/shared/borrowing/types";
+import { leadingBorrowOffer } from "@/shared/borrowing/offer";
 import {
   formatExactPresentationTokenAmount,
   formatHealthFactor,
@@ -144,59 +144,25 @@ export function AuthenticatedBorrowExperience({
   );
 }
 
-export function AuthenticatedBorrowTeaser({
-  headingId = "borrow-heading",
-  onOpen,
+export function useBorrowOfferRate({
+  enabled,
   regionId = "GLOBAL",
 }: {
-  headingId?: string;
-  onOpen: () => void;
+  enabled: boolean;
   regionId?: RegionId;
-}) {
+}): string | null {
   const account = useAccountWallet();
   const session = account.status === "verified" ? account.session : null;
-  const overview = useBorrowOverview(session, account.fetchAccountResource);
-  const active = selectUrgentBorrowPosition(overview.data?.positions ?? []);
-  const leading = overview.data?.opportunities
-    .slice()
-    .sort((a, b) => a.market.rank - b.market.rank)[0] ?? null;
-  const hasDebt = Boolean(active && BigInt(active.debtAssetsRaw) > BigInt(0));
+  const overview = useBorrowOverview(enabled ? session : null, account.fetchAccountResource);
+  const leading = overview.data ? leadingBorrowOffer(overview.data.opportunities) : null;
   const detail = useBorrowDetail(
     session,
-    active?.market.id ?? null,
+    leading?.market.id ?? null,
     account.fetchAccountResource,
-    hasDebt,
+    enabled,
   );
-  const unavailable = leading?.availability.status === "unavailable";
-  const primary = hasDebt && active
-    ? <MoneyTicker
-        value={formatToken(active.debtAssetsRaw, active.market.loanToken, regionId)}
-        align="start"
-        reserveDigits={false}
-      />
-    : "Borrow";
-  const secondary = hasDebt
-    ? detail.data
-      ? `${formatWadPercent(detail.data.state.borrowAprWad, regionId)} variable APR`
-      : detail.isError
-        ? "Borrow cost unavailable"
-        : "Loading borrow cost…"
-    : unavailable
-      ? "Bitcoin borrowing unavailable"
-      : "Against Bitcoin";
-
-  return (
-    <HomeProductTile
-      actionLabel={hasDebt ? "Manage" : "Borrow"}
-      busy={overview.isPending || (hasDebt && detail.isPending)}
-      headingId={headingId}
-      icon={<Bitcoin className="size-4" aria-hidden="true" />}
-      onOpen={onOpen}
-      primary={primary}
-      secondary={overview.isPending ? "Loading borrowing market…" : secondary}
-      title="Borrow"
-    />
-  );
+  if (!enabled || !detail.data) return null;
+  return `${formatWadPercent(detail.data.state.borrowAprWad, regionId)} APR`;
 }
 
 export function BorrowExperience(props: BorrowExperienceProps) {
@@ -440,6 +406,7 @@ function BorrowMarketHeading({
   return (
     <div className="flex min-w-0 items-center gap-3">
       <CurrencyMark
+        assetKey={mark.assetKey}
         currency={mark.currency}
         symbol={mark.symbol}
         src={mark.imageUrl}
@@ -1069,17 +1036,6 @@ function isFullRepayAmount(amount: string, debtBaseUnits: string, maximumRepayBa
   } catch {
     return false;
   }
-}
-
-export function selectUrgentBorrowPosition(positions: BorrowOverviewPosition[]): BorrowOverviewPosition | null {
-  const urgency: Record<ReturnType<typeof borrowRiskState>, number> = {
-    liquidatable: 0,
-    urgent: 1,
-    "limited-buffer": 2,
-    healthy: 3,
-    "no-debt": 4,
-  };
-  return positions.slice().sort((a, b) => urgency[borrowRiskState(a.healthFactorWad)] - urgency[borrowRiskState(b.healthFactorWad)] || a.market.rank - b.market.rank)[0] ?? null;
 }
 
 function errorCode(error: unknown): string | null {

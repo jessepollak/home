@@ -6,7 +6,12 @@ import { useState, type ComponentProps } from "react";
 import type { AccountWalletSdkBoundary } from "@/client/account/cdp-client";
 import type { SessionFetch, VerifiedAccountSession } from "@/client/account/session-client";
 import { BORROW_MARKET_ID } from "@/shared/borrowing/config";
-import { buildBalancesSnapshotFixture } from "@/shared/balances/fixtures";
+import {
+  buildBalancesSnapshotFixture,
+  priced,
+  pricedCash,
+  ready,
+} from "@/shared/balances/fixtures";
 import {
   presentBalances,
   type BalanceRowModel,
@@ -175,6 +180,11 @@ function HomeHarness({
             }],
           }],
           breakdown: [{ id: "cash", label: "Cash", value: "$12.34", weight: 1_000 }],
+          summary: {
+            cash: { status: "complete", value: "$12.34" },
+            investments: { status: "complete", value: "$0.00", assetCount: 0 },
+            borrow: { kind: "none" },
+          },
           rows: [{
             key: "usdc",
             group: "cash",
@@ -570,20 +580,25 @@ describe("Home shell routing and intents", () => {
     });
   });
 
-  test("renders the total as a proportional cash, savings, and investments bar", async () => {
+  test("renders the net total with Borrow left of the zero axis, then Cash and Investments", async () => {
     render(
       <HomeHarness
         accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
         assetBalances={{
           status: "ready",
-          displayTotal: "$33,231.30",
+          displayTotal: "$60.54",
           totalStatus: "complete",
           groups: [],
           breakdown: [
-            { id: "cash", label: "Cash", value: "$4,468.73", weight: 155 },
-            { id: "saved", label: "Savings", value: "$25.95", weight: 1 },
-            { id: "investments", label: "Investments", value: "$28,736.62", weight: 1_000 },
+            { id: "borrow", label: "Borrow", value: "−$30.01", weight: 249 },
+            { id: "cash", label: "Cash", value: "$12.34", weight: 102 },
+            { id: "investments", label: "Investments", value: "$78.21", weight: 649 },
           ],
+          summary: {
+            cash: { status: "complete", value: "$12.34" },
+            investments: { status: "complete", value: "$78.21", assetCount: 1 },
+            borrow: { kind: "position", status: "complete", value: "$30.01", rate: "5.10% APR" },
+          },
           rows: [],
           hiddenRows: [],
           hiddenCount: 0,
@@ -594,29 +609,29 @@ describe("Home shell routing and intents", () => {
 
     const breakdown = document.querySelector<HTMLElement>("[data-balance-breakdown]");
     expect(breakdown).not.toBeNull();
-    const labels = ["Cash", "Savings", "Investments"].map((label) =>
-      within(breakdown!).getByText(label),
-    );
-    expect(labels[0]!.compareDocumentPosition(labels[1]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(labels[1]!.compareDocumentPosition(labels[2]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(page().getByLabelText("Total balance").textContent).toContain("$60.54");
+    const legend = [...breakdown!.querySelectorAll("[data-breakdown-item]")];
+    expect(legend.map((item) => item.getAttribute("data-breakdown-item"))).toEqual(["borrow", "cash", "investments"]);
+    expect(legend[0]!.textContent).toContain("Borrow−$30.01");
+    expect(legend[1]!.textContent).toContain("Cash$12.34");
+    expect(legend[2]!.textContent).toContain("Investments$78.21");
+    const bar = within(breakdown!).getByRole("img", { name: "Balance allocation" });
+    expect([...bar.children].map((child) =>
+      child.getAttribute("data-balance-segment") ?? (child.hasAttribute("data-balance-axis") ? "axis" : null)
+    )).toEqual(["borrow", "axis", "cash", "investments"]);
+    const summary = within(page().getByRole("region", { name: "Your money" }));
+    const borrowRow = summary.getByRole("button", { description: "Open Borrow" });
+    expect(borrowRow.textContent).toContain("Borrow Cash");
+    expect(borrowRow.textContent).toContain("$30.01");
+    expect(borrowRow.textContent).not.toContain("−");
+    expect(borrowRow.textContent).toContain("5.10% APR");
+    expect(summary.getByRole("button", { description: "Open Invest" }).textContent).toContain("Across 1 asset");
     expect(
-      breakdown!.querySelector<HTMLElement>('[data-balance-segment="cash"]')?.style.flexGrow,
-    ).toBe("155");
-    expect(
-      breakdown!.querySelector<HTMLElement>('[data-balance-segment="saved"]')?.style.flexGrow,
-    ).toBe("1");
+      breakdown!.querySelector<HTMLElement>('[data-balance-segment="borrow"]')?.style.flexGrow,
+    ).toBe("249");
     expect(
       breakdown!.querySelector<HTMLElement>('[data-balance-segment="investments"]')?.style.flexGrow,
-    ).toBe("1000");
-    expect(
-      breakdown!.querySelector<HTMLElement>('[data-balance-segment="cash"]')?.style.backgroundColor,
-    ).toBe("#0aa852");
-    expect(
-      breakdown!.querySelector<HTMLElement>('[data-balance-segment="saved"]')?.style.backgroundColor,
-    ).toBe("#0c84fa");
-    expect(
-      breakdown!.querySelector<HTMLElement>('[data-balance-segment="investments"]')?.style.backgroundColor,
-    ).toBe("#a064db");
+    ).toBe("649");
   });
 
   test("does not re-present unchanged balances during navigation or account interactions", async () => {
@@ -627,6 +642,7 @@ describe("Home shell routing and intents", () => {
       totalStatus: "complete",
       groups: [],
       breakdown: [{ id: "cash", label: "Cash", value: "$12.34", weight: 1_000 }],
+      summary: null,
       rows: [],
       hiddenRows: [],
       hiddenCount: 0,
@@ -657,7 +673,16 @@ describe("Home shell routing and intents", () => {
 
   test("keeps the total-balance hero quiet for a stale cached balance during background revalidation", async () => {
     const snapshot = {
-      ...buildBalancesSnapshotFixture({ fetchedAt: "2026-09-13T12:00:00.000Z" }),
+      ...buildBalancesSnapshotFixture({
+        fetchedAt: "2026-09-13T12:00:00.000Z",
+        registry: {
+          usdc: {
+            balance: ready("12340000"),
+            value: priced("USD", "1234"),
+            cashValue: pricedCash("USD", "1234"),
+          },
+        },
+      }),
       stale: true as const,
     };
     render(
@@ -674,6 +699,7 @@ describe("Home shell routing and intents", () => {
     const hero = page().getByLabelText("Total balance");
     expect(hero.querySelector("[data-balance-breakdown]")).toBeTruthy();
     expect(hero.querySelector("[data-total-status]")).toBeNull();
+    expect(document.querySelector("[data-home-status]")).toBeNull();
     expect(hero.textContent).not.toContain("Updated");
     expect(hero.textContent).not.toContain("ago");
     expect(hero.textContent).not.toContain("Updating…");
@@ -703,6 +729,7 @@ describe("Home shell routing and intents", () => {
         rows: [cashRow],
       }],
       breakdown: [{ id: "cash", label: "Cash", value: "$12.34", weight: 1_000 }],
+      summary: null,
       rows: [cashRow],
       hiddenRows: [],
       hiddenCount: 0,
@@ -780,27 +807,30 @@ describe("Home shell routing and intents", () => {
     expect(main.scrollTop).toBe(275);
   });
 
-  test("a group's More row opens the panel anchored to that group; absent groups show no row", async () => {
+  test("Your money shows three summary rows without See all or grouped currency rows", async () => {
     render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} />);
     await waitForVerifiedShell();
 
-    // The harness wallet holds only cash: no Investments header or More row leading nowhere.
-    expect(page().queryByRole("button", { name: "More Investments" })).toBeNull();
-    fireEvent.click(page().getByRole("button", { name: "More Cash" }));
+    const summary = within(page().getByRole("region", { name: "Your money" }));
+    expect(summary.getByRole("heading", { level: 2, name: "Your money" })).toBeTruthy();
+    expect(summary.getAllByRole("listitem")).toHaveLength(3);
+    expect(summary.queryByRole("button", { name: /See all|More Cash/ })).toBeNull();
+    expect(summary.queryByText("US dollar")).toBeNull();
+    expect(summary.getByRole("button", { description: "Open Invest" }).textContent).toContain("Start investing");
+    expect(page().queryByRole("button", { name: "Open Save" })).toBeNull();
 
-    expect(`${window.location.pathname}${window.location.search}`).toBe(
-      "/balances/cash",
-    );
-    expect(page().getByRole("heading", { name: "Your money" })).toBeTruthy();
+    fireEvent.click(summary.getByRole("button", { description: "Open Invest" }));
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/invest");
+    expect(page().getByRole("region", { name: "Invest module" })).toBeTruthy();
   });
 
   test("keeps panel selection and browser history synchronized", async () => {
     render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} />);
     await waitForVerifiedShell();
 
-    fireEvent.click(page().getByRole("button", { name: "Your money" }));
-    expect(`${window.location.pathname}${window.location.search}`).toBe("/balances");
-    expect(page().getByRole("heading", { name: "Your money" })).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { description: "Open Cash" }));
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/save");
+    expect(page().getByRole("region", { name: "Savings module" })).toBeTruthy();
 
     fireEvent.click(page().getByRole("button", { name: "Back" }));
     fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Invest" }));
@@ -808,14 +838,15 @@ describe("Home shell routing and intents", () => {
     expect(page().getByRole("region", { name: "Invest module" })).toBeTruthy();
 
     act(() => popHistory());
-    expect(page().getByRole("heading", { name: "Your money" })).toBeTruthy();
+    expect(page().getByLabelText("Total balance")).toBeTruthy();
   });
 
   test("keeps Balances Back as forward app navigation", async () => {
-    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} />);
+    syncLocation("/balances");
+    historyEntries = ["/balances"];
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} initialPanel="balances" />);
     await waitForVerifiedShell();
 
-    fireEvent.click(page().getByRole("button", { name: "Your money" }));
     const pushesBeforeBack = pushCalls.length;
     fireEvent.click(page().getByRole("button", { name: "Back" }));
 
@@ -832,7 +863,7 @@ describe("Home shell routing and intents", () => {
     const main = page().getByRole("main");
     main.scrollTop = 320;
     fireEvent.scroll(main);
-    fireEvent.click(page().getByRole("button", { name: "Open Save" }));
+    fireEvent.click(page().getByRole("button", { description: "Open Cash" }));
     await waitFor(() => expect(main.scrollTop).toBe(0));
 
     fireEvent.click(page().getByRole("button", { name: "Back" }));
@@ -842,16 +873,43 @@ describe("Home shell routing and intents", () => {
     });
   });
 
-  test("opens Borrow from the Home card without adding a bottom navigation item", async () => {
+  test("keeps Cash, Investments, and Borrow Cash reachable when balances cannot load", async () => {
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        assetBalances={presentBalances({ status: "error", snapshot: null, error: "balances-unavailable" })}
+      />,
+    );
+    await waitForVerifiedShell();
+
+    expect(page().getByLabelText("Balance unavailable").textContent).toContain("—");
+    const summary = within(page().getByRole("region", { name: "Your money" }));
+    expect(summary.getAllByRole("listitem")).toHaveLength(3);
+    const borrowRow = summary.getByRole("button", { description: "Open Borrow" });
+    expect(borrowRow.textContent).toContain("—");
+    expect(borrowRow.querySelector("[data-slot='item-actions']")).toBeNull();
+    expect(document.querySelector("[role='alert']")).toBeNull();
+    const header = page().getByRole("banner");
+    fireEvent.click(within(header).getByRole("button", { name: "Balances are unavailable" }));
+    const detail = await waitFor(() => {
+      const node = document.querySelector<HTMLElement>("[data-home-status-detail]");
+      expect(node).toBeTruthy();
+      return node!;
+    });
+    expect(detail.textContent).toContain("Balances are unavailable");
+    expect(within(detail).getByRole("button", { name: "Reload" })).toBeTruthy();
+    fireEvent.click(summary.getByRole("button", { description: "Open Borrow" }));
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/borrow");
+    await waitFor(() => expect(document.querySelector("[data-home-status]")).toBeNull());
+  });
+
+  test("opens Borrow from the Borrow Cash row without adding a bottom navigation item", async () => {
     render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} />);
     await waitForVerifiedShell();
 
-    const saveTeaser = page().getByRole("button", { name: "Open Save" });
-    expect(saveTeaser.textContent).toContain("Earn");
-
-    const borrowTeaser = page().getByRole("button", { name: "Open Borrow" });
-    expect(borrowTeaser.querySelector(".lucide-bitcoin")).toBeTruthy();
-    fireEvent.click(borrowTeaser);
+    const borrowRow = page().getByRole("button", { description: "Open Borrow" });
+    expect(borrowRow.textContent).toContain("Borrow Cash");
+    fireEvent.click(borrowRow);
     expect(`${window.location.pathname}${window.location.search}`).toBe("/borrow");
     expect(await page().findByText("Borrow USDC using your Bitcoin on Base.")).toBeTruthy();
     expect(within(page().getByRole("navigation", { name: "Main navigation" })).queryByRole("button", { name: "Borrow" })).toBeNull();
@@ -1052,7 +1110,7 @@ describe("Balances scope scroll interleavings (#485)", () => {
     const original = HTMLElement.prototype.scrollIntoView;
     HTMLElement.prototype.scrollIntoView = () => { anchors += 1; main.scrollTop = 440; };
     try {
-      fireEvent.click(page().getByRole("button", { name: "Back" })); fireEvent.click(page().getByRole("button", { name: "More Cash" }));
+      fireEvent.click(page().getByRole("button", { name: "Back" })); act(() => popHistory());
       expect(frames.pending()).toBeGreaterThan(0);
       view.rerender(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER_B })} sessionFetch={() => pending.promise} />);
       await act(async () => {

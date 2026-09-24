@@ -1,25 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Item,
-  ItemActions,
-  ItemContent,
-  ItemTitle,
-} from "@/components/ui/item";
 import { MoneyTicker } from "@/components/money-ticker";
 import type { RegionId } from "@/config/regions";
-import {
-  HOME_MONEY_GROUP_PREVIEW_COUNT,
-  type BalanceRowModel,
-  type BalancesPresentation,
-  type MoneyGroupPresentation,
+import type {
+  BalanceRowModel,
+  BalancesPresentation,
+  MoneyGroupPresentation,
 } from "@/shared/balances/present";
-import { BalancesEmpty, BalancesList, BalancesListFallback } from "./balances-list";
-import { ShimmerRows } from "./panel-shared";
+import { BalancesList, BalancesListFallback } from "./balances-list";
 
 const BALANCES_BATCH_SIZE = 10;
 
@@ -138,50 +129,6 @@ export function BalancesPage({
   );
 }
 
-export function HomeMoneyGroups({
-  groups,
-  hiddenRows = [],
-  isLoading,
-  isUnavailable = false,
-  onOpenGroup,
-}: {
-  groups: readonly MoneyGroupPresentation[];
-  hiddenRows?: readonly BalanceRowModel[];
-  isLoading: boolean;
-  isUnavailable?: boolean;
-  onOpenGroup: (group: MoneyGroupPresentation["id"]) => void;
-}) {
-  if (groups.length > 0) {
-    const hiddenKeys = new Set(hiddenRows.map((row) => row.key));
-    const previewGroups = groups
-      .map((group) => ({
-        ...group,
-        rows: group.rows.filter((row) => !hiddenKeys.has(row.key)),
-      }))
-      .filter((group) => group.id === "cash" || group.rows.length > 0);
-    return (
-      <GroupedBalancesList
-        groups={previewGroups.map((group) => ({
-          ...group,
-          rows: group.rows.slice(0, HOME_MONEY_GROUP_PREVIEW_COUNT),
-        }))}
-        moreGroups={new Set(previewGroups.map((group) => group.id))}
-        onOpenGroup={onOpenGroup}
-      />
-    );
-  }
-  if (isLoading) {
-    return (
-      <div className="space-y-4">
-        <LoadingMoneyGroup label="Cash" />
-        <LoadingMoneyGroup label="Investments" />
-      </div>
-    );
-  }
-  if (isUnavailable) return null;
-  return <BalancesEmpty />;
-}
-
 function IncrementalBalancesList({
   active,
   groups,
@@ -240,7 +187,7 @@ function IncrementalBalancesList({
 
   return (
     <>
-      <GroupedBalancesList groups={visibleGroups} withAnchors />
+      <GroupedBalancesList groups={visibleGroups} />
       {!hasMore && !showSmallBalances && hiddenCount > 0 ? (
         <SmallBalancesControl
           hiddenCount={hiddenCount}
@@ -260,49 +207,23 @@ function IncrementalBalancesList({
   );
 }
 
-function GroupedBalancesList({
-  groups,
-  moreGroups = new Set(),
-  onOpenGroup,
-  withAnchors = false,
-}: {
-  groups: readonly MoneyGroupPresentation[];
-  moreGroups?: ReadonlySet<MoneyGroupPresentation["id"]>;
-  onOpenGroup?: (group: MoneyGroupPresentation["id"]) => void;
-  withAnchors?: boolean;
-}) {
+function GroupedBalancesList({ groups }: { groups: readonly MoneyGroupPresentation[] }) {
   return (
     <div className="space-y-4">
       {groups.map((group) => (
         <section
           key={group.id}
-          id={withAnchors ? group.id : undefined}
+          id={group.id}
           className="scroll-mt-4"
           data-money-group={group.id}
-          aria-labelledby={`${withAnchors ? "panel" : "home"}-${group.id}-heading`}
+          aria-labelledby={`panel-${group.id}-heading`}
         >
           <MoneyGroupHeader
-            id={`${withAnchors ? "panel" : "home"}-${group.id}-heading`}
+            id={`panel-${group.id}-heading`}
             label={group.label}
             subtotal={group.displaySubtotal}
           />
           {group.rows.length > 0 ? <BalancesList rows={group.rows} /> : null}
-          {moreGroups.has(group.id) && onOpenGroup ? (
-            <Item
-              render={<Button type="button" variant="ghost" press="none" />}
-              size="sm"
-              className="min-h-10 flex-nowrap text-left"
-              onClick={() => onOpenGroup(group.id)}
-              aria-label={`More ${group.label}`}
-            >
-              <ItemContent>
-                <ItemTitle tone="muted">More</ItemTitle>
-              </ItemContent>
-              <ItemActions aria-hidden="true">
-                <ChevronRight className="size-4 text-muted-foreground" />
-              </ItemActions>
-            </Item>
-          ) : null}
         </section>
       ))}
     </div>
@@ -329,15 +250,6 @@ function MoneyGroupHeader({
         />
       ) : null}
     </div>
-  );
-}
-
-function LoadingMoneyGroup({ label }: { label: string }) {
-  return (
-    <section aria-busy="true">
-      <MoneyGroupHeader id={`loading-${label.toLowerCase()}-heading`} label={label} subtotal={null} />
-      <ShimmerRows count={2} />
-    </section>
   );
 }
 

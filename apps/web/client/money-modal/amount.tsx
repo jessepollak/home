@@ -378,6 +378,7 @@ export function MoneyAssetPicker({
     return (
       <div role="group" className="flex h-9 max-w-[7.25rem] items-center gap-1 rounded-md border bg-background px-1.5 text-sm font-medium" aria-label={assetLabel}>
         <CurrencyMark
+          assetKey={assetMark?.assetKey}
           currency={assetMark?.currency ?? markCurrency}
           symbol={assetMark?.symbol ?? assetLabel}
           src={assetMark?.imageUrl}
@@ -415,6 +416,7 @@ export function MoneyAssetPicker({
         {selected?.mark ? (
           <InputGroupAddon align="inline-start">
             <CurrencyMark
+              assetKey={selected.mark.assetKey}
               currency={selected.mark.currency}
               symbol={selected.mark.symbol}
               src={selected.mark.imageUrl}
@@ -432,6 +434,7 @@ export function MoneyAssetPicker({
               {option.mark ? (
                 <span className="shrink-0">
                   <CurrencyMark
+                    assetKey={option.mark.assetKey}
                     currency={option.mark.currency}
                     symbol={option.mark.symbol}
                     src={option.mark.imageUrl}

@@ -9,7 +9,7 @@ const BALANCES_PAINTED_BUDGET_MS = process.env.CI ? 3_500 : 1_000;
 
 async function visibleBalanceRowLayout(page: Page) {
   return page.locator(
-    '[data-shell-panel]:not([hidden]) [data-balance-list] [data-kind="balance"]',
+    '[data-shell-panel]:not([hidden]) :is([data-balance-list], [data-money-summary]) [data-kind="balance"]',
   ).evaluateAll((rows) => rows.map((row) => {
     const bounds = row.getBoundingClientRect();
     return {
@@ -143,7 +143,7 @@ test("persisted balances paint before verification and settle without row shift"
 
   await page.reload();
   await sessionObserved;
-  await expect(page.getByText("Recognized Coin", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Across 2 assets", { exact: true }).first()).toBeVisible();
   expect(fixtures.balancesReads()).toBe(balancesReadsBeforeReload);
   const provisionalLayout = await visibleBalanceRowLayout(page);
   const provisionalPaint = await page.evaluate(() => ({
