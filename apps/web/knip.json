@@ -29,14 +29,13 @@
     // Direct Bun entry points are invoked by package scripts rather than
     // imported from production code.
     "server/db/migrate.ts!",
-    "verify/cli.ts!"
+    "live-login.ts!"
   ],
   "ignore": [
     // Non-production design-lane code lives under explorations/ or inside a
     // story file; see docs/design-explorations/README.md.
     "**/explorations/**",
     // Test-only harnesses are excluded rather than treated as production roots.
-    "verify/test-fixtures/**",
     "tests/**",
     "server/funding/core/testing/**",
     "client/account/dom-test-harness.ts",

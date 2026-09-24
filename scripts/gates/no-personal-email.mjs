@@ -1,12 +1,12 @@
-// The verifier's bot mailbox is operator configuration (HOME_VERIFY_ACCOUNT_EMAIL).
-// Code, docs, and skill guidance must reference the variable instead of a real
-// address, so this gate fails on any personal-email literal in those surfaces.
+// The bot mailbox is runtime configuration (HOME_VERIFY_ACCOUNT_EMAIL).
+// Live-login, docs, and skill guidance must reference the variable rather than
+// commit a personal-email literal.
 
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-export const scannedRoots = ["apps/web/verify", "scripts/verify", "docs", ".agents"];
+export const scannedRoots = ["apps/web/live-login.ts", "apps/web/live-login.test.ts", "apps/web/fixture-session.sh", "apps/web/gmail.ts", "apps/web/gmail.test.ts", "docs", ".agents"];
 
 const personalEmailNeedle = ["@", "pollak.io"].join("");
 

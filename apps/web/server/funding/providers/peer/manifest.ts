@@ -22,7 +22,7 @@ export const PEER_SANDBOX_CONTRACTS = {
 } as const;
 
 const productionDecision =
-  "operator decision 2026-09-22: validate in production under the verification ladder caps; Peer written corridor confirmation not yet received";
+  "operator decision 2026-09-22: validate in production under the verification ladder and bot-account balance; Peer written corridor confirmation not yet received";
 
 export const peerManifest = {
   id: "peer",

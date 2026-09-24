@@ -1,8 +1,8 @@
 import { resolve } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { fixtureRoutes, requiresSignedInFixture } from "../../verify/fixtures";
-import { reachStepSummary } from "../../verify/live";
-import { readFeatureMap, type ReachStep } from "../../verify/map";
+import { fixtureRoutes, requiresSignedInFixture } from "./feature-map/fixtures";
+
+import { readFeatureMap, type ReachStep } from "./feature-map/map";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 
 const mapPromise = readFeatureMap(resolve(__dirname, "../../../../.agents/skills/browser-iteration/feature-map.md"));
@@ -56,7 +56,7 @@ for (const surfaceId of replaySurfaceIds) {
       }
     }
     for (const [index, step] of surface.reach.entries()) {
-      await test.step(`${surfaceId} step ${index + 1}: ${reachStepSummary(step)}`, () => executeReach(page, step));
+      await test.step(`${surfaceId} step ${index + 1}: ${step.kind}`, () => executeReach(page, step));
     }
   });
 }
@@ -64,7 +64,3 @@ for (const surfaceId of replaySurfaceIds) {
 for (const [surfaceId, reason] of Object.entries(fixtureSkips)) {
   test.skip(`feature map: ${surfaceId} — ${reason}`, () => {});
 }
-test.skip("canary save/withdraw — shared prepare fixture returns a send action, not a vault withdrawal", () => {});
-test.skip("canary borrow/repay — no borrow market or prepared repay fixture", () => {});
-test.skip("canary cash-out/cash-out — no Peer payout or prepared offramp fixture", () => {});
-test.skip("canary cash-out/withdraw — no in-flight Peer order fixture", () => {});
