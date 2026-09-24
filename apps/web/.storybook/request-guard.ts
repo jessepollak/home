@@ -9,6 +9,7 @@ const STORYBOOK_RUNTIME_PATHS = [
   "/favicon.svg",
   "/mockServiceWorker.js",
   "/currency-flags/",
+  "/asset-marks/",
   "/home-mark/",
 ] as const;
 

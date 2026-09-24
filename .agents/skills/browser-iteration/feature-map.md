@@ -31,10 +31,10 @@ Fixtures are session-local; balances snapshots come from `tests/browser/fixtures
 | `landing` | home | `/` | anonymous (signed-in 307 → `/home`, app/page.tsx) | none (`SupportedGlobeDynamic`) | goto `/` |
 | `sign-in` | account | `/?account=signin`, `/account` (redirect) | anonymous | `installApiFixtures` (session/OTP fixture) | header `Sign in` (shell-chrome.tsx) or goto `/?account=signin` |
 | `home-panel` | home | `/home` | signed-in recommended; signed-out redirects to `/?account=signin` | signed-in seed + `/api/session`, `/api/balances` fixtures | the `.` landing `Open dashboard`/post-OTP `router.replace("/home")` (shell.tsx) |
-| `balances` | home/balances | `/balances`, `/balances/cash`, `/balances/investments` | same as home-panel | signed-in seed + balances fixture; `scrollableBalancesSnapshot()` for reveal/scroll | Main navigation `Home` → "Your money" card `See all` (home-panel.tsx `SectionHeader`), or goto path |
-| `activity` | activity | `/activity` | same | signed-in seed + `/api/activity`, `/api/actions` fixtures | Home panel `Activity` card action (home-panel.tsx), goto path |
-| `save` | savings | `/save`, `?flow=save-deposit`, `?flow=save-withdraw` | same | `HOME_PLAYWRIGHT_SMOKE=1`; `/api/savings/vaults` fixture present in tests/browser/fixtures/api.ts `installApiFixtures` | Home panel Save card (`SavingsTeaser`), goto `/save?flow=save-deposit` |
-| `borrow` | borrowing | `/borrow`, `/borrow/<marketId>` | same | session + borrow market fixtures | Home panel Borrow card (`AuthenticatedBorrowTeaser`), goto path |
+| `balances` | home/balances | `/balances`, `/balances/cash`, `/balances/investments` | same as home-panel | signed-in seed + balances fixture; `scrollableBalancesSnapshot()` for reveal/scroll | goto path (Home no longer links here since #789; #686 owns the shell collapse) |
+| `activity` | activity | `/activity` | same | signed-in seed + `/api/activity`, `/api/actions` fixtures | goto path (Home renders the same feed inline since #789) |
+| `save` | savings | `/save`, `?flow=save-deposit`, `?flow=save-withdraw` | same | `HOME_PLAYWRIGHT_SMOKE=1`; `/api/savings/vaults` fixture present in tests/browser/fixtures/api.ts `installApiFixtures` | Home `Your money` Cash row (home-overview.tsx), goto `/save?flow=save-deposit` |
+| `borrow` | borrowing | `/borrow`, `/borrow/<marketId>` | same | session + borrow market fixtures | Home `Your money` Borrow Cash row (home-overview.tsx), goto path |
 | `invest` | invest | `/invest`, `/invest/stocks|crypto|memes`, `/invest/<assetId>` | same | session + `/api/invest/discover`, `/api/market-prices` fixtures | Main navigation `Invest` button (primary-navigation.tsx), goto path |
 | `send` (money modal) | transfers/money-modal | overlay on any shell route: `?flow=send` | signed-in (button disabled pre-boundary, transfer-actions.tsx) | signed-in seed + `/api/actions/prepare`, `[id]` pending-review, `/api/transfers/recipient-name`, `/api/transfers/recent-recipients` fixtures (confirmation is not part of routine verification) | `Send` button, `data-action-trigger` (transfer-actions.tsx) |
 | `add-money` (funding) | funding | overlay on any shell route: `?flow=add-money` or `?flow=receive`; `/fund` redirects to `/home?add-money=1` (app/fund/page.tsx) | signed-in for methods; signed-out shows `Sign in` link (add-money-dialog.tsx) | provider fixture (`/api/funding/providers`); IDRX path in funding.pw.ts | `Add money` button (funding-actions.tsx) |
@@ -106,19 +106,19 @@ do not silently ignore a new failure or treat this list as permission to broaden
 - **Reach**:
   1. `goto "/home"`
   2. `expect "Home"`
-  3. `expect "Recognized Coin"`
+  3. `expect "Borrow Cash"`
 - **Reach (live)**:
   1. `goto "/home"`
   2. `expect "Total balance"`
   3. `expect "Your money"`
-- **Notes**: The fixture-session helper seeds signed-in state and API fixtures. Optionally open `Send` for the money modal or exercise the card actions below.
-- **Expect**: `Total balance` card with `aria-label="Total balance"` and `aria-busy` while loading (home-panel.tsx); balance breakdown (`data-balance-breakdown`, `data-balance-segment="cash|saved|investments"`, home-panel.tsx); status line `[data-total-status]` when `statusLabel` present; money actions group `aria-label="Money actions"` with `Add money` and `Send`; `Your money` card (h2 `your-money-heading`) with `See all` action; Save card (`save-heading`), Borrow card (`borrow-heading`); Activity card (`activity-title`). Fixture-visible rows include `Recognized Coin` (tests/browser/fixtures/balances.ts `recognizedCatalogHolding`).
-- **States** (fixtures): loading → hold `/api/session`/`/api/balances` with `fixtures.delayNextSession()/delayNextBalances()` (balances.pw.ts and save.pw.ts); empty → base fixture minus holdings (**no ready empty fixture exists — construct via `options.balances`**); unavailable → `status: "unavailable"` presentation (home-panel.tsx `Balance unavailable`); error state for action APIs is surfaced in the modal, not the panel.
+- **Notes**: The fixture-session helper seeds signed-in state and API fixtures. Optionally open `Send` for the money modal or exercise the rows below.
+- **Expect**: `Total balance` card with `aria-label="Total balance"` and `aria-busy` while loading (home-overview.tsx) showing the net total from `totals.net`; signed allocation bar (`data-balance-breakdown`, `data-balance-segment="borrow|cash|investments"`, `data-balance-axis` when Borrow is present, components/signed-balance-bar.tsx) with its legend in Borrow, Cash, Investments order; a header status icon button `[data-home-status]` beside the account mark when the net is partial or unavailable or a balance read fails (home-status.tsx; its accessible name is the message, and tapping it opens `[data-home-status-detail]` with a `Reload` icon button, or `Open Account` when no country is set), with a dimmed amount marked `[data-total-status]`; money actions group `aria-label="Money actions"` with `Add money` and `Send`; `Your money` card (h2 `your-money-heading`) with exactly three rows — Cash (opens `/save`), Investments (opens `/invest`), Borrow Cash (opens `/borrow`); uncarded Activity feed (h2 `activity-title`, `data-activity-feed`) with a centered spinner (`data-activity-loader`) while older rows load, a centered 44 px `Add money` prompt (`data-activity-nux`) when it is empty, and a centered muted `[data-activity-unavailable]` line with a `Reload activity` icon button when an Activity read fails. The default fixture has no Borrow position, so Borrow Cash renders its no-position context.
+- **States** (fixtures): loading → hold `/api/session`/`/api/balances` with `fixtures.delayNextSession()/delayNextBalances()` (balances.pw.ts and save.pw.ts); empty → base fixture minus holdings (**no ready empty fixture exists — construct via `options.balances`**); unavailable → `status: "unavailable"` presentation (home-overview.tsx `Balance unavailable` hero, muted `—` rows without chevrons, header status with `Reload`); error state for action APIs is surfaced in the modal, not the panel.
 - **Evidence**: screenshot; DOM text snapshot; console/errors; perf marks `shell:paint`, `session:verified` (shell.tsx:356), `balances:painted` (shell.tsx:402), `action:first-interactive` (client/transfers/transfer-actions.tsx:82). `balances:painted` keeps the smoke suite budget (CI 3,500 / local 1,000 ms); the historical initial budget below does not change smoke.
 - **Perf budgets (initial)**: `shell:paint` ≤ 1_500 ms; `session:verified` ≤ 3_000 ms; `balances:painted` ≤ 3_500 ms; `action:first-interactive` ≤ 3_500 ms.
 - **Live perf budgets**: `session:verified` ≤ 10_000 ms
 - **Owned by**: `apps/web/client/home/`, data `apps/web/server/balances/*`, `/api/balances` route.
-- **Unknowns**: `statusLabel` copy is supplied by balance presentation data and therefore varies by snapshot. `MountedShellPanel` sets inactive panels to `hidden`, `inert`, and `aria-hidden`.
+- **Unknowns**: the Home header status (`[data-home-status]`) depends on which balance reads failed, so it varies by snapshot; Activity failures render inside the feed instead. `statusLabel` feeds the Balances panel and the no-country header status. `MountedShellPanel` sets inactive panels to `hidden`, `inert`, and `aria-hidden`.
 
 ### `balances`
 - **Live**: read-only
@@ -132,12 +132,12 @@ do not silently ignore a new failure or treat this list as permission to broaden
   2. `expect "Your money"`
 - **Notes**: The fixture-session helper seeds signed-in state and balances fixture. Use `/balances/investments` with `scrollableBalancesSnapshot()` for anchoring work; the group section is `id="investments"`.
 - **Expect**: scroll container `[data-app-main-authenticated]` (shell-panels.tsx); balance rows `[data-balance-list] [data-kind="balance"]` (balances.pw.ts); reveal window grows after scroll (`BALANCES_BATCH_SIZE = 10`, client/home/balances-panel.tsx); `Show small balances` switch lives in account settings, not this page (mobile-geometry.pw.ts touch test).
-- **States**: loading shimmer (`LoadingMoneyGroup`, balances-panel.tsx); unavailable; empty (`BalancesEmpty`); ready with reveal batches; stale revalidation anchored to requested group (`cold and revalidated cached Balances…` smoke test).
+- **States**: loading shimmer (`BalancesListFallback`, balances-list.tsx); unavailable; empty (`BalancesEmpty`); ready with reveal batches; stale revalidation anchored to requested group (`cold and revalidated cached Balances…` smoke test).
 - **Evidence**: screenshot; DOM snapshot; console/errors; perf marks and scroll-offset assertions.
 - **Perf budgets (initial)**: `shell:paint` ≤ 1_500 ms; `session:verified` ≤ 3_000 ms; `balances:painted` ≤ 3_500 ms; `action:first-interactive` ≤ 3_500 ms.
 - **Live perf budgets**: `session:verified` ≤ 10_000 ms
 - **Owned by**: `apps/web/client/home/balances-panel.tsx`, `apps/web/client/home/shell.tsx`, `apps/web/client/balances/use-balances.ts`, `/api/balances`.
-- **Unknowns**: none; incremental batches use an intersection sentinel rather than a reveal-more button, group navigation is labelled `More <group>`, and the empty state is `No money yet`.
+- **Unknowns**: none; incremental batches use an intersection sentinel rather than a reveal-more button, group anchors come from `/balances/<group>` URLs, and the empty state is `No money yet`.
 
 ### `activity`
 - **Live**: read-only
@@ -217,7 +217,7 @@ do not silently ignore a new failure or treat this list as permission to broaden
 - **Reach** (smoke-verified):
   1. Seed the signed-in fixture and install API fixtures.
   2. `goto "/home"`
-  3. `expect "Recognized Coin"`
+  3. `expect "Borrow Cash"`
   4. `click "Send"`
   5. `expect "Send"`
   6. `click "1"`

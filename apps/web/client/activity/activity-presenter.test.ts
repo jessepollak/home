@@ -57,21 +57,21 @@ describe("presentActivityTransferRow", () => {
     expect(presentActivityTransferRow(transfer("incoming"), UTC)).toMatchObject({
       directionLabel: "Received",
       iconKey: "incoming",
-      iconTone: "incoming",
+      valueTone: "success",
       sign: "+",
       value: "+1.00 USDC",
     });
     expect(presentActivityTransferRow(transfer("outgoing"), UTC)).toMatchObject({
       directionLabel: "Sent",
       iconKey: "outgoing",
-      iconTone: "outgoing",
+      valueTone: "default",
       sign: "−",
       value: "−1.00 USDC",
     });
     expect(presentActivityTransferRow(transfer("self"), UTC)).toMatchObject({
       directionLabel: "Self transfer",
       iconKey: "self",
-      iconTone: "self",
+      valueTone: "default",
       sign: "",
       value: "1.00 USDC",
     });

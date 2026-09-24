@@ -1,12 +1,17 @@
 # Currency flag assets
 
-Circular SVG flags from [HatScripts/circle-flags](https://github.com/HatScripts/circle-flags)
-v2.7.0 (jsDelivr pin), [MIT License](./LICENSE.md).
+Flag SVGs from [jdecked/twemoji](https://github.com/jdecked/twemoji) v15.1.0
+(jsDelivr pin `gh/jdecked/twemoji@15.1.0/assets/svg/<codepoints>.svg`).
 
-Vendored locally so Balances / cash chrome does not fetch flags at runtime.
-Only presentation/cash currencies from `apps/web/config/regions.ts` are
-included. `eu.svg` is upstream `european_union.svg`.
+Twemoji graphics are Copyright 2019 Twitter, Inc and other contributors,
+licensed under [CC-BY 4.0](./LICENSE.md). Attribution: "Twemoji" by Twitter,
+Inc and other contributors, https://github.com/jdecked/twemoji. The files are
+unmodified; Home renders them inset in a neutral circle (see
+`apps/web/components/currency-mark.module.css`).
 
-These files keep the upstream MIT notice. They are compatible with this
-repository's MIT license. Do not add flag art from a different source
-without updating this file.
+Vendored locally so cash chrome does not fetch flags at runtime. Only
+presentation/cash currencies from `apps/web/config/regions.ts` are included.
+Each file is named by its lowercase ISO 3166-1 code; `eu.svg` is upstream
+`1f1ea-1f1fa.svg` (the European Union flag).
+
+Do not add flag art from a different source without updating this file.

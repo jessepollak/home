@@ -13,8 +13,8 @@ test("canonical routing preserves the shell and one balances read", async ({ pag
   await page.goBack();
   await expect(page.getByRole("dialog", { name: "Send" })).toHaveCount(0);
 
-  await page.getByRole("button", { name: "Your money", exact: true }).click();
-  await expect(page).toHaveURL(/\/balances$/);
+  await page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /^Cash/ }).click();
+  await expect(page).toHaveURL(/\/save$/);
   await page.getByRole("button", { name: "Invest", exact: true }).click();
   await expect(page).toHaveURL(/\/invest$/);
   await page.evaluate(() => {
@@ -26,11 +26,11 @@ test("canonical routing preserves the shell and one balances read", async ({ pag
     }
   });
   await page.goBack();
-  await expect(page).toHaveURL(/\/balances$/);
+  await expect(page).toHaveURL(/\/save$/);
   await page.goBack();
   await expect(page).toHaveURL(/\/home$/);
   await page.goForward();
-  await expect(page).toHaveURL(/\/balances$/);
+  await expect(page).toHaveURL(/\/save$/);
   await page.goForward();
   await expect(page).toHaveURL(/\/invest$/);
   expect(await page.evaluate(() => [
@@ -135,7 +135,7 @@ test("sign-in returns to Save through the signed-in shell", async ({ page }) => 
   await page.getByLabel("Verification code").fill("123456");
   await page.getByRole("button", { name: "Verify and continue" }).click();
   await expect(page).toHaveURL(/\/home$/);
-  await page.getByRole("button", { name: "Open Save" }).click();
+  await page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /^Cash/ }).click();
   await expect(page).toHaveURL(/\/save$/);
   await expect(page.getByRole("region", { name: "Save" })).toBeVisible();
 });

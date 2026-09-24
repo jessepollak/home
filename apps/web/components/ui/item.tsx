@@ -136,6 +136,7 @@ const itemTitleVariants = cva(
         default: "text-foreground",
         muted: "text-muted-foreground",
         primary: "text-primary",
+        gain: "text-market-gain",
         destructive: "text-destructive",
       },
       numeric: {
@@ -176,12 +177,17 @@ const itemDescriptionVariants = cva(
   {
     variants: {
       lines: {
-        1: "line-clamp-1",
+        1: "truncate",
         2: "line-clamp-2",
+      },
+      size: {
+        default: "",
+        xs: "text-xs leading-4",
       },
     },
     defaultVariants: {
       lines: 2,
+      size: "default",
     },
   }
 )
@@ -189,12 +195,13 @@ const itemDescriptionVariants = cva(
 function ItemDescription({
   className,
   lines = 2,
+  size = "default",
   ...props
 }: React.ComponentProps<"p"> & VariantProps<typeof itemDescriptionVariants>) {
   return (
     <p
       data-slot="item-description"
-      className={cn(itemDescriptionVariants({ lines, className }))}
+      className={cn(itemDescriptionVariants({ lines, size, className }))}
       {...props}
     />
   )

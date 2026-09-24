@@ -53,6 +53,7 @@ import {
   type HomeInboundPanelState,
 } from "./panel-routing";
 import { ShellHeader, SignedOutLanding } from "./shell-chrome";
+import { HomeHeaderStatus, homeBalancesStatus, useReloadHomeBalances } from "./home-status";
 import { DashboardShell } from "./shell-panels";
 import { ActionToasts } from "./action-toasts";
 import { useHomeRegion } from "./use-home-region";
@@ -62,6 +63,7 @@ const loadingAssetBalances: HomeAssetBalancesPresentation = {
   displayTotal: null,
   groups: [],
   breakdown: [],
+  summary: null,
   rows: [],
   hiddenRows: [],
   hiddenCount: 0,
@@ -728,6 +730,12 @@ export function HomeShell({
       : leaveHomeNestedPanel
     : investChrome?.nested?.onBack ?? (() => {});
 
+  const reloadBalances = useReloadHomeBalances();
+  const homeStatus = routeMode === "dashboard" && isVerified && activeNavigation === "home" &&
+    !isAccountSettingsOpen
+    ? homeBalancesStatus(paintedAssetBalances)
+    : null;
+
   const routingValue = useMemo(() => ({
     state: urlIntent,
     popRevision,
@@ -758,6 +766,13 @@ export function HomeShell({
         onSignOut={signOut}
         onOpenSettings={openAccountSettings}
         onCloseSettings={closeAccountSettings}
+        status={homeStatus ? (
+          <HomeHeaderStatus
+            status={homeStatus}
+            onReload={reloadBalances}
+            onOpenAccount={() => openAccountSettings()}
+          />
+        ) : null}
       />
       {routeMode === "dashboard" ? (
         <DashboardShell

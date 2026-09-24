@@ -2,10 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { BASE_USDC_ADDRESS } from "@/shared/savings/config";
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
 import { summarizeSavingsPortfolio } from "./portfolio-summary";
-import {
-  savingsTeaserApyLabel,
-  savingsTeaserBalanceLabel,
-} from "./savings-teaser-apy";
+import { savingsTeaserApyLabel } from "./savings-teaser-apy";
 
 const VAULT_A = "0x1111111111111111111111111111111111111111";
 const VAULT_B = "0x2222222222222222222222222222222222222222";
@@ -121,42 +118,5 @@ describe("savings teaser APY", () => {
       metadata,
       nowMs: NOW,
     })).toBe("Up to 6.00% APY");
-  });
-});
-
-describe("savings teaser balance", () => {
-  const funded = scenario({
-    balances: ["100000000", "300000000"],
-    rates: [0.04, 0.06],
-  });
-
-  test("prefers the quote-currency subtotal when available", () => {
-    expect(
-      savingsTeaserBalanceLabel({
-        summary: funded.summary,
-        savedSubtotal: "€367.00",
-        regionId: "DE",
-      }),
-    ).toBe("€367.00");
-  });
-
-  test("falls back to the authoritative underlying USDC amount", () => {
-    expect(
-      savingsTeaserBalanceLabel({
-        summary: funded.summary,
-        savedSubtotal: null,
-        regionId: "US",
-      }),
-    ).toBe("$400.00");
-  });
-
-  test("shows a dash only when no balance is available", () => {
-    expect(
-      savingsTeaserBalanceLabel({
-        summary: null,
-        savedSubtotal: null,
-        regionId: "US",
-      }),
-    ).toBe("—");
   });
 });

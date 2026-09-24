@@ -7,9 +7,8 @@ import { BASE_CHAIN_ID } from "@/shared/assets/base";
 export const ACTIVITY_BASE_CHAIN_ID = BASE_CHAIN_ID;
 export const ACTIVITY_PAGE_SIZE = 25 as const;
 export const ACTIVITY_WINDOW_DAYS = 31 as const;
-export const ACTIVITY_TEASER_LIMIT = 5 as const;
 
-export type ActivityPanelDensity = "teaser" | "page";
+export type ActivityPanelDensity = "feed" | "page";
 
 export const activityAssets = [
   ...getDirectPortfolioAssets().flatMap((asset) =>

@@ -1,9 +1,11 @@
 "use client";
 
-import { ArrowDown, ArrowUp, CircleQuestionMark, X } from "lucide-react";
+import { CircleQuestionMark, HandCoins, X } from "lucide-react";
+import { CurrencyMark, GlyphMark } from "@/components/currency-mark";
 import { ActivityRow } from "@/components/finance-rows";
 import { MoneyTicker } from "@/components/money-ticker";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
+import { getDirectPortfolioAssets } from "@/config/portfolio-assets";
 import {
   formatPresentationDate,
   formatPresentationTokenAmount,
@@ -12,6 +14,13 @@ import {
   labelForOperationStatus,
   primaryOperationAmount,
 } from "./operation-details";
+
+const portfolioAssetKeyById: ReadonlyMap<string, string> = new Map(
+  getDirectPortfolioAssets().flatMap((asset) => [
+    [asset.id, asset.assetKey],
+    [asset.assetKey, asset.assetKey],
+  ]),
+);
 
 export function OperationActivityRow({
   operation,
@@ -31,22 +40,35 @@ export function OperationActivityRow({
         { cashCurrency: amount.symbol === "USDC" ? "USD" : null },
       )}`
     : null;
-  const icon = operation.status === "failed"
+  const failed = operation.status === "failed";
+  const icon = failed
     ? <X className="size-4" />
     : operation.status === "unknown"
       ? <CircleQuestionMark className="size-4" />
-      : amount?.direction === "receive"
-        ? <ArrowDown className="size-4" />
-        : <ArrowUp className="size-4" />;
+      : operation.action.kind === "borrow" || operation.action.kind === "repay"
+        ? <GlyphMark size="sm"><HandCoins /></GlyphMark>
+        : (
+            <CurrencyMark
+              assetKey={amount ? portfolioAssetKeyById.get(amount.assetId.toLowerCase()) : null}
+              symbol={amount?.symbol ?? "?"}
+              size="sm"
+            />
+          );
 
   return (
     <ActivityRow
       icon={icon}
-      iconTone={operation.status === "failed" ? "outlined" : amount?.direction === "receive" ? "incoming" : "outgoing"}
+      iconTone={failed ? "outlined" : operation.status === "unknown" ? "neutral" : "mark"}
       label={operation.action.title}
       context={<><time dateTime={operation.updatedAt}>{date}</time> · {status}</>}
       value={value ? <MoneyTicker value={value} /> : status}
-      valueTone={operation.status === "failed" ? "error" : operation.status === "unknown" ? "muted" : "default"}
+      valueTone={failed
+        ? "error"
+        : operation.status === "unknown"
+          ? "muted"
+          : amount?.direction === "receive"
+            ? "success"
+            : "default"}
       onActivate={onActivate}
       activateLabel={`View ${operation.action.title} transaction details`}
     />

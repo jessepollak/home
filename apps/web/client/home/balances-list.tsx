@@ -64,11 +64,12 @@ export function HomeBalanceRowView({ row }: { row: BalanceRowModel }) {
   const icon = row.mark.kind === "flag"
     ? <CurrencyMark currency={row.mark.currency} size="sm" />
     : row.mark.kind === "image"
-      ? <CurrencyMark src={row.mark.url} symbol={row.mark.fallbackSymbol} size="sm" />
+      ? <CurrencyMark assetKey={row.key} src={row.mark.url} symbol={row.mark.fallbackSymbol} size="sm" />
       : row.mark.kind === "eth"
-        ? <CurrencyMark symbol="ETH" size="sm" />
+        ? <CurrencyMark assetKey={row.key} symbol="ETH" size="sm" />
         : (
             <CurrencyMark
+              assetKey={row.key}
               src={symbolMark?.imageUrl}
               symbol={symbolMark?.symbol}
               pending={symbolMark?.pending}

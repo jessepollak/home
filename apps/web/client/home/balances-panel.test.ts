@@ -34,6 +34,7 @@ describe("balances restoration helpers", () => {
         rows: [],
       }],
       breakdown: [],
+      summary: null,
       rows: [{
         key: "usdc",
         group: "cash",

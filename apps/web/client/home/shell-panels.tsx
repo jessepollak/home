@@ -186,10 +186,9 @@ export function DashboardShell({
                       assetMarkResolution={assetMarkResolution}
                       fetchActivity={fetchActivity}
                       fetchOperations={fetchOperations}
-                      onOpenSave={() => navigateTo(savePanelId)}
+                      onOpenCash={() => navigateTo(savePanelId)}
+                      onOpenInvestments={() => navigateTo("invest")}
                       onOpenBorrow={() => navigateTo(borrowPanelId)}
-                      onOpenBalances={(group) => navigateTo(balancesPanelId, group ?? null)}
-                      onOpenActivity={() => navigateTo(activityPanelId)}
                       initialAddMoney={urlAddMoney}
                       returnedFromProvider={urlReturnedFromProvider}
                       initialSendFlow={urlSendFlow}

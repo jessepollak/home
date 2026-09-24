@@ -3,9 +3,9 @@ import {
   FIXTURE_CATALOG,
   FIXTURE_WALLET_TOKEN,
   balancesSnapshotFixture,
+  borrowPosition,
   buildBalancesSnapshotFixture,
   catalogHolding,
-  decimal,
   priced,
   pricedCash,
   ready,
@@ -16,8 +16,6 @@ import {
   presentBalanceRows,
   presentBalances,
   presentMoneyGroups,
-  presentSavedSubtotal,
-  previewBalanceRows,
 } from "./present";
 
 describe("balance presentation", () => {
@@ -117,9 +115,6 @@ describe("balance presentation", () => {
     expect(hidden.rows.some((row) => row.name === "Aerodrome")).toBeFalse();
     expect(hidden.hiddenCount).toBe(1);
     expect(shown.rows.at(-1)?.name).toBe("Aerodrome");
-    expect(previewBalanceRows(shown.rows, shown.hiddenRows).some(
-      (row) => row.name === "Aerodrome",
-    )).toBeFalse();
   });
 
   test("cash always renders and distinguishes unavailable from successful zero", () => {
@@ -232,54 +227,31 @@ describe("balance presentation", () => {
     });
   });
 
-  test("does not let priced zero vaults mask funded unpriced savings", () => {
-    const snapshot = buildBalancesSnapshotFixture({
-      registry: {
-        "morpho-gauntlet-usdc": {
-          balance: ready("312000000000000000000"),
-          underlyingBalance: ready("320000000"),
-          value: { status: "unpriced", reason: "price-unavailable" },
-        },
-      },
-    });
-
-    expect(presentSavedSubtotal(snapshot)).toBeNull();
-  });
-
-  test("omits all-zero savings from the hero breakdown", () => {
-    const presentation = presentBalances({
-      status: "ready",
-      snapshot: buildBalancesSnapshotFixture(),
-      error: null,
-    });
-
-    expect(presentation.breakdown.some((item) => item.id === "saved")).toBeFalse();
-  });
-
-  test("maps loading, partial and unavailable total states without sentinel rows", () => {
+  test("maps loading, partial and unavailable net states without sentinel rows", () => {
     expect(presentBalances({ status: "loading", snapshot: null, error: null })).toEqual({
       status: "loading",
       displayTotal: null,
       groups: [],
       breakdown: [],
+      summary: null,
       rows: [],
       hiddenRows: [],
       hiddenCount: 0,
     });
     const ready = presentBalances({
       status: "ready",
-      snapshot: { ...balancesSnapshotFixture, total: { status: "partial", value: decimal("123", 2), currency: "USD" } },
+      snapshot: balancesSnapshotFixture,
       error: null,
       revalidating: true,
     });
     expect(ready).toMatchObject({
       status: "ready",
-      displayTotal: "$1.23",
+      displayTotal: "$3,852.88",
       totalStatus: "partial",
+      statusLabel: "Some balances are unavailable",
       breakdown: [
-        { id: "cash", label: "Cash", value: "$1,234.56", weight: 762 },
-        { id: "saved", label: "Savings", value: "$1,000.12", weight: 618 },
-        { id: "investments", label: "Investments", value: "$1,618.20", weight: 1_000 },
+        { id: "cash", label: "Cash", value: "$2,234.68", weight: 580 },
+        { id: "investments", label: "Investments", value: "$1,618.20", weight: 420 },
       ],
       revalidating: true,
     });
@@ -287,16 +259,215 @@ describe("balance presentation", () => {
     expect(presentBalances({ status: "error", snapshot: null, error: "balances-unavailable" })).toMatchObject({
       status: "unavailable",
       totalStatus: "unavailable",
+      summary: null,
     });
+  });
+
+  test("renders the net total, signed breakdown, and Borrow Cash from the snapshot totals", () => {
+    const snapshot = buildBalancesSnapshotFixture({
+      registry: {
+        usdc: {
+          balance: ready("12340000"),
+          value: priced("USD", "1234"),
+          cashValue: pricedCash("USD", "1234"),
+        },
+      },
+      borrow: {
+        coverage: "complete",
+        positions: [borrowPosition({
+          collateralBaseUnits: "100000",
+          collateralValue: priced("USD", "7821"),
+          debtBaseUnits: "30010000",
+          debtValue: priced("USD", "3001"),
+        })],
+      },
+    });
+    const presentation = presentBalances({ status: "ready", snapshot, error: null });
+
+    expect(presentation.displayTotal).toBe("$60.54");
+    expect(presentation.totalStatus).toBe("complete");
+    expect(presentation.statusLabel).toBeUndefined();
+    expect(presentation.breakdown.map(({ id, value }) => [id, value])).toEqual([
+      ["borrow", "−$30.01"],
+      ["cash", "$12.34"],
+      ["investments", "$78.21"],
+    ]);
+    expect(presentation.summary).toEqual({
+      cash: { status: "complete", value: "$12.34" },
+      investments: { status: "complete", value: "$78.21", assetCount: 1 },
+      borrow: { kind: "position", status: "complete", value: "$30.01", rate: "5.10% APR" },
+    });
+  });
+
+  test("keeps breakdown weights exact beyond float range", () => {
+    const huge = `1${"0".repeat(400)}`;
+    const snapshot = buildBalancesSnapshotFixture({
+      registry: {
+        usdc: {
+          balance: ready("1000000"),
+          value: priced("USD", `3${huge}`),
+          cashValue: pricedCash("USD", `3${huge}`),
+        },
+        eth: { balance: ready("1"), value: priced("USD", `1${huge}`) },
+        cbbtc: { balance: ready("100000"), value: priced("USD", `6${huge}`) },
+      },
+    });
+    const presentation = presentBalances({ status: "ready", snapshot, error: null });
+
+    expect(presentation.breakdown.map(({ id, weight }) => [id, weight])).toEqual([
+      ["cash", 301],
+      ["investments", 699],
+    ]);
+  });
+
+  test("counts a wallet asset and the same asset held as collateral once", () => {
+    const snapshot = buildBalancesSnapshotFixture({
+      registry: {
+        cbbtc: { balance: ready("100000"), value: priced("USD", "6000") },
+        eth: { balance: ready("1"), value: priced("USD", "100") },
+      },
+      borrow: {
+        coverage: "complete",
+        positions: [borrowPosition({
+          collateralBaseUnits: "100000",
+          collateralValue: priced("USD", "6000"),
+          debtBaseUnits: "0",
+          debtValue: priced("USD", "0"),
+        })],
+      },
+    });
+    const summary = presentBalances({ status: "ready", snapshot, error: null }).summary;
+
+    expect(summary?.investments.assetCount).toBe(2);
+    expect(summary?.borrow).toEqual({ kind: "none" });
+  });
+
+  test("shows a negative net with a leading minus when debt exceeds assets", () => {
+    const snapshot = buildBalancesSnapshotFixture({
+      borrow: {
+        coverage: "complete",
+        positions: [borrowPosition({
+          collateralBaseUnits: "0",
+          collateralValue: priced("USD", "0"),
+          debtBaseUnits: "5000000",
+          debtValue: priced("USD", "500"),
+        })],
+      },
+    });
+
+    expect(presentBalances({ status: "ready", snapshot, error: null }).displayTotal).toBe("−$5.00");
+  });
+
+  test("never presents a gross total as net when the Borrow read is incomplete", () => {
+    const snapshot = buildBalancesSnapshotFixture({
+      registry: {
+        usdc: {
+          balance: ready("12340000"),
+          value: priced("USD", "1234"),
+          cashValue: pricedCash("USD", "1234"),
+        },
+      },
+      borrow: { coverage: "partial", positions: [] },
+    });
+    const presentation = presentBalances({ status: "ready", snapshot, error: null });
+
+    expect(presentation.totalStatus).toBe("partial");
+    expect(presentation.statusLabel).toBe("Some balances are unavailable");
+    expect(presentation.summary?.borrow).toEqual({ kind: "unavailable" });
+    expect(presentation.breakdown.some((item) => item.id === "borrow")).toBeFalse();
+  });
+
+  test("keeps a known partial Borrow debt partial instead of complete", () => {
+    const snapshot = buildBalancesSnapshotFixture({
+      borrow: {
+        coverage: "partial",
+        positions: [borrowPosition({
+          collateralBaseUnits: "100000",
+          collateralValue: priced("USD", "7821"),
+          debtBaseUnits: "30010000",
+          debtValue: priced("USD", "3001"),
+        })],
+      },
+    });
+    const presentation = presentBalances({ status: "ready", snapshot, error: null });
+
+    expect(presentation.totalStatus).toBe("partial");
+    expect(presentation.summary?.borrow).toEqual({
+      kind: "position",
+      status: "partial",
+      value: "$30.01",
+      rate: "5.10% APR",
+    });
+  });
+
+  test("weights the Borrow APR by debt value across positions", () => {
+    const snapshot = buildBalancesSnapshotFixture({
+      borrow: {
+        coverage: "complete",
+        positions: [
+          borrowPosition({
+            collateralBaseUnits: "100000",
+            collateralValue: priced("USD", "10000"),
+            debtBaseUnits: "30000000",
+            debtValue: priced("USD", "3000"),
+            borrowAprWad: "40000000000000000",
+          }),
+          borrowPosition({
+            marketId: `0x${"b".repeat(64)}`,
+            collateralBaseUnits: "100000",
+            collateralValue: priced("USD", "10000"),
+            debtBaseUnits: "10000000",
+            debtValue: priced("USD", "1000"),
+            borrowAprWad: "80000000000000000",
+          }),
+        ],
+      },
+    });
+    const summary = presentBalances({ status: "ready", snapshot, error: null }).summary;
+
+    expect(summary?.borrow).toMatchObject({ kind: "position", rate: "5.00% APR" });
+  });
+
+  test("normalizes unpriced Borrow debt by token decimals when weighting the APR", () => {
+    const cheap = borrowPosition({
+      collateralBaseUnits: "100000",
+      collateralValue: priced("USD", "10000"),
+      debtBaseUnits: "30000000",
+      debtValue: { status: "unavailable" },
+      borrowAprWad: "40000000000000000",
+    });
+    const eighteenDecimals = borrowPosition({
+      marketId: `0x${"c".repeat(64)}`,
+      collateralBaseUnits: "100000",
+      collateralValue: priced("USD", "10000"),
+      debtBaseUnits: "10000000000000000000",
+      debtValue: priced("USD", "1000"),
+      borrowAprWad: "80000000000000000",
+    });
+    const snapshot = buildBalancesSnapshotFixture({
+      borrow: {
+        coverage: "complete",
+        positions: [
+          cheap,
+          { ...eighteenDecimals, debt: { ...eighteenDecimals.debt, asset: { ...eighteenDecimals.debt.asset, decimals: 18 } } },
+        ],
+      },
+    });
+    const summary = presentBalances({ status: "ready", snapshot, error: null }).summary;
+
+    expect(summary?.borrow).toMatchObject({ kind: "position", rate: "5.00% APR" });
   });
 
   test("prioritizes the country prompt over stale snapshot state", () => {
     const snapshot = buildBalancesSnapshotFixture({ region: "GLOBAL" });
 
-    expect(presentBalances(
+    const presentation = presentBalances(
       { status: "ready", snapshot: { ...snapshot, stale: true }, error: null },
       { showSmallBalances: false },
-    ).statusLabel).toBe("Choose a country in Account to set how money is shown");
+    );
+
+    expect(presentation.statusLabel).toBe("Choose a country in Account to set how money is shown");
+    expect(presentation.needsCountry).toBeTrue();
   });
 
   test("does not label a cached or revalidating snapshot with its observation age", () => {

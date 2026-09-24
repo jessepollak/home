@@ -19,9 +19,9 @@ export type ActivityRowViewModel = {
   id: string;
   directionLabel: string;
   iconKey: ActivityIconKey;
-  iconTone: ActivityDirection;
   sign: "+" | "−" | "";
   dateTime: string;
+  valueTone: "success" | "default";
   fullDate: string;
   shortDate: string;
   value: string;
@@ -68,9 +68,9 @@ export function presentActivityTransferRow(
     id: transfer.id,
     directionLabel: direction.label,
     iconKey: direction.iconKey,
-    iconTone: transfer.direction,
     sign: direction.sign,
     dateTime: transfer.blockTimestamp,
+    valueTone: transfer.direction === "incoming" ? "success" : "default",
     fullDate,
     shortDate: formatPresentationDate(transfer.blockTimestamp, {
       regionId: options.regionId,

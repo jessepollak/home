@@ -69,6 +69,7 @@ The pilot inventory is:
 
 - Financial row: `pilot-financial-row--normal`, `pilot-financial-row--loading`, `pilot-financial-row--unavailable-value`, `pilot-financial-row--long-label-large-amount`, `pilot-financial-row--issue-example-quantities`
 - Shared finance rows: `pilot-finance-rows--asset-rows-large-local-currency`, `pilot-finance-rows--actionable-rows-chevron`
+- Home overview (Figma `Home — final` and `Home states`): `home-overview--funded`, `home-overview--keyboard-order`, `home-overview--activity-detail-return`, `home-overview--no-borrow-position`, `home-overview--empty`, `home-overview--loading`, `home-overview--partial-balances`, `home-overview--partial-borrow-position`, `home-overview--activity-error`, `home-overview--no-country`
 - Savings money dialog: `pilot-savings-money-dialog--amount-entry`, `pilot-savings-money-dialog--validation-failure`, `pilot-savings-money-dialog--review`, `pilot-savings-money-dialog--pending`, `pilot-savings-money-dialog--failure-recovery`, `pilot-savings-money-dialog--back-and-cancel`, `pilot-savings-money-dialog--reduced-motion-reference`
 - Savings screen: `pilot-savings-experience--funded`, `pilot-savings-experience--verified-empty`, `pilot-savings-experience--loading`, `pilot-savings-experience--unavailable-partial`, `pilot-savings-experience--long-localized-content`
 
@@ -89,13 +90,14 @@ Use the stock system sans and monospace stacks: there is no `next/font` setup or
 Country selection and searchable asset selection use the `Combobox`; its value truncates by default. Simple non-searchable pickers use Base UI `Select`. Financial rows stay on `Item`; do not introduce Data Table on mobile.
 
 Use the owned component contracts rather than restyling their slots:
-- `ItemMedia variant="avatar"` owns the standard circular row media. `ItemTitle` accepts `tone` and `numeric`; `ItemDescription` accepts `lines={1 | 2}`.
+- `ItemMedia variant="avatar"` owns the standard circular row media. `ItemTitle` accepts `tone` (`default | muted | primary | gain | destructive`) and `numeric`; `ItemDescription` accepts `lines={1 | 2}` (one line truncates with an ellipsis) and `size="xs"` for a 12 px value context under a row value.
 - `CardContent inset="list"` owns list-card horizontal insets; put screen-specific flow spacing on a plain inner wrapper.
 - `Button variant="navigation"` owns primary-navigation presentation, and `size="inline"` is for small actions embedded in prose.
-- `Button press="standard" | "icon" | "none"` owns press feedback: standard actions compress on pointer/touch-down, icon-only controls compress deliberately more, and `none` keeps wide rows, navigation, product tiles, and link-like text still as whole surfaces. Every variant mirrors its hover treatment in `active:` and reduced motion drops every press transform while keeping those color cues.
+- `Button press="standard" | "icon" | "none"` owns press feedback: standard actions compress on pointer/touch-down, icon-only controls compress deliberately more, and `none` keeps wide rows, navigation, and link-like text still as whole surfaces. Every variant mirrors its hover treatment in `active:` and reduced motion drops every press transform while keeping those color cues.
 - `Input variant="otp" | "code"` owns verification-code and monospace input typography. `InputGroupInput` forwards the same variant.
 - `PayoutMark variant="cashapp" | "zelle" | "monzo" | "revolut" | "fallback" | "count"` owns circular payout-mark geometry, typography, and semantic brand colors.
 - `Switch` is the semantic on/off control. Drawer surface, title, header, footer, safe-area, shadow, and immediate-motion treatment are owned defaults.
+- `Popover` owns small anchored disclosures, such as the Home header status; its content needs an accessible name (`aria-label`). `Skeleton` owns the loading tone (foreground at 10%, Figma `color/alpha/foreground-10`), which stays visible on both cards and the muted page.
 
 ## Rules
 

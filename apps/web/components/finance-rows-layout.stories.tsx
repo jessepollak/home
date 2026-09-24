@@ -180,8 +180,8 @@ export const ActionableRowsChevron: Story = {
       await expect(identityColumn.right).toBeLessThanOrEqual(valueColumn.left + 0.5);
       await expect(rowBox.right - actions.right).toBeGreaterThanOrEqual(10);
       await expect(rowBox.right - actions.right).toBeLessThan(16);
-      await expect(actions.left - valueColumn.right).toBeGreaterThan(8);
-      await expect(actions.left - valueColumn.right).toBeLessThan(12);
+      await expect(actions.left - valueColumn.right).toBeGreaterThan(10);
+      await expect(actions.left - valueColumn.right).toBeLessThan(14);
       await expect(actions.left).toBeGreaterThanOrEqual(ticker.right);
       await expect(valueColumn.bottom).toBeLessThanOrEqual(rowBox.bottom + 0.5);
       await expect(actions.bottom).toBeLessThanOrEqual(rowBox.bottom + 0.5);

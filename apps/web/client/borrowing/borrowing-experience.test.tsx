@@ -25,7 +25,6 @@ const {
   recommendedOpeningCollateralBaseUnits,
   recommendedRepayMaximumBaseUnits,
   selectPrimaryBorrowAsset,
-  selectUrgentBorrowPosition,
 } = await import("./borrowing-experience");
 
 const OWNER = "0x1111111111111111111111111111111111111111" as const;
@@ -501,12 +500,6 @@ describe("Borrow bigint helpers", () => {
     expect(parseClientTokenAmount("25.", 6)).toBe("25000000");
     expect(recommendedRepayMaximumBaseUnits("100000000", "200000000", "1000000000")).toBe("100000362");
     expect(recommendedRepayMaximumBaseUnits("100000000", "100000100", "1000000000")).toBe("100000100");
-  });
-
-  test("selects the most urgent active position before registry rank", () => {
-    const healthy = overview().positions[0];
-    const urgent = { ...healthy, market: { ...healthy.market, rank: 2 }, healthFactorWad: "1200000000000000000" };
-    expect(selectUrgentBorrowPosition([healthy, urgent])).toBe(urgent);
   });
 
   test("describes a collateral-only server position without a zero borrowed amount", () => {

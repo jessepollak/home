@@ -68,14 +68,32 @@ describe("HomeBalanceRowView", () => {
 
     const registryInitialsRow: BalanceRowModel = {
       ...registryImageRow,
-      mark: { kind: "symbol", symbol: "cbBTC" },
+      key: assetKeyForErc20("0xcb585250f852C6c6bf90434AB21A00f02833a4af"),
+      name: "XRP",
+      mark: { kind: "symbol", symbol: "cbXRP" },
     };
     view.rerender(
       <HomeBalancesList rows={[registryInitialsRow]} isLoading={false} />,
     );
     expect(view.container.querySelector("img")).toBeNull();
     expect(view.container.querySelector("[data-shimmer='mark']")).toBeNull();
-    expect(view.container.querySelector("[data-mark]")?.textContent).toBe("BT");
+    expect(view.container.querySelector("[data-mark]")?.textContent).toBe("XR");
+
+    view.rerender(
+      <HomeBalancesList
+        rows={[{ ...registryImageRow, mark: { kind: "symbol", symbol: "cbBTC" } }]}
+        isLoading={false}
+      />,
+    );
+    expect(view.container.querySelector("img")?.getAttribute("src")).toBe("/asset-marks/btc.svg");
+
+    view.rerender(
+      <HomeBalancesList
+        rows={[{ ...registryImageRow, key: "eip155:8453/erc20:0x0000000000000000000000000000000000000bad", mark: { kind: "symbol", symbol: "USDC" } }]}
+        isLoading={false}
+      />,
+    );
+    expect(view.container.querySelector("img")).toBeNull();
 
     const catalogRow: BalanceRowModel = {
       key: "eip155:8453/erc20:0x940181a94a35a4569e4529a3cdfb74e38fd98631",

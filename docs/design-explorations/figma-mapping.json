@@ -13,20 +13,21 @@
   "source": {
     "mainSha": "a06425173ba39fddd39350c0817e58bdfd9b3904",
     "mainShortSha": "a0642517",
-    "note": "mainSha is the render used to build the canonical Home — funded baseline. Home — final is the approved final Home design (Jesse, 2026-09-23); it is a Figma design target, does not correspond to a production render, and does not change production code."
+    "note": "mainSha is the render used to build the historical Home — funded baseline. Home — final is the approved final Home design (Jesse, 2026-09-23) and, since #789, the production Home layout rendered by apps/web/client/home/home-overview.tsx."
   },
   "codeConnect": {
-    "status": "existing-mappings-preserved; new-components-pending-library-publish",
+    "status": "existing-mappings-preserved; SignedBalanceBar and ActivityLoader mapped in #789; three stale owners await a Figma UI disconnect",
     "label": "React",
     "evidence": [
       "The 12 previously published families remained mapped from prior runs; this run did not delete, disconnect, or recreate any existing mapping.",
       "FinanceRow was genericized into one variant set (96:1147) whose text/boolean/instance properties mirror the code API (Label, Context + Show context, Value, Value context + Show value context, Mark, Show chevron) plus two variant dimensions: Layout (Title aligned [default] | Centered (legacy)) and Value tone (Default | Success | Error | Muted). The original component id 12:60 is preserved as the Centered (legacy) variant and keeps its prior Code Connect mapping; Home — funded still instances it. The title-aligned default 96:1130, the tone variants (112:1136 Success, 112:1147 Error, 112:1158 Muted), and the FinanceRow usage showcase (116:1154) are new and unpublished.",
       "add_code_connect_map for the FinanceRow set (96:1147 -> apps/web/components/finance-rows.tsx) returns 'Published component not found' until the set is published; the same applies to SignedBalanceBar (91:927) and ActivityLoader (91:932). Renaming Figma component properties does not change the node->file Code Connect mapping.",
       "get_code_connect_map still returns an empty object for this file (known Figma API read-back defect); Jesse approved that combined evidence on 2026-09-22.",
-      "Run 24 (publish-ready closeout) changed only definitions, descriptions, variant value names, positions, and the new color/market-gain variable; no component or set was deleted, recreated, or detached and no Code Connect mapping was touched. Renaming variant values (e.g. Kind=cash -> Kind=Cash) keeps node IDs and node->file mappings."
+      "Run 24 (publish-ready closeout) changed only definitions, descriptions, variant value names, positions, and the new color/market-gain variable; no component or set was deleted, recreated, or detached and no Code Connect mapping was touched. Renaming variant values (e.g. Kind=cash -> Kind=Cash) keeps node IDs and node->file mappings.",
+      "#789 (2026-09-23): add_code_connect_map succeeded for SignedBalanceBar 91:927 -> apps/web/components/signed-balance-bar.tsx (SignedBalanceBar) and ActivityLoader 91:932 -> apps/web/components/activity-loader.tsx (ActivityLoader). It returned 'already mapped' for the FinanceRow set 96:1147, MoneyBreakdownItem 12:20, and SectionHeader 12:33; per policy no mapping was disconnected or replaced. get_code_connect_map still reads back {}."
     ],
     "limitation": "Code Connect maps Figma to code metadata; it does not synchronize React changes into Figma or Figma edits into code automatically.",
-    "actionRequiredFromJesse": "Publish the Home Library revision (see componentInventory.publishChecklist), then add the three set-level Code Connect mappings listed there; production adoption is a separate issue."
+    "actionRequiredFromJesse": "Publish the Home Library revision (FinanceRow Value context default now reads 5.1% APR, and #789 updated nine component descriptions to their production owners). If the existing mappings for MoneyBreakdownItem 12:20 and SectionHeader 12:33 still point at apps/web/client/home/home-panel.tsx, disconnect them in the Figma UI so they can be remapped to apps/web/components/signed-balance-bar.tsx (MoneyBreakdownLegend) and apps/web/client/home/home-overview.tsx (HomeSectionHeading); confirm the FinanceRow set 96:1147 maps to apps/web/components/finance-rows.tsx."
   },
   "components": [
     {
@@ -37,7 +38,7 @@
       "codeComponentName": "ShellHeader",
       "codeConnectStatus": "mapped-existing",
       "publishStatus": "CURRENT",
-      "fidelityNotes": "Editable title property; Home mark, account mark, and divider are internal layers."
+      "fidelityNotes": "Editable title property; Home mark, account mark, and divider are internal layers. The Show status boolean (added in #789) reveals a 44 px ghost circle-alert icon button beside the account mark, the `status` slot rendered with HomeHeaderStatus from apps/web/client/home/home-status.tsx."
     },
     {
       "figmaName": "MoneyTicker",
@@ -53,8 +54,8 @@
       "figmaName": "MoneyBreakdownItem",
       "nodeId": "12:20",
       "nodeUrl": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=12-20",
-      "codeSourcePath": "apps/web/client/home/home-panel.tsx",
-      "codeComponentName": "HomePanel",
+      "codeSourcePath": "apps/web/components/signed-balance-bar.tsx",
+      "codeComponentName": "MoneyBreakdownLegend",
       "codeConnectStatus": "mapped-existing",
       "publishStatus": "CHANGED",
       "fidelityNotes": "Designer-placeable family for the breakdown rendered inline by HomePanel. The existing set ID is preserved and includes the design-only Kind=Borrow variant (69:694) for the neutral negative category; production ids remain cash, investments, and saved. Variant values are sentence case (Kind=Cash|Savings|Investments|Borrow). The shared Label text-property default is 'Cash' for every variant because Figma set-level text defaults are shared; instances override it. Requires Home Library publication."
@@ -83,8 +84,8 @@
       "figmaName": "SectionHeader",
       "nodeId": "12:33",
       "nodeUrl": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=12-33",
-      "codeSourcePath": "apps/web/client/home/home-panel.tsx",
-      "codeComponentName": "SectionHeader",
+      "codeSourcePath": "apps/web/client/home/home-overview.tsx",
+      "codeComponentName": "HomeSectionHeading",
       "codeConnectStatus": "mapped-existing",
       "publishStatus": "CURRENT",
       "fidelityNotes": "Editable Title and Show See all visibility. In Home — final it is reused for BOTH the 'Your money' heading and the 'Activity' heading (See all hidden), so the Activity heading is a component instance rather than a one-off text node."
@@ -160,28 +161,28 @@
       "figmaName": "SignedBalanceBar",
       "nodeId": "91:927",
       "nodeUrl": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=91-927",
-      "codeSourcePath": "apps/web/client/home/home-panel.tsx",
-      "codeComponentName": "(inline allocation visualization in HomePanel)",
-      "codeConnectStatus": "design-only; pending-publish",
-      "publishStatus": "NEW",
-      "fidelityNotes": "New component for the signed total-balance allocation bar (Borrow segment left of a zero axis, then Cash and Investments right). Design-only: production renders this inline inside HomePanel rather than as a discrete reusable component, so there is no discrete code owner to Code-Connect yet. Created so Home — final has no one-off bar layer."
+      "codeSourcePath": "apps/web/components/signed-balance-bar.tsx",
+      "codeComponentName": "SignedBalanceBar",
+      "codeConnectStatus": "mapped (#789)",
+      "publishStatus": "CHANGED (description)",
+      "fidelityNotes": "Signed total-balance allocation bar (Borrow segment left of a zero axis, then Cash and Investments right). Production owner since #789; segment weights come from shared/balances/present.ts presentBreakdown over snapshot totals, and the Borrow segment and axis render only when debt is positive."
     },
     {
       "figmaName": "ActivityLoader",
       "nodeId": "91:932",
       "nodeUrl": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=91-932",
-      "codeSourcePath": "apps/web/client/activity/activity-panel.tsx",
-      "codeComponentName": "(infinite-scroll loading boundary in ActivityPanel)",
-      "codeConnectStatus": "design-only; pending-publish",
-      "publishStatus": "NEW",
-      "fidelityNotes": "New component for the Activity infinite-scroll continuation boundary with a centered spinner. Design-only: production renders ShimmerRows at the loading boundary, not a single centered spinner, so this documents a deliberate design difference rather than a mapped code component."
+      "codeSourcePath": "apps/web/components/activity-loader.tsx",
+      "codeComponentName": "ActivityLoader",
+      "codeConnectStatus": "mapped (#789)",
+      "publishStatus": "CHANGED (description)",
+      "fidelityNotes": "Activity infinite-scroll continuation boundary with a centered spinner and no visible copy (a screen-reader-only status announces older rows loading). Rendered by apps/web/client/activity/activity-panel.tsx on Home and the Activity page since #789."
     },
     {
       "figmaName": "MoreRow",
       "nodeId": "12:79",
       "nodeUrl": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=12-79",
-      "codeSourcePath": "apps/web/client/home/balances-panel.tsx",
-      "codeComponentName": "GroupedBalancesList",
+      "codeSourcePath": "none since #789 (Home removed the More rows)",
+      "codeComponentName": "(removed)",
       "codeConnectStatus": "mapped-existing",
       "publishStatus": "CURRENT",
       "fidelityNotes": "Represents the separate ghost Button + Item + ChevronRight composition used for each More row. Not used on Home — final; retained for the funded baseline."
@@ -212,15 +213,34 @@
       "figmaName": "Home — final",
       "nodeId": "92:922",
       "nodeUrl": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=92-922",
-      "codeSourcePath": "apps/web/client/home/home-panel.tsx",
-      "codeComponentName": "HomePanel",
+      "codeSourcePath": "apps/web/client/home/home-overview.tsx",
+      "codeComponentName": "HomeOverview",
       "codeConnectStatus": "not-applicable-plain-frame",
+      "storybook": "home-overview--funded (apps/web/client/home/home-overview.stories.tsx)",
       "reviewStatus": "approved-final (Jesse, 2026-09-23)",
       "annotationNodeId": "103:1136",
       "annotationNodeUrl": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=103-1136",
       "supersedesForReview": "81:700",
       "fullyComponentized": true,
-      "fidelityNotes": "The approved final Home design at 390x844, first in the Screens section. Every Your money row (Cash, Investments, Borrow Cash) and every Activity row (six) is a single genericized FinanceRow instance (Layout=Title aligned) configured only through component properties, named semantically (Balance / …, Activity / …). Money-in Activity values (Received ×2, Borrowed) use Value tone=Success (color/market-gain); the rest use Default. A programmatic audit (2026-09-23) reports 23 top-level instances, zero non-instance content leaves, and zero nested overrides; the only instance overrides are instance-root name, size, and layout positioning. Rows are inset 32 px from the frame edge (16 px content + 16 px card padding), 326 px wide. Home — funded stays the current-production baseline until the production adoption PR lands. Production is unchanged."
+      "fidelityNotes": "The approved final Home design at 390x844, first in the Screens section, and the production Home layout since #789. Every Your money row (Cash, Investments, Borrow Cash) and every Activity row (six) is a single genericized FinanceRow instance (Layout=Title aligned) configured only through component properties, named semantically (Balance / …, Activity / …). Money-in Activity values (Received ×2, Borrowed) use Value tone=Success (color/market-gain); the rest use Default. Borrow Cash's value context reads 5.1% APR (Jesse decision on #789: loans quote APR, Cash stays APY). Rows are inset 32 px from the frame edge (16 px content + 16 px card padding), 326 px wide."
+    },
+    {
+      "figmaName": "Home states",
+      "nodeId": "190:2821",
+      "nodeUrl": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=190-2821",
+      "codeSourcePath": "apps/web/client/home/home-overview.tsx",
+      "codeComponentName": "HomeOverview",
+      "codeConnectStatus": "not-applicable-plain-frame",
+      "reviewStatus": "added in #789; Jesse's nine review threads (1939034828-1939037025) applied in #789 run 7; his second pass (seven open threads, see commentHygiene.homeStatesSecondPass789) applied in #789 run 9",
+      "frames": {
+        "190:2822": "no Borrow position (story home-overview--no-borrow-position)",
+        "190:2857": "empty (story home-overview--empty)",
+        "190:2892": "partial balances (story home-overview--partial-balances)",
+        "190:2927": "Activity error (story home-overview--activity-error)",
+        "190:2962": "loading (story home-overview--loading); partial Borrow with a known debt is story home-overview--partial-borrow-position and uses the same header status and muted row",
+        "246:4067": "status revealed: the header status popover open over the partial state (stories home-overview--partial-balances and home-overview--no-country)"
+      },
+      "fidelityNotes": "Section below Screens holding one clone of Home — final per non-funded state, configured through component properties. Cash and Investments rows use the CurrencyMarkSlot Kind=Cash (217:3741, lucide banknote) and Kind=Investments (217:3753, lucide chart-line) glyph marks, also on Home — final. Balance read failures no longer have a full-width line: the partial frame sets the ShellHeader Show status property, a 44 px ghost circle-alert icon button beside the profile picture (HomeHeaderStatus), and the status revealed frame (246:4067) shows its popover with the message and a 44 px rotate-cw Reload icon button. Activity read failures stay in Activity: the Activity error feed shows a centered, muted 'Activity unavailable' row (246:4059) with a 44 px rotate-cw icon button and no header status. The old GlobalStatus lines and the hidden red Activity alert frame (190:3738) were deleted. The partial frame dims the net amount and shows unread rows as a muted em dash with no chevron; its old in-card TotalStatus text (190:3498) is hidden, not deleted. The empty frame's hero hugs its content (102 px) and the Activity feed shows an ActivityNux frame with 'No activity yet' and an outline 'Add money' Button at size=touch (44 px); the old ActivityEmpty text (190:3284) is hidden. Loading rows use the Kind=Shimmer mark (217:3764), a glyphless circle bound to color/alpha/foreground-10 so it reads on the card and on the muted page, with Show chevron off. The no Borrow and partial frames detach their BalanceAllocation instance to hide segments; the loading frame uses plain skeleton rectangles because the library has no Skeleton component."
     },
     {
       "figmaName": "Home — funded",
@@ -295,10 +315,13 @@
     "notes": "Only colors, radii, shell navigation size, and sans type role used by this screen are represented. color/market-gain (VariableID:143:1626, #137333, TEXT_FILL) mirrors light --market-gain and backs the FinanceRow Success (money in) value tone; color/destructive (VariableID:111:1136) backs the Error tone; color/foreground and color/muted-foreground back Default and Muted. The collection has one Light mode, so the dark --market-gain value is not represented."
   },
   "markAssets": {
-    "note": "Real, license-clean SVGs imported in place into the existing CurrencyMarkSlot variants (set 12:59, all variant IDs preserved). Design-source work only; no production dependency was added.",
-    "shadcnCoverage": "shadcn's default icon set is lucide (this repo already uses iconLibrary lucide with lucide-react). No single shadcn registry covers flags + fiat/crypto + stocks; the smallest honest combination is lucide (ISC) + flag-icons or circle-flags (MIT) + cryptocurrency-icons (CC0). Per-stock brand logos are trademark-encumbered and need a dedicated licensed source; the generic mark is the stock fallback for now.",
+    "note": "Real, license-clean SVGs imported in place into the existing CurrencyMarkSlot variants (set 12:59, all variant IDs preserved). #789 adopted the same sources in production: Twemoji flags (CC-BY 4.0) in apps/web/public/currency-flags/ rendered inset in a neutral circle, cryptocurrency-icons USDC/BTC/ETH (CC0) in apps/web/public/asset-marks/, and lucide glyphs through GlyphMark; licenses and provenance are recorded beside each asset directory.",
+    "shadcnCoverage": "shadcn's default icon set is lucide (this repo already uses iconLibrary lucide with lucide-react). No single shadcn registry covers flags + fiat/crypto + stocks; the combination adopted in #789 is lucide (ISC) + Twemoji flags (CC-BY 4.0) + cryptocurrency-icons (CC0). Per-stock brand logos are trademark-encumbered and need a dedicated licensed source; the generic mark is the stock fallback for now.",
     "sources": [
-      { "category": "flag", "variantId": "12:43", "renderedAsset": "twemoji US flag (Twitter, CC-BY 4.0)", "codeAdoptionSet": "flag-icons (lipis, MIT) or circle-flags (HatScripts, MIT)", "treatment": "flat flag inset and centered in a neutral gray circle, ~20px within 32px, not full-bleed" },
+      { "category": "flag", "variantId": "12:43", "renderedAsset": "twemoji US flag (Twitter, CC-BY 4.0)", "codeAdoptionSet": "Twemoji v15.1.0 flags (Twitter, CC-BY 4.0; attribution in apps/web/public/currency-flags/PROVENANCE.md, accepted by Jesse in #789)", "treatment": "flat flag inset and centered in a neutral gray circle, ~20px within 32px, not full-bleed" },
+      { "category": "cash", "variantId": "217:3741", "renderedAsset": "lucide banknote (ISC)", "treatment": "muted glyph centered in a neutral gray circle; the Home Cash summary row" },
+      { "category": "investments", "variantId": "217:3753", "renderedAsset": "lucide chart-line (ISC)", "treatment": "muted glyph centered in a neutral gray circle; the Home Investments summary row" },
+      { "category": "shimmer", "variantId": "217:3764", "renderedAsset": "none", "treatment": "neutral gray circle with no glyph; loading rows" },
       { "category": "usdc", "variantId": "12:53", "renderedAsset": "cryptocurrency-icons color/usdc (spothq, CC0)", "treatment": "self-contained brand-colored circle" },
       { "category": "generic", "variantId": "12:56", "renderedAsset": "lucide circle-dollar-sign (ISC)", "treatment": "muted glyph centered in a neutral gray circle; also the stock fallback" },
       { "category": "bitcoin", "variantId": "52:122", "renderedAsset": "cryptocurrency-icons color/btc (spothq, CC0)", "treatment": "self-contained brand-colored circle" },
@@ -310,6 +333,8 @@
     "satisfiedByFinalResolveInFigmaUi": ["1937331613", "1937331766"],
     "satisfiedByFinalNotes": "The two v2 comments were each replied to once via the REST API and are resolved by Home — final. The REST comments API cannot set resolved_at (no endpoint; POST/PUT/resolve variants return 404) and the Plugin API does not expose comments, so Jesse must click Resolve on these threads in the Figma UI.",
     "run24Processed": { "1938656305": "green: Success -> color/market-gain; money-in rows on Home — final (reply 1938773576)", "1938656455": "gray: Overdue -> Muted; no red money in the usage reference (reply 1938773594)", "1938656119": "padding: usage-reference cards inset to Home — final geometry (reply 1938773622)" },
+    "homeStatesProcessed789": { "1939037025": "empty hero hugs content (reply 1939067663)", "1939036749": "reload icon button (reply 1939067670)", "1939036599": "one global status line (reply 1939067685)", "1939036210": "no chevron until loaded (reply 1939067694)", "1939035990": "Kind=Shimmer loading mark (reply 1939067705)", "1939035758": "Kind=Cash glyph (reply 1939067714)", "1939035636": "Kind=Investments glyph (reply 1939067720)", "1939035297": "no red; centered global status with reload (reply 1939067725)", "1939034828": "centered Add money NUX (reply 1939067731)" },
+    "homeStatesSecondPass789": { "1939090804": "status icon beside the profile picture with a popover (reply 1939101973)", "1939090347": "44 px Add money NUX (reply 1939101977)", "1939036749": "reload icon rechecked, 44 px (reply 1939101983)", "1939035990": "skeleton-tone icon shimmer (reply 1939104995)", "1939035758": "Cash glyph rechecked (reply 1939101996)", "1939035636": "Investments glyph rechecked (reply 1939102001)", "1939035297": "Activity unavailable inside Activity (reply 1939102011)" },
     "openAnsweredSatisfiedAwaitingManualResolve": ["1935351247", "1935353808", "1935353895", "1935354460", "1936740775", "1936741074", "1937126892", "1937127021", "1937127209", "1937127694", "1937127805", "1937127963", "1937128456", "1937129013", "1937129141", "1937129906", "1937130497", "1937273507", "1937274036", "1937274769", "1937331613", "1937331766", "1938656119", "1938656305", "1938656455"],
     "alreadyResolvedLeaveAlone": ["1935354036", "1935354061", "1937130773"],
     "doNotReplyAgain": true
@@ -327,34 +352,35 @@
     },
     "publishChecklist": {
       "expectInPublishDialog": "3 new components/sets (FinanceRow set 96:1147, SignedBalanceBar 91:927, ActivityLoader 91:932), 6 changed (MoneyBreakdownItem 12:20, Button 12:27, CurrencyMarkSlot 12:59, MoneyGroupHeader 12:39, TabItem 12:94, TabBar 12:95), 1 new variable (color/market-gain in Home tokens), plus any earlier variable edits Figma lists. Unchanged: ShellHeader, MoneyTicker, Card, SectionHeader, MoreRow. Boards and screens are frames and do not appear.",
-      "codeConnectAfterPublish": ["96:1147 FinanceRow -> apps/web/components/finance-rows.tsx (FinanceRow)", "91:927 SignedBalanceBar -> apps/web/client/home/home-panel.tsx (design-only; map only if Jesse wants the inline owner linked)", "91:932 ActivityLoader -> apps/web/client/activity/activity-panel.tsx (design-only; same choice)"]
+      "codeConnectAfterPublish": ["96:1147 FinanceRow -> apps/web/components/finance-rows.tsx (already mapped; confirm the source)", "91:927 SignedBalanceBar -> apps/web/components/signed-balance-bar.tsx (mapped in #789)", "91:932 ActivityLoader -> apps/web/components/activity-loader.tsx (mapped in #789)"]
     },
     "items": [
       { "name": "FinanceRow (variant set)", "nodeId": "96:1147", "variantsOrProps": "Layout=Title aligned (default) | Centered (legacy) x Value tone=Default|Success|Error|Muted; props Label, Context, Show context, Value, Value context, Show value context, Mark, Show chevron", "owner": "apps/web/components/finance-rows.tsx (wrappers ActivityRow, BalanceRow, AssetRow)", "publish": "UNPUBLISHED (new) — Jesse must publish" },
       { "name": "FinanceRow — usage reference (showcase)", "nodeId": "116:1154", "variantsOrProps": "plain frame of FinanceRow instances (Your money: Cash, Borrow Cash + APY; Activity: Received, Sent; Assets: Ethereum; States & value tones: no chevron, Success Received +$25.00 green, Muted Overdue −$4.20 gray). Cards are 358 px with 16 px left/right padding so rows sit at x=32, 326 px wide, matching Home — final.", "owner": "design reference in Components section; not a component", "publish": "n/a — reference frame" },
       { "name": "FinanceRow — all variants (review board)", "nodeId": "131:1285", "variantsOrProps": "plain frame of real FinanceRow instances: Layout×Value tone matrix (legacy×non-default tones shown as labeled not-supported cells), property toggles (context, value context, chevron), marks (flag/fiat, USDC, crypto, Borrow), and stress cases (long label, long context, long value, Home-width Borrow)", "owner": "design reference in Components section; not a component", "publish": "n/a — reference frame" },
-      { "name": "SignedBalanceBar", "nodeId": "91:927", "variantsOrProps": "none", "owner": "design-only (inline in apps/web/client/home/home-panel.tsx)", "publish": "UNPUBLISHED (new) — Jesse must publish" },
-      { "name": "ActivityLoader", "nodeId": "91:932", "variantsOrProps": "none", "owner": "design-only (production uses ShimmerRows in apps/web/client/activity/activity-panel.tsx)", "publish": "UNPUBLISHED (new) — Jesse must publish" },
-      { "name": "MoneyBreakdownItem", "nodeId": "12:20", "variantsOrProps": "Kind=Cash|Savings|Investments|Borrow; Label, Amount", "owner": "apps/web/client/home/home-panel.tsx", "publish": "CHANGED — Jesse must publish" },
-      { "name": "CurrencyMarkSlot", "nodeId": "12:59", "variantsOrProps": "Kind=Flag|USDC|Generic|Bitcoin|Ethereum|Borrow; Glyph", "owner": "apps/web/components/currency-mark.tsx", "publish": "CHANGED — Jesse must publish" },
+      { "name": "SignedBalanceBar", "nodeId": "91:927", "variantsOrProps": "none", "owner": "apps/web/components/signed-balance-bar.tsx (SignedBalanceBar)", "publish": "CHANGED (description) — Jesse must publish" },
+      { "name": "ActivityLoader", "nodeId": "91:932", "variantsOrProps": "none", "owner": "apps/web/components/activity-loader.tsx (ActivityLoader)", "publish": "CHANGED (description) — Jesse must publish" },
+      { "name": "MoneyBreakdownItem", "nodeId": "12:20", "variantsOrProps": "Kind=Cash|Savings|Investments|Borrow; Label, Amount", "owner": "apps/web/components/signed-balance-bar.tsx (MoneyBreakdownLegend)", "publish": "CHANGED — Jesse must publish" },
+      { "name": "CurrencyMarkSlot", "nodeId": "12:59", "variantsOrProps": "Kind=Flag|USDC|Generic|Bitcoin|Ethereum|Borrow|Cash|Investments|Shimmer; Glyph", "owner": "apps/web/components/currency-mark.tsx", "publish": "CHANGED — Jesse must publish" },
       { "name": "Button", "nodeId": "12:27", "variantsOrProps": "Variant=Primary|Secondary; Label, Show icon", "owner": "apps/web/components/ui/button.tsx", "publish": "CHANGED — Jesse must publish" },
       { "name": "MoneyGroupHeader", "nodeId": "12:39", "variantsOrProps": "Label, Amount", "owner": "apps/web/client/home/balances-panel.tsx", "publish": "CHANGED (description) — Jesse must publish" },
       { "name": "MoreRow", "nodeId": "12:79", "variantsOrProps": "Label, Show chevron", "owner": "apps/web/client/home/balances-panel.tsx", "publish": "CURRENT" },
-      { "name": "SectionHeader", "nodeId": "12:33", "variantsOrProps": "Title, Show See all", "owner": "apps/web/client/home/home-panel.tsx", "publish": "CURRENT" },
+      { "name": "SectionHeader", "nodeId": "12:33", "variantsOrProps": "Title, Show See all", "owner": "apps/web/client/home/home-overview.tsx (HomeSectionHeading)", "publish": "CHANGED (description) — Jesse must publish" },
       { "name": "Card", "nodeId": "12:28", "variantsOrProps": "internal slot layers", "owner": "apps/web/components/ui/card.tsx", "publish": "CURRENT" },
       { "name": "MoneyTicker", "nodeId": "12:2", "variantsOrProps": "Label, Amount", "owner": "apps/web/components/money-ticker.tsx", "publish": "CURRENT" },
-      { "name": "ShellHeader", "nodeId": "11:773", "variantsOrProps": "Title", "owner": "apps/web/client/home/shell-chrome.tsx", "publish": "CURRENT" },
+      { "name": "ShellHeader", "nodeId": "11:773", "variantsOrProps": "Title, Show status", "owner": "apps/web/client/home/shell-chrome.tsx", "publish": "CHANGED — Jesse must publish" },
       { "name": "TabBar", "nodeId": "12:95", "variantsOrProps": "one instance per screen", "owner": "apps/web/components/primary-navigation.tsx", "publish": "CHANGED (nests TabItem) — Jesse must publish" },
       { "name": "TabItem", "nodeId": "12:94", "variantsOrProps": "Icon=Home|Invest; Label, Active", "owner": "apps/web/components/primary-navigation.tsx", "publish": "CHANGED — Jesse must publish" }
     ]
   },
   "residualDifferences": [
-    "Home — final (92:922) is the approved final Home design; Home — funded (13:19) remains the production baseline until the adoption PR lands; v1 (65:503), v2 (81:700), and the explorations are superseded review history inside the 'History (superseded)' section (145:1638).",
-    "Home — final applies the title-aligned FinanceRow to the Activity rows as well as the three Your money rows for a coherent screen; Jesse's inline-amounts comment scoped it to the three categories, so this Activity coherence is a design choice to confirm.",
-    "The title-aligned value layout and the Value context slot are a design change from production's items-center FinanceRow rendering; production adoption must decide whether to expose them in code and reconcile Borrow Cash's 5.1% APY with the variable-APR contract.",
-    "SignedBalanceBar and ActivityLoader are design-only components: production renders the allocation bar inline in HomePanel and uses ShimmerRows (not a single centered spinner) at the Activity loading boundary.",
-    "FinanceRow set (96:1147), SignedBalanceBar (91:927), and ActivityLoader (91:932) are unpublished; Code Connect cannot map them until Jesse publishes the Home Library. The existing Centered (legacy) variant (12:60) keeps its prior mapping.",
-    "Figma money-in values are green (color/market-gain); production still renders FinanceRow valueTone success as primary and Activity rows without a valueTone. Adoption needs a production change and belongs to the adoption issue, not this Figma closeout.",
+    "Home — final (92:922) is the production Home layout since #789; Home — funded (13:19) is now historical baseline evidence; v1 (65:503), v2 (81:700), and the explorations are superseded review history inside the 'History (superseded)' section (145:1638).",
+    "#789 changed the FinanceRow Value context default and every visible Borrow Cash value context from 5.1% APY to 5.1% APR in Home — final, FinanceRow — all variants (131:1285), and FinanceRow — usage reference (116:1154). Production formats rates with two decimals (5.10% APR, 4.20% APY) to match the Save and Borrow surfaces; Figma shows one decimal.",
+    "Production Activity values are token amounts (+25.00 USDC) and contexts are dates (Sep 22, 5:00 AM); Figma shows fiat values and 'Today · USDC'. Fiat Activity values need priced transfer data, which is new backend data and out of scope for #789.",
+    "Production loading rows render ShimmerRows (pulsing mark, no chevron); the Figma loading state (190:2962) matches with the static Kind=Shimmer mark and Show chevron off. Code skeletons and the shimmer mark use foreground at 10%, and the Figma loading frame binds its skeleton rectangles and shimmer mark to color/alpha/foreground-10.",
+    "Home has no red load-error UI. Balance read failures show a status icon in the header (HomeHeaderStatus) whose popover holds the message and a Reload icon button, or Open Account when no country is set. Activity read failures show a centered, muted line with a reload icon inside the Activity feed. The shared destructive Alert no longer renders on Home; the Activity page (/activity, density page) still uses it.",
+    "A failing summary row stays tappable (so Save, Invest, and Borrow remain reachable on a cold balances error) but hides its chevron until it has loaded, as Figma shows. A row whose value is known but partial (for example Borrow with partial coverage) renders its value in the muted tone and raises the same header status.",
+    "Home no longer links to the Balances (/balances) and Activity (/activity) panels; both stay reachable by URL. Removing or re-homing them is shell work for #686.",
     "In a component set the text-property default is shared by every variant, so MoneyBreakdownItem definitions all read 'Cash', Button definitions both read 'Add money', and TabItem definitions both read 'Home'; every instance overrides the label. The variant grid differs by dot colour, fill, and icon.",
     "The browser uses the system sans stack while Figma resolves SF Pro/Inter text styles; glyph metrics and rasterization differ slightly.",
     "MoneyTicker and navigation transitions are static in Figma; Figma does not execute pagination, network, retry, focus, history, account switching, reduced motion, or wallet behavior.",
