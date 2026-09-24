@@ -87,7 +87,9 @@ export type SavingsMoneyActionMetadata = {
   limitBaseUnits: string;
   previewSharesBaseUnits: string;
   shareDecimals: number;
+  minimumSharesBaseUnits?: string;
   exchangeConstraint:
+    | "deposit-minimum-shares-or-revert"
     | "deposit-preview-no-minimum-shares"
     | "withdraw-exact-assets-or-revert";
   discoveryRate:

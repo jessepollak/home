@@ -80,7 +80,8 @@ describe("recent Home action activity", () => {
           limitBaseUnits: "500000000",
           previewSharesBaseUnits: "1000000000000000000",
           shareDecimals: 18,
-          exchangeConstraint: "deposit-preview-no-minimum-shares",
+          exchangeConstraint: "deposit-minimum-shares-or-revert",
+          minimumSharesBaseUnits: "999000000000000000",
           discoveryRate: { status: "unavailable", netApy: null, fetchedAt: null, stateAsOf: null },
           source: {
             blockNumber: "51026404",
@@ -92,7 +93,20 @@ describe("recent Home action activity", () => {
     };
 
     expect(parseRecentMoneyActions({ actions: [savings] }, session)[0]?.action.metadata)
-      .toMatchObject({ product: "savings", operation: "deposit" });
+      .toMatchObject({ product: "savings", operation: "deposit", minimumSharesBaseUnits: "999000000000000000" });
+    const legacy = {
+      ...savings,
+      summary: {
+        ...savings.summary,
+        metadata: {
+          ...savings.summary.metadata,
+          exchangeConstraint: "deposit-preview-no-minimum-shares",
+          minimumSharesBaseUnits: undefined,
+        },
+      },
+    };
+    expect(parseRecentMoneyActions({ actions: [legacy] }, session)[0]?.action.metadata)
+      .toMatchObject({ product: "savings", exchangeConstraint: "deposit-preview-no-minimum-shares" });
   });
 
   test("keeps pending rows without transaction hashes and rejects non-derived statuses", () => {

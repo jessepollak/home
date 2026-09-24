@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
-import { readSavingsPreparedReview } from "./review";
+import { isSavingsMetadata, readSavingsPreparedReview } from "./review";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111" as const;
 const VAULT = "0x2222222222222222222222222222222222222222" as const;
@@ -50,8 +50,9 @@ function action(operation: "deposit" | "withdraw"): PreparedMoneyAction {
       previewSharesBaseUnits: "4900000000000000000",
       shareDecimals: 18,
       exchangeConstraint: deposit
-        ? "deposit-preview-no-minimum-shares"
+        ? "deposit-minimum-shares-or-revert"
         : "withdraw-exact-assets-or-revert",
+      ...(deposit ? { minimumSharesBaseUnits: "4895100000000000000" } : {}),
       discoveryRate: {
         status: "stale",
         netApy: "0.041",
@@ -79,6 +80,28 @@ describe("savings prepared review", () => {
         discoveryRate: { status: "stale", netApy: "0.041" },
       });
     }
+  });
+
+  test("reads legacy deposit metadata for stored rows but refuses a new review", () => {
+    const legacy = action("deposit");
+    legacy.metadata = {
+      ...legacy.metadata!,
+      exchangeConstraint: "deposit-preview-no-minimum-shares",
+      minimumSharesBaseUnits: undefined,
+    } as typeof legacy.metadata;
+    expect(isSavingsMetadata(legacy.metadata)).toBe(true);
+    expect(readSavingsPreparedReview(legacy)).toBeNull();
+    expect(isSavingsMetadata({ ...legacy.metadata, minimumSharesBaseUnits: "1" })).toBe(false);
+  });
+
+  test("requires a canonical positive minimum within the preview only for bounded deposits", () => {
+    const deposit = action("deposit");
+    expect(readSavingsPreparedReview(deposit)?.minimumSharesBaseUnits).toBe("4895100000000000000");
+    expect(readSavingsPreparedReview(action("withdraw"))?.minimumSharesBaseUnits).toBeNull();
+    for (const minimumSharesBaseUnits of ["0", "01", "4900000000000000001", "-1", "1.0", undefined]) {
+      expect(isSavingsMetadata({ ...deposit.metadata, minimumSharesBaseUnits })).toBe(false);
+    }
+    expect(isSavingsMetadata({ ...action("withdraw").metadata, minimumSharesBaseUnits: "1" })).toBe(false);
   });
 
   test("rejects malformed or inconsistent server facts", () => {

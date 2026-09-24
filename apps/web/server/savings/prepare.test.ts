@@ -1,4 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { decodeFunctionData } from "viem";
+import {
+  bundler3Abi,
+  generalAdapter1Abi,
+  MORPHO_BUNDLER3_ADDRESS,
+  MORPHO_GENERAL_ADAPTER1_ADDRESS,
+} from "./abi";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { MoneyActionCall } from "@/shared/money-actions/types";
 import {
@@ -10,7 +17,7 @@ import type { Address, MorphoVaultCandidate, MorphoVaultsResult } from "@/shared
 import { setActionsStoreForTests, type ActionsStore } from "@/server/actions/store";
 import { CoinbaseSmartAccountBatchSimulationError } from "@/server/chain/coinbase-smart-account";
 import { issueMoneyAction } from "@/server/money-actions/issue";
-import { SavingsActionError, createPrepareSavingsAction } from "./prepare";
+import { SavingsActionError, calculateSaveDepositShareBound, createPrepareSavingsAction } from "./prepare";
 import { SavingsActionRpcError } from "./rpc";
 import type {
   SavingsActionBatchSimulator,
@@ -56,6 +63,67 @@ function addressWord(address: string) {
 
 const simulateSuccessfully: SavingsActionBatchSimulator = async () => {};
 
+function assertBoundedDepositCall(
+  call: MoneyActionCall,
+  amount: bigint,
+  minimumSharesBaseUnits: string,
+  previewSharesBaseUnits: string,
+) {
+  expect(call.to).toBe(MORPHO_BUNDLER3_ADDRESS);
+  expect(call.value).toBe("0");
+  expect(call.approval).toBeUndefined();
+  const decoded = decodeFunctionData({ abi: bundler3Abi, data: call.data });
+  expect(decoded.functionName).toBe("multicall");
+  const bundle = decoded.args[0];
+  expect(bundle).toHaveLength(2);
+  for (const item of bundle) {
+    expect(item.to.toLowerCase()).toBe(MORPHO_GENERAL_ADAPTER1_ADDRESS);
+    expect(item.value).toBe(BigInt("0"));
+    expect(item.skipRevert).toBe(false);
+    expect(item.callbackHash).toBe(`0x${"00".repeat(32)}`);
+  }
+  const transfer = decodeFunctionData({ abi: generalAdapter1Abi, data: bundle[0]!.data });
+  expect(transfer.functionName).toBe("erc20TransferFrom");
+  expect(String(transfer.args[0]).toLowerCase()).toBe(BASE_USDC_ADDRESS.toLowerCase());
+  expect(String(transfer.args[1]).toLowerCase()).toBe(MORPHO_GENERAL_ADAPTER1_ADDRESS);
+  expect(transfer.args[2]).toBe(amount);
+  const deposit = decodeFunctionData({ abi: generalAdapter1Abi, data: bundle[1]!.data });
+  expect(deposit.functionName).toBe("erc4626Deposit");
+  expect(deposit.args[0].toLowerCase()).toBe(VAULT);
+  expect(deposit.args[1]).toBe(amount);
+  expect(deposit.args[3]).toBe(ACCOUNT);
+  const price = deposit.args[2] as bigint;
+  const minimum = BigInt(minimumSharesBaseUnits);
+  expect((amount * BigInt("10") ** BigInt("27") + minimum - BigInt("1")) / minimum).toBeLessThanOrEqual(price);
+  expect((amount * BigInt("10") ** BigInt("27") + minimum - BigInt("2")) / (minimum - BigInt("1"))).toBeGreaterThan(price);
+  expect(minimum).toBeLessThanOrEqual(BigInt(previewSharesBaseUnits));
+}
+
+describe("Save deposit share bound", () => {
+  test.each([
+    [BigInt("100000"), BigInt("89888510128846486")],
+    [BigInt("2"), BigInt("2")],
+    [BigInt("100000"), BigInt("100000")],
+    [BigInt("1000000"), BigInt("1000000")],
+    [BigInt("10") ** BigInt("25"), BigInt("10") ** BigInt("37")],
+    [BigInt("1500000"), BigInt("1490000000000000000")],
+  ])("bounds %s base units against %s preview shares", (amount, preview) => {
+    const { floorMin, maxSharePriceE27, minimumShares } = calculateSaveDepositShareBound(amount, preview);
+    expect(floorMin).toBe(preview * BigInt("9990") / BigInt("10000"));
+    expect(minimumShares).toBeGreaterThanOrEqual(floorMin);
+    expect(minimumShares).toBeLessThanOrEqual(preview);
+    const numerator = amount * BigInt("10") ** BigInt("27");
+    expect((numerator + minimumShares - BigInt("1")) / minimumShares).toBeLessThanOrEqual(maxSharePriceE27);
+    if (minimumShares > BigInt("1")) {
+      expect((numerator + minimumShares - BigInt("2")) / (minimumShares - BigInt("1"))).toBeGreaterThan(maxSharePriceE27);
+    }
+  });
+
+  test("rejects a tiny share preview with no nonzero floor", () => {
+    expect(() => calculateSaveDepositShareBound(BigInt("1"), BigInt("1"))).toThrow(SavingsActionError);
+  });
+});
+
 function vaultsResult(stale: boolean): MorphoVaultsResult {
   const fetchedAt = "2026-09-08T09:59:00.000Z";
   return {
@@ -88,7 +156,7 @@ function vaultsResult(stale: boolean): MorphoVaultsResult {
 afterEach(() => setActionsStoreForTests(null));
 
 describe("Morpho savings action preparation", () => {
-  test("prepares and simulates exact approval then direct deposit in one ordered action plan", async () => {
+  test("prepares and simulates exact adapter approval then bounded deposit in one ordered action plan", async () => {
     const readInputs: Array<Parameters<SavingsActionStateReader>[0]> = [];
     const simulations: Array<{
       calls: readonly MoneyActionCall[];
@@ -123,22 +191,18 @@ describe("Morpho savings action preparation", () => {
     });
     expect(action.kind).toBe("savings-deposit");
     expect(action.expiresAt).toBe("2026-09-08T10:05:00.000Z");
-    expect(action.calls).toEqual([
-      {
-        to: BASE_USDC_ADDRESS,
-        data: `0x095ea7b3${addressWord(VAULT)}${word(BigInt("1500000"))}`,
-        value: "0",
-        approval: {
-          assetId: "eip155:8453/erc20:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
-          spender: VAULT,
-        },
+    expect(action.calls).toHaveLength(2);
+    expect(action.calls[0]).toEqual({
+      to: BASE_USDC_ADDRESS,
+      data: `0x095ea7b3${addressWord(MORPHO_GENERAL_ADAPTER1_ADDRESS)}${word(BigInt("1500000"))}`,
+      value: "0",
+      approval: {
+        assetId: "eip155:8453/erc20:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        spender: MORPHO_GENERAL_ADAPTER1_ADDRESS,
       },
-      {
-        to: VAULT,
-        data: `0x6e553f65${word(BigInt("1500000"))}${addressWord(ACCOUNT)}`,
-        value: "0",
-      },
-    ]);
+    });
+    assertBoundedDepositCall(action.calls[1]!, BigInt("1500000"), action.metadata?.product === "savings"
+      ? action.metadata.minimumSharesBaseUnits! : "", "1490000000000000000");
     expect(simulations).toEqual([{
       calls: action.calls,
       account: ACCOUNT,
@@ -159,7 +223,8 @@ describe("Morpho savings action preparation", () => {
         estimated: true,
       }),
     ]);
-    expect(action.warnings.join(" ")).toContain("not a guaranteed minimum");
+    expect(action.warnings.join(" ")).toContain("reverts if it would mint fewer than");
+    expect(action.warnings.join(" ")).toContain("approval for the Morpho adapter");
     expect(action.warnings.join(" ")).toContain("Current vault fee: 10%");
     expect(action.metadata).toMatchObject({
       product: "savings",
@@ -169,7 +234,8 @@ describe("Morpho savings action preparation", () => {
       feeWad: "100000000000000000",
       limitBaseUnits: "8000000",
       previewSharesBaseUnits: "1490000000000000000",
-      exchangeConstraint: "deposit-preview-no-minimum-shares",
+      exchangeConstraint: "deposit-minimum-shares-or-revert",
+      minimumSharesBaseUnits: calculateSaveDepositShareBound(BigInt("1500000"), baseState.previewShares).minimumShares.toString(10),
       discoveryRate: { status: "unavailable" },
       source: { blockNumber: "34567890", blockHash: BLOCK_HASH },
     });
@@ -195,7 +261,8 @@ describe("Morpho savings action preparation", () => {
         netApy: "0.04",
         fetchedAt: "2026-09-08T09:59:00.000Z",
       },
-      exchangeConstraint: "deposit-preview-no-minimum-shares",
+      exchangeConstraint: "deposit-minimum-shares-or-revert",
+      minimumSharesBaseUnits: calculateSaveDepositShareBound(BigInt("1500000"), baseState.previewShares).minimumShares.toString(10),
     });
   });
 
@@ -431,7 +498,7 @@ describe("Morpho savings action preparation", () => {
     } satisfies Partial<SavingsActionError>);
   });
 
-  test("simulates only the deposit call when the existing allowance is sufficient", async () => {
+  test("simulates only the bounded deposit call when the adapter allowance is sufficient", async () => {
     const simulations: Array<readonly MoneyActionCall[]> = [];
     const prepare = createPrepareSavingsAction({
       readState: async () => ({
@@ -453,11 +520,9 @@ describe("Morpho savings action preparation", () => {
     });
 
     expect(action.calls).toHaveLength(1);
-    expect(action.calls[0]).toEqual({
-      to: VAULT,
-      data: `0x6e553f65${word(BigInt("1500000"))}${addressWord(ACCOUNT)}`,
-      value: "0",
-    });
+    assertBoundedDepositCall(action.calls[0]!, BigInt("1500000"), action.metadata?.product === "savings"
+      ? action.metadata.minimumSharesBaseUnits! : "", "1490000000000000000");
+    expect(action.warnings.join(" ")).toContain("existing USDC allowance for the Morpho adapter");
     expect(simulations).toEqual([action.calls]);
   });
 

@@ -187,7 +187,8 @@ function normalizeMetadata(
     const expectedKind = value.operation === "deposit"
       ? "savings-deposit"
       : "savings-withdraw";
-    if (!isSavingsMetadata(value) || kind !== expectedKind) {
+    if (!isSavingsMetadata(value) || kind !== expectedKind ||
+      (value.operation === "deposit" && value.exchangeConstraint !== "deposit-minimum-shares-or-revert")) {
       throw new MoneyActionIssueError("invalid-draft");
     }
     return {
@@ -201,6 +202,7 @@ function normalizeMetadata(
       previewSharesBaseUnits: value.previewSharesBaseUnits,
       shareDecimals: value.shareDecimals,
       exchangeConstraint: value.exchangeConstraint,
+      ...(value.operation === "deposit" ? { minimumSharesBaseUnits: BigInt(value.minimumSharesBaseUnits!).toString(10) } : {}),
       discoveryRate: value.discoveryRate.status === "unavailable"
         ? {
             status: "unavailable",

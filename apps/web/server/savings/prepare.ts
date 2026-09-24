@@ -24,8 +24,9 @@ import {
 import {
   SavingsActionAbiError,
   encodeApproveCall,
-  encodeDepositCall,
+  encodeBoundedDepositCall,
   encodeWithdrawCall,
+  MORPHO_GENERAL_ADAPTER1_ADDRESS,
 } from "./abi";
 import {
   SAVINGS_ACTION_RPC_RETRY_DELAY_MS,
@@ -41,6 +42,8 @@ import type {
 import { getMorphoVaultCandidates } from "@/server/morpho";
 
 const ACTION_VALIDITY_MS = 5 * 60_000;
+export const SAVE_DEPOSIT_MIN_SHARES_TOLERANCE_BPS = 10;
+const SHARE_PRICE_SCALE = BigInt("10") ** BigInt("27");
 const WAD = BigInt("1000000000000000000");
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const integerPattern = /^(?:0|[1-9][0-9]*)$/;
@@ -64,6 +67,27 @@ export class SavingsActionError extends Error {
     this.name = "SavingsActionError";
     this.reason = reason;
   }
+}
+
+export function calculateSaveDepositShareBound(amount: bigint, previewShares: bigint): {
+  minimumShares: bigint;
+  maxSharePriceE27: bigint;
+  floorMin: bigint;
+} {
+  const floorMin = previewShares * BigInt(10_000 - SAVE_DEPOSIT_MIN_SHARES_TOLERANCE_BPS) / BigInt(10_000);
+  if (amount <= BigInt("0") || floorMin <= BigInt("0")) {
+    throw new SavingsActionError("limit-exceeded", "The deposit is too small to set a minimum vault share amount.");
+  }
+  const numerator = amount * SHARE_PRICE_SCALE;
+  const maxSharePriceE27 = numerator / floorMin;
+  if (maxSharePriceE27 <= BigInt("0") || maxSharePriceE27 > UINT256_MAX) {
+    throw new SavingsActionError("limit-exceeded", "The deposit cannot be bounded at the current vault share price.");
+  }
+  const minimumShares = (numerator + maxSharePriceE27 - BigInt("1")) / maxSharePriceE27;
+  if (minimumShares > previewShares) {
+    throw new SavingsActionError("limit-exceeded", "The current vault share preview does not pass the deposit bound.");
+  }
+  return { minimumShares, maxSharePriceE27, floorMin };
 }
 
 export function createPrepareSavingsAction(options: {
@@ -128,6 +152,9 @@ export function createPrepareSavingsAction(options: {
       );
     }
 
+    const shareBound = normalizedAction.kind === "deposit"
+      ? calculateSaveDepositShareBound(amount, state.previewShares)
+      : null;
     const preparedAt = now();
     if (Number.isNaN(preparedAt.getTime())) {
       throw new SavingsActionError("unavailable", "The action preparation time is invalid.");
@@ -137,12 +164,13 @@ export function createPrepareSavingsAction(options: {
       normalizedAction,
       state,
       preparedAt,
+      shareBound,
       readVaults,
       signal,
     );
 
     const draft = normalizedAction.kind === "deposit"
-      ? prepareDeposit(normalizedAction, accountAddress, amount, state, expiresAt, metadata)
+      ? prepareDeposit(normalizedAction, accountAddress, amount, state, expiresAt, metadata, shareBound!)
       : prepareWithdrawal(normalizedAction, accountAddress, amount, state, expiresAt, metadata);
 
     const simulationSource = {
@@ -176,6 +204,7 @@ function prepareDeposit(
   state: Awaited<ReturnType<SavingsActionStateReader>>,
   expiresAt: string,
   metadata: SavingsMoneyActionMetadata,
+  shareBound: ReturnType<typeof calculateSaveDepositShareBound>,
 ): MoneyActionDraft {
   if (amount > state.usdcBalance) {
     throw new SavingsActionError(
@@ -197,12 +226,12 @@ function prepareDeposit(
   if (state.allowance < amount) {
     calls.push(encodeApproveCall(
       BASE_USDC_ADDRESS,
-      action.vaultAddress,
+      MORPHO_GENERAL_ADAPTER1_ADDRESS,
       amount,
       usdcAssetId(),
     ));
   }
-  calls.push(encodeDepositCall(action.vaultAddress, amount, account));
+  calls.push(encodeBoundedDepositCall(action.vaultAddress, amount, shareBound.maxSharePriceE27, account));
 
   return {
     kind: "savings-deposit",
@@ -227,10 +256,10 @@ function prepareDeposit(
     ],
     warnings: commonWarnings(state, expiresAt).concat([
       `Source-block limits: maxDeposit ${formatUnits(state.limit, BASE_USDC_DECIMALS)} USDC; wallet balance ${formatUnits(state.usdcBalance, BASE_USDC_DECIMALS)} USDC.`,
-      "The share amount is an ERC-4626 preview, not a guaranteed minimum. The direct vault deposit call has no minimum-shares parameter and will use the exchange rate when executed.",
+      `The deposit reverts if it would mint fewer than ${formatUnits(shareBound.minimumShares, state.shareDecimals)} vault shares (0.1% below the preview).`,
       state.allowance < amount
-        ? `This atomic plan first sets an exact ${amount.toString(10)} base-unit USDC approval for the selected vault, then deposits that same amount.`
-        : "The existing USDC allowance covers this deposit, so no new approval is included.",
+        ? `This atomic plan sets an exact ${amount.toString(10)} base-unit USDC approval for the Morpho adapter, which moves the same USDC into the vault in the same transaction.`
+        : "The existing USDC allowance for the Morpho adapter covers this deposit, so no new approval is included.",
     ]),
     expiresAt,
     metadata,
@@ -289,6 +318,7 @@ async function createReviewMetadata(
   action: SavingsActionInput,
   state: Awaited<ReturnType<SavingsActionStateReader>>,
   preparedAt: Date,
+  shareBound: ReturnType<typeof calculateSaveDepositShareBound> | null,
   readVaults: ((signal?: AbortSignal) => Promise<MorphoVaultsResult>) | undefined,
   signal?: AbortSignal,
 ): Promise<SavingsMoneyActionMetadata> {
@@ -345,8 +375,9 @@ async function createReviewMetadata(
     previewSharesBaseUnits: state.previewShares.toString(10),
     shareDecimals: state.shareDecimals,
     exchangeConstraint: action.kind === "deposit"
-      ? "deposit-preview-no-minimum-shares"
+      ? "deposit-minimum-shares-or-revert"
       : "withdraw-exact-assets-or-revert",
+    ...(shareBound ? { minimumSharesBaseUnits: shareBound.minimumShares.toString(10) } : {}),
     discoveryRate,
     source: {
       blockNumber: state.block.number,

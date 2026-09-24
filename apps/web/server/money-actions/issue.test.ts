@@ -50,8 +50,9 @@ function savingsDraft(operation: "deposit" | "withdraw"): MoneyActionDraft {
       previewSharesBaseUnits: "1000000000000000000",
       shareDecimals: 18,
       exchangeConstraint: deposit
-        ? "deposit-preview-no-minimum-shares"
+        ? "deposit-minimum-shares-or-revert"
         : "withdraw-exact-assets-or-revert",
+      ...(deposit ? { minimumSharesBaseUnits: "999000000000000000" } : {}),
       discoveryRate: {
         status: "current",
         netApy: "0.04",
@@ -91,10 +92,22 @@ describe("savings money action issuance", () => {
           source: { blockHash: `0x${"ab".repeat(32)}` },
         },
       });
+      expect(action.metadata?.product === "savings" ? action.metadata.minimumSharesBaseUnits : undefined)
+        .toBe(operation === "deposit" ? "999000000000000000" : undefined);
       expect(inserts).toHaveLength(1);
       expect(inserts[0]?.summary.metadata).toEqual(action.metadata);
     },
   );
+
+  test("rejects a legacy deposit draft while preserving stored legacy metadata elsewhere", async () => {
+    const draft = savingsDraft("deposit");
+    if (draft.metadata?.product !== "savings") throw new Error("Expected savings metadata");
+    draft.metadata.exchangeConstraint = "deposit-preview-no-minimum-shares";
+    delete draft.metadata.minimumSharesBaseUnits;
+    await expect(issueMoneyAction(session, draft)).rejects.toMatchObject({
+      reason: "invalid-draft",
+    } satisfies Partial<MoneyActionIssueError>);
+  });
 
   test("rejects savings metadata whose operation disagrees with the action kind", async () => {
     setActionsStoreForTests({ insert: async () => {} } as unknown as ActionsStore);
