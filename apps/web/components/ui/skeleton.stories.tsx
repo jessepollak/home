@@ -5,7 +5,7 @@ const meta = {
   id: "ui-skeleton",
   title: "UI/Skeleton",
   component: Skeleton,
-  parameters: { layout: "centered", a11y: { test: "error" } },
+  parameters: { layout: "centered", a11y: { test: "error" }, design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=158-1866" } },
 } satisfies Meta<typeof Skeleton>;
 
 export default meta;

@@ -6,7 +6,7 @@ const meta = {
   title: "UI/Badge",
   component: Badge,
   args: { children: "New" },
-  parameters: { layout: "centered" },
+  parameters: { layout: "centered", design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=158-1841" } },
 } satisfies Meta<typeof Badge>;
 
 export default meta;

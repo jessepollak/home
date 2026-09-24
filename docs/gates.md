@@ -16,6 +16,9 @@ The full check suite also covers:
 - story tests (`bun run --cwd apps/web test:stories`)
 - `bun run gates` (the repository gate unit tests above, including commit provenance; also run inside `bun check`)
 - disposable PostgreSQL contracts for actions, funding, and balances
+- the **Code Connect templates** step in the `bun check` job (`bun run --cwd apps/web figma:connect:parse`), which parses every `*.figma.ts` template offline
+
+On pushes to `main`, the `publish Code Connect` and `sync Figma variables` jobs publish templates and tokens to Figma. They run only when the `FIGMA_ACCESS_TOKEN` secret is set and otherwise skip without failing ([Figma workflow](design-explorations/figma-workflow.md#source-of-truth)).
 
 ## Dead-code boundary
 

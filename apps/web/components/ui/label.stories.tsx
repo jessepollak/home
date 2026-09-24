@@ -7,7 +7,7 @@ const meta = {
   title: "UI/Label",
   component: Label,
   args: { children: "Amount" },
-  parameters: { layout: "centered", a11y: { test: "error" } },
+  parameters: { layout: "centered", a11y: { test: "error" }, design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=158-1880" } },
 } satisfies Meta<typeof Label>;
 
 export default meta;

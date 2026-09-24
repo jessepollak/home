@@ -76,8 +76,82 @@ jobs:
       - name: Dead code (knip)
         run: bun run --cwd apps/web knip
 
+      - name: Code Connect templates
+        # Parses every *.figma.ts template offline; no Figma token is needed.
+        run: bun run --cwd apps/web figma:connect:parse
+
       - name: Build Storybook
         run: bun run --cwd apps/web build-storybook
+
+  # Main-only Figma sync. Both jobs skip their steps when the
+  # FIGMA_ACCESS_TOKEN secret is absent, so the workflow never fails for lack
+  # of it. Scopes: code_connect:write (publish), file_variables:read and
+  # file_variables:write (variables). See docs/design-explorations/figma-workflow.md.
+  publish-code-connect:
+    name: publish Code Connect
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FIGMA_ACCESS_TOKEN: ${{ secrets.FIGMA_ACCESS_TOKEN }}
+    steps:
+      - name: Skip without FIGMA_ACCESS_TOKEN
+        if: env.FIGMA_ACCESS_TOKEN == ''
+        run: echo "FIGMA_ACCESS_TOKEN is not set; skipping Code Connect publish."
+
+      - name: Checkout
+        if: env.FIGMA_ACCESS_TOKEN != ''
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Setup Node.js
+        if: env.FIGMA_ACCESS_TOKEN != ''
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22.13.1
+          package-manager-cache: false
+
+      - name: Setup Bun
+        if: env.FIGMA_ACCESS_TOKEN != ''
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.12
+
+      - name: Install
+        if: env.FIGMA_ACCESS_TOKEN != ''
+        run: bun install --frozen-lockfile
+
+      - name: Publish Code Connect
+        if: env.FIGMA_ACCESS_TOKEN != ''
+        run: bun run --cwd apps/web figma:connect:publish
+
+  sync-figma-variables:
+    name: sync Figma variables
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FIGMA_ACCESS_TOKEN: ${{ secrets.FIGMA_ACCESS_TOKEN }}
+    steps:
+      - name: Skip without FIGMA_ACCESS_TOKEN
+        if: env.FIGMA_ACCESS_TOKEN == ''
+        run: echo "FIGMA_ACCESS_TOKEN is not set; skipping the Figma variables sync."
+
+      - name: Checkout
+        if: env.FIGMA_ACCESS_TOKEN != ''
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Setup Node.js
+        if: env.FIGMA_ACCESS_TOKEN != ''
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22.13.1
+          package-manager-cache: false
+
+      - name: Sync globals.css tokens to Figma variables
+        if: env.FIGMA_ACCESS_TOKEN != ''
+        run: node apps/web/scripts/figma-variables.mjs
 
   story-tests:
     name: story tests

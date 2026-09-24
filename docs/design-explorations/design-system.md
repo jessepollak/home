@@ -46,11 +46,11 @@ Issue [#791](https://github.com/jessepollak/home/issues/791) extends the publish
 
 ## Foundations
 
-Variables are synced by hand from `apps/web/app/globals.css` and the owned component classes. The [#684](https://github.com/jessepollak/home/issues/684) token sync is still open, so re-sync after any token change.
+Since [#684](https://github.com/jessepollak/home/issues/684), `apps/web/scripts/figma-variables.mjs` syncs the colour, radius and spacing tokens that `apps/web/app/globals.css` defines, and CI re-runs it on every push to `main` when `FIGMA_ACCESS_TOKEN` is set. The sync skips `PROPOSED` variables, Figma-only tokens (`warning`, `chart-*` lines, `alpha/*`), text styles, effect styles, sizes and motion; those stay hand-maintained. See [Figma workflow](figma-workflow.md#source-of-truth).
 
 - **Colour.** Collection `Home tokens`, modes `Light` and `Dark`.
   - It holds 40 colour variables: the shadcn semantic tokens plus `market-gain`, `market-loss`, `chart-1…5`, `balance-*`, `payout-*`, and the revision-2 additions `warning`, `chart-gain`, `chart-loss` and `chart-baseline`.
-  - Out of scope: the eight `sidebar-*` tokens (`sidebar`, `sidebar-foreground`, `sidebar-primary`, `sidebar-primary-foreground`, `sidebar-accent`, `sidebar-accent-foreground`, `sidebar-border`, `sidebar-ring`). `globals.css` declares all 44 `--color-*` tokens, but these eight come from the shadcn template and no file in `apps/web` uses them. Home has no sidebar. Add them when a sidebar component lands, or when the #684 sync imports every token.
+  - The #684 sync added the eight `sidebar-*` tokens (`sidebar`, `sidebar-foreground`, `sidebar-primary`, `sidebar-primary-foreground`, `sidebar-accent`, `sidebar-accent-foreground`, `sidebar-border`, `sidebar-ring`) on 2026-09-24, because it imports every `--color-*` token `globals.css` declares. No Home component uses them yet.
   - Each variable has its WEB code syntax set to `var(--token)`.
   - Light is reviewed. Dark comes from `.dark` and is an unreviewed stub; no board is drawn in Dark.
   - Four existing Light values were corrected to match code: `foreground` #171717 → #0a0a0a, `card-foreground` #171717 → #0a0a0a, `muted` #f8f8f8 → #f5f5f5 and `destructive` #dc2626 → #e7000b. This is why the families from #683 now show as CHANGED.
@@ -207,44 +207,11 @@ Each line is based on the reference screens placed in the References section.
 
 Code Connect maps a Figma component to its code owner. It does not sync changes in either direction.
 
-[#684](https://github.com/jessepollak/home/issues/684) owns Code Connect: the `.figma.tsx` templates, their parse check and the publish job. The table below is the node-to-owner plan those templates resolve against. Every node ID in it stayed stable through #841's page split.
+[#684](https://github.com/jessepollak/home/issues/684) owns Code Connect: the `*.figma.ts` template files under `apps/web/{client,components}/explorations/code-connect/`, their parse check and the publish job. [`apps/web/figma-components.json`](../../apps/web/figma-components.json) is the single source of truth for which Figma node maps to which code owner, which nodes are deliberately not mapped (deprecated, sub-parts, design-only) and which code components have no Figma component yet; this doc and [figma-mapping.json](figma-mapping.json) do not keep their own copies. See [Figma workflow](figma-workflow.md#code-connect) for what is published.
 
-Before the scope moved to #684, #841 wrote these 28 rows with `add_code_connect_map` (label `React`). Each write reported success, and `get_code_connect_map` still reads back `{}`. #684's publish supersedes those writes; #841 makes no further Code Connect calls.
-
-| Figma node | Component | Source |
-| --- | --- | --- |
-| `158:1841` | Badge | `apps/web/components/ui/badge.tsx` |
-| `158:1862` | Alert | `apps/web/components/ui/alert.tsx` |
-| `158:1866` | Skeleton | `apps/web/components/ui/skeleton.tsx` |
-| `158:1872` | Separator | `apps/web/components/ui/separator.tsx` |
-| `158:1880` | Label | `apps/web/components/ui/label.tsx` |
-| `160:1654` | Input | `apps/web/components/ui/input.tsx` |
-| `160:1673` | InputGroup | `apps/web/components/ui/input-group.tsx` |
-| `160:1684` | Field | `apps/web/components/ui/field.tsx` |
-| `160:1718` | SelectTrigger (Select) | `apps/web/components/ui/select.tsx` |
-| `160:1759` | ComboboxInput (Combobox) | `apps/web/components/ui/combobox.tsx` |
-| `160:1772` | Switch | `apps/web/components/ui/switch.tsx` |
-| `160:1826` | Toggle | `apps/web/components/ui/toggle.tsx` |
-| `160:1849` | ToggleGroup | `apps/web/components/ui/toggle-group.tsx` |
-| `161:1818` | Item | `apps/web/components/ui/item.tsx` |
-| `161:1847` | DrawerContent (Drawer) | `apps/web/components/ui/drawer.tsx` |
-| `269:5270` | Card (set-level; `12:28` keeps its existing variant mapping) | `apps/web/components/ui/card.tsx` |
-| `274:5577` | TradeActions | `apps/web/client/trading/trade-actions.tsx` |
-| `274:6015` | ShimmerRows (one row) | `apps/web/client/home/panel-shared.tsx` |
-| `161:1885` | Toast | `apps/web/components/ui/toast.tsx` |
-| `161:1904` | Empty | `apps/web/components/ui/empty.tsx` |
-| `166:1776` | MoneyPrimaryAmount | `apps/web/client/money-modal/amount.tsx` |
-| `166:1787` | MoneyQuickChips | `apps/web/client/money-modal/amount.tsx` |
-| `166:1788` | MoneyUnitToggle | `apps/web/client/money-modal/amount.tsx` |
-| `166:1803` | MoneyConfirmSummary | `apps/web/client/money-modal/confirm-summary.tsx` |
-| `282:5961` | CopyableValue (set; `166:1820` is `display=truncated`) | `apps/web/components/copyable-value.tsx` |
-| `166:1959` | PriceChart | `apps/web/client/invest/price-chart.tsx` |
-| `292:5883` | PopoverContent (Popover) | `apps/web/components/ui/popover.tsx` |
-| `293:5935` | SignedBalanceBar (set-level; `91:927` keeps its existing variant mapping) | `apps/web/components/signed-balance-bar.tsx` |
-
-**Existing mappings, left as-is:** Button `12:27`, Card's legacy variant `12:28` (20 Archive instances; delete only after Archive cleanup), FinanceRow `96:1147`, SignedBalanceBar `91:927`, ActivityLoader `91:932`, and the #683 families.
-
-**Not mapped:** MoneyNumpad `166:1739` (deprecated in Figma, pending deletion; code still renders it until native-input adoption); sub-parts MoneyNumpadKey `166:1738`, MoneyConfirmRow `166:1802` and InputOTPSlot `211:3547`; design-only TransactionAmount `282:5882`, Progress `161:1923`, RadioGroup `160:1801`, InputOTP `211:3668`, StatusStep `166:1861`, ResultHeader `166:1884`, AssetDetailHeader `166:1917`, SystemKeyboard `274:5688` and Icon `156:1726` (code imports Lucide directly).
+- Every mapped node ID was re-read from the live file after #841's page split and still resolves. `Card` maps the reconciled set `269:5270`; the legacy variant `12:28` has no template and keeps its old hand mapping only until the Archive cleanup deletes it. `SignedBalanceBar` maps the set `293:5935`; `91:927` is one of its variants.
+- #841 deprecated `MoneyNumpad` (`166:1739`) and moved it to the Archive page, so it is not mapped even though `amount.tsx` still renders the numpad until native-input adoption.
+- Before the scope moved to #684, #841 wrote 28 rows with `add_code_connect_map` (label `React`). Each reported success, and `get_code_connect_map` still reads back `{}`. #684's publish supersedes those writes; #841 makes no further Code Connect calls.
 
 Templates for sets with proposed states or drawings must not translate those states into props:
 
@@ -253,6 +220,8 @@ Templates for sets with proposed states or drawings must not translate those sta
 - `ToggleGroup` `variant=outline` keeps its name and mapping; only its drawing (one group border) is proposed.
 - `ShimmerRows` maps the default with both proposed `Show media` and `Show context` on; code only takes `count`.
 - `CopyableValue display=full` draws the proposed one-line review address; code still scrolls a 14px address.
+- `TabItem` `Icon=Card` belongs to the Card proposal (#636); code has no Card tab, so the template renders the Home tab for it.
+- `Alert` uses the `Action` text for the `AlertAction` button label.
 
 ## Publish checklist
 
@@ -284,7 +253,7 @@ Jesse publishes from Figma → Assets → Publish library.
    - Revision 2 changes three token values ahead of code: `destructive`, `market-gain` and `market-loss` (see [Foundations](#foundations)). Money-in green and every error state in the #683 families and on `Home — final` shift to the softer tones on publish. **Decide before publishing:** publish the proposed tones now, with the code token follow-up to match, or wait for the follow-up.
    - Boards, screens and References are frames. They do not publish.
 3. **Keep References out of any public share.** The section contains Mobbin images and exists for internal reference only.
-4. **Publish.** Code Connect follows through #684's templates and publish job; do not replace existing mappings by hand.
+4. **Publish.** Then publish the Code Connect template files with `bun run --cwd apps/web figma:connect:publish` (CI does this on `main` when `FIGMA_ACCESS_TOKEN` is set). Do not add hand mappings with `add_code_connect_map` or `send_code_connect_mappings` for nodes in `apps/web/figma-components.json`, and do not replace existing ones by hand: a UI-created mapping blocks the template publish ([Figma workflow](figma-workflow.md#code-connect)).
 5. **Spot-check `Home — final` (`92:922`).** Its `Button` instances should read `variant=default|outline, size=touch, state=default` and look unchanged apart from the token corrections and the proposed money-in green.
 6. **Resolve the review threads in Figma.** Each of the 29 revision-2 threads, the 8 revision-3 threads and the 2 run-11 threads (`1939110696`, `1939110898`) has a reply saying what changed; Jesse resolves them. Run 12 answered no Figma threads.
 
@@ -314,7 +283,7 @@ These are proposed follow-ups. None are filed or built here; Jesse decides which
 - **feat(invest): asset Details card.** Range high/low from history, network, token and price source with its time, in an inset card under Your position. No market cap or volume until a contract carries them. P2.
 - **feat(invest): extract AssetDetailHeader** from `asset-detail-screen.tsx` so it can be mapped. P2.
 - **design(system): AddressField component and recipient board.** Build the `AddressField` set with only the states `components/address-field.tsx` can render (`state=empty|focused|entered|disabled`; entered shows the shortened address when not focused) and map it with Code Connect. Resolving, resolved and couldn't-resolve are not `AddressField` states: code renders them as sibling content in `send-recipient-status` in `client/transfers/send-dialog.tsx`, so the recipient board draws them as a separate status line under the field. Then draw the send recipient step (AddressField, status line, "Or", suggestion Item rows). Not built in this PR. P1.
-- **dx(design): #684 token sync.** This would replace the hand sync above.
+- **dx(design): #684 token sync.** Landed; see [Foundations](#foundations).
 
 ## File structure and the instances-only rule
 

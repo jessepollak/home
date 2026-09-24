@@ -70,7 +70,7 @@ const meta = {
   title: "UI/Finance Rows",
   component: FinanceRowStory,
   args: { row: "activity" },
-  parameters: { layout: "centered" },
+  parameters: { layout: "centered", design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=96-1147" } },
 } satisfies Meta<typeof FinanceRowStory>;
 
 export default meta;

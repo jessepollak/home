@@ -9,7 +9,7 @@ const meta = {
   title: "UI/Button",
   component: Button,
   args: { children: "Continue" },
-  parameters: { layout: "centered" },
+  parameters: { layout: "centered", design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=12-27" } },
 } satisfies Meta<typeof Button>;
 
 export default meta;

@@ -5,7 +5,7 @@ const meta = {
   id: "ui-separator",
   title: "UI/Separator",
   component: Separator,
-  parameters: { layout: "centered", a11y: { test: "error" } },
+  parameters: { layout: "centered", a11y: { test: "error" }, design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=158-1872" } },
 } satisfies Meta<typeof Separator>;
 
 export default meta;
