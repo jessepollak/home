@@ -375,21 +375,68 @@ describe("combined Activity panel", () => {
     }
   });
 
-  test("the feed still dedupes actions whose transfer is loaded", () => {
+  test("the feed keeps an indexed action's title and confirmed status instead of a generic transfer", async () => {
+    const indexed = { ...transfer("onchain", 5), direction: "outgoing" as const, amountBaseUnits: "1250000" };
+    const deposit = operation("Deposit USDC into Morpho", 6, indexed.transactionHash);
+    deposit.status = "pending";
+    deposit.action.kind = "savings-deposit";
+    deposit.action.amounts = [{ assetId: "usdc", symbol: "USDC", decimals: 6,
+      amountBaseUnits: "1000000", direction: "spend", estimated: true }];
     const view = render(
       <ActivityPanelView
-        activity={ready([transfer("onchain", 5)], "cursor-1")}
-        operations={[operation("twin", 6, `0x${(5).toString(16).padStart(64, "0")}` as const), operation("recorded-action", 4)]}
+        activity={ready([indexed], "cursor-1")}
+        operations={[deposit, operation("recorded-action", 4)]}
         density="feed"
       />,
     );
 
-    expect(view.getByText("Received")).toBeTruthy();
+    const row = view.getByRole("button", { description: "View Deposit USDC into Morpho transaction details" });
+    expect(row.textContent).toContain("Deposit USDC into Morpho");
+    expect(row.textContent).toContain("Confirmed");
+    expect(row.textContent).toContain("1.25 USDC");
+    expect(row.textContent).not.toContain("~");
+    expect(view.queryByText("Received")).toBeNull();
     expect(view.getByText("recorded-action")).toBeTruthy();
-    expect(view.queryByText("twin")).toBeNull();
+
+    fireEvent.click(row);
+    const details = await view.findByRole("dialog", { name: "Deposit USDC into Morpho" });
+    expect(within(details).getByText("Confirmed")).toBeTruthy();
+    expect(within(details).getByText("You spend").nextElementSibling?.textContent).toContain("1.25 USDC");
+    expect(details.textContent).not.toContain("Estimated");
+    expect(within(details).getByRole("heading", { name: "Deposit USDC into Morpho" })).toBeTruthy();
   });
 
-  test("keeps an unmatched hashed action while pages remain, then replaces it with a loaded match", () => {
+  test("shows the action provider in details when a matching cash-out transfer is indexed", async () => {
+    const indexed = transfer("cash-out", 5);
+    const cashout = operation("Cash out with Peer", 6, indexed.transactionHash);
+    cashout.status = "pending";
+    cashout.action.kind = "cash-out";
+    cashout.action.metadata = {
+      product: "cashout",
+      operation: "withdraw",
+      providerId: "peer",
+      providerName: "Peer",
+      environment: "production",
+      platform: "cashapp",
+      platformLabel: "Cash App",
+      currency: "USD",
+      depositId: "cashout-order",
+      approximateFiatAmount: "1",
+      minConversionRate: "1",
+      intentAmountRange: { min: "1000000", max: "1000000" },
+      estimateAsOf: cashout.updatedAt,
+      escrow: "0x777777779d229cdF3110e9de47943791c26300Ef",
+    };
+    const view = render(<ActivityPanelView activity={ready([indexed])} operations={[cashout]} />);
+
+    fireEvent.click(view.getByRole("button", { description: "View Cash out with Peer transaction details" }));
+    const details = await view.findByRole("dialog", { name: "Cash out with Peer" });
+    expect(within(details).getByText("Provider").nextElementSibling?.textContent).toBe("Peer");
+    expect(within(details).getByText("Confirmed")).toBeTruthy();
+    expect(view.queryByText("Received")).toBeNull();
+  });
+
+  test("keeps an unmatched hashed action while pages remain, then hides its later loaded transfer", () => {
     const matchingHash = `0x${"d".repeat(64)}` as const;
     const operations = [operation("hashed-fallback", 2, matchingHash), operation("hashless-fallback", 1)];
     const view = render(
@@ -409,8 +456,9 @@ describe("combined Activity panel", () => {
       />,
     );
 
-    expect(view.queryByText("hashed-fallback")).toBeNull();
+    expect(view.getByText("hashed-fallback")).toBeTruthy();
     expect(view.getByText("hashless-fallback")).toBeTruthy();
-    expect(within(view.getByRole("list")).getAllByText("Received")).toHaveLength(2);
+    expect(within(view.getByRole("list")).getAllByText("Received")).toHaveLength(1);
+    expect(within(view.getByRole("list")).getAllByRole("button", { description: /transaction details/ })).toHaveLength(3);
   });
 });
