@@ -1,0 +1,336 @@
+# Home Figma library: finance design system
+
+Issue [#791](https://github.com/jessepollak/home/issues/791) extends the published Home Library from [#683](https://github.com/jessepollak/home/issues/683) into a library for building the rest of Home. This page holds the gap matrix, the Mobbin pattern inventory, the Code Connect plan and the publish checklist. It is a proposal: Jesse selects, refines and publishes. Nothing here changes production code.
+
+- Figma file: [Home](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home), page `Home` (`4:2`). Component inventory: [figma-mapping.json](figma-mapping.json).
+- Source SHA for tokens and component contracts: `e76eaf7b` (run 12 rebase; the Home components and `components/ui/*` are unchanged since `bfe24dc6`, the #804 Home migration that run 11 audited, including the `MoneyConfirmFooter` contract from `9ab2097`).
+- Sections, left to right (run 12 order): [Foundations](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=156-2094) (`156:2094`), [Primitives](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=158-1804) (`158:1804`), Home components (`11:767`, the #683 product families), [Finance patterns](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=166-1704) (`166:1704`), Screens (`11:768`, `Home — final`), [Home states](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=190-2821) (`190:2821`, the shipped #804 states), [References](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=174-2891) (`174:2891`) and Archive (`145:1638`). See [File structure](#file-structure-and-the-instances-only-rule).
+- Revision 2 (2026-09-23) applies Jesse's detailed Figma review (29 threads on `156:*`, `158:*` and `166:*`). It softens the reds and rebalances chart green/red, replaces the drawn numpad with the native numeric keyboard, redoes asset detail and the price chart, adds a one-box-per-digit `InputOTP`, makes borders and retry controls consistent, and fixes icon alignment, padding and spacing. Node IDs, component IDs, Code Connect mappings and History are kept; nothing was deleted, and the replaced `MoneyNumpad` is marked deprecated rather than removed.
+- Revision 3 (2026-09-23, run 9) answers Jesse's second Figma pass (8 open threads on `158:*` and `166:*`) and two Codex review findings. It standardizes one bordered block for grouped units, gives AlertAction an outline border, moves the failed-row Retry inside `FinanceRow`, keeps the PriceChart inside its column, optically centres the amount, adds a `sent-unknown` result, and keeps trade slippage on review. `Home states` (`190:*`, #804) and `Home — final` tokens were not touched.
+- Revision 4 (2026-09-23, run 11) answers Jesse's two FinanceRow threads on `166:1703` and the whole-file audit. `FinanceRow` gets one row structure in every variant: the amount on the title line, one 16px trailing slot for the chevron or Retry, Item's 12px side padding, and one-line truncation. Every screen and board is now built from library instances: raw bordered blocks, sheets, keyboards, skeleton rows and sticky footers became `Card`, `Drawer`, `SystemKeyboard`, `ShimmerRow` and `TradeActions` instances. Hard-coded values are bound to variables and text styles, and history moved into an Archive section. Component IDs, the mapped node IDs (`FinanceRow` `96:1147`, `Card` `12:28`) and every Code Connect mapping are unchanged; nothing was published.
+- Revision 5 (2026-09-23, run 12) extends the audit to `Home states` after #804 merged. Each of the six state frames is rebuilt on the library with no visual redesign: `TotalBalanceCard` and `YourMoneyCard` are `Card` slot instances, the Activity feed is `ActivityHeading` + `ActivityRows` as in `Home — final`, and the loading, empty, Activity error and status popover states use `Skeleton`, `ShimmerRow`, `Empty`, `Button` and a new `Popover` primitive (code gained `components/ui/popover.tsx` in #804). `SignedBalanceBar` becomes a set with `items` variants, so no frame detaches it. `Skeleton` takes code's `bg-foreground/10` tone. Frame IDs (`190:2822`, `190:2857`, `190:2892`, `190:2927`, `190:2962`, `246:4067`), component IDs and Code Connect mappings are kept; nothing was published.
+
+## Rules this library follows
+
+- **Names match code.** A Figma component uses the code export name (`Button`, `ToggleGroup`, `MoneyNumpad`). Variant properties use the cva prop names, and their values are a subset of the cva values.
+  - Button draws `variant=default|secondary|outline|ghost|destructive|link` and `size=xs|sm|default|lg|icon-sm|icon|icon-lg`.
+  - Omitted cva values have existing homes: `navigation` is TabItem/TabBar, `product-tile` is the Home product tile, `card-action` is the SectionHeader action, and `inline` / `icon-xs` are P2.
+  - Figma-only parts are labelled as such: `MoneyNumpadKey` and `MoneyConfirmRow` are sub-parts of one code component, and `Skeleton shape` is Figma-only. `InputOTPSlot` keeps the shadcn sub-part name.
+  - `MoneyNumpad` and `MoneyNumpadKey` are **deprecated** (revision 2). They stay in the file, and in the Code Connect table, because `amount.tsx` still renders the numpad; new boards never place them.
+  - Slots keep their `data-slot` names (`AlertTitle`, `ItemMedia`, `DrawerFooter`) as internal layers.
+- **`state` is a Figma-only axis.** Its values are `default`, `hover`, `pressed`, `focus`, `disabled`, `loading` and `error`. `focus` is `border-ring` plus a 3px ring at 50%. `disabled` is 50% opacity. `error` is `aria-invalid`: a destructive border and a destructive/20 ring. In Code Connect, `disabled` and `error` become props; `hover`, `pressed` and `focus` are visual only.
+  - `loading` is proposed, not code parity. Code renders `aria-busy` as 60% opacity only; Button has no loading prop and no spinner. The Figma spinner is the design for the submit loading state under [Follow-up code issues](#follow-up-code-issues); until that lands, `state=loading` maps to `aria-busy` alone.
+- **`size=touch` is drawn but not yet in code.** Most mobile CTAs in code are `Button size="lg"` with `className="h-11"`, which is 44px. Figma draws that as `size=touch` so boards meet the 44px hit target. The follow-up below adds the real `size="touch"`, which makes the mapping 1:1.
+  - Five CTAs use `size="lg"` without `h-11` and render at the 36px `lg` height: "Retry loading memes" (`client/invest/category-screen.tsx`), "Retry sign out" and "Try again" (`client/account/sign-in-shell.tsx`), "Continue" (`app/access/access-form.tsx`) and the copy-address button (`client/funding/add-money-dialog.tsx`). They sit below the 44px target today; the follow-up moves them to `size="touch"` too.
+  - `size="lg"` also appears where the button is not a standalone CTA: the Savings vault choice renders an `Item` row through `Button`, and `PrimaryNavigation` sets `min-h-11`. Those keep their own row and tab sizing.
+- **Design-only components say so.** Their description reads `DESIGN-ONLY`, they get no Code Connect mapping, and they are listed under [Follow-up code issues](#follow-up-code-issues).
+- **Colour carries meaning.**
+  - `market-gain` is for money in and positive change text only.
+  - `market-loss` is for price-decline text only.
+  - `chart-gain` / `chart-loss` are for the price line and its dot only. They are brighter than the text tones because a 2px line needs 3:1, not 4.5:1.
+  - `muted-foreground` is for rates, context and overdue or inactive amounts.
+  - `destructive` is for errors, never for ordinary outgoing money. It is softened to `#c8372d` (revision 2, proposed).
+  - `warning` is for limits that still allow the action (proposed).
+  - `primary` is for actions and focus only.
+- **Status colour stays on the header.** In Alert, Toast and StatusStep only the title and icon take the status colour. Body copy and actions stay `foreground`, and a failed step keeps its title `foreground` with only the icon in `destructive`.
+- **Rates.** Save shows `N% APY`. Borrow Cash shows `N% APR`, as decided in [#789](https://github.com/jessepollak/home/issues/789).
+- **References.** Mobbin references follow [Mobbin references](mobbin.md) (PR #798). Cite by link, borrow patterns and never copy screens. Reference images live only in the References section.
+- **Borders: the group or nothing.** Adjacent items never carry separate borders. An outline `ToggleGroup` draws one border around the whole group, with borderless items inside. Rows inside a bordered Card have no dividers of their own when the Card already groups them. The one exception is `InputOTP`, whose slots are separate boxes with an 8px gap because each box is one digit.
+- **Retry is a control, not text.** A failed list row carries its Retry inside the row: `FinanceRow` `Show action` (design-only) puts a 16px `rotate-cw` glyph in `color/primary` in the same trailing slot as the chevron, with `Show chevron` off. The amount therefore stays aligned with every other row. In code it is a ghost icon `Button` with a 44px hit area and an `aria-label` such as "Retry send to Sam" (revision 4 replaced the bordered 36px box that pushed the amount about 30px left). Load-error cards and the chart error use a 44px outline "Try again" `Button` with the `Icon` swap set to `rotate-cw`. "Tap to retry" copy is gone.
+- **Icons centre on their text.** A 16px glyph sits in a 16×20 slot that matches the 14/20 title line, with a 1px optical nudge down, in Alert, Toast and StatusStep. Actions such as `AlertAction` centre vertically in their unit and are outline buttons (revision 3): `color/background` fill, 1px `color/border`, `radius/lg`, 44px tall on touch.
+- **One block for grouped units (revision 3, componentized in revision 4).** Every group of rows or steps is one `Card` instance (`269:5270`) whose `CardContent` slot holds the rows. `variant=flush, inset=list` is the standard block: `color/card` fill, 1px `color/border` inside, `radius/xl` and a `space/1` (4px) inset. Rows inside keep Item's 12px side padding and drop their own dividers, so content sits 16px from the block edge as in code. `variant=default, inset=list` adds a `CardHeader` with the section heading (Home's Your money card). `variant=default, inset=default` is the padded card; StatusSteps override its padding to `space/3` / `space/4` (12/16), so step icons land on the same 16px line as receipt labels. It is used for receipts and steps, the review summary, the picker's held assets, the failed result's "Still in" row, rate cards, Your position and Details.
+- **Amounts are optically centred.** `MoneyPrimaryAmount` centres the digits' ink bounds on the helper line's axis (revision 3); the caret hangs to the right and does not pull the amount off-centre.
+- **Amounts use the native keyboard.** `MoneyPrimaryAmount` is an auto-focused numeric input (`inputMode="decimal"`), so the system number pad opens. Home draws no keypad. Boards show the iOS keyboard as a labelled grey placeholder only to size the layout.
+
+## Foundations
+
+Variables are synced by hand from `apps/web/app/globals.css` and the owned component classes. The [#684](https://github.com/jessepollak/home/issues/684) token sync is still open, so re-sync after any token change.
+
+- **Colour.** Collection `Home tokens`, modes `Light` and `Dark`.
+  - It holds 40 colour variables: the shadcn semantic tokens plus `market-gain`, `market-loss`, `chart-1…5`, `balance-*`, `payout-*`, and the revision-2 additions `warning`, `chart-gain`, `chart-loss` and `chart-baseline`.
+  - Out of scope: the eight `sidebar-*` tokens (`sidebar`, `sidebar-foreground`, `sidebar-primary`, `sidebar-primary-foreground`, `sidebar-accent`, `sidebar-accent-foreground`, `sidebar-border`, `sidebar-ring`). `globals.css` declares all 44 `--color-*` tokens, but these eight come from the shadcn template and no file in `apps/web` uses them. Home has no sidebar. Add them when a sidebar component lands, or when the #684 sync imports every token.
+  - Each variable has its WEB code syntax set to `var(--token)`.
+  - Light is reviewed. Dark comes from `.dark` and is an unreviewed stub; no board is drawn in Dark.
+  - Four existing Light values were corrected to match code: `foreground` #171717 → #0a0a0a, `card-foreground` #171717 → #0a0a0a, `muted` #f8f8f8 → #f5f5f5 and `destructive` #dc2626 → #e7000b. This is why the families from #683 now show as CHANGED.
+  - **Revision 2 proposes new values that lead code** (Jesse's direction: soften red, rebalance red and green). Each variable's description says `PROPOSED` and gives the current code value; the `globals.css` change is a follow-up. Contrast is measured on white.
+    - `destructive` #e7000b → **#c8372d** (5.2:1). The old red passed contrast; the problem was chroma, so the new value lowers saturation.
+    - `market-gain` #137333 → **#0a7c4a** (5.3:1), and `market-loss` #b42318 → **#c8372d** (5.2:1). The loss hex matches `destructive`, but the token stays separate so the meaning stays separate (decision below).
+    - New `warning` **#b45309** (5.0:1), for the title and icon of limit warnings.
+    - New `chart-gain` **#10934a** (4.0:1) and `chart-loss` **#e0473f** (4.1:1), for the line only. New `chart-baseline` **#8a8a8a** (3.45:1) is the dotted range-open (previous close) line. It carries the reference value the chart is read against, so it meets the 3:1 non-text target; run 11 raised it from #a3a3a3 (2.52:1).
+    - The area fill under the line is the line colour at 12% → 0%. `alpha/chart-gain-12` and `alpha/chart-loss-12` document the top stop. Figma gradient stops cannot bind variables, so the boards' gradients carry the same hex.
+    - Comparables: Coinbase (#098551 / #CF202F) and PayPal set the depth. Robinhood's #00C805 and Cash App's lime were rejected as neon, since they fall under 3:1 once a fill sits behind them.
+  - Twelve `color/alpha/*` variables express Tailwind opacity modifiers, for example `alpha/destructive-10` for `bg-destructive/10` and `alpha/foreground-10` for `ring-foreground/10`, plus the two chart fills. Figma drops paint opacity on variable-bound fills inside instances, so the alpha lives in the variable. Their WEB syntax is `color-mix(in oklab, var(--token) N%, transparent)`. Revision 2 also refreshed every bound paint's fallback colour to the variable's value composited over white. A stale opaque fallback was why the destructive `Failed` badge rendered as a blank red pill.
+- **Radius.** `radius/sm…4xl` follow the `calc(var(--radius) * n)` scale, where `--radius` is 4px. `radius/full` is added.
+- **Scale.** Collection `Home scale` holds:
+  - Spacing: `space/*`, the Tailwind steps plus `hairline`, `screen-inset` and `card`.
+  - Sizes: `size/*`, including `hit-min` 44, the control heights, `money-cta` 44, `row-min` 56, `keypad-key` 56 and `tab-bar` 56.
+  - Motion: `motion/duration/*` (0, 100, `chip-max` 120, 150, `tab-max` 180, 200, 250, 300, `sheet` 350), `motion/easing/*` (`out`, `overlay`, `content`) and `motion/press-scale` 0.97. Motion variables are documentation values, because Figma prototypes do not read them.
+- **Elevation.** Figma variables cannot hold shadows, so elevation uses effect styles: `Elevation/card-ring` (`ring-1 ring-foreground/10`), `sm`, `md` and `lg`.
+- **Type.** Text styles `Home/*`.
+  - New styles: `Amount entry` (48/48), `Heading` (18/28), `Label` (14/20 medium), `Keypad` (20/28), `Micro` (12/16 medium), `Mono` (12/16) and, in run 11, `Mono sm` (14/20, `font-mono text-sm` for `CopyableValue`). Run 11 moved the #683 families off unstyled Inter onto these styles wherever size and weight match (`FinanceRow` title 14/20 `Label`, context 14/20 `Small`, value context 12/16 `Caption`), which makes a title-aligned row 58px tall, as `py-2` + `leading-snug`/`leading-normal` render in code.
+  - Figma uses SF Pro, with Geist Mono standing in for `ui-monospace`, because SF Mono is not available in Figma.
+- **Icons.** An `Icon` set holds the 30 Lucide glyphs Home uses: 24px masters with a stroke width of 2. Revision 2 added `search-x` (no-match) and `rotate-cw` (retry); run 11 moved the TabItem glyphs in as `house` and `chart-column-increasing`. `Button` exposes an `Icon` instance-swap property (run 11), so no control draws a text glyph. Code imports `lucide-react` directly, so icons have no Code Connect mapping.
+
+## Gap matrix
+
+Columns:
+- **Code** is whether an owned implementation exists in `apps/web`.
+- **Figma** is the node after this pass.
+- **MVP** is whether Home needs the item for the MVP surfaces (Home, Save, Invest, Borrow, Fund/Send, Activity, Account).
+- **P** is priority: P0 is needed by the next screens, P1 by the MVP, and P2 later.
+
+### Primitives (shadcn base-nova on Base UI)
+
+| Item | Code | Figma | MVP | Base UI underneath | Owner | P |
+| --- | --- | --- | --- | --- | --- | --- |
+| Button | yes | `12:27` variant × size × state (57 variants) | yes | Button | `components/ui/button.tsx` | P0 |
+| Badge | yes | `158:1841` variant | yes | useRender | `components/ui/badge.tsx` | P0 |
+| Alert | yes | `158:1862` variant; Title, Description, Show icon, Show action. **Proposed anatomy** (revision 2): 14/16 padding, icon centred on the title, body and action `foreground`, action centred. Revision 3: `AlertAction` is an outline button (`color/background`, 1px `color/border`, `radius/lg`, 44px tall on touch) | yes | none (div) | `components/ui/alert.tsx` | P0 |
+| Card | yes | `269:5270` set (run 11): `variant=flush, inset=list` (standard list block), `variant=default, inset=list` (CardHeader + list), `variant=default, inset=default`, each with a native `CardContent` slot. `12:28` is kept as `inset=legacy` (the #683 stretched background layer, used only by Archive since run 12 rebuilt `Home states`) and keeps its mapping; new work never places it | yes | none (div) | `components/ui/card.tsx` | P0 |
+| Item | yes | `161:1818` variant × size + hover/focus (code has no disabled state) | yes | useRender | `components/ui/item.tsx` | P0 |
+| Separator | yes | `158:1872` orientation | yes | Separator | `components/ui/separator.tsx` | P0 |
+| Skeleton | yes | `158:1866` shape (Figma-only); fill `color/alpha/foreground-10`, code's `bg-foreground/10` (run 12; it was `color/muted`, which vanished on the muted page) | yes | none (div) | `components/ui/skeleton.tsx` | P0 |
+| Drawer (sheet) | yes | `161:1847` title=default\|money; Show footer; native `DrawerContent` and `DrawerFooter` slots (run 11). Every sheet on the pattern boards is one Drawer instance | yes | Drawer | `components/ui/drawer.tsx` | P0 |
+| Toast | yes | `161:1885` type (6); icon slot centred on the title, warning icon in `warning` | yes | Toast | `components/ui/toast.tsx` | P0 |
+| Input | yes | `160:1654` variant × state; `variant=otp` is deprecated for codes (use InputOTP) | yes | Input | `components/ui/input.tsx` | P0 |
+| InputOTP (+ sub-part InputOTPSlot) | **no** (sign-in uses one `Input variant="otp"`) | `211:3668` state=empty\|active\|typing\|filled\|error\|disabled; `211:3547` slot state (design-only) | yes | none (shadcn InputOTP wraps the `input-otp` package: **Jesse decision** on the dependency) | unassigned (follow-up); screen owner `client/account/sign-in-otp.tsx` | P1 |
+| InputGroup | yes | `160:1673` state | yes | Input + addons | `components/ui/input-group.tsx` | P0 |
+| Field | yes | `160:1684` state; Label and Description properties and a native `FieldControl` slot for Input, InputOTP, Select or Combobox (run 11) | yes | Field | `components/ui/field.tsx` | P0 |
+| Label | yes | `158:1880` state | yes | none (label) | `components/ui/label.tsx` | P0 |
+| Combobox | yes | `160:1759` state=closed\|open\|empty | yes | Combobox | `components/ui/combobox.tsx` | P0 |
+| Toggle | yes | `160:1826` variant × state + sizes | yes | Toggle | `components/ui/toggle.tsx` | P0 |
+| ToggleGroup (segmented control) | yes | `160:1849` variant; `outline` draws one group border with borderless items (**proposed**; code borders each item) | yes | ToggleGroup | `components/ui/toggle-group.tsx` | P0 |
+| Select | yes | `160:1718` state | yes | Select | `components/ui/select.tsx` | P1 |
+| Switch | yes | `160:1772` checked × state | yes | Switch | `components/ui/switch.tsx` | P1 |
+| Empty | yes | `161:1904` media; `EmptyAction` is a `Button` instance, `size=lg` at 44px as code's `size="lg" className="h-11"` (run 12; it was a raw frame) | yes | none (div) | `components/ui/empty.tsx` | P1 |
+| Popover | yes (#804) | `292:5883` (run 12): `PopoverContent` (288px, `p-2.5`, `rounded-lg`, `Elevation/md`) with `Description` and `Show action`; `PopoverAction` is a 44px ghost icon `Button`, swappable to a secondary "Open Account" | yes (Home header status) | Popover | `components/ui/popover.tsx` | P1 |
+| Progress | **no** | `161:1923` status (design-only) | yes | Progress | unassigned (follow-up) | P1 |
+| RadioGroup | **no** | `160:1801` checked × state (design-only) | yes | RadioGroup + Radio | unassigned (follow-up) | P1 |
+| Icon (Lucide) | yes | `156:1726` 30 glyphs (revision 3 adds `circle-help`; run 11 adds `house` and `chart-column-increasing`) | yes | n/a | `lucide-react` imports | P0 |
+| NativeSelect | yes (in `select.tsx`) | no | no | native select | `components/ui/select.tsx` | P2 |
+| Table / DataTable | yes | no | no (desktop only; not on mobile) | none | `components/ui/table.tsx`, `data-table.tsx` | P2 |
+| CoverageTable, CoverageStatusPreview | yes | no | no (internal coverage tooling) | none | `components/ui/coverage-*.tsx` | P2 |
+| PayoutMark | yes | no (payout brand colours are variables) | no | none | `components/ui/payout-mark.tsx` | P2 |
+| Tabs | no | no | no (primary navigation is `Button variant="navigation"`; ToggleGroup covers segments) | Tabs | unassigned | P2 |
+| Dialog | no | no | no (Drawer covers mobile overlays) | Dialog | unassigned | P2 |
+| Tooltip | no | no | no (touch first; facts go inline) | Tooltip | unassigned | P2 |
+| Menu | no | no | no | Menu | unassigned | P2 |
+| Accordion | no | no | no | Accordion | unassigned | P2 |
+| Checkbox | no | no | no (Switch covers settings) | Checkbox | unassigned | P2 |
+| Avatar | no | no (covered by `ItemMedia variant="avatar"`) | no | Avatar | `components/ui/item.tsx` | P2 |
+| Textarea | no | no | no | none | unassigned | P2 |
+
+### Home and finance components
+
+| Item | Code | Figma | MVP | Built on | Owner | P |
+| --- | --- | --- | --- | --- | --- | --- |
+| FinanceRow | yes | `96:1147` (#683). Revision 4: every variant is ItemMedia + `finance-row-body` (ItemContent and the amount, top-aligned as `items-start`) + one 16px trailing slot. The slot holds `ItemActions` (muted `chevron-right` Icon, `Show chevron`) or `ItemActions (action)` (primary `rotate-cw` Icon, `Show action`, design-only). Both are hidden by default, and the rows use Item's 12px side padding. States board `266:4265` | yes | Item | `components/finance-rows.tsx` | P0 |
+| CurrencyMarkSlot | yes | `12:59` (#683) | yes | none | `components/currency-mark.tsx` | P0 |
+| MoneyTicker | yes | `12:2` (#683) | yes | `@number-flow/react` | `components/money-ticker.tsx` | P0 |
+| ShellHeader, TabBar/TabItem, SectionHeader, MoreRow, MoneyBreakdownItem, MoneyGroupHeader | yes | #683 families | yes | Button, Item | see [figma-mapping.json](figma-mapping.json) | P0 |
+| SignedBalanceBar, ActivityLoader | yes (mapped in #789) | #683; run 12 makes `SignedBalanceBar` the set `293:5935` with `items=borrow+cash+investments` (`91:927`, mapped), `cash+investments` and `cash`, so states never detach it | yes | none | `components/signed-balance-bar.tsx`, `components/activity-loader.tsx` | P1 |
+| ShimmerRow | yes (`ShimmerRows`) | `274:6015` (run 11): one Item size=sm row with the Shimmer mark and two Skeleton lines; `Show media` and `Show context` booleans cover label/value rows | yes | Item + Skeleton | `client/home/panel-shared.tsx` | P0 |
+| TradeActions | yes | `274:5577` (run 11): Buy (default) + Sell (outline), touch, 34px home-indicator inset; pinned to the bottom of asset detail | yes | Button | `client/trading/trade-actions.tsx` (`layout="sticky"`) | P1 |
+| TransactionAmount | inline in `TransactionDetailsModal` | `282:5882` tone=default\|success (run 11): signed amount + exposed status Badge (design-only part) | yes | Badge | `components/transaction-details.tsx` | P0 |
+| SystemKeyboard | n/a (the OS keyboard) | `274:5688` type=decimal\|number (run 11, DESIGN-ONLY placeholder that sizes layouts; never implemented) | n/a | n/a | none | — |
+| MoneyNumpad (+ Figma sub-part MoneyNumpadKey) | yes (keys are inline `Button variant="ghost" className="h-14"`) | `166:1739`, `166:1738`: **deprecated** in revision 2 and kept for History; boards use the native keyboard | no (to be removed) | Button ghost h-14 | `client/money-modal/amount.tsx` | — |
+| MoneyPrimaryAmount | yes | `166:1776` state=empty\|entered\|error as a **proposed** native numeric input with a caret. The amount and available line are centred with 12px between them; revision 3 centres the digits' ink on the helper axis, with the caret hanging right. `state=error` keeps the amount foreground and turns the available line into a destructive explanation (code has no invalid state; limits show through StatusMessage/Alert) | yes | MoneyTicker (+ native input, proposed) | `client/money-modal/amount.tsx` | P0 |
+| MoneyQuickChips | yes | `166:1787` chipSet | yes | Button outline sm h-11 | `client/money-modal/amount.tsx` | P0 |
+| MoneyUnitToggle | yes | `166:1788` | yes | Button outline sm h-11 | `client/money-modal/amount.tsx` | P0 |
+| MoneyConfirmSummary + MoneyConfirmRow | yes | `166:1803`, `166:1802` layout=inline\|full-value\|copyable (run 11 adds `copyable`: label + `CopyableValue` for the transaction hash). Revision 3: the rows sit in the standard block with no per-row dividers. A send leads with a `To` row (`layout=full-value`) as in `client/transfers/send-dialog.tsx`: the value is a `CopyableValue display=full` instance, a mono address, copy icon and 44px minimum height. Figma wraps the address so every character is visible; code keeps it on one horizontally scrollable line and, at `sm` and up, right-aligns it on the label's row. A trade summary (Buy, Sell, swap) keeps slippage and the minimum received as rows | yes | MoneyTicker, dl | `client/money-modal/confirm-summary.tsx` | P0 |
+| CopyableValue | yes | `282:5961` set display=truncated\|full (run 11; `166:1820` is the `truncated` variant) | yes | Button + Toast | `components/copyable-value.tsx` | P0 |
+| AddressField | yes (Send destination step: free-form address or Basename/ENS, paste button, resolution status below) | **not yet a component**; draw it as an `InputGroup` (`160:1673`) instance with an inline-start label addon, a `code` input and a 44px paste button, inside `Field` (`160:1684`). A dedicated `AddressField` set is pending because the Figma MCP could not authenticate in run 8 | yes | Field + InputGroup | `components/address-field.tsx` | P1 |
+| ResultHeader | **no** | `166:1884` outcome=success\|pending\|failed\|unknown (design-only). `unknown` (revision 3) is the sent-unknown money outcome: a confirmed action with no transaction hash after 15 minutes ([actions](../actions.md)). It never says failed or not sent, keeps the amount in the title ("We can't confirm $25.00") and points to Activity | yes | Empty media | unassigned (follow-up) | P0 |
+| StatusStep | **no** | `166:1861` status (design-only) | yes | Item + Icon | unassigned (follow-up) | P1 |
+| AssetDetailHeader | inline only | `166:1917` tone=positive\|negative\|loading (design-only family). Revision 2: Back + 40px mark + name over "ETH · Base"; price and change on the page edge; the period is in muted text | yes | MoneyTicker | `client/invest/asset-detail-screen.tsx` | P1 |
+| PriceChart | yes | `166:1959` tone=gain\|loss\|loading\|scrub\|error. Only `loading` mirrors code. The rest are **proposed**: a `chart-*` line with a 12%→0% fill, a dotted range-open baseline, high/low labels, a borderless range (1D 1W 1M 3M 1Y), a scrub guide and an in-place retry. Code has no `tone`, draws a `var(--primary)` line on a `bg-muted` stage and uses an outline range. Revision 3: the chart fills its column, and the line, fill and baseline stop 4px short, so the now-dot and high/low labels stay inside the 16px screen inset | yes | Liveline + ToggleGroup | `client/invest/price-chart.tsx` | P1 |
+
+## Pattern inventory
+
+Mobbin was searched through the Toshi MCP Gateway on 2026-09-23, iOS only, with `search_flows` and `search_screens` in standard mode, which spends no credits. Twenty finance apps appear below, including Cash App, Revolut, Monzo, Wise, Coinbase, Kraken, Chime and PayPal. Revision 2 ran new searches:
+- asset detail and price charts, for Robinhood, Coinbase, Revolut, PayPal, MoonPay, Plum, Perplexity, N26 and Vivid;
+- amount entry with the system number keyboard;
+- one-box-per-digit verification codes;
+- softer error and alert tones.
+
+Each pattern links to its board in Finance patterns and cites 2–3 references. The proposed treatment is on the board's label panel.
+
+| Pattern | P | Board | References | Home treatment |
+| --- | --- | --- | --- | --- |
+| Amount entry (native keyboard) | P0 | `169:1785` | Klarna [screen](https://mobbin.com/screens/8aae9ee7-b9c4-412e-8479-737f99618180); Monzo [screen](https://mobbin.com/screens/e0935ecf-e7d1-497a-b5d5-6589197e1b87); Cash App drawn keypad, rejected [screen](https://mobbin.com/screens/15f81e69-04a1-4232-ae8b-9165ef83dd58) | An auto-focused numeric input opens the system number pad; no keypad is drawn. The amount and available line are centred with 12px between them. Chips sit above the CTA, and the CTA sits above the keyboard. A disabled CTA always has a visible reason: `$0`, or the destructive available line. |
+| Asset / currency picker | P0 | `169:2024` | Base [screen](https://mobbin.com/screens/b5baafd9-53bf-41e9-bd66-5ec21123a5c1); Cash App [screen](https://mobbin.com/screens/2f73f5eb-c480-452f-a9ac-86b7e4e3c7bb); Base Selecting a coin [flow](https://mobbin.com/flows/b856a0b8-7f1e-4e5e-8942-9e5d91b7e334) | Search first. Held assets are FinanceRows with the local balance on the right. The no-match state names the query. |
+| Review / confirm + fee lines | P0 | `169:2196` | Cash App [screen](https://mobbin.com/screens/5c94cc3d-8e89-4c28-a503-b6edfd0700ba); Monzo [screen](https://mobbin.com/screens/7abf22e6-277e-4bea-9127-cda91d619bba); Phantom [screen](https://mobbin.com/screens/d1e9b056-98fc-4a66-a090-60e46c10304a) | The amount leads, followed only by actionable facts in the standard block. A send shows to (the full copyable recipient address, as the `To` row in `client/transfers/send-dialog.tsx`), from, fee, network and arrival; a trade (Buy, Sell, swap) also keeps slippage and the minimum received. The CTA repeats the amount. A changed quote interrupts with an Alert. Includes a desktop right-sheet frame. **Confirm-control contract:** the CTA is `MoneyConfirmFooter`'s primary, never a bare `MoneyModalFooter` button. Only that primary carries `data-money-action-id` (`MONEY_ACTION_ID_ATTRIBUTE`), and only while its prepared action is unexpired. The live-money verifier finds the control by that marker ([UI system](../design-system.md#home-owned-product-pieces)); the loading, quote-changed and expired states keep the same footer. |
+| Success / pending / failure / unknown result | P0 | `171:2192` | Monzo [screen](https://mobbin.com/screens/874f2423-d24a-4385-ab24-7a114790cc15); Cash App [screen](https://mobbin.com/screens/e2f3dd05-7f46-45fc-801c-8492a1314a79); Klarna [screen](https://mobbin.com/screens/ed6691e4-8930-4cb1-b65c-f114c3f5cbcd) | One icon, the amount in the title and one sentence. Pending shows real steps. Failure says where the money is and offers one recovery action. Outcome unknown (confirmed, no hash after 15 minutes) never says failed or not sent: "We can't confirm $25.00", "It may have left Cash. Check Activity before sending again.", View in Activity as the primary action and no Try again, so money is not sent twice. |
+| Transaction detail | P0 | `171:2296` | PayPal [screen](https://mobbin.com/screens/89b99fde-d33f-4bba-a0e7-2819596efd7c); Cash App [screen](https://mobbin.com/screens/344acf9f-210e-46fa-8424-a9b9fad980f8); Chime Activity detail [flow](https://mobbin.com/flows/75e1eeff-892b-4b40-b25e-344239e13f8f) | Signed amount (money in uses market-gain), a text status badge and counterparty/date/network rows. The hash is mono with a 44px copy target. Receipt rows and pending steps each sit in the standard block, with step icons on the receipt-label line. |
+| Rate display (APY / APR) | P0 | `171:2478` | Marcus [screen](https://mobbin.com/screens/72acdf4d-4bd6-42c9-8a73-94cfefe298cf); PayPal [screen](https://mobbin.com/screens/547f6257-8a60-447d-919a-8bb5ceb3a278); OKX [screen](https://mobbin.com/screens/7320a003-8424-4b63-a29b-ff9f1345b151) | The rate sits muted under the value it applies to: Save `APY`, Borrow Cash `APR`. A missing rate reads "Rate unavailable". |
+| Status badges + progress steps | P1 | `173:2666` | Starling [screen](https://mobbin.com/screens/e981b191-dfab-45c0-ad3e-f897c21afdb0); Marcus Tracking a transfer [flow](https://mobbin.com/flows/b9fece4f-9a21-4687-8a1c-de9f0453a1cb); Cash App [screen](https://mobbin.com/screens/1b843341-6df9-4191-87d9-e28b4fc9577a) | Status is words plus an icon, with colour secondary. Transfers use StatusStep with real times, never a percentage, because arrival is not measurable. Progress is only for countable quantities such as identity check 2 of 3. |
+| Asset detail + price chart | P1 | `173:2684` (gain, loss, scrubbing, loading, chart error) | PayPal Crypto detail [flow](https://mobbin.com/flows/d5eaeb38-d161-4277-a82a-731b5e569ae4); MoonPay [screen](https://mobbin.com/screens/337d0290-fe08-41c1-809d-9d0814e6f2d7); Plum Stock detail [flow](https://mobbin.com/flows/13a53b94-1708-4dde-b25a-275b9dd34170); Perplexity [screen](https://mobbin.com/screens/02655248-0399-4b9b-a207-d21a87cf91dc); Cash App Key stats [screen](https://mobbin.com/screens/5d2ae042-a196-45ab-a85a-ee854e4b0638) | Back + mark + name, then price and signed change with its period on one edge. Next comes a borderless tone chart with a fill, a range-open baseline and high/low labels, then a borderless range. Your position and Details (range high/low, network, token, price source) sit in inset cards, with Buy / Sell pinned. Scrubbing swaps in the point's value and time. Loading uses skeletons, never a fake line. A chart error retries in place. |
+| One-time code | P1 | `226:3788` (first slot active, pasted, wrong code) | Fresha [screen](https://mobbin.com/screens/51bf29fc-b481-487b-8142-464fc49dc1b7); Shop [screen](https://mobbin.com/screens/142a882e-7085-4f19-97c3-1f2fa7043268); Blue Apron [screen](https://mobbin.com/screens/2d1a3525-4a2c-4683-8ca9-ae8bd76624e8) | One box per digit. One hidden `one-time-code` input fills every slot on paste or autofill. A wrong code keeps the digits, marks every slot and says what to do; Resend shows its countdown. |
+| Empty / NUX / offline cards | P1 | `173:2926` | Starling [screen](https://mobbin.com/screens/5d30174b-3979-49f0-9f9d-b5cadd252877); MoonPay [screen](https://mobbin.com/screens/daebe9fd-6f33-4bf9-a21f-b6b61bb10e9e); MoonPay History [flow](https://mobbin.com/flows/924c7037-2c1d-4d79-9279-7841970ab861) | One line and one action. NUX states the concrete rate. Load errors name what failed and the fix ("Couldn't load activity. Check your connection.") with one 44px Try again. A transaction fact appears only when a specific transfer is affected; no generic reassurance. |
+| Inline limit / verification alerts | P1 | `173:2944` | Cash App [screen](https://mobbin.com/screens/8b5a6d84-dda7-4678-8899-e09f418fd718); Lloyds [screen](https://mobbin.com/screens/e86dd234-abb3-4286-b998-a829b3f55eba); Revolut Verifying identity [flow](https://mobbin.com/flows/24ff924f-1325-4c28-8a5d-2a50cb8ecd1e) | Inline next to the blocked decision, with the exact limit and one action. Verification is shown as an unlock, not a warning. |
+| Home overview | P0 (exists) | `92:922` Home — final | Revolut Home [flow](https://mobbin.com/flows/5abbe06a-b1c2-4781-aa74-f6aee820b558); Wealthsimple Home [flow](https://mobbin.com/flows/0251d8aa-ef5d-405b-bc97-a788cff55297) | Already approved in #683; adoption is tracked in #789. |
+| Activity list | P0 (exists) | FinanceRow boards `131:1285`, `116:1154` | Wise Transactions [flow](https://mobbin.com/flows/0769c584-7ac6-42cb-8804-9338bff5c7e1); PayPal Activity detail [flow](https://mobbin.com/flows/b4b59a00-e903-499a-83cb-00f9110154e3) | FinanceRow with `Value tone`; pending and failed rows use the status wording from the P1 board. |
+| Withdraw / send recipient | P1 (uses P0 boards) | amount + review boards; recipient step not drawn yet | Wise Sending money [flow](https://mobbin.com/flows/b821a14c-a4be-49e8-b7cc-2d491badb3e0); Cash App Withdrawing money [flow](https://mobbin.com/flows/eb40c66f-9fda-4ed7-aad1-472e140182c8); Kraken Withdraw cash [flow](https://mobbin.com/flows/459bac15-c2fb-4391-bfa6-0c787966788e) | Same amount → review → result journey. The recipient step leads with `AddressField` for any new address or Basename/ENS name, with the resolving / resolved / couldn't-resolve status under it, as in `client/transfers/send-dialog.tsx`. Below an "Or" separator, `Item` rows offer suggestions only: recent recipients, a pending recovery and a cash-out destination. Item rows never replace free-form entry. |
+| Borrow / credit | P2 | not built | OKX Apply for a loan [flow](https://mobbin.com/flows/2938274e-a291-4ed1-81f8-0dd82685ce2c); Binance Borrow [flow](https://mobbin.com/flows/2dcc3c92-34d5-49ee-9043-5a86f96f082d); Kraken [screen](https://mobbin.com/screens/bbb95050-b0f4-4173-9f9f-a59208f3febf) | Collateral health meter and loan terms; P1 rate display covers the MVP row. |
+| Savings / earn detail | P2 | not built | Cash App Savings [flow](https://mobbin.com/flows/c26fdcfb-44f7-4a69-9fc4-09969562d2ff); Marcus Savings [flow](https://mobbin.com/flows/49c81844-ee1f-4215-b469-be37add8871d); Coinbase Earning assets [flow](https://mobbin.com/flows/9186aae9-5bd8-4dc2-8b7e-31ef5ffb7ff7) | Detail header + earnings rows, built from the P1 detail-header pattern. |
+| Onboarding / KYC | P2 | not built | Revolut Verifying identity [flow](https://mobbin.com/flows/24ff924f-1325-4c28-8a5d-2a50cb8ecd1e); MoonPay onboarding checklist [flow](https://mobbin.com/flows/290f5d9a-d210-416d-b167-70a4f03404c8); Chime Onboarding [flow](https://mobbin.com/flows/4e3b9cf6-e3d3-4b72-8c5b-932ffed15459) | A checklist of StatusSteps and a Field-based form; needs a product decision on the KYC provider. |
+| Settings / security | P2 | not built | KOHO Login & password [flow](https://mobbin.com/flows/f9b9a934-24ba-4fd3-9d0e-d6cce117230a); Cleo AI Security [flow](https://mobbin.com/flows/8fa32f0b-9a0b-47a3-8df6-743c12fd5b8b) | Item list with Switch; disclosures live under Account → Disclosures / Terms. |
+
+The References section (`174:2891`) groups two screens for each P0/P1 pattern and labels each group with its citations. Revision 2 adds five groups, marked `(#791 run 7)`: asset detail and price chart, chart tones and baseline, amount entry with the native keyboard, one-time code, and alert tone. Nothing from Mobbin is committed or attached to the PR.
+
+### Borrowed and rejected
+
+Each line is based on the reference screens placed in the References section.
+
+- **Amount entry (revision 2).** Borrowed Klarna's centred `$|` input with the availability line under it, and Monzo's CTA directly above the system keyboard. Rejected the drawn keypad (Cash App, and Home's own `MoneyNumpad`): the native pad frees about 250px and feels native. Rejected Monzo's reference field and account panel: Home picks the asset in a chip so the amount stays dominant.
+- **Asset picker.** Borrowed Base's search field above the held assets, with the balance on the right. Rejected Cash App's "Most Traded Monthly" discovery list and per-row Select buttons: a picker lists what you hold, and the whole row is the tap target.
+- **Review / confirm.** Borrowed Cash App's label/value rows and Phantom's compact summary with a single Send CTA. Rejected Cash App's exchange-rate footnote above the CTA, because it is not actionable. A send keeps fee, network and arrival; a trade also keeps slippage and the minimum received, because the user needs them before confirming.
+- **Result.** Borrowed Monzo's success screen with the amount in the title, and Klarna's one-line failure with a primary Try again. Rejected Monzo's decorative illustration: result screens use one status icon. The unknown outcome has no reference screen; it follows Home's action model rather than a borrowed pattern.
+- **Transaction detail.** Borrowed the label/value receipt rows from PayPal and Cash App. Rejected Cash App's "What can you do" help and dispute list on the detail: that belongs in Account.
+- **Rate display.** Borrowed OKX's rate as a right-aligned value for each asset. Rejected Marcus's explanatory interest-rate modal: Home puts the rate inline and keeps explanations in Account → Disclosures.
+- **Status steps.** Borrowed Cash App's grouped Pending rows. Rejected Starling's spinner-only processing screen: Home shows steps with real times.
+- **Asset detail + chart (revision 2).**
+  - Borrowed PayPal's order (price, then signed change and period, then chart, range and position rows).
+  - Borrowed MoonPay's soft area fill and high/low labels.
+  - Borrowed Perplexity's dotted previous-close baseline.
+  - Borrowed the label/value stats list from Cash App and N26.
+  - Rejected Cash App's neon lime line and MoonPay's muted segmented track (Home's range is borderless), Plum's disclaimer under the chart and purple pinned CTA, and the candlesticks and order-book density of Vivid and Coinbase Advanced.
+  - Rejected market cap and volume stats, because no Home contract carries them.
+- **One-time code.** Borrowed Fresha's and Shop's six boxes with an active ring and a caret. Rejected Blue Apron's tinted box fill: empty and filled slots stay on `background`.
+- **Chart and alert tones.** Borrowed Coinbase's and PayPal's depth of green and red, and Givingli's and Tripadvisor's pattern of a coloured icon and title over a neutral body. Rejected Robinhood's and Cash App's neon tones and all-red alert bodies.
+- **Empty / NUX.** Borrowed Starling's one line and one action. Rejected MoonPay's large illustration.
+- **Inline alerts.** Borrowed Cash App's "we need a few more details" framing, which presents verification as an unlock, and Lloyds' concrete new-limit confirmation. Rejected Cash App's long legal paragraph on the product screen: disclosures live in Account.
+
+## Code Connect
+
+Code Connect maps a Figma component to its code owner. It does not sync changes in either direction.
+
+- The #683 families are already mapped. `FinanceRow` (`96:1147`) is now published and mapped: `add_code_connect_map` returns "already mapped".
+- Every new component in this pass is unpublished. On 2026-09-23, `add_code_connect_map` returned "Published component not found" for `Badge` (`158:1841`), so these mappings can only be added after Jesse publishes. After publishing, add the mappings below, one per set, with label `React`.
+
+| Figma node | Component | Source |
+| --- | --- | --- |
+| `158:1841` | Badge | `apps/web/components/ui/badge.tsx` |
+| `158:1862` | Alert | `apps/web/components/ui/alert.tsx` |
+| `158:1866` | Skeleton | `apps/web/components/ui/skeleton.tsx` |
+| `158:1872` | Separator | `apps/web/components/ui/separator.tsx` |
+| `158:1880` | Label | `apps/web/components/ui/label.tsx` |
+| `160:1654` | Input | `apps/web/components/ui/input.tsx` |
+| `160:1673` | InputGroup | `apps/web/components/ui/input-group.tsx` |
+| `160:1684` | Field | `apps/web/components/ui/field.tsx` |
+| `160:1718` | SelectTrigger (Select) | `apps/web/components/ui/select.tsx` |
+| `160:1759` | ComboboxInput (Combobox) | `apps/web/components/ui/combobox.tsx` |
+| `160:1772` | Switch | `apps/web/components/ui/switch.tsx` |
+| `160:1826` | Toggle | `apps/web/components/ui/toggle.tsx` |
+| `160:1849` | ToggleGroup | `apps/web/components/ui/toggle-group.tsx` |
+| `161:1818` | Item | `apps/web/components/ui/item.tsx` |
+| `161:1847` | DrawerContent (Drawer) | `apps/web/components/ui/drawer.tsx` |
+| `269:5270` | Card (set-level; `12:28` keeps its existing variant mapping) | `apps/web/components/ui/card.tsx` |
+| `274:5577` | TradeActions | `apps/web/client/trading/trade-actions.tsx` |
+| `274:6015` | ShimmerRows (one row) | `apps/web/client/home/panel-shared.tsx` |
+| `161:1885` | Toast | `apps/web/components/ui/toast.tsx` |
+| `161:1904` | Empty | `apps/web/components/ui/empty.tsx` |
+| `166:1739` | MoneyNumpad (deprecated in Figma; still rendered by code until the native-input follow-up lands) | `apps/web/client/money-modal/amount.tsx` |
+| `166:1776` | MoneyPrimaryAmount | `apps/web/client/money-modal/amount.tsx` |
+| `166:1787` | MoneyQuickChips | `apps/web/client/money-modal/amount.tsx` |
+| `166:1788` | MoneyUnitToggle | `apps/web/client/money-modal/amount.tsx` |
+| `166:1803` | MoneyConfirmSummary | `apps/web/client/money-modal/confirm-summary.tsx` |
+| `282:5961` | CopyableValue (set; `166:1820` is `display=truncated`) | `apps/web/components/copyable-value.tsx` |
+| `166:1959` | PriceChart | `apps/web/client/invest/price-chart.tsx` |
+| `292:5883` | PopoverContent (Popover) | `apps/web/components/ui/popover.tsx` |
+| `293:5935` | SignedBalanceBar (set-level; `91:927` keeps its existing variant mapping) | `apps/web/components/signed-balance-bar.tsx` |
+
+`Button` (`12:27`) and `Card` (`12:28`) keep their existing mappings; run 11 re-checked both, plus `FinanceRow` (`96:1147`), and `add_code_connect_map` still reports "already mapped" for all three. Run 12 re-checked `FinanceRow` `96:1147`, `Card` `12:28` and `SignedBalanceBar` `91:927` after moving it into a set: all three still report "already mapped". `MoneyNumpadKey`, `MoneyConfirmRow` and `TransactionAmount` are sub-parts and are not mapped separately. Design-only items are not mapped: Progress, RadioGroup, InputOTP, InputOTPSlot, StatusStep, ResultHeader, AssetDetailHeader, SystemKeyboard and Icon. Re-checked 2026-09-23 after revision 2: `Badge` still reports "Published component not found".
+
+Three mapped sets carry proposed variants or drawings that code cannot render yet. Their Figma descriptions say `PROPOSED`, and the mapping must not translate them into props:
+
+- `MoneyPrimaryAmount` `state=error`. Map only `empty` and `entered`, which follow the `amount` value.
+- `PriceChart` `tone=gain|loss|scrub|error`. Code draws the line in `var(--primary)`; `tone=loading` follows the history status and is not a prop.
+- `ToggleGroup` `variant=outline` keeps its name and mapping; only its drawing (one group border) is proposed.
+
+## Publish checklist
+
+Jesse publishes from Figma → Assets → Publish library.
+
+1. **Check the dialog lists the new items.**
+   - 40 new components or sets: Icon; 21 new primitives, Badge to RadioGroup in the matrix plus `InputOTP` and `InputOTPSlot`; 12 new finance components, MoneyNumpad to PriceChart, counting `MoneyNumpadKey` and `MoneyConfirmRow` as their own sets; run 11's `Card` set, `TradeActions`, `SystemKeyboard`, `ShimmerRow` and `TransactionAmount`; and run 12's `Popover` (`292:5883`).
+   - 83 new variables: 29 colours, 12 `color/alpha/*` and 4 radius values in `Home tokens`, and 38 in the new `Home scale` collection. Revision 2 adds `warning`, `chart-gain`, `chart-loss`, `chart-baseline`, `alpha/chart-gain-12` and `alpha/chart-loss-12`.
+   - The new `Dark` mode.
+   - 4 effect styles and 7 text styles (including run 11's `Mono sm`).
+2. **Check the changes to existing items.**
+   - `Button` (`12:27`) gains 55 variants and renames its properties to `variant` / `size` / `state`. `Variant=Primary` becomes `variant=default, size=touch` and `Variant=Secondary` becomes `variant=outline, size=touch`. Node IDs and instances are preserved.
+   - `Card` changes its description only.
+   - Revision 3 changes: `FinanceRow` gains a `Show action` boolean (default off, so existing instances and `Home — final` are unchanged). `Alert` draws `AlertAction` as an outline button. `ResultHeader` gains `outcome=unknown`. `Icon` gains `icon=circle-help`. `MoneyConfirmSummary` rows sit in the standard block. `PriceChart` fits its column. `MoneyPrimaryAmount` is optically centred.
+   - Run 10 change: `MoneyConfirmSummary` (`166:1803`) gains a first `To` row, and `MoneyConfirmRow layout=full-value` (used only there) draws a wrapped mono address with a copy icon. The summary's only four instances are the Review board's frames.
+   - Run 11 changes (revision 4):
+     - `FinanceRow` is restructured in all five variants (body wrapper, Icon chevron, in-slot primary Retry glyph, text styles, 12px padding). Every instance, including `Home — final`, Archive and Home states, re-renders with the amount on the title line and 58px rows.
+     - `Card` `12:28` becomes the `inset=legacy` variant of the new `Card` set `269:5270`, and `CopyableValue` `166:1820` becomes `display=truncated` of `282:5961`. Both IDs and mappings are kept.
+     - New sets: `TradeActions`, `SystemKeyboard`, `ShimmerRow` and `TransactionAmount`. `MoneyConfirmRow` gains `layout=copyable`, and `Icon` gains `house` and `chart-column-increasing`.
+     - `Button` gets an `Icon` instance-swap property. `Drawer` and `Field` get native slots. `SectionHeader`, `MoreRow`, `ShellHeader`, `TabBar` and `TabItem` lose their text-glyph and absolute-layer stand-ins.
+     - New text style `Home/Mono sm`. `color/chart-baseline` changes to #8a8a8a.
+   - Run 12 changes (revision 5):
+     - `SignedBalanceBar` `91:927` becomes `items=borrow+cash+investments` of the new set `293:5935`, beside `items=cash+investments` and `items=cash`. The ID and mapping are kept.
+     - `Skeleton` (all three shapes) fills with `color/alpha/foreground-10` instead of `color/muted`, so every `ShimmerRow` and skeleton reads as code's `bg-foreground/10` on the card and on the muted page.
+     - `Empty` draws `EmptyAction` as a `Button` instance (`variant=default, size=lg`, 44px tall) instead of a raw frame.
+     - `Home states` (`190:2821`) is rebuilt on `Card`, `SignedBalanceBar`, `ShimmerRow`, `Skeleton`, `Empty`, `Button` and `Popover` instances and moves between Screens and References. `Card inset=legacy` is now used only by Archive.
+   - Every other #683 family, including `FinanceRow`, `SignedBalanceBar` and `ActivityLoader`, shows CHANGED because of the token corrections (Figma `getPublishStatusAsync`, re-read 2026-09-23 after revision 2).
+   - Revision 2 changes three token values ahead of code: `destructive`, `market-gain` and `market-loss` (see [Foundations](#foundations)). Money-in green and every error state in the #683 families and on `Home — final` shift to the softer tones on publish. **Decide before publishing:** publish the proposed tones now, with the code token follow-up to match, or wait for the follow-up.
+   - Boards, screens and References are frames. They do not publish.
+3. **Keep References out of any public share.** The section contains Mobbin images and exists for internal reference only.
+4. **Publish.** Then add the Code Connect mappings in the table above: either `add_code_connect_map` per row, or one `send_code_connect_mappings` call.
+5. **Spot-check `Home — final` (`92:922`).** Its `Button` instances should read `variant=default|outline, size=touch, state=default` and look unchanged apart from the token corrections and the proposed money-in green.
+6. **Resolve the review threads in Figma.** Each of the 29 revision-2 threads, the 8 revision-3 threads and the 2 run-11 threads (`1939110696`, `1939110898`) has a reply saying what changed; Jesse resolves them. Run 12 answered no Figma threads.
+
+## Follow-up code issues
+
+These are proposed follow-ups. None are filed or built here; Jesse decides which to file.
+
+- **feat(ui): Button `size="touch"`** (44px). Replaces the repeated `size="lg" className="h-11"` and makes Code Connect 1:1. It also moves the five 36px `size="lg"` CTAs listed under [Rules](#rules-this-library-follows) to `size="touch"`, so they meet the 44px target. P0.
+- **feat(ui): ResultHeader** for the money-flow success, pending, failed and unknown result (design-only `166:1884`). `unknown` renders the derived `unknown` action status ("Outcome unknown" in `client/actions/operation-details.ts`) with View in Activity and no retry. P0.
+- **feat(ui): StatusStep list** for pending → complete transfers (design-only `166:1861`). P1.
+- **feat(ui): Progress** as an owned Base UI Progress wrapper for countable quantities such as identity check 2 of 3, never transfer timelines (design-only `161:1923`). P1.
+- **feat(ui): RadioGroup** as an owned Base UI RadioGroup wrapper for funding-source and payout choice (design-only `160:1801`). P1.
+- **fix(ui): soften destructive and rebalance market tones.** In `globals.css`, set `--destructive` #c8372d, `--market-gain` #0a7c4a and `--market-loss` #c8372d, and add `--warning`, `--chart-gain`, `--chart-loss` and `--chart-baseline` with their `@theme` colours. Check the Dark values. P0.
+- **fix(ui): Alert and Toast anatomy.** Padding 14/16. The icon sits in a slot centred on the title line; drop `translate-y-0.5` in favour of the slot. `AlertDescription` becomes foreground in the destructive variant; today `text-destructive/90` is also a 4.49:1 contrast finding. `AlertAction` moves from `absolute top-2 right-2` into the flow, vertically centred, as a `Button variant="outline"` with a 44px hit area. P1.
+- **fix(ui): outline ToggleGroup border.** Draw one border around the group and remove the per-item `data-[variant=outline]` border chain. P1.
+- **feat(ui): InputOTP.** Add an owned `InputOTP` / `InputOTPGroup` / `InputOTPSlot` and move `client/account/sign-in-otp.tsx` off `Input variant="otp"`. Needs Jesse's decision on the `input-otp` dependency (shadcn's implementation), or a hand-rolled hidden-input version. P1.
+- **feat(money-modal): native numeric amount input.** `MoneyPrimaryAmount` becomes an auto-focused `inputMode="decimal"` input with a caret. Remove `MoneyNumpad`, `applyNumpadKey` and the key haptic in the same PR (knip). Add a tap-to-focus fallback for iOS, and move chips above the CTA. Verify with `agent-browser` and a device. Includes the over-balance state (the old "amount invalid state" item). P0.
+- **feat(money-modal): submit loading state.** Show the Button loading state (`aria-busy` plus spinner) on `MoneyConfirmFooter`'s primary while submitting; code today disables the CTA and shows a StatusMessage. The primary keeps `data-money-action-id` only while its prepared action is unexpired, so the loading state must not move the marker to another control or drop `MoneyConfirmFooter` for a bare `MoneyModalFooter`. Review/confirm board. P1.
+- **fix(activity): obvious retry controls.** Load-error cards use a 44px outline "Try again" button with `RotateCw`; code today uses `Button variant="secondary"` at 32px. Failed rows get an in-row retry through a new `FinanceRow` action slot (Figma `Show action`): a ghost icon `Button` with a primary `RotateCw` in the chevron column, a 44px hit area and an `aria-label`, so the amount stays aligned. Status and Empty/NUX boards. P1.
+- **feat(ui): standard list block.** Use `Card variant="flush"` + `CardContent inset="list"` for every grouped list: transaction receipts and steps, the review summary (drop MoneyConfirmRow dividers inside it) and the asset picker. P1.
+- **feat(invest): PriceChart tone and range treatment.** Line colour from the range change's sign (`chart-gain` / `chart-loss`), a 12%→0% area fill, a dotted range-open baseline, and high/low labels (check Liveline support). Remove the `bg-muted` stage, use a borderless range, and add a scrub guide with the point's value and time in the header. Chart errors get an in-place Try again. Asset detail board. P1.
+- **feat(invest): per-range change from history.** Code shows only the 24-hour `priceChange24`, so boards label the period "Today". Compute the change from the first to the last history point so 1W–1Y can show their own period. The boards default the range to 1D, while code defaults to 1W: **Jesse decision**. P1.
+- **feat(invest): asset Details card.** Range high/low from history, network, token and price source with its time, in an inset card under Your position. No market cap or volume until a contract carries them. P2.
+- **feat(invest): extract AssetDetailHeader** from `asset-detail-screen.tsx` so it can be mapped. P2.
+- **design(system): AddressField component and recipient board.** Build the `AddressField` set with only the states `components/address-field.tsx` can render (`state=empty|focused|entered|disabled`; entered shows the shortened address when not focused) and map it with Code Connect. Resolving, resolved and couldn't-resolve are not `AddressField` states: code renders them as sibling content in `send-recipient-status` in `client/transfers/send-dialog.tsx`, so the recipient board draws them as a separate status line under the field. Then draw the send recipient step (AddressField, status line, "Or", suggestion Item rows). Not built in this PR. P1.
+- **dx(design): #684 token sync.** This would replace the hand sync above.
+
+## File structure and the instances-only rule
+
+The Home Figma file is the foundation new screens are assembled from, so every pass keeps it in this shape.
+
+- **One page, sections in build order:** Foundations (variables, text styles, effect styles) → Primitives (shadcn `base-nova` wrappers) → Home components (#683 product families) → Finance patterns (finance components, then labelled pattern boards) → Screens (`Home — final`) → Home states (`190:2821`, the shipped #804 states, kept visually identical to the app) → References (Mobbin, private) → Archive (`Home — funded` `13:19`, v1 `65:503`, v2 `81:700`, explorations; frozen history).
+- **Instances only.** Every UI element on a screen or pattern board is an instance of a library component, configured through its variants, properties and slots. Do not detach, draw raw frames, rectangles or text that stand in for a component, or keep local copies.
+  - Containers that hold arbitrary content use native slots: `Card` `CardContent`, `Drawer` `DrawerContent` / `DrawerFooter` and `Field` `FieldControl`. Put rows inside the instance's slot; never draw a bordered frame.
+  - When a repeated pattern has no component, create one in its library section, with variants and a description naming the code owner or `DESIGN-ONLY`. Run 11 added `TradeActions`, `SystemKeyboard`, `ShimmerRow` and `TransactionAmount` this way; run 12 added `Popover` and the `SignedBalanceBar` `items` variants rather than detach an instance.
+  - Plain copy with no code component (a page `h1` such as "Sign in to Home", board annotations) may be text, but only with a `Home/*` text style and a bound colour.
+- **Bound values.** Colour binds to `Home tokens` variables, type to `Home/*` text styles, and padding, gap and radius to `Home scale` / `radius/*`.
+  - Values off the scale stay literal and are listed in the audit: the 100px screen bottom inset under a sticky footer, the 34px home indicator, the 14px Alert padding and InputOTP digit type.
+  - Brand artwork (currency marks, the US flag, payout colours outside the variables) and the iOS keyboard placeholder are exempt.
+- **Names and layout.** Layer names follow code: component and slot names (`FinanceRow`, `ItemMedia`, `CardContent`), variant values (`Kind=Cash`, `variant=flush, inset=list`), and purpose names for layout frames (`ActivityRows`, `Section / Details`). No `Frame 123`, `Group 4` or `Rectangle`.
+  - Everything is auto layout. The only absolute layers are the plot layers inside `PriceChart`, sticky footers (`TradeActions`, `Drawer`) pinned to a screen edge, which mirror `position: fixed`, and an open `Popover` instance placed against its trigger (the `status revealed` Home state), which mirrors Base UI's positioner.
+- **IDs are contracts.** Swap instances in place and never delete or recreate a mapped component. Deprecate unused components (description `DEPRECATED`, a `Deprecated` Badge beside them on the board) instead of removing them while code still renders them.
+- **Audit before handing off.** Re-run the audit, which counts detached instances, raw stand-ins, unbound colour, type, spacing and radius, generic names and absolute layers per section, and post the before/after table in the PR.
+
+## Known limits
+
+- Dark mode values exist but no board is drawn in Dark.
+- Figma does not reproduce number-flow, press scale, sheet springs or reduced-motion behaviour. The motion variables and descriptions document them instead.
+- The shared text-property defaults of a Figma component set make some variant thumbnails show one sample label (for example every Toast reads "Address copied"). Instances on the pattern boards override the label.
+- Slotted content gets instance-scoped node IDs: content in a `Card`, `Drawer` or `Field` slot has an `I<instance>;…` ID. Component IDs and mapped nodes are unaffected; only board content IDs changed. Moving an existing instance into a slot can corrupt its overrides (run 12 saw a shifted row title and a dropped `MoneyTicker`), so run 12 placed fresh instances configured with the same properties and colour overrides, then deleted the originals.
+- The Figma MCP screenshot renderer does not resolve the alpha of colour variables on component masters. Master paints therefore carry an over-white fallback colour; the editor resolves the variable itself.
+- Boards label proposed changes to current behaviour in their treatment text: the submit loading state, the 44px retry action and the 44px AlertAction. The `MoneyPrimaryAmount` error state and the `PriceChart` gain/loss tone are proposed too; their component descriptions say so. Every other state mirrors current code.
+- The Drawer scrim on the sheet boards is the grey `Screen 390` fill, not code's `bg-foreground/10`, so a sheet reads against something on an empty board. Its treatment is unchanged in run 11.
+- A row with no trailing slot (no chevron, no action) puts its amount 28px further right than rows with a chevron, exactly as code does when `onActivate` is absent. Mixed lists should give every row the same trailing configuration.
+- The iOS keyboard on the amount and one-time-code boards is a labelled grey placeholder. It only shows how much room the system keyboard takes; it is not a Home component.
+- Chart area fills are Figma gradients. Gradient stops cannot bind variables, so they carry the `chart-*` hex; the line and dot are variable-bound.
