@@ -54,7 +54,7 @@ import {
   type HomeInboundPanelState,
 } from "./panel-routing";
 import { ShellHeader, SignedOutLanding } from "./shell-chrome";
-import { HomeHeaderStatus, homeBalancesStatus, useReloadHomeBalances } from "./home-status";
+import { HomeHeaderStatus, headerStatus, homeBalancesStatus, useReloadHomeBalances } from "./home-status";
 import { DashboardShell } from "./shell-panels";
 import { ActionToasts } from "./action-toasts";
 import { useHomeRegion } from "./use-home-region";
@@ -98,6 +98,9 @@ export function HomeShell({
   initialAccountSettingsOpen = false,
   assetBalances,
   balancesRevalidating: balancesRevalidatingProp,
+  interruption = null,
+  interruptionAnnouncement = null,
+  onRetryInterruption,
   presentAssetBalances,
   sendAvailability = [],
   assetMarkResolution,
@@ -738,9 +741,11 @@ export function HomeShell({
     : investChrome?.nested?.onBack ?? (() => {});
 
   const reloadBalances = useReloadHomeBalances();
-  const homeStatus = routeMode === "dashboard" && isVerified && activeNavigation === "home" &&
-    !isAccountSettingsOpen
-    ? homeBalancesStatus(paintedAssetBalances)
+  const homeStatus = routeMode === "dashboard" && isVerified && !isAccountSettingsOpen
+    ? headerStatus({
+      interruption,
+      coverage: activeNavigation === "home" ? homeBalancesStatus(paintedAssetBalances) : null,
+    })
     : null;
 
   const routingValue = useMemo(() => ({
@@ -758,6 +763,9 @@ export function HomeShell({
           ? "flex h-svh max-h-svh flex-col overflow-hidden bg-muted [--shell-scrollbar-width:0px]"
           : "flex min-h-svh flex-col bg-background"}
       >
+        <span role="status" className="sr-only">{routeMode === "dashboard" && isVerified && interruption && interruptionAnnouncement
+          ? headerStatus({ interruption: { kind: interruptionAnnouncement }, coverage: null })?.message
+          : null}</span>
       <ShellHeader
         isAccountSettingsOpen={isAccountSettingsOpen}
         nestedChromeTitle={nestedChromeTitle}
@@ -776,7 +784,7 @@ export function HomeShell({
         status={homeStatus ? (
           <HomeHeaderStatus
             status={homeStatus}
-            onReload={reloadBalances}
+            onRetry={interruption ? onRetryInterruption ?? reloadBalances : reloadBalances}
             onOpenAccount={() => openAccountSettings()}
           />
         ) : null}

@@ -5,6 +5,7 @@ import type { OwnerGenerationFence } from "./owner-generation-fence";
 import type { AccessNavigation } from "./access-response";
 import type { SessionFetch, VerifiedAccountSession } from "./session-client";
 import { TransferExecutionError } from "@/shared/transfers/types";
+import { ResourceFailure, isInterruptionEligible } from "./resource-failure";
 
 const { render } = await import("@testing-library/react");
 const { createElement, useEffect } = await import("react");
@@ -66,6 +67,40 @@ async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
   );
 }
 
+describe("verified read failure tagging", () => {
+  test.each([
+    ["network", undefined, true], ["http", 500, true], ["http", 503, true],
+    ["http", 401, false], ["http", 403, false], ["http", 429, false],
+    ["session", undefined, false], ["parse", undefined, false], ["access", undefined, false],
+  ] as const)("%s %s eligible=%s", (kind, status, eligible) => {
+    expect(isInterruptionEligible(new ResourceFailure(kind, undefined, status))).toBe(eligible);
+  });
+
+  test("does not classify untagged failures or aborted reads", async () => {
+    expect(isInterruptionEligible(new Error("parse balances"))).toBe(false);
+    const abort = new Error("aborted");
+    const transport = await transportWith(async () => { throw abort; });
+    const controller = new AbortController();
+    controller.abort();
+    expect(await rejectionOf(transport.fetchBalances("US", controller.signal))).toBe(abort);
+  });
+
+  test("tags transport, server and parse failures without changing messages or HTTP details", async () => {
+    const network = await transportWith(async () => { throw new Error("socket closed"); });
+    expect(await rejectionOf(network.fetchActivity(""))).toMatchObject({
+      kind: "network", message: "Authenticated resource is unavailable.",
+    });
+    const server = await transportWith(async () => Response.json({
+      error: { code: "UPSTREAM", message: "try later" },
+    }, { status: 503 }));
+    expect(await rejectionOf(server.fetchBalances("US"))).toMatchObject({
+      kind: "http", status: 503, code: "UPSTREAM", serverMessage: "try later",
+    });
+    const parsed = await transportWith(async () => new Response("broken json"));
+    expect(await rejectionOf(parsed.fetchActivity(""))).toMatchObject({ kind: "parse" });
+  });
+});
+
 describe("authenticated transport deployment expiry", () => {
   test("routes access expiry before endpoint parsing and preserves the response body", async () => {
     const destinations: string[] = [];
@@ -87,7 +122,8 @@ describe("authenticated transport deployment expiry", () => {
       rejectionOf(transport.fetchBalances("US")),
       rejectionOf(transport.fetchAccountResource("/api/actions")),
     ]);
-    expect((balanceError as Error).message).toBe("Deployment access is required.");
+    expect(balanceError).toMatchObject({ kind: "access", message: "Deployment access is required." });
+    expect(isInterruptionEligible(balanceError)).toBe(false);
     expect(actionError).toBeInstanceOf(TransferExecutionError);
 
     expect(destinations).toEqual([

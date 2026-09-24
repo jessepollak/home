@@ -28,18 +28,18 @@ describe("Home header status", () => {
     expect(statusFor(buildBalancesSnapshotFixture({ registry: cash }))).toBeNull();
   });
 
-  test("offers Reload when some balances are unavailable", () => {
+  test("offers Retry when some balances are unavailable", () => {
     expect(statusFor(buildBalancesSnapshotFixture({
       registry: { ...cash, eth: { balance: unavailableBalance, value: { status: "unavailable" } } },
-    }))).toEqual({ message: "Some balances are unavailable", recovery: "reload" });
+    }))).toEqual({ message: "Some balances are unavailable", recovery: "retry" });
   });
 
-  test("offers Reload when the balances read fails", () => {
+  test("offers Retry when the balances read fails", () => {
     expect(homeBalancesStatus(presentBalances({ status: "error", snapshot: null, error: "balances-unavailable" })))
-      .toEqual({ message: "Balances are unavailable", recovery: "reload" });
+      .toEqual({ message: "Balances are unavailable", recovery: "retry" });
   });
 
-  test("keeps the country prompt and routes to Account instead of Reload", () => {
+  test("keeps the country prompt and routes to Account instead of Retry", () => {
     expect(statusFor(buildBalancesSnapshotFixture({ region: "GLOBAL", registry: cash }))).toEqual({
       message: "Choose a country in Account to set how money is shown",
       recovery: "choose-country",
