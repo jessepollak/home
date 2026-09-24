@@ -330,7 +330,7 @@ describe("FundingCore", () => {
       logProviderDiscoveryFailure: (event) => { events.push(event); },
     });
 
-    expect(await core.listProviders("ID", session)).toEqual([]);
+    await expect(core.listProviders("ID", session)).rejects.toThrow("PROVIDERS_UNAVAILABLE");
     expect(events).toEqual([{
       providerId: "fixture",
       reason: "configuration",
@@ -339,7 +339,7 @@ describe("FundingCore", () => {
     expect(JSON.stringify(events)).not.toContain("secret-value");
   });
 
-  test("reports a binding hidden by a missing environment variable without naming it", async () => {
+  test("withholds a matched corridor whose binding environment is missing and stays quiet for other regions", async () => {
     const events: Array<{ providerId: string; reason: string; code: string }> = [];
     const core = new FundingCore({
       providers: [{
@@ -356,7 +356,7 @@ describe("FundingCore", () => {
       logProviderDiscoveryFailure: (event) => { events.push(event); },
     });
 
-    expect(await core.listProviders("ID", session)).toEqual([]);
+    await expect(core.listProviders("ID", session)).rejects.toThrow("PROVIDERS_UNAVAILABLE");
     expect(events).toEqual([{
       providerId: "fixture",
       reason: "configuration",
