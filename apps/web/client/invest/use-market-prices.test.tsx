@@ -95,23 +95,35 @@ afterEach(() => {
 describe("useMarketPrices", () => {
   test("ages a ready source snapshot out while mounted instead of presenting it as perpetually live", async () => {
     const freshnessMs = 20;
+    const sourceTime = Date.parse("2026-01-01T00:00:00.000Z");
+    let clock = sourceTime;
+    let nowCalls = 0;
     const options: UseMarketPricesOptions = {
       fetchImpl: (async () =>
-        Response.json(responseWithSnapshot(new Date().toISOString()))),
+        Response.json(responseWithSnapshot(new Date(sourceTime).toISOString()))),
+      now: () => {
+        nowCalls += 1;
+        return clock;
+      },
       freshnessMs,
       refreshCooldownMs: 60_000,
     };
     render(<HookProbe options={options} />);
 
     await waitFor(() =>
-      expect(page().getByTestId("stock-status").textContent).toBe("ready"),
+      expect(page().getByTestId("stock-detail").textContent).toBe(
+        "$123.4567890123456789",
+      ),
     );
-    await waitFor(
-      () =>
-        expect(page().getByTestId("stock-detail").textContent).toBe(
-          "Price snapshot is stale.",
-        ),
-      { timeout: 1_000 },
+    const callsWhenReady = nowCalls;
+    await waitFor(() => expect(nowCalls).toBeGreaterThan(callsWhenReady + 4));
+    expect(page().getByTestId("stock-status").textContent).toBe("ready");
+
+    clock = sourceTime + freshnessMs + 1;
+    await waitFor(() =>
+      expect(page().getByTestId("stock-detail").textContent).toBe(
+        "Price snapshot is stale.",
+      ),
     );
   });
 

@@ -111,8 +111,8 @@ describe("recent activity reader", () => {
     ], null);
     const resolveMetadata = async () => ({
       metadata: new Map([
-        [known, { assetId: null, tokenSymbol: "TEST", tokenDecimals: 18 }],
-        [UNKNOWN, { assetId: null, tokenSymbol: null, tokenDecimals: null }],
+        [known, { assetId: null, tokenSymbol: "TEST", tokenDecimals: 18, tokenImageUrl: null }],
+        [UNKNOWN, { assetId: null, tokenSymbol: null, tokenDecimals: null, tokenImageUrl: null }],
       ]),
       nftLikeContracts: new Set<string>(),
     });
@@ -151,7 +151,7 @@ describe("recent activity reader", () => {
     await createActivityReader(
       async () => transferPage([incomingTransfer(known, "b", "2")], null),
       async () => ({
-        metadata: new Map([[known, { assetId: null, tokenSymbol: "TEST", tokenDecimals: 18 }]]),
+        metadata: new Map([[known, { assetId: null, tokenSymbol: "TEST", tokenDecimals: 18, tokenImageUrl: null }]]),
         nftLikeContracts: new Set<string>(),
       }),
       (_transfers, _currency, signal) => {
@@ -172,7 +172,7 @@ describe("recent activity reader", () => {
     const page = await createActivityReader(
       async () => transferPage([{ ...incomingTransfer(address, "usdc", "1"), amountBaseUnits: "12340000" }], null),
       async () => ({
-        metadata: new Map([[address, { assetId: "usdc", tokenSymbol: "USDC", tokenDecimals: 6 }]]),
+        metadata: new Map([[address, { assetId: "usdc", tokenSymbol: "USDC", tokenDecimals: 6, tokenImageUrl: null }]]),
         nftLikeContracts: new Set<string>(),
       }),
       () => new Promise<never>(() => undefined),
@@ -251,10 +251,10 @@ describe("recent activity reader", () => {
         expect(addresses).toContain(zora);
         return {
           metadata: new Map([
-            [usdc.tokenAddress.toLowerCase(), { assetId: "usdc", tokenSymbol: "USDC", tokenDecimals: 6 }],
-            [cbbtc.tokenAddress.toLowerCase(), { assetId: "cbbtc", tokenSymbol: "cbBTC", tokenDecimals: 8 }],
-            [zora, { assetId: null, tokenSymbol: "ZORA", tokenDecimals: 18 }],
-            [unknown, { assetId: null, tokenSymbol: null, tokenDecimals: null }],
+            [usdc.tokenAddress.toLowerCase(), { assetId: "usdc", tokenSymbol: "USDC", tokenDecimals: 6, tokenImageUrl: null }],
+            [cbbtc.tokenAddress.toLowerCase(), { assetId: "cbbtc", tokenSymbol: "cbBTC", tokenDecimals: 8, tokenImageUrl: null }],
+            [zora, { assetId: null, tokenSymbol: "ZORA", tokenDecimals: 18, tokenImageUrl: null }],
+            [unknown, { assetId: null, tokenSymbol: null, tokenDecimals: null, tokenImageUrl: null }],
           ]),
           nftLikeContracts: new Set(),
         };
@@ -287,8 +287,8 @@ describe("recent activity reader", () => {
       ], "source-next"),
       async () => ({
         metadata: new Map([
-          [UNKNOWN, { assetId: null, tokenSymbol: null, tokenDecimals: null }],
-          [keep, { assetId: null, tokenSymbol: "KEEP", tokenDecimals: 18 }],
+          [UNKNOWN, { assetId: null, tokenSymbol: null, tokenDecimals: null, tokenImageUrl: null }],
+          [keep, { assetId: null, tokenSymbol: "KEEP", tokenDecimals: 18, tokenImageUrl: null }],
         ]),
         nftLikeContracts: new Set([UNKNOWN]),
       }),

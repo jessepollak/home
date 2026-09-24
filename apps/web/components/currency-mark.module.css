@@ -80,7 +80,6 @@
   height: 100%;
   place-items: center;
   padding-inline: 0.25rem;
-  background: var(--muted);
   color: var(--foreground);
   font-size: 0.68rem;
   letter-spacing: -0.02em;

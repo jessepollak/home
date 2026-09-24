@@ -21,6 +21,7 @@ import { presentOperationDetails } from "@/client/actions/operation-details";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import type { RegionId } from "@/config/regions";
 import { assetKeyForErc20 } from "@/config/portfolio-assets";
+import { presentPortfolioAssetMark } from "@/client/asset-mark/presentation";
 import {
   presentActivityTransferDetails,
   presentActivityTransferRow,
@@ -348,9 +349,15 @@ function TransferActivityRow({
   onActivate: () => void;
 }) {
   const model = presentActivityTransferRow(transfer, { regionId });
+  const mark = presentPortfolioAssetMark({
+    assetKey: assetKeyForErc20(transfer.tokenAddress),
+    name: transfer.tokenSymbol ?? "Unknown token",
+    symbol: transfer.tokenSymbol ?? "?",
+    imageUrl: transfer.tokenImageUrl,
+  });
   return (
     <ActivityRow
-      icon={<CurrencyMark assetKey={assetKeyForErc20(transfer.tokenAddress)} symbol={transfer.tokenSymbol ?? "?"} size="sm" />}
+      icon={<CurrencyMark assetKey={mark.assetKey} src={mark.imageUrl} symbol={mark.symbol} size="sm" />}
       iconTone="mark"
       label={model.directionLabel}
       context={<time dateTime={model.dateTime} aria-label={model.fullDate}>{model.shortDate}</time>}

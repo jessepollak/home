@@ -156,6 +156,7 @@ function pageFor(
             tokenAddress,
             tokenSymbol: "USDC",
             tokenDecimals: 6,
+            tokenImageUrl: null,
             walletAddress,
             fromAddress,
             toAddress,

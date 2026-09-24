@@ -28,6 +28,10 @@ const WALLET = "0x1111111111111111111111111111111111111111" as const;
 const OTHER = "0x2222222222222222222222222222222222222222" as const;
 const USDC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const;
 const noop = () => undefined;
+const logoImage = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="blue"/></svg>')}`;
+const ZORA = "0x1111111111166b7fe7bd91427724b487980afc69" as const;
+const CREDITS = "0x4444444444444444444444444444444444444444" as const;
+const UNKNOWN = "0x5555555555555555555555555555555555555555" as const;
 
 function transfer(
   id: string,
@@ -43,6 +47,7 @@ function transfer(
     tokenAddress: USDC,
     tokenSymbol: "USDC",
     tokenDecimals: 6,
+    tokenImageUrl: null,
     walletAddress: WALLET,
     fromAddress: direction === "incoming" ? OTHER : WALLET,
     toAddress: direction === "incoming" ? WALLET : OTHER,
@@ -124,8 +129,9 @@ const readyActivity: UseActivityResult = {
   status: "ready",
   page: activityPage([
     transfer("received", 22, "incoming", "25000000"),
-    transfer("sent", 21, "outgoing", "12000000"),
-    transfer("received-older", 14, "incoming", "60000000"),
+    { ...transfer("logo", 21, "incoming", "12000000"), id: `8453:${ZORA}:logo`, tokenAddress: ZORA, assetId: null, tokenSymbol: "ZORA", tokenDecimals: 18, tokenImageUrl: logoImage },
+    { ...transfer("credits", 14, "outgoing", "60000000"), id: `8453:${CREDITS}:credits`, tokenAddress: CREDITS, assetId: null, tokenSymbol: "CREDITS", tokenDecimals: 18 },
+    { ...transfer("unknown", 13, "incoming", "60000000"), id: `8453:${UNKNOWN}:unknown`, tokenAddress: UNKNOWN, assetId: null, tokenSymbol: null, tokenDecimals: null },
   ], "cursor-2"),
   loadingMore: true,
   loadMoreError: false,
@@ -359,7 +365,11 @@ export const Funded: Story = {
     }
     const tones = [...activity.querySelectorAll("[data-value-tone]")]
       .map((value) => value.getAttribute("data-value-tone"));
-    await expect(tones).toEqual(["success", "default", "success", "success"]);
+    await expect(tones).toEqual(["success", "success", "success", "default", "success"]);
+    const credits = within(activity).getByRole("button", { description: /CREDITS transaction details/ });
+    await expect(credits.querySelector("[data-mark-inner]")?.textContent).toBe("CR");
+    const logo = within(activity).getByRole("button", { description: /ZORA transaction details/ });
+    await expect(logo.querySelector("img")?.getAttribute("src")).toBe(logoImage);
   },
 };
 
@@ -437,7 +447,7 @@ export const ActivityDetailReturn: Story = {
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(body.queryByRole("dialog")).toBeNull());
     await waitFor(() => expect(row).toHaveFocus());
-    await expect(canvas.getAllByRole("button", { description: /transaction details/ })).toHaveLength(4);
+    await expect(canvas.getAllByRole("button", { description: /transaction details/ })).toHaveLength(5);
   },
 };
 

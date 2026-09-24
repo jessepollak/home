@@ -39,6 +39,7 @@ function transfer(
     tokenAddress,
     tokenSymbol: usdc.symbol,
     tokenDecimals: usdc.decimals,
+    tokenImageUrl: null,
     walletAddress: WALLET,
     fromAddress: direction === "incoming" ? OTHER : WALLET,
     toAddress: direction === "outgoing" ? OTHER : WALLET,

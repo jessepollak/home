@@ -22,6 +22,7 @@ describe("dynamic activity token metadata", () => {
       assetId: null,
       tokenSymbol: expected,
       tokenDecimals: 18,
+      tokenImageUrl: null,
     });
   });
 
@@ -67,6 +68,7 @@ describe("dynamic activity token metadata", () => {
       assetId: null,
       tokenSymbol: null,
       tokenDecimals: null,
+      tokenImageUrl: null,
     });
   });
 });

@@ -37,6 +37,7 @@ function activityPageBody(windowEnd: string | null, currency: string) {
       tokenAddress: USDC,
       tokenSymbol: "USDC",
       tokenDecimals: 6,
+      tokenImageUrl: null,
       walletAddress: wallet,
       fromAddress: RECIPIENT,
       toAddress: wallet,
