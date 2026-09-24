@@ -17,6 +17,7 @@
     "typecheck": "bun run --cwd apps/web typecheck",
     "test": "bun run --cwd apps/web test",
     "check": "bun run gates && bun run test && bun run lint && bun run typecheck && bun run knip && bun run build",
+    "ab": "sh scripts/verify/agent-browser.sh",
     "knip": "bun run --cwd apps/web knip",
     "gates": "node --test scripts/gates/tests/*.test.mjs",
     "caught-by-report": "node scripts/gates/caught-by-report.mjs",

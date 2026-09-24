@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { liveLogin, loadVerificationEnv } from "./live-login";
@@ -161,21 +161,33 @@ test("refuses symlinks, permissive permissions, and non-allowlisted or malformed
 test("defaults to headed browser but preserves a provisioned runner's override", async () => {
   const home = Bun.spawnSync(["mktemp", "-d", resolve(tmpdir(), "home-headed-test-XXXXXX")]).stdout.toString().trim();
   directories.push(home);
-  const browserPath = resolve(home, "bunx");
   const observedPath = resolve(home, "headed");
-  await Bun.write(browserPath, '#!/bin/sh\nif [ -n "$HOME_VERIFY_ACCOUNT_EMAIL" ] || [ -n "$HOME_VERIFY_GMAIL_CREDENTIALS" ] || [ -n "$HOME_VERIFY_CASHOUT_HANDLE" ] || [ -n "$HOME_ACCESS_PASSWORD" ]; then printf leaked > "$FAKE_HEADED_LOG"; else printf "%s" "$AGENT_BROWSER_HEADED" > "$FAKE_HEADED_LOG"; fi\nexit 1\n');
-  Bun.spawnSync(["chmod", "755", browserPath]);
-  for (const [setting, expected] of [[undefined, "true"], ["false", "false"]] as const) {
-    const env = {
-      HOME_VERIFY_ACCOUNT_EMAIL: "bot@example.com",
-      HOME_VERIFY_CASHOUT_HANDLE: "$pinned",
-      HOME_ACCESS_PASSWORD: "gate=secret",
-      PATH: home,
-      FAKE_HEADED_LOG: observedPath,
-      ...(setting === undefined ? {} : { AGENT_BROWSER_HEADED: setting }),
-    };
-    await expect(liveLogin(["--base-url", "https://example.com"], { home, env })).rejects.toThrow("Browser open failed");
-    expect(Bun.spawnSync(["cat", observedPath]).stdout.toString()).toBe(expected);
+  const browser = resolve(import.meta.dir, "../../node_modules/.bin/agent-browser");
+  const original = Bun.spawnSync;
+  const spy = spyOn(Bun, "spawnSync").mockImplementation(((options: { cmd: string[]; env?: Record<string, string | undefined> }) => {
+    if (options.cmd[0] === browser) {
+      for (const key of ["HOME_ACCESS_PASSWORD", "HOME_VERIFY_ACCOUNT_EMAIL", "HOME_VERIFY_GMAIL_CREDENTIALS", "HOME_VERIFY_CASHOUT_HANDLE"]) expect(options.env?.[key]).toBeUndefined();
+    }
+    if (options.cmd[0] === browser && options.cmd[1] !== "--version") {
+      return original({ cmd: ["/bin/sh", "-c", 'printf "%s" "$AGENT_BROWSER_HEADED" > "$FAKE_HEADED_LOG"; exit 1'], env: options.env, stdout: "pipe", stderr: "pipe" });
+    }
+    return original(options);
+  }) as typeof Bun.spawnSync);
+  try {
+    for (const [setting, expected] of [[undefined, "true"], ["false", "false"]] as const) {
+      const env = {
+        HOME_VERIFY_ACCOUNT_EMAIL: "bot@example.com",
+        HOME_VERIFY_CASHOUT_HANDLE: "$pinned",
+        HOME_ACCESS_PASSWORD: "gate=secret",
+        PATH: process.env.PATH ?? "",
+        FAKE_HEADED_LOG: observedPath,
+        ...(setting === undefined ? {} : { AGENT_BROWSER_HEADED: setting }),
+      };
+      await expect(liveLogin(["--base-url", "https://example.com"], { home, env })).rejects.toThrow("Browser open failed");
+      expect(original(["cat", observedPath]).stdout.toString()).toBe(expected);
+    }
+  } finally {
+    spy.mockRestore();
   }
 });
 

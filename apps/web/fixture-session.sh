@@ -5,9 +5,8 @@ if [[ ${1:-} == --session && $# == 2 ]]; then name=$2
 elif [[ $# != 0 ]]; then echo 'Usage: fixture-session [--session <name>]' >&2; exit 2
 fi
 if [[ ! $name =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$ ]]; then echo 'Invalid fixture session name.' >&2; exit 2; fi
-browser="../../node_modules/agent-browser/bin/agent-browser-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed -e 's/x86_64/x64/' -e 's/aarch64/arm64/')"
-if [[ ! -x $browser ]]; then echo 'Repository-pinned agent-browser binary is missing; run bun install --frozen-lockfile.' >&2; exit 2; fi
-browser_command() { env -i HOME="$HOME" PATH="$PATH" AGENT_BROWSER_SESSION="$name" "$browser" --session "$name" "$@"; }
+repository=$(cd "$(dirname "$0")/../.." && pwd)
+browser_command() { env -i HOME="$HOME" PATH="$PATH" AGENT_BROWSER_SESSION="$name" bun run --cwd "$repository" ab -- --session "$name" "$@"; }
 private="$HOME/.home-verify"
 mkdir -p "$private"
 chmod 700 "$private"
