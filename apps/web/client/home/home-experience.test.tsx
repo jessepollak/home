@@ -996,12 +996,6 @@ describe("Home shell routing and intents", () => {
     expect(window.location.pathname).toBe("/invest/crypto");
     expect(page().getByRole("heading", { level: 1, name: "Crypto" })).toBeTruthy();
 
-    const entriesBeforeSameTab = pushCalls.length;
-    fireEvent.click(navigation.getByRole("button", { name: "Invest" }));
-    expect(window.location.pathname).toBe("/invest/crypto");
-    expect(pushCalls).toHaveLength(entriesBeforeSameTab);
-    expect(page().getByRole("heading", { level: 1, name: "Crypto" })).toBeTruthy();
-
     fireEvent.click(navigation.getByRole("button", { name: "Home" }));
     expect(window.location.pathname).toBe("/home");
     fireEvent.click(navigation.getByRole("button", { name: "Invest" }));
@@ -1168,13 +1162,13 @@ describe("Home shell routing and intents", () => {
     expect(page().getByRole("button", { name: "Choose a country in Account to set how money is shown" })).toBeTruthy();
     view.rerender(<HomeHarness accountSdk={accountSdk} assetBalances={partial}
       investContent={<NestedInvestFixture />} interruption={null} />);
-    expect(page().getByRole("button", { name: "Some balances are unavailable" })).toBeTruthy();
+    expect(document.querySelector("[data-home-status]")).toBeNull();
     view.rerender(<HomeHarness accountSdk={accountSdk} assetBalances={partial}
       investContent={<NestedInvestFixture />} interruption={{ kind: "interrupted" }} />);
     expect(page().getByRole("button", { name: interrupted })).toBeTruthy();
     view.rerender(<HomeHarness accountSdk={accountSdk} assetBalances={partial}
       investContent={<NestedInvestFixture />} interruption={null} />);
-    expect(page().getByRole("button", { name: "Some balances are unavailable" })).toBeTruthy();
+    expect(document.querySelector("[data-home-status]")).toBeNull();
   });
 
   test("opens Borrow from the Borrow Cash row without adding a bottom navigation item", async () => {

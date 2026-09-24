@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
+  borrowPosition,
   buildBalancesSnapshotFixture,
+  catalogHolding,
+  FIXTURE_CATALOG,
   priced,
   pricedCash,
   ready,
@@ -28,15 +31,34 @@ describe("Home header status", () => {
     expect(statusFor(buildBalancesSnapshotFixture({ registry: cash }))).toBeNull();
   });
 
-  test("offers Retry when some balances are unavailable", () => {
+  test("does not interrupt a ready but incomplete catalog read or isolated gaps", () => {
+    const partial = buildBalancesSnapshotFixture({ registry: cash, coverage: { catalog: "incomplete" } });
+    expect(presentBalances({ status: "ready", snapshot: partial, error: null }).totalStatus).toBe("partial");
+    expect(statusFor(partial)).toBeNull();
+    expect(statusFor(buildBalancesSnapshotFixture({
+      registry: cash,
+      catalog: [catalogHolding(FIXTURE_CATALOG.priceMissing, "1000000", {
+        status: "unpriced", reason: "price-unavailable",
+      })],
+    }))).toBeNull();
     expect(statusFor(buildBalancesSnapshotFixture({
       registry: { ...cash, eth: { balance: unavailableBalance, value: { status: "unavailable" } } },
-    }))).toEqual({ message: "Some balances are unavailable", recovery: "retry" });
+    }))).toBeNull();
+    expect(statusFor(buildBalancesSnapshotFixture({
+      registry: cash,
+      borrow: { coverage: "partial", positions: [borrowPosition({
+        collateralBaseUnits: "100000",
+        collateralValue: priced("USD", "1000"),
+        debtBaseUnits: "1000000",
+        debtValue: priced("USD", "100"),
+      })] },
+    }))).toBeNull();
   });
 
-  test("offers Retry when the balances read fails", () => {
-    expect(homeBalancesStatus(presentBalances({ status: "error", snapshot: null, error: "balances-unavailable" })))
-      .toEqual({ message: "Balances are unavailable", recovery: "retry" });
+  test("offers Retry on a failed read, then clears after a ready partial read", () => {
+    const failed = presentBalances({ status: "error", snapshot: null, error: "balances-unavailable" });
+    expect(homeBalancesStatus(failed)).toEqual({ message: "Balances are unavailable", recovery: "retry" });
+    expect(statusFor(buildBalancesSnapshotFixture({ coverage: { catalog: "incomplete" } }))).toBeNull();
   });
 
   test("keeps the country prompt and routes to Account instead of Retry", () => {

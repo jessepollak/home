@@ -10,7 +10,6 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { browserHomeQueryClient, useHomeQueryClient } from "@/client/query/query-client";
-import type { HomeMoneySummary } from "@/shared/balances/present";
 import type { HomeAssetBalancesPresentation } from "./home-types";
 
 export type HomeBalancesStatus = {
@@ -28,18 +27,7 @@ export function homeBalancesStatus(
   if (assetBalances.needsCountry && assetBalances.statusLabel) {
     return { message: assetBalances.statusLabel, recovery: "choose-country" };
   }
-  if (assetBalances.totalStatus !== "complete" || summaryIncomplete(assetBalances.summary)) {
-    return { message: "Some balances are unavailable", recovery: "retry" };
-  }
   return null;
-}
-
-function summaryIncomplete(summary: HomeMoneySummary | null): boolean {
-  if (!summary) return true;
-  return summary.cash.status !== "complete" ||
-    summary.investments.status !== "complete" ||
-    summary.borrow.kind === "unavailable" ||
-    (summary.borrow.kind === "position" && summary.borrow.status !== "complete");
 }
 
 export function useReloadHomeBalances(): () => void {

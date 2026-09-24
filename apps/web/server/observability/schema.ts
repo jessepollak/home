@@ -57,6 +57,18 @@ export const BALANCES_READ_OUTCOMES = [
   "error",
 ] as const;
 export type BalancesReadOutcome = (typeof BALANCES_READ_OUTCOMES)[number];
+export type BalancesReadIncomplete = {
+  registry: number;
+  catalog: number;
+  borrow: number;
+  balanceUnavailable: number;
+  valueUnavailable: number;
+  priceUnavailable: number;
+  priceStale: number;
+  fxUnavailable: number;
+  belowMarketGate: number;
+  noQuoteCurrency: number;
+};
 export type BalancesReadDurations = {
   "store-read": number;
   enumerate: number;
@@ -160,6 +172,7 @@ export type ObservabilityEvent =
       route: "/api/balances";
       outcome: BalancesReadOutcome;
       durationMs: BalancesReadDurations;
+      incomplete: BalancesReadIncomplete;
       coverage: {
         registry: "complete" | "partial" | "unknown";
         catalog: "complete" | "incomplete" | "unavailable" | "unknown";
@@ -271,6 +284,7 @@ export type ObservabilityLogLine = ObservabilityLogBase &
         code: "BALANCES_READ";
         outcome: BalancesReadOutcome;
         durationMs: BalancesReadDurations;
+        incomplete: BalancesReadIncomplete;
         coverage: {
           registry: "complete" | "partial" | "unknown";
           catalog: "complete" | "incomplete" | "unavailable" | "unknown";
@@ -404,6 +418,7 @@ export function normalizeObservabilityEvent(
       code: "BALANCES_READ",
       outcome,
       durationMs: normalizeBalancesReadDurations(event.durationMs),
+      incomplete: normalizeBalancesReadIncomplete(event.incomplete),
       coverage: {
         registry: allowedValue(
           event.coverage.registry,
@@ -536,6 +551,21 @@ function normalizeBalancesReadDurations(
     coinbase: boundedInteger(durations.coinbase, 60_000),
     "store-write": boundedInteger(durations["store-write"], 60_000),
     total: boundedInteger(durations.total, 60_000),
+  };
+}
+
+function normalizeBalancesReadIncomplete(incomplete: BalancesReadIncomplete): BalancesReadIncomplete {
+  return {
+    registry: boundedInteger(incomplete.registry, 1),
+    catalog: boundedInteger(incomplete.catalog, 1),
+    borrow: boundedInteger(incomplete.borrow, 1),
+    balanceUnavailable: boundedInteger(incomplete.balanceUnavailable, 10_000),
+    valueUnavailable: boundedInteger(incomplete.valueUnavailable, 10_000),
+    priceUnavailable: boundedInteger(incomplete.priceUnavailable, 10_000),
+    priceStale: boundedInteger(incomplete.priceStale, 10_000),
+    fxUnavailable: boundedInteger(incomplete.fxUnavailable, 10_000),
+    belowMarketGate: boundedInteger(incomplete.belowMarketGate, 10_000),
+    noQuoteCurrency: boundedInteger(incomplete.noQuoteCurrency, 10_000),
   };
 }
 

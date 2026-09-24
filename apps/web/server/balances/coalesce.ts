@@ -5,6 +5,7 @@ import type { RegionId } from "@/config/regions";
 import {
   BALANCES_CHAIN_ID,
   type BalancesSnapshot,
+  type HoldingValue,
 } from "@/shared/balances/types";
 import { enumerateBalances as defaultEnumerateBalances } from "./enumerate";
 import {
@@ -19,6 +20,7 @@ import { assembleBalancesSnapshot } from "./snapshot";
 import { emitServerEvent, writeObservabilityEvent } from "@/server/observability/log";
 import type {
   BalancesReadDurations,
+  BalancesReadIncomplete,
   BalancesReadOutcome,
   ObservabilityEvent,
 } from "@/server/observability/schema";
@@ -328,7 +330,7 @@ export function createBalancesService(dependencies: Dependencies = {}) {
         codex: priced.durationMs.codex,
         coinbase: priced.durationMs.coinbase,
         total: Math.max(0, nowMs() - startedAt),
-      }, coverage);
+      }, coverage, snapshot);
       return snapshot;
     } catch (error) {
       emitBalancesRead(log, "error", {
@@ -441,6 +443,7 @@ function emitBalancesRead(
   outcome: BalancesReadOutcome,
   durationMs: BalancesReadDurations,
   coverage: Extract<ObservabilityEvent, { kind: "balances-read" }>["coverage"],
+  snapshot?: BalancesSnapshot,
 ): void {
   try {
     log({
@@ -449,8 +452,57 @@ function emitBalancesRead(
       outcome,
       durationMs,
       coverage,
+      incomplete: snapshot ? countIncomplete(snapshot) : emptyIncomplete(),
     });
   } catch { // oxlint-disable-line home/no-silent-catch -- the balances log sink is isolated so observability cannot change the read result
+  }
+}
+
+function emptyIncomplete(): BalancesReadIncomplete {
+  return {
+    registry: 0,
+    catalog: 0,
+    borrow: 0,
+    balanceUnavailable: 0,
+    valueUnavailable: 0,
+    priceUnavailable: 0,
+    priceStale: 0,
+    fxUnavailable: 0,
+    belowMarketGate: 0,
+    noQuoteCurrency: 0,
+  };
+}
+
+function countIncomplete(snapshot: BalancesSnapshot): BalancesReadIncomplete {
+  const incomplete = emptyIncomplete();
+  incomplete.registry = Number(snapshot.coverage.registry !== "complete");
+  incomplete.catalog = Number(snapshot.coverage.catalog !== "complete");
+  incomplete.borrow = Number(snapshot.borrow.coverage !== "complete");
+  const lines = [
+    ...snapshot.holdings,
+    ...snapshot.borrow.positions.flatMap((position) => [position.collateral, position.debt]),
+  ];
+  for (const line of lines) {
+    if (line.balance.status === "unavailable") {
+      incomplete.balanceUnavailable = Math.min(10_000, incomplete.balanceUnavailable + 1);
+      continue;
+    }
+    if (BigInt(line.balance.baseUnits) <= BigInt(0)) continue;
+    const key = incompleteValueKey(line.value);
+    if (key) incomplete[key] = Math.min(10_000, incomplete[key] + 1);
+  }
+  return incomplete;
+}
+
+function incompleteValueKey(value: HoldingValue): keyof Omit<BalancesReadIncomplete, "registry" | "catalog" | "borrow" | "balanceUnavailable"> | null {
+  if (value.status === "unavailable") return "valueUnavailable";
+  if (value.status === "priced") return null;
+  switch (value.reason) {
+    case "price-unavailable": return "priceUnavailable";
+    case "price-stale": return "priceStale";
+    case "fx-unavailable": return "fxUnavailable";
+    case "below-market-gate": return "belowMarketGate";
+    case "no-quote-currency": return "noQuoteCurrency";
   }
 }
 

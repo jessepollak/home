@@ -28,9 +28,25 @@ describe("observability schema", () => {
       outcome: "revalidating" as const,
       durationMs: { "store-read": 1, enumerate: 0, "registry-read": 0, resolve: 0, price: 1, "valuation-store": 1, codex: 0, coinbase: 0, "store-write": 0, total: 2 },
       coverage: { registry: "complete" as const, catalog: "complete" as const },
+      incomplete: {
+        registry: 0, catalog: 0, borrow: 0, balanceUnavailable: 0, valueUnavailable: 0,
+        priceUnavailable: 2, priceStale: 0, fxUnavailable: 0, belowMarketGate: 0, noQuoteCurrency: 0,
+      },
     };
-    expect(normalizeObservabilityEvent(event)).toMatchObject({ outcome: "revalidating" });
+    expect(normalizeObservabilityEvent(event)).toMatchObject({ outcome: "revalidating", incomplete: event.incomplete });
     expect(normalizeObservabilityEvent({ ...event, outcome: "surprise" as never })).toMatchObject({ outcome: "error" });
+    expect(normalizeObservabilityEvent({
+      ...event,
+      incomplete: {
+        ...event.incomplete,
+        registry: -2, catalog: 4, borrow: Infinity,
+        priceUnavailable: 20_000, priceStale: -1, fxUnavailable: Number.NaN,
+      },
+    })).toMatchObject({
+      incomplete: {
+        registry: 0, catalog: 1, borrow: 0, priceUnavailable: 10_000, priceStale: 0, fxUnavailable: 0,
+      },
+    });
   });
   test("normalizes closed Home startup events at the expected level", () => {
     expect(normalizeObservabilityEvent({

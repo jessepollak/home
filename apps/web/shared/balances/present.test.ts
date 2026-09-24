@@ -358,6 +358,17 @@ describe("balance presentation", () => {
     expect(presentBalances({ status: "ready", snapshot, error: null }).displayTotal).toBe("−$5.00");
   });
 
+  test("keeps catalog-incomplete net partial in the hero presentation", () => {
+    const snapshot = buildBalancesSnapshotFixture({
+      registry: { eth: { balance: ready("1"), value: priced("USD", "100") } },
+      coverage: { catalog: "incomplete" },
+    });
+    const presentation = presentBalances({ status: "ready", snapshot, error: null });
+
+    expect(presentation.totalStatus).toBe("partial");
+    expect(presentation.statusLabel).toBe("Some balances are unavailable");
+  });
+
   test("never presents a gross total as net when the Borrow read is incomplete", () => {
     const snapshot = buildBalancesSnapshotFixture({
       registry: {

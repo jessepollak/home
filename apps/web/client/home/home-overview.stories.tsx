@@ -216,6 +216,7 @@ const noCountryBalances = presentation(buildBalancesSnapshotFixture({
 }));
 
 const loadingBalances = presentBalances({ status: "loading", snapshot: null, error: null });
+const failedBalances = presentBalances({ status: "error", snapshot: null, error: "balances-unavailable" });
 
 const signedInAccount = {
   status: "verified",
@@ -502,19 +503,9 @@ export const PartialBalances: Story = {
     assetBalances: partialBalances,
     operations: [],
   },
-  play: async ({ args, canvasElement }) => {
+  play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await userEvent.click(canvas.getByRole("button", { name: "Some balances are unavailable" }));
-    const detail = await waitFor(() => {
-      const node = canvasElement.ownerDocument.querySelector<HTMLElement>("[data-home-status-detail]");
-      if (!node) throw new Error("status detail not open");
-      return node;
-    });
-    await expect(detail.textContent).toContain("Some balances are unavailable");
-    await userEvent.click(within(detail).getByRole("button", { name: "Retry" }));
-    await expect(args.onRetry).toHaveBeenCalled();
-    await userEvent.keyboard("{Escape}");
-    await waitFor(() => expect(canvasElement.ownerDocument.querySelector("[data-home-status-detail]")).toBeNull());
+    await expect(canvasElement.querySelector("[data-home-status]")).toBeNull();
     await expect(canvasElement.querySelector("[data-total-status='partial']")).not.toBeNull();
     const borrow = canvas.getByRole("button", { description: "Open Borrow" });
     await expect(borrow.textContent).toContain("—");
@@ -531,11 +522,31 @@ export const PartialBorrowPosition: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await expect(canvasElement.querySelector("[data-home-status]")?.getAttribute("aria-label"))
-      .toBe("Some balances are unavailable");
+    await expect(canvasElement.querySelector("[data-home-status]")).toBeNull();
     const borrow = canvas.getByRole("button", { description: "Open Borrow" });
     await expect(borrow.textContent).toContain("$30.01");
     await expect(borrow.querySelector("[data-value-tone]")?.getAttribute("data-value-tone")).toBe("muted");
+  },
+};
+
+export const BalancesUnavailable: Story = {
+  args: {
+    assetBalances: failedBalances,
+    operations: [],
+  },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole("button", { name: "Balances are unavailable" }));
+    const detail = await waitFor(() => {
+      const node = canvasElement.ownerDocument.querySelector<HTMLElement>("[data-home-status-detail]");
+      if (!node) throw new Error("status detail not open");
+      return node;
+    });
+    await expect(detail.textContent).toContain("Balances are unavailable");
+    await userEvent.click(within(detail).getByRole("button", { name: "Retry" }));
+    await expect(args.onRetry).toHaveBeenCalled();
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(canvasElement.ownerDocument.querySelector("[data-home-status-detail]")).toBeNull());
   },
 };
 
