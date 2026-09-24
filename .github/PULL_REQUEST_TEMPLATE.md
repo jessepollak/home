@@ -16,7 +16,7 @@
 | --- | --- | --- | --- |
 | N/A | 0 | N/A | none |
 
-<!-- Add one row for every mapped surface touched by the PR. The verification-evidence check derives the required rung from the feature map's Owned paths. Link the agent-posted screenshots and observed facts under the PR evidence rules; do not paste secrets or raw provider payloads. -->
+<!-- Add one row for every mapped surface touched by the PR and a line for each: Verified: <surface> rung <n> (with safe evidence) or Not verified: <surface> rung <n> — <reason>. The verification-evidence check derives the required rung from the feature map's Owned paths. Link the agent-posted screenshots and observed facts under the PR evidence rules; do not paste secrets or raw provider payloads. -->
 
 ## Real money
 

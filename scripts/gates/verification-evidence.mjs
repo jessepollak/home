@@ -88,6 +88,10 @@ export function verificationEvidenceFindings(files, body, surfaces) {
     else if (row.rung < rung) findings.push(`${surface} reports Rung ${row.rung}; Rung ${rung} is required.`);
     else if (!row.evidence || /^(n\/a|none|-|pending)$/i.test(row.evidence)) findings.push(`${surface} needs an evidence pointer for Rung ${rung}.`);
   }
+  if (required.size && rows.size && ![...body.matchAll(/^(Verified|Not verified): ([a-z0-9-]+) rung ([0-3])(?:\s*—\s*(\S.*))?\s*$/gm)]
+    .some(([, kind, surface, rung, reason]) => required.has(surface) && Number(rung) >= required.get(surface) && (kind === "Verified" || reason))) {
+    findings.push("A mapped surface needs a Verified: or Not verified: line at its required rung (with a reason for a blocker).");
+  }
   return findings;
 }
 
