@@ -81,16 +81,17 @@ export function verificationEvidenceFindings(files, body, surfaces) {
     }
   }
   const findings = [];
+  const evidenceLines = [...body.matchAll(/^(Verified|Not verified): ([a-z0-9-]+) rung ([0-3])(?:\s*—\s*(\S.*))?\s*$/gm)];
   for (const [surface, rung] of required) {
     const row = rows.get(surface);
     if (!row) findings.push(`Missing ## Verification row for ${surface}; Rung ${rung} is required.`);
     else if (!Number.isFinite(row.rung)) findings.push(`Missing rung for ${surface}; Rung ${rung} is required.`);
     else if (row.rung < rung) findings.push(`${surface} reports Rung ${row.rung}; Rung ${rung} is required.`);
     else if (!row.evidence || /^(n\/a|none|-|pending)$/i.test(row.evidence)) findings.push(`${surface} needs an evidence pointer for Rung ${rung}.`);
-  }
-  if (required.size && rows.size && ![...body.matchAll(/^(Verified|Not verified): ([a-z0-9-]+) rung ([0-3])(?:\s*—\s*(\S.*))?\s*$/gm)]
-    .some(([, kind, surface, rung, reason]) => required.has(surface) && Number(rung) >= required.get(surface) && (kind === "Verified" || reason))) {
-    findings.push("A mapped surface needs a Verified: or Not verified: line at its required rung (with a reason for a blocker).");
+    if (rows.size && !evidenceLines.some(([, kind, name, observed, reason]) => name === surface &&
+      (kind === "Verified" ? Number(observed) >= rung : Number(observed) === rung && Boolean(reason)))) {
+      findings.push(`${surface} needs a Verified: or Not verified: line at Rung ${rung} (with a reason for a blocker).`);
+    }
   }
   return findings;
 }
