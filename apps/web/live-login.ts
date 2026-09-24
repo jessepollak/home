@@ -1,4 +1,5 @@
-import { chmod, lstat, mkdir } from "node:fs/promises";
+import { constants } from "node:fs";
+import { chmod, lstat, mkdir, open } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { defaultOtpSender, gmailCredentialsPath, pollGmailOtp, readGmailCredentials, runGmailAuth, verifyAccountEmail, type GmailCredentials } from "./gmail";
@@ -6,9 +7,46 @@ import { defaultOtpSender, gmailCredentialsPath, pollGmailOtp, readGmailCredenti
 type BrowserCommand = (args: string[], input?: string) => string;
 type LoginOptions = { command?: BrowserCommand; home?: string; env?: Record<string, string | undefined>; getOtp?: (email: string, submittedAt: number) => Promise<string> };
 
+const verificationKeys = [
+  "HOME_VERIFY_ACCOUNT_EMAIL", "HOME_ACCESS_PASSWORD", "HOME_VERIFY_GMAIL_CREDENTIALS",
+  "HOME_VERIFY_OTP_SENDER", "HOME_VERIFY_CASHOUT_HANDLE", "HOME_VERIFY_PRODUCTION_URL",
+] as const;
+
+export async function loadVerificationEnv(env: Record<string, string | undefined> = process.env, home = homedir()): Promise<Record<string, string | undefined>> {
+  if (verificationKeys.every((key) => env[key] !== undefined)) return { ...env };
+  const path = resolve(env.HOME_VERIFY_ENV_FILE ?? resolve(home, ".home-verify/live.env"));
+  let file;
+  try {
+    const entry = await lstat(path);
+    if (!entry.isFile() || entry.isSymbolicLink()) throw new Error("Verification env file must be a regular file, not a symlink.");
+    file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const info = await file.stat();
+    if (!info.isFile() || info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0) {
+      throw new Error("Verification env file must be owned by the current user and inaccessible to group and others.");
+    }
+    const values: Record<string, string> = {};
+    for (const line of (await file.readFile("utf8")).split(/\r?\n/)) {
+      if (!line) continue;
+      const match = /^([A-Z][A-Z0-9_]*)=(.*)$/.exec(line);
+      if (!match || !verificationKeys.some((key) => key === match[1]) || match[1] in values) {
+        throw new Error("Verification env file contains an invalid or duplicate key/line.");
+      }
+      values[match[1]] = match[2];
+    }
+    return { ...values, ...env };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT" && env.HOME_VERIFY_ENV_FILE === undefined) return { ...env };
+    if (error instanceof Error && error.message.startsWith("Verification env file")) throw error;
+    throw new Error("Could not read verification env file.");
+  } finally {
+    await file?.close();
+  }
+}
+
 function browserCommand(env: Record<string, string | undefined>, session: string): BrowserCommand {
   const browserEnv: Record<string, string | undefined> = { ...env, AGENT_BROWSER_SESSION: session, AGENT_BROWSER_HEADED: env.AGENT_BROWSER_HEADED ?? "true" };
   delete browserEnv.HOME_ACCESS_PASSWORD;
+  for (const key of Object.keys(browserEnv)) if (key.startsWith("HOME_VERIFY_")) delete browserEnv[key];
   delete browserEnv.AGENT_BROWSER_ALLOWED_DOMAINS;
   return (args, input) => {
     const result = Bun.spawnSync({
@@ -40,7 +78,7 @@ function option(args: string[], flag: string): string | undefined {
 }
 
 export async function liveLogin(args: string[], options: LoginOptions = {}): Promise<string> {
-  const env = options.env ?? process.env;
+  const env = await loadVerificationEnv(options.env ?? process.env, options.home);
   const email = verifyAccountEmail(env);
   const name = option(args, "--session") ?? "home-live";
   if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(name)) throw new Error("--session must be a short alphanumeric name (hyphens and underscores allowed).");
@@ -69,7 +107,7 @@ export async function liveLogin(args: string[], options: LoginOptions = {}): Pro
       command(["open", new URL("/?account=signin", url).toString()]);
     }
     command(["wait", "--fn", `Boolean(${inputExpression("Email address")})`]);
-    command(["find", "label", "Email address", "fill", email, "--exact"]);
+    fillSecret("Email address", email, command);
     const submittedAt = Date.now();
     command(["find", "role", "button", "click", "--name", "Continue with email", "--exact"]);
     const code = options.getOtp
@@ -96,10 +134,11 @@ if (import.meta.main) {
   const args = Bun.argv.slice(2);
   try {
     if (args[0] === "--gmail-auth") {
-      verifyAccountEmail();
+      const env = await loadVerificationEnv();
+      const accountEmail = verifyAccountEmail(env);
       const port = option(args, "--port");
       if (port !== undefined && (!/^\d+$/.test(port) || Number(port) > 65535)) throw new Error("--port must be 0–65535.");
-      await runGmailAuth(gmailCredentialsPath(), { open: !args.includes("--no-open"), port: port === undefined ? undefined : Number(port) });
+      await runGmailAuth(gmailCredentialsPath(env), { accountEmail, open: !args.includes("--no-open"), port: port === undefined ? undefined : Number(port) });
     } else {
       console.log(await liveLogin(args));
     }

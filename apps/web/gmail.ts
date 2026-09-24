@@ -42,9 +42,12 @@ export function gmailCredentialsPath(env: Record<string, string | undefined> = p
 }
 
 export async function readGmailCredentials(path: string, requireRefreshToken = true): Promise<GmailCredentials> {
-  const info = await stat(path);
+  let info;
+  try { info = await stat(path); } catch { throw new Error("Could not read Gmail credentials file."); }
   if ((info.mode & 0o077) !== 0) throw new Error("Gmail credentials must have mode 600.");
-  const parsed = JSON.parse(await readFile(path, "utf8")) as Partial<GmailCredentials>;
+  let parsed: Partial<GmailCredentials>;
+  try { parsed = JSON.parse(await readFile(path, "utf8")) as Partial<GmailCredentials>; }
+  catch { throw new Error("Could not parse Gmail credentials file."); }
   if (!parsed.client_id || !parsed.client_secret || (requireRefreshToken && !parsed.refresh_token)) {
     throw new Error(requireRefreshToken
       ? "Gmail credentials require client_id, client_secret, and refresh_token."
@@ -54,10 +57,14 @@ export async function readGmailCredentials(path: string, requireRefreshToken = t
 }
 
 export async function writeGmailCredentials(path: string, credentials: Required<GmailCredentials>): Promise<void> {
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  await chmod(dirname(path), 0o700);
-  await writeFile(path, `${JSON.stringify(credentials, null, 2)}\n`, { mode: 0o600 });
-  await chmod(path, 0o600);
+  try {
+    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+    await chmod(dirname(path), 0o700);
+    await writeFile(path, `${JSON.stringify(credentials, null, 2)}\n`, { mode: 0o600 });
+    await chmod(path, 0o600);
+  } catch {
+    throw new Error("Could not save Gmail credentials file.");
+  }
 }
 
 function decodeBase64Url(value: string): string {
@@ -273,12 +280,12 @@ export async function completeGmailAuthorization(
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ token: body.refresh_token }),
     });
-    throw new Error(`Gmail authorization was granted by ${grantedEmail}, not the configured bot account ${accountEmail}; the grant was revoked.`);
+    throw new Error("Gmail authorization mailbox did not match the configured bot account; the grant was revoked.");
   }
   await (options.writeCredentials ?? writeGmailCredentials)(path, {
     client_id: bootstrap.client_id,
     client_secret: bootstrap.client_secret,
     refresh_token: body.refresh_token,
   });
-  console.log(`Gmail readonly authorization saved for ${grantedEmail} to ${path}.`);
+  console.log("Gmail readonly authorization saved.");
 }

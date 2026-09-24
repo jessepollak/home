@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { callbackDecision, completeGmailAuthorization, defaultOtpSender, extractOtp, gmailAuthorizationUrl, gmailReadonlyScope, isReadonlyScopeGrant, pollGmailOtp, verifyAccountEmail, type GmailCredentials, type GmailMessage } from "./gmail";
+import { tmpdir } from "node:os";
+import { resolve } from "node:path";
+import { callbackDecision, completeGmailAuthorization, defaultOtpSender, extractOtp, gmailAuthorizationUrl, gmailReadonlyScope, isReadonlyScopeGrant, pollGmailOtp, readGmailCredentials, verifyAccountEmail, type GmailCredentials, type GmailMessage } from "./gmail";
 
 const credentials: Required<GmailCredentials> = {
   client_id: "client-id",
@@ -96,6 +98,23 @@ describe("Gmail OTP parsing", () => {
 });
 
 describe("Gmail account configuration", () => {
+  test("does not expose a credential path or malformed JSON in read errors", async () => {
+    const directory = Bun.spawnSync(["mktemp", "-d", resolve(tmpdir(), "home-gmail-test-XXXXXX")]).stdout.toString().trim();
+    try {
+      const path = resolve(directory, "private-credential-path.json");
+      const missingError = await readGmailCredentials(path).catch((error: unknown) => String(error));
+      expect(missingError).toContain("Could not read Gmail credentials file");
+      expect(missingError).not.toContain(path);
+      await Bun.write(path, '{"client_secret":"private-credential-value",invalid');
+      expect(Bun.spawnSync(["chmod", "600", path]).exitCode).toBe(0);
+      const parseError = await readGmailCredentials(path).catch((error: unknown) => String(error));
+      expect(parseError).toContain("Could not parse Gmail credentials file");
+      expect(parseError).not.toContain("private-credential-value");
+    } finally {
+      Bun.spawnSync(["rm", "-rf", directory]);
+    }
+  });
+
   test("accepts the configured bot account email and refuses when it is unset", () => {
     expect(verifyAccountEmail({ HOME_VERIFY_ACCOUNT_EMAIL: " bot@example.com " })).toBe("bot@example.com");
     expect(() => verifyAccountEmail({})).toThrow("HOME_VERIFY_ACCOUNT_EMAIL");
@@ -212,7 +231,7 @@ describe("Gmail authorization mailbox check", () => {
       accountEmail: "bot@example.com",
       fetchImplementation: fakeGmailAuthFetch("person@example.com", calls),
       writeCredentials: async (_path, credentials) => { writes.push(credentials); },
-    })).rejects.toThrow("Gmail authorization was granted by person@example.com, not the configured bot account bot@example.com; the grant was revoked.");
+    })).rejects.toThrow("Gmail authorization mailbox did not match the configured bot account; the grant was revoked.");
     const revoke = calls.find((call) => call.url === "https://oauth2.googleapis.com/revoke");
     expect(revoke?.body).toContain("token=refresh-token");
     expect(writes).toHaveLength(0);
@@ -229,7 +248,8 @@ describe("Gmail authorization mailbox check", () => {
     expect(writes).toHaveLength(1);
     expect(writes[0].path).toBe("/tmp/gmail.json");
     expect(writes[0].credentials.refresh_token).toBe("refresh-token");
-    expect(logs.join(" ")).toContain("Gmail readonly authorization saved for bot@example.com to /tmp/gmail.json.");
+    expect(logs.join(" ")).toContain("Gmail readonly authorization saved.");
+    expect(logs.join(" ")).not.toContain("bot@example.com");
     expect(calls.some((call) => call.url === "https://oauth2.googleapis.com/revoke")).toBe(false);
   });
 });
