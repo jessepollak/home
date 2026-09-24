@@ -25,6 +25,9 @@ const body = `## Verification
 | landing | 1 | /tmp/landing/summary.md | none |
 | send | 3 | /tmp/send/summary.md | none |
 
+Verified: landing rung 1
+Verified: send rung 3
+
 ## Preview
 N/A
 `;
@@ -89,6 +92,27 @@ test("reports a missing rung and accepts a suffixed surface cell", () => {
     verificationEvidenceFindings(["apps/web/client/landing/page.tsx"], body.replace("| landing | 1 |", "| landing — read-only copy | 1 |"), surfaces),
     [],
   );
+});
+
+test("mapped PRs need a matching evidence or named blocker line without relaxing table/rung checks", () => {
+  const files = ["apps/web/server/actions/confirm.ts"];
+  const noLines = body.replace("Verified: landing rung 1\nVerified: send rung 3\n", "");
+  assert.deepEqual(verificationEvidenceFindings(files, noLines, surfaces), [
+    "A mapped surface needs a Verified: or Not verified: line at its required rung (with a reason for a blocker).",
+  ]);
+  assert.deepEqual(verificationEvidenceFindings(files, `${noLines}\nVerified: landing rung 1`, surfaces), [
+    "A mapped surface needs a Verified: or Not verified: line at its required rung (with a reason for a blocker).",
+  ]);
+  assert.deepEqual(verificationEvidenceFindings(files, `${noLines}\nNot verified: send rung 3 — bot account not provisioned`, surfaces), []);
+  assert.deepEqual(verificationEvidenceFindings(files, `${noLines}\nNot verified: send rung 3`, surfaces), [
+    "A mapped surface needs a Verified: or Not verified: line at its required rung (with a reason for a blocker).",
+  ]);
+  assert.deepEqual(verificationEvidenceFindings(files, `${noLines}\nVerified: send rung 2`, surfaces), [
+    "A mapped surface needs a Verified: or Not verified: line at its required rung (with a reason for a blocker).",
+  ]);
+  assert.deepEqual(verificationEvidenceFindings(files, body.replace("| send | 3 |", "| send | 2 |"), surfaces), [
+    "send reports Rung 2; Rung 3 is required.",
+  ]);
 });
 
 test("passes complete evidence and fails missing, low, or pointerless rows", () => {
