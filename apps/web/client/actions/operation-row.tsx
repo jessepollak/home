@@ -5,6 +5,7 @@ import { CurrencyMark, GlyphMark } from "@/components/currency-mark";
 import { ActivityRow } from "@/components/finance-rows";
 import { MoneyTicker } from "@/components/money-ticker";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
+import type { RegionId } from "@/config/regions";
 import { getDirectPortfolioAssets } from "@/config/portfolio-assets";
 import {
   formatPresentationDate,
@@ -24,20 +25,22 @@ const portfolioAssetKeyById: ReadonlyMap<string, string> = new Map(
 
 export function OperationActivityRow({
   operation,
+  regionId,
   onActivate,
 }: {
   operation: RecentMoneyActionOperation;
+  regionId: RegionId;
   onActivate: () => void;
 }) {
   const amount = primaryOperationAmount(operation);
   const status = labelForOperationStatus(operation.status);
-  const date = formatPresentationDate(operation.updatedAt, { style: "activity-short" });
+  const date = formatPresentationDate(operation.updatedAt, { style: "activity-short", regionId });
   const value = amount
     ? `${amount.direction === "spend" ? "−" : "+"}${amount.estimated ? "~" : ""}${formatPresentationTokenAmount(
         amount.amountBaseUnits,
         amount.decimals,
         amount.symbol,
-        { cashCurrency: amount.symbol === "USDC" ? "USD" : null },
+        { cashCurrency: amount.symbol === "USDC" ? "USD" : null, regionId },
       )}`
     : null;
   const failed = operation.status === "failed";
