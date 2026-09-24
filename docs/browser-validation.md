@@ -47,9 +47,10 @@ bunx agent-browser --session home-796-send open http://127.0.0.1:3199/home
 
 The helper sets the smoke sign-in state before navigation and installs the shared [fixture routes](../apps/web/tests/browser/feature-map/fixtures.ts) in the same session; it prints only the session name. Its `network route` intercepts last **only while that agent-browser session is running**. Do **not** pass `--state` on a subsequent fixture `open`: v0.38.1 resets the context, drops route intercepts, returns `/api/session` 401, then redirects to sign-in even though the smoke key was saved. Use `--session` alone after this helper. Direct navigation to `/home`, `/activity`, or `/borrow` must keep the smoke sign-in state; if any settles on `Signed out`, stop, reinitialize the session and report the failure. A signed-in page is not proof that its data is fixture-backed: `/activity` currently shows `Try again` because its `{}` route does not model an empty feed; `/borrow` has no market response, and Peer cash-out and provider funding remain manual fixture gaps. To cover a new surface, add bounded route response data to the shared fixture module and verify the corresponding replay; do not use real providers or customer data.
 
-Never commit fixture init files, cookies or browser transcripts. When done, `bunx agent-browser --session home-796-send close`; remove the private fixture init file the helper wrote outside the repo, and terminate/wait **only** the captured owned server PID:
+Never commit fixture init files, cookies or browser transcripts. When done, `bunx agent-browser --session home-796-send close`; remove the private fixture init file and terminate/wait **only** the captured owned server PID:
 
 ```sh
+rm -f "$HOME/.home-verify/home-796-send.init.js"
 if kill -0 "$HOME_FIXTURE_SERVER_PID" 2>/dev/null; then kill "$HOME_FIXTURE_SERVER_PID"; fi
 wait "$HOME_FIXTURE_SERVER_PID" 2>/dev/null || true
 rm -f "$HOME_FIXTURE_SERVER_LOG"
