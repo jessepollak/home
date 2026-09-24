@@ -152,8 +152,8 @@ These questions refine delivery; they do not reopen the agreed MVP breadth.
 
 | Question | Next useful output |
 | --- | --- |
-| Which card provider? | **Rain** (Jesse, September 23), using Rain's debit-from-balance model. Integrate against Rain's API docs first; provider contact and account come later. Record program country eligibility and KYC acceptance when confirmed (#639). |
-| Which identity provider? | **Sumsub** (Jesse, September 23), built against public docs and fixtures first; Persona is the fallback. Confirm whether Rain accepts Sumsub-shared KYC before live verification (#640, #639). |
+| Which card provider? | **Immersve** (Jesse, September 24), replacing the September 23 Rain choice because Rain's developer docs and sandbox are gated while Immersve publishes open docs and a public sandbox. Self-custodial Mastercard spending from the customer's USDC on Base. Build against the public sandbox first; provider contact, a private sandbox, and production program approval come later. Record program country eligibility, US availability, multi-operator program structure, and KYC acceptance when confirmed (#821). |
+| Which identity provider? | **Sumsub** (Jesse, September 23), built against public docs and fixtures first; Persona is the fallback. Confirm whether Immersve accepts Sumsub-shared KYC before live verification (#640, #821). |
 | What needs Peer input? | Jesse is already in contact and can bring Peer in as needed. Consolidate specific unresolved integration and corridor questions before requesting an introduction. |
 | How does dashboard configuration work? | Propose a focused evolution of current typed configuration and deployment secrets, including validation, administrator authority, and upgrade behavior. |
 | What are the exact coverage inventories? | Specify language mappings, existing yield products, stock and meme/major catalog sources, cb-asset identities, market sources, and refresh rules. |

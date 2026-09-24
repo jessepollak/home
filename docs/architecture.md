@@ -84,6 +84,7 @@ Funding already has the full plugin shape: one provider directory, one registrat
 | `price_observations` | observation | the newest Codex unit price per asset, shared across owners and used within the display freshness bound when a new instance or failed batch has no fresh quote |
 | `valuation_attempts` | observation | the newest valuation attempt per asset and its outcome, so a missing, invalid, stale, or unavailable attempt never erases the last-good price observation ([balances.md](balances.md) §3) |
 | `webhook_subscriptions` | record | each app-created CDP subscription and the signing secret returned only at creation, required to authenticate later deliveries |
+| `card_events` | record | verified Immersve webhook message identity and allowlisted invalidation identifiers (mode-scoped, no payload bodies); retained 30 days by bounded lazy pruning ([cards.md](cards.md)) |
 | `schema_migrations` | — | makes `bun run db:migrate` idempotent |
 
 Every table appears in this inventory with its kind; one shared executor (`server/db/sql.ts`) serves them all. Authentication creates no rows: the SIWE challenge is a signed cookie. Country preference is a device-side record (cookie-readable for server rendering); it moves to the server only for a cross-device need. The server never caches prices per owner. A future history table is decided on its own: reconstructible chain or price history is an observation; what Home displayed or committed to at a time is a record with its own retention contract.
