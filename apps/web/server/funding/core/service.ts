@@ -12,11 +12,13 @@ import type { FundingOrder, FundingOrderOwner, FundingOrderStore } from "./store
 import { MemoryFundingProviderCustomerStore, type FundingProviderCustomer, type FundingProviderCustomerStore } from "./customer-store";
 import { awaitBalanceSignal } from "@/server/balances/signal";
 
+export const AMBIGUOUS_ORDER_RECOVERY_DELAY_MS = 24 * 60 * 60 * 1_000;
+
 export type ReceiptMatch = { transactionHash: `0x${string}`; logIndex: number } | null;
 
 export type FundingOrderTransitionEvent = {
-  route: "/api/funding/orders" | "/api/funding/orders/:id" | "/api/funding/webhooks/:provider";
-  code: "ORDER_CREATED" | "ORDER_REJECTED" | "ORDER_AMBIGUOUS" | "ORDER_SENT_UNVERIFIED" | "ORDER_RECEIVED" | "ORDER_EXPIRED" | "ORDER_CANCELLED" | "ORDER_FAILED" | "ORDER_REFUNDED";
+  route: "/api/funding/orders" | "/api/funding/orders/:id" | "/api/funding/orders/:id/resolve" | "/api/funding/webhooks/:provider";
+  code: "ORDER_CREATED" | "ORDER_REJECTED" | "ORDER_AMBIGUOUS" | "ORDER_AMBIGUOUS_RESOLVED" | "ORDER_SENT_UNVERIFIED" | "ORDER_RECEIVED" | "ORDER_EXPIRED" | "ORDER_CANCELLED" | "ORDER_FAILED" | "ORDER_REFUNDED";
   outcome: "ok" | "rejected" | "unavailable" | "failed";
   providerId: string;
   region: string;
@@ -340,6 +342,9 @@ export class FundingCore {
       if (existing.quoteToken !== authenticated.canonicalToken) throw new FundingCoreError("INVALID_QUOTE_TOKEN", 400);
       return publicOrder(existing);
     }
+    if (await this.deps.store.getDispatchAmbiguous(owner, claims.region, claims.providerId)) {
+      throw new FundingCoreError("AMBIGUOUS_ORDER_OPEN", 409);
+    }
     if (isFundingQuoteExpired(claims, this.now().getTime())) throw new FundingCoreError("INVALID_QUOTE_TOKEN", 400);
     const directional = binding.directions.onramp;
     if (!directional || !environmentAvailable(directional.env, this.env)) throw new FundingCoreError("PROVIDER_UNAVAILABLE", 424);
@@ -394,6 +399,35 @@ export class FundingCore {
   async getOpenOrder(session: VerifiedAccountSession, region: string) {
     const order = await this.deps.store.getOpen(ownerFor(session), region);
     return order ? publicOrder(await this.refresh(order)) : null;
+  }
+
+  async resolveAmbiguousOrder(session: VerifiedAccountSession, id: string) {
+    const startedAt = Date.now();
+    const owner = ownerFor(session);
+    const order = await this.deps.store.getOwned(id, owner);
+    if (!order) throw new FundingCoreError("ORDER_NOT_FOUND", 404);
+    if (order.state !== "dispatch-ambiguous") {
+      throw new FundingCoreError("ORDER_NOT_AMBIGUOUS", 409);
+    }
+
+    const recoveryAvailableAt = ambiguousOrderRecoveryAvailableAt(order);
+    if (this.now().getTime() < recoveryAvailableAt.getTime()) {
+      throw new FundingCoreError(
+        "ORDER_RESOLUTION_NOT_READY",
+        409,
+        recoveryAvailableAt.toISOString(),
+      );
+    }
+
+    const resolved = await this.deps.store.resolveDispatchAmbiguous(
+      order.id,
+      owner,
+      order.version,
+      this.now().toISOString(),
+    );
+    if (!resolved) throw new FundingCoreError("ORDER_STATE_CHANGED", 409);
+    this.logTransition(resolved, "ORDER_AMBIGUOUS_RESOLVED", "ok", "/api/funding/orders/:id/resolve", startedAt);
+    return publicOrder(resolved);
   }
 
   async handleWebhook(providerId: string, raw: Uint8Array, headers: Headers) {
@@ -570,7 +604,33 @@ function settledAmount(observation: Observation, quoted: string, current: string
   return reported === quoted ? null : reported;
 }
 
-export class FundingCoreError extends Error { constructor(readonly code: string, readonly status: number) { super(code); } }
+export function ambiguousOrderRecoveryAvailableAt(
+  order: Pick<FundingOrder, "updatedAt" | "quote">,
+): Date {
+  const updatedAt = Date.parse(order.updatedAt);
+  if (!Number.isFinite(updatedAt)) {
+    throw new FundingCoreError("ORDER_RECOVERY_TIME_INVALID", 503);
+  }
+  const quoteExpiresAt = Date.parse(order.quote.expiresAt);
+  const boundary = Number.isFinite(quoteExpiresAt)
+    ? Math.max(updatedAt, quoteExpiresAt)
+    : updatedAt;
+  const availableAt = new Date(boundary + AMBIGUOUS_ORDER_RECOVERY_DELAY_MS);
+  if (!Number.isFinite(availableAt.getTime())) {
+    throw new FundingCoreError("ORDER_RECOVERY_TIME_INVALID", 503);
+  }
+  return availableAt;
+}
+
+export class FundingCoreError extends Error {
+  constructor(
+    readonly code: string,
+    readonly status: number,
+    readonly availableAt?: string,
+  ) {
+    super(code);
+  }
+}
 
 export function publicOrder(order: FundingOrder) {
   return { id: order.id, providerId: order.providerId, region: order.region, assetId: order.assetId, paymentMethod: order.paymentMethod, fiatAmount: order.fiatAmount, quote: order.quote, quoteToken: order.quoteToken, sandbox: order.sandbox, state: order.state, expectedTokenAmountAtomic: order.expectedTokenAmountAtomic, fees: order.fees, expiresAt: order.expiresAt, instructions: order.instructions, providerStatus: order.providerStatus, transactionHash: order.transactionHash, createdAt: order.createdAt, updatedAt: order.updatedAt };

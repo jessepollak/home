@@ -91,18 +91,78 @@ describePostgres("PostgresFundingOrderStore production contract", () => {
     expect(rows[0].column_default ?? "").toMatch(/false/);
   });
 
+  test("finds an owner-region ambiguous order after a newer open order is observed", async () => {
+    const ambiguousInput = { ...reservation(), owner: { subject: "pg-ambiguous-lookup", accountProvider: "base-account" as const } };
+    await store.reserve(ambiguousInput);
+    await store.markDispatchAmbiguous(ambiguousInput.id, 0, "2026-09-12T00:00:01.000Z");
+    const newer = { ...reservation(), owner: ambiguousInput.owner };
+    await store.reserve(newer);
+    const dispatched = await store.completeDispatch(newer.id, { ...dispatch, providerOrderId: "pg-ambiguous-lookup-newer" });
+    await store.applyObservation(newer.id, { state: "awaiting-payment", providerStatus: "pending", expectedVersion: dispatched.version, updatedAt: "2026-09-12T00:00:05.000Z" });
+    expect((await store.getOpen(ambiguousInput.owner, "ID"))?.id).toBe(newer.id);
+    expect((await store.getDispatchAmbiguous(ambiguousInput.owner, "ID", "idrx"))?.id).toBe(ambiguousInput.id);
+    expect(await store.getDispatchAmbiguous(ambiguousInput.owner, "ID", "other-provider")).toBeNull();
+    expect(await store.getDispatchAmbiguous({ subject: "pg-other", accountProvider: "base-account" }, "ID", "idrx")).toBeNull();
+  });
+
+  test("owner-scoped ambiguous resolution is terminal and excluded from getOpen", async () => {
+    const input = reservation();
+    await store.reserve(input);
+    const ambiguous = await store.markDispatchAmbiguous(
+      input.id,
+      0,
+      "2026-09-12T00:00:01.000Z",
+    );
+    expect((await store.getOpen(input.owner, "ID"))?.id).toBe(input.id);
+    expect(await store.resolveDispatchAmbiguous(
+      input.id,
+      { subject: "wrong-owner", accountProvider: input.owner.accountProvider },
+      ambiguous.version,
+      "2026-09-12T00:00:02.000Z",
+    )).toBeNull();
+    expect((await store.getOwned(input.id, input.owner))?.state).toBe("dispatch-ambiguous");
+
+    const resolved = await store.resolveDispatchAmbiguous(
+      input.id,
+      input.owner,
+      ambiguous.version,
+      "2026-09-12T00:00:03.000Z",
+    );
+    expect(resolved).toMatchObject({ state: "cancelled", instructions: null });
+    expect(await store.getOpen(input.owner, "ID")).toBeNull();
+    const replay = await store.reserve({ ...input, id: randomUUID() });
+    expect(replay).toMatchObject({ created: false, order: { id: input.id, state: "cancelled" } });
+    expect(await store.resolveDispatchAmbiguous(
+      input.id,
+      input.owner,
+      resolved!.version,
+      "2026-09-12T00:00:04.000Z",
+    )).toBeNull();
+  });
+
   test("does not resume completed sandbox runs but keeps live sent-unverified orders open", async () => {
     const sandbox = { ...reservation(), owner: { subject: "pg-sandbox", accountProvider: "base-account" as const }, sandbox: true };
     await store.reserve(sandbox);
     const sandboxDispatched = await store.completeDispatch(sandbox.id, { ...dispatch, providerOrderId: "sandbox-sent" });
     await store.applyObservation(sandbox.id, { state: "sent-unverified", providerStatus: "complete", expectedVersion: sandboxDispatched.version, updatedAt: "2026-09-12T00:00:02.000Z" });
     expect(await store.getOpen(sandbox.owner, "ID")).toBeNull();
+    const replacement = await store.reserve({
+      ...reservation(),
+      owner: sandbox.owner,
+      sandbox: true,
+    });
+    expect(replacement.created).toBe(true);
 
     const live = { ...reservation(), owner: { subject: "pg-live", accountProvider: "base-account" as const } };
     await store.reserve(live);
     const liveDispatched = await store.completeDispatch(live.id, { ...dispatch, providerOrderId: "live-sent" });
     await store.applyObservation(live.id, { state: "sent-unverified", providerStatus: "unverified", expectedVersion: liveDispatched.version, updatedAt: "2026-09-12T00:00:02.000Z" });
     expect((await store.getOpen(live.owner, "ID"))?.id).toBe(live.id);
+    const liveReplacement = await store.reserve({
+      ...reservation(),
+      owner: live.owner,
+    });
+    expect(liveReplacement.created).toBe(true);
   });
 
   test("persists settlement economics and preserves them across later observations", async () => {

@@ -7,7 +7,14 @@ import type {
   QuoteIntent,
 } from "@/shared/funding/provider-contract";
 import { MemoryFundingOrderStore } from "./store";
-import { FundingCore, resolveClientIp, isPrivateIp, type FundingOrderTransitionEvent } from "./service";
+import {
+  AMBIGUOUS_ORDER_RECOVERY_DELAY_MS,
+  ambiguousOrderRecoveryAvailableAt,
+  FundingCore,
+  resolveClientIp,
+  isPrivateIp,
+  type FundingOrderTransitionEvent,
+} from "./service";
 import { FundingProviderConfigurationError, resolveFundingMode, resolveWebhookEnvironment } from "./provider-context";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 
@@ -382,6 +389,80 @@ describe("FundingCore", () => {
     const replay = await fixture.core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example");
     expect(first.state).toBe("dispatch-ambiguous"); expect(replay.state).toBe("dispatch-ambiguous"); expect(replay.quoteToken).toBe(quote.quoteToken); expect(fixture.dispatches()).toBe(1);
     expect((await fixture.core.getOpenOrder(session, "ID"))?.id).toBe(first.id);
+  });
+
+  test("fails recovery closed for invalid and overflowing boundaries", () => {
+    const quote = { fiatAmount: "1", tokenAmountAtomic: "1", fees: [], expiresAt: "invalid" };
+    expect(ambiguousOrderRecoveryAvailableAt({
+      updatedAt: "2026-09-12T00:00:00.000Z",
+      quote,
+    }).toISOString()).toBe("2026-09-13T00:00:00.000Z");
+    expect(() => ambiguousOrderRecoveryAvailableAt({
+      updatedAt: "invalid",
+      quote: { ...quote, expiresAt: "2026-09-12T00:05:00.000Z" },
+    })).toThrow("ORDER_RECOVERY_TIME_INVALID");
+    expect(() => ambiguousOrderRecoveryAvailableAt({
+      updatedAt: "2026-09-12T00:00:00.000Z",
+      quote: { ...quote, expiresAt: "+275760-09-13T00:00:00.000Z" },
+    })).toThrow("ORDER_RECOVERY_TIME_INVALID");
+  });
+
+  test("owner recovery waits 24 hours, unblocks the region, and never calls the provider", async () => {
+    expect(AMBIGUOUS_ORDER_RECOVERY_DELAY_MS).toBe(86_400_000);
+    const fixture = setup("ambiguous");
+    const quote = await fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" }, "https://home.example");
+    const ambiguous = await fixture.core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example");
+
+    const wrongOwner = { ...session, user: { subject: "other-user" } };
+    await expect(fixture.core.resolveAmbiguousOrder(wrongOwner, ambiguous.id))
+      .rejects.toMatchObject({ code: "ORDER_NOT_FOUND" });
+    await expect(fixture.core.resolveAmbiguousOrder(session, ambiguous.id))
+      .rejects.toMatchObject({
+        code: "ORDER_RESOLUTION_NOT_READY",
+        availableAt: "2026-09-13T00:05:00.000Z",
+      });
+    expect(await fixture.core.getOpenOrder(session, "ID")).toMatchObject({
+      id: ambiguous.id,
+      state: "dispatch-ambiguous",
+      updatedAt: ambiguous.updatedAt,
+    });
+
+    const anotherQuote = await fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "21000" }, "https://home.example");
+    await expect(fixture.core.createOrder(session, { quoteToken: anotherQuote.quoteToken }, "https://home.example"))
+      .rejects.toMatchObject({ code: "AMBIGUOUS_ORDER_OPEN" });
+    expect(fixture.dispatches()).toBe(1);
+    expect(fixture.blockReads()).toBe(1);
+    expect(fixture.getOrderSandboxes()).toHaveLength(0);
+
+    fixture.advance(24 * 60 + 6);
+    const resolved = await fixture.core.resolveAmbiguousOrder(session, ambiguous.id);
+    expect(resolved.state).toBe("cancelled");
+    expect(fixture.dispatches()).toBe(1);
+    expect(fixture.getOrderSandboxes()).toHaveLength(0);
+    expect(await fixture.core.getOpenOrder(session, "ID")).toBeNull();
+    expect(fixture.transitionEvents.map((event) => event.code)).toEqual(["ORDER_AMBIGUOUS", "ORDER_AMBIGUOUS_RESOLVED"]);
+    expect(fixture.transitionEvents.at(-1)).toEqual(expect.objectContaining({ route: "/api/funding/orders/:id/resolve", outcome: "ok", region: "ID" }));
+    await expect(fixture.core.resolveAmbiguousOrder(session, ambiguous.id))
+      .rejects.toMatchObject({ code: "ORDER_NOT_AMBIGUOUS" });
+    expect(fixture.transitionEvents).toHaveLength(2);
+  });
+
+  test("an ambiguous order from a deconfigured provider does not lock the region's other providers", async () => {
+    const fixture = setup();
+    const owner = { subject: session.user.subject, accountProvider: session.accountProvider };
+    const retired = await fixture.store.reserve({
+      id: "77777777-7777-4777-8777-777777777777", owner, destination: session.smartAccount!.address,
+      providerId: "retired", region: "ID", assetId: "base:idrx", paymentMethod: "bank", fiatAmount: "20000",
+      intentDigest: "retired-intent", quote: { fiatAmount: "20000", tokenAmountAtomic: "1", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" },
+      quoteToken: "retired-token", customerRef: null, sandbox: false, creationBlock: "1", createdAt: "2026-09-11T00:00:00.000Z",
+    });
+    await fixture.store.markDispatchAmbiguous(retired.order.id, retired.order.version, "2026-09-11T00:00:01.000Z");
+
+    const quote = await fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" }, "https://home.example");
+    const created = await fixture.core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example");
+    expect(created).toMatchObject({ providerId: "fixture", state: "awaiting-payment" });
+    expect(fixture.dispatches()).toBe(1);
+    expect((await fixture.store.getOwned(retired.order.id, owner))?.state).toBe("dispatch-ambiguous");
   });
 
   test("marks received only after receipt evidence is uniquely claimed", async () => {
