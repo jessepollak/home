@@ -115,6 +115,26 @@ The deleted `Home — selected direction v2` (`81:700`) had consolidated Jesse's
 
 The `Home states` section (`190:2821`) follows Jesse's two state reviews, and nothing on Home is red for a load error. A balance read failure shows a small status icon beside the profile picture (the `ShellHeader` `Show status` property; `HomeHeaderStatus` in code). Tapping it opens a popover with the message and a Retry icon button, shown in the `status revealed` frame (`246:4067`); with no country set, the popover offers Open Account instead. An Activity read failure stays in Activity as a centered, muted `Activity unavailable` line with a reload icon. Unread rows show a muted `—` with no chevron. Loading rows use a glyphless shimmer mark in the skeleton tone with no chevron. The Cash and Investments rows use lucide `banknote` and `chart-line` glyphs instead of a flag or token mark. An empty Activity feed offers a centered 44 px `Add money` prompt. Production flags are Twemoji (CC-BY 4.0), not the flag-icons or circle-flags candidates named above.
 
+## Desktop proposal (#694, unreviewed)
+
+[`Desktop proposal (#694, unreviewed)`](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=322-11819) (`322:11819`) proposes a desktop layout with a Home / Invest side nav, from main `476735ca`. It is the only section on the [Shell / desktop](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13092) page (`333:13092`), at x=0, y=0, sized to contain its frames without overlap; #841 moved it there with its node IDs unchanged. It is built from Components-page library instances on `Home — final`. Its three new components are marked DESIGN-ONLY and stay inside the proposal section rather than on Components until Jesse accepts the proposal:
+
+- `PrimaryNavigation` `layout=rail` (`322:11874`), with `active=Home|Invest` and `collapsed=false|true` (240px and 64px)
+- `PrimaryNavigationItem` (`322:11831`)
+- `ShellHeader / layout=rail` (`322:11903`)
+
+Two library components gained additive variants, and Jesse must publish the library for them to leave the file: `SignedBalanceBar` (`293:5935`) has a `width=fixed|fill` axis whose `fill` variants scale with the card, and `Icon` (`156:1726`) has `panel-left-close` and `panel-left-open` for the rail toggle. No existing variant changed. After #841, every instance in the section resolves to a Components-page library component (none to Archive, the legacy `Card` `12:28` or a deprecated part), with no nested overrides on `FinanceRow`, `ShimmerRow` or `ActivityLoader`. The rows therefore follow the reconciled rules: a lone value beside a two-line label is centred, and the loading `ShimmerRow` mark is a centred 40px circle. The proposal has no review screen, so the one-line review address does not apply. The frames are:
+
+- `Home — desktop` (`323:11868`)
+- `Invest — desktop` (`324:13214`)
+- `Cash — L2 desktop` (`324:13405`)
+- `Home — 1024` (`323:12150`)
+- `Home — 1023 (below breakpoint)` (`323:12684`)
+- the loading (`323:12428`) and Activity error (`323:12551`) states
+- `Home — desktop / rail collapsed` (`367:13785`) and the `Rail collapse — interaction spec` (`395:15150`)
+
+After Jesse's September 24 review, Home at desktop width has two columns with Activity on the right (following the #638 desktop screen `Desktop / Home / US / funded`, `311:15379`), the segmented bar spans the total card, and the rail collapses to a 64px icon rail. The `Notes — desktop rule` frame (`325:13090`) holds the proposed breakpoint, the column and scroll decisions, the rail collapse spec and the references. The Storybook journey `journeys-desktop-shell` renders the same proposal with production components. Node inventory and residual differences are in [figma-mapping.json](figma-mapping.json) `desktopProposal`. It is not approved until Jesse selects it; see [UI direction](../ui-direction.md#desktop-proposal-unaccepted).
+
 ## Comment pass
 
 1. Jesse comments or edits the relevant Figma page.
