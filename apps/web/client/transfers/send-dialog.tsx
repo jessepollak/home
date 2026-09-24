@@ -53,7 +53,7 @@ import {
 import { TransferExecutionError, type TransferRequest } from "@/shared/transfers/types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 
-type SendStep = "amount" | "destination" | "payout" | "handle" | "handle-confirm" | "confirm" | "pending" | "error";
+type SendStep = "amount" | "destination" | "payout" | "handle" | "handle-confirm" | "preparing" | "confirm" | "pending" | "error";
 type CashoutRequest = {
   operation: "deposit" | "withdraw";
   providerId: string;
@@ -253,8 +253,10 @@ export function SendDialog({
     if (!open || !ownerBoundary || !resumeActionId || resumedActionRef.current === resumeActionId) return;
     resumedActionRef.current = resumeActionId;
     let cancelled = false;
-    setStep("pending"); setError(null);
+    let settled = false;
+    setStep("preparing"); setError(null);
     void resumeMoneyAction(resumeActionId).then((resumed) => {
+      settled = true;
       if (cancelled) return;
       if (resumed.kind === "send") {
         const nextRequest = transferRequestFromAction(resumed);
@@ -286,11 +288,15 @@ export function SendDialog({
       } else throw new TransferExecutionError("unavailable");
       setAction(resumed); setStep("confirm");
     }).catch(() => {
+      settled = true;
       if (cancelled) return;
       setRequest(null); setCashout(null); setAction(null); setStep("amount"); onInvalidResume?.();
     });
-    return () => { cancelled = true; };
-  }, [availableAssets, onInvalidResume, open, ownerBoundary, resumeActionId, resumeMoneyAction]);
+    return () => {
+      cancelled = true;
+      if (!settled && resumedActionRef.current === resumeActionId) resumedActionRef.current = null;
+    };
+  }, [onInvalidResume, open, ownerBoundary, resumeActionId, resumeMoneyAction]);
 
   function reset() {
     setAssetId(availableAssets?.[0]?.id ?? null); setRecipient(""); changeAmount("", "programmatic");
@@ -326,6 +332,11 @@ export function SendDialog({
     }
   }
 
+  function showPreparedReview(prepared: PreparedMoneyAction) {
+    resumedActionRef.current = prepared.id;
+    setAction(prepared); onReview?.(prepared.id); setStep("confirm");
+  }
+
   async function prepareSend() {
     try {
       if (!address || !selectedAsset || !activeAssetId || !effectiveRecipient) throw new TransferExecutionError("unavailable");
@@ -335,9 +346,9 @@ export function SendDialog({
         amountBaseUnits: parseTransferAmount(amount.replace(/\.$/, ""), selectedAsset.decimals),
         ...(recipientName === undefined ? {} : { recipientName }),
       };
-      assertTransferRequest(next); setRequest(next); setCashout(null); setStep("pending"); setError(null);
+      assertTransferRequest(next); setRequest(next); setCashout(null); setStep("preparing"); setError(null);
       const prepared = await prepareMoneyAction("send", next);
-      setAction(prepared); onReview?.(prepared.id); setStep("confirm");
+      showPreparedReview(prepared);
     } catch {
       setError("Enter a valid Base address and positive amount, then try again."); setStep("destination");
     }
@@ -347,7 +358,7 @@ export function SendDialog({
     try {
       if (!selectedAsset || !selectedOfframp || !selectedPlatform || !canonicalHandle || handleConfirmation !== canonicalHandle) throw new Error("invalid");
       const amountBaseUnits = parseTransferAmount(amount.replace(/\.$/, ""), selectedAsset.decimals);
-      setStep("pending"); setError(null);
+      setStep("preparing"); setError(null);
       const prepared = await prepareMoneyAction("cash-out", {
         providerId: selectedOfframp.providerId, region: regionId, assetId: selectedOfframp.assetId,
         amountBaseUnits, platform: selectedPlatform.platform, currency: selectedOfframp.currency,
@@ -363,7 +374,7 @@ export function SendDialog({
         platform: selectedPlatform.platform, platformLabel: selectedPlatform.label, currency: selectedOfframp.currency,
         payoutHandle, canonicalHandle: metadata.canonicalHandle, approximateFiatAmount: metadata.approximateFiatAmount, etaSeconds: metadata.etaSeconds ?? null,
       });
-      setRequest(null); setAction(prepared); onReview?.(prepared.id); setStep("confirm");
+      setRequest(null); showPreparedReview(prepared);
     } catch (caught) {
       setError(serverCashoutMessage(caught)); setStep("handle-confirm");
     }
@@ -372,7 +383,7 @@ export function SendDialog({
   async function prepareWithdraw(order: CashoutOrderSummary) {
     try {
       if (!order.nextActions.includes("withdraw")) throw new Error("invalid");
-      setStep("pending"); setError(null);
+      setStep("preparing"); setError(null);
       const prepared = await prepareMoneyAction("cash-out-withdraw", { providerId: order.providerId, region: regionId, depositId: order.depositId });
       if (prepared.kind !== "cash-out-withdraw" || prepared.metadata?.product !== "cashout" || prepared.metadata.operation !== "withdraw") throw new Error("invalid");
       const received = prepared.amounts.find((item) => item.direction === "receive");
@@ -384,7 +395,7 @@ export function SendDialog({
         currency: order.currency, payoutHandle: order.canonicalHandle ?? "", canonicalHandle: order.canonicalHandle,
         approximateFiatAmount: "0", etaSeconds: null, depositId: order.depositId,
       });
-      setRequest(null); setAction(prepared); onReview?.(prepared.id); setStep("confirm");
+      setRequest(null); showPreparedReview(prepared);
     } catch (caught) {
       setError(serverCashoutMessage(caught)); setStep("destination");
     }
@@ -423,7 +434,8 @@ export function SendDialog({
       : `${atomicToDecimal(cashout.amountBaseUnits, cashout.decimals)} ${cashout.symbol}`) : "";
   const requestAsset = request ? getTransferAsset(request.assetId) : selectedAsset;
   const offrampName = cashout?.providerName ?? selectedOfframp?.displayName;
-  const modalTitle = step === "confirm" || step === "pending" || step === "error" ? "Confirm" : cashout || ["payout", "handle", "handle-confirm"].includes(step) ? `Cash out${offrampName ? ` with ${offrampName}` : ""}` : "Send";
+  const busy = step === "pending" || step === "preparing";
+  const modalTitle = step === "confirm" || busy || step === "error" ? "Confirm" : cashout || ["payout", "handle", "handle-confirm"].includes(step) ? `Cash out${offrampName ? ` with ${offrampName}` : ""}` : "Send";
   const amountAssetProps = {
     assetId: activeAssetId ?? undefined,
     assetLabel: selectedAsset?.symbol,
@@ -432,13 +444,13 @@ export function SendDialog({
     onAssetChange: (next: string) => { setAssetId(next); changeAmount("", "programmatic"); },
   };
   return (
-    <MoneyModal open={open} labelledBy="send-title" immediate={immediate} pending={step === "pending"} onCancel={onClose} onClose={() => { reset(); (onClosed ?? onClose)(); }}>
+    <MoneyModal open={open} labelledBy="send-title" immediate={immediate} pending={busy} onCancel={onClose} onClose={() => { reset(); (onClosed ?? onClose)(); }}>
       <MoneyModalHeader
         title={modalTitle}
         titleId="send-title"
         {...(step === "amount"
           ? { assetControl: <MoneyAssetPicker {...amountAssetProps} /> }
-          : step === "pending" ? {} : { onBack: back })}
+          : busy ? {} : { onBack: back })}
         onClose={onClose}
         closeLabel="Close send dialog"
       />
@@ -506,7 +518,7 @@ export function SendDialog({
             enterKeyHint="done"
           />
         </div> : null}
-        {(request || cashout) && (!request || requestAsset) && (step === "confirm" || step === "pending" || step === "error") ? <>
+        {(request || cashout) && (!request || requestAsset) && (step === "confirm" || busy || step === "error") ? <>
           <MoneyConfirmSummary amount={confirmAmount} lead={cashout ? (cashout.operation === "withdraw" ? `You're withdrawing from ${cashout.providerName}` : `You're cashing out with ${cashout.providerName}`) : `You're sending ${requestAsset?.symbol ?? ""}`} rows={cashout ? [
             { label: "Provider", value: cashout.providerName },
             { label: "Payout app", value: cashout.platformLabel },
@@ -523,6 +535,7 @@ export function SendDialog({
           {cashout ? <StatusMessage>The fiat amount and delivery time are approximate, not guaranteed.</StatusMessage> : null}
           {step === "pending" ? <StatusMessage><span className="flex items-center gap-2"><LoaderCircle className="size-4 animate-spin" aria-hidden="true" />Waiting for your wallet…</span></StatusMessage> : null}
         </> : null}
+        {step === "preparing" ? <StatusMessage><span className="flex items-center gap-2"><LoaderCircle className="size-4 animate-spin" aria-hidden="true" />Preparing review…</span></StatusMessage> : null}
         {error ? <StatusMessage tone="error" role="alert">{error}</StatusMessage> : null}
       </MoneyModalBody>
       {step === "amount" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!selectedAsset || !isPositiveDecimalAmount(amount)} onPrimary={() => { setError(null); setStep("destination"); }} /> : null}
