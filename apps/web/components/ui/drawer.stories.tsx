@@ -6,7 +6,7 @@ const meta = {
   id: "ui-drawer",
   title: "UI/Drawer",
   component: Drawer,
-  parameters: { layout: "centered", a11y: { test: "error" } },
+  parameters: { layout: "centered", a11y: { test: "error" }, design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=161-1847" } },
 } satisfies Meta<typeof Drawer>;
 
 export default meta;

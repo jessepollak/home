@@ -5,7 +5,7 @@ const meta = {
   id: "ui-toggle-group",
   title: "UI/Toggle Group",
   component: ToggleGroup,
-  parameters: { layout: "centered", a11y: { test: "error" } },
+  parameters: { layout: "centered", a11y: { test: "error" }, design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=160-1849" } },
 } satisfies Meta<typeof ToggleGroup>;
 
 export default meta;

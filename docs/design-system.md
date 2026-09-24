@@ -42,6 +42,19 @@ The generated `apps/web/storybook-static/` directory is ignored and must not be 
 
 Discover before composing: `docs-list` lists every component the manifest knows, which includes every owned `apps/web/components/ui` module (each has a minimal workshop story beside it) and the pilot and journey surfaces. `docs-show <id>` returns documented props and story usage, and `stories-find-by-component` maps any source file to the story IDs that render it. Do not restate component props from memory or invent a parallel component.
 
+### Figma link
+
+Storybook and the [Home Figma file](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home) share one mapping, [`apps/web/figma-components.json`](../apps/web/figma-components.json). `@storybook/addon-designs` shows the mapped Figma node in each listed story's Design panel. Code Connect template files (`*.figma.ts` under `client/explorations/code-connect/` and `components/explorations/code-connect/`) show the real component in Figma Dev Mode. `apps/web/scripts/figma-variables.mjs` pushes the `globals.css` tokens into the `Home tokens` variables. Run these from `apps/web`:
+
+```sh
+bun run figma:connect:parse          # offline template check (CI step)
+bun run figma:variables:dry-run      # print the token plan; writes nothing
+bun run figma:connect:publish        # needs FIGMA_ACCESS_TOKEN (code_connect:write)
+bun run figma:variables              # needs FIGMA_ACCESS_TOKEN (file_variables:read/write)
+```
+
+CI publishes both on pushes to `main` when the `FIGMA_ACCESS_TOKEN` secret is set. Source-of-truth rules and the scopes live in [Figma workflow](design-explorations/figma-workflow.md#source-of-truth).
+
 ### Journey stories
 
 Page-level flows live under `apps/web/stories/journeys/<flow>.stories.tsx`. A journey composes the real screen from production components, serves each existing external request with `msw-storybook-addon` handlers (`parameters.msw.handlers`), and walks the flow in a `play` function that asserts observable results, not implementation details. The reference journey is `journeys-savings-deposit--deposit`: it loads vault metadata over the production `/api/savings/vaults` fetch, selects a vault, prepares a deposit, and dispatches the exact prepared action.

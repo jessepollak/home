@@ -46,7 +46,7 @@
     "note": "mainSha is the render used to build the historical Home — funded baseline. Home — final is the approved final Home design (Jesse, 2026-09-23) and, since #789, the production Home layout rendered by apps/web/client/home/home-overview.tsx."
   },
   "codeConnect": {
-    "status": "Owned by #684 (Code Connect templates, parse check and publish job). #841 kept every node ID stable through the page move; its 28 earlier add_code_connect_map writes are superseded by #684's publish; existing mappings preserved",
+    "status": "Owned by #684 (Code Connect templates, parse check and publish job). Node ownership — which node maps to which code owner, which are not mapped, and which code components have no Figma node — lives only in nodeOwnership (apps/web/figma-components.json). #841 kept every node ID stable through the page move; #684 re-read every mapped ID from the live file afterwards and all resolve. Its 28 earlier add_code_connect_map writes are superseded by #684's publish; existing mappings preserved",
     "label": "React",
     "evidence": [
       "The 12 previously published families remained mapped from prior runs; this run did not delete, disconnect, or recreate any existing mapping.",
@@ -55,22 +55,11 @@
       "get_code_connect_map still returns an empty object for this file (known Figma API read-back defect); Jesse approved that combined evidence on 2026-09-22.",
       "Run 24 (publish-ready closeout) changed only definitions, descriptions, variant value names, positions, and the new color/market-gain variable; no component or set was deleted, recreated, or detached and no Code Connect mapping was touched. Renaming variant values (e.g. Kind=cash -> Kind=Cash) keeps node IDs and node->file mappings.",
       "#789 (2026-09-23): add_code_connect_map succeeded for SignedBalanceBar 91:927 -> apps/web/components/signed-balance-bar.tsx (SignedBalanceBar) and ActivityLoader 91:932 -> apps/web/components/activity-loader.tsx (ActivityLoader). It returned 'already mapped' for FinanceRow 96:1147, MoneyBreakdownItem 12:20 and SectionHeader 12:33; no mapping was disconnected or replaced.",
-      "#841, before Code Connect moved to #684: add_code_connect_map with label React reported success for 28 rows (supersededBy684); none returned already mapped. #684's publish supersedes them, and #841 makes no further Code Connect calls. skipped841 and leftAsIs841 record the rest. get_code_connect_map still reads back {}."
+      "#841, before Code Connect moved to #684: add_code_connect_map with label React reported success for 28 rows; none returned already mapped. Every one of those nodes is in apps/web/figma-components.json components, where #684's templates supersede them; #841 makes no further Code Connect calls. get_code_connect_map still reads back {}."
     ],
     "limitation": "Code Connect maps Figma to code metadata; it does not synchronize React changes into Figma or Figma edits into code automatically.",
     "actionRequiredFromJesse": "Publish #841 changes: FinanceRow 96:1147, CurrencyMarkSlot 12:59, ShimmerRow 274:6015, CopyableValue 282:5961, MoneyConfirmRow 166:1802, Card 269:5270 and Home/Mono tight. Save the named version Before archive cleanup (#841), or approve the 2026-09-24 03:59:51 UTC automatic version, so the Archive page contents and then Card 12:28 can be deleted.",
-    "supersededBy684": [
-      "158:1841 Badge → apps/web/components/ui/badge.tsx", "158:1862 Alert → apps/web/components/ui/alert.tsx", "158:1866 Skeleton → apps/web/components/ui/skeleton.tsx", "158:1872 Separator → apps/web/components/ui/separator.tsx", "158:1880 Label → apps/web/components/ui/label.tsx",
-      "160:1654 Input → apps/web/components/ui/input.tsx", "160:1673 InputGroup → apps/web/components/ui/input-group.tsx", "160:1684 Field → apps/web/components/ui/field.tsx", "160:1718 SelectTrigger → apps/web/components/ui/select.tsx", "160:1759 ComboboxInput → apps/web/components/ui/combobox.tsx", "160:1772 Switch → apps/web/components/ui/switch.tsx", "160:1826 Toggle → apps/web/components/ui/toggle.tsx", "160:1849 ToggleGroup → apps/web/components/ui/toggle-group.tsx",
-      "161:1818 Item → apps/web/components/ui/item.tsx", "161:1847 DrawerContent → apps/web/components/ui/drawer.tsx", "269:5270 Card → apps/web/components/ui/card.tsx", "274:5577 TradeActions → apps/web/client/trading/trade-actions.tsx", "274:6015 ShimmerRows → apps/web/client/home/panel-shared.tsx", "161:1885 Toast → apps/web/components/ui/toast.tsx", "161:1904 Empty → apps/web/components/ui/empty.tsx",
-      "166:1776 MoneyPrimaryAmount → apps/web/client/money-modal/amount.tsx", "166:1787 MoneyQuickChips → apps/web/client/money-modal/amount.tsx", "166:1788 MoneyUnitToggle → apps/web/client/money-modal/amount.tsx", "166:1803 MoneyConfirmSummary → apps/web/client/money-modal/confirm-summary.tsx", "282:5961 CopyableValue → apps/web/components/copyable-value.tsx", "166:1959 PriceChart → apps/web/client/invest/price-chart.tsx", "292:5883 PopoverContent → apps/web/components/ui/popover.tsx", "293:5935 SignedBalanceBar → apps/web/components/signed-balance-bar.tsx"
-    ],
-    "skipped841": {
-      "deprecatedPendingDeletion": ["166:1739 MoneyNumpad; code still renders it until native-input adoption"],
-      "subParts": ["166:1738 MoneyNumpadKey", "166:1802 MoneyConfirmRow", "211:3547 InputOTPSlot"],
-      "designOnly": ["282:5882 TransactionAmount", "161:1923 Progress", "160:1801 RadioGroup", "211:3668 InputOTP", "166:1861 StatusStep", "166:1884 ResultHeader", "166:1917 AssetDetailHeader", "274:5688 SystemKeyboard", "156:1726 Icon (lucide imports)"]
-    },
-    "leftAsIs841": ["12:27 Button", "12:28 Card legacy variant (until Archive deletion)", "96:1147 FinanceRow", "91:927 SignedBalanceBar", "91:932 ActivityLoader", "#683 families"]
+    "nodeOwnership": "apps/web/figma-components.json"
   },
   "components": [
     {
@@ -115,11 +104,12 @@
     },
     {
       "figmaName": "Card",
-      "nodeId": "12:28",
-      "nodeUrl": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=12-28",
+      "nodeId": "269:5270",
+      "nodeUrl": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=269-5270",
+      "legacyVariantNodeId": "12:28",
       "codeSourcePath": "apps/web/components/ui/card.tsx",
       "codeComponentName": "Card",
-      "codeConnectStatus": "mapped-existing",
+      "codeConnectStatus": "#684 template on the set 269:5270; the legacy variant 12:28 has no template and keeps its old hand mapping until the Archive cleanup deletes it",
       "publishStatus": "CURRENT",
       "fidelityNotes": "Card set 269:5270 received a set-level mapping in #841 before Code Connect moved to #684, whose publish supersedes it. Its variant=flush, inset=hero 301:5912 is HomeTotalBalance: 16px padding and an 8px CardContent slot gap around MoneyTicker and BalanceAllocation (SignedBalanceBar). Every TotalBalanceCard in Home — final and Home states uses flush/hero. This 12:28 variant is inset=legacy, with 20 instances only on the Archive page pending deletion; its old variant mapping stays until the Archive and then this variant can be deleted."
     },
@@ -138,7 +128,7 @@
       "nodeId": "12:39",
       "nodeUrl": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=12-39",
       "codeSourcePath": "apps/web/client/home/balances-panel.tsx",
-      "codeComponentName": "MoneyGroupHeader",
+      "codeComponentName": "BalancesPage",
       "codeConnectStatus": "mapped-existing",
       "publishStatus": "CHANGED",
       "fidelityNotes": "Editable group label and subtotal. Not used on Home — final; retained for the funded baseline (current production). Description updated to say so, which is why it shows CHANGED."
@@ -148,7 +138,7 @@
       "nodeId": "12:59",
       "nodeUrl": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=12-59",
       "codeSourcePath": "apps/web/components/currency-mark.tsx",
-      "codeComponentName": "CurrencyMarkSlot",
+      "codeComponentName": "CurrencyMark",
       "codeConnectStatus": "mapped-existing",
       "publishStatus": "CHANGED",
       "fidelityNotes": "Six variants (Kind=Flag, USDC, Generic, Bitcoin, Ethereum, Borrow) with set ID 12:59 and all published variant IDs preserved. Real, license-clean imported SVGs (see markAssets); the US flag is inset in a neutral gray circle. Every sourced mark on Home — final is one of these variants. Requires Home Library publication."
@@ -158,7 +148,7 @@
       "nodeId": "96:1147",
       "nodeUrl": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=96-1147",
       "codeSourcePath": "apps/web/components/finance-rows.tsx",
-      "codeComponentName": "FinanceRow",
+      "codeComponentName": "BalanceRow",
       "codeWrappers": ["ActivityRow", "BalanceRow", "AssetRow"],
       "codeConnectStatus": "existing set mapping left as-is in #841",
       "publishStatus": "CHANGED in #841 (body alignment and description; needs publish)",
@@ -206,7 +196,7 @@
       "nodeUrl": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=91-927",
       "codeSourcePath": "apps/web/components/signed-balance-bar.tsx",
       "codeComponentName": "SignedBalanceBar",
-      "codeConnectStatus": "mapped (#789)",
+      "codeConnectStatus": "mapped (#789); #684's template targets the set 293:5935, of which 91:927 is the items=borrow+cash+investments variant",
       "publishStatus": "CHANGED (description)",
       "fidelityNotes": "Signed total-balance allocation bar (Borrow segment left of a zero axis, then Cash and Investments right). Production owner since #789; segment weights come from shared/balances/present.ts presentBreakdown over snapshot totals, and the Borrow segment and axis render only when debt is positive. #791 run 12: 91:927 is now the items=borrow+cash+investments variant of the set 293:5935, beside items=cash+investments (293:5925) and items=cash (293:5930), so Home states no longer detach it; the 91:927 mapping still reports 'already mapped'."
     },
@@ -226,7 +216,7 @@
       "nodeUrl": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=12-79",
       "codeSourcePath": "none since #789 (Home removed the More rows)",
       "codeComponentName": "(removed)",
-      "codeConnectStatus": "mapped-existing",
+      "codeConnectStatus": "not mapped by #684 (code removed the More rows in #789); an older hand mapping may remain",
       "publishStatus": "CURRENT",
       "fidelityNotes": "Represents the separate ghost Button + Item + ChevronRight composition used for each More row. Not used on Home — final; retained for the funded baseline."
     },
@@ -238,7 +228,7 @@
       "codeComponentName": "PrimaryNavigation",
       "codeConnectStatus": "mapped-existing",
       "publishStatus": "CHANGED",
-      "fidelityNotes": "Icon=Home and Icon=Invest variants with editable label and active state; icons are editable vectors. Variant values renamed to sentence case this run (CHANGED; TabBar shows CHANGED because it nests TabItem). The shared Label default reads 'Home' on both variant definitions (Figma set-level text default); instances override it (Invest)."
+      "fidelityNotes": "Icon=Home and Icon=Invest variants with editable label and active state; icons are editable vectors. Icon=Card belongs to the Card proposal (#636); code has no Card tab. Variant values renamed to sentence case this run (CHANGED; TabBar shows CHANGED because it nests TabItem). The shared Label default reads 'Home' on both variant definitions (Figma set-level text default); instances override it (Invest)."
     },
     {
       "figmaName": "TabBar",
@@ -395,7 +385,7 @@
     },
     "publishChecklist": {
       "expectInPublishDialog": "#841: FinanceRow 96:1147, CurrencyMarkSlot 12:59, ShimmerRow 274:6015, CopyableValue 282:5961, MoneyConfirmRow 166:1802, Card 269:5270 and new Home/Mono tight text style. Earlier unpublished changes may also appear; see design-system.md publish checklist. Moving the deprecated numpad parts between pages does not change them.",
-      "codeConnectAfterPublish": ["#684 owns Code Connect and publishes its templates; #841's 28 earlier writes (codeConnect.supersededBy684) are superseded by that publish. Do not replace existing mappings to address the read-back."]
+      "codeConnectAfterPublish": ["#684 owns Code Connect and publishes its templates for the nodes in apps/web/figma-components.json; #841's 28 earlier writes are superseded by that publish. Do not replace existing mappings to address the read-back."]
     },
     "items": [
       { "name": "FinanceRow (variant set)", "nodeId": "96:1147", "variantsOrProps": "Layout=Title aligned (default) | Centered (legacy) x Value tone=Default|Success|Error|Muted; props Label, Context, Show context, Value, Value context, Show value context, Mark, Show chevron", "owner": "apps/web/components/finance-rows.tsx (wrappers ActivityRow, BalanceRow, AssetRow)", "publish": "#841 body alignment and description changed — Jesse must publish" },
@@ -407,13 +397,13 @@
       { "name": "CurrencyMarkSlot", "nodeId": "12:59", "variantsOrProps": "Kind=Flag|USDC|Generic|Bitcoin|Ethereum|Borrow|Cash|Investments|Shimmer; Glyph", "owner": "apps/web/components/currency-mark.tsx", "publish": "CHANGED — Jesse must publish" },
       { "name": "Button", "nodeId": "12:27", "variantsOrProps": "Variant=Primary|Secondary; Label, Show icon", "owner": "apps/web/components/ui/button.tsx", "publish": "CHANGED — Jesse must publish" },
       { "name": "MoneyGroupHeader", "nodeId": "12:39", "variantsOrProps": "Label, Amount", "owner": "apps/web/client/home/balances-panel.tsx", "publish": "CHANGED (description) — Jesse must publish" },
-      { "name": "MoreRow", "nodeId": "12:79", "variantsOrProps": "Label, Show chevron", "owner": "apps/web/client/home/balances-panel.tsx", "publish": "CURRENT" },
+      { "name": "MoreRow", "nodeId": "12:79", "variantsOrProps": "Label, Show chevron", "owner": "none since #789 (not mapped; see apps/web/figma-components.json notMapped)", "publish": "CURRENT" },
       { "name": "SectionHeader", "nodeId": "12:33", "variantsOrProps": "Title, Show See all", "owner": "apps/web/client/home/home-overview.tsx (HomeSectionHeading)", "publish": "CHANGED (description) — Jesse must publish" },
       { "name": "Card", "nodeId": "12:28", "variantsOrProps": "inset=legacy variant of set 269:5270; Archive-only, pending deletion", "owner": "apps/web/components/ui/card.tsx", "publish": "Set description changed in #841 — Jesse must publish" },
       { "name": "MoneyTicker", "nodeId": "12:2", "variantsOrProps": "Label, Amount", "owner": "apps/web/components/money-ticker.tsx", "publish": "CURRENT" },
       { "name": "ShellHeader", "nodeId": "11:773", "variantsOrProps": "Title, Show status", "owner": "apps/web/client/home/shell-chrome.tsx", "publish": "CHANGED — Jesse must publish" },
       { "name": "TabBar", "nodeId": "12:95", "variantsOrProps": "one instance per screen", "owner": "apps/web/components/primary-navigation.tsx", "publish": "CHANGED (nests TabItem) — Jesse must publish" },
-      { "name": "TabItem", "nodeId": "12:94", "variantsOrProps": "Icon=Home|Invest; Label, Active", "owner": "apps/web/components/primary-navigation.tsx", "publish": "CHANGED — Jesse must publish" }
+      { "name": "TabItem", "nodeId": "12:94", "variantsOrProps": "Icon=Home|Invest|Card (Card is the #636 proposal); Label, Active", "owner": "apps/web/components/primary-navigation.tsx", "publish": "CHANGED — Jesse must publish" }
     ]
   },
   "residualDifferences": [

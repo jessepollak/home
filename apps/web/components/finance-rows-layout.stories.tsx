@@ -121,6 +121,10 @@ const meta = {
     viewport: {
       defaultViewport: "mobile",
     },
+    design: {
+      type: "figma",
+      url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=96-1147",
+    },
   },
 } satisfies Meta<typeof FinanceRowsStory>;
 

@@ -29,7 +29,9 @@
     // Direct Bun entry points are invoked by package scripts rather than
     // imported from production code.
     "server/db/migrate.ts!",
-    "live-login.ts!"
+    "live-login.ts!",
+    // Figma variables sync, run by package scripts and the main-only CI job.
+    "scripts/figma-variables.mjs!"
   ],
   "ignore": [
     // Non-production design-lane code lives under explorations/ or inside a

@@ -1,0 +1,81 @@
+{
+  "meta": {
+    "variableCollections": {
+      "VariableCollectionId:4:3": {
+        "id": "VariableCollectionId:4:3", "name": "Home tokens", "remote": false,
+        "modes": [{ "modeId": "4:0", "name": "Light" }, { "modeId": "155:0", "name": "Dark" }]
+      },
+      "VariableCollectionId:155:1653": {
+        "id": "VariableCollectionId:155:1653", "name": "Home scale", "remote": false,
+        "modes": [{ "modeId": "155:1", "name": "Default" }]
+      }
+    },
+    "variables": {
+      "VariableID:4:5": {
+        "id": "VariableID:4:5", "name": "color/foreground", "remote": false,
+        "variableCollectionId": "VariableCollectionId:4:3", "resolvedType": "COLOR",
+        "codeSyntax": { "WEB": "var(--foreground)" },
+        "valuesByMode": {
+          "4:0": { "r": 0.03921568766236305, "g": 0.03921568766236305, "b": 0.03921568766236305, "a": 1 },
+          "155:0": { "r": 0.9803921580314636, "g": 0.9803921580314636, "b": 0.9803921580314636, "a": 1 }
+        }
+      },
+      "VariableID:4:12": {
+        "id": "VariableID:4:12", "name": "color/border", "remote": false,
+        "variableCollectionId": "VariableCollectionId:4:3", "resolvedType": "COLOR",
+        "codeSyntax": { "WEB": "var(--border)" },
+        "valuesByMode": {
+          "4:0": { "r": 0.8980392217636108, "g": 0.8980392217636108, "b": 0.8980392217636108, "a": 1 },
+          "155:0": { "r": 1, "g": 1, "b": 1, "a": 0.10196078568696976 }
+        }
+      },
+      "VariableID:155:1626": {
+        "id": "VariableID:155:1626", "name": "color/destructive", "remote": false,
+        "variableCollectionId": "VariableCollectionId:4:3", "resolvedType": "COLOR",
+        "description": "PROPOSED — Figma-led color", "codeSyntax": { "WEB": "var(--destructive)" },
+        "valuesByMode": {
+          "4:0": { "r": 1, "g": 0, "b": 0, "a": 1 },
+          "155:0": { "r": 1, "g": 0, "b": 0, "a": 1 }
+        }
+      },
+      "VariableID:155:1652": {
+        "id": "VariableID:155:1652", "name": "size/shell-mobile-navigation", "remote": false,
+        "variableCollectionId": "VariableCollectionId:4:3", "resolvedType": "FLOAT",
+        "codeSyntax": { "WEB": "var(--spacing-shell-mobile-navigation)" },
+        "valuesByMode": { "4:0": 56, "155:0": 56 }
+      },
+      "VariableID:155:1654": {
+        "id": "VariableID:155:1654", "name": "space/hairline", "remote": false,
+        "variableCollectionId": "VariableCollectionId:155:1653", "resolvedType": "FLOAT",
+        "codeSyntax": { "WEB": "var(--spacing-hairline)" }, "valuesByMode": { "155:1": 1 }
+      },
+      "VariableID:155:1655": {
+        "id": "VariableID:155:1655", "name": "space/0_5", "remote": false,
+        "variableCollectionId": "VariableCollectionId:155:1653", "resolvedType": "FLOAT",
+        "codeSyntax": { "WEB": "calc(var(--spacing) * 0.5)" }, "valuesByMode": { "155:1": 2 }
+      },
+      "VariableID:205:3520": {
+        "id": "VariableID:205:3520", "name": "color/warning", "remote": false,
+        "variableCollectionId": "VariableCollectionId:4:3", "resolvedType": "COLOR",
+        "description": "PROPOSED", "codeSyntax": { "WEB": "var(--warning)" },
+        "valuesByMode": { "4:0": { "r": 1, "g": 0.8, "b": 0, "a": 1 } }
+      },
+      "VariableID:155:1687": {
+        "id": "VariableID:155:1687", "name": "color/sidebar", "remote": false,
+        "variableCollectionId": "VariableCollectionId:4:3", "resolvedType": "COLOR",
+        "codeSyntax": { "WEB": "var(--sidebar)" },
+        "valuesByMode": { "4:0": { "r": 0.98, "g": 0.98, "b": 0.98, "a": 1 }, "155:0": { "type": "VARIABLE_ALIAS", "id": "VariableID:4:5" } }
+      },
+      "VariableID:155:1688": {
+        "id": "VariableID:155:1688", "name": "color/ring", "remote": false,
+        "variableCollectionId": "VariableCollectionId:4:3", "resolvedType": "COLOR", "description": "proposed by designer",
+        "valuesByMode": { "4:0": { "r": 0, "g": 0, "b": 0, "a": 1 }, "155:0": { "r": 0, "g": 0, "b": 0, "a": 1 } }
+      },
+      "VariableID:155:1686": {
+        "id": "VariableID:155:1686", "name": "size/tab-bar", "remote": false,
+        "variableCollectionId": "VariableCollectionId:155:1653", "resolvedType": "FLOAT",
+        "codeSyntax": { "WEB": "var(--spacing-shell-mobile-navigation)" }, "valuesByMode": { "155:1": 56 }
+      }
+    }
+  }
+}

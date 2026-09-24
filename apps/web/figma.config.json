@@ -1,0 +1,11 @@
+{
+  "codeConnect": {
+    "include": ["client/explorations/code-connect/**/*.figma.ts", "components/explorations/code-connect/**/*.figma.ts"],
+    "label": "React",
+    "language": "jsx",
+    "importPaths": {
+      "components/*": "@/components/*",
+      "client/*": "@/client/*"
+    }
+  }
+}

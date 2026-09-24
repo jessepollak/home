@@ -7,7 +7,7 @@ const meta = {
   id: "ui-input-group",
   title: "UI/Input Group",
   component: InputGroup,
-  parameters: { layout: "centered", a11y: { test: "error" } },
+  parameters: { layout: "centered", a11y: { test: "error" }, design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=160-1673" } },
 } satisfies Meta<typeof InputGroup>;
 
 export default meta;

@@ -6,7 +6,7 @@ const meta = {
   title: "UI/Switch",
   component: Switch,
   args: { "aria-label": "Show small balances" },
-  parameters: { layout: "centered", a11y: { test: "error" } },
+  parameters: { layout: "centered", a11y: { test: "error" }, design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=160-1772" } },
 } satisfies Meta<typeof Switch>;
 
 export default meta;

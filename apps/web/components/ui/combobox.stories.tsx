@@ -16,7 +16,7 @@ const meta = {
   id: "ui-combobox",
   title: "UI/Combobox",
   component: Combobox,
-  parameters: { layout: "centered" },
+  parameters: { layout: "centered", design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=160-1759" } },
 } satisfies Meta<typeof Combobox>;
 
 export default meta;

@@ -6,7 +6,7 @@ const meta = {
   title: "UI/Input",
   component: Input,
   args: { "aria-label": "Amount", placeholder: "0.00" },
-  parameters: { layout: "centered", a11y: { test: "error" } },
+  parameters: { layout: "centered", a11y: { test: "error" }, design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=160-1654" } },
 } satisfies Meta<typeof Input>;
 
 export default meta;

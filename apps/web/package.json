@@ -17,7 +17,11 @@
     "test:stories": "vitest run",
     "test:browser-smoke": "playwright test --config playwright.config.ts",
     "test:browser-install": "playwright install --with-deps chromium",
-    "db:migrate": "bun --conditions=react-server ./server/db/migrate.ts"
+    "db:migrate": "bun --conditions=react-server ./server/db/migrate.ts",
+    "figma:connect:parse": "figma connect parse --exit-on-unreadable-files --outFile /dev/null",
+    "figma:connect:publish": "figma connect publish --exit-on-unreadable-files",
+    "figma:variables": "node scripts/figma-variables.mjs",
+    "figma:variables:dry-run": "node scripts/figma-variables.mjs --dry-run"
   },
   "dependencies": {
     "@base-org/account": "2.5.10",
@@ -49,9 +53,11 @@
     "viem": "2.56.3"
   },
   "devDependencies": {
+    "@figma/code-connect": "2.0.1",
     "@happy-dom/global-registrator": "20.14.0",
     "@playwright/test": "1.55.0",
     "@storybook/addon-a11y": "10.6.0",
+    "@storybook/addon-designs": "11.1.4",
     "@storybook/addon-mcp": "10.6.0",
     "@storybook/addon-vitest": "10.6.0",
     "@storybook/nextjs-vite": "10.6.0",

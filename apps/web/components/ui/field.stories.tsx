@@ -6,7 +6,7 @@ const meta = {
   id: "ui-field",
   title: "UI/Field",
   component: Field,
-  parameters: { layout: "centered", a11y: { test: "error" } },
+  parameters: { layout: "centered", a11y: { test: "error" }, design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=160-1684" } },
 } satisfies Meta<typeof Field>;
 
 export default meta;

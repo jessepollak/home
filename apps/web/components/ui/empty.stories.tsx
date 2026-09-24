@@ -7,7 +7,7 @@ const meta = {
   id: "ui-empty",
   title: "UI/Empty",
   component: Empty,
-  parameters: { layout: "centered", a11y: { test: "error" } },
+  parameters: { layout: "centered", a11y: { test: "error" }, design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=161-1904" } },
 } satisfies Meta<typeof Empty>;
 
 export default meta;

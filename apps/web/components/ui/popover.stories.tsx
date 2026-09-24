@@ -18,7 +18,7 @@ const meta = {
   id: "ui-popover",
   title: "UI/Popover",
   component: PopoverExample,
-  parameters: { layout: "centered", a11y: { test: "error" } },
+  parameters: { layout: "centered", a11y: { test: "error" }, design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=292-5883" } },
 } satisfies Meta<typeof PopoverExample>;
 
 export default meta;

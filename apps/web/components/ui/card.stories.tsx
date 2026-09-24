@@ -6,7 +6,7 @@ const meta = {
   id: "ui-card",
   title: "UI/Card",
   component: Card,
-  parameters: { layout: "centered", a11y: { test: "error" } },
+  parameters: { layout: "centered", a11y: { test: "error" }, design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=269-5270" } },
 } satisfies Meta<typeof Card>;
 
 export default meta;
