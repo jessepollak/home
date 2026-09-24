@@ -15,7 +15,7 @@ The CI Playwright replay in `apps/web/tests/browser/feature-map-replay.pw.ts` pa
 through `apps/web/tests/browser/feature-map/map.ts` and executes every non-manual fixture Reach. Keep its explicit skip
 reasons aligned with the map when changing a Reach or fixture. Reach guides the agent; it never
 authorizes a money click. Full-text snapshots reveal facts hidden by interactive-only snapshots; number-flow amounts appear as images (for example `image "$1.00"`), not text;
-scope huge trees (notably coverage's globe), and prefer current `@refs` when names churn.
+scope huge trees (notably coverage's globe), and prefer current `@refs` when names churn. Do not use `wait --text` on accessible-name-only labels: `Borrow markets` names a list, not visible text. A live Reach ends at review; its separate marked confirm requires the ladder's Rung 3 or Jesse's direct authorization, a fresh `live-login` and the shared confirm lock. Check the signed-in account in Account settings once per session until reviews show a From row (#847).
 
 Fixture baseline referenced throughout: `HOME_PLAYWRIGHT_SMOKE=1`, rootless
 `bun --cwd apps/web dev -- --port 3199` ([browser validation](../../../docs/browser-validation.md#fixture-session-on-port-3199)).
@@ -165,9 +165,8 @@ do not silently ignore a new failure or treat this list as permission to broaden
   4. `click "1"`
   5. `click "Continue"`
   6. `expect "Confirm"`
-  7. `click "Deposit $0.10"`
-  8. `expect "Deposited $0.10"`
-- **Notes**: The Save smoke path opens a deep-linked Deposit and dismisses it with Close and browser Back; it also opens Deposit and Withdraw from their buttons, closes via Close or Escape, and asserts focus returns to the exact opener.
+- **Confirm (live, authorization-gated)**: After verifying review facts and the signed-in account, check `data-money-action-id` on `Deposit $0.10` and, only with Rung 3 or Jesse's direct authorization, click once and expect `Deposited $0.10`. For a funded withdrawal, choose `Withdraw`, use Max for available savings, reach review, then apply the same gate to the marked `Withdraw $<amount>` control.
+- **Notes**: On an unfunded Save landing use `Get started` (not `Deposit`); the deep-linked deposit still works. The smoke path dismisses it with Close and browser Back; it also opens Deposit and Withdraw from their buttons, closes via Close or Escape, and asserts focus returns to the exact opener.
 - **Expect**: section `role="region"`/`aria-label="Save"` hosted variant (savings-experience.tsx); vault radiogroup `aria-label="Vault"`; `Nothing saved yet` empty; action buttons `Get started` (unfunded) / `Deposit` + `Withdraw` (funded) (savings-experience.tsx); dialog labels from `closeLabel={Close ${mode} dialog}` and `primaryLabel` `Continue` → `Deposit $X`/`Withdraw $X`/`Retry` (savings-actions.tsx lines ~251–350).
 - **States**: cold loading (`data-shimmer="savings-hero"`, `savings-apy`); vaults loading `aria-busy`; vaults error `Vaults are temporarily unavailable.` + `Retry`; stale alerts `Saved balance stale…` / `Vault rates stale…`; deposit/withdraw amount → confirm → pending (`Waiting for your wallet…`) → error/failed.
 - **Evidence**: screenshot; DOM snapshot; console/errors; marks `shell:paint`, and `action:first-interactive` when the Send boundary mounts (not Save-specific).
@@ -186,10 +185,10 @@ do not silently ignore a new failure or treat this list as permission to broaden
   4. `click "1"`
   5. `click "Continue"`
   6. `expect "Confirm"`
-  7. `click "Confirm action"`
-  8. `expect "Borrowed $0.10"`
+- **Reach (live, Repay all up to review)**: Requires a nonzero debt position and wallet USDC; if there is no debt/`Repay` affordance, stop and report the prerequisite, do not manufacture debt. From the market detail, click `Repay`, select `Max` (the amount step shows `Maximum repayment`), click `Continue`, then read the full `Confirm` review. `Max` with insufficient wallet USDC can be a partial repayment; stop unless the review explicitly says `Repay all USDC debt`. Expect `Repay all USDC debt`, Base, and a maximum ≤ borrowed amount + 0.0002 USDC (accrued debt need not equal $0.10).
+- **Confirm (live, authorization-gated)**: After review and session account verification, check `data-money-action-id` on `Confirm action` and click it once only under Rung 3 or Jesse's direct authorization. Borrow expects `Borrowed $0.10`; repay-all expects `Repaid all Borrow debt` and no remaining debt/Repay affordance. Never reuse a previously stopped prepared action.
 - **Verify**: manual
-- **Notes**: No smoke fixture exists for `/api/borrow*`; see Gaps. Live: the `1` chip renders only when the pinned account holds the market's collateral (`You need cbBTC in this wallet before you can borrow.`); the production bot account held none on 2026-09-22, so that control remains unavailable until the account holds collateral.
+- **Notes**: No smoke fixture exists for `/api/borrow*`; see Gaps. On 2026-09-22 the bot had no cbBTC, so the `1` chip was unavailable. On 2026-09-24 it held cbBTC and reached a $0.10 review; read a fresh position snapshot before acting because collateral and debt change.
 - **Expect**: heading `Borrow` (`#borrow-overview-title`, `#borrow-direct-title`, borrowing-experience.tsx); position actions including `Borrow`, `Supply`/`Withdraw collateral from Bitcoin position` (`aria-label`, line 539); `Back to Borrow`; `Market values are unavailable` + `Retry` error; collateral preview `data-testid="borrow-collateral-preview"`; action money modal title `Confirm`, footer `Confirm action`/`Retry`/`Back`/`Close` (lines ~712–782).
 - **States**: loading/error via `overview.refetch()`/`detail.refetch()` buttons; amount → confirm → pending (`Waiting for your wallet…`, `#borrow-action-pending`) → error/failed.
 - **Evidence**: screenshot; DOM snapshot; console/errors.
@@ -230,12 +229,11 @@ do not silently ignore a new failure or treat this list as permission to broaden
   3. `click "Decimal point"`
   4. `click "1"`
   5. `click "Continue"`
-  6. `fill "To" "<recipient>"`
+  6. `fill "To" "jesse.base.eth"` (default; a different recipient needs explicit authorization)
   7. `click "Continue"`
   8. `expect "Confirm"`
-  9. `click "Send $0.10"`
-  10. `expect "Sent $0.10"`
-- **Notes**: The dialog is labelled by `send-title`. In live Reach, `<recipient>` means the recipient explicitly authorized by the task; never type the placeholder. Before any live confirm, read the full review and match the `To` address, amount and signed-in account against that task. Routine UI verification stops before the marked confirm control. Fixture-backed name and recent-recipient behavior is in tests/browser/send-recipients.pw.ts; the fixture-session helper stages static recipient, prepare and pending-review responses through tests/browser/feature-map/fixtures.ts so Send reaches review without a provider or confirmation.
+- **Confirm (live, authorization-gated)**: After matching the reviewed recipient, amount, Base network and session account, check `data-money-action-id` on `Send $0.10`, then click once only under Rung 3 or Jesse's direct authorization; verify Activity if the success toast is missed.
+- **Notes**: The dialog is labelled by `send-title`. Before any live confirm, read the full review and match the `To` address, amount and signed-in account against the approved task. Routine UI verification stops before the marked confirm control. Fixture-backed name and recent-recipient behavior is in tests/browser/send-recipients.pw.ts; the fixture-session helper stages static recipient, prepare and pending-review responses through tests/browser/feature-map/fixtures.ts so Send reaches review without a provider or confirmation.
   1. **amount**: type digits via keypad buttons named `0`–`9`, `Decimal point`, `Delete last digit` (`role="group" aria-label="Amount keypad"`, client/money-modal/amount.tsx:581–601); quick chips group `Quick amounts` (`$10`/`$25`/`Max` when priced, amount.tsx:508+). Primary `Continue` disabled until positive amount (`isPositiveDecimalAmount`).
   2. **destination**: step title stays `Send`; field label `To` (AddressField `id="send-recipient"`); primary `Continue` disabled until the typed value is a valid `0x` recipient or a resolved name (send-dialog.tsx `effectiveRecipient`). A `.eth` Basename/ENS value is resolved through `GET /api/transfers/recipient-name?name=…` and shows `Resolves to <full address>` under the field; while it resolves the field is described by `Resolving <name>…`; an unresolved or unsupported value shows an inline `role="alert"`/hint and never enables `Continue`. The account's own recent send recipients render below the `Or` separator under the group label `Recent recipients` (labelled by reverse-resolved name with the truncated address beneath, or the truncated address alone) and selecting one fills `To`.
   3. **confirm**: dialog title becomes `Confirm` (send-dialog.tsx `modalTitle`); summary via `MoneyConfirmSummary` rows `To` (CopyableValue full address), `Asset`, `Network` = `Base` (send-dialog.tsx); primary button `Send $1.00` where amount is `MoneyTicker(confirmAmount)` — smoke clicks `getByRole("button", { name: "Send $1.00" })`; secondary `Back`.
@@ -264,15 +262,16 @@ do not silently ignore a new failure or treat this list as permission to broaden
   5. `click "Continue"`
   6. `click "Available payout apps: Cash App, Zelle Send to Zelle, Venmo, Cash App and more Use Peer to send via app"` (the payout marks contribute their `Available payout apps:` name; the list follows the US corridor order)
   7. `click "Cash App"`
-  8. `fill "Cash App handle" "$alice"` — `$alice` is a fixture-only placeholder; live work uses only an explicitly authorized payout handle
+  8. Fill `Cash App handle` with the pinned `HOME_VERIFY_CASHOUT_HANDLE` (never the fixture `$alice`).
   9. `click "Continue"`
-  10. `fill "Re-enter handle" "$alice"` — live work re-enters the task's authorized handle in canonical form (leading `$` stripped, `shared/funding/cash-payee.ts`); stop if it differs
+  10. Fill `Re-enter handle` with its canonical value (leading `$` stripped, `shared/funding/cash-payee.ts`); stop if it differs. Never send raw handle-step snapshots to logs.
   11. `click "Review"`
-  12. `expect "Approximate receive"` — the deposit review's approximate fiat row, absent from a withdrawal review
-  13. `expect "Confirm"`
-- **Withdrawal recovery**: In-flight Peer cash-outs appear on Send's destination step as `Withdraw …` controls. Open an authorized in-flight item, read the recovered amount and payout-handle review, and stop before its marked confirmation unless Rung 3 applies or Jesse directly authorizes a live confirm. No in-flight item means no recovery action; do not manufacture one.
+  12. Read `Approximate receive` and `Confirm`; compare the payout handle against the pinned value **inside the shell** and redact both forms before any snapshot output.
+- **Confirm (live, authorization-gated)**: Check `data-money-action-id` on `Cash out $0.10` and click once only under Rung 3 or Jesse's direct authorization, after review facts and session account match.
+- **Withdrawal recovery (live, up to review)**: In-flight Peer cash-outs appear on Send's destination step as `Withdraw …` controls. Open the **unique** authorized in-flight order and check its amount, network Base, and session account. It returns funds to the owner; its withdrawal review has **no payout handle**. No matching in-flight item means stop; do not manufacture one.
+- **Recovery confirm (live, authorization-gated)**: Check `data-money-action-id` on `Withdraw $<amount>` and click once only under Rung 3 or Jesse's direct authorization after the order, amount, Base and account checks.
 - **Verify**: manual
-- **Expect**: modal title `Cash out with Peer` (send-dialog.tsx `modalTitle`); confirm rows `Provider`, `Payout app`, `Payout handle`, `Approximate receive`, `Estimated delivery`, `Network` = `Base` (send-dialog.tsx confirm rows); disclaimer `The fiat amount and delivery time are approximate, not guaranteed.`; primary `Cash out $X` or `Withdraw $X`, where the amount is the reviewed USDC amount rendered in dollars (`formatUsdStablecoinAmount`).
+- **Expect**: modal title `Cash out with Peer` (send-dialog.tsx `modalTitle`); cash-out confirm rows `Provider`, `Payout app`, `Payout handle`, `Approximate receive`, `Estimated delivery`, `Network` = `Base`; withdrawal confirm omits the payout handle and approximate receive/delivery rows (send-dialog.tsx confirm rows); disclaimer `The fiat amount and delivery time are approximate, not guaranteed.`; primary `Cash out $X` or `Withdraw $X`, where the amount is the reviewed USDC amount rendered in dollars (`formatUsdStablecoinAmount`).
 - **States**: providers not loaded → CashoutItem absent (requires `PEER_OFFRAMP` stub registered after `installApiFixtures` via `route.fallback`, mobile-geometry.pw.ts); recovery items `Withdraw <amount>` for active orders; `Recover a Peer cash-out` button when `recoveryEligible` (send-dialog.tsx).
 - **Evidence**: screenshots; DOM snapshot; console/errors.
 - **Owned by**: `apps/web/client/transfers/send-dialog.tsx`, `/api/funding/providers?direction=offramp`, `/api/funding/offramp/orders`.
@@ -305,7 +304,7 @@ do not silently ignore a new failure or treat this list as permission to broaden
 - **Reach**:
   1. `goto "/home?account=settings"`
   2. `expect "Account"`
-- **Notes**: The fixture-session helper seeds signed-in state and fixtures. The Chromium smoke opens the header profile mark with the keyboard, asserts focus enters the settings region, closes through Done and browser Back, restores the exact opener, exercises deep-link and forward-history entry, and verifies every primary-navigation `aria-controls` target remains unique and present. Live: the Peer option renders only where `PEER_OFFRAMP_ENABLED` is set on the target (`apps/web/server/funding/providers/peer/manifest.ts:51`); production keeps it off pending the provider README's staging and corridor confirmations, so cash-out remains unavailable there until then.
+- **Notes**: The fixture-session helper seeds signed-in state and fixtures. The Chromium smoke opens the header profile mark with the keyboard, asserts focus enters the settings region, closes through Done and browser Back, restores the exact opener, exercises deep-link and forward-history entry, and verifies every primary-navigation `aria-controls` target remains unique and present. Live: Peer availability varies by deployment and corridor (`PEER_OFFRAMP_ENABLED`, `apps/web/server/funding/providers/peer/manifest.ts`). Production exposed the Cash App path and a live review on 2026-09-24; snapshot current provider availability rather than assuming it is off.
 - **Expect**: region `aria-label="Account settings"` receives programmatic focus without selecting an input; `Show small balances` switch (`getByRole("switch", { name: "Show small balances" })`, mobile-geometry.pw.ts; owned by client/home/use-show-small-balances.ts + account-settings region of shell-panels.tsx). Sign-out control and region selector live here (shell-panels.tsx passes `regionId`, `resolutionSource`, `onRegionChange`, `onSignOut` to client/account/account-settings.tsx).
 - **States**: preference not ready (`isPreferenceReady`); region override messages (`preferenceMessage`).
 - **Evidence**: screenshot; DOM snapshot; console/errors.
@@ -329,7 +328,7 @@ do not silently ignore a new failure or treat this list as permission to broaden
 - **Reach**:
   1. `goto "/coverage"`
   2. `expect "Local money coverage"`
-- **Notes**: Exercise the four native comboboxes for search, issuer, Home status, and priority plus the `sort` query parameter when validating filters.
+- **Notes**: Exercise the Search textbox and the four comboboxes `1:1 onramp`, `Portfolio`, `Integrated`, `Sort`, plus the `sort` query parameter when validating filters.
 - **Expect**: `Local money coverage | Home` title; coverage table rows (components/ui/coverage-table.tsx); combobox font ≥16px on mobile/landscape (tests/browser/mobile-geometry.pw.ts).
 - **States**: filtered-empty result reports `Showing 0 of <total> countries and territories.` and an empty coverage table.
 - **Evidence**: screenshot (390×844 and 844×390); DOM snapshot; console/errors.
