@@ -9,6 +9,7 @@ Figma is Home's design source. Paper is retired.
 - Library sections (Foundations, Primitives, Finance patterns, Home components), gap matrix, Code Connect results and publish checklist: [design-system.md](design-system.md) (#791)
 - File structure and the instances-only rule every pass keeps: [design-system.md](design-system.md#file-structure-and-the-instances-only-rule)
 - Real-world references: [Mobbin](mobbin.md), through the [References](#references) workflow
+- Card proposal (unreviewed): [`Card proposal (#636, unreviewed)`](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=309-7257) (`309:7257`) on the Card page holds 23 frames in three labelled rows, revision 3 after Jesse's 2026-09-24 review: landing states (Lock replaces Freeze; the outage uses the header status) and desktop; entry, staged verification, wallet variants and Card settings with Home's Home · Card · Invest navigation; and the Activity, Card details, Get help and Replace/Cancel sheets on one spacing spec. A Notes line lists the deferred settings and where in-app support (#813) will enter. Every frame is built from Components-page library instances. Its additive library pieces are the Icon `credit-card`, `snowflake`, `eye`, `lock`, `smartphone-nfc` and `settings` variants, CurrencyMarkSlot `Card`, `Freeze`, `Lock`, `Settings`, `Wallet` and `Cancel`, TabItem `Card`, the Alert `Action` text property and hugging MoneyTicker text. The design-only sets `TabBar / with Card` (`309:7317`), `CardArt` (`309:7326`, now `status` × `size` with `status=locked` and a large `size=lg`) and `CardControlRow` (`309:7499`) live in Components → Home components → Card, marked DESIGN-ONLY until Jesse selects a direction. The capability map is [card-design.md](../card-design.md). Nothing was published.
 
 ## Page layout
 
@@ -24,7 +25,7 @@ Surviving node IDs did not change when sections moved. Current page order and co
 | Activity | [`333:13088`](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13088) | Activity ledger proposal #637 `308:5918`. |
 | Send / Add money / Cash out | [`333:13089`](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13089) | Empty destination for future screens and proposals. |
 | Account | [`333:13090`](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13090) | Empty destination for future screens and proposals. |
-| Card | [`333:13091`](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13091) | Card proposal #636 `309:7257`. |
+| Card | [`333:13091`](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13091) | Card proposal (#636, unreviewed) `309:7257`. |
 | Shell / desktop | [`333:13092`](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13092) | Desktop proposal #694 `322:11819`. |
 | References | [`333:13093`](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13093) | Private Mobbin References `174:2891`; never share publicly. |
 

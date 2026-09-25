@@ -40,5 +40,6 @@ This map points to Home's current product, engineering, delivery, setup, and int
 
 ## Proposed specs
 
+- [Card design proposal](card-design.md) — unreviewed #636 capability map, settings structure and Card journey states.
 - [Public transfer feed](public-transfer-feed-spec.md) — active implementation-ready proposal for a public ERC-20 transfer feed.
 - [Checking shimmer](qa/checking-97/CHECKING-SHIMMER-SPEC.md) — active QA specification for the checking loading state.
