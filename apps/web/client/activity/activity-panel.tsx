@@ -299,7 +299,16 @@ function ActivityContinuation({
   );
 }
 
-function ActivityUnavailable({ message, onReload }: { message: string; onReload: () => void }) {
+/** @public Reused by the Activity ledger exploration stories for per-source reload. */
+export function ActivityUnavailable({
+  message,
+  onReload,
+  reloadLabel = "Reload activity",
+}: {
+  message: string;
+  onReload: () => void;
+  reloadLabel?: string;
+}) {
   return (
     <div className="flex items-center justify-center gap-1" data-activity-unavailable="">
       <p role="status" className="text-sm text-muted-foreground">{message}</p>
@@ -307,7 +316,7 @@ function ActivityUnavailable({ message, onReload }: { message: string; onReload:
         variant="ghost"
         size="icon"
         className="size-11 md:pointer-fine:size-8"
-        aria-label="Reload activity"
+        aria-label={reloadLabel}
         onClick={onReload}
       >
         <RotateCw aria-hidden="true" />
