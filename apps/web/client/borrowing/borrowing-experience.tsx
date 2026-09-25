@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ComponentProps, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { CurrencyMark } from "@/components/currency-mark";
 import {
   presentPortfolioAssetMark,
@@ -88,6 +88,7 @@ type BorrowExperienceProps = {
 type BorrowDialogState = {
   operation: BorrowOperation;
   snapshot: BorrowMarketSnapshot;
+  open: boolean;
 } | null;
 
 const BorrowMoneySheet = deferSheet(() => import("./borrow-money-dialog").then((module) => module.BorrowMoneyDialog));
@@ -252,6 +253,7 @@ function BorrowDirectMarket({
     risk !== "urgent" && risk !== "liquidatable" && BigInt(snapshot.state.liquidityAssetsRaw) > BigInt(0) &&
     (hasCollateral ? BigInt(snapshot.position.borrowCapacityAssetsRaw) > BigInt(0) : BigInt(openingBorrowAvailableBaseUnits(snapshot)) > BigInt(0)));
   const [dialogSnapshot, setDialogSnapshot] = useState<BorrowMarketSnapshot | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(true);
   if (!dialogSnapshot && snapshot && canOpen) setDialogSnapshot(snapshot);
 
   return (
@@ -291,7 +293,9 @@ function BorrowDirectMarket({
           prepareMoneyAction={prepareMoneyAction}
           executeMoneyAction={executeMoneyAction}
           regionId={regionId}
-          onClose={onClose}
+          open={dialogOpen}
+          onClose={() => setDialogOpen(false)}
+          onClosed={onClose}
           assetMarkResolution={assetMarkResolution}
         />
       ) : null}
@@ -317,6 +321,7 @@ function BorrowMarketCard({
   assetMarkResolution?: AssetMarkResolution;
 }) {
   const [dialog, setDialog] = useState<BorrowDialogState>(null);
+  const dialogTrigger = useRef<HTMLButtonElement | null>(null);
   const snapshot = opportunity.availability.status === "available" ? opportunity.availability.snapshot : null;
   const hasDebt = snapshot ? BigInt(snapshot.position.debtAssetsRaw) > BigInt(0) : false;
 
@@ -337,7 +342,7 @@ function BorrowMarketCard({
               ) : (
                 <BorrowOpenSummary snapshot={snapshot} regionId={regionId} />
               )}
-              <BorrowCardActions snapshot={snapshot} onOpen={(operation) => { void BorrowMoneySheet.preload(); setDialog({ operation, snapshot }); }} />
+              <BorrowCardActions snapshot={snapshot} onOpen={(operation, trigger) => { dialogTrigger.current = trigger; void BorrowMoneySheet.preload(); setDialog({ operation, snapshot, open: true }); }} />
             </>
           ) : null}
         </div>
@@ -352,7 +357,9 @@ function BorrowMarketCard({
           prepareMoneyAction={prepareMoneyAction}
           executeMoneyAction={executeMoneyAction}
           regionId={regionId}
-          onClose={() => setDialog(null)}
+          open={dialog.open}
+          onClose={() => setDialog((current) => current ? { ...current, open: false } : null)}
+          onClosed={() => { setDialog(null); dialogTrigger.current?.focus(); dialogTrigger.current = null; }}
           assetMarkResolution={assetMarkResolution}
         />
       ) : null}
@@ -462,7 +469,7 @@ function BorrowPositionSummary({ snapshot, regionId }: { snapshot: BorrowMarketS
   );
 }
 
-function BorrowCardActions({ snapshot, onOpen }: { snapshot: BorrowMarketSnapshot; onOpen: (operation: BorrowOperation) => void }) {
+function BorrowCardActions({ snapshot, onOpen }: { snapshot: BorrowMarketSnapshot; onOpen: (operation: BorrowOperation, trigger: HTMLButtonElement) => void }) {
   const hasDebt = BigInt(snapshot.position.debtAssetsRaw) > BigInt(0);
   const hasCollateral = BigInt(snapshot.position.collateralRaw) > BigInt(0);
   const hasWalletCollateral = BigInt(snapshot.wallet.collateralBalanceRaw) > BigInt(0);
@@ -483,17 +490,17 @@ function BorrowCardActions({ snapshot, onOpen }: { snapshot: BorrowMarketSnapsho
     <div className="space-y-3" onPointerDown={() => void BorrowMoneySheet.preload()}>
       <div className={`grid grid-cols-1 gap-2 ${primaryActions.length > 1 ? "sm:grid-cols-2" : ""}`}>
         {primaryActions.map((action, index) => (
-          <Button key={action.operation} className="min-h-11 h-auto whitespace-normal" variant={index === 0 ? "default" : "secondary"} disabled={action.disabled} onClick={() => onOpen(action.operation)}>
+          <Button key={action.operation} className="min-h-11 h-auto whitespace-normal" variant={index === 0 ? "default" : "secondary"} disabled={action.disabled} onClick={(event) => onOpen(action.operation, event.currentTarget)}>
             <span className="py-2">{action.label}</span>
           </Button>
         ))}
       </div>
       {hasDebt || hasCollateral ? (
         <div className="grid grid-cols-2 gap-2" role="group" aria-label={`Manage ${collateralDisplayName(snapshot.market.id)} position`}>
-          <Button className="min-h-11 h-auto w-full whitespace-normal" size="sm" variant="outline" disabled={!hasWalletCollateral} onClick={() => onOpen("supply-collateral")}>
+          <Button className="min-h-11 h-auto w-full whitespace-normal" size="sm" variant="outline" disabled={!hasWalletCollateral} onClick={(event) => onOpen("supply-collateral", event.currentTarget)}>
             <span className="py-2">Add collateral</span>
           </Button>
-          <Button aria-label={`Withdraw collateral from ${collateralDisplayName(snapshot.market.id)} position`} className="min-h-11 h-auto w-full whitespace-normal" size="sm" variant="outline" disabled={!hasCollateral || (hasDebt && !canNewRisk) || BigInt(snapshot.position.withdrawableCollateralRaw) === BigInt(0)} onClick={() => onOpen("withdraw-collateral")}>
+          <Button aria-label={`Withdraw collateral from ${collateralDisplayName(snapshot.market.id)} position`} className="min-h-11 h-auto w-full whitespace-normal" size="sm" variant="outline" disabled={!hasCollateral || (hasDebt && !canNewRisk) || BigInt(snapshot.position.withdrawableCollateralRaw) === BigInt(0)} onClick={(event) => onOpen("withdraw-collateral", event.currentTarget)}>
             <span className="py-2">Withdraw</span>
           </Button>
         </div>

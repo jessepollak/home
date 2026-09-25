@@ -16,11 +16,13 @@ export function TransactionDetailsModal({
   titleId,
   details,
   onClose,
+  onClosed,
 }: {
   open: boolean;
   titleId: string;
   details: TransactionDetails | null;
   onClose: () => void;
+  onClosed?: () => void;
 }) {
   const rows = details?.rows ?? [];
   return (
@@ -28,7 +30,7 @@ export function TransactionDetailsModal({
       open={open}
       labelledBy={titleId}
       onCancel={onClose}
-      onClose={onClose}
+      onClose={onClosed ?? onClose}
     >
       <MoneyModalHeader
         title={details?.title ?? ""}

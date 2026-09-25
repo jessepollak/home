@@ -235,6 +235,19 @@ describe("BorrowExperience redesign", () => {
     expect(dialog.queryByText(/Locked as collateral/)).toBeNull();
   });
 
+  test("keeps a card-action sheet mounted through closing and returns focus to its trigger", async () => {
+    render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(detail())} prepareMoneyAction={async () => prepared()} executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />);
+    const body = within(document.body);
+    const trigger = await body.findByRole("button", { name: "Borrow more" });
+    trigger.focus();
+    fireEvent.click(trigger);
+    const dialog = await body.findByRole("dialog", { name: "Borrow" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close Borrow action" }));
+    expect(document.body.contains(dialog)).toBe(true);
+    await waitFor(() => expect(document.body.contains(dialog)).toBe(false));
+    await waitFor(() => expect(document.activeElement === trigger).toBe(true));
+  });
+
   test("opens a configured market query directly into the Borrow modal instead of a detail inspector", async () => {
     render(<BorrowExperience session={session()} selectedMarketId={BORROW_MARKET_ID} fetchAccountResource={async () => noPosition()} prepareMoneyAction={async () => prepared("supply-and-borrow")} executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />);
     const body = within(document.body);
