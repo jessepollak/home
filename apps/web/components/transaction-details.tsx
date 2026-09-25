@@ -1,6 +1,6 @@
 "use client";
 
-import { Separator } from "@/components/ui/separator";
+import { Card, CardContent } from "@/components/ui/card";
 import { CopyableValue } from "@/components/copyable-value";
 import { NetworkMark } from "./network-mark";
 import { TransactionAmount } from "./transaction-amount";
@@ -40,47 +40,48 @@ export function TransactionDetailsModal({
       />
       <MoneyModalBody hasFooter={false} className="pt-4">
         {details?.header ? <div className="pb-4"><TransactionAmount {...details.header} /></div> : null}
-        <dl>
-          {rows.map((row) => (
-            <div
-              className="relative grid min-h-11 grid-cols-[minmax(6rem,0.65fr)_minmax(0,1.35fr)] items-center gap-3 text-sm after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-border after:pointer-events-none last:after:hidden"
-              key={row.label}
-            >
-              <dt className="text-sm text-muted-foreground">{row.label}</dt>
-              <dd className={`min-w-0 text-end ${"display" in row && row.display ? "" : "font-medium tabular-nums"}`}>
-                {"network" in row ? (
-                  <span className="inline-flex items-center justify-end gap-2"><NetworkMark network={row.network} />{row.value}</span>
-                ) : "statusTone" in row ? (
-                  <TransactionStatusMark status={{ label: row.value, tone: row.statusTone }} />
-                ) : row.display ? (
-                  <CopyableValue
-                    value={row.value}
-                    display={row.display}
-                    presentation="compact"
-                    valueKind={row.label === "Transaction" ? "transaction hash" : "address"}
-                    className="justify-end text-end"
-                  />
-                ) : row.value}
-              </dd>
-            </div>
-          ))}
-        </dl>
+        <Card variant="flush">
+          <CardContent inset="list">
+            <dl>
+              {rows.map((row) => (
+                <div
+                  className="grid min-h-11 grid-cols-[minmax(6rem,0.65fr)_minmax(0,1.35fr)] items-center gap-3 px-3 text-sm"
+                  key={row.label}
+                >
+                  <dt className="text-sm text-muted-foreground">{row.label}</dt>
+                  <dd className={`min-w-0 text-end ${"display" in row && row.display ? "" : "font-medium tabular-nums"}`}>
+                    {"network" in row ? (
+                      <span className="inline-flex items-center justify-end gap-2"><NetworkMark network={row.network} />{row.value}</span>
+                    ) : "statusTone" in row ? (
+                      <TransactionStatusMark status={{ label: row.value, tone: row.statusTone }} />
+                    ) : row.display ? (
+                      <CopyableValue
+                        value={row.value}
+                        display={row.display}
+                        presentation="compact"
+                        valueKind={row.label === "Transaction" ? "transaction hash" : "address"}
+                        className="justify-end text-end"
+                      />
+                    ) : row.value}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </CardContent>
+        </Card>
         {details?.explorer ? (
-          <>
-            <Separator className="my-4" />
-            <div className="flex justify-end">
-              <a
-                className="text-sm font-medium text-muted-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                href={details.explorer.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                title={details.explorer.title}
-              >
-                {details.explorer.label}
-                <span aria-hidden="true"> ↗</span>
-              </a>
-            </div>
-          </>
+          <div className="flex justify-end pt-4">
+            <a
+              className="text-sm font-medium text-muted-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              href={details.explorer.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={details.explorer.title}
+            >
+              {details.explorer.label}
+              <span aria-hidden="true"> ↗</span>
+            </a>
+          </div>
         ) : null}
       </MoneyModalBody>
     </MoneyModal>
