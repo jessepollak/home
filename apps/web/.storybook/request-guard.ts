@@ -10,6 +10,7 @@ const STORYBOOK_RUNTIME_PATHS = [
   "/mockServiceWorker.js",
   "/currency-flags/",
   "/asset-marks/",
+  "/network-marks/",
   "/home-mark/",
   "/client/",
   "/components/",

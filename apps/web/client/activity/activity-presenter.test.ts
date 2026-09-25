@@ -117,10 +117,7 @@ describe("presentActivityTransferRow", () => {
     expect(presentActivityTransferRow(zora, UTC).value).toBe("+1 ZORA");
     const details = presentActivityTransferDetails(zora, UTC);
     expect(details.title).toBe("Received ZORA");
-    expect(details.rows).toContainEqual({
-      label: "Amount",
-      value: "+1.000000000000000001 ZORA",
-    });
+    expect(details.header?.amount).toBe("+1.000000000000000001 ZORA");
     expect(details.rows).toContainEqual({
       label: "Token contract",
       value: tokenAddress,
@@ -145,9 +142,10 @@ describe("presentActivityTransferRow", () => {
     );
     const details = presentActivityTransferDetails(unknown, UTC);
     expect(details.title).toBe("Received unknown token");
-    expect(details.rows).toContainEqual({
-      label: "Amount",
-      value: "+123456789 base units · unknown token",
+    expect(details.header).toMatchObject({
+      amount: "+123456789 base units",
+      tone: "success",
+      status: { label: "Confirmed", tone: "success" },
     });
     expect(details.rows).toContainEqual({
       label: "Token contract",
@@ -160,16 +158,23 @@ describe("presentActivityTransferRow", () => {
     const details = presentActivityTransferDetails(transfer("incoming"), UTC);
 
     expect(details.title).toBe("Received USDC");
-    expect(details.rows).toContainEqual({ label: "Amount", value: "+1.000001 USDC" });
+    expect(details.header).toEqual({
+      amount: "+1.000001 USDC",
+      tone: "success",
+      status: { label: "Confirmed", tone: "success" },
+    });
+    expect(details.rows.map((row) => row.label)).toEqual([
+      "Value", "From", "Token contract", "Network", "Date", "Transaction",
+    ]);
+    expect(details.rows).toContainEqual({ label: "Value", value: "Unknown" });
     expect(details.rows).toContainEqual({ label: "From", value: OTHER, display: "0x2222…222222" });
-    expect(details.rows).toContainEqual({ label: "To", value: WALLET, display: "0x1111…111111" });
     expect(details.rows).toContainEqual({
       label: "Token contract",
       value: usdc.tokenAddress,
       display: "0x8335…A02913",
     });
-    expect(details.rows).toContainEqual({ label: "Status", value: "Confirmed" });
-    expect(details.rows).toContainEqual({ label: "Block", value: "20" });
+    expect(details.rows).toContainEqual({ label: "Network", value: "Base", network: "base" });
+    expect(details.rows.some((row) => row.value.includes("8453"))).toBe(false);
     expect(details.explorer).toEqual({
       href: `https://basescan.org/tx/${TRANSACTION_HASH}`,
       label: "View on explorer",
@@ -178,15 +183,22 @@ describe("presentActivityTransferRow", () => {
   });
 
   test("keeps exact outgoing and self amounts without presentation rounding", () => {
-    expect(
-      presentActivityTransferDetails(
-        transfer("outgoing", { amountBaseUnits: "123450000" }),
-        UTC,
-      ).rows,
-    ).toContainEqual({ label: "Amount", value: "−123.45 USDC" });
-    expect(presentActivityTransferDetails(transfer("self"), UTC).title).toBe(
-      "Self transfer USDC",
+    const outgoing = presentActivityTransferDetails(
+      transfer("outgoing", { amountBaseUnits: "123450000" }), UTC,
     );
+    expect(outgoing.header).toEqual({
+      amount: "−123.45 USDC", tone: "default", status: { label: "Confirmed", tone: "success" },
+    });
+    expect(outgoing.rows.map((row) => row.label)).toEqual([
+      "Value", "From", "To", "Token contract", "Network", "Date", "Transaction",
+    ]);
+    expect(outgoing.rows).toContainEqual({ label: "To", value: OTHER, display: "0x2222…222222" });
+    const self = presentActivityTransferDetails(transfer("self"), UTC);
+    expect(self.title).toBe("Self transfer USDC");
+    expect(self.header).toEqual({
+      amount: "1.000001 USDC", tone: "default", status: { label: "Confirmed", tone: "success" },
+    });
+    expect(self.rows).toContainEqual({ label: "To", value: WALLET, display: "0x1111…111111" });
   });
 });
 
@@ -264,24 +276,30 @@ describe("activity transfer valuation presentation", () => {
       priced: false,
     });
     expect(presentActivityTransferDetails(unpriced, UTC).rows).toContainEqual({
-      label: "Value",
-      value: "Not priced · no market close within 1 hour before transfer",
+      label: "Value", value: "Unknown",
     });
   });
 
-  test("shows the same value plus quote time, source, and method in details", () => {
-    const rows = presentActivityTransferDetails(volatile("incoming"), UTC).rows;
-    expect(rows).toContainEqual({ label: "Amount", value: "+56.78 TEST" });
-    expect(rows).toContainEqual({ label: "Value", value: "+$12.34" });
-    expect(rows).toContainEqual({
-      label: "Valuation",
-      value: "Historical close · Codex 15-minute USD bar",
-    });
-    expect(rows).toContainEqual({ label: "Quote time", value: "Sep 7, 2026, 11:00 AM" });
-    expect(rows).toContainEqual({ label: "Unit price", value: "$0.2173291 per TEST" });
+  test("reports Unknown for every unpriced reason without inventing a zero value", () => {
+    for (const reason of ["unknown-token", "no-recent-close", "quote-unavailable", "fx-unavailable"] as const) {
+      const details = presentActivityTransferDetails(volatile("incoming", undefined, {
+        status: "unpriced", currency: "USD", reason,
+      }), UTC);
+      expect(details.rows.find((row) => row.label === "Value")?.value).toBe("Unknown");
+      expect(details.rows.some((row) => row.value.includes("$0"))).toBe(false);
+    }
   });
 
-  test("describes stablecoin peg and daily FX provenance", () => {
+  test("keeps the priced value without provenance rows in details", () => {
+    const details = presentActivityTransferDetails(volatile("incoming"), UTC);
+    expect(details.header?.amount).toBe("+56.78 TEST");
+    expect(details.rows).toContainEqual({ label: "Value", value: "+$12.34" });
+    expect(details.rows.map((row) => row.label)).toEqual([
+      "Value", "From", "Token contract", "Network", "Date", "Transaction",
+    ]);
+  });
+
+  test("keeps the priced FX value without provenance rows", () => {
     const rows = presentActivityTransferDetails(transfer("incoming", {
       amountBaseUnits: "10000000",
       valuation: {
@@ -307,10 +325,8 @@ describe("activity transfer valuation presentation", () => {
       },
     }), { ...UTC, regionId: "US" }).rows;
     expect(rows).toContainEqual({ label: "Value", value: "+€8.61" });
-    expect(rows).toContainEqual({ label: "Valuation", value: "Stablecoin peg · 1 USDC = 1 USD" });
-    expect(rows).toContainEqual({
-      label: "Exchange rate",
-      value: "1 USD = 0.8608 EUR · Coinbase daily rate 2026-09-07 UTC (provisional until the UTC day closes)",
-    });
+    expect(rows.map((row) => row.label)).toEqual([
+      "Value", "From", "Token contract", "Network", "Date", "Transaction",
+    ]);
   });
 });

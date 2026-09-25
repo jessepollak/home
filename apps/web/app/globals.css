@@ -43,6 +43,7 @@
   --color-foreground: var(--foreground);
   --color-background: var(--background);
   --color-market-gain: var(--market-gain);
+  --color-warning: var(--warning);
   --color-market-loss: var(--market-loss);
   --color-balance-cash: var(--balance-cash);
   --color-balance-savings: var(--balance-savings);
@@ -82,6 +83,7 @@
   --sidebar-accent: oklch(0.97 0 0); --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0); --sidebar-ring: oklch(0.708 0 0);
   --market-gain: #137333; --market-loss: #b42318;
+  --warning: #b45309;
   --balance-cash: oklch(0.64 0.17 151);
   --balance-savings: oklch(0.62 0.2 255);
   --balance-investments: oklch(0.62 0.18 305);
@@ -115,6 +117,7 @@
   --sidebar-accent: oklch(0.269 0 0); --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%); --sidebar-ring: oklch(0.556 0 0);
   --market-gain: oklch(0.75 0.14 150); --market-loss: oklch(0.704 0.191 22.216);
+  --warning: #fbbf24;
   --balance-cash: oklch(0.72 0.16 151);
   --balance-savings: oklch(0.7 0.17 255);
   --balance-investments: oklch(0.72 0.15 305);

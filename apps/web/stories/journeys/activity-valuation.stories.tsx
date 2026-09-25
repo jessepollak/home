@@ -268,10 +268,8 @@ export const Priced: Story = {
     const dialog = await screen.findByRole("dialog", { name: "Received TEST" });
     await expect(within(dialog).getByText("+$12.34")).toBeVisible();
     await expect(within(dialog).getByText("+5,678 TEST")).toBeVisible();
-    await expect(
-      within(dialog).getByText("Historical close · Codex 15-minute USD bar"),
-    ).toBeVisible();
-    await expect(within(dialog).getByText("Quote time")).toBeVisible();
+    await expect(within(dialog).queryByText(/Historical close/)).toBeNull();
+    await expect(within(dialog).queryByText("Quote time")).toBeNull();
     await userEvent.click(within(dialog).getByRole("button", { name: "Close transaction details" }));
   },
 };
@@ -299,9 +297,8 @@ export const MissingPrice: Story = {
     await expect(within(receivedRow).queryByText(/\$/)).toBeNull();
     await userEvent.click(receivedRow);
     const dialog = await screen.findByRole("dialog", { name: "Received TEST" });
-    await expect(
-      within(dialog).getByText("Not priced · market data unavailable"),
-    ).toBeVisible();
+    await expect(within(dialog).getByText("Unknown")).toBeVisible();
+    await expect(within(dialog).queryByText(/Not priced/)).toBeNull();
     await userEvent.click(within(dialog).getByRole("button", { name: "Close transaction details" }));
   },
 };

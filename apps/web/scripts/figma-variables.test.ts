@@ -64,7 +64,7 @@ test("existing codeSyntax wins over name; proposals and Figma-only entries are n
   expect(plan.unchanged).toBeGreaterThan(0);
   expect(plan.skippedProposed.some((entry) => entry.name === "color/destructive" && !!entry.code && !!entry.figma)).toBe(true);
   expect(plan.updates.some((entry) => entry.name === "color/destructive")).toBe(false);
-  expect(plan.figmaOnly.some((entry) => entry.name === "color/warning")).toBe(true);
+  expect(plan.figmaOnly.some((entry) => entry.name === "color/chart-gain")).toBe(true);
   expect(plan.creates.some((entry) => entry.name === "color/sidebar-ring")).toBe(true);
   expect(plan.creates.find((entry) => entry.name === "space/tab-indicator-offset")?.variableCollectionId).toBe("VariableCollectionId:155:1653");
   expect(plan.unmatched.some((entry) => entry.name === "space/0_5")).toBe(true);
@@ -77,7 +77,7 @@ test("existing codeSyntax wins over name; proposals and Figma-only entries are n
   const output = formatPlan(plan);
   expect(output).toContain("SKIP ALIAS color/sidebar  Dark");
   expect(output).toContain("UNMATCHED space/0_5");
-  expect(output).toContain("FIGMA-ONLY color/warning");
+  expect(output).toContain("FIGMA-ONLY color/chart-gain");
   expect(output).toContain("UPDATE color/ring  WEB var(--ring)");
   expect(output).not.toContain("\"updates\":");
 });

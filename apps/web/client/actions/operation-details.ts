@@ -3,10 +3,12 @@ import {
   formatExactPresentationTokenAmount,
 } from "@/shared/formatting";
 import {
+  baseNetworkRow,
   condensedTransactionHash,
   transactionExplorerLink,
   type TransactionDetailRow,
   type TransactionDetails,
+  type TransactionStatusTone,
 } from "@/components/transaction-explorer";
 import type { OperationResult } from "@/shared/money-actions/types";
 import type { ActionKind, MoneyActionAmount } from "@/shared/money-actions/types";
@@ -25,6 +27,17 @@ export function labelForOperationStatus(
     case "rejected": return "Rejected";
     case "failed": return "Failed";
     case "unknown": return "Outcome unknown";
+  }
+}
+
+export function toneForOperationStatus(status: OperationResult["status"]): TransactionStatusTone {
+  switch (status) {
+    case "confirmed": return "success";
+    case "pending":
+    case "submitted": return "pending";
+    case "failed": return "failure";
+    case "rejected":
+    case "unknown": return "neutral";
   }
 }
 
@@ -54,7 +67,7 @@ export function presentOperationDetails(
   options: { regionId?: RegionId; timeZone?: string } = {},
 ): TransactionDetails {
   const rows: TransactionDetailRow[] = [
-    { label: "Status", value: labelForOperationStatus(operation.status) },
+    { label: "Status", value: labelForOperationStatus(operation.status), statusTone: toneForOperationStatus(operation.status) },
     { label: "Type", value: labelForStoredOperation(operation) },
   ];
   if (operation.action.metadata?.product === "borrow") {
@@ -91,7 +104,7 @@ export function presentOperationDetails(
   }
 
   rows.push(
-    { label: "Network", value: "Base (8453)" },
+    baseNetworkRow(),
     { label: "Updated", value: formatPresentationDate(operation.updatedAt, {
       style: "activity-short",
       regionId: options.regionId,

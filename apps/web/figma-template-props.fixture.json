@@ -32,6 +32,7 @@
   "12:95": {},
   "12:94": {"Label#12:36":"Home","Active#12:37":[true,false],"Icon":["Home","Invest","Card"]},
   "282:5961": {"Value#282:13":"0x4a1C7d2E9b3F6a8D0c5E1f2B7a9D3c6E8f0B2d4A","display":["truncated","full"]},
+  "282:5882": {"Amount#282:3":"+$25.00","tone":["default","success"]},
   "274:5577": {},
   "166:1776": {"Show helper#166:10":[true,false],"state":["empty","entered","error"]},
   "166:1787": {"chipSet":["quick-local","max"]},

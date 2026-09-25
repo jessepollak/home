@@ -4,6 +4,7 @@ import {
   labelForOperationStatus,
   presentOperationDetails,
   primaryOperationAmount,
+  toneForOperationStatus,
 } from "./operation-details";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 
@@ -68,10 +69,11 @@ describe("operation transaction details", () => {
     const details = presentOperationDetails(baseOperation());
 
     expect(details.title).toBe("Trade USDC for ETH");
-    expect(details.rows).toContainEqual({ label: "Status", value: "Confirmed" });
+    expect(details.rows).toContainEqual({ label: "Status", value: "Confirmed", statusTone: "success" });
     expect(details.rows).toContainEqual({ label: "Type", value: "Trade" });
     expect(details.rows).toContainEqual({ label: "You spend", value: "1.234567 USDC" });
-    expect(details.rows).toContainEqual({ label: "Network", value: "Base (8453)" });
+    expect(details.rows).toContainEqual({ label: "Network", value: "Base", network: "base" });
+    expect(details.header).toBeUndefined();
     expect(details.explorer).toEqual({
       href: `https://basescan.org/tx/${HASH}`,
       label: "View on explorer",
@@ -214,6 +216,25 @@ describe("operation transaction details", () => {
     expect(labelForMoneyActionKind("borrow")).toBe("Borrow");
     expect(labelForMoneyActionKind("repay")).toBe("Repay");
     expect(labelForMoneyActionKind("withdraw-collateral")).toBe("Withdraw collateral");
+  });
+
+  test("maps every operation status to a status tone without changing its label", () => {
+    expect(toneForOperationStatus("confirmed")).toBe("success");
+    expect(toneForOperationStatus("pending")).toBe("pending");
+    expect(toneForOperationStatus("submitted")).toBe("pending");
+    expect(toneForOperationStatus("failed")).toBe("failure");
+    expect(toneForOperationStatus("rejected")).toBe("neutral");
+    expect(toneForOperationStatus("unknown")).toBe("neutral");
+    for (const [status, tone, label] of [
+      ["confirmed", "success", "Confirmed"],
+      ["pending", "pending", "Pending"],
+      ["failed", "failure", "Failed"],
+      ["unknown", "neutral", "Outcome unknown"],
+    ] as const) {
+      expect(presentOperationDetails(baseOperation({ status })).rows[0]).toEqual({
+        label: "Status", value: label, statusTone: tone,
+      });
+    }
   });
 
   test("labels the four derived statuses plus client dispatch outcomes", () => {
