@@ -22,6 +22,7 @@
     { "figmaName": "Select", "nodeId": "160:1718", "source": "components/ui/select.tsx", "component": "SelectTrigger", "template": "components/explorations/code-connect/ui/select.figma.ts", "stories": ["components/ui/select.stories.tsx"] },
     { "figmaName": "Switch", "nodeId": "160:1772", "source": "components/ui/switch.tsx", "component": "Switch", "template": "components/explorations/code-connect/ui/switch.figma.ts", "stories": ["components/ui/switch.stories.tsx"] },
     { "figmaName": "RadioGroup", "nodeId": "160:1801", "source": "components/ui/radio-group.tsx", "component": "RadioGroupOption", "template": "components/explorations/code-connect/ui/radio-group.figma.ts", "stories": ["components/ui/radio-group.stories.tsx"] },
+    { "figmaName": "Progress", "nodeId": "161:1923", "source": "components/ui/progress.tsx", "component": "Progress", "template": "components/explorations/code-connect/ui/progress.figma.ts", "stories": ["components/ui/progress.stories.tsx"] },
     { "figmaName": "Empty", "nodeId": "161:1904", "source": "components/ui/empty.tsx", "component": "Empty", "template": "components/explorations/code-connect/ui/empty.figma.ts", "stories": ["components/ui/empty.stories.tsx"] },
     { "figmaName": "Popover", "nodeId": "292:5883", "source": "components/ui/popover.tsx", "component": "PopoverContent", "template": "components/explorations/code-connect/ui/popover.figma.ts", "stories": ["components/ui/popover.stories.tsx"] },
 
@@ -52,7 +53,6 @@
     { "figmaName": "Regional & desktop proposal (#638, unreviewed)", "nodeId": "311:12034", "source": "client/home/explorations/regional-home.tsx", "component": "RegionalHomeProposal", "stories": ["client/home/explorations/regional-home.stories.tsx", "client/home/explorations/regional-money-sheets.stories.tsx", "client/account/explorations/regional-preferences.stories.tsx"] }
   ],
   "notMapped": [
-    { "figmaName": "Progress", "nodeId": "161:1923", "reason": "DESIGN-ONLY: no owned Progress wrapper in code yet." },
     { "figmaName": "InputOTP", "nodeId": "211:3668", "reason": "DESIGN-ONLY: sign-in still uses Input variant=\"otp\"." },
     { "figmaName": "InputOTPSlot", "nodeId": "211:3547", "reason": "DESIGN-ONLY sub-part of InputOTP." },
     { "figmaName": "StatusStep", "nodeId": "166:1861", "reason": "DESIGN-ONLY: no StatusStep component in code yet." },

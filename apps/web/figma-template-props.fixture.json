@@ -18,6 +18,7 @@
   "160:1718": {"state":["closed","open","disabled","error"]},
   "160:1772": {"checked":["false","true"],"state":["default","focus","disabled"]},
   "160:1801": {"Label#160:21":"Chase checking •••• 4821","checked":["false","true"],"state":["default","focus","disabled","error"]},
+  "161:1923": {"status":["active","complete"],"value":["40","100"]},
   "161:1904": {"Title#161:93":"No activity yet","Description#161:96":"Money you add or send shows up here.","Show action#161:99":[true,false],"media":["default","icon"]},
   "292:5883": {"Description#292:0":"Some balances are unavailable","Show action#292:1":[true,false]},
   "11:773": {"Title#11:2":"Home","Show status#246:0":[false,true]},
