@@ -91,7 +91,7 @@ function CopyableValueControl({
         className={cn(
           "min-w-0",
           isFullWidth &&
-            "w-full max-w-full justify-start overflow-hidden text-left",
+            "w-full max-w-full justify-start overflow-hidden text-start",
           (presentation === "full" || presentation === "compact") && "min-h-11",
           className,
         )}
@@ -111,7 +111,7 @@ function CopyableValueControl({
           <span
             className={cn(
               isFullWidth &&
-                "min-w-0 flex-1 overflow-x-auto pr-2 whitespace-nowrap",
+                "min-w-0 flex-1 overflow-x-auto pe-2 whitespace-nowrap",
             )}
           >
             {status === "copied" ? copiedLabel : shown}

@@ -40,6 +40,7 @@ Fixtures are session-local; balances snapshots come from `tests/browser/fixtures
 | `add-money` (funding) | funding | overlay on any shell route: `?flow=add-money` or `?flow=receive`; `/fund` redirects to `/home?add-money=1` (app/fund/page.tsx) | signed-in for methods; signed-out shows `Sign in` link (add-money-dialog.tsx) | provider fixture (`/api/funding/providers`); IDRX path in funding.pw.ts | `Add money` button (funding-actions.tsx); with no local onramp, Receive crypto remains and a country-specific deposit status appears after providers load |
 | `cash-out` (Peer offramp) | transfers/funding | inner steps of `send`: payout/handle/handle-confirm | signed-in, region with offramp provider | PEER_OFFRAMP stub and `openPeerCashOutHandle` in mobile-geometry.pw.ts | `Send` → amount → `Continue` → `Send to Cash App or Zelle` (US; send-dialog.tsx `CashoutItem`). Where no offramp binding exists, the destination step shows the country's unavailable status. |
 | `account-settings` | account | `/?account=settings` (dashboards commit `?account=settings`, shell.tsx `openAccountSettings`) | signed-in verified | signed-in seed | header profile mark (`ProfileMark`, shell-chrome.tsx) → settings; or goto `/home?account=settings` |
+| `operator-console` | operator | `/admin`, `/admin/{customers,support,growth,money,settings,audit}` | signed native Home operator session | operator allowlist and signed native session (browser admin.pw.ts) | goto `/admin` |
 | `access-gate` | access | `/access?next=%2Fhome` | anonymous (deployment gate; env-driven, app/access/page.tsx) | `HOME_ACCESS_PASSWORD` env (tests/browser/access.pw.ts) | protected request redirects to `/access` |
 | `coverage` | coverage | `/coverage` | public | none | goto `/coverage` (also `/coverage.csv`) |
 | `dev-ui` | coverage/dev | `/dev/ui` | public only when `HOME_PLAYWRIGHT_SMOKE=1` or dev (app/dev/ui/page.tsx) | `HOME_PLAYWRIGHT_SMOKE=1` | goto `/dev/ui` |
@@ -311,6 +312,17 @@ do not silently ignore a new failure or treat this list as permission to broaden
 - **Evidence**: screenshot; DOM snapshot; console/errors.
 - **Owned by**: `apps/web/client/account/account-settings.tsx`, `apps/web/client/home/shell-panels.tsx`.
 - **Unknowns**: none; the country selector is described by `Country` / `Sets how money is shown`, and the button is labelled `Sign out`.
+
+### `operator-console`
+- **Live**: read-only (operator authorization required)
+- **Owned paths**: `apps/web/app/admin/**`, `apps/web/components/ui/rail-nav.tsx`, `apps/web/config/operator-navigation.ts`
+- **Reach**: On a configured operator test session, `goto "/admin"`, `expect "Overview"`; fixture-session alone cannot grant operator access.
+- **Verify**: manual
+- **Expect**: Overview has Needs attention then Business, each with an unavailable line; sidebar links to Customers, Support, Growth, Money, Settings and Audit log, each with a matching heading and unavailable line. Current link has `aria-current="page"`; at 390px Sections opens the drawer, navigation closes it and restores menu focus. Signed-out requests redirect to sign-in; non-operator requests redirect to `/home`.
+- **States**: loading skeleton; error with `Try again`; `/admin/nope` and nested unknown paths are uncached 404s showing `Page not found` and `Back to Overview`, with no current link.
+- **Evidence**: desktop and 390px screenshot, DOM snapshot, console/errors, keyboard and RTL navigation check.
+- **Owned by**: `apps/web/app/admin/`, `apps/web/components/ui/rail-nav.tsx`, `apps/web/config/operator-navigation.ts`.
+- **Unknowns**: regular fixture sessions cannot access operator routes; use the signed test-session pattern in `tests/browser/admin.pw.ts`, not customer fixtures.
 
 ### `access-gate`
 - **Live**: read-only
