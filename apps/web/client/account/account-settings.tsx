@@ -149,7 +149,8 @@ export function AccountSettings({
               <li className="px-3 py-2.5">
                 <Button
                   variant="outline"
-                  className="h-11 w-full justify-start"
+                  size="touch"
+                  className="w-full justify-start"
                   onClick={onSignOut}
                   aria-describedby="sign-out-hint"
                 >

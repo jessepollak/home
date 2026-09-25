@@ -79,7 +79,7 @@ export function AccessForm({ next }: { next: string }) {
         />
       </label>
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
-      <Button type="submit" size="lg" className="w-full" disabled={pending}>
+      <Button type="submit" size="touch" className="w-full" disabled={pending}>
         {pending ? "Checking…" : "Continue"}
       </Button>
     </form>

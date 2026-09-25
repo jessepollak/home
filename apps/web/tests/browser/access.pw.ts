@@ -15,6 +15,7 @@ test("deployment access composes independently before Home authentication", asyn
   await expect(page).toHaveURL(/\/access\?next=%2Fhome$/);
   await expect(page.getByRole("heading", { name: "Enter access password" })).toBeVisible();
   await expect(page.locator("form[data-hydrated='true']")).toBeVisible();
+  await expect.poll(() => page.getByRole("button", { name: "Continue" }).evaluate((button) => button.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
 
   await page.getByRole("textbox", { name: "Access password" }).fill("wrong credential");
   await page.getByRole("button", { name: "Continue" }).click();

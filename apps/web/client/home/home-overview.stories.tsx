@@ -282,11 +282,11 @@ function HomeOverviewStory({
           destinations={{ onOpenCash: noop, onOpenInvestments: noop, onOpenBorrow: noop }}
           actions={
             <>
-              <Button size="lg" className="h-11">
+              <Button size="touch">
                 <Plus className="size-4" aria-hidden="true" />
                 Add money
               </Button>
-              <Button variant="outline" size="lg" className="h-11">Send</Button>
+              <Button variant="outline" size="touch">Send</Button>
             </>
           }
           activity={
@@ -297,7 +297,7 @@ function HomeOverviewStory({
               density="feed"
               header={<HomeSectionHeading id="activity-title">Activity</HomeSectionHeading>}
               emptyAction={
-                <Button variant="outline" size="lg" className="h-11">
+                <Button variant="outline" size="touch">
                   <Plus className="size-4" aria-hidden="true" />
                   Add money
                 </Button>

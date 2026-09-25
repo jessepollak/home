@@ -75,7 +75,7 @@ export function SignInStatus({
       <Alert className="mt-4">
         <AlertTitle>Sign-out did not finish.</AlertTitle>
         <AlertDescription>
-          <Button className="mt-2 w-full" size="lg" variant="secondary" onClick={onRetrySignOut}>
+          <Button className="mt-2 w-full" size="touch" variant="secondary" onClick={onRetrySignOut}>
             Retry sign out
           </Button>
         </AlertDescription>
@@ -87,7 +87,7 @@ export function SignInStatus({
       <Alert className="mt-4">
         <AlertTitle>We could not verify this session.</AlertTitle>
         <AlertDescription>
-          <Button className="mt-2 w-full" size="lg" variant="secondary" onClick={onRetryValidation}>
+          <Button className="mt-2 w-full" size="touch" variant="secondary" onClick={onRetryValidation}>
             Try again
           </Button>
         </AlertDescription>

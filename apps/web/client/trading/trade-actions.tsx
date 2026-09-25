@@ -30,8 +30,8 @@ export function TradeActions({
         className={layout === "sticky" ? "grid grid-cols-2 gap-2" : "flex justify-end gap-2"}
         aria-label={`Trade ${asset.displayName}`}
       >
-        <Button className="h-11" size="lg" disabled>Buy</Button>
-        <Button className="h-11" size="lg" variant="secondary" disabled>Sell</Button>
+        <Button size="touch" disabled>Buy</Button>
+        <Button size="touch" variant="secondary" disabled>Sell</Button>
       </div>
       <div className="text-right text-sm text-muted-foreground" role="note">
         Swaps aren&apos;t available right now.

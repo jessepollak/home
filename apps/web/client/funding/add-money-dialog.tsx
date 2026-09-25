@@ -144,7 +144,7 @@ export function AddMoneyDialog({
       {signedOut ? (
         <DrawerFooter>
           <Link
-            className={buttonVariants({ size: "lg", className: "h-11" })}
+            className={buttonVariants({ size: "touch" })}
             href="/?account=signin"
           >
             Sign in
@@ -339,7 +339,7 @@ function ReceiveAddress({ address }: { address: `0x${string}` }) {
       <Button
         variant="ghost"
         className="select-text"
-        size="lg"
+        size="touch"
         title={address}
         aria-label={copyStatus === "copied" ? "Copied" : `Copy ${condensed}`}
         aria-describedby="receive-address-help"

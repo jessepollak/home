@@ -106,8 +106,8 @@ function FooterButtons({ primaryLabel, onPrimary, primaryDisabled = false, prima
   const active = action && !actionExpired && !expired && Number.isFinite(Date.parse(action.expiresAt));
   return (
     <DrawerFooter>
-      <Button size="lg" className="h-11" type={primaryType} disabled={primaryDisabled} onClick={onPrimary} {...(active ? { [MONEY_ACTION_ID_ATTRIBUTE]: action.id } : {})}>{primaryLabel}</Button>
-      {secondaryLabel && onSecondary ? <Button size="lg" variant="ghost" className="h-11" disabled={secondaryDisabled} onClick={onSecondary}>{secondaryLabel}</Button> : null}
+      <Button size="touch" type={primaryType} disabled={primaryDisabled} onClick={onPrimary} {...(active ? { [MONEY_ACTION_ID_ATTRIBUTE]: action.id } : {})}>{primaryLabel}</Button>
+      {secondaryLabel && onSecondary ? <Button size="touch" variant="ghost" disabled={secondaryDisabled} onClick={onSecondary}>{secondaryLabel}</Button> : null}
     </DrawerFooter>
   );
 }
