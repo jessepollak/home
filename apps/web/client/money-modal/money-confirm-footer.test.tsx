@@ -1,10 +1,10 @@
 import "@/client/account/dom-test-harness";
 
 import { page } from "@/tests/helpers/dom";
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, mock, test } from "bun:test";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 
-const { cleanup, render, waitFor } = await import("@testing-library/react");
+const { cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { MoneyConfirmFooter, MoneyModalFooter } = await import("./money-modal");
 
 afterEach(cleanup);
@@ -43,5 +43,52 @@ test("removes the id when a prepared action expires while its review remains ope
   const confirm = page().getByRole("button", { name: "Send" });
   expect(confirm.getAttribute("data-money-action-id")).toBe("prepared-1");
   await waitFor(() => expect(confirm.hasAttribute("data-money-action-id")).toBe(false));
+  view.unmount();
+});
+
+test("submitting keeps the focused primary and its label while blocking both footer actions", () => {
+  const onPrimary = mock(() => {});
+  const onSecondary = mock(() => {});
+  const props = { action, primaryLabel: "Send", onPrimary, secondaryLabel: "Back", onSecondary };
+  const view = render(<MoneyConfirmFooter {...props} />);
+  const confirm = page().getByRole("button", { name: "Send" });
+  confirm.focus();
+  expect(document.activeElement).toBe(confirm);
+
+  view.rerender(<MoneyConfirmFooter {...props} submitting />);
+  expect(page().getByRole("button", { name: "Send" })).toBe(confirm);
+  expect(document.activeElement).toBe(confirm);
+  expect(confirm.getAttribute("aria-busy")).toBe("true");
+  expect(confirm.getAttribute("aria-disabled")).toBe("true");
+  expect(confirm.textContent).toBe("Send");
+  expect(confirm.getAttribute("data-money-action-id")).toBe("prepared-1");
+  fireEvent.click(confirm);
+  fireEvent.keyDown(confirm, { key: "Enter" });
+  fireEvent.keyDown(confirm, { key: " " });
+  fireEvent.keyUp(confirm, { key: " " });
+  expect(onPrimary).not.toHaveBeenCalled();
+  const back = page().getByRole("button", { name: "Back" });
+  expect(back.hasAttribute("disabled")).toBe(true);
+  expect(back.hasAttribute("data-money-action-id")).toBe(false);
+  fireEvent.click(back);
+  expect(onSecondary).not.toHaveBeenCalled();
+
+  view.rerender(<MoneyConfirmFooter {...props} />);
+  expect(page().getByRole("button", { name: "Send" })).toBe(confirm);
+  expect(document.activeElement).toBe(confirm);
+  expect(confirm.hasAttribute("aria-busy")).toBe(false);
+  expect(back.hasAttribute("disabled")).toBe(false);
+  fireEvent.click(confirm);
+  expect(onPrimary).toHaveBeenCalledTimes(1);
+});
+
+test("submitting retains the id only until the prepared action expires", async () => {
+  const expiringAction = { ...action, expiresAt: new Date(Date.now() + 100).toISOString() };
+  const view = render(<MoneyConfirmFooter action={expiringAction} primaryLabel="Send" submitting />);
+  const confirm = page().getByRole("button", { name: "Send" });
+  expect(confirm.getAttribute("data-money-action-id")).toBe("prepared-1");
+  await waitFor(() => expect(confirm.hasAttribute("data-money-action-id")).toBe(false));
+  view.rerender(<MoneyConfirmFooter action={action} primaryLabel="Send" submitting actionExpired />);
+  expect(confirm.hasAttribute("data-money-action-id")).toBe(false);
   view.unmount();
 });

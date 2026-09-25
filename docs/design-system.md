@@ -117,6 +117,8 @@ Use the owned component contracts rather than restyling their slots:
 - `Button size="touch"` is the 44px-minimum touch target for primary mobile actions; it wraps long labels instead of clipping. Use it instead of `h-11` overrides.
 - `InputOTP` / `InputOTPGroup` / `InputOTPSlot` own one-box-per-digit verification with a single accessible input. `Input variant="code"` owns monospace input typography; `InputGroupInput` forwards the same variant.
 - `PayoutMark variant="cashapp" | "zelle" | "monzo" | "revolut" | "fallback" | "count"` owns circular payout-mark geometry, typography, and semantic brand colors.
+- `Button loading` owns the submitting state: it keeps the label and focus, adds `aria-busy` and a leading spinner, and ignores presses. `MoneyConfirmFooter submitting` applies it to the confirm primary.
+- `ResultHeader outcome="success" | "pending" | "failed" | "unknown"` owns the money result header, and `StatusSteps` / `StatusStep status="complete" | "current" | "upcoming" | "failed"` own real transfer stages. Money flows compose them through `MoneyResult` / `MoneyResultFooter`; `unknown` never offers a retry. Use StatusStep, not Progress, for transfers.
 - `Switch` is the semantic on/off control. Drawer surface, title, header, footer, safe-area, shadow, and immediate-motion treatment are owned defaults.
 - `RadioGroup` is the mutually exclusive choice control for funding/payout choices confirmed by a separate action; direct-action rows stay `Item`/`Button`.
 - `Popover` owns small anchored disclosures, such as the Home header status; its content needs an accessible name (`aria-label`). `Skeleton` owns the loading tone (foreground at 10%, Figma `color/alpha/foreground-10`), which stays visible on both cards and the muted page.

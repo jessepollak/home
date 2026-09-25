@@ -15,6 +15,6 @@ const variant = instance.getEnum('variant', { default: 'default', outline: 'outl
 const size = instance.getEnum('size', { touch: 'touch', xs: 'xs', sm: 'sm', default: 'default', lg: 'lg', 'icon-sm': 'icon-sm', icon: 'icon', 'icon-lg': 'icon-lg' })
 const state = instance.getEnum('state', { disabled: 'disabled', loading: 'loading' })
 export default {
-  example: figma.code`<Button variant="${variant}" size="${size}"${state === 'disabled' ? figma.code` disabled` : null}${state === 'loading' ? figma.code` aria-busy` : null}>${showIcon ? iconExample : null}{${JSON.stringify(label)}}</Button>`,
+  example: figma.code`<Button variant="${variant}" size="${size}"${state === 'disabled' ? figma.code` disabled` : null}${state === 'loading' ? figma.code` loading` : null}>${showIcon ? iconExample : null}{${JSON.stringify(label)}}</Button>`,
   imports: ['import { Button } from "@/components/ui/button"', ...(showIcon && iconName && !swappedIcon?.hasCodeConnect() ? [`import { ${iconName} } from "lucide-react"`] : [])], id: 'button', metadata: { nestable: true },
 }

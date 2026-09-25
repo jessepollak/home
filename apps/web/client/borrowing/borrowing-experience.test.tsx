@@ -687,6 +687,9 @@ describe("Borrow overview action refresh", () => {
     fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
     fireEvent.click(await dialog.findByRole("button", { name: "Confirm action" }));
     await waitFor(() => expect(reads).toBeGreaterThanOrEqual(2));
+    const result = within(await body.findByRole("dialog", { name: "Borrow" }));
+    expect(result.getByText("Borrowing 1 USDC")).toBeTruthy();
+    fireEvent.click(result.getByRole("button", { name: "Done" }));
     await waitFor(() => expect(body.getByRole("img", { name: /200\.00.*USDC/ })).toBeTruthy());
   });
 });

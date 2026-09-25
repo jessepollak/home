@@ -1,5 +1,6 @@
 import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { cva, type VariantProps } from "class-variance-authority";
+import { LoaderCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const buttonVariantStyles = cva(
@@ -83,8 +84,12 @@ function Button({
   variant = "default",
   size = "default",
   press,
+  loading = false,
+  disabled,
+  focusableWhenDisabled,
+  children,
   ...props
-}: ButtonPrimitive.Props & ButtonVariantProps) {
+}: ButtonPrimitive.Props & ButtonVariantProps & { loading?: boolean }) {
   const resolvedVariant = variant ?? "default";
   const resolvedSize = size ?? "default";
 
@@ -100,7 +105,13 @@ function Button({
         }),
       )}
       {...props}
-    />
+      disabled={disabled || loading}
+      focusableWhenDisabled={loading || focusableWhenDisabled}
+      aria-busy={loading ? "true" : props["aria-busy"]}
+    >
+      {loading && <LoaderCircle data-icon="inline-start" aria-hidden="true" className="motion-safe:animate-spin" />}
+      {children}
+    </ButtonPrimitive>
   );
 }
 

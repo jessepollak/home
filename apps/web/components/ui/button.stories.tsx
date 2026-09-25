@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useState } from "react";
 import { Plus, X } from "lucide-react";
-import { expect, fireEvent, userEvent, waitFor, within } from "storybook/test";
+import { expect, fireEvent, fn, userEvent, waitFor, within } from "storybook/test";
 import { Button } from "./button";
 
 const meta = {
@@ -80,6 +80,17 @@ export const Touch: Story = {
 };
 
 export const Disabled: Story = { args: { disabled: true } };
+
+export const Loading: Story = {
+  args: { loading: true, onClick: fn() },
+  play: async ({ canvasElement, args }) => {
+    const button = within(canvasElement).getByRole("button", { name: "Continue" });
+    await expect(button).toHaveAttribute("aria-busy", "true");
+    await expect(button).toHaveAccessibleName("Continue");
+    await fireEvent.click(button);
+    await expect(args.onClick).not.toHaveBeenCalled();
+  },
+};
 
 function PressFeedbackStory() {
   const [activations, setActivations] = useState(0);

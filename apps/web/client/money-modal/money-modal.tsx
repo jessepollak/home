@@ -89,7 +89,7 @@ export function MoneyModalBody({ children, className = "", hasFooter = false }: 
 }
 
 type MoneyModalFooterProps = {
-  primaryLabel: ReactNode; onPrimary?: () => void; primaryDisabled?: boolean; primaryType?: "button" | "submit";
+  primaryLabel: ReactNode; onPrimary?: () => void; primaryDisabled?: boolean; primaryType?: "button" | "submit"; primaryAutoFocus?: boolean;
   secondaryLabel?: ReactNode; onSecondary?: () => void; secondaryDisabled?: boolean;
 };
 
@@ -97,17 +97,17 @@ export function MoneyModalFooter(props: MoneyModalFooterProps) {
   return <FooterButtons {...props} />;
 }
 
-export function MoneyConfirmFooter({ action, actionExpired = false, ...props }: MoneyModalFooterProps & { action: PreparedMoneyAction; actionExpired?: boolean }) {
-  return <FooterButtons {...props} action={action} actionExpired={actionExpired} />;
+export function MoneyConfirmFooter({ action, actionExpired = false, submitting = false, ...props }: MoneyModalFooterProps & { action: PreparedMoneyAction; actionExpired?: boolean; submitting?: boolean }) {
+  return <FooterButtons {...props} action={action} actionExpired={actionExpired} submitting={submitting} />;
 }
 
-function FooterButtons({ primaryLabel, onPrimary, primaryDisabled = false, primaryType = "button", secondaryLabel, onSecondary, secondaryDisabled = false, action, actionExpired = false }: MoneyModalFooterProps & { action?: PreparedMoneyAction; actionExpired?: boolean }) {
+function FooterButtons({ primaryLabel, onPrimary, primaryDisabled = false, primaryType = "button", primaryAutoFocus = false, secondaryLabel, onSecondary, secondaryDisabled = false, action, actionExpired = false, submitting = false }: MoneyModalFooterProps & { action?: PreparedMoneyAction; actionExpired?: boolean; submitting?: boolean }) {
   const { expired } = useReactiveExpiry(action?.expiresAt ?? null);
   const active = action && !actionExpired && !expired && Number.isFinite(Date.parse(action.expiresAt));
   return (
     <DrawerFooter>
-      <Button size="touch" type={primaryType} disabled={primaryDisabled} onClick={onPrimary} {...(active ? { [MONEY_ACTION_ID_ATTRIBUTE]: action.id } : {})}>{primaryLabel}</Button>
-      {secondaryLabel && onSecondary ? <Button size="touch" variant="ghost" disabled={secondaryDisabled} onClick={onSecondary}>{secondaryLabel}</Button> : null}
+      <Button size="touch" type={primaryType} autoFocus={primaryAutoFocus} disabled={primaryDisabled} loading={submitting} onClick={onPrimary} {...(active ? { [MONEY_ACTION_ID_ATTRIBUTE]: action.id } : {})}>{primaryLabel}</Button>
+      {secondaryLabel && onSecondary ? <Button size="touch" variant="ghost" disabled={secondaryDisabled || submitting} onClick={onSecondary}>{secondaryLabel}</Button> : null}
     </DrawerFooter>
   );
 }

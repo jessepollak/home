@@ -422,6 +422,30 @@ describe("SendDialog Peer cash-out", () => {
   });
 });
 
+test("cash-out result names the provider without claiming payout delivery", async () => {
+  const prepared = { ...cashoutAction(), owner: { ...cashoutAction().owner, subject: "cashout-story" } };
+  render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="cashout-result" resumeActionId={ACTION_ID}
+    prepareMoneyAction={async () => prepared} resumeMoneyAction={async () => prepared}
+    executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })}
+    fetchAccountResource={async (url) => url === "/api/actions" ? { actions: [{ id: ACTION_ID, status: "confirmed", owner: prepared.owner }] } : { version: 1, recipients: [] }}
+    onClose={() => {}} />);
+  fireEvent.click(await page().findByRole("button", { name: "Cash out $1.00" }));
+  expect(await page().findByRole("heading", { name: "$1.00 sent to cash out" })).toBeTruthy();
+  expect(page().getByText("Peer sends the payout next. Track it in Activity.")).toBeTruthy();
+});
+
+test("cash-out withdrawal result describes funds returning to the account, not a payout", async () => {
+  const prepared = { ...withdrawAction(), owner: { ...withdrawAction().owner, subject: "withdraw-result" } };
+  render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="withdraw-result" resumeActionId={ACTION_ID}
+    prepareMoneyAction={async () => prepared} resumeMoneyAction={async () => prepared}
+    executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })}
+    fetchAccountResource={async (url) => url === "/api/actions" ? { actions: [{ id: ACTION_ID, status: "confirmed", owner: prepared.owner }] } : { version: 1, recipients: [] }}
+    onClose={() => {}} />);
+  fireEvent.click(await page().findByRole("button", { name: "Withdraw $2.00" }));
+  expect(await page().findByRole("heading", { name: "$2.00 returned to your account" })).toBeTruthy();
+  expect(page().queryByText(/payout/i)).toBeNull();
+});
+
 describe("SendDialog dismissal", () => {
   test("vetoes Escape while the wallet request is pending and keeps its request context", async () => {
     let closes = 0;
@@ -440,19 +464,32 @@ describe("SendDialog dismissal", () => {
     );
 
     fireEvent.click(await page().findByRole("button", { name: "Send $1.00" }));
-    expect(await page().findByText("Waiting for your wallet…")).toBeTruthy();
+    const primary = page().getByRole("button", { name: "Send $1.00" });
+    primary.focus();
+    expect(primary.getAttribute("aria-busy")).toBe("true");
+    expect(document.activeElement).toBe(primary);
+    expect(page().queryByText("Waiting for your wallet…")).toBeNull();
+    fireEvent.click(primary);
+    expect(dispatches).toBe(1);
     expect((page().getByRole("button", { name: "Close send dialog" }) as HTMLButtonElement).disabled).toBe(true);
 
     await act(async () => { fireEvent.keyDown(document, { key: "Escape" }); });
 
     expect(page().getByRole("dialog", { name: "Confirm" })).toBeTruthy();
-    expect(page().getByText("Waiting for your wallet…")).toBeTruthy();
+    expect(page().getByRole("button", { name: "Send $1.00" })).toBe(primary);
+    expect(document.activeElement).toBe(primary);
     expect(page().getByRole("button", { name: `Copy ${RECIPIENT}` })).toBeTruthy();
     expect(closes).toBe(0);
     expect(dispatches).toBe(1);
 
     await act(async () => { releaseExecution({ id: ACTION_ID, status: "submitted" }); });
-    await waitFor(() => expect(closes).toBe(1));
+    expect(await page().findByRole("heading", { name: "$1.00 on its way" })).toBeTruthy();
+    expect(page().getAllByRole("listitem")).toHaveLength(2);
+    expect(page().getByText("Submitted")).toBeTruthy();
+    expect(page().getByText("Confirming on Base")).toBeTruthy();
+    expect(closes).toBe(0);
+    fireEvent.click(page().getByRole("button", { name: "Done" }));
+    expect(closes).toBe(1);
   });
 
   test("dismisses on Escape before a request is dispatched", async () => {
@@ -603,23 +640,16 @@ describe("SendDialog resume", () => {
     expect(closes).toBe(0);
   });
 
-  test("names the wallet's reason when submission fails with an unknown result", async () => {
-    render(
-      <SendDialog
-        open immediate address={ACCOUNT} ownerBoundary="owner-unknown-send" resumeActionId={ACTION_ID}
-        prepareMoneyAction={async () => resumedAction()} resumeMoneyAction={async () => resumedAction()}
-        executeMoneyAction={async () => {
-          throw new TransferExecutionError("submission-unknown", new Error("Smart account not found for this end user"));
-        }}
-        onClose={() => {}}
-      />,
-    );
-
+  test("an ambiguous submission shows unknown without offering retry", async () => {
+    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-unknown-send" resumeActionId={ACTION_ID}
+      prepareMoneyAction={async () => resumedAction()} resumeMoneyAction={async () => resumedAction()}
+      executeMoneyAction={async () => { throw new TransferExecutionError("submission-unknown", new Error("provider uncertainty")); }}
+      onClose={() => {}} />);
     fireEvent.click(await page().findByRole("button", { name: "Send $1.00" }));
-    expect((await page().findByRole("alert")).textContent).toBe(
-      "The wallet result is unknown: Smart account not found for this end user. Check Activity before trying again.",
-    );
-    expect(page().getByRole("button", { name: "Try again" })).toBeTruthy();
+    expect(await page().findByRole("heading", { name: /confirm \$1\.00/ })).toBeTruthy();
+    expect(page().getByRole("button", { name: "View in Activity" })).toBeTruthy();
+    expect(page().queryByRole("button", { name: /try again|retry/i })).toBeNull();
+    expect(page().queryByRole("button", { name: "Back" })).toBeNull();
   });
 
   test("keeps the generic message when the failure happened before the wallet was asked", async () => {
@@ -660,19 +690,20 @@ describe("SendDialog resume", () => {
     expect(closes).toBe(0);
   });
 
-  test("treats a resolved failed operation as retryable without closing", async () => {
-    render(
-      <SendDialog
-        open immediate address={ACCOUNT} ownerBoundary="owner-failed-send" resumeActionId={ACTION_ID}
-        prepareMoneyAction={async () => resumedAction()} resumeMoneyAction={async () => resumedAction()}
-        executeMoneyAction={async () => ({ id: ACTION_ID, status: "failed" })} onClose={() => {}}
-      />,
-    );
+  test("a typed failed operation offers fresh preparation with the amount kept", async () => {
+    let invalidResumes = 0;
+    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-failed-send" resumeActionId={ACTION_ID}
+      availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
+      prepareMoneyAction={async () => resumedAction()} resumeMoneyAction={async () => resumedAction()}
+      executeMoneyAction={async () => ({ id: ACTION_ID, status: "failed" })}
+      onInvalidResume={() => { invalidResumes += 1; }} onClose={() => {}} />);
     fireEvent.click(await page().findByRole("button", { name: "Send $1.00" }));
-    expect((await page().findByRole("alert")).textContent).toBe(
-      "The wallet could not submit this action. Your review is still ready to retry.",
-    );
-    expect(page().getByRole("button", { name: "Try again" })).toBeTruthy();
+    expect(await page().findByRole("heading", { name: /wasn.t sent/ })).toBeTruthy();
+    expect(page().queryByRole("button", { name: "Send $1.00" })).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "Try again" }));
+    expect(page().getByRole("button", { name: "Continue" })).toBeTruthy();
+    expect(document.querySelector("[data-primary-amount] [data-slot=money-ticker]")?.getAttribute("aria-label")).toBe("$1");
+    expect(invalidResumes).toBe(1);
   });
 
   test("returns to the first step when confirm reports an unavailable review", async () => {

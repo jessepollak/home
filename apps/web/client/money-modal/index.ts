@@ -27,3 +27,5 @@ export {
 export {
   decimalFromBaseUnits,
 } from "./amount-units";
+
+export { MoneyResult, MoneyResultFooter } from "./money-result";
