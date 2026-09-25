@@ -80,9 +80,9 @@ describe("savings teaser APY", () => {
       expected: "5.50% APY",
     },
     {
-      name: "propagates stale funded rates without blending them",
+      name: "keeps the weighted funded rate when metadata is stale",
       input: { balances: ["100000000", "300000000"], rates: [0.04, 0.06], stale: true },
-      expected: "APY stale",
+      expected: "5.50% APY",
     },
     {
       name: "uses the best available rate when positions are zero",
@@ -101,6 +101,14 @@ describe("savings teaser APY", () => {
       expect(scenario(entry.input).label).toBe(entry.expected);
     });
   }
+
+  test("keeps numeric stale public offers, including zero, but omits unknown rates", () => {
+    const stale = scenario({ balances: ["0", "0"], rates: [0.04, 0.06], stale: true });
+    expect(stale.label).toBe("Up to 6.00% APY");
+    expect(scenario({ balances: ["0", "0"], rates: [null, null] }).label).toBeNull();
+    expect(scenario({ balances: ["0", "0"], rates: [0, null] }).label).toBe("Up to 0% APY");
+    expect(scenario({ balances: ["100000000", "1"], rates: [0, 0] }).label).toBe("0% APY");
+  });
 
   test("uses the public offer when account positions are not yet available", () => {
     const metadata = {

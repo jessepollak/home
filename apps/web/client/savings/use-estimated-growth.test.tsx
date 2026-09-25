@@ -84,8 +84,9 @@ describe("Save estimated-growth owner", () => {
 
   test("anchor disables estimates for stale, incomplete, missing, partial, and malformed inputs", () => {
     const partial = { ...summary, apy: { status: "partial", value: null } } as SavingsPortfolioSummary;
+    const staleRate = { ...summary, apy: { status: "stale", value: summary.apy.value } } as SavingsPortfolioSummary;
     const malformed = { ...summary, apy: { status: "available", value: { numerator: BigInt(11), denominator: BigInt(1) } } } as SavingsPortfolioSummary;
-    expect([built({ authority: { snapshotStale: true } }), built({ authority: { registryCoverageComplete: false } }), built({ candidates: [] }), built({ summary: partial }), built({ summary: malformed })].every((value) => value.estimate === null)).toBe(true);
+    expect([built({ authority: { snapshotStale: true } }), built({ authority: { registryCoverageComplete: false } }), built({ candidates: [] }), built({ summary: partial }), built({ summary: staleRate }), built({ summary: malformed })].every((value) => value.estimate === null)).toBe(true);
   });
   test("does not schedule while initially hidden and resumes with one immediate recomputation", () => {
     jest.useFakeTimers();

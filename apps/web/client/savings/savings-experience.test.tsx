@@ -3,7 +3,7 @@ import "@/client/account/dom-test-harness";
 import { deferred } from "@/tests/helpers/async";
 import { page } from "@/tests/helpers/dom";
 import { afterEach, describe, expect, jest, test } from "bun:test";
-import { getHomeQueryClient } from "@/client/query/query-client";
+import { getHomeQueryClient, publicQueryKey } from "@/client/query/query-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
@@ -595,6 +595,99 @@ describe("Save simplify", () => {
     expect(hero()?.getAttribute("data-animated")).toBe("false");
     void act(() => document.dispatchEvent(new Event("visibilitychange")));
     expect(hero()?.getAttribute("aria-label")).toBe(authoritativeLabel);
+  });
+
+  test("keeps expired and server-stale APY visible without an APY warning", async () => {
+    let clock = TEST_NOW;
+    const positions = balancePositions({ [GAUNTLET]: "100000000", [STEAKHOUSE]: "300000000" });
+    const data = {
+      ...initialData,
+      candidates: [candidate(GAUNTLET, "Gauntlet USDC Prime", 0.04), candidate(STEAKHOUSE, "Steakhouse USDC", 0.06)],
+      stale: false,
+    };
+    const view = render(
+      <SavingsExperience initialData={data} now={() => clock} session={session()}
+        balanceStatus="ready" balancePositions={positions} />,
+    );
+    expect(await page().findByText("Earning ~5.50%")).toBeTruthy();
+    expect(page().getByRole("region", { name: "Save" }).textContent).not.toMatch(/APY.*stale|stale.*APY/i);
+    clock += 7 * 60_000;
+    view.rerender(<SavingsExperience initialData={data} now={() => clock} session={session()}
+      balanceStatus="ready" balancePositions={[...positions]} />);
+    expect(await page().findByText("Earning ~5.50%")).toBeTruthy();
+    expect(page().getByRole("region", { name: "Save" }).textContent).not.toMatch(/stale/i);
+    view.rerender(<SavingsExperience initialData={data} now={() => clock} session={session()}
+      balanceStatus="ready" balancePositions={balancePositions({ [GAUNTLET]: "100000000" })} />);
+    expect(await page().findByText("Earning ~4.00%")).toBeTruthy();
+    expect(page().queryByText("Earning ~5.50%")).toBeNull();
+    cleanup();
+    getHomeQueryClient().clear();
+    render(<SavingsExperience initialData={{ ...data, stale: true }} now={() => clock}
+      session={session()} balanceStatus="ready" balancePositions={positions} />);
+    expect(await page().findByText("Earning ~5.50%")).toBeTruthy();
+    expect(page().getByRole("region", { name: "Save" }).textContent).not.toMatch(/stale/i);
+  });
+
+  test("omits unknown APY on a cold fetch failure, null rates, and shows real zero", async () => {
+    render(<SavingsExperience now={testNow} session={session()}
+      fetchVaults={async () => { throw new Error("offline"); }}
+      balanceStatus="ready" balancePositions={balancePositions({ [GAUNTLET]: "100000000" })} />);
+    expect(await page().findByText("Vaults are temporarily unavailable.")).toBeTruthy();
+    expect(page().getByRole("region", { name: "Save" }).textContent).not.toMatch(/APY|Earning/i);
+    cleanup();
+    getHomeQueryClient().clear();
+    const nullData = { ...initialData, candidates: initialData.candidates.map((entry) => ({ ...entry, netApy: null })) };
+    const unknown = render(<SavingsExperience now={testNow} initialData={nullData} session={session()}
+      balanceStatus="ready" balancePositions={balancePositions({ [GAUNTLET]: "100000000" })} />);
+    expect((await page().findAllByRole("img", { name: "$100.00" })).length).toBeGreaterThan(0);
+    expect(page().getByRole("region", { name: "Save" }).textContent).not.toMatch(/APY|Earning|unavailable/i);
+    unknown.rerender(<SavingsExperience now={testNow} initialData={nullData} session={session()}
+      balanceStatus="ready" balancePositions={balancePositions()} />);
+    expect(await page().findByText("Available vault · Gauntlet")).toBeTruthy();
+    cleanup();
+    getHomeQueryClient().clear();
+    const zeroData = { ...initialData, candidates: initialData.candidates.map((entry) => ({ ...entry, netApy: 0 })) };
+    const zero = render(<SavingsExperience now={testNow} initialData={zeroData}
+      session={session()} balanceStatus="ready" balancePositions={balancePositions({ [GAUNTLET]: "100000000" })} />);
+    expect(await page().findByText("Earning ~0%")).toBeTruthy();
+    zero.rerender(<SavingsExperience now={testNow} initialData={zeroData}
+      session={session()} balanceStatus="ready" balancePositions={balancePositions()} />);
+    expect(await page().findByText("Available vault · Gauntlet · 0% APY")).toBeTruthy();
+  });
+
+  test("retains rates through failed and null refetches, then replaces them on recovery", async () => {
+    let reads = 0;
+    const fetchVaults = async () => {
+      reads += 1;
+      if (reads === 2) throw new Error("offline");
+      if (reads === 3) return { ...initialData, candidates: initialData.candidates.map((entry) => ({ ...entry, netApy: null, grossApy: null })) };
+      return reads === 1 ? initialData : {
+        ...initialData,
+        candidates: initialData.candidates.map((entry) => ({ ...entry, netApy: 0.07 })),
+      };
+    };
+    const view = render(<SavingsExperience now={testNow} session={session()} fetchVaults={fetchVaults}
+      balanceStatus="ready" balancePositions={balancePositions({ [GAUNTLET]: "100000000" })} />);
+    expect(await page().findByText("Earning ~4.10%")).toBeTruthy();
+    const refetch = async () => {
+      await act(async () => {
+        await getHomeQueryClient().invalidateQueries({ queryKey: publicQueryKey("savings-vaults") });
+      });
+    };
+    await refetch();
+    expect(reads).toBe(2);
+    expect(page().getByText("Earning ~4.10%")).toBeTruthy();
+    expect(page().queryByText("Vaults are temporarily unavailable.")).toBeNull();
+    await refetch();
+    expect(reads).toBe(3);
+    expect(page().getByText("Earning ~4.10%")).toBeTruthy();
+    view.unmount();
+    render(<SavingsExperience now={testNow} session={session()} fetchVaults={fetchVaults}
+      balanceStatus="ready" balancePositions={balancePositions({ [GAUNTLET]: "100000000" })} />);
+    expect(await page().findByText("Earning ~4.10%")).toBeTruthy();
+    await refetch();
+    expect(reads).toBe(4);
+    expect(await page().findByText("Earning ~7.00%")).toBeTruthy();
   });
 
   test("shows metadata failure beside a verified funded balance and Retry refetches", async () => {
