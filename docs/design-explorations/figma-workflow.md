@@ -34,6 +34,46 @@ For later runs, put a new screen on its area page: current screens first (left),
 
 For #882, Jesse deleted the Archive page `333:13094`, including section `145:1638` (funded `13:19`, v1 `65:503`, v2 `81:700`, explorations `54:140`, `54:322`, `54:577` and annotations). #882 then deleted MoneyNumpad `166:1739`, MoneyNumpadKey `166:1738` and Card's legacy variant `12:28`. Those components had zero live instances before deletion; the whole-file audit afterwards found 1,435 instances and zero missing-component instances. Restore point: [Full mapping](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?version-id=2402808592851949919) (2026-09-24 14:44 UTC). Jesse must publish the library for these deletions to leave the published library.
 
+## Design runs that edit Figma
+
+### Edit-access preflight
+
+Once, at the start of a run whose issue asks for Figma work and before its first Storybook or Figma change, test the Figma edit connection the run will use: list the pages, read the target area page from [Page layout](#page-layout) (and the issue's section when one already exists), remove any leftover probe for this issue (a node named `edit-access probe (#<issue>)`, anywhere in the file), then create a hidden rectangle with that name directly on the target page, record its node ID, and remove it. The target page always exists, so a run whose proposal section does not exist yet passes the preflight first and creates the section afterwards.
+
+A run whose proposal includes motion also proves, in the same preflight, every capability the GIF step in [Motion frames](#motion-frames) needs, so it cannot discover a missing one after changing Storybook. First check that `ffmpeg -version` succeeds (see the README prerequisites). Then make a disposable GIF with it (for example `ffmpeg -f lavfi -i color=c=gray:s=8x8:d=0.2 -loop 0 probe.gif`), fill the probe rectangle with that GIF through the Figma asset upload, targeting the probe's node ID, before removing the probe, and read the probe back to confirm it now has an image fill. Removing the probe removes the fill with it.
+
+If reading, writing, or removing a probe fails, or a motion run has no `ffmpeg` or its probe upload fails or leaves no image fill, stop and make no Storybook-only change. The public handoff comment names the failing step and a redacted error summary: the status code and short error class (for example `write: 403 Forbidden`, `upload: 415 Unsupported content type`, or `ffmpeg: not found`), with no hostnames, local paths, URLs, tokens, request IDs or raw response bodies. Raw error output stays in the run's private log and never enters an issue, PR or commit. Never carry “Figma couldn't connect” as a residual difference while continuing the run.
+
+Whenever a run stops with a probe still in the file (its own, or a leftover it could not remove), the handoff also names each probe's page and node ID (and its section, if it sits in one). The issue's next design run owns the cleanup through its preflight. If the issue closes first, whoever closes it deletes the named node by hand, and only that node.
+
+**Why (#853).** Later #853 runs used a direct Figma connection whose sign-in was refused with `403 Forbidden`; each recorded the failure as a residual difference and kept changing Storybook, leaving the Figma frames stale. Earlier #853 runs and #896 edited Figma through an authenticated connection. No up-front check was required. #908 run 2 stopped at this preflight, reported the reason, and made no change.
+
+### Motion frames
+
+Every motion frame in a design proposal carries these items each round:
+
+1. **Recording and stills.** Record each motion story from Storybook at the proposal viewport (390×844 CSS px for mobile) with the pinned `agent-browser`: open the story and let it settle, `record start <file>.mp4`, replay the entrance with Replay or a reload, hold about 1 s after it settles, then `record stop`. Convert the recording to a looping GIF cropped to the moving element, starting about 0.5 s before the replay so its first frame is the settled state rather than a blank canvas, and extract 2–3 still keyframes from the same recording. For example:
+
+   ```bash
+   ffmpeg -ss <replay - 0.5> -t 2.1 -i clip.mp4 -vf "fps=30,crop=<w>:<h>:<x>:<y>,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=none" -loop 0 clip.gif
+   ```
+
+2. **Placement.** Put the GIF beside the still keyframes in the frame. The Figma edit connection cannot create images: create placeholder rectangles through it, then fill them through the Figma asset upload, targeting those rectangles' node IDs. Then give the clip rectangle two image fills, the settled still underneath and the GIF on top. Figma's export renderer (screenshots and `exportAsync`) draws a GIF fill blank; with the still underneath, the #908 clip cells export as the settled frame instead. Place the GIF automatically every round, with no manual step.
+3. **Labels.** Show the duration (longest delay + duration among the story's animations, for example `560 ms, then still`) and easing (the named Home curve and its `cubic-bezier`).
+4. **Links.** Hyperlink the story and its reduced-motion story on the commit-specific Storybook deployment of the recorded head, so later pushes cannot change the target. If the subject has no reduced-motion story, link the nearest story that shares its reduced-motion rule and label the gap in the frame.
+5. **PR clip.** Keep the MP4 in the PR per [UI PR previews](../ui-pr-previews.md).
+
+The [`B — motion clips (#908)` frame](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=406-15867) (`406:15867`) is an example. It sits in its own section (`406:16467`) at the right end of Components, beside the #896 illustration proposal (`379:3860`), and shows the #905 entrances as recorded at `8aeb966`: four entrances, each with three stills, a GIF, duration, easing and both links. Savings, money moving and transfer complete link the card's reduced-motion story because #905 has none for those subjects.
+
+### Clip formats
+
+| Format | Can a design run place it? | Canvas | Present / prototype |
+| --- | --- | --- | --- |
+| GIF | Yes. The Figma asset upload accepts PNG, JPEG, GIF, WebP and SVG and stores a GIF as an image fill. | Still frame, per Figma's docs. | Plays, per Figma's docs. |
+| Video (MP4, MOV, WebM) | No. The Figma edit connection rejects `createVideoAsync` as “not a supported API”; the asset upload returns `415 Unsupported content type: video/mp4`; Figma's REST API documents no upload endpoint. A person with a paid seat can drag a video into a frame by hand. | Still frame, per Figma's docs. | Plays, per Figma's docs. |
+
+Canvas and present-mode playback in the Home file is unverified: the rows above restate Figma's documentation until Jesse confirms what plays. Reviewers open the motion frame in present mode to watch a clip, and use the PR's MP4 for a sharp copy. Jesse chose GIF-in-frame placed automatically each round with the MP4 kept in the PR (#908).
+
 ## Source of truth
 
 Code is the truth for shipped UI; Figma is the truth for proposals. A proposal is accepted only when a Storybook story exists for it. Code Connect maps Figma → code; the variables sync pushes tokens code → Figma; nothing edits code from Figma automatically.
@@ -69,7 +109,7 @@ The deleted funded frame had shown the credential-free browser fixture's mixed s
 - **How to cite.** Every reference is one line: app, screen or flow name, Mobbin URL, and the date it was consulted, for example `OKX — Apply for a loan (flow) — https://mobbin.com/flows/2938274e-a291-4ed1-81f8-0dd82685ce2c — 2026-09-23`. Cite the durable `mobbin_url`, never the expiring `image_url`. Citations go in the design PR (or the issue comment when there is no PR) and on the Figma References group label; images do not.
 - **Where references go.** Selected screens live only in the [`References`](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=174-2891) section (`174:2891`, created in #791) of the [Home Figma file](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home), on the private References page (`333:13093`), never on Components or an area page.
   - Inside References, group screens by pattern (for example `Borrow row`, `Loan application`, `Activity feed`) and label each group with its citations.
-  - Whoever edits the Figma file places them: Jesse with Mobbin's Copy to Figma plugin, or a worker. The worker downloads the MCP `image_url` to a temporary directory outside the repository, converts WebP to JPEG (Figma cannot read WebP image metadata), fills placeholder rectangles with `upload_assets` `nodeIds` (`use_figma` cannot create images), and deletes the temporary files.
+  - Whoever edits the Figma file places them: Jesse with Mobbin's Copy to Figma plugin, or a worker. The worker downloads the MCP `image_url` to a temporary directory outside the repository, converts WebP to JPEG (Figma cannot read WebP image metadata), fills placeholder rectangles through the Figma asset upload targeting their node IDs (the Figma edit connection cannot create images), and deletes the temporary files.
   - Keep a small curated set per pattern, and never commit, attach, or re-host the images anywhere else.
   - Reference screens are not Home components, are never instanced, and never get a Code Connect mapping.
 - **Critique rule.** Every design PR has a `## References` section that names each reference by citation and says what the design borrowed from it and what it rejected, with the reason. A design with no relevant reference says so and names the queries it ran; a run without Mobbin says `Mobbin unavailable: <reason>`. The critic checks that the design adapts patterns to Home's tokens and components rather than copying another product's screen, artwork, or brand.
@@ -141,7 +181,7 @@ After Jesse's September 24 review, Home at desktop width has two columns with Ac
 2. Jesse comments `process Figma comments` on issue #683.
 3. The worker reads comments through `GET /v1/files/ixgttt6IurKynsvMJpLYDC/comments` using a private token file outside the repo. The token is loaded only into the request environment and is never printed, captured, or committed.
 4. The worker reads changed frames and component structure through the Figma MCP, compares them with the current React owner and a real browser render, and classifies each thread.
-5. The worker revises the existing owned nodes in place with `use_figma`, or implements an approved result through the production-component Storybook/code loop. Existing published component IDs and Code Connect mappings are preserved unless Jesse explicitly authorizes a migration.
+5. The worker revises the existing owned nodes in place through the Figma edit connection, or implements an approved result through the production-component Storybook/code loop. Existing published component IDs and Code Connect mappings are preserved unless Jesse explicitly authorizes a migration.
 6. The worker replies to every newly processed thread through the Figma comments REST API, reports component-definition changes that need publication, refreshes screenshots, and records residual differences. Older answered threads are not duplicated. The REST comments API cannot set `resolved_at` (no endpoint; `POST`/`PUT`/`resolve` variants return 404) and the Plugin API does not expose comments, so verified-satisfied threads are reported for a single manual Figma-UI resolve action rather than closed programmatically. The exact open-and-satisfied thread IDs live in [figma-mapping.json](figma-mapping.json) `commentHygiene`.
 
 Figma comments are product direction, not automatic code authorization. A Jesse-directed synthesis remains unapproved until Jesse approves that rendered frame. Code adoption then follows the production-component Storybook, browser-validation, and current-head evidence contracts.
