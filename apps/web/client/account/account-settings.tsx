@@ -137,7 +137,7 @@ export function AccountSettings({
                     {accountAddress ? (
                       <CopyableValue
                         value={accountAddress}
-                        presentation="full"
+                        presentation="reveal"
                         valueKind="address"
                       />
                     ) : (

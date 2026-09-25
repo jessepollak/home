@@ -4,6 +4,7 @@ import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 import { SendDialog } from "@/client/transfers/send-dialog";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
+import { formatAddress } from "@/shared/formatting";
 import { getTransferAsset } from "@/shared/transfers/transfer-helpers";
 
 const ACCOUNT = "0x1111111111111111111111111111111111111111" as const;
@@ -113,7 +114,7 @@ async function enterRecipient(screen: Screen, value: string) {
 }
 
 async function expectResolved(screen: Screen) {
-  await expect(await screen.findByRole("button", { name: `Copy ${RECIPIENT}` })).toBeVisible();
+  await expect(await screen.findByRole("button", { name: `Show full address ${formatAddress(RECIPIENT)}` })).toBeVisible();
   await expect(screen.getByText("Resolves to")).toBeVisible();
   await expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
 }
@@ -231,7 +232,11 @@ export const ContinueToReview: Story = {
     await expect(within(dialog).getByText("You're sending USDC")).toBeVisible();
     const to = within(dialog).getByText("To", { exact: true }).closest("div");
     if (!to) throw new Error("To review row not found");
-    await expect(within(to).getByRole("button", { name: `Copy ${RECIPIENT}` })).toBeVisible();
+    const reveal = within(to).getByRole("button", { name: `Show full address ${formatAddress(RECIPIENT)}` });
+    await expect(reveal).toBeVisible();
+    await userEvent.click(reveal);
+    await expect(await screen.findByLabelText(`Full address ${RECIPIENT}`)).toBeVisible();
+    await userEvent.keyboard("{Escape}");
     await expect(within(dialog).getByRole("button", { name: "Send $1.00" })).toHaveAttribute("data-money-action-id", ACTION_ID);
     await expect(journey.prepares).toEqual([{ kind: "send", params: { assetId: "usdc", recipient: RECIPIENT, amountBaseUnits: "1000000" } }]);
   },

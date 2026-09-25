@@ -51,7 +51,7 @@ import type { MarketDataState } from "@/shared/invest/invest-market";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
-import { presentationMoneyMetadata } from "@/shared/formatting";
+import { formatAddress, presentationMoneyMetadata } from "@/shared/formatting";
 
 const noop = () => undefined;
 const previewOnlyMoneyAction = async (): Promise<never> => {
@@ -599,7 +599,7 @@ export const HomeDesktop: Story = {
     await expect(canvas.getByRole("region", { name: "Account settings" })).toHaveFocus();
     const settingsAccount = within(canvas.getByRole("region", { name: "Account" }));
     await expect(settingsAccount.queryByText("Setup in progress")).not.toBeInTheDocument();
-    await expect(settingsAccount.getByRole("button", { name: `Copy ${WALLET}` })).toBeVisible();
+    await expect(settingsAccount.getByRole("button", { name: `Show full address ${formatAddress(WALLET)}` })).toBeVisible();
     await expect(await settingsAccount.findByText("jesse.base.eth")).toBeVisible();
     const country = canvas.getByRole("combobox", { name: "Country" });
     await expect(country).toHaveValue("United States");

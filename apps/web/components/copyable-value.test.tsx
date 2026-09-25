@@ -9,6 +9,7 @@ const { CopyableValue } = await import("./copyable-value");
 
 const VALUE = "0x12a4aaaaaaaaaaaaaaaaaaaaaaaaaaaaaac19fab";
 const DISPLAY = "0x12a4…c19fab";
+const FULL_ADDRESS = "0x2211d1d0020daea8039e46cf1367962070d77da9";
 
 function withClipboard(writeText: (value: string) => Promise<unknown>) {
   Object.defineProperty(navigator, "clipboard", {
@@ -44,25 +45,59 @@ describe("CopyableValue", () => {
     expect(view.container.querySelector('[aria-live="polite"]')?.textContent).toBe("Copied");
   });
 
-  test("copies the full value from the single-line full presentation when its display is truncated", async () => {
+  test("reveals a condensed address, copies the full value, and announces success", async () => {
     let copied = "";
-    withClipboard(async (value: string) => {
-      copied = value;
-    });
+    withClipboard(async (value: string) => { copied = value; });
     const view = render(
-      <CopyableValue
-        value={VALUE}
-        display={DISPLAY}
-        presentation="full"
-        valueKind="address"
-      />,
+      <CopyableValue value={FULL_ADDRESS} presentation="reveal" valueKind="address" />,
     );
+    const shown = "0x2211…d77da9";
+    const trigger = view.getByRole("button", { name: `Show full address ${shown}` });
+    expect(trigger.textContent).toBe(shown);
+    expect(trigger.title).toBe(FULL_ADDRESS);
+    expect(view.queryByLabelText(`Full address ${FULL_ADDRESS}`)).toBeNull();
 
-    const control = view.getByRole("button", { name: `Copy ${DISPLAY}` });
-    expect(control.textContent).toContain(DISPLAY);
+    fireEvent.click(trigger);
+    const fullValue = await view.findByLabelText(`Full address ${FULL_ADDRESS}`);
+    expect(fullValue.tagName).toBe("CODE");
+    expect(fullValue.textContent).toBe(FULL_ADDRESS);
+    expect(fullValue.getAttribute("tabindex")).toBe("0");
+    fireEvent.click(view.getByRole("button", { name: "Copy address" }));
+    await waitFor(() => expect(copied).toBe(FULL_ADDRESS));
+    expect(view.getByRole("button", { name: "Copied" }).textContent).toBe("Copied");
+    expect(view.getByRole("dialog", { name: "Full address" }).querySelector('[aria-live="polite"]')?.textContent).toBe("Copied");
+  });
 
-    fireEvent.click(control);
-    await waitFor(() => expect(copied).toBe(VALUE));
+  test("reveal respects an explicit condensed display", () => {
+    const view = render(<CopyableValue value={FULL_ADDRESS} display={DISPLAY} presentation="reveal" valueKind="address" />);
+    expect(view.getByRole("button", { name: `Show full address ${DISPLAY}` }).textContent).toBe(DISPLAY);
+  });
+
+  test.each([
+    ["denied", async () => { throw new Error("denied"); }, "Clipboard access failed."],
+    ["unavailable", null, "Clipboard access is unavailable."],
+  ])("keeps the full address selectable when copying is %s", async (_state, writeText, message) => {
+    if (writeText) withClipboard(writeText);
+    const view = render(<CopyableValue value={FULL_ADDRESS} presentation="reveal" valueKind="address" />);
+    fireEvent.click(view.getByRole("button", { name: "Show full address 0x2211…d77da9" }));
+    fireEvent.click(await view.findByRole("button", { name: "Copy address" }));
+
+    const alert = await view.findByRole("alert");
+    expect(alert.textContent).toBe(`${message} Select the full address above to copy it.`);
+    const fullValue = view.getByLabelText(`Full address ${FULL_ADDRESS}`);
+    expect(fullValue.textContent).toBe(FULL_ADDRESS);
+    fullValue.focus();
+    expect(document.activeElement).toBe(fullValue);
+  });
+
+  test("Escape closes the reveal and restores focus to its trigger", async () => {
+    const view = render(<CopyableValue value={FULL_ADDRESS} presentation="reveal" valueKind="address" />);
+    const trigger = view.getByRole("button", { name: "Show full address 0x2211…d77da9" });
+    fireEvent.click(trigger);
+    expect(await view.findByLabelText(`Full address ${FULL_ADDRESS}`)).toBeTruthy();
+    fireEvent.keyDown(document.activeElement ?? document, { key: "Escape" });
+    await waitFor(() => expect(trigger.getAttribute("aria-expanded")).toBe("false"));
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
   });
 
   test("renders the compact presentation with a title and copy icon", () => {
@@ -133,6 +168,4 @@ describe("CopyableValue", () => {
     expect(view.getByRole("button", { name: "Copy 0x2222…222222" })).toBeTruthy();
     expect(view.queryByRole("button", { name: "Copied" })).toBeNull();
   });
-
-
 });
