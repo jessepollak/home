@@ -88,6 +88,7 @@ export function AccountSignInSheet({
   const [flowId, setFlowId] = useState<string | null>(null);
   const [otp, setOtp] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
+  const [codeRejected, setCodeRejected] = useState(false);
   const [isSendingCode, setIsSendingCode] = useState(false);
   const [isVerifyingCode, setIsVerifyingCode] = useState(false);
   const [baseAccountPhase, setBaseAccountPhase] = useState<BaseAccountLoginPhase | null>(null);
@@ -169,6 +170,7 @@ export function AccountSignInSheet({
     setHandoffAttempt(null);
     setOtp("");
     setAuthError(null);
+    setCodeRejected(false);
     setIsSendingCode(false);
     setIsVerifyingCode(false);
     setBaseAccountPhase(null);
@@ -188,6 +190,7 @@ export function AccountSignInSheet({
     setCompletedAttemptSequence(null);
     setIsSendingCode(true);
     setAuthError(null);
+    setCodeRejected(false);
     try {
       const result = await requestEmailCode(nextEmail);
       if (sequence !== uiAttemptSequence.current) return;
@@ -222,6 +225,7 @@ export function AccountSignInSheet({
     const sequence = uiAttemptSequence.current;
     setIsVerifyingCode(true);
     setAuthError(null);
+    setCodeRejected(false);
     try {
       await verifyEmailCode(flowId, otp);
       if (sequence !== uiAttemptSequence.current) return;
@@ -230,7 +234,10 @@ export function AccountSignInSheet({
       setFlowId(null);
       setResendAvailableAt(null);
     } catch (error) { // oxlint-disable-line home/no-silent-catch -- a superseded verify attempt must not overwrite the newer attempt's error state
-      if (sequence === uiAttemptSequence.current) setAuthError(messageForCodeError(error));
+      if (sequence === uiAttemptSequence.current) {
+        setAuthError(messageForCodeError(error));
+        setCodeRejected(classifyEmailCodeError(error) !== "unavailable");
+      }
     } finally {
       if (sequence === uiAttemptSequence.current) setIsVerifyingCode(false);
     }
@@ -240,6 +247,7 @@ export function AccountSignInSheet({
     setFlowId(null);
     setOtp("");
     setAuthError(null);
+    setCodeRejected(false);
     setResendAvailableAt(null);
     setResendSeconds(0);
   }
@@ -314,9 +322,10 @@ export function AccountSignInSheet({
                 otp={otp}
                 isSendingCode={isSendingCode}
                 isVerifyingCode={isVerifyingCode}
+                invalid={codeRejected}
                 resendSeconds={resendSeconds}
                 inputRef={otpInputRef}
-                onOtpChange={setOtp}
+                onOtpChange={(nextOtp) => { setOtp(nextOtp); setCodeRejected(false); }}
                 onSubmit={(event) => void handleOtpSubmit(event)}
                 onChangeEmail={changeEmail}
                 onResend={() => { setOtp(""); void sendCode(email); }}

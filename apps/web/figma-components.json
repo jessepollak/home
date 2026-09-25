@@ -13,6 +13,7 @@
     { "figmaName": "Drawer", "nodeId": "161:1847", "source": "components/ui/drawer.tsx", "component": "DrawerContent", "template": "components/explorations/code-connect/ui/drawer.figma.ts", "stories": ["components/ui/drawer.stories.tsx"] },
     { "figmaName": "Toast", "nodeId": "161:1885", "source": "components/ui/toast.tsx", "component": "Toast", "template": "components/explorations/code-connect/ui/toast.figma.ts", "stories": ["components/ui/toast.stories.tsx"] },
     { "figmaName": "Input", "nodeId": "160:1654", "source": "components/ui/input.tsx", "component": "Input", "template": "components/explorations/code-connect/ui/input.figma.ts", "stories": ["components/ui/input.stories.tsx"] },
+    { "figmaName": "InputOTP", "nodeId": "211:3668", "source": "components/ui/input-otp.tsx", "component": "InputOTP", "template": "components/explorations/code-connect/ui/input-otp.figma.ts", "stories": ["components/ui/input-otp.stories.tsx"] },
     { "figmaName": "InputGroup", "nodeId": "160:1673", "source": "components/ui/input-group.tsx", "component": "InputGroup", "template": "components/explorations/code-connect/ui/input-group.figma.ts", "stories": ["components/ui/input-group.stories.tsx"] },
     { "figmaName": "Field", "nodeId": "160:1684", "source": "components/ui/field.tsx", "component": "Field", "template": "components/explorations/code-connect/ui/field.figma.ts", "stories": ["components/ui/field.stories.tsx"] },
     { "figmaName": "Label", "nodeId": "158:1880", "source": "components/ui/label.tsx", "component": "Label", "template": "components/explorations/code-connect/ui/label.figma.ts", "stories": ["components/ui/label.stories.tsx"] },
@@ -53,8 +54,7 @@
     { "figmaName": "Regional & desktop proposal (#638, unreviewed)", "nodeId": "311:12034", "source": "client/home/explorations/regional-home.tsx", "component": "RegionalHomeProposal", "stories": ["client/home/explorations/regional-home.stories.tsx", "client/home/explorations/regional-money-sheets.stories.tsx", "client/account/explorations/regional-preferences.stories.tsx"] }
   ],
   "notMapped": [
-    { "figmaName": "InputOTP", "nodeId": "211:3668", "reason": "DESIGN-ONLY: sign-in still uses Input variant=\"otp\"." },
-    { "figmaName": "InputOTPSlot", "nodeId": "211:3547", "reason": "DESIGN-ONLY sub-part of InputOTP." },
+    { "figmaName": "InputOTPSlot", "nodeId": "211:3547", "reason": "Sub-part of mapped InputOTP; rendered by the owned InputOTPSlot." },
     { "figmaName": "StatusStep", "nodeId": "166:1861", "reason": "DESIGN-ONLY: no StatusStep component in code yet." },
     { "figmaName": "ResultHeader", "nodeId": "166:1884", "reason": "DESIGN-ONLY: no ResultHeader component in code yet." },
     { "figmaName": "AssetDetailHeader", "nodeId": "166:1917", "reason": "DESIGN-ONLY: rendered inline in asset-detail-screen.tsx, not an exported component." },

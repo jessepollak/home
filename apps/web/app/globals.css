@@ -135,6 +135,14 @@
   a[href], button:not(:disabled), [role="button"]:not([aria-disabled="true"]), [role="option"]:not([aria-disabled="true"]), [role="radio"]:not([aria-disabled="true"]), summary { cursor: pointer !important; }
 }
 
+@keyframes otp-caret-blink {
+  50% { opacity: 0; }
+}
+
+@utility animate-otp-caret {
+  animation: otp-caret-blink 1s step-end infinite;
+}
+
 @layer utilities {
   .shell-scroll-container {
     scrollbar-width: none;
