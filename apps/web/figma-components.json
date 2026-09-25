@@ -37,6 +37,7 @@
     { "figmaName": "TabBar", "nodeId": "12:95", "source": "components/primary-navigation.tsx", "component": "PrimaryNavigation", "template": "components/explorations/code-connect/tab-bar.figma.ts", "stories": [] },
     { "figmaName": "TabItem", "nodeId": "12:94", "source": "components/primary-navigation.tsx", "component": "PrimaryNavigation", "template": "components/explorations/code-connect/tab-item.figma.ts", "stories": [] },
     { "figmaName": "CopyableValue", "nodeId": "282:5961", "source": "components/copyable-value.tsx", "component": "CopyableValue", "template": "components/explorations/code-connect/copyable-value.figma.ts", "stories": [] },
+    { "figmaName": "AddressField", "nodeId": "460:4469", "source": "components/address-field.tsx", "component": "AddressField", "template": "components/explorations/code-connect/address-field.figma.ts", "stories": ["components/address-field.stories.tsx"] },
     { "figmaName": "TransactionAmount", "nodeId": "282:5882", "source": "components/transaction-amount.tsx", "component": "TransactionAmount", "template": "components/explorations/code-connect/transaction-amount.figma.ts", "stories": ["components/transaction-details.stories.tsx"] },
     { "figmaName": "TradeActions", "nodeId": "274:5577", "source": "client/trading/trade-actions.tsx", "component": "TradeActions", "template": "client/explorations/code-connect/trading/trade-actions.figma.ts", "stories": [] },
     { "figmaName": "MoneyPrimaryAmount", "nodeId": "166:1776", "source": "client/money-modal/amount.tsx", "component": "MoneyPrimaryAmount", "template": "client/explorations/code-connect/money-modal/money-primary-amount.figma.ts", "stories": [] },
@@ -60,7 +61,10 @@
     { "figmaName": "SystemKeyboard", "nodeId": "274:5688", "reason": "DESIGN-ONLY placeholder for the OS keyboard." },
     { "figmaName": "Icon", "nodeId": "156:1726", "reason": "Code imports lucide-react glyphs directly." },
     { "figmaName": "MoneyConfirmRow", "nodeId": "166:1802", "reason": "Figma sub-part of MoneyConfirmSummary." },
-    { "figmaName": "MoreRow", "nodeId": "12:79", "reason": "Code removed the More rows in #789; no instance remains in Figma." }
+    { "figmaName": "MoreRow", "nodeId": "12:79", "reason": "Code removed the More rows in #789; no instance remains in Figma." },
+    { "figmaName": "FieldSeparator", "nodeId": "465:4432", "reason": "Sub-part of Field (components/ui/field.tsx); no separate template." },
+    { "figmaName": "SendRecipientStatus", "nodeId": "465:4497", "reason": "Figma-only composition of the send-recipient-status content in client/transfers/send-dialog.tsx; not a code component." },
+    { "figmaName": "RecentRecipients", "nodeId": "465:4498", "reason": "Figma-only composition of the private RecentRecipients rows in client/transfers/send-dialog.tsx; not a code component." }
   ],
   "notInFigma": [
     { "source": "client/money-modal/amount.tsx", "reason": "Figma node deleted in #882; code still renders MoneyNumpad until native-input adoption." },
@@ -68,7 +72,6 @@
     { "source": "components/ui/data-table.tsx", "reason": "Desktop-only; P2 in the gap matrix." },
     { "source": "components/ui/coverage-table.tsx", "reason": "Internal coverage tooling; P2." },
     { "source": "components/ui/coverage-status-preview.tsx", "reason": "Internal coverage tooling; P2." },
-    { "source": "components/ui/payout-mark.tsx", "reason": "Payout brand colours are variables; no component yet (P2)." },
-    { "source": "components/address-field.tsx", "reason": "Drawn as InputGroup inside Field; dedicated AddressField set pending (design-system.md follow-up)." }
+    { "source": "components/ui/payout-mark.tsx", "reason": "Payout brand colours are variables; no component yet (P2)." }
   ]
 }

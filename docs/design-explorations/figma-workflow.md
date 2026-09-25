@@ -24,7 +24,7 @@ Surviving node IDs did not change when sections moved. Current page order and co
 | Invest | [`333:13086`](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13086) | Empty destination for future screens and proposals. |
 | Borrow | [`333:13087`](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13087) | Empty destination for future screens and proposals. |
 | Activity | [`333:13088`](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13088) | `Activity ledger proposal (#637, unreviewed)` `308:5918`. |
-| Send / Add money / Cash out | [`333:13089`](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13089) | Empty destination for future screens and proposals. |
+| Send / Add money / Cash out | [`333:13089`](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13089) | `Send recipient — current (#953)` `468:4498` (code parity; see [design-system.md](design-system.md#send-recipient-board-953)). |
 | Account | [`333:13090`](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13090) | Empty destination for future screens and proposals. |
 | Card | [`333:13091`](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13091) | Card proposal (#636, unreviewed) `309:7257`. |
 | Shell / desktop | [`333:13092`](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13092) | Desktop proposal #694 `322:11819`. |
