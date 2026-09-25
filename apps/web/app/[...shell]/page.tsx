@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import type { ShellPanelId } from "@/config/navigation";
-import { DashboardExperience } from "@/client/home/dashboard-experience";
+import { PortfolioHomeExperience } from "@/client/home/portfolio-home-experience";
 import { parseShellLocation, searchParamsToString } from "@/config/shell-location";
 import { readRequestCountry } from "@/server/region/request-country";
 
@@ -36,7 +36,7 @@ export default async function ShellPage({
   const { shell } = await params;
   const query = await searchParams;
   return (
-    <DashboardExperience
+    <PortfolioHomeExperience
       detectedCountry={readRequestCountry(await headers())}
       initialLocation={parseShellLocation(shellPathname(shell))}
       initialSearch={searchParamsToString(query)}

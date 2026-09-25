@@ -3,6 +3,7 @@ import "@/client/account/dom-test-harness";
 import { getHomeQueryClient } from "@/client/query/query-client";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { useState, type ComponentProps } from "react";
+import type { HomeRegionState } from "./use-home-region";
 import type { AccountWalletSdkBoundary } from "@/client/account/cdp-client";
 import type { SessionFetch, VerifiedAccountSession } from "@/client/account/session-client";
 import { DEFAULT_BORROW_MARKET } from "@/shared/borrowing/config";
@@ -99,7 +100,9 @@ const { AccountWalletSessionOwner } = await import("@/client/account/cdp-session
 const { BASE_CHAIN_ID } = await import("@/client/account/session-client");
 const { useNestedAppChrome } = await import("@/components/app-chrome");
 const { InvestExperience } = await import("@/client/invest/invest-experience");
-const { HomeExperience } = await import("./home-experience");
+const { DashboardShell } = await import("./shell");
+const { LandingShell } = await import("./landing-shell");
+const { useHomeRegion } = await import("./use-home-region");
 
 const OWNER = "home-user";
 const OWNER_B = "home-user-b";
@@ -152,20 +155,40 @@ function HomeHarness({
   accountSdk,
   sessionFetch = defaultSessionFetch,
   routeMode = "dashboard",
-  assetBalances,
-  investContent = <section aria-label="Invest module">Invest fixture</section>,
   ...props
 }: {
   accountSdk: AccountWalletSdkBoundary;
   sessionFetch?: SessionFetch;
   routeMode?: "landing" | "dashboard";
-  assetBalances?: ComponentProps<typeof HomeExperience>["assetBalances"];
-} & Omit<ComponentProps<typeof HomeExperience>, "routeMode" | "assetBalances">) {
+} & DashboardHarnessProps) {
   return (
     <AccountWalletSessionOwner sdk={accountSdk} sessionFetch={sessionFetch}>
-      <HomeExperience
-        {...props}
-        routeMode={routeMode}
+      {routeMode === "landing" ? <LandingShell /> : <DashboardHarness {...props} />}
+    </AccountWalletSessionOwner>
+  );
+}
+
+type DashboardHarnessProps = Omit<ComponentProps<typeof DashboardShell>, "region"> & {
+  detectedCountry?: string | null;
+  regionOverride?: Partial<HomeRegionState>;
+  onRegionObserved?: (regionId: HomeRegionState["regionId"]) => void;
+};
+
+function DashboardHarness({
+  detectedCountry = null,
+  regionOverride,
+  onRegionObserved,
+  assetBalances,
+  investContent = <section aria-label="Invest module">Invest fixture</section>,
+  ...props
+}: DashboardHarnessProps) {
+  const region = useHomeRegion({ detectedCountry });
+  const resolvedRegion = { ...region, ...regionOverride };
+  onRegionObserved?.(resolvedRegion.regionId);
+  return (
+    <DashboardShell
+      {...props}
+      region={resolvedRegion}
         savingsContent={<section aria-label="Savings module">Savings fixture</section>}
         investContent={investContent}
         assetBalances={assetBalances ?? {
@@ -204,8 +227,7 @@ function HomeHarness({
           hiddenRows: [],
           hiddenCount: 0,
         }}
-      />
-    </AccountWalletSessionOwner>
+    />
   );
 }
 
@@ -317,7 +339,7 @@ describe("Home shell auth and privacy", () => {
   test("keeps unavailable auth behind setup recovery", async () => {
     render(
       <CdpAccountProvider projectId={null}>
-        <HomeExperience routeMode="landing" />
+        <LandingShell />
       </CdpAccountProvider>,
     );
 
@@ -795,7 +817,7 @@ describe("Home shell routing and intents", () => {
 
   test("does not re-present unchanged balances during navigation or account interactions", async () => {
     let presentationCalls = 0;
-    const presentation: NonNullable<ComponentProps<typeof HomeExperience>["assetBalances"]> = {
+    const presentation: NonNullable<ComponentProps<typeof DashboardShell>["assetBalances"]> = {
       status: "ready",
       displayTotal: "$12.34",
       totalStatus: "complete",
@@ -1300,6 +1322,28 @@ function expectSheetOpen(dialog: HTMLElement) {
 
 describe("Balances scope scroll interleavings (#485)", () => {
   const balancesLocation = { panel: "balances" as const, account: null, shelf: null, asset: null, group: null, market: null };
+  test("persisted region hydrates once without resetting the balances scroll scope", async () => {
+    window.localStorage.setItem("home.country.v1", "GB");
+    const frames = controlAnimationFrames();
+    const accountSdk = sdk({ isSignedIn: true, ownerKey: OWNER });
+    const observedRegions: HomeRegionState["regionId"][] = [];
+    const onRegionObserved = (regionId: HomeRegionState["regionId"]) => {
+      if (observedRegions.at(-1) !== regionId) observedRegions.push(regionId);
+    };
+    const view = render(<HomeHarness accountSdk={accountSdk} initialPanel="balances" onRegionObserved={onRegionObserved} />);
+    const main = page().getByRole("main");
+    main.scrollTop = 260;
+    expect(observedRegions).toEqual(["US"]);
+    act(() => frames.flush());
+    await waitForVerifiedShell();
+    expect(observedRegions).toEqual(["US", "GB"]);
+    expect(main.scrollTop).toBe(260);
+
+    view.rerender(<HomeHarness accountSdk={accountSdk} initialPanel="balances" onRegionObserved={onRegionObserved} />);
+    act(() => frames.flush());
+    expect(observedRegions).toEqual(["US", "GB"]);
+    expect(main.scrollTop).toBe(260);
+  });
   for (const mode of ["Account", "asset", "history"] as const) {
     test(`scope change cancels the queued ${mode} restore`, async () => {
       window.localStorage.setItem("home.country.v1", "US");
@@ -1359,7 +1403,7 @@ describe("Balances scope scroll interleavings (#485)", () => {
     act(() => frames.flush());
     await waitForVerifiedShell();
     expect(main.scrollTop).toBe(260);
-    view.rerender(<HomeHarness accountSdk={accountSdk} initialPanel="balances" selectedRegionId="US" />);
+    view.rerender(<HomeHarness accountSdk={accountSdk} initialPanel="balances" regionOverride={{ regionId: "US" }} />);
     await waitFor(() => expect(main.scrollTop).toBe(0));
     view.rerender(<HomeHarness accountSdk={sdk()} initialPanel="balances" />);
     await page().findByLabelText("Signed out");

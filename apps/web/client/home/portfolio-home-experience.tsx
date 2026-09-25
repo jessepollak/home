@@ -1,23 +1,37 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { useBalances } from "@/client/balances";
 import { useInterruption } from "@/client/status/use-interruption";
 import { useAccountWallet } from "@/client/account/cdp-client";
 import { presentBalances } from "@/shared/balances/present";
-import { resolvePresentation, type RegionId } from "@/config/regions";
-import { HomeExperience } from "./home-shell-provider";
+import type { CountryCode } from "@/config/regions";
+import { PricedInvestExperienceWithDiscover } from "@/client/invest/priced-invest-experience";
+import { investViewFromLocation } from "@/client/invest/invest-location";
+import { useInvestDiscover } from "@/client/invest/use-invest-discover";
+import { AuthenticatedSavingsExperience } from "@/client/savings/savings-experience";
+import type { ShellLocation } from "@/config/shell-location";
+import { DashboardShell } from "./shell";
 import { deriveAssetMarkResolution, deriveSendAvailability } from "./send-availability";
-import type { HomeExperienceProps } from "./home-types";
 import { useShowSmallBalances } from "./use-show-small-balances";
+import { useHomeRegion } from "./use-home-region";
 
-export function PortfolioHomeExperience(
-  props: Omit<HomeExperienceProps, "assetBalances" | "sendAvailability" | "assetMarkResolution">,
-) {
+export function PortfolioHomeExperience({
+  detectedCountry,
+  initialLocation,
+  initialSearch,
+}: {
+  detectedCountry: CountryCode | null;
+  initialLocation: ShellLocation;
+  initialSearch?: string;
+}) {
   const account = useAccountWallet();
+  const discover = useInvestDiscover();
   const [showSmallBalances, setShowSmallBalances] = useShowSmallBalances();
-  const [selectedRegion, setSelectedRegion] = useState<RegionId>(
-    () => resolvePresentation({ detectedCountry: props.detectedCountry }).region.id,
+  const region = useHomeRegion({ detectedCountry });
+  const initialInvestView = useMemo(
+    () => investViewFromLocation(initialLocation),
+    [initialLocation],
   );
   const session = account.verification && account.session?.smartAccount
     ? {
@@ -27,12 +41,12 @@ export function PortfolioHomeExperience(
         accountProvider: account.session.accountProvider,
       }
     : null;
-  const balances = useBalances(session, selectedRegion, account.fetchBalances, {
+  const balances = useBalances(session, region.regionId, account.fetchBalances, {
     enabled: account.verification === "server",
   });
   const interruptionStatus = useInterruption(
     balances.observation,
-    props.routeMode === "dashboard" && account.status === "verified" && account.verification === "server",
+    account.status === "verified" && account.verification === "server",
     balances.retry,
   );
   const presentAssetBalances = useCallback(
@@ -49,8 +63,19 @@ export function PortfolioHomeExperience(
   );
 
   return (
-    <HomeExperience
-      {...props}
+    <DashboardShell
+      region={region}
+      initialPanel={initialLocation.panel}
+      initialLocation={initialLocation}
+      investContent={
+        <PricedInvestExperienceWithDiscover
+          discover={discover}
+          initialView={initialInvestView}
+        />
+      }
+      savingsContent={<AuthenticatedSavingsExperience />}
+      applyInboundUrlIntent
+      initialSearch={initialSearch}
       balancesRevalidating={balances.revalidating === true}
       interruption={interruptionStatus.interruption}
       interruptionAnnouncement={interruptionStatus.announcement}
@@ -60,8 +85,6 @@ export function PortfolioHomeExperience(
       assetMarkResolution={assetMarkResolution}
       showSmallBalances={showSmallBalances}
       onShowSmallBalancesChange={setShowSmallBalances}
-      selectedRegionId={selectedRegion}
-      onRegionChange={setSelectedRegion}
     />
   );
 }

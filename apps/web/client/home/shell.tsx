@@ -10,19 +10,22 @@ import {
 import { useRouter } from "next/navigation";
 import { deferSheet } from "@/client/money-modal/deferred-sheet";
 import { isSessionSettling, useAccountWallet } from "@/client/account/cdp-client";
+import { AccountSettings } from "@/client/account/account-settings";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { BorrowMarketId } from "@/shared/borrowing/config";
 import {
+  activityPanelId,
   balancesPanelId,
+  borrowPanelId,
   isHomeNestedPanelId,
   nestedHomePanelTitle,
+  savePanelId,
   type ShellPanelId,
 } from "@/config/navigation";
 import {
   commitClientUrl,
   commitFlowUrl,
   flowHref,
-  homeHrefWithOverlays,
   isClientHistoryEntry,
   parseShellLocation,
   readClientScrollTop,
@@ -34,7 +37,15 @@ import {
   subscribeBeforeClientUrlCommit,
   type ShellFlow,
 } from "@/config/shell-location";
-import { useOptionalAppChrome } from "@/components/app-chrome";
+import { AppChromeProvider, useOptionalAppChrome } from "@/components/app-chrome";
+import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { PrimaryNavigation } from "@/components/primary-navigation";
+import { AuthenticatedBorrowExperience } from "@/client/borrowing/borrowing-experience";
+import {
+  shellContentFrameClassName,
+  shellScrollContainerClassName,
+} from "@/components/shell-layout";
 import {
   markHomePerformance,
   markHomeStartupOutcome,
@@ -43,21 +54,25 @@ import {
 import type { HomeStartupRoute } from "@/shared/observability/client-performance.contract";
 import {
   balancesAnchorTopologyKey,
+  BalancesPage,
   clampHomeScrollTop,
   homeBalancesRestoreScope,
   useBalancesRevealWindow,
 } from "./balances-panel";
+import { ActivityPage } from "./activity-panel";
+import { SavingsPanel, InvestPanel } from "./feature-panels";
+import { HomePanel } from "./home-panel";
+import { MountedShellPanel } from "./panel-shared";
 import type { HomeExperienceProps, HomeAssetBalancesPresentation } from "./home-types";
 import {
   HomeShellRoutingProvider,
   readHomeInboundPanelState,
   type HomeInboundPanelState,
 } from "./panel-routing";
-import { ShellHeader, SignedOutLanding } from "./shell-chrome";
+import { ShellHeader } from "./shell-chrome";
 import { HomeHeaderStatus, headerStatus, homeBalancesStatus, useReloadHomeBalances } from "./home-status";
-import { DashboardShell } from "./shell-panels";
 import { ActionToasts } from "./action-toasts";
-import { useHomeRegion } from "./use-home-region";
+import { useBalancesRestore } from "./use-balances-restore";
 
 const AccountSignInSheet = deferSheet(() => import("@/client/account/account-screen").then((module) => module.AccountSignInSheet));
 
@@ -72,13 +87,6 @@ const loadingAssetBalances: HomeAssetBalancesPresentation = {
   hiddenCount: 0,
 };
 
-type HomeShellProps = HomeExperienceProps & {
-  disarmBalancesRestore: () => void;
-  awaitBalancesAssetDetail: () => void;
-  armBalancesAccountOverlay: () => void;
-  isBalancesRestoreArmed: () => boolean;
-};
-
 const panelStartupRoutes: Record<ShellPanelId, Exclude<HomeStartupRoute, "/">> = {
   home: "/home",
   balances: "/balances",
@@ -88,8 +96,17 @@ const panelStartupRoutes: Record<ShellPanelId, Exclude<HomeStartupRoute, "/">> =
   invest: "/invest",
 };
 
-export function HomeShell({
-  detectedCountry = null,
+export type DashboardShellProps = Omit<HomeExperienceProps, "landingVisual" | "routeMode">;
+
+export function DashboardShell(props: DashboardShellProps) {
+  return (
+    <AppChromeProvider>
+      <DashboardShellBody {...props} />
+    </AppChromeProvider>
+  );
+}
+
+function DashboardShellBody({
   investContent,
   savingsContent,
   initialAccountOpen = false,
@@ -106,23 +123,22 @@ export function HomeShell({
   assetMarkResolution,
   showSmallBalances = false,
   onShowSmallBalancesChange = () => {},
-  landingVisual,
-  routeMode = "landing",
   initialAddMoney = false,
   returnedFromProvider = false,
   initialSearch,
   initialSendFlow = false,
   initialSendActionId = null,
   applyInboundUrlIntent = false,
-  selectedRegionId,
-  onRegionChange,
-  disarmBalancesRestore,
-  awaitBalancesAssetDetail,
-  armBalancesAccountOverlay,
-  isBalancesRestoreArmed,
-}: HomeShellProps) {
+  region,
+}: DashboardShellProps) {
   const router = useRouter();
   const account = useAccountWallet();
+  const {
+    disarmBalancesRestore,
+    awaitBalancesAssetDetail,
+    armBalancesAccountOverlay,
+    isBalancesRestoreArmed,
+  } = useBalancesRestore();
   const [initialUrlIntent] = useState(() => readHomeInboundPanelState(
     initialLocation ?? (typeof window === "undefined"
       ? parseShellLocation("/")
@@ -139,7 +155,7 @@ export function HomeShell({
     isPreferenceReady,
     preferenceMessage,
     selectRegion,
-  } = useHomeRegion({ detectedCountry, selectedRegionId, onRegionChange });
+  } = region;
   const [activeNavigation, setActiveNavigation] = useState<ShellPanelId>(initialPanel);
   const [navigationRequest, setNavigationRequest] = useState(0);
   const [balancesRevealReset, setBalancesRevealReset] = useState(0);
@@ -157,15 +173,12 @@ export function HomeShell({
   const signedOutBoundaryClearedRef = useRef(false);
   const panelStageRef = useRef<HTMLElement>(null);
   const explicitLogoutRef = useRef(false);
-  const landingRedirectedRef = useRef(false);
   const coldGroupAnchorRef = useRef<MoneyGroupId | null>(
-    routeMode === "dashboard" && initialPanel === balancesPanelId
+    initialPanel === balancesPanelId
       ? initialUrlIntent.location.group
       : null,
   );
-  const [isAccountOpen, setIsAccountOpen] = useState(
-    initialAccountOpen || (routeMode === "landing" && initialUrlIntent.account === "signin"),
-  );
+  const [isAccountOpen, setIsAccountOpen] = useState(initialAccountOpen);
   const [isAccountSettingsOpen, setIsAccountSettingsOpen] = useState(initialAccountSettingsOpen);
   const [urlAddMoney, setUrlAddMoney] = useState(initialAddMoney);
   const [urlReturnedFromProvider, setUrlReturnedFromProvider] = useState(returnedFromProvider);
@@ -199,14 +212,14 @@ export function HomeShell({
   useEffect(() => () => cancelPendingShellScroll(), [cancelPendingShellScroll]);
 
   useEffect(() => {
-    startHomePerformance(routeMode === "landing" ? "/" : panelStartupRoutes[initialPanel]);
+    startHomePerformance(panelStartupRoutes[initialPanel]);
     const frame = window.requestAnimationFrame(() => markHomePerformance("shell:paint"));
     return () => window.cancelAnimationFrame(frame);
-  }, [initialPanel, routeMode]);
+  }, [initialPanel]);
   useEffect(() => {
     const shell = shellRef.current;
     const main = mainRef.current;
-    if (!shell || !main || routeMode !== "dashboard") return;
+    if (!shell || !main) return;
 
     const syncScrollbarWidth = () => {
       const width = Math.max(0, main.offsetWidth - main.clientWidth);
@@ -223,7 +236,7 @@ export function HomeShell({
       observer?.disconnect();
       window.removeEventListener("resize", syncScrollbarWidth);
     };
-  }, [routeMode]);
+  }, []);
 
   useEffect(() => {
     if (!("scrollRestoration" in window.history)) return;
@@ -233,7 +246,7 @@ export function HomeShell({
   }, []);
   useEffect(() => {
     const main = mainRef.current;
-    if (!main || routeMode !== "dashboard") return;
+    if (!main) return;
     let persistFrame: number | null = null;
     const persistScroll = () => {
       if (persistFrame !== null) {
@@ -255,7 +268,7 @@ export function HomeShell({
       unsubscribe();
       main.removeEventListener("scroll", schedulePersist);
     };
-  }, [routeMode]);
+  }, []);
 
   const applyUrlState = useCallback((intent: ReturnType<typeof readHomeInboundPanelState>) => {
     appliedUrlIntentRef.current = true;
@@ -358,7 +371,6 @@ export function HomeShell({
   useEffect(() => {
     if (
       !applyInboundUrlIntent ||
-      routeMode !== "dashboard" ||
       !isVerified ||
       !account.session?.smartAccount ||
       appliedUrlIntentRef.current
@@ -376,7 +388,6 @@ export function HomeShell({
     applyInboundUrlIntent,
     applyUrlState,
     isVerified,
-    routeMode,
   ]);
   const isUnavailable = account.status === "unavailable";
   const isSignedOut = account.status === "signed-out" || account.status === "signout-error";
@@ -582,24 +593,10 @@ export function HomeShell({
   const activitySession: VerifiedAccountSession | null =
     isVerified && account.session?.smartAccount ? account.session : null;
   useEffect(() => {
-    if (
-      routeMode === "landing" &&
-      account.verification !== null &&
-      readShellAccountParam(new URLSearchParams(window.location.search)) !== "signin" &&
-      !landingRedirectedRef.current
-    ) {
-      landingRedirectedRef.current = true;
-      router.replace(
-        homeHrefWithOverlays(new URLSearchParams(window.location.search)),
-        { scroll: false },
-      );
-    }
-  }, [account.verification, routeMode, router]);
-  useEffect(() => {
-    if (routeMode === "dashboard" && isSignedOut && !explicitLogoutRef.current) {
+    if (isSignedOut && !explicitLogoutRef.current) {
       router.replace("/?account=signin", { scroll: false });
     }
-  }, [isSignedOut, routeMode, router]);
+  }, [isSignedOut, router]);
 
   function navigateTo(
     nextNavigation: ShellPanelId,
@@ -714,7 +711,7 @@ export function HomeShell({
     setBalancesRevealReset((resetSignal) => resetSignal + 1);
     void account.signOut({
       onNavigationSafe: () => {
-        if (routeMode === "dashboard") router.replace("/", { scroll: false });
+        router.replace("/", { scroll: false });
       },
     }).catch(() => {});
   }
@@ -745,7 +742,7 @@ export function HomeShell({
     : investChrome?.nested?.onBack ?? (() => {});
 
   const reloadBalances = useReloadHomeBalances();
-  const homeStatus = routeMode === "dashboard" && isVerified && !isAccountSettingsOpen
+  const homeStatus = isVerified && !isAccountSettingsOpen
     ? headerStatus({
       interruption,
       coverage: activeNavigation === "home" ? homeBalancesStatus(paintedAssetBalances) : null,
@@ -764,11 +761,9 @@ export function HomeShell({
     <HomeShellRoutingProvider value={routingValue}>
       <div
         ref={shellRef}
-        className={routeMode === "dashboard"
-          ? "flex h-svh max-h-svh flex-col overflow-hidden bg-muted [--shell-scrollbar-width:0px]"
-          : "flex min-h-svh flex-col bg-background"}
+        className="flex h-svh max-h-svh flex-col overflow-hidden bg-muted [--shell-scrollbar-width:0px]"
       >
-        <span role="status" className="sr-only">{routeMode === "dashboard" && isVerified && interruption && interruptionAnnouncement
+        <span role="status" className="sr-only">{isVerified && interruption && interruptionAnnouncement
           ? headerStatus({ interruption: { kind: interruptionAnnouncement }, coverage: null })?.message
           : null}</span>
       <ShellHeader
@@ -776,7 +771,7 @@ export function HomeShell({
         nestedChromeTitle={nestedChromeTitle}
         nestedChromeBackLabel={nestedChromeBackLabel}
         onNestedChromeBack={onNestedChromeBack}
-        routeMode={routeMode}
+        routeMode="dashboard"
         activeNavigation={activeNavigation}
         isVerified={isVerified}
         account={account}
@@ -794,64 +789,147 @@ export function HomeShell({
           />
         ) : null}
       />
-      {routeMode === "dashboard" ? (
-        <DashboardShell
-          mainRef={mainRef}
-          panelStageRef={panelStageRef}
-          settingsRegionRef={settingsRegionRef}
-          isUnavailable={isUnavailable}
-          unavailableMessage={account.message}
-          retrySessionValidation={account.retrySessionValidation}
-          isAccountSettingsOpen={isAccountSettingsOpen}
-          isSignedOut={isSignedOut}
-          isChecking={isChecking}
-          isVerified={isVerified}
-          activeNavigation={activeNavigation}
-          nestedChromeTitle={nestedChromeTitle}
-          regionId={regionId}
-          resolutionSource={resolutionSource}
-          preferenceMessage={preferenceMessage}
-          isPreferenceReady={isPreferenceReady}
-          accountAddress={account.session?.smartAccount?.address ?? null}
-          accountOwnerKey={account.ownerKey}
-          selectRegion={selectRegion}
-          signOut={signOut}
-          paintedAssetBalances={paintedAssetBalances}
-          sendAvailability={sendAvailability}
-          assetMarkResolution={assetMarkResolution}
-          showSmallBalances={showSmallBalances}
-          onShowSmallBalancesChange={onShowSmallBalancesChange}
-          revealSmallBalances={revealSmallBalances}
-          onRevealSmallBalancesChange={setRevealSmallBalances}
-          activitySession={activitySession}
-          sessionSettling={sessionSettling}
-          fetchActivity={account.fetchActivity}
-          fetchOperations={account.fetchOperations}
-          navigateTo={navigateTo}
-          borrowMarket={urlIntent.location.market}
-          onSelectBorrowMarket={selectBorrowMarket}
-          urlAddMoney={urlAddMoney}
-          urlReturnedFromProvider={urlReturnedFromProvider}
-          urlSendFlow={urlSendFlow}
-          urlSendActionId={urlSendActionId}
-          mountedPanels={mountedPanels}
-          balancesMounted={balancesMounted}
-          balancesReveal={balancesReveal}
-          savingsContent={savingsContent}
-          investContent={investContent}
-        />
-      ) : (
-        <SignedOutLanding
-          isVerified={isVerified}
-          signOutError={account.status === "signout-error" ? account.message : null}
-          landingVisual={landingVisual}
-          showCreateAccount={account.signInAvailability === "ready"}
-          onDashboard={() => router.replace("/home")}
-          onSignIn={openAccount}
-          onRetrySignOut={() => void account.signOut().catch(() => {})}
-        />
-      )}
-      {routeMode === "dashboard" && isVerified ? (
+      <main
+        ref={mainRef}
+        data-app-main-authenticated
+        className={`order-1 min-h-0 flex-1 overscroll-contain overflow-x-hidden bg-muted pb-4 scroll-pb-4 sm:order-2 ${shellScrollContainerClassName}`}
+      >
+        <div className={`${shellContentFrameClassName} py-4 sm:py-6`}>
+        {isUnavailable ? (
+          <Alert className="mb-4" role="alert">
+            <AlertDescription>{account.message ?? "Account check unavailable."}</AlertDescription>
+            <AlertAction>
+              <Button variant="ghost" onClick={() => void account.retrySessionValidation()}>
+                Retry account check
+              </Button>
+            </AlertAction>
+          </Alert>
+        ) : null}
+
+        {isSignedOut ? (
+          <section aria-busy="true" aria-label="Signed out">
+            <span className="sr-only">Signed out</span>
+          </section>
+        ) : (
+          <section
+            ref={isAccountSettingsOpen ? settingsRegionRef : panelStageRef}
+            className="outline-none"
+            id="navigation-panel"
+            tabIndex={-1}
+            aria-labelledby={
+              isAccountSettingsOpen || isHomeNestedPanelId(activeNavigation) || nestedChromeTitle
+                ? undefined
+                : `${activeNavigation}-nav`
+            }
+            aria-label={
+              isAccountSettingsOpen
+                ? "Account settings"
+                : activeNavigation === savePanelId
+                  ? "Savings"
+                  : nestedChromeTitle ?? undefined
+            }
+            aria-busy={isAccountSettingsOpen ? undefined : isChecking}
+          >
+            {isAccountSettingsOpen ? (
+              <AccountSettings
+                regionId={regionId}
+                onRegionChange={selectRegion}
+                resolutionSource={resolutionSource}
+                preferenceMessage={preferenceMessage}
+                isPreferenceReady={isPreferenceReady}
+                accountAddress={isVerified ? (account.session?.smartAccount?.address ?? null) : null}
+                accountOwnerKey={isVerified ? account.ownerKey : null}
+                showSmallBalances={showSmallBalances}
+                onShowSmallBalancesChange={onShowSmallBalancesChange}
+                onSignOut={signOut}
+              />
+            ) : (
+              <div>
+                {mountedPanels.has("home") ? (
+                  <MountedShellPanel active={activeNavigation === "home"}>
+                    <HomePanel
+                      assetBalances={paintedAssetBalances}
+                      activitySession={activitySession}
+                      sessionSettling={sessionSettling}
+                      sendAvailability={sendAvailability}
+                      assetMarkResolution={assetMarkResolution}
+                      fetchActivity={account.fetchActivity}
+                      fetchOperations={account.fetchOperations}
+                      onOpenCash={() => navigateTo(savePanelId)}
+                      onOpenInvestments={() => navigateTo("invest")}
+                      onOpenBorrow={() => navigateTo(borrowPanelId)}
+                      initialAddMoney={urlAddMoney}
+                      returnedFromProvider={urlReturnedFromProvider}
+                      initialSendFlow={urlSendFlow}
+                      initialSendActionId={urlSendActionId}
+                      regionId={regionId}
+                    />
+                  </MountedShellPanel>
+                ) : null}
+                {balancesMounted ? (
+                  <MountedShellPanel active={activeNavigation === balancesPanelId}>
+                    <BalancesPage
+                      active={activeNavigation === balancesPanelId}
+                      assetBalances={paintedAssetBalances}
+                      showSmallBalances={showSmallBalances}
+                      revealSmallBalances={revealSmallBalances}
+                      onRevealSmallBalancesChange={setRevealSmallBalances}
+                      isChecking={isChecking}
+                      revealedCount={balancesReveal.count}
+                      onRevealMore={balancesReveal.extend}
+                    />
+                  </MountedShellPanel>
+                ) : null}
+                {mountedPanels.has(activityPanelId) ? (
+                  <MountedShellPanel active={activeNavigation === activityPanelId}>
+                    <ActivityPage
+                      activitySession={activitySession}
+                      fetchActivity={account.fetchActivity}
+                      fetchOperations={account.fetchOperations}
+                      regionId={regionId}
+                      showSessionShimmer={!activitySession && (
+                        sessionSettling ||
+                        paintedAssetBalances.status === "loading" ||
+                        paintedAssetBalances.revalidating === true
+                      )}
+                    />
+                  </MountedShellPanel>
+                ) : null}
+                {mountedPanels.has(savePanelId) ? (
+                  <MountedShellPanel active={activeNavigation === savePanelId}>
+                    <SavingsPanel
+                      regionId={regionId}
+                      isVerified={isVerified}
+                      isChecking={isChecking}
+                      content={savingsContent}
+                    />
+                  </MountedShellPanel>
+                ) : null}
+                {mountedPanels.has(borrowPanelId) ? (
+                  <MountedShellPanel active={activeNavigation === borrowPanelId}>
+                    <AuthenticatedBorrowExperience
+                      selectedMarketId={urlIntent.location.market}
+                      onSelectMarket={selectBorrowMarket}
+                      regionId={regionId}
+                      assetMarkResolution={assetMarkResolution}
+                    />
+                  </MountedShellPanel>
+                ) : null}
+                {mountedPanels.has("invest") ? (
+                  <MountedShellPanel active={activeNavigation === "invest"}>
+                    <InvestPanel regionId={regionId} content={investContent} />
+                  </MountedShellPanel>
+                ) : null}
+              </div>
+            )}
+          </section>
+        )}
+        </div>
+      </main>
+      {!isSignedOut ? (
+        <PrimaryNavigation activeNavigation={activeNavigation} onNavigate={navigateTo} />
+      ) : null}
+      {isVerified ? (
         <ActionToasts session={account.session} fetchOperations={account.fetchOperations} />
       ) : null}
         <AccountSignInSheet
