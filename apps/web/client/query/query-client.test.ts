@@ -10,6 +10,7 @@ import {
   ownerQueryCachePrefix,
   ownerQueryKey,
   ownerQueryMeta,
+  ownerQueryCacheTtlMs,
   ownerRestoreCacheState,
   restoreOwnerQueries,
   shouldPersistOwnerQuery,
@@ -96,6 +97,61 @@ describe("owner query cache boundary", () => {
       .toHaveLength(3);
   });
 
+  test("restores a matching owner's balances through seven days and rejects older cache", () => {
+    const ownerKey = "owner-a";
+    const storage = memoryStorage();
+    const now = Date.now();
+    const client = createHomeQueryClient();
+    client.setQueryDefaults(ownerQueryKey(ownerKey, "balances", "US"), {
+      meta: ownerQueryMeta(ownerKey, "owner"),
+    });
+    client.setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture, {
+      updatedAt: now - ownerQueryCacheTtlMs + 1,
+    });
+    const persister = createOwnerQueryPersister(storage, ownerKey)!;
+    persister.persistClient({
+      timestamp: now - ownerQueryCacheTtlMs + 1,
+      buster: "home-query-v3",
+      clientState: dehydrateOwnerQueries(client, ownerKey, now),
+    });
+    persister.flush();
+    const restored = createHomeQueryClient();
+    expect(restoreOwnerQueries(restored, storage, ownerKey, now)).toBe(true);
+    expect(restored.getQueryData<typeof balancesSnapshotFixture>(ownerQueryKey(ownerKey, "balances", "US")))
+      .toEqual(balancesSnapshotFixture);
+    expect(restoreOwnerQueries(createHomeQueryClient(), storage, ownerKey, now + 2)).toBe(false);
+    expect(storage.getItem(`${ownerQueryCachePrefix}${ownerKey}`)).toBeNull();
+  });
+
+  test("a fresh snapshot cannot restore a balance older than seven days", () => {
+    const ownerKey = "owner-a";
+    const storage = memoryStorage();
+    const now = Date.now();
+    const client = createHomeQueryClient();
+    for (const scope of ["balances", "activity"]) {
+      client.setQueryDefaults(ownerQueryKey(ownerKey, scope, "US"), {
+        meta: ownerQueryMeta(ownerKey, "owner"),
+      });
+    }
+    client.setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture, {
+      updatedAt: now - ownerQueryCacheTtlMs + 1,
+    });
+    client.setQueryData(ownerQueryKey(ownerKey, "activity", "US"), { items: [] }, { updatedAt: now });
+    const persister = createOwnerQueryPersister(storage, ownerKey)!;
+    persister.persistClient({
+      timestamp: now,
+      buster: "home-query-v3",
+      clientState: dehydrateOwnerQueries(client, ownerKey, now),
+    });
+    persister.flush();
+
+    const restored = createHomeQueryClient();
+    expect(restoreOwnerQueries(restored, storage, ownerKey, now + 2)).toBe(true);
+    expect(restored.getQueryData(ownerQueryKey(ownerKey, "balances", "US"))).toBeUndefined();
+    expect(restored.getQueryData<{ items: unknown[] }>(ownerQueryKey(ownerKey, "activity", "US")))
+      .toEqual({ items: [] });
+  });
+
   test("a throwing storage fails open", () => {
     const client = createHomeQueryClient();
     const storage = {
@@ -127,7 +183,7 @@ describe("owner query cache boundary", () => {
     }));
 
     const restored = createHomeQueryClient();
-    expect(restoreOwnerQueries(restored, storage, "owner-a")).toBe(true);
+    expect(restoreOwnerQueries(restored, storage, "owner-a")).toBe(false);
     expect(restored.getQueryCache().getAll()).toHaveLength(0);
     expect(restored.getQueryData(ownerQueryKey("owner-b", "balances", "US"))).toBeUndefined();
   });

@@ -38,15 +38,20 @@ afterEach(() => {
 async function transportWith(
   sessionFetch: SessionFetch,
   accessNavigation?: AccessNavigation,
+  options: {
+    verification?: "provisional" | "server";
+    status?: "validating" | "verified" | "restoring" | "signing-out" | "signed-out" | "unavailable";
+    ownerFence?: OwnerGenerationFence;
+  } = {},
 ) {
   return await new Promise<ReturnType<typeof useAuthenticatedTransport>>((resolve) => {
     function Probe() {
       const transport = useAuthenticatedTransport({
         session,
-        status: "verified",
-        verification: "server",
+        status: options.status ?? "verified",
+        verification: options.verification ?? "server",
         ownerKey: "owner",
-        ownerFence,
+        ownerFence: options.ownerFence ?? ownerFence,
         getAccessToken: async () => null,
         sessionFetch,
         authentication: "native-base",
@@ -66,6 +71,52 @@ async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
     (error: unknown) => error,
   );
 }
+
+describe("provisional balance transport", () => {
+  test("only balances GET crosses the provisional boundary", async () => {
+    const requests: string[] = [];
+    const transport = await transportWith(async (input, init) => {
+      requests.push(`${init?.method} ${String(input)}`);
+      return Response.json({ balance: "1" });
+    }, undefined, { verification: "provisional", status: "validating" });
+    expect(await transport.fetchBalances("US")).toEqual({ balance: "1" });
+    expect(await rejectionOf(transport.fetchActivity(""))).toMatchObject({ kind: "session" });
+    expect(await rejectionOf(transport.fetchAccountResource("/api/actions")))
+      .toMatchObject({ reason: "stale-session" });
+    expect(await rejectionOf(transport.fetchAccountResource("/api/balances")))
+      .toMatchObject({ reason: "stale-session" });
+    expect(await rejectionOf(transport.fetchMoneyActionApi("/api/actions/prepare", { method: "POST", body: "{}" })))
+      .toMatchObject({ reason: "stale-session" });
+    expect(requests).toEqual(["GET /api/balances?region=US"]);
+  });
+
+  test("drops an in-flight provisional response after the owner fence advances", async () => {
+    let generation = 0;
+    let release!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { release = resolve; });
+    const transport = await transportWith(async () => pending, undefined, {
+      verification: "provisional", status: "validating",
+      ownerFence: { ...ownerFence, capture: () => generation, isCurrent: (value) => value === generation },
+    });
+    const read = transport.fetchBalances("US");
+    await Promise.resolve();
+    generation += 1;
+    release(Response.json({ balance: "old owner" }));
+    expect(await rejectionOf(read)).toMatchObject({ kind: "session" });
+  });
+
+  test("rejects seeded restoring and all other non-validating provisional balance reads", async () => {
+    const requests: string[] = [];
+    for (const status of ["restoring", "signing-out", "signed-out", "unavailable"] as const) {
+      const transport = await transportWith(async (input) => {
+        requests.push(String(input));
+        return Response.json({});
+      }, undefined, { verification: "provisional", status });
+      expect(await rejectionOf(transport.fetchBalances("US"))).toMatchObject({ kind: "session" });
+    }
+    expect(requests).toEqual([]);
+  });
+});
 
 describe("verified read failure tagging", () => {
   test.each([

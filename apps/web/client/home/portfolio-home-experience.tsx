@@ -42,7 +42,9 @@ export function PortfolioHomeExperience({
       }
     : null;
   const balances = useBalances(session, region.regionId, account.fetchBalances, {
-    enabled: account.verification === "server",
+    enabled: account.verification === "server" ||
+      (account.verification === "provisional" && account.status === "validating"),
+    provisional: account.verification === "provisional" && account.status === "validating",
   });
   const interruptionStatus = useInterruption(
     balances.observation,

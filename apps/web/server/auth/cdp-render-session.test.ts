@@ -35,7 +35,7 @@ describe("CDP render session", () => {
     expect(issued.every((value) =>
       value.includes("Path=/") &&
       value.includes("SameSite=Lax") &&
-      value.includes("Max-Age=86400") &&
+      value.includes("Max-Age=604800") &&
       value.includes("Secure")
     )).toBe(true);
 
@@ -68,11 +68,20 @@ describe("CDP render session", () => {
         expected: null,
       },
       {
-        name: "expired",
+        name: "retained for six days",
         read: () => readCdpRenderSession(
           valid,
           KEY,
-          new Date(NOW.getTime() + 24 * 60 * 60 * 1000 + 1),
+          new Date(NOW.getTime() + 6 * 24 * 60 * 60 * 1000),
+        ),
+        expected: SESSION,
+      },
+      {
+        name: "expired after seven days",
+        read: () => readCdpRenderSession(
+          valid,
+          KEY,
+          new Date(NOW.getTime() + 7 * 24 * 60 * 60 * 1000 + 1),
         ),
         expected: null,
       },
