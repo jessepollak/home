@@ -93,7 +93,7 @@ describe("FundingExperience", () => {
       throw new Error("unexpected request");
     } };
     render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="DE" />);
-    expect(page().getByRole("button", { name: /Receive crypto/ })).toBeTruthy();
+    expect(await page().findByRole("button", { name: /Receive crypto/ })).toBeTruthy();
     expect(page().queryByText("No local deposit method in Germany yet.")).toBeNull();
 
     await act(async () => { resolveProviders({ providers: [] }); await providerRead; });
@@ -555,7 +555,7 @@ describe("FundingExperience", () => {
       throw new Error("unexpected request");
     } };
     render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
-    fireEvent.click(page().getByRole("button", { name: /Receive crypto/ }));
+    fireEvent.click(await page().findByRole("button", { name: /Receive crypto/ }));
     expect(page().getByRole("dialog", { name: "Receive" })).toBeTruthy();
     await act(async () => { resolveOrder({ order: { id: "11111111-1111-4111-8111-111111111111", providerId: "ripio", state: "dispatch-ambiguous", fiatAmount: "1000", providerStatus: null, instructions: null } }); await pendingOrder; });
     expect(page().getByRole("dialog", { name: "Receive" })).toBeTruthy();
@@ -792,7 +792,7 @@ describe("FundingExperience", () => {
     expect(page().queryByTitle("Apple Pay")).toBeNull();
   });
 
-  test("hides the prior verified address as soon as the account boundary changes", () => {
+  test("hides the prior verified address as soon as the account boundary changes", async () => {
     const view = render(
       <FundingExperienceForWallet
         wallet={verifiedWallet(ADDRESS_A)}
@@ -800,7 +800,7 @@ describe("FundingExperience", () => {
         initialStep="receive"
       />,
     );
-    expect(page().getByTitle(ADDRESS_A)).toBeTruthy();
+    expect(await page().findByTitle(ADDRESS_A)).toBeTruthy();
 
     view.rerender(
       <FundingExperienceForWallet

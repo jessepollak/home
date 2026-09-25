@@ -3,6 +3,7 @@
 import {
   createElement,
   useEffect,
+  useLayoutEffect,
   useState,
   useSyncExternalStore,
   type ComponentType,
@@ -36,6 +37,7 @@ export function deferSheet<P extends SheetProps>(
   let loaded: ComponentType<P> | null = null;
   let pending: Promise<void> | null = null;
   let failures = 0;
+  let visibleInstances = 0;
   const listeners = new Set<() => void>();
 
   function preload(): Promise<void> {
@@ -74,8 +76,17 @@ export function deferSheet<P extends SheetProps>(
     const open = props.open ?? true;
     const Loaded = useSyncExternalStore(subscribe, readLoaded, readServer);
     const failed = useSyncExternalStore(subscribe, readFailures, readServerFailures);
-    const [loadedLate, setLoadedLate] = useState(false);
-    if (open && !Loaded && !loadedLate) setLoadedLate(true);
+    const [staging, setStaging] = useState(() => open && visibleInstances === 0);
+    if (open && !Loaded && !staging) setStaging(true);
+    const visible = Loaded !== null && open && !staging;
+
+    useLayoutEffect(() => {
+      if (!visible) return;
+      visibleInstances += 1;
+      return () => {
+        visibleInstances -= 1;
+      };
+    }, [visible]);
 
     useEffect(() => {
       if (!open || Loaded) return;
@@ -89,13 +100,13 @@ export function deferSheet<P extends SheetProps>(
     }, [open, Loaded, failed]);
 
     useEffect(() => {
-      if (!Loaded || !loadedLate) return;
-      const frame = window.requestAnimationFrame(() => setLoadedLate(false));
+      if (!Loaded || !staging) return;
+      const frame = window.requestAnimationFrame(() => setStaging(false));
       return () => window.cancelAnimationFrame(frame);
-    }, [Loaded, loadedLate]);
+    }, [Loaded, staging]);
 
     if (!Loaded) return null;
-    return createElement(Loaded, { ...props, open: open && !loadedLate });
+    return createElement(Loaded, { ...props, open: visible });
   }
 
   return Object.assign(Sheet, { preload });

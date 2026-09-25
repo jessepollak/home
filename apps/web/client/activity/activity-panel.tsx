@@ -54,6 +54,7 @@ export function ActivityPanelView({
 }) {
   const [selectedTransfer, setSelectedTransfer] = useState<ActivityTransfer | null>(null);
   const [selectedOperation, setSelectedOperation] = useState<RecentMoneyActionOperation | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const detailOpenerRef = useRef<HTMLElement | null>(null);
   const rememberDetailOpener = () => {
     const active = document.activeElement;
@@ -63,6 +64,7 @@ export function ActivityPanelView({
   if (detailsStatus !== activity.status) {
     setDetailsStatus(activity.status);
     if (activity.status !== "ready") {
+      setDetailsOpen(false);
       setSelectedTransfer(null);
       setSelectedOperation(null);
     }
@@ -160,6 +162,7 @@ export function ActivityPanelView({
                 rememberDetailOpener();
                 setSelectedOperation(null);
                 setSelectedTransfer(item.transfer);
+                setDetailsOpen(true);
               }}
             />
           ) : (
@@ -171,6 +174,7 @@ export function ActivityPanelView({
                 rememberDetailOpener();
                 setSelectedTransfer(null);
                 setSelectedOperation(item.operation);
+                setDetailsOpen(true);
               }}
             />
           ))}
@@ -192,10 +196,11 @@ export function ActivityPanelView({
       ) : null}
 
       <TransactionDetailsSheet
-        open={selectedTransfer !== null || selectedOperation !== null}
+        open={detailsOpen}
         titleId="activity-transaction-details-title"
         details={details}
-        onClose={() => {
+        onClose={() => setDetailsOpen(false)}
+        onClosed={() => {
           setSelectedTransfer(null);
           setSelectedOperation(null);
           const opener = detailOpenerRef.current;

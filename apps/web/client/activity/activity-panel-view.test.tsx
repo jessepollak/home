@@ -5,7 +5,7 @@ import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list
 import type { ActivityPage, ActivityTransfer } from "@/shared/activity/types";
 import type { UseActivityResult } from "./use-activity";
 
-const { cleanup, fireEvent, render, within } = await import("@testing-library/react");
+const { cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const { ActivityPanelView } = await import("./activity-panel");
 
 const WALLET = "0x1111111111111111111111111111111111111111" as const;
@@ -167,6 +167,26 @@ describe("combined Activity panel", () => {
     const details = await view.findByRole("dialog", { name: "Sent USDC" });
     expect(within(details).getByText("Updated").nextElementSibling?.textContent).toMatch(/\d{1,2} de set\./);
     expect(within(details).getByText("You spend").nextElementSibling?.textContent).toBe("1.234,56789 USDC");
+  });
+
+  test("keeps transaction details during exit and restores focus after closing", async () => {
+    const view = render(<ActivityPanelView activity={ready([transfer("received", 5)])} />);
+    const opener = view.getByRole("button", { description: "View received USDC transaction details" });
+    opener.focus();
+    fireEvent.click(opener);
+    const dialog = await view.findByRole("dialog", { name: "Received USDC" });
+
+    const animationFlag = globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean };
+    animationFlag.BASE_UI_ANIMATIONS_DISABLED = true;
+    try {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Close transaction details" }));
+      expect(within(dialog).getByText("Received USDC")).toBeTruthy();
+      expect(within(dialog).getByText("Amount")).toBeTruthy();
+      await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+      await waitFor(() => expect(document.activeElement).toBe(opener));
+    } finally {
+      delete animationFlag.BASE_UI_ANIMATIONS_DISABLED;
+    }
   });
 
   test("renders exact-contract logos and bounded fallback marks for long and missing symbols", () => {

@@ -72,6 +72,7 @@ export function BorrowMoneyDialog({
   executeMoneyAction,
   regionId,
   onClose,
+  onClosed,
   assetMarkResolution,
   open = true,
 }: {
@@ -83,6 +84,7 @@ export function BorrowMoneyDialog({
   executeMoneyAction: ExecuteMoneyAction;
   regionId: RegionId;
   onClose: () => void;
+  onClosed?: () => void;
   assetMarkResolution?: AssetMarkResolution;
   open?: boolean;
 }) {
@@ -232,7 +234,7 @@ export function BorrowMoneyDialog({
   };
 
   return (
-    <MoneyModal open={open} labelledBy="borrow-action-title" describedBy={step === "pending" ? "borrow-action-pending" : undefined} pending={step === "pending"} onCancel={onClose} onClose={onClose}>
+    <MoneyModal open={open} labelledBy="borrow-action-title" describedBy={step === "pending" ? "borrow-action-pending" : undefined} pending={step === "pending"} onCancel={onClose} onClose={onClosed ?? onClose}>
       <MoneyModalHeader
         title={title}
         titleId="borrow-action-title"
