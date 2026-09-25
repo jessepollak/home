@@ -439,6 +439,24 @@ describe("BorrowExperience redesign", () => {
     expect(document.body.textContent).not.toContain("submission-pending");
   });
 
+  for (const selectedMarketId of [null, BORROW_MARKET_ID]) {
+    test(`retries a failed ${selectedMarketId ? "detail" : "overview"} read`, async () => {
+      let calls = 0;
+      const fetchAccountResource = async () => {
+        calls += 1;
+        if (calls === 1) throw new Error("Temporary read failure");
+        return selectedMarketId ? detail() : overview();
+      };
+      render(<BorrowExperience session={session()} selectedMarketId={selectedMarketId} fetchAccountResource={fetchAccountResource} />);
+      const body = within(document.body);
+      const alert = await body.findByRole("alert");
+      expect(alert.textContent).toContain("Borrow is unavailable");
+      fireEvent.click(body.getByRole("button", { name: "Try again" }));
+      await waitFor(() => expect(calls).toBe(2));
+      await waitFor(() => expect(body.queryByRole("alert")).toBeNull());
+    });
+  }
+
   test("preserves unavailable and stale truthfulness", async () => {
     render(<BorrowExperience session={session()} fetchAccountResource={async () => overview({ unavailable: true })} />);
     const body = within(document.body);

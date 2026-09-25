@@ -276,6 +276,7 @@ function HomeOverviewStory({
       />
       <main className={shellContentFrameClassName}>
         <HomeOverview
+          onRetryBalances={status?.recovery === "none" ? undefined : onRetry}
           assetBalances={assetBalances}
           cashRate={cashRate}
           borrowOfferRate={borrowOfferRate}
@@ -519,7 +520,7 @@ export const PartialBalances: Story = {
     await expect(canvasElement.querySelector("[data-total-status='partial']")).not.toBeNull();
     const borrow = canvas.getByRole("button", { description: "Open Borrow" });
     await expect(borrow.textContent).toContain("—");
-    await expect(borrow.querySelector("[data-slot='item-actions']")).toBeNull();
+    await expect(canvas.getByRole("button", { name: "Retry Borrow balance" })).toBeTruthy();
     await expect(canvasElement.querySelector("[data-value-tone='error']")).toBeNull();
     await expect(canvas.queryByRole("alert")).toBeNull();
   },
@@ -546,6 +547,9 @@ export const BalancesUnavailable: Story = {
   },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement);
+    const cashRetry = canvas.getByRole("button", { name: "Retry Cash balance" });
+    await userEvent.click(cashRetry);
+    await expect(args.onRetry).toHaveBeenCalledTimes(1);
     await userEvent.click(canvas.getByRole("button", { name: "Balances are unavailable" }));
     const detail = await waitFor(() => {
       const node = canvasElement.ownerDocument.querySelector<HTMLElement>("[data-home-status-detail]");
@@ -586,6 +590,7 @@ export const NoCountry: Story = {
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement);
     const message = "Choose a country in Account to set how money is shown";
+    await expect(canvas.queryByRole("button", { name: /^Retry .* balance$/ })).toBeNull();
     await userEvent.click(canvas.getByRole("button", { name: message }));
     const detail = await waitFor(() => {
       const node = canvasElement.ownerDocument.querySelector<HTMLElement>("[data-home-status-detail]");
@@ -609,6 +614,16 @@ export const Offline: Story = {
     const detail = await within(canvasElement.ownerDocument.body).findByRole("dialog", { name: "Status" });
     await expect(detail.textContent).toContain(message);
     await expect(within(detail).queryByRole("button")).toBeNull();
+  },
+};
+
+export const OfflineBalancesUnavailable: Story = {
+  args: { assetBalances: failedBalances, interruption: { kind: "offline" }, operations: [] },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole("button", { description: "Open Cash" }).textContent).toContain("—");
+    await expect(canvas.queryByRole("button", { name: /^Retry .* balance$/ })).toBeNull();
+    await expect(canvas.getByRole("button", { name: "You’re offline. Home will update when you reconnect." })).toBeTruthy();
   },
 };
 

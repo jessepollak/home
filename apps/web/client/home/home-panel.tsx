@@ -22,6 +22,7 @@ import { useOptionalHomeShellRouting } from "./panel-routing";
 export function HomePanel({
   assetBalances,
   activitySession,
+  onRetryBalances,
   sessionSettling,
   sendAvailability,
   assetMarkResolution,
@@ -38,6 +39,7 @@ export function HomePanel({
 }: {
   assetBalances?: HomeAssetBalancesPresentation;
   activitySession: VerifiedAccountSession | null;
+  onRetryBalances?: () => void;
   sessionSettling: boolean;
   sendAvailability: readonly (TransferAssetAvailability & { imageUrl?: string })[];
   assetMarkResolution?: AssetMarkResolution;
@@ -83,6 +85,7 @@ export function HomePanel({
   return (
     <HomeOverview
       assetBalances={assetBalances}
+      onRetryBalances={onRetryBalances}
       cashRate={cashRate}
       borrowOfferRate={borrowOfferRate}
       destinations={{ onOpenCash, onOpenInvestments, onOpenBorrow }}

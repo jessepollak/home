@@ -742,6 +742,10 @@ function DashboardShellBody({
     : investChrome?.nested?.onBack ?? (() => {});
 
   const reloadBalances = useReloadHomeBalances();
+  const retryHomeReads = interruption ? onRetryInterruption ?? reloadBalances : reloadBalances;
+  const balanceRowRetry = headerStatus({ interruption, coverage: null })?.recovery === "none"
+    ? undefined
+    : retryHomeReads;
   const homeStatus = isVerified && !isAccountSettingsOpen
     ? headerStatus({
       interruption,
@@ -784,7 +788,7 @@ function DashboardShellBody({
         status={homeStatus ? (
           <HomeHeaderStatus
             status={homeStatus}
-            onRetry={interruption ? onRetryInterruption ?? reloadBalances : reloadBalances}
+            onRetry={retryHomeReads}
             onOpenAccount={() => openAccountSettings()}
           />
         ) : null}
@@ -850,6 +854,7 @@ function DashboardShellBody({
                     <HomePanel
                       assetBalances={paintedAssetBalances}
                       activitySession={activitySession}
+                      onRetryBalances={balanceRowRetry}
                       sessionSettling={sessionSettling}
                       sendAvailability={sendAvailability}
                       assetMarkResolution={assetMarkResolution}

@@ -24,7 +24,8 @@ import {
   useHomeQuery,
   useHomeQueryClient,
 } from "@/client/query/query-client";
-import { Alert, AlertAction, AlertIcon, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertIcon, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { LoadErrorCard } from "@/components/load-error";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -183,16 +184,15 @@ function BorrowExperienceInner({
       {!session?.smartAccount && !sessionSettling ? <BorrowNotice title="Sign in to view Borrow" /> : null}
       {(!session?.smartAccount && sessionSettling) || (session?.smartAccount && overview.isPending) ? <BorrowOverviewLoading /> : null}
       {session?.smartAccount && overview.isError ? (
-        <BorrowNotice
-          tone="error"
+        <LoadErrorCard
+          tone="destructive"
           role="alert"
           title={overview.data ? "Borrow data could not be refreshed" : "Borrow is unavailable"}
-          action={<Button variant="outline" size="touch" onClick={() => void overview.refetch()}>Retry</Button>}
-        >
-          {overview.data
+          description={overview.data
             ? `Showing values last verified ${formatPresentationDate(overview.data.discovery.fetchedAt, { regionId, style: "date-time-zone" })}; current values could not be verified.`
             : "Current market and position values could not be verified. No zero values are shown."}
-        </BorrowNotice>
+          onRetry={() => void overview.refetch()}
+        />
       ) : null}
 
       {overview.data && session ? (
@@ -266,9 +266,7 @@ function BorrowDirectMarket({
       {!session?.smartAccount && !sessionSettling ? <BorrowNotice title="Sign in to view Borrow" /> : null}
       {(!session?.smartAccount && sessionSettling) || (session?.smartAccount && detail.isPending) ? <BorrowOverviewLoading /> : null}
       {session?.smartAccount && detail.isError ? (
-        <BorrowNotice tone="error" role="alert" title="Borrow is unavailable" action={<Button variant="outline" size="touch" onClick={() => void detail.refetch()}>Retry</Button>}>
-          Current wallet, market, and position values could not be verified.
-        </BorrowNotice>
+        <LoadErrorCard tone="destructive" role="alert" title="Borrow is unavailable" description="Current wallet, market, and position values could not be verified." onRetry={() => void detail.refetch()} />
       ) : null}
       {snapshot && !canOpen && !dialogSnapshot ? (
         <Card className="overflow-hidden">
@@ -562,13 +560,12 @@ function BorrowOverviewLoading() {
   return <Card aria-busy="true"><CardContent><div className="space-y-3 py-5"><Skeleton className="h-5 w-36" /><Skeleton className="h-16 w-full" /><Skeleton className="h-16 w-full" /><span className="sr-only">Loading Borrow overview</span></div></CardContent></Card>;
 }
 
-export function BorrowNotice({ action, children, role = "status", title, tone = "neutral", ...props }: Omit<ComponentProps<typeof Alert>, "children" | "title"> & { action?: ReactNode; children?: ReactNode; role?: "status" | "alert"; title?: ReactNode; tone?: "neutral" | "error" }) {
+export function BorrowNotice({ children, role = "status", title, tone = "neutral", ...props }: Omit<ComponentProps<typeof Alert>, "children" | "title"> & { children?: ReactNode; role?: "status" | "alert"; title?: ReactNode; tone?: "neutral" | "error" }) {
   return (
     <Alert role={role} variant={tone === "error" ? "destructive" : "default"} {...props}>
       {tone === "error" ? <AlertIcon><CircleAlertIcon /></AlertIcon> : null}
       {title ? <AlertTitle>{title}</AlertTitle> : null}
       {children ? <AlertDescription>{children}</AlertDescription> : null}
-      {action ? <AlertAction>{action}</AlertAction> : null}
     </Alert>
   );
 }

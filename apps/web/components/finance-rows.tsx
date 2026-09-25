@@ -1,5 +1,5 @@
 import { useId, type ReactNode } from "react";
-import { ArrowDown, ArrowLeftRight, ArrowUp, ChevronRight, CircleAlert } from "lucide-react";
+import { ArrowDown, ArrowLeftRight, ArrowUp, ChevronRight, CircleAlert, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Item,
@@ -28,6 +28,7 @@ type FinanceRowProps = {
   activateLabel?: string;
   attention?: string;
   chevron?: boolean;
+  readRetry?: { label: string; onRetry: () => void };
 };
 
 export type ActivityRowProps = Omit<FinanceRowProps, "kind">;
@@ -68,6 +69,7 @@ function FinanceRow({
   activateLabel,
   attention,
   chevron = true,
+  readRetry,
 }: FinanceRowProps) {
   const hintId = useId();
   const hasValue = value !== undefined || valueContext !== undefined;
@@ -89,7 +91,7 @@ function FinanceRow({
         </span>
       </ItemMedia>
       <div className="flex min-w-0 flex-1 items-start gap-3" data-slot="finance-row-body">
-        <ItemContent className="min-w-0 gap-0.5">
+        <ItemContent className={cn("min-w-0 gap-0.5", (context === undefined || value === undefined || valueContext === undefined) && "self-center")}>
           <ItemTitle className="w-full">{label}</ItemTitle>
           {context === undefined ? null : (
             <ItemDescription lines={1} title={contextTitle}>
@@ -100,7 +102,7 @@ function FinanceRow({
         {onActivate && attention ? <span className="sr-only">{attention}</span> : null}
         {hasValue ? (
           <ItemContent
-            className="max-w-2/3 min-w-0 !flex-none items-end gap-0.5 overflow-hidden text-right"
+            className={cn("max-w-2/3 min-w-0 !flex-none items-end gap-0.5 overflow-hidden text-right", (value === undefined || valueContext === undefined) && "self-center")}
             data-slot="finance-row-value"
           >
             {value === undefined ? null : (
@@ -127,9 +129,11 @@ function FinanceRow({
           </ItemContent>
         ) : null}
       </div>
-      {onActivate && (attention || chevron) ? (
+      {readRetry || (onActivate && (attention || chevron)) ? (
         <ItemActions aria-hidden="true">
-          {attention
+          {readRetry
+            ? <span className="size-4" />
+            : attention
             ? <CircleAlert className="size-4 text-foreground" />
             : <ChevronRight className="size-4 text-muted-foreground" />}
         </ItemActions>
@@ -138,7 +142,7 @@ function FinanceRow({
   );
 
   return (
-    <li>
+    <li className={cn(readRetry && "relative")}>
       <Item
         data-kind={kind}
         className={cn("flex-nowrap items-center gap-3 py-2", onActivate && "cursor-pointer")}
@@ -163,6 +167,18 @@ function FinanceRow({
           </span>
         ) : null}
       </Item>
+      {readRetry ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-lg"
+          className="absolute -inset-e-0.5 top-1/2 z-10 size-11 -translate-y-1/2"
+          aria-label={readRetry.label}
+          onClick={readRetry.onRetry}
+        >
+          <RotateCw className="size-4 text-primary" aria-hidden="true" />
+        </Button>
+      ) : null}
     </li>
   );
 }

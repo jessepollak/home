@@ -1,15 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { CircleAlertIcon, RotateCw } from "lucide-react";
-import {
-  Alert,
-  AlertAction,
-  AlertIcon,
-  AlertDescription,
-  AlertTitle,
-} from "@/components/ui/alert";
+import { RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { LoadErrorCard, LoadRetryButton } from "@/components/load-error";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { ActivityLoader } from "@/components/activity-loader";
@@ -116,16 +110,13 @@ export function ActivityPanelView({
   if (activity.status === "error" && !hasRows) {
     return (
       <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain}>
-        <Alert variant="destructive" role="alert">
-          <AlertIcon><CircleAlertIcon /></AlertIcon>
-          <AlertTitle>Activity is temporarily unavailable.</AlertTitle>
-          {activity.error.message || activity.error.code ? (
-            <AlertDescription>{activity.error.message || activity.error.code}</AlertDescription>
-          ) : null}
-          <AlertAction>
-            <Button variant="outline" size="touch" onClick={activity.retry}>Try again</Button>
-          </AlertAction>
-        </Alert>
+        <LoadErrorCard
+          tone="destructive"
+          role="alert"
+          title="Activity is temporarily unavailable."
+          description={activity.error.message || activity.error.code || undefined}
+          onRetry={activity.retry}
+        />
       </ActivitySurface>
     );
   }
@@ -142,7 +133,7 @@ export function ActivityPanelView({
           <p role="status" className="text-sm text-muted-foreground">
             Onchain transfers are unavailable. Recorded Home actions are still shown.
           </p>
-          <Button variant="secondary" onClick={activity.retry}>Try again</Button>
+          <LoadRetryButton onRetry={activity.retry} />
         </div>
       ) : null}
       {inlineStatus && actionsStatus === "error" ? (
@@ -296,7 +287,7 @@ function ActivityContinuation({
           <p className="text-xs text-destructive" role="alert">
             More activity could not be loaded. Your current results are unchanged.
           </p>
-          <Button variant="secondary" onClick={activity.retryLoadMore}>Retry</Button>
+          <LoadRetryButton onRetry={activity.retryLoadMore} />
         </div>
       ) : feedStatus ? (
         <ActivityUnavailable message="More activity unavailable" onReload={activity.retryLoadMore} />
