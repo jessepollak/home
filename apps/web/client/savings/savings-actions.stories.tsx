@@ -1,7 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, within } from "storybook/test";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { getHomeQueryClient } from "@/client/query/query-client";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
+import { TransferExecutionError } from "@/shared/transfers/types";
 import { Button } from "@/components/ui/button";
 import type { MoneyAssetOption } from "@/client/money-modal";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
@@ -130,10 +132,19 @@ const rejectedExecution: AccountWalletClient["executeMoneyAction"] = async (acti
   status: "rejected",
 });
 
-const failedExecution: AccountWalletClient["executeMoneyAction"] = async (action) => ({
-  id: action.id,
-  status: "failed",
-});
+const submittedExecution: AccountWalletClient["executeMoneyAction"] = async (action) => ({ id: action.id, status: "submitted" });
+
+const expiredExecution: AccountWalletClient["executeMoneyAction"] = async () => {
+  throw Object.assign(new Error("Expired"), { code: "ACTION_EXPIRED" });
+};
+
+const ambiguousExecution: AccountWalletClient["executeMoneyAction"] = async () => {
+  throw new TransferExecutionError("submission-unknown");
+};
+
+function storyActions(status: "pending" | "confirmed" | "failed"): AccountWalletClient["fetchAccountResource"] {
+  return async () => ({ actions: [{ id: "storybook-savings-deposit", status, owner: preparedAction("savings-deposit").owner }] });
+}
 
 type DialogStorySurfaceProps = {
   mode?: SavingsActionMode;
@@ -141,6 +152,7 @@ type DialogStorySurfaceProps = {
   storyCandidate?: MorphoVaultCandidate;
   availableLabel?: string;
   availableBaseUnits?: string;
+  fetchAccountResource?: AccountWalletClient["fetchAccountResource"];
   executeMoneyAction?: AccountWalletClient["executeMoneyAction"];
 };
 
@@ -150,13 +162,12 @@ function DialogStorySurface({
   storyCandidate = candidate,
   availableLabel,
   availableBaseUnits,
+  fetchAccountResource,
   executeMoneyAction = rejectedExecution,
 }: DialogStorySurfaceProps) {
   const [open, setOpen] = useState(true);
   const [selectedAssetId, setSelectedAssetId] = useState("usdc");
   const selectedAsset = currencyOptions.find((option) => option.id === selectedAssetId) ?? currencyOptions[0];
-  // The prepared review must describe the candidate the story renders, so the
-  // simulated-failure fixture is visible in its own recovery state.
   const prepareStoryAction: AccountWalletClient["prepareMoneyAction"] = async (kind) =>
     preparedAction(kind, storyCandidate);
   return (
@@ -185,6 +196,7 @@ function DialogStorySurface({
           availableLabel={availableLabel ?? (selectedAssetId === "idrx" ? "Rp 250 available" : selectedAssetId === "eurc" ? "€250.00 available" : "$250.00 available")}
           availableBaseUnits={availableBaseUnits ?? (selectedAssetId === "idrx" ? "25000" : "250000000")}
           prepareMoneyAction={prepareStoryAction}
+          fetchAccountResource={fetchAccountResource}
           executeMoneyAction={executeMoneyAction}
           onClose={() => setOpen(false)}
         />
@@ -210,6 +222,7 @@ function PendingDialogStory() {
 }
 
 async function enterAmountAndContinue(canvasElement: HTMLElement, digits = "25") {
+  getHomeQueryClient().clear();
   const screen = within(canvasElement.ownerDocument.body);
   for (const digit of digits) {
     await userEvent.click(await screen.findByRole("button", { name: digit }));
@@ -300,32 +313,86 @@ export const Review: Story = {
   },
 };
 
-export const Pending: Story = {
+export const Submitting: Story = {
   render: () => <PendingDialogStory />,
   play: async ({ canvasElement }) => {
     const screen = await enterAmountAndContinue(canvasElement);
-    await userEvent.click(await screen.findByRole("button", { name: "Deposit $25.00" }));
-    await expect(await screen.findByText("Waiting for your wallet…")).toBeVisible();
+    const confirm = await screen.findByRole("button", { name: "Deposit $25.00" });
+    confirm.focus();
+    await userEvent.click(confirm);
+    await expect(confirm).toHaveAttribute("aria-busy", "true");
+    await expect(confirm).toBe(canvasElement.ownerDocument.activeElement);
+    await expect(screen.queryByText("Waiting for your wallet…")).not.toBeInTheDocument();
+    await expect(await screen.findByRole("button", { name: "Close deposit dialog" })).toBeDisabled();
   },
 };
 
-export const FailureRecovery: Story = {
+export const Delayed: Story = {
+  args: { executeMoneyAction: submittedExecution, fetchAccountResource: storyActions("pending") },
+  play: async ({ canvasElement }) => {
+    const screen = await enterAmountAndContinue(canvasElement);
+    await userEvent.click(await screen.findByRole("button", { name: "Deposit $25.00" }));
+    await expect(await screen.findByRole("heading", { name: "Depositing $25.00 to Save" })).toBeVisible();
+    await expect(await screen.findByText("Submitted")).toBeVisible();
+    await expect(await screen.findByText("Confirming on Base")).toBeVisible();
+    await expect(await screen.findByRole("button", { name: "View in Activity" })).toBeVisible();
+  },
+};
+
+export const Rejected: Story = {
+  play: async ({ canvasElement }) => {
+    const screen = await enterAmountAndContinue(canvasElement);
+    await userEvent.click(await screen.findByRole("button", { name: "Deposit $25.00" }));
+    await expect(await screen.findByRole("alert")).toHaveTextContent("The wallet request was rejected.");
+    for (const back of await screen.findAllByRole("button", { name: "Back" })) await expect(back).toBeEnabled();
+    await expect(screen.queryByRole("button", { name: "View in Activity" })).not.toBeInTheDocument();
+  },
+};
+
+export const Expired: Story = {
+  args: { executeMoneyAction: expiredExecution },
+  play: async ({ canvasElement }) => {
+    const screen = await enterAmountAndContinue(canvasElement);
+    await userEvent.click(await screen.findByRole("button", { name: "Deposit $25.00" }));
+    await expect(await screen.findByRole("alert")).toHaveTextContent("This deposit expired. Go back and continue again.");
+    await expect(await screen.findByRole("button", { name: "Deposit $25.00" })).toBeDisabled();
+  },
+};
+
+export const Failed: Story = {
   args: {
     storyCandidate: simulatedFailureCandidate,
-    executeMoneyAction: failedExecution,
+    executeMoneyAction: submittedExecution,
+    fetchAccountResource: storyActions("failed"),
   },
   play: async ({ canvasElement }) => {
     const screen = await enterAmountAndContinue(canvasElement);
     await userEvent.click(await screen.findByRole("button", { name: "Deposit $25.00" }));
-    await expect(await screen.findByRole("alert")).toHaveTextContent(
-      "deposit did not succeed onchain",
-    );
-    await expect(await screen.findByText("Storybook simulated failure vault")).toBeVisible();
-    const recoveryButtons = await screen.findAllByRole("button", { name: "Back" });
-    await expect(recoveryButtons.length).toBeGreaterThan(0);
-    await expect(recoveryButtons.at(-1)!).toBeEnabled();
+    await expect(await screen.findByRole("heading", { name: "Deposit didn't go through" })).toBeVisible();
+    await expect(await screen.findByRole("button", { name: "Try again" })).toBeVisible();
   },
   parameters: { viewport: { defaultViewport: "mobile" } },
+};
+
+export const Confirmed: Story = {
+  args: { executeMoneyAction: submittedExecution, fetchAccountResource: storyActions("confirmed") },
+  play: async ({ canvasElement }) => {
+    const screen = await enterAmountAndContinue(canvasElement);
+    await userEvent.click(await screen.findByRole("button", { name: "Deposit $25.00" }));
+    await expect(await screen.findByRole("heading", { name: "Deposited $25.00 to Save" })).toBeVisible();
+    await expect(await screen.findByRole("button", { name: "Done" })).toBeVisible();
+  },
+};
+
+export const Ambiguous: Story = {
+  args: { executeMoneyAction: ambiguousExecution, fetchAccountResource: storyActions("pending") },
+  play: async ({ canvasElement }) => {
+    const screen = await enterAmountAndContinue(canvasElement);
+    await userEvent.click(await screen.findByRole("button", { name: "Deposit $25.00" }));
+    await expect(await screen.findByRole("heading", { name: "We can't confirm $25.00" })).toBeVisible();
+    await expect(await screen.findByRole("button", { name: "View in Activity" })).toBeVisible();
+    await expect(screen.queryByRole("button", { name: /retry|try again/i })).not.toBeInTheDocument();
+  },
 };
 
 export const BackAndCancel: Story = {

@@ -163,6 +163,7 @@ export function TransferActionsForWallet({
               resumeActionId={initialActionId}
               onReview={showReview}
               onInvalidResume={showFirstStep}
+              onSubmitted={showFirstStep}
               onClose={close}
               onClosed={finishClose}
             />,

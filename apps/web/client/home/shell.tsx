@@ -749,13 +749,17 @@ function DashboardShellBody({
     })
     : null;
 
+  const navigateToRef = useRef(navigateTo);
+  useEffect(() => { navigateToRef.current = navigateTo; });
+  const openPanel = useCallback((panel: ShellPanelId) => navigateToRef.current(panel), []);
   const routingValue = useMemo(() => ({
     state: urlIntent,
     popRevision,
     rootRequest,
+    openPanel,
     setFlow,
     clearFlow,
-  }), [clearFlow, popRevision, rootRequest, setFlow, urlIntent]);
+  }), [clearFlow, openPanel, popRevision, rootRequest, setFlow, urlIntent]);
 
   return (
     <HomeShellRoutingProvider value={routingValue}>

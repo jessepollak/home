@@ -33,6 +33,11 @@ async function prepareRepay(canvasElement: HTMLElement) {
   await expect(await within(result.money).findByRole("button", { name: "Confirm action" })).toBeVisible();
   return result;
 }
+async function finishSubmitted(money: ReturnType<typeof within>, title: string | RegExp) {
+  await expect(await money.findByRole("heading", { name: title })).toBeVisible();
+  await expect(money.getByText("Confirming on Base")).toBeVisible();
+  await userEvent.click(money.getByRole("button", { name: "Done" }));
+}
 export const RepayReviewCancelBack: Story = {
   play: async ({ canvasElement }) => {
     const { row, money, screen } = await prepareRepay(canvasElement);
@@ -49,6 +54,7 @@ export const RepaySuccessUpdates: Story = {
   play: async ({ canvasElement }) => {
     const { money, screen } = await prepareRepay(canvasElement);
     await userEvent.click(within(money).getByRole("button", { name: "Confirm action" }));
+    await finishSubmitted(within(money), /^Repaying 250/);
     const management = await screen.findByRole("dialog", { name: "Bitcoin" });
     await expect(within(management).getByRole("img", { name: /1,000\.00/ })).toBeVisible();
     await userEvent.click(within(management).getByRole("button", { name: "Close Bitcoin details" }));
@@ -72,6 +78,7 @@ export const RepayAllMaxClearsLoan: Story = {
     await expect(money.getByText("Maximum repayment (USDC)")).toBeVisible();
     await expect(money.queryByText("You receive (USDC)")).toBeNull();
     await userEvent.click(money.getByRole("button", { name: "Confirm action" }));
+    await finishSubmitted(money, /^Repaying /);
     const updated = await screen.findByRole("dialog", { name: "Dogecoin" });
     await expect(within(updated).getByText("No debt")).toBeVisible();
     await userEvent.click(within(updated).getByRole("button", { name: "Close Dogecoin details" }));
@@ -89,6 +96,7 @@ export const ZeroDebtFullWithdrawReturnsAsset: Story = {
     await userEvent.click(await money.findByRole("button", { name: "Max" }));
     await userEvent.click(money.getByRole("button", { name: "Continue" }));
     await userEvent.click(await money.findByRole("button", { name: "Confirm action" }));
+    await finishSubmitted(money, /^Withdrawing .+ collateral$/);
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Withdraw collateral" })).toBeNull());
     await expect(screen.queryByRole("dialog", { name: "XRP" })).toBeNull();
     await expect(loans.queryByRole("button", { description: "Manage XRP loan" })).toBeNull();
@@ -109,6 +117,7 @@ export const BorrowMaxRespectsMarketLiquidity: Story = {
     await expect(await money.findByRole("button", { name: "Confirm action" })).toBeVisible();
     await expect(money.getByText("You receive (USDC)").nextElementSibling).toHaveTextContent(/^500 USDC$/);
     await userEvent.click(money.getByRole("button", { name: "Confirm action" }));
+    await finishSubmitted(money, /^Borrowing 500 USDC$/);
     const updated = within(await screen.findByRole("dialog", { name: "XRP" }));
     await expect(updated.getByRole("button", { name: "Borrow more" })).toBeDisabled();
   },
