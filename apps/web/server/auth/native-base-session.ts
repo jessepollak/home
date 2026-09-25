@@ -179,6 +179,7 @@ export type NativeBaseAuthDependencies = {
   sessionSecret?: string;
   now?: () => Date;
   randomId?: () => string;
+  onVerified?: (session: VerifiedAccountSession, context: { request: Request }) => void;
   verify?: (input: {
     address: `0x${string}`;
     domain: string;
@@ -347,10 +348,12 @@ export function createNativeBaseVerifyHandler(input: NativeBaseAuthDependencies 
     if (!verified) return json({ error: { code: "INVALID_AUTH_PROOF" } }, 401, [clearChallenge]);
 
     const issued = issueSessionToken(deps.secret, address, deps.now());
-    return json(issued.session, 200, [
+    const response = json(issued.session, 200, [
       clearChallenge,
       cookie(HOME_SESSION_COOKIE, issued.token, request, NATIVE_BASE_SESSION_TTL_MS / 1000),
     ]);
+    try { input.onVerified?.(issued.session, { request }); } catch { return response; }
+    return response;
   };
 }
 

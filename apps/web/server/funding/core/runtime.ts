@@ -1,6 +1,8 @@
 import "server-only";
 
 import { authorizeSession } from "@/server/auth/authorize";
+import { withFundingOrderEvents, withProviderCustomerEvents } from "@/server/operator-events/funding";
+import { deferCustomerRecord } from "@/server/customers/resolve";
 import { fundingProviders, fundingUserTokenProviders } from "@/server/funding/providers";
 import { FundingUserTokenVault, type FundingUserTokenDiagnostic } from "./provider-user-token";
 import { createRuntimeFundingProviderUserTokenStore } from "./user-token-store";
@@ -18,8 +20,10 @@ let core: FundingCore | null = null;
 export function getFundingCore(): FundingCore {
   core ??= new FundingCore({
     providers: fundingProviders,
-    store: createRuntimeFundingOrderStore(),
-    customerStore: createRuntimeFundingProviderCustomerStore(),
+    store: withFundingOrderEvents(createRuntimeFundingOrderStore(), (event) =>
+      deferCustomerRecord((registry) => registry.record(event))),
+    customerStore: withProviderCustomerEvents(createRuntimeFundingProviderCustomerStore(), (event) =>
+      deferCustomerRecord((registry) => registry.record(event))),
     userTokenProviders: fundingUserTokenProviders,
     userTokenVault: new FundingUserTokenVault({ store: createRuntimeFundingProviderUserTokenStore(), env: process.env, now: () => new Date(), diagnose: (code: FundingUserTokenDiagnostic, binding) => {
       emitServerEvent("funding-order", { route: "/api/funding/orders", code: `USER_TOKEN_${code.toUpperCase().replaceAll("-", "_")}`, outcome: code === "captured" || code === "cleared-after-rejection" || code === "expired" ? "ok" : "unavailable", provider: binding.providerId, region: binding.region, sandbox: binding.sandbox });

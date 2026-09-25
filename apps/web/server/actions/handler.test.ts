@@ -11,7 +11,7 @@ const HANDLE = "bundle:base-account:fixture";
 const HASH = `0x${"ab".repeat(32)}` as const;
 const row: ActionRow = {
   id: ID,
-  owner_key: "fixture",
+  owner_key: JSON.stringify(["owner-a", ADDRESS, 8453, "cdp-embedded"]),
   provider: "cdp-embedded",
   kind: "send",
   summary: { title: "Send USDC", amounts: [], warnings: [], expiresAt: "2026-09-12T12:30:00.000Z" },
@@ -30,6 +30,29 @@ function authorize(subject = "owner-a", accountProvider: "cdp-embedded" | "base-
     accountProvider,
   });
 }
+
+describe("action confirm operator capture", () => {
+  const confirmed = { ...row, owner_key: JSON.stringify(["owner-a", ADDRESS, 8453, "cdp-embedded"]),
+    confirmed_at: "2026-09-12T12:05:00.000Z" };
+  for (const reject of [false, true]) {
+    test(reject ? "a rejecting recorder preserves the confirm response" : "records the confirmed row once", async () => {
+      const captured: ActionRow[] = [];
+      const handler = createConfirmActionHandler({
+        authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"),
+        store: { get: async () => row, confirm: async () => confirmed },
+        markHot: async () => {},
+        recordConfirmed: async (value) => {
+          captured.push(value);
+          if (reject) throw new Error("operator capture failed");
+        },
+      });
+      const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+      expect(response.status).toBe(200);
+      expect((await response.json()).calls).toEqual([CALL]);
+      expect(captured).toEqual([confirmed]);
+    });
+  }
+});
 
 function confirmedBaseRow(overrides: Partial<ActionRow> = {}): ActionRow {
   return {
