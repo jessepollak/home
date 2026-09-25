@@ -94,6 +94,16 @@ function page(
   };
 }
 
+function priced(row: ActivityTransfer): ActivityTransfer {
+  return { ...row, valuation: {
+    status: "priced", currency: "USD",
+    amount: computeActivityValuationAmount({
+      amountBaseUnits: row.amountBaseUnits, tokenDecimals: 6, unitPrice: null, fxRate: null,
+    }),
+    method: "peg", peg: "USD", close: null, fx: null,
+  } };
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason?: unknown) => void;
@@ -113,13 +123,15 @@ function HookHarness({
   fetchActivity,
   testId = "",
   regionId,
+  scheduleValuationRetry,
 }: {
   owner: VerifiedAccountSession | null;
   fetchActivity: FetchActivity;
   testId?: string;
   regionId?: RegionId;
+  scheduleValuationRetry?: (run: () => void, delayMs: number) => () => void;
 }) {
-  const activity = useActivity(owner, fetchActivity, regionId);
+  const activity = useActivity(owner, fetchActivity, regionId, scheduleValuationRetry);
   return (
     <div>
       <output data-testid={`${testId}status`}>{activity.status}</output>
@@ -543,4 +555,265 @@ describe("useActivity pagination", () => {
     expect(view.getByTestId("continuing").textContent).toBe("false");
     expect(queries).toHaveLength(3);
   });
+});
+
+function manualValuationRetry() {
+  const pending: { run: () => void; delayMs: number }[] = [];
+  const schedule = (run: () => void, delayMs: number) => {
+    const task = { run, delayMs };
+    pending.push(task);
+    return () => {
+      const index = pending.indexOf(task);
+      if (index !== -1) pending.splice(index, 1);
+    };
+  };
+  const fire = async (delayMs: number) => {
+    expect(pending.map((task) => task.delayMs)).toEqual([delayMs]);
+    const task = pending.shift()!;
+    await act(async () => {
+      task.run();
+      await Promise.resolve();
+    });
+  };
+  return { pending, schedule, fire };
+}
+
+describe("useActivity valuation recovery", () => {
+  test("revalues an unpriced transfer without a new transaction after 15 seconds", async () => {
+    const scheduler = manualValuationRetry();
+    const queries: string[] = [];
+    const fetchActivity: FetchActivity = async (query) => {
+      queries.push(query);
+      const row = transfer(query, WALLET_A, "same-transfer", "999");
+      return page(query, WALLET_A, [queries.length === 1 ? row : priced(row)], null);
+    };
+    const view = render(<HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} scheduleValuationRetry={scheduler.schedule} />);
+    await waitFor(() => expect(scheduler.pending).toHaveLength(1));
+    expect(view.getByTestId("valuations").textContent).toBe("unpriced");
+    expect(queries).toHaveLength(1);
+    await scheduler.fire(15_000);
+    await waitFor(() => expect(view.getByTestId("valuations").textContent).toBe("priced"));
+    expect(cursors(queries)).toEqual([null, null]);
+    expect(view.getByTestId("ids").textContent).toBe("same-transfer");
+    expect(scheduler.pending).toHaveLength(0);
+  });
+
+  test("caps three whole-query retries even when continuation pages stay unpriced", async () => {
+    const scheduler = manualValuationRetry();
+    const queries: string[] = [];
+    const fetchActivity: FetchActivity = async (query) => {
+      queries.push(query);
+      const cursor = new URLSearchParams(query).get("cursor");
+      return cursor ? page(query, WALLET_A, [transfer(query, WALLET_A, "older", "20")], null)
+        : page(query, WALLET_A, [transfer(query, WALLET_A, "newer", "30")], "cursor-1");
+    };
+    const view = render(<HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} scheduleValuationRetry={scheduler.schedule} />);
+    await waitFor(() => expect(scheduler.pending).toHaveLength(1));
+    fireEvent.click(view.getByText("sentinel visible"));
+    await waitFor(() => expect(cursors(queries)).toEqual([null, "cursor-1"]));
+    for (const [index, delay] of [15_000, 60_000, 180_000].entries()) {
+      await waitFor(() => expect(scheduler.pending).toHaveLength(1));
+      await scheduler.fire(delay);
+      await waitFor(() => expect(queries).toHaveLength((index + 2) * 2));
+      expect(cursors(queries).slice(-2)).toEqual([null, "cursor-1"]);
+    }
+    expect(scheduler.pending).toHaveLength(0);
+    expect(view.getByTestId("valuations").textContent).toBe("unpriced,unpriced");
+  });
+
+  test.each(["unknown-token", "no-recent-close"] as const)("never retries nonrecoverable %s", async (reason) => {
+    const scheduler = manualValuationRetry();
+    const queries: string[] = [];
+    const fetchActivity: FetchActivity = async (query) => {
+      queries.push(query);
+      const row = transfer(query, WALLET_A, "event", reason === "unknown-token" ? "999" : "30");
+      row.valuation = { status: "unpriced", currency: "USD", reason };
+      return page(query, WALLET_A, [row], null);
+    };
+    render(<HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} scheduleValuationRetry={scheduler.schedule} />);
+    await waitFor(() => expect(queries).toHaveLength(1));
+    expect(scheduler.pending).toHaveLength(0);
+  });
+
+  test("retries a no-recent-close within 60 minutes of the window end", async () => {
+    const scheduler = manualValuationRetry();
+    const queries: string[] = [];
+    const fetchActivity: FetchActivity = async (query) => {
+      queries.push(query);
+      const row = transfer(query, WALLET_A, "recent", "999");
+      row.valuation = { status: "unpriced", currency: "USD", reason: "no-recent-close" };
+      return page(query, WALLET_A, [row], null);
+    };
+    render(<HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} scheduleValuationRetry={scheduler.schedule} />);
+    await waitFor(() => expect(scheduler.pending).toHaveLength(1));
+    await scheduler.fire(15_000);
+    await waitFor(() => expect(queries).toHaveLength(2));
+  });
+
+  test("keeps a priced row when a retry reports no-recent-close", async () => {
+    const scheduler = manualValuationRetry();
+    const queries: string[] = [];
+    const fetchActivity: FetchActivity = async (query) => {
+      queries.push(query);
+      const row = transfer(query, WALLET_A, "priced", "999");
+      row.valuation = { status: "unpriced", currency: "USD", reason: "no-recent-close" };
+      return page(query, WALLET_A, [queries.length === 2 ? priced(row) : row], null);
+    };
+    const view = render(<HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} scheduleValuationRetry={scheduler.schedule} />);
+    await waitFor(() => expect(scheduler.pending).toHaveLength(1));
+    await scheduler.fire(15_000);
+    await waitFor(() => expect(view.getByTestId("valuations").textContent).toBe("priced"));
+    fireEvent.click(view.getByText("refetch"));
+    await waitFor(() => expect(queries).toHaveLength(3));
+    expect(view.getByTestId("valuations").textContent).toBe("priced");
+    expect(scheduler.pending).toHaveLength(0);
+  });
+
+  test.each(["unpriced-first", "priced-first"] as const)("prefers priced duplicate across pages: %s", async (order) => {
+    const scheduler = manualValuationRetry();
+    const queries: string[] = [];
+    const fetchActivity: FetchActivity = async (query) => {
+      queries.push(query);
+      const row = transfer(query, WALLET_A, "duplicate", "30");
+      const isFirst = !new URLSearchParams(query).has("cursor");
+      return page(query, WALLET_A, [(order === "unpriced-first") === isFirst ? row : priced(row)], isFirst ? "cursor-1" : null);
+    };
+    const view = render(<HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} scheduleValuationRetry={scheduler.schedule} />);
+    await waitFor(() => expect(view.getByTestId("status").textContent).toBe("ready"));
+    fireEvent.click(view.getByText("sentinel visible"));
+    await waitFor(() => expect(cursors(queries)).toEqual([null, "cursor-1"]));
+    await waitFor(() => expect(view.getByTestId("valuations").textContent).toBe("priced"));
+    expect(view.getByTestId("ids").textContent).toBe("duplicate");
+    expect(scheduler.pending).toHaveLength(0);
+  });
+
+  test("resets the retry budget when the owner changes", async () => {
+    const scheduler = manualValuationRetry();
+    const queries: string[] = [];
+    const fetchActivity: FetchActivity = async (query) => {
+      queries.push(query);
+      const wallet = queries.length <= 4 ? WALLET_A : WALLET_B;
+      return page(query, wallet, [transfer(query, wallet, "unpriced", "999")], null);
+    };
+    const view = render(<HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} scheduleValuationRetry={scheduler.schedule} />);
+    for (const [index, delay] of [15_000, 60_000, 180_000].entries()) {
+      await waitFor(() => expect(scheduler.pending).toHaveLength(1));
+      await scheduler.fire(delay);
+      await waitFor(() => expect(queries).toHaveLength(index + 2));
+    }
+    expect(scheduler.pending).toHaveLength(0);
+    view.rerender(<HookHarness owner={session("subject-b", WALLET_B)} fetchActivity={fetchActivity} scheduleValuationRetry={scheduler.schedule} />);
+    await waitFor(() => expect(scheduler.pending).toHaveLength(1));
+    expect(queries).toHaveLength(5);
+    await scheduler.fire(15_000);
+    await waitFor(() => expect(queries).toHaveLength(6));
+    expect(new URLSearchParams(queries[5]).get("to")).toBe(new URLSearchParams(queries[4]).get("to"));
+  });
+
+  test("shares one three-attempt budget across consumers and remounts", async () => {
+    const scheduler = manualValuationRetry();
+    const queries: string[] = [];
+    const fetchActivity: FetchActivity = async (query) => {
+      queries.push(query);
+      return page(query, WALLET_A, [transfer(query, WALLET_A, "unpriced", "999")], null);
+    };
+    const activeSession = session("subject-a", WALLET_A);
+    const first = <HookHarness owner={activeSession} fetchActivity={fetchActivity} testId="first-" scheduleValuationRetry={scheduler.schedule} />;
+    const second = <HookHarness owner={activeSession} fetchActivity={fetchActivity} testId="second-" scheduleValuationRetry={scheduler.schedule} />;
+    const view = render(<>{first}{second}</>);
+    await waitFor(() => expect(view.getByTestId("second-status").textContent).toBe("ready"));
+    expect(queries).toHaveLength(1);
+    expect(scheduler.pending).toHaveLength(1);
+    for (const [index, delay] of [15_000, 60_000, 180_000].entries()) {
+      await scheduler.fire(delay);
+      await waitFor(() => expect(queries).toHaveLength(index + 2));
+      if (index < 2) await waitFor(() => expect(scheduler.pending).toHaveLength(1));
+    }
+    expect(queries).toHaveLength(4);
+    expect(scheduler.pending).toHaveLength(0);
+    view.rerender(<>{first}</>);
+    view.rerender(<>{first}{second}</>);
+    await waitFor(() => expect(view.getByTestId("second-status").textContent).toBe("ready"));
+    expect(scheduler.pending).toHaveLength(0);
+    expect(queries).toHaveLength(4);
+    view.unmount();
+    getHomeQueryClient().clear();
+    render(<HookHarness owner={activeSession} fetchActivity={fetchActivity} scheduleValuationRetry={scheduler.schedule} />);
+    await waitFor(() => expect(queries).toHaveLength(5));
+    await waitFor(() => expect(scheduler.pending.map((task) => task.delayMs)).toEqual([15_000]));
+  });
+
+  test("keeps the shared timer until the last consumer unmounts", async () => {
+    const scheduler = manualValuationRetry();
+    const queries: string[] = [];
+    const fetchActivity: FetchActivity = async (query) => {
+      queries.push(query);
+      return page(query, WALLET_A, [transfer(query, WALLET_A, "unpriced", "999")], null);
+    };
+    const activeSession = session("subject-a", WALLET_A);
+    const first = <HookHarness owner={activeSession} fetchActivity={fetchActivity} testId="first-" scheduleValuationRetry={scheduler.schedule} />;
+    const second = <HookHarness owner={activeSession} fetchActivity={fetchActivity} testId="second-" scheduleValuationRetry={scheduler.schedule} />;
+    const view = render(<>{first}{second}</>);
+    await waitFor(() => expect(scheduler.pending).toHaveLength(1));
+    view.rerender(<>{second}</>);
+    expect(scheduler.pending.map((task) => task.delayMs)).toEqual([15_000]);
+    view.rerender(<></>);
+    expect(scheduler.pending).toHaveLength(0);
+    expect(queries).toHaveLength(1);
+  });
+
+  test("skips a hidden scheduled retry without spending its attempt", async () => {
+    const scheduler = manualValuationRetry();
+    const originalVisibility = Object.getOwnPropertyDescriptor(document, "visibilityState");
+    let hidden = false;
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => hidden ? "hidden" : "visible" });
+    try {
+      const queries: string[] = [];
+      const fetchActivity: FetchActivity = async (query) => {
+        queries.push(query);
+        return page(query, WALLET_A, [transfer(query, WALLET_A, "unpriced", "999")], null);
+      };
+      const view = render(<HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} scheduleValuationRetry={scheduler.schedule} />);
+      await waitFor(() => expect(scheduler.pending).toHaveLength(1));
+      hidden = true;
+      await scheduler.fire(15_000);
+      expect(queries).toHaveLength(1);
+      expect(scheduler.pending).toHaveLength(0);
+      hidden = false;
+      fireEvent.click(view.getByText("refetch"));
+      await waitFor(() => expect(scheduler.pending).toHaveLength(1));
+      expect(queries).toHaveLength(2);
+      await scheduler.fire(15_000);
+      await waitFor(() => expect(queries).toHaveLength(3));
+    } finally {
+      if (originalVisibility) Object.defineProperty(document, "visibilityState", originalVisibility);
+    }
+  });
+});
+
+test("waits for a continuation fetch to settle before spending a retry", async () => {
+  const scheduler = manualValuationRetry();
+  const pending = deferred<unknown>();
+  const queries: string[] = [];
+  const fetchActivity: FetchActivity = async (query) => {
+    queries.push(query);
+    if (new URLSearchParams(query).has("cursor")) {
+      if (queries.length === 2) return pending.promise;
+      return page(query, WALLET_A, [transfer(query, WALLET_A, "older", "20")], null);
+    }
+    return page(query, WALLET_A, [transfer(query, WALLET_A, "newer", "30")], "cursor-1");
+  };
+  const view = render(<HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} scheduleValuationRetry={scheduler.schedule} />);
+  await waitFor(() => expect(scheduler.pending).toHaveLength(1));
+  fireEvent.click(view.getByText("sentinel visible"));
+  await waitFor(() => expect(cursors(queries)).toEqual([null, "cursor-1"]));
+  expect(scheduler.pending).toHaveLength(0);
+  await act(async () => {
+    pending.resolve(page(queries[1]!, WALLET_A, [transfer(queries[1]!, WALLET_A, "older", "20")], null));
+    await pending.promise;
+  });
+  await waitFor(() => expect(scheduler.pending).toHaveLength(1));
+  expect(queries).toHaveLength(2);
+  await scheduler.fire(15_000);
+  await waitFor(() => expect(cursors(queries)).toEqual([null, "cursor-1", null, "cursor-1"]));
 });

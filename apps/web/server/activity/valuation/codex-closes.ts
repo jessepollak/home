@@ -8,9 +8,7 @@ import {
   type FetchLike,
 } from "@/server/market-data/codex/execute";
 import { parseExactDecimal } from "@/shared/balances/math";
-import {
-  ACTIVITY_BASE_CHAIN_ID,
-} from "@/shared/activity/types";
+import { ACTIVITY_BASE_CHAIN_ID } from "@/shared/activity/types";
 import {
   ACTIVITY_VALUATION_BAR_RESOLUTION_MINUTES,
   ACTIVITY_VALUATION_BAR_SECONDS,
@@ -21,6 +19,7 @@ import {
 export const ACTIVITY_CLOSE_BUCKET_SECONDS = 3_600;
 export const ACTIVITY_CLOSE_TIMEOUT_MS = 3_000;
 export const ACTIVITY_CLOSE_MAX_BUCKETS_PER_REQUEST = 25;
+export const ACTIVITY_CLOSE_COUNTBACK_BARS = 8;
 export const ACTIVITY_CLOSE_CACHE_MAX_ENTRIES = 2_048;
 export const ACTIVITY_CLOSE_SETTLED_TTL_MS = 24 * 60 * 60 * 1_000;
 export const ACTIVITY_CLOSE_RECENT_TTL_MS = 60_000;
@@ -43,7 +42,12 @@ export type HistoricalCloseReader = (
 
 type Bar = { startSeconds: number; close: string };
 type Bucket = { contract: `0x${string}`; hour: number };
-type CacheEntry = { storedAt: number; ttlMs: number; bars: readonly Bar[] };
+type CacheEntry = {
+  storedAt: number;
+  ttlMs: number;
+  fetchedAtSeconds: number;
+  bars: readonly Bar[];
+};
 type InFlight = { fetchedAtSeconds: number; bars: Promise<readonly Bar[] | null> };
 
 export function historicalCloseKey(request: HistoricalCloseRequest): string {
@@ -80,6 +84,7 @@ export function createCodexHistoricalCloseReader(options: {
 
     const currentMs = now().getTime();
     const bars = new Map<string, readonly Bar[] | null>();
+    const expired = new Map<string, CacheEntry>();
     const missing: [string, Bucket][] = [];
     for (const [key, bucket] of buckets) {
       const cached = cache.get(key);
@@ -90,6 +95,7 @@ export function createCodexHistoricalCloseReader(options: {
       } else if (!apiKey) {
         bars.set(key, null);
       } else {
+        if (cached) expired.set(key, cached);
         missing.push([key, bucket]);
       }
     }
@@ -137,11 +143,11 @@ export function createCodexHistoricalCloseReader(options: {
           const settledBucket =
             (bucket.hour + 1) * ACTIVITY_CLOSE_BUCKET_SECONDS + SETTLE_MARGIN_SECONDS <=
             Math.floor(storedAt / 1_000);
-          const ttlMs = settledBucket
+          const ttlMs = value.length > 0 && settledBucket
             ? ACTIVITY_CLOSE_SETTLED_TTL_MS
             : recentTtlMs(fetchedAtSeconds, storedAt);
           if (ttlMs > 0) {
-            setBounded(cache, key, { storedAt, ttlMs, bars: value }, cacheMaxEntries);
+            setBounded(cache, key, { storedAt, ttlMs, fetchedAtSeconds, bars: value }, cacheMaxEntries);
           }
         }
       }
@@ -149,10 +155,15 @@ export function createCodexHistoricalCloseReader(options: {
 
     for (const request of requests) {
       const hour = Math.floor(request.timestampSeconds / ACTIVITY_CLOSE_BUCKET_SECONDS);
-      const bucketBars = bars.get(historicalCloseBucketKey({ contract: request.contract, hour }));
+      const key = historicalCloseBucketKey({ contract: request.contract, hour });
+      const bucketBars = bars.get(key);
+      const stale = bucketBars === null ? expired.get(key) : undefined;
+      const eligibleStale = stale && stale.fetchedAtSeconds >=
+        barEpoch(request.timestampSeconds) * ACTIVITY_VALUATION_BAR_SECONDS;
+      const usableBars = eligibleStale ? stale.bars : bucketBars;
       results.set(
         historicalCloseKey(request),
-        bucketBars ? selectClose(bucketBars, request.timestampSeconds) : { status: "unavailable" },
+        usableBars ? selectClose(usableBars, request.timestampSeconds) : { status: "unavailable" },
       );
     }
     return results;
@@ -201,7 +212,7 @@ export function buildHistoricalCloseQuery(count: number): string {
   for (let index = 0; index < count; index += 1) {
     variables.push(`$s${index}: String!, $f${index}: Int!, $t${index}: Int!`);
     fields.push(
-      `  b${index}: getBars(symbol: $s${index}, from: $f${index}, to: $t${index}, resolution: "${ACTIVITY_VALUATION_BAR_RESOLUTION_MINUTES}", currencyCode: "USD", removeEmptyBars: true, removeLeadingNullValues: true, symbolType: TOKEN) { t c s }`,
+      `  b${index}: getBars(symbol: $s${index}, from: $f${index}, to: $t${index}, countback: ${ACTIVITY_CLOSE_COUNTBACK_BARS}, resolution: "${ACTIVITY_VALUATION_BAR_RESOLUTION_MINUTES}", currencyCode: "USD", removeEmptyBars: true, removeLeadingNullValues: true, symbolType: TOKEN) { t c s }`,
     );
   }
   return `query ActivityHistoricalCloses(${variables.join(", ")}) {\n${fields.join("\n")}\n}`;
