@@ -708,7 +708,7 @@ describe("SendDialog resume", () => {
     expect(page().queryByRole("button", { name: "Send $1.00" })).toBeNull();
     fireEvent.click(page().getByRole("button", { name: "Try again" }));
     expect(page().getByRole("button", { name: "Continue" })).toBeTruthy();
-    expect(document.querySelector("[data-primary-amount] [data-slot=money-ticker]")?.getAttribute("aria-label")).toBe("$1");
+    expect((page().getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("1");
     expect(invalidResumes).toBe(1);
   });
 

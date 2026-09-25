@@ -1,10 +1,8 @@
 import "@/client/account/dom-test-harness";
 
 import { afterEach, expect, test } from "bun:test";
-import { fireEvent, within } from "@testing-library/react";
-import { ToggleGroup, ToggleGroupItem } from "./toggle-group";
-
-const { cleanup, render } = await import("@testing-library/react");
+const { cleanup, fireEvent, render, within } = await import("@testing-library/react");
+const { ToggleGroup, ToggleGroupItem } = await import("./toggle-group");
 
 afterEach(cleanup);
 

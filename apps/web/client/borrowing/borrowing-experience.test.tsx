@@ -449,7 +449,7 @@ describe("BorrowExperience redesign", () => {
     expect((dialog.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.keyDown(dialog.getByRole("textbox", { name: "Amount" }), { key: "Enter" });
     expect(requests).toEqual([]);
-    fireEvent.click(dialog.getByRole("button", { name: "Retry" }));
+    fireEvent.click(dialog.getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(dialog.queryByRole("alert") === null).toBe(true));
     await waitFor(() => expect((dialog.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
     expect(feeRequests).toBe(4);

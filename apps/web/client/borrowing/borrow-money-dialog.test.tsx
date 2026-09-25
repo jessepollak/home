@@ -13,7 +13,7 @@ const { act, cleanup, fireEvent, render, within } = await import("@testing-libra
 const { BorrowMoneyDialog } = await import("./borrow-money-dialog");
 
 const session = sessionBody as VerifiedAccountSession;
-const availability = borrowOverviewBody({ openMarketId: null }).opportunities[0]!.availability;
+const availability = borrowOverviewBody().opportunities[2]!.availability;
 if (availability.status !== "available") throw new Error("Borrow fixture unavailable");
 const snapshot = availability.snapshot;
 const action: PreparedMoneyAction = {
@@ -41,7 +41,7 @@ function mount({ prepare = async () => action, execute = async () => ({ id: acti
 
 async function review(body: ReturnType<typeof within>) {
   const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
-  fireEvent.click(dialog.getByRole("button", { name: "1" }));
+  fireEvent.change(dialog.getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
   fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
   return { dialog, confirm: await dialog.findByRole("button", { name: "Confirm action" }) };
 }

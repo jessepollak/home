@@ -78,7 +78,7 @@ test("matching failed row offers Try again with the previous amount and clears r
   expect(await page().findByRole("heading", { name: "$1.00 wasn't sent" })).toBeTruthy();
   fireEvent.click(page().getByRole("button", { name: "Try again" }));
   expect(page().getByRole("button", { name: "Continue" })).toBeTruthy();
-  expect(document.querySelector("[data-primary-amount] [data-slot=money-ticker]")?.getAttribute("aria-label")).toBe("$1");
+  expect((page().getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("1");
   expect(cleared).toBe(1);
 });
 

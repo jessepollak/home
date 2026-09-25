@@ -1,8 +1,8 @@
 import "@/client/account/dom-test-harness";
 
 import { afterEach, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render } from "@testing-library/react";
-import { CategoryScreen } from "./category-screen";
+const { cleanup, fireEvent, render } = await import("@testing-library/react");
+const { CategoryScreen } = await import("./category-screen");
 
 afterEach(cleanup);
 

@@ -1,8 +1,8 @@
 import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render } from "@testing-library/react";
-import { BalanceRow } from "./finance-rows";
+const { cleanup, fireEvent, render } = await import("@testing-library/react");
+const { BalanceRow } = await import("./finance-rows");
 
 afterEach(cleanup);
 
