@@ -474,7 +474,7 @@ export function SavingsExperience({
               </AlertDescription>
               {onRetryBalances ? (
                 <AlertAction>
-                  <Button variant="outline" size="lg" className="h-11" onClick={onRetryBalances}>Retry</Button>
+                  <Button variant="outline" size="touch" onClick={onRetryBalances}>Retry</Button>
                 </AlertAction>
               ) : null}
             </Alert>
@@ -491,7 +491,7 @@ export function SavingsExperience({
         <Alert role="alert">
           <AlertDescription>Vaults are temporarily unavailable.</AlertDescription>
           <AlertAction>
-            <Button variant="outline" size="lg" className="h-11" onClick={() => void metadataQuery.refetch()}>Retry</Button>
+            <Button variant="outline" size="touch" onClick={() => void metadataQuery.refetch()}>Retry</Button>
           </AlertAction>
         </Alert>
       ) : !coldLoading && !positionFailed && candidates.length > 0 ? (

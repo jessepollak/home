@@ -14,7 +14,7 @@ test("destructive description-only alert exposes its message and retry action wi
     <Alert variant="destructive">
       <AlertIcon><CircleAlertIcon /></AlertIcon>
       <AlertDescription>Account check unavailable.</AlertDescription>
-      <AlertAction><Button variant="outline" size="lg" className="h-11">Retry account check</Button></AlertAction>
+      <AlertAction><Button variant="outline" size="touch">Retry account check</Button></AlertAction>
     </Alert>
   );
 

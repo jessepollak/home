@@ -214,7 +214,7 @@ export function SignedOutLanding({
               <AlertIcon><CircleAlertIcon /></AlertIcon>
               <AlertDescription>{signOutError}</AlertDescription>
               <AlertAction>
-                <Button variant="outline" size="lg" className="h-11" onClick={onRetrySignOut}>Retry sign out</Button>
+                <Button variant="outline" size="touch" onClick={onRetrySignOut}>Retry sign out</Button>
               </AlertAction>
             </Alert>
           ) : null}

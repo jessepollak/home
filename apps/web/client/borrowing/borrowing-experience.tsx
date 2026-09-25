@@ -187,7 +187,7 @@ function BorrowExperienceInner({
           tone="error"
           role="alert"
           title={overview.data ? "Borrow data could not be refreshed" : "Borrow is unavailable"}
-          action={<Button variant="outline" size="lg" className="h-11" onClick={() => void overview.refetch()}>Retry</Button>}
+          action={<Button variant="outline" size="touch" onClick={() => void overview.refetch()}>Retry</Button>}
         >
           {overview.data
             ? `Showing values last verified ${formatPresentationDate(overview.data.discovery.fetchedAt, { regionId, style: "date-time-zone" })}; current values could not be verified.`
@@ -266,7 +266,7 @@ function BorrowDirectMarket({
       {!session?.smartAccount && !sessionSettling ? <BorrowNotice title="Sign in to view Borrow" /> : null}
       {(!session?.smartAccount && sessionSettling) || (session?.smartAccount && detail.isPending) ? <BorrowOverviewLoading /> : null}
       {session?.smartAccount && detail.isError ? (
-        <BorrowNotice tone="error" role="alert" title="Borrow is unavailable" action={<Button variant="outline" size="lg" className="h-11" onClick={() => void detail.refetch()}>Retry</Button>}>
+        <BorrowNotice tone="error" role="alert" title="Borrow is unavailable" action={<Button variant="outline" size="touch" onClick={() => void detail.refetch()}>Retry</Button>}>
           Current wallet, market, and position values could not be verified.
         </BorrowNotice>
       ) : null}

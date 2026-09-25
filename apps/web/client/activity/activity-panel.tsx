@@ -123,7 +123,7 @@ export function ActivityPanelView({
             <AlertDescription>{activity.error.message || activity.error.code}</AlertDescription>
           ) : null}
           <AlertAction>
-            <Button variant="outline" size="lg" className="h-11" onClick={activity.retry}>Try again</Button>
+            <Button variant="outline" size="touch" onClick={activity.retry}>Try again</Button>
           </AlertAction>
         </Alert>
       </ActivitySurface>

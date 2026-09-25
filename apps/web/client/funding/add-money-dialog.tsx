@@ -181,7 +181,7 @@ export function MethodBody({
           <AlertIcon><CircleAlertIcon /></AlertIcon>
           <AlertDescription>{fundingReadError.message}</AlertDescription>
           <AlertAction>
-            <Button variant="outline" size="lg" className="h-11" onClick={fundingReadError.retry}>Retry</Button>
+            <Button variant="outline" size="touch" onClick={fundingReadError.retry}>Retry</Button>
           </AlertAction>
         </Alert>
       ) : null}
