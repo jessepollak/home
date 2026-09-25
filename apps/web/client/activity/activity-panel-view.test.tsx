@@ -141,6 +141,34 @@ describe("combined Activity panel", () => {
     expect(view.container.querySelector("[data-shimmer='row']")).toBeNull();
   });
 
+  test("localizes transfer and recorded action dates and action amounts in the same feed", async () => {
+    const sent = operation("Sent USDC", 6);
+    sent.action.amounts = [{
+      assetId: "usdc", symbol: "USDC", decimals: 6,
+      amountBaseUnits: "1234567890", direction: "spend",
+    }];
+    const view = render(
+      <ActivityPanelView activity={ready([transfer("received", 5)])} operations={[sent]} regionId="GB" />,
+    );
+    const actionRow = view.getByRole("button", { description: "View Sent USDC transaction details" });
+    const transferRow = view.getByRole("button", { description: "View received USDC transaction details" });
+    expect(actionRow.textContent).toMatch(/\d{1,2} Sept?\b/);
+    expect(transferRow.textContent).toMatch(/\d{1,2} Sept?\b/);
+    expect(actionRow.textContent).toContain("1,234.56 USDC");
+
+    view.rerender(
+      <ActivityPanelView activity={ready([transfer("received", 5)])} operations={[sent]} regionId="BR" />,
+    );
+    expect(actionRow.textContent).toMatch(/\d{1,2} de set\./);
+    expect(transferRow.textContent).toMatch(/\d{1,2} de set\./);
+    expect(actionRow.textContent).toContain("1.234,56 USDC");
+
+    fireEvent.click(actionRow);
+    const details = await view.findByRole("dialog", { name: "Sent USDC" });
+    expect(within(details).getByText("Updated").nextElementSibling?.textContent).toMatch(/\d{1,2} de set\./);
+    expect(within(details).getByText("You spend").nextElementSibling?.textContent).toBe("1.234,56789 USDC");
+  });
+
   test("renders exact-contract logos and bounded fallback marks for long and missing symbols", () => {
     const zora = "0x1111111111166b7fe7bd91427724b487980afc69" as const;
     const credits = "0x4444444444444444444444444444444444444444" as const;

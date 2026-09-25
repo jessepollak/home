@@ -1,0 +1,77 @@
+.root {
+  --ease-draw: cubic-bezier(0.45, 0, 0.55, 1);
+  --ease-plane: cubic-bezier(0.32, 0.72, 0, 1);
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.coin {
+  offset-path: path("M88 80 C108 53.33 132 53.33 152 80");
+  offset-distance: 50%;
+  offset-rotate: 0deg;
+}
+
+.root[data-state="ready"] .draw,
+.root[data-state="playing"] .draw {
+  animation: draw var(--duration) var(--delay) var(--ease-draw) both;
+}
+
+.root[data-state="ready"] .plane,
+.root[data-state="playing"] .plane {
+  animation: plane-in var(--duration) var(--delay) var(--ease-plane) both;
+}
+
+.root[data-state="ready"] .fade,
+.root[data-state="playing"] .fade,
+.root[data-state="ready"] .accent,
+.root[data-state="playing"] .accent {
+  animation: fade-in var(--duration) var(--delay) var(--ease-plane) both;
+}
+
+.root[data-state="ready"] .coin,
+.root[data-state="playing"] .coin {
+  animation: fade-in 120ms var(--delay) var(--ease-plane) both,
+    coin-travel var(--duration) var(--delay) var(--ease-draw) both;
+}
+
+.root[data-state="ready"][data-idle="twinkle"] .twinkle,
+.root[data-state="playing"][data-idle="twinkle"] .twinkle {
+  animation: fade-in var(--duration) var(--delay) var(--ease-plane) both,
+    twinkle 1600ms calc(var(--entrance) + 400ms) ease-in-out 2;
+}
+
+.root[data-state="ready"] * { animation-play-state: paused !important; }
+
+@keyframes plane-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes draw {
+  from { stroke-dashoffset: 1.01; }
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes coin-travel {
+  from { offset-distance: 0%; }
+  to { offset-distance: 50%; }
+}
+
+@keyframes twinkle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .root *, .root { animation: none !important; }
+}
+
+.root[data-motion="reduce"] *,
+.root[data-motion="reduce"] { animation: none !important; }

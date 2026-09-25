@@ -4,17 +4,18 @@ name: Codex review request
 # review on their own; this posts the trigger under Jesse's identity (secret CODEX_REVIEW_TOKEN, limited to
 # pull-request write on this repository). `pull_request_target` runs this file as it is on the base branch, so a pull
 # request cannot rewrite it and the job never checks the pull request's code out. A missing secret or a failed comment
-# is a warning, never a red check.
+# is a warning, never a red check. Factory pull requests stay draft until handoff, so drafts are reviewed too and
+# leaving draft (same head) asks for nothing new.
 on:
   pull_request_target:
-    types: [opened, reopened, ready_for_review, synchronize]
+    types: [opened, reopened, synchronize]
 
 permissions: {}
 
 jobs:
   request:
     name: ask Codex to review a factory pull request
-    if: github.event.pull_request.user.login == 'jessepollakj' && github.event.pull_request.draft == false
+    if: github.event.pull_request.user.login == 'jessepollakj'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

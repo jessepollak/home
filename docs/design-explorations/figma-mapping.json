@@ -331,6 +331,54 @@
       { "name": "TabItem", "nodeId": "12:94", "variantsOrProps": "Icon=Home|Invest|Card (Card is the #636 proposal); Label, Active", "owner": "apps/web/components/primary-navigation.tsx", "publish": "CHANGED — Jesse must publish" }
     ]
   },
+  "desktopProposal": {
+    "issue": "https://github.com/jessepollak/home/issues/694",
+    "reviewStatus": "unreviewed proposal — Jesse selects",
+    "mainShortSha": "476735ca",
+    "reviewRound": "September 24 Figma review (threads 1940746331, 1940746534, 1940747166): two columns with Activity on the right after the #638 desktop screen 311:15379, a full-width segmented bar, and a collapsible 240/64px rail.",
+    "sectionName": "Desktop proposal (#694, unreviewed)",
+    "sectionId": "322:11819",
+    "sectionUrl": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=322-11819",
+    "pageId": "333:13092",
+    "pageName": "Shell / desktop",
+    "pageUrl": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13092",
+    "placementNote": "#841 moved the section to the Shell / desktop page with node IDs unchanged. It is the only section there, at x=0, y=0, 7040x4400, containing every frame without overlap. The three DESIGN-ONLY components stay inside the section until Jesse accepts the proposal.",
+    "libraryCheck881": "Every instance resolves to a Components-page library component (none to Archive, Card 12:28 or deprecated parts). FinanceRow, ShimmerRow and ActivityLoader instances carry no nested overrides, so they inherit the centred lone value and the centred 40px ShimmerRow mark. No review screen, so the one-line review address does not apply.",
+    "storybook": "journeys-desktop-shell (apps/web/stories/journeys/desktop-shell.stories.tsx)",
+    "proposedRule": "PrimaryNavigation layout=rail at >= 1024px; TabBar below 1024px; the 640-1023px top tab strip is removed.",
+    "components": [
+      { "figmaName": "PrimaryNavigation", "nodeId": "322:11874", "variants": { "layout=rail, active=Home, collapsed=false": "322:11832", "layout=rail, active=Invest, collapsed=false": "322:11853", "layout=rail, active=Home, collapsed=true": "367:3922", "layout=rail, active=Invest, collapsed=true": "367:3933" }, "codeSourcePath": "apps/web/components/primary-navigation.tsx", "codeConnectStatus": "design-only", "fidelityNotes": "Proposed layout=\"rail\" of the existing PrimaryNavigation. collapsed=false 240px, collapsed=true 64px icon rail; Homemark row 56px, 44px items, 2px color/primary inline-start indicator, 44px Sidebar toggle (panel-left-close/open) above the account action at the foot. Width 180ms ease-out, labels fade out 80ms and in 100ms after 80ms; reduced motion snaps." },
+      { "figmaName": "PrimaryNavigationItem", "nodeId": "322:11831", "codeSourcePath": "apps/web/components/primary-navigation.tsx", "codeConnectStatus": "design-only", "fidelityNotes": "Rail item: Button variant=navigation; Label text and Icon instance-swap properties; active=true|false." },
+      { "figmaName": "ShellHeader / layout=rail", "nodeId": "322:11903", "codeSourcePath": "apps/web/client/home/shell-chrome.tsx", "codeConnectStatus": "design-only", "fidelityNotes": "Desktop ShellHeader inside the content column without Homemark or avatar; nested=true adds a 44px Back. The existing ShellHeader 11:773 is unchanged." }
+    ],
+    "frames": [
+      { "figmaName": "Home — desktop", "nodeId": "323:11868", "size": "1440x900" },
+      { "figmaName": "Invest — desktop", "nodeId": "324:13214", "size": "1440x900" },
+      { "figmaName": "Cash — L2 desktop", "nodeId": "324:13405", "size": "1440x900" },
+      { "figmaName": "Home — 1024", "nodeId": "323:12150", "size": "1024x768" },
+      { "figmaName": "Home — 1023 (below breakpoint)", "nodeId": "323:12684", "size": "1023x768" },
+      { "figmaName": "Home — desktop / loading", "nodeId": "323:12428", "size": "1440x900" },
+      { "figmaName": "Home — desktop / Activity error", "nodeId": "323:12551", "size": "1440x900" },
+      { "figmaName": "Home — desktop / rail collapsed", "nodeId": "367:13785", "size": "1440x900" },
+      { "figmaName": "Rail collapse — interaction spec", "nodeId": "395:15150" },
+      { "figmaName": "Notes — desktop rule", "nodeId": "325:13090" }
+    ],
+    "libraryComponentsModified": [
+      { "figmaName": "SignedBalanceBar", "nodeId": "293:5935", "change": "Additive width=fixed|fill axis; width=fixed (default) keeps the existing variants, width=fill variants 395:5902, 395:5907 and 395:5912 scale their segments with the container.", "publish": "CHANGED — Jesse must publish" },
+      { "figmaName": "Icon", "nodeId": "156:1726", "change": "Additive icon=panel-left-close (395:5888) and icon=panel-left-open (395:5895) for the rail toggle.", "publish": "CHANGED — Jesse must publish" }
+    ],
+    "residualDifferences": [
+      "SignedBalanceBar width=fill scales its 2px zero axis and 4px segment gaps with the bar (about 4px and 8px at 624px wide); Storybook and production keep them at 2px and 4px.",
+      "Figma draws the sticky money column and the rail transition as notes and a three-step spec; Storybook HomeDesktopScrolled, RailCollapse and the rail capture prove the behaviour.",
+      "Invest price-change values use FinanceRow value context (muted), not market-gain/market-loss as the production discover rows do.",
+      "Figma Activity and Invest copy follows Home — final fixtures (+$25.00, Today · USDC); the Storybook fixtures render production presentation (+25.00 USDC, Sep 22, 5:00 AM).",
+      "Empty and partial desktop states are proven in Storybook only.",
+      "Figma centres a lone FinanceRow value beside a two-line label (#841 rule); Storybook and production top-align it until the P1 fix(finance-rows) follow-up lands.",
+      "At 640-1023px Storybook keeps PrimaryNavigation's sm: strip classes, so the bottom tab bar and header are boxed to the column; Figma Home — 1023 shows the intended full-bleed mobile header and tab bar. Adoption removes the sm: classes.",
+      "Figma Cash — L2 desktop shows a plain two-row vault list; Storybook renders production Savings with the selected vault expanded and its own fixture amounts.",
+      "The Storybook rail draws a divider under the Homemark row and a j avatar glyph; Figma has no divider there and keeps the library ShellHeader sample glyph p."
+    ]
+  },
   "residualDifferences": [
     "Home — final (92:922) is the production Home layout since #789; the funded baseline, v1, v2 and explorations were deleted in #882.",
     "#789 changed the FinanceRow Value context default and every visible Borrow Cash value context from 5.1% APY to 5.1% APR in Home — final, FinanceRow — all variants (131:1285), and FinanceRow — usage reference (116:1154). Production formats rates with two decimals (5.10% APR, 4.20% APY) to match the Save and Borrow surfaces; Figma shows one decimal.",
