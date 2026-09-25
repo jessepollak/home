@@ -32,9 +32,12 @@ export type PendingAction = {
   swapCallIndex?: number;
 };
 
+export type ActionOutcome = "succeeded" | "reverted" | "not_submitted";
+
 export type ActionRow = {
   id: string;
   owner_key: string;
+  account_address: string | null;
   provider: AccountProvider;
   kind: ActionKind;
   summary: ActionSummary;
@@ -44,6 +47,12 @@ export type ActionRow = {
   provider_handle: string | null;
   transaction_hash: string | null;
   handle_recorded_at: string | Date | null;
+  declined_reported_at: string | Date | null;
+  dispatch_attempt: number;
+  outcome: ActionOutcome | null;
+  outcome_source: "chain" | "wallet" | null;
+  settled_at: string | Date | null;
+  outcome_recorded_at: string | Date | null;
 };
 
 function parseJsonColumn<T>(value: unknown): T | null {
@@ -97,9 +106,9 @@ export class ActionsStore {
     createdAt: string;
   }): Promise<void> {
     await this.sql.query(
-      `INSERT INTO actions (id, owner_key, provider, kind, summary, pending, created_at)
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::timestamptz)`,
-      [input.id, actionOwnerKey(input.owner), input.owner.accountProvider, input.kind,
+      `INSERT INTO actions (id, owner_key, account_address, provider, kind, summary, pending, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::timestamptz)`,
+      [input.id, actionOwnerKey(input.owner), input.owner.address.toLowerCase(), input.owner.accountProvider, input.kind,
         JSON.stringify(input.summary), JSON.stringify(input.pending), input.createdAt],
     );
   }
@@ -147,14 +156,64 @@ export class ActionsStore {
       `UPDATE actions SET
          provider_handle = COALESCE(provider_handle, $3),
          transaction_hash = COALESCE(transaction_hash, $4),
-         handle_recorded_at = CASE WHEN $3::text IS NOT NULL OR $4::text IS NOT NULL THEN now() ELSE handle_recorded_at END
+         handle_recorded_at = CASE WHEN $3::text IS NOT NULL OR $4::text IS NOT NULL THEN COALESCE(handle_recorded_at, now()) ELSE handle_recorded_at END
        WHERE id = $1 AND owner_key = $2 AND confirmed_at IS NOT NULL
          AND (provider_handle IS NULL OR $3::text IS NULL OR provider_handle = $3)
          AND (transaction_hash IS NULL OR $4::text IS NULL OR LOWER(transaction_hash) = LOWER($4))
+         AND ($4::text IS NULL OR transaction_hash IS NOT NULL OR outcome_source IS DISTINCT FROM 'wallet')
        RETURNING *`,
       [id, actionOwnerKey(owner), input.providerHandle ?? null, input.transactionHash ?? null],
     );
     return normalizeActionRowOrNull(result.rows[0]);
+  }
+
+  async beginRetry(owner: MoneyActionOwner, id: string, attempt: number): Promise<{ row: ActionRow | null; conflict: boolean; dispatched: boolean }> {
+    const result = await this.sql.query<RawActionRow>(
+      `UPDATE actions SET dispatch_attempt = $3, declined_reported_at = NULL
+       WHERE id = $1 AND owner_key = $2 AND confirmed_at IS NOT NULL
+         AND dispatch_attempt = $3 - 1 AND outcome IS NULL
+         AND provider_handle IS NULL AND transaction_hash IS NULL RETURNING *`,
+      [id, actionOwnerKey(owner), attempt],
+    );
+    if (result.rows[0]) return { row: normalizeActionRow(result.rows[0]), conflict: false, dispatched: false };
+    const row = await this.get(owner, id);
+    if (!row?.confirmed_at) return { row: null, conflict: false, dispatched: false };
+    if (row.dispatch_attempt >= attempt) return { row, conflict: false, dispatched: false };
+    if (row.provider_handle || row.transaction_hash || row.outcome) return { row, conflict: true, dispatched: true };
+    return { row, conflict: true, dispatched: false };
+  }
+
+  async recordDecline(owner: MoneyActionOwner, id: string, attempt: number): Promise<{ row: ActionRow | null; changed: boolean }> {
+    const result = await this.sql.query<RawActionRow>(
+      `UPDATE actions SET declined_reported_at = now()
+       WHERE id = $1 AND owner_key = $2 AND confirmed_at IS NOT NULL
+         AND declined_reported_at IS NULL AND provider_handle IS NULL
+         AND transaction_hash IS NULL AND outcome IS NULL
+         AND dispatch_attempt = $3 RETURNING *`,
+      [id, actionOwnerKey(owner), attempt],
+    );
+    if (result.rows[0]) return { row: normalizeActionRow(result.rows[0]), changed: true };
+    const row = await this.get(owner, id);
+    return { row: row?.confirmed_at ? row : null, changed: false };
+  }
+
+  async recordOutcome(
+    owner: MoneyActionOwner,
+    id: string,
+    input: { outcome: ActionOutcome; source: "chain" | "wallet"; settledAt: Date | null },
+  ): Promise<{ row: ActionRow | null; written: boolean; conflict: boolean }> {
+    const result = await this.sql.query<RawActionRow>(
+      `UPDATE actions SET outcome = $3, outcome_source = $4, settled_at = $5,
+         outcome_recorded_at = now()
+       WHERE id = $1 AND owner_key = $2 AND confirmed_at IS NOT NULL AND outcome IS NULL
+         AND ($4 <> 'wallet' OR transaction_hash IS NULL) RETURNING *`,
+      [id, actionOwnerKey(owner), input.outcome, input.source, input.settledAt],
+    );
+    if (result.rows[0]) return { row: normalizeActionRow(result.rows[0]), written: true, conflict: false };
+    const row = await this.get(owner, id);
+    return { row, written: false, conflict: Boolean(row && (
+      row.outcome != null && row.outcome !== input.outcome || input.source === "wallet" && row.transaction_hash != null
+    )) };
   }
 
   async hasCashoutHistory(owner: MoneyActionOwner): Promise<boolean> {
@@ -210,6 +269,7 @@ export class ActionsStore {
     const result = await this.sql.query<RawActionRow>(
       `SELECT * FROM actions
        WHERE owner_key = $1 AND confirmed_at IS NOT NULL AND confirmed_at >= now() - interval '24 hours'
+         AND (declined_reported_at IS NULL OR provider_handle IS NOT NULL OR transaction_hash IS NOT NULL OR outcome IS NOT NULL)
        ORDER BY confirmed_at DESC LIMIT 100`,
       [key],
       { timeoutMs: 5_000 },

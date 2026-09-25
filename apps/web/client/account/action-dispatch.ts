@@ -24,9 +24,13 @@ export async function executeActionOnce(input: {
   fence: GenerationGuard;
   confirmedPlans: Map<string, ConfirmedPlan>;
   providerDispatches: Map<string, Promise<string>>;
+  dispatchAttempts: Map<string, number>;
+  pendingDeclines: Map<string, Promise<void>>;
   confirm: () => Promise<ConfirmedPlan>;
   dispatch: (plan: ConfirmedPlan) => Promise<string>;
   recordHandle: (providerHandle: string) => Promise<void>;
+  recordDecline?: (attempt: number, signal?: AbortSignal) => Promise<void>;
+  beginRetry?: (attempt: number) => Promise<void>;
 }): Promise<string> {
   input.fence.assertCurrent(input.generation);
   let plan = input.confirmedPlans.get(input.id);
@@ -38,9 +42,26 @@ export async function executeActionOnce(input: {
   }
 
   let dispatch = input.providerDispatches.get(input.id);
+  let retryGateFailed = false;
   if (!dispatch) {
     input.fence.assertCurrent(input.generation);
-    dispatch = input.dispatch(plan);
+    const previousAttempt = input.dispatchAttempts.get(input.id);
+    const attempt = previousAttempt === undefined ? 0 : previousAttempt + 1;
+    dispatch = (async () => {
+      if (previousAttempt !== undefined) {
+        try {
+          await input.pendingDeclines.get(input.id);
+          if (!input.beginRetry || attempt > 1000) throw new Error("Action retry is unavailable.");
+          await input.beginRetry(attempt);
+        } catch (error) {
+          retryGateFailed = true;
+          throw new TransferExecutionError("unavailable", error);
+        }
+        input.fence.assertCurrent(input.generation);
+      }
+      input.dispatchAttempts.set(input.id, attempt);
+      return input.dispatch(plan);
+    })();
     input.providerDispatches.set(input.id, dispatch);
   }
   let providerHandle: string;
@@ -50,8 +71,17 @@ export async function executeActionOnce(input: {
     if (isUserRejectedDispatch(error)) {
       if (input.providerDispatches.get(input.id) === dispatch) {
         input.providerDispatches.delete(input.id);
+        const attempt = input.dispatchAttempts.get(input.id) ?? 0;
+        const report = reportDecline(input.recordDecline, attempt);
+        input.pendingDeclines.set(input.id, report);
+        void report.then(() => {
+          if (input.pendingDeclines.get(input.id) === report) input.pendingDeclines.delete(input.id);
+        });
       }
       throw new TransferExecutionError("rejected", error);
+    }
+    if (retryGateFailed && input.providerDispatches.get(input.id) === dispatch) {
+      input.providerDispatches.delete(input.id);
     }
     throw error;
   }
@@ -59,4 +89,26 @@ export async function executeActionOnce(input: {
   await input.recordHandle(providerHandle);
   input.fence.assertCurrent(input.generation);
   return providerHandle;
+}
+
+async function reportDecline(
+  report: ((attempt: number, signal?: AbortSignal) => Promise<void>) | undefined,
+  attempt: number,
+): Promise<void> {
+  if (!report) return;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5_000);
+  let onAbort: () => void = () => {};
+  try {
+    await Promise.race([
+      Promise.resolve().then(() => report(attempt, controller.signal)),
+      new Promise<void>((resolve) => {
+        onAbort = resolve;
+        controller.signal.addEventListener("abort", onAbort, { once: true });
+      }),
+    ]).catch(() => undefined);
+  } finally {
+    clearTimeout(timer);
+    controller.signal.removeEventListener("abort", onAbort);
+  }
 }

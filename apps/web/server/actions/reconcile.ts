@@ -6,7 +6,8 @@ import type { ActionRow } from "./store";
 export type HandleResolution =
   | { status: "complete"; transactionHash: `0x${string}` }
   | { status: "pending" }
-  | { status: "failed" }
+  | { status: "reverted"; transactionHash?: `0x${string}` }
+  | { status: "not_submitted" }
   | { status: "unavailable" };
 
 export type ActionHandleResolver = (
@@ -149,7 +150,7 @@ export function createActionHandleResolver(
         const resolution = parseResult(payload.result, handle);
         if (resolution.status === "unavailable") {
           backoff(handle, now() + UNAVAILABLE_BACKOFF_MS);
-        } else if (resolution.status === "failed") {
+        } else if (resolution.status === "reverted" || resolution.status === "not_submitted") {
           backoff(handle, now() + UNKNOWN_HANDLE_BACKOFF_MS);
         } else {
           handleBackoffs.delete(handle);
@@ -178,21 +179,21 @@ function parseResult(result: unknown, handle: string): HandleResolution {
     return { status: "unavailable" };
   }
   if (result.status >= 100 && result.status < 200) return { status: "pending" };
-  if (result.status >= 300 && result.status < 700) return { status: "failed" };
-  if (result.status < 200 || result.status >= 300) return { status: "unavailable" };
+  if (result.status >= 400 && result.status < 500) return { status: "not_submitted" };
+  if (result.status < 200 || result.status >= 700 || result.status >= 300 && result.status < 400) return { status: "unavailable" };
   if (!Array.isArray(result.receipts) || result.receipts.length < 1) {
-    return { status: "unavailable" };
+    return result.status >= 500 ? { status: "reverted" } : { status: "unavailable" };
   }
   const hashes = new Set(result.receipts.map((receipt) =>
     isRecord(receipt) && typeof receipt.transactionHash === "string"
       ? receipt.transactionHash.toLowerCase()
       : "",
   ));
-  if (hashes.size !== 1) return { status: "unavailable" };
   const transactionHash = hashes.values().next().value;
-  return typeof transactionHash === "string" && transactionHashPattern.test(transactionHash)
-    ? { status: "complete", transactionHash: transactionHash as `0x${string}` }
-    : { status: "unavailable" };
+  const validHash = hashes.size === 1 && typeof transactionHash === "string" && transactionHashPattern.test(transactionHash)
+    ? transactionHash as `0x${string}` : null;
+  if (result.status >= 500) return validHash ? { status: "reverted", transactionHash: validHash } : { status: "reverted" };
+  return validHash ? { status: "complete", transactionHash: validHash } : { status: "unavailable" };
 }
 
 function parseChainId(value: unknown): number | null {

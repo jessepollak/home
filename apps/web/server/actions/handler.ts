@@ -3,6 +3,8 @@ import "server-only";
 import type { ConfirmActionResponse } from "@/shared/actions/contracts/confirm";
 import type { GetActionPendingResponse, GetActionResponse } from "@/shared/actions/contracts/get";
 import type { HandleActionResponse } from "@/shared/actions/contracts/handle";
+import { DECLINE_ACTION_CONTRACT_VERSION, parseDeclineActionRequest, type DeclineActionResponse } from "@/shared/actions/contracts/decline";
+import { RETRY_ACTION_CONTRACT_VERSION, parseRetryActionRequest, type RetryActionResponse } from "@/shared/actions/contracts/retry";
 import type { ActionListItem, ListActionsResponse } from "@/shared/actions/contracts/list";
 import type { MoneyActionOwner } from "@/shared/money-actions/types";
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
@@ -11,7 +13,7 @@ import { deferCustomerRecord } from "@/server/customers/resolve";
 import { createTransferReceiptReader, type TransferReceiptStatus } from "./receipt";
 import { moneyActionOwner } from "@/server/money-actions/session";
 import { privateError, privateJson } from "@/server/http/private-response";
-import { getActionsStore, type ActionRow, type ActionsStore, type PendingAction } from "./store";
+import { getActionsStore, type ActionRow, type ActionsStore, type PendingAction, type ActionOutcome } from "./store";
 import { deriveActionStatus, type ActionReceiptState } from "./status";
 import { finalizeTradeCalls, type PendingTradeConfirmation } from "./kinds/trade/finalize";
 import { createSmartAccountSignatureVerifier } from "./kinds/trade/signer";
@@ -54,7 +56,7 @@ async function authorizeOwner(request: Request, authorize: ActionAuthorizer): Pr
 
 export function createGetActionHandler(dependencies: {
   authorize: ActionAuthorizer;
-  store?: Pick<ActionsStore, "get" | "recordHandle">;
+  store?: Pick<ActionsStore, "get" | "recordHandle" | "recordOutcome">;
   readReceipt?: (hash: `0x${string}`, signal?: AbortSignal) => Promise<TransferReceiptStatus>;
   resolveHandle?: ActionHandleResolver;
   now?: () => Date;
@@ -88,8 +90,8 @@ export function createGetActionHandler(dependencies: {
             route: "/api/actions/:id",
           })
         : row;
-      const receipt = await readRowReceipt(reconciled, dependencies.readReceipt, request.signal);
-      return privateJson(await presentAction(reconciled, owner, receipt, now), 200);
+      const result = await settleRow(reconciled, owner, dependencies.store ?? getActionsStore(), dependencies.readReceipt, request.signal, "/api/actions/:id");
+      return privateJson(await presentAction(result.row, owner, result.receipt, now), 200);
     } finally {
       deadline.dispose();
     }
@@ -250,9 +252,53 @@ export function createHandleActionHandler(dependencies: {
   };
 }
 
+export function createDeclineActionHandler(dependencies: {
+  authorize: ActionAuthorizer;
+  store?: Pick<ActionsStore, "recordDecline">;
+}) {
+  return async function POST(request: Request, context: { params: Promise<{ id: string }> }): Promise<Response> {
+    const startedAt = Date.now();
+    const owner = await authorizeOwner(request, dependencies.authorize);
+    if (owner instanceof Response) return owner;
+    const { id } = await context.params;
+    if (!uuidPattern.test(id)) return privateError("INVALID_ACTION", "A valid action id is required.", 400);
+    const body = parseDeclineActionRequest(await readJson(request));
+    if (!body) {
+      return privateError("INVALID_ACTION_DECLINE", "A valid versioned decline request is required.", 400);
+    }
+    const result = await (dependencies.store ?? getActionsStore()).recordDecline(owner, id, body.attempt);
+    if (!result.row) return privateError("ACTION_NOT_FOUND", "The action was not found.", 404);
+    if (!result.changed && (result.row.provider_handle || result.row.transaction_hash || result.row.outcome)) {
+      emitServerEvent("action-decline", {
+        route: "/api/actions/:id/decline", code: "DECLINE_IGNORED", outcome: "ignored",
+        provider: owner.accountProvider, owner, durationMs: Date.now() - startedAt,
+      });
+    }
+    return privateJson({ version: DECLINE_ACTION_CONTRACT_VERSION, action: await presentAction(result.row, owner) } satisfies DeclineActionResponse, 200);
+  };
+}
+
+export function createRetryActionHandler(dependencies: {
+  authorize: ActionAuthorizer;
+  store?: Pick<ActionsStore, "beginRetry">;
+}) {
+  return async function POST(request: Request, context: { params: Promise<{ id: string }> }): Promise<Response> {
+    const owner = await authorizeOwner(request, dependencies.authorize);
+    if (owner instanceof Response) return owner;
+    const { id } = await context.params;
+    if (!uuidPattern.test(id)) return privateError("INVALID_ACTION", "A valid action id is required.", 400);
+    const body = parseRetryActionRequest(await readJson(request));
+    if (!body) return privateError("INVALID_ACTION_RETRY", "A valid versioned retry request is required.", 400);
+    const result = await (dependencies.store ?? getActionsStore()).beginRetry(owner, id, body.attempt);
+    if (!result.row) return privateError("ACTION_NOT_FOUND", "The action was not found.", 404);
+    if (result.conflict) return privateError(result.dispatched ? "ACTION_ALREADY_DISPATCHED" : "ACTION_RETRY_CONFLICT", "The action cannot be retried.", 409);
+    return privateJson({ version: RETRY_ACTION_CONTRACT_VERSION, action: await presentAction(result.row, owner) } satisfies RetryActionResponse, 200);
+  };
+}
+
 export function createListActionsHandler(dependencies: {
   authorize: ActionAuthorizer;
-  store?: Pick<ActionsStore, "list" | "recordHandle">;
+  store?: Pick<ActionsStore, "list" | "recordHandle" | "recordOutcome">;
   readReceipt?: (hash: `0x${string}`, signal?: AbortSignal) => Promise<TransferReceiptStatus>;
   resolveHandle?: ActionHandleResolver;
   now?: () => Date;
@@ -283,8 +329,8 @@ export function createListActionsHandler(dependencies: {
               route: "/api/actions",
             })
           : row;
-        const receipt = await readRowReceipt(reconciled, dependencies.readReceipt, request.signal);
-        return presentAction(reconciled, owner, receipt, now);
+        const result = await settleRow(reconciled, owner, store, dependencies.readReceipt, request.signal, "/api/actions");
+        return presentAction(result.row, owner, result.receipt, now);
       }));
       return privateJson({ actions } satisfies ListActionsResponse, 200);
     } finally {
@@ -309,6 +355,7 @@ export async function presentAction(
       confirmedAt,
       transactionHash: row.transaction_hash,
       receipt,
+      outcome: row.outcome,
       now,
     }),
     createdAt: iso(row.created_at)!,
@@ -327,7 +374,7 @@ export async function presentAction(
 async function reconcileRow(input: {
   row: ActionRow;
   owner: MoneyActionOwner;
-  store: Pick<ActionsStore, "recordHandle">;
+  store: Pick<ActionsStore, "recordHandle" | "recordOutcome">;
   resolveHandle: ActionHandleResolver;
   signal: AbortSignal;
   route: string;
@@ -350,14 +397,19 @@ async function reconcileRow(input: {
       observe(resolution.status, "unavailable");
       return input.row;
     }
-    if (resolution.status === "failed") {
-      observe(resolution.status, "failed");
-      return input.row;
+    if (resolution.status === "not_submitted" || resolution.status === "reverted" && !resolution.transactionHash) {
+      if (input.row.transaction_hash) {
+        emitOutcomeEvent(input.route, input.row, input.owner, "OUTCOME_CONFLICT", "conflict", startedAt);
+        return input.row;
+      }
+      const outcome = resolution.status === "not_submitted" ? "not_submitted" : "reverted";
+      return await recordRowOutcome(input.store, input.row, input.owner, outcome, "wallet", null, input.route, startedAt);
     }
     const updated = await input.store.recordHandle(input.owner, input.row.id, {
       transactionHash: resolution.transactionHash,
     });
     observe(resolution.status, updated ? "ok" : "conflict");
+    if (!updated) emitOutcomeEvent(input.route, input.row, input.owner, "OUTCOME_CONFLICT", "conflict", startedAt);
     return updated ?? input.row;
   } catch {
     observe("unavailable", "unavailable");
@@ -365,21 +417,63 @@ async function reconcileRow(input: {
   }
 }
 
-async function readRowReceipt(
-  row: ActionRow,
+function emitOutcomeEvent(route: string, row: ActionRow, owner: MoneyActionOwner, code: string, outcome: "ok" | "conflict" | "unavailable", startedAt: number) {
+  emitServerEvent("action-outcome", {
+    route, code, outcome, provider: row.provider, owner, durationMs: Date.now() - startedAt,
+  });
+}
+
+async function recordRowOutcome(
+  store: Pick<ActionsStore, "recordOutcome">, row: ActionRow, owner: MoneyActionOwner,
+  outcome: ActionOutcome, source: "chain" | "wallet", settledAt: Date | null,
+  route: string, startedAt: number,
+): Promise<ActionRow> {
+  try {
+    const result = await store.recordOutcome(owner, row.id, { outcome, source, settledAt });
+    if (result.conflict) emitOutcomeEvent(route, row, owner, "OUTCOME_CONFLICT", "conflict", startedAt);
+    if (result.written) emitOutcomeEvent(route, row, owner, "OUTCOME_RECORDED", "ok", startedAt);
+    return result.row ?? row;
+  } catch {
+    emitOutcomeEvent(route, row, owner, "OUTCOME_UNAVAILABLE", "unavailable", startedAt);
+    return row;
+  }
+}
+
+function attributeReceipt(row: ActionRow, owner: MoneyActionOwner, receipt: Extract<TransferReceiptStatus, { status: "confirmed" }>): ActionOutcome | null {
+  const account = (row.account_address ?? owner.address).toLowerCase();
+  let candidates = receipt.userOperations.filter((operation) => operation.sender.toLowerCase() === account);
+  const handle = row.provider_handle;
+  if (row.provider === "cdp-embedded" && (!handle || !hashPattern.test(handle))) return null;
+  if (handle && hashPattern.test(handle)) {
+    const matching = candidates.filter((operation) => operation.userOpHash.toLowerCase() === handle.toLowerCase());
+    if (matching.length || row.provider === "cdp-embedded") candidates = matching;
+  }
+  if (!candidates.length || candidates.some((operation) => operation.success !== candidates[0]!.success)) return null;
+  return candidates[0]!.success ? "succeeded" : "reverted";
+}
+
+async function settleRow(
+  row: ActionRow, owner: MoneyActionOwner, store: Pick<ActionsStore, "recordOutcome">,
   readReceipt: ((hash: `0x${string}`, signal?: AbortSignal) => Promise<TransferReceiptStatus>) | undefined,
-  signal: AbortSignal,
-): Promise<ActionReceiptState | null> {
-  if (!row.transaction_hash || !hashPattern.test(row.transaction_hash)) return null;
+  signal: AbortSignal, route: string,
+): Promise<{ row: ActionRow; receipt: ActionReceiptState | null }> {
+  if (row.outcome || !row.transaction_hash || !hashPattern.test(row.transaction_hash)) return { row, receipt: null };
+  const startedAt = Date.now();
   try {
     const reader = readReceipt ?? ((hash: `0x${string}`, nextSignal?: AbortSignal) =>
       createTransferReceiptReader()(hash, nextSignal));
-    return receiptState(await reader(
-      row.transaction_hash.toLowerCase() as `0x${string}`,
-      signal,
-    ));
+    const receipt = await reader(row.transaction_hash.toLowerCase() as `0x${string}`, signal);
+    if (receipt.status === "pending") return { row, receipt: "pending" };
+    const outcome = attributeReceipt(row, owner, receipt);
+    if (!outcome) {
+      emitOutcomeEvent(route, row, owner, "OUTCOME_UNATTRIBUTED", "conflict", startedAt);
+      return { row, receipt: "unavailable" };
+    }
+    if (!receipt.finalized) return { row, receipt: outcome === "succeeded" ? "confirmed" : "failed" };
+    const updated = await recordRowOutcome(store, row, owner, outcome, "chain", new Date(receipt.blockTimestamp), route, startedAt);
+    return { row: updated, receipt: "unavailable" };
   } catch {
-    return "unavailable";
+    return { row, receipt: "unavailable" };
   }
 }
 
@@ -387,6 +481,7 @@ function isReconcileCandidate(row: ActionRow, now: Date): boolean {
   const confirmedAt = confirmedAtMs(row);
   return row.provider === "base-account" &&
     row.confirmed_at !== null &&
+    row.outcome === null &&
     row.transaction_hash === null &&
     row.provider_handle !== null &&
     row.provider_handle !== row.id &&
@@ -424,12 +519,6 @@ function createDeadline(parentSignal: AbortSignal): {
       parentSignal.removeEventListener("abort", abortFromParent);
     },
   };
-}
-
-function receiptState(receipt: TransferReceiptStatus): ActionReceiptState {
-  if (receipt.status === "pending") return "pending";
-  if (receipt.status === "confirmed") return receipt.success ? "confirmed" : "failed";
-  return "unavailable";
 }
 
 function iso(value: string | Date | null): string | null {
