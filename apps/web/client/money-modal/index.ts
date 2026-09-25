@@ -9,9 +9,7 @@ export {
 export {
   MoneyAmountDisplay,
   MoneyAssetPicker,
-  MoneyNumpad,
   useMoneyAssetPricing,
-  type MoneyAmountChangeSource,
   type MoneyAssetOption,
 } from "./amount";
 
@@ -22,8 +20,10 @@ export {
 
 export {
   isPositiveDecimalAmount,
-} from "./numpad";
+} from "./amount-input";
 
+/** @public Shared exact ceiling check for amount-step consumers. */
 export {
+  amountExceedsCeiling,
   decimalFromBaseUnits,
 } from "./amount-units";

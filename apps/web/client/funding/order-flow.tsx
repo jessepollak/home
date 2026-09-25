@@ -23,8 +23,6 @@ import {
   MoneyModalBody,
   MoneyModalFooter,
   MoneyModalHeader,
-  MoneyNumpad,
-  type MoneyAmountChangeSource,
 } from "@/client/money-modal";
 import {
   browserHomeQueryClient,
@@ -83,8 +81,6 @@ export function FundingOrderFlow({
   const paymentMethodTitleId = useId();
   const [method, setMethod] = useState(binding.paymentMethods[0]?.id ?? "");
   const [amount, setAmount] = useState("");
-  const [amountChangeSource, setAmountChangeSource] =
-    useState<MoneyAmountChangeSource>("programmatic");
   const [email, setEmail] = useState("");
   const [draft, setDraft] = useState<QuoteDraft | null>(null);
   const [customer, setCustomer] = useState<FundingProviderCustomerSummary | null>(initialCustomer ?? null);
@@ -102,8 +98,7 @@ export function FundingOrderFlow({
     initialOrder?.id ?? null,
   );
 
-  function changeAmount(value: string, source: MoneyAmountChangeSource) {
-    setAmountChangeSource(source);
+  function changeAmount(value: string) {
     setAmount(value);
   }
 
@@ -326,6 +321,7 @@ export function FundingOrderFlow({
     );
   }
 
+  const quoteDisabled = busy || !positiveDecimal(amount);
   const amountAssetProps = {
     assetId: binding.currency.toLocaleLowerCase(),
     assetLabel: binding.currency,
@@ -348,30 +344,27 @@ export function FundingOrderFlow({
         ) : null}
         <MoneyAmountDisplay
           amount={amount}
-          amountChangeSource={amountChangeSource}
+          maxDecimals={2}
+          disabled={busy}
           onAmountChange={changeAmount}
+          onSubmit={quoteDisabled ? undefined : () => void requestQuote()}
           assetId={binding.currency.toLocaleLowerCase()}
           assetLabel={binding.currency}
           assetControl="header"
           pricing={{ status: "unpriced" }}
           nativeSymbol={binding.currency}
           fiatCurrency={binding.currency}
-        />
-        <MoneyNumpad
-          value={amount}
-          maxDecimals={2}
-          onChange={changeAmount}
-          disabled={busy}
-        />
-        {error ? (
-          <FundingNotice tone="error" role="alert">
-            {error}
-          </FundingNotice>
-        ) : null}
+        >
+          {error ? (
+            <FundingNotice tone="error" role="alert">
+              {error}
+            </FundingNotice>
+          ) : null}
+        </MoneyAmountDisplay>
       </MoneyModalBody>
       <MoneyModalFooter
         primaryLabel={busy ? "Getting quote…" : "Review quote"}
-        primaryDisabled={busy || !positiveDecimal(amount)}
+        primaryDisabled={quoteDisabled}
         onPrimary={() => void requestQuote()}
         secondaryLabel="Back"
         onSecondary={onBack}

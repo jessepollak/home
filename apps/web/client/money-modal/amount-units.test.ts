@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  amountExceedsCeiling,
   clampDecimal,
   convertDisplayAmount,
   decimalFromBaseUnits,
@@ -50,6 +51,9 @@ describe("available parse and Max", () => {
     expect(parseAvailableDecimal("1,240.00 USDC")).toBe("1240.00");
     expect(parseAvailableDecimal("0.0500 ETH")).toBe("0.0500");
     expect(parseAvailableDecimal("<$0.01 available")).toBeNull();
+    expect(parseAvailableDecimal("1234.56 USDC available")).toBe("1234.56");
+    expect(parseAvailableDecimal("$1234567.8 available")).toBe("1234567.8");
+    expect(parseAvailableDecimal("$12,345,678.90 available")).toBe("12345678.90");
     expect(isAvailablePositive("1240.00")).toBe(true);
     expect(isAvailablePositive("0")).toBe(false);
     expect(isAvailablePositive(null)).toBe(false);
@@ -58,6 +62,29 @@ describe("available parse and Max", () => {
     expect(decimalFromBaseUnits("50000000", 6)).toBe("50");
     expect(decimalFromBaseUnits("128400000", 6)).toBe("128.4");
   });
+});
 
+describe("amountExceedsCeiling", () => {
+  test("compares exactly at and above the ceiling, including one atom", () => {
+    expect(amountExceedsCeiling("1", "1")).toBe(false);
+    expect(amountExceedsCeiling("1.00", "1")).toBe(false);
+    expect(amountExceedsCeiling("1.000001", "1")).toBe(true);
+    expect(amountExceedsCeiling("1.000000000000000001", "1")).toBe(true);
+    expect(amountExceedsCeiling("1", "1.000000000000000001")).toBe(false);
+    expect(amountExceedsCeiling("0.999999999999999999", "1")).toBe(false);
+    expect(amountExceedsCeiling("123456789012.000000000000000001", "123456789012")).toBe(true);
+  });
 
+  test("accepts a trailing point on amount but rejects empty, invalid and unsettled ceilings", () => {
+    expect(amountExceedsCeiling("2.", "1")).toBe(true);
+    expect(amountExceedsCeiling("1.", "1")).toBe(false);
+    expect(amountExceedsCeiling("", "0")).toBe(false);
+    expect(amountExceedsCeiling("0.", "0")).toBe(false);
+    expect(amountExceedsCeiling(".", "0")).toBe(false);
+    expect(amountExceedsCeiling("-2", "1")).toBe(false);
+    expect(amountExceedsCeiling("2", null)).toBe(false);
+    expect(amountExceedsCeiling("2", undefined)).toBe(false);
+    expect(amountExceedsCeiling("2", "1.")).toBe(false);
+    expect(amountExceedsCeiling("2", "not a decimal")).toBe(false);
+  });
 });

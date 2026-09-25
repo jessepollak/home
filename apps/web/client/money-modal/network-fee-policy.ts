@@ -5,7 +5,7 @@ import { networkFeePolicyScope } from "@/client/query/after-action";
 import { ownerQueryKey, useHomeQuery } from "@/client/query/query-client";
 import { parseNetworkFeePolicyResponse } from "@/shared/actions/contracts/network-fee";
 
-export function useNetworkFeeReserve(ownerKey: string | null, fetchAccountResource: AccountWalletClient["fetchAccountResource"] | undefined, open: boolean): string | null | undefined {
+export function useNetworkFeeReserve(ownerKey: string | null, fetchAccountResource: AccountWalletClient["fetchAccountResource"] | undefined, open: boolean): { reserve: string | null | undefined; failed: boolean; retry: () => void } {
   const available = Boolean(ownerKey && fetchAccountResource);
   const query = useHomeQuery({
     queryKey: ownerKey ? ownerQueryKey(ownerKey, networkFeePolicyScope) : ["unauthenticated", "network-fee-policy-disabled"],
@@ -20,9 +20,12 @@ export function useNetworkFeeReserve(ownerKey: string | null, fetchAccountResour
       return response.usdcReserveBaseUnits;
     },
   });
-  if (!available) return null;
-  if (query.isPending || query.isError || (query.isFetching && query.data === null)) return undefined;
-  return query.data;
+  const retry = () => { void query.refetch(); };
+  if (!available) return { reserve: null, failed: false, retry };
+  if (query.isPending || query.isError || (query.isFetching && query.data === null)) {
+    return { reserve: undefined, failed: query.isError && !query.isFetching, retry };
+  }
+  return { reserve: query.data, failed: false, retry };
 }
 
 export function maxAmountAfterNetworkFee(availableBaseUnits: string | null | undefined, assetSymbol: string, reserveBaseUnits: string | null | undefined): string | null {

@@ -211,9 +211,7 @@ function PendingDialogStory() {
 
 async function enterAmountAndContinue(canvasElement: HTMLElement, digits = "25") {
   const screen = within(canvasElement.ownerDocument.body);
-  for (const digit of digits) {
-    await userEvent.click(await screen.findByRole("button", { name: digit }));
-  }
+  await userEvent.type(await screen.findByRole("textbox", { name: "Amount" }), digits);
   await userEvent.click(await screen.findByRole("button", { name: "Continue" }));
   await screen.findByRole("dialog", { name: "Confirm" });
   return screen;
@@ -263,11 +261,10 @@ export const AmountEntry: Story = {
 export const AmountExceedsAvailable: Story = {
   play: async ({ canvasElement }) => {
     const screen = within(canvasElement.ownerDocument.body);
-    for (const digit of "999") {
-      await userEvent.click(await screen.findByRole("button", { name: digit }));
-    }
+    await userEvent.type(await screen.findByRole("textbox", { name: "Amount" }), "999");
     await expect(await screen.findByRole("button", { name: "Continue" })).toBeDisabled();
-    await expect(await screen.findByText("That's more than you have available.")).toBeVisible();
+    await expect(await screen.findByText("Only $250.00 available")).toBeVisible();
+    await expect(screen.getByRole("textbox", { name: "Amount" })).toHaveAttribute("aria-invalid", "true");
     await expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   },
 };
@@ -282,9 +279,7 @@ export const WithdrawNothingSaved: Story = {
     const screen = within(canvasElement.ownerDocument.body);
     await expect(await screen.findByRole("dialog", { name: "Withdraw" })).toBeVisible();
     await expect(await screen.findByText("Nothing saved to withdraw.")).toBeVisible();
-    for (const digit of "0.10") {
-      await userEvent.click(await screen.findByRole("button", { name: digit === "." ? "Decimal point" : digit }));
-    }
+    await userEvent.type(await screen.findByRole("textbox", { name: "Amount" }), "0.10");
     await expect(await screen.findByRole("button", { name: "Continue" })).toBeDisabled();
     await expect(await screen.findByText("Nothing saved to withdraw.")).toBeVisible();
     await expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -358,11 +353,10 @@ export const ReducedMotionReference: Story = {
     const document = canvasElement.ownerDocument;
     const screen = within(document.body);
     const expectReducedSurface = async () => {
-      const tickers = [...document.querySelectorAll<HTMLElement>("[data-slot='money-ticker']")];
-      await expect(tickers).toHaveLength(3);
-      for (const ticker of tickers) {
-        await expect(ticker).toHaveAttribute("data-animated", "false");
-      }
+      const input = await screen.findByRole("textbox", { name: "Amount" });
+      await expect(input).toHaveAttribute("inputmode", "decimal");
+      await expect(await screen.findByText("$250.00 available")).toBeVisible();
+      await expect(document.querySelector("[data-money-sheet]")).toHaveAttribute("data-immediate");
     };
 
     await screen.findByRole("dialog", { name: "Deposit" });
@@ -376,7 +370,7 @@ export const ReducedMotionReference: Story = {
     viewport: { defaultViewport: "mobile" },
     docs: {
       description: {
-        story: "Deterministic reduced-motion review fixture: primary, alternate, and available numbers do not animate across close and reopen. Production still follows prefers-reduced-motion; retain separate real-browser media-emulation proof.",
+        story: "Deterministic reduced-motion review fixture: the alternate unit does not animate across close and reopen; editable and available amounts are plain text. Production still follows prefers-reduced-motion; retain separate real-browser media-emulation proof.",
       },
     },
   },

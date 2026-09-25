@@ -41,7 +41,7 @@
     { "figmaName": "AddressField", "nodeId": "460:4469", "source": "components/address-field.tsx", "component": "AddressField", "template": "components/explorations/code-connect/address-field.figma.ts", "stories": ["components/address-field.stories.tsx"] },
     { "figmaName": "TransactionAmount", "nodeId": "282:5882", "source": "components/transaction-amount.tsx", "component": "TransactionAmount", "template": "components/explorations/code-connect/transaction-amount.figma.ts", "stories": ["components/transaction-details.stories.tsx"] },
     { "figmaName": "TradeActions", "nodeId": "274:5577", "source": "client/trading/trade-actions.tsx", "component": "TradeActions", "template": "client/explorations/code-connect/trading/trade-actions.figma.ts", "stories": [] },
-    { "figmaName": "MoneyPrimaryAmount", "nodeId": "166:1776", "source": "client/money-modal/amount.tsx", "component": "MoneyPrimaryAmount", "template": "client/explorations/code-connect/money-modal/money-primary-amount.figma.ts", "stories": [] },
+    { "figmaName": "MoneyPrimaryAmount", "nodeId": "166:1776", "source": "client/money-modal/amount.tsx", "component": "MoneyPrimaryAmount", "template": "client/explorations/code-connect/money-modal/money-primary-amount.figma.ts", "stories": ["client/money-modal/amount.stories.tsx"] },
     { "figmaName": "MoneyQuickChips", "nodeId": "166:1787", "source": "client/money-modal/amount.tsx", "component": "MoneyQuickChips", "template": "client/explorations/code-connect/money-modal/money-quick-chips.figma.ts", "stories": [] },
     { "figmaName": "MoneyUnitToggle", "nodeId": "166:1788", "source": "client/money-modal/amount.tsx", "component": "MoneyUnitToggle", "template": "client/explorations/code-connect/money-modal/money-unit-toggle.figma.ts", "stories": [] },
     { "figmaName": "MoneyConfirmSummary", "nodeId": "166:1803", "source": "client/money-modal/confirm-summary.tsx", "component": "MoneyConfirmSummary", "template": "client/explorations/code-connect/money-modal/confirm-summary.figma.ts", "stories": [] },
@@ -67,7 +67,6 @@
     { "figmaName": "RecentRecipients", "nodeId": "465:4498", "reason": "Figma-only composition of the private RecentRecipients rows in client/transfers/send-dialog.tsx; not a code component." }
   ],
   "notInFigma": [
-    { "source": "client/money-modal/amount.tsx", "reason": "Figma node deleted in #882; code still renders MoneyNumpad until native-input adoption." },
     { "source": "components/ui/table.tsx", "reason": "Desktop-only; P2 in the gap matrix." },
     { "source": "components/ui/data-table.tsx", "reason": "Desktop-only; P2 in the gap matrix." },
     { "source": "components/ui/coverage-table.tsx", "reason": "Internal coverage tooling; P2." },

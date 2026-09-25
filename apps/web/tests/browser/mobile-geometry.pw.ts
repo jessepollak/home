@@ -87,7 +87,7 @@ test("coverage native selects keep a mobile-zoom-safe font size", async ({ page 
 async function openPeerCashOutHandle(page: Page) {
   await page.goto("/home");
   await page.getByRole("button", { name: "Send" }).click();
-  await page.getByRole("button", { name: "1", exact: true }).click();
+  await page.getByRole("textbox", { name: "Amount" }).pressSequentially("1");
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("button", { name: /Send to Cash App/ }).click();
   await page.getByRole("button", { name: "Cash App" }).click();

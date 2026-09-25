@@ -22,6 +22,7 @@ const RUNTIME_ALLOWED = [
   "drawer-frontmost-height", // @base-ui/react drawer
   "drawer-height", // @base-ui/react drawer
   "drawer-inset", // optional consumer override; every var() use falls back to 0px
+  "drawer-keyboard-inset", // @base-ui/react Drawer.VirtualKeyboardProvider; every var() use falls back to 0px
   "drawer-snap-point-offset", // @base-ui/react drawer
   "drawer-swipe-movement-x", // @base-ui/react drawer
   "drawer-swipe-movement-y", // @base-ui/react drawer

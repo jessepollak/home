@@ -261,11 +261,7 @@ export const Deposit: Story = {
     // Deposit $25.00 from the savings screen into the selected vault.
     await userEvent.click(await screen.findByRole("button", { name: "Deposit" }));
     const depositDialog = await screen.findByRole("dialog", { name: "Deposit" });
-    for (const digit of "25") {
-      await userEvent.click(
-        await within(depositDialog).findByRole("button", { name: digit }),
-      );
-    }
+    await userEvent.type(await within(depositDialog).findByRole("textbox", { name: "Amount" }), "25");
     await userEvent.click(
       await within(depositDialog).findByRole("button", { name: "Continue" }),
     );

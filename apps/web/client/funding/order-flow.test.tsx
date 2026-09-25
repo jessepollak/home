@@ -46,9 +46,7 @@ test("selecting a payment method does not request a quote until Review quote", a
   fireEvent.click(page().getByText("Bre-B"));
   expect(page().getByRole("radio", { name: "Bre-B" }).getAttribute("aria-checked")).toBe("true");
   expect(requests).toEqual([]);
-  fireEvent.click(page().getByRole("button", { name: "1" }));
-  fireEvent.click(page().getByRole("button", { name: "0" }));
-  fireEvent.click(page().getByRole("button", { name: "0" }));
+  fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "100" } });
   expect(requests).toEqual([]);
   fireEvent.click(page().getByRole("button", { name: "Review quote" }));
   await waitFor(() => expect(requests).toHaveLength(1));

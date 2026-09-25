@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { LoaderCircle } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { dataOwnerKey as ownerDataKey } from "@/client/account/owner-keys";
@@ -15,11 +16,10 @@ import {
   MoneyModalBody,
   MoneyModalFooter,
   MoneyModalHeader,
-  MoneyNumpad,
   decimalFromBaseUnits,
+  amountExceedsCeiling,
   isPositiveDecimalAmount,
   useMoneyAssetPricing,
-  type MoneyAmountChangeSource,
 } from "@/client/money-modal";
 import {
   browserHomeQueryClient,
@@ -94,8 +94,10 @@ export function BorrowMoneyDialog({
   const fixedMaximumOperation = operation === "repay-all" || (operation === "close-position" && !closesWithoutDebt);
   const repayOperation = operation === "repay" || fixedMaximumOperation;
   const primaryAsset = selectPrimaryBorrowAsset(snapshot, operation);
-  const reserve = useNetworkFeeReserve(session.smartAccount ? dataOwnerKey : null, fetchAccountResource, open);
+  const { reserve, failed: reserveFailed, retry: retryReserve } = useNetworkFeeReserve(session.smartAccount ? dataOwnerKey : null, fetchAccountResource, open);
+  const reserveRelevant = (repayOperation && snapshot.market.loanToken.symbol.toUpperCase() === "USDC") || (operation === "supply-collateral" && primaryAsset.symbol.toUpperCase() === "USDC");
   const reservePendingForRepay = repayOperation && snapshot.market.loanToken.symbol.toUpperCase() === "USDC" && reserve === undefined;
+  const ceilingPending = reserveRelevant && reserve === undefined;
   const repayWalletBaseUnits = maxAmountAfterNetworkFee(snapshot.wallet.loanBalanceRaw, snapshot.market.loanToken.symbol, reserve) ?? "0";
   const maximumRepayBaseUnits = repayOperation && !reservePendingForRepay
     ? recommendedRepayMaximumBaseUnits(snapshot.position.debtAssetsRaw, repayWalletBaseUnits, snapshot.state.borrowRatePerSecondWad)
@@ -105,8 +107,7 @@ export function BorrowMoneyDialog({
     : "";
   const primaryPricing = useMoneyAssetPricing(primaryAsset.symbol);
   const primaryAssetMark = presentBorrowAssetMark(primaryAsset, assetMarkResolution);
-  function changeAmount(value: string, source: MoneyAmountChangeSource) {
-    setAmountChangeSource(source);
+  function changeAmount(value: string) {
     setAmount(value);
   }
   const [amount, setAmount] = useState(initialAmount);
@@ -116,8 +117,6 @@ export function BorrowMoneyDialog({
     maximumFilled.current = true;
     setAmount((current) => current === "" ? decimalFromBaseUnits(maximumRepayBaseUnits, snapshot.market.loanToken.decimals) ?? "" : current);
   }, [fixedMaximumOperation, maximumRepayBaseUnits, snapshot.market.loanToken.decimals]);
-  const [amountChangeSource, setAmountChangeSource] =
-    useState<MoneyAmountChangeSource>("programmatic");
   const [preparedAction, setPreparedAction] = useState<PreparedMoneyAction | null>(null);
   const [clockNow, setClockNow] = useState(() => Date.now());
   const [serverExpiredActionId, setServerExpiredActionId] = useState<string | null>(null);
@@ -225,6 +224,8 @@ export function BorrowMoneyDialog({
   const maxBaseUnits = operation === "supply-collateral" ? maxAmountAfterNetworkFee(availableBaseUnits, primaryAsset.symbol, reserve) : availableBaseUnits;
   const availableAmount = availableBaseUnits === null ? null : decimalFromBaseUnits(maxBaseUnits ?? "0", primaryAsset.decimals);
   const availableLabel = availableBaseUnits === null ? undefined : `${formatToken(availableBaseUnits, primaryAsset, regionId)} available`;
+  const overAvailable = !ceilingPending && availableAmount !== null && amountExceedsCeiling(amount, availableAmount);
+  const continueDisabled = ceilingPending || (requiresPrimaryAmount && !isPositiveDecimalAmount(amount)) || (operation === "supply-and-borrow" && isPositiveDecimalAmount(amount) && !openingCollateralBaseUnits) || (requiresPrimaryAmount && overAvailable);
   const amountAssetProps = {
     assetId: primaryAsset.id,
     assetLabel: primaryAsset.symbol,
@@ -253,8 +254,10 @@ export function BorrowMoneyDialog({
               <>
                 <MoneyAmountDisplay
                   amount={amount}
-                  amountChangeSource={amountChangeSource}
+                  maxDecimals={primaryAsset.decimals}
                   onAmountChange={changeAmount}
+                  overAvailable={overAvailable}
+                  onSubmit={continueDisabled ? undefined : () => void prepare()}
                   availableLabel={availableLabel}
                   availableAmount={availableAmount}
                   assetId={primaryAsset.id}
@@ -264,8 +267,10 @@ export function BorrowMoneyDialog({
                   chipSet={availableBaseUnits === null ? "none" : "max"}
                   pricing={primaryPricing}
                   nativeSymbol={primaryAsset.symbol}
-                />
-                <MoneyNumpad value={amount} maxDecimals={primaryAsset.decimals} onChange={changeAmount} />
+                >
+                {reserveRelevant && reserveFailed ? (
+                  <BorrowNotice tone="error" role="alert" title="Couldn't check the network fee." action={<Button variant="ghost" size="sm" onClick={retryReserve}>Retry</Button>} />
+                ) : null}
                 {operation === "supply-and-borrow" ? (
                   <div className="min-h-[4.5rem] rounded-lg border bg-muted/40 px-3 py-2 text-sm" data-testid="borrow-collateral-preview">
                     <p className="font-medium">{collateralDisplayName(snapshot.market.id)} collateral</p>
@@ -283,6 +288,7 @@ export function BorrowMoneyDialog({
                     Current debt is {formatToken(snapshot.position.debtAssetsRaw, snapshot.market.loanToken, regionId)}. The actual repayment is determined by current borrow shares and cannot exceed the amount you review.
                   </BorrowNotice>
                 ) : null}
+                </MoneyAmountDisplay>
               </>
             )}
           </>
@@ -298,7 +304,7 @@ export function BorrowMoneyDialog({
       {step === "amount" ? (
         <MoneyModalFooter
           primaryLabel="Continue"
-          primaryDisabled={(fixedMaximumOperation && reservePendingForRepay) || (requiresPrimaryAmount && !isPositiveDecimalAmount(amount)) || (operation === "supply-and-borrow" && isPositiveDecimalAmount(amount) && !openingCollateralBaseUnits)}
+          primaryDisabled={continueDisabled}
           onPrimary={() => void prepare()}
         />
       ) : null}

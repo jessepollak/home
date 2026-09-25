@@ -79,6 +79,7 @@ async function installRecipientFixtures(
         : json(route, { error: { code: "RECIPIENT_NAME_UNRESOLVED", message: "That name does not resolve to an address." } }, 404);
     }
     if (path === "/api/transfers/recent-recipients") return json(route, { version: 1, recipients: recents });
+    if (path === "/api/actions/network-fee") return json(route, { version: 1, usdcReserveBaseUnits: "20000" });
     if (path === "/api/actions/prepare" && request.method() === "POST") return json(route, sendAction, 201);
     if (path === "/api/actions") return json(route, { actions: [] });
     if (path === `/api/actions/${ACTION_ID}`) {

@@ -28,7 +28,7 @@ async function openRepay(canvasElement: HTMLElement) {
 }
 async function prepareRepay(canvasElement: HTMLElement) {
   const result = await openRepay(canvasElement);
-  for (const digit of ["2", "5", "0"]) await userEvent.click(within(result.money).getByRole("button", { name: digit }));
+  await userEvent.type(within(result.money).getByRole("textbox", { name: "Amount" }), "250");
   await userEvent.click(within(result.money).getByRole("button", { name: "Continue" }));
   await expect(await within(result.money).findByRole("button", { name: "Confirm action" })).toBeVisible();
   return result;

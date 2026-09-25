@@ -77,6 +77,8 @@ const recoveryOrder = {
   canonicalHandle: null, amountAtomic: "2000000", remainingAmountAtomic: "2000000", nextActions: ["withdraw"] as const,
 };
 
+const feeResponse = { version: 1, usdcReserveBaseUnits: "20000" };
+
 const offrampResponse = {
   version: 2,
   direction: "offramp",
@@ -113,12 +115,7 @@ describe("SendDialog availability", () => {
     );
 
     fireEvent.click(page().getByRole("button", { name: "Max" }));
-    const amountField = document.querySelector(
-      "[data-primary-amount] [data-slot=\"money-ticker\"]",
-    );
-
-    expect(amountField?.getAttribute("aria-label")).toBe("$1.234567");
-    expect(amountField?.getAttribute("aria-label")).not.toContain("display copy only");
+    expect((page().getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("1.234567");
     expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
@@ -143,7 +140,7 @@ describe("SendDialog review", () => {
     }
     render(<RoutedSend />);
 
-    fireEvent.click(page().getByRole("button", { name: "1" }));
+    fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { readText: async () => RECIPIENT } });
     try {
@@ -180,13 +177,14 @@ describe("SendDialog Peer cash-out", () => {
       const view = render(
         <SendDialog open immediate address={ACCOUNT} ownerBoundary={`owner-${region}`} regionId={region}
           availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
-          fetchAccountResource={async (url) => url.startsWith("/api/funding/providers")
+          fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers")
             ? { ...offrampResponse, providers: [{ ...offrampResponse.providers[0], region, currency, paymentMethods: methods.map((method) => ({ ...offrampResponse.providers[0]!.paymentMethods[0], ...method, platform: method.id })) }] }
             : { version: 3, recoveryEligible: false, orders: [] }}
           prepareMoneyAction={async () => cashoutAction()} resumeMoneyAction={async () => cashoutAction()}
           executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />,
       );
-      fireEvent.click(page().getByRole("button", { name: "1" }));
+      fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+      await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
       fireEvent.click(page().getByRole("button", { name: "Continue" }));
       expect(await page().findByRole("button", { name: new RegExp(title) })).toBeTruthy();
       expect(page().queryByText(/Venmo/)).toBeNull();
@@ -200,11 +198,12 @@ describe("SendDialog Peer cash-out", () => {
     render(
       <SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-au" regionId="AU"
         availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
-        fetchAccountResource={async (url) => url.startsWith("/api/funding/providers") ? pendingProviders : { version: 3, recoveryEligible: false, orders: [] }}
+        fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers") ? pendingProviders : { version: 3, recoveryEligible: false, orders: [] }}
         prepareMoneyAction={async () => cashoutAction()} resumeMoneyAction={async () => cashoutAction()}
         executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />,
     );
-    fireEvent.click(page().getByRole("button", { name: "1" }));
+    fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     expect(page().queryByText("Cash out isn't available in Australia yet.")).toBeNull();
     await act(async () => { resolveProviders({ version: 2, direction: "offramp", providers: [] }); await pendingProviders; });
@@ -222,7 +221,7 @@ describe("SendDialog Peer cash-out", () => {
         prepareMoneyAction={async () => cashoutAction()} resumeMoneyAction={async () => cashoutAction()}
         executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />,
     );
-    fireEvent.click(page().getByRole("button", { name: "1" }));
+    fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     await act(async () => {});
     expect(page().queryByText(/Cash out isn't available/)).toBeNull();
@@ -237,7 +236,7 @@ describe("SendDialog Peer cash-out", () => {
         availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
         fetchAccountResource={async (url) => {
           fetches.push(url);
-          return url.startsWith("/api/funding/providers") ? offrampResponse : { version: 3, recoveryEligible: false, orders: [] };
+          return url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers") ? offrampResponse : { version: 3, recoveryEligible: false, orders: [] };
         }}
         prepareMoneyAction={async (kind, params) => { prepares.push({ kind, params }); return cashoutAction(); }}
         resumeMoneyAction={async () => cashoutAction()}
@@ -246,7 +245,8 @@ describe("SendDialog Peer cash-out", () => {
       />,
     );
 
-    fireEvent.click(page().getByRole("button", { name: "1" }));
+    fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     const peer = await page().findByRole("button", { name: /Available payout apps: Cash App.*Send to Cash App.*Use Peer to send via app/ });
     expect(peer).toBeTruthy();
@@ -275,14 +275,15 @@ describe("SendDialog Peer cash-out", () => {
       <SendDialog
         open immediate address={ACCOUNT} ownerBoundary="owner-peer-hints" regionId="US"
         availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
-        fetchAccountResource={async (url) => url.startsWith("/api/funding/providers")
+        fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers")
           ? offrampResponse
           : { version: 3, recoveryEligible: false, orders: [] }}
         prepareMoneyAction={async () => cashoutAction()} resumeMoneyAction={async () => cashoutAction()}
         executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />,
     );
 
-    fireEvent.click(page().getByRole("button", { name: "1" }));
+    fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     const peer = await page().findByRole("button", { name: /Send to Cash App/ });
     fireEvent.click(peer);
@@ -309,11 +310,12 @@ describe("SendDialog Peer cash-out", () => {
     render(
       <SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-no-peer"
         availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
-        fetchAccountResource={async () => { throw new Error("offline"); }}
+        fetchAccountResource={async (url) => { if (url === "/api/actions/network-fee") return feeResponse; throw new Error("offline"); }}
         prepareMoneyAction={async () => resumedAction()} resumeMoneyAction={async () => resumedAction()}
         executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />,
     );
-    fireEvent.click(page().getByRole("button", { name: "1" }));
+    fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     await waitFor(() => {
       expect(page().queryByRole("button", { name: /Send to Cash App/ })).toBeNull();
@@ -332,6 +334,7 @@ describe("SendDialog Peer cash-out", () => {
       <SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-discovery-down" regionId="DE"
         availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
         fetchAccountResource={async (url) => {
+          if (url === "/api/actions/network-fee") return feeResponse;
           if (url.startsWith("/api/funding/providers")) {
             providerReads += 1;
             if (providerReads === 1) throw new Error("offline");
@@ -342,7 +345,8 @@ describe("SendDialog Peer cash-out", () => {
         prepareMoneyAction={async () => resumedAction()} resumeMoneyAction={async () => resumedAction()}
         executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />,
     );
-    fireEvent.click(page().getByRole("button", { name: "1" }));
+    fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     expect(await page().findByText("Cash out is unavailable right now.")).toBeTruthy();
     expect(page().getByRole("button", { name: "Recover a Peer cash-out" })).toBeTruthy();
@@ -396,7 +400,7 @@ describe("SendDialog Peer cash-out", () => {
     render(
       <SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-peer-recovery" regionId="US"
         availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
-        fetchAccountResource={async (url) => url.startsWith("/api/funding/providers")
+        fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers")
           ? { version: 2, direction: "offramp", providers: [] }
           : { version: 3, recoveryEligible: true, orders: [recoveryOrder] }}
         prepareMoneyAction={async (kind, params) => { prepares.push({ kind, params }); return withdrawAction(); }}
@@ -404,8 +408,8 @@ describe("SendDialog Peer cash-out", () => {
         executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />,
     );
 
-    fireEvent.click(page().getByRole("button", { name: "1" }));
-    await waitFor(() => expect(page().queryByRole("button", { name: /Withdraw \$2\.00.*Peer cash-out.*awaiting-buyer/ })).toBeNull());
+    fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     const recovery = await page().findByRole("button", { name: /Withdraw \$2\.00.*Peer cash-out.*awaiting-buyer/ });
     expect(recovery).toBeTruthy();

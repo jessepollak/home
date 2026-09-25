@@ -161,8 +161,8 @@ do not silently ignore a new failure or treat this list as permission to broaden
 - **Reach (live)**:
   1. `goto "/save?flow=save-deposit"`
   2. `expect "Deposit"`
-  3. `click "Decimal point"`
-  4. `click "1"`
+  3. `fill "Amount" "0.1"`
+  4. `expect "available"`
   5. `click "Continue"`
   6. `expect "Confirm"`
 - **Confirm (live, authorization-gated)**: After matching the review `From` row to the account anchor and verifying the other review facts, check `data-money-action-id` on `Deposit $0.10` and, only with Rung 3 or Jesse's direct authorization, click once and expect `Deposited $0.10`. For a funded withdrawal, choose `Withdraw`, use Max for available savings, reach review, then apply the same gate to the marked `Withdraw $<amount>` control.
@@ -181,8 +181,8 @@ do not silently ignore a new failure or treat this list as permission to broaden
 - **Reach (live)**:
   1. `goto "/borrow/0x9103c3b4e834476c9a62ea009ba2c884ee42e94e6e314a26f04d312434191836"`
   2. `expect "Borrow"`
-  3. `click "Decimal point"`
-  4. `click "1"`
+  3. `fill "Amount" "0.1"`
+  4. `expect "available"`
   5. `click "Continue"`
   6. `expect "Confirm"`
 - **Reach (live, Repay all up to review)**: Requires a nonzero debt position and wallet USDC; if there is no debt/`Repay` affordance, stop and report the prerequisite, do not manufacture debt. From the market detail, click `Repay`, select `Max` (the amount step shows `Maximum repayment`), click `Continue`, then read the full `Confirm` review. `Max` with insufficient wallet USDC can be a partial repayment; stop unless the review explicitly says `Repay all USDC debt`. Expect `Repay all USDC debt`, Base, and a maximum ≤ borrowed amount + 0.0002 USDC (accrued debt need not equal $0.10).
@@ -218,7 +218,7 @@ do not silently ignore a new failure or treat this list as permission to broaden
   3. `expect "Borrow Cash"`
   4. `click "Send"`
   5. `expect "Send"`
-  6. `click "1"`
+  6. `fill "Amount" "1"`
   7. `click "Continue"`
   8. `expect "Recent recipients"`
   9. `fill "To" "example.base.eth"`
@@ -226,15 +226,15 @@ do not silently ignore a new failure or treat this list as permission to broaden
 - **Reach (live)**:
   1. `goto "/home"`
   2. `click "Send"`
-  3. `click "Decimal point"`
-  4. `click "1"`
+  3. `fill "Amount" "0.1"`
+  4. `expect "available"`
   5. `click "Continue"`
   6. `fill "To" "jesse.base.eth"` (default; a different recipient needs explicit authorization)
   7. `click "Continue"`
   8. `expect "Confirm"`
 - **Confirm (live, authorization-gated)**: After matching the reviewed recipient, amount, Base network and the review `From` row against the account anchor, check `data-money-action-id` on `Send $0.10`, then click once only under Rung 3 or Jesse's direct authorization; verify Activity if the success toast is missed.
 - **Notes**: The dialog is labelled by `send-title`. Before any live confirm, read the full review and match the `To` address, amount and the `From` row against the approved task and account anchor. Routine UI verification stops before the marked confirm control. Fixture-backed name and recent-recipient behavior is in tests/browser/send-recipients.pw.ts; the fixture-session helper stages static recipient, prepare and pending-review responses through tests/browser/feature-map/fixtures.ts so Send reaches review without a provider or confirmation.
-  1. **amount**: type digits via keypad buttons named `0`–`9`, `Decimal point`, `Delete last digit` (`role="group" aria-label="Amount keypad"`, client/money-modal/amount.tsx:581–601); quick chips group `Quick amounts` (`$10`/`$25`/`Max` when priced, amount.tsx:508+). Primary `Continue` disabled until positive amount (`isPositiveDecimalAmount`).
+  1. **amount**: type into the `Amount` textbox (`inputmode="decimal"`, focused on open; `data-money-amount-input`, client/money-modal/amount.tsx). Paste and `,` or `.` decimals are accepted; extra decimals, letters and signs are rejected. The available line sits under the amount; over the fee-adjusted balance it turns destructive and reads `Only … available`. The quick-chip group `Quick amounts` (`$10`/`$25`/`Max` when priced) sits directly above `Continue`. `Continue` (or Enter) stays disabled until the amount is positive and within the balance.
   2. **destination**: step title stays `Send`; field label `To` (AddressField `id="send-recipient"`); primary `Continue` disabled until the typed value is a valid `0x` recipient or a resolved name (send-dialog.tsx `effectiveRecipient`). A `.eth` Basename/ENS value is resolved through `GET /api/transfers/recipient-name?name=…` and shows `Resolves to <full address>` under the field; while it resolves the field is described by `Resolving <name>…`; an unresolved or unsupported value shows an inline `role="alert"`/hint and never enables `Continue`. The account's own recent send recipients render below the `Or` separator under the group label `Recent recipients` (labelled by reverse-resolved name with the truncated address beneath, or the truncated address alone) and selecting one fills `To`.
   3. **confirm**: dialog title becomes `Confirm` (send-dialog.tsx `modalTitle`); summary via `MoneyConfirmSummary` rows `From` (short address from the prepared action's owner), `To` (CopyableValue full address), `Asset`, `Network` = `Base`, and `Network fee` when paid in USDC (send-dialog.tsx); primary button `Send $1.00` where amount is `MoneyTicker(confirmAmount)` — smoke clicks `getByRole("button", { name: "Send $1.00" })`; secondary `Back`.
   Every money confirm control (every surface) carries `data-money-action-id=<prepared action id>` (client/money-modal/money-modal.tsx `MoneyConfirmFooter`); no other control does.
@@ -253,12 +253,12 @@ do not silently ignore a new failure or treat this list as permission to broaden
 - **Live**: confirm
 - **Owned paths**: `apps/web/client/transfers/send-dialog.tsx`, `apps/web/app/api/funding/offramp/**`, `apps/web/server/funding/offramp/**`
 - **Confirm labels**: "Cash out $<amount>", "Withdraw $<amount>"
-- **Reach** (smoke-verified through re-entry, `openPeerCashOutHandle`, mobile-geometry.pw.ts): 1) seed + `installApiFixtures`. 2) `Send` → digits `1` → `Continue`. 3) click `/Send to Cash App/` (CashoutItem, send-dialog.tsx; the fixture binds only Cash App). 4) click `Cash App` (payment-method button, payout step). 5) textbox `Cash App handle` (label `${selectedPlatform.label} handle`); smoke asserts 16px font and ≥44px portrait target. 6) fill `$alice`, click `Continue` → visible textbox `Re-enter handle`; smoke asserts 16px font and ≥44px portrait target. Input hints (`autocomplete`, `autocapitalize`, `autocorrect`, `spellcheck`, `enterkeyhint`) and `Review` → confirm behavior are asserted in client/transfers/send-dialog.test.tsx, not browser smoke.
+- **Reach** (smoke-verified through re-entry, `openPeerCashOutHandle`, mobile-geometry.pw.ts): 1) seed + `installApiFixtures`. 2) `Send` → type `1` into `Amount` → `Continue`. 3) click `/Send to Cash App/` (CashoutItem, send-dialog.tsx; the fixture binds only Cash App). 4) click `Cash App` (payment-method button, payout step). 5) textbox `Cash App handle` (label `${selectedPlatform.label} handle`); smoke asserts 16px font and ≥44px portrait target. 6) fill `$alice`, click `Continue` → visible textbox `Re-enter handle`; smoke asserts 16px font and ≥44px portrait target. Input hints (`autocomplete`, `autocapitalize`, `autocorrect`, `spellcheck`, `enterkeyhint`) and `Review` → confirm behavior are asserted in client/transfers/send-dialog.test.tsx, not browser smoke.
 - **Reach (live)**:
   1. `goto "/home"`
   2. `click "Send"`
-  3. `click "Decimal point"`
-  4. `click "1"`
+  3. `fill "Amount" "0.1"`
+  4. `expect "available"`
   5. `click "Continue"`
   6. `click "Available payout apps: Cash App, Zelle Send to Cash App or Zelle Use Peer to send via app"` (the payout marks contribute their `Available payout apps:` name; the list follows the US corridor order)
   7. `click "Cash App"`
@@ -281,14 +281,14 @@ do not silently ignore a new failure or treat this list as permission to broaden
 - **Live**: up-to-review
 - **Owned paths**: `apps/web/client/funding/**`, `apps/web/app/api/funding/**`, `apps/web/server/funding/**`, `apps/web/shared/funding/**`
 - **Confirm labels**: "Confirm deposit"
-- **Reach** (smoke-verified IDRX path, funding.pw.ts): 1) seed country `ID` (`localStorage["home.country.v1"]="ID"`) + `installApiFixtures`. 2) `signIn(page)` helper. 3) click `Add money` (funding-actions.tsx). 4) method step button `/Deposit IDR/` must contain `IDRX · Bank transfer · Mandiri` (funding.pw.ts). 5) type `20000` via numpad. 6) `Review quote` → heading `Review quote`, row `Receive` contains `20.000,00 IDRX`. 7) `Confirm deposit` → heading `Review payment details`, row `Network` contains `Rp 100,00`. 8) `View payment instructions` → `123456789012` visible; then `Money received` (≤7s budget, funding.pw.ts).
+- **Reach** (smoke-verified IDRX path, funding.pw.ts): 1) seed country `ID` (`localStorage["home.country.v1"]="ID"`) + `installApiFixtures`. 2) `signIn(page)` helper. 3) click `Add money` (funding-actions.tsx). 4) method step button `/Deposit IDR/` must contain `IDRX · Bank transfer · Mandiri` (funding.pw.ts). 5) type `20000` into the `Amount` textbox. 6) `Review quote` → heading `Review quote`, row `Receive` contains `20.000,00 IDRX`. 7) `Confirm deposit` → heading `Review payment details`, row `Network` contains `Rp 100,00`. 8) `View payment instructions` → `123456789012` visible; then `Money received` (≤7s budget, funding.pw.ts).
 - **Reach (live)**:
   1. `goto "/home"`
   2. `click "Add money"`
   3. `expect "Add money"`
   4. `click "Deposit USD Coinbase · Apple Pay"`
-  5. `click "2"`
-  6. `click "5"`
+  5. `fill "Amount" "25"`
+  6. `expect "Review quote"`
   7. `click "Review quote"`
   8. `expect "Review quote"`
 - **Verify**: manual
