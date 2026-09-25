@@ -46,6 +46,16 @@ const preview: Preview = {
     // workshop stories opt into `error` in their own meta.
     a11y: {
       test: "todo",
+      // Base UI renders visually hidden, aria-hidden focus guards around open
+      // popups to wrap focus; they are intentional sentinels, not content.
+      config: {
+        rules: [
+          {
+            id: "aria-hidden-focus",
+            selector: "[aria-hidden=\"true\"]:not([data-base-ui-focus-guard])",
+          },
+        ],
+      },
     },
     viewport: {
       viewports: {
