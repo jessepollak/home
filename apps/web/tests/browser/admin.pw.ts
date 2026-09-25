@@ -35,7 +35,7 @@ function expectUncacheable(response: { headers(): Record<string, string> } | nul
 }
 
 for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 }]) {
-  test(`admin boundary at ${viewport.width}`, async ({ page, context }) => {
+  test(`admin boundary at ${viewport.width}`, async ({ page, context, baseURL }) => {
     await page.setViewportSize(viewport);
     await setSession(context, admin);
     expectUncacheable(await page.goto("/admin"));
@@ -61,8 +61,9 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
     await page.goForward();
     await expect(page).toHaveURL(/\/admin$/);
     await expect(page.getByText(admin)).toBeVisible();
+    const origin = new URL(baseURL ?? page.url()).origin;
     const logout = await context.request.post("/api/auth/base/logout", {
-      headers: { Origin: "http://localhost:3199" },
+      headers: { Origin: origin },
     });
     expect(logout.status()).toBe(200);
     expect((await context.cookies()).some((cookie) => cookie.name === "home-access")).toBe(true);
@@ -78,7 +79,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
     await expect(page.getByRole("heading", { name: "Admin page not found" })).toHaveCount(0);
     await setSession(context, admin);
     const accessLogout = await context.request.post("/api/access/logout", {
-      headers: { Origin: "http://localhost:3199" },
+      headers: { Origin: origin },
     });
     expect(accessLogout.status()).toBe(200);
     const remaining = await context.cookies();

@@ -23,7 +23,7 @@ browser_command open --init-script "$init" >/dev/null
 while IFS=$'\t' read -r pattern body; do
   browser_command network route "$pattern" --body "$body" >/dev/null
 done < "$routes"
-browser_command open http://127.0.0.1:3199/home >/dev/null
+browser_command open "http://127.0.0.1:${HOME_FIXTURE_PORT:-3199}/home" >/dev/null
 browser_command wait --fn "Boolean(document.querySelector('[data-app-main-authenticated]'))" >/dev/null
 trap - ERR
 printf '%s\n' "$name"

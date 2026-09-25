@@ -17,7 +17,7 @@ import {
 } from "../../apps/web/shared/balances/fixtures";
 import { ACTIVITY_CONTRACT_VERSION } from "../../apps/web/shared/activity/contract";
 
-const captureUrl = new URL(process.env.HOME_CAPTURE_BASE_URL ?? "http://localhost:3199");
+const captureUrl = new URL(process.env.HOME_CAPTURE_BASE_URL ?? `http://localhost:${process.env.HOME_FIXTURE_PORT ?? "3199"}`);
 if (captureUrl.protocol !== "http:" || !["localhost", "127.0.0.1"].includes(captureUrl.hostname)) {
   throw new Error("HOME_CAPTURE_BASE_URL must be a local HTTP origin.");
 }
