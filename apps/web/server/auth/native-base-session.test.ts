@@ -376,3 +376,52 @@ describe("native Base authentication handlers", () => {
     }
   });
 });
+
+describe("verified Base capture", () => {
+  test("runs once for valid proof, not for invalid proof", async () => {
+    const captured: Array<{ address: string; request: Request }> = [];
+    const deps = {
+      sessionSecret: SECRET,
+      now: () => START,
+      randomId: () => NONCE,
+      verify: async () => true,
+      onVerified: (session: { smartAccount: { address: string } | null }, context: { request: Request }) => {
+        captured.push({ address: session.smartAccount!.address, request: context.request });
+      },
+    };
+    const nonce = createNativeBaseNonceHandler(deps);
+    const verify = createNativeBaseVerifyHandler(deps);
+    const issued = await challenge(nonce);
+    const invalid = post("/api/auth/base/verify", verifyBody(issued.message, OTHER_ADDRESS), issued.cookie);
+    expect((await verify(invalid)).status).toBe(401);
+    expect(captured).toEqual([]);
+    const valid = post("/api/auth/base/verify", verifyBody(issued.message), issued.cookie);
+    expect((await verify(valid)).status).toBe(200);
+    expect(captured).toEqual([{ address: ADDRESS, request: valid }]);
+  });
+
+  test("untrusted customerId in body headers and query never enters verified capture or response", async () => {
+    const suppliedId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const captured: unknown[] = [];
+    const deps = { sessionSecret: SECRET, now: () => START, randomId: () => NONCE,
+      verify: async () => true, onVerified: (session: unknown) => { captured.push(session); } };
+    const issued = await challenge(createNativeBaseNonceHandler(deps));
+    const body = { ...verifyBody(issued.message), customerId: suppliedId };
+    const request = post(`/api/auth/base/verify?customerId=${suppliedId}`, body, issued.cookie, ORIGIN, { "X-Customer-Id": suppliedId });
+    const response = await createNativeBaseVerifyHandler(deps)(request);
+    expect(response.status).toBe(200);
+    expect(captured).toEqual([{ user: { subject: (await response.clone().json()).user.subject },
+      smartAccount: { address: ADDRESS, chainId: 8453 }, accountProvider: "base-account" }]);
+    expect(JSON.stringify(await response.json())).not.toContain(suppliedId);
+    expect(response.headers.get("set-cookie")).not.toContain(suppliedId);
+  });
+
+  test("throwing capture hook does not reject a valid proof", async () => {
+    const deps = { sessionSecret: SECRET, now: () => START, randomId: () => NONCE, verify: async () => true,
+      onVerified: () => { throw new Error("capture failed"); } };
+    const issued = await challenge(createNativeBaseNonceHandler(deps));
+    const response = await createNativeBaseVerifyHandler(deps)(post("/api/auth/base/verify", verifyBody(issued.message), issued.cookie));
+    expect(response.status).toBe(200);
+    expect((await response.json()).smartAccount.address).toBe(ADDRESS);
+  });
+});

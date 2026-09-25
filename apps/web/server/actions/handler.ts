@@ -6,6 +6,8 @@ import type { HandleActionResponse } from "@/shared/actions/contracts/handle";
 import type { ActionListItem, ListActionsResponse } from "@/shared/actions/contracts/list";
 import type { MoneyActionOwner } from "@/shared/money-actions/types";
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
+import { actionConfirmedEvent } from "@/server/operator-events/events";
+import { deferCustomerRecord } from "@/server/customers/resolve";
 import { createTransferReceiptReader, type TransferReceiptStatus } from "./receipt";
 import { moneyActionOwner } from "@/server/money-actions/session";
 import { privateError, privateJson } from "@/server/http/private-response";
@@ -94,9 +96,20 @@ export function createGetActionHandler(dependencies: {
   };
 }
 
+async function recordConfirmedBestEffort(row: ActionRow, recordConfirmed?: (row: ActionRow) => Promise<void>): Promise<void> {
+  try {
+    if (recordConfirmed) return await recordConfirmed(row);
+    const event = actionConfirmedEvent(row);
+    if (event) await deferCustomerRecord((registry) => registry.record(event));
+  } catch {
+    emitServerEvent("operator-registry", { route: "/operator-registry", code: "OPERATOR_REGISTRY_WRITE_FAILED", outcome: "failed" });
+  }
+}
+
 export function createConfirmActionHandler(dependencies: {
   authorize: ActionAuthorizer;
   store?: Pick<ActionsStore, "get" | "confirm">;
+  recordConfirmed?: (row: ActionRow) => Promise<void>;
   verifySmartAccountSignature?: SmartAccountSignatureVerifier;
   markHot?: (address: `0x${string}`, until: Date) => Promise<void>;
   estimateBaseBatch?: CoinbaseSmartAccountBatchEstimator["estimateBatch"];
@@ -169,6 +182,7 @@ export function createConfirmActionHandler(dependencies: {
 
     const row = await store.confirm(owner, id, calls);
     if (!row || !row.pending?.calls?.length) return fail("ACTION_NOT_FOUND", "The action is unavailable or already confirmed.", 404);
+    await recordConfirmedBestEffort(row, dependencies.recordConfirmed);
     if (gasHintCode) {
       emitServerEvent("action-confirm", {
         route: "/api/actions/:id/confirm",

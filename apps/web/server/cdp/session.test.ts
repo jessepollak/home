@@ -419,3 +419,72 @@ function restoreEnvironment(name: string, value: string | undefined): void {
   if (value === undefined) delete process.env[name];
   else process.env[name] = value;
 }
+
+describe("verified session capture", () => {
+  for (const { name, methods, email } of [
+    { name: "CDP email", methods: [{ type: "email", email: "  USER@Example.COM  " }], email: "user@example.com" },
+    { name: "SMS", methods: [{ type: "sms", phoneNumber: "+15555550100" }], email: null },
+    { name: "malformed email", methods: [{ type: "email", email: "invalid" }], email: null },
+    { name: "malformed domain", methods: [{ type: "email", email: "user@foo..com" }], email: null },
+    { name: "overlong email", methods: [{ type: "email", email: `${"x".repeat(320)}@example.com` }], email: null },
+  ]) {
+    test(`${name} gives the capture hook only a valid verified email`, async () => {
+      const captured: Array<{ session: VerifiedAccountSession; email: string | null; request: Request }> = [];
+      const handler = makeHandler(async () => ({ ...embeddedProfile(), authenticationMethods: methods }), undefined, {
+        onVerifiedSession: (session, { request, email: receivedEmail }) => captured.push({ session, email: receivedEmail, request }),
+      });
+      const request = makeRequest("Bearer verified.token.value");
+      expect((await handler(request)).status).toBe(200);
+      expect(captured).toEqual([{ session: {
+        user: { subject: "cdp-user-123" },
+        smartAccount: { address: smartAccountAddress.toLowerCase() as `0x${string}`, chainId: 8453 },
+        accountProvider: "cdp-embedded",
+      }, email, request }]);
+    });
+  }
+
+  test("native Base session passes null email", async () => {
+    const captured: Array<{ email: string | null; provider: string }> = [];
+    const handler = makeHandler(async () => ({}), undefined, {
+      homeSessionSecret: SECRET,
+      onVerifiedSession: (session, { email }) => captured.push({ provider: session.accountProvider, email }),
+    });
+    expect((await handler(makeRequest(undefined, "base-account", nativeSessionCookie()))).status).toBe(200);
+    expect(captured).toEqual([{ provider: "base-account", email: null }]);
+  });
+
+  test("no capture on 401 but capture a provisioning session without a smart account", async () => {
+    const captured: string[] = [];
+    const handler = makeHandler(async () => ({ ...embeddedProfile(), evmSmartAccountObjects: [] }), undefined, {
+      onVerifiedSession: (session) => captured.push(session.user.subject),
+    });
+    expect((await handler(makeRequest())).status).toBe(401);
+    expect((await handler(makeRequest("Bearer verified.token.value"))).status).toBe(200);
+    expect(captured).toEqual(["cdp-user-123"]);
+  });
+
+  test("untrusted customerId in request cannot enter capture or response", async () => {
+    const suppliedId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const captured: VerifiedAccountSession[] = [];
+    const handler = makeHandler(async () => embeddedProfile(), undefined, {
+      onVerifiedSession: (session) => { captured.push(session); },
+      issueCookies: () => ["home-render=verified; Path=/; HttpOnly"],
+    });
+    const request = makeRequest("Bearer verified.token.value");
+    request.headers.set("X-Customer-Id", suppliedId);
+    const response = await handler(new Request(`${requestUrl}?customerId=${suppliedId}`, { headers: request.headers }));
+    expect(captured).toEqual([{ user: { subject: "cdp-user-123" },
+      smartAccount: { address: smartAccountAddress.toLowerCase() as `0x${string}`, chainId: 8453 }, accountProvider: "cdp-embedded" }]);
+    expect(JSON.stringify(await response.json())).not.toContain(suppliedId);
+    expect(response.headers.get("set-cookie")).not.toContain(suppliedId);
+  });
+
+  test("throwing capture hook preserves successful session", async () => {
+    const handler = makeHandler(async () => embeddedProfile(), undefined, {
+      onVerifiedSession: () => { throw new Error("capture failed"); },
+    });
+    const response = await handler(makeRequest("Bearer verified.token.value"));
+    expect(response.status).toBe(200);
+    expect((await response.json()).accountProvider).toBe("cdp-embedded");
+  });
+});

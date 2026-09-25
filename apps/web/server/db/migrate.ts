@@ -3,6 +3,7 @@ import "server-only";
 import { readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { getSqlExecutor, type SqlExecutor } from "./sql";
+import { backfillOperatorRegistry } from "@/server/operator-events/backfill";
 import { migrationGateDecision } from "./migration-gate";
 
 type Migration = {
@@ -31,6 +32,10 @@ if (!decision.run) {
       for (const migration of migrations) {
         if (await isApplied(transaction, migration.id)) continue;
         await transaction.query(await readFile(migration.path, "utf8"));
+        if (migration.id === "db/011_operator_registry.sql") {
+          const counts = await backfillOperatorRegistry(transaction);
+          console.log(`Operator registry backfill: ${counts.customers} customers, ${counts.events} events.`);
+        }
         await transaction.query(
           "INSERT INTO schema_migrations (name) VALUES ($1)",
           [migration.id],

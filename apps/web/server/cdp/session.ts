@@ -105,6 +105,17 @@ function restoredAccountProvider(value: unknown): AccountProvider {
   return [...providers][0];
 }
 
+function verifiedEmail(value: unknown): string | null {
+  if (!value || typeof value !== "object" || !Array.isArray((value as VerifiedEndUser).authenticationMethods)) return null;
+  for (const method of (value as VerifiedEndUser).authenticationMethods as unknown[]) {
+    if (!method || typeof method !== "object" || !("type" in method) || method.type !== "email" ||
+        !("email" in method) || typeof method.email !== "string") continue;
+    const email = method.email.trim().toLowerCase();
+    if (email.length <= 320 && /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(email)) return email;
+  }
+  return null;
+}
+
 function normalizeVerifiedEndUser(
   value: unknown,
   accountProvider: AccountProvider,
@@ -145,6 +156,7 @@ export type SessionHandlerDependencies = {
   baseAccountEnabled?: boolean | (() => boolean);
   homeSessionSecret?: string;
   issueCookies?: (session: VerifiedAccountSession, request: Request) => string[];
+  onVerifiedSession?: (session: VerifiedAccountSession, context: { request: Request; email: string | null }) => void;
 };
 
 const privateResponseHeaders = {
@@ -251,6 +263,7 @@ export function createSessionHandler({
   homeSessionSecret,
   baseAccountEnabled,
   issueCookies,
+  onVerifiedSession,
 }: SessionHandlerDependencies) {
   return async function GET(request: Request): Promise<Response> {
     const accountProvider = readAccountProvider(request);
@@ -276,7 +289,9 @@ export function createSessionHandler({
     }
     if (nativeSession.kind === "valid") {
       if (accountProvider === "cdp-embedded") return invalidProviderResponse();
-      return jsonResponse(nativeSession.session, 200);
+      const response = jsonResponse(nativeSession.session, 200);
+      try { onVerifiedSession?.(nativeSession.session, { request, email: null }); } catch { return response; }
+      return response;
     }
     if (!accessToken) return unauthenticatedResponse();
     if (accountProvider === "base-account") return baseAccountDisabledResponse();
@@ -292,11 +307,13 @@ export function createSessionHandler({
       }
       const session = normalizeVerifiedEndUser(verifiedEndUser, selectedProvider);
 
-      return jsonResponse(
+      const response = jsonResponse(
         session,
         200,
         session.smartAccount ? issueCookies?.(session, request) ?? [] : [],
       );
+      try { onVerifiedSession?.(session, { request, email: verifiedEmail(verifiedEndUser) }); } catch { return response; }
+      return response;
     } catch (error) {
       if (error instanceof InvalidAccessTokenError) {
         return unauthenticatedResponse();

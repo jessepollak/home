@@ -95,6 +95,7 @@ export const SERVER_EVENT_KINDS = [
   "balances-store",
   "balances-signal",
   "balances-valuation",
+  "operator-registry",
 ] as const;
 export const SERVER_EVENT_OUTCOMES = [
   "failed",

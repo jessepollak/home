@@ -1,3 +1,5 @@
+import { deferCustomerRecord, resolveCustomer } from "@/server/customers/resolve";
+import { readRequestIsoCountry } from "@/server/region/request-country";
 import { issueCdpRenderHint } from "@/server/auth/cdp-render-session";
 import { isHomeSessionConfigured } from "@/server/auth/native-base-session";
 import { getCdpAccessTokenValidator } from "@/server/cdp/provider";
@@ -11,4 +13,8 @@ export const GET = createSessionHandler({
   baseAccountEnabled: () => isHomeSessionConfigured(process.env.HOME_SESSION_SECRET),
   issueCookies: (session, request) =>
     issueCdpRenderHint(process.env.HOME_SESSION_SECRET, session, request),
+  onVerifiedSession: (session, { request, email }) => {
+    const country = readRequestIsoCountry(request.headers);
+    void deferCustomerRecord(() => resolveCustomer(session, { create: true, email, country, at: new Date() }));
+  },
 });

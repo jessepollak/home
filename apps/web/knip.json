@@ -29,6 +29,7 @@
     // Direct Bun entry points are invoked by package scripts rather than
     // imported from production code.
     "server/db/migrate.ts!",
+    "server/operator-events/backfill-command.ts!",
     "server/funding/core/user-token-rotation.ts!",
     "live-login.ts!",
     // Figma variables sync, run by package scripts and the main-only CI job.
