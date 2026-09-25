@@ -47,7 +47,7 @@ Run the workshop loop for a journey-level proposal, and record its terminal resu
 
 The loop produces the review evidence above; it does not replace the `agent-browser` Home verification an implemented change still needs.
 
-Include the relevant failure/recovery path. For motion, include the short clip required above; when reduced motion applies, record the stable story target plus real browser media emulation, exact browser/device/viewport coverage, and the observed reduced behavior. A story name or viewport setting does not prove reduced-motion behavior.
+Include the relevant failure/recovery path. For motion, include the short clip required above; when reduced motion applies, record the stable story target plus real browser media emulation, exact browser/device/viewport coverage, and the observed reduced behavior. A story name or viewport setting does not prove reduced-motion behavior. When the PR is a design proposal with a Figma motion frame, the same recording also becomes the GIF placed in that frame with its duration, easing, story link and reduced-motion story link, per [Figma workflow](design-explorations/figma-workflow.md#motion-frames).
 
 Keep an accepted Proposed reference immutable as design history. If its component, fixture, or behavior changes before review, replace its commit, deployment links, and capture and return it to unreviewed when the observable proposal changed materially. After any implementation UI change, refresh Implemented media and agent-browser evidence against the current PR head; refresh Before when the compared baseline changed.
 

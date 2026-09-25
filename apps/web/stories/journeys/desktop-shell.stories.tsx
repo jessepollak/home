@@ -764,7 +764,7 @@ export const Breakpoint1024: Story = {
     await expect(grid.clientWidth - 17).toBeGreaterThanOrEqual(320 + 24 + 340);
     await userEvent.click(canvas.getByRole("button", { name: "Sidebar" }));
     await waitFor(() => expect(Math.abs(rail.getBoundingClientRect().width - 64)).toBeLessThanOrEqual(1));
-    await expectColumns(canvasElement, 355);
+    await waitFor(() => expectColumns(canvasElement, 355));
   },
 };
 export const ShortViewport: Story = {
