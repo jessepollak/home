@@ -15,9 +15,10 @@ import {
 import { useEffect, useState, type ReactNode } from "react";
 import { recordHomeStartupCache } from "@/client/observability/perf-marks";
 import type { HomeStartupCacheState } from "@/shared/observability/client-performance.contract";
+import { OWNER_SESSION_RETENTION_MS } from "@/shared/account/session-types";
 
 export const ownerQueryCachePrefix = "home.query.v1:";
-export const ownerQueryCacheTtlMs = 24 * 60 * 60 * 1000;
+export const ownerQueryCacheTtlMs = OWNER_SESSION_RETENTION_MS;
 export const ownerQueryPersistThrottleMs = 250;
 const forbiddenIdentityPattern = /authorization|bearer\s|eyj[a-z0-9_-]{10,}\./i;
 const maxIdentityLength = 200;
@@ -167,10 +168,13 @@ export function restoreOwnerQueries(
     return false;
   }
   const state = persisted.clientState;
-  hydrate(queryClient, {
-    ...state,
-    queries: state.queries.filter((query) => query.queryKey[0] === ownerKey),
-  });
+  const queries = state.queries.filter((query) =>
+    query.queryKey[0] === ownerKey && now - query.state.dataUpdatedAt <= ownerQueryCacheTtlMs);
+  if (queries.length === 0) {
+    persister?.removeClient();
+    return false;
+  }
+  hydrate(queryClient, { ...state, queries });
   return true;
 }
 

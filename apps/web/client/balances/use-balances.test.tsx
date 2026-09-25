@@ -1,7 +1,7 @@
 import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import {
   getHomeQueryClient,
   ownerQueryKey,
@@ -25,6 +25,16 @@ const session = {
 function Harness({ fetchBalances }: { fetchBalances: FetchBalances }) {
   const state = useBalances(session, "US", fetchBalances);
   return <output>{state.status === "ready" ? `${state.snapshot.region}:${state.snapshot.holdings.filter((holding) => holding.source === "catalog").length}` : state.status}</output>;
+}
+
+function ProvisionalHarness({ fetchBalances, provisional }: {
+  fetchBalances: FetchBalances;
+  provisional: boolean;
+}) {
+  const state = useBalances(session, "US", fetchBalances, { provisional });
+  return <output>{state.status === "ready"
+    ? `${state.snapshot.fetchedAt}:${state.refreshError === true ? "refresh-error" : "ready"}`
+    : state.status}</output>;
 }
 
 function RetryHarness({ fetchBalances }: { fetchBalances: FetchBalances }) {
@@ -60,6 +70,99 @@ afterEach(() => {
 });
 
 describe("useBalances", () => {
+  test("cached balances remain ready while a provisional refresh is pending", async () => {
+    const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
+    const key = ownerQueryKey(ownerKey, "balances", "US");
+    getHomeQueryClient().setQueryData(key, balancesSnapshotFixture, {
+      updatedAt: Date.now() - 60_000,
+    });
+    let reads = 0;
+    const view = render(<ProvisionalHarness provisional fetchBalances={() => {
+      reads += 1;
+      return new Promise(() => {});
+    }} />);
+    await waitFor(() => expect(reads).toBe(1));
+    expect(view.getByRole("status").textContent).toBe(`${balancesSnapshotFixture.fetchedAt}:ready`);
+  });
+
+  test("a cached provisional failure stays ready without an error before verification refetches", async () => {
+    const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
+    getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture, {
+      updatedAt: Date.now() - 60_000,
+    });
+    let reads = 0;
+    const fetchBalances: FetchBalances = async () => {
+      reads += 1;
+      if (reads === 1) throw new Error("unauthorized");
+      return balancesSnapshotFixture;
+    };
+    const view = render(<ProvisionalHarness provisional fetchBalances={fetchBalances} />);
+    await waitFor(() => expect(reads).toBe(1));
+    expect(view.getByRole("status").textContent).toBe(`${balancesSnapshotFixture.fetchedAt}:ready`);
+    view.rerender(<ProvisionalHarness provisional={false} fetchBalances={fetchBalances} />);
+    await waitFor(() => expect(reads).toBe(2));
+    expect(view.getByRole("status").textContent).toBe(`${balancesSnapshotFixture.fetchedAt}:ready`);
+  });
+
+  test("a failed provisional read remains loading until verification refetch succeeds", async () => {
+    let reads = 0;
+    const fetchBalances: FetchBalances = async () => {
+      reads += 1;
+      if (reads === 1) throw new Error("unauthorized");
+      return balancesSnapshotFixture;
+    };
+    const view = render(<ProvisionalHarness provisional fetchBalances={fetchBalances} />);
+    await waitFor(() => expect(reads).toBe(1));
+    expect(view.getByRole("status").textContent).toBe("loading");
+    await act(async () => {
+      view.rerender(<ProvisionalHarness provisional={false} fetchBalances={fetchBalances} />);
+    });
+    await waitFor(() => expect(reads).toBe(2));
+    await waitFor(() => expect(view.getByRole("status").textContent).toBe(`${balancesSnapshotFixture.fetchedAt}:ready`));
+  });
+
+  test("a provisional read that fails after verification triggers a verified refetch", async () => {
+    let reads = 0;
+    let rejectFirst: (error: Error) => void = () => {};
+    const fetchBalances: FetchBalances = () => {
+      reads += 1;
+      if (reads === 1) {
+        return new Promise((_, reject) => {
+          rejectFirst = reject;
+        });
+      }
+      return Promise.resolve(balancesSnapshotFixture);
+    };
+    const view = render(<ProvisionalHarness provisional fetchBalances={fetchBalances} />);
+    await waitFor(() => expect(reads).toBe(1));
+    await act(async () => {
+      view.rerender(<ProvisionalHarness provisional={false} fetchBalances={fetchBalances} />);
+    });
+    expect(reads).toBe(1);
+    expect(view.getByRole("status").textContent).toBe("loading");
+    await act(async () => {
+      rejectFirst(new Error("unauthorized"));
+    });
+    await waitFor(() => expect(reads).toBe(2));
+    await waitFor(() => expect(view.getByRole("status").textContent).toBe(`${balancesSnapshotFixture.fetchedAt}:ready`));
+  });
+
+  test("a failed provisional read refetches only once when verification enables the query", async () => {
+    let reads = 0;
+    const fetchBalances: FetchBalances = async () => {
+      reads += 1;
+      if (reads === 1) throw new Error("unauthorized");
+      return balancesSnapshotFixture;
+    };
+    const view = render(<ProvisionalHarness provisional fetchBalances={fetchBalances} />);
+    await waitFor(() => expect(reads).toBe(1));
+    await act(async () => {
+      view.rerender(<ProvisionalHarness provisional={false} fetchBalances={fetchBalances} />);
+    });
+    await waitFor(() => expect(view.getByRole("status").textContent).toBe(`${balancesSnapshotFixture.fetchedAt}:ready`));
+    expect(reads).toBe(2);
+  });
+
   test("bounds completed stale refetches and ignores interval recomputation", () => {
     const polling = { identity: "", dataUpdatedAt: 0, completedRefetches: 0 };
     const stale = { ...balancesSnapshotFixture, stale: true as const };

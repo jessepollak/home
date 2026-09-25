@@ -1,4 +1,5 @@
 export const BASE_CHAIN_ID = 8453 as const;
+export const OWNER_SESSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 export const ACCOUNT_PROVIDER_HEADER = "X-Home-Account-Provider";
 
 export type AccountProvider = "cdp-embedded" | "base-account";
