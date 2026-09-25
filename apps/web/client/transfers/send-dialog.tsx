@@ -22,7 +22,6 @@ import { formatAddress, formatUsdStablecoinAmount } from "@/shared/formatting";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { presentationRegions, type RegionId } from "@/config/regions";
 import { readProviderBindings, type FundingOfframpBinding } from "@/shared/funding/contracts/providers";
-import { readCashoutOrdersResponse, type CashoutOrderSummary } from "@/shared/funding/contracts/offramp-orders";
 import { canonicalizeCashPayee } from "@/shared/funding/cash-payee";
 import {
   readRecentTransferRecipientsResponse,
@@ -128,10 +127,6 @@ export function SendDialog({
   const [offramps, setOfframps] = useState<ReadonlyArray<FundingOfframpBinding> | null>([]);
   const [providersLoadedFor, setProvidersLoadedFor] = useState<string | null>(null);
   const [providerRetry, setProviderRetry] = useState(0);
-  const [activeOrders, setActiveOrders] = useState<ReadonlyArray<CashoutOrderSummary>>([]);
-  const [ordersLoadedFor, setOrdersLoadedFor] = useState<string | null>(null);
-  const [recoveryEligible, setRecoveryEligible] = useState(false);
-  const [recoveryAttemptedFor, setRecoveryAttemptedFor] = useState<string | null>(null);
   const [selectedOfframp, setSelectedOfframp] = useState<FundingOfframpBinding | null>(null);
   const [selectedPlatform, setSelectedPlatform] = useState<FundingOfframpBinding["paymentMethods"][number] | null>(null);
   const [payoutHandle, setPayoutHandle] = useState("");
@@ -184,10 +179,7 @@ export function SendDialog({
     ? recentRecipientState.recipients
     : [];
   const providersLoaded = regionReady && providersLoadedFor === resourceBoundary;
-  const ordersLoaded = regionReady && ordersLoadedFor === resourceBoundary;
   const eligibleOfframps = (providersLoaded ? offramps ?? [] : []).filter((binding) => selectedAsset?.symbol === "USDC" && binding.assetId === "base:usdc");
-  const visibleActiveOrders = ordersLoaded ? activeOrders : [];
-  const recoveryAttempted = recoveryAttemptedFor === resourceBoundary;
   const assetOptions = useMemo(() => availableAssets?.map((asset) => ({
     id: asset.id, label: asset.symbol, description: asset.name, currency: asset.cashCurrency,
     mark: presentPortfolioAssetMark({ assetKey: asset.assetKey, name: asset.name, symbol: asset.symbol, currency: asset.cashCurrency }, assetMarkResolution),
@@ -244,27 +236,6 @@ export function SendDialog({
       .finally(() => { if (!cancelled) setProvidersLoadedFor(requestedBoundary); });
     return () => { cancelled = true; };
   }, [fetchAccountResource, open, ownerBoundary, regionId, regionReady, resourceBoundary, providerRetry]);
-
-  useEffect(() => {
-    if (!open || !ownerBoundary || !fetchAccountResource || !regionReady) return;
-    let cancelled = false;
-    const requestedBoundary = resourceBoundary;
-    void fetchAccountResource(`/api/funding/offramp/orders?region=${encodeURIComponent(regionId)}&inFlight=1`)
-      .then((value) => {
-        if (cancelled) return;
-        const response = readCashoutOrdersResponse(value);
-        setActiveOrders(response.orders);
-        setRecoveryEligible(response.recoveryEligible);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setActiveOrders([]);
-          setRecoveryEligible(false);
-        }
-      })
-      .finally(() => { if (!cancelled) setOrdersLoadedFor(requestedBoundary); });
-    return () => { cancelled = true; };
-  }, [fetchAccountResource, open, ownerBoundary, regionId, regionReady, resourceBoundary]);
 
   useEffect(() => {
     if (!open || !ownerBoundary || !regionReady || !resumeActionId || resumedActionRef.current === resumeActionId) return;
@@ -332,24 +303,12 @@ export function SendDialog({
     else if (step === "handle") setStep("payout");
     else if (step === "handle-confirm") setStep("handle");
     else if (step === "confirm" || step === "error") {
+      if (cashout?.operation === "withdraw") {
+        onClose();
+        return;
+      }
       setAction(null);
-      setStep(cashout?.operation === "withdraw" ? "destination" : cashout ? "handle-confirm" : "destination");
-    }
-  }
-
-  async function recoverCashouts() {
-    if (!regionReady || !fetchAccountResource) return;
-    setRecoveryAttemptedFor(resourceBoundary);
-    setOrdersLoadedFor(null);
-    try {
-      const value = await fetchAccountResource(`/api/funding/offramp/orders?region=${encodeURIComponent(regionId)}&inFlight=1&recover=1`);
-      const response = readCashoutOrdersResponse(value);
-      setActiveOrders(response.orders);
-      setRecoveryEligible(response.recoveryEligible);
-    } catch {
-      setActiveOrders([]);
-    } finally {
-      setOrdersLoadedFor(resourceBoundary);
+      setStep(cashout ? "handle-confirm" : "destination");
     }
   }
 
@@ -399,28 +358,6 @@ export function SendDialog({
       setRequest(null); showPreparedReview(prepared);
     } catch (caught) {
       setError(networkFeeErrorMessage(caught) ?? serverCashoutMessage(caught)); setStep("handle-confirm");
-    }
-  }
-
-  async function prepareWithdraw(order: CashoutOrderSummary) {
-    if (!regionReady) return;
-    try {
-      if (!order.nextActions.includes("withdraw")) throw new Error("invalid");
-      setStep("preparing"); setError(null);
-      const prepared = await prepareMoneyAction("cash-out-withdraw", { providerId: order.providerId, region: regionId, depositId: order.depositId });
-      if (prepared.kind !== "cash-out-withdraw" || prepared.metadata?.product !== "cashout" || prepared.metadata.operation !== "withdraw") throw new Error("invalid");
-      const received = prepared.amounts.find((item) => item.direction === "receive");
-      if (!received) throw new Error("invalid");
-      setCashout({
-        operation: "withdraw", providerId: order.providerId, providerName: order.providerName, assetId: received.assetId,
-        symbol: received.symbol, decimals: received.decimals, amountBaseUnits: received.amountBaseUnits,
-        platform: order.platform, platformLabel: order.platformLabel,
-        currency: order.currency, payoutHandle: order.canonicalHandle ?? "", canonicalHandle: order.canonicalHandle,
-        approximateFiatAmount: "0", etaSeconds: null, depositId: order.depositId,
-      });
-      setRequest(null); showPreparedReview(prepared);
-    } catch (caught) {
-      setError(networkFeeErrorMessage(caught) ?? serverCashoutMessage(caught)); setStep("destination");
     }
   }
 
@@ -496,8 +433,6 @@ export function SendDialog({
             ) : null}
           </MoneyAmountDisplay>
           {!selectedAsset ? <StatusMessage>No catalog balance is available to send.</StatusMessage> : null}
-          {!selectedAsset && visibleActiveOrders.length > 0 ? <div className="grid gap-1">{visibleActiveOrders.map((order) => <RecoveryItem key={order.depositId} order={order} onWithdraw={() => void prepareWithdraw(order)} />)}</div> : null}
-          {!selectedAsset && providersLoaded && ordersLoaded && recoveryEligible && !recoveryAttempted && visibleActiveOrders.length === 0 ? <Button variant="ghost" size="sm" onClick={() => void recoverCashouts()}>Recover a Peer cash-out</Button> : null}
         </> : null}
         {step === "destination" ? <div className="grid gap-4">
           <AddressField
@@ -516,14 +451,12 @@ export function SendDialog({
           <FieldSeparator>Or</FieldSeparator>
           <div className="grid gap-1">
             {recentRecipients.length > 0 ? <RecentRecipients recipients={recentRecipients} onSelect={changeRecipient} /> : null}
-            {visibleActiveOrders.map((order) => <RecoveryItem key={order.depositId} order={order} onWithdraw={() => void prepareWithdraw(order)} />)}
             {eligibleOfframps.length > 0 ? <CashoutItem binding={eligibleOfframps[0]!} onSelect={() => { setSelectedOfframp(eligibleOfframps[0]!); setStep("payout"); }} /> : null}
             {providersLoaded && offramps === null ? <>
               <StatusMessage>Cash out is unavailable right now.</StatusMessage>
               <Button variant="ghost" size="sm" onClick={() => setProviderRetry((count) => count + 1)}>Try again</Button>
             </> : null}
             {providersLoaded && offramps?.length === 0 ? <StatusMessage>Cash out isn&apos;t available in {presentationRegions[regionId].countryName} yet.</StatusMessage> : null}
-            {providersLoaded && ordersLoaded && recoveryEligible && !recoveryAttempted && visibleActiveOrders.length === 0 ? <Button variant="ghost" size="sm" onClick={() => void recoverCashouts()}>Recover a Peer cash-out</Button> : null}
           </div>
         </div> : null}
         {step === "payout" && selectedOfframp ? <div className="grid gap-2">
@@ -648,23 +581,6 @@ function CashoutItem({ binding, onSelect }: { binding: FundingOfframpBinding; on
     <ItemContent className="min-w-0">
       <ItemTitle>{`Send to ${destination}`}</ItemTitle>
       <ItemDescription lines={1}>Use Peer to send via app</ItemDescription>
-    </ItemContent>
-    <ItemActions aria-hidden="true"><ChevronRight className="size-4 text-muted-foreground" /></ItemActions>
-  </Item>;
-}
-
-function RecoveryItem({ order, onWithdraw }: { order: CashoutOrderSummary; onWithdraw: () => void }) {
-  const amount = order.assetSymbol === "USDC"
-    ? formatUsdStablecoinAmount(order.remainingAmountAtomic, order.assetDecimals)
-    : `${atomicToDecimal(order.remainingAmountAtomic, order.assetDecimals)} ${order.assetSymbol}`;
-  return <Item
-    render={<Button variant="ghost" press="none" />}
-    className="flex-nowrap items-center text-left"
-    onClick={onWithdraw}
-  >
-    <ItemContent className="min-w-0">
-      <ItemTitle>{`Withdraw ${amount}`}</ItemTitle>
-      <ItemDescription lines={1}>{`${order.providerName} cash-out · ${order.state}`}</ItemDescription>
     </ItemContent>
     <ItemActions aria-hidden="true"><ChevronRight className="size-4 text-muted-foreground" /></ItemActions>
   </Item>;

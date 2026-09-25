@@ -71,14 +71,7 @@ function withdrawAction(): PreparedMoneyAction {
   };
 }
 
-const recoveryOrder = {
-  providerId: "peer", providerName: "Peer", assetId: "base:usdc", assetSymbol: "USDC", assetDecimals: 6,
-  depositId: "0xescrow_7", state: "awaiting-buyer", platform: "cashapp", platformLabel: "Cash App", currency: "USD",
-  canonicalHandle: null, amountAtomic: "2000000", remainingAmountAtomic: "2000000", nextActions: ["withdraw"] as const,
-};
-
 const feeResponse = { version: 1, usdcReserveBaseUnits: "20000" };
-
 const offrampResponse = {
   version: 2,
   direction: "offramp",
@@ -228,7 +221,7 @@ describe("SendDialog Peer cash-out", () => {
           availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
           fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers")
             ? { ...offrampResponse, providers: [{ ...offrampResponse.providers[0], region, currency, paymentMethods: methods.map((method) => ({ ...offrampResponse.providers[0]!.paymentMethods[0], ...method, platform: method.id })) }] }
-            : { version: 3, recoveryEligible: false, orders: [] }}
+            : {}}
           prepareMoneyAction={async () => cashoutAction()} resumeMoneyAction={async () => cashoutAction()}
           executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />,
       );
@@ -247,7 +240,7 @@ describe("SendDialog Peer cash-out", () => {
     render(
       <SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-au" regionId="AU"
         availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
-        fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers") ? pendingProviders : { version: 3, recoveryEligible: false, orders: [] }}
+        fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers") ? pendingProviders : { version: 1, recipients: [] }}
         prepareMoneyAction={async () => cashoutAction()} resumeMoneyAction={async () => cashoutAction()}
         executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />,
     );
@@ -266,7 +259,7 @@ describe("SendDialog Peer cash-out", () => {
         availableAssets={[{ ...getTransferAsset("eth")!, balanceBaseUnits: "1000000000000000000", balanceLabel: "$4,000.00" }]}
         fetchAccountResource={async (url) => url.startsWith("/api/funding/providers")
           ? { ...offrampResponse, providers: [{ ...offrampResponse.providers[0], region: "DE", currency: "EUR" }] }
-          : { version: 3, recoveryEligible: false, orders: [] }}
+          : {}}
         prepareMoneyAction={async () => cashoutAction()} resumeMoneyAction={async () => cashoutAction()}
         executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />,
     );
@@ -285,7 +278,7 @@ describe("SendDialog Peer cash-out", () => {
         availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
         fetchAccountResource={async (url) => {
           fetches.push(url);
-          return url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers") ? offrampResponse : { version: 3, recoveryEligible: false, orders: [] };
+          return url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers") ? offrampResponse : { version: 1, recipients: [] };
         }}
         prepareMoneyAction={async (kind, params) => { prepares.push({ kind, params }); return cashoutAction(); }}
         resumeMoneyAction={async () => cashoutAction()}
@@ -316,7 +309,7 @@ describe("SendDialog Peer cash-out", () => {
     expect(document.body.textContent).toContain("About 1 min");
     expect(document.body.textContent).toContain("approximate, not guaranteed");
     expect(prepares).toEqual([{ kind: "cash-out", params: expect.objectContaining({ payoutHandle: "$alice", canonicalHandleConfirmation: "alice", amountBaseUnits: "1000000" }) }]);
-    await waitFor(() => expect(fetches.filter((url) => url.startsWith("/api/funding"))).toHaveLength(2));
+    await waitFor(() => expect(fetches.filter((url) => url.startsWith("/api/funding/providers"))).toHaveLength(1));
   });
 
   test("renders cash-out handle fields with input hints", async () => {
@@ -326,7 +319,7 @@ describe("SendDialog Peer cash-out", () => {
         availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
         fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers")
           ? offrampResponse
-          : { version: 3, recoveryEligible: false, orders: [] }}
+          : {}}
         prepareMoneyAction={async () => cashoutAction()} resumeMoneyAction={async () => cashoutAction()}
         executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />,
     );
@@ -368,14 +361,13 @@ describe("SendDialog Peer cash-out", () => {
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     await waitFor(() => {
       expect(page().queryByRole("button", { name: /Send to Cash App/ })).toBeNull();
-      expect(page().queryByRole("button", { name: "Recover a Peer cash-out" })).toBeNull();
       expect(page().getByLabelText("To")).toBeTruthy();
       expect(page().queryByText(/Cash out isn't available/)).toBeNull();
       expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
     });
   });
 
-  test("keeps recovery available and retries failed provider discovery without showing an empty corridor", async () => {
+  test("retries failed provider discovery without showing an empty corridor", async () => {
     let providerReads = 0;
     let resolveRetry!: (value: unknown) => void;
     const retryRead = new Promise<unknown>((resolve) => { resolveRetry = resolve; });
@@ -389,7 +381,7 @@ describe("SendDialog Peer cash-out", () => {
             if (providerReads === 1) throw new Error("offline");
             return retryRead;
           }
-          return { version: 3, recoveryEligible: true, orders: [] };
+          return {};
         }}
         prepareMoneyAction={async () => resumedAction()} resumeMoneyAction={async () => resumedAction()}
         executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />,
@@ -398,12 +390,10 @@ describe("SendDialog Peer cash-out", () => {
     await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     expect(await page().findByText("Cash out is unavailable right now.")).toBeTruthy();
-    expect(page().getByRole("button", { name: "Recover a Peer cash-out" })).toBeTruthy();
     expect(page().queryByText(/Cash out isn't available/)).toBeNull();
     fireEvent.click(page().getByRole("button", { name: "Try again" }));
     expect(providerReads).toBe(2);
     expect(page().queryByText(/Cash out isn't available/)).toBeNull();
-    expect(page().getByRole("button", { name: "Recover a Peer cash-out" })).toBeTruthy();
     await act(async () => {
       resolveRetry({ ...offrampResponse, providers: [{
         ...offrampResponse.providers[0], region: "DE", currency: "EUR",
@@ -413,14 +403,13 @@ describe("SendDialog Peer cash-out", () => {
     });
     expect(page().getByRole("button", { name: /Send to Revolut/ })).toBeTruthy();
     expect(page().queryByText("Cash out is unavailable right now.")).toBeNull();
-    expect(page().getByRole("button", { name: "Recover a Peer cash-out" })).toBeTruthy();
     expect(page().queryByText(/Cash out isn't available/)).toBeNull();
   });
 
-  test("waits for settled reads and hides an empty explicit recovery result", async () => {
+  test("does not request extra resources when there are no sendable assets", async () => {
     let resolveProviders!: (value: unknown) => void;
     const providerRead = new Promise<unknown>((resolve) => { resolveProviders = resolve; });
-    let orderReads = 0;
+    const requests: string[] = [];
     render(
       <SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-peer-empty-recovery" regionId="US"
         availableAssets={[]}
@@ -428,31 +417,26 @@ describe("SendDialog Peer cash-out", () => {
           if (url.startsWith("/api/transfers/recent-recipients")) return { version: 1, recipients: [] };
           if (url.startsWith("/api/funding/providers")) return await providerRead;
           if (url === "/api/actions/network-fee") return { version: 1, usdcReserveBaseUnits: null };
-          orderReads += 1;
-          return { version: 3, recoveryEligible: true, orders: [] };
+          requests.push(url);
+          return {};
         }}
         prepareMoneyAction={async () => withdrawAction()} resumeMoneyAction={async () => withdrawAction()}
         executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />,
     );
 
-    await waitFor(() => expect(orderReads).toBe(1));
-    expect(page().queryByRole("button", { name: "Recover a Peer cash-out" })).toBeNull();
-    resolveProviders({ version: 2, direction: "offramp", providers: [] });
-    const recover = await page().findByRole("button", { name: "Recover a Peer cash-out" });
-    fireEvent.click(recover);
-    await waitFor(() => expect(orderReads).toBe(2));
-    expect(page().queryByRole("button", { name: "Recover a Peer cash-out" })).toBeNull();
+    await act(async () => { resolveProviders({ version: 2, direction: "offramp", providers: [] }); await providerRead; });
+    expect(page().getByText("No catalog balance is available to send.")).toBeTruthy();
+    expect(requests).toEqual([]);
   });
 
-  test("shows and prepares withdrawal recovery without enabled-provider discovery", async () => {
-    const prepares: Array<{ kind: string; params: unknown }> = [];
+  test("never exposes order recovery in the destination step", async () => {
     render(
-      <SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-peer-recovery" regionId="US"
+      <SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-no-order-recovery" regionId="US"
         availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
         fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers")
           ? { version: 2, direction: "offramp", providers: [] }
-          : { version: 3, recoveryEligible: true, orders: [recoveryOrder] }}
-        prepareMoneyAction={async (kind, params) => { prepares.push({ kind, params }); return withdrawAction(); }}
+          : { version: 1, recipients: [] }}
+        prepareMoneyAction={async () => withdrawAction()}
         resumeMoneyAction={async () => withdrawAction()}
         executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />,
     );
@@ -460,18 +444,8 @@ describe("SendDialog Peer cash-out", () => {
     fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
     await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
-    const recovery = await page().findByRole("button", { name: /Withdraw \$2\.00.*Peer cash-out.*awaiting-buyer/ });
-    expect(recovery).toBeTruthy();
+    await waitFor(() => expect(page().getByText("Cash out isn't available in United States yet.")).toBeTruthy());
     expect(page().queryByRole("button", { name: /Send to Cash App/ })).toBeNull();
-    fireEvent.click(recovery);
-    expect(await page().findByRole("button", { name: "Withdraw $2.00" })).toBeTruthy();
-    expect(page().getByRole("button", { name: "Withdraw $2.00" }).getAttribute("data-money-action-id")).toBe(ACTION_ID);
-    expect(page().getByText("From").closest("dl")?.querySelector("dt")?.textContent).toBe("From");
-    expect(page().getByRole("button", { name: `Copy ${formatAddress(withdrawAction().owner.address)}` })).toBeTruthy();
-    expect(prepares).toEqual([{
-      kind: "cash-out-withdraw",
-      params: { providerId: "peer", region: "US", depositId: "0xescrow_7" },
-    }]);
   });
 });
 
@@ -639,24 +613,25 @@ describe("SendDialog resume", () => {
     expect(invalidResumes).toBe(0);
   });
 
-  test("offers withdrawal recovery on the amount step when there are no sendable balances", async () => {
+  test("does not expose order recovery on the amount step without sendable balances", async () => {
+    const requests: string[] = [];
     render(
-      <SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-empty-recovery" regionId="US"
+      <SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-empty-no-recovery" regionId="US"
         availableAssets={[]}
-        fetchAccountResource={async (url) => url.startsWith("/api/funding/providers")
+        fetchAccountResource={async (url) => { requests.push(url); return url.startsWith("/api/funding/providers")
           ? { version: 2, direction: "offramp", providers: [] }
-          : { version: 3, recoveryEligible: true, orders: [recoveryOrder] }}
+          : { version: 1, recipients: [] }; }}
         prepareMoneyAction={async () => withdrawAction()} resumeMoneyAction={async () => withdrawAction()}
         executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />,
     );
 
-    const recovery = await page().findByRole("button", { name: /Withdraw \$2\.00.*Peer cash-out.*awaiting-buyer/ });
-    expect(recovery).toBeTruthy();
-    fireEvent.click(recovery);
-    expect(await page().findByText("You're withdrawing from Peer")).toBeTruthy();
+    expect(page().getByText("No catalog balance is available to send.")).toBeTruthy();
+    await waitFor(() => expect(requests.some((url) => url.includes("/api/funding/providers"))).toBe(true));
+    expect(page().queryByRole("button", { name: /Withdraw/ })).toBeNull();
   });
 
   test("resumes a pending USDC withdrawal exactly when only ETH is sendable", async () => {
+    let closes = 0;
     let invalidResumes = 0;
     render(
       <SendDialog
@@ -664,7 +639,7 @@ describe("SendDialog resume", () => {
         availableAssets={[{ ...getTransferAsset("eth")!, balanceBaseUnits: "1000000000000000000", balanceLabel: "$4,000.00" }]}
         prepareMoneyAction={async () => withdrawAction()} resumeMoneyAction={async () => withdrawAction()}
         executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })}
-        onInvalidResume={() => { invalidResumes += 1; }} onClose={() => {}}
+        onInvalidResume={() => { invalidResumes += 1; }} onClose={() => { closes += 1; }}
       />,
     );
 
@@ -672,7 +647,30 @@ describe("SendDialog resume", () => {
     expect(document.body.textContent).toContain("You're withdrawing from Peer");
     expect(document.body.textContent).toContain("Cash App");
     expect(document.body.textContent).not.toContain("approximate, not guaranteed");
+    expect(document.body.textContent).not.toContain("Payout handle");
     expect(invalidResumes).toBe(0);
+    fireEvent.click(page().getAllByRole("button", { name: "Back" }).at(-1)!);
+    expect(closes).toBe(1);
+  });
+
+  test("shows a server CASHOUT_ refusal on the payout handle confirmation step", async () => {
+    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-server-refusal" regionId="US"
+      availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
+      fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers") ? offrampResponse : { version: 1, recipients: [] }}
+      prepareMoneyAction={async () => { throw { code: "CASHOUT_IN_PROGRESS", serverMessage: "You already have a cash-out in progress. Check Activity." }; }}
+      resumeMoneyAction={async () => cashoutAction()}
+      executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />);
+    fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.click(await page().findByRole("button", { name: /Send to Cash App/ }));
+    fireEvent.click(page().getByRole("button", { name: "Cash App" }));
+    fireEvent.input(page().getByLabelText("Cash App handle"), { target: { value: "$alice" } });
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.input(page().getByLabelText("Re-enter handle"), { target: { value: "alice" } });
+    fireEvent.click(page().getByRole("button", { name: "Review" }));
+    expect((await page().findByRole("alert")).textContent).toBe("You already have a cash-out in progress. Check Activity.");
+    expect(page().getByLabelText("Re-enter handle")).toBeTruthy();
   });
 
   test("keeps an ordinary send review open when the wallet resolves rejected", async () => {

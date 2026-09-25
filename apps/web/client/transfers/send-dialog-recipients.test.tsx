@@ -77,7 +77,6 @@ function renderDialog({
         requested.push(url);
         if (url === "/api/actions/network-fee") return { version: 1, usdcReserveBaseUnits: "20000" };
         if (url.startsWith("/api/funding/providers")) return { version: 2, direction: "offramp", providers: [] };
-        if (url.startsWith("/api/funding/offramp/orders")) return { version: 3, recoveryEligible: false, orders: [] };
         if (url.startsWith("/api/transfers/recent-recipients")) return { version: 1, recipients: recent };
         const name = new URL(url, "https://home.test").searchParams.get("name") ?? "";
         const gate = gates.get(name);
@@ -257,7 +256,6 @@ describe("SendDialog recipient names", () => {
     const fetchAccountResource = async (url: string) => {
       requested.push(url);
       if (url.startsWith("/api/funding/providers")) return { version: 2, direction: "offramp", providers: [] };
-      if (url.startsWith("/api/funding/offramp/orders")) return { version: 3, recoveryEligible: false, orders: [] };
       if (url.startsWith("/api/transfers/recent-recipients")) return { version: 1, recipients: [{ address: RECIPIENT, name: "example.base.eth" }] };
       return {};
     };

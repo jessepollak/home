@@ -6,7 +6,6 @@ import { COUNTRY_PREFERENCE_VERSION, parseCountryPreferenceRequest } from "../..
 import {
   actionsBody,
   basenameProfileBody,
-  fundingOfframpOrdersBody,
   fundingProvidersBody,
   savingsVaultsBody,
   sessionBody,
@@ -245,7 +244,6 @@ export async function installApiFixtures(
         }],
       } : fundingProvidersBody);
     }
-    if (path === "/api/funding/offramp/orders") return json(route, fundingOfframpOrdersBody);
     if (path === "/api/funding/quotes") {
       return json(route, {
         quoteToken: "fixture-signed-quote",

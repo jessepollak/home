@@ -302,16 +302,6 @@ describe("observability schema", () => {
     } as never)).not.toHaveProperty("sandbox");
   });
 
-  test("keeps the offramp orders provider-error code so a 502 is distinguishable in logs", () => {
-    expect(normalizeObservabilityEvent({
-      kind: "funding-order",
-      route: "/api/funding/offramp/orders",
-      code: "OFFRAMP_ORDERS_PROVIDER_ERROR",
-      outcome: "unavailable",
-      durationMs: 0,
-    })).toMatchObject({ code: "OFFRAMP_ORDERS_PROVIDER_ERROR", outcome: "unavailable" });
-  });
-
   test("allows only closed user token diagnostics without credential fields", () => {
     for (const code of ["USER_TOKEN_KEY_UNAVAILABLE", "USER_TOKEN_EXPIRED", "USER_TOKEN_UNREADABLE", "USER_TOKEN_PRESERVED_UNREADABLE", "USER_TOKEN_CAPTURE_CONFLICT", "USER_TOKEN_STORE_FAILURE", "USER_TOKEN_CLEARED_AFTER_REJECTION", "USER_TOKEN_REJECTION_CLEAR_CONFLICT", "USER_TOKEN_CAPTURED"]) {
       const event = normalizeObservabilityEvent({ kind: "funding-order", route: "/api/funding/orders", code, outcome: "ok", provider: "coinbase", region: "US", sandbox: true, durationMs: 0 });

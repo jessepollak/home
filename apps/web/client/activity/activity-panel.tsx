@@ -21,6 +21,7 @@ import {
   presentActivityTransferDetails,
   presentActivityTransferRow,
 } from "./activity-presenter";
+import { presentCashout, presentCashoutDetails, cashoutMoney } from "./cash-out-presenter";
 import { mergeActivityFeed } from "./activity-feed";
 import { type UseActivityResult } from "./use-activity";
 import { ShimmerRows } from "@/client/home/panel-shared";
@@ -29,6 +30,7 @@ import type { ActivityPanelDensity, ActivityTransfer } from "./types";
 const TransactionDetailsSheet = deferSheet(() => import("@/components/transaction-details").then((module) => module.TransactionDetailsModal));
 const EMPTY_TRANSFERS: readonly ActivityTransfer[] = [];
 
+type Selection = { operation: RecentMoneyActionOperation; withdraw?: RecentMoneyActionOperation } | null;
 export function ActivityPanelView({
   activity,
   operations = [],
@@ -38,6 +40,10 @@ export function ActivityPanelView({
   header,
   emptyAction,
   retryActions,
+  onCancelCashout,
+  cancelBusy = false,
+  cancelError = null,
+  onDetailsChange,
 }: {
   activity: UseActivityResult;
   operations?: readonly RecentMoneyActionOperation[];
@@ -47,9 +53,13 @@ export function ActivityPanelView({
   header?: ReactNode | null;
   emptyAction?: ReactNode;
   retryActions?: () => void;
+  onCancelCashout?: (operation: RecentMoneyActionOperation) => void;
+  cancelBusy?: boolean;
+  cancelError?: string | null;
+  onDetailsChange?: () => void;
 }) {
   const [selectedTransfer, setSelectedTransfer] = useState<ActivityTransfer | null>(null);
-  const [selectedOperation, setSelectedOperation] = useState<RecentMoneyActionOperation | null>(null);
+  const [selection, setSelection] = useState<Selection>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const detailOpenerRef = useRef<HTMLElement | null>(null);
   const rememberDetailOpener = () => {
@@ -62,7 +72,7 @@ export function ActivityPanelView({
     if (activity.status !== "ready") {
       setDetailsOpen(false);
       setSelectedTransfer(null);
-      setSelectedOperation(null);
+      setSelection(null);
     }
   }
   const heading = header === undefined ? <DefaultActivityHeader /> : header;
@@ -129,10 +139,14 @@ export function ActivityPanelView({
     );
   }
 
+  const selected = selection && items.find((item) => item.kind === "action" && item.id === selection.operation.action.id);
+  const operation = selected?.kind === "action" ? selected.operation : selection?.operation;
+  const withdraw = selected?.kind === "action" ? selected.withdraw : selection?.withdraw;
+  const cashout = operation?.action.kind === "cash-out" ? presentCashout(operation, withdraw, { regionId }) : null;
   const details = selectedTransfer
     ? presentActivityTransferDetails(selectedTransfer, { regionId })
-    : selectedOperation
-      ? presentOperationDetails(selectedOperation, { regionId })
+    : operation
+      ? cashout ? presentCashoutDetails(operation, withdraw, { regionId }) : presentOperationDetails(operation, { regionId })
       : null;
   return (
     <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain}>
@@ -161,7 +175,8 @@ export function ActivityPanelView({
               regionId={regionId}
               onActivate={() => {
                 rememberDetailOpener();
-                setSelectedOperation(null);
+                onDetailsChange?.();
+                setSelection(null);
                 setSelectedTransfer(item.transfer);
                 setDetailsOpen(true);
               }}
@@ -171,10 +186,12 @@ export function ActivityPanelView({
               key={`action:${item.id}`}
               operation={item.operation}
               regionId={regionId}
+              withdraw={item.withdraw}
               onActivate={() => {
                 rememberDetailOpener();
+                onDetailsChange?.();
                 setSelectedTransfer(null);
-                setSelectedOperation(item.operation);
+                setSelection({ operation: item.operation, withdraw: item.withdraw });
                 setDetailsOpen(true);
               }}
             />
@@ -200,10 +217,16 @@ export function ActivityPanelView({
         open={detailsOpen}
         titleId="activity-transaction-details-title"
         details={details}
-        onClose={() => setDetailsOpen(false)}
+        footerAction={cashout?.cancellable && operation && onCancelCashout ? {
+          label: <>Cancel cash-out <MoneyTicker value={cashoutMoney(cashout.remaining, cashout.decimals, regionId)} /></>,
+          onClick: () => onCancelCashout(operation),
+          busy: cancelBusy,
+          error: cancelError,
+        } : undefined}
+        onClose={() => { setDetailsOpen(false); onDetailsChange?.(); }}
         onClosed={() => {
           setSelectedTransfer(null);
-          setSelectedOperation(null);
+          setSelection(null);
           const opener = detailOpenerRef.current;
           if (opener?.isConnected) opener.focus({ preventScroll: true });
         }}

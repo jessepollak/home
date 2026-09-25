@@ -53,6 +53,20 @@ function pendingSavings(operation: "deposit" | "withdraw") {
 }
 
 describe("pending action response parser", () => {
+  test("preserves optional cash-out deposit payee hash on reload", () => {
+    const value = pendingSavings("deposit");
+    const metadata = {
+      product: "cashout", operation: "deposit", providerId: "peer", providerName: "Peer", environment: "production",
+      platform: "cashapp", platformLabel: "Cash App", currency: "USD", canonicalHandle: "Alice",
+      approximateFiatAmount: "2", minConversionRate: "1", intentAmountRange: { min: "1000000", max: "1000000" },
+      estimateAsOf: "2026-09-12T12:00:00.000Z", escrow: VAULT,
+    };
+    const cashout = { ...value, kind: "cash-out", summary: { ...value.summary, metadata } };
+    expect(parsePendingActionResponse(cashout, ID, session)?.metadata).toMatchObject(metadata);
+    const withPayee = { ...cashout, summary: { ...cashout.summary,
+      metadata: { ...metadata, payeeHash: `0x${"ab".repeat(32)}` } } };
+    expect(parsePendingActionResponse(withPayee, ID, session)?.metadata).toMatchObject(withPayee.summary.metadata);
+  });
   test.each(["deposit", "withdraw"] as const)(
     "retains validated savings %s metadata on reload",
     (operation) => {

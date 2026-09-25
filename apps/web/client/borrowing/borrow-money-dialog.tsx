@@ -151,7 +151,7 @@ export function BorrowMoneyDialog({
     if (!preparedAction || !Number.isFinite(preparedExpiresAt) || preparedExpiresAt <= clockNow) return;
     const delay = Math.max(0, preparedExpiresAt - Date.now() + 1);
     if (delay > 2_147_000_000) return;
-    const timer = window.setTimeout(() => setClockNow(Date.now()), delay);
+    const timer = window.setTimeout(() => setClockNow(Date.now()), Math.max(delay, 1));
     return () => window.clearTimeout(timer);
   }, [clockNow, preparedAction, preparedExpiresAt]);
 

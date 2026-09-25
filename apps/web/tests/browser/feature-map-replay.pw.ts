@@ -13,7 +13,7 @@ const replaySurfaceIds = [
 const fixtureSkips: Record<string, string> = {
   "operator-console": "manual: signed native operator session and allowlist required; covered by admin.pw.ts",
   borrow: "manual: no /api/borrow market fixtures or prepared borrow action",
-  "cash-out": "manual: no Peer provider, payout, or in-flight order fixture",
+  "cash-out": "manual: Peer payout preparation and confirmation are not fixture-backed; Activity Cancel is covered in cash-out-cancel.pw.ts",
   "add-money": "manual: the fixture Reach is prose, not machine-readable steps",
   "access-gate": "manual: access-password journey requires its own isolated server configuration",
   "dev-ui": "manual: development-only theme inventory, not a customer journey",

@@ -1,9 +1,13 @@
 import { balancesSnapshot } from "../fixtures/balances";
 import { preparedSendFixtureAction } from "../fixtures/api";
 import { COUNTRY_PREFERENCE_VERSION } from "../../../shared/account/contracts/country-preference";
+import { cashoutFixtureAction, cashoutFixtureWithdraw } from "./cashout-fixture";
 import {
-  actionsBody, basenameProfileBody, fundingOfframpOrdersBody,
-  fundingProvidersBody, borrowOverviewBody, sessionBody,
+  actionsBody,
+  basenameProfileBody,
+  fundingProvidersBody,
+  borrowOverviewBody,
+  sessionBody,
 } from "../fixtures/bodies";
 import type { TradeDirection } from "../../../shared/trading/contract";
 
@@ -55,7 +59,7 @@ export function fixtureRoutes() {
       ...balances,
       holdings: balances.holdings.map((holding) => ({ ...holding, imageUrl: undefined })),
     }],
-    ["**/api/actions", actionsBody],
+    ["**/api/actions", { actions: [...actionsBody.actions, cashoutFixtureAction] }],
     ["**/api/actions/prepare", prepared],
     ["**/api/trades", { version: 1, status: "available" }],
     ["**/api/actions/network-fee", { version: 1, usdcReserveBaseUnits: "20000" }],
@@ -64,6 +68,19 @@ export function fixtureRoutes() {
       summary: { title: prepared.title, networkFee: prepared.networkFee, amounts: prepared.amounts, warnings: prepared.warnings, expiresAt: prepared.expiresAt },
       calls: prepared.calls, expiresAt: prepared.expiresAt,
     }],
+    [`**/api/actions/${cashoutFixtureWithdraw.id}`, {
+      id: cashoutFixtureWithdraw.id,
+      kind: cashoutFixtureWithdraw.kind,
+      summary: {
+        title: cashoutFixtureWithdraw.title,
+        amounts: cashoutFixtureWithdraw.amounts,
+        warnings: cashoutFixtureWithdraw.warnings,
+        expiresAt: cashoutFixtureWithdraw.expiresAt,
+        metadata: cashoutFixtureWithdraw.metadata,
+      },
+      calls: cashoutFixtureWithdraw.calls,
+      expiresAt: cashoutFixtureWithdraw.expiresAt,
+    }],
     ["**/api/activity**", {}],
     ["**/api/borrow", borrowOverview],
     ...borrowOverview.opportunities.flatMap((entry) => entry.availability.status === "available"
@@ -71,7 +88,6 @@ export function fixtureRoutes() {
       : []),
     ["**/api/client-performance", { ok: true }],
     ["**/api/funding/providers**", fundingProvidersBody],
-    ["**/api/funding/offramp/orders**", fundingOfframpOrdersBody],
     ["**/api/transfers/recipient-name**", { version: 1, name: "example.base.eth", address: recentRecipient }],
     ["**/api/transfers/recent-recipients**", {
       version: 1, recipients: [{ address: recentRecipient, name: "example.base.eth" }],

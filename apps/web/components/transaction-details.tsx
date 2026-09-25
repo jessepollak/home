@@ -6,7 +6,8 @@ import { NetworkMark } from "./network-mark";
 import { StatusStep, StatusSteps } from "./ui/status-step";
 import { TransactionAmount } from "./transaction-amount";
 import { TransactionStatusMark } from "./transaction-status";
-import { MoneyModal, MoneyModalBody, MoneyModalHeader } from "@/client/money-modal";
+import { MoneyModal, MoneyModalBody, MoneyModalFooter, MoneyModalHeader } from "@/client/money-modal";
+import type { ReactNode } from "react";
 import type { TransactionDetails } from "./transaction-explorer";
 
 export type { TransactionDetails } from "./transaction-explorer";
@@ -18,12 +19,14 @@ export function TransactionDetailsModal({
   details,
   onClose,
   onClosed,
+  footerAction,
 }: {
   open: boolean;
   titleId: string;
   details: TransactionDetails | null;
   onClose: () => void;
   onClosed?: () => void;
+  footerAction?: { label: ReactNode; onClick: () => void; busy?: boolean; error?: string | null } | null;
 }) {
   const rows = details?.rows ?? [];
   return (
@@ -39,7 +42,7 @@ export function TransactionDetailsModal({
         onClose={onClose}
         closeLabel="Close transaction details"
       />
-      <MoneyModalBody hasFooter={false} className="pt-4">
+      <MoneyModalBody hasFooter={Boolean(footerAction)} className="pt-4">
         {details?.header ? <div className="pb-4"><TransactionAmount {...details.header} /></div> : null}
         {details?.steps?.length ? <div className="pb-4"><StatusSteps>
           {details.steps.map((step) => <StatusStep key={step.title} status={step.status} title={step.title} time={step.time} />)}
@@ -87,7 +90,15 @@ export function TransactionDetailsModal({
             </a>
           </div>
         ) : null}
+        {footerAction?.error ? <p role="alert" className="text-sm text-destructive">{footerAction.error}</p> : null}
       </MoneyModalBody>
+      {footerAction ? (
+        <MoneyModalFooter
+          primaryLabel={footerAction.label}
+          onPrimary={footerAction.onClick}
+          primaryDisabled={footerAction.busy}
+        />
+      ) : null}
     </MoneyModal>
   );
 }

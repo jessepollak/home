@@ -7,13 +7,18 @@ import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { formatAddress, formatFiatAmount, formatPresentationTokenAmount } from "@/shared/formatting";
 import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
 import { activityOwnerKey } from "@/client/activity/use-activity";
+import { cashoutMoney, outranksCashoutWithdraw, presentCashout } from "@/client/activity/cash-out-presenter";
+import { readCashoutProgress, type CashoutProgress } from "@/shared/funding/contracts/cash-out-progress";
+import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import { actionFailureEvent } from "./action-toast-events";
 
 const defaultDismissAfterMs = homeToastDurationMs;
 type ToastAction = {
   id: string;
   kind: string;
-  status: "pending" | "confirmed";
+  status: "pending" | "confirmed" | "failed" | "unknown";
+  cashout?: CashoutProgress;
+  depositId?: string;
   summary: {
     metadata?: { product: "borrow"; operation: string } | { product: "trade"; direction: "buy" | "sell" };
     amounts: Array<{
@@ -28,13 +33,53 @@ type ToastAction = {
   };
 };
 
-export function ActionToasts({ session, fetchOperations, dismissAfterMs = defaultDismissAfterMs }: {
+type Seen = { status: ToastAction["status"]; stage: string | null };
+
+function asOperation(action: ToastAction): RecentMoneyActionOperation {
+  return {
+    action: {
+      id: action.id,
+      kind: "cash-out",
+      title: "Cash out",
+      amounts: action.summary.amounts.map((amount) => ({ ...amount, assetId: "usdc" })),
+      warnings: [],
+      expiresAt: "",
+      createdAt: "",
+    },
+    status: action.status,
+    ...(action.cashout ? { cashout: action.cashout } : {}),
+    createdAt: "",
+    updatedAt: "",
+  };
+}
+
+function linkedWithdraw(action: ToastAction, actions: ToastAction[]): RecentMoneyActionOperation | undefined {
+  const depositId = action.cashout?.depositId;
+  if (!depositId) return undefined;
+  let withdrawal: ToastAction | undefined;
+  for (const item of actions) {
+    if (item.kind !== "cash-out-withdraw" || item.depositId?.toLowerCase() !== depositId.toLowerCase()) continue;
+    if (outranksCashoutWithdraw(item, withdrawal, false)) withdrawal = item;
+  }
+  if (!withdrawal) return undefined;
+  return { ...asOperation(withdrawal), status: withdrawal.status };
+}
+
+function stageFor(action: ToastAction, actions: ToastAction[]): string | null {
+  return action.kind === "cash-out" ? presentCashout(asOperation(action), linkedWithdraw(action, actions)).stage : null;
+}
+
+export function ActionToasts({
+  session,
+  fetchOperations,
+  dismissAfterMs = defaultDismissAfterMs,
+}: {
   session: VerifiedAccountSession | null;
   fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
   dismissAfterMs?: number;
 }) {
   const ownerKey = session?.smartAccount ? activityOwnerKey(session) : null;
-  const seenStatuses = useRef(new Map<string, ToastAction["status"]>());
+  const seenStatuses = useRef(new Map<string, Seen>());
   const seededOwners = useRef(new Set<string>());
   const { add, closeAll } = useHomeToast(ownerKey);
   const actions = useHomeQuery({
@@ -43,6 +88,9 @@ export function ActionToasts({ session, fetchOperations, dismissAfterMs = defaul
     staleTime: 10_000,
     retry: false,
     refetchOnWindowFocus: false,
+    refetchInterval: (query) => typeof document !== "undefined" && document.visibilityState === "visible" &&
+      parseToastActions(query.state.data).some((action, _index, all) => action.kind === "cash-out" &&
+        presentCashout(asOperation(action), linkedWithdraw(action, all)).refreshing) ? 15_000 : false,
     meta: ownerKey ? ownerQueryMeta(ownerKey, "owner") : undefined,
     queryFn: ({ signal }) => fetchOperations(signal),
     select: parseToastActions,
@@ -55,21 +103,36 @@ export function ActionToasts({ session, fetchOperations, dismissAfterMs = defaul
   useEffect(() => {
     if (!actions.data || !ownerKey) return;
     if (!seededOwners.current.has(ownerKey)) {
-      for (const action of actions.data) seenStatuses.current.set(`${ownerKey}\u0000${action.id}`, action.status);
+      for (const action of actions.data) {
+        seenStatuses.current.set(`${ownerKey}\u0000${action.id}`, { status: action.status, stage: stageFor(action, actions.data) });
+      }
       seededOwners.current.add(ownerKey);
       return;
     }
     for (const action of actions.data) {
-      const statusKey = `${ownerKey}\u0000${action.id}`;
-      const previous = seenStatuses.current.get(statusKey);
-      if (action.status === "pending" && previous === undefined) {
+      const key = `${ownerKey}\u0000${action.id}`;
+      const previous = seenStatuses.current.get(key);
+      const stage = stageFor(action, actions.data);
+      if (action.kind === "cash-out") {
+        const view = presentCashout(asOperation(action), linkedWithdraw(action, actions.data));
+        const amount = cashoutMoney(view.total, view.decimals);
+        if (previous === undefined && action.status === "pending") {
+          addToast(`Cash-out started ${amount}`);
+        } else if (previous?.stage && previous.stage !== stage && view.stage === "paid") {
+          addToast(`Paid ${amount} to ${view.app}`, "success");
+        } else if (previous?.stage && previous.stage !== stage && view.stage === "returned") {
+          addToast(BigInt(view.paid) === BigInt(0)
+            ? view.returned === "0" ? "Returned" : `Returned ${cashoutMoney(view.returned, view.decimals)}`
+            : view.status, "success");
+        }
+      } else if (action.status === "pending" && previous === undefined) {
         const message = actionToastMessage(action, "pending");
         if (message) addToast(message);
-      } else if (action.status === "confirmed" && previous === "pending") {
+      } else if (action.status === "confirmed" && previous?.status === "pending") {
         const message = actionToastMessage(action, "confirmed");
         if (message) addToast(message, "success");
       }
-      seenStatuses.current.set(statusKey, action.status);
+      seenStatuses.current.set(key, { status: action.status, stage });
     }
   }, [actions.data, addToast, ownerKey]);
   useEffect(() => {
@@ -88,7 +151,7 @@ function parseToastActions(value: unknown): ToastAction[] {
   if (!isRecord(value) || !Array.isArray(value.actions)) return [];
   return value.actions.flatMap((item): ToastAction[] => {
     if (!isRecord(item) || typeof item.id !== "string" || typeof item.kind !== "string" ||
-      (item.status !== "pending" && item.status !== "confirmed") || !isRecord(item.summary) ||
+      !["pending", "confirmed", "failed", "unknown"].includes(item.status as string) || !isRecord(item.summary) ||
       !Array.isArray(item.summary.amounts) || !Array.isArray(item.summary.warnings)) return [];
     const amounts = item.summary.amounts.flatMap((amount) => {
       if (!isRecord(amount) || typeof amount.symbol !== "string" || typeof amount.decimals !== "number" ||
@@ -101,13 +164,19 @@ function parseToastActions(value: unknown): ToastAction[] {
         ...(amount.maximum === true ? { maximum: true } : {}),
       }];
     });
-    const metadata = item.summary.metadata;
+    const metadata = isRecord(item.summary.metadata) ? item.summary.metadata : null;
+    const cashout = item.kind === "cash-out" ? readCashoutProgress(item.cashout) : null;
     return [{
-      id: item.id, kind: item.kind, status: item.status,
+      id: item.id,
+      kind: item.kind,
+      status: item.status as ToastAction["status"],
+      ...(cashout ? { cashout } : {}),
+      ...(metadata?.product === "cashout" && metadata.operation === "withdraw" && typeof metadata.depositId === "string"
+        ? { depositId: metadata.depositId } : {}),
       summary: {
-        ...(isRecord(metadata) && metadata.product === "borrow" && typeof metadata.operation === "string"
+        ...(metadata?.product === "borrow" && typeof metadata.operation === "string"
           ? { metadata: { product: "borrow" as const, operation: metadata.operation } }
-          : isRecord(metadata) && metadata.product === "trade" && (metadata.direction === "buy" || metadata.direction === "sell")
+          : metadata?.product === "trade" && (metadata.direction === "buy" || metadata.direction === "sell")
             ? { metadata: { product: "trade" as const, direction: metadata.direction } }
             : {}),
         amounts,
@@ -117,7 +186,7 @@ function parseToastActions(value: unknown): ToastAction[] {
   });
 }
 
-function actionToastMessage(action: ToastAction, status: ToastAction["status"]): string | null {
+function actionToastMessage(action: ToastAction, status: "pending" | "confirmed"): string | null {
   const metadata = action.summary.metadata;
   const tradeDirection = action.kind === "trade" && metadata?.product === "trade" ? metadata.direction : null;
   if (tradeDirection) {
@@ -154,13 +223,12 @@ function actionToastMessage(action: ToastAction, status: ToastAction["status"]):
   if (operation === "withdraw-collateral") return `${status === "pending" ? "Withdrawing collateral" : "Withdrew collateral"} ${formatted}`;
   if (operation === "borrow") return `${status === "pending" ? "Borrowing" : "Borrowed"} ${formatted}`;
   if (operation === "repay") return `${status === "pending" ? "Repaying" : "Repaid"} ${formatted}`;
-  if (operation === "cash-out") return `${status === "pending" ? "Cashing out" : "Cashed out"} ${formatted}`;
-  if (operation === "cash-out-withdraw") return `${status === "pending" ? "Recovering" : "Recovered"} ${formatted}`;
+  if (operation === "cash-out-withdraw") return status === "pending" ? `Returning ${cashoutMoney(amount.amountBaseUnits, amount.decimals)}` : null;
   if (operation === "close-position") return status === "pending" ? "Closing Borrow position" : "Closed Borrow position";
   return null;
 }
 
-function operationKind(kind: string, borrowOperation?: string): "send" | "deposit" | "withdraw" | "cash-out" | "cash-out-withdraw" | "supply-collateral" | "withdraw-collateral" | "borrow" | "repay" | "close-position" | null {
+function operationKind(kind: string, borrowOperation?: string): "send" | "deposit" | "withdraw" | "cash-out-withdraw" | "supply-collateral" | "withdraw-collateral" | "borrow" | "repay" | "close-position" | null {
   if (borrowOperation === "borrow" || borrowOperation === "supply-and-borrow") return "borrow";
   if (borrowOperation === "repay" || borrowOperation === "repay-all") return "repay";
   if (borrowOperation === "close-position") return "close-position";
@@ -169,12 +237,8 @@ function operationKind(kind: string, borrowOperation?: string): "send" | "deposi
   if (kind === "send") return "send";
   if (kind === "savings-deposit") return "deposit";
   if (kind === "savings-withdraw") return "withdraw";
-  if (kind === "cash-out") return "cash-out";
   if (kind === "cash-out-withdraw") return "cash-out-withdraw";
-  if (kind === "supply-collateral") return "supply-collateral";
-  if (kind === "withdraw-collateral") return "withdraw-collateral";
-  if (kind === "borrow") return "borrow";
-  if (kind === "repay") return "repay";
+  if (kind === "supply-collateral" || kind === "withdraw-collateral" || kind === "borrow" || kind === "repay") return kind;
   return null;
 }
 function failedVerb(kind: string): string {

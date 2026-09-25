@@ -63,6 +63,7 @@ type CashoutMoneyActionMetadataBase = {
   providerId: string;
   providerName: string;
   environment: "production" | "sandbox";
+  region?: string;
   platform: string;
   platformLabel: string;
   currency: string;
@@ -74,8 +75,8 @@ type CashoutMoneyActionMetadataBase = {
   escrow: `0x${string}`;
 };
 export type CashoutMoneyActionMetadata = CashoutMoneyActionMetadataBase & (
-  | { operation: "deposit"; canonicalHandle: string; depositId?: never }
-  | { operation: "withdraw"; canonicalHandle?: never; depositId: string }
+  | { operation: "deposit"; canonicalHandle: string; payeeHash?: `0x${string}`; depositId?: never }
+  | { operation: "withdraw"; canonicalHandle?: never; payeeHash?: never; depositId: string }
 );
 
 export type SavingsMoneyActionMetadata = {

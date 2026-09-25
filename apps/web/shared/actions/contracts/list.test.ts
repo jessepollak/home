@@ -62,6 +62,11 @@ describe("recent Home action activity", () => {
     expect(parseRecentMoneyActions({ actions: [cashout] }, session)[0]?.action.metadata).toMatchObject({
       product: "cashout", providerId: "peer", platform: "cashapp", canonicalHandle: "$alice",
     });
+    const withPayee = { ...cashout, summary: { ...cashout.summary,
+      metadata: { ...cashout.summary.metadata, payeeHash: `0x${"ab".repeat(32)}` } } };
+    expect(parseRecentMoneyActions({ actions: [withPayee] }, session)[0]?.action.metadata).toMatchObject({
+      payeeHash: `0x${"ab".repeat(32)}`,
+    });
   });
 
   test("preserves validated savings metadata for confirmed Activity rows", () => {

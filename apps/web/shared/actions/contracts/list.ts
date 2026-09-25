@@ -1,6 +1,6 @@
-
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { ActionSummaryResponse } from "./get";
+import { readCashoutProgress, type CashoutProgress } from "@/shared/funding/contracts/cash-out-progress";
 import {
   isActionKind,
   type ActionKind,
@@ -24,6 +24,7 @@ export type ActionListItem = {
   providerHandle?: string;
   transactionHash?: string;
   owner: MoneyActionOwner;
+  cashout?: CashoutProgress;
 };
 export type ListActionsResponse = { actions: ActionListItem[] };
 
@@ -42,6 +43,7 @@ export type RecentMoneyActionOperation = {
   status: DerivedActionStatus;
   transactionHash?: `0x${string}`;
   userOperationHash?: `0x${string}`;
+  cashout?: CashoutProgress;
   createdAt: string;
   updatedAt: string;
   submittedAt?: string;
@@ -57,6 +59,7 @@ export function parseRecentMoneyActions(value: unknown, session: VerifiedAccount
     if (typeof item.id !== "string" || !isActionKind(item.kind) || !isDerivedStatus(item.status) ||
       typeof item.createdAt !== "string" || typeof item.confirmedAt !== "string" || typeof item.summary.title !== "string" ||
       !Array.isArray(item.summary.amounts) || !Array.isArray(item.summary.warnings) || typeof item.summary.expiresAt !== "string") continue;
+    const cashout = item.kind === "cash-out" ? readCashoutProgress(item.cashout) : null;
     parsed.push({
       action: {
         id: item.id,
@@ -73,6 +76,7 @@ export function parseRecentMoneyActions(value: unknown, session: VerifiedAccount
       createdAt: item.createdAt,
       updatedAt: item.confirmedAt,
       ...(typeof item.submittedAt === "string" && Number.isFinite(Date.parse(item.submittedAt)) ? { submittedAt: item.submittedAt } : {}),
+      ...(cashout ? { cashout } : {}),
       ...(typeof item.transactionHash === "string" && /^0x[0-9a-fA-F]{64}$/.test(item.transactionHash) ? { transactionHash: item.transactionHash.toLowerCase() as `0x${string}` } : {}),
       ...(typeof item.providerHandle === "string" && /^0x[0-9a-fA-F]{64}$/.test(item.providerHandle) ? { userOperationHash: item.providerHandle.toLowerCase() as `0x${string}` } : {}),
     });
@@ -87,7 +91,7 @@ function isMoneyMetadata(value: unknown): value is MoneyActionMetadata {
       typeof value.providerId === "string" && typeof value.providerName === "string" &&
       (value.environment === "production" || value.environment === "sandbox") &&
       typeof value.platform === "string" && typeof value.platformLabel === "string" && typeof value.currency === "string" &&
-      (value.operation === "deposit" ? typeof value.canonicalHandle === "string" && value.depositId === undefined : value.canonicalHandle === undefined && typeof value.depositId === "string") &&
+      (value.operation === "deposit" ? typeof value.canonicalHandle === "string" && (value.payeeHash === undefined || typeof value.payeeHash === "string") && value.depositId === undefined : value.canonicalHandle === undefined && value.payeeHash === undefined && typeof value.depositId === "string") &&
       typeof value.approximateFiatAmount === "string" &&
       typeof value.minConversionRate === "string" && isRecord(value.intentAmountRange) &&
       typeof value.intentAmountRange.min === "string" && typeof value.intentAmountRange.max === "string" &&
