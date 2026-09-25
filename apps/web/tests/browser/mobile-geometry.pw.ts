@@ -47,12 +47,12 @@ async function waitForHomeMark(page: Page, mark: "session:verified" | "action:fi
   }).toBeGreaterThan(0);
 }
 
-async function openPaymentMethodSelect(page: Page) {
+async function openPaymentMethodRadioGroup(page: Page) {
   await page.goto("/home");
   await waitForHomeMark(page, "action:first-interactive");
   await page.getByRole("button", { name: "Add money" }).click();
   await page.getByRole("button", { name: /Deposit IDR/ }).click();
-  await page.getByRole("combobox", { name: "Payment method" }).click();
+  return page.getByRole("radiogroup", { name: "Payment method" });
 }
 
 async function openCountryCombobox(page: Page) {
@@ -123,23 +123,31 @@ test("mobile cash-out handle fields meet touch-target and zoom-safe metrics", as
   }
 });
 
-test("shared picker options meet the mobile touch height without regressing desktop density", async ({ page }) => {
-  await installPickerFixtures(page);
-  await page.setViewportSize({ width: 390, height: 844 });
-  await openPaymentMethodSelect(page);
-  await expectTouchHeight(page.getByRole("option", { name: "Bank transfer · Mandiri" }), "Select");
-  await page.keyboard.press("Escape");
+test.describe("touch pickers", () => {
+  test.use({ hasTouch: true });
+  test("shared picker options meet the mobile touch height", async ({ page }) => {
+    await installPickerFixtures(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    const group = await openPaymentMethodRadioGroup(page);
+    const mandiri = group.getByRole("radio", { name: "Bank transfer · Mandiri" });
+    const bca = group.getByRole("radio", { name: "Bank transfer · BCA" });
+    const mandiriRow = page.locator("label", { has: page.getByRole("radio", { name: "Bank transfer · Mandiri" }) });
+    const bcaRow = page.locator("label", { has: page.getByRole("radio", { name: "Bank transfer · BCA" }) });
+    await expectTouchHeight(mandiriRow, "RadioGroup label");
+    await expectTouchHeight(bcaRow, "RadioGroup label");
+    await expect(mandiri).toBeChecked();
+    await bcaRow.tap();
+    await expect(bca).toBeChecked();
+    await expect(page.getByRole("dialog", { name: "Deposit IDR" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Review quote" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Review quote" })).toHaveCount(0);
 
-  await openCountryCombobox(page);
-  const country = page.getByRole("option", { name: "Indonesia" });
-  await country.scrollIntoViewIfNeeded();
-  await expectTouchHeight(country, "Combobox");
-  await page.keyboard.press("Escape");
-
-  await page.setViewportSize({ width: 900, height: 844 });
-  await openPaymentMethodSelect(page);
-  expect(Math.round(await optionHeight(page.getByRole("option", { name: "Bank transfer · Mandiri" }))))
-    .toBeLessThanOrEqual(32);
+    await openCountryCombobox(page);
+    const country = page.getByRole("option", { name: "Indonesia" });
+    await country.scrollIntoViewIfNeeded();
+    await expectTouchHeight(country, "Combobox");
+    await page.keyboard.press("Escape");
+  });
 });
 
 test("mobile tab bar keeps browser-tab safe-area spacing", async ({ page, context }) => {
