@@ -129,7 +129,7 @@ export function ActivityPanelView({
   const details = selectedTransfer
     ? presentActivityTransferDetails(selectedTransfer, { regionId })
     : selectedOperation
-      ? presentOperationDetails(selectedOperation)
+      ? presentOperationDetails(selectedOperation, { regionId })
       : null;
   return (
     <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain}>
@@ -166,6 +166,7 @@ export function ActivityPanelView({
             <OperationActivityRow
               key={`action:${item.id}`}
               operation={item.operation}
+              regionId={regionId}
               onActivate={() => {
                 rememberDetailOpener();
                 setSelectedTransfer(null);

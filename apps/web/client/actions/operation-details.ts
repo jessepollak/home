@@ -11,6 +11,7 @@ import {
 import type { OperationResult } from "@/shared/money-actions/types";
 import type { ActionKind, MoneyActionAmount } from "@/shared/money-actions/types";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
+import type { RegionId } from "@/config/regions";
 
 const VAULT_SHARE_SYMBOL = "vault shares";
 
@@ -50,6 +51,7 @@ export function primaryOperationAmount(
 
 export function presentOperationDetails(
   operation: RecentMoneyActionOperation,
+  options: { regionId?: RegionId; timeZone?: string } = {},
 ): TransactionDetails {
   const rows: TransactionDetailRow[] = [
     { label: "Status", value: labelForOperationStatus(operation.status) },
@@ -83,13 +85,18 @@ export function presentOperationDetails(
         amount.amountBaseUnits,
         amount.decimals,
         amount.symbol,
+        { regionId: options.regionId },
       )}`,
     });
   }
 
   rows.push(
     { label: "Network", value: "Base (8453)" },
-    { label: "Updated", value: formatPresentationDate(operation.updatedAt, { style: "activity-short" }) },
+    { label: "Updated", value: formatPresentationDate(operation.updatedAt, {
+      style: "activity-short",
+      regionId: options.regionId,
+      timeZone: options.timeZone,
+    }) },
   );
 
   if (operation.transactionHash) {

@@ -79,6 +79,28 @@ describe("operation transaction details", () => {
     });
   });
 
+  test("localizes recorded action details by presentation region", () => {
+    const operation = baseOperation({
+      action: {
+        ...baseOperation().action,
+        amounts: [{
+          assetId: "usdc",
+          symbol: "USDC",
+          decimals: 6,
+          amountBaseUnits: "1234567890",
+          direction: "spend",
+        }],
+      },
+    });
+    const british = presentOperationDetails(operation, { regionId: "GB", timeZone: "UTC" });
+    expect(british.rows.find((row) => row.label === "Updated")?.value).toMatch(/^8 Sept?, 5:03$/);
+    expect(british.rows).toContainEqual({ label: "You spend", value: "1,234.56789 USDC" });
+
+    const brazilian = presentOperationDetails(operation, { regionId: "BR", timeZone: "UTC" });
+    expect(brazilian.rows).toContainEqual({ label: "Updated", value: "8 de set., 5:03" });
+    expect(brazilian.rows).toContainEqual({ label: "You spend", value: "1.234,56789 USDC" });
+  });
+
   test("distinguishes spend and receive directions with shared presentation formatting", () => {
     const details = presentOperationDetails(
       baseOperation({
