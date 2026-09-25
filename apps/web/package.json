@@ -41,6 +41,7 @@
     "@zkp2p/sdk": "0.14.1",
     "class-variance-authority": "0.7.1",
     "cn": "0.3.0",
+    "input-otp": "1.5.0",
     "liveline": "0.0.7",
     "lucide-react": "1.42.0",
     "motion": "13.2.0",

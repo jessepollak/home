@@ -15,7 +15,3 @@ type Story = StoryObj<typeof meta>;
 export const Default: Story = {};
 
 export const Invalid: Story = { args: { "aria-invalid": true, defaultValue: "999" } };
-
-export const VerificationCode: Story = {
-  args: { "aria-label": "Verification code", variant: "otp", defaultValue: "123456" },
-};

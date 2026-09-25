@@ -113,7 +113,7 @@ Use the owned component contracts rather than restyling their slots:
 - Grouped money rows (review summary, transaction receipt) use `Card variant="flush"` with `CardContent inset="list"`; rows inside carry `px-3` and no dividers.
 - `Button variant="navigation"` owns primary-navigation presentation, and `size="inline"` is for small actions embedded in prose.
 - `Button press="standard" | "icon" | "none"` owns press feedback: standard actions compress on pointer/touch-down, icon-only controls compress deliberately more, and `none` keeps wide rows, navigation, and link-like text still as whole surfaces. Every variant mirrors its hover treatment in `active:` and reduced motion drops every press transform while keeping those color cues.
-- `Input variant="otp" | "code"` owns verification-code and monospace input typography. `InputGroupInput` forwards the same variant.
+- `InputOTP` / `InputOTPGroup` / `InputOTPSlot` own one-box-per-digit verification with a single accessible input. `Input variant="code"` owns monospace input typography; `InputGroupInput` forwards the same variant.
 - `PayoutMark variant="cashapp" | "zelle" | "monzo" | "revolut" | "fallback" | "count"` owns circular payout-mark geometry, typography, and semantic brand colors.
 - `Switch` is the semantic on/off control. Drawer surface, title, header, footer, safe-area, shadow, and immediate-motion treatment are owned defaults.
 - `RadioGroup` is the mutually exclusive choice control for funding/payout choices confirmed by a separate action; direct-action rows stay `Item`/`Button`.

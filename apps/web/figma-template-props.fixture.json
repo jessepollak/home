@@ -9,6 +9,7 @@
   "161:1847": {"Title#161:80":"Add money","Show footer#161:83":[true,false],"DrawerContent#274:0":"slot","DrawerFooter#274:3":"slot","title":["default","money"]},
   "161:1885": {"Title#161:86":"Address copied","type":["default","success","info","warning","error","loading"]},
   "160:1654": {"Value#160:0":"Email","variant":["default","otp","code"],"state":["default","focus","filled","disabled","error"]},
+  "211:3668": {"state":["empty","active","typing","filled","error","disabled"]},
   "160:1673": {"Placeholder#160:10":"Search assets","Show addon#160:14":[true,false],"state":["default","focus","error"]},
   "160:1684": {"Label#160:18":"Email","Description#282:4":"We send a code to this address.","FieldControl#282:7":"slot","state":["default","error"]},
   "158:1880": {"Label#158:26":"Amount","state":["default","disabled"]},

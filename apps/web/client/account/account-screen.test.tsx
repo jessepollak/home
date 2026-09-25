@@ -51,6 +51,7 @@ const noopSignOut = async () => {};
 function SheetHarness({
   requestEmailCode,
   baseAccountEnabled = false,
+  verifyEmailOTP,
   baseAccountConnector,
   baseAccountRestorer,
   signOut,
@@ -60,6 +61,7 @@ function SheetHarness({
 }: {
   requestEmailCode: AccountWalletSdkBoundary["signInWithEmail"];
   baseAccountEnabled?: boolean;
+  verifyEmailOTP?: AccountWalletSdkBoundary["verifyEmailOTP"];
   baseAccountConnector?: BaseAccountConnector;
   baseAccountRestorer?: BaseAccountRestorer;
   signOut?: AccountWalletSdkBoundary["signOut"];
@@ -86,7 +88,7 @@ function SheetHarness({
       isSignedIn: signedIn,
       ownerKey: signedIn ? "existing-owner" : null,
       signInWithEmail: requestEmailCode,
-      verifyEmailOTP: async () => setSignedIn(true),
+      verifyEmailOTP: verifyEmailOTP ?? (async () => setSignedIn(true)),
       requestBaseAccountChallenge: async () => ({
         nonce: "a".repeat(48), chainId: 8453, domain: "home.example", uri: "https://home.example",
         version: "1", statement: "Sign in to Home.", issuedAt: "2026-09-13T12:00:00.000Z",
@@ -96,7 +98,7 @@ function SheetHarness({
       getAccessToken: async () => signedIn ? "fixture-token" : null,
       signOut: signOut ?? noopSignOut,
     }),
-    [requestEmailCode, signOut, signedIn],
+    [requestEmailCode, signOut, signedIn, verifyEmailOTP],
   );
 
   return (
@@ -171,10 +173,9 @@ describe("production account sign-in sheet", () => {
       target: { value: "fixture@example.test" },
     });
     fireEvent.click(page().getByRole("button", { name: "Continue with email" }));
-    fireEvent.input(await page().findByRole("textbox", { name: "Verification code" }), {
-      target: { value: "123456" },
-    });
-    fireEvent.submit(page().getByRole("textbox", { name: "Verification code" }).closest("form")!);
+    const code = await page().findByRole("textbox", { name: "Verification code" });
+    fireEvent.paste(code, { clipboardData: { getData: () => "123456" } });
+    fireEvent.click(page().getByRole("button", { name: "Verify and continue" }));
 
     await waitFor(() => expect(handoffs).toHaveLength(1));
     expect(handoffs[0]).toEqual({ dialogOpen: false, formShown: false });
@@ -184,6 +185,39 @@ describe("production account sign-in sheet", () => {
     fireEvent.click(page().getByRole("button", { name: "Open account" }));
     expect(await page().findByRole("dialog", { name: "Sign in to Home" })).toBeTruthy();
     expect(handoffs).toHaveLength(1);
+  });
+
+  test("marks the code invalid only when verification rejects it", async () => {
+    const failures = [new Error("network unavailable"), new Error("invalid otp"), new Error("code expired")];
+    render(
+      <SheetHarness
+        requestEmailCode={async () => ({ flowId: "fixture-flow" })}
+        verifyEmailOTP={async () => { throw failures.shift(); }}
+      />,
+    );
+    fireEvent.click(page().getByRole("button", { name: "Open account" }));
+    fireEvent.input(await page().findByRole("textbox", { name: "Email address" }), {
+      target: { value: "fixture@example.test" },
+    });
+    fireEvent.click(page().getByRole("button", { name: "Continue with email" }));
+    const code = await page().findByRole("textbox", { name: "Verification code" });
+    fireEvent.paste(code, { clipboardData: { getData: () => "012345" } });
+
+    fireEvent.click(page().getByRole("button", { name: "Verify and continue" }));
+    expect((await page().findByRole("alert")).textContent).toContain("could not verify");
+    expect(code.getAttribute("aria-invalid")).toBeNull();
+
+    fireEvent.click(page().getByRole("button", { name: "Verify and continue" }));
+    expect((await page().findByText(/not valid/)).textContent).toContain("not valid");
+    await waitFor(() => expect(code.getAttribute("aria-invalid")).toBe("true"));
+
+    (code as HTMLInputElement).setSelectionRange(0, 6);
+    fireEvent.paste(code, { clipboardData: { getData: () => "987654" } });
+    await waitFor(() => expect(code.getAttribute("aria-invalid")).toBeNull());
+
+    fireEvent.click(page().getByRole("button", { name: "Verify and continue" }));
+    expect((await page().findByText(/expired/)).textContent).toContain("expired");
+    await waitFor(() => expect(code.getAttribute("aria-invalid")).toBe("true"));
   });
 
   test("existing verified session does not auto-close a new email attempt", async () => {

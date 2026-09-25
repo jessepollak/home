@@ -221,6 +221,43 @@ test("sign-in returns to Save through the signed-in shell", async ({ page }) => 
   await expect(page.getByRole("region", { name: "Save" })).toBeVisible();
 });
 
+test("sign-in code slots accept paste, editing and scripted autofill", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 700 });
+  await installApiFixtures(page);
+  await page.goto("/?account=signin");
+  await page.getByLabel("Email address").fill("fixture@example.test");
+  await page.getByLabel("Email address").press("Enter");
+  const code = page.getByRole("textbox", { name: "Verification code" });
+  const verify = page.getByRole("button", { name: "Verify and continue" });
+  await expect(code).toBeFocused();
+  await expect(code).toHaveAttribute("autocomplete", "one-time-code");
+  await expect(code).toHaveAttribute("inputmode", "numeric");
+
+  await page.keyboard.type("01a2");
+  await expect(code).toHaveValue("012");
+  await page.keyboard.press("Backspace");
+  await expect(code).toHaveValue("01");
+  await expect(verify).toBeDisabled();
+
+  await code.evaluate((input: HTMLInputElement) => {
+    input.setSelectionRange(0, input.value.length);
+    const data = new DataTransfer();
+    data.setData("text/plain", "012 345");
+    input.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+  });
+  await expect(code).toHaveValue("012345");
+  await expect(verify).toBeEnabled();
+
+  await code.evaluate((input: HTMLInputElement) => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "654321");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await expect(code).toHaveValue("654321");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await verify.click();
+  await expect(page).toHaveURL(/\/home$/);
+});
+
 test("representative canonical routes SSR and hydrate their selected panel", async ({ page }) => {
   await seedSignedInSession(page, "GB");
   await page.addInitScript(() => {
