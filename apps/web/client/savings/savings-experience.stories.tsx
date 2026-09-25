@@ -250,7 +250,7 @@ export const StaleRates: Story = {
   parameters: {
     docs: {
       description: {
-        story: "A retained discovery snapshot is visibly stale and offers an explicit retry without upgrading its APY.",
+        story: "A retained discovery snapshot shows its last known numeric APY without a stale notice; rates refresh quietly.",
       },
     },
   },

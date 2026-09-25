@@ -24,12 +24,12 @@ export type ExactSavingsApy = {
 };
 
 export type SavingsApySummary =
-  | { status: "available"; value: ExactSavingsApy }
-  | { status: "partial" | "unavailable" | "stale"; value: null };
+  | { status: "available" | "stale"; value: ExactSavingsApy }
+  | { status: "partial" | "unavailable"; value: null };
 
 export type SavingsRateState =
-  | { status: "available"; value: number }
-  | { status: "unavailable" | "stale"; value: null };
+  | { status: "available" | "stale"; value: number }
+  | { status: "unavailable"; value: null };
 
 export type SavingsPortfolioSummary = {
   balance:
@@ -137,12 +137,8 @@ export function summarizeSavingsPortfolio({
     metadataStale,
     nowMs,
   }));
-  if (rates.some((rate) => rate.status === "stale")) {
-    return { balance, apy: { status: "stale", value: null }, funded: true, vaults };
-  }
-
   const exactRates = rates.map((rate) =>
-    rate.status === "available" ? exactNonNegativeDecimal(rate.value) : null
+    rate.status !== "unavailable" ? exactNonNegativeDecimal(rate.value) : null
   );
   const validRateCount = exactRates.filter((rate) => rate !== null).length;
   if (validRateCount !== exactRates.length) {
@@ -168,7 +164,7 @@ export function summarizeSavingsPortfolio({
   return {
     balance,
     apy: {
-      status: "available",
+      status: rates.some((rate) => rate.status === "stale") ? "stale" : "available",
       value: {
         numerator,
         denominator: total * scaleFactor,
@@ -177,6 +173,15 @@ export function summarizeSavingsPortfolio({
     funded: true,
     vaults,
   };
+}
+
+export function hasUsableSavingsRateObservation(
+  candidate: MorphoVaultCandidate,
+  nowMs = Date.now(),
+): boolean {
+  if (exactNonNegativeDecimal(candidate.netApy) === null) return false;
+  const timestamps = [parseTimestamp(candidate.stateAsOf), parseTimestamp(candidate.source.fetchedAt)];
+  return timestamps.every((timestamp) => timestamp !== null && timestamp <= nowMs + SAVINGS_RATE_MAX_FUTURE_SKEW_MS);
 }
 
 export function getSavingsRateState(
@@ -211,7 +216,7 @@ export function getSavingsRateState(
     nowMs - metadataReadAt! > SAVINGS_RATE_FRESHNESS_MS ||
     nowMs - stateAsOf! > SAVINGS_STATE_MAX_AGE_MS
   ) {
-    return { status: "stale", value: null };
+    return { status: "stale", value: candidate.netApy! };
   }
   return { status: "available", value: candidate.netApy! };
 }

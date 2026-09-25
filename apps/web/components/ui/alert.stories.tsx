@@ -40,7 +40,7 @@ export const WithAction: Story = {
   render: (args) => (
     <div className="w-80">
       <Alert {...args}>
-        <AlertDescription>Vault rates stale.</AlertDescription>
+        <AlertDescription>Vaults are temporarily unavailable.</AlertDescription>
         <AlertAction>
           <Button variant="ghost">Retry</Button>
         </AlertAction>

@@ -47,7 +47,6 @@ import type {
   MorphoVaultCandidate,
   MorphoVaultsResult,
 } from "@/shared/savings/types";
-import { parseVaultsResult } from "@/shared/savings/contracts/vaults";
 import {
   preferredSavingsCandidates,
   readUsdcBaseUnits,
@@ -66,11 +65,7 @@ import {
   summarizeSavingsPortfolio,
   type SavingsApySummary,
 } from "./portfolio-summary";
-import {
-  publicQueryKey,
-  useHomeQuery,
-} from "@/client/query/query-client";
-import { deploymentHeaders } from "@/client/query/deployment-headers";
+import { useSavingsVaults } from "./use-savings-vaults";
 import { useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 
 type SavingsExperienceProps = {
@@ -165,7 +160,7 @@ export function AuthenticatedSavingsExperience() {
 export function SavingsExperience({
   initialData = null,
   session = null,
-  fetchVaults = fetchSavingsVaults,
+  fetchVaults,
   now = Date.now,
   availableUsdcBaseUnits = null,
   balancePositions = null,
@@ -198,19 +193,7 @@ export function SavingsExperience({
   const normalizedInitialRouteRef = useRef(false);
   const hosted = Boolean(useOptionalAppChrome());
   const hasSession = Boolean(session?.smartAccount);
-  const metadataQuery = useHomeQuery({
-    queryKey: publicQueryKey("savings-vaults"),
-    initialData: initialData ?? undefined,
-    staleTime: 60_000,
-    retry: false,
-    refetchOnWindowFocus: false,
-    queryFn: ({ signal }) => fetchVaults(signal),
-    select: (value) => {
-      const data = parseVaultsResult(value);
-      if (!data) throw new Error("Savings vault metadata is invalid.");
-      return data;
-    },
-  });
+  const metadataQuery = useSavingsVaults({ initialData, fetchVaults });
   const loadState = useMemo<LoadState>(
     () =>
       metadataQuery.data
@@ -451,7 +434,7 @@ export function SavingsExperience({
                   title="Nothing saved yet"
                   description={
                     selected && loadState.status === "ready"
-                      ? `Available vault · ${shortVaultLabel(selected.name)} · ${savingsVaultApyLabel(selected, loadState.data, rateNowMs)}`
+                      ? availableVaultDescription(selected, loadState.data, rateNowMs)
                       : undefined
                   }
                 />
@@ -466,7 +449,7 @@ export function SavingsExperience({
                 title="Nothing saved yet"
                 description={
                   selected && loadState.status === "ready"
-                    ? `Available vault · ${shortVaultLabel(selected.name)} · ${savingsVaultApyLabel(selected, loadState.data, rateNowMs)}`
+                    ? availableVaultDescription(selected, loadState.data, rateNowMs)
                     : undefined
                 }
               />
@@ -499,17 +482,6 @@ export function SavingsExperience({
         </CardContent>
       </Card>
 
-      {loadState.status === "ready" && loadState.data.stale ? (
-        <Alert role="status">
-          <AlertDescription>
-            Vault rates stale.
-          </AlertDescription>
-          <AlertAction>
-            <Button variant="ghost" onClick={() => void metadataQuery.refetch()}>Retry</Button>
-          </AlertAction>
-        </Alert>
-      ) : null}
-
       {loadState.status === "loading" ? (
         <section className="space-y-3" aria-label="Vaults" aria-busy="true">
           <VaultListSkeleton />
@@ -534,6 +506,12 @@ export function SavingsExperience({
                   entry.vaultAddress.toLowerCase() ===
                   candidate.vaultAddress.toLowerCase(),
               );
+              const apyLabel = loadState.status === "ready"
+                ? savingsVaultApyLabel(candidate, loadState.data, rateNowMs)
+                : null;
+              const fundedApy = funded && loadState.status === "ready"
+                ? fundedVaultApyLabel(candidate, loadState.data, rateNowMs)
+                : null;
               const rowValue = showBalanceRows ? (
                 <MoneyTicker
                   value={
@@ -542,11 +520,7 @@ export function SavingsExperience({
                       : formatUsdStablecoinAmount(balance.amount.toString())
                   }
                 />
-              ) : loadState.status === "ready" ? (
-                savingsVaultApyLabel(candidate, loadState.data, rateNowMs)
-              ) : (
-                "APY unavailable"
-              );
+              ) : apyLabel;
               return (
                 <div
                   key={candidate.vaultAddress}
@@ -580,19 +554,15 @@ export function SavingsExperience({
                     </ItemMedia>
                     <ItemContent className="min-w-0">
                       <ItemTitle>{candidate.name}</ItemTitle>
-                      {funded && loadState.status === "ready" ? (
-                        <ItemDescription>
-                          {fundedVaultApyLabel(
-                            candidate,
-                            loadState.data,
-                            rateNowMs,
-                          )}
-                        </ItemDescription>
+                      {fundedApy !== null ? (
+                        <ItemDescription>{fundedApy}</ItemDescription>
                       ) : null}
                     </ItemContent>
-                    <ItemContent className="items-end text-right">
-                      <ItemTitle numeric>{rowValue}</ItemTitle>
-                    </ItemContent>
+                    {rowValue !== null ? (
+                      <ItemContent className="items-end text-right">
+                        <ItemTitle numeric>{rowValue}</ItemTitle>
+                      </ItemContent>
+                    ) : null}
                   </Item>
                   {isSelected ? (
                     <dl
@@ -708,48 +678,38 @@ function vaultInitials(name: string): string {
     .join("");
 }
 
-function fundedVaultApyLabel(
+function availableVaultDescription(
   candidate: MorphoVaultCandidate,
   metadata: MorphoVaultsResult,
   nowMs: number,
 ): string {
+  const label = savingsVaultApyLabel(candidate, metadata, nowMs);
+  return `Available vault · ${shortVaultLabel(candidate.name)}${label ? ` · ${label}` : ""}`;
+}
+
+function fundedVaultApyLabel(
+  candidate: MorphoVaultCandidate,
+  metadata: MorphoVaultsResult,
+  nowMs: number,
+): string | null {
   const rate = getSavingsRateState(candidate, {
     metadataFetchedAt: metadata.source.fetchedAt,
     metadataStale: metadata.stale,
     nowMs,
   });
-  if (rate.status === "stale") return "APY stale";
-  if (rate.status === "unavailable") return "APY unavailable";
+  if (rate.status === "unavailable") return null;
   return formatPresentationPercentage(rate.value);
 }
 
 function FundedApyCaption({ apy }: { apy: SavingsApySummary }) {
-  if (apy.status === "available") {
+  if (apy.status === "available" || apy.status === "stale") {
     return (
       <p className="text-sm text-muted-foreground">
         Earning ~{formatExactSavingsApy(apy.value)}
       </p>
     );
   }
-  if (apy.status === "partial") {
-    return (
-      <p className="text-sm text-muted-foreground" role="status">
-        APY partially unavailable
-      </p>
-    );
-  }
-  if (apy.status === "stale") {
-    return (
-      <p className="text-sm text-muted-foreground" role="status">
-        APY data stale
-      </p>
-    );
-  }
-  return (
-    <p className="text-sm text-muted-foreground" role="status">
-      APY unavailable
-    </p>
-  );
+  return null;
 }
 
 function SavingsEmpty({
@@ -840,15 +800,6 @@ function collectVaultBalances(
       amount: readUsdcBaseUnits(entry.position.assetsRaw),
     };
   });
-}
-
-async function fetchSavingsVaults(signal?: AbortSignal): Promise<unknown> {
-  const response = await fetch("/api/savings/vaults", {
-    headers: { ...deploymentHeaders(), accept: "application/json" },
-    signal,
-  });
-  if (!response.ok) throw new Error("Vault request failed");
-  return response.json();
 }
 
 const BASE_USDC_ASSET = {

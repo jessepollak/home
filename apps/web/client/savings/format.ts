@@ -22,14 +22,13 @@ export function savingsVaultApyLabel(
   candidate: MorphoVaultCandidate,
   metadata: MorphoVaultsResult,
   nowMs: number,
-): string {
+): string | null {
   const rate = getSavingsRateState(candidate, {
     metadataFetchedAt: metadata.source.fetchedAt,
     metadataStale: metadata.stale,
     nowMs,
   });
-  if (rate.status === "stale") return "APY stale";
-  if (rate.status === "unavailable") return "APY unavailable";
+  if (rate.status === "unavailable") return null;
   return `${formatPresentationPercentage(rate.value)} APY`;
 }
 

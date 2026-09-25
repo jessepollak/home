@@ -5,22 +5,17 @@ import { useAccountWallet } from "@/client/account/cdp-client";
 import { useBalances } from "@/client/balances";
 import type { RegionId } from "@/config/regions";
 import {
-  publicQueryKey,
-  useHomeQuery,
-} from "@/client/query/query-client";
-import { deploymentHeaders } from "@/client/query/deployment-headers";
-import {
   BASE_USDC_ADDRESS,
   BASE_USDC_DECIMALS,
   MORPHO_V1_CANDIDATE_ADDRESSES,
 } from "@/shared/savings/config";
-import { parseVaultsResult } from "@/shared/savings/contracts/vaults";
 import { selectVaultPositions } from "@/shared/balances/select";
 import {
   nextSavingsRateExpiryAt,
   summarizeSavingsPortfolio,
 } from "./portfolio-summary";
 import { savingsTeaserApyLabel } from "./savings-teaser-apy";
+import { useSavingsVaults } from "./use-savings-vaults";
 
 const BASE_USDC_ASSET = {
   address: BASE_USDC_ADDRESS,
@@ -30,7 +25,7 @@ const BASE_USDC_ASSET = {
 
 export function useSavingsRateLabel(regionId: RegionId): string | null {
   const account = useAccountWallet();
-  const session = account.status === "verified" ? account.session : null;
+  const session = account.verification ? account.session : null;
   const balancesSession = session?.smartAccount
     ? {
         subject: session.user.subject,
@@ -39,29 +34,13 @@ export function useSavingsRateLabel(regionId: RegionId): string | null {
         accountProvider: session.accountProvider,
       }
     : null;
-  const balances = useBalances(balancesSession, regionId, account.fetchBalances);
+  const balances = useBalances(balancesSession, regionId, account.fetchBalances, {
+    enabled: account.verification === "server",
+  });
   const positions = balances.snapshot ? selectVaultPositions(balances.snapshot) : null;
   const [rateNowMs, setRateNowMs] = useState(() => Date.now());
 
-  const metadataQuery = useHomeQuery({
-    queryKey: publicQueryKey("savings-vaults"),
-    staleTime: 60_000,
-    retry: false,
-    refetchOnWindowFocus: false,
-    queryFn: async ({ signal }) => {
-      const response = await fetch("/api/savings/vaults", {
-        headers: { ...deploymentHeaders(), accept: "application/json" },
-        signal,
-      });
-      if (!response.ok) throw new Error("Vault request failed");
-      return response.json();
-    },
-    select: (value) => {
-      const data = parseVaultsResult(value);
-      if (!data) throw new Error("Savings vault metadata is invalid.");
-      return data;
-    },
-  });
+  const metadataQuery = useSavingsVaults();
   const metadataFetchedAt = metadataQuery.data?.source.fetchedAt ?? null;
   useEffect(() => {
     if (!metadataFetchedAt) return;
