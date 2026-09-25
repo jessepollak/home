@@ -73,6 +73,10 @@ function verifiedWallet(address: `0x${string}` = ADDRESS_A): FundingWallet {
   };
 }
 
+function enterAmount(value: string) {
+  fireEvent.change(page().getByRole("textbox", { name: "Amount" }), { target: { value } });
+}
+
 afterEach(() => {
   cleanup();
   getHomeQueryClient().clear();
@@ -237,6 +241,54 @@ describe("FundingExperience", () => {
     expect(provider.textContent).not.toContain("Deposit COP with Ripio");
   });
 
+  test("Enter requests one quote from the fiat amount field, which rejects a third decimal and locks during the request", async () => {
+    const quoteBodies: unknown[] = [];
+    let resolveQuote!: (value: unknown) => void;
+    const pendingQuote = new Promise<unknown>((resolve) => { resolveQuote = resolve; });
+    const wallet = {
+      ...verifiedWallet(),
+      fetchAccountResource: async (path: string, options?: { body?: unknown }) => {
+        if (path.startsWith("/api/funding/providers")) return { providers: [redirectBinding()] };
+        if (path.startsWith("/api/funding/orders?")) return { order: null };
+        if (path === "/api/funding/quotes") {
+          quoteBodies.push(options?.body);
+          return pendingQuote;
+        }
+        throw new Error("unexpected request");
+      },
+    };
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="ID" />);
+    fireEvent.click(await page().findByRole("button", { name: /Deposit IDR/ }));
+    const field = page().getByRole("textbox", { name: "Amount" }) as HTMLInputElement;
+    const review = page().getByRole("button", { name: "Review quote" });
+    expect(review.hasAttribute("disabled")).toBe(true);
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(quoteBodies).toHaveLength(0);
+
+    enterAmount("20000.12");
+    expect(field.value).toBe("20000.12");
+    enterAmount("20000.123");
+    expect(field.value).toBe("20000.12");
+    enterAmount("20000");
+    fireEvent.keyDown(field, { key: "Enter" });
+    await waitFor(() => expect(quoteBodies).toHaveLength(1));
+    expect(quoteBodies).toEqual([{
+      providerId: "idrx", region: "ID", paymentMethod: "qris", fiatAmount: "20000",
+    }]);
+    expect(field.disabled).toBe(true);
+    expect(review.hasAttribute("disabled")).toBe(true);
+
+    await act(async () => {
+      resolveQuote({
+        quoteToken: "signed-token",
+        quote: { fiatAmount: "20000", tokenAmountAtomic: "2000000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" },
+      });
+      await pendingQuote;
+    });
+    expect(await page().findByRole("heading", { name: "Review quote" })).toBeTruthy();
+    expect(quoteBodies).toHaveLength(1);
+  });
+
   test("lists configured provider bindings and creates an order with only the quote token", async () => {
     const requests: Array<{ path: string; body: unknown }> = [];
     const wallet = {
@@ -254,7 +306,7 @@ describe("FundingExperience", () => {
     const provider = await page().findByRole("button", { name: /Deposit ARS/ });
     fireEvent.click(provider);
     expect(page().getByRole("dialog", { name: "Deposit ARS" })).toBeTruthy();
-    for (const key of ["1", "0", "0", "0"]) fireEvent.click(page().getByRole("button", { name: key }));
+    enterAmount("1000");
     fireEvent.click(page().getByRole("button", { name: "Review quote" }));
     await page().findByRole("heading", { name: "Review quote" });
     expect(page().queryByText("Sandbox — not a real deposit")).toBeNull();
@@ -285,7 +337,7 @@ describe("FundingExperience", () => {
     };
     render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
     fireEvent.click(await page().findByRole("button", { name: /Deposit ARS/ }));
-    for (const key of ["1", "0", "0", "0"]) fireEvent.click(page().getByRole("button", { name: key }));
+    enterAmount("1000");
     fireEvent.click(page().getByRole("button", { name: "Review quote" }));
     await page().findByRole("heading", { name: "Review quote" });
     expect(page().getAllByText("Sandbox — not a real deposit")).toHaveLength(1);
@@ -357,7 +409,7 @@ describe("FundingExperience", () => {
     } };
     render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
     fireEvent.click(await page().findByRole("button", { name: /Deposit ARS/ }));
-    for (const key of ["1", "0", "0", "0"]) fireEvent.click(page().getByRole("button", { name: key }));
+    enterAmount("1000");
     fireEvent.click(page().getByRole("button", { name: "Review quote" }));
     await page().findByRole("heading", { name: "Review quote" });
     fireEvent.click(page().getByRole("button", { name: "Confirm deposit" }));
@@ -399,7 +451,7 @@ describe("FundingExperience", () => {
 
       const view = render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
       fireEvent.click(await page().findByRole("button", { name: /Deposit ARS/ }));
-      for (const key of ["1", "0", "0", "0"]) fireEvent.click(page().getByRole("button", { name: key }));
+      enterAmount("1000");
       fireEvent.click(page().getByRole("button", { name: "Review quote" }));
       fireEvent.click(await page().findByRole("button", { name: "Confirm deposit" }));
       expect((await page().findByRole("alert")).textContent).toContain(message);
@@ -584,7 +636,7 @@ describe("FundingExperience", () => {
     );
 
     fireEvent.click(await page().findByRole("button", { name: /Deposit IDR/ }));
-    for (const key of ["2", "5", "0", "0", "0"]) fireEvent.click(page().getByRole("button", { name: key }));
+    enterAmount("25000");
     fireEvent.click(page().getByRole("button", { name: "Review quote" }));
     await page().findByRole("heading", { name: "Review quote" });
     fireEvent.click(page().getByRole("button", { name: "Confirm deposit" }));
@@ -660,8 +712,7 @@ describe("FundingExperience", () => {
       } };
       const view = render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="US" />);
       fireEvent.click(await page().findByRole("button", { name: /Deposit USD/ }));
-      fireEvent.click(page().getByRole("button", { name: "2" }));
-      fireEvent.click(page().getByRole("button", { name: "5" }));
+      enterAmount("25");
       fireEvent.click(page().getByRole("button", { name: "Review quote" }));
       const alert = await page().findByRole("alert");
       expect(alert.textContent).toContain(expected);
@@ -695,7 +746,7 @@ describe("FundingExperience", () => {
 
     render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={(url) => navigations.push(url)} regionId="US" />);
     fireEvent.click(await page().findByRole("button", { name: /Deposit USD/ }));
-    for (const key of ["2", "5"]) fireEvent.click(page().getByRole("button", { name: key }));
+    enterAmount("25");
     fireEvent.click(page().getByRole("button", { name: "Review quote" }));
     await page().findByRole("heading", { name: "Review quote" });
     fireEvent.click(page().getByRole("button", { name: "Confirm deposit" }));

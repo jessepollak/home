@@ -3,7 +3,7 @@ import "@/client/account/dom-test-harness";
 import { afterEach, describe, expect, test } from "bun:test";
 import { getHomeQueryClient } from "@/client/query/query-client";
 
-const { cleanup, renderHook, waitFor } = await import("@testing-library/react");
+const { act, cleanup, renderHook, waitFor } = await import("@testing-library/react");
 const { maxAmountAfterNetworkFee, useNetworkFeeReserve } = await import("./network-fee-policy");
 
 afterEach(() => { cleanup(); getHomeQueryClient().clear(); });
@@ -15,9 +15,26 @@ test.each(["request", "malformed"] as const)("%s failures keep USDC Max unavaila
     if (failure === "request") throw new Error("network unavailable");
     return { version: 1, usdcReserveBaseUnits: "bad" };
   }, true));
-  expect(result.current).toBeUndefined();
+  expect(result.current.reserve).toBeUndefined();
+  expect(result.current.failed).toBe(false);
   await waitFor(() => expect(requests).toBe(3));
-  expect(result.current).toBeUndefined();
+  await waitFor(() => expect(result.current.failed).toBe(true));
+  expect(result.current.reserve).toBeUndefined();
+});
+
+test("a manual retry clears the failure and yields the new reserve", async () => {
+  let requests = 0;
+  const { result } = renderHook(() => useNetworkFeeReserve("fee-retry", async () => {
+    requests++;
+    if (requests <= 3) throw new Error("network unavailable");
+    return { version: 1, usdcReserveBaseUnits: "20000" };
+  }, true));
+  await waitFor(() => expect(result.current.failed).toBe(true));
+  expect(result.current.reserve).toBeUndefined();
+  await act(async () => { result.current.retry(); });
+  await waitFor(() => expect(result.current.reserve).toBe("20000"));
+  expect(result.current.failed).toBe(false);
+  expect(requests).toBe(4);
 });
 
 test("a cached null is unavailable during a reopen refetch and yields the new reserve", async () => {
@@ -31,14 +48,15 @@ test("a cached null is unavailable during a reopen refetch and yields the new re
   const { result, rerender } = renderHook(({ open }) => useNetworkFeeReserve("fee-reopen", fetchAccountResource, open), {
     initialProps: { open: true },
   });
-  await waitFor(() => expect(result.current).toBeNull());
+  await waitFor(() => expect(result.current.reserve).toBeNull());
   rerender({ open: false });
   expect(requests).toBe(1);
   rerender({ open: true });
   await waitFor(() => expect(requests).toBe(2));
-  expect(result.current).toBeUndefined();
+  expect(result.current.reserve).toBeUndefined();
+  expect(result.current.failed).toBe(false);
   resolveRefresh?.({ version: 1, usdcReserveBaseUnits: "100000" });
-  await waitFor(() => expect(result.current).toBe("100000"));
+  await waitFor(() => expect(result.current.reserve).toBe("100000"));
 });
 
 test("a closed hook does not fetch", () => {
@@ -56,7 +74,8 @@ test("successful policy with no owner returns null without fetching", () => {
     requests++;
     return { version: 1, usdcReserveBaseUnits: null };
   }, true));
-  expect(result.current).toBeNull();
+  expect(result.current.reserve).toBeNull();
+  expect(result.current.failed).toBe(false);
   expect(requests).toBe(0);
 });
 

@@ -40,10 +40,9 @@ import {
   MoneyModalBody,
   MoneyModalFooter,
   MoneyModalHeader,
-  MoneyNumpad,
+  amountExceedsCeiling,
   isPositiveDecimalAmount,
   useMoneyAssetPricing,
-  type MoneyAmountChangeSource,
 } from "@/client/money-modal";
 import {
   assertTransferRequest,
@@ -122,8 +121,6 @@ export function SendDialog({
     recipients: ReadonlyArray<RecentTransferRecipient>;
   } | null>(null);
   const [amount, setAmount] = useState("");
-  const [amountChangeSource, setAmountChangeSource] =
-    useState<MoneyAmountChangeSource>("programmatic");
   const [request, setRequest] = useState<TransferRequest | null>(null);
   const [cashout, setCashout] = useState<CashoutRequest | null>(null);
   const [offramps, setOfframps] = useState<ReadonlyArray<FundingOfframpBinding> | null>([]);
@@ -148,8 +145,7 @@ export function SendDialog({
   const resumedActionRef = useRef<string | null>(null);
   const selectedStillAvailable = !assetId || availableAssets?.some((asset) => asset.id === assetId) !== false;
   const activeAssetId = assetId && selectedStillAvailable ? assetId : availableAssets?.[0]?.id ?? null;
-  function changeAmount(value: string, source: MoneyAmountChangeSource) {
-    setAmountChangeSource(source);
+  function changeAmount(value: string) {
     setAmount(value);
   }
   function changeRecipient(value: string) {
@@ -158,7 +154,7 @@ export function SendDialog({
 
   if (assetId && !selectedStillAvailable) {
     setAssetId(activeAssetId);
-    if (amount !== "") changeAmount("", "programmatic");
+    if (amount !== "") changeAmount("");
   }
   const trimmedRecipient = recipient.trim();
   const typedAddress = isTransferRecipient(trimmedRecipient) ? normalizeTransferRecipient(trimmedRecipient) : null;
@@ -174,8 +170,13 @@ export function SendDialog({
     : "Enter a 0x address or a name like example.base.eth.";
   const selectedAsset = activeAssetId ? getTransferAsset(activeAssetId) : null;
   const pricing = useMoneyAssetPricing(selectedAsset?.symbol ?? "");
-  const reserve = useNetworkFeeReserve(ownerBoundary, fetchAccountResource, open);
+  const { reserve, failed: reserveFailed, retry: retryReserve } = useNetworkFeeReserve(ownerBoundary, fetchAccountResource, open);
   const selectedAvailability = availableAssets?.find((asset) => asset.id === activeAssetId);
+  const sendCeiling = selectedAvailability ? atomicToDecimal(maxAmountAfterNetworkFee(selectedAvailability.balanceBaseUnits, selectedAsset?.symbol ?? "", reserve) ?? "0", selectedAvailability.decimals) : null;
+  const ceilingSettled = selectedAsset?.symbol.toUpperCase() !== "USDC" || reserve !== undefined;
+  const overAvailable = ceilingSettled && amountExceedsCeiling(amount, sendCeiling);
+  const canContinueAmount = Boolean(selectedAsset) && ceilingSettled && isPositiveDecimalAmount(amount) && !overAvailable;
+  const continueFromAmount = () => { setError(null); setStep("destination"); };
   const resourceBoundary = `${ownerBoundary ?? ""}:${regionId}`;
   const recentRecipients = ownerBoundary && recentRecipientState?.ownerBoundary === ownerBoundary
     ? recentRecipientState.recipients
@@ -275,12 +276,12 @@ export function SendDialog({
       if (resumed.kind === "send") {
         const nextRequest = transferRequestFromAction(resumed);
         if (!nextRequest) throw new TransferExecutionError("unavailable");
-        setAssetId(nextRequest.assetId); changeAmount(atomicToDecimal(nextRequest.amountBaseUnits, getTransferAsset(nextRequest.assetId)?.decimals ?? 6), "programmatic"); setRecipient(nextRequest.recipient); setRequest(nextRequest); setCashout(null);
+        setAssetId(nextRequest.assetId); changeAmount(atomicToDecimal(nextRequest.amountBaseUnits, getTransferAsset(nextRequest.assetId)?.decimals ?? 6)); setRecipient(nextRequest.recipient); setRequest(nextRequest); setCashout(null);
       } else if (resumed.kind === "cash-out" && resumed.metadata?.product === "cashout" && resumed.metadata.operation === "deposit") {
         const spent = resumed.amounts.find((item) => item.direction === "spend");
         if (!spent) throw new TransferExecutionError("unavailable");
         const metadata = resumed.metadata;
-        changeAmount(atomicToDecimal(spent.amountBaseUnits, spent.decimals), "programmatic");
+        changeAmount(atomicToDecimal(spent.amountBaseUnits, spent.decimals));
         setAssetId(spent.assetId);
         setRequest(null);
         setCashout({
@@ -293,7 +294,7 @@ export function SendDialog({
       } else if (resumed.kind === "cash-out-withdraw" && resumed.metadata?.product === "cashout" && resumed.metadata.operation === "withdraw") {
         const received = resumed.amounts.find((item) => item.direction === "receive");
         if (!received) throw new TransferExecutionError("unavailable");
-        changeAmount(atomicToDecimal(received.amountBaseUnits, received.decimals), "programmatic");
+        changeAmount(atomicToDecimal(received.amountBaseUnits, received.decimals));
         setAssetId(received.assetId);
         const metadata = resumed.metadata;
         setRequest(null);
@@ -317,7 +318,7 @@ export function SendDialog({
   }, [onInvalidResume, open, ownerBoundary, resumeActionId, resumeMoneyAction]);
 
   function reset() {
-    setAssetId(availableAssets?.[0]?.id ?? null); setRecipient(""); changeAmount("", "programmatic");
+    setAssetId(availableAssets?.[0]?.id ?? null); setRecipient(""); changeAmount("");
     setResolution(null);
     setSubmission(null); setSubmittedAt(undefined); submittingRef.current = false; setRequest(null); setCashout(null); setSelectedOfframp(null); setSelectedPlatform(null); setPayoutHandle("");
     setCanonicalHandle(""); setHandleConfirmation(""); setAction(null); setStep("amount"); setError(null);
@@ -468,7 +469,7 @@ export function SendDialog({
     assetLabel: selectedAsset?.symbol,
     assetCurrency: selectedAsset?.cashCurrency,
     assetOptions,
-    onAssetChange: (next: string) => { setAssetId(next); changeAmount("", "programmatic"); },
+    onAssetChange: (next: string) => { setAssetId(next); changeAmount(""); },
   };
   return (
     <MoneyModal open={open} labelledBy="send-title" immediate={immediate} pending={busy} onCancel={onClose} onClose={() => { reset(); (onClosed ?? onClose)(); }}>
@@ -483,8 +484,14 @@ export function SendDialog({
       />
       {step !== "result" ? <MoneyModalBody hasFooter={["amount", "destination", "handle", "handle-confirm", "confirm", "error"].includes(step)} className="gap-4 pt-4">
         {step === "amount" ? <>
-          <MoneyAmountDisplay amount={amount} amountChangeSource={amountChangeSource} onAmountChange={changeAmount} availableLabel={selectedAvailability ? `${selectedAvailability.balanceLabel} available` : undefined} availableAmount={selectedAvailability ? atomicToDecimal(maxAmountAfterNetworkFee(selectedAvailability.balanceBaseUnits, selectedAsset?.symbol ?? "", reserve) ?? "0", selectedAvailability.decimals) : null} assetId={activeAssetId ?? undefined} assetLabel={selectedAsset?.symbol} assetControl="header" chipSet={pricing.status === "priced" ? "quick-local" : "none"} pricing={pricing} nativeSymbol={selectedAsset?.symbol ?? ""} />
-          {selectedAsset ? <MoneyNumpad value={amount} maxDecimals={selectedAsset.decimals} onChange={changeAmount} /> : <StatusMessage>No catalog balance is available to send.</StatusMessage>}
+          <MoneyAmountDisplay amount={amount} maxDecimals={selectedAsset?.decimals ?? 6} onAmountChange={changeAmount} overAvailable={overAvailable} onSubmit={canContinueAmount ? continueFromAmount : undefined} availableLabel={selectedAvailability ? `${selectedAvailability.balanceLabel} available` : undefined} availableAmount={sendCeiling} assetId={activeAssetId ?? undefined} assetLabel={selectedAsset?.symbol} assetControl="header" chipSet={pricing.status === "priced" ? "quick-local" : "none"} pricing={pricing} nativeSymbol={selectedAsset?.symbol ?? ""}>
+            {selectedAsset?.symbol.toUpperCase() === "USDC" && reserveFailed ? (
+              <StatusMessage tone="error" role="alert">
+                Couldn&apos;t check the network fee. <Button variant="ghost" size="sm" onClick={retryReserve}>Retry</Button>
+              </StatusMessage>
+            ) : null}
+          </MoneyAmountDisplay>
+          {!selectedAsset ? <StatusMessage>No catalog balance is available to send.</StatusMessage> : null}
           {!selectedAsset && visibleActiveOrders.length > 0 ? <div className="grid gap-1">{visibleActiveOrders.map((order) => <RecoveryItem key={order.depositId} order={order} onWithdraw={() => void prepareWithdraw(order)} />)}</div> : null}
           {!selectedAsset && providersLoaded && ordersLoaded && recoveryEligible && !recoveryAttempted && visibleActiveOrders.length === 0 ? <Button variant="ghost" size="sm" onClick={() => void recoverCashouts()}>Recover a Peer cash-out</Button> : null}
         </> : null}
@@ -572,7 +579,7 @@ export function SendDialog({
         {error ? <StatusMessage tone="error" role="alert">{error}</StatusMessage> : null}
       </MoneyModalBody> : null}
       {step === "result" && action && submission ? <SendResult action={action} submission={submission} amount={confirmAmount} provider={cashout?.providerName} submittedAt={submittedAt} fetchAccountResource={fetchAccountResource} onDone={() => { reset(); onClose(); }} onTryAgain={() => { setAction(null); setSubmission(null); setStep("amount"); onInvalidResume?.(); }} onViewActivity={() => openPanelAfterClose(routing, "activity", () => { reset(); onClose(); })} /> : null}
-      {step === "amount" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!selectedAsset || !isPositiveDecimalAmount(amount)} onPrimary={() => { setError(null); setStep("destination"); }} /> : null}
+      {step === "amount" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!canContinueAmount} onPrimary={continueFromAmount} /> : null}
       {step === "destination" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={effectiveRecipient === null || resolving} onPrimary={() => void prepareSend()} /> : null}
       {step === "handle" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!payoutHandle.trim()} onPrimary={() => { const normalized = canonicalizeCashPayee(selectedPlatform?.platform ?? "", payoutHandle); setCanonicalHandle(normalized); setHandleConfirmation(""); setStep("handle-confirm"); }} /> : null}
       {step === "handle-confirm" ? <MoneyModalFooter primaryLabel="Review" primaryDisabled={!canonicalHandle || handleConfirmation !== canonicalHandle} onPrimary={() => void prepareCashout()} /> : null}

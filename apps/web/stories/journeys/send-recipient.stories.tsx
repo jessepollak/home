@@ -88,9 +88,7 @@ type Screen = ReturnType<typeof within>;
 
 async function enterAmount(screen: Screen, amount: string) {
   const dialog = await screen.findByRole("dialog", { name: "Send" });
-  const input = within(dialog).queryByRole("textbox", { name: /amount/i });
-  if (input) await userEvent.type(input, amount);
-  else for (const digit of amount) await userEvent.click(within(dialog).getByRole("button", { name: digit }));
+  await userEvent.type(within(dialog).getByRole("textbox", { name: "Amount" }), amount);
   await userEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
   await screen.findByRole("textbox", { name: "To" });
 }

@@ -178,9 +178,7 @@ describe("Save simplify", () => {
 
     await page().findByRole("button", { name: "Get started" });
     fireEvent.click(page().getByRole("button", { name: "Get started" }));
-    fireEvent.click(await page().findByRole("button", { name: "1" }));
-    fireEvent.click(page().getByRole("button", { name: "0" }));
-    fireEvent.click(page().getByRole("button", { name: "0" }));
+    fireEvent.change(await page().findByRole("textbox", { name: "Amount" }), { target: { value: "100" } });
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     await page().findByRole("dialog", { name: "Confirm" });
     expect(prepares).toEqual([
@@ -208,9 +206,7 @@ describe("Save simplify", () => {
     );
 
     fireEvent.click(await page().findByRole("button", { name: "Get started" }));
-    fireEvent.click(await page().findByRole("button", { name: "1" }));
-    fireEvent.click(page().getByRole("button", { name: "0" }));
-    fireEvent.click(page().getByRole("button", { name: "0" }));
+    fireEvent.change(await page().findByRole("textbox", { name: "Amount" }), { target: { value: "100" } });
     const continueButton = page().getByRole("button", { name: "Continue" }) as HTMLButtonElement;
     expect(continueButton.disabled).toBe(false);
     fireEvent.click(continueButton);

@@ -11,6 +11,7 @@ const inputVariants = cva(
         default: "",
         code: "font-mono",
         touch: "md:text-base",
+        amount: "h-auto rounded-none border-0 bg-transparent px-0 py-0 text-[length:inherit] font-[inherit] leading-[inherit] text-foreground caret-primary shadow-none placeholder:text-muted-foreground focus-visible:border-0 focus-visible:ring-0 aria-invalid:border-0 aria-invalid:ring-0 disabled:bg-transparent md:text-[length:inherit] dark:bg-transparent dark:disabled:bg-transparent dark:aria-invalid:ring-0",
       },
     },
     defaultVariants: {

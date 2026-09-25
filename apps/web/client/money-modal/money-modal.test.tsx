@@ -34,6 +34,27 @@ describe("MoneyModal layout contract", () => {
     expect(document.querySelectorAll("[data-initial-focus]")).toHaveLength(1);
     expect(page().getByRole("button", { name: "Close" }).hasAttribute("data-initial-focus")).toBe(true);
   });
+
+  test("focuses the enabled amount input before a fallback focus target", async () => {
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>Open drawer</button>
+          <MoneyModal open={open} labelledBy="amount-title" immediate onCancel={() => setOpen(false)} onClose={() => {}}>
+            <h2 id="amount-title">Enter amount</h2>
+            <button type="button" data-initial-focus>Fallback focus</button>
+            <input aria-label="Amount" data-money-amount-input />
+          </MoneyModal>
+        </>
+      );
+    }
+
+    render(<Harness />);
+    await act(async () => fireEvent.click(page().getByRole("button", { name: "Open drawer" })));
+    const amount = await page().findByRole("textbox", { name: "Amount" });
+    await waitFor(() => expect(document.activeElement === amount).toBe(true));
+  });
 });
 
 describe("MoneyModal dismissal contract", () => {

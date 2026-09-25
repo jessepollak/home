@@ -22,6 +22,10 @@ const {
 } = await import("./borrowing-experience");
 const { BorrowMoneyDialog, parseClientTokenAmount, selectPrimaryBorrowAsset } = await import("./borrow-money-dialog");
 
+function enterAmount(dialog: ReturnType<typeof within>, value: string) {
+  fireEvent.change(dialog.getByRole("textbox", { name: "Amount" }), { target: { value } });
+}
+
 const OWNER = "0x1111111111111111111111111111111111111111" as const;
 const OWNER_B = "0x2222222222222222222222222222222222222222" as const;
 const BLOCK_HASH = `0x${"ab".repeat(32)}` as `0x${string}`;
@@ -164,14 +168,14 @@ describe("BorrowExperience redesign", () => {
     const body = within(document.body);
     fireEvent.click(await body.findByRole("button", { name: "Borrow" }));
     const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
-    expect(dialog.getByRole("img", { name: /\$500\.00 available/ })).toBeTruthy();
+    expect(dialog.getByText("$500.00 available")).toBeTruthy();
     expect(dialog.getByLabelText("USDC").querySelector("[data-mark='shimmer'] img")?.getAttribute("src")).toBe("/currency-flags/us.svg");
-    const numpadKey = dialog.getByRole("button", { name: "1" });
-    fireEvent.click(numpadKey);
+    const amountField = dialog.getByRole("textbox", { name: "Amount" });
+    enterAmount(dialog, "1");
     const preview = dialog.getByTestId("borrow-collateral-preview");
     expect(preview.textContent).toMatch(/will lock .*cbBTC as collateral/);
     expect(preview.getAttribute("role")).toBeNull();
-    expect(numpadKey.compareDocumentPosition(preview) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(amountField.compareDocumentPosition(preview) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
     await dialog.findByText("Network");
     expect(dialog.getByRole("button", { name: "Confirm action" }).getAttribute("data-money-action-id")).toBe("11111111-1111-4111-8111-111111111111");
@@ -184,7 +188,7 @@ describe("BorrowExperience redesign", () => {
     expect(requests).toEqual([{ kind: "borrow", params: { marketId: BORROW_MARKET_ID, operation: "supply-and-borrow", amountBaseUnits: "1000000", collateralAmountBaseUnits: recommendedOpeningCollateralBaseUnits(snapshot, "1000000") } }]);
   });
 
-  test("keeps the collateral preview stable below the numpad and explains over-available amounts without a live region", async () => {
+  test("keeps the collateral preview stable below the amount and explains over-available amounts without a live region", async () => {
     const snapshot = noPosition();
     render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(snapshot)} prepareMoneyAction={async () => prepared("supply-and-borrow")} executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />);
     const body = within(document.body);
@@ -192,9 +196,10 @@ describe("BorrowExperience redesign", () => {
     const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
     const preview = dialog.getByTestId("borrow-collateral-preview");
     expect(preview.textContent).toContain("Enter an amount to preview");
-    for (let index = 0; index < 6; index += 1) {
-      fireEvent.click(dialog.getByRole("button", { name: "9" }));
-    }
+    enterAmount(dialog, "999999");
+    expect(dialog.getByText("Only $500.00 available")).toBeTruthy();
+    expect(dialog.getByRole("textbox", { name: "Amount" }).getAttribute("aria-invalid")).toBe("true");
+    expect((dialog.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
     expect(dialog.getByTestId("borrow-collateral-preview")).toBe(preview);
     expect(preview.textContent).toContain("needs more cbBTC than is available");
     expect(preview.closest("[role='status'], [role='alert']")).toBeNull();
@@ -224,8 +229,8 @@ describe("BorrowExperience redesign", () => {
     expect(borrow.disabled).toBe(false);
     fireEvent.click(borrow);
     const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
-    expect(dialog.getByRole("img", { name: /\$150\.00 available/ })).toBeTruthy();
-    fireEvent.click(dialog.getByRole("button", { name: "1" }));
+    expect(dialog.getByText("$150.00 available")).toBeTruthy();
+    enterAmount(dialog, "1");
     fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
     await dialog.findByText("Network");
     expect(dialog.getByText("From").closest("dl")?.querySelector("dt")?.textContent).toBe("From");
@@ -263,7 +268,7 @@ describe("BorrowExperience redesign", () => {
     render(<BorrowExperience session={session()} selectedMarketId={BORROW_MARKET_ID} fetchAccountResource={async () => ++fetches === 1 ? first : unavailable} prepareMoneyAction={async () => prepared("supply-and-borrow")} executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />);
     const body = within(document.body);
     const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
-    fireEvent.click(dialog.getByRole("button", { name: "1" }));
+    enterAmount(dialog, "1");
     await act(async () => { await getHomeQueryClient().invalidateQueries(); });
     await waitFor(() => expect(fetches).toBeGreaterThan(1));
     expect(body.getByRole("dialog", { name: "Borrow" })).toBeTruthy();
@@ -319,7 +324,7 @@ describe("BorrowExperience redesign", () => {
     const body = within(document.body);
     fireEvent.click(await body.findByRole("button", { name: "Borrow more" }));
     const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
-    fireEvent.click(dialog.getByRole("button", { name: "1" }));
+    enterAmount(dialog, "1");
     fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
     expect(await dialog.findByText("Review warnings")).toBeTruthy();
     expect(dialog.getAllByRole("listitem").map((item) => item.textContent)).toEqual(warnings);
@@ -333,7 +338,7 @@ describe("BorrowExperience redesign", () => {
     const body = within(document.body);
     fireEvent.click(await body.findByRole("button", { name: "Repay" }));
     const dialog = within(await body.findByRole("dialog", { name: "Repay" }));
-    fireEvent.click(dialog.getByRole("button", { name: "5" }));
+    enterAmount(dialog, "5");
     fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
     expect(await dialog.findByText(partialWarning)).toBeTruthy();
     expect(dialog.getByRole("button", { name: "Confirm action" }).getAttribute("data-money-action-id")).toBe("11111111-1111-4111-8111-111111111111");
@@ -361,7 +366,7 @@ describe("BorrowExperience redesign", () => {
     const nextBody = within(document.body);
     fireEvent.click(await nextBody.findByRole("button", { name: "Repay" }));
     dialog = within(await nextBody.findByRole("dialog", { name: "Repay" }));
-    for (const digit of ["1", "0", "0"]) fireEvent.click(dialog.getByRole("button", { name: digit }));
+    enterAmount(dialog, "100");
     fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
     await dialog.findByText("Maximum repayment (USDC)");
     expect(requests[1]).toEqual({ kind: "repay", params: { marketId: BORROW_MARKET_ID, operation: "repay-all", maximumRepayBaseUnits: expectedMaximum } });
@@ -385,19 +390,69 @@ describe("BorrowExperience redesign", () => {
     expect(requests).toEqual([{ marketId: BORROW_MARKET_ID, operation: "repay-all", maximumRepayBaseUnits: recommendedRepayMaximumBaseUnits("100000000", "199980000", "1000000000") }]);
   });
 
-  test("allows an exact partial repay while the USDC reserve is unavailable", async () => {
+  test("partial repay waits for the USDC reserve before Continue or Enter", async () => {
+    let resolveReserve!: (value: unknown) => void;
+    const reserveResponse = new Promise<unknown>((resolve) => { resolveReserve = resolve; });
     const requests: unknown[] = [];
     render(<BorrowMoneyDialog session={session()} snapshot={detail()} operation="repay" regionId="US"
-      fetchAccountResource={async () => { throw new Error("policy unavailable"); }}
+      fetchAccountResource={async () => reserveResponse}
       prepareMoneyAction={async (_kind, params) => { requests.push(params); return prepared("repay"); }}
       executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} onClose={() => {}} />);
     const dialog = within(await within(document.body).findByRole("dialog", { name: "Repay" }));
     expect(dialog.queryByRole("button", { name: "Max" })).toBeNull();
-    fireEvent.click(dialog.getByRole("button", { name: "5" }));
-    expect((dialog.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false);
+    enterAmount(dialog, "5");
+    expect(dialog.queryByText("Only $0.00 available")).toBeNull();
+    expect(dialog.getByRole("textbox", { name: "Amount" }).getAttribute("aria-invalid")).not.toBe("true");
+    expect((dialog.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.keyDown(dialog.getByRole("textbox", { name: "Amount" }), { key: "Enter" });
+    expect(requests).toEqual([]);
+    await act(async () => { resolveReserve({ version: 1, usdcReserveBaseUnits: "20000" }); });
+    await waitFor(() => expect((dialog.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
     await dialog.findByRole("button", { name: "Confirm action" });
     expect(requests).toEqual([{ marketId: BORROW_MARKET_ID, operation: "repay", amountBaseUnits: "5000000" }]);
+  });
+
+  test("supply collateral with USDC waits for the fee ceiling without showing a false error", async () => {
+    let resolveReserve!: (value: unknown) => void;
+    const reserveResponse = new Promise<unknown>((resolve) => { resolveReserve = resolve; });
+    const base = detail();
+    const snapshot = detail({ market: { ...base.market, collateralToken: { ...base.market.collateralToken, symbol: "USDC", decimals: 6 } } });
+    render(<BorrowMoneyDialog session={session()} snapshot={snapshot} operation="supply-collateral" regionId="US"
+      fetchAccountResource={async () => reserveResponse}
+      prepareMoneyAction={async () => { throw new Error("unexpected prepare"); }}
+      executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} onClose={() => {}} />);
+    const dialog = within(await within(document.body).findByRole("dialog", { name: "Add collateral" }));
+    enterAmount(dialog, "5");
+    expect(dialog.queryByText("Only $0.00 available")).toBeNull();
+    expect(dialog.getByRole("textbox", { name: "Amount" }).getAttribute("aria-invalid")).not.toBe("true");
+    expect((dialog.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => { resolveReserve({ version: 1, usdcReserveBaseUnits: "20000" }); });
+    await waitFor(() => expect((dialog.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
+  });
+
+  test.each(["repay", "repay-all"] as const)("%s explains a failed USDC fee lookup and recovers on Retry", async (operation) => {
+    let feeRequests = 0;
+    const requests: unknown[] = [];
+    render(<BorrowMoneyDialog session={session()} snapshot={detail()} operation={operation} regionId="US"
+      fetchAccountResource={async () => {
+        feeRequests++;
+        if (feeRequests <= 3) throw new Error("policy unavailable");
+        return { version: 1, usdcReserveBaseUnits: "20000" };
+      }}
+      prepareMoneyAction={async (_kind, params) => { requests.push(params); return prepared(operation); }}
+      executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} onClose={() => {}} />);
+    const dialog = within(await within(document.body).findByRole("dialog", { name: operation === "repay" ? "Repay" : "Repay all" }));
+    if (operation === "repay") enterAmount(dialog, "5");
+    const alert = await dialog.findByRole("alert");
+    expect(alert.textContent).toContain("Couldn't check the network fee.");
+    expect((dialog.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.keyDown(dialog.getByRole("textbox", { name: "Amount" }), { key: "Enter" });
+    expect(requests).toEqual([]);
+    fireEvent.click(dialog.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(dialog.queryByRole("alert") === null).toBe(true));
+    await waitFor(() => expect((dialog.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
+    expect(feeRequests).toBe(4);
   });
 
   test("keeps wallet-short Max as an accurate partial repay", async () => {
@@ -424,7 +479,7 @@ describe("BorrowExperience redesign", () => {
     const body = within(document.body);
     fireEvent.click(await body.findByRole("button", { name: "Borrow more" }));
     const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
-    fireEvent.click(dialog.getByRole("button", { name: "1" }));
+    enterAmount(dialog, "1");
     fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
     expect((await dialog.findByRole("alert")).textContent).toContain(message);
   });
@@ -433,7 +488,7 @@ describe("BorrowExperience redesign", () => {
     const body = within(document.body);
     fireEvent.click(await body.findByRole("button", { name: "Borrow more" }));
     const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
-    fireEvent.click(dialog.getByRole("button", { name: "1" }));
+    enterAmount(dialog, "1");
     fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
     expect((await dialog.findByRole("alert")).textContent).toContain("The amount exceeds the current Home-adjusted collateral and liquidity limit. No transaction was submitted.");
     expect(document.body.textContent).not.toContain("submission-pending");
@@ -482,7 +537,7 @@ describe("BorrowExperience redesign", () => {
     const body = within(document.body);
     fireEvent.click(await body.findByRole("button", { name: "Borrow more" }));
     const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
-    fireEvent.click(dialog.getByRole("button", { name: "1" }));
+    enterAmount(dialog, "1");
     fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
     fireEvent.click(await dialog.findByRole("button", { name: "Confirm action" }));
     expect(await dialog.findByText(/This Borrow review expired/)).toBeTruthy();
@@ -495,7 +550,7 @@ describe("BorrowExperience redesign", () => {
     const body = within(document.body);
     fireEvent.click(await body.findByRole("button", { name: "Borrow more" }));
     const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
-    fireEvent.click(dialog.getByRole("button", { name: "1" }));
+    enterAmount(dialog, "1");
     fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
     const confirm = await dialog.findByRole("button", { name: "Confirm action" });
     await waitFor(() => expect((confirm as HTMLButtonElement).disabled).toBe(true));
@@ -521,7 +576,7 @@ describe("BorrowExperience redesign", () => {
       fireEvent.click(await body.findByRole("button", { name: label }));
       const dialog = within(await body.findByRole("dialog", { name: operation === "supply-collateral" ? "Add collateral" : "Withdraw collateral" }));
       expect(dialog.getByRole("button", { name: "Continue" }).hasAttribute("data-money-action-id")).toBe(false);
-      fireEvent.click(dialog.getByRole("button", { name: "1" }));
+      enterAmount(dialog, "0.01");
       fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
       const confirm = await dialog.findByRole("button", { name: "Confirm action" });
       expect(confirm.getAttribute("data-money-action-id")).toBe("11111111-1111-4111-8111-111111111111");
@@ -683,7 +738,7 @@ describe("Borrow overview action refresh", () => {
     const body = within(document.body);
     fireEvent.click(await body.findByRole("button", { name: "Borrow more" }));
     const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
-    fireEvent.click(dialog.getByRole("button", { name: "1" }));
+    enterAmount(dialog, "1");
     fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
     fireEvent.click(await dialog.findByRole("button", { name: "Confirm action" }));
     await waitFor(() => expect(reads).toBeGreaterThanOrEqual(2));

@@ -3,6 +3,7 @@
 import { useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { CircleAlertIcon } from "lucide-react";
 import { Alert, AlertIcon, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { MoneyMotionProvider } from "@/components/money-ticker";
 import { useReactiveExpiry } from "@/client/actions/expiry";
 import { useMoneyActionOutcome } from "@/client/actions/money-action-outcome";
@@ -20,11 +21,9 @@ import {
   MoneyModalBody,
   MoneyModalFooter,
   MoneyModalHeader,
-  MoneyNumpad,
   decimalFromBaseUnits,
   isPositiveDecimalAmount,
   useMoneyAssetPricing,
-  type MoneyAmountChangeSource,
 } from "@/client/money-modal";
 import type {
   MoneyActionOwner,
@@ -100,8 +99,6 @@ function OwnerBoundSavingsMoneyDialog({
   } = useSavingsDialogFixture();
   const routing = useOptionalHomeShellRouting();
   const [amount, setAmount] = useState("");
-  const [amountChangeSource, setAmountChangeSource] =
-    useState<MoneyAmountChangeSource>("programmatic");
   const [amountBaseUnits, setAmountBaseUnits] = useState<string | null>(null);
   const [preparedAction, setPreparedAction] = useState<PreparedMoneyAction | null>(null);
   const [attemptedAction, setAttemptedAction] = useState(false);
@@ -134,17 +131,18 @@ function OwnerBoundSavingsMoneyDialog({
     : null;
   const nothingAvailable = knownAvailable === BigInt(0);
   const amountExceedsAvailable = amountExceedsKnownAvailable(amount, knownAvailable);
+  const overAvailable = assetRouteConfigured && amountExceedsAvailable;
+  const canContinue = assetRouteConfigured && isPositiveDecimalAmount(amount) && !amountExceedsAvailable;
   const pricing = useMoneyAssetPricing(assetLabel);
-  const reserve = useNetworkFeeReserve(session.smartAccount ? savingsDialogOwnerIdentity(session) : null, fetchAccountResource, open);
+  const { reserve, failed: reserveFailed, retry: retryReserve } = useNetworkFeeReserve(session.smartAccount ? savingsDialogOwnerIdentity(session) : null, fetchAccountResource, open);
   const title = step === "amount" ? mode === "deposit" ? "Deposit" : "Withdraw" : step === "result" ? (mode === "deposit" ? "Deposit" : "Withdraw") : "Confirm";
 
-  function changeAmount(value: string, source: MoneyAmountChangeSource) {
-    setAmountChangeSource(source);
+  function changeAmount(value: string) {
     setAmount(value);
   }
 
   function reset() {
-    changeAmount("", "programmatic");
+    changeAmount("");
     setAmountBaseUnits(null);
     setPreparedAction(null);
     setAttemptedAction(false);
@@ -329,8 +327,10 @@ function OwnerBoundSavingsMoneyDialog({
             <>
               <MoneyAmountDisplay
                 amount={amount}
-                amountChangeSource={amountChangeSource}
+                maxDecimals={assetDecimals}
                 onAmountChange={changeAmount}
+                overAvailable={overAvailable}
+                onSubmit={canContinue ? () => void continueFromAmount() : undefined}
                 availableLabel={availableLabel}
                 availableAmount={decimalFromBaseUnits(maxAmountAfterNetworkFee(availableBaseUnits, mode === "deposit" ? candidate.asset.symbol : "vault shares", reserve) ?? "", assetDecimals)}
                 assetId={assetId}
@@ -339,20 +339,23 @@ function OwnerBoundSavingsMoneyDialog({
                 chipSet="max"
                 pricing={pricing}
                 nativeSymbol={assetLabel}
-              />
-              <MoneyNumpad value={amount} maxDecimals={assetDecimals} onChange={changeAmount} />
-              {assetRouteConfigured && nothingAvailable ? (
-                <StatusMessage>
-                  {mode === "withdraw" ? "Nothing saved to withdraw." : `No ${assetLabel} available to deposit.`}
-                </StatusMessage>
-              ) : assetRouteConfigured && amountExceedsAvailable ? (
-                <StatusMessage>That&apos;s more than you have available.</StatusMessage>
-              ) : null}
-              {!assetRouteConfigured ? (
-                <StatusMessage>
-                  {assetLabel} is available for presentation review only. Savings actions remain {candidate.asset.symbol}-only.
-                </StatusMessage>
-              ) : null}
+              >
+                {mode === "deposit" && assetRouteConfigured && candidate.asset.symbol.toUpperCase() === "USDC" && reserveFailed ? (
+                  <StatusMessage tone="error" role="alert">
+                    Couldn&apos;t check the network fee. <Button variant="ghost" size="sm" onClick={retryReserve}>Retry</Button>
+                  </StatusMessage>
+                ) : null}
+                {assetRouteConfigured && nothingAvailable ? (
+                  <StatusMessage>
+                    {mode === "withdraw" ? "Nothing saved to withdraw." : `No ${assetLabel} available to deposit.`}
+                  </StatusMessage>
+                ) : null}
+                {!assetRouteConfigured ? (
+                  <StatusMessage>
+                    {assetLabel} is available for presentation review only. Savings actions remain {candidate.asset.symbol}-only.
+                  </StatusMessage>
+                ) : null}
+              </MoneyAmountDisplay>
             </>
           ) : null}
 
@@ -382,7 +385,7 @@ function OwnerBoundSavingsMoneyDialog({
         {step === "amount" ? (
           <MoneyModalFooter
             primaryLabel="Continue"
-            primaryDisabled={!assetRouteConfigured || !isPositiveDecimalAmount(amount) || amountExceedsAvailable}
+            primaryDisabled={!canContinue}
             onPrimary={() => void continueFromAmount()}
           />
         ) : null}
