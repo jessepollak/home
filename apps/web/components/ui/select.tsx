@@ -176,13 +176,19 @@ function NativeSelect({
   )
 }
 
-export {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectScrollDownButton,
-  SelectScrollUpButton,
-  SelectTrigger,
-  SelectValue,
-  NativeSelect,
-};
+/** @public Figma-mapped Select (160:1718) for simple non-searchable pickers; shown in components/ui/select.stories.tsx */
+export { Select };
+
+/** @public Figma-mapped Select (160:1718) for simple non-searchable pickers; shown in components/ui/select.stories.tsx */
+export { SelectContent };
+
+/** @public Figma-mapped Select (160:1718) for simple non-searchable pickers; shown in components/ui/select.stories.tsx */
+export { SelectItem };
+
+/** @public Figma-mapped Select (160:1718) for simple non-searchable pickers; shown in components/ui/select.stories.tsx */
+export { SelectTrigger };
+
+/** @public Figma-mapped Select (160:1718) for simple non-searchable pickers; shown in components/ui/select.stories.tsx */
+export { SelectValue };
+
+export { SelectScrollDownButton, SelectScrollUpButton, NativeSelect };

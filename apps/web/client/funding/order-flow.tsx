@@ -1,19 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Field, FieldLabel } from "@/components/ui/field";
+import { Field, FieldLabel, FieldTitle } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { RadioGroup, RadioGroupOption } from "@/components/ui/radio-group";
 import { MoneyTicker } from "@/components/money-ticker";
 import { CopyableValue } from "@/components/copyable-value";
 import { isTerminalFundingOrderState as terminal, shouldPollFundingOrder } from "./order-polling";
@@ -86,6 +80,7 @@ export function FundingOrderFlow({
   initialOrder?: FundingOrderSummary | null;
   initialCustomer?: FundingProviderCustomerSummary | null;
 }) {
+  const paymentMethodTitleId = useId();
   const [method, setMethod] = useState(binding.paymentMethods[0]?.id ?? "");
   const [amount, setAmount] = useState("");
   const [amountChangeSource, setAmountChangeSource] =
@@ -342,36 +337,14 @@ export function FundingOrderFlow({
       <MoneyModalHeader title={`Deposit ${binding.currency}`} titleId={titleId} onClose={onClose} assetControl={<MoneyAssetPicker {...amountAssetProps} />} closeLabel="Close add money" />
       <MoneyModalBody hasFooter className="gap-4 pt-4">
         {binding.paymentMethods.length > 1 ? (
-          <Field>
-            <FieldLabel htmlFor="funding-payment-method">
-              Payment method
-            </FieldLabel>
-            <Select
-              value={method}
-              required
-              onValueChange={(value) => setMethod(value ?? "")}
-            >
-              <SelectTrigger
-                className="h-11 w-full"
-                id="funding-payment-method"
-              >
-                <SelectValue>
-                  {(selectedMethod) =>
-                    binding.paymentMethods.find(
-                      (item) => item.id === selectedMethod,
-                    )?.label ?? selectedMethod
-                  }
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {binding.paymentMethods.map((item) => (
-                  <SelectItem value={item.id} key={item.id}>
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
+          <div className="grid gap-3">
+            <FieldTitle id={paymentMethodTitleId}>Payment method</FieldTitle>
+            <RadioGroup aria-labelledby={paymentMethodTitleId} value={method} onValueChange={setMethod}>
+              {binding.paymentMethods.map((item) => (
+                <RadioGroupOption key={item.id} value={item.id} label={item.label} />
+              ))}
+            </RadioGroup>
+          </div>
         ) : null}
         <MoneyAmountDisplay
           amount={amount}
