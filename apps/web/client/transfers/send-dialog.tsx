@@ -475,7 +475,7 @@ export function SendDialog({
             aria-describedby={resolvedRecipient || resolving || unresolved || recipientHint ? "send-recipient-status" : undefined}
           />
           <div id="send-recipient-status" className="grid gap-2">
-            {resolvedRecipient && typedName ? <StatusMessage>Resolves to <CopyableValue value={resolvedRecipient} presentation="full" valueKind="address" /></StatusMessage> : null}
+            {resolvedRecipient && typedName ? <StatusMessage>Resolves to <CopyableValue value={resolvedRecipient} presentation="reveal" valueKind="address" /></StatusMessage> : null}
             {resolving && typedName ? <StatusMessage aria-busy="true">Resolving {typedName}…</StatusMessage> : null}
             {unresolved && typedName ? <StatusMessage tone="error">{`We couldn't resolve ${typedName}. Check the name and try again.`}</StatusMessage> : null}
             {recipientHint ? <StatusMessage>{recipientHint}</StatusMessage> : null}
@@ -541,7 +541,7 @@ export function SendDialog({
             { label: "Network", value: "Base" },
           ] : [
             ...(action ? [moneyConfirmFromRow(action.owner)] : []),
-            { label: "To", value: <CopyableValue value={request!.recipient} presentation="full" valueKind="address" className="sm:justify-end" />, fullValue: true },
+            { label: "To", value: <CopyableValue value={request!.recipient} presentation="reveal" valueKind="address" className="-my-3 justify-end" /> },
             { label: "Asset", value: requestAsset?.symbol ?? "" }, { label: "Network", value: "Base" },
           ]} />
           {cashout?.operation === "deposit" ? <StatusMessage>The fiat amount and delivery time are approximate, not guaranteed.</StatusMessage> : null}

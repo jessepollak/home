@@ -130,7 +130,7 @@ function continueButton(): HTMLButtonElement {
 }
 
 function resolvedAddressControl(): Element | null {
-  const controls = document.querySelectorAll(`button[aria-label="Copy ${RECIPIENT}"]`);
+  const controls = document.querySelectorAll(`button[aria-label="Show full address ${formatAddress(RECIPIENT)}"]`);
   return controls[controls.length - 1] ?? null;
 }
 
@@ -156,7 +156,10 @@ describe("SendDialog recipient names", () => {
         recipientName: "example.base.eth",
       },
     }]);
-    expect(resolvedAddressControl()).toBeTruthy();
+    const reveal = resolvedAddressControl();
+    expect(reveal).toBeTruthy();
+    fireEvent.click(reveal!);
+    expect(await page().findByLabelText(`Full address ${RECIPIENT}`)).toBeTruthy();
   });
 
   test("keeps a settled resolution when an edit normalizes to the same name", async () => {

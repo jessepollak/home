@@ -447,7 +447,9 @@ describe("SendDialog dismissal", () => {
 
     expect(page().getByRole("dialog", { name: "Confirm" })).toBeTruthy();
     expect(page().getByText("Waiting for your wallet…")).toBeTruthy();
-    expect(page().getByRole("button", { name: `Copy ${RECIPIENT}` })).toBeTruthy();
+    expect(page().getByRole("button", { name: `Show full address ${formatAddress(RECIPIENT)}` })).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: `Show full address ${formatAddress(RECIPIENT)}` }));
+    expect(await page().findByLabelText(`Full address ${RECIPIENT}`)).toBeTruthy();
     expect(closes).toBe(0);
     expect(dispatches).toBe(1);
 
@@ -494,7 +496,7 @@ describe("SendDialog resume", () => {
     expect(await page().findByRole("button", { name: "Send $1.00" })).toBeTruthy();
     expect(page().getByRole("button", { name: "Send $1.00" }).getAttribute("data-money-action-id")).toBe(ACTION_ID);
     expect(page().getAllByRole("button", { name: "Back" }).every((button) => !button.hasAttribute("data-money-action-id"))).toBe(true);
-    expect(page().getByRole("button", { name: `Copy ${RECIPIENT}` })).toBeTruthy();
+    expect(page().getByRole("button", { name: `Show full address ${formatAddress(RECIPIENT)}` })).toBeTruthy();
     expect(invalidResumes).toBe(0);
 
     view.rerender(
@@ -599,7 +601,7 @@ describe("SendDialog resume", () => {
       "The wallet request was rejected. Your reviewed send is still ready to retry.",
     );
     expect(page().getByRole("button", { name: "Try again" })).toBeTruthy();
-    expect(page().getByRole("button", { name: `Copy ${RECIPIENT}` })).toBeTruthy();
+    expect(page().getByRole("button", { name: `Show full address ${formatAddress(RECIPIENT)}` })).toBeTruthy();
     expect(closes).toBe(0);
   });
 

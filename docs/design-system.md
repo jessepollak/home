@@ -116,6 +116,7 @@ Use the owned component contracts rather than restyling their slots:
 - `PayoutMark variant="cashapp" | "zelle" | "monzo" | "revolut" | "fallback" | "count"` owns circular payout-mark geometry, typography, and semantic brand colors.
 - `Switch` is the semantic on/off control. Drawer surface, title, header, footer, safe-area, shadow, and immediate-motion treatment are owned defaults.
 - `RadioGroup` is the mutually exclusive choice control for funding/payout choices confirmed by a separate action; direct-action rows stay `Item`/`Button`.
+- `CopyableValue presentation="reveal"` shows a one-line condensed address; its `Popover` exposes the complete selectable address and a Copy button on review and Account surfaces.
 - `Popover` owns small anchored disclosures, such as the Home header status; its content needs an accessible name (`aria-label`). `Skeleton` owns the loading tone (foreground at 10%, Figma `color/alpha/foreground-10`), which stays visible on both cards and the muted page.
 
 ## Rules

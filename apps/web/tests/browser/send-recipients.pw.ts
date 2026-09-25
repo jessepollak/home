@@ -1,9 +1,10 @@
-import { expect, test, type Page, type Route } from "@playwright/test";
+import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 import { balancesSnapshot } from "./fixtures/balances";
 import { typeAmount } from "./fixtures/type-amount";
 
 const OWNER = "0x1111111111111111111111111111111111111111";
 const PINNED_RECIPIENT = "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9";
+const PINNED_RECIPIENT_TRIGGER = "Show full address 0x2211…d77DA9";
 const RECENT_RECIPIENT = "0x3333333333333333333333333333333333333333";
 const USDC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 const ACTION_ID = "11111111-1111-4111-8111-111111111111";
@@ -119,6 +120,18 @@ async function openDestinationStep(page: Page) {
   await expect(page.getByRole("textbox", { name: "To" })).toBeVisible();
 }
 
+async function expectRevealedRecipient(page: Page, scope: Page | Locator) {
+  const trigger = scope.getByRole("button", { name: PINNED_RECIPIENT_TRIGGER });
+  await expect(trigger).toBeVisible();
+  await trigger.click();
+  const popover = page.getByRole("dialog", { name: "Full address" });
+  await expect(popover.getByLabel(`Full address ${PINNED_RECIPIENT}`)).toHaveText(PINNED_RECIPIENT);
+  await expect(popover.getByRole("button", { name: "Copy address" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(popover).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+}
+
 async function openReview(page: Page) {
   const continueButton = page.getByRole("button", { name: "Continue" });
   await expect(continueButton).toBeEnabled();
@@ -134,9 +147,9 @@ test("resolves a Basename into the destination and the review address", async ({
 
   await page.getByRole("textbox", { name: "To" }).fill("example.base.eth");
 
-  await expect(page.getByText(PINNED_RECIPIENT, { exact: true })).toBeVisible();
+  await expectRevealedRecipient(page, page);
   const review = await openReview(page);
-  await expect(review.getByText(PINNED_RECIPIENT, { exact: true })).toBeVisible();
+  await expectRevealedRecipient(page, review);
 });
 
 test("keeps Continue disabled with an inline error for an unresolved name and recovers", async ({ page }) => {
@@ -172,5 +185,5 @@ test("fills To from a recent recipient and reviews the full address", async ({ p
 
   await expect(page.getByRole("textbox", { name: "To" })).toHaveValue("0x2211…d77DA9");
   const review = await openReview(page);
-  await expect(review.getByText(PINNED_RECIPIENT, { exact: true })).toBeVisible();
+  await expectRevealedRecipient(page, review);
 });
