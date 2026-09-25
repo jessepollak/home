@@ -26,7 +26,7 @@ import { ShimmerRows } from "@/client/home/panel-shared";
 import { CopyableValue } from "@/components/copyable-value";
 import { CurrencyMark, GlyphMark } from "@/components/currency-mark";
 import { ActivityRow } from "@/components/finance-rows";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertIcon, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -518,7 +518,7 @@ export function ActivityLedgerDetailSheet({ item, open, immediate = false, onDis
             </div>
             {owner ? (
               <Alert variant={item.status === "failed" ? "destructive" : "default"}>
-                <StatusIcon aria-hidden="true" />
+                <AlertIcon><StatusIcon /></AlertIcon>
                 <AlertTitle>{owner.title}</AlertTitle>
                 {owner.description ? (
                   <AlertDescription>{owner.description}</AlertDescription>

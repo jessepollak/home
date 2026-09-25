@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { RotateCw } from "lucide-react";
+import { CircleAlertIcon, RotateCw } from "lucide-react";
 import {
   Alert,
   AlertAction,
+  AlertIcon,
   AlertDescription,
   AlertTitle,
 } from "@/components/ui/alert";
@@ -116,12 +117,13 @@ export function ActivityPanelView({
     return (
       <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain}>
         <Alert variant="destructive" role="alert">
+          <AlertIcon><CircleAlertIcon /></AlertIcon>
           <AlertTitle>Activity is temporarily unavailable.</AlertTitle>
           {activity.error.message || activity.error.code ? (
             <AlertDescription>{activity.error.message || activity.error.code}</AlertDescription>
           ) : null}
           <AlertAction>
-            <Button variant="secondary" onClick={activity.retry}>Try again</Button>
+            <Button variant="outline" size="lg" className="h-11" onClick={activity.retry}>Try again</Button>
           </AlertAction>
         </Alert>
       </ActivitySurface>

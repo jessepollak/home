@@ -18,7 +18,7 @@ import { MoneyTicker } from "@/components/money-ticker";
 import {
   shellChromeCompensationClassName, shellContentFrameClassName, shellWidthClassName,
 } from "@/components/shell-layout";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertIcon, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from "@/components/ui/item";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -279,7 +279,7 @@ function PurchaseDetails({ detail, data }: { detail: Detail; data: PurchaseData 
       </div>
       {data.alert ? (
         <Alert variant={data.alert.destructive ? "destructive" : "default"}>
-          {data.alert.icon}
+          <AlertIcon>{data.alert.icon}</AlertIcon>
           <AlertTitle>{data.alert.title}</AlertTitle>
           <AlertDescription>
             {data.alert.destructive ? <span className="text-foreground">{data.alert.description}</span> : data.alert.description}
@@ -413,7 +413,7 @@ function CardActions({ loading, outage, openDetails }: {
 function CardAlerts() {
   return (
     <Alert>
-      <Info aria-hidden="true" />
+      <AlertIcon><Info /></AlertIcon>
       <AlertTitle>Low available to spend</AlertTitle>
       <AlertDescription>Purchases over $8.40 will be declined.</AlertDescription>
     </Alert>

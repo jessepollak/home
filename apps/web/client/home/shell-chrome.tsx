@@ -1,8 +1,8 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { ArrowLeft } from "lucide-react";
-import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
+import { CircleAlertIcon, ArrowLeft } from "lucide-react";
+import { Alert, AlertAction, AlertIcon, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { HomeMark } from "@/components/home-mark";
 import { ProfileMark } from "@/components/profile-mark";
@@ -211,9 +211,10 @@ export function SignedOutLanding({
           </div>
           {signOutError ? (
             <Alert variant="destructive" role="alert">
+              <AlertIcon><CircleAlertIcon /></AlertIcon>
               <AlertDescription>{signOutError}</AlertDescription>
               <AlertAction>
-                <Button variant="ghost" onClick={onRetrySignOut}>Retry sign out</Button>
+                <Button variant="outline" size="lg" className="h-11" onClick={onRetrySignOut}>Retry sign out</Button>
               </AlertAction>
             </Alert>
           ) : null}

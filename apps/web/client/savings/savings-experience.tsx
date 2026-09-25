@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertAction, AlertIcon, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -18,7 +18,7 @@ import {
   ItemTitle,
 } from "@/components/ui/item";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft } from "lucide-react";
+import { CircleAlertIcon, ArrowLeft } from "lucide-react";
 import { MoneyTicker } from "@/components/money-ticker";
 import { AddressText } from "@/components/address-text";
 import { useOptionalAppChrome } from "@/components/app-chrome";
@@ -474,7 +474,7 @@ export function SavingsExperience({
               </AlertDescription>
               {onRetryBalances ? (
                 <AlertAction>
-                  <Button variant="ghost" onClick={onRetryBalances}>Retry</Button>
+                  <Button variant="outline" size="lg" className="h-11" onClick={onRetryBalances}>Retry</Button>
                 </AlertAction>
               ) : null}
             </Alert>
@@ -491,7 +491,7 @@ export function SavingsExperience({
         <Alert role="alert">
           <AlertDescription>Vaults are temporarily unavailable.</AlertDescription>
           <AlertAction>
-            <Button variant="ghost" onClick={() => void metadataQuery.refetch()}>Retry</Button>
+            <Button variant="outline" size="lg" className="h-11" onClick={() => void metadataQuery.refetch()}>Retry</Button>
           </AlertAction>
         </Alert>
       ) : !coldLoading && !positionFailed && candidates.length > 0 ? (
@@ -750,6 +750,7 @@ function SavingsNotice({
       role={role}
       variant={tone === "error" ? "destructive" : "default"}
     >
+      {tone === "error" ? <AlertIcon><CircleAlertIcon /></AlertIcon> : null}
       <AlertDescription>{children}</AlertDescription>
     </Alert>
   );

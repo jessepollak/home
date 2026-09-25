@@ -1,7 +1,8 @@
 "use client";
 
+import { CircleAlertIcon } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertIcon, AlertDescription } from "@/components/ui/alert";
 import { buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -849,6 +850,7 @@ function FundingNotice({
 }) {
   return (
     <Alert role={role} variant={tone === "error" ? "destructive" : "default"}>
+      {tone === "error" ? <AlertIcon><CircleAlertIcon /></AlertIcon> : null}
       <AlertDescription>{children}</AlertDescription>
     </Alert>
   );

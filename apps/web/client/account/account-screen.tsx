@@ -1,10 +1,10 @@
 "use client";
 
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertIcon, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { AppDrawer, MoneyModalBody } from "@/client/money-modal";
-import { X } from "lucide-react";
+import { CircleAlertIcon, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type FormEvent, type ReactNode } from "react";
 import { classifyEmailCodeError } from "./auth-errors";
 import {
@@ -54,6 +54,7 @@ function StatusMessage({
 }) {
   return (
     <Alert variant={tone === "error" ? "destructive" : "default"} role={role ?? (tone === "error" ? "alert" : "status")} {...props}>
+      {tone === "error" ? <AlertIcon><CircleAlertIcon /></AlertIcon> : null}
       <AlertDescription>{children}</AlertDescription>
     </Alert>
   );

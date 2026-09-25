@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Fragment, useState } from "react";
-import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertAction, AlertIcon, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,7 +17,7 @@ import {
   ItemTitle,
 } from "@/components/ui/item";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowDownToLine, ChevronRight, Landmark } from "lucide-react";
+import { CircleAlertIcon, ArrowDownToLine, ChevronRight, Landmark } from "lucide-react";
 import { CurrencyMark } from "@/components/currency-mark";
 import {
   verifiedLocalCashAssets,
@@ -178,9 +178,10 @@ export function MethodBody({
     <MoneyModalBody hasFooter={false} className="pt-4">
       {fundingReadError ? (
         <Alert variant="destructive">
+          <AlertIcon><CircleAlertIcon /></AlertIcon>
           <AlertDescription>{fundingReadError.message}</AlertDescription>
           <AlertAction>
-            <Button variant="ghost" onClick={fundingReadError.retry}>Retry</Button>
+            <Button variant="outline" size="lg" className="h-11" onClick={fundingReadError.retry}>Retry</Button>
           </AlertAction>
         </Alert>
       ) : null}
@@ -349,6 +350,7 @@ function ReceiveAddress({ address }: { address: `0x${string}` }) {
       {copyStatus === "error" ? (
         <div className="grid w-full max-w-xs justify-items-center gap-2">
           <Alert id="receive-address-help" variant="destructive" role="alert">
+            <AlertIcon><CircleAlertIcon /></AlertIcon>
             <AlertDescription>
               Clipboard access is unavailable. Select and copy the full address
               below.

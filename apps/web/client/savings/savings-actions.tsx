@@ -1,8 +1,8 @@
 "use client";
 
 import { useRef, useState, type ComponentProps, type ReactNode } from "react";
-import { LoaderCircle } from "lucide-react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { CircleAlertIcon, LoaderCircle } from "lucide-react";
+import { Alert, AlertIcon, AlertDescription } from "@/components/ui/alert";
 import { MoneyMotionProvider } from "@/components/money-ticker";
 import { useReactiveExpiry } from "@/client/actions/expiry";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
@@ -442,6 +442,7 @@ function StatusMessage({
 }) {
   return (
     <Alert variant={tone === "error" ? "destructive" : "default"} role={role ?? (tone === "error" ? "alert" : "status")} {...props}>
+      {tone === "error" ? <AlertIcon><CircleAlertIcon /></AlertIcon> : null}
       <AlertDescription>{children}</AlertDescription>
     </Alert>
   );
