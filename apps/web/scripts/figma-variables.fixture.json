@@ -55,9 +55,9 @@
         "codeSyntax": { "WEB": "calc(var(--spacing) * 0.5)" }, "valuesByMode": { "155:1": 2 }
       },
       "VariableID:205:3520": {
-        "id": "VariableID:205:3520", "name": "color/warning", "remote": false,
+        "id": "VariableID:205:3520", "name": "color/chart-gain", "remote": false,
         "variableCollectionId": "VariableCollectionId:4:3", "resolvedType": "COLOR",
-        "description": "PROPOSED", "codeSyntax": { "WEB": "var(--warning)" },
+        "description": "PROPOSED", "codeSyntax": { "WEB": "var(--chart-gain)" },
         "valuesByMode": { "4:0": { "r": 1, "g": 0.8, "b": 0, "a": 1 } }
       },
       "VariableID:155:1687": {

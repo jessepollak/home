@@ -27,11 +27,11 @@ Conversion uses the Coinbase daily rate for the transfer's UTC date (`GET https:
 
 - Historical closes are USD, so a non-USD presentation multiplies by the `USD-{currency}` rate for that day.
 - A pegged stablecoin in a different presentation currency multiplies by the `{peg}-{currency}` rate for that day. A stablecoin whose peg matches the presentation currency needs no FX.
-- Completed UTC days are fixed. For a transfer on the current UTC day, Coinbase's dated rate is still forming, so Home marks that rate provisional in transaction details and refreshes it at most once a minute until the day closes.
+- Completed UTC days are fixed. For a transfer on the current UTC day, Coinbase's dated rate is still forming, so Home retains its provisional state in the valuation data and refreshes it at most once a minute until the day closes.
 
 ## Unpriced transfers
 
-A transfer is always shown. When Home cannot value it, the row shows only the signed native quantity, and transaction details give the reason:
+A transfer is always shown. When Home cannot value it, the row shows only the signed native quantity, and transaction details show `Unknown` for every unpriced reason. The reason remains in the data contract:
 
 | Reason | Meaning |
 | --- | --- |
@@ -47,7 +47,7 @@ Home never shows `$0.00` for an unpriced transfer, never treats an unknown token
 - The row shows the signed fiat value as the primary amount and the signed native quantity below it through the shared `ActivityRow` `valueContext`. Rows carry no "estimated" label.
 - Sent transfers use `−`, received transfers use `+`, and self transfers have no sign, so a self transfer never reads as income.
 - A positive value below one cent shows as `<$0.01` (or the local equivalent), never as zero. The native quantity uses Home's shared token presentation rules.
-- Transaction details keep the exact native amount and add the same value shown on the row, the method (peg or historical close), the quote time and unit price for a close, and the FX pair, rate, date, and provisional state when FX applies.
+- Transaction details show the exact signed native amount in the header and the value in the sheet: signed fiat when priced, `Unknown` otherwise. The method, quote time, unit price and FX provenance remain in the valuation data contract but are no longer displayed in the sheet (#942).
 
 ## Math, batching, and caching
 

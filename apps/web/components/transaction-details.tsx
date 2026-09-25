@@ -2,13 +2,13 @@
 
 import { Separator } from "@/components/ui/separator";
 import { CopyableValue } from "@/components/copyable-value";
+import { NetworkMark } from "./network-mark";
+import { TransactionAmount } from "./transaction-amount";
+import { TransactionStatusMark } from "./transaction-status";
 import { MoneyModal, MoneyModalBody, MoneyModalHeader } from "@/client/money-modal";
 import type { TransactionDetails } from "./transaction-explorer";
 
-export type {
-  TransactionDetails,
-} from "./transaction-explorer";
-
+export type { TransactionDetails } from "./transaction-explorer";
 
 
 export function TransactionDetailsModal({
@@ -37,6 +37,7 @@ export function TransactionDetailsModal({
         closeLabel="Close transaction details"
       />
       <MoneyModalBody hasFooter={false} className="pt-4">
+        {details?.header ? <div className="pb-4"><TransactionAmount {...details.header} /></div> : null}
         <dl>
           {rows.map((row) => (
             <div
@@ -44,14 +45,18 @@ export function TransactionDetailsModal({
               key={row.label}
             >
               <dt className="text-sm text-muted-foreground">{row.label}</dt>
-              <dd className={`min-w-0 text-right ${row.display ? "" : "font-medium tabular-nums"}`}>
-                {row.display ? (
+              <dd className={`min-w-0 text-end ${"display" in row && row.display ? "" : "font-medium tabular-nums"}`}>
+                {"network" in row ? (
+                  <span className="inline-flex items-center justify-end gap-2"><NetworkMark network={row.network} />{row.value}</span>
+                ) : "statusTone" in row ? (
+                  <TransactionStatusMark status={{ label: row.value, tone: row.statusTone }} />
+                ) : row.display ? (
                   <CopyableValue
                     value={row.value}
                     display={row.display}
                     presentation="compact"
                     valueKind={row.label === "Transaction" ? "transaction hash" : "address"}
-                    className="justify-end text-right"
+                    className="justify-end text-end"
                   />
                 ) : row.value}
               </dd>
