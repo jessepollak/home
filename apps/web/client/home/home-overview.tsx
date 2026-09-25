@@ -29,6 +29,7 @@ export function HomeOverview({
   cashRate,
   borrowOfferRate,
   destinations,
+  onRetryBalances,
 }: {
   assetBalances?: HomeAssetBalancesPresentation;
   actions: ReactNode;
@@ -36,6 +37,7 @@ export function HomeOverview({
   cashRate: string | null;
   borrowOfferRate: string | null;
   destinations: HomeOverviewDestinations;
+  onRetryBalances?: () => void;
 }) {
   const isLoading = assetBalances?.status === "loading";
   return (
@@ -50,6 +52,7 @@ export function HomeOverview({
         cashRate={cashRate}
         borrowOfferRate={borrowOfferRate}
         destinations={destinations}
+        onRetryBalances={assetBalances?.needsCountry ? undefined : onRetryBalances}
       />
       {activity}
     </div>
@@ -135,12 +138,14 @@ export function HomeMoneySummary({
   cashRate,
   borrowOfferRate,
   destinations,
+  onRetryBalances,
 }: {
   summary: HomeMoneySummaryModel | null;
   isLoading: boolean;
   cashRate: string | null;
   borrowOfferRate: string | null;
   destinations: HomeOverviewDestinations;
+  onRetryBalances?: () => void;
 }) {
   return (
     <section aria-labelledby="your-money-heading" aria-busy={isLoading || undefined}>
@@ -157,15 +162,18 @@ export function HomeMoneySummary({
                 summary={(summary ?? unavailableSummary).cash}
                 rate={cashRate}
                 onOpen={destinations.onOpenCash}
+                onRetryBalances={onRetryBalances}
               />
               <InvestmentsRow
                 summary={(summary ?? unavailableSummary).investments}
                 onOpen={destinations.onOpenInvestments}
+                onRetryBalances={onRetryBalances}
               />
               <BorrowRow
                 summary={(summary ?? unavailableSummary).borrow}
                 offerRate={borrowOfferRate}
                 onOpen={destinations.onOpenBorrow}
+                onRetryBalances={onRetryBalances}
               />
             </ul>
           )}
@@ -179,10 +187,12 @@ function CashRow({
   summary,
   rate,
   onOpen,
+  onRetryBalances,
 }: {
   summary: HomeMoneySummaryModel["cash"];
   rate: string | null;
   onOpen: () => void;
+  onRetryBalances?: () => void;
 }) {
   return (
     <BalanceRow
@@ -194,6 +204,7 @@ function CashRow({
       valueTone={summary.status === "complete" ? "default" : "muted"}
       onActivate={onOpen}
       activateLabel="Open Cash"
+      readRetry={summary.value === null && onRetryBalances ? { label: "Retry Cash balance", onRetry: onRetryBalances } : undefined}
       chevron={summary.value !== null}
     />
   );
@@ -202,9 +213,11 @@ function CashRow({
 function InvestmentsRow({
   summary,
   onOpen,
+  onRetryBalances,
 }: {
   summary: HomeMoneySummaryModel["investments"];
   onOpen: () => void;
+  onRetryBalances?: () => void;
 }) {
   const empty = summary.assetCount === 0 && summary.status === "complete";
   return (
@@ -221,6 +234,7 @@ function InvestmentsRow({
       valueTone={summary.status === "complete" ? "default" : "muted"}
       onActivate={onOpen}
       activateLabel="Open Invest"
+      readRetry={!empty && summary.value === null && onRetryBalances ? { label: "Retry Investments balance", onRetry: onRetryBalances } : undefined}
       chevron={empty || summary.value !== null}
     />
   );
@@ -230,10 +244,12 @@ function BorrowRow({
   summary,
   offerRate,
   onOpen,
+  onRetryBalances,
 }: {
   summary: HomeMoneySummaryModel["borrow"];
   offerRate: string | null;
   onOpen: () => void;
+  onRetryBalances?: () => void;
 }) {
   const icon = <GlyphMark size="sm"><HandCoins /></GlyphMark>;
   if (summary.kind === "position") {
@@ -248,6 +264,7 @@ function BorrowRow({
         valueContext={summary.rate ?? undefined}
         onActivate={onOpen}
         activateLabel="Open Borrow"
+        readRetry={summary.value === null && onRetryBalances ? { label: "Retry Borrow balance", onRetry: onRetryBalances } : undefined}
         chevron={summary.value !== null}
       />
     );
@@ -264,6 +281,7 @@ function BorrowRow({
       valueTone="muted"
       onActivate={onOpen}
       activateLabel="Open Borrow"
+      readRetry={summary.kind === "unavailable" && onRetryBalances ? { label: "Retry Borrow balance", onRetry: onRetryBalances } : undefined}
       chevron={summary.kind === "none"}
     />
   );

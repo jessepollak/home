@@ -1133,7 +1133,7 @@ describe("Home shell routing and intents", () => {
     expect(summary.getAllByRole("listitem")).toHaveLength(3);
     const borrowRow = summary.getByRole("button", { description: "Open Borrow" });
     expect(borrowRow.textContent).toContain("—");
-    expect(borrowRow.querySelector("[data-slot='item-actions']")).toBeNull();
+    expect(summary.getByRole("button", { name: "Retry Borrow balance" })).toBeTruthy();
     expect(document.querySelector("[role='alert']")).toBeNull();
     const header = page().getByRole("banner");
     fireEvent.click(within(header).getByRole("button", { name: "Balances are unavailable" }));
@@ -1147,6 +1147,26 @@ describe("Home shell routing and intents", () => {
     fireEvent.click(summary.getByRole("button", { description: "Open Borrow" }));
     expect(`${window.location.pathname}${window.location.search}`).toBe("/borrow");
     await waitFor(() => expect(document.querySelector("[data-home-status]")).toBeNull());
+  });
+
+  test("offers balance row retries only when the header offers recovery", async () => {
+    const unavailable = presentBalances({ status: "error", snapshot: null, error: "balances-unavailable" });
+    const onRetryInterruption = mock(() => {});
+    const { rerender } = render(
+      <HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} assetBalances={unavailable}
+        interruption={{ kind: "offline" }} onRetryInterruption={onRetryInterruption} />,
+    );
+    await waitForVerifiedShell();
+    const summary = () => within(page().getByRole("region", { name: "Your money" }));
+    expect(summary().getByRole("button", { description: "Open Cash" }).textContent).toContain("—");
+    expect(summary().queryByRole("button", { name: /^Retry .* balance$/ })).toBeNull();
+
+    rerender(
+      <HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} assetBalances={unavailable}
+        interruption={{ kind: "interrupted" }} onRetryInterruption={onRetryInterruption} />,
+    );
+    fireEvent.click(await waitFor(() => summary().getByRole("button", { name: "Retry Cash balance" })));
+    expect(onRetryInterruption).toHaveBeenCalledTimes(1);
   });
 
   test("keeps interruption status across Invest and nested chrome, hiding and restoring Home-only coverage", async () => {
