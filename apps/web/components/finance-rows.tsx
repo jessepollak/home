@@ -1,5 +1,5 @@
 import { useId, type ReactNode } from "react";
-import { ArrowDown, ArrowLeftRight, ArrowUp, ChevronRight } from "lucide-react";
+import { ArrowDown, ArrowLeftRight, ArrowUp, ChevronRight, CircleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Item,
@@ -24,8 +24,9 @@ type FinanceRowProps = {
   valueContext?: ReactNode;
   valueContextTitle?: string;
   valueTone?: FinanceRowTone;
-  onActivate?: () => void;
+  onActivate?: (opener: HTMLElement) => void;
   activateLabel?: string;
+  attention?: string;
   chevron?: boolean;
 };
 
@@ -65,6 +66,7 @@ function FinanceRow({
   valueTone = "default",
   onActivate,
   activateLabel,
+  attention,
   chevron = true,
 }: FinanceRowProps) {
   const hintId = useId();
@@ -95,6 +97,7 @@ function FinanceRow({
             </ItemDescription>
           )}
         </ItemContent>
+        {onActivate && attention ? <span className="sr-only">{attention}</span> : null}
         {hasValue ? (
           <ItemContent
             className="max-w-2/3 min-w-0 !flex-none items-end gap-0.5 overflow-hidden text-right"
@@ -124,9 +127,11 @@ function FinanceRow({
           </ItemContent>
         ) : null}
       </div>
-      {onActivate && chevron ? (
+      {onActivate && (attention || chevron) ? (
         <ItemActions aria-hidden="true">
-          <ChevronRight className="size-4 text-muted-foreground" />
+          {attention
+            ? <CircleAlert className="size-4 text-foreground" />
+            : <ChevronRight className="size-4 text-muted-foreground" />}
         </ItemActions>
       ) : null}
     </>
@@ -145,7 +150,7 @@ function FinanceRow({
                   variant="ghost"
                   press="none"
                   aria-describedby={hintId}
-                  onClick={onActivate}
+                  onClick={(event) => onActivate(event.currentTarget)}
                 />
               ),
             }

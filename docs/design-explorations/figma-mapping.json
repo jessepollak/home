@@ -197,7 +197,7 @@
       "codeComponentName": "ActivityLoader",
       "codeConnectStatus": "mapped (#789)",
       "publishStatus": "CHANGED (description)",
-      "fidelityNotes": "Activity infinite-scroll continuation boundary with a centered spinner and no visible copy (a screen-reader-only status announces older rows loading). Rendered by apps/web/client/activity/activity-panel.tsx on Home and the Activity page since #789."
+      "fidelityNotes": "Activity infinite-scroll continuation boundary with a centered spinner and no visible copy (a screen-reader-only status announces older rows loading). Rendered by apps/web/client/activity/activity-panel.tsx on Home and the Activity page since #789. #637 (2026-09-24) set the master's primary-axis alignment to centre so the 24px spinner sits at the vertical centre of the 56px frame, as code's h-14 items-center does; it had sat 4px high."
     },
     {
       "figmaName": "MoreRow",
