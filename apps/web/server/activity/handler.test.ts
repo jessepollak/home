@@ -217,6 +217,60 @@ describe("activity route handler", () => {
     ]);
   });
 
+  test("counts priced and unpriced valuations for the succeeded page only", async () => {
+    const transfer: ActivityPage["transfers"][number] = {
+      id: "8453:0x2222222222222222222222222222222222222222:1",
+      logId: "1",
+      chainId: 8453,
+      assetId: null,
+      tokenAddress: "0x2222222222222222222222222222222222222222",
+      tokenSymbol: "TEST",
+      tokenDecimals: 18,
+      tokenImageUrl: null,
+      walletAddress: VERIFIED,
+      fromAddress: "0x2222222222222222222222222222222222222222",
+      toAddress: VERIFIED,
+      direction: "incoming",
+      amountBaseUnits: "1",
+      blockNumber: "1",
+      blockHash: `0x${"a".repeat(64)}`,
+      transactionHash: `0x${"b".repeat(64)}`,
+      logIndex: "1",
+      blockTimestamp: TO,
+      valuation: {
+        status: "priced",
+        currency: "USD",
+        amount: { atoms: "1", scale: 0 },
+        method: "historical-close",
+        peg: null,
+        close: null,
+        fx: null,
+      },
+    };
+    const transfers: ActivityPage["transfers"] = [
+      transfer,
+      transfer,
+      ...(["unknown-token", "no-recent-close", "quote-unavailable", "fx-unavailable"] as const).map((reason) => ({
+        ...transfer,
+        valuation: { status: "unpriced" as const, currency: "USD" as const, reason },
+      })),
+    ];
+    const events: Array<Pick<Parameters<NonNullable<HandlerDependencies["observe"]>>[0], "outcome" | "rowCount" | "valuation">> = [];
+    const handler = createActivityHandler({
+      authorize: async () => sessionResponse(),
+      readActivity: async () => ({ ...page(), transfers }),
+      observe: (event) => events.push({ outcome: event.outcome, rowCount: event.rowCount, valuation: event.valuation }),
+      now: () => new Date(TO),
+    });
+
+    const response = await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`));
+    expect(response.status).toBe(200);
+    expect(events).toEqual([
+      { outcome: "started", rowCount: 0, valuation: { priced: 0, unknownToken: 0, noRecentClose: 0, quoteUnavailable: 0, fxUnavailable: 0 } },
+      { outcome: "succeeded", rowCount: 6, valuation: { priced: 2, unknownToken: 1, noRecentClose: 1, quoteUnavailable: 1, fxUnavailable: 1 } },
+    ]);
+  });
+
   test("fails closed when the route cannot derive a configured source", async () => {
     let readCalls = 0;
     const handler = createActivityHandler({
