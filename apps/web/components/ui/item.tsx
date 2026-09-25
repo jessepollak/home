@@ -129,7 +129,7 @@ function ItemContent({ className, ...props }: React.ComponentProps<"div">) {
 }
 
 const itemTitleVariants = cva(
-  "flex w-fit items-center gap-2 text-left text-sm leading-snug font-medium underline-offset-4",
+  "flex w-fit items-center gap-2 text-start text-sm leading-snug font-medium underline-offset-4",
   {
     variants: {
       tone: {
@@ -173,7 +173,7 @@ function ItemTitle({
 }
 
 const itemDescriptionVariants = cva(
-  "text-left text-sm leading-normal font-normal text-muted-foreground group-data-[size=xs]/item:text-xs [&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-primary",
+  "text-start text-sm leading-normal font-normal text-muted-foreground group-data-[size=xs]/item:text-xs [&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-primary",
   {
     variants: {
       lines: {

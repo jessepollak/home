@@ -82,7 +82,7 @@ export function MoneyModalHeader(props: MoneyModalHeaderProps) {
 
 export function MoneyModalBody({ children, className = "", hasFooter = false }: { children: ReactNode; className?: string; hasFooter?: boolean }) {
   return (
-    <div className={`flex min-h-0 flex-1 flex-col overflow-auto px-4 ${hasFooter ? "pb-4" : "pb-[max(1rem,env(safe-area-inset-bottom))]"} ${className}`.trim()}>
+    <div data-slot="money-modal-body" className={`flex min-h-0 flex-1 flex-col overflow-auto px-4 ${hasFooter ? "pb-4" : "pb-[max(1rem,env(safe-area-inset-bottom))]"} ${className}`.trim()}>
       {children}
     </div>
   );

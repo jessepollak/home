@@ -45,7 +45,8 @@
     { "figmaName": "PriceChart", "nodeId": "166:1959", "source": "client/invest/price-chart.tsx", "component": "PriceChart", "template": "client/explorations/code-connect/invest/price-chart.figma.ts", "stories": [] }
   ],
   "frames": [
-    { "figmaName": "Home — final", "nodeId": "92:922", "source": "client/home/home-overview.tsx", "component": "HomeOverview", "stories": ["client/home/home-overview.stories.tsx"] }
+    { "figmaName": "Home — final", "nodeId": "92:922", "source": "client/home/home-overview.tsx", "component": "HomeOverview", "stories": ["client/home/home-overview.stories.tsx"] },
+    { "figmaName": "Regional & desktop proposal (#638, unreviewed)", "nodeId": "311:12034", "source": "client/home/explorations/regional-home.tsx", "component": "RegionalHomeProposal", "stories": ["client/home/explorations/regional-home.stories.tsx", "client/home/explorations/regional-money-sheets.stories.tsx", "client/account/explorations/regional-preferences.stories.tsx"] }
   ],
   "notMapped": [
     { "figmaName": "Progress", "nodeId": "161:1923", "reason": "DESIGN-ONLY: no owned Progress wrapper in code yet." },
