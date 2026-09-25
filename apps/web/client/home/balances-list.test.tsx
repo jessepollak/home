@@ -15,7 +15,7 @@ import {
   type BalancesPresentation,
 } from "@/shared/balances/present";
 import { BalancesPage } from "./balances-panel";
-import { HomeBalancesList } from "./balances-list";
+import { BalancesList } from "./balances-list";
 import { showSmallBalancesPreferenceKey } from "./use-show-small-balances";
 
 const CBBTC_KEY = assetKeyForErc20("0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf");
@@ -61,7 +61,7 @@ describe("HomeBalanceRowView", () => {
       tone: "default",
     };
     const view = render(
-      <HomeBalancesList rows={[registryImageRow]} isLoading={false} />,
+      <BalancesList rows={[registryImageRow]} />,
     );
 
     expect(view.container.querySelector("img")?.getAttribute("src")).toBe(CBBTC_IMAGE);
@@ -73,28 +73,26 @@ describe("HomeBalanceRowView", () => {
       mark: { kind: "symbol", symbol: "cbXRP" },
     };
     view.rerender(
-      <HomeBalancesList rows={[registryInitialsRow]} isLoading={false} />,
+      <BalancesList rows={[registryInitialsRow]} />,
     );
     expect(view.container.querySelector("img")?.getAttribute("src")).toBe("/asset-marks/xrp.svg");
     view.rerender(
-      <HomeBalancesList rows={[{ ...registryInitialsRow, key: "eip155:8453/erc20:0x0000000000000000000000000000000000000bad" }]} isLoading={false} />,
+      <BalancesList rows={[{ ...registryInitialsRow, key: "eip155:8453/erc20:0x0000000000000000000000000000000000000bad" }]} />,
     );
     expect(view.container.querySelector("img")).toBeNull();
     expect(view.container.querySelector("[data-shimmer='mark']")).toBeNull();
     expect(view.container.querySelector("[data-mark]")?.textContent).toBe("CB");
 
     view.rerender(
-      <HomeBalancesList
+      <BalancesList
         rows={[{ ...registryImageRow, mark: { kind: "symbol", symbol: "cbBTC" } }]}
-        isLoading={false}
       />,
     );
     expect(view.container.querySelector("img")?.getAttribute("src")).toBe("/asset-marks/btc.svg");
 
     view.rerender(
-      <HomeBalancesList
+      <BalancesList
         rows={[{ ...registryImageRow, key: "eip155:8453/erc20:0x0000000000000000000000000000000000000bad", mark: { kind: "symbol", symbol: "USDC" } }]}
-        isLoading={false}
       />,
     );
     expect(view.container.querySelector("img")).toBeNull();
@@ -109,7 +107,7 @@ describe("HomeBalanceRowView", () => {
       tone: "default",
     };
     view.rerender(
-      <HomeBalancesList rows={[catalogRow]} isLoading={false} />,
+      <BalancesList rows={[catalogRow]} />,
     );
     expect(view.container.querySelector("img")?.getAttribute("src")).toBe(CATALOG_IMAGE);
   });
@@ -126,7 +124,7 @@ describe("HomeBalanceRowView", () => {
       tone: "default",
     };
 
-    const view = render(<HomeBalancesList rows={[longRow]} isLoading={false} />);
+    const view = render(<BalancesList rows={[longRow]} />);
     const ticker = view.getByRole("img", { name: exactValue });
 
     expect(ticker.getAttribute("aria-label")).toBe(exactValue);
@@ -205,7 +203,7 @@ describe("HomeBalanceRowView", () => {
   });
 
   test("renders every balance source through the same row anatomy", () => {
-    const view = render(<HomeBalancesList rows={rows} isLoading={false} />);
+    const view = render(<BalancesList rows={rows} />);
     const listItems = view.container.querySelectorAll("li");
     expect(listItems).toHaveLength(4);
     const text = [...listItems].map((item) => item.textContent ?? "");

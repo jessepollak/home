@@ -13,19 +13,14 @@ import {
 
 export function useHomeRegion({
   detectedCountry,
-  selectedRegionId,
-  onRegionChange,
 }: {
   detectedCountry: string | null;
-  selectedRegionId?: RegionId;
-  onRegionChange?: (region: RegionId) => void;
 }) {
   const initial = resolvePresentation({ detectedCountry });
-  const [internalRegionId, setInternalRegionId] = useState<RegionId>(initial.region.id);
+  const [regionId, setRegionId] = useState<RegionId>(initial.region.id);
   const [resolutionSource, setResolutionSource] = useState<ResolutionSource>(initial.source);
   const [isPreferenceReady, setIsPreferenceReady] = useState(false);
   const [preferenceMessage, setPreferenceMessage] = useState("");
-  const regionId = selectedRegionId ?? internalRegionId;
 
   useEffect(() => {
     const persistedCountry = readAnonymousCountryPreference(() => window.localStorage);
@@ -34,17 +29,15 @@ export function useHomeRegion({
       writeAnonymousCountryPreference(() => window.localStorage, resolved.region.id);
     }
     const hydrationFrame = window.requestAnimationFrame(() => {
-      setInternalRegionId(resolved.region.id);
-      onRegionChange?.(resolved.region.id);
+      setRegionId(resolved.region.id);
       setResolutionSource(resolved.source);
       setIsPreferenceReady(true);
     });
     return () => window.cancelAnimationFrame(hydrationFrame);
-  }, [detectedCountry, onRegionChange]);
+  }, [detectedCountry]);
 
   function selectRegion(nextRegionId: RegionId) {
-    setInternalRegionId(nextRegionId);
-    onRegionChange?.(nextRegionId);
+    setRegionId(nextRegionId);
     setResolutionSource("explicit");
     const didPersist = writeAnonymousCountryPreference(
       () => window.localStorage,
@@ -65,3 +58,5 @@ export function useHomeRegion({
     selectRegion,
   };
 }
+
+export type HomeRegionState = ReturnType<typeof useHomeRegion>;
