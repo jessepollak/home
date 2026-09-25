@@ -21,7 +21,14 @@ export const afterActionScopes = [
 export const indexedScopes = ["activity", "borrow", "actions"] as const;
 
 export const activityWindowScope = "activity-window";
+export const networkFeePolicyScope = "network-fee-policy";
 const activityWindowQuantumMs = 60_000;
+
+export function invalidateNetworkFeePolicy(queryClient: Pick<QueryClient, "invalidateQueries">): Promise<void> {
+  return queryClient.invalidateQueries({
+    predicate: (query) => query.queryKey[1] === networkFeePolicyScope,
+  });
+}
 
 export function initialActivityWindowEnd(now = Date.now()): string {
   return new Date(Math.floor(now / activityWindowQuantumMs) * activityWindowQuantumMs).toISOString();
@@ -183,7 +190,10 @@ export async function settleBalanceFreshness(input: {
   result: "moved" | "timed-out";
 }): Promise<void> {
   if (input.result === "moved") input.state.moved.add(input.actionId);
-  await invalidateIndexedScopes(input.queryClient, input.dataOwnerKey);
+  await Promise.all([
+    invalidateIndexedScopes(input.queryClient, input.dataOwnerKey),
+    invalidateNetworkFeePolicy(input.queryClient),
+  ]);
 }
 
 export async function applyActionHandleEffects(input: {
@@ -198,7 +208,10 @@ export async function applyActionHandleEffects(input: {
   const body = isRecord(input.body) ? input.body : {};
   if (typeof body.transactionHash === "string") {
     void input.startBalanceFreshness(actionId);
-    await invalidateAfterAction(input.queryClient, input.dataOwnerKey);
+    await Promise.all([
+      invalidateAfterAction(input.queryClient, input.dataOwnerKey),
+      invalidateNetworkFeePolicy(input.queryClient),
+    ]);
     return;
   }
   await input.queryClient.invalidateQueries({

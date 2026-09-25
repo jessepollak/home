@@ -20,7 +20,7 @@ const {
   recommendedOpeningCollateralBaseUnits,
   recommendedRepayMaximumBaseUnits,
 } = await import("./borrowing-experience");
-const { parseClientTokenAmount, selectPrimaryBorrowAsset } = await import("./borrow-money-dialog");
+const { BorrowMoneyDialog, parseClientTokenAmount, selectPrimaryBorrowAsset } = await import("./borrow-money-dialog");
 
 const OWNER = "0x1111111111111111111111111111111111111111" as const;
 const OWNER_B = "0x2222222222222222222222222222222222222222" as const;
@@ -115,7 +115,7 @@ function prepared(operation: "borrow" | "supply-and-borrow" | "repay" | "repay-a
 }
 
 function accountFetch(snapshot: BorrowMarketSnapshot, response = overview({ position: BigInt(snapshot.position.debtAssetsRaw) > BigInt(0), snapshots: [snapshot] })) {
-  return async (path: string) => path === "/api/borrow" ? response : snapshot;
+  return async (path: string) => path === "/api/actions/network-fee" ? { version: 1, usdcReserveBaseUnits: null } : path === "/api/borrow" ? response : snapshot;
 }
 
 afterEach(() => {
@@ -354,6 +354,39 @@ describe("BorrowExperience redesign", () => {
     expect(requests[1]).toEqual({ kind: "repay", params: { marketId: BORROW_MARKET_ID, operation: "repay-all", maximumRepayBaseUnits: expectedMaximum } });
   });
 
+  test("repay-all waits for the USDC reserve before setting its reviewed maximum", async () => {
+    let resolveReserve!: (value: unknown) => void;
+    const reserveResponse = new Promise<unknown>((resolve) => { resolveReserve = resolve; });
+    const requests: unknown[] = [];
+    render(<BorrowMoneyDialog session={session()} snapshot={detail()} operation="repay-all" regionId="US"
+      fetchAccountResource={async () => reserveResponse}
+      prepareMoneyAction={async (_kind, params) => { requests.push(params); return prepared("repay-all"); }}
+      executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} onClose={() => {}} />);
+    const dialog = within(await within(document.body).findByRole("dialog", { name: "Repay all" }));
+    expect((dialog.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(dialog.queryByRole("button", { name: "Max" })).toBeNull();
+    await act(async () => { resolveReserve({ version: 1, usdcReserveBaseUnits: "20000" }); });
+    await waitFor(() => expect((dialog.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
+    await dialog.findByRole("button", { name: "Confirm action" });
+    expect(requests).toEqual([{ marketId: BORROW_MARKET_ID, operation: "repay-all", maximumRepayBaseUnits: recommendedRepayMaximumBaseUnits("100000000", "199980000", "1000000000") }]);
+  });
+
+  test("allows an exact partial repay while the USDC reserve is unavailable", async () => {
+    const requests: unknown[] = [];
+    render(<BorrowMoneyDialog session={session()} snapshot={detail()} operation="repay" regionId="US"
+      fetchAccountResource={async () => { throw new Error("policy unavailable"); }}
+      prepareMoneyAction={async (_kind, params) => { requests.push(params); return prepared("repay"); }}
+      executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} onClose={() => {}} />);
+    const dialog = within(await within(document.body).findByRole("dialog", { name: "Repay" }));
+    expect(dialog.queryByRole("button", { name: "Max" })).toBeNull();
+    fireEvent.click(dialog.getByRole("button", { name: "5" }));
+    expect((dialog.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
+    await dialog.findByRole("button", { name: "Confirm action" });
+    expect(requests).toEqual([{ marketId: BORROW_MARKET_ID, operation: "repay", amountBaseUnits: "5000000" }]);
+  });
+
   test("keeps wallet-short Max as an accurate partial repay", async () => {
     const base = detail();
     const snapshot = detail({ wallet: { ...base.wallet, loanBalanceRaw: "50000000" } });
@@ -370,6 +403,18 @@ describe("BorrowExperience redesign", () => {
     expect(requests).toEqual([{ kind: "repay", params: { marketId: BORROW_MARKET_ID, operation: "repay", amountBaseUnits: "50000000" } }]);
   });
 
+  test.each([
+    { code: "NETWORK_FEE_UNFUNDED", status: 409, message: "Add USDC to cover the network fee." },
+    { code: "NETWORK_FEE_UNAVAILABLE", status: 502, message: "The network fee could not be checked. Try again." },
+  ])("shows the exact $code prepare message", async ({ code, status, message }) => {
+    render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(detail())} prepareMoneyAction={async () => { throw Object.assign(new Error("fee error"), { status, code, serverMessage: message }); }} executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />);
+    const body = within(document.body);
+    fireEvent.click(await body.findByRole("button", { name: "Borrow more" }));
+    const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
+    fireEvent.click(dialog.getByRole("button", { name: "1" }));
+    fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
+    expect((await dialog.findByRole("alert")).textContent).toContain(message);
+  });
   test("surfaces sanitized typed prepare errors without transport details", async () => {
     render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(detail())} prepareMoneyAction={async () => { throw Object.assign(new Error("submission-pending"), { status: 409, code: "LIMIT_EXCEEDED", serverMessage: "The amount exceeds the current Home-adjusted collateral and liquidity limit." }); }} executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />);
     const body = within(document.body);

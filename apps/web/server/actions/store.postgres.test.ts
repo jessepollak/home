@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
+import { keccak256 } from "viem";
+import { encodeCoinbaseExecuteBatch } from "@/server/chain/coinbase-smart-account";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
 import { readMigrationSql } from "@/tests/helpers/migrations";
 import { ActionsStore, actionOwnerKey } from "./store";
@@ -22,6 +24,7 @@ describePostgres("actions schema and store", () => {
     admin = new Bun.SQL(connectionString!) as unknown as BunSqlClient;
     const migration = await readMigrationSql("001_actions.sql");
     const outcomesMigration = await readMigrationSql("012_action_outcomes.sql");
+    const callCommitmentMigration = await readMigrationSql("013_action_call_commitment.sql");
     await admin.unsafe(`DROP SCHEMA IF EXISTS ${TEST_SCHEMA} CASCADE`);
     await admin.unsafe(`CREATE SCHEMA ${TEST_SCHEMA}`);
     await admin.begin(async (transaction) => {
@@ -32,9 +35,10 @@ describePostgres("actions schema and store", () => {
       )`);
       await transaction.unsafe(migration);
       await transaction.unsafe(outcomesMigration);
+      await transaction.unsafe(callCommitmentMigration);
       await transaction.unsafe(
-        "INSERT INTO schema_migrations (name) VALUES ($1)",
-        ["db/001_actions.sql"],
+        "INSERT INTO schema_migrations (name) VALUES ($1), ($2)",
+        ["db/001_actions.sql", "db/013_action_call_commitment.sql"],
       );
     });
     sql = createPostgresSqlExecutor(connectionString!, { schema: TEST_SCHEMA });
@@ -60,7 +64,7 @@ describePostgres("actions schema and store", () => {
     expect(columns.rows.map(({ column_name }) => column_name)).toEqual([
       "id", "owner_key", "provider", "kind", "summary", "pending", "created_at",
       "confirmed_at", "provider_handle", "transaction_hash", "handle_recorded_at",
-      "account_address", "declined_reported_at", "dispatch_attempt", "outcome", "outcome_source", "settled_at", "outcome_recorded_at",
+      "account_address", "declined_reported_at", "dispatch_attempt", "outcome", "outcome_source", "settled_at", "outcome_recorded_at", "confirmed_call_data_hash",
     ]);
   });
 
@@ -70,10 +74,28 @@ describePostgres("actions schema and store", () => {
     expect(await store.get(otherOwner, id)).toBeNull();
     const confirmed = await store.confirm(owner, id);
     expect(confirmed?.pending?.calls).toEqual(calls);
+    expect(confirmed?.confirmed_call_data_hash).toBe(keccak256(encodeCoinbaseExecuteBatch(calls)));
+    expect((await store.getForPaymaster(id))?.confirmed_call_data_hash).toBe(keccak256(encodeCoinbaseExecuteBatch(calls)));
     expect((await store.get(owner, id))?.pending).toBeNull();
     expect((await store.get(owner, id))?.confirmed_at).not.toBeNull();
     expect((await store.recordHandle(owner, id, { providerHandle: `0x${"ab".repeat(32)}` }))?.provider_handle).toBe(`0x${"ab".repeat(32)}`);
     expect(await store.recordHandle(owner, id, { providerHandle: `0x${"cd".repeat(32)}` })).toBeNull();
+  });
+
+  test("confirmation commits finalized calls rather than the pending draft", async () => {
+    const id = randomUUID();
+    const finalCalls = [{ ...calls[0]!, data: "0x5678" as const }];
+    await store.insert({ id, owner, kind: "send", summary, pending: { calls }, createdAt: "2026-09-12T10:00:00.000Z" });
+    expect((await store.getForPaymaster(id))?.confirmed_call_data_hash).toBeNull();
+    expect((await store.confirm(owner, id, finalCalls))?.pending?.calls).toEqual(finalCalls);
+    expect((await store.getForPaymaster(id))?.confirmed_call_data_hash).toBe(keccak256(encodeCoinbaseExecuteBatch(finalCalls)));
+  });
+
+  test("confirmation without pending calls does not write a commitment", async () => {
+    const id = randomUUID();
+    await store.insert({ id, owner, kind: "send", summary, pending: { calls }, createdAt: "2026-09-12T10:00:00.000Z" });
+    await sql.query("UPDATE actions SET pending = NULL WHERE id = $1", [id]);
+    expect((await store.confirm(owner, id))?.confirmed_call_data_hash).toBeNull();
   });
 
   test("base-account confirmation leaves the provider handle empty until the wallet handle is recorded", async () => {

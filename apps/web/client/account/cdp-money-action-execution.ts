@@ -14,6 +14,7 @@ import {
 } from "./action-resolution";
 import type { OperationResult, PreparedMoneyAction } from "@/shared/money-actions/types";
 import { validPrepared } from "@/shared/actions/contracts/prepare";
+import { parseMoneyActionNetworkFee, paymasterProxyPath, USDC_PAYMASTER_CONTEXT } from "@/shared/money-actions/network-fee";
 import { parsePendingActionResponse } from "@/shared/actions/contracts/get";
 import { parseConfirmActionResponse } from "@/shared/actions/contracts/confirm";
 import type { HandleActionRequest } from "@/shared/actions/contracts/handle";
@@ -144,6 +145,8 @@ export function useMoneyActionExecution({
     if (active.user.subject !== action.owner.subject || active.accountProvider !== action.owner.accountProvider) {
       throw new TransferExecutionError("stale-session");
     }
+    const fee = parseMoneyActionNetworkFee(action.networkFee);
+    if (action.networkFee !== undefined && !fee) throw new TransferExecutionError("unavailable");
 
     let providerHandle: string;
     try {
@@ -167,6 +170,7 @@ export function useMoneyActionExecution({
         },
         dispatch: async (plan) => {
           const calls = plan.calls.map((call) => ({ ...call, value: BigInt(call.value) }));
+          const paymaster = fee?.payment === "usdc" ? { url: new URL(paymasterProxyPath(action.id), window.location.origin).toString(), context: USDC_PAYMASTER_CONTEXT } : undefined;
           if (action.owner.accountProvider === "base-account") {
             const connection = baseConnection.current;
             if (!connection?.sendCalls || connection.address.toLowerCase() !== action.owner.address.toLowerCase()) {
@@ -177,6 +181,7 @@ export function useMoneyActionExecution({
               action.id,
               async () => ownerFence.assertCurrent(generation),
               plan.batchGasLimit,
+              paymaster,
             );
           }
           if (!sdkSendUserOperation) throw new TransferExecutionError("unavailable");
@@ -186,6 +191,7 @@ export function useMoneyActionExecution({
             network: "base",
             calls,
             idempotencyKey: action.id,
+            ...(paymaster ? { paymasterUrl: paymaster.url, paymasterContext: paymaster.context } : {}),
           });
           return result.userOperationHash;
         },

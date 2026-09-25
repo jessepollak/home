@@ -29,6 +29,8 @@ import type {
   PreparedMoneyAction,
 } from "@/shared/money-actions/types";
 import { parseUsdcAmount } from "@/client/savings/format";
+import { networkFeeErrorMessage } from "@/shared/money-actions/network-fee";
+import { maxAmountAfterNetworkFee, useNetworkFeeReserve } from "@/client/money-modal/network-fee-policy";
 import { reportClientError } from "@/client/observability/client-reporter";
 import {
   formatExactPresentationTokenAmount,
@@ -53,6 +55,7 @@ export type SavingsMoneyDialogProps = {
   availableLabel?: string;
   availableBaseUnits?: string | null;
   availableStale?: boolean;
+  fetchAccountResource?: AccountWalletClient["fetchAccountResource"];
   prepareMoneyAction: AccountWalletClient["prepareMoneyAction"];
   executeMoneyAction: AccountWalletClient["executeMoneyAction"];
   onClose: () => void;
@@ -75,6 +78,7 @@ function OwnerBoundSavingsMoneyDialog({
   availableLabel,
   availableBaseUnits,
   availableStale = false,
+  fetchAccountResource,
   prepareMoneyAction,
   executeMoneyAction,
   onClose,
@@ -122,6 +126,7 @@ function OwnerBoundSavingsMoneyDialog({
   const nothingAvailable = knownAvailable === BigInt(0);
   const amountExceedsAvailable = amountExceedsKnownAvailable(amount, knownAvailable);
   const pricing = useMoneyAssetPricing(assetLabel);
+  const reserve = useNetworkFeeReserve(session.smartAccount ? savingsDialogOwnerIdentity(session) : null, fetchAccountResource, open);
   const title = step === "confirm" || step === "pending" || step === "error" || step === "failed"
     ? "Confirm"
     : mode === "deposit"
@@ -287,7 +292,7 @@ function OwnerBoundSavingsMoneyDialog({
                 amountChangeSource={amountChangeSource}
                 onAmountChange={changeAmount}
                 availableLabel={availableLabel}
-                availableAmount={decimalFromBaseUnits(availableBaseUnits ?? "", assetDecimals)}
+                availableAmount={decimalFromBaseUnits(maxAmountAfterNetworkFee(availableBaseUnits, mode === "deposit" ? candidate.asset.symbol : "vault shares", reserve) ?? "", assetDecimals)}
                 assetId={assetId}
                 assetLabel={assetLabel}
                 assetControl="header"
@@ -313,7 +318,7 @@ function OwnerBoundSavingsMoneyDialog({
 
           {amountBaseUnits && step !== "amount" ? (
             <>
-              <MoneyConfirmSummary
+              <MoneyConfirmSummary action={preparedAction}
                 amount={confirmAmount}
                 lead={mode === "deposit" ? "Deposit to Save" : "Withdraw from Save"}
                 rows={preparedReview && preparedAction ? savingsReviewRows(preparedReview, preparedAction.owner) : [
@@ -454,6 +459,8 @@ function messageForActionStatus(status: string, mode: SavingsActionMode): string
 }
 
 function messageForPrepareError(error: unknown): string {
+  const fee = networkFeeErrorMessage(error);
+  if (fee) return fee;
   if (error instanceof SavingsActionClientError) return error.message;
   const status = isRecord(error) && typeof error.status === "number" ? error.status : null;
   const code = isRecord(error) && typeof error.code === "string" ? error.code : null;

@@ -11,6 +11,8 @@ import {
   PreparedMoneyAction,
 } from "@/shared/money-actions/types";
 import { isSavingsMetadata } from "@/shared/savings/review";
+import { parseMoneyActionNetworkFee } from "@/shared/money-actions/network-fee";
+import type { MoneyActionNetworkFee } from "@/shared/money-actions/types";
 
 export type ActionSummaryResponse = {
   title: string;
@@ -19,6 +21,7 @@ export type ActionSummaryResponse = {
   expiresAt: string;
   quoteId?: string;
   metadata?: MoneyActionMetadata;
+  networkFee?: MoneyActionNetworkFee;
 };
 
 export type GetActionPendingResponse = {
@@ -57,6 +60,7 @@ export function parsePendingActionResponse(
     !Array.isArray(value.summary.warnings) ||
     !Array.isArray(value.calls) ||
     typeof value.expiresAt !== "string" ||
+    (value.summary.networkFee !== undefined && !parseMoneyActionNetworkFee(value.summary.networkFee)) ||
     !active.smartAccount
   ) {
     return null;
@@ -76,6 +80,7 @@ export function parsePendingActionResponse(
     warnings: value.summary.warnings as string[],
     expiresAt: value.expiresAt,
     ...(isMoneyActionMetadata(value.summary.metadata) ? { metadata: value.summary.metadata } : {}),
+    ...(parseMoneyActionNetworkFee(value.summary.networkFee) ? { networkFee: parseMoneyActionNetworkFee(value.summary.networkFee)! } : {}),
     createdAt: new Date().toISOString(),
   };
 }

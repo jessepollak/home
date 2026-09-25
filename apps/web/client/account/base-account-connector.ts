@@ -55,6 +55,7 @@ type ConnectedBaseAccountCommon = {
     requestId: string,
     beforeDispatch?: () => Promise<void>,
     batchGasLimit?: string,
+    paymaster?: { url: string; context: { erc20: string } },
   ) => Promise<string>;
   getCallsStatus?: (submissionId: string) => Promise<BaseAccountCallStatus>;
   release?: () => void;
@@ -370,7 +371,7 @@ async function openBaseProvider(
       }
       return signature.toLowerCase() as `0x${string}`;
     },
-    async sendCalls(calls, requestId, beforeDispatch, batchGasLimit) {
+    async sendCalls(calls, requestId, beforeDispatch, batchGasLimit, paymaster) {
       await assertUnchanged();
       if (
         calls.length < 1 || calls.length > 8 || !requestId ||
@@ -389,6 +390,7 @@ async function openBaseProvider(
             from: connectedAddress,
             atomicRequired: true,
             id: requestId,
+            ...(paymaster ? { capabilities: { paymasterService: paymaster } } : {}),
             calls: calls.map((call, index) => ({
               to: call.to,
               value: `0x${call.value.toString(16)}`,

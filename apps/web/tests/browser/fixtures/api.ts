@@ -13,6 +13,8 @@ import {
 
 export const RECIPIENT = "0x2222222222222222222222222222222222222222";
 const USDC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
+const PAYMASTER = "0x2FAEB0760D4230Ef2aC21496Bb4F0b47D634FD4c";
+const APPROVE = `0x095ea7b3${PAYMASTER.slice(2).toLowerCase().padStart(64, "0")}${BigInt(20_000).toString(16).padStart(64, "0")}`;
 const ACTION_ID = "11111111-1111-4111-8111-111111111111";
 const USER_OPERATION_HASH = `0x${"ab".repeat(32)}`;
 const TRANSACTION_HASH = `0x${"cd".repeat(32)}`;
@@ -85,7 +87,8 @@ export function preparedSendFixtureAction(recipient = RECIPIENT) {
     },
     kind: "send",
     title: "Send USDC",
-    calls: [{
+    networkFee: { payment: "usdc", token: USDC, paymaster: PAYMASTER, maxFeeBaseUnits: "20000", decimals: 6 },
+    calls: [{ to: USDC, data: APPROVE, value: "0" }, {
       to: USDC,
       data: `0xa9059cbb${recipient.slice(2).padStart(64, "0")}${BigInt(1_000_000).toString(16).padStart(64, "0")}`,
       value: "0",
@@ -93,7 +96,7 @@ export function preparedSendFixtureAction(recipient = RECIPIENT) {
     amounts: [{
       assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1000000", direction: "spend",
     }],
-    warnings: [`Recipient: ${recipient}`, "Network fee shown by wallet."],
+    warnings: [`Recipient: ${recipient}`],
     createdAt: CREATED_AT,
     expiresAt: EXPIRES_AT,
   };
@@ -148,6 +151,7 @@ export async function installApiFixtures(
       if (delayedBalances) await delayedBalances;
       return json(route, options.balances ?? balancesSnapshot(region));
     }
+    if (path === "/api/actions/network-fee") return json(route, { version: 1, usdcReserveBaseUnits: "20000" });
     if (path === "/api/actions/prepare" && request.method() === "POST") {
       status = "unconfirmed";
       return json(route, currentAction);
@@ -193,6 +197,7 @@ export async function installApiFixtures(
             kind: "send",
             summary: {
               title: currentAction.title,
+              networkFee: currentAction.networkFee,
               amounts: currentAction.amounts,
               warnings: currentAction.warnings,
               expiresAt: EXPIRES_AT,

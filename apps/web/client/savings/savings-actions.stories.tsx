@@ -99,6 +99,7 @@ function preparedAction(
       { assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "25000000", direction: actionKind === "savings-deposit" ? "spend" : "receive" },
       { assetId: "vault", symbol: "vault shares", decimals: 18, amountBaseUnits: "24000000000000000000", direction: actionKind === "savings-deposit" ? "receive" : "spend", estimated: true },
     ],
+    networkFee: { payment: "usdc", token: BASE_USDC_ADDRESS, paymaster: "0x2FAEB0760D4230Ef2aC21496Bb4F0b47D634FD4c", maxFeeBaseUnits: "20000", decimals: 6 },
     warnings: [],
     metadata: {
       product: "savings",
@@ -294,6 +295,8 @@ export const Review: Story = {
   play: async ({ canvasElement }) => {
     const screen = await enterAmountAndContinue(canvasElement);
     await expect(await screen.findByRole("button", { name: "Deposit $25.00" })).toBeVisible();
+    await expect(await screen.findByText("Network fee")).toBeVisible();
+    await expect(await screen.findByText("Up to 0.02 USDC · ≈ $0.02")).toBeVisible();
   },
 };
 

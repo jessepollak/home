@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { LoaderCircle } from "lucide-react";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
@@ -36,6 +36,8 @@ import {
   formatWadPercent,
 } from "@/shared/formatting";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
+import { networkFeeErrorMessage } from "@/shared/money-actions/network-fee";
+import { maxAmountAfterNetworkFee, useNetworkFeeReserve } from "@/client/money-modal/network-fee-policy";
 import { buildBorrowPreparedIntent } from "./borrow-ui";
 import {
   BorrowNotice,
@@ -65,6 +67,7 @@ export function BorrowMoneyDialog({
   session,
   snapshot,
   operation,
+  fetchAccountResource,
   prepareMoneyAction,
   executeMoneyAction,
   regionId,
@@ -75,6 +78,7 @@ export function BorrowMoneyDialog({
   session: VerifiedAccountSession;
   snapshot: BorrowMarketSnapshot;
   operation: BorrowOperation;
+  fetchAccountResource?: AccountWalletClient["fetchAccountResource"];
   prepareMoneyAction: PrepareMoneyAction;
   executeMoneyAction: ExecuteMoneyAction;
   regionId: RegionId;
@@ -88,10 +92,13 @@ export function BorrowMoneyDialog({
   const fixedMaximumOperation = operation === "repay-all" || (operation === "close-position" && !closesWithoutDebt);
   const repayOperation = operation === "repay" || fixedMaximumOperation;
   const primaryAsset = selectPrimaryBorrowAsset(snapshot, operation);
-  const maximumRepayBaseUnits = repayOperation
-    ? recommendedRepayMaximumBaseUnits(snapshot.position.debtAssetsRaw, snapshot.wallet.loanBalanceRaw, snapshot.state.borrowRatePerSecondWad)
+  const reserve = useNetworkFeeReserve(session.smartAccount ? dataOwnerKey : null, fetchAccountResource, open);
+  const reservePendingForRepay = repayOperation && snapshot.market.loanToken.symbol.toUpperCase() === "USDC" && reserve === undefined;
+  const repayWalletBaseUnits = maxAmountAfterNetworkFee(snapshot.wallet.loanBalanceRaw, snapshot.market.loanToken.symbol, reserve) ?? "0";
+  const maximumRepayBaseUnits = repayOperation && !reservePendingForRepay
+    ? recommendedRepayMaximumBaseUnits(snapshot.position.debtAssetsRaw, repayWalletBaseUnits, snapshot.state.borrowRatePerSecondWad)
     : null;
-  const initialAmount = fixedMaximumOperation && maximumRepayBaseUnits
+  const initialAmount = fixedMaximumOperation && maximumRepayBaseUnits && maximumRepayBaseUnits !== "0"
     ? decimalFromBaseUnits(maximumRepayBaseUnits, snapshot.market.loanToken.decimals) ?? ""
     : "";
   const primaryPricing = useMoneyAssetPricing(primaryAsset.symbol);
@@ -101,6 +108,12 @@ export function BorrowMoneyDialog({
     setAmount(value);
   }
   const [amount, setAmount] = useState(initialAmount);
+  const maximumFilled = useRef(initialAmount !== "");
+  useEffect(() => {
+    if (maximumFilled.current || !fixedMaximumOperation || !maximumRepayBaseUnits || maximumRepayBaseUnits === "0") return;
+    maximumFilled.current = true;
+    setAmount((current) => current === "" ? decimalFromBaseUnits(maximumRepayBaseUnits, snapshot.market.loanToken.decimals) ?? "" : current);
+  }, [fixedMaximumOperation, maximumRepayBaseUnits, snapshot.market.loanToken.decimals]);
   const [amountChangeSource, setAmountChangeSource] =
     useState<MoneyAmountChangeSource>("programmatic");
   const [preparedAction, setPreparedAction] = useState<PreparedMoneyAction | null>(null);
@@ -207,7 +220,8 @@ export function BorrowMoneyDialog({
         : repayOperation
           ? maximumRepayBaseUnits
           : snapshot.position.borrowCapacityAssetsRaw;
-  const availableAmount = availableBaseUnits === null ? null : decimalFromBaseUnits(availableBaseUnits, primaryAsset.decimals);
+  const maxBaseUnits = operation === "supply-collateral" ? maxAmountAfterNetworkFee(availableBaseUnits, primaryAsset.symbol, reserve) : availableBaseUnits;
+  const availableAmount = availableBaseUnits === null ? null : decimalFromBaseUnits(maxBaseUnits ?? "0", primaryAsset.decimals);
   const availableLabel = availableBaseUnits === null ? undefined : `${formatToken(availableBaseUnits, primaryAsset, regionId)} available`;
   const amountAssetProps = {
     assetId: primaryAsset.id,
@@ -282,7 +296,7 @@ export function BorrowMoneyDialog({
       {step === "amount" ? (
         <MoneyModalFooter
           primaryLabel="Continue"
-          primaryDisabled={(requiresPrimaryAmount && !isPositiveDecimalAmount(amount)) || (operation === "supply-and-borrow" && isPositiveDecimalAmount(amount) && !openingCollateralBaseUnits)}
+          primaryDisabled={(fixedMaximumOperation && reservePendingForRepay) || (requiresPrimaryAmount && !isPositiveDecimalAmount(amount)) || (operation === "supply-and-borrow" && isPositiveDecimalAmount(amount) && !openingCollateralBaseUnits)}
           onPrimary={() => void prepare()}
         />
       ) : null}
@@ -320,7 +334,7 @@ function BorrowPreparedReview({ action, snapshot, regionId }: { action: Prepared
   return (
     <div className="space-y-3">
       <div className="min-w-0 [&_[data-slot=money-ticker]]:overflow-x-auto [&_dd]:wrap-anywhere">
-        <MoneyConfirmSummary
+        <MoneyConfirmSummary action={action}
           amount={amount}
           lead={action.title}
           rows={[
@@ -377,6 +391,8 @@ function preparedActionMatches(action: PreparedMoneyAction, session: VerifiedAcc
 }
 
 function readableResourceError(error: unknown): string {
+  const fee = networkFeeErrorMessage(error);
+  if (fee) return fee;
   if (error instanceof BorrowActionClientError) return error.message;
   const code = errorCode(error);
   const status = isRecord(error) && typeof error.status === "number" ? error.status : null;

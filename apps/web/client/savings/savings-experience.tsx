@@ -23,6 +23,7 @@ import { MoneyTicker } from "@/components/money-ticker";
 import { AddressText } from "@/components/address-text";
 import { useOptionalAppChrome } from "@/components/app-chrome";
 import { isServerVerified, useAccountWallet } from "@/client/account/cdp-client";
+import type { AccountWalletClient } from "@/client/account/cdp-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type {
   OperationResult,
@@ -85,6 +86,7 @@ type SavingsExperienceProps = {
   balanceStale?: boolean;
   onRetryBalances?: () => void;
   growthAuthority?: SavingsGrowthAuthority | null;
+  fetchAccountResource?: AccountWalletClient["fetchAccountResource"];
   prepareMoneyAction?: (
     endpoint: string,
     input: unknown,
@@ -153,6 +155,7 @@ export function AuthenticatedSavingsExperience() {
       balanceStale={balances.snapshot?.stale === true}
       onRetryBalances={() => void balances.retry()}
       growthAuthority={growthAuthority}
+      fetchAccountResource={account.fetchAccountResource}
       prepareMoneyAction={account.prepareMoneyAction}
       executeMoneyAction={account.executeMoneyAction}
     />
@@ -172,6 +175,7 @@ export function SavingsExperience({
   balanceStale = false,
   onRetryBalances,
   growthAuthority = null,
+  fetchAccountResource,
   prepareMoneyAction,
   executeMoneyAction,
   onBack,
@@ -675,6 +679,7 @@ export function SavingsExperience({
               : (selectedAmount?.toString() ?? null)
           }
           availableStale={balanceStale || balanceRefreshError}
+          fetchAccountResource={fetchAccountResource}
           prepareMoneyAction={prepareMoneyAction}
           executeMoneyAction={executeMoneyAction}
           onClose={closeAction}
