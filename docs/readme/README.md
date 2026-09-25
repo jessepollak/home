@@ -34,15 +34,16 @@ find . -path './.git' -prune -o -name '.env*' ! -name '.env.example' -print
 bun install --frozen-lockfile
 ```
 
-The `find` command must print nothing. In one terminal, run the web app on the smoke-fixture boundary. Port `3199` matches the existing Playwright configuration.
+The `find` command must print nothing. In one terminal, run the web app on the smoke-fixture boundary. `HOME_FIXTURE_PORT` defaults to `3199`, matching Playwright; export a different port in both terminals when using a dedicated runner slot.
 
 ```sh
 env -i \
   HOME="$HOME" \
   PATH="$PATH" \
+  HOME_FIXTURE_PORT="${HOME_FIXTURE_PORT:-3199}" \
   NEXT_TELEMETRY_DISABLED=1 \
   HOME_PLAYWRIGHT_SMOKE=1 \
-  bun --cwd apps/web dev -- --port 3199
+  bun --cwd apps/web dev -- --port "${HOME_FIXTURE_PORT:-3199}"
 ```
 
 In a second terminal, capture the screens with the workspace's pinned Playwright dependency:
@@ -51,8 +52,8 @@ In a second terminal, capture the screens with the workspace's pinned Playwright
 env -i \
   HOME="$HOME" \
   PATH="$PATH" \
+  HOME_FIXTURE_PORT="${HOME_FIXTURE_PORT:-3199}" \
   NODE_PATH="$PWD/apps/web/node_modules" \
-  HOME_CAPTURE_BASE_URL=http://localhost:3199 \
   bun docs/readme/capture.ts
 ```
 

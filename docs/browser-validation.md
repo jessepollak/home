@@ -28,12 +28,13 @@ Use only `bun run ab --` from the repository root: it checks the local binary ag
 
 ### Fixture session on port 3199
 
-Port `3199` is shared with Playwright: wait until it is free; do not kill its occupant. Start this server in the cleanup shell, retain its exact PID, and use only the fixture environment (no `.env.local`, provider or production credentials):
+`HOME_FIXTURE_PORT` defaults to `3199` and is shared with Playwright. If a runner has its own assigned port, export it before starting the fixture server or Playwright; wait only for that assigned port to be free, not for `3199`. Otherwise wait for `3199` to be free. Do not kill the port occupant. Start this server in the cleanup shell, retain its exact PID, and use only the fixture environment (no `.env.local`, provider or production credentials):
 
 ```sh
+export HOME_FIXTURE_PORT="${HOME_FIXTURE_PORT:-3199}"
 export HOME_FIXTURE_SERVER_LOG="$(mktemp "${TMPDIR:-/tmp}/home-fixture-server.XXXXXX")"
-env -i HOME="$HOME" PATH="$PATH" NEXT_TELEMETRY_DISABLED=1 HOME_PLAYWRIGHT_SMOKE=1 \
-  bun --cwd apps/web dev -- --port 3199 >"$HOME_FIXTURE_SERVER_LOG" 2>&1 &
+env -i HOME="$HOME" PATH="$PATH" NEXT_TELEMETRY_DISABLED=1 HOME_PLAYWRIGHT_SMOKE=1 HOME_FIXTURE_PORT="$HOME_FIXTURE_PORT" \
+  bun --cwd apps/web dev -- --port "$HOME_FIXTURE_PORT" >"$HOME_FIXTURE_SERVER_LOG" 2>&1 &
 export HOME_FIXTURE_SERVER_PID=$!
 ```
 
@@ -43,7 +44,7 @@ Do not use root `bun dev` (it migrates the database). In this same worktree, ini
 bun run --cwd apps/web fixture-session --session home-796-send
 bun run ab -- --session home-796-send set viewport 390 844
 bun run ab -- --session home-796-send snapshot -i -c --json
-bun run ab -- --session home-796-send open http://127.0.0.1:3199/home
+bun run ab -- --session home-796-send open "http://127.0.0.1:${HOME_FIXTURE_PORT}/home"
 ```
 
 The helper launches at `about:blank` with `open --init-script <private-path>` (not `open about:blank`, which the CLI rejects), then installs routes before opening the local URL. It sets the smoke sign-in state before navigation and installs the shared [fixture routes](../apps/web/tests/browser/feature-map/fixtures.ts) in the same session; it prints only the session name. Its `network route` intercepts last **only while that agent-browser session is running**. Do **not** pass `--state` on a subsequent fixture `open`: v0.38.1 resets the context, drops route intercepts, returns `/api/session` 401, then redirects to sign-in even though the smoke key was saved. Use `--session` alone after this helper. Direct navigation to `/home`, `/activity`, or `/borrow` must keep the smoke sign-in state; if any settles on `Signed out`, stop, reinitialize the session and report the failure. A signed-in page is not proof that its data is fixture-backed: `/activity` currently shows `Try again` because its `{}` route does not model an empty feed; `/borrow` serves registry market fixtures, but Borrow prepare/confirm, Peer cash-out, and provider funding remain manual fixture gaps. To cover a new surface, add bounded route response data to the shared fixture module and verify the corresponding replay; do not use real providers or customer data.
