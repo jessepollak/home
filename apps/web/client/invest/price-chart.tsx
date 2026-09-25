@@ -60,13 +60,13 @@ export function PriceChart({
         aria-label="Price range"
         variant="outline"
         spacing={0}
-        className="w-full"
+        className="h-11 w-full"
       >
         {MARKET_PRICE_RANGES.map((value) => (
           <ToggleGroupItem
             key={value}
             value={value}
-            className="h-11 flex-1"
+            className="h-full flex-1"
           >
             {value}
           </ToggleGroupItem>

@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { userEvent, within } from "storybook/test";
 import { Button } from "./button";
 import { Toaster, toast } from "./toast";
 
@@ -37,4 +38,64 @@ export const Stacked: Story = {
       <Toaster />
     </>
   ),
+};
+
+export const Success: Story = {
+  render: () => (
+    <>
+      <Button onClick={() => toast.add({ type: "success", title: "Deposit confirmed", description: "25.00 USDC on Base" })}>Show success</Button>
+      <Toaster />
+    </>
+  ),
+  play: async ({ canvasElement }) => {
+    await userEvent.click(within(canvasElement).getByRole("button", { name: "Show success" }));
+  },
+};
+
+export const Info: Story = {
+  render: () => (
+    <>
+      <Button onClick={() => toast.add({ type: "info", title: "Balance updated", description: "Your latest balance is ready." })}>Show info</Button>
+      <Toaster />
+    </>
+  ),
+  play: async ({ canvasElement }) => {
+    await userEvent.click(within(canvasElement).getByRole("button", { name: "Show info" }));
+  },
+};
+
+export const Warning: Story = {
+  render: () => (
+    <>
+      <Button onClick={() => toast.add({ type: "warning", title: "Balance may be out of date", description: "Retry to load the latest balance." })}>Show warning</Button>
+      <Toaster />
+    </>
+  ),
+  play: async ({ canvasElement }) => {
+    await userEvent.click(within(canvasElement).getByRole("button", { name: "Show warning" }));
+  },
+};
+
+export const ErrorWithRetry: Story = {
+  render: () => (
+    <>
+      <Button onClick={() => toast.add({ type: "error", title: "Account check unavailable", description: "Retry to check your account.", actionProps: { children: "Retry", onClick: () => {} } })}>Show error</Button>
+      <Toaster />
+    </>
+  ),
+  play: async ({ canvasElement }) => {
+    await userEvent.click(within(canvasElement).getByRole("button", { name: "Show error" }));
+  },
+};
+
+export const Loading: Story = {
+  render: () => (
+    <>
+      <Button onClick={() => toast.add({ type: "loading", title: "Checking account", description: "This may take a moment." })}>Show loading</Button>
+      <Toaster />
+    </>
+  ),
+  play: async ({ canvasElement }) => {
+    await userEvent.click(within(canvasElement).getByRole("button", { name: "Show loading" }));
+  },
 };

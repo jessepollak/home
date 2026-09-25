@@ -799,7 +799,7 @@ function DashboardShellBody({
           <Alert className="mb-4" role="alert">
             <AlertDescription>{account.message ?? "Account check unavailable."}</AlertDescription>
             <AlertAction>
-              <Button variant="ghost" onClick={() => void account.retrySessionValidation()}>
+              <Button variant="outline" size="lg" className="h-11" onClick={() => void account.retrySessionValidation()}>
                 Retry account check
               </Button>
             </AlertAction>

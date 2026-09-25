@@ -24,7 +24,7 @@ function ToggleGroup({
   className,
   variant,
   size,
-  spacing = 2,
+  spacing = variant === "outline" ? 0 : 2,
   orientation = "horizontal",
   children,
   ...props
@@ -35,14 +35,14 @@ function ToggleGroup({
   }) {
   return (
     <ToggleGroupPrimitive
+      orientation={orientation}
       data-slot="toggle-group"
       data-variant={variant}
       data-size={size}
       data-spacing={spacing}
-      data-orientation={orientation}
       style={{ "--gap": spacing } as React.CSSProperties}
       className={cn(
-        "group/toggle-group flex w-fit flex-row items-center gap-[--spacing(var(--gap))] rounded-lg data-[size=sm]:rounded-md data-vertical:flex-col data-vertical:items-stretch",
+        "group/toggle-group flex w-fit flex-row items-center gap-[--spacing(var(--gap))] rounded-lg data-[size=sm]:rounded-md data-[variant=outline]:border data-[variant=outline]:border-input data-[variant=outline]:p-0.5 data-vertical:flex-col data-vertical:items-stretch",
         className
       )}
       {...props}
@@ -72,9 +72,9 @@ function ToggleGroupItem({
       data-size={context.size || size}
       data-spacing={context.spacing}
       className={cn(
-        "shrink-0 group-data-[spacing=0]/toggle-group:rounded-none group-data-[spacing=0]/toggle-group:px-2 focus:z-10 focus-visible:z-10 group-data-[spacing=0]/toggle-group:has-data-[icon=inline-end]:pr-1.5 group-data-[spacing=0]/toggle-group:has-data-[icon=inline-start]:pl-1.5 group-data-horizontal/toggle-group:data-[spacing=0]:first:rounded-l-lg group-data-vertical/toggle-group:data-[spacing=0]:first:rounded-t-lg group-data-horizontal/toggle-group:data-[spacing=0]:last:rounded-r-lg group-data-vertical/toggle-group:data-[spacing=0]:last:rounded-b-lg group-data-horizontal/toggle-group:data-[spacing=0]:data-[variant=outline]:border-l-0 group-data-vertical/toggle-group:data-[spacing=0]:data-[variant=outline]:border-t-0 group-data-horizontal/toggle-group:data-[spacing=0]:data-[variant=outline]:first:border-l group-data-vertical/toggle-group:data-[spacing=0]:data-[variant=outline]:first:border-t",
+        "shrink-0 text-muted-foreground hover:text-foreground data-pressed:bg-muted data-pressed:text-foreground focus-visible:z-10 group-data-vertical/toggle-group:w-full",
         toggleVariants({
-          variant: context.variant || variant,
+          variant: context.variant === "outline" ? "default" : context.variant || variant,
           size: context.size || size,
         }),
         className

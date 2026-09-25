@@ -62,7 +62,7 @@ function ToastContent({ className, ...props }: ToastPrimitive.Content.Props) {
     <ToastPrimitive.Content
       data-slot="toast-content"
       className={cn(
-        "flex h-full items-center gap-3 overflow-hidden p-4 transition-opacity duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:duration-0! data-behind:opacity-0 data-expanded:opacity-100",
+        "flex h-full items-center gap-2.5 overflow-hidden px-4 py-3 transition-opacity duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:duration-0! data-behind:opacity-0 data-expanded:opacity-100",
         className
       )}
       {...props}
@@ -102,7 +102,7 @@ function ToastAction({
     <ToastPrimitive.Action
       data-slot="toast-action"
       render={render}
-      className={cn("shrink-0", className)}
+      className={cn("shrink-0 self-center", className)}
       {...props}
     />
   )
@@ -120,7 +120,7 @@ function ToastClose({
       aria-label="Close toast"
       render={render}
       className={cn(
-        "relative shrink-0 text-muted-foreground after:absolute after:-inset-2 after:content-[''] hover:text-foreground",
+        "relative shrink-0 self-center text-muted-foreground after:absolute after:-inset-2 after:content-[''] hover:text-foreground",
         className
       )}
       {...props}
@@ -155,13 +155,13 @@ function ToastIcon({ type }: { type: string | undefined }) {
 
   if (type === "error") {
     icon = (
-      <OctagonXIcon className="text-destructive" aria-hidden="true" />
+      <OctagonXIcon aria-hidden="true" />
     )
   }
 
   if (type === "loading") {
     icon = (
-      <Loader2Icon className="animate-spin" aria-hidden="true" />
+      <Loader2Icon className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
     )
   }
 
@@ -172,7 +172,7 @@ function ToastIcon({ type }: { type: string | undefined }) {
   return (
     <span
       data-slot="toast-icon"
-      className="shrink-0 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4"
+      className={cn("mt-px flex h-5 w-4 shrink-0 items-center self-start [&_svg]:pointer-events-none [&_svg]:size-4", type === "warning" && "text-warning", type === "error" && "text-destructive")}
     >
       {icon}
     </span>
@@ -186,7 +186,7 @@ function ToastList() {
     <Toast key={toastItem.id} toast={toastItem}>
       <ToastContent>
         <ToastIcon type={toastItem.type} />
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <ToastTitle />
           <ToastDescription />
         </div>

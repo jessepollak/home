@@ -2,13 +2,13 @@
 
 import { type SendAvailability } from "@/client/home/send-availability";
 import { MoneyTicker } from "@/components/money-ticker";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertIcon, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { presentPortfolioAssetMark, type AssetMarkResolution } from "@/client/asset-mark/presentation";
 import { useEffect, useRef, useState, type ComponentProps, type ReactNode, useMemo } from "react";
-import { ChevronRight, LoaderCircle } from "lucide-react";
+import { CircleAlertIcon, ChevronRight, LoaderCircle } from "lucide-react";
 import { AddressField } from "@/components/address";
 import { FieldSeparator } from "@/components/ui/field";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from "@/components/ui/item";
@@ -618,7 +618,7 @@ function formatEta(seconds: number): string {
   return `${minutes} min`;
 }
 function StatusMessage({ children, tone = "neutral", role, ...props }: Omit<ComponentProps<typeof Alert>, "children"> & { children: ReactNode; tone?: "neutral" | "error" }) {
-  return <Alert variant={tone === "error" ? "destructive" : "default"} role={role ?? (tone === "error" ? "alert" : "status")} {...props}><AlertDescription>{children}</AlertDescription></Alert>;
+  return <Alert variant={tone === "error" ? "destructive" : "default"} role={role ?? (tone === "error" ? "alert" : "status")} {...props}>{tone === "error" ? <AlertIcon><CircleAlertIcon /></AlertIcon> : null}<AlertDescription>{children}</AlertDescription></Alert>;
 }
 function isUnavailableReview(error: unknown): boolean {
   if (!(error instanceof TransferExecutionError) || error.reason !== "unavailable") return false;

@@ -1,5 +1,6 @@
 "use client";
 
+import { CircleAlertIcon } from "lucide-react";
 import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { CurrencyMark } from "@/components/currency-mark";
 import {
@@ -23,7 +24,7 @@ import {
   useHomeQuery,
   useHomeQueryClient,
 } from "@/client/query/query-client";
-import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertAction, AlertIcon, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -186,7 +187,7 @@ function BorrowExperienceInner({
           tone="error"
           role="alert"
           title={overview.data ? "Borrow data could not be refreshed" : "Borrow is unavailable"}
-          action={<Button variant="secondary" onClick={() => void overview.refetch()}>Retry</Button>}
+          action={<Button variant="outline" size="lg" className="h-11" onClick={() => void overview.refetch()}>Retry</Button>}
         >
           {overview.data
             ? `Showing values last verified ${formatPresentationDate(overview.data.discovery.fetchedAt, { regionId, style: "date-time-zone" })}; current values could not be verified.`
@@ -265,7 +266,7 @@ function BorrowDirectMarket({
       {!session?.smartAccount && !sessionSettling ? <BorrowNotice title="Sign in to view Borrow" /> : null}
       {(!session?.smartAccount && sessionSettling) || (session?.smartAccount && detail.isPending) ? <BorrowOverviewLoading /> : null}
       {session?.smartAccount && detail.isError ? (
-        <BorrowNotice tone="error" role="alert" title="Borrow is unavailable" action={<Button variant="secondary" onClick={() => void detail.refetch()}>Retry</Button>}>
+        <BorrowNotice tone="error" role="alert" title="Borrow is unavailable" action={<Button variant="outline" size="lg" className="h-11" onClick={() => void detail.refetch()}>Retry</Button>}>
           Current wallet, market, and position values could not be verified.
         </BorrowNotice>
       ) : null}
@@ -564,6 +565,7 @@ function BorrowOverviewLoading() {
 export function BorrowNotice({ action, children, role = "status", title, tone = "neutral", ...props }: Omit<ComponentProps<typeof Alert>, "children" | "title"> & { action?: ReactNode; children?: ReactNode; role?: "status" | "alert"; title?: ReactNode; tone?: "neutral" | "error" }) {
   return (
     <Alert role={role} variant={tone === "error" ? "destructive" : "default"} {...props}>
+      {tone === "error" ? <AlertIcon><CircleAlertIcon /></AlertIcon> : null}
       {title ? <AlertTitle>{title}</AlertTitle> : null}
       {children ? <AlertDescription>{children}</AlertDescription> : null}
       {action ? <AlertAction>{action}</AlertAction> : null}

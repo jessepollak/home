@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { ArrowLeft } from "lucide-react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { CircleAlertIcon, ArrowLeft } from "lucide-react";
+import { Alert, AlertIcon, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
@@ -167,6 +167,7 @@ function MemePaginationFooter({
       ) : null}
       {loadMoreError ? (
         <Alert variant="destructive">
+          <AlertIcon><CircleAlertIcon /></AlertIcon>
           <AlertDescription>
             More memes could not be loaded. Your current results are unchanged.
           </AlertDescription>
