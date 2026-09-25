@@ -51,6 +51,22 @@ describe("transaction details", () => {
     expect(dialog.getByRole("button", { name: "Copy 0xaaaa…aaaaaaaa" })).toBeTruthy();
     expect(dialog.getByRole("link", { name: "View on explorer" }).getAttribute("href")).toBe(`https://basescan.org/tx/${HASH}`);
     expect(dialog.queryByRole("img", { name: /Confirmed/ })).toBeNull();
+
+    const content = dialog.getByText("Value").closest('[data-slot="card-content"][data-inset="list"]');
+    expect(content).not.toBeNull();
+    const list = content?.querySelector("dl") as HTMLElement;
+    expect(list.tagName).toBe("DL");
+    const pairs = [
+      ["Value", "+$12.34"], ["From", "0x1111…111111"],
+      ["Token contract", "0x2222…222222"], ["Network", "Base"],
+      ["Transaction", "0xaaaa…aaaaaaaa"],
+    ];
+    expect(list.children).toHaveLength(pairs.length);
+    for (const [index, [label, value]] of pairs.entries()) {
+      const row = within(list.children[index] as HTMLElement);
+      expect(row.getByRole("term").textContent).toBe(label);
+      expect(row.getByRole("definition").textContent).toContain(value);
+    }
   });
 
   test("renders operation status labels without a header", () => {

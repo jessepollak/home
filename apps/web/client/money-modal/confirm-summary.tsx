@@ -2,6 +2,7 @@
 
 import { AddressText } from "@/components/address-text";
 import { MoneyTicker } from "@/components/money-ticker";
+import { Card, CardContent } from "@/components/ui/card";
 import type { MoneyActionOwner, PreparedMoneyAction } from "@/shared/money-actions/types";
 import type { ReactNode } from "react";
 import { NetworkFeeReview } from "./network-fee-review";
@@ -22,21 +23,25 @@ export function MoneyConfirmSummary({ amount, lead, rows, action }: { amount: st
         <div className="text-4xl font-semibold tabular-nums"><MoneyTicker value={amount} /></div>
         <p className="text-sm text-muted-foreground">{lead}</p>
       </div>
-      <dl>
-        {reviewRows.map((row) => (
-          <div
-            className={row.fullValue
-              ? "grid items-start gap-1 border-b py-3 text-sm last:border-b-0 sm:grid-cols-[minmax(7rem,0.65fr)_minmax(0,1.35fr)] sm:gap-3"
-              : "flex items-start justify-between gap-4 border-b py-3 text-sm last:border-b-0"}
-            key={row.label}
-          >
-            <dt className="text-muted-foreground">{row.label}</dt>
-            <dd className={row.fullValue ? "min-w-0 sm:text-right" : "min-w-0 text-right font-medium tabular-nums"}>
-              {row.value}
-            </dd>
-          </div>
-        ))}
-      </dl>
+      <Card variant="flush">
+        <CardContent inset="list">
+          <dl>
+            {reviewRows.map((row) => (
+              <div
+                className={row.fullValue
+                  ? "grid items-start gap-1 px-3 py-3 text-sm sm:grid-cols-[minmax(7rem,0.65fr)_minmax(0,1.35fr)] sm:gap-3"
+                  : "flex items-start justify-between gap-4 px-3 py-3 text-sm"}
+                key={row.label}
+              >
+                <dt className="text-muted-foreground">{row.label}</dt>
+                <dd className={row.fullValue ? "min-w-0 sm:text-end" : "min-w-0 text-end font-medium tabular-nums"}>
+                  {row.value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </CardContent>
+      </Card>
     </div>
   );
 }
