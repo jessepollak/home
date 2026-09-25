@@ -67,7 +67,7 @@ The `card_events` record holds only verified notification identity, kind, occurr
 
 ## Open questions
 
-Bridge: program availability for Home and US customers; the program-specific Base issuer ID and spender (the published Base address `0x65bf8b55EEDef53C094E40003a03390De744DF33` is a verified `IssuerFactory`, not proof of Home's actual spender); whether a deployed ERC-1271 smart account can hold the approval and link as the card's wallet; timing of asynchronous pulls relative to Stripe authorization webhooks; sandbox access and Stripe test-mode endpoint secret for a new developer. The local fork proof above does not answer these questions.
+Bridge: program availability for Home and US customers; the program-specific Base issuer ID and spender (the published Base address `0x65bf8b55EEDef53C094E40003a03390De744DF33` is a verified `IssuerFactory`, not proof of Home's actual spender); whether a deployed ERC-1271 smart account can hold the approval and link as the card's wallet; timing of asynchronous pulls relative to Stripe authorization webhooks; sandbox access and Stripe test-mode endpoint secret for a new developer. The local fork proof above does not answer these questions; and the exact webhook signature input. Bridge's prose and its Node, Python, and Java examples verify RSA-SHA256 over the SHA-256 digest of `timestamp.body` (what Home implements), while its Ruby example verifies over `timestamp.body` directly; confirm against the first real delivery.
 
 Immersve:
 
