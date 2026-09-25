@@ -124,8 +124,7 @@ export function FundingActionsForWallet({
   return (
     <>
       <Button
-        size="lg"
-        className="h-11"
+        size="touch"
         onPointerDown={() => void preloadAddMoneySheet()}
         onClick={() => {
           void preloadAddMoneySheet();

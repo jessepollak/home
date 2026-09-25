@@ -173,7 +173,7 @@ function MemePaginationFooter({
         </Alert>
       ) : null}
       {loadMoreError ? (
-        <Button className="w-full" size="lg" variant="secondary" onClick={onRetryLoadMore}>
+        <Button className="w-full" size="touch" variant="secondary" onClick={onRetryLoadMore}>
           Retry loading memes
         </Button>
       ) : null}

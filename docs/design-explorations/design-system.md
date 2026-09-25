@@ -14,15 +14,14 @@ Issue [#791](https://github.com/jessepollak/home/issues/791) extends the publish
 ## Rules this library follows
 
 - **Names match code.** A Figma component uses the code export name (`Button`, `ToggleGroup`, `MoneyNumpad`). Variant properties use the cva prop names, and their values are a subset of the cva values.
-  - Button draws `variant=default|secondary|outline|ghost|destructive|link` and `size=xs|sm|default|lg|icon-sm|icon|icon-lg`.
+  - Button draws `variant=default|secondary|outline|ghost|destructive|link` and `size=xs|sm|default|lg|touch|icon-sm|icon|icon-lg`.
   - Omitted cva values have existing homes: `navigation` is TabItem/TabBar, `product-tile` is the Home product tile, `card-action` is the SectionHeader action, and `inline` / `icon-xs` are P2.
   - Figma-only parts are labelled as such: `MoneyConfirmRow` is a sub-part of one code component, and `Skeleton shape` is Figma-only. `InputOTPSlot` keeps the shadcn sub-part name.
   - Figma's `MoneyNumpad` and `MoneyNumpadKey` were deprecated in revision 2 and deleted in #882. `amount.tsx` still renders the code numpad until native-input adoption; new boards use the native keyboard.
   - Slots keep their `data-slot` names (`AlertTitle`, `ItemMedia`, `DrawerFooter`) as internal layers.
 - **`state` is a Figma-only axis.** Its values are `default`, `hover`, `pressed`, `focus`, `disabled`, `loading` and `error`. `focus` is `border-ring` plus a 3px ring at 50%. `disabled` is 50% opacity. `error` is `aria-invalid`: a destructive border and a destructive/20 ring. In Code Connect, `disabled` and `error` become props; `hover`, `pressed` and `focus` are visual only.
   - `loading` is proposed, not code parity. Code renders `aria-busy` as 60% opacity only; Button has no loading prop and no spinner. The Figma spinner is the design for the submit loading state under [Follow-up code issues](#follow-up-code-issues); until that lands, `state=loading` maps to `aria-busy` alone.
-- **`size=touch` is drawn but not yet in code.** Most mobile CTAs in code are `Button size="lg"` with `className="h-11"`, which is 44px. Figma draws that as `size=touch` so boards meet the 44px hit target. The follow-up below adds the real `size="touch"`, which makes the mapping 1:1.
-  - Five CTAs use `size="lg"` without `h-11` and render at the 36px `lg` height: "Retry loading memes" (`client/invest/category-screen.tsx`), "Retry sign out" and "Try again" (`client/account/sign-in-shell.tsx`), "Continue" (`app/access/access-form.tsx`) and the copy-address button (`client/funding/add-money-dialog.tsx`). They sit below the 44px target today; the follow-up moves them to `size="touch"` too.
+- **`size=touch` has code parity via #944.** `Button size="touch"` has a 44px minimum and wraps long labels; the Figma `size=touch` maps 1:1. The five former 36px CTAs—"Retry loading memes", "Retry sign out", "Try again", "Continue" and copy address—now use it too. Fine-pointer density buttons (`md:pointer-fine:h-8`) and amount-entry chips remain separate.
   - `size="lg"` also appears where the button is not a standalone CTA: the Savings vault choice renders an `Item` row through `Button`, and `PrimaryNavigation` sets `min-h-11`. Those keep their own row and tab sizing.
 - **Design-only components say so.** Their description reads `DESIGN-ONLY`, they get no Code Connect mapping, and they are listed under [Follow-up code issues](#follow-up-code-issues).
 - **Colour carries meaning.**
@@ -104,7 +103,7 @@ Columns:
 | ToggleGroup (segmented control) | yes | `160:1849` variant; `outline` draws one group border with borderless items (**proposed**; code borders each item) | yes | ToggleGroup | `components/ui/toggle-group.tsx` | P0 |
 | Select | yes | `160:1718` state | yes | Select | `components/ui/select.tsx` | P1 |
 | Switch | yes | `160:1772` checked × state | yes | Switch | `components/ui/switch.tsx` | P1 |
-| Empty | yes | `161:1904` media; `EmptyAction` is a `Button` instance, `size=lg` at 44px as code's `size="lg" className="h-11"` (run 12; it was a raw frame) | yes | none (div) | `components/ui/empty.tsx` | P1 |
+| Empty | yes | `161:1904` media; `EmptyAction` is a `Button` instance, `size=touch` at 44px as code's `size="touch"` (run 12; it was a raw frame) | yes | none (div) | `components/ui/empty.tsx` | P1 |
 | Popover | yes (#804) | `292:5883` (run 12): `PopoverContent` (288px, `p-2.5`, `rounded-lg`, `Elevation/md`) with `Description` and `Show action`; `PopoverAction` is a 44px ghost icon `Button`, swappable to a secondary "Open Account" | yes (Home header status) | Popover | `components/ui/popover.tsx` | P1 |
 | Progress | **no** | `161:1923` status (design-only) | yes | Progress | unassigned (follow-up) | P1 |
 | RadioGroup | yes (#952) | `160:1801` checked × state | yes | RadioGroup + Radio | `components/ui/radio-group.tsx` | P1 |
@@ -259,9 +258,9 @@ Jesse publishes from Figma → Assets → Publish library.
 
 ## Follow-up code issues
 
-These are proposed follow-ups. None are filed or built here; Jesse decides which to file.
+These follow-ups originated here. Adopted ones name their issue; the rest await Jesse's decisions.
 
-- **feat(ui): Button `size="touch"`** (44px). Replaces the repeated `size="lg" className="h-11"` and makes Code Connect 1:1. It also moves the five 36px `size="lg"` CTAs listed under [Rules](#rules-this-library-follows) to `size="touch"`, so they meet the 44px target. P0.
+- **feat(ui): Button `size="touch"`** (44px). Replaces repeated `size="lg" className="h-11"`, makes Code Connect 1:1 and moves the five former 36px CTAs listed under [Rules](#rules-this-library-follows) to `size="touch"`. P0. Tracked in #944; code parity landed.
 - **feat(activity): TransactionAmount header (adopted in #942).** `TransactionDetailsModal` now shows the signed native amount (money in `market-gain`) and secondary status Badge at the top, replacing the Amount and Status rows for transfers. Figma `282:5882` has code parity in `components/transaction-amount.tsx`.
 - **fix(finance-rows): centre a lone value.** Change `finance-row-body` from `items-start` to `items-center`, so a single-line value beside a two-line label centres while a two-line value stays on the title line. P1.
 - **fix(send): show the whole review address.** `CopyableValue presentation="full"` uses `text-xs tracking-tight` and wraps instead of scrolling when the address cannot fit, so the full address is visible before signing. P0.
@@ -318,7 +317,7 @@ The Home Figma file is the foundation new screens are assembled from, so every p
 - The shared text-property defaults of a Figma component set make some variant thumbnails show one sample label (for example every Toast reads "Address copied"). Instances on the pattern boards override the label.
 - Slotted content gets instance-scoped node IDs: content in a `Card`, `Drawer` or `Field` slot has an `I<instance>;…` ID. Component IDs and mapped nodes are unaffected; only board content IDs changed. Moving an existing instance into a slot can corrupt its overrides (run 12 saw a shifted row title and a dropped `MoneyTicker`), so run 12 placed fresh instances configured with the same properties and colour overrides, then deleted the originals.
 - Figma screenshots do not resolve the alpha of colour variables on component masters. Master paints therefore carry an over-white fallback colour; the editor resolves the variable itself.
-- Proposed states and drawings: submit loading; 44px retry and AlertAction; `MoneyPrimaryAmount`'s native input and error state; `PriceChart` gain/loss/scrub/error and range treatment; ToggleGroup's one-border outline; the revised tones; `size=touch`; the design-only InputOTP, Progress, ResultHeader, StatusStep, AssetDetailHeader and SystemKeyboard; the TransactionAmount header was adopted in #942; FinanceRow lone-value centring on Home — final and Home states; the one-line `Home/Mono tight` review address; and ShimmerRow's `Show media` / `Show context` booleans. Every other state mirrors current code.
+- Proposed states and drawings: submit loading; 44px retry and AlertAction; `MoneyPrimaryAmount`'s native input and error state; `PriceChart` gain/loss/scrub/error and range treatment; ToggleGroup's one-border outline; the revised tones; the design-only InputOTP, Progress, ResultHeader, StatusStep, AssetDetailHeader and SystemKeyboard; the TransactionAmount header was adopted in #942; FinanceRow lone-value centring on Home — final and Home states; the one-line `Home/Mono tight` review address; and ShimmerRow's `Show media` / `Show context` booleans. Every other state mirrors current code.
 - The Drawer scrim on the sheet boards is the grey `Screen 390` fill, not code's `bg-foreground/10`, so a sheet reads against something on an empty board. Its treatment is unchanged in run 11.
 - A row with no trailing slot (no chevron, no action) puts its amount 28px further right than rows with a chevron, exactly as code does when `onActivate` is absent. The trailing chevron, Retry glyph and mark are already vertically centred in code and Figma; only FinanceRow's lone value centring is proposed. Mixed lists should give every row the same trailing configuration.
 - The iOS keyboard on the amount and one-time-code boards is a labelled grey placeholder. It only shows how much room the system keyboard takes; it is not a Home component.

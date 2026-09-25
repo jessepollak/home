@@ -197,12 +197,12 @@ export function SignedOutLanding({
           </p>
           <div className="flex flex-wrap items-center gap-3">
             {isVerified ? (
-              <Button size="lg" className="h-11" onClick={onDashboard}>Open dashboard</Button>
+              <Button size="touch" onClick={onDashboard}>Open dashboard</Button>
             ) : (
               <>
-                <Button size="lg" className="h-11" onClick={onSignIn}>Sign in</Button>
+                <Button size="touch" onClick={onSignIn}>Sign in</Button>
                 {showCreateAccount ? (
-                  <Button size="lg" className="h-11" variant="secondary" onClick={onSignIn}>
+                  <Button size="touch" variant="secondary" onClick={onSignIn}>
                     Create account
                   </Button>
                 ) : null}

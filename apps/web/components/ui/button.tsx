@@ -2,7 +2,7 @@ import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
-const buttonVariants = cva(
+const buttonVariantStyles = cva(
   "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap outline-none select-none transition-[scale,color,background-color,border-color,opacity,box-shadow] duration-150 active:duration-0 motion-reduce:transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-busy:opacity-60 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
@@ -26,6 +26,7 @@ const buttonVariants = cva(
         xs: "h-6 gap-1 rounded-md px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
         sm: "h-7 gap-1 rounded-md px-2.5 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
         lg: "h-9 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+        touch: "min-h-11 gap-1.5 px-2.5 py-2 whitespace-normal text-center has-data-[icon=inline-end]:pe-2 has-data-[icon=inline-start]:ps-2",
         icon: "size-8",
         "icon-xs":
           "size-6 rounded-md in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3",
@@ -51,9 +52,14 @@ const buttonVariants = cva(
   },
 );
 
-type ButtonVariant = NonNullable<VariantProps<typeof buttonVariants>["variant"]>;
-type ButtonSize = NonNullable<VariantProps<typeof buttonVariants>["size"]>;
-type ButtonPress = NonNullable<VariantProps<typeof buttonVariants>["press"]>;
+type ButtonVariantProps = VariantProps<typeof buttonVariantStyles>;
+type ButtonVariant = NonNullable<ButtonVariantProps["variant"]>;
+type ButtonSize = NonNullable<ButtonVariantProps["size"]>;
+type ButtonPress = NonNullable<ButtonVariantProps["press"]>;
+
+function buttonVariants(props?: Parameters<typeof buttonVariantStyles>[0]) {
+  return cn(buttonVariantStyles(props));
+}
 
 const iconPressSizes = new Set<ButtonSize>([
   "icon",
@@ -78,7 +84,7 @@ function Button({
   size = "default",
   press,
   ...props
-}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
+}: ButtonPrimitive.Props & ButtonVariantProps) {
   const resolvedVariant = variant ?? "default";
   const resolvedSize = size ?? "default";
 

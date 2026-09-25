@@ -71,8 +71,7 @@ export function HomePanel({
   const addMoneyPrompt = routing ? (
     <Button
       variant="outline"
-      size="lg"
-      className="h-11"
+      size="touch"
       onPointerDown={() => void preloadAddMoneySheet()}
       onClick={() => routing.setFlow("add-money", { mode: "push" })}
     >

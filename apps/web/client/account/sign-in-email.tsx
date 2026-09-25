@@ -49,8 +49,8 @@ export function SignInEmail({
           />
         </Field>
         <Button
-          className="h-11 w-full"
-          size="lg"
+          className="w-full"
+          size="touch"
           type="submit"
           disabled={isSendingCode || baseAccountPending}
         >
@@ -60,8 +60,8 @@ export function SignInEmail({
           <>
             <FieldSeparator>or</FieldSeparator>
             <Button
-              className={baseAccountPending ? "h-11 w-full whitespace-normal" : "h-11 w-full"}
-              size="lg"
+              className="w-full"
+              size="touch"
               variant="secondary"
               onClick={onBaseAccountSignIn}
               aria-busy={baseAccountPending || undefined}

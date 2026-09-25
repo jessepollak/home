@@ -398,10 +398,10 @@ function DesktopShell({ initialPanel, initialRailCollapsed = false, extendedActi
           destinations={{ onOpenCash: () => requestPanel("save"), onOpenInvestments: () => navigate("invest"), onOpenBorrow: noop }}
           actions={
             <>
-              <Button size="lg" className="h-11 w-full">
+              <Button size="touch" className="w-full">
                 <Plus className="size-4" aria-hidden="true" /> Add money
               </Button>
-              <Button variant="outline" size="lg" className="h-11 w-full">Send</Button>
+              <Button variant="outline" size="touch" className="w-full">Send</Button>
             </>
           }
           activity={null}
@@ -413,7 +413,7 @@ function DesktopShell({ initialPanel, initialRailCollapsed = false, extendedActi
           operations={regionId === "US" && (state === "funded" || state === "partial") ? [borrowOperation] : []}
           regionId={regionId} density="feed"
           header={<HomeSectionHeading id="activity-title">Activity</HomeSectionHeading>}
-          emptyAction={<div className="lg:hidden"><Button variant="outline" size="lg" className="h-11"><Plus className="size-4" aria-hidden="true" />Add money</Button></div>}
+          emptyAction={<div className="lg:hidden"><Button variant="outline" size="touch"><Plus className="size-4" aria-hidden="true" />Add money</Button></div>}
         />
       </div>
     </div>
@@ -455,7 +455,7 @@ function DesktopShell({ initialPanel, initialRailCollapsed = false, extendedActi
                     <h1 className="min-w-0 truncate text-base font-semibold">{title}</h1>
                   </div>
                   {accountOpen ? (
-                    <Button variant="outline" className="h-11" onClick={closeAccount}>Done</Button>
+                    <Button variant="outline" size="touch" onClick={closeAccount}>Done</Button>
                   ) : headerStatus ? <div className="[&_[data-home-status]]:!size-11">{headerStatus}</div> : null}
                 </header>
                 <div ref={settingsRef} className="py-4 outline-none sm:py-6" tabIndex={accountOpen ? -1 : undefined} role={accountOpen ? "region" : undefined} aria-label={accountOpen ? "Account settings" : undefined}>{content}</div>

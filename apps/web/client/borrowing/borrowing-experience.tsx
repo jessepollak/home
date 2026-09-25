@@ -490,8 +490,8 @@ function BorrowCardActions({ snapshot, onOpen }: { snapshot: BorrowMarketSnapsho
     <div className="space-y-3" onPointerDown={() => void BorrowMoneySheet.preload()}>
       <div className={`grid grid-cols-1 gap-2 ${primaryActions.length > 1 ? "sm:grid-cols-2" : ""}`}>
         {primaryActions.map((action, index) => (
-          <Button key={action.operation} className="min-h-11 h-auto whitespace-normal" variant={index === 0 ? "default" : "secondary"} disabled={action.disabled} onClick={(event) => onOpen(action.operation, event.currentTarget)}>
-            <span className="py-2">{action.label}</span>
+          <Button key={action.operation} size="touch" variant={index === 0 ? "default" : "secondary"} disabled={action.disabled} onClick={(event) => onOpen(action.operation, event.currentTarget)}>
+            {action.label}
           </Button>
         ))}
       </div>

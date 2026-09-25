@@ -54,8 +54,8 @@ export function SignInOtp({
             data-initial-focus
           />
           <Button
-            className="h-11 w-full sm:w-auto"
-            size="lg"
+            className="w-full sm:w-auto"
+            size="touch"
             variant="ghost"
             onClick={onChangeEmail}
             disabled={isVerifyingCode || isSendingCode}
@@ -68,16 +68,16 @@ export function SignInOtp({
         </FieldDescription>
       </Field>
       <Button
-        className="h-11 w-full"
-        size="lg"
+        className="w-full"
+        size="touch"
         type="submit"
         disabled={isVerifyingCode || otp.length !== 6}
       >
         {isVerifyingCode ? "Verifying…" : "Verify and continue"}
       </Button>
       <Button
-        className="h-11 w-full"
-        size="lg"
+        className="w-full"
+        size="touch"
         variant="secondary"
         onClick={onResend}
         disabled={isSendingCode || resendSeconds > 0}

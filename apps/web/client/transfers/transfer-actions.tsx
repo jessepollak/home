@@ -137,8 +137,7 @@ export function TransferActionsForWallet({
       <Button
         data-action-trigger=""
         variant="outline"
-        size="lg"
-        className="h-11"
+        size="touch"
         disabled={!boundary}
         onPointerDown={() => void SendSheet.preload()}
         onClick={openSend}
