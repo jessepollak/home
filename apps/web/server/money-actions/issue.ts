@@ -3,6 +3,8 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { decodeMoneyActionApproval } from "@/shared/money-actions/approval";
+import { BASE_USDC_ADDRESS, BASE_USDC_PAYMASTER_ADDRESS, parseMoneyActionNetworkFee } from "@/shared/money-actions/network-fee";
+import type { MoneyActionNetworkFee } from "@/shared/money-actions/types";
 import {
   isActionKind,
   type MoneyActionAmount,
@@ -74,6 +76,7 @@ export async function issueMoneyAction(
       title: action.title,
       amounts: action.amounts,
       warnings: action.warnings,
+      ...(action.networkFee ? { networkFee: action.networkFee } : {}),
       expiresAt: action.expiresAt,
       ...(action.quoteId ? { quoteId: action.quoteId } : {}),
       ...(action.metadata ? { metadata: action.metadata } : {}),
@@ -118,7 +121,17 @@ function normalizeDraft(draft: MoneyActionDraft): MoneyActionDraft {
     }
     return warning.trim();
   });
-  if (warnings.length === 0) {
+  const networkFee = draft.networkFee === undefined ? undefined : parseMoneyActionNetworkFee(draft.networkFee);
+  if (draft.networkFee !== undefined && !networkFee) throw new MoneyActionIssueError("invalid-draft");
+  if (networkFee?.payment === "usdc") {
+    const approval = draft.calls[0] && decodeMoneyActionApproval(draft.calls[0]);
+    if (!approval || approval.token !== BASE_USDC_ADDRESS.toLowerCase() ||
+      approval.spender !== BASE_USDC_PAYMASTER_ADDRESS.toLowerCase() ||
+      approval.amountBaseUnits !== networkFee.maxFeeBaseUnits ||
+      draft.calls[0]?.value !== "0" || draft.calls[0]?.approval?.spender.toLowerCase() !== BASE_USDC_PAYMASTER_ADDRESS.toLowerCase() ||
+      draft.calls[0]?.approval?.assetId !== "usdc") throw new MoneyActionIssueError("invalid-draft");
+  }
+  if (warnings.length === 0 && networkFee?.payment !== "usdc") {
     warnings.push("Your wallet will show the Base network fee before you sign.");
   }
   const calls = draft.calls.map(normalizeCall);
@@ -126,13 +139,14 @@ function normalizeDraft(draft: MoneyActionDraft): MoneyActionDraft {
   const metadata = draft.metadata === undefined
     ? undefined
     : normalizeMetadata(draft.metadata, draft.kind);
-  assertExactApprovalCaps(calls, amounts);
+  assertExactApprovalCaps(calls, amounts, networkFee ?? undefined);
   return {
     kind: draft.kind,
     title: draft.title.trim(),
     calls,
     amounts,
     warnings,
+    ...(networkFee ? { networkFee } : {}),
     expiresAt: new Date(draft.expiresAt).toISOString(),
     ...(draft.quoteId ? { quoteId: draft.quoteId } : {}),
     ...(metadata ? { metadata } : {}),
@@ -327,8 +341,9 @@ function normalizeAmount(amount: MoneyActionAmount): MoneyActionAmount {
 function assertExactApprovalCaps(
   calls: MoneyActionCall[],
   amounts: MoneyActionAmount[],
+  networkFee?: MoneyActionNetworkFee,
 ): void {
-  for (const call of calls) {
+  for (const [index, call] of calls.entries()) {
     if (!call.data.startsWith("0x095ea7b3")) {
       if (call.approval) throw new MoneyActionIssueError("invalid-draft");
       continue;
@@ -341,6 +356,8 @@ function assertExactApprovalCaps(
     ) {
       throw new MoneyActionIssueError("invalid-draft");
     }
+    if (approval.token === BASE_USDC_ADDRESS.toLowerCase() && approval.spender === BASE_USDC_PAYMASTER_ADDRESS.toLowerCase() && (index !== 0 || networkFee?.payment !== "usdc")) throw new MoneyActionIssueError("invalid-draft");
+    if (index === 0 && networkFee?.payment === "usdc") continue;
     const eligibleSpends = amounts.filter((amount) =>
       amount.direction === "spend" && amount.assetId === approval.assetId
     );

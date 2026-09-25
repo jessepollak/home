@@ -23,10 +23,11 @@ export function fixtureRoutes() {
     }],
     ["**/api/actions", actionsBody],
     ["**/api/actions/prepare", prepared],
+    ["**/api/actions/network-fee", { version: 1, usdcReserveBaseUnits: "20000" }],
     [`**/api/actions/${prepared.id}`, {
       id: prepared.id,
       kind: prepared.kind,
-      summary: { title: prepared.title, amounts: prepared.amounts, warnings: prepared.warnings, expiresAt: prepared.expiresAt },
+      summary: { title: prepared.title, networkFee: prepared.networkFee, amounts: prepared.amounts, warnings: prepared.warnings, expiresAt: prepared.expiresAt },
       calls: prepared.calls,
       expiresAt: prepared.expiresAt,
     }],

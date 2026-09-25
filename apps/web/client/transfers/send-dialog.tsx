@@ -53,6 +53,8 @@ import {
 } from "@/shared/transfers/transfer-helpers";
 import { TransferExecutionError, type TransferRequest } from "@/shared/transfers/types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
+import { networkFeeErrorMessage } from "@/shared/money-actions/network-fee";
+import { maxAmountAfterNetworkFee, useNetworkFeeReserve } from "@/client/money-modal/network-fee-policy";
 
 type SendStep = "amount" | "destination" | "payout" | "handle" | "handle-confirm" | "preparing" | "confirm" | "pending" | "error";
 type CashoutRequest = {
@@ -163,6 +165,7 @@ export function SendDialog({
     : "Enter a 0x address or a name like example.base.eth.";
   const selectedAsset = activeAssetId ? getTransferAsset(activeAssetId) : null;
   const pricing = useMoneyAssetPricing(selectedAsset?.symbol ?? "");
+  const reserve = useNetworkFeeReserve(ownerBoundary, fetchAccountResource, open);
   const selectedAvailability = availableAssets?.find((asset) => asset.id === activeAssetId);
   const resourceBoundary = `${ownerBoundary ?? ""}:${regionId}`;
   const recentRecipients = ownerBoundary && recentRecipientState?.ownerBoundary === ownerBoundary
@@ -351,8 +354,8 @@ export function SendDialog({
       assertTransferRequest(next); setRequest(next); setCashout(null); setStep("preparing"); setError(null);
       const prepared = await prepareMoneyAction("send", next);
       showPreparedReview(prepared);
-    } catch {
-      setError("Enter a valid Base address and positive amount, then try again."); setStep("destination");
+    } catch (caught) {
+      setError(networkFeeErrorMessage(caught) ?? "Enter a valid Base address and positive amount, then try again."); setStep("destination");
     }
   }
 
@@ -378,7 +381,7 @@ export function SendDialog({
       });
       setRequest(null); showPreparedReview(prepared);
     } catch (caught) {
-      setError(serverCashoutMessage(caught)); setStep("handle-confirm");
+      setError(networkFeeErrorMessage(caught) ?? serverCashoutMessage(caught)); setStep("handle-confirm");
     }
   }
 
@@ -399,7 +402,7 @@ export function SendDialog({
       });
       setRequest(null); showPreparedReview(prepared);
     } catch (caught) {
-      setError(serverCashoutMessage(caught)); setStep("destination");
+      setError(networkFeeErrorMessage(caught) ?? serverCashoutMessage(caught)); setStep("destination");
     }
   }
 
@@ -458,7 +461,7 @@ export function SendDialog({
       />
       <MoneyModalBody hasFooter={["amount", "destination", "handle", "handle-confirm", "confirm", "error"].includes(step)} className="gap-4 pt-4">
         {step === "amount" ? <>
-          <MoneyAmountDisplay amount={amount} amountChangeSource={amountChangeSource} onAmountChange={changeAmount} availableLabel={selectedAvailability ? `${selectedAvailability.balanceLabel} available` : undefined} availableAmount={selectedAvailability ? atomicToDecimal(selectedAvailability.balanceBaseUnits, selectedAvailability.decimals) : null} assetId={activeAssetId ?? undefined} assetLabel={selectedAsset?.symbol} assetControl="header" chipSet={pricing.status === "priced" ? "quick-local" : "none"} pricing={pricing} nativeSymbol={selectedAsset?.symbol ?? ""} />
+          <MoneyAmountDisplay amount={amount} amountChangeSource={amountChangeSource} onAmountChange={changeAmount} availableLabel={selectedAvailability ? `${selectedAvailability.balanceLabel} available` : undefined} availableAmount={selectedAvailability ? atomicToDecimal(maxAmountAfterNetworkFee(selectedAvailability.balanceBaseUnits, selectedAsset?.symbol ?? "", reserve) ?? "0", selectedAvailability.decimals) : null} assetId={activeAssetId ?? undefined} assetLabel={selectedAsset?.symbol} assetControl="header" chipSet={pricing.status === "priced" ? "quick-local" : "none"} pricing={pricing} nativeSymbol={selectedAsset?.symbol ?? ""} />
           {selectedAsset ? <MoneyNumpad value={amount} maxDecimals={selectedAsset.decimals} onChange={changeAmount} /> : <StatusMessage>No catalog balance is available to send.</StatusMessage>}
           {!selectedAsset && visibleActiveOrders.length > 0 ? <div className="grid gap-1">{visibleActiveOrders.map((order) => <RecoveryItem key={order.depositId} order={order} onWithdraw={() => void prepareWithdraw(order)} />)}</div> : null}
           {!selectedAsset && providersLoaded && ordersLoaded && recoveryEligible && !recoveryAttempted && visibleActiveOrders.length === 0 ? <Button variant="ghost" size="sm" onClick={() => void recoverCashouts()}>Recover a Peer cash-out</Button> : null}
@@ -526,7 +529,7 @@ export function SendDialog({
           />
         </div> : null}
         {(request || cashout) && (!request || requestAsset) && (step === "confirm" || busy || step === "error") ? <>
-          <MoneyConfirmSummary amount={confirmAmount} lead={cashout ? (cashout.operation === "withdraw" ? `You're withdrawing from ${cashout.providerName}` : `You're cashing out with ${cashout.providerName}`) : `You're sending ${requestAsset?.symbol ?? ""}`} rows={cashout ? [
+          <MoneyConfirmSummary action={action} amount={confirmAmount} lead={cashout ? (cashout.operation === "withdraw" ? `You're withdrawing from ${cashout.providerName}` : `You're cashing out with ${cashout.providerName}`) : `You're sending ${requestAsset?.symbol ?? ""}`} rows={cashout ? [
             ...(action ? [moneyConfirmFromRow(action.owner)] : []),
             { label: "Provider", value: cashout.providerName },
             { label: "Payout app", value: cashout.platformLabel },

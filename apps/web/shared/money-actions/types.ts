@@ -117,6 +117,16 @@ export type MoneyActionMetadata =
   | CashoutMoneyActionMetadata
   | SavingsMoneyActionMetadata;
 
+export type MoneyActionNetworkFee =
+  | {
+      payment: "usdc";
+      token: `0x${string}`;
+      paymaster: `0x${string}`;
+      maxFeeBaseUnits: string;
+      decimals: 6;
+    }
+  | { payment: "native" };
+
 export type MoneyActionDraft = {
   kind: ActionKind;
   title: string;
@@ -126,6 +136,7 @@ export type MoneyActionDraft = {
   expiresAt: string;
   quoteId?: string;
   metadata?: MoneyActionMetadata;
+  networkFee?: MoneyActionNetworkFee;
 };
 
 export type MoneyActionOwner = {

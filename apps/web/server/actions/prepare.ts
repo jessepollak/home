@@ -7,9 +7,12 @@ import { actionKindForBorrowOperation, parseBorrowActionIntent } from "@/shared/
 import type { SavingsActionInput } from "@/server/savings/types";
 import { TransferExecutionError, type TransferRequest } from "@/shared/transfers/types";
 import { isActionKind, type ActionKind } from "@/shared/money-actions/types";
+import { NETWORK_FEE_UNAVAILABLE_CODE } from "@/shared/money-actions/network-fee";
 import { authorizeSession } from "@/server/auth/authorize";
-import { issueSendMoneyAction } from "@/server/money-actions/prepare-send";
+import { buildVerifiedSendMoneyActionDraft } from "@/server/money-actions/prepare-send";
 import { issueMoneyAction } from "@/server/money-actions/issue";
+import { applyNetworkFee, NetworkFeeUnavailableError, NetworkFeeUnfundedError } from "@/server/paymaster/fee";
+import type { MoneyActionDraft } from "@/shared/money-actions/types";
 import { privateError, privateJson } from "@/server/http/private-response";
 import { prepareSavingsAction, SavingsActionError } from "@/server/savings/prepare";
 import { prepareBorrowAction, BorrowPreparationError } from "@/server/borrowing/prepare";
@@ -25,6 +28,7 @@ import type { ActionAuthorizer } from "./handler";
 export function createPrepareActionHandler(dependencies: {
   authorize: ActionAuthorizer;
   prepareSavings?: typeof prepareSavingsAction;
+  applyFee?: typeof applyNetworkFee;
 }) {
   return async function POST(request: Request): Promise<Response> {
     const session = await authorizeSession(request, dependencies.authorize);
@@ -47,9 +51,11 @@ export function createPrepareActionHandler(dependencies: {
       return privateError(code, message, status);
     };
     try {
-      const action = await prepare(session, body.kind, body.params, request.signal, dependencies);
+      const action = await prepare(session, body.kind, body.params, request, dependencies);
       return privateJson(action satisfies PrepareActionResponse, 201);
     } catch (error) {
+      if (error instanceof NetworkFeeUnfundedError) return fail(error.code, error.message, 409);
+      if (error instanceof NetworkFeeUnavailableError) return fail(NETWORK_FEE_UNAVAILABLE_CODE, error.message, 502);
       if (error instanceof SavingsActionError) {
         switch (error.reason) {
           case "invalid-input":
@@ -88,17 +94,19 @@ async function prepare(
   session: VerifiedAccountSession,
   kind: ActionKind,
   params: Record<string, unknown>,
-  signal: AbortSignal,
-  dependencies: { prepareSavings?: typeof prepareSavingsAction },
+  request: Request,
+  dependencies: { prepareSavings?: typeof prepareSavingsAction; applyFee?: typeof applyNetworkFee },
 ) {
+  const signal = request.signal;
+  const issue = async (draft: MoneyActionDraft) => issueMoneyAction(session, await (dependencies.applyFee ?? applyNetworkFee)(session, draft, { signal, request }));
   if (kind === "send") {
-    return issueSendMoneyAction(session, params as TransferRequest, new Date(), { signal });
+    return issue(await buildVerifiedSendMoneyActionDraft(params as TransferRequest, new Date(), { signal }));
   }
   if (kind === "cash-out") {
-    return issueMoneyAction(session, await prepareCashoutAction(session, params, signal));
+    return issue(await prepareCashoutAction(session, params, signal));
   }
   if (kind === "cash-out-withdraw") {
-    return issueMoneyAction(session, await prepareCashoutWithdrawAction(session, params));
+    return issue(await prepareCashoutWithdrawAction(session, params));
   }
   if (kind === "savings-deposit" || kind === "savings-withdraw") {
     const input: SavingsActionInput = {
@@ -107,7 +115,7 @@ async function prepare(
       amountBaseUnits: params.amountBaseUnits as string,
     };
     const draft = await (dependencies.prepareSavings ?? prepareSavingsAction)({ session, action: input, signal });
-    return issueMoneyAction(session, draft);
+    return issue(draft);
   }
   if (kind === "supply-collateral" || kind === "borrow" || kind === "repay" || kind === "withdraw-collateral") {
     if (!session.smartAccount) throw new BorrowPreparationError("invalid-input", "A verified Base account is required.");
@@ -121,7 +129,7 @@ async function prepare(
     const snapshot = await rpc.readSnapshot(session.smartAccount.address, market, signal);
     const preparation = await prepareBorrowAction({ request, market, snapshot, rpc, signal });
     if (!preparation.fullySimulated) throw new BorrowPreparationError("simulation-failed", preparation.simulationGap ?? "Borrow execution is unavailable.");
-    return issueMoneyAction(session, preparation.draft);
+    return issue(preparation.draft);
   }
   if (kind === "trade") {
     throw new Error("Hosted trades are unavailable.");

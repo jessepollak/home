@@ -10,6 +10,7 @@ import {
   parseTransferAmount,
 } from "./transfer-helpers";
 import { TransferExecutionError } from "./types";
+import { BASE_USDC_ADDRESS, BASE_USDC_PAYMASTER_ADDRESS } from "@/shared/money-actions/network-fee";
 
 const RECIPIENT = "0x2222222222222222222222222222222222222222" as const;
 const CHECKSUMMED_RECIPIENT = "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9" as const;
@@ -70,6 +71,32 @@ describe("transferRequestFromAction re-validates a resumed send against the cata
   });
   const action = (calls: Array<{ to: `0x${string}`; data: `0x${string}`; value: string }>, amounts: ReturnType<typeof amount>[], kind = "send") => ({
     id: "a", kind: kind as "send", title: "Send", calls, amounts, warnings: [], expiresAt: "2099-01-01T00:00:00.000Z", owner: OWNER, createdAt: "2026-09-12T00:00:00.000Z",
+  });
+
+  const paymasterApproval = (maxFee: bigint, spender: `0x${string}` = BASE_USDC_PAYMASTER_ADDRESS) => ({
+    to: BASE_USDC_ADDRESS as `0x${string}`,
+    data: `0x095ea7b3${spender.slice(2).toLowerCase().padStart(64, "0")}${maxFee.toString(16).padStart(64, "0")}` as `0x${string}`,
+    value: "0",
+    approval: { assetId: "usdc", spender },
+  });
+  const usdcFee = { payment: "usdc" as const, token: BASE_USDC_ADDRESS, paymaster: BASE_USDC_PAYMASTER_ADDRESS, maxFeeBaseUnits: "20000", decimals: 6 as const };
+
+  test("resumes a send whose plan pays the network fee in USDC", () => {
+    const prepared = { ...action([paymasterApproval(BigInt(20000)), erc20(usdc, BigInt(1000000))], [amount(usdc, "1000000")]), networkFee: usdcFee };
+    expect(transferRequestFromAction(prepared as never)).toEqual({ assetId: "usdc", recipient: RECIPIENT, amountBaseUnits: "1000000" });
+  });
+
+  test.each([
+    ["approval amount differs from the quoted fee", paymasterApproval(BigInt(20001))],
+    ["approval to another spender", paymasterApproval(BigInt(20000), RECIPIENT)],
+  ])("rejects a USDC-fee send when the %s", (_name, approval) => {
+    const prepared = { ...action([approval, erc20(usdc, BigInt(1000000))], [amount(usdc, "1000000")]), networkFee: usdcFee };
+    expect(transferRequestFromAction(prepared as never)).toBeNull();
+  });
+
+  test("rejects a two-call send without a USDC network fee", () => {
+    const prepared = { ...action([paymasterApproval(BigInt(20000)), erc20(usdc, BigInt(1000000))], [amount(usdc, "1000000")]), networkFee: { payment: "native" } };
+    expect(transferRequestFromAction(prepared as never)).toBeNull();
   });
 
   test("resumes a legacy draft whose checksum address casing was preserved in calldata", () => {

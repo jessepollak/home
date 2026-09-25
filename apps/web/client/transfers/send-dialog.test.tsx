@@ -374,6 +374,7 @@ describe("SendDialog Peer cash-out", () => {
         fetchAccountResource={async (url) => {
           if (url.startsWith("/api/transfers/recent-recipients")) return { version: 1, recipients: [] };
           if (url.startsWith("/api/funding/providers")) return await providerRead;
+          if (url === "/api/actions/network-fee") return { version: 1, usdcReserveBaseUnits: null };
           orderReads += 1;
           return { version: 3, recoveryEligible: true, orders: [] };
         }}

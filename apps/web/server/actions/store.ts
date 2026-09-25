@@ -1,11 +1,14 @@
 import "server-only";
 
+import { keccak256 } from "viem";
+import { encodeCoinbaseExecuteBatch } from "@/server/chain/coinbase-smart-account";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
 import {
   isActionKind,
   type ActionKind,
   type MoneyActionCall,
   type MoneyActionMetadata,
+  type MoneyActionNetworkFee,
   type MoneyActionOwner,
 } from "@/shared/money-actions/types";
 import type { AccountProvider } from "@/shared/account/session-types";
@@ -19,6 +22,7 @@ export type ActionSummary = {
   expiresAt: string;
   quoteId?: string;
   metadata?: MoneyActionMetadata;
+  networkFee?: MoneyActionNetworkFee;
 };
 
 export type PendingAction = {
@@ -44,6 +48,7 @@ export type ActionRow = {
   pending: PendingAction | null;
   created_at: string | Date;
   confirmed_at: string | Date | null;
+  confirmed_call_data_hash?: string | null;
   provider_handle: string | null;
   transaction_hash: string | null;
   handle_recorded_at: string | Date | null;
@@ -113,6 +118,16 @@ export class ActionsStore {
     );
   }
 
+  async getForPaymaster(id: string): Promise<Pick<ActionRow, "owner_key" | "summary" | "created_at" | "confirmed_at" | "confirmed_call_data_hash"> | null> {
+    const result = await this.sql.query<{ owner_key: string; summary: ActionSummary | string; created_at: string | Date; confirmed_at: string | Date | null; confirmed_call_data_hash: string | null }>(
+      `SELECT owner_key, summary, created_at, confirmed_at, confirmed_call_data_hash FROM actions WHERE id = $1`,
+      [id],
+      { timeoutMs: 5_000 },
+    );
+    const row = result.rows[0];
+    return row ? { ...row, summary: parseJsonColumn<ActionSummary>(row.summary) as ActionSummary } : null;
+  }
+
   async get(owner: MoneyActionOwner, id: string): Promise<ActionRow | null> {
     const result = await this.sql.query<RawActionRow>(
       `SELECT * FROM actions WHERE id = $1 AND owner_key = $2`,
@@ -130,19 +145,20 @@ export class ActionsStore {
       const row = normalizeActionRowOrNull(selected.rows[0]);
       if (!row) return null;
       if (row.confirmed_at) return row;
+      const confirmed = row.pending ? finalCalls ?? row.pending.calls : null;
+      const callDataHash = confirmed ? keccak256(encodeCoinbaseExecuteBatch(confirmed)).toLowerCase() : null;
       const updated = await tx.query<RawActionRow>(
         `UPDATE actions
          SET confirmed_at = now(),
-             pending = NULL
+             pending = NULL,
+             confirmed_call_data_hash = $3
          WHERE id = $1 AND owner_key = $2
          RETURNING *`,
-        [id, actionOwnerKey(owner)],
+        [id, actionOwnerKey(owner), callDataHash],
       );
       return {
         ...normalizeActionRow(updated.rows[0]!),
-        pending: row.pending
-          ? { ...row.pending, ...(finalCalls ? { calls: finalCalls } : {}) }
-          : null,
+        pending: row.pending && confirmed ? { ...row.pending, calls: confirmed } : null,
       };
     });
   }

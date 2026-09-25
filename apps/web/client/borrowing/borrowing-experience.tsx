@@ -209,6 +209,7 @@ function BorrowExperienceInner({
                   key={opportunity.market.id}
                   opportunity={opportunity}
                   session={session}
+                  fetchAccountResource={fetchAccountResource}
                   prepareMoneyAction={prepareMoneyAction}
                   executeMoneyAction={executeMoneyAction}
                   regionId={regionId}
@@ -286,6 +287,7 @@ function BorrowDirectMarket({
           session={session}
           snapshot={dialogSnapshot}
           operation={BigInt(dialogSnapshot.position.collateralRaw) > BigInt(0) ? "borrow" : "supply-and-borrow"}
+          fetchAccountResource={fetchAccountResource}
           prepareMoneyAction={prepareMoneyAction}
           executeMoneyAction={executeMoneyAction}
           regionId={regionId}
@@ -299,6 +301,7 @@ function BorrowDirectMarket({
 
 function BorrowMarketCard({
   opportunity,
+  fetchAccountResource,
   session,
   prepareMoneyAction,
   executeMoneyAction,
@@ -306,6 +309,7 @@ function BorrowMarketCard({
   assetMarkResolution,
 }: {
   opportunity: BorrowOverviewOpportunity;
+  fetchAccountResource?: FetchAccountResource;
   session: VerifiedAccountSession;
   prepareMoneyAction?: PrepareMoneyAction;
   executeMoneyAction?: ExecuteMoneyAction;
@@ -344,6 +348,7 @@ function BorrowMarketCard({
           session={session}
           snapshot={dialog.snapshot}
           operation={dialog.operation}
+          fetchAccountResource={fetchAccountResource}
           prepareMoneyAction={prepareMoneyAction}
           executeMoneyAction={executeMoneyAction}
           regionId={regionId}

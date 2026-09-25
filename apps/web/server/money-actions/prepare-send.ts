@@ -12,6 +12,7 @@ import {
 import { TransferExecutionError, type TransferRequest } from "@/shared/transfers/types";
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
 import { issueMoneyAction } from "./issue";
+import { applyNetworkFee } from "@/server/paymaster/fee";
 import { privateError, privateJson } from "@/server/http/private-response";
 import {
   resolveTransferRecipientName,
@@ -38,7 +39,7 @@ export function createPrepareSendMoneyActionHandler(dependencies: {
       assertTransferRequest(body);
       const action = dependencies.issue
         ? await dependencies.issue(session, body)
-        : await issueSendMoneyAction(session, body, dependencies.now?.() ?? new Date(), { signal: request.signal });
+        : await issueSendMoneyAction(session, body, dependencies.now?.() ?? new Date(), { signal: request.signal, request });
       return privateJson(action, 201);
     } catch {
       return privateError("INVALID_SEND_REQUEST", "Use a valid Base recipient, asset, and integer amount.", 400);
@@ -50,11 +51,20 @@ export async function issueSendMoneyAction(
   session: VerifiedAccountSession,
   request: TransferRequest,
   now = new Date(),
-  options: { signal?: AbortSignal; resolveName?: TransferRecipientNameResolver } = {},
+  options: { signal?: AbortSignal; resolveName?: TransferRecipientNameResolver; request?: Request } = {},
 ): Promise<PreparedMoneyAction> {
+  const draft = await buildVerifiedSendMoneyActionDraft(request, now, options);
+  return issueMoneyAction(session, await applyNetworkFee(session, draft, { signal: options.signal, request: options.request }));
+}
+
+export async function buildVerifiedSendMoneyActionDraft(
+  request: TransferRequest,
+  now = new Date(),
+  options: { signal?: AbortSignal; resolveName?: TransferRecipientNameResolver } = {},
+): Promise<MoneyActionDraft> {
   const normalizedRequest = normalizeSendRequest(request);
   await assertRecipientNameBoundary(normalizedRequest, options.resolveName ?? resolveTransferRecipientName, options.signal);
-  return issueMoneyAction(session, buildSendMoneyActionDraft(normalizedRequest, now));
+  return buildSendMoneyActionDraft(normalizedRequest, now);
 }
 
 export function buildSendMoneyActionDraft(

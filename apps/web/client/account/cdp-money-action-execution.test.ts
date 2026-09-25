@@ -265,6 +265,7 @@ describe("thin action dispatch", () => {
       updateAuthorizationBoundary: () => {},
       updateOwnerKey: () => false,
     };
+    const fee = { payment: "usdc", token: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", paymaster: "0x2FAEB0760D4230Ef2aC21496Bb4F0b47D634FD4c", maxFeeBaseUnits: "20000", decimals: 6 };
     const handlePosts: Array<{ path: string; body: unknown }> = [];
     const transport = {
       fetchAccountResource: async (path: string, options?: { body?: unknown }) => {
@@ -274,6 +275,7 @@ describe("thin action dispatch", () => {
             kind: "send",
             summary: {
               title: "Send",
+              networkFee: fee,
               amounts: [],
               warnings: [],
               expiresAt: "2099-01-01T00:00:00.000Z",
@@ -297,9 +299,10 @@ describe("thin action dispatch", () => {
       assertUnchanged: async () => {},
       signMessage: async () => "0x12",
       signTypedData: async () => "0x12",
-      sendCalls: async (_calls, requestId, beforeDispatch, batchGasLimit) => {
+      sendCalls: async (_calls, requestId, beforeDispatch, batchGasLimit, paymaster) => {
         expect(requestId).toBe(id);
         expect(batchGasLimit).toBe("150000");
+        expect(paymaster).toEqual({ url: new URL(`/api/actions/${id}/paymaster`, window.location.origin).toString(), context: { erc20: fee.token.toLowerCase() } });
         await beforeDispatch?.();
         return walletHandle;
       },
@@ -564,7 +567,7 @@ describe("thin action dispatch", () => {
           return {
             id,
             kind: "send",
-            summary: { title: "Send", amounts: [], warnings: [], expiresAt: "2099-01-01T00:00:00.000Z" },
+            summary: { title: "Send", networkFee: { payment: "usdc", token: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", paymaster: "0x2FAEB0760D4230Ef2aC21496Bb4F0b47D634FD4c", maxFeeBaseUnits: "20000", decimals: 6 }, amounts: [], warnings: [], expiresAt: "2099-01-01T00:00:00.000Z" },
             calls: plan.calls,
             expiresAt: "2099-01-01T00:00:00.000Z",
           };
@@ -575,6 +578,7 @@ describe("thin action dispatch", () => {
       },
     } as unknown as AuthenticatedTransport;
     const sentTo: string[] = [];
+    const paymasterOptions: unknown[] = [];
     const polledFor: string[] = [];
     let execution!: ReturnType<typeof useMoneyActionExecution>;
 
@@ -587,6 +591,7 @@ describe("thin action dispatch", () => {
         ownerFence,
         sdkSendUserOperation: async (options) => {
           sentTo.push(options.evmSmartAccount);
+          paymasterOptions.push({ paymasterUrl: options.paymasterUrl, paymasterContext: options.paymasterContext, useCdpPaymaster: options.useCdpPaymaster });
           return { userOperationHash };
         },
         sdkGetUserOperation: async (options) => {
@@ -612,9 +617,12 @@ describe("thin action dispatch", () => {
     try {
       const action = await execution.resumeMoneyAction(id);
       expect(action.owner.address).toBe(lowercase);
+      await expect(execution.executeMoneyAction({ ...action, networkFee: { payment: "usdc", token: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", paymaster: "0x2FAEB0760D4230Ef2aC21496Bb4F0b47D634FD4c", maxFeeBaseUnits: "bad", decimals: 6 } })).rejects.toMatchObject({ reason: "unavailable" });
+      expect(sentTo).toEqual([]);
       await expect(execution.executeMoneyAction(action)).resolves.toMatchObject({ id, status: "submitted", userOperationHash });
       await fake.advance(1_500);
       expect(sentTo).toEqual([checksummed]);
+      expect(paymasterOptions).toEqual([{ paymasterUrl: new URL(`/api/actions/${id}/paymaster`, window.location.origin).toString(), paymasterContext: { erc20: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" }, useCdpPaymaster: undefined }]);
       expect(polledFor).toEqual([checksummed]);
     } finally {
       globalThis.setTimeout = originalSetTimeout;

@@ -4,6 +4,7 @@ import { dataOwnerKey } from "@/client/account/owner-keys";
 import type { VerifiedAccountSession } from "@/client/account/session-client";
 import {
   createBalanceFreshnessState,
+  indexedScopes,
   startBalanceFreshness,
 } from "./after-action";
 import {
@@ -11,6 +12,8 @@ import {
   type FreshUntilMovedClock,
 } from "./fresh-until-moved";
 import { createHomeQueryClient, ownerQueryKey } from "./query-client";
+
+const settledInvalidations = indexedScopes.length + 1;
 
 function fakeClock() {
   let now = 0;
@@ -182,13 +185,13 @@ describe("balance freshness across cached regions", () => {
       expect(fetchMetas).toEqual(
         scenario.regions.map(() => ({ persistence: "owner", ownerKey })),
       );
-      expect(invalidations).toBe(scenario.expectedMoved ? 3 : 0);
+      expect(invalidations).toBe(scenario.expectedMoved ? settledInvalidations : 0);
 
       if (scenario.expectedMoved) {
         await fake.advance(6_000);
         await flushMicrotasks();
         expect(freshReads).toBe(scenario.regions.length);
-        expect(invalidations).toBe(3);
+        expect(invalidations).toBe(settledInvalidations);
       }
     });
   }

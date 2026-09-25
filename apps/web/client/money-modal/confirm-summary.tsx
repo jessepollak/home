@@ -2,8 +2,9 @@
 
 import { AddressText } from "@/components/address-text";
 import { MoneyTicker } from "@/components/money-ticker";
-import type { MoneyActionOwner } from "@/shared/money-actions/types";
+import type { MoneyActionOwner, PreparedMoneyAction } from "@/shared/money-actions/types";
 import type { ReactNode } from "react";
+import { NetworkFeeReview } from "./network-fee-review";
 
 export type MoneyConfirmRow = { label: string; value: ReactNode; fullValue?: boolean };
 
@@ -11,7 +12,10 @@ export function moneyConfirmFromRow(owner: MoneyActionOwner): MoneyConfirmRow {
   return { label: "From", value: <AddressText address={owner.address} className="justify-end" /> };
 }
 
-export function MoneyConfirmSummary({ amount, lead, rows }: { amount: string; lead: string; rows: readonly MoneyConfirmRow[] }) {
+export function MoneyConfirmSummary({ amount, lead, rows, action }: { amount: string; lead: string; rows: readonly MoneyConfirmRow[]; action?: PreparedMoneyAction | null }) {
+  const reviewRows: readonly MoneyConfirmRow[] = action?.networkFee?.payment === "usdc"
+    ? [...rows, { label: "Network fee", value: <NetworkFeeReview fee={action.networkFee} /> }]
+    : rows;
   return (
     <div className="space-y-6">
       <div className="space-y-1 text-center">
@@ -19,7 +23,7 @@ export function MoneyConfirmSummary({ amount, lead, rows }: { amount: string; le
         <p className="text-sm text-muted-foreground">{lead}</p>
       </div>
       <dl>
-        {rows.map((row) => (
+        {reviewRows.map((row) => (
           <div
             className={row.fullValue
               ? "grid items-start gap-1 border-b py-3 text-sm last:border-b-0 sm:grid-cols-[minmax(7rem,0.65fr)_minmax(0,1.35fr)] sm:gap-3"
