@@ -17,6 +17,8 @@ import { validPrepared } from "@/shared/actions/contracts/prepare";
 import { parsePendingActionResponse } from "@/shared/actions/contracts/get";
 import { parseConfirmActionResponse } from "@/shared/actions/contracts/confirm";
 import type { HandleActionRequest } from "@/shared/actions/contracts/handle";
+import { DECLINE_ACTION_CONTRACT_VERSION, parseDeclineActionResponse, type DeclineActionRequest } from "@/shared/actions/contracts/decline";
+import { RETRY_ACTION_CONTRACT_VERSION, parseRetryActionResponse, type RetryActionRequest } from "@/shared/actions/contracts/retry";
 import { TransferExecutionError } from "@/shared/transfers/types";
 import { announceActionFailure } from "@/client/home/action-toast-events";
 
@@ -45,6 +47,8 @@ export function useMoneyActionExecution({
   const preparedGeneration = useRef(new Map<string, number>());
   const confirmedPlans = useRef(new Map<string, ConfirmedPlan>());
   const providerDispatches = useRef(new Map<string, Promise<string>>());
+  const dispatchAttempts = useRef(new Map<string, number>());
+  const pendingDeclines = useRef(new Map<string, Promise<void>>());
   const resolutionRuns = useRef(new Map<string, () => void>());
   const { fetchAccountResource } = transport;
 
@@ -149,6 +153,8 @@ export function useMoneyActionExecution({
         fence: ownerFence,
         confirmedPlans: confirmedPlans.current,
         providerDispatches: providerDispatches.current,
+        dispatchAttempts: dispatchAttempts.current,
+        pendingDeclines: pendingDeclines.current,
         confirm: async () => {
           const response = parseConfirmActionResponse(
             await fetchAccountResource(`/api/actions/${action.id}/confirm`, { method: "POST", body: {} }),
@@ -184,6 +190,22 @@ export function useMoneyActionExecution({
           return result.userOperationHash;
         },
         recordHandle: (handle) => postHandle(action.id, generation, { providerHandle: handle }),
+        recordDecline: async (attempt, signal) => {
+          ownerFence.assertCurrent(generation);
+          const response = await fetchAccountResource(`/api/actions/${action.id}/decline`, {
+            method: "POST", signal, body: { version: DECLINE_ACTION_CONTRACT_VERSION, attempt } satisfies DeclineActionRequest,
+          });
+          if (!parseDeclineActionResponse(response)) throw new TransferExecutionError("unavailable");
+          ownerFence.assertCurrent(generation);
+        },
+        beginRetry: async (attempt) => {
+          ownerFence.assertCurrent(generation);
+          const response = await fetchAccountResource(`/api/actions/${action.id}/retry`, {
+            method: "POST", body: { version: RETRY_ACTION_CONTRACT_VERSION, attempt } satisfies RetryActionRequest,
+          });
+          if (parseRetryActionResponse(response)?.action.id !== action.id) throw new TransferExecutionError("unavailable");
+          ownerFence.assertCurrent(generation);
+        },
       });
     } catch (error) {
       if (error instanceof TransferExecutionError) {
@@ -209,6 +231,8 @@ export function useMoneyActionExecution({
     preparedGeneration.current.clear();
     confirmedPlans.current.clear();
     providerDispatches.current.clear();
+    dispatchAttempts.current.clear();
+    pendingDeclines.current.clear();
   }, []);
   useEffect(() => reset, [reset]);
 

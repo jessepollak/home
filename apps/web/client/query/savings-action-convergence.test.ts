@@ -113,12 +113,16 @@ async function proveSavingsConvergence({
 
   const confirmedPlans = new Map();
   const providerDispatches = new Map<string, Promise<string>>();
+  const dispatchAttempts = new Map<string, number>();
+  const pendingDeclines = new Map<string, Promise<void>>();
   const execute = () => executeActionOnce({
     id: ACTION_ID,
     generation: 7,
     fence: { assertCurrent: (generation) => { expect(generation).toBe(7); } },
     confirmedPlans,
     providerDispatches,
+    dispatchAttempts,
+    pendingDeclines,
     confirm: async () => {
       confirms += 1;
       return { calls: [{ to: session.smartAccount!.address, data: "0x1234", value: "0" }] };

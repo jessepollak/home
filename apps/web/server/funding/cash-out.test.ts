@@ -68,6 +68,8 @@ function row(overrides: Partial<ActionRow> = {}): ActionRow {
     id: "11111111-1111-4111-8111-111111111111", owner_key: "owner", provider: "cdp-embedded", kind: "cash-out",
     summary: { title: "Cash out", amounts: [], warnings: [], expiresAt: new Date(Date.now() + 60_000).toISOString() }, pending: null,
     created_at: new Date().toISOString(), confirmed_at: new Date().toISOString(), provider_handle: null, transaction_hash: null, handle_recorded_at: null,
+    account_address: "0x1111111111111111111111111111111111111111", declined_reported_at: null, dispatch_attempt: 0, outcome: null,
+    outcome_source: null, settled_at: null, outcome_recorded_at: null,
     ...overrides,
   };
 }

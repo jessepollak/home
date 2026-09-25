@@ -38,6 +38,13 @@ function sendRow(id: string, recipient: string, confirmedAt: string): ActionRow 
     provider_handle: `0x${"ab".repeat(32)}`,
     transaction_hash: null,
     handle_recorded_at: confirmedAt,
+    account_address: ADDRESS,
+    declined_reported_at: null,
+    dispatch_attempt: 0,
+    outcome: null,
+    outcome_source: null,
+    settled_at: null,
+    outcome_recorded_at: null,
   };
 }
 

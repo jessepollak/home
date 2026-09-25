@@ -21,6 +21,7 @@ describePostgres("actions schema and store", () => {
   beforeAll(async () => {
     admin = new Bun.SQL(connectionString!) as unknown as BunSqlClient;
     const migration = await readMigrationSql("001_actions.sql");
+    const outcomesMigration = await readMigrationSql("012_action_outcomes.sql");
     await admin.unsafe(`DROP SCHEMA IF EXISTS ${TEST_SCHEMA} CASCADE`);
     await admin.unsafe(`CREATE SCHEMA ${TEST_SCHEMA}`);
     await admin.begin(async (transaction) => {
@@ -30,6 +31,7 @@ describePostgres("actions schema and store", () => {
         applied_at timestamptz NOT NULL DEFAULT now()
       )`);
       await transaction.unsafe(migration);
+      await transaction.unsafe(outcomesMigration);
       await transaction.unsafe(
         "INSERT INTO schema_migrations (name) VALUES ($1)",
         ["db/001_actions.sql"],
@@ -58,6 +60,7 @@ describePostgres("actions schema and store", () => {
     expect(columns.rows.map(({ column_name }) => column_name)).toEqual([
       "id", "owner_key", "provider", "kind", "summary", "pending", "created_at",
       "confirmed_at", "provider_handle", "transaction_hash", "handle_recorded_at",
+      "account_address", "declined_reported_at", "dispatch_attempt", "outcome", "outcome_source", "settled_at", "outcome_recorded_at",
     ]);
   });
 
