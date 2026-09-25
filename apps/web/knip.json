@@ -33,7 +33,8 @@
     "live-login.ts!",
     // Figma variables sync, run by package scripts and the main-only CI job.
     "scripts/figma-variables.mjs!",
-    "scripts/immersve-probe.ts!"
+    "scripts/immersve-probe.ts!",
+    "scripts/bridge-allowance-fork.ts!"
   ],
   "ignore": [
     // Non-production design-lane code lives under explorations/ or inside a

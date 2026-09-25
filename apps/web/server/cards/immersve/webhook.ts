@@ -2,12 +2,12 @@ import "server-only";
 
 import { constants, createPublicKey, verify, type JsonWebKey } from "node:crypto";
 import type { ImmersveConfig } from "./config";
-import type { CardEvent } from "./store";
+import { createCardWebhookHandler, type CardObservation, type CardProvider, type CardWebhookResult, type CardVerification } from "../provider";
 
 type JwksClient = { getJwks(): Promise<unknown> };
-type CardEventStore = { insert(event: CardEvent): Promise<boolean> };
+type CardEventStore = { insert(event: CardObservation): Promise<boolean> };
 type PublicJwk = JsonWebKey & { kid: string; kty: "RSA"; n: string; e: string };
-export type ImmersveWebhookResult = "accepted" | "rejected" | "unavailable";
+export type ImmersveWebhookResult = CardWebhookResult;
 const JWKS_TTL_MS = 5 * 60_000;
 const JWKS_REFETCH_MS = 60_000;
 const EVENT_RETENTION_MS = 30 * 24 * 60 * 60_000;
@@ -49,41 +49,42 @@ export function createImmersveWebhookHandler(dependencies: {
     finally { loading = null; }
   }
 
-  return async function handle(raw: Uint8Array, headers: Headers, topic: string): Promise<ImmersveWebhookResult> {
-    if (!isImmersveWebhookTopic(topic)) return "rejected";
+  const provider: CardProvider = {
+    fundingStrategy: "deposit",
+    async verifyAndNormalize(raw: Uint8Array, headers: Headers, topic?: string): Promise<CardVerification> {
+      if (!topic || !isImmersveWebhookTopic(topic)) return { outcome: "rejected" };
     const delivery = headers.get("x-delivery-id");
     const kid = headers.get("x-key-id");
     const signature = headers.get("x-signature");
     if (!delivery || !/^[A-Za-z0-9_-]{1,128}:[1-9][0-9]{0,8}$/.test(delivery) ||
-        !kid || !ID.test(kid) || !signature || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(signature) || signature.length > 2048) return "rejected";
+        !kid || !ID.test(kid) || !signature || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(signature) || signature.length > 2048) return { outcome: "rejected" };
     let key: PublicJwk | undefined;
     try {
       key = (await keys()).find((item) => item.kid === kid);
       if (!key && now() - lastFetchedAt >= JWKS_REFETCH_MS) key = (await keys(true)).find((item) => item.kid === kid);
-    } catch { return "unavailable"; }
-    if (!key) return "unavailable";
+    } catch { return { outcome: "unavailable" }; }
+    if (!key) return { outcome: "unavailable" };
     let valid = false;
     try {
       const signed = Buffer.concat([Buffer.from(`${delivery}:${kid}:`, "utf8"), Buffer.from(raw)]);
       valid = verify("RSA-SHA256", signed, { key: createPublicKey({ key: { kty: "RSA", n: key.n, e: key.e }, format: "jwk" }), padding: constants.RSA_PKCS1_PADDING }, Buffer.from(signature, "base64"));
-    } catch { return "rejected"; }
-    if (!valid) return "rejected";
+    } catch { return { outcome: "rejected" }; }
+    if (!valid) return { outcome: "rejected" };
     let parsed: unknown;
     try { parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw)) as unknown; }
-    catch { return "rejected"; }
+    catch { return { outcome: "rejected" }; }
     if (!isObject(parsed) || typeof parsed.messageId !== "string" || !ID.test(parsed.messageId) ||
         parsed.topic !== topic || parsed.keyId !== kid || parsed.issuer !== new URL(dependencies.config.origin).host ||
         !Number.isSafeInteger(parsed.deliveryAttempt) || delivery !== `${parsed.messageId}:${parsed.deliveryAttempt}` ||
-        !isRecentCreatedAt(parsed.createdAt, now())) return "rejected";
-    const event = projectEvent(parsed, dependencies.config.mode);
-    if (!event) return "rejected";
-    try { await dependencies.store.insert(event); }
-    catch { return "unavailable"; }
-    return "accepted";
+        !isRecentCreatedAt(parsed.createdAt, now())) return { outcome: "rejected" };
+    const observation = projectEvent(parsed, dependencies.config.mode);
+    return observation ? { outcome: "accepted", observation } : { outcome: "rejected" };
+    },
   };
+  return Object.assign(createCardWebhookHandler(provider, dependencies.store), { provider });
 }
 
-function projectEvent(envelope: Record<string, unknown>, mode: ImmersveConfig["mode"]): CardEvent | null {
+function projectEvent(envelope: Record<string, unknown>, mode: ImmersveConfig["mode"]): CardObservation | null {
   const topic = envelope.topic as string;
   const payload = envelope.payload;
   if (!isObject(payload)) return null;
@@ -108,12 +109,12 @@ function projectEvent(envelope: Record<string, unknown>, mode: ImmersveConfig["m
     }
   }
   return {
+    provider: "immersve",
     mode,
-    messageId: envelope.messageId as string,
-    topic,
-    cardholderAccountId,
-    cardId,
-    paymentId,
+    eventId: envelope.messageId as string,
+    kind: topic,
+    externalIds: { cardholder: cardholderAccountId, card: cardId, transaction: paymentId, customer: null },
+    occurredAt: envelope.createdAt as string,
   };
 }
 

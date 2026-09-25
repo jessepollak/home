@@ -66,6 +66,7 @@ Each economic position counts once: vault shares are valued as a position, not a
 |---|---|---|---|
 | Wallet | session verification, owner fence, one action id | sign-in, signing, `sendCalls`, status lookup | `client/account`, `server/auth` |
 | Funding | destination, token identity, one dispatch per order, receipt rule | quotes, KYC fields, payment instructions, provider status | `server/funding/providers/<id>/{manifest,adapter}.ts` |
+| Cards (event ingress only) | provider/mode-scoped invalidation identity, dedupe, retention | Immersve JWKS, Bridge PKI and Stripe HMAC verification, event ID normalization, funding-strategy declaration | `server/cards/{provider,store}.ts`, `server/cards/immersve/`, `server/cards/bridge/`, `app/api/cards/webhooks/` ([cards.md](cards.md)) |
 | Products | supported assets, shared action issuance, exact approvals, valuation rules | product-specific preparation and reads: vault deposits and withdrawals; market collateral and debt operations; trades | `shared/morpho-markets`, `server/morpho-markets` for the verified isolated-market engine; `server/morpho`, `server/savings`, `server/borrowing`, `server/actions/kinds/trade` for product policy and actions; add a broader protocol adapter only when a second protocol demonstrates the contract |
 | Data | the holding shape, pinned registry reads, the valuation math | enumeration (CDP Token Balances), catalog and prices (Codex), FX (Coinbase), history (CDP SQL) | `server/balances`, `server/market-data`, `server/chain`, `server/chain-data` |
 | Config | validation, defaults, precedence rules | brand, regions, currencies, asset registries, navigation | `apps/web/config/*`, `shared/assets/base.ts`, `shared/*/config.ts` |
@@ -86,7 +87,7 @@ Funding already has the full plugin shape: one provider directory, one registrat
 | `webhook_subscriptions` | record | each app-created CDP subscription and the signing secret returned only at creation, required to authenticate later deliveries |
 | `operator_settings` | record | versioned per-domain administrator values with optimistic revisions and the last operator update |
 | `admin_audit_log` | record | append-only administrator settings changes and individual customer reads, with actor, target, and purpose where required |
-| `card_events` | record | verified Immersve webhook message identity and allowlisted invalidation identifiers (mode-scoped, no payload bodies); retained 30 days by bounded lazy pruning ([cards.md](cards.md)) |
+| `card_events` | record | verified Immersve/Bridge/Stripe notification identity and allowlisted invalidation IDs, scoped by `(provider, mode, event_id)`; no payload bodies; retained 30 days by bounded lazy pruning ([cards.md](cards.md)) |
 | `schema_migrations` | — | makes `bun run db:migrate` idempotent |
 
 Every table appears in this inventory with its kind; one shared executor (`server/db/sql.ts`) serves them all. Authentication creates no rows: the SIWE challenge is a signed cookie. Country preference is a device-side record (cookie-readable for server rendering); it moves to the server only for a cross-device need. The server never caches prices per owner. A future history table is decided on its own: reconstructible chain or price history is an observation; what Home displayed or committed to at a time is a record with its own retention contract.

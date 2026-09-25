@@ -1,9 +1,9 @@
 import { getSqlExecutor } from "@/server/db/sql";
 import { readBoundedWebhookBody } from "@/server/funding/core/webhook-body";
-import { readImmersveConfig } from "@/server/cards/config";
-import { createImmersveClient } from "@/server/cards/immersve-client";
+import { readImmersveConfig } from "@/server/cards/immersve/config";
+import { createImmersveClient } from "@/server/cards/immersve/immersve-client";
 import { createCardEventStore } from "@/server/cards/store";
-import { createImmersveWebhookHandler, isImmersveWebhookTopic, type ImmersveWebhookResult } from "@/server/cards/webhook";
+import { createImmersveWebhookHandler, isImmersveWebhookTopic, type ImmersveWebhookResult } from "@/server/cards/immersve/webhook";
 import { emitServerEvent } from "@/server/observability/log";
 
 export const runtime = "nodejs";
@@ -35,7 +35,7 @@ export async function POST(request: Request, context: { params: Promise<{ topic:
 
 function observe(code: "WEBHOOK_UNAVAILABLE" | "WEBHOOK_REJECTED", outcome: "unavailable" | "rejected", startedAt: number): void {
   emitServerEvent("cards-webhook", {
-    route: "/api/cards/webhooks/immersve/:topic", code, outcome, durationMs: Date.now() - startedAt,
+    route: "/api/cards/webhooks/immersve/:topic", provider: "immersve", code, outcome, durationMs: Date.now() - startedAt,
   });
 }
 

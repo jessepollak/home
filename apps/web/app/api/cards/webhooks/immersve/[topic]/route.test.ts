@@ -3,7 +3,7 @@ import { expect, spyOn, test } from "bun:test";
 import * as sqlModule from "@/server/db/sql";
 import * as storeModule from "@/server/cards/store";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
-import type { CardEvent } from "@/server/cards/store";
+import type { CardObservation } from "@/server/cards/provider";
 import { POST } from "./route";
 
 function request(body: string, topic: string, headers?: Headers) {
@@ -87,14 +87,14 @@ test("enabled ingress returns 503 for retryable failures and 202 for deliberate 
   };
   const previous = Object.fromEntries(Object.keys(env).map((key) => [key, process.env[key]]));
   Object.assign(process.env, env);
-  const stored: CardEvent[] = [];
+  const stored: CardObservation[] = [];
   let storeUnavailable = false;
   let jwks: "fetch-failure" | "malformed" | "valid" = "fetch-failure";
   const logs: string[] = [];
   setObservabilityLogWriterForTests((line) => { logs.push(line); });
   const store = spyOn(storeModule, "createCardEventStore").mockReturnValue({ insert: async (event) => {
     if (storeUnavailable) throw new Error("private database failure");
-    if (stored.some((row) => row.mode === event.mode && row.messageId === event.messageId)) return false;
+    if (stored.some((row) => row.provider === event.provider && row.mode === event.mode && row.eventId === event.eventId)) return false;
     stored.push(event);
     return true;
   } });
@@ -136,7 +136,7 @@ test("enabled ingress returns 503 for retryable failures and 202 for deliberate 
     storeUnavailable = false;
     const accepted = await signed();
     expect(accepted.status).toBe(202);
-    expect(stored).toEqual([{ mode: "sandbox", messageId: "event-route", topic: "payment-updated", cardholderAccountId: "owner-route", cardId: "card-route", paymentId: "payment-route" }]);
+    expect(stored).toEqual([{ provider: "immersve", mode: "sandbox", eventId: "event-route", kind: "payment-updated", occurredAt: envelope.createdAt, externalIds: { cardholder: "owner-route", card: "card-route", transaction: "payment-route", customer: null } }]);
     expect((await signed()).status).toBe(202);
     expect(stored).toHaveLength(1);
     expect(logs.map((line) => JSON.parse(line) as { code: string })).toEqual([
