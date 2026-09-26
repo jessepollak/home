@@ -908,7 +908,7 @@ function DashboardShellBody({
     <HomeShellRoutingProvider value={routingValue}>
       <div
         ref={shellRef}
-        className="flex h-svh max-h-svh flex-col overflow-hidden bg-muted [--shell-scrollbar-width:0px]"
+        className="fixed inset-x-0 top-0 flex h-svh max-h-svh flex-col overflow-hidden bg-muted [--shell-scrollbar-width:0px]"
       >
         <span role="status" className="sr-only">{isVerified && interruption && interruptionAnnouncement
           ? headerStatus({ interruption: { kind: interruptionAnnouncement }, coverage: null })?.message
