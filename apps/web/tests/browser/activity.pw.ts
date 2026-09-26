@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 import { sessionBody } from "./fixtures/bodies";
+import { cashoutFixtureProgress } from "./feature-map/cashout-fixture";
 
 for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 }]) {
   test(`Activity anchors older rows at ${viewport.width}x${viewport.height}`, async ({ page }) => {
@@ -33,11 +34,11 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
       blockTimestamp: timestamp(minute),
       valuation: { status: "unpriced", currency: "USD", reason: "quote-unavailable" },
     });
-    const action = (id: string, kind: "cash-out" | "send", title: string, status: "confirmed" | "pending", minute: number) => ({
+    const action = (id: string, kind: "cash-out" | "send", title: string, status: "confirmed" | "pending", minute: number, amountBaseUnits = "1000000") => ({
       id,
       provider: "cdp-embedded",
       kind,
-      summary: { title, amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1000000", direction: "spend" }], warnings: [], expiresAt: timestamp(0) },
+      summary: { title, amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits, direction: "spend" }], warnings: [], expiresAt: timestamp(0) },
       status,
       createdAt: timestamp(minute),
       confirmedAt: timestamp(minute),
@@ -47,7 +48,10 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
       if (new URL(route.request().url()).pathname !== "/api/actions") return route.fallback();
       return json(route, { actions: [
         action("11111111-1111-4111-8111-111111111112", "send", "Pending send", "pending", 0),
-        action("11111111-1111-4111-8111-111111111113", "cash-out", "Cash out with Peer", "confirmed", 21),
+        {
+          ...action("11111111-1111-4111-8111-111111111113", "cash-out", "Cash out with Peer", "confirmed", 21, "25000000"),
+          cashout: { ...cashoutFixtureProgress, platform: "zelle", platformLabel: "Zelle", amountAtomic: "25000000", remainingAtomic: "25000000", updatedAt: timestamp(21) },
+        },
       ] });
     });
     let releasePageTwo!: () => void;
@@ -96,12 +100,13 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
     const rows = activitySection.locator("ol > li");
     const rowAt = (minute: number) => rows.filter({ has: page.locator(`time[datetime="${timestamp(minute)}"]`) });
     const pending = rows.filter({ hasText: "Pending send" });
-    const cashout = rows.filter({ hasText: "Cash out with Peer" });
+    const cashout = rows.filter({ hasText: "$25 to Zelle" });
     const retry = activitySection.getByRole("button", { name: "Try again", exact: true });
     await page.goto("/activity");
     await expect(rowAt(12)).toHaveCount(1);
     await expect(pending).toHaveCount(1);
-    await expect(cashout).toHaveCount(0);
+    await expect(cashout).toHaveCount(1);
+    await expect(cashout).toContainText("Waiting for a buyer");
     await container.evaluate((element) => { element.scrollTop = element.scrollHeight; });
     await pageTwoObserved;
     await expect(rowAt(12)).toBeVisible();
@@ -129,8 +134,8 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
     await expect(retry).toHaveCount(0);
     const times = await rows.locator("time[datetime]").evaluateAll((elements) =>
       elements.map((element) => element.getAttribute("datetime")));
-    expect(times.indexOf(timestamp(20))).toBeLessThan(times.indexOf(timestamp(21)));
-    expect(times.indexOf(timestamp(21))).toBeLessThan(times.indexOf(timestamp(22)));
+    expect(times.indexOf(timestamp(21))).toBe(0);
+    expect(times.indexOf(timestamp(20))).toBeLessThan(times.indexOf(timestamp(22)));
     expect(times.indexOf(timestamp(0))).toBeLessThan(times.indexOf(timestamp(1)));
     expect(Object.fromEntries(reads)).toEqual({ initial: 1, "page-2": 1, "page-3": 1, "page-4": 2, "page-5": 1 });
   });
