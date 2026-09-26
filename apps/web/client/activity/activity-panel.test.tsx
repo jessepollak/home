@@ -126,7 +126,7 @@ function actionFor(owner: VerifiedAccountSession, title = "Recorded send") {
 }
 
 function actionFailure(status: number) {
-  return Object.assign(new TransferExecutionError("unavailable"), { status });
+  return Object.assign(new TransferExecutionError("unavailable"), { kind: "http", status });
 }
 
 function session(
