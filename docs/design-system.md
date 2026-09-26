@@ -44,7 +44,7 @@ Discover before composing: `docs-list` lists every component the manifest knows,
 
 ### Figma link
 
-Storybook and the [Home Figma file](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home) share one mapping, [`apps/web/figma-components.json`](../apps/web/figma-components.json). `@storybook/addon-designs` shows the mapped Figma node in each listed story's Design panel. Code Connect template files (`*.figma.ts` under `client/explorations/code-connect/` and `components/explorations/code-connect/`) show the real component in Figma Dev Mode. `apps/web/scripts/figma-variables.mjs` pushes the `globals.css` tokens into the `Home tokens` variables. Run these from `apps/web`:
+Storybook and the [Home Figma file](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home) share one mapping: [`apps/web/figma-components.json`](../apps/web/figma-components.json) identifies the library, frames and unmapped nodes, while each mapped component has its own [`apps/web/figma/components/<Name>.json`](../apps/web/figma/components/) file. `@storybook/addon-designs` shows the mapped Figma node in each listed story's Design panel. Code Connect template files (`*.figma.ts` under `client/explorations/code-connect/` and `components/explorations/code-connect/`) show the real component in Figma Dev Mode. `apps/web/scripts/figma-variables.mjs` pushes the `globals.css` tokens into the `Home tokens` variables. Run these from `apps/web`:
 
 ```sh
 bun run figma:connect:parse          # offline template check (CI step)
