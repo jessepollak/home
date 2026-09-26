@@ -13,7 +13,7 @@ import {
 import { MONEY_ACTION_ID_ATTRIBUTE } from "@/shared/money-actions";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { ArrowLeft, X } from "lucide-react";
-import { createContext, useContext, useRef, type ReactNode, type RefObject } from "react";
+import { createContext, useContext, useEffect, useRef, type ReactNode, type RefObject } from "react";
 
 const MoneyModalPendingContext = createContext(false);
 
@@ -23,6 +23,21 @@ export function AppDrawer({ open, labelledBy, describedBy, immediate = false, in
   onClose?: () => void; children: ReactNode;
 }) {
   const popupRef = useRef<HTMLDivElement>(null);
+  const lastOutsideFocusRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (open) return;
+    const rememberOutsideFocus = (target: EventTarget | null) => {
+      if (target instanceof HTMLElement && target !== document.body && !target.closest("[data-money-sheet]")) {
+        lastOutsideFocusRef.current = target;
+      }
+    };
+    rememberOutsideFocus(document.activeElement);
+    const onFocusIn = (event: FocusEvent) => rememberOutsideFocus(event.target);
+    document.addEventListener("focusin", onFocusIn);
+    return () => document.removeEventListener("focusin", onFocusIn);
+  }, [open]);
+
   return (
     <Drawer open={open} modal keyboardAware swipeDirection="down" onOpenChange={(nextOpen, eventDetails) => {
       if (nextOpen) return;
@@ -33,9 +48,13 @@ export function AppDrawer({ open, labelledBy, describedBy, immediate = false, in
         aria-labelledby={labelledBy}
         aria-describedby={describedBy}
         initialFocus={initialFocusRef ?? (() => popupRef.current?.querySelector<HTMLElement>("[data-money-amount-input]:not(:disabled)") ?? popupRef.current?.querySelector<HTMLElement>("[data-initial-focus]:not(:disabled)") ?? true)}
+        finalFocus={() => {
+          const target = lastOutsideFocusRef.current;
+          return target?.isConnected && !target.matches(":disabled") ? target : true;
+        }}
         data-money-sheet=""
         immediate={immediate}
-        className="max-h-[min(88svh,calc(100dvh_-_var(--drawer-keyboard-inset,0px)_-_2rem))] sm:mx-auto sm:max-w-md"
+        className="max-h-[min(88svh,calc(100dvh_-_var(--sheet-keyboard-inset,0px)_-_2rem))] sm:mx-auto sm:max-w-md"
       >
         <DrawerSwipeHandle data-money-sheet-grabber="" />
         {children}
@@ -82,7 +101,7 @@ export function MoneyModalHeader(props: MoneyModalHeaderProps) {
 
 export function MoneyModalBody({ children, className = "", hasFooter = false }: { children: ReactNode; className?: string; hasFooter?: boolean }) {
   return (
-    <div data-slot="money-modal-body" className={`flex min-h-0 flex-1 flex-col overflow-auto px-4 ${hasFooter ? "pb-4" : "pb-[max(1rem,calc(env(safe-area-inset-bottom)_-_var(--drawer-keyboard-inset,0px)))]"} ${className}`.trim()}>
+    <div data-slot="money-modal-body" className={`flex min-h-0 flex-1 flex-col overflow-auto px-4 ${hasFooter ? "pb-4!" : "pb-[max(1rem,calc(env(safe-area-inset-bottom)_-_var(--sheet-keyboard-inset,0px)))]!"} ${className}`.trim()}>
       {children}
     </div>
   );

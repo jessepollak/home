@@ -35,6 +35,48 @@ describe("MoneyModal layout contract", () => {
     expect(page().getByRole("button", { name: "Close" }).hasAttribute("data-initial-focus")).toBe(true);
   });
 
+  test("stays open when the amount blurs under a software keyboard and closes with one header click", async () => {
+    const originalViewport = Object.getOwnPropertyDescriptor(window, "visualViewport");
+    const viewport = Object.assign(new EventTarget(), {
+      height: window.innerHeight - 300,
+      offsetTop: 0,
+      scale: 1,
+      width: window.innerWidth,
+    });
+    Object.defineProperty(window, "visualViewport", { configurable: true, value: viewport });
+    const events: string[] = [];
+
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      const cancel = () => { events.push("cancel"); setOpen(false); };
+      return <>
+        <button type="button" onClick={() => setOpen(true)}>Open drawer</button>
+        <MoneyModal open={open} labelledBy="keyboard-title" immediate onCancel={cancel} onClose={() => events.push("close")}>
+          <MoneyModalHeader title="Keyboard" titleId="keyboard-title" onClose={cancel} />
+          <input aria-label="Amount" data-money-amount-input />
+        </MoneyModal>
+      </>;
+    }
+
+    try {
+      render(<Harness />);
+      await act(async () => fireEvent.click(page().getByRole("button", { name: "Open drawer" })));
+      const amount = await page().findByRole("textbox", { name: "Amount" });
+      const close = page().getByRole("button", { name: "Close" });
+      amount.focus();
+      await waitFor(() => expect(document.activeElement).toBe(amount));
+      close.focus();
+      expect(document.activeElement).toBe(close);
+      expect(page().getByRole("dialog", { name: "Keyboard" })).toBeTruthy();
+      await act(async () => fireEvent.click(close));
+      await waitFor(() => expect(page().queryByRole("dialog", { name: "Keyboard" })).toBeNull());
+      expect(events).toEqual(["cancel", "close"]);
+    } finally {
+      if (originalViewport) Object.defineProperty(window, "visualViewport", originalViewport);
+      else Reflect.deleteProperty(window, "visualViewport");
+    }
+  });
+
   test("focuses the enabled amount input before a fallback focus target", async () => {
     function Harness() {
       const [open, setOpen] = useState(false);
@@ -58,6 +100,27 @@ describe("MoneyModal layout contract", () => {
 });
 
 describe("MoneyModal dismissal contract", () => {
+  test("returns focus to the external trigger after header Close", async () => {
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return <>
+        <button type="button" onClick={() => setOpen(true)}>Open drawer</button>
+        <MoneyModal open={open} labelledBy="return-title" immediate onCancel={() => setOpen(false)} onClose={() => {}}>
+          <MoneyModalHeader title="Focus return" titleId="return-title" onClose={() => setOpen(false)} />
+        </MoneyModal>
+      </>;
+    }
+
+    render(<Harness />);
+    const trigger = page().getByRole("button", { name: "Open drawer" });
+    trigger.focus();
+    await act(async () => fireEvent.click(trigger));
+    const close = await page().findByRole("button", { name: "Close" });
+    await waitFor(() => expect(document.activeElement).toBe(close));
+    await act(async () => fireEvent.click(close));
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+  });
+
   test("keeps the drawer open when cancellation is vetoed", async () => {
     render(
       <MoneyModal
