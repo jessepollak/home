@@ -207,7 +207,7 @@ describe("actions HTTP handlers", () => {
       readReceipt: async () => ({
         status: "confirmed",
         transactionHash: HASH,
-        blockNumber: "51026405",
+        blockNumber: "51026405", blockHash: HASH,
         blockTimestamp, finalized: true, userOperations: [operation(true)],
       }),
     });
@@ -220,7 +220,7 @@ describe("actions HTTP handlers", () => {
     });
   });
 
-  test("an attributable receipt without a recorded outcome stays pending when the write fails or returns no row", async () => {
+  test("a fresh attributable receipt stays confirmed when its outcome write fails or returns no row", async () => {
     const confirmed = { ...row, pending: null, confirmed_at: "2026-09-12T12:05:00.000Z", provider_handle: HASH, transaction_hash: HASH };
     for (const recordOutcome of [
       async () => { throw new Error("database unavailable"); },
@@ -230,9 +230,9 @@ describe("actions HTTP handlers", () => {
         authorize: authorize(),
         store: { get: async () => confirmed, recordHandle: async () => null, recordOutcome },
         now: () => new Date("2026-09-12T12:10:00.000Z"),
-        readReceipt: async () => ({ status: "confirmed", transactionHash: HASH, blockNumber: "1", blockTimestamp, finalized: true, userOperations: [operation(true)] }),
+        readReceipt: async () => ({ status: "confirmed", transactionHash: HASH, blockNumber: "1", blockHash: HASH, blockTimestamp, finalized: true, userOperations: [operation(true)] }),
       });
-      expect((await (await handler(request(`/api/actions/${ID}`), context())).json()).status).toBe("pending");
+      expect((await (await handler(request(`/api/actions/${ID}`), context())).json()).status).toBe("confirmed");
     }
   });
 
@@ -258,7 +258,7 @@ describe("actions HTTP handlers", () => {
             return { row: stored, written: true, conflict: false };
           },
         },
-        readReceipt: async () => ({ status: "confirmed", transactionHash: HASH, blockNumber: "1", blockTimestamp, finalized: true, userOperations: [operation(true)] }),
+        readReceipt: async () => ({ status: "confirmed", transactionHash: HASH, blockNumber: "1", blockHash: HASH, blockTimestamp, finalized: true, userOperations: [operation(true)] }),
       });
       const response = await handler(request(`/api/actions/${ID}`), context());
       expect(response.status).toBe(200);
@@ -314,15 +314,192 @@ describe("actions HTTP handlers", () => {
     expect(await blocked.json()).toMatchObject({ error: { code: "ACTION_ALREADY_DISPATCHED" } });
   });
 
-  test("a non-finalized attributable receipt reports its state but does not write", async () => {
+  test("a non-finalized attributable receipt reports its state without recording a final outcome", async () => {
     const confirmed = { ...row, pending: null, confirmed_at: "2026-09-12T12:05:00.000Z", provider_handle: HASH, transaction_hash: HASH };
     let writes = 0;
     const handler = createGetActionHandler({ authorize: authorize(), store: {
       get: async () => confirmed, recordHandle: async () => null,
       recordOutcome: async () => { writes += 1; throw new Error("unexpected write"); },
-    }, readReceipt: async () => ({ status: "confirmed", transactionHash: HASH, blockNumber: "1", blockTimestamp, finalized: false, userOperations: [operation(false)] }) });
+    }, readReceipt: async () => ({ status: "confirmed", transactionHash: HASH, blockNumber: "1", blockHash: HASH, blockTimestamp, finalized: false, userOperations: [operation(false)] }) });
     expect((await (await handler(request(`/api/actions/${ID}`), context())).json()).status).toBe("failed");
     expect(writes).toBe(0);
+  });
+
+  test("GET and list retain included receipt observations until a finalized null receipt proves a drop", async () => {
+    for (const route of ["get", "list"] as const) {
+      let stored: ActionRow = { ...row, pending: null, confirmed_at: "2026-09-12T12:05:00.000Z", provider_handle: HASH, transaction_hash: HASH };
+      let reads = 0;
+      let clears = 0;
+      let current: "included" | "error" | "lagging" | "dropped" = "included";
+      const store = {
+        get: async (owner: MoneyActionOwner) => owner.subject === "owner-a" ? stored : null,
+        list: async (owner: MoneyActionOwner) => owner.subject === "owner-a" ? [stored] : [],
+        recordHandle: async () => null,
+        recordOutcome: recorded,
+        recordReceiptObservation: async (owner: MoneyActionOwner, _id: string, input: { transactionHash: string; blockNumber: string; blockHash: string; outcome: "succeeded" | "reverted" }) => {
+          if (owner.subject !== "owner-a" || stored.outcome || input.transactionHash.toLowerCase() !== stored.transaction_hash?.toLowerCase()) return null;
+          stored = { ...stored, observed_receipt_transaction_hash: input.transactionHash, observed_receipt_block_number: input.blockNumber,
+            observed_receipt_block_hash: input.blockHash, observed_receipt_outcome: input.outcome, observed_at: blockTimestamp };
+          return stored;
+        },
+        clearReceiptObservation: async (owner: MoneyActionOwner, _id: string, blockHash: string) => {
+          if (owner.subject !== "owner-a" || stored.observed_receipt_block_hash !== blockHash) return null;
+          clears++;
+          stored = { ...stored, observed_receipt_transaction_hash: null, observed_receipt_block_number: null,
+            observed_receipt_block_hash: null, observed_receipt_outcome: null, observed_at: null };
+          return stored;
+        },
+      };
+      const dependencies = {
+        authorize: authorize(), store, now: () => new Date("2026-09-12T12:10:00.000Z"),
+        readReceipt: async (): Promise<import("./receipt").TransferReceiptStatus> => {
+          reads++;
+          if (current === "error") throw new Error("RPC unavailable");
+          if (current === "lagging" || current === "dropped") return { status: "pending", transactionHash: HASH, finalizedBlockNumber: current === "lagging" ? "9" : "10" };
+          return { status: "confirmed", transactionHash: HASH, blockNumber: "10", blockHash: HASH,
+            blockTimestamp, finalized: false, userOperations: [operation(true)] };
+        },
+      };
+      const handler = route === "get" ? createGetActionHandler(dependencies) : createListActionsHandler({ ...dependencies, refreshCashouts: async () => [] });
+      const read = async () => {
+        const response = route === "get"
+          ? await (handler as ReturnType<typeof createGetActionHandler>)(request(`/api/actions/${ID}`), context())
+          : await (handler as ReturnType<typeof createListActionsHandler>)(request("/api/actions"));
+        expect(response.status).toBe(200);
+        const body = await response.json();
+        return route === "get" ? body.status as string : body.actions[0]?.status as string;
+      };
+      for (const [state, expected] of [["included", "confirmed"], ["error", "confirmed"],
+        ["lagging", "confirmed"], ["dropped", "pending"], ["error", "pending"]] as const) {
+        current = state;
+        expect(await read(), `${route}: ${state}`).toBe(expected);
+      }
+      expect(reads).toBe(5);
+      expect(clears).toBe(1);
+      expect(stored.observed_receipt_outcome).toBeNull();
+      const foreign = createGetActionHandler({ ...dependencies, authorize: authorize("owner-b") });
+      expect((await foreign(request(`/api/actions/${ID}`), context())).status).toBe(404);
+      expect(clears).toBe(1);
+    }
+  });
+
+  for (const observedOutcome of ["succeeded", "reverted"] as const) {
+    for (const clearResult of ["null", "throws", "absent"] as const) {
+      test(`a finalized null receipt overrides a ${observedOutcome} observation when clearing ${clearResult}`, async () => {
+        const observed: ActionRow = {
+          ...row, pending: null, confirmed_at: "2026-09-12T12:05:00.000Z", provider_handle: HASH, transaction_hash: HASH,
+          observed_receipt_transaction_hash: HASH, observed_receipt_block_number: "10",
+          observed_receipt_block_hash: HASH, observed_receipt_outcome: observedOutcome, observed_at: blockTimestamp,
+        };
+        const lines: string[] = [];
+        setObservabilityLogWriterForTests((line) => lines.push(line));
+        const handler = createGetActionHandler({
+          authorize: authorize(), now: () => new Date("2026-09-12T12:10:00.000Z"),
+          store: {
+            get: async () => observed, recordHandle: async () => null, recordOutcome: recorded,
+            ...(clearResult === "absent" ? {} : {
+              clearReceiptObservation: async () => {
+                if (clearResult === "throws") throw new Error("store unavailable");
+                return null;
+              },
+            }),
+          },
+          readReceipt: async () => ({ status: "pending", transactionHash: HASH, finalizedBlockNumber: "10" }),
+        });
+        const response = await handler(request(`/api/actions/${ID}`), context());
+        expect(response.status).toBe(200);
+        expect(await response.json()).toMatchObject({ id: ID, status: "pending" });
+        expect(lines.map((line) => JSON.parse(line).code)).toEqual(clearResult === "throws" ? ["OBSERVATION_UNAVAILABLE"] : []);
+      });
+    }
+  }
+
+  test("concurrent reads both report a verified drop when only the first clears the observation", async () => {
+    let stored: ActionRow = {
+      ...row, pending: null, confirmed_at: "2026-09-12T12:05:00.000Z", provider_handle: HASH, transaction_hash: HASH,
+      observed_receipt_transaction_hash: HASH, observed_receipt_block_number: "10",
+      observed_receipt_block_hash: HASH, observed_receipt_outcome: "succeeded", observed_at: blockTimestamp,
+    };
+    let loaded = 0;
+    let clears = 0;
+    let release!: () => void;
+    const bothLoaded = new Promise<void>((resolve) => { release = resolve; });
+    const handler = createGetActionHandler({
+      authorize: authorize(), now: () => new Date("2026-09-12T12:10:00.000Z"),
+      store: {
+        get: async () => {
+          const snapshot = stored;
+          if (++loaded === 2) release();
+          await bothLoaded;
+          return snapshot;
+        },
+        recordHandle: async () => null, recordOutcome: recorded,
+        clearReceiptObservation: async () => {
+          if (++clears === 2) return null;
+          stored = { ...stored, observed_receipt_transaction_hash: null, observed_receipt_block_number: null,
+            observed_receipt_block_hash: null, observed_receipt_outcome: null, observed_at: null };
+          return stored;
+        },
+      },
+      readReceipt: async () => ({ status: "pending", transactionHash: HASH, finalizedBlockNumber: "10" }),
+    });
+    const responses = await Promise.all([
+      handler(request(`/api/actions/${ID}`), context()), handler(request(`/api/actions/${ID}`), context()),
+    ]);
+    expect(responses.map((response) => response.status)).toEqual([200, 200]);
+    expect((await Promise.all(responses.map((response) => response.json()))).map((body) => body.status)).toEqual(["pending", "pending"]);
+    expect(loaded).toBe(2);
+    expect(clears).toBe(2);
+    expect(stored.observed_receipt_outcome).toBeNull();
+  });
+
+  test("an observation write failure does not fail a fresh receipt or manufacture future confirmation", async () => {
+    const confirmed = { ...row, pending: null, confirmed_at: "2026-09-12T12:05:00.000Z", provider_handle: HASH, transaction_hash: HASH };
+    let unavailable = false;
+    const handler = createGetActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:10:00.000Z"), store: {
+      get: async () => confirmed, recordHandle: async () => null, recordOutcome: recorded,
+      recordReceiptObservation: async () => { throw new Error("write failed"); },
+    }, readReceipt: async () => {
+      if (unavailable) throw new Error("RPC unavailable");
+      return { status: "confirmed", transactionHash: HASH, blockNumber: "10", blockHash: HASH,
+        blockTimestamp, finalized: false, userOperations: [operation(true)] };
+    } });
+    const read = async () => (await (await handler(request(`/api/actions/${ID}`), context())).json()).status;
+    expect(await read()).toBe("confirmed");
+    unavailable = true;
+    expect(await read()).toBe("pending");
+  });
+
+  test("reverted observations survive failed reads, fresh receipts replace them, and persisted outcomes win", async () => {
+    let stored: ActionRow = { ...row, pending: null, confirmed_at: "2026-09-12T12:05:00.000Z", provider_handle: HASH, transaction_hash: HASH };
+    let mode: "reverted" | "succeeded" | "error" | "finalized" = "reverted";
+    let writes = 0;
+    const handler = createGetActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:10:00.000Z"), store: {
+      get: async () => stored, recordHandle: async () => null,
+      recordReceiptObservation: async (_owner, _id, input) => {
+        stored = { ...stored, observed_receipt_transaction_hash: input.transactionHash, observed_receipt_block_number: input.blockNumber,
+          observed_receipt_block_hash: input.blockHash, observed_receipt_outcome: input.outcome, observed_at: blockTimestamp };
+        writes++;
+        return stored;
+      },
+      clearReceiptObservation: async () => null,
+      recordOutcome: async (_owner, _id, input) => {
+        stored = { ...stored, outcome: input.outcome };
+        return { row: stored, written: true, conflict: false };
+      },
+    }, readReceipt: async () => {
+      if (mode === "error") throw new Error("RPC unavailable");
+      return { status: "confirmed", transactionHash: HASH, blockNumber: "10", blockHash: mode === "reverted" ? HASH : `0x${"ef".repeat(32)}`,
+        blockTimestamp, finalized: mode === "finalized", userOperations: [operation(mode !== "reverted")] };
+    } });
+    const read = async () => (await (await handler(request(`/api/actions/${ID}`), context())).json()).status;
+    for (const [state, expected] of [["reverted", "failed"], ["error", "failed"], ["succeeded", "confirmed"],
+      ["error", "confirmed"], ["finalized", "confirmed"], ["error", "confirmed"]] as const) {
+      mode = state;
+      expect(await read(), state).toBe(expected);
+    }
+    expect(writes).toBe(2);
+    expect(stored.outcome).toBe("succeeded");
   });
 
   test("GET distinguishes pending, unreadable, attributable, and unattributable repay receipts", async () => {
@@ -361,9 +538,9 @@ describe("actions HTTP handlers", () => {
         readReceipt: async (hash) => {
           expect(hash).toBe(HASH);
           if (receiptState === "throws") throw new Error("Base receipt read failed");
-          if (receiptState === "pending") return { status: "pending", transactionHash: hash };
+          if (receiptState === "pending") return { status: "pending", transactionHash: hash, finalizedBlockNumber: "0" };
           return {
-            status: "confirmed", transactionHash: hash, blockNumber: "1", blockTimestamp,
+            status: "confirmed", transactionHash: hash, blockNumber: "1", blockHash: HASH, blockTimestamp,
             finalized: false, userOperations: receiptState === "confirmed" ? [operation(true)] : [],
           };
         },
@@ -801,7 +978,7 @@ describe("actions HTTP handlers", () => {
       resolveHandle: async () => ({ status: "complete", transactionHash: HASH }),
       readReceipt: async (hash) => {
         receiptHash = hash;
-        return { status: "confirmed", transactionHash: hash, blockNumber: "1", blockTimestamp, finalized: true, userOperations: [operation(true)] };
+        return { status: "confirmed", transactionHash: hash, blockNumber: "1", blockHash: HASH, blockTimestamp, finalized: true, userOperations: [operation(true)] };
       },
     });
 
@@ -989,7 +1166,7 @@ describe("actions HTTP handlers", () => {
       },
       readReceipt: async (hash) => {
         receiptHashes.push(hash);
-        return { status: "pending", transactionHash: hash };
+        return { status: "pending", transactionHash: hash, finalizedBlockNumber: "0" };
       },
     });
 
@@ -1046,7 +1223,7 @@ describe("actions HTTP handlers", () => {
       readReceipt: async (hash) => ({
         status: "confirmed",
         transactionHash: hash,
-        blockNumber: "1",
+        blockNumber: "1", blockHash: HASH,
         blockTimestamp, finalized: true, userOperations: [operation(false)],
       }),
     });

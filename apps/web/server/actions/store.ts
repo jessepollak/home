@@ -42,6 +42,7 @@ export type PendingAction = {
 };
 
 export type ActionOutcome = "succeeded" | "reverted" | "not_submitted";
+export type ObservedReceiptOutcome = Extract<ActionOutcome, "succeeded" | "reverted">;
 
 export type ActionRow = {
   id: string;
@@ -63,6 +64,11 @@ export type ActionRow = {
   outcome_source: "chain" | "wallet" | null;
   settled_at: string | Date | null;
   outcome_recorded_at: string | Date | null;
+  observed_receipt_transaction_hash?: string | null;
+  observed_receipt_block_number?: string | null;
+  observed_receipt_block_hash?: string | null;
+  observed_receipt_outcome?: ObservedReceiptOutcome | null;
+  observed_at?: string | Date | null;
 };
 
 export type CashoutOrderRow = {
@@ -112,6 +118,11 @@ function normalizeActionRow(row: RawActionRow): ActionRow {
     kind: row.kind,
     summary: parseJsonColumn<ActionSummary>(row.summary) as ActionSummary,
     pending: parseJsonColumn<PendingAction>(row.pending),
+    observed_receipt_transaction_hash: row.observed_receipt_transaction_hash ?? null,
+    observed_receipt_block_number: row.observed_receipt_block_number == null ? null : String(row.observed_receipt_block_number),
+    observed_receipt_block_hash: row.observed_receipt_block_hash ?? null,
+    observed_receipt_outcome: row.observed_receipt_outcome ?? null,
+    observed_at: row.observed_at ?? null,
   };
 }
 
@@ -380,6 +391,33 @@ export class ActionsStore {
     if (result.rows[0]) return { row: normalizeActionRow(result.rows[0]), changed: true };
     const row = await this.get(owner, id);
     return { row: row?.confirmed_at ? row : null, changed: false };
+  }
+
+  async recordReceiptObservation(
+    owner: MoneyActionOwner,
+    id: string,
+    input: { transactionHash: string; blockNumber: string; blockHash: string; outcome: ObservedReceiptOutcome },
+  ): Promise<ActionRow | null> {
+    const result = await this.sql.query<RawActionRow>(
+      `UPDATE actions SET observed_receipt_transaction_hash = $3, observed_receipt_block_number = $4::numeric,
+         observed_receipt_block_hash = $5, observed_receipt_outcome = $6, observed_at = now()
+       WHERE id = $1 AND owner_key = $2 AND outcome IS NULL AND LOWER(transaction_hash) = LOWER($3)
+         AND (LOWER(observed_receipt_block_hash) IS DISTINCT FROM LOWER($5) OR observed_receipt_outcome IS DISTINCT FROM $6)
+       RETURNING *`,
+      [id, actionOwnerKey(owner), input.transactionHash, input.blockNumber, input.blockHash, input.outcome],
+    );
+    return normalizeActionRowOrNull(result.rows[0]);
+  }
+
+  async clearReceiptObservation(owner: MoneyActionOwner, id: string, blockHash: string): Promise<ActionRow | null> {
+    const result = await this.sql.query<RawActionRow>(
+      `UPDATE actions SET observed_receipt_transaction_hash = NULL, observed_receipt_block_number = NULL,
+         observed_receipt_block_hash = NULL, observed_receipt_outcome = NULL, observed_at = NULL
+       WHERE id = $1 AND owner_key = $2 AND outcome IS NULL AND LOWER(observed_receipt_block_hash) = LOWER($3)
+       RETURNING *`,
+      [id, actionOwnerKey(owner), blockHash],
+    );
+    return normalizeActionRowOrNull(result.rows[0]);
   }
 
   async recordOutcome(

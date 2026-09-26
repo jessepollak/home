@@ -67,6 +67,23 @@ test("submitted result becomes success for a matching confirmed row", async () =
   expect(closes).toBe(1);
 });
 
+test("repeated confirmation observations do not repeat the submission side effect", async () => {
+  let submitted = 0;
+  const key = ownerQueryKey(dataOwnerKey({ subject: action.owner.subject, smartAccountAddress: action.owner.address, chainId: action.owner.chainId, accountProvider: action.owner.accountProvider }), "actions");
+  render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="result-repeat" resumeActionId={ID}
+    prepareMoneyAction={async () => action} resumeMoneyAction={async () => action}
+    executeMoneyAction={async () => ({ id: ID, status: "submitted" })}
+    fetchAccountResource={async (url) => url === "/api/actions" ? { actions: [{ id: ID, status: "confirmed", owner: action.owner }] } : { version: 1, recipients: [] }}
+    onSubmitted={() => { submitted++; }} onClose={() => {}} />);
+  fireEvent.click(await page().findByRole("button", { name: "Send $1.00" }));
+  expect(await page().findByRole("heading", { name: "$1.00 sent" })).toBeTruthy();
+  void act(() => getHomeQueryClient().setQueryData(key, { actions: [] }));
+  expect(page().getByRole("heading", { name: "$1.00 sent" })).toBeTruthy();
+  void act(() => getHomeQueryClient().setQueryData(key, { actions: [{ id: ID, status: "confirmed", owner: action.owner }] }));
+  expect(page().getByRole("heading", { name: "$1.00 sent" })).toBeTruthy();
+  expect(submitted).toBe(1);
+});
+
 test("matching failed row offers Try again with the previous amount and clears review", async () => {
   let cleared = 0;
   render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="result-failed" resumeActionId={ID} availableAssets={[balance]}

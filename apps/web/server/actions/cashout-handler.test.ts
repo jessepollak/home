@@ -69,7 +69,7 @@ describe("cash-out Activity projection", () => {
     const handler = (now: string, depositId: string | null = record.deposit_id) => createListActionsHandler({
       authorize: async () => Response.json({ user: { subject: owner.subject }, smartAccount: { address: owner.address, chainId: 8453 }, accountProvider: owner.accountProvider }),
       store: { list: async () => rows, recordHandle: async () => null, recordOutcome: async () => ({ row, written: false, conflict: false }) },
-      readReceipt: async () => ({ status: "pending", transactionHash: hash }),
+      readReceipt: async () => ({ status: "pending", transactionHash: hash, finalizedBlockNumber: "0" }),
       refreshCashouts: async () => [{ ...record, deposit_id: depositId }],
       now: () => new Date(now),
     });
@@ -92,12 +92,59 @@ describe("cash-out Activity projection", () => {
     expect(await withdrawing("2026-09-12T12:01:00.000Z", "different")).toBe(false);
   });
 
+  test("a withdrawal remains confirmed on receipt failure even while its deposit order awaits a buyer", async () => {
+    const withdrawal: ActionRow = {
+      ...row, id: "22222222-2222-4222-8222-222222222222", kind: "cash-out-withdraw",
+      summary: { ...row.summary, metadata: {
+        product: "cashout", operation: "withdraw", depositId: "deposit_7", providerId: "peer", providerName: "Peer",
+        environment: "production", platform: "cashapp", platformLabel: "Cash App", currency: "USD",
+        approximateFiatAmount: "1.5", minConversionRate: "1", intentAmountRange: { min: "1", max: "2" },
+        estimateAsOf: timestamp, escrow: owner.address,
+      } },
+    };
+    const deposit = { ...row, transaction_hash: null, provider_handle: null };
+    let stored = withdrawal;
+    let first = true;
+    const handler = createListActionsHandler({
+      authorize: async () => Response.json({ user: { subject: owner.subject }, smartAccount: { address: owner.address, chainId: 8453 }, accountProvider: owner.accountProvider }),
+      now: () => new Date("2026-09-12T12:01:00.000Z"),
+      store: {
+        list: async () => [deposit, stored], recordHandle: async () => null,
+        recordOutcome: async () => ({ row: stored, written: false, conflict: false }),
+        recordReceiptObservation: async (_owner, actionId, input) => {
+          if (actionId !== withdrawal.id) return null;
+          stored = { ...stored, observed_receipt_transaction_hash: input.transactionHash, observed_receipt_block_number: input.blockNumber,
+            observed_receipt_block_hash: input.blockHash, observed_receipt_outcome: input.outcome, observed_at: timestamp };
+          return stored;
+        },
+      },
+      readReceipt: async () => {
+        if (!first) throw new Error("RPC unavailable");
+        return { status: "confirmed", transactionHash: hash, blockNumber: "10", blockHash: hash,
+          blockTimestamp: timestamp, finalized: false, userOperations: [{ userOpHash: hash, sender: owner.address, success: true }] };
+      },
+      refreshCashouts: async () => [record],
+    });
+    const read = async () => {
+      const response = await handler(new Request("https://home.test/api/actions", { headers: { "X-Home-Account-Provider": "cdp-embedded" } }));
+      expect(response.status).toBe(200);
+      return (await response.json()).actions as Array<{ kind: string; status: string; cashout?: { state: string; withdrawing: boolean } }>;
+    };
+    const included = await read();
+    first = false;
+    const unavailable = await read();
+    for (const actions of [included, unavailable]) {
+      expect(actions.find(({ kind }) => kind === "cash-out-withdraw")?.status).toBe("confirmed");
+      expect(actions.find(({ kind }) => kind === "cash-out")?.cashout).toMatchObject({ state: "awaiting-buyer", withdrawing: true });
+    }
+  });
+
   test("refreshes after receipt reads and presents only the shared progress fields", async () => {
     const order: string[] = [];
     const handler = createListActionsHandler({
       authorize: async () => Response.json({ user: { subject: owner.subject }, smartAccount: { address: owner.address, chainId: 8453 }, accountProvider: owner.accountProvider }),
       store: { list: async () => [row], recordHandle: async () => null, recordOutcome: async () => ({ row, written: false, conflict: false }) },
-      readReceipt: async () => { order.push("receipt"); return { status: "confirmed", transactionHash: hash, blockNumber: "1",
+      readReceipt: async () => { order.push("receipt"); return { status: "confirmed", transactionHash: hash, blockNumber: "1", blockHash: `0x${"ef".repeat(32)}`,
         blockTimestamp: timestamp, finalized: false, userOperations: [{ userOpHash: hash, sender: owner.address, success: true }] }; },
       refreshCashouts: async ({ rows, owner: scopedOwner }) => {
         order.push("refresh");

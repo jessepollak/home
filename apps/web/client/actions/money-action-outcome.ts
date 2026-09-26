@@ -1,7 +1,9 @@
 "use client";
 
+import { skipToken } from "@tanstack/react-query";
+import { useEffect, useMemo } from "react";
 import { dataOwnerKey } from "@/client/account/owner-keys";
-import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
+import { browserHomeQueryClient, ownerQueryKey, ownerQueryMeta, useHomeQuery, useHomeQueryClient } from "@/client/query/query-client";
 import type { PreparedMoneyAction, DerivedActionStatus, MoneyActionOwner } from "@/shared/money-actions/types";
 import { fetchRecentActions, recentActionsQueryOptions } from "./recent-actions-query";
 
@@ -49,6 +51,14 @@ export function useMoneyActionOutcome({ action, submission, fetchOperations }: {
   fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
 }): { outcome: MoneyResultStatus; row?: ResultRow } {
   const ownerKey = ownerKeyForAction(action);
+  const queryClient = useHomeQueryClient(browserHomeQueryClient());
+  const observationKey = useMemo(() => ownerQueryKey(ownerKey, "action-result-observation", action.id), [ownerKey, action.id]);
+  const observation = useHomeQuery<ResultRow>({
+    queryKey: observationKey,
+    queryFn: skipToken,
+    enabled: false,
+    meta: ownerQueryMeta(ownerKey, "memory"),
+  });
   const actions = useHomeQuery({
     queryKey: ownerQueryKey(ownerKey, "actions"),
     enabled: submission !== "failed",
@@ -56,10 +66,14 @@ export function useMoneyActionOutcome({ action, submission, fetchOperations }: {
     meta: ownerQueryMeta(ownerKey, "owner"),
     queryFn: ({ signal }) => fetchRecentActions(fetchOperations, signal),
     refetchInterval: (query) => {
-      const outcome = moneyResultOutcome({ submission, row: matchingRow(query.state.data, action) });
+      const outcome = moneyResultOutcome({ submission, row: matchingRow(query.state.data, action) ?? queryClient.getQueryData<ResultRow>(observationKey) });
       return outcome === "pending" || outcome === "unknown" ? 5_000 : false;
     },
   });
-  const row = matchingRow(actions.data, action);
+  const observedRow = matchingRow(actions.data, action);
+  useEffect(() => {
+    if (observedRow && submission !== "failed") queryClient.setQueryData(observationKey, observedRow);
+  }, [observedRow, submission, queryClient, observationKey]);
+  const row = observedRow ?? observation.data;
   return { outcome: moneyResultOutcome({ submission, row }), ...(row ? { row } : {}) };
 }

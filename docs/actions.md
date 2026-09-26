@@ -30,14 +30,19 @@ create table actions (
   outcome              text,                    -- 'succeeded' | 'reverted' | 'not_submitted'
   outcome_source       text,                    -- 'chain' | 'wallet'
   settled_at           timestamptz,             -- block time of the including block (chain outcomes)
-  outcome_recorded_at  timestamptz
+  outcome_recorded_at  timestamptz,
+  observed_receipt_transaction_hash text,
+  observed_receipt_block_number numeric,
+  observed_receipt_block_hash text,
+  observed_receipt_outcome text,                 -- 'succeeded' | 'reverted'
+  observed_at timestamptz
 );
 create index actions_owner_recent on actions (owner_key, confirmed_at desc) where confirmed_at is not null;
 create index actions_open_by_account on actions (account_address) where confirmed_at is not null and outcome is null;
 
 ```
 
-- **Store facts, not a changing status.** Result and reference facts have one authority and are written once, only while empty; nothing overwrites them. Dispatch attempts increment, and a retry clears the prior decline claim. Evidence that conflicts with a stored result is logged as an `action-outcome` event and never written over it. There is still no `status` column and no `plan_hash` (the server never observes the dispatch, so a hash enforces nothing); status is derived from the facts at read time.
+- **Store facts, not a changing status.** Final result and wallet reference facts have one authority and are written once, only while empty; receipt observations can refresh or clear as canonical chain evidence changes. Dispatch attempts increment, and a retry clears the prior decline claim. Evidence that conflicts with a stored result is logged as an `action-outcome` event and never written over it. There is still no `status` column and no `plan_hash` (the server never observes the dispatch, so a hash enforces nothing); status is derived from the facts at read time.
   - Intent and consent: the server, at prepare and confirm (`confirmed_at`).
   - Wallet decline: the browser, labelled as a claim (`declined_reported_at`) for the matching `dispatch_attempt`. The retry route atomically increments the attempt and clears the claim before another dispatch; a late claim for an earlier attempt cannot hide the retry. A declined row with nothing else is not shown in Activity.
   - Wallet reference: the wallet, relayed by the browser (`provider_handle`).
@@ -46,7 +51,7 @@ create index actions_open_by_account on actions (account_address) where confirme
   - `confirmed_at` null → not shown; lazily deleted after 1h by `GET /api/actions`.
   - `outcome` set → `succeeded` reads `confirmed`; `reverted` and `not_submitted` read `failed`. No further provider or chain reads happen for that row.
   - confirmed, no outcome, no `transaction_hash`, younger than 15 min → `pending`; older → `unknown` (never "not sent"). The window starts at `handle_recorded_at` when a handle was recorded, otherwise at `confirmed_at`, so a wallet approval left open past 15 minutes still gets its grace period once submitted. `unknown` rows without a hash are dropped from Activity after 24h because they can never be matched to a chain row. Cash-out rows are the exception described under [Cash-out retention](#cash-out-retention): their Activity item follows the linked provider order, and that order keeps refreshing after the action's own outcome is written.
-  - `transaction_hash` set, no outcome → the server reads the receipt and writes the outcome once when attributable; a pending receipt reads `pending`; an attributable non-finalized receipt reads `confirmed` or `failed`; an unattributable receipt reads `unknown`; a receipt that could not be read (RPC failure or request deadline) follows the same 15-minute window as a hashless row: `pending`, then `unknown`. The action `summary` still wins **kind and label** over the chain row (a savings deposit is "USDC → 0xVault" on chain; Home says "Deposited to Savings").
+  - `transaction_hash` set, no outcome → the server reads the receipt; an attributable receipt reads `confirmed` or `failed`, persists its transaction hash, block number, block hash, outcome, and observation time, and writes the immutable chain outcome only after finality. A recorded outcome always wins; otherwise a fresh attributable receipt wins, while an unattributable receipt reads `unknown`. A null receipt clears a prior observation only when the finalized head reaches its block (verified reorg drop); before then, and on read failure or deadline, the prior observation retains its `confirmed` or `failed` status. Without an observation, a null receipt reads `pending`, and an unreadable receipt follows the 15-minute window: `pending`, then `unknown`. A transaction hash by itself never confirms an action. The action `summary` still wins **kind and label** over the chain row (a savings deposit is "USDC → 0xVault" on chain; Home says "Deposited to Savings").
 - Balances are an observation, not a record; their table and rules live in [balances.md](balances.md).
 - Ponder or any self-hosted indexer: no. Home's data is defined by users, not contracts; CDP SQL API and Token Balances already provide indexed data as a service. Revisit only if Home ships its own contracts or CDP's data APIs hit a measured limit.
 
