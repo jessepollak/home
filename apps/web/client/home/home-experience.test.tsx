@@ -1357,6 +1357,44 @@ function expectSheetOpen(dialog: HTMLElement) {
 describe("walletless country preference read", () => {
   const location = { panel: "home" as const, account: null, shelf: null, asset: null, group: null, market: null };
 
+  for (const accountPreference of [null, { accountProvider: "cdp-embedded" as const, subject: "previous-account", regionId: "BR" as const }]) {
+    test(`holds provisional balances without a matching account country seed (${accountPreference ? "switched account" : "timed-out seed"})`, async () => {
+      const pendingSession = deferred<Response>();
+      const pendingPreference = deferred<Response>();
+      const cached = buildBalancesSnapshotFixture({
+        region: "BR",
+        registry: { usdc: { balance: ready("1000000"), value: priced("BRL", "123456"), cashValue: pricedCash("USD", "100") } },
+      });
+      const saved = buildBalancesSnapshotFixture({
+        region: "DE",
+        registry: { usdc: { balance: ready("1000000"), value: priced("EUR", "7890"), cashValue: pricedCash("USD", "100") } },
+      });
+      getHomeQueryClient().setQueryData(ownerQueryKey(dataOwnerKey(session()), "balances", "BR"), cached);
+      const requests: string[] = [];
+      const sessionFetch: SessionFetch = async (input) => {
+        const path = String(input);
+        requests.push(path);
+        if (path === "/api/session") return pendingSession.promise;
+        if (path === "/api/account/country-preference") return pendingPreference.promise;
+        if (path === "/api/balances?region=DE") return Response.json(saved);
+        throw new Error(`Unexpected read: ${path}`);
+      };
+      render(<AccountWalletSessionOwner sdk={sdk({ isSignedIn: true, ownerKey: OWNER, provisionalSession: session() })} sessionFetch={sessionFetch}>
+        <PortfolioHomeExperience detectedCountry="BR" accountPreference={accountPreference} initialLocation={location} />
+      </AccountWalletSessionOwner>);
+      expect(document.body.textContent).not.toContain("1.234,56");
+      expect(requests.filter((path) => path.startsWith("/api/balances?"))).toEqual([]);
+      await act(async () => { pendingSession.resolve(Response.json(session())); await pendingSession.promise; });
+      await waitFor(() => expect(requests).toContain("/api/account/country-preference"));
+      expect(document.body.textContent).not.toContain("1.234,56");
+      expect(requests.filter((path) => path.startsWith("/api/balances?"))).toEqual([]);
+      await act(async () => { pendingPreference.resolve(Response.json({ version: 1, regionId: "DE" })); await pendingPreference.promise; });
+      await waitFor(() => expect(requests).toContain("/api/balances?region=DE"));
+      await waitFor(() => expect(document.body.textContent).toContain("78,90"));
+      expect(document.body.textContent).not.toContain("1.234,56");
+    });
+  }
+
   test("holds balances and funding methods until the account country read resolves", async () => {
     window.localStorage.setItem("home.country.v2", "MX");
     const read = deferred<Response>();

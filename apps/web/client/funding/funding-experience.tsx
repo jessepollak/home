@@ -121,7 +121,6 @@ function FundingExperienceBoundary({
   const [selectedBinding, setSelectedBinding] = useState<FundingBinding | null>(null);
   const [initialOrder, setInitialOrder] = useState<FundingOrderSummary | null>(null);
   const [initialCustomer, setInitialCustomer] = useState<FundingProviderCustomerSummary | null>(null);
-  const [previousRegion, setPreviousRegion] = useState(regionId);
   const stepRef = useRef<AddMoneyStep>(startStep);
   const navigationEpochRef = useRef(0);
   const returnResumeRef = useRef(returnResumeEligible);
@@ -150,18 +149,6 @@ function FundingExperienceBoundary({
     stepRef.current = next;
     setStep(next);
   }, [spendReturnResume]);
-
-  if (previousRegion !== regionId) {
-    setPreviousRegion(regionId);
-    setSelectedBinding(null);
-    setInitialOrder(null);
-    setInitialCustomer(null);
-    navigationEpochRef.current += 1;
-    if (step !== "receive") {
-      stepRef.current = "method";
-      setStep("method");
-    }
-  }
 
   const queryEnabled = Boolean(
     open && regionReady && !signedOut && regionId !== "GLOBAL" && queryOwnerKey,

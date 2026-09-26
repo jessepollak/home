@@ -112,11 +112,13 @@ export function PortfolioHomeExperience({
         accountProvider: account.session.accountProvider,
       }
     : null;
-  const suppressBalances = account.verification === "server" && (!region.isPreferenceReady || accountPreferencePending);
+  const provisionalBalances = account.verification === "provisional" && account.status === "validating";
+  const suppressBalances = (account.verification === "server" && (!region.isPreferenceReady || accountPreferencePending)) ||
+    (provisionalBalances && !hasSeed);
   const balances = useBalances(session, region.regionId, account.fetchBalances, {
     enabled: (account.verification === "server" && region.isPreferenceReady && !accountPreferencePending) ||
-      (account.verification === "provisional" && account.status === "validating"),
-    provisional: account.verification === "provisional" && account.status === "validating",
+      (provisionalBalances && hasSeed),
+    provisional: provisionalBalances,
     held: suppressBalances,
   });
   const interruptionStatus = useInterruption(

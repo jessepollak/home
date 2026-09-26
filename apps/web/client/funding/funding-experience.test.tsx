@@ -1089,7 +1089,7 @@ describe("FundingExperience", () => {
     expect(page().queryByText("Deposit pending")).toBeNull();
     if (regionChangesBeforeReady) {
       view.rerender(<FundingExperienceForWallet {...props} regionReady={false} regionId="AR" />);
-      expect(await page().findByRole("button", { name: /Deposit ARS/ })).toBeTruthy();
+      expect(page().queryByRole("button", { name: /Deposit ARS/ })).toBeNull();
       expect(page().queryByText("Deposit pending")).toBeNull();
     }
 
@@ -1115,8 +1115,8 @@ describe("FundingExperience", () => {
     const steps: string[] = [];
     const props = { wallet, navigateToRedirect: () => {}, returnedFromProvider: true, initialStep: "method" as const, regionId: "AR" as const, onStepChange: (step: string) => steps.push(step) };
     const view = render(<FundingExperienceForWallet {...props} regionReady={false} />);
-    expect(await page().findByRole("button", { name: /Deposit ARS/ })).toBeTruthy();
-    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(await page().findByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().queryByRole("button", { name: /Deposit ARS/ })).toBeNull();
     expect(page().queryByText("Deposit pending")).toBeNull();
     expect(steps).not.toContain("order");
 
@@ -1143,7 +1143,7 @@ describe("FundingExperience", () => {
     getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "funding-provider-customers", "AR"), { customers: [pending] });
     const props = { wallet, navigateToRedirect: () => {}, returnedFromVerification: true, regionId: "AR" as const };
     const view = render(<FundingExperienceForWallet {...props} regionReady={false} />);
-    expect(await page().findByRole("button", { name: /Deposit ARS/ })).toBeTruthy();
+    expect(page().queryByRole("button", { name: /Deposit ARS/ })).toBeNull();
     expect(page().queryByRole("heading", { name: "Set up Ripio" })).toBeNull();
 
     view.rerender(<FundingExperienceForWallet {...props} regionReady />);
