@@ -40,19 +40,22 @@ function operation(status: RecentMoneyActionOperation["status"]): RecentMoneyAct
     },
     status, transactionHash: HASH,
     createdAt: "2026-09-07T11:00:00.000Z", updatedAt: "2026-09-07T11:05:00.000Z",
+    ...(status === "pending" ? { submittedAt: "2026-09-07T11:07:00.000Z" } : {}),
   };
 }
 
 type OperationScenario = `operation-${RecentMoneyActionOperation["status"]}`;
-type Scenario = "received-priced" | "received-unpriced" | "received-long" | "sent-usdc" | OperationScenario;
+type Scenario = "received-priced" | "received-unpriced" | "received-long" | "sent-usdc" | OperationScenario | "operation-pending-unsubmitted";
 
-function isOperationScenario(scenario: Scenario): scenario is OperationScenario {
+function isOperationScenario(scenario: Scenario): scenario is OperationScenario | "operation-pending-unsubmitted" {
   return scenario.startsWith("operation-");
 }
 
 function TransactionDetailsStory({ scenario }: { scenario: Scenario }) {
   const details = isOperationScenario(scenario)
-    ? presentOperationDetails(operation(scenario.slice("operation-".length) as RecentMoneyActionOperation["status"]), { timeZone: "UTC" })
+    ? presentOperationDetails(scenario === "operation-pending-unsubmitted"
+      ? { ...operation("pending"), transactionHash: undefined, submittedAt: undefined }
+      : operation(scenario.slice("operation-".length) as RecentMoneyActionOperation["status"]), { timeZone: "UTC" })
     : presentActivityTransferDetails(
       scenario === "received-unpriced" ? received({ valuation: { status: "unpriced", currency: "USD", reason: "quote-unavailable" } })
         : scenario === "received-long" ? received({ tokenSymbol: "SUPERLONGTOKENNAMEFORTESTING", amountBaseUnits: "5678000000000000000001" })
@@ -139,9 +142,44 @@ async function checkOperation(canvasElement: HTMLElement, label: string) {
   await expect(dialog.getByText(label)).toBeVisible();
   await expect(dialog.getByText("Base")).toBeVisible();
   await expect(dialog.queryByText("Block", { exact: true })).toBeNull();
+  return dialog;
 }
 
-export const OperationPending: Story = { args: { scenario: "operation-pending" }, play: async ({ canvasElement }) => checkOperation(canvasElement, "Pending") };
-export const OperationFailed: Story = { args: { scenario: "operation-failed" }, play: async ({ canvasElement }) => checkOperation(canvasElement, "Failed") };
-export const OperationUnknown: Story = { args: { scenario: "operation-unknown" }, play: async ({ canvasElement }) => checkOperation(canvasElement, "Outcome unknown") };
-export const OperationConfirmed: Story = { args: { scenario: "operation-confirmed" }, play: async ({ canvasElement }) => checkOperation(canvasElement, "Confirmed") };
+async function checkPendingOperation(canvasElement: HTMLElement) {
+  const dialog = await checkOperation(canvasElement, "Pending");
+  const statusTerm = dialog.getAllByRole("term").find((term) => term.textContent === "Status");
+  await expect(statusTerm?.parentElement).toHaveTextContent("Pending");
+  const items = dialog.getAllByRole("listitem");
+  await expect(items).toHaveLength(2);
+  await expect(items[0]).toHaveTextContent("Complete: Submitted");
+  await expect(items[0]).toHaveTextContent("11:07");
+  await expect(items[1]).toHaveTextContent("In progress: Confirming on Base");
+}
+
+async function checkSettledOperation(canvasElement: HTMLElement, label: string) {
+  const dialog = await checkOperation(canvasElement, label);
+  await expect(dialog.queryByText("Confirming on Base")).toBeNull();
+}
+
+export const OperationPending: Story = { args: { scenario: "operation-pending" }, play: async ({ canvasElement }) => checkPendingOperation(canvasElement) };
+export const OperationPendingUnsubmitted: Story = {
+  args: { scenario: "operation-pending-unsubmitted" },
+  play: async ({ canvasElement }) => {
+    const dialog = await checkOperation(canvasElement, "Pending");
+    await expect(dialog.queryByRole("list")).toBeNull();
+    await expect(dialog.queryByText("Confirming on Base")).toBeNull();
+  },
+};
+export const OperationPendingDesktop: Story = {
+  args: { scenario: "operation-pending" },
+  parameters: { viewport: { defaultViewport: "desktop" } },
+  play: async ({ canvasElement }) => checkPendingOperation(canvasElement),
+};
+export const OperationPendingSmall: Story = {
+  args: { scenario: "operation-pending" },
+  parameters: { viewport: { defaultViewport: "smallMobile" } },
+  play: async ({ canvasElement }) => checkPendingOperation(canvasElement),
+};
+export const OperationFailed: Story = { args: { scenario: "operation-failed" }, play: async ({ canvasElement }) => checkSettledOperation(canvasElement, "Failed") };
+export const OperationUnknown: Story = { args: { scenario: "operation-unknown" }, play: async ({ canvasElement }) => checkSettledOperation(canvasElement, "Outcome unknown") };
+export const OperationConfirmed: Story = { args: { scenario: "operation-confirmed" }, play: async ({ canvasElement }) => checkSettledOperation(canvasElement, "Confirmed") };

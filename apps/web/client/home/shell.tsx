@@ -872,6 +872,7 @@ function DashboardShellBody({
                       initialSendFlow={urlSendFlow}
                       initialSendActionId={urlSendActionId}
                       regionId={regionId}
+                      regionReady={isPreferenceReady}
                     />
                   </MountedShellPanel>
                 ) : null}

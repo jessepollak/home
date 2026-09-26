@@ -15,7 +15,7 @@ bunx shadcn add <name>
 
 Review every generated copy before committing it. Stock Tailwind scale utilities are allowed; replace hex/rgba, arbitrary-pixel, and raw palette classes with semantic tokens.
 
-The pinned `shadcn` CLI's own composition rules are installed as the committed [shadcn skill](../../.agents/skills/shadcn/SKILL.md) (`bunx skills add shadcn/ui --skill shadcn -a universal --copy -y`, recorded in `skills-lock.json`). Its `rules/` files are the source of composition guidance — starting from existing owned components and variants instead of hand-rolling UI. Home's own rules below still win where they are stricter. Its component names are not Home's owned inventory: `NativeSelect`, `Textarea`, and `Tabs` have no copy under `apps/web/components/ui`, so add the owned component with the CLI before composing it.
+The pinned `shadcn` CLI's own composition rules are installed as the committed [shadcn skill](../.agents/skills/shadcn/SKILL.md) (`bunx skills add shadcn/ui --skill shadcn -a universal --copy -y`, recorded in `skills-lock.json`). Its `rules/` files are the source of composition guidance — starting from existing owned components and variants instead of hand-rolling UI. Home's own rules below still win where they are stricter. Its component names are not Home's owned inventory: `NativeSelect`, `Textarea`, and `Tabs` have no copy under `apps/web/components/ui`, so add the owned component with the CLI before composing it.
 
 ## Component workshop
 
@@ -52,7 +52,7 @@ Discover before composing: `docs-list` lists every component the manifest knows,
 
 ### Figma link
 
-Storybook and the [Home Figma file](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home) share one mapping, [`apps/web/figma-components.json`](../apps/web/figma-components.json). `@storybook/addon-designs` shows the mapped Figma node in each listed story's Design panel. Code Connect template files (`*.figma.ts` under `client/explorations/code-connect/` and `components/explorations/code-connect/`) show the real component in Figma Dev Mode. `apps/web/scripts/figma-variables.mjs` pushes the `globals.css` tokens into the `Home tokens` variables. Run these from `apps/web`:
+Storybook and the [Home Figma file](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home) share one mapping: [`apps/web/figma-components.json`](../apps/web/figma-components.json) identifies the library, frames and unmapped nodes, while each mapped component has its own [`apps/web/figma/components/<Name>.json`](../apps/web/figma/components/) file. `@storybook/addon-designs` shows the mapped Figma node in each listed story's Design panel. Code Connect template files (`*.figma.ts` under `client/explorations/code-connect/` and `components/explorations/code-connect/`) show the real component in Figma Dev Mode. `apps/web/scripts/figma-variables.mjs` pushes the `globals.css` tokens into the `Home tokens` variables. Run these from `apps/web`:
 
 ```sh
 bun run figma:connect:parse          # offline template check (CI step)
@@ -86,21 +86,13 @@ Every story meta has an explicit stable `id`; keep its meaningful export name st
 - manager: `/?path=/story/<id>`
 - canvas: `/iframe.html?id=<id>&viewMode=story`
 
-The pilot inventory is:
-
-- Financial row: `pilot-financial-row--normal`, `pilot-financial-row--loading`, `pilot-financial-row--unavailable-value`, `pilot-financial-row--long-label-large-amount`, `pilot-financial-row--issue-example-quantities`
-- Shared finance rows: `pilot-finance-rows--asset-rows-large-local-currency`, `pilot-finance-rows--actionable-rows-chevron`
-- Finance row retry and load errors: `ui-finance-rows-retry--alignment-and-retry`, `ui-finance-rows-retry--narrow-enlarged-text`, `ui-finance-rows-retry--rtl-slot`, `ui-load-error--card`, `ui-load-error--inline-button`. FinanceRow centres lone values beside two-line labels, title-aligns two two-line sides, and reserves the chevron column for a separately focusable 44px read-retry control. `LoadErrorCard` and `LoadRetryButton` use an in-flow 44px outline retry for failed reads, never for money-action recovery.
-- Home overview (Figma `Home — final` and `Home states`): `home-overview--funded`, `home-overview--keyboard-order`, `home-overview--activity-detail-return`, `home-overview--no-borrow-position`, `home-overview--empty`, `home-overview--loading`, `home-overview--partial-balances`, `home-overview--partial-borrow-position`, `home-overview--activity-error`, `home-overview--no-country`
-- Savings money dialog: `pilot-savings-money-dialog--amount-entry`, `pilot-savings-money-dialog--amount-exceeds-available`, `pilot-savings-money-dialog--withdraw-nothing-saved`, `pilot-savings-money-dialog--review`, `pilot-savings-money-dialog--submitting`, `pilot-savings-money-dialog--failed`, `pilot-savings-money-dialog--back-and-cancel`, `pilot-savings-money-dialog--reduced-motion-reference`
-- Savings screen: `pilot-savings-experience--funded`, `pilot-savings-experience--verified-empty`, `pilot-savings-experience--loading`, `pilot-savings-experience--unavailable-partial`, `pilot-savings-experience--long-localized-content`
-- Explorations (#638, unreviewed): Home `explorations-regional-home--us`, `explorations-regional-home--mobile-navigation-stays-visible`, `explorations-regional-home--mobile-navigation-safe-area`, `explorations-regional-home--brazil`, `explorations-regional-home--nigeria`, `explorations-regional-home--indonesia`, `explorations-regional-home--loading`, `explorations-regional-home--empty`, `explorations-regional-home--partial-balances`, `explorations-regional-home--activity-error`, `explorations-regional-home--cash-out-pending`, `explorations-regional-home--german-320`, `explorations-regional-home--french-200-text`, `explorations-regional-home--rtl`, `explorations-regional-home--keyboard-focus`, `explorations-regional-home--reduced-motion`, `explorations-regional-home--desktop`, `explorations-regional-home--desktop-loading`; sheets `explorations-regional-money-sheets--add-money-us`, `explorations-regional-money-sheets--add-money-brazil`, `explorations-regional-money-sheets--add-money-nigeria`, `explorations-regional-money-sheets--add-money-indonesia`, `explorations-regional-money-sheets--cash-out-us`, `explorations-regional-money-sheets--cash-out-unavailable`, `explorations-regional-money-sheets--cash-out-unavailable-brazil`, `explorations-regional-money-sheets--cash-out-unavailable-indonesia`, `explorations-regional-money-sheets--cash-out-review-desktop`, `explorations-regional-money-sheets--cash-out-review-desktop-short`; Account `explorations-regional-preferences--first-use-aligned-defaults`, `explorations-regional-preferences--currency-picker-open`, `explorations-regional-preferences--country-change-preserves-explicit-choices`, `explorations-regional-preferences--explicit-currency-matches-new-country-default`, `explorations-regional-preferences--return-to-country-default`, `explorations-regional-preferences--administrator`, `explorations-regional-preferences--german-320`, `explorations-regional-preferences--rtl`, `explorations-regional-preferences--desktop`.
+The pilot and exploration inventories live in [story inventories](design-system/stories/). Add a file there for each new story group.
 
 The unreviewed Activity ledger proposal uses `proposal-activity-ledger--mixed-chronology`, `proposal-activity-ledger--detail-funding-needs-you`, and `journeys-activity-ledger--pending-to-detail-and-back` (full inventory in [Activity ledger proposal](activity-ledger-design.md)).
 
 The unreviewed Borrow overview proposal uses `explorations-borrow-overview--multiple-loans`, `explorations-borrow-overview--alternative-b-multiple-loans`, `explorations-borrow-overview--management-sheet-open`, and `journeys-borrow-overview--repay-review-cancel-back` (full inventory in [Borrow overview proposal](borrow-overview-design.md)).
 
-Every owned `apps/web/components/ui` module also has a minimal workshop story (`UI/<Component>`) so the MCP manifest exposes the owned inventory rather than only the pilot surfaces, plus the journey inventory `journeys-savings-deposit--deposit`. The unwired, unapproved Card proposal lives in the `Explorations/Card` group (`explorations-card--*`, [#636](https://github.com/jessepollak/home/issues/636)) until selection. The built `index.json` and the MCP `docs-list` output are the durable discoverability sources when this inventory grows. An intentional ID or export rename must update direct links and review evidence in the same change.
+Every owned `apps/web/components/ui` module also has a minimal workshop story (`UI/<Component>`) so the MCP manifest exposes the owned inventory rather than only the pilot surfaces, plus the journey inventory `journeys-savings-deposit--deposit`. The unwired, unapproved Card proposal lives in the `Explorations/Card` group (`explorations-card--*`, [#636](https://github.com/jessepollak/home/issues/636)) until selection. The unwired, unapproved USDC ↔ cbBTC trade proposal lives in `Explorations/Invest Trade` (`explorations-invest-trade--*`, [#935](https://github.com/jessepollak/home/issues/935)); [#616](https://github.com/jessepollak/home/issues/616) owns its production adoption. The built `index.json` and the MCP `docs-list` output are the durable discoverability sources when this inventory grows. An intentional ID or export rename must update direct links and review evidence in the same change.
 
 Storybook can prove that a production component renders and supports fixture-backed component interactions under deterministic states and review viewports. Stories and play functions are review scenarios, not permanent browser tests or approval by themselves. Storybook cannot prove Home's Next routing/history, app-level scrolling or focus restoration, browser Back integration, wallet/provider behavior, physical keyboard behavior, or Safari behavior. Verify the integrated component in Home under the [browser-validation contract](browser-validation.md), and record media and limitations under [UI PR previews](ui-pr-previews.md).
 
@@ -142,14 +134,7 @@ Use the owned component contracts rather than restyling their slots:
 
 ## Home-owned product pieces
 
-- `apps/web/components/ui/payout-mark.tsx` owns payout brand-mark presentation; product code supplies only the platform-derived glyph and variant.
-- `apps/web/components/money-ticker.tsx` preserves exact already-formatted money strings and animates them with `@number-flow/react`.
-- `apps/web/client/money-modal` owns amount entry, asset selection, review, and confirmation steps; its shell is the owned shadcn Drawer wrapper.
-  - Amount entry is a native `inputMode="decimal"` field that keeps amounts as exact decimal strings. Home draws no keypad.
-  - The money sheet passes `keyboardAware` to `Drawer`, which wraps Base UI's `Drawer.VirtualKeyboardProvider`. The sheet and its footer follow `--drawer-keyboard-inset`, so Continue stays above the software keyboard. Nothing else listens to the visual viewport.
-- Shell entry points never import a Drawer-backed sheet statically. They mount it through `deferSheet` (`client/money-modal/deferred-sheet.tsx`), preload it on the trigger's pointer-down, and idle-preload the Home primary actions (Send, Add money) once the account is verified, so Base UI Drawer and the sheet flows stay out of the shell's initial chunks.
-- Keep Drawer-backed sheets mounted while driving `open`, and clear caller state only from the close-complete callback so exit motion runs. `deferSheet` stages a sheet that mounts already open through one closed render so entrance motion runs on first, preloaded, and repeat opens; a keyed replacement of an already-open sheet (an account-boundary remount) stays open without replaying its entrance. Reserve `immediate` for reduced motion and privacy drops (Send owner change).
-- A confirm step renders `MoneyConfirmFooter` with its prepared action, never a bare `MoneyModalFooter`. Only the primary control carries `data-money-action-id` (`MONEY_ACTION_ID_ATTRIBUTE` in `shared/money-actions`), and only while that action is unexpired. Agents must check this marker with `agent-browser get attr @ref data-money-action-id` before any click.
+See [Home-owned product pieces](design-system/product-pieces/) for one file per product behavior.
 
 These stay app-local because they encode Home product behavior, not general-purpose primitives.
 
@@ -161,27 +146,4 @@ Keep tests for Home behavior: exact amounts, dispatch counts, owner fences, rout
 
 ## Teardown measurements
 
-Next.js 16 does not print a First Load JS column. `/dashboard` initial JS is the byte sum of production build-manifest root files and unique dashboard client-reference chunks.
-
-| Measure | Before (`6943504`) | After teardown |
-| --- | ---: | ---: |
-| `/dashboard` initial JS | 1,045,544 B | 1,267,179 B |
-| Total `.next/static` CSS | 182,923 B | 136,036 B |
-| Web test wall time | 3.18 s | 4.32 s |
-| Shell client chunk, gzip | 119,307 B | 185,189 B |
-| All client JS, gzip | 854,662 B | 929,100 B |
-
-The JS growth (+8.7 % gzipped) is the Base UI runtime — Drawer, Select, Field, Toast, Tabs, ToggleGroup, `useRender`, floating-ui — replacing the hand-rolled sheet physics, toast queue, and Radix Select. It landed in the shell's main client chunk because `MoneyModal` was imported statically. The CSS drop (−26 %) is the BEM sheet, the alias layer, and most CSS Modules leaving.
-
-### Sheet and motion deferral ([#368](https://github.com/jessepollak/home/issues/368))
-
-After [#804](https://github.com/jessepollak/home/pull/804) the shell renders at `/[...shell]` (`/dashboard` only redirects to `/home`), so the same method measures that route: build-manifest root files plus unique `[...shell]/page` client-reference chunks, gzip level 9.
-
-| Measure | `main` (`e76eaf7`) | Deferred sheets, no `motion` |
-| --- | ---: | ---: |
-| Shell initial JS | 1,825,853 B | 1,478,491 B |
-| Shell initial JS, gzip | 581,802 B | 474,715 B |
-| Largest initial chunk, gzip | 194,189 B | 71,647 B |
-| All client JS, gzip | 1,195,060 B | 1,187,792 B |
-
-The Drawer-backed sheets (Send, Add money, Save, Borrow, transaction details, and sign-in) load through `deferSheet`; `motion` loads only when a pointer first enters the full Home mark, and the navigation indicator is a CSS transform. Base UI Combobox and floating-ui still reach the initial path through Account settings' `CountrySelect`, and `@adraffy/ens-normalize` through `client/transfers` → `shared/transfers/recipient-name`.
+The teardown and sheet-deferral measurements live in [measurements](design-system/measurements/), one file per measured change.

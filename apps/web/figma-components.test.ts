@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import mapping from './figma-components.json'
+import mapping, { componentFiles } from './tests/helpers/figma-mapping'
 import config from './figma.config.json'
 import inventory from '../../docs/design-explorations/figma-mapping.json'
 
@@ -33,6 +33,8 @@ describe('Figma Code Connect mapping', () => {
 
   test('each mapped component exports its owner and matches a parsed template', () => {
     expect(mapping.components.length).toBeGreaterThan(0)
+    expect(new Set(mapping.components.map(({ figmaName }) => figmaName)).size).toBe(componentFiles.length)
+    expect(componentFiles.sort()).toEqual(mapping.components.map(({ figmaName }) => `${figmaName}.json`).sort())
     expect(new Set(templates).size).toBe(templates.length)
     expect(docs).toHaveLength(mapping.components.length)
     expect(new Set(docs.map(({ _codeConnectFilePath }) => _codeConnectFilePath)).size).toBe(docs.length)
@@ -59,6 +61,7 @@ describe('Figma Code Connect mapping', () => {
 
   test('the design inventory agrees with this mapping on node ownership', () => {
     expect(inventory.codeConnect.nodeOwnership).toBe('apps/web/figma-components.json')
+    expect(mapping.componentDirectory).toBe('figma/components')
     const owners = new Map(mapping.components.map((entry) => [entry.nodeId, entry]))
     const notMapped = new Set(mapping.notMapped.map(({ nodeId }) => nodeId))
     for (const item of inventory.components) {

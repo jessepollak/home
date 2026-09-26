@@ -4,7 +4,8 @@ import { page } from "@/tests/helpers/dom";
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
-import { getHomeQueryClient } from "@/client/query/query-client";
+import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
+import { dataOwnerKey } from "@/client/account/owner-keys";
 
 const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { FundingExperienceForWallet, preloadAddMoneySheet } = await import("./funding-experience");
@@ -36,6 +37,10 @@ function applePayBinding() {
 
 function applePayOrder(state = "awaiting-payment", url = APPLE_PAY_URL) {
   return { id: "11111111-1111-4111-8111-111111111111", providerId: "coinbase", state, fiatAmount: "25", expectedTokenAmountAtomic: "24500000", fees: [{ label: "Coinbase fee", amount: "0.50", currency: "USD" }], providerStatus: null, instructions: { kind: "embed", url, presentation: "apple-pay", amount: "25.50", currency: "USD" } };
+}
+
+function pendingRipioOrder() {
+  return { id: "11111111-1111-4111-8111-111111111111", providerId: "ripio", state: "awaiting-payment", fiatAmount: "1000", providerStatus: null, instructions: null };
 }
 
 function customerBinding() {
@@ -85,6 +90,10 @@ function enterAmount(value: string) {
   fireEvent.change(page().getByRole("textbox", { name: "Amount" }), { target: { value } });
 }
 
+function restoringWallet(wallet: FundingWallet): FundingWallet {
+  return { ...wallet, status: "restoring", verification: null, session: null, ownerKey: null };
+}
+
 afterEach(() => {
   cleanup();
   getHomeQueryClient().clear();
@@ -105,6 +114,7 @@ describe("FundingExperience", () => {
         countryName="Germany"
         providerBindingsDisabled={false}
         customerSetupReady={false}
+        resumableBinding={() => false}
         fundingReadError={null}
         onSelectBinding={() => {}}
       />,
@@ -557,7 +567,7 @@ describe("FundingExperience", () => {
         throw new Error("unexpected request");
       },
     };
-    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="US" />);
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} returnedFromVerification regionId="US" />);
     expect(await page().findByRole("heading", { name: "Sandbox complete — no real funds moved" })).toBeTruthy();
     expect(page().queryByText("ONRAMP_ORDER_STATUS_COMPLETED")).toBeNull();
     expect(document.body.textContent).not.toContain("ONRAMP_ORDER_STATUS_COMPLETED");
@@ -580,7 +590,7 @@ describe("FundingExperience", () => {
       },
     };
 
-    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} returnedFromVerification regionId="AR" />);
     expect(await page().findByRole("heading", { name: title })).toBeTruthy();
     expect(page().queryByText(providerStatus)).toBeNull();
     expect(page().queryByText(`Status: ${providerStatus}`)).toBeNull();
@@ -671,6 +681,7 @@ describe("FundingExperience", () => {
     };
 
     render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+    fireEvent.click(await page().findByRole("button", { name: /Deposit ARS/ }));
     await page().findByText("Don't try again yet");
     expect(page().getByRole("button", { name: "Back" })).toBeTruthy();
     expect(page().getByText(/Home is waiting to learn whether the provider created this deposit/)).toBeTruthy();
@@ -709,6 +720,7 @@ describe("FundingExperience", () => {
     };
 
     render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+    fireEvent.click(await page().findByRole("button", { name: /Deposit ARS/ }));
     await page().findByText("Don't try again yet");
     fireEvent.click(page().getByRole("button", { name: "Back" }));
     fireEvent.click(await page().findByRole("button", { name: /Deposit USD/ }));
@@ -737,6 +749,7 @@ describe("FundingExperience", () => {
     };
 
     render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+    fireEvent.click(await page().findByRole("button", { name: /Deposit ARS/ }));
     await page().findByText("Don't try again yet");
     fireEvent.click(page().getByRole("button", { name: "Back" }));
     expect(await page().findByRole("button", { name: /Receive crypto/ })).toBeTruthy();
@@ -758,8 +771,7 @@ describe("FundingExperience", () => {
     };
 
     render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
-    await page().findByText("Money received");
-    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    expect(await page().findByRole("heading", { name: "Add money" })).toBeTruthy();
     fireEvent.click(await page().findByRole("button", { name: /Deposit ARS/ }));
     expect(await page().findByRole("button", { name: "Review quote" })).toBeTruthy();
     expect(page().queryByText("Money received")).toBeNull();
@@ -780,6 +792,7 @@ describe("FundingExperience", () => {
     };
 
     render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+    fireEvent.click(await page().findByRole("button", { name: /Deposit ARS/ }));
     await page().findByText("Don't try again yet");
     fireEvent.click(page().getByRole("button", { name: "Clear old order" }));
     expect((await page().findByRole("alert")).textContent).toContain(
@@ -788,7 +801,396 @@ describe("FundingExperience", () => {
     expect(page().getByText("Don't try again yet")).toBeTruthy();
   });
 
-  test("late ambiguous resume never overrides an explicit Receive selection", async () => {
+  test("an ordinary picker stays on methods with a cached pending order and sends read requests only", async () => {
+    const wallet = verifiedWallet();
+    const requests: Array<{ path: string; method?: string }> = [];
+    const navigations: string[] = [];
+    getHomeQueryClient().setQueryData(ownerQueryKey(dataOwnerKey(wallet.session!), "funding-open-order", "AR"), { order: pendingRipioOrder() });
+    const fixture = { ...wallet, fetchAccountResource: async (path: string, options?: { method?: string }) => {
+      requests.push({ path, method: options?.method });
+      if (path.startsWith("/api/funding/providers?")) return { providers: [fundingBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return { order: pendingRipioOrder() };
+      throw new Error(`unexpected request: ${path}`);
+    } };
+    render(<FundingExperienceForWallet wallet={fixture} navigateToRedirect={(url) => navigations.push(url)} regionId="AR" />);
+    expect(await page().findByRole("button", { name: /Deposit ARS/ })).toBeTruthy();
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().queryByText("Deposit pending")).toBeNull();
+    expect(requests).toEqual([{ path: "/api/funding/providers?region=AR&direction=onramp", method: undefined }]);
+    expect(navigations).toEqual([]);
+  });
+
+  test("a late verification return resumes a cached order once, and only a new return request re-arms it", async () => {
+    const wallet = verifiedWallet();
+    const ownerKey = dataOwnerKey(wallet.session!);
+    const requests: string[] = [];
+    const steps: string[] = [];
+    getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "funding-open-order", "AR"), { order: pendingRipioOrder() });
+    const fixture = { ...wallet, fetchAccountResource: async (path: string) => {
+      requests.push(path);
+      if (path.startsWith("/api/funding/providers?")) return { providers: [fundingBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return { order: pendingRipioOrder() };
+      throw new Error(`unexpected request: ${path}`);
+    } };
+    const props = { wallet: fixture, navigateToRedirect: () => {}, regionId: "AR" as const, onStepChange: (step: string) => steps.push(step) };
+    const view = render(<FundingExperienceForWallet {...props} />);
+    expect(await page().findByRole("button", { name: /Deposit ARS/ })).toBeTruthy();
+    view.rerender(<FundingExperienceForWallet {...props} />);
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().queryByText("Deposit pending")).toBeNull();
+    expect(steps).not.toContain("order");
+
+    const returned = { ...props, returnedFromProvider: true, returnedFromVerification: true, initialStep: "method" as const };
+    view.rerender(<FundingExperienceForWallet {...returned} />);
+    expect(await page().findByText("Deposit pending")).toBeTruthy();
+    expect(steps.filter((step) => step === "order")).toHaveLength(1);
+    expect(requests.every((path) => path.startsWith("/api/funding/providers?") || path.startsWith("/api/funding/orders?"))).toBe(true);
+
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    view.rerender(<FundingExperienceForWallet {...returned} />);
+    await act(async () => { await getHomeQueryClient().refetchQueries({ queryKey: ownerQueryKey(ownerKey, "funding-open-order", "AR") }); });
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().queryByText("Deposit pending")).toBeNull();
+    expect(steps.filter((step) => step === "order")).toHaveLength(1);
+
+    view.rerender(<FundingExperienceForWallet {...props} />);
+    expect(page().queryByText("Deposit pending")).toBeNull();
+    view.rerender(<FundingExperienceForWallet {...returned} />);
+    expect(await page().findByText("Deposit pending")).toBeTruthy();
+    expect(steps.filter((step) => step === "order")).toHaveLength(2);
+    view.rerender(<FundingExperienceForWallet {...returned} />);
+    expect(steps.filter((step) => step === "order")).toHaveLength(2);
+    expect(requests.every((path) => path.startsWith("/api/funding/providers?") || path.startsWith("/api/funding/orders?"))).toBe(true);
+  });
+
+  test.each(["providers first", "orders first"])("a late pending order leaves %s on the method list", async (first) => {
+    let resolveProviders!: (value: unknown) => void;
+    let resolveOrders!: (value: unknown) => void;
+    const providers = new Promise<unknown>((resolve) => { resolveProviders = resolve; });
+    const orders = new Promise<unknown>((resolve) => { resolveOrders = resolve; });
+    const requests: string[] = [];
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      requests.push(path);
+      if (path.startsWith("/api/funding/providers?")) return providers;
+      if (path.startsWith("/api/funding/orders?")) return orders;
+      throw new Error(`unexpected request: ${path}`);
+    } };
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+    const resolveFirst = first === "providers first"
+      ? () => resolveProviders({ providers: [fundingBinding()] })
+      : () => resolveOrders({ order: pendingRipioOrder() });
+    const resolveSecond = first === "providers first"
+      ? () => resolveOrders({ order: pendingRipioOrder() })
+      : () => resolveProviders({ providers: [fundingBinding()] });
+    await act(async () => { resolveFirst(); await (first === "providers first" ? providers : orders); });
+    await act(async () => { resolveSecond(); await (first === "providers first" ? orders : providers); });
+    expect(await page().findByRole("button", { name: /Deposit ARS/ })).toBeTruthy();
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().queryByText("Deposit pending")).toBeNull();
+    expect(requests).toEqual(["/api/funding/providers?region=AR&direction=onramp", "/api/funding/orders?region=AR"]);
+  });
+
+  test("without an order the picker stays on methods and provider selection opens a fresh quote form", async () => {
+    const requests: string[] = [];
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      requests.push(path);
+      if (path.startsWith("/api/funding/providers?")) return { providers: [fundingBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return { order: null };
+      throw new Error(`unexpected request: ${path}`);
+    } };
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+    const provider = await page().findByRole("button", { name: /Deposit ARS/ });
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    fireEvent.click(provider);
+    expect(page().getByRole("heading", { name: "Deposit ARS" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Review quote" })).toBeTruthy();
+    expect(requests).toEqual(["/api/funding/providers?region=AR&direction=onramp", "/api/funding/orders?region=AR"]);
+  });
+
+  test("selecting the matching provider resumes its pending order without quote or create", async () => {
+    const requests: string[] = [];
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      requests.push(path);
+      if (path.startsWith("/api/funding/providers?")) return { providers: [fundingBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return { order: pendingRipioOrder() };
+      throw new Error(`unexpected request: ${path}`);
+    } };
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+    fireEvent.click(await page().findByRole("button", { name: /Deposit ARS/ }));
+    expect(await page().findByText("Deposit pending")).toBeTruthy();
+    expect(requests).toEqual(["/api/funding/providers?region=AR&direction=onramp", "/api/funding/orders?region=AR"]);
+  });
+
+  test("Back and close/reopen do not resume on an order refetch", async () => {
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers?")) return { providers: [fundingBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return { order: pendingRipioOrder() };
+      throw new Error(`unexpected request: ${path}`);
+    } };
+    const props = { wallet, navigateToRedirect: () => {}, regionId: "AR" as const, returnedFromVerification: true };
+    const view = render(<FundingExperienceForWallet {...props} />);
+    expect(await page().findByText("Deposit pending")).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    await act(async () => { await getHomeQueryClient().refetchQueries({ queryKey: [dataOwnerKey(wallet.session!), "funding-open-order", "AR"] }); });
+    expect(page().queryByText("Deposit pending")).toBeNull();
+    view.rerender(<FundingExperienceForWallet {...props} open={false} />);
+    view.rerender(<FundingExperienceForWallet {...props} open />);
+    expect(await page().findByRole("heading", { name: "Add money" })).toBeTruthy();
+    await act(async () => { await getHomeQueryClient().refetchQueries({ queryKey: [dataOwnerKey(wallet.session!), "funding-open-order", "AR"] }); });
+    expect(page().queryByText("Deposit pending")).toBeNull();
+  });
+
+  test("a provider return opened while restoring resumes its order once after verification", async () => {
+    const requests: Array<{ path: string; method?: string }> = [];
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string, options?: { method?: string }) => {
+      requests.push({ path, method: options?.method });
+      if (path.startsWith("/api/funding/providers?")) return { providers: [fundingBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return { order: pendingRipioOrder() };
+      throw new Error(`unexpected request: ${path}`);
+    } };
+    const props = { navigateToRedirect: () => {}, returnedFromProvider: true, initialStep: "method" as const, regionId: "AR" as const };
+    const view = render(<FundingExperienceForWallet {...props} wallet={restoringWallet(wallet)} />);
+    expect(await page().findByRole("heading", { name: "Add money" })).toBeTruthy();
+    view.rerender(<FundingExperienceForWallet {...props} wallet={wallet} />);
+    expect(await page().findByText("Deposit pending")).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    await act(async () => { await getHomeQueryClient().refetchQueries({ queryKey: [dataOwnerKey(wallet.session!), "funding-open-order", "AR"] }); });
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().queryByText("Deposit pending")).toBeNull();
+    expect(requests.filter(({ path, method }) => method === "POST" || path === "/api/funding/quotes" || path === "/api/funding/orders")).toEqual([]);
+  });
+
+  test("an ordinary open that starts while restoring stays on methods after verification with a pending order", async () => {
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers?")) return { providers: [fundingBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return { order: pendingRipioOrder() };
+      throw new Error(`unexpected request: ${path}`);
+    } };
+    const props = { navigateToRedirect: () => {}, initialStep: "method" as const, regionId: "AR" as const };
+    const view = render(<FundingExperienceForWallet {...props} wallet={restoringWallet(wallet)} />);
+    view.rerender(<FundingExperienceForWallet {...props} wallet={wallet} />);
+    expect(await page().findByRole("button", { name: /Deposit ARS/ })).toBeTruthy();
+    await act(async () => { await getHomeQueryClient().refetchQueries({ queryKey: [dataOwnerKey(wallet.session!), "funding-open-order", "AR"] }); });
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().queryByText("Deposit pending")).toBeNull();
+  });
+
+  test("a verification return opened while restoring resumes pending customer setup", async () => {
+    const pending = { providerId: "ripio", region: "AR", state: "pending", verificationStartedAt: "2026-09-18T00:00:00.000Z", updatedAt: "2026-09-18T00:00:00.000Z" };
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers?")) return { providers: [customerBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return { order: null };
+      if (path.startsWith("/api/funding/provider-customers?")) return { customers: [pending] };
+      throw new Error(`unexpected request: ${path}`);
+    } };
+    const props = { navigateToRedirect: () => {}, returnedFromProvider: true, returnedFromVerification: true, initialStep: "method" as const, regionId: "AR" as const };
+    const view = render(<FundingExperienceForWallet {...props} wallet={restoringWallet(wallet)} />);
+    view.rerender(<FundingExperienceForWallet {...props} wallet={wallet} />);
+    expect(await page().findByRole("heading", { name: "Set up Ripio" })).toBeTruthy();
+  });
+
+  test.each(["directly", "after revalidation"])("a restoring return cannot pass from verified user A to user B %s", async (transition) => {
+    const fetchAccountResource = async (path: string) => {
+      if (path.startsWith("/api/funding/providers?")) return { providers: [fundingBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return { order: null };
+      throw new Error(`unexpected request: ${path}`);
+    };
+    const walletA = { ...verifiedWallet(), fetchAccountResource };
+    const walletB = { ...verifiedWallet(ADDRESS_B), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers?")) return { providers: [fundingBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return { order: pendingRipioOrder() };
+      throw new Error(`unexpected request: ${path}`);
+    } };
+    const props = { navigateToRedirect: () => {}, returnedFromVerification: true, regionId: "AR" as const };
+    const view = render(<FundingExperienceForWallet {...props} wallet={restoringWallet(walletA)} />);
+    view.rerender(<FundingExperienceForWallet {...props} wallet={walletA} />);
+    expect(await page().findByRole("button", { name: /Deposit ARS/ })).toBeTruthy();
+    if (transition === "after revalidation") view.rerender(<FundingExperienceForWallet {...props} wallet={restoringWallet(walletA)} />);
+    view.rerender(<FundingExperienceForWallet {...props} wallet={walletB} />);
+    expect(await page().findByRole("button", { name: /Deposit ARS/ })).toBeTruthy();
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().queryByText("Deposit pending")).toBeNull();
+  });
+
+  test("closing a restoring return spends it before the verified wallet arrives", async () => {
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers?")) return { providers: [fundingBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return { order: pendingRipioOrder() };
+      throw new Error(`unexpected request: ${path}`);
+    } };
+    const props = { navigateToRedirect: () => {}, returnedFromVerification: true, regionId: "AR" as const };
+    const view = render(<FundingExperienceForWallet {...props} wallet={restoringWallet(wallet)} />);
+    view.rerender(<FundingExperienceForWallet {...props} wallet={restoringWallet(wallet)} open={false} />);
+    view.rerender(<FundingExperienceForWallet {...props} wallet={wallet} open />);
+    expect(await page().findByRole("button", { name: /Deposit ARS/ })).toBeTruthy();
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().queryByText("Deposit pending")).toBeNull();
+  });
+
+  test("a provider return can resume once, but a changed account cannot inherit its return entry", async () => {
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers?")) return { providers: [fundingBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return { order: pendingRipioOrder() };
+      throw new Error(`unexpected request: ${path}`);
+    } };
+    const view = render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} returnedFromProvider initialStep="method" regionId="AR" />);
+    expect(await page().findByText("Deposit pending")).toBeTruthy();
+    view.rerender(<FundingExperienceForWallet wallet={{ ...wallet, ...verifiedWallet(ADDRESS_B), fetchAccountResource: wallet.fetchAccountResource }} navigateToRedirect={() => {}} returnedFromProvider initialStep="method" regionId="AR" />);
+    expect(await page().findByRole("button", { name: /Deposit ARS/ })).toBeTruthy();
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().queryByText("Deposit pending")).toBeNull();
+    view.rerender(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} returnedFromProvider initialStep="method" regionId="AR" />);
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().queryByText("Deposit pending")).toBeNull();
+  });
+
+  test.each([
+    ["in one render", false],
+    ["before preference readiness", true],
+  ])("a verification return follows persisted-region hydration %s and resumes its matching order once", async (_, regionChangesBeforeReady) => {
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers?")) return { providers: [fundingBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return { order: path.includes("region=AR") ? { ...pendingRipioOrder(), region: "AR" } : null };
+      throw new Error(`unexpected request: ${path}`);
+    } };
+    const ownerKey = dataOwnerKey(wallet.session!);
+    getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "funding-providers", "AR"), { providers: [fundingBinding()] });
+    getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "funding-open-order", "AR"), { order: { ...pendingRipioOrder(), region: "AR" } });
+    const steps: string[] = [];
+    const props = { wallet, navigateToRedirect: () => {}, returnedFromVerification: true, onStepChange: (step: string) => steps.push(step) };
+    const view = render(<FundingExperienceForWallet {...props} regionReady={false} regionId="CO" />);
+    expect(await page().findByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().queryByText("Deposit pending")).toBeNull();
+    if (regionChangesBeforeReady) {
+      view.rerender(<FundingExperienceForWallet {...props} regionReady={false} regionId="AR" />);
+      expect(await page().findByRole("button", { name: /Deposit ARS/ })).toBeTruthy();
+      expect(page().queryByText("Deposit pending")).toBeNull();
+    }
+
+    view.rerender(<FundingExperienceForWallet {...props} regionReady regionId="AR" />);
+    expect(await page().findByText("Deposit pending")).toBeTruthy();
+    expect(steps.filter((step) => step === "order")).toHaveLength(1);
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    await act(async () => { await getHomeQueryClient().refetchQueries({ queryKey: ownerQueryKey(ownerKey, "funding-open-order", "AR") }); });
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().queryByText("Deposit pending")).toBeNull();
+    expect(steps.filter((step) => step === "order")).toHaveLength(1);
+  });
+
+  test("a provider return waits for same-region preference readiness even with its order cached", async () => {
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers?")) return { providers: [fundingBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return { order: pendingRipioOrder() };
+      throw new Error(`unexpected request: ${path}`);
+    } };
+    const ownerKey = dataOwnerKey(wallet.session!);
+    getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "funding-providers", "AR"), { providers: [fundingBinding()] });
+    getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "funding-open-order", "AR"), { order: pendingRipioOrder() });
+    const steps: string[] = [];
+    const props = { wallet, navigateToRedirect: () => {}, returnedFromProvider: true, initialStep: "method" as const, regionId: "AR" as const, onStepChange: (step: string) => steps.push(step) };
+    const view = render(<FundingExperienceForWallet {...props} regionReady={false} />);
+    expect(await page().findByRole("button", { name: /Deposit ARS/ })).toBeTruthy();
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().queryByText("Deposit pending")).toBeNull();
+    expect(steps).not.toContain("order");
+
+    view.rerender(<FundingExperienceForWallet {...props} regionReady />);
+    expect(await page().findByText("Deposit pending")).toBeTruthy();
+    expect(steps.filter((step) => step === "order")).toHaveLength(1);
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    await act(async () => { await getHomeQueryClient().refetchQueries({ queryKey: ownerQueryKey(ownerKey, "funding-open-order", "AR") }); });
+    expect(page().queryByText("Deposit pending")).toBeNull();
+    expect(steps.filter((step) => step === "order")).toHaveLength(1);
+  });
+
+  test("a verification customer return resumes when same-region preference becomes ready", async () => {
+    const pending = { providerId: "ripio", region: "AR", state: "pending", verificationStartedAt: "2026-09-18T00:00:00.000Z", updatedAt: "2026-09-18T00:00:00.000Z" };
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers?")) return { providers: [customerBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return { order: null };
+      if (path.startsWith("/api/funding/provider-customers?")) return { customers: [pending] };
+      throw new Error(`unexpected request: ${path}`);
+    } };
+    const ownerKey = dataOwnerKey(wallet.session!);
+    getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "funding-providers", "AR"), { providers: [customerBinding()] });
+    getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "funding-open-order", "AR"), { order: null });
+    getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "funding-provider-customers", "AR"), { customers: [pending] });
+    const props = { wallet, navigateToRedirect: () => {}, returnedFromVerification: true, regionId: "AR" as const };
+    const view = render(<FundingExperienceForWallet {...props} regionReady={false} />);
+    expect(await page().findByRole("button", { name: /Deposit ARS/ })).toBeTruthy();
+    expect(page().queryByRole("heading", { name: "Set up Ripio" })).toBeNull();
+
+    view.rerender(<FundingExperienceForWallet {...props} regionReady />);
+    expect(await page().findByRole("heading", { name: "Set up Ripio" })).toBeTruthy();
+  });
+
+  test("an ordinary open remains on methods across persisted-region hydration", async () => {
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers?")) return { providers: [fundingBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return { order: pendingRipioOrder() };
+      throw new Error(`unexpected request: ${path}`);
+    } };
+    const props = { wallet, navigateToRedirect: () => {} };
+    const view = render(<FundingExperienceForWallet {...props} regionReady={false} regionId="CO" />);
+    view.rerender(<FundingExperienceForWallet {...props} regionReady regionId="AR" />);
+    expect(await page().findByRole("button", { name: /Deposit ARS/ })).toBeTruthy();
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().queryByText("Deposit pending")).toBeNull();
+  });
+
+  test("a region change cannot inherit a return entry even when its order matches", async () => {
+    const requests: string[] = [];
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      requests.push(path);
+      if (path.startsWith("/api/funding/providers?")) return { providers: [{ ...fundingBinding(), region: path.includes("region=CO") ? "CO" : "AR" }] };
+      if (path.startsWith("/api/funding/orders?")) return { order: { ...pendingRipioOrder(), region: path.includes("region=CO") ? "CO" : "AR" } };
+      throw new Error(`unexpected request: ${path}`);
+    } };
+    const view = render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} returnedFromVerification regionId="AR" />);
+    expect(await page().findByText("Deposit pending")).toBeTruthy();
+    view.rerender(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} returnedFromVerification regionId="CO" />);
+    expect(await page().findByRole("button", { name: /Deposit ARS/ })).toBeTruthy();
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().queryByText("Deposit pending")).toBeNull();
+    expect(requests).toContain("/api/funding/orders?region=CO");
+    view.rerender(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} returnedFromVerification regionId="AR" />);
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().queryByText("Deposit pending")).toBeNull();
+  });
+
+  test("a provider-only return retains its Receive entry and cannot resume after Back", async () => {
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers?")) return { providers: [fundingBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return { order: pendingRipioOrder() };
+      throw new Error(`unexpected request: ${path}`);
+    } };
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} returnedFromProvider regionId="AR" />);
+    expect(await page().findByRole("heading", { name: "Receive" })).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    await act(async () => { await getHomeQueryClient().refetchQueries({ queryKey: [dataOwnerKey(wallet.session!), "funding-open-order", "AR"] }); });
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().queryByText("Deposit pending")).toBeNull();
+  });
+
+  test("an explicit close disarms a return before reopen and refetch", async () => {
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers?")) return { providers: [fundingBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return { order: pendingRipioOrder() };
+      throw new Error(`unexpected request: ${path}`);
+    } };
+    const props = { wallet, navigateToRedirect: () => {}, regionId: "AR" as const, returnedFromVerification: true };
+    const view = render(<FundingExperienceForWallet {...props} />);
+    expect(await page().findByText("Deposit pending")).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Close add money" }));
+    view.rerender(<FundingExperienceForWallet {...props} open={false} />);
+    view.rerender(<FundingExperienceForWallet {...props} open />);
+    await act(async () => { await getHomeQueryClient().refetchQueries({ queryKey: [dataOwnerKey(wallet.session!), "funding-open-order", "AR"] }); });
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().queryByText("Deposit pending")).toBeNull();
+  });
+
+  test("late verification-return order cannot override Receive or resume after Back", async () => {
     let resolveOrder!: (value: unknown) => void;
     const pendingOrder = new Promise<unknown>((resolve) => { resolveOrder = resolve; });
     const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
@@ -796,11 +1198,14 @@ describe("FundingExperience", () => {
       if (path.startsWith("/api/funding/orders?")) return pendingOrder;
       throw new Error("unexpected request");
     } };
-    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} returnedFromVerification regionId="AR" />);
     fireEvent.click(await page().findByRole("button", { name: /Receive crypto/ }));
     expect(page().getByRole("dialog", { name: "Receive" })).toBeTruthy();
     await act(async () => { resolveOrder({ order: { id: "11111111-1111-4111-8111-111111111111", providerId: "ripio", state: "dispatch-ambiguous", fiatAmount: "1000", providerStatus: null, instructions: null } }); await pendingOrder; });
     expect(page().getByRole("dialog", { name: "Receive" })).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    await act(async () => { await getHomeQueryClient().refetchQueries({ queryKey: [dataOwnerKey(wallet.session!), "funding-open-order", "AR"] }); });
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
     expect(page().queryByText("Don't try again yet")).toBeNull();
   });
 
@@ -855,6 +1260,7 @@ describe("FundingExperience", () => {
       />,
     );
 
+    fireEvent.click(await page().findByRole("button", { name: /Deposit IDR/ }));
     expect(await page().findByRole("link", { name: "Continue to payment" })).toBeTruthy();
     await new Promise((resolve) => queueMicrotask(() => resolve(undefined)));
     expect(navigations).toEqual([]);
@@ -879,6 +1285,7 @@ describe("FundingExperience", () => {
       />,
     );
 
+    fireEvent.click(await page().findByRole("button", { name: /Deposit IDR/ }));
     expect(await page().findByText("Receive")).toBeTruthy();
     expect(page().getByText(/19[,.]860/)).toBeTruthy();
     expect(page().getByText("VA INA")).toBeTruthy();
@@ -997,6 +1404,7 @@ describe("FundingExperience", () => {
     );
 
     try {
+      fireEvent.click(await page().findByRole("button", { name: /Deposit USD/ }));
       await page().findByRole("heading", { name: "Review payment details" });
       fireEvent.click(page().getByRole("button", { name: "View payment instructions" }));
       await page().findByTitle("Apple Pay");
@@ -1028,6 +1436,7 @@ describe("FundingExperience", () => {
       },
     };
     render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="US" />);
+    fireEvent.click(await page().findByRole("button", { name: /Deposit USD/ }));
     await page().findByRole("heading", { name: "Review payment details" });
     fireEvent.click(page().getByRole("button", { name: "View payment instructions" }));
     expect(page().queryByTitle("Apple Pay")).toBeNull();
@@ -1112,6 +1521,27 @@ describe("provider customer funding position", () => {
     expect(navigations).toEqual(["https://kyc.ripio.com/start?token=synthetic"]);
   });
 
+  test("opening a customer-capable picker only fetches providers, orders, and customers", async () => {
+    const requests: Array<{ path: string; method?: string }> = [];
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string, options?: { method?: string }) => {
+      requests.push({ path, method: options?.method });
+      if (path.startsWith("/api/funding/providers?")) return { providers: [customerBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return { order: pendingRipioOrder() };
+      if (path.startsWith("/api/funding/provider-customers?")) return { customers: [] };
+      throw new Error(`unexpected request: ${path}`);
+    } };
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+    await waitFor(() => expect(requests).toHaveLength(3));
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().getByRole("button", { name: /Deposit ARS/ })).toBeTruthy();
+    expect(page().queryByText("Deposit pending")).toBeNull();
+    expect(requests).toEqual([
+      { path: "/api/funding/providers?region=AR&direction=onramp", method: undefined },
+      { path: "/api/funding/orders?region=AR", method: undefined },
+      { path: "/api/funding/provider-customers?region=AR", method: undefined },
+    ]);
+  });
+
   test("does not auto-enter setup from an ordinary method-list visit", async () => {
     const binding = customerBinding();
     const pending = { providerId: "ripio", region: "AR", state: "pending", verificationStartedAt: null, updatedAt: "2026-09-18T00:00:00.000Z" };
@@ -1155,6 +1585,32 @@ describe("provider customer funding position", () => {
     expect(page().queryByRole("heading", { name: "Set up Ripio" })).toBeNull();
   });
 
+  test("opens a matching pending order despite a failed provider-customer read only after selection", async () => {
+    const requests: Array<{ path: string; method?: string }> = [];
+    const order = { ...pendingRipioOrder(), region: "AR", assetId: "base:wars", paymentMethod: "bank_transfer" };
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string, options?: { method?: string }) => {
+      requests.push({ path, method: options?.method });
+      if (path.startsWith("/api/funding/providers?")) return { providers: [customerBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return { order };
+      if (path.startsWith("/api/funding/orders/")) return { order };
+      if (path.startsWith("/api/funding/provider-customers?")) throw new Error("CUSTOMERS_UNAVAILABLE");
+      throw new Error(`unexpected request: ${path}`);
+    } };
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+    const provider = await page().findByRole("button", { name: /Deposit ARS/ });
+    await waitFor(() => expect(page().getByRole("alert").textContent).toContain("Home couldn't check your provider setup. Retry."));
+    await waitFor(() => expect(provider.hasAttribute("disabled")).toBe(false));
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().queryByText("Deposit pending")).toBeNull();
+    expect(page().queryByRole("heading", { name: "Set up Ripio" })).toBeNull();
+
+    fireEvent.click(provider);
+    expect(await page().findByText("Deposit pending")).toBeTruthy();
+    expect(page().queryByRole("heading", { name: "Set up Ripio" })).toBeNull();
+    expect(requests.filter(({ method }) => method && method !== "GET")).toEqual([]);
+    expect(requests.filter(({ path }) => path === "/api/funding/quotes" || path === "/api/funding/orders")).toEqual([]);
+  });
+
   test("keeps a failed provider-customer read retryable before the flow opens", async () => {
     let customerReads = 0;
     const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
@@ -1194,6 +1650,10 @@ describe("provider customer funding position", () => {
     render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} returnedFromProvider returnedFromVerification initialStep="method" regionId="AR" />);
     expect(await page().findByRole("heading", { name: "Set up Ripio" })).toBeTruthy();
     expect(page().getByText(/Verification is pending/)).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    await act(async () => { await getHomeQueryClient().refetchQueries({ queryKey: [dataOwnerKey(wallet.session!), "funding-provider-customers", "AR"] }); });
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().queryByRole("heading", { name: "Set up Ripio" })).toBeNull();
   });
 
   test("keeps Coinbase and IDRX usable when the customer endpoint would fail", async () => {

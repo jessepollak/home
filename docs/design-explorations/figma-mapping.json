@@ -36,7 +36,7 @@
     "note": "mainSha is the render used to build the historical Home — funded baseline. Home — final is the approved final Home design (Jesse, 2026-09-23) and, since #789, the production Home layout rendered by apps/web/client/home/home-overview.tsx."
   },
   "codeConnect": {
-    "status": "Owned by #684 (Code Connect templates, parse check and publish job). Node ownership — which node maps to which code owner, which are not mapped, and which code components have no Figma node — lives only in nodeOwnership (apps/web/figma-components.json). #841 kept every node ID stable through the page move; #684 re-read every mapped ID from the live file afterwards and all resolve. Its 28 earlier add_code_connect_map writes are superseded by #684's publish; existing mappings preserved",
+    "status": "Owned by #684 (Code Connect templates, parse check and publish job). Mapped node ownership lives in apps/web/figma/components/<Name>.json; unmapped nodes and code components without a Figma node live in nodeOwnership (apps/web/figma-components.json). #841 kept every node ID stable through the page move; #684 re-read every mapped ID from the live file afterwards and all resolve. Its 28 earlier add_code_connect_map writes are superseded by #684's publish; existing mappings preserved",
     "label": "React",
     "evidence": [
       "The 12 previously published families remained mapped from prior runs; this run did not delete, disconnect, or recreate any existing mapping.",
@@ -45,7 +45,7 @@
       "get_code_connect_map still returns an empty object for this file (known Figma API read-back defect); Jesse approved that combined evidence on 2026-09-22.",
       "Run 24 (publish-ready closeout) changed only definitions, descriptions, variant value names, positions, and the new color/market-gain variable; no component or set was deleted, recreated, or detached and no Code Connect mapping was touched. Renaming variant values (e.g. Kind=cash -> Kind=Cash) keeps node IDs and node->file mappings.",
       "#789 (2026-09-23): add_code_connect_map succeeded for SignedBalanceBar 91:927 -> apps/web/components/signed-balance-bar.tsx (SignedBalanceBar) and ActivityLoader 91:932 -> apps/web/components/activity-loader.tsx (ActivityLoader). It returned 'already mapped' for FinanceRow 96:1147, MoneyBreakdownItem 12:20 and SectionHeader 12:33; no mapping was disconnected or replaced.",
-      "#841, before Code Connect moved to #684: add_code_connect_map with label React reported success for 28 rows; none returned already mapped. Every one of those nodes is in apps/web/figma-components.json components, where #684's templates supersede them; #841 makes no further Code Connect calls. get_code_connect_map still reads back {}."
+      "#841, before Code Connect moved to #684: add_code_connect_map with label React reported success for 28 rows; none returned already mapped. Every one of those nodes now has an entry in apps/web/figma/components/<Name>.json, where #684's templates supersede them; #841 makes no further Code Connect calls. get_code_connect_map still reads back {}."
     ],
     "limitation": "Code Connect maps Figma to code metadata; it does not synchronize React changes into Figma or Figma edits into code automatically.",
     "actionRequiredFromJesse": "Publish #841 changes: FinanceRow 96:1147, CurrencyMarkSlot 12:59, ShimmerRow 274:6015, CopyableValue 282:5961, MoneyConfirmRow 166:1802, Card 269:5270 and Home/Mono tight. Publish the library to remove the #882 deletions from the published library.",
@@ -351,7 +351,7 @@
     },
     "publishChecklist": {
       "expectInPublishDialog": "#841: FinanceRow 96:1147, CurrencyMarkSlot 12:59, ShimmerRow 274:6015, CopyableValue 282:5961, MoneyConfirmRow 166:1802, Card 269:5270 and new Home/Mono tight text style. #882 deletions of MoneyNumpad, MoneyNumpadKey and the legacy Card variant also require publication. Earlier unpublished changes may also appear; see design-system.md publish checklist.",
-      "codeConnectAfterPublish": ["#684 owns Code Connect and publishes its templates for the nodes in apps/web/figma-components.json; #841's 28 earlier writes are superseded by that publish. Do not replace existing mappings to address the read-back."]
+      "codeConnectAfterPublish": ["#684 owns Code Connect and publishes its templates for the nodes in apps/web/figma/components/<Name>.json; #841's 28 earlier writes are superseded by that publish. Do not replace existing mappings to address the read-back."]
     },
     "items": [
       { "name": "FinanceRow (variant set)", "nodeId": "96:1147", "variantsOrProps": "Layout=Title aligned (default) | Centered (legacy) x Value tone=Default|Success|Error|Muted; props Label, Context, Show context, Value, Value context, Show value context, Mark, Show chevron", "owner": "apps/web/components/finance-rows.tsx (wrappers ActivityRow, BalanceRow, AssetRow)", "publish": "#841 body alignment and description changed — Jesse must publish" },

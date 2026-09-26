@@ -54,6 +54,7 @@ export function AddMoneyDialog({
   providersStatus,
   providerBindingsDisabled,
   customerSetupReady,
+  resumableBinding,
   fundingReadError,
   selectedBinding,
   initialOrder,
@@ -75,6 +76,7 @@ export function AddMoneyDialog({
   providersStatus: ProvidersStatus;
   providerBindingsDisabled: boolean;
   customerSetupReady: boolean;
+  resumableBinding: (binding: FundingBinding) => boolean;
   fundingReadError: { message: string; retry: () => void } | null;
   selectedBinding: FundingBinding | null;
   initialOrder: FundingOrderSummary | null;
@@ -121,6 +123,7 @@ export function AddMoneyDialog({
           countryName={presentationRegions[regionId].countryName}
           providerBindingsDisabled={providerBindingsDisabled}
           customerSetupReady={customerSetupReady}
+          resumableBinding={resumableBinding}
           fundingReadError={fundingReadError}
           onSelectBinding={onSelectBinding}
         />
@@ -163,6 +166,7 @@ export function MethodBody({
   countryName,
   providerBindingsDisabled,
   customerSetupReady,
+  resumableBinding,
   fundingReadError,
   onSelectBinding,
 }: {
@@ -172,6 +176,7 @@ export function MethodBody({
   countryName: string;
   providerBindingsDisabled: boolean;
   customerSetupReady: boolean;
+  resumableBinding: (binding: FundingBinding) => boolean;
   fundingReadError: { message: string; retry: () => void } | null;
   onSelectBinding: (binding: FundingBinding) => void;
 }) {
@@ -250,7 +255,7 @@ export function MethodBody({
                       type="button"
                       disabled={
                         providerBindingsDisabled ||
-                        (binding.customerSetup !== null && !customerSetupReady)
+                        (binding.customerSetup !== null && !customerSetupReady && !resumableBinding(binding))
                       }
                       onClick={() => onSelectBinding(binding)}
                       aria-describedby={`funding-method-${binding.providerId}-${binding.assetId}`}
