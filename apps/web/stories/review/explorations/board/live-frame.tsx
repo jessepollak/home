@@ -92,7 +92,6 @@ export function LiveFrame({
           changeLabel(frame.change)} · ${rect.width} × ${rect.height}`}
         onFocus={onFocusSelect}
         onClick={onSelect}
-        onDoubleClick={onInteract}
         onKeyDown={(event) => {
           if (event.key === "Enter") { event.preventDefault(); onInteract(); }
           if (event.key === " ") { event.preventDefault(); onFit(); }

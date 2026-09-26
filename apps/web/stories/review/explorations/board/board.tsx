@@ -309,10 +309,10 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
       if (event.key === "Escape") { event.preventDefault(); leave(); }
     };
     window.addEventListener("keydown", escape);
-    try { child?.addEventListener("keydown", escape); } catch { /* Detached frame. */ }
+    try { child?.addEventListener("keydown", escape, true); } catch { /* Detached frame. */ }
     return () => {
       window.removeEventListener("keydown", escape);
-      try { child?.removeEventListener("keydown", escape); } catch { /* Detached frame. */ }
+      try { child?.removeEventListener("keydown", escape, true); } catch { /* Detached frame. */ }
     };
   }, [interacting, dialogOpen, leave, activeFrameReady]);
   const changeSide = (value: Side) => {

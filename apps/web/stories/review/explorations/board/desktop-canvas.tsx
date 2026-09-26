@@ -156,8 +156,16 @@ export function DesktopCanvas({
       gestureMoved.current = false;
     }
   };
+  const lastClick = useRef<Positioned | null>(null);
   const selectUnlessDragged = (position: Positioned) => {
-    if (!lastGestureMoved.current) onSelect(position);
+    if (lastGestureMoved.current) return;
+    lastClick.current = position;
+    onSelect(position);
+  };
+  const interactWithClicked = () => {
+    const clicked = lastClick.current;
+    lastClick.current = null;
+    if (clicked) onInteract(clicked);
   };
   const screenStyle = (rect: Rect): CSSProperties => ({
     insetInlineStart: camera.x + rect.x * camera.zoom,
@@ -173,7 +181,11 @@ export function DesktopCanvas({
     onPointerMove={pointerMove}
     onPointerUp={pointerEnd}
     onPointerCancel={pointerEnd}
-    onMouseDown={(event) => { if (event.button === 1) event.preventDefault(); }}
+    onMouseDown={(event) => {
+      if (event.button === 1) event.preventDefault();
+      if (event.detail <= 1) lastClick.current = null;
+    }}
+    onDoubleClick={interactWithClicked}
     onAuxClick={(event) => { if (event.button === 1) event.preventDefault(); }}
   >
     <div className={`${styles.layer} ${transition ? styles.fitTransition : ""}`}
