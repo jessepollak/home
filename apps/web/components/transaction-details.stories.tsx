@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { useEffect, type ReactNode } from "react";
 import { expect, within } from "storybook/test";
 import { presentActivityTransferDetails } from "@/client/activity/activity-presenter";
 import type { ActivityTransfer } from "@/client/activity/types";
@@ -45,7 +46,7 @@ function operation(status: RecentMoneyActionOperation["status"]): RecentMoneyAct
 }
 
 type OperationScenario = `operation-${RecentMoneyActionOperation["status"]}`;
-type Scenario = "received-priced" | "received-unpriced" | "received-long" | "sent-usdc" | OperationScenario | "operation-pending-unsubmitted";
+type Scenario = "received-priced" | "received-unpriced" | "received-long" | "received-zora" | "received-large" | "received-digit" | "received-uint256" | "sent-usdc" | OperationScenario | "operation-pending-unsubmitted";
 
 function isOperationScenario(scenario: Scenario): scenario is OperationScenario | "operation-pending-unsubmitted" {
   return scenario.startsWith("operation-");
@@ -59,7 +60,13 @@ function TransactionDetailsStory({ scenario }: { scenario: Scenario }) {
     : presentActivityTransferDetails(
       scenario === "received-unpriced" ? received({ valuation: { status: "unpriced", currency: "USD", reason: "quote-unavailable" } })
         : scenario === "received-long" ? received({ tokenSymbol: "SUPERLONGTOKENNAMEFORTESTING", amountBaseUnits: "5678000000000000000001" })
-          : scenario === "sent-usdc" ? received({ direction: "outgoing", fromAddress: ACCOUNT, toAddress: OTHER,
+          : scenario === "received-zora" ? received({ tokenSymbol: "ZORA", amountBaseUnits: "1234567890123456789012" })
+            : scenario === "received-large" ? received({ tokenSymbol: "DEGEN", amountBaseUnits: "123456789012345678901234567890" })
+              : scenario === "received-digit" ? received({ tokenSymbol: "TOKEN1" })
+                : scenario === "received-uint256" ? received({ tokenSymbol: "TOKEN1", tokenDecimals: 0,
+                  amountBaseUnits: "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+                  valuation: { status: "unpriced", currency: "USD", reason: "quote-unavailable" } })
+                  : scenario === "sent-usdc" ? received({ direction: "outgoing", fromAddress: ACCOUNT, toAddress: OTHER,
             assetId: "usdc", tokenSymbol: "USDC", tokenDecimals: 6, amountBaseUnits: "25000000",
             valuation: {
               status: "priced", currency: "USD",
@@ -90,9 +97,42 @@ function dialogFor(canvasElement: HTMLElement) {
   return within(canvasElement.ownerDocument.body).getByRole("dialog");
 }
 
+function amountDefinition(canvasElement: HTMLElement): HTMLElement {
+  const dialog = dialogFor(canvasElement);
+  const amount = within(dialog).getByText("Amount").nextElementSibling;
+  if (!(amount instanceof HTMLElement)) throw new Error("Missing amount definition");
+  return amount;
+}
+
+async function checkHeadlineLayout(canvasElement: HTMLElement, amount: string) {
+  const dialog = dialogFor(canvasElement);
+  const definition = amountDefinition(canvasElement);
+  await expect(definition).toHaveTextContent(amount);
+  const number = definition.querySelector('[data-slot="transaction-amount-number"]');
+  if (!(number instanceof HTMLElement)) throw new Error("Missing numeric amount");
+  await expect(number.getClientRects().length).toBe(1);
+  const scroll = number.parentElement;
+  if (!(scroll instanceof HTMLElement)) throw new Error("Missing numeric scroll container");
+  await expect(scroll.getBoundingClientRect().right).toBeLessThanOrEqual(dialog.getBoundingClientRect().right + 1);
+  await expect(scroll.getBoundingClientRect().left).toBeGreaterThanOrEqual(dialog.getBoundingClientRect().left - 1);
+  if (!scroll.hasAttribute("tabindex")) {
+    await expect(number.getBoundingClientRect().right).toBeLessThanOrEqual(dialog.getBoundingClientRect().right + 1);
+  }
+  return { number, scroll };
+}
+
+function EnlargedText({ children }: { children: ReactNode }) {
+  useEffect(() => {
+    const previous = document.documentElement.style.fontSize;
+    document.documentElement.style.fontSize = "200%";
+    return () => { document.documentElement.style.fontSize = previous; };
+  }, []);
+  return children;
+}
+
 async function checkReceived(canvasElement: HTMLElement, amount: string, value: string) {
   const dialog = within(dialogFor(canvasElement));
-  await expect(dialog.getByText(amount)).toBeVisible();
+  await checkHeadlineLayout(canvasElement, amount);
   await expect(dialog.getByText(value)).toBeVisible();
   await expect(dialog.getByText("Confirmed")).toBeVisible();
   await expect(dialog.getByText("Base")).toBeVisible();
@@ -102,32 +142,90 @@ async function checkReceived(canvasElement: HTMLElement, amount: string, value: 
 }
 
 export const ReceivedPriced: Story = {
-  play: async ({ canvasElement }) => checkReceived(canvasElement, "+5,678 TEST", "+$12.34"),
+  play: async ({ canvasElement }) => {
+    await checkReceived(canvasElement, "+5,678.00 TEST", "+$12.34");
+    const scroll = amountDefinition(canvasElement).querySelector('[data-slot="transaction-amount-scroll"]');
+    await expect(scroll).not.toHaveAttribute("tabindex");
+  },
+};
+export const ReceivedDigitSymbol: Story = {
+  args: { scenario: "received-digit" },
+  play: async ({ canvasElement }) => {
+    await checkHeadlineLayout(canvasElement, "+5,678.00 TOKEN1");
+    const definition = amountDefinition(canvasElement);
+    await expect(definition.querySelector('[data-slot="transaction-amount-number"]')).toHaveTextContent("+5,678.00");
+    await expect(definition.querySelector('[data-slot="transaction-amount-unit"]')).toHaveTextContent("TOKEN1");
+  },
 };
 export const ReceivedPricedDesktop: Story = {
   parameters: { viewport: { defaultViewport: "desktop" } },
-  play: async ({ canvasElement }) => checkReceived(canvasElement, "+5,678 TEST", "+$12.34"),
+  play: async ({ canvasElement }) => checkReceived(canvasElement, "+5,678.00 TEST", "+$12.34"),
 };
 export const ReceivedUnpriced: Story = {
   args: { scenario: "received-unpriced" },
-  play: async ({ canvasElement }) => checkReceived(canvasElement, "+5,678 TEST", "Unknown"),
+  play: async ({ canvasElement }) => checkReceived(canvasElement, "+5,678.00 TEST", "Unknown"),
 };
 export const ReceivedLongToken: Story = {
   args: { scenario: "received-long" },
   play: async ({ canvasElement }) => {
     const dialog = within(dialogFor(canvasElement));
-    await expect(dialog.getByText("+5,678.000000000000000001 SUPERLONGTOKENNAMEFORTESTING")).toBeVisible();
+    await checkHeadlineLayout(canvasElement, "+5,678.00 SUPERLONGTOKENNAMEFORTESTING");
     await expect(dialog.getByText("Base")).toBeVisible();
     await expect(dialog.getByText("Confirmed")).toBeVisible();
     await expect(dialog.queryByText("To", { exact: true })).toBeNull();
     await expect(dialog.queryByText("Block", { exact: true })).toBeNull();
   },
 };
+export const ReceivedLongFraction: Story = {
+  args: { scenario: "received-zora" },
+  parameters: { viewport: { defaultViewport: "smallMobile" } },
+  play: async ({ canvasElement }) => { await checkHeadlineLayout(canvasElement, "+1,234.56 ZORA"); },
+};
+export const ReceivedLargeWhole: Story = {
+  args: { scenario: "received-large" },
+  parameters: { viewport: { defaultViewport: "smallMobile" } },
+  play: async ({ canvasElement }) => { await checkHeadlineLayout(canvasElement, "+123,456,789,012.34 DEGEN"); },
+};
+export const ReceivedLargeWholeEnlargedText: Story = {
+  args: { scenario: "received-large" },
+  parameters: { viewport: { defaultViewport: "smallMobile" } },
+  decorators: [(Story) => <EnlargedText><Story /></EnlargedText>],
+  play: async ({ canvasElement }) => {
+    const { number } = await checkHeadlineLayout(canvasElement, "+123,456,789,012.34 DEGEN");
+    const reference = number.cloneNode(true) as HTMLElement;
+    reference.style.position = "absolute";
+    reference.style.visibility = "hidden";
+    reference.style.fontSize = "1.5rem";
+    amountDefinition(canvasElement).append(reference);
+    try {
+      await expect(number.getBoundingClientRect().width).toBeGreaterThanOrEqual(reference.getBoundingClientRect().width - 0.5);
+    } finally {
+      reference.remove();
+    }
+    await expect(canvasElement.ownerDocument.documentElement.scrollWidth)
+      .toBeLessThanOrEqual(canvasElement.ownerDocument.documentElement.clientWidth);
+  },
+};
+export const ReceivedUint256: Story = {
+  args: { scenario: "received-uint256" },
+  parameters: { viewport: { defaultViewport: "smallMobile" } },
+  play: async ({ canvasElement }) => {
+    const { scroll } = await checkHeadlineLayout(canvasElement,
+      "+115,792,089,237,316,195,423,570,985,008,687,907,853,269,984,665,640,564,039,457,584,007,913,129,639,935 TOKEN1");
+    await expect(scroll).toHaveAttribute("tabindex", "0");
+    await expect(scroll).toHaveAccessibleName(
+      "+115,792,089,237,316,195,423,570,985,008,687,907,853,269,984,665,640,564,039,457,584,007,913,129,639,935 TOKEN1",
+    );
+    await expect(amountDefinition(canvasElement).querySelector('[data-slot="transaction-amount-unit"]')).toBeVisible();
+    await expect(canvasElement.ownerDocument.documentElement.scrollWidth)
+      .toBeLessThanOrEqual(canvasElement.ownerDocument.documentElement.clientWidth);
+  },
+};
 export const SentUsdc: Story = {
   args: { scenario: "sent-usdc" },
   play: async ({ canvasElement }) => {
     const dialog = within(dialogFor(canvasElement));
-    await expect(dialog.getByText("−25 USDC")).toBeVisible();
+    await checkHeadlineLayout(canvasElement, "−25.00 USDC");
     await expect(dialog.getByText("−$25.00")).toBeVisible();
     await expect(dialog.getByText("To", { exact: true })).toBeVisible();
     await expect(dialog.getByText("Base")).toBeVisible();

@@ -12,6 +12,7 @@ import {
   formatPresentationDate,
   formatPresentationPrice,
   formatPresentationTokenAmount,
+  formatPresentationTokenAmountParts,
   formatSignedPercentChange,
   formatTokenAmount,
   formatUnsignedTokenAmount,
@@ -81,6 +82,19 @@ describe("presentation money formatting", () => {
     expect(formatPresentationTokenAmount("999999", 18, "vault shares")).toBe("<0.000001 vault shares");
     expect(formatPresentationTokenAmount("1500000000000000000", 18, "vault shares", { useNoBreakSpace: true }))
       .toMatch(/^\S+\u00a0vault\u00a0shares$/);
+  });
+
+  test("returns localized quantity and digit-bearing symbol as separate parts", () => {
+    expect(formatPresentationTokenAmountParts("5678", 0, "TOKEN1"))
+      .toEqual({ amount: "5,678", symbol: "TOKEN1" });
+    expect(formatPresentationTokenAmountParts("5678", 0, " 1INCH  "))
+      .toEqual({ amount: "5,678", symbol: "1INCH" });
+    expect(formatPresentationTokenAmountParts("1234567", 0, "TOKEN1", { regionId: "FR" }))
+      .toEqual({ amount: "1\u202f234\u202f567", symbol: "TOKEN1" });
+    expect(formatPresentationTokenAmountParts("1500000000000000000", 18, "vault  shares", { useNoBreakSpace: true }))
+      .toEqual({ amount: "1.50", symbol: "vault\u00a0shares" });
+    expect(formatPresentationTokenAmountParts("bad", 6, "USDC"))
+      .toEqual({ amount: "—", symbol: "" });
   });
 
   test("multi-character currency symbols take one no-break space", () => {
@@ -202,7 +216,40 @@ describe("presentation money formatting", () => {
         "JESSE",
         { category: "meme" },
       ),
-    ).toBe("45,690,152 JESSE");
+    ).toBe("45,690,152.00 JESSE");
+  });
+
+  test("bounds token display by class, decimals, threshold, sign, and locale while exact review keeps precision", () => {
+    const cases: Array<[string, number, string, string, "GLOBAL" | "DE" | "FR"]> = [
+      ["1234567", 0, "ZORA", "1,234,567 ZORA", "GLOBAL"],
+      ["999999", 6, "DEGEN", "0.999999 DEGEN", "GLOBAL"],
+      ["1999999999999999999", 18, "ZORA", "1.99 ZORA", "GLOBAL"],
+      ["-56780000000000000000", 18, "ZORA", "−56.78 ZORA", "GLOBAL"],
+      ["5000000000000000000", 18, "ZORA", "5.00 ZORA", "GLOBAL"],
+      ["420000000000000000", 18, "DEGEN", "0.42 DEGEN", "GLOBAL"],
+      ["1000000", 6, "DEGEN", "1.00 DEGEN", "GLOBAL"],
+      ["42", 8, "DEGEN", "<0.000001 DEGEN", "GLOBAL"],
+      ["1234567890123456789012", 18, "ZORA", "1,234.56 ZORA", "GLOBAL"],
+      ["123456789012345678901234567890", 18, "ZORA", "123,456,789,012.34 ZORA", "GLOBAL"],
+      ["1500000000000000000", 18, "ETH", "1.5000 ETH", "GLOBAL"],
+      ["999999", 8, "cbBTC", "0.009999 cbBTC", "GLOBAL"],
+      ["1000000", 8, "cbBTC", "0.0100 cbBTC", "GLOBAL"],
+      ["25000000", 6, "USDC", "25.00 USDC", "GLOBAL"],
+      ["1", 6, "USDC", "<0.01 USDC", "GLOBAL"],
+      ["0", 18, "ETH", "0 ETH", "GLOBAL"],
+      ["0", 6, "USDC", "0.00 USDC", "GLOBAL"],
+      ["0", 18, "ZORA", "0 ZORA", "GLOBAL"],
+      ["-1500000000000000000", 18, "ETH", "−1,5000 ETH", "FR"],
+      ["1500000000000000000", 18, "ETH", "1,5000 ETH", "DE"],
+      ["1234567890123456789012", 18, "ZORA", "1.234,56 ZORA", "DE"],
+    ];
+    for (const [atoms, decimals, symbol, expected, regionId] of cases) {
+      expect(formatPresentationTokenAmount(atoms, decimals, symbol, { regionId })).toBe(expected);
+    }
+    expect(formatExactPresentationTokenAmount("1234567890123456789012", 18, "ZORA"))
+      .toBe("1,234.567890123456789012 ZORA");
+    expect(formatExactPresentationTokenAmount("42", 8, "DEGEN"))
+      .toBe("0.00000042 DEGEN");
   });
 
   test("centralizes exact token, fiat, WAD, basis-point, health, and oracle formatting", () => {

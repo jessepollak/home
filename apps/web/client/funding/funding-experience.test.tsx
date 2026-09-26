@@ -535,7 +535,7 @@ describe("FundingExperience", () => {
     fireEvent.click(page().getByRole("button", { name: "Review quote" }));
     await page().findByRole("heading", { name: "Review quote" });
     expect(page().queryByText("Sandbox — not a real deposit")).toBeNull();
-    expect(page().getByText("Receive").parentElement?.textContent).toContain("1.000\u00A0wARS");
+    expect(page().getByText("Receive").parentElement?.textContent).toContain("1.000,00\u00A0wARS");
     expect(page().getByText("Rail").parentElement?.textContent).toContain("$10,00");
     fireEvent.click(page().getByRole("button", { name: "Confirm deposit" }));
     await page().findByRole("heading", { name: "Review payment details" });

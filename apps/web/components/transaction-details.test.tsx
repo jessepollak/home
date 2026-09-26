@@ -23,7 +23,7 @@ describe("transaction details", () => {
   test("exposes amount and status as terms, with decorative status and network marks", () => {
     const dialog = renderDetails({
       title: "Received TEST",
-      header: { amount: "+5,678 TEST", tone: "success", status: { label: "Confirmed", tone: "success" } },
+      header: { amount: "+5,678", unit: "TOKEN1", tone: "success", status: { label: "Confirmed", tone: "success" } },
       rows: [
         { label: "Value", value: "+$12.34" },
         { label: "From", value: FROM, display: "0x1111…111111" },
@@ -35,7 +35,13 @@ describe("transaction details", () => {
     });
     expect(dialog.getByText("Amount").tagName).toBe("DT");
     expect(dialog.getByText("Status").tagName).toBe("DT");
-    expect(dialog.getByText("+5,678 TEST").tagName).toBe("DD");
+    const amount = dialog.getByText("Amount").nextElementSibling;
+    expect(amount?.tagName).toBe("DD");
+    expect(amount?.textContent).toBe("+5,678 TOKEN1");
+    expect(amount?.querySelector('[data-slot="transaction-amount-number"]')?.textContent).toBe("+5,678");
+    expect(amount?.querySelector('[data-slot="transaction-amount-unit"]')?.textContent).toBe("TOKEN1");
+    expect(amount?.querySelector('[data-slot="transaction-amount-scroll"]')?.hasAttribute("tabindex")).toBe(false);
+    expect(amount?.querySelector("bdi")?.getAttribute("dir")).toBe("ltr");
     expect(dialog.getByText("Confirmed")).toBeTruthy();
     expect(dialog.getByText("Confirmed").getAttribute("data-status-tone")).toBe("success");
     expect(dialog.getByText("Confirmed").querySelector('[aria-hidden="true"]')).toBeTruthy();

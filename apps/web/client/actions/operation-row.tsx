@@ -7,12 +7,10 @@ import { MoneyTicker } from "@/components/money-ticker";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import type { RegionId } from "@/config/regions";
 import { getDirectPortfolioAssets } from "@/config/portfolio-assets";
-import {
-  formatPresentationDate,
-  formatPresentationTokenAmount,
-} from "@/shared/formatting";
+import { formatPresentationDate } from "@/shared/formatting";
 import { presentCashout } from "@/client/activity/cash-out-presenter";
 import {
+  formatOperationAmount,
   labelForOperationStatus,
   primaryOperationAmount,
   titleForOperation,
@@ -41,12 +39,7 @@ export function OperationActivityRow({
   const status = labelForOperationStatus(operation.status);
   const date = formatPresentationDate(operation.updatedAt, { style: "activity-short", regionId });
   const value = amount && !cashout
-    ? `${amount.direction === "spend" ? "−" : "+"}${amount.estimated ? "~" : ""}${formatPresentationTokenAmount(
-        amount.amountBaseUnits,
-        amount.decimals,
-        amount.symbol,
-        { cashCurrency: amount.symbol === "USDC" ? "USD" : null, regionId },
-      )}`
+    ? `${amount.direction === "spend" ? "−" : "+"}${amount.estimated ? "~" : ""}${formatOperationAmount(amount, regionId)}`
     : null;
   const failed = cashout ? cashout.stage === "failed" : operation.status === "failed";
   const title = cashout?.label ?? titleForOperation(operation);
