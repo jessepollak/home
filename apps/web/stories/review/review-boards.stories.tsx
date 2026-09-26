@@ -23,8 +23,8 @@ const meta = { id: "review-boards", title: "Review/Boards", component: ReviewBoa
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Changes: Story = { tags: ["!test"], args: { board: "changes", build } };
-export const Savings: Story = { tags: ["!test"], args: { board: savings, build } };
+export const Changes: Story = { tags: ["!test", "review-board"], args: { board: "changes", build } };
+export const Savings: Story = { tags: ["!test", "review-board"], args: { board: savings, build } };
 function ChromeFixture() {
   const [narrow, setNarrow] = useState(false);
   const [boardWidth, setBoardWidth] = useState<number>();
@@ -450,15 +450,17 @@ const navigationFixture = parseBoard({
     ] },
   ],
 });
+const navigationCalls: { url: string; newTab: boolean }[] = [];
 export const BoardNavigation: Story = {
   args: { board: navigationFixture, build: fixtureBuild, frameSource: "blank" },
   render: (args) => <div style={{ height: "100dvh", width: 1400 }}>
     <ReviewBoardView {...args} storyIndex={{
       "review-boards--savings": { id: "review-boards--savings", name: "Savings", title: "Review/Boards",
-        importPath: "board", type: "story" },
+        importPath: "board", type: "story", tags: ["review-board"] },
       "account-settings--default": { id: "account-settings--default", name: "Account Settings",
         title: "Account/Settings", importPath: "settings", type: "story" },
     }} onNavigate={(url, newTab) => {
+      navigationCalls.push({ url, newTab });
       if (!newTab) history.replaceState(history.state, "", new URL(url, location.href));
     }} />
   </div>,
@@ -467,6 +469,7 @@ export const BoardNavigation: Story = {
     const screen = within(doc.body);
     const original = doc.location.href;
     const board = screen.getByRole("main", { name: "Review board" });
+    navigationCalls.length = 0;
     const modifier = /Mac|iPhone|iPad|iPod/i.test((navigator as Navigator & { userAgentData?: { platform?: string } })
       .userAgentData?.platform ?? navigator.userAgent) ? "Meta" : "Control";
     try {
@@ -475,12 +478,25 @@ export const BoardNavigation: Story = {
       const palette = await screen.findByRole("dialog", { name: "Command palette" });
       const search = within(palette).getByRole("combobox", { name: "Search board navigation" });
       await waitFor(() => expect(search).toHaveFocus());
+      for (const name of ["Commands", "Frames", "Sections", "Boards"])
+        await expect(within(palette).getByRole("group", { name })).toBeVisible();
       await userEvent.keyboard("Account Settings");
+      await expect(within(palette).getByRole("group", { name: "Stories" })).toBeVisible();
       await waitFor(() => expect(within(palette).getAllByRole("option")[0]).toHaveTextContent("Account Settings"));
       await userEvent.keyboard("{Enter}");
       await waitFor(() => expect(new URL(doc.location.href).searchParams.get("path"))
         .toBe("/story/account-settings--default"));
       await waitFor(() => expect(screen.queryByRole("dialog", { name: "Command palette" })).not.toBeInTheDocument());
+      await expect(navigationCalls.at(-1)).toEqual({ url: "./?path=%2Fstory%2Faccount-settings--default", newTab: false });
+      board.focus();
+      await userEvent.keyboard(`{${modifier}>}k{/${modifier}}`);
+      const newTabPalette = await screen.findByRole("dialog", { name: "Command palette" });
+      const newTabSearch = within(newTabPalette).getByRole("combobox", { name: "Search board navigation" });
+      await waitFor(() => expect(newTabSearch).toHaveFocus());
+      await userEvent.keyboard("Account Settings");
+      await waitFor(() => expect(within(newTabPalette).getByRole("group", { name: "Stories" })).toBeVisible());
+      await userEvent.keyboard(`{${modifier}>}{Enter}{/${modifier}}`);
+      await waitFor(() => expect(navigationCalls.at(-1)).toEqual({ url: "./?path=%2Fstory%2Faccount-settings--default", newTab: true }));
       board.focus();
       await userEvent.keyboard("{Alt>}{ArrowDown}{/Alt}");
       await waitFor(() => expect(new URL(doc.location.href).searchParams.get("frame")).toBe("three"));

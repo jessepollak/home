@@ -5,8 +5,9 @@ import type { Section } from "../../stories/review/explorations/board/layout";
 import type { StoryIndexEntry } from "../../stories/review/explorations/board/review-build";
 
 const entries: Record<string, StoryIndexEntry> = {
-  "review-boards--savings": { id: "review-boards--savings", title: "Review/Boards", name: "Savings", type: "story", importPath: "board" },
-  "review-boards--changes": { id: "review-boards--changes", title: "Review/Boards", name: "Changes", type: "story", importPath: "board" },
+  "review-boards--savings": { id: "review-boards--savings", title: "Review/Boards", name: "Savings", type: "story", importPath: "board", tags: ["review-board"] },
+  "review-boards--changes": { id: "review-boards--changes", title: "Review/Boards", name: "Changes", type: "story", importPath: "board", tags: ["review-board"] },
+  "review-boards--board-chrome": { id: "review-boards--board-chrome", title: "Review/Boards", name: "BoardChrome", type: "story", importPath: "board" },
   "review-boards--docs": { id: "review-boards--docs", title: "Review/Boards", name: "Docs", type: "docs", importPath: "board" },
   "account-settings--default": { id: "account-settings--default", title: "Account/Settings", name: "Default", type: "story", importPath: "settings" },
   "save-growth--projection": { id: "save-growth--projection", title: "Save/Growth", name: "Projection", type: "story", importPath: "growth" },
@@ -42,10 +43,13 @@ describe("board palette items", () => {
     items.find((item) => item.group === "Frames")?.run();
     items.find((item) => item.group === "Sections")?.run();
     items.find((item) => item.group === "Boards")?.run();
+    items.find((item) => item.group === "Boards")?.run(true);
     items.find((item) => item.id === "story:save-growth--projection")?.run(true);
     expect(calls).toEqual(["frame:frame", "section:intro",
       "same:./iframe.html?id=review-boards--changes&viewMode=story",
+      "tab:./iframe.html?id=review-boards--changes&viewMode=story",
       "tab:./?path=%2Fstory%2Fsave-growth--projection"]);
+    expect(items.some((item) => item.id.includes("board-chrome"))).toBe(false);
   });
 
   test("filters fuzzily within ordered groups, hides empty stories and caps matches by rank", () => {

@@ -1,8 +1,8 @@
-import { Fragment, useMemo, useState } from "react";
-import { Combobox, ComboboxInput, ComboboxItem, ComboboxList } from "@/components/ui/combobox";
+import { useMemo, useState } from "react";
+import { Combobox, ComboboxCollection, ComboboxGroup, ComboboxGroupLabel, ComboboxInput, ComboboxItem, ComboboxList } from "@/components/ui/combobox";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Kbd } from "@/components/ui/kbd";
-import { rankPaletteItems, type PaletteItem } from "./palette-items";
+import { paletteGroups, rankPaletteItems, type PaletteItem } from "./palette-items";
 import styles from "./board.module.css";
 
 export function CommandPalette({ open, onOpenChange, returnFocus, items }: {
@@ -13,6 +13,9 @@ export function CommandPalette({ open, onOpenChange, returnFocus, items }: {
 }) {
   const [query, setQuery] = useState("");
   const ranked = useMemo(() => rankPaletteItems(query, items()), [query, items]);
+  const grouped = useMemo(() => paletteGroups.map((value) => ({
+    value, items: ranked.filter((item) => item.group === value),
+  })).filter((group) => group.items.length > 0), [ranked]);
   const change = (next: boolean) => {
     if (!next) setQuery("");
     onOpenChange(next);
@@ -30,7 +33,7 @@ export function CommandPalette({ open, onOpenChange, returnFocus, items }: {
         item.run(true);
       }}>
       <Combobox<PaletteItem> inline open={open} onOpenChange={(next) => { if (!next) change(false); }}
-        items={ranked} filter={null} autoHighlight="always"
+        items={grouped} filter={null} autoHighlight="always"
         inputValue={query} onInputValueChange={setQuery}
         value={null} itemToStringLabel={(item) => item.label}
         onValueChange={(item) => {
@@ -41,16 +44,17 @@ export function CommandPalette({ open, onOpenChange, returnFocus, items }: {
         <ComboboxInput aria-label="Search board navigation"
           placeholder="Search commands, frames, boards, stories…" showTrigger={false} variant="search" />
         <ComboboxList className="max-h-[min(22.5rem,56vh)]">
-          {(item: PaletteItem) => <Fragment key={item.id}>
-            {ranked.find((candidate) => candidate.group === item.group) === item &&
-              <div key={`${item.group}-heading`} role="presentation"
-                className="px-2.5 py-1 text-xs font-medium text-muted-foreground">{item.group}</div>}
-            <ComboboxItem key={item.id} value={item} data-palette-id={item.id} className="gap-3 px-2.5">
-              <span className={styles.paletteLabel}>{item.label}</span>
-              <span className={styles.paletteDetail}>{item.detail}</span>
-              <span className={styles.paletteKeys}>{item.keys?.[0] && <Kbd>{item.keys[0]}</Kbd>}</span>
-            </ComboboxItem>
-          </Fragment>}
+          {(group: { value: string; items: PaletteItem[] }) =>
+            <ComboboxGroup key={group.value} items={group.items}>
+              <ComboboxGroupLabel>{group.value}</ComboboxGroupLabel>
+              <ComboboxCollection>
+                {(item: PaletteItem) => <ComboboxItem key={item.id} value={item} data-palette-id={item.id} className="gap-3 px-2.5">
+                  <span className={styles.paletteLabel}>{item.label}</span>
+                  <span className={styles.paletteDetail}>{item.detail}</span>
+                  <span className={styles.paletteKeys}>{item.keys?.[0] && <Kbd>{item.keys[0]}</Kbd>}</span>
+                </ComboboxItem>}
+              </ComboboxCollection>
+            </ComboboxGroup>}
         </ComboboxList>
         {ranked.length === 0 && <p className={styles.paletteEmpty} role="status">No matches</p>}
       </Combobox>

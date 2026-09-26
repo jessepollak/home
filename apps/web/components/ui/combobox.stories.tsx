@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from "./combobox";
+import { Combobox, ComboboxCollection, ComboboxContent, ComboboxEmpty, ComboboxGroup, ComboboxGroupLabel, ComboboxInput, ComboboxItem, ComboboxList } from "./combobox";
 
 type CurrencyOption = {
   value: string;
@@ -33,6 +33,34 @@ export const Default: Story = {
             <ComboboxItem key={option.value} value={option}>
               {option.label}
             </ComboboxItem>
+          )}
+        </ComboboxList>
+      </ComboboxContent>
+    </Combobox>
+  ),
+};
+
+const groupedCurrencies = [
+  { value: "Americas", items: [currencies[0]] },
+  { value: "Europe and Asia", items: currencies.slice(1) },
+];
+
+export const Grouped: Story = {
+  render: () => (
+    <Combobox<CurrencyOption> items={groupedCurrencies} aria-label="Currency">
+      <ComboboxInput aria-label="Currency" placeholder="Search currencies" className="w-64" />
+      <ComboboxContent>
+        <ComboboxEmpty>No currencies found.</ComboboxEmpty>
+        <ComboboxList>
+          {(group: { value: string; items: CurrencyOption[] }) => (
+            <ComboboxGroup key={group.value} items={group.items}>
+              <ComboboxGroupLabel>{group.value}</ComboboxGroupLabel>
+              <ComboboxCollection>
+                {(option: CurrencyOption) => (
+                  <ComboboxItem key={option.value} value={option}>{option.label}</ComboboxItem>
+                )}
+              </ComboboxCollection>
+            </ComboboxGroup>
           )}
         </ComboboxList>
       </ComboboxContent>

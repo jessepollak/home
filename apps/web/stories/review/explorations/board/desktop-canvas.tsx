@@ -155,6 +155,9 @@ export function DesktopCanvas({
     if (!pointers.current.delete(event.pointerId)) return;
     if (pointers.current.size === 0) {
       lastGestureMoved.current = gestureMoved.current;
+      if (lastGestureMoved.current) {
+        setTimeout(() => { lastGestureMoved.current = false; }, 0);
+      }
       gestureMoved.current = false;
     }
   };

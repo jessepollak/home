@@ -152,6 +152,33 @@ function ComboboxList({ className, ...props }: ComboboxPrimitive.List.Props) {
   )
 }
 
+/** @public Groups items in owned navigation comboboxes. */
+export function ComboboxGroup({ className, ...props }: ComboboxPrimitive.Group.Props) {
+  return (
+    <ComboboxPrimitive.Group
+      data-slot="combobox-group"
+      className={cn(className)}
+      {...props}
+    />
+  )
+}
+
+/** @public Labels owned combobox groups for assistive technology. */
+export function ComboboxGroupLabel({ className, ...props }: ComboboxPrimitive.GroupLabel.Props) {
+  return (
+    <ComboboxPrimitive.GroupLabel
+      data-slot="combobox-group-label"
+      className={cn("px-2.5 py-1 text-xs font-medium text-muted-foreground", className)}
+      {...props}
+    />
+  )
+}
+
+/** @public Renders the items in an owned combobox group. */
+export function ComboboxCollection(props: ComboboxPrimitive.Collection.Props) {
+  return <ComboboxPrimitive.Collection {...props} />
+}
+
 function ComboboxItem({
   className,
   children,

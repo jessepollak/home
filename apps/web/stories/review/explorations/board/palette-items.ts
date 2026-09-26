@@ -36,10 +36,11 @@ export function buildPaletteItems({ commands, sections, index, boardId, selectFr
       detail: "", run: () => fitSection(section),
     })),
     ...Object.values(index ?? {}).filter((entry) => entry.type === "story" &&
-      entry.id.startsWith("review-boards--") && entry.id !== `review-boards--${boardId}`)
+      entry.id.startsWith("review-boards--") && entry.tags?.includes("review-board") &&
+      entry.id !== `review-boards--${boardId}`)
       .map((entry) => ({
         id: `board:${entry.id}`, group: "Boards" as const, label: `Open board: ${entry.name}`,
-        detail: entry.title, run: () => navigate(storyCanvasUrl(entry.id), false),
+        detail: entry.title, run: (newTab = false) => navigate(storyCanvasUrl(entry.id), newTab),
       })),
     ...Object.values(index ?? {}).filter((entry) => entry.type === "story" &&
       !entry.id.startsWith("review-boards--"))
