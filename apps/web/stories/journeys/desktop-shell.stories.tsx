@@ -6,6 +6,7 @@ import { HttpResponse, http } from "msw";
 import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 import { ActivityPanelView } from "@/client/activity";
 import type { UseActivityResult } from "@/client/activity/use-activity";
+import type { AppearancePreference } from "@/shared/appearance/preference";
 import { AccountSettings } from "@/client/account/account-settings";
 import { profileGlyph } from "@/client/account/basename-profile";
 import { AppChromeProvider } from "@/components/app-chrome";
@@ -308,6 +309,7 @@ function DesktopShell({ initialPanel, initialRailCollapsed = false, extendedActi
   const [navigationRequest, setNavigationRequest] = useState(0);
   const [accountOpen, setAccountOpen] = useState(false);
   const [showSmallBalances, setShowSmallBalances] = useState(false);
+  const [appearancePreference, setAppearancePreference] = useState<AppearancePreference>("system");
   const [regionId, setRegionId] = useState<RegionId>("US");
   const rootRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLElement>(null);
@@ -386,7 +388,10 @@ function DesktopShell({ initialPanel, initialRailCollapsed = false, extendedActi
     <AccountSettings
       regionId={regionId} onRegionChange={setRegionId} resolutionSource="explicit"
       preferenceMessage="" isPreferenceReady accountAddress={WALLET} accountOwnerKey="jesse.base.eth"
-      showSmallBalances={showSmallBalances} onShowSmallBalancesChange={setShowSmallBalances} onSignOut={noop}
+      showSmallBalances={showSmallBalances} onShowSmallBalancesChange={setShowSmallBalances}
+      appearancePreference={appearancePreference}
+      onAppearancePreferenceChange={(value) => { setAppearancePreference(value); return true; }}
+      onSignOut={noop}
     />
   ) : panel === "home" ? (
     <div className="space-y-4 lg:grid lg:grid-cols-[minmax(320px,3fr)_minmax(340px,2fr)] lg:items-start lg:gap-6 lg:space-y-0 xl:gap-8">

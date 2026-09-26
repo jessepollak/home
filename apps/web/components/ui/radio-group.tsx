@@ -5,11 +5,15 @@ import { RadioGroup as RadioGroupPrimitive } from "@base-ui/react/radio-group"
 import { Radio as RadioPrimitive } from "@base-ui/react/radio"
 import { cn } from "cn"
 
-function RadioGroup({ className, ...props }: RadioGroupPrimitive.Props) {
+function RadioGroup({ className, variant, ...props }: RadioGroupPrimitive.Props & { variant?: "segmented" }) {
   return (
     <RadioGroupPrimitive
       data-slot="radio-group"
-      className={cn("grid gap-2", className)}
+      data-variant={variant}
+      className={cn(
+        variant === "segmented" ? "flex w-full min-w-0 items-stretch rounded-lg border border-input p-0.5" : "grid gap-2",
+        className,
+      )}
       {...props}
     />
   )
@@ -28,6 +32,19 @@ function RadioGroupItem({ className, children, ...props }: RadioPrimitive.Root.P
       <RadioPrimitive.Indicator data-slot="radio-group-indicator" className="size-2 rounded-full bg-primary" />
       {children}
     </RadioPrimitive.Root>
+  )
+}
+
+function RadioGroupSegment({ className, ...props }: RadioPrimitive.Root.Props) {
+  return (
+    <RadioPrimitive.Root
+      data-slot="radio-group-segment"
+      className={cn(
+        "flex min-h-11 min-w-0 flex-1 cursor-pointer items-center justify-center rounded-md px-3 text-sm font-medium text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:z-10 focus-visible:ring-3 focus-visible:ring-ring/50 data-checked:bg-muted data-checked:text-foreground data-disabled:cursor-not-allowed data-disabled:opacity-50 motion-reduce:transition-none",
+        className,
+      )}
+      {...props}
+    />
   )
 }
 
@@ -64,4 +81,4 @@ function RadioGroupOption({ value, label, description, disabled, invalid, id }: 
   )
 }
 
-export { RadioGroup, RadioGroupOption }
+export { RadioGroup, RadioGroupOption, RadioGroupSegment }

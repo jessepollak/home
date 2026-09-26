@@ -15,6 +15,8 @@ export const Default: Story = {
   args: { className: "h-4 w-40" },
 };
 
+export const Dark: Story = { ...Default, globals: { theme: "dark" } };
+
 export const Stack: Story = {
   render: () => (
     <div className="flex w-56 flex-col gap-2">

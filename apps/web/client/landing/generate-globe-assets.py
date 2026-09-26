@@ -62,8 +62,7 @@ for feature in sorted(countries["features"], key=lambda f: priority.get(f["prope
 (ROOT / "globe-country-coordinates.json").write_text(json.dumps(dict(sorted(positions.items())), indent=2) + "\n")
 
 svg = ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">',
-       '<defs><radialGradient id="s" cx="32%" cy="26%" r="78%"><stop stop-color="#fcfdff"/><stop offset=".48" stop-color="#f1f4f8"/><stop offset=".8" stop-color="#e0e7ef"/><stop offset="1" stop-color="#cbd5e1"/></radialGradient></defs>',
-       '<circle cx="50" cy="50" r="44" fill="url(#s)"/>', '<g fill="none" stroke="#8295ad" stroke-width=".38" stroke-linecap="round">']
+       '<g fill="none" stroke="#000" stroke-width=".38" stroke-linecap="round">']
 paths = [[] for _ in range(5)]
 for i in range(0, len(points), 2):
     lon, lat = math.radians(points[i] + 28), math.radians(points[i + 1])

@@ -14,6 +14,7 @@ import {
 } from "@/shared/formatting";
 import type { RegionId } from "@/config/regions";
 import { usePresentationRegionId } from "./presentation-quote";
+import { useAppearance } from "@/client/appearance/use-appearance";
 import type { PriceHistoryState } from "./use-price-history";
 
 const LINE_COLOR = "var(--primary)";
@@ -215,6 +216,7 @@ function AssetLiveline({
 }) {
   const range = plot.range;
   const regionId = usePresentationRegionId();
+  const { resolvedAppearance } = useAppearance();
   const formatTime = useMemo(
     () => (time: number) => formatChartTime(time, range, regionId),
     [range, regionId],
@@ -229,7 +231,7 @@ function AssetLiveline({
       data={plot.points}
       value={plot.value}
       window={plot.windowSecs}
-      theme="light"
+      theme={resolvedAppearance}
       color={LINE_COLOR}
       fill
       pulse={!reduceMotion}

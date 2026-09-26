@@ -3,7 +3,7 @@ import "@/client/account/dom-test-harness";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { page } from "@/tests/helpers/dom";
 import { FieldError, FieldTitle } from "./field";
-import { RadioGroup, RadioGroupOption } from "./radio-group";
+import { RadioGroup, RadioGroupOption, RadioGroupSegment } from "./radio-group";
 
 const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 
@@ -82,5 +82,27 @@ describe("RadioGroup", () => {
     expect(document.getElementById(describedBy)?.textContent).toBe("Available today");
     fireEvent.click(page().getByText("Available today"));
     expect(radio.getAttribute("aria-checked")).toBe("true");
+  });
+  test("segmented radios share a tab stop and arrow keys move and select", async () => {
+    const onValueChange = mock(() => {});
+    render(
+      <RadioGroup variant="segmented" aria-label="Appearance" defaultValue="light" onValueChange={onValueChange}>
+        <RadioGroupSegment value="light">Light</RadioGroupSegment>
+        <RadioGroupSegment value="dark">Dark</RadioGroupSegment>
+        <RadioGroupSegment value="system">System</RadioGroupSegment>
+      </RadioGroup>,
+    );
+    const light = page().getByRole("radio", { name: "Light" });
+    const dark = page().getByRole("radio", { name: "Dark" });
+    const system = page().getByRole("radio", { name: "System" });
+    expect([light, dark, system].filter((radio) => radio.tabIndex === 0)).toEqual([light]);
+    act(() => { light.focus(); });
+    fireEvent.keyDown(light, { key: "ArrowRight" });
+    await waitFor(() => expect(dark.getAttribute("aria-checked")).toBe("true"));
+    expect(document.activeElement).toBe(dark);
+    expect([light, dark, system].filter((radio) => radio.tabIndex === 0)).toEqual([dark]);
+    expect(onValueChange).toHaveBeenCalledWith("dark", expect.anything());
+    fireEvent.click(system);
+    expect(system.getAttribute("aria-checked")).toBe("true");
   });
 });

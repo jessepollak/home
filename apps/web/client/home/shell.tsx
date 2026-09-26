@@ -11,6 +11,7 @@ import { useRouter } from "next/navigation";
 import { deferSheet } from "@/client/money-modal/deferred-sheet";
 import { isSessionSettling, useAccountWallet } from "@/client/account/cdp-client";
 import { AccountSettings } from "@/client/account/account-settings";
+import { useAppearance } from "@/client/appearance/use-appearance";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { BorrowMarketId } from "@/shared/borrowing/config";
 import {
@@ -180,6 +181,7 @@ function DashboardShellBody({
   );
   const [isAccountOpen, setIsAccountOpen] = useState(initialAccountOpen);
   const [isAccountSettingsOpen, setIsAccountSettingsOpen] = useState(initialAccountSettingsOpen);
+  const { preference: appearancePreference, setAppearancePreference } = useAppearance();
   const [urlAddMoney, setUrlAddMoney] = useState(initialAddMoney);
   const [urlReturnedFromProvider, setUrlReturnedFromProvider] = useState(returnedFromProvider);
   const [urlSendFlow, setUrlSendFlow] = useState(initialSendFlow);
@@ -849,6 +851,8 @@ function DashboardShellBody({
                 accountOwnerKey={isVerified ? account.ownerKey : null}
                 showSmallBalances={showSmallBalances}
                 onShowSmallBalancesChange={onShowSmallBalancesChange}
+                appearancePreference={appearancePreference}
+                onAppearancePreferenceChange={setAppearancePreference}
                 onSignOut={signOut}
               />
             ) : (

@@ -26,6 +26,8 @@ export const Default: Story = {
   ),
 };
 
+export const Dark: Story = { ...Default, globals: { theme: "dark" } };
+
 export const Destructive: Story = {
   args: { variant: "destructive" },
   render: (args) => (

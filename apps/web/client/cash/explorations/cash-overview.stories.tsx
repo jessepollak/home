@@ -549,10 +549,11 @@ export const WithdrawPending: Story = { args: { pendingExecution: true, initialV
   await userEvent.click(withdraw);
   await waitFor(() => expect(withdraw).toHaveAttribute("aria-expanded", "true"));
   await userEvent.click(within(screen.getByRole("region", { name: "Withdraw from" })).getByRole("button", { name: /^Gauntlet USDC Prime/, description: "Withdraw from Gauntlet USDC Prime" }));
-  const dialog = await body.findByRole("dialog", { name: "Withdraw" });
+  await waitFor(() => expect(withdraw).toHaveAttribute("aria-expanded", "false"));
+  const dialog = await body.findByRole("dialog", { name: "Withdraw" }, { timeout: 5000 });
   await userEvent.type(await within(dialog).findByRole("textbox", { name: "Amount" }), "25");
   await userEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
-  const confirm = await body.findByRole("dialog", { name: "Confirm" });
+  const confirm = await body.findByRole("dialog", { name: "Confirm" }, { timeout: 5000 });
   const submit = within(confirm).getByRole("button", { name: "Withdraw $25.00" });
   await userEvent.click(submit);
   await expect(submit).toHaveAttribute("aria-busy", "true");

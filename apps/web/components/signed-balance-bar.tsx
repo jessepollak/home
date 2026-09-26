@@ -4,8 +4,8 @@ import type { MoneyBreakdownItem } from "@/shared/balances/present";
 
 const segmentColors: Record<MoneyBreakdownItem["id"], string> = {
   borrow: "var(--muted-foreground)",
-  cash: "#0aa852",
-  investments: "#a064db",
+  cash: "var(--balance-bar-cash)",
+  investments: "var(--balance-bar-investments)",
 };
 
 type BreakdownProps = {

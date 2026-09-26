@@ -19,10 +19,12 @@ approximately equally on the sphere; fewer samples are taken near the poles.
 Longitude wraps continuously. This is an intentionally simplified land silhouette,
 not a political boundary map. Small islands may not have land dots at this scale.
 
-`globe-static.svg` projects the same samples into the initial orthographic view
-(center longitude −28°, latitude 12°), matching the initial-view constants in
+`globe-static.svg` is a land-dot alpha mask. It projects the same samples into the
+initial orthographic view (center longitude −28°, latitude 12°), matching the initial-view constants in
 `globe-geometry.ts` and the WebGL renderer. It contains **no baked-in support markers**;
 the React component overlays current profile markers in both static and WebGL modes.
+The static fallback paints the sphere and land dots from the `--globe-sphere-*` and
+`--globe-land` theme tokens, so it follows the resolved light or dark appearance.
 
 `globe-country-coordinates.json` contains 239 Natural Earth alpha-2 label points.
 Main countries take precedence over dependencies sharing a code (notably mainland

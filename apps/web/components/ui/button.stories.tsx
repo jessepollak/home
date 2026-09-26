@@ -17,6 +17,8 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
+export const Dark: Story = { ...Default, globals: { theme: "dark" } };
+
 export const Variants: Story = {
   render: () => (
     <div className="flex flex-wrap items-center gap-2">

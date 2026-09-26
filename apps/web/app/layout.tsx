@@ -8,6 +8,9 @@ import { readRenderSession } from "@/server/auth/render-session";
 import { HomeQueryClientProvider } from "@/client/query/query-client";
 import { HomeSpeedInsights } from "@/client/observability/home-speed-insights";
 import { AgentationOverlay } from "@/client/observability/agentation-overlay";
+import { AppearanceSync } from "@/client/appearance/use-appearance";
+import { appearanceBootScript } from "@/client/appearance/boot-script";
+import { appearanceThemeColors } from "@/shared/appearance/preference";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -30,8 +33,13 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   );
 
   return (
-    <html lang="en" className="h-full antialiased">
+    <html lang="en" className="h-full antialiased" suppressHydrationWarning>
+      <head>
+        <meta name="theme-color" content={appearanceThemeColors.light} />
+        <script dangerouslySetInnerHTML={{ __html: appearanceBootScript }} />
+      </head>
       <body className="min-h-full">
+        <AppearanceSync />
         <HomeQueryClientProvider>{accountProvider}</HomeQueryClientProvider>
         <HomeSpeedInsights />
         <AgentationOverlay disabled={smokeFixture} />
