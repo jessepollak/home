@@ -178,7 +178,7 @@ describe("SendDialog review", () => {
 });
 
 describe("SendDialog Peer cash-out", () => {
-  test("waits for the settled region before discovering cash-out destinations and orders", async () => {
+  test("waits for the settled region before discovering cash-out destinations", async () => {
     const requests: string[] = [];
     const props: ComponentProps<typeof SendDialog> = {
       open: true, immediate: true, address: ACCOUNT, ownerBoundary: "owner-region-pending", regionId: "US",
@@ -187,7 +187,7 @@ describe("SendDialog Peer cash-out", () => {
         requests.push(url);
         return url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers")
           ? { ...offrampResponse, providers: [{ ...offrampResponse.providers[0], region: "DE", currency: "EUR" }] }
-          : { version: 3, recoveryEligible: false, orders: [] };
+          : { version: 1, recipients: [] };
       },
       prepareMoneyAction: async () => cashoutAction(), resumeMoneyAction: async () => cashoutAction(),
       executeMoneyAction: async () => ({ id: ACTION_ID, status: "submitted" }), onClose: () => {},
@@ -205,7 +205,6 @@ describe("SendDialog Peer cash-out", () => {
     view.rerender(<SendDialog {...props} regionId="DE" regionReady />);
     await waitFor(() => expect(requests.filter((url) => url.startsWith("/api/funding/"))).toEqual([
       "/api/funding/providers?region=DE&direction=offramp",
-      "/api/funding/offramp/orders?region=DE&inFlight=1",
     ]));
     expect(await page().findByRole("button", { name: /Send to Cash App/ })).toBeTruthy();
   });
