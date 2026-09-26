@@ -31,13 +31,16 @@ export type CommandActions = {
   openShortcuts: () => void;
 };
 
-const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
-const mod = isMac ? "⌘" : "Ctrl ";
-const hasMod = (event: KeyboardEvent) => event.metaKey || event.ctrlKey;
-const plain = (event: KeyboardEvent) => !hasMod(event) && !event.altKey;
-const withMod = (event: KeyboardEvent) => hasMod(event) && !event.altKey;
+const macPlatform = () => typeof navigator !== "undefined" &&
+  /Mac|iPhone|iPad|iPod/i.test((navigator as Navigator & { userAgentData?: { platform?: string } })
+    .userAgentData?.platform ?? navigator.userAgent);
+const plain = (event: KeyboardEvent) => !event.metaKey && !event.ctrlKey && !event.altKey;
 
 export function boardCommands(actions: CommandActions): BoardCommand[] {
+  const isMac = macPlatform();
+  const mod = isMac ? "⌘" : "Ctrl ";
+  const withMod = (event: KeyboardEvent) => (isMac ? event.metaKey && !event.ctrlKey
+    : event.ctrlKey && !event.metaKey) && !event.altKey;
   const zoomIn = () => actions.zoom(1.2);
   const zoomOut = () => actions.zoom(1 / 1.2);
   return [

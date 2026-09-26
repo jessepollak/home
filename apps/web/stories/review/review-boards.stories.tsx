@@ -49,6 +49,9 @@ export const BoardChrome: Story = {
     const frameOverlay = (name: RegExp) => screen.getByRole("button", { name });
     const zoomPercent = (text: string | null) => Number.parseInt(text ?? "0", 10);
     await userEvent.click(screen.getByRole("button", { name: "Fit board" }));
+    const mac = /Mac|iPhone|iPad|iPod/i.test((navigator as Navigator & { userAgentData?: { platform?: string } })
+      .userAgentData?.platform ?? navigator.userAgent);
+    const modifier = mac ? "Meta" : "Control";
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "Before and after" }), "both");
     await expect(new URL(doc.location.href).searchParams.get("side")).toBe("both");
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "Before and after" }), "after");
@@ -71,8 +74,16 @@ export const BoardChrome: Story = {
     const firstSection = within(outline.getByRole("group", { name: "First section" }));
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "Before and after" }), "before");
     await expect(new URL(doc.location.href).searchParams.get("side")).toBe("before");
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Before and after" }), "both");
     await userEvent.click(firstSection.getByRole("button", { name: /Second frame.*320/i }));
     await waitFor(() => expect(new URL(doc.location.href).searchParams.get("side")).toBeNull());
+    const afterFrame = frameOverlay(/First section · Second frame · Unchanged/);
+    const canvasBounds = doc.querySelector<HTMLElement>("[data-review-canvas]")?.getBoundingClientRect();
+    if (!canvasBounds) throw new Error("Board canvas is required");
+    await waitFor(async () => {
+      const bounds = afterFrame.getBoundingClientRect();
+      await expect(Math.abs((bounds.left + bounds.right) / 2 - (canvasBounds.left + canvasBounds.right) / 2)).toBeLessThan(3);
+    });
     await expect(screen.getByRole("combobox", { name: "Before and after" })).toHaveValue("after");
     await expect(screen.getByRole("complementary", { name: "Inspector" })).toHaveTextContent("blank-two");
     await userEvent.click(firstSection.getByRole("button", { name: /First frame.*new.*390/i }));
@@ -177,7 +188,7 @@ export const BoardChrome: Story = {
     await userEvent.keyboard("{Shift>}1{/Shift}");
     await waitFor(() => expect(zoomPercent(zoomControl.textContent)).toBeLessThan(zoomPercent(frameZoom)));
     const fitAllZoom = zoomControl.textContent;
-    await userEvent.keyboard("{Meta>}0{/Meta}");
+    await userEvent.keyboard(`{${modifier}>}0{/${modifier}}`);
     await waitFor(() => expect(zoomControl).toHaveTextContent("100%"));
     await userEvent.click(screen.getByRole("button", { name: "Fit board" }));
     await waitFor(() => expect(zoomControl).toHaveTextContent(fitAllZoom ?? ""));
@@ -205,7 +216,7 @@ export const BoardChrome: Story = {
     await userEvent.keyboard("[[");
     await expect(outlinePanel()).toBeVisible();
     board.focus();
-    await userEvent.keyboard("{Meta>}k{/Meta}");
+    await userEvent.keyboard(`{${modifier}>}k{/${modifier}}`);
     const palette = await screen.findByRole("dialog", { name: "Command palette" });
     const search = within(palette).getByRole("combobox", { name: "Search commands and frames" });
     await waitFor(() => expect(search).toHaveFocus());
@@ -216,14 +227,17 @@ export const BoardChrome: Story = {
     await expect(new URL(doc.location.href).searchParams.get("frame")).toBe("two");
     await expect(screen.getByRole("complementary", { name: "Inspector" })).toHaveTextContent("blank-two");
     await waitFor(() => expect(board.contains(doc.activeElement)).toBe(true));
-    await userEvent.keyboard("{Meta>}k{/Meta}");
+    within(screen.getByRole("complementary", { name: "Inspector" })).getByRole("button", { name: "Fit frame" }).focus();
+    await userEvent.keyboard(`{${modifier}>}k{/${modifier}}`);
     await userEvent.keyboard("tgl insp");
     const options = within(await screen.findByRole("dialog", { name: "Command palette" })).getAllByRole("option");
     await expect(options[0]).toHaveTextContent("Toggle inspector");
     await userEvent.keyboard("{Enter}");
     await expect(inspectorToggle).toHaveAttribute("aria-pressed", "false");
     await expect(outlineToggle).toHaveAttribute("aria-pressed", "true");
-    await userEvent.keyboard("{Control>}k{/Control}");
+    await waitFor(() => expect(board).toHaveFocus());
+    board.focus();
+    await userEvent.keyboard(`{${modifier}>}k{/${modifier}}`);
     await screen.findByRole("dialog", { name: "Command palette" });
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Command palette" })).not.toBeInTheDocument());

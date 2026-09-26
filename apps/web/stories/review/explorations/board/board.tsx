@@ -113,6 +113,11 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
   const [transition, setTransition] = useState(false);
   const [activeFrameReady, setActiveFrameReady] = useState(0);
   const container = useRef<HTMLDivElement>(null);
+  const [focusFallback, setFocusFallback] = useState<HTMLDivElement | null>(null);
+  const setContainer = useCallback((node: HTMLDivElement | null) => {
+    container.current = node;
+    setFocusFallback(node);
+  }, []);
   const boardElement = useRef<HTMLDivElement>(null);
   const lastBoardFocus = useRef<HTMLElement | null>(null);
   const canvas = useRef<HTMLDivElement>(null);
@@ -121,6 +126,7 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
   const activeFrame = useRef<HTMLIFrameElement>(null);
   const lastWidth = useRef<number | null>(null);
   const firstFit = useRef(false);
+  const pendingFit = useRef<ReturnType<typeof setTimeout> | null>(null);
   const geometry = useMemo(() => layout(board, side), [board, side]);
   const positions = useMemo(() => geometry.sections.flatMap((section) => section.frames), [geometry]);
   const selectedPosition = positions.find((position) => position.id === selectedVariant &&
@@ -206,12 +212,31 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
     updateUrl({ frame: id, variant: before ? "before" : undefined,
       ...(!hasBefore ? { side: undefined } : {}) });
   };
+  const fitPosition = (position: Positioned) => {
+    const next = !position.frame.before && side !== "after"
+      ? layout(board, "after").sections.flatMap((section) => section.frames)
+        .find((item) => item.id === position.id) : position;
+    fit((next ?? position).rect);
+  };
   const selectAndFit = (id: string) => {
     const position = positions.find((item) => item.id === id);
     if (!position) return;
+    if (pendingFit.current !== null) clearTimeout(pendingFit.current);
+    pendingFit.current = null;
     select(position.frame.id, position.id);
-    fit(position.rect);
+    fitPosition(position);
   };
+  const selectFromCanvas = (position: Positioned) => {
+    select(position.frame.id, position.id);
+    if (pendingFit.current !== null) clearTimeout(pendingFit.current);
+    pendingFit.current = setTimeout(() => {
+      pendingFit.current = null;
+      fitPosition(position);
+    }, 275);
+  };
+  useEffect(() => () => {
+    if (pendingFit.current !== null) clearTimeout(pendingFit.current);
+  }, []);
   const interact = (position: Positioned) => {
     if (loaded.has(position.id)) setInteracting(position.id);
   };
@@ -303,14 +328,32 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
       setOverlayReturn(document.activeElement);
     open(true);
   };
+  const overlayChange = (change: (next: boolean) => void) => (next: boolean) => {
+    change(next);
+    if (!next) requestAnimationFrame(() => {
+      if (overlayReturn && !overlayReturn.isConnected) focusFallback?.focus({ preventScroll: true });
+    });
+  };
   const commands = boardCommands({
     fitBoard: fitAll,
     fitSelection: () => fit(selectedPosition.rect),
     zoom,
     zoomReset: () => zoom(1 / camera.zoom),
     pan: (x, y) => moveCamera((old) => pan(old, { x, y })),
-    toggleOutline: () => setOutlineOpen((old) => !old),
-    toggleInspector: () => setInspectorOpen((old) => !old),
+    toggleOutline: () => {
+      if (outlineOpen && overlayReturn?.closest('[aria-label="Outline"]')) {
+        setOverlayReturn(focusFallback);
+        setTimeout(() => focusFallback?.focus({ preventScroll: true }), 0);
+      }
+      setOutlineOpen((old) => !old);
+    },
+    toggleInspector: () => {
+      if (inspectorOpen && overlayReturn?.closest('[aria-label="Inspector"]')) {
+        setOverlayReturn(focusFallback);
+        setTimeout(() => focusFallback?.focus({ preventScroll: true }), 0);
+      }
+      setInspectorOpen((old) => !old);
+    },
     interact: () => interact(selectedPosition),
     canInteract,
     openStory: () => window.open(storyManagerUrl(selectedPosition.story), "_blank", "noreferrer"),
@@ -402,7 +445,7 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
       {staleFrame && <>Frame “{staleFrame}” is not on this revision; showing the first frame.</>}
       {mismatch && originalLink && <a href={originalLink}>Open original deployment</a>}
     </div>}
-    <main ref={container} className={styles.content} tabIndex={-1} aria-label="Review board" inert={dialogOpen}>
+    <main ref={setContainer} className={styles.content} tabIndex={-1} aria-label="Review board" inert={dialogOpen}>
       {mobile ? <MobileReview
         board={board} current={current} position={selectedPosition} index={currentIndex}
         metric={metrics.frames.find((entry) => entry.id === selectedPosition.id)}
@@ -420,7 +463,9 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
             frameSource={frameSource} activeFrame={activeFrame}
             onActiveFrameLoad={() => setActiveFrameReady((old) => old + 1)}
             moveCamera={moveCamera}
-            onSelect={(position) => selectAndFit(position.id)}
+            onSelect={selectFromCanvas}
+            onFocusSelect={(position) => select(position.frame.id, position.id)}
+            onFit={(position) => selectAndFit(position.id)}
             onInteract={(position) => { selectAndFit(position.id); interact(position); }}
             onExitInteract={() => setInteracting(undefined)}
             onMark={mark} onFinish={finish} onCancel={cancel}
@@ -436,8 +481,10 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
       </div>}
     </main>
     {!mobile && <>
-      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} items={paletteItems} returnFocus={overlayReturn} />
-      <ShortcutsHelp open={helpOpen} onOpenChange={setHelpOpen} commands={commands} returnFocus={overlayReturn} />
+      <CommandPalette open={paletteOpen} onOpenChange={overlayChange(setPaletteOpen)} items={paletteItems}
+        returnFocus={overlayReturn?.isConnected ? overlayReturn : focusFallback} />
+      <ShortcutsHelp open={helpOpen} onOpenChange={overlayChange(setHelpOpen)} commands={commands}
+        returnFocus={overlayReturn?.isConnected ? overlayReturn : focusFallback} />
     </>}
     {dialogOpen && <div className={styles.fullscreen} role="dialog" aria-modal="true"
       aria-label={`${selectedPosition.frame.label} full width`}>

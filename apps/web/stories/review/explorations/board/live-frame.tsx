@@ -20,12 +20,13 @@ type LiveFrameProps = {
   onCancel: (id: string) => void;
   onSelect: () => void;
   onFocusSelect?: () => void;
+  onFit?: () => void;
   onInteract: () => void;
 };
 
 export function LiveFrame({
   position, metric, loaded, active, frameSource, scale = 1, frameRef, onActiveLoad,
-  onMark, onFinish, onCancel, onSelect, onFocusSelect = onSelect, onInteract,
+  onMark, onFinish, onCancel, onSelect, onFocusSelect = onSelect, onFit = onSelect, onInteract,
 }: LiveFrameProps) {
   const { id, story, frame, rect, before } = position;
   const handleLoad = (iframe: HTMLIFrameElement) => {
@@ -94,7 +95,7 @@ export function LiveFrame({
         onDoubleClick={onInteract}
         onKeyDown={(event) => {
           if (event.key === "Enter") { event.preventDefault(); onInteract(); }
-          if (event.key === " ") { event.preventDefault(); onSelect(); }
+          if (event.key === " ") { event.preventDefault(); onFit(); }
         }}
       />}
     </div>

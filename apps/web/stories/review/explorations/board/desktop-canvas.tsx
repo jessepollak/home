@@ -18,7 +18,7 @@ export function shouldCapturePointer(panGesture: boolean, pointerCount: number,
 
 export function DesktopCanvas({
   sections, positions, size, camera, transition, selected, interacting, spacePan, loaded, metrics,
-  frameSource, activeFrame, onActiveFrameLoad, moveCamera, onSelect, onInteract, onExitInteract,
+  frameSource, activeFrame, onActiveFrameLoad, moveCamera, onSelect, onFocusSelect, onFit, onInteract, onExitInteract,
   onMark, onFinish, onCancel,
 }: {
   sections: Section[];
@@ -36,6 +36,8 @@ export function DesktopCanvas({
   onActiveFrameLoad: () => void;
   moveCamera: (updater: (old: Camera) => Camera) => void;
   onSelect: (position: Positioned) => void;
+  onFocusSelect: (position: Positioned) => void;
+  onFit: (position: Positioned) => void;
   onInteract: (position: Positioned) => void;
   onExitInteract: () => void;
   onMark: (id: string, patch: Partial<Metric>) => void;
@@ -201,7 +203,8 @@ export function DesktopCanvas({
           onFinish={onFinish}
           onCancel={onCancel}
           onSelect={() => selectUnlessDragged(position)}
-          onFocusSelect={() => { if (pointers.current.size === 0) onSelect(position); }}
+          onFocusSelect={() => { if (pointers.current.size === 0) onFocusSelect(position); }}
+          onFit={() => onFit(position)}
           onInteract={() => onInteract(position)}
         />
       </div>)}

@@ -6,7 +6,7 @@ const buildEnv = reviewEnv();
 
 function vercelComments(topOnly: boolean): string {
   if (process.env.VERCEL_ENV !== "preview") return "";
-  const deployment = JSON.stringify(process.env.VERCEL_DEPLOYMENT_ID ?? "");
+  const deployment = JSON.stringify(process.env.VERCEL_DEPLOYMENT_ID ?? "").replace(/</g, "\\u003c");
   const mount = `const s=document.createElement("script");s.src="https://vercel.live/_next-live/feedback/feedback.js";` +
     `s.async=true;s.dataset.explicitOptIn="true";s.dataset.deploymentId=${deployment};document.head.appendChild(s);`;
   return `<script>${topOnly ? `if(window.top===window){${mount}}` : mount}</script>`;
