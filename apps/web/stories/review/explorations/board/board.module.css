@@ -1,5 +1,5 @@
-:global(html:has([data-review-board])),
-:global(body:has([data-review-board])) {
+:global(html:has(#storybook-root > [data-review-board])),
+:global(body:has(#storybook-root > [data-review-board])) {
   overflow: hidden;
   margin: 0;
 }
@@ -12,6 +12,11 @@
   flex-direction: column;
   overflow: hidden;
   font-size: 13px;
+}
+:global(#storybook-root) > .board {
+  position: fixed;
+  inset: 0;
+  width: 100%;
 }
 .board :is(button, select, a):not([data-slot]) {
   color: inherit;
