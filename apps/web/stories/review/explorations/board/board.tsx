@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PanelLeftIcon, PanelRightIcon } from "lucide-react";
+import { MinusIcon, PanelLeftIcon, PanelRightIcon, PlusIcon } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { Toggle } from "@/components/ui/toggle";
 import { fitRect, initialFrameFit, pan, zoomAt, type Camera, type Rect, type Size } from "./camera";
 import { BuildChip } from "./build-chip";
 import { boardCommands, commandForKey } from "./commands";
 import { DesktopCanvas } from "./desktop-canvas";
 import { Inspector } from "./inspector";
+import { Kbd } from "./kbd";
 import { frameLabel, layout, type Positioned, type Side } from "./layout";
 import { MobileReview } from "./mobile-review";
 import { Outline } from "./outline";
@@ -65,7 +69,9 @@ function BoardMessage({ title, build, children }: { title: string; build: Review
       <h1 title={title}>{title}</h1>
       <BuildChip build={build} />
     </header>
-    <main className={styles.empty} aria-label="Review board"><p role="status">{children}</p></main>
+    <main className={styles.content} aria-label="Review board">
+      <Empty className={styles.empty}><EmptyDescription role="status">{children}</EmptyDescription></Empty>
+    </main>
   </div>;
 }
 
@@ -367,19 +373,23 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
       {!mobile && <>
         <span className={styles.renderStatus} role="status">{formatFrameStatus(metrics)}</span>
         <nav className={styles.toolbar} aria-label="Board controls">
-          <button aria-label="Zoom out" disabled={camera.zoom <= 0.05}
-            onClick={() => zoom(1 / 1.2)}>−</button>
-          <button aria-label="Reset zoom to 100%" onClick={() => zoom(1 / camera.zoom)}>
-            {Math.round(camera.zoom * 100)}%
-          </button>
-          <button aria-label="Zoom in" disabled={camera.zoom >= 2} onClick={() => zoom(1.2)}>+</button>
-          <button onClick={fitAll}>Fit board</button>
-          {hasBefore && <select aria-label="Before and after" value={side}
+          {hasBefore && <select className={styles.sideSelect} aria-label="Before and after" value={side}
             onChange={(event) => changeSide(event.target.value as Side)}>
             <option value="after">Proposed</option>
             <option value="before">Before</option>
             <option value="both">Side by side</option>
           </select>}
+          <div className={styles.zoomGroup} role="group" aria-label="Zoom">
+            <Button variant="ghost" size="icon-sm" aria-label="Zoom out" title="Zoom out (−)"
+              disabled={camera.zoom <= 0.05} onClick={() => zoom(1 / 1.2)}><MinusIcon /></Button>
+            <Button variant="ghost" size="sm" className={styles.zoomValue} aria-label="Reset zoom to 100%"
+              title="Zoom to 100%" onClick={() => zoom(1 / camera.zoom)}>
+              {Math.round(camera.zoom * 100)}%
+            </Button>
+            <Button variant="ghost" size="icon-sm" aria-label="Zoom in" title="Zoom in (+)"
+              disabled={camera.zoom >= 2} onClick={() => zoom(1.2)}><PlusIcon /></Button>
+          </div>
+          <Button variant="outline" size="sm" title="Fit board (⇧1)" onClick={fitAll}>Fit board</Button>
         </nav>
         <Toggle size="sm" aria-label="Inspector" title="Toggle inspector (])"
           pressed={inspectorOpen} onPressedChange={setInspectorOpen}>
@@ -415,9 +425,9 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
             onExitInteract={() => setInteracting(undefined)}
             onMark={mark} onFinish={finish} onCancel={cancel}
           />
-          {interactingPosition && <div className={styles.interactChip} role="status">
-            Interacting with <strong>{frameLabel(interactingPosition)}</strong> · Esc to exit
-          </div>}
+          {interactingPosition && <Badge className={styles.interactChip} role="status">
+            Interacting with <strong>{frameLabel(interactingPosition)}</strong> · <Kbd>Esc</Kbd> to exit
+          </Badge>}
         </div>
         {inspectorOpen && <Inspector section={selectedSection} position={selectedPosition}
           onInteract={() => interact(selectedPosition)} canInteract={canInteract}
@@ -432,8 +442,10 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
     {dialogOpen && <div className={styles.fullscreen} role="dialog" aria-modal="true"
       aria-label={`${selectedPosition.frame.label} full width`}>
       <span tabIndex={0} className={styles.focusSentinel} onFocus={() => activeFrame.current?.focus()} />
-      <div><strong>{selectedPosition.frame.label}</strong>
-        <button ref={closeButton} aria-label="Close full width" onClick={leave}>Close</button></div>
+      <div className={styles.fullscreenBar}><strong>{selectedPosition.frame.label}</strong>
+        <Button ref={closeButton} variant="outline" size="touch" aria-label="Close full width" onClick={leave}>
+          Close
+        </Button></div>
       <iframe ref={activeFrame} title={`${selectedPosition.frame.label} full width`}
         src={frameSource === "blank" ? "about:blank" : storyCanvasUrl(selectedPosition.story)}
         onLoad={() => setActiveFrameReady((old) => old + 1)} />

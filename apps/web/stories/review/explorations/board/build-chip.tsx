@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Badge } from "@/components/ui/badge";
 import { fetchPrStatus, prUrl, type PrStatus, type ReviewBuild } from "./review-build";
 import styles from "./board.module.css";
 
@@ -12,6 +13,10 @@ const checkLabels: Record<PrStatus["checks"], string | undefined> = {
 function commitUrl(build: ReviewBuild): string | undefined {
   if (!build.repo || !/^[\da-f]{7,40}$/i.test(build.revision)) return undefined;
   return `https://github.com/${build.repo.owner}/${build.repo.name}/commit/${build.revision}`;
+}
+
+function link(href: string, title: string) {
+  return <a href={href} target="_blank" rel="noreferrer" title={title} />;
 }
 
 export function BuildChip({ build }: { build: ReviewBuild }) {
@@ -28,21 +33,22 @@ export function BuildChip({ build }: { build: ReviewBuild }) {
     const text = build.branch ? `${commit} · ${build.branch}` : commit;
     const href = commitUrl(build);
     const title = build.branch ? `${build.revision} · ${build.branch}` : build.revision;
-    return href
-      ? <a className={styles.chip} href={href} target="_blank" rel="noreferrer" title={title}>{text}</a>
-      : <span className={styles.chip} title={title}>{text}</span>;
+    return <Badge variant="outline" className={styles.chip}
+      render={href ? link(href, title) : undefined} title={href ? undefined : title}>
+      <span className={styles.chipText}>{text}</span>
+    </Badge>;
   }
   const parts = [`#${build.pr}`, status && stateLabels[status.state],
     status && checkLabels[status.checks], commit].filter(Boolean);
   return <span className={styles.chipGroup}>
-    <a className={styles.chip} href={url} target="_blank" rel="noreferrer"
-      title={status ? `${status.title} · ${build.revision}` : build.revision}>
+    <Badge variant="outline" className={styles.chip}
+      render={link(url, status ? `${status.title} · ${build.revision}` : build.revision)}>
       <span className={styles.statusDot} data-checks={status?.checks ?? "none"} aria-hidden="true" />
-      {parts.join(" · ")}
-    </a>
-    {status && !status.current && <a className={`${styles.chip} ${styles.stale}`} href={status.url}
-      target="_blank" rel="noreferrer" title={`PR head is ${status.headSha.slice(0, 7)}`}>
+      <span className={styles.chipText}>{parts.join(" · ")}</span>
+    </Badge>
+    {status && !status.current && <Badge variant="outline" className={`${styles.chip} ${styles.stale}`}
+      render={link(status.url, `PR head is ${status.headSha.slice(0, 7)}`)}>
       Newer commit on PR
-    </a>}
+    </Badge>}
   </span>;
 }

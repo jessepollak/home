@@ -1,4 +1,6 @@
 import { useLayoutEffect, useRef, useState, type Ref } from "react";
+import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { BoardFrame, BoardSection, ReviewBoard } from "./manifest";
 import { ChangeTag } from "./change-tag";
 import type { Positioned, Side } from "./layout";
@@ -55,10 +57,12 @@ export function MobileReview({
           <ChangeTag change={position.frame.change} />
         </div>
         <span className={styles.muted}>{position.rect.width} × {position.rect.height}</span>
-        {position.frame.before && <div className={styles.segment} aria-label="Before and after">
-          <button aria-pressed={!position.before} onClick={() => onSide("after")}>Proposed</button>
-          <button aria-pressed={position.before} onClick={() => onSide("before")}>Before</button>
-        </div>}
+        {position.frame.before && <ToggleGroup variant="outline" spacing={0} className={styles.segment}
+          aria-label="Before and after" value={[position.before ? "before" : "after"]}
+          onValueChange={(value) => { if (value[0]) onSide(value[0] as Side); }}>
+          <ToggleGroupItem value="after" className={styles.segmentItem}>Proposed</ToggleGroupItem>
+          <ToggleGroupItem value="before" className={styles.segmentItem}>Before</ToggleGroupItem>
+        </ToggleGroup>}
         <div ref={frameSpace} className={styles.mobileFrameSpace}>
           <LiveFrame
             position={position}
@@ -78,10 +82,11 @@ export function MobileReview({
       </div>}
     </div>
     <nav className={styles.mobileActions} aria-label="Frame navigation">
-      <button disabled={index === 0} onClick={() => onSelect(frames[index - 1].id)}>Previous</button>
-      <button ref={fullButton} className={styles.primary} onClick={onOpen}>Open full width</button>
-      <button disabled={index === frames.length - 1}
-        onClick={() => onSelect(frames[index + 1].id)}>Next</button>
+      <Button variant="outline" size="touch" className={styles.mobileAction} disabled={index === 0}
+        onClick={() => onSelect(frames[index - 1].id)}>Previous</Button>
+      <Button ref={fullButton} size="touch" className={styles.mobileAction} onClick={onOpen}>Open full width</Button>
+      <Button variant="outline" size="touch" className={styles.mobileAction} disabled={index === frames.length - 1}
+        onClick={() => onSelect(frames[index + 1].id)}>Next</Button>
     </nav>
   </div>;
 }

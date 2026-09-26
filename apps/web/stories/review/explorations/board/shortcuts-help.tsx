@@ -2,16 +2,8 @@ import { Dialog } from "@base-ui/react/dialog";
 import { XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { commandGroups, type BoardCommand } from "./commands";
+import { Keys } from "./kbd";
 import styles from "./board.module.css";
-
-export function Keys({ keys }: { keys: string[] }) {
-  return <span className={styles.keys}>
-    {keys.map((key, index) => <span key={key} className={styles.keyAlternative}>
-      {index > 0 && <span className={styles.keySeparator}>or</span>}
-      <kbd>{key}</kbd>
-    </span>)}
-  </span>;
-}
 
 export function ShortcutList({ commands, label }: { commands: BoardCommand[]; label: string }) {
   return <dl className={styles.shortcuts} aria-label={label}>

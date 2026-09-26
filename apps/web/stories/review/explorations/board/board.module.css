@@ -21,11 +21,11 @@
   padding-inline: 10px;
   cursor: pointer;
 }
-.board button:disabled {
+.board button:not([data-slot]):disabled {
   opacity: .45;
   cursor: not-allowed;
 }
-.board :is(button, select, a, [role="button"]):focus-visible {
+.board :is(button:not([data-slot]), select, a:not([data-slot]), [role="button"]):focus-visible {
   outline: 3px solid var(--ring);
   outline-offset: 2px;
 }
@@ -34,7 +34,7 @@
   align-items: center;
   gap: 12px;
   min-height: 48px;
-  padding-inline: 16px;
+  padding-inline: 12px;
   background: var(--card);
   border-block-end: 1px solid var(--border);
   z-index: 3;
@@ -56,24 +56,19 @@
   min-width: 0;
 }
 .board .chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   max-width: 320px;
-  padding: 3px 8px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--card);
+  justify-content: flex-start;
   color: var(--muted-foreground);
+  font-weight: 400;
   text-decoration: none;
 }
 .board a.chip:hover {
   color: var(--foreground);
-  border-color: color-mix(in oklab, var(--foreground) 25%, transparent);
+}
+.chipText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .statusDot {
   flex: none;
@@ -104,11 +99,20 @@
   margin-inline-start: auto;
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 8px;
   white-space: nowrap;
 }
-.toolbar button, .toolbar select {
+.board .sideSelect {
+  min-height: 28px;
   font-size: 12px;
+}
+.zoomGroup {
+  display: flex;
+  align-items: center;
+}
+.zoomValue {
+  min-width: 52px;
+  font-variant-numeric: tabular-nums;
 }
 .position {
   color: var(--muted-foreground);
@@ -134,10 +138,7 @@
   outline: none;
 }
 .empty {
-  flex: 1;
-  display: grid;
-  place-items: center;
-  color: var(--muted-foreground);
+  height: 100%;
 }
 .desktop {
   display: flex;
@@ -263,6 +264,7 @@
 .shortcuts div {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 12px;
 }
 .shortcuts dt {
@@ -287,15 +289,21 @@
   color: var(--muted-foreground);
   font-size: 10px;
 }
-.keys kbd {
-  font: 500 11px/18px var(--font-mono, ui-monospace, monospace);
-  min-width: 18px;
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  box-sizing: border-box;
+  height: 20px;
+  min-width: 20px;
   padding-inline: 5px;
-  text-align: center;
-  color: var(--foreground);
+  font: 500 11px/1 var(--font-sans, system-ui, sans-serif);
+  color: var(--muted-foreground);
   background: var(--muted);
-  border: 1px solid var(--border);
   border-radius: 4px;
+  box-shadow: inset 0 -1px 0 var(--border);
+  white-space: nowrap;
 }
 .overlayBackdrop {
   position: fixed;
@@ -322,11 +330,28 @@
   outline: none;
 }
 .palette {
-  padding: 6px;
-  gap: 6px;
+  padding: 0;
+}
+.board .paletteSearch, .paletteSearch {
+  height: 48px;
+  border: 0;
+  border-block-end: 1px solid var(--border);
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.paletteSearch input {
+  padding-inline: 16px;
+  font-size: 14px;
 }
 .paletteList {
   max-height: min(360px, 56vh);
+  padding: 6px;
+}
+.paletteItem {
+  gap: 12px;
+  padding-inline: 10px;
+  min-height: 36px;
 }
 .paletteLabel {
   flex: 1;
@@ -342,7 +367,7 @@
 }
 .paletteEmpty {
   margin: 0;
-  padding: 16px;
+  padding: 24px 16px;
   text-align: center;
   color: var(--muted-foreground);
 }
@@ -480,14 +505,17 @@
   inset-inline-start: 50%;
   translate: -50% 0;
   z-index: 4;
-  padding: 5px 12px;
-  border-radius: 999px;
-  font-size: 12px;
-  white-space: nowrap;
-  color: var(--primary-foreground);
-  background: var(--primary);
+  height: 28px;
+  padding-inline: 12px;
+  font-weight: 400;
   box-shadow: 0 2px 8px color-mix(in oklab, var(--foreground) 18%, transparent);
   pointer-events: none;
+}
+.interactChip .kbd {
+  height: 18px;
+  color: var(--primary);
+  background: var(--primary-foreground);
+  box-shadow: none;
 }
 .skeleton, .message {
   position: absolute;
@@ -619,13 +647,10 @@
   white-space: nowrap;
 }
 .segment {
-  display: flex;
-  gap: 4px;
   margin-block: 4px;
 }
-.segment [aria-pressed="true"] {
-  color: var(--primary);
-  border-color: var(--primary);
+.segmentItem {
+  min-height: 44px;
 }
 .mobileActions {
   display: flex;
@@ -636,7 +661,7 @@
   background: var(--card);
   border-block-start: 1px solid var(--border);
 }
-.mobileActions button {
+.mobileAction {
   flex: 1;
   white-space: nowrap;
 }
@@ -659,7 +684,7 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
-.fullscreen > div {
+.fullscreenBar {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -672,7 +697,7 @@
   min-height: 0;
 }
 @media (max-width: 767px) {
-  .board button, .board select {
+  .board button:not([data-slot]), .board select {
     min-height: 44px;
     min-width: 44px;
   }
