@@ -10,7 +10,7 @@
   height: 100dvh;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: clip;
   font-size: 13px;
 }
 :global(#storybook-root) > .board {
