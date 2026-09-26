@@ -9,7 +9,7 @@ const kbdVariants = cva(
       variant: {
         default:
           "border-b border-border bg-muted text-foreground in-data-[slot=badge]:border-transparent in-data-[slot=badge]:bg-primary-foreground in-data-[slot=badge]:text-primary",
-        inverse: "bg-primary-foreground/20 text-primary-foreground",
+        inverse: "border border-primary-foreground/40 text-primary-foreground",
       },
     },
     defaultVariants: {
