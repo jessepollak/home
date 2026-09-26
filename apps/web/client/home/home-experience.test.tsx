@@ -796,7 +796,9 @@ describe("Home shell routing and intents", () => {
     expect(legend[0]!.textContent).toContain("Borrow−$30.01");
     expect(legend[1]!.textContent).toContain("Cash$12.34");
     expect(legend[2]!.textContent).toContain("Investments$78.21");
-    const bar = within(breakdown!).getByRole("img", { name: "Balance allocation" });
+    expect(within(breakdown!).getByRole("list", { name: "Balance allocation" })).toBeTruthy();
+    const bar = breakdown!.querySelector<HTMLElement>("[data-signed-balance-bar]")!;
+    expect(bar.getAttribute("aria-hidden")).toBe("true");
     expect([...bar.children].map((child) =>
       child.getAttribute("data-balance-segment") ?? (child.hasAttribute("data-balance-axis") ? "axis" : null)
     )).toEqual(["borrow", "axis", "cash", "investments"]);

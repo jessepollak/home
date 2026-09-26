@@ -18,6 +18,8 @@ const buttonVariantStyles = cva(
         destructive:
           "bg-destructive/10 text-destructive hover:bg-destructive/20 active:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:active:bg-destructive/30 dark:focus-visible:ring-destructive/40",
         link: "text-primary underline-offset-4 hover:underline active:underline",
+        "balance-segment": "border-0 before:absolute before:inset-x-0 before:-top-3 before:-bottom-1 before:content-[''] transition-[opacity,scale] duration-200 ease-out data-muted:opacity-35 data-selected:scale-y-150 data-selected:before:-top-2 data-selected:before:-bottom-px motion-reduce:transition-none",
+        "balance-legend": "border-0 text-xs leading-tight font-normal whitespace-normal text-muted-foreground transition-colors duration-200 ease-out hover:text-foreground active:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 data-selected:text-foreground data-selected:font-semibold motion-reduce:transition-none",
         navigation:
           "rounded-none text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted active:text-foreground aria-[current=page]:text-foreground dark:hover:bg-muted/50 dark:active:bg-muted/50",
       },
@@ -36,6 +38,8 @@ const buttonVariantStyles = cva(
         "icon-lg": "size-9",
         inline:
           "h-auto min-h-0 gap-1 rounded-sm p-0 [&_svg:not([class*='size-'])]:size-3.5",
+        "balance-segment": "h-auto min-h-0 rounded-xs p-0",
+        "balance-legend": "h-auto min-h-0 rounded-md p-0",
         "card-action":
           "-mr-2 h-auto min-h-7 gap-1 rounded-md pt-0.5 pr-2 pb-1.5 pl-2.5 [&_svg:not([class*='size-'])]:size-3.5",
       },
@@ -72,6 +76,8 @@ const iconPressSizes = new Set<ButtonSize>([
 const stillPressVariants = new Set<ButtonVariant>([
   "link",
   "navigation",
+  "balance-segment",
+  "balance-legend",
 ]);
 
 function defaultButtonPress(variant: ButtonVariant, size: ButtonSize): ButtonPress {

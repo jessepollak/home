@@ -276,6 +276,7 @@ function HomeOverviewStory({
       />
       <main className={shellContentFrameClassName}>
         <HomeOverview
+          accountKey={WALLET}
           onRetryBalances={status?.recovery === "none" ? undefined : onRetry}
           assetBalances={assetBalances}
           cashRate={cashRate}
@@ -374,10 +375,85 @@ export const Funded: Story = {
   },
 };
 
+export const BalanceAllocationSelection: Story = {
+  play: async ({ canvasElement }) => {
+    const legend = within(canvasElement).getByRole("list", { name: "Balance allocation" });
+    const item = (id: string) => legend.querySelector<HTMLElement>(`[data-breakdown-item="${id}"]`)!;
+    const segment = (id: string) => canvasElement.querySelector<HTMLElement>(`[data-balance-segment="${id}"]`)!;
+    const press = async (id: string, selected: boolean) => {
+      await expect(within(item(id)).getByRole("button")).toHaveAttribute("aria-pressed", String(selected));
+      await expect(item(id).getAttribute("data-selected")).toBe(selected ? "true" : null);
+      await expect(segment(id).getAttribute("data-selected")).toBe(selected ? "true" : null);
+    };
+    await userEvent.click(segment("cash"));
+    await press("cash", true);
+    await press("borrow", false);
+    await press("investments", false);
+    await userEvent.click(within(item("investments")).getByRole("button"));
+    await press("cash", false);
+    await press("investments", true);
+    await userEvent.click(within(item("investments")).getByRole("button"));
+    for (const id of ["borrow", "cash", "investments"]) await press(id, false);
+  },
+};
+
+export const BalanceAllocationKeyboard: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const legend = canvas.getByRole("list", { name: "Balance allocation" });
+    const borrow = within(legend).getByRole("button", { name: /Borrow/ });
+    canvas.getByRole("button", { name: "Account" }).focus();
+    await userEvent.tab();
+    await expect(borrow).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    await expect(borrow).toHaveAttribute("aria-pressed", "true");
+    await userEvent.keyboard("[Space]");
+    await expect(borrow).toHaveAttribute("aria-pressed", "false");
+  },
+};
+
+export const BalanceAllocationBorrow: Story = {
+  play: async ({ canvasElement }) => {
+    const borrowSegment = canvasElement.querySelector<HTMLButtonElement>('[data-balance-segment="borrow"]')!;
+    await userEvent.click(borrowSegment);
+    await expect(borrowSegment).toHaveAttribute("data-selected", "true");
+    const legend = within(canvasElement).getByRole("list", { name: "Balance allocation" });
+    await expect(within(legend).getByRole("button", { name: /Borrow/ })).toHaveAttribute("aria-pressed", "true");
+  },
+};
+
+export const BalanceAllocationTinyAndZero: Story = {
+  args: {
+    assetBalances: {
+      ...fundedBalances,
+      breakdown: [
+        { id: "borrow", label: "Borrow", value: "−$9.99", weight: 999 },
+        { id: "cash", label: "Cash", value: "$0.01", weight: 1 },
+        { id: "investments", label: "Investments", value: "$0.00", weight: 0 },
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const legend = within(canvasElement).getByRole("list", { name: "Balance allocation" });
+    const tiny = canvasElement.querySelector<HTMLButtonElement>('[data-balance-segment="cash"]')!;
+    await userEvent.click(tiny);
+    await expect(tiny).toHaveAttribute("data-selected", "true");
+    await expect(within(legend).getByRole("button", { name: /Cash/ })).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(within(legend).getByRole("button", { name: /Investments/ }));
+    await expect(within(legend).getByRole("button", { name: /Investments/ })).toHaveAttribute("aria-pressed", "true");
+    await expect(tiny).not.toHaveAttribute("data-selected");
+    await expect(canvasElement.querySelector('[data-balance-segment="investments"]')).toBeNull();
+  },
+};
+
 export const KeyboardOrder: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     canvas.getByRole("button", { name: "Account" }).focus();
+    for (const item of ["Borrow", "Cash", "Investments"]) {
+      await userEvent.tab();
+      await expect(canvas.getByRole("list", { name: "Balance allocation" }).querySelector(`[data-breakdown-item="${item.toLowerCase()}"] button`)).toHaveFocus();
+    }
     await userEvent.tab();
     await expect(canvas.getByRole("button", { name: /Add money/ })).toHaveFocus();
     await userEvent.tab();

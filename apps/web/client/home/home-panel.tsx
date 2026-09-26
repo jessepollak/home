@@ -84,6 +84,7 @@ export function HomePanel({
 
   return (
     <HomeOverview
+      accountKey={activitySession?.smartAccount?.address ?? null}
       assetBalances={assetBalances}
       onRetryBalances={onRetryBalances}
       cashRate={cashRate}

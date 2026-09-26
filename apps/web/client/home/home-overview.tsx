@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Banknote, ChartLine, HandCoins } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -11,7 +11,7 @@ import {
   MoneyBreakdownLegend,
   SignedBalanceBar,
 } from "@/components/signed-balance-bar";
-import type { HomeMoneySummary as HomeMoneySummaryModel } from "@/shared/balances/present";
+import type { HomeMoneySummary as HomeMoneySummaryModel, MoneyBreakdownItem } from "@/shared/balances/present";
 import { cn } from "@/lib/utils";
 import type { HomeAssetBalancesPresentation } from "./home-types";
 import { ShimmerRows } from "./panel-shared";
@@ -24,6 +24,7 @@ export type HomeOverviewDestinations = {
 
 export function HomeOverview({
   assetBalances,
+  accountKey,
   actions,
   activity,
   cashRate,
@@ -32,6 +33,7 @@ export function HomeOverview({
   onRetryBalances,
 }: {
   assetBalances?: HomeAssetBalancesPresentation;
+  accountKey: string | null;
   actions: ReactNode;
   activity: ReactNode;
   cashRate: string | null;
@@ -42,7 +44,7 @@ export function HomeOverview({
   const isLoading = assetBalances?.status === "loading";
   return (
     <div className="space-y-4">
-      <HomeTotalBalance assetBalances={assetBalances} />
+      <HomeTotalBalance assetBalances={assetBalances} accountKey={accountKey} />
       <div className="grid grid-cols-2 gap-2" aria-label="Money actions">
         {actions}
       </div>
@@ -69,8 +71,10 @@ export function HomeSectionHeading({ id, children }: { id: string; children: Rea
 
 function HomeTotalBalance({
   assetBalances,
+  accountKey,
 }: {
   assetBalances?: HomeAssetBalancesPresentation;
+  accountKey: string | null;
 }) {
   const isLoading = assetBalances?.status === "loading";
   const isRevalidating = assetBalances?.revalidating === true;
@@ -116,13 +120,26 @@ function HomeTotalBalance({
           </div>
         )}
         {!isLoading && breakdown.length > 0 ? (
-          <div className="space-y-2" data-balance-breakdown="">
-            <SignedBalanceBar items={breakdown} />
-            <MoneyBreakdownLegend items={breakdown} />
-          </div>
+          <HomeBalanceBreakdown key={accountKey ?? ""} items={breakdown} />
         ) : null}
       </CardContent>
     </Card>
+  );
+}
+
+export function HomeBalanceBreakdown({ items }: { items: readonly MoneyBreakdownItem[] }) {
+  const [selectedId, setSelectedId] = useState<MoneyBreakdownItem["id"] | null>(null);
+  if (selectedId !== null && !items.some((item) => item.id === selectedId)) {
+    setSelectedId(null);
+  }
+  const onSelect = (id: MoneyBreakdownItem["id"]) => {
+    setSelectedId((current) => current === id ? null : id);
+  };
+  return (
+    <div className="space-y-2" data-balance-breakdown="">
+      <SignedBalanceBar items={items} selectedId={selectedId} onSelect={onSelect} />
+      <MoneyBreakdownLegend items={items} selectedId={selectedId} onSelect={onSelect} />
+    </div>
   );
 }
 
