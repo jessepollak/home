@@ -265,12 +265,13 @@ export const Priced: Story = {
     await expect(within(thinRow).queryByText(/\$/)).toBeNull();
 
     await userEvent.click(receivedRow);
-    const dialog = await screen.findByRole("dialog", { name: "Received TEST" });
+    const dialog = await screen.findByRole("dialog", { name: "Received" });
     await expect(within(dialog).getByText("+$12.34")).toBeVisible();
-    await expect(within(dialog).getByText("Amount").nextElementSibling).toHaveTextContent("+5,678.00 TEST");
+    await expect(dialog.querySelector('[data-slot="activity-amount-number"]')).toHaveTextContent("+5,678.00");
+    await expect(dialog.querySelector('[data-slot="activity-amount-unit"]')).toHaveTextContent("TEST");
     await expect(within(dialog).queryByText(/Historical close/)).toBeNull();
     await expect(within(dialog).queryByText("Quote time")).toBeNull();
-    await userEvent.click(within(dialog).getByRole("button", { name: "Close transaction details" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Close Received details" }));
   },
 };
 
@@ -296,10 +297,12 @@ export const MissingPrice: Story = {
     await expect(within(receivedRow).getByRole("img", { name: "+5,678.00 TEST" })).toBeVisible();
     await expect(within(receivedRow).queryByText(/\$/)).toBeNull();
     await userEvent.click(receivedRow);
-    const dialog = await screen.findByRole("dialog", { name: "Received TEST" });
-    await expect(within(dialog).getByText("Unknown")).toBeVisible();
+    const dialog = await screen.findByRole("dialog", { name: "Received" });
+    await expect(dialog.querySelector('[data-slot="activity-amount-number"]')).toHaveTextContent("+5,678.00");
+    await expect(dialog.querySelector('[data-slot="activity-amount-unit"]')).toHaveTextContent("TEST");
+    await expect(within(dialog).queryByText("Value")).toBeNull();
     await expect(within(dialog).queryByText(/Not priced/)).toBeNull();
-    await userEvent.click(within(dialog).getByRole("button", { name: "Close transaction details" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Close Received details" }));
   },
 };
 

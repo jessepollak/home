@@ -1,8 +1,6 @@
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import type { RegionId } from "@/config/regions";
-import { formatFiatAmount, formatPresentationDate } from "@/shared/formatting";
-import { baseNetworkRow, condensedTransactionHash, transactionExplorerLink, type TransactionDetails, type TransactionStatusTone } from "@/components/transaction-explorer";
-import { labelForOperationStatus, presentOperationDetails } from "@/client/actions/operation-details";
+import { formatFiatAmount } from "@/shared/formatting";
 
 export type CashoutStage = "failed" | "returning" | "returned" | "paid" | "paying" | "waiting" | "checking";
 
@@ -14,6 +12,10 @@ export function cashoutMoney(atoms: string, decimals = 6, regionId?: RegionId): 
     minimumFractionDigits: amount % (BigInt(10) ** BigInt(decimals)) === BigInt(0) ? 0 : 2,
   });
 }
+
+const operationStatusLabel: Record<RecentMoneyActionOperation["status"], string> = {
+  pending: "Pending", confirmed: "Confirmed", failed: "Failed", unknown: "Outcome unknown",
+};
 
 const withdrawRank: Record<RecentMoneyActionOperation["status"], number> = { pending: 1, unknown: 1, confirmed: 2, failed: 0 };
 
@@ -61,7 +63,7 @@ export function presentCashout(
     return {
       stage: "returned" as CashoutStage,
       label: operation.action.title,
-      status: labelForOperationStatus(operation.status),
+      status: operationStatusLabel[operation.status],
       app, total, paid, returned, remaining, decimals,
       inProgress: false, refreshing: false, cancellable: false, metadata,
     };
@@ -89,43 +91,4 @@ export function presentCashout(
   const refreshing = inProgress || progress?.settledAt === null && stage !== "failed";
   const cancellable = stage === "waiting" && progress?.withdrawable === true && Boolean(progress.depositId) && BigInt(remaining) > BigInt(0) && !withdrawUnsettled;
   return { stage, label, status, app, total, paid, returned, remaining, decimals, inProgress, refreshing, cancellable, metadata };
-}
-
-const stageTone: Record<CashoutStage, TransactionStatusTone> = {
-  failed: "failure", returned: "success", paid: "success", returning: "pending", paying: "pending", waiting: "pending", checking: "neutral",
-};
-
-export function presentCashoutDetails(
-  operation: RecentMoneyActionOperation,
-  withdraw?: RecentMoneyActionOperation,
-  options: { regionId?: RegionId } = {},
-): TransactionDetails {
-  if (operation.action.metadata?.product === "cashout" && operation.action.metadata.operation === "withdraw") return presentOperationDetails(operation, options);
-  const view = presentCashout(operation, withdraw, options);
-  const eta = operation.cashout?.etaSeconds ?? view.metadata?.etaSeconds;
-  const rows: TransactionDetails["rows"] = [{ label: "Status", value: view.status, statusTone: stageTone[view.stage] }];
-  if ((view.stage === "waiting" || view.stage === "paying") && eta !== null && eta !== undefined) {
-    rows.push({ label: "Estimated delivery", value: `About ${Math.ceil(eta / 60)} min` });
-  }
-  if (view.metadata) {
-    rows.push(
-      { label: "Approximate receive", value: `≈ ${view.metadata.approximateFiatAmount} ${view.metadata.currency}` },
-      { label: "Payout app", value: view.app },
-      { label: "Payout handle", value: view.metadata.canonicalHandle },
-    );
-  } else {
-    rows.push({ label: "Payout app", value: view.app });
-  }
-  if (BigInt(view.paid) > BigInt(0) && BigInt(view.paid) < BigInt(view.total)) {
-    rows.push({ label: "Paid", value: cashoutMoney(view.paid, view.decimals, options.regionId) });
-  }
-  if (BigInt(view.returned) > BigInt(0)) rows.push({ label: "Returned", value: cashoutMoney(view.returned, view.decimals, options.regionId) });
-  rows.push(
-    baseNetworkRow(),
-    { label: "Updated", value: formatPresentationDate(operation.cashout?.updatedAt ?? operation.updatedAt, { style: "activity-short", regionId: options.regionId }) },
-  );
-  if (operation.transactionHash) {
-    rows.push({ label: "Transaction", value: operation.transactionHash, display: condensedTransactionHash(operation.transactionHash) });
-  }
-  return { title: view.label, rows, explorer: transactionExplorerLink(operation.transactionHash) };
 }
