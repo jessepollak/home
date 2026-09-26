@@ -1,11 +1,13 @@
 import type { CSSProperties, PointerEvent } from "react";
 import { useEffect, useRef } from "react";
-import { pan, pinch, showFrameLabel, wheelCamera, type Camera, type Point, type Rect, type Size } from "./camera";
+import { gestureCamera, pan, pinch, showFrameLabel, wheelCamera, type Camera, type Point, type Rect, type Size } from "./camera";
 import { ChangeTag } from "./change-tag";
 import { frameLabel, type Positioned, type Section } from "./layout";
 import type { Metric } from "./use-frame-loading";
 import { LiveFrame } from "./live-frame";
 import styles from "./board.module.css";
+
+type SafariGesture = Event & { scale: number; clientX: number; clientY: number };
 
 export function DesktopCanvas({
   sections, positions, size, camera, transition, selected, interacting, spacePan, loaded, metrics,
@@ -40,14 +42,56 @@ export function DesktopCanvas({
   useEffect(() => {
     const canvas = element.current;
     if (!canvas) return;
+    let lastScale: number | undefined;
+    const stopPageWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.metaKey) event.preventDefault();
+    };
+    const stopPageGesture = (event: Event) => event.preventDefault();
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
       const bounds = canvas.getBoundingClientRect();
       const pointer = { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
       moveCamera((old) => wheelCamera(old, event, pointer, canvas.clientHeight));
     };
+    const onGestureStart = (event: Event) => {
+      event.preventDefault();
+      const scale = (event as SafariGesture).scale;
+      lastScale = Number.isFinite(scale) && scale > 0 ? scale : undefined;
+    };
+    const onGestureChange = (event: Event) => {
+      event.preventDefault();
+      const gesture = event as SafariGesture;
+      const scale = gesture.scale;
+      if (!Number.isFinite(scale) || scale <= 0) return;
+      const previousScale = lastScale;
+      if (previousScale !== undefined) {
+        const bounds = canvas.getBoundingClientRect();
+        const pointer = { x: gesture.clientX - bounds.left, y: gesture.clientY - bounds.top };
+        moveCamera((old) => gestureCamera(old, previousScale, scale, pointer));
+      }
+      lastScale = scale;
+    };
+    const onGestureEnd = (event: Event) => {
+      event.preventDefault();
+      lastScale = undefined;
+    };
+    document.addEventListener("wheel", stopPageWheel, { passive: false, capture: true });
     canvas.addEventListener("wheel", onWheel, { passive: false });
-    return () => canvas.removeEventListener("wheel", onWheel);
+    for (const name of ["gesturestart", "gesturechange", "gestureend"]) {
+      document.addEventListener(name, stopPageGesture, { passive: false, capture: true });
+    }
+    canvas.addEventListener("gesturestart", onGestureStart, { passive: false });
+    canvas.addEventListener("gesturechange", onGestureChange, { passive: false });
+    canvas.addEventListener("gestureend", onGestureEnd, { passive: false });
+    return () => {
+      document.removeEventListener("wheel", stopPageWheel, true);
+      canvas.removeEventListener("wheel", onWheel);
+      for (const name of ["gesturestart", "gesturechange", "gestureend"])
+        document.removeEventListener(name, stopPageGesture, true);
+      canvas.removeEventListener("gesturestart", onGestureStart);
+      canvas.removeEventListener("gesturechange", onGestureChange);
+      canvas.removeEventListener("gestureend", onGestureEnd);
+    };
   }, [moveCamera]);
   const pointerDown = (event: PointerEvent<HTMLDivElement>) => {
     const panGesture = event.button === 1 || (event.button === 0 && spacePan);

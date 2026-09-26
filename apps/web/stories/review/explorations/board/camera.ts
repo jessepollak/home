@@ -50,7 +50,7 @@ export type WheelInput = {
   shiftKey: boolean;
 };
 const LINE_PX = 16;
-const WHEEL_ZOOM_RATE = 0.01;
+const WHEEL_ZOOM_RATE = 0.015;
 const WHEEL_ZOOM_STEP = 30;
 
 export function wheelCamera(camera: Camera, event: WheelInput, pointer: Point, pageHeight: number): Camera {
@@ -63,4 +63,10 @@ export function wheelCamera(camera: Camera, event: WheelInput, pointer: Point, p
   }
   if (event.shiftKey) return pan(camera, { x: -(Math.abs(dx) > Math.abs(dy) ? dx : dy), y: 0 });
   return pan(camera, { x: -dx, y: -dy });
+}
+
+export function gestureCamera(camera: Camera, previousScale: number, scale: number, pointer: Point): Camera {
+  if (!Number.isFinite(previousScale) || previousScale <= 0 || !Number.isFinite(scale) || scale <= 0)
+    return camera;
+  return zoomAt(camera, pointer, Math.max(0.5, Math.min(2, scale / previousScale)));
 }

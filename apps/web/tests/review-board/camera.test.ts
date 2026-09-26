@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
-  fitRect, initialFrameFit, MAX_ZOOM, pan, pinch, showFrameLabel, zoomAt,
+  fitRect, gestureCamera, initialFrameFit, MAX_ZOOM, pan, pinch, showFrameLabel, wheelCamera, zoomAt,
+  type WheelInput,
 } from "../../stories/review/explorations/board/camera";
 describe("board camera", () => {
   test("fits an offset rect with padding", () =>
@@ -50,5 +51,39 @@ describe("board camera", () => {
       [{ x: 15, y: 30 }, { x: 25, y: 40 }]);
     expect(camera).toEqual({ x: 13, y: 19, zoom: 1 });
     expect(Object.values(camera).every(Number.isFinite)).toBe(true);
+  });
+  const wheel: WheelInput = { deltaX: 0, deltaY: 0, deltaMode: 0, ctrlKey: true, metaKey: false, shiftKey: false };
+  test("small ctrl-wheel pinches use a 1.5x rate and preserve the pointer", () => {
+    const camera = { x: 20, y: 30, zoom: 1 };
+    const pointer = { x: 100, y: 110 };
+    const next = wheelCamera(camera, { ...wheel, deltaY: -4 }, pointer, 800);
+    const factor = Math.exp(0.06);
+    expect(next.zoom).toBeCloseTo(factor);
+    expect(next.x).toBeCloseTo(pointer.x - (pointer.x - camera.x) * factor);
+    expect(next.y).toBeCloseTo(pointer.y - (pointer.y - camera.y) * factor);
+  });
+  test("large ctrl and Cmd wheel steps clamp each event but keep scroll behavior", () => {
+    const camera = { x: 0, y: 0, zoom: 0.5 };
+    const point = { x: 0, y: 0 };
+    expect(wheelCamera(camera, { ...wheel, deltaY: -500 }, point, 800).zoom)
+      .toBeCloseTo(0.5 * Math.exp(0.45));
+    expect(wheelCamera(camera, { ...wheel, deltaY: -3, deltaMode: 1, ctrlKey: false, metaKey: true },
+      point, 800).zoom).toBeCloseTo(0.5 * Math.exp(0.45));
+    expect(wheelCamera(camera, { ...wheel, deltaY: 500, deltaMode: 2 }, point, 800).zoom)
+      .toBeCloseTo(0.5 * Math.exp(-0.45));
+    expect(wheelCamera(camera, { ...wheel, deltaX: 4, deltaY: 10, ctrlKey: false }, point, 800))
+      .toEqual({ x: -4, y: -10, zoom: 0.5 });
+  });
+  test("Safari gesture scale ratios accumulate at the gesture point without compounding totals", () => {
+    const camera = { x: 20, y: 30, zoom: 0.5 };
+    const point = { x: 100, y: 110 };
+    const first = gestureCamera(camera, 1, 1.2, point);
+    const second = gestureCamera(first, 1.2, 1.5, point);
+    expect(second.zoom).toBeCloseTo(0.75);
+    expect(second.x).toBeCloseTo(point.x - (point.x - camera.x) * 1.5);
+    expect(second.y).toBeCloseTo(point.y - (point.y - camera.y) * 1.5);
+    expect(gestureCamera(camera, 1, 100, point).zoom).toBe(1);
+    expect(gestureCamera(camera, 0, 1.5, point)).toEqual(camera);
+    expect(gestureCamera(camera, 1, Number.NaN, point)).toEqual(camera);
   });
 });
