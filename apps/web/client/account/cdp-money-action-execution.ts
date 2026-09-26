@@ -1,18 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useRef, type MutableRefObject } from "react";
-import { getAddress } from "viem";
-import type { AccountSessionStatus, AccountWalletSdkBoundary } from "./cdp-client";
+import { getAddress, isAddress } from "viem";
+import type { AccountSessionStatus, AccountWalletClient, AccountWalletSdkBoundary } from "./cdp-client";
 import type { OwnerGenerationFence } from "./cdp-session-lifecycle";
 import type { AuthenticatedTransport } from "./cdp-authenticated-transport";
 import type { VerifiedAccountSession } from "./session-client";
 import type { ConnectedBaseAccount } from "./base-account-connector";
-import { executeActionOnce, type ConfirmedPlan } from "./action-dispatch";
+import { executeActionOnce, isUserRejectedWalletError, type ConfirmedPlan } from "./action-dispatch";
 import {
   normalizeResolutionState,
   pollTransactionResolution,
 } from "./action-resolution";
 import type { OperationResult, PreparedMoneyAction } from "@/shared/money-actions/types";
+import type { TradeConfirmRequest, TradeSigningRequest } from "@/shared/trading/contract";
 import { validPrepared } from "@/shared/actions/contracts/prepare";
 import { parseMoneyActionNetworkFee, paymasterProxyPath, USDC_PAYMASTER_CONTEXT } from "@/shared/money-actions/network-fee";
 import { parsePendingActionResponse } from "@/shared/actions/contracts/get";
@@ -24,6 +25,8 @@ import { TransferExecutionError } from "@/shared/transfers/types";
 import { announceActionFailure } from "@/client/home/action-toast-events";
 
 const hashPattern = /^0x[0-9a-fA-F]{64}$/;
+const permit2Address = "0x000000000022d473030f116ddee9f6b43ac78ba3";
+const signaturePattern = /^0x(?:[0-9a-fA-F]{2})+$/;
 export function useMoneyActionExecution({
   session,
   status,
@@ -34,6 +37,7 @@ export function useMoneyActionExecution({
   sdkGetUserOperation,
   baseConnection,
   transport,
+  signTypedData,
 }: {
   session: VerifiedAccountSession | null;
   status: AccountSessionStatus;
@@ -44,9 +48,11 @@ export function useMoneyActionExecution({
   sdkGetUserOperation: AccountWalletSdkBoundary["getUserOperation"];
   baseConnection: MutableRefObject<ConnectedBaseAccount | null>;
   transport: AuthenticatedTransport;
+  signTypedData: AccountWalletClient["signTypedData"];
 }) {
   const preparedGeneration = useRef(new Map<string, number>());
   const confirmedPlans = useRef(new Map<string, ConfirmedPlan>());
+  const unansweredTradeConfirms = useRef(new Set<string>());
   const providerDispatches = useRef(new Map<string, Promise<string>>());
   const dispatchAttempts = useRef(new Map<string, number>());
   const pendingDeclines = useRef(new Map<string, Promise<void>>());
@@ -145,6 +151,10 @@ export function useMoneyActionExecution({
     if (active.user.subject !== action.owner.subject || active.accountProvider !== action.owner.accountProvider) {
       throw new TransferExecutionError("stale-session");
     }
+    const signing = action.kind === "trade" ? action.signing : undefined;
+    if (action.kind === "trade" && !validTradeSigning(signing, action.owner)) {
+      throw new TransferExecutionError("invalid-request");
+    }
     const fee = parseMoneyActionNetworkFee(action.networkFee);
     if (action.networkFee !== undefined && !fee) throw new TransferExecutionError("unavailable");
 
@@ -159,14 +169,49 @@ export function useMoneyActionExecution({
         dispatchAttempts: dispatchAttempts.current,
         pendingDeclines: pendingDeclines.current,
         confirm: async () => {
-          const response = parseConfirmActionResponse(
-            await fetchAccountResource(`/api/actions/${action.id}/confirm`, { method: "POST", body: {} }),
-          );
-          if (!response) throw new TransferExecutionError("unavailable");
-          return {
-            calls: response.calls as ConfirmedPlan["calls"],
-            ...(response.batchGasLimit ? { batchGasLimit: response.batchGasLimit } : {}),
+          const postConfirm = async (confirmBody: TradeConfirmRequest | Record<string, never>): Promise<ConfirmedPlan> => {
+            const response = parseConfirmActionResponse(
+              await fetchAccountResource(`/api/actions/${action.id}/confirm`, { method: "POST", body: confirmBody }),
+            );
+            ownerFence.assertCurrent(generation);
+            if (!response) throw new TransferExecutionError("unavailable");
+            return {
+              calls: response.calls as ConfirmedPlan["calls"],
+              ...(response.batchGasLimit ? { batchGasLimit: response.batchGasLimit } : {}),
+            };
           };
+          if (action.kind === "trade" && unansweredTradeConfirms.current.has(action.id)) {
+            try {
+              const replayed = await postConfirm({});
+              unansweredTradeConfirms.current.delete(action.id);
+              return replayed;
+            } catch (error) {
+              ownerFence.assertCurrent(generation);
+              if (!hasStatus(error, 400)) throw error;
+              unansweredTradeConfirms.current.delete(action.id);
+            }
+          }
+          let body: TradeConfirmRequest | Record<string, never> = {};
+          if (action.kind === "trade" && signing) {
+            let signature: `0x${string}`;
+            try {
+              signature = await signTypedData(signing.typedData, signing.signer === "cdp-embedded"
+                ? { evmAccount: signing.evmAccount, idempotencyKey: action.id }
+                : undefined);
+            } catch (error) {
+              ownerFence.assertCurrent(generation);
+              if (isUserRejectedWalletError(error)) throw new TransferExecutionError("rejected", error);
+              if (error instanceof TransferExecutionError) throw error;
+              throw new TransferExecutionError("not-submitted", error);
+            }
+            ownerFence.assertCurrent(generation);
+            if (!signaturePattern.test(signature)) throw new TransferExecutionError("not-submitted");
+            body = { signature } satisfies TradeConfirmRequest;
+          }
+          if (action.kind === "trade") unansweredTradeConfirms.current.add(action.id);
+          const plan = await postConfirm(body);
+          unansweredTradeConfirms.current.delete(action.id);
+          return plan;
         },
         dispatch: async (plan) => {
           const calls = plan.calls.map((call) => ({ ...call, value: BigInt(call.value) }));
@@ -226,7 +271,7 @@ export function useMoneyActionExecution({
       status: "submitted",
       ...(hashPattern.test(providerHandle) ? { userOperationHash: providerHandle as `0x${string}` } : {}),
     };
-  }, [assertReady, baseConnection, fetchAccountResource, ownerFence, postHandle, resolveTransaction, sdkSendUserOperation]);
+  }, [assertReady, baseConnection, fetchAccountResource, ownerFence, postHandle, resolveTransaction, sdkSendUserOperation, signTypedData]);
 
   const fetchOperations = useCallback((signal?: AbortSignal) =>
     fetchAccountResource("/api/actions", { signal }), [fetchAccountResource]);
@@ -236,6 +281,7 @@ export function useMoneyActionExecution({
     resolutionRuns.current.clear();
     preparedGeneration.current.clear();
     confirmedPlans.current.clear();
+    unansweredTradeConfirms.current.clear();
     providerDispatches.current.clear();
     dispatchAttempts.current.clear();
     pendingDeclines.current.clear();
@@ -251,9 +297,38 @@ export function useMoneyActionExecution({
   };
 }
 
+function validTradeSigning(value: unknown, owner: PreparedMoneyAction["owner"]): value is TradeSigningRequest {
+  if (!isRecord(value) || value.signer !== owner.accountProvider || !isRecord(value.typedData)) return false;
+  const typedData = value.typedData;
+  if (!isRecord(typedData.domain) || !isRecord(typedData.types) || !isRecord(typedData.message) ||
+    typedData.domain.chainId !== 8453 || !validAddress(typedData.domain.verifyingContract)) return false;
+  if (value.signer === "base-account") {
+    return typedData.primaryType === "PermitTransferFrom" && typedData.domain.name === "Permit2" &&
+      typedData.domain.verifyingContract.toLowerCase() === permit2Address &&
+      Array.isArray(typedData.types.PermitTransferFrom) && Array.isArray(typedData.types.TokenPermissions) &&
+      isRecord(typedData.message.permitted) && validAddress(typedData.message.permitted.token) &&
+      validAddress(typedData.message.spender) && typeof typedData.message.permitted.amount === "string" &&
+      typeof typedData.message.nonce === "string" && typeof typedData.message.deadline === "string";
+  }
+  return value.signer === "cdp-embedded" && validAddress(value.evmAccount) &&
+    value.evmAccount.toLowerCase() !== owner.address.toLowerCase() &&
+    typedData.primaryType === "CoinbaseSmartWalletMessage" && typedData.domain.name === "Coinbase Smart Wallet" &&
+    typedData.domain.version === "1" && typedData.domain.verifyingContract.toLowerCase() === owner.address.toLowerCase() &&
+    Array.isArray(typedData.types.CoinbaseSmartWalletMessage) &&
+    typeof typedData.message.hash === "string" && hashPattern.test(typedData.message.hash);
+}
+
+function validAddress(value: unknown): value is `0x${string}` {
+  return typeof value === "string" && isAddress(value);
+}
+
 function shortFailureReason(reason: string): string {
   const singleLine = reason.replace(/\s+/g, " ").trim();
   return singleLine.length <= 96 ? singleLine : `${singleLine.slice(0, 93)}…`;
+}
+
+function hasStatus(error: unknown, status: number): boolean {
+  return isRecord(error) && error.status === status;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

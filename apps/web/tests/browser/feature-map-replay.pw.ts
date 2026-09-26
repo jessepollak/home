@@ -49,9 +49,10 @@ for (const surfaceId of replaySurfaceIds) {
     if (!surface) return;
     if (requiresSignedInFixture(surfaceId)) await seedSignedInSession(page);
     await installApiFixtures(page);
-    if (surfaceId === "send") {
+    if (surfaceId === "send" || surfaceId === "invest") {
       for (const [pattern, body] of fixtureRoutes()) {
-        if (pattern.startsWith("**/api/transfers/")) {
+        if ((surfaceId === "send" && pattern.startsWith("**/api/transfers/")) ||
+          (surfaceId === "invest" && pattern === "**/api/trades")) {
           await page.route(pattern, (route) => json(route, body));
         }
       }

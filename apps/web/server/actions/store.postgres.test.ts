@@ -91,6 +91,21 @@ describePostgres("actions schema and store", () => {
     expect((await store.getForPaymaster(id))?.confirmed_call_data_hash).toBe(keccak256(encodeCoinbaseExecuteBatch(finalCalls)));
   });
 
+  test("trade confirmation keeps only the committed plan until a handle or outcome exists", async () => {
+    const finalCalls = [{ ...calls[0]!, data: "0x5678" as const }];
+    const handled = randomUUID();
+    const settled = randomUUID();
+    for (const id of [handled, settled]) {
+      await store.insert({ id, owner, kind: "trade", summary, pending: { calls, swapCallIndex: 0 }, createdAt: "2026-09-12T10:00:00.000Z" });
+      await store.confirm(owner, id, finalCalls);
+      expect((await store.get(owner, id))?.pending).toEqual({ calls: finalCalls });
+    }
+    await store.recordHandle(owner, handled, { providerHandle: `0x${"ab".repeat(32)}` });
+    expect((await store.get(owner, handled))?.pending).toBeNull();
+    await store.recordOutcome(owner, settled, { outcome: "not_submitted", source: "wallet", settledAt: null });
+    expect((await store.get(owner, settled))?.pending).toBeNull();
+  });
+
   test("confirmation without pending calls does not write a commitment", async () => {
     const id = randomUUID();
     await store.insert({ id, owner, kind: "send", summary, pending: { calls }, createdAt: "2026-09-12T10:00:00.000Z" });

@@ -56,6 +56,17 @@ export function labelForMoneyActionKind(kind: ActionKind): string {
   }
 }
 
+export function titleForOperation(operation: RecentMoneyActionOperation): string {
+  const metadata = operation.action.metadata;
+  if (operation.action.kind !== "trade" || metadata?.product !== "trade") return operation.action.title;
+  switch (operation.status) {
+    case "confirmed": return metadata.direction === "buy" ? "Bought Bitcoin" : "Sold Bitcoin";
+    case "pending": return metadata.direction === "buy" ? "Buying Bitcoin" : "Selling Bitcoin";
+    case "failed": return metadata.direction === "buy" ? "Buy Bitcoin failed" : "Sell Bitcoin failed";
+    case "unknown": return metadata.direction === "buy" ? "Buy Bitcoin" : "Sell Bitcoin";
+  }
+}
+
 export function primaryOperationAmount(
   operation: RecentMoneyActionOperation,
 ): MoneyActionAmount | undefined {
@@ -89,11 +100,13 @@ export function presentOperationDetails(
 
   for (const amount of orderedOperationAmounts(operation.action.amounts)) {
     rows.push({
-      label: amount.maximum
-        ? "Up to"
-        : amount.direction === "spend"
-          ? "You spend"
-          : "You receive",
+      label: operation.action.metadata?.product === "trade"
+        ? amount.direction === "spend" ? "You pay" : "You receive"
+        : amount.maximum
+          ? "Up to"
+          : amount.direction === "spend"
+            ? "You spend"
+            : "You receive",
       value: `${amount.estimated ? "Estimated " : ""}${formatExactPresentationTokenAmount(
         amount.amountBaseUnits,
         amount.decimals,
@@ -121,7 +134,7 @@ export function presentOperationDetails(
   }
 
   return {
-    title: operation.action.title,
+    title: titleForOperation(operation),
     rows,
     ...(operation.status === "pending" && (operation.submittedAt || operation.transactionHash || operation.userOperationHash) ? { steps: [
       {
@@ -140,7 +153,11 @@ export function presentOperationDetails(
 }
 
 function labelForStoredOperation(operation: RecentMoneyActionOperation): string {
-  const borrow = operation.action.metadata?.product === "borrow" ? operation.action.metadata.operation : null;
+  const metadata = operation.action.metadata;
+  if (operation.action.kind === "trade" && metadata?.product === "trade") {
+    return metadata.direction === "buy" ? "Buy Bitcoin" : "Sell Bitcoin";
+  }
+  const borrow = metadata?.product === "borrow" ? metadata.operation : null;
   switch (borrow) {
     case "supply-collateral": return "Add collateral";
     case "borrow": return "Borrow";

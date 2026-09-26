@@ -11,6 +11,8 @@ import {
   PreparedMoneyAction,
 } from "@/shared/money-actions/types";
 import { isSavingsMetadata } from "@/shared/savings/review";
+import { parseTradeMetadata, parseTradeSigning } from "@/shared/trading/review";
+import type { TradeSigningRequest } from "@/shared/trading/contract";
 import { parseMoneyActionNetworkFee } from "@/shared/money-actions/network-fee";
 import type { MoneyActionNetworkFee } from "@/shared/money-actions/types";
 
@@ -22,6 +24,7 @@ export type ActionSummaryResponse = {
   quoteId?: string;
   metadata?: MoneyActionMetadata;
   networkFee?: MoneyActionNetworkFee;
+  signing?: TradeSigningRequest;
 };
 
 export type GetActionPendingResponse = {
@@ -30,6 +33,7 @@ export type GetActionPendingResponse = {
   summary: ActionSummaryResponse;
   calls: MoneyActionCall[];
   expiresAt: string;
+  signing?: TradeSigningRequest;
 };
 
 export type GetActionResponse = GetActionPendingResponse | {
@@ -63,6 +67,8 @@ export function parsePendingActionResponse(
     typeof value.expiresAt !== "string" ||
     (value.summary.networkFee !== undefined && !parseMoneyActionNetworkFee(value.summary.networkFee)) ||
     !active.smartAccount
+    || (value.kind === "trade" && (!parseTradeMetadata(value.summary.metadata) ||
+      !parseTradeSigning(value.signing, parseTradeMetadata(value.summary.metadata)!, active.smartAccount.address)))
   ) {
     return null;
   }
@@ -82,6 +88,7 @@ export function parsePendingActionResponse(
     expiresAt: value.expiresAt,
     ...(isMoneyActionMetadata(value.summary.metadata) ? { metadata: value.summary.metadata } : {}),
     ...(parseMoneyActionNetworkFee(value.summary.networkFee) ? { networkFee: parseMoneyActionNetworkFee(value.summary.networkFee)! } : {}),
+    ...(value.kind === "trade" ? { signing: parseTradeSigning(value.signing, parseTradeMetadata(value.summary.metadata)!, active.smartAccount.address)! } : {}),
     createdAt: new Date().toISOString(),
   };
 }
@@ -99,6 +106,7 @@ function isMoneyActionMetadata(value: unknown): value is MoneyActionMetadata {
       typeof value.estimateAsOf === "string" && typeof value.escrow === "string";
   }
   if (value.product === "savings") return isSavingsMetadata(value);
+  if (value.product === "trade") return parseTradeMetadata(value) !== null;
   return value.product === "borrow";
 }
 

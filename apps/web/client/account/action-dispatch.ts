@@ -10,7 +10,7 @@ export type ConfirmedPlan = {
 
 type GenerationGuard = Pick<OwnerGenerationFence, "assertCurrent">;
 
-function isUserRejectedDispatch(error: unknown): boolean {
+export function isUserRejectedWalletError(error: unknown): boolean {
   return (
     error instanceof BaseAccountConnectorError && error.reason === "cancelled"
   ) || (
@@ -68,7 +68,7 @@ export async function executeActionOnce(input: {
   try {
     providerHandle = await dispatch;
   } catch (error) {
-    if (isUserRejectedDispatch(error)) {
+    if (isUserRejectedWalletError(error)) {
       if (input.providerDispatches.get(input.id) === dispatch) {
         input.providerDispatches.delete(input.id);
         const attempt = input.dispatchAttempts.get(input.id) ?? 0;

@@ -27,6 +27,7 @@ export type TransferFailureReason =
   | "unavailable"
   | "stale-session"
   | "invalid-request"
+  | "not-submitted"
   | "insufficient-balance"
   | "rejected"
   | "failed"
