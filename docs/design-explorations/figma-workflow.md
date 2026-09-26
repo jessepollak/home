@@ -1,6 +1,6 @@
 # Figma workflow
 
-Figma is Home's design source. Paper is retired.
+Figma is an optional reference, early-sketch, and existing-library path, not the required proposal or selection surface. New design work uses the [Storybook review board](../design-system.md#review-boards). Keep existing mappings, Code Connect, token sync, and Figma comment handling working when Figma is used. Paper is retired. The historical proposals below retain their original review status.
 
 - Figma file: [Home](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home)
 - Library page: [Components](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=4-2) (`4:2`); current screens: [Home](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13084) (`333:13084`)
@@ -41,7 +41,7 @@ Whenever a run stops with a probe still in the file (its own, or a leftover it c
 
 ### Motion frames
 
-Every motion frame in a design proposal carries these items each round:
+When an explicitly scoped design proposal includes a Figma motion frame, that frame carries these items each round:
 
 1. **Recording and stills.** Record each motion story from Storybook at the proposal viewport (390×844 CSS px for mobile) with the pinned `agent-browser`: open the story and let it settle, `record start <file>.mp4`, replay the entrance with Replay or a reload, hold about 1 s after it settles, then `record stop`. Convert the recording to a looping GIF cropped to the moving element, starting about 0.5 s before the replay so its first frame is the settled state rather than a blank canvas, and extract 2–3 still keyframes from the same recording. For example:
 
@@ -67,7 +67,7 @@ Canvas and present-mode playback in the Home file is unverified: the rows above 
 
 ## Source of truth
 
-Code is the truth for shipped UI; Figma is the truth for proposals. A proposal is accepted only when a Storybook story exists for it. Code Connect maps Figma → code; the variables sync pushes tokens code → Figma; nothing edits code from Figma automatically.
+Code is the truth for shipped UI; the [Storybook review board](../design-system.md#review-boards) is the default proposal and selection surface. Optional Figma frames can supplement stories but do not confer approval. Code Connect maps Figma → code; the variables sync pushes tokens code → Figma; nothing edits code from Figma automatically.
 
 - **Code Connect (Figma → code).** Each [`apps/web/figma/components/<Name>.json`](../../apps/web/figma/components/) file owns one mapped Figma node and its code owner; [`apps/web/figma-components.json`](../../apps/web/figma-components.json) identifies the library and lists frames, unmapped Figma nodes, and code components without a Figma component. [figma-mapping.json](figma-mapping.json) and [design-system.md](design-system.md#code-connect) point to these mappings instead of keeping their own lists. Each mapped component has a Code Connect template file (`*.figma.ts`, the maintained template format; the React and Storybook parsers are deprecated) under the design-lane `explorations/code-connect/` directory of `apps/web/client/` or `apps/web/components/`, mirroring its source path (see [design-lane code](README.md)). `apps/web/figma.config.json` limits Code Connect to those two directories, and the dead-code gate treats them like any other exploration.
 - **Figma frame beside each story.** `@storybook/addon-designs` shows the mapped Figma node in a Design panel for every story listed in the mapping (`parameters.design`).
@@ -179,4 +179,4 @@ After Jesse's September 24 review, Home at desktop width has two columns with Ac
 5. The worker revises the existing owned nodes in place through the Figma edit connection, or implements an approved result through the production-component Storybook/code loop. Existing published component IDs and Code Connect mappings are preserved unless Jesse explicitly authorizes a migration.
 6. The worker replies to every newly processed thread through the Figma comments REST API, reports component-definition changes that need publication, refreshes screenshots, and records residual differences. Older answered threads are not duplicated. The REST comments API cannot set `resolved_at` (no endpoint; `POST`/`PUT`/`resolve` variants return 404) and the Plugin API does not expose comments, so verified-satisfied threads are reported for a single manual Figma-UI resolve action rather than closed programmatically. The exact open-and-satisfied thread IDs live in [figma-mapping.json](figma-mapping.json) `commentHygiene`.
 
-Figma comments are product direction, not automatic code authorization. A Jesse-directed synthesis remains unapproved until Jesse approves that rendered frame. Code adoption then follows the production-component Storybook, browser-validation, and current-head evidence contracts.
+Figma comments are product direction, not automatic code authorization. A Jesse-directed synthesis remains unapproved until Jesse selects its rendered story on the [Storybook review board](../design-system.md#review-boards) and that selection is recorded on the issue or PR. Code adoption then follows the production-component Storybook, browser-validation, and current-head evidence contracts.
