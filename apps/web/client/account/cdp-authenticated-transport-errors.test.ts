@@ -153,6 +153,37 @@ describe("verified read failure tagging", () => {
   });
 });
 
+describe("account resource failure tagging", () => {
+  test("tags network failures and preserves the cause", async () => {
+    const cause = new Error("socket closed");
+    const transport = await transportWith(async () => { throw cause; });
+    const error = await rejectionOf(transport.fetchAccountResource("/api/actions"));
+    expect(error).toBeInstanceOf(TransferExecutionError);
+    expect(error).toMatchObject({ reason: "unavailable", message: "unavailable", kind: "network", cause });
+  });
+
+  test("tags invalid JSON in a successful response as parse failure", async () => {
+    const transport = await transportWith(async () => new Response("broken json", { status: 200 }));
+    const error = await rejectionOf(transport.fetchAccountResource("/api/actions"));
+    expect(error).toBeInstanceOf(TransferExecutionError);
+    expect(error).toMatchObject({ reason: "unavailable", message: "unavailable", kind: "parse" });
+    expect((error as TransferExecutionError & { status?: number }).status).toBeUndefined();
+  });
+
+  test("tags non-ok responses as HTTP while preserving status, details, and 409 reason", async () => {
+    for (const [status, reason] of [[503, "unavailable"], [409, "submission-pending"]] as const) {
+      const transport = await transportWith(async () => Response.json({
+        error: { code: "UPSTREAM", message: "try later" },
+      }, { status }));
+      const error = await rejectionOf(transport.fetchAccountResource("/api/actions"));
+      expect(error).toBeInstanceOf(TransferExecutionError);
+      expect(error).toMatchObject({
+        reason, message: reason, kind: "http", status, code: "UPSTREAM", serverMessage: "try later",
+      });
+    }
+  });
+});
+
 describe("wallet-free account resources", () => {
   const walletFreeSession: VerifiedAccountSession = { ...session, smartAccount: null };
 
@@ -227,6 +258,8 @@ describe("authenticated transport deployment expiry", () => {
     expect(balanceError).toMatchObject({ kind: "access", message: "Deployment access is required." });
     expect(isInterruptionEligible(balanceError)).toBe(false);
     expect(actionError).toBeInstanceOf(TransferExecutionError);
+    expect(actionError).toMatchObject({ reason: "unavailable", message: "unavailable", kind: "access" });
+    expect((actionError as TransferExecutionError & { status?: number }).status).toBeUndefined();
 
     expect(destinations).toEqual([
       "/access?next=%2Fprivate%3Fpanel%3Dactivity%23latest",
@@ -260,6 +293,7 @@ describe("authenticated transport deployment expiry", () => {
 
     expect(error).toBeInstanceOf(TransferExecutionError);
     expect(error).toMatchObject({
+      kind: "http",
       status: 404,
       code: "ACTION_NOT_FOUND",
       serverMessage: "Action not found.",

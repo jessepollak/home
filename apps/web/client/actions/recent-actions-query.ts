@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { TransferExecutionError } from "@/shared/transfers/types";
+import { isTransientAccountResourceFailure } from "@/client/account/resource-failure";
 import { assertRecentActionsResponse } from "@/shared/actions/contracts/list";
 
 export async function fetchRecentActions(
@@ -12,9 +12,7 @@ export async function fetchRecentActions(
 }
 
 export function retryRecentActions(failures: number, error: unknown): boolean {
-  if (failures >= 2 || !(error instanceof TransferExecutionError) || error.reason !== "unavailable") return false;
-  const status = (error as TransferExecutionError & { status?: unknown }).status;
-  return status === undefined || status === 429 || (typeof status === "number" && status >= 500 && status <= 599);
+  return failures < 2 && isTransientAccountResourceFailure(error);
 }
 
 const refetchFailedRecentActions = (query: { state: { status: string } }) => query.state.status === "error";

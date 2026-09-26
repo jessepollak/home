@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { TransferExecutionError } from "@/shared/transfers/types";
+import type { ResourceFailureKind } from "@/client/account/resource-failure";
 import {
   fetchRecentActions,
   recentActionsQueryOptions,
@@ -7,8 +8,8 @@ import {
   retryRecentActions,
 } from "./recent-actions-query";
 
-const failure = (reason: ConstructorParameters<typeof TransferExecutionError>[0], status?: number) =>
-  Object.assign(new TransferExecutionError(reason), status === undefined ? {} : { status });
+const failure = (reason: ConstructorParameters<typeof TransferExecutionError>[0], kind: ResourceFailureKind, status?: number) =>
+  Object.assign(new TransferExecutionError(reason), { kind }, status === undefined ? {} : { status });
 
 describe("recent actions recovery", () => {
   test("rejects malformed responses from the fetch and forwards the signal without changing valid data", async () => {
@@ -31,16 +32,20 @@ describe("recent actions recovery", () => {
   });
 
   test("retries only transient transport failures at most twice", () => {
-    for (const status of [undefined, 429, 500, 503]) {
-      expect(retryRecentActions(0, failure("unavailable", status))).toBe(true);
-      expect(retryRecentActions(1, failure("unavailable", status))).toBe(true);
-      expect(retryRecentActions(2, failure("unavailable", status))).toBe(false);
+    for (const error of [failure("unavailable", "network"), ...[429, 500, 503, 599].map((status) => failure("unavailable", "http", status))]) {
+      expect(retryRecentActions(0, error)).toBe(true);
+      expect(retryRecentActions(1, error)).toBe(true);
+      expect(retryRecentActions(2, error)).toBe(false);
     }
-    for (const status of [400, 401, 404, 410, 499]) {
-      expect(retryRecentActions(0, failure("unavailable", status))).toBe(false);
+    for (const status of [400, 401, 404, 410, 499, 600]) {
+      expect(retryRecentActions(0, failure("unavailable", "http", status))).toBe(false);
     }
+    for (const kind of ["parse", "access", "http"] as const) {
+      expect(retryRecentActions(0, failure("unavailable", kind))).toBe(false);
+    }
+    expect(retryRecentActions(0, new TransferExecutionError("unavailable"))).toBe(false);
     for (const reason of ["stale-session", "invalid-request"] as const) {
-      expect(retryRecentActions(0, failure(reason))).toBe(false);
+      expect(retryRecentActions(0, failure(reason, "network"))).toBe(false);
     }
     expect(retryRecentActions(0, new DOMException("aborted", "AbortError"))).toBe(false);
     expect(retryRecentActions(0, new SyntaxError("invalid JSON"))).toBe(false);

@@ -1,3 +1,5 @@
+import { TransferExecutionError } from "@/shared/transfers/types";
+
 export type ResourceFailureKind = "session" | "network" | "http" | "parse" | "access";
 
 export class ResourceFailure extends Error {
@@ -9,6 +11,13 @@ export class ResourceFailure extends Error {
     super(message);
     this.name = "ResourceFailure";
   }
+}
+
+export function isTransientAccountResourceFailure(error: unknown): boolean {
+  if (!(error instanceof TransferExecutionError) || error.reason !== "unavailable") return false;
+  const tagged = error as TransferExecutionError & { kind?: unknown; status?: unknown };
+  return tagged.kind === "network" || (tagged.kind === "http" &&
+    (tagged.status === 429 || (typeof tagged.status === "number" && tagged.status >= 500 && tagged.status <= 599)));
 }
 
 export function isInterruptionEligible(error: unknown): boolean {

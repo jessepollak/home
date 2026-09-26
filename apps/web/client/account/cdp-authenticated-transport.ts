@@ -22,7 +22,7 @@ import {
 } from "@/client/query/after-action";
 import { redirectOnAccessRequired, type AccessNavigation } from "./access-response";
 import { dataOwnerKey } from "./owner-keys";
-import { ResourceFailure } from "./resource-failure";
+import { ResourceFailure, type ResourceFailureKind } from "./resource-failure";
 
 type MoneyActionApiFetch = (path: string, init?: RequestInit) => Promise<unknown>;
 
@@ -250,12 +250,12 @@ export function useAuthenticatedTransport({
       } catch (error) {
         if (options.signal?.aborted) throw error;
         if (error instanceof TransferExecutionError) throw error;
-        throw new TransferExecutionError("unavailable", error);
+        throw Object.assign(new TransferExecutionError("unavailable", error), { kind: "network" satisfies ResourceFailureKind });
       }
       assertActive();
       if (await redirectOnAccessRequired(response, accessNavigation)) {
         assertActive();
-        throw new TransferExecutionError("unavailable");
+        throw Object.assign(new TransferExecutionError("unavailable"), { kind: "access" satisfies ResourceFailureKind });
       }
       if (!response.ok) {
         let details = { code: null as string | null, serverMessage: null as string | null };
@@ -267,7 +267,7 @@ export function useAuthenticatedTransport({
         const failure = new TransferExecutionError(
           response.status === 409 ? "submission-pending" : "unavailable",
         );
-        Object.assign(failure, { status: response.status, ...details });
+        Object.assign(failure, { kind: "http" satisfies ResourceFailureKind, status: response.status, ...details });
         throw failure;
       }
       try {
@@ -286,7 +286,7 @@ export function useAuthenticatedTransport({
         return value;
       } catch (error) {
         if (error instanceof TransferExecutionError) throw error;
-        throw new TransferExecutionError("unavailable", error);
+        throw Object.assign(new TransferExecutionError("unavailable", error), { kind: "parse" satisfies ResourceFailureKind });
       }
     },
     [accessNavigation, authentication, getAccessToken, ownerFence, ownerKey, queryClient, session, sessionFetch, startActionBalanceFreshness, status, verification],
