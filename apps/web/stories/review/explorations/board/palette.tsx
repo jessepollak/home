@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type RefObject } from "react";
 import { Dialog } from "@base-ui/react/dialog";
 import { Combobox, ComboboxInput, ComboboxItem, ComboboxList } from "@/components/ui/combobox";
 import { rank } from "./commands";
@@ -7,9 +7,10 @@ import styles from "./board.module.css";
 
 export type PaletteItem = { id: string; label: string; detail: string; keys?: string[]; run: () => void };
 
-export function CommandPalette({ open, onOpenChange, items }: {
+export function CommandPalette({ open, onOpenChange, returnFocus, items }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  returnFocus: RefObject<HTMLElement | null>;
   items: PaletteItem[];
 }) {
   const [query, setQuery] = useState("");
@@ -21,7 +22,7 @@ export function CommandPalette({ open, onOpenChange, items }: {
   return <Dialog.Root open={open} onOpenChange={change}>
     <Dialog.Portal>
       <Dialog.Backdrop className={styles.overlayBackdrop} />
-      <Dialog.Popup className={`${styles.overlay} ${styles.palette}`} aria-label="Command palette">
+      <Dialog.Popup className={`${styles.overlay} ${styles.palette}`} finalFocus={returnFocus} aria-label="Command palette">
         <Combobox<PaletteItem> inline open={open} onOpenChange={(next) => { if (!next) change(false); }}
           items={ranked} filter={null} autoHighlight
           inputValue={query} onInputValueChange={setQuery}

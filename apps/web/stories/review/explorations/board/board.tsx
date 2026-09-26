@@ -108,6 +108,7 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
   const container = useRef<HTMLDivElement>(null);
   const boardElement = useRef<HTMLDivElement>(null);
   const lastBoardFocus = useRef<HTMLElement | null>(null);
+  const overlayReturn = useRef<HTMLElement | null>(null);
   const canvas = useRef<HTMLDivElement>(null);
   const fullButton = useRef<HTMLButtonElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
@@ -291,6 +292,11 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
     if (!mobile) fit({ x: 0, y: 0, ...layout(board, value).size });
     updateUrl({ side: value, variant: undefined });
   };
+  const openOverlay = (open: (value: boolean) => void) => {
+    if (!paletteOpen && !helpOpen && document.activeElement instanceof HTMLElement)
+      overlayReturn.current = document.activeElement;
+    open(true);
+  };
   const commands = boardCommands({
     fitBoard: fitAll,
     fitSelection: () => fit(selectedPosition.rect),
@@ -304,8 +310,8 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
     openStory: () => window.open(storyManagerUrl(selectedPosition.story), "_blank", "noreferrer"),
     openCanvas: () => window.open(storyCanvasUrl(selectedPosition.story), "_blank", "noreferrer"),
     copyLink: () => void navigator.clipboard?.writeText(location.href).catch(() => undefined),
-    openPalette: () => setPaletteOpen(true),
-    openShortcuts: () => setHelpOpen(true),
+    openPalette: () => openOverlay(setPaletteOpen),
+    openShortcuts: () => openOverlay(setHelpOpen),
   });
   const paletteItems: PaletteItem[] = [
     ...commands.filter((command) => command.run && command.palette !== false && command.enabled !== false)
@@ -416,12 +422,12 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
         {inspectorOpen && <Inspector section={selectedSection} position={selectedPosition}
           onInteract={() => interact(selectedPosition)} canInteract={canInteract}
           onFit={() => fit(selectedPosition.rect)}
-          shortcuts={commands.filter((command) => command.featured)} onShowShortcuts={() => setHelpOpen(true)} />}
+          shortcuts={commands.filter((command) => command.featured)} onShowShortcuts={() => openOverlay(setHelpOpen)} />}
       </div>}
     </main>
     {!mobile && <>
-      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} items={paletteItems} />
-      <ShortcutsHelp open={helpOpen} onOpenChange={setHelpOpen} commands={commands} />
+      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} items={paletteItems} returnFocus={overlayReturn} />
+      <ShortcutsHelp open={helpOpen} onOpenChange={setHelpOpen} commands={commands} returnFocus={overlayReturn} />
     </>}
     {dialogOpen && <div className={styles.fullscreen} role="dialog" aria-modal="true"
       aria-label={`${selectedPosition.frame.label} full width`}>
