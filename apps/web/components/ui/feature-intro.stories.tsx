@@ -1,12 +1,12 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, fn, userEvent, waitFor, within } from "storybook/test";
-import { ArrowUpFromLine, Banknote, CreditCard, Lock, LockOpen, Percent, ReceiptText, Store } from "lucide-react";
+import { ArrowUpFromLine, Banknote, CircleDollarSign, Coins, CreditCard, Lock, LockOpen, Percent, ReceiptText, ShieldCheck, Store } from "lucide-react";
 import { Button } from "./button";
 import { FeatureIntro, FeatureIntroSheet, FeatureIntroSkeleton } from "./feature-intro";
 import type { FeatureIntroContent } from "./feature-intro";
 
-const actions = { getCard: fn(), verify: fn(), getStarted: fn(), notNow: fn() };
+const actions = { getCard: fn(), verify: fn(), getStarted: fn(), chooseAsset: fn(), notNow: fn() };
 const card: FeatureIntroContent = {
   headline: "Spend your Cash with a card",
   benefits: [
@@ -26,6 +26,17 @@ const save: FeatureIntroContent = {
   ],
   primary: { label: "Get started", onClick: actions.getStarted },
   illustration: "savings",
+};
+const borrow: FeatureIntroContent = {
+  headline: "Borrow against your crypto",
+  description: "Use a supported asset as collateral to borrow USDC.",
+  benefits: [
+    { icon: Coins, text: "Borrow without selling" },
+    { icon: ShieldCheck, text: "See the variable rate and liquidation risk" },
+    { icon: CircleDollarSign, text: "Repay when you're ready" },
+  ],
+  primary: { label: "Choose an asset", onClick: actions.chooseAsset },
+  illustration: "borrow",
 };
 const verification: FeatureIntroContent["availability"] = {
   kind: "unavailable", reason: "Verify your identity to get a card.",
@@ -221,5 +232,58 @@ export const Rtl: Story = {
     const benefits = canvas.getAllByRole("listitem");
     await expect(benefits).toHaveLength(3);
     for (const [index, benefit] of benefits.entries()) await expect(within(benefit).getByText(card.benefits[index].text)).toBeVisible();
+  },
+};
+
+function borrowIllustration(canvasElement: HTMLElement): SVGSVGElement {
+  const svg = canvasElement.querySelector<SVGSVGElement>('svg[data-slot="borrow-illustration"]');
+  if (!svg) throw new Error("Borrow illustration not found");
+  return svg;
+}
+const animatedProperties = new Set(["opacity", "transform", "strokeDashoffset"]);
+const keyframeMeta = new Set(["offset", "easing", "composite", "computedOffset"]);
+async function playBorrowEntrance({ canvasElement }: { canvasElement: HTMLElement }) {
+  const canvas = within(canvasElement);
+  await expect(canvas.getByRole("heading", { name: borrow.headline, level: 2 })).toBeVisible();
+  const svg = borrowIllustration(canvasElement);
+  await expect(svg).toHaveAttribute("aria-hidden", "true");
+  await waitFor(() => expect(svg.getAnimations({ subtree: true }).length).toBeGreaterThan(0));
+  const animations = svg.getAnimations({ subtree: true });
+  const end = Math.max(...animations.map((animation) => {
+    const { delay, duration } = animation.effect!.getTiming();
+    return Number(delay) + Number(duration);
+  }));
+  await expect(end).toBeGreaterThanOrEqual(1000);
+  await expect(end).toBeLessThanOrEqual(1300);
+  for (const animation of animations) {
+    for (const frame of (animation.effect as KeyframeEffect).getKeyframes()) {
+      for (const key of Object.keys(frame).filter((name) => !keyframeMeta.has(name))) await expect(animatedProperties.has(key)).toBe(true);
+    }
+  }
+  await Promise.all(animations.map((animation) => animation.finished));
+  await expect(svg.getAnimations({ subtree: true }).every((animation) => animation.playState === "finished")).toBe(true);
+  actions.chooseAsset.mockClear();
+  await userEvent.click(canvas.getByRole("button", { name: "Choose an asset" }));
+  await expect(actions.chooseAsset).toHaveBeenCalledTimes(1);
+}
+export const BorrowNotStarted: Story = { args: { content: borrow, size: "compact" }, play: playBorrowEntrance };
+export const BorrowNotStartedDark: Story = { args: { content: borrow, size: "compact" }, globals: { theme: "dark" }, play: playBorrowEntrance };
+export const BorrowNotStartedDesktop: Story = { args: { content: borrow, size: "compact" }, parameters: { viewport: { defaultViewport: "desktop" } } };
+export const BorrowReducedMotion: Story = {
+  args: { content: borrow, size: "compact" },
+  beforeEach: () => {
+    const original = window.matchMedia;
+    window.matchMedia = ((query: string) => {
+      if (query !== "(prefers-reduced-motion: reduce)") return original.call(window, query);
+      const noop = () => {};
+      return { matches: true, media: query, onchange: null, addEventListener: noop, removeEventListener: noop, addListener: noop, removeListener: noop, dispatchEvent: () => false } satisfies MediaQueryList;
+    }) as typeof window.matchMedia;
+    return () => { window.matchMedia = original; };
+  },
+  play: async ({ canvasElement }) => {
+    await expect(within(canvasElement).getByRole("heading", { name: borrow.headline })).toBeVisible();
+    const svg = borrowIllustration(canvasElement);
+    await waitFor(() => expect(svg).toHaveAttribute("data-state", "idle"));
+    await expect(svg.getAnimations({ subtree: true })).toHaveLength(0);
   },
 };

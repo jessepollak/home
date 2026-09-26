@@ -4,12 +4,14 @@
   display: block;
   width: 100%;
   height: auto;
+  aspect-ratio: 3 / 2;
   overflow: visible;
 }
 
 .tilt {
   transform-box: view-box;
   transform-origin: 120px 108px;
+  transform: rotate(-6deg);
 }
 
 .root[data-state="ready"] .draw,
@@ -32,7 +34,9 @@
   animation: tilt var(--duration) var(--delay) both;
 }
 
-.root[data-state="ready"] * { animation-play-state: paused !important; }
+.root[data-state="ready"] :is(.draw, .fade, .enter, .tilt) {
+  animation-play-state: paused;
+}
 
 @keyframes draw {
   from { stroke-dashoffset: 1.01; }
@@ -45,20 +49,19 @@
 }
 
 @keyframes enter {
-  0% { opacity: 0; transform: translate(var(--x, 0px), var(--y, 0px)); }
+  0% { opacity: 0; transform: translateY(var(--y, 0px)); }
   45% { opacity: 1; }
-  100% { opacity: 1; transform: translate(0px, 0px); }
+  100% { opacity: 1; transform: translateY(0px); }
 }
 
 @keyframes tilt {
-  0% { transform: rotate(0deg); animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1); }
-  70% { transform: rotate(calc(var(--tilt) * 1.15)); animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1); }
-  100% { transform: rotate(var(--tilt)); }
+  0% { transform: rotate(0deg); animation-timing-function: var(--ease-plane); }
+  70% { transform: rotate(-6.9deg); animation-timing-function: var(--ease-draw); }
+  100% { transform: rotate(-6deg); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .root, .root * { animation: none !important; }
+  .root[data-state] :is(.draw, .fade, .enter, .tilt) {
+    animation: none;
+  }
 }
-
-.root[data-motion="reduce"],
-.root[data-motion="reduce"] * { animation: none !important; }

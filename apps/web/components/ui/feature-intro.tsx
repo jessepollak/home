@@ -3,6 +3,7 @@
 import { useId } from "react";
 import type { Ref } from "react";
 import type { LucideIcon } from "lucide-react";
+import { BorrowIllustration } from "@/components/ui/borrow-illustration";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerTitle } from "@/components/ui/drawer";
@@ -39,7 +40,7 @@ function Sparkle({ x, y, arm }: { x: number; y: number; arm: number }) {
   );
 }
 
-function LinePlaneIllustration({ subject }: { subject: "card" | "savings" | "borrow" }) {
+function LinePlaneIllustration({ subject }: { subject: "card" | "savings" }) {
   const clipId = useId();
   return (
     <svg viewBox="0 0 240 160" aria-hidden="true" focusable="false" className="block aspect-[3/2] w-full">
@@ -58,17 +59,6 @@ function LinePlaneIllustration({ subject }: { subject: "card" | "savings" | "bor
           </g>
           <Sparkle x={194} y={28} arm={7} />
           <Sparkle x={44} y={136} arm={5} />
-        </>
-      ) : subject === "borrow" ? (
-        <>
-          <ellipse cx="119" cy="137" rx="77" ry="4" fill="var(--muted)" />
-          <path d="M64 115 H125 M72 121 H117" fill="none" stroke="var(--foreground)" strokeWidth="2" strokeLinecap="round" />
-          <circle cx="94" cy="77" r="37" fill="var(--card)" stroke="var(--foreground)" strokeWidth="2" />
-          <path d="M94 60 L110 77 L94 96 L78 77 Z M78 77 H110 M94 60 L87 77 L94 96 L101 77 Z" fill="none" stroke="var(--foreground)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          <path d="M136 77 H158 M152 71 L158 77 L152 83" fill="none" stroke="var(--foreground)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          <circle cx="188" cy="77" r="29" fill="var(--primary)" />
-          <path d="M197 68 H185 A8 8 0 0 0 185 84 H191 A8 8 0 0 1 191 100 H178 M188 61 V67 M188 100 V106" fill="none" stroke="var(--primary-foreground)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          <Sparkle x={188} y={27} arm={6} />
         </>
       ) : (
         <>
@@ -122,7 +112,7 @@ function IntroBody({ content, sheet = false, size = "default" }: { content: Feat
     <div className="space-y-5">
       {content.illustration ? (
         <div className={sheet ? "mx-auto w-full max-w-70" : size === "compact" ? "mx-auto w-full max-w-40" : "mx-auto w-full max-w-60"}>
-          <LinePlaneIllustration subject={content.illustration} />
+          {content.illustration === "borrow" ? <BorrowIllustration /> : <LinePlaneIllustration subject={content.illustration} />}
         </div>
       ) : null}
       <div className="space-y-2">
