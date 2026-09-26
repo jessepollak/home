@@ -1,0 +1,5 @@
+# MoneyConfirmSummary and MoneyConfirmRow
+
+| Item | Code | Figma | MVP | Built on | Owner | P |
+| --- | --- | --- | --- | --- | --- | --- |
+| MoneyConfirmSummary + MoneyConfirmRow | yes | `166:1803`, `166:1802` layout=inline\|full-value\|copyable (run 11 adds `copyable`: label + `CopyableValue` for the transaction hash). Revision 3: rows sit in the standard block with no per-row dividers. Figma leads a send with a `To` row in `layout=full-value`. Per Jesse’s #945 decision, `client/transfers/send-dialog.tsx` renders `To` as an inline row like `From`, with `CopyableValue presentation="reveal"`: the address is condensed to one line (`0x2211…d77da9` style); tapping opens a popover with the full address in groups of four and a Copy button. `Resolves to` and Account address use the same treatment. Figma `display=full` still draws the superseded one-line complete review address and needs a `reveal` drawing; Figma parity pending. A trade summary (Buy, Sell, swap) keeps slippage and the minimum received as rows | yes | MoneyTicker, dl | `client/money-modal/confirm-summary.tsx` | P0 |

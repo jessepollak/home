@@ -1,0 +1,4 @@
+# Deferred sheets
+
+- Shell entry points never import a Drawer-backed sheet statically. They mount it through `deferSheet` (`client/money-modal/deferred-sheet.tsx`), preload it on the trigger's pointer-down, and idle-preload the Home primary actions (Send, Add money) once the account is verified, so Base UI Drawer and the sheet flows stay out of the shell's initial chunks.
+- Keep Drawer-backed sheets mounted while driving `open`, and clear caller state only from the close-complete callback so exit motion runs. `deferSheet` stages a sheet that mounts already open through one closed render so entrance motion runs on first, preloaded, and repeat opens; a keyed replacement of an already-open sheet (an account-boundary remount) stays open without replaying its entrance. Reserve `immediate` for reduced motion and privacy drops (Send owner change).
