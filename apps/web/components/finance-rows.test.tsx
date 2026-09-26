@@ -2,9 +2,32 @@ import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
 const { cleanup, fireEvent, render } = await import("@testing-library/react");
-const { BalanceRow } = await import("./finance-rows");
+const { BalanceRow, ActivityRow } = await import("./finance-rows");
 
 afterEach(cleanup);
+
+describe("ActivityRow attention", () => {
+  test("announces attention on the activation button and replaces the chevron icon", () => {
+    const onActivate = mock(() => undefined);
+    const view = render(<ul><ActivityRow icon="↓" label="Add money" context="Today"
+      onActivate={onActivate} attention="Action needed" activateLabel="View details" /></ul>);
+    const row = view.getByRole("button", { name: /Add money.*Action needed/ });
+    expect(row.getAttribute("aria-describedby")).toBeTruthy();
+    const actions = row.querySelector("[aria-hidden=true]:has(> svg)");
+    expect(actions?.querySelectorAll("svg")).toHaveLength(1);
+    expect(actions?.querySelector("svg circle")).toBeTruthy();
+    fireEvent.click(row);
+    expect(onActivate).toHaveBeenCalledWith(row);
+  });
+  test("without attention retains the usual activatable row and chevron", () => {
+    const view = render(<ul><ActivityRow icon="↓" label="Received" context="Today"
+      onActivate={() => undefined} activateLabel="View details" /></ul>);
+    const row = view.getByRole("button", { name: "Received Today" });
+    expect(row.querySelector("[aria-hidden=true]:has(> svg) svg circle")).toBeNull();
+    expect(row.querySelectorAll("[aria-hidden=true]:has(> svg) svg")).toHaveLength(1);
+    expect(view.queryByText("Action needed")).toBeNull();
+  });
+});
 
 describe("FinanceRow read retry", () => {
   test("is reachable after the row and invokes only the read callback by mouse and keyboard", () => {

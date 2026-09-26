@@ -29,9 +29,9 @@ function setup(prepare: AccountWalletClient["prepareMoneyAction"]) {
   return { view, calls, routes };
 }
 async function openDetails(view: ReturnType<typeof render>) {
-  const row = await view.findByRole("button", { name: /\$50 to Cash App.*Waiting for a buyer/ });
+  const row = await view.findByRole("button", { description: "View Cash out to Cash App details" });
   fireEvent.click(row);
-  return view.findByRole("dialog", { name: "$50 to Cash App" });
+  return view.findByRole("dialog", { name: "Cash out to Cash App" });
 }
 
 test("Cancel prepares the unclaimed deposit amount and opens the existing Send review", async () => {
@@ -40,7 +40,7 @@ test("Cancel prepares the unclaimed deposit amount and opens the existing Send r
   fireEvent.click(await view.findByRole("button", { name: "Cancel cash-out $50" }));
   await waitFor(() => expect(calls).toEqual([{ kind: "cash-out-withdraw", params: { providerId: "peer", region: "US", depositId: "fixture-escrow-1" } }]));
   await waitFor(() => expect(routes).toEqual([{ flow: "send", options: { actionId: cashoutFixtureWithdraw.id, mode: "push" } }]));
-  await waitFor(() => expect(view.queryByRole("dialog", { name: "$50 to Cash App" })).toBeNull());
+  await waitFor(() => expect(view.queryByRole("dialog", { name: "Cash out to Cash App" })).toBeNull());
 });
 
 test("failed prepare keeps the detail open with an inline error", async () => {
@@ -73,8 +73,8 @@ test("closing the details clears a previous cancellation error", async () => {
   await openDetails(view);
   fireEvent.click(await view.findByRole("button", { name: "Cancel cash-out $50" }));
   await waitFor(() => expect(view.getByRole("alert").textContent).toContain("Could not prepare the withdrawal. Try again."));
-  fireEvent.click(view.getByRole("button", { name: "Close transaction details" }));
-  await waitFor(() => expect(view.queryByRole("dialog", { name: "$50 to Cash App" })).toBeNull());
+  fireEvent.click(view.getByRole("button", { name: "Close Cash out to Cash App details" }));
+  await waitFor(() => expect(view.queryByRole("dialog", { name: "Cash out to Cash App" })).toBeNull());
   await openDetails(view);
   expect(await view.findByRole("button", { name: "Cancel cash-out $50" })).toBeTruthy();
   expect(view.queryByRole("alert")).toBeNull();
@@ -85,8 +85,8 @@ test("a cancellation that settles after the details close neither shows its erro
   const { view, routes } = setup(() => new Promise((_resolve, fail) => { reject = fail; }));
   await openDetails(view);
   fireEvent.click(await view.findByRole("button", { name: "Cancel cash-out $50" }));
-  fireEvent.click(view.getByRole("button", { name: "Close transaction details" }));
-  await waitFor(() => expect(view.queryByRole("dialog", { name: "$50 to Cash App" })).toBeNull());
+  fireEvent.click(view.getByRole("button", { name: "Close Cash out to Cash App details" }));
+  await waitFor(() => expect(view.queryByRole("dialog", { name: "Cash out to Cash App" })).toBeNull());
   await openDetails(view);
   reject(new Error("offline"));
   await waitFor(() => expect(view.getByRole("button", { name: "Cancel cash-out $50" }).hasAttribute("disabled")).toBe(false));

@@ -34,18 +34,21 @@ export const States: Story = {
   args: { activity, operations: states, regionId: "US", density: "page", onCancelCashout: noop },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await expect(canvas.getByText(/Waiting for a buyer/)).toBeVisible();
-    await expect(canvas.getByText(/Buyer paying you/)).toBeVisible();
-    await expect(canvas.getByText(/Paid to Cash App/)).toBeVisible();
-    await expect(canvas.getByText(/Cash-out failed/)).toBeVisible();
+    const pending = canvas.getByRole("list", { name: "Pending" });
+    const recent = canvas.getByRole("list", { name: "Recent" });
+    await expect(within(pending).getAllByRole("button", { description: "View Cash out to Cash App details" })).toHaveLength(3);
+    await expect(within(recent).getAllByRole("button", { description: "View Cash out to Cash App details" })).toHaveLength(4);
+    await expect(within(recent).getAllByText(/Returned/)).toHaveLength(2);
+    await expect(within(recent).getByText(/Failed/)).toBeVisible();
   },
 };
 export const CancelDetails: Story = {
   args: { activity, operations: [states[0]!], regionId: "US", density: "page", onCancelCashout: noop },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await userEvent.click(canvas.getByRole("button", { name: /\$50 to Cash App.*Waiting for a buyer/ }));
-    const dialog = await within(document.body).findByRole("dialog", { name: "$50 to Cash App" });
+    await userEvent.click(canvas.getByRole("button", { description: "View Cash out to Cash App details" }));
+    const dialog = await within(document.body).findByRole("dialog", { name: "Cash out to Cash App" });
+    await expect(within(dialog).getByText("Waiting for a buyer")).toBeVisible();
     await expect(within(dialog).getByRole("button", { name: "Cancel cash-out $50" })).toBeVisible();
     await expect(within(dialog).getByText("About 60 min")).toBeVisible();
   },

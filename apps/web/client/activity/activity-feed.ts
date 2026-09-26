@@ -20,6 +20,12 @@ export type ActivityFeedItem =
       transfers: readonly ActivityTransfer[];
     };
 
+export function activityOperationTime(operation: RecentMoneyActionOperation): string {
+  const cashoutUpdatedAt = operation.action.kind === "cash-out" ? operation.cashout?.updatedAt : undefined;
+  return cashoutUpdatedAt && Number.isFinite(Date.parse(cashoutUpdatedAt))
+    ? cashoutUpdatedAt : operation.updatedAt;
+}
+
 export function mergeActivityFeed(input: {
   transfers: readonly ActivityTransfer[];
   operations: readonly RecentMoneyActionOperation[];
@@ -67,7 +73,7 @@ export function mergeActivityFeed(input: {
       const hash = operation.transactionHash?.toLowerCase();
       const transfers = hash ? transfersByHash.get(hash) ?? [] : [];
       if (transfers.length === 0 && operation.status !== "pending" && loadedThroughTime !== null &&
-        Date.parse(operation.updatedAt) <= loadedThroughTime &&
+        Date.parse(activityOperationTime(operation)) <= loadedThroughTime &&
         !(operation.action.kind === "cash-out" && presentCashout(operation, withdrawals.get(operation.cashout?.depositId?.toLowerCase() ?? "")).inProgress)) return [];
       const sharedHash = hash !== undefined && (actionIdsByHash.get(hash)?.size ?? 0) > 1;
       const settled = transfers.length > 0 ? settleOperation(operation, transfers, !sharedHash) : operation;
@@ -75,7 +81,7 @@ export function mergeActivityFeed(input: {
       return [{
         kind: "action",
         id: operation.action.id,
-        timestamp: settled.updatedAt,
+        timestamp: activityOperationTime(settled),
         operation: settled,
         ...(withdraw ? { withdraw } : {}),
         transfers,

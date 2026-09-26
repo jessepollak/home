@@ -24,7 +24,7 @@ This map points to Home's current product, engineering, delivery, setup, and int
 - [Operating manual](operating-manual.md) — Jesse/factory roles, product framing, run triggers, delivery loop, live-money validation, PR evidence, and completion authority.
 - [PRD template](prd-template.md) and [repository gates](gates.md) — shaping and repository checks.
 - [Browser validation](browser-validation.md) and [UI PR previews](ui-pr-previews.md) — interactive iteration, regression ownership, and current-head visual proof.
-- [Activity ledger proposal](activity-ledger-design.md) — unreviewed Storybook taxonomy, details, and source gaps.
+- [Activity ledger design](activity-ledger-design.md) — approved taxonomy, production component contract, and source gaps.
 - [UI direction](ui-direction.md), [design system](design-system.md), and [Figma workflow](design-explorations/figma-workflow.md) — product presentation rules, the canonical design source, owned components, tokens, and lint contracts; [Figma library](design-explorations/design-system.md) — gap matrix, finance pattern inventory, Code Connect plan, and publish checklist; [Mobbin references](design-explorations/mobbin.md) — real-world design references, access, and terms; [design explorations](design-explorations/README.md) — where design-lane non-production code lives.
 - [Observability](observability.md) and [performance observability](performance-observability.md) — privacy-safe events, performance marks, and verification.
 - [Vercel deploy](vercel-deploy.md) — Bun monorepo deployment and database migration setup.
