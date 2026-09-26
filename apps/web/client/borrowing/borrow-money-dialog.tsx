@@ -79,6 +79,7 @@ export function BorrowMoneyDialog({
   regionId,
   onClose,
   onClosed,
+  onLeave,
   assetMarkResolution,
   open = true,
 }: {
@@ -91,6 +92,7 @@ export function BorrowMoneyDialog({
   regionId: RegionId;
   onClose: () => void;
   onClosed?: () => void;
+  onLeave?: () => void;
   assetMarkResolution?: AssetMarkResolution;
   open?: boolean;
 }) {
@@ -272,7 +274,7 @@ export function BorrowMoneyDialog({
         onClose={onClose}
         closeLabel="Close Borrow action"
       />
-      {step === "result" && preparedAction && submission ? <BorrowResult action={preparedAction} submission={submission} submittedAt={submittedAt} snapshot={snapshot} operation={operation} fetchAccountResource={fetchAccountResource} onClose={onClose} onTryAgain={goBack} onViewActivity={() => openPanelAfterClose(routing, "activity", onClose)} /> : <MoneyModalBody hasFooter={step !== "pending" || Boolean(preparedAction)} className="gap-4 pt-4">
+      {step === "result" && preparedAction && submission ? <BorrowResult action={preparedAction} submission={submission} submittedAt={submittedAt} snapshot={snapshot} operation={operation} fetchAccountResource={fetchAccountResource} onClose={onClose} onTryAgain={goBack} onViewActivity={() => openPanelAfterClose(routing, "activity", () => { onLeave?.(); onClose(); })} /> : <MoneyModalBody hasFooter={step !== "pending" || Boolean(preparedAction)} className="gap-4 pt-4">
         {step === "amount" ? (
           <>
             {closesWithoutDebt ? (

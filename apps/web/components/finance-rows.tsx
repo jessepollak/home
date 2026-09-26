@@ -90,9 +90,9 @@ function FinanceRow({
           {typeof icon === "string" ? <DirectionIcon value={icon} /> : icon}
         </span>
       </ItemMedia>
-      <div className="flex min-w-0 flex-1 items-start gap-3" data-slot="finance-row-body">
-        <ItemContent className={cn("min-w-0 gap-0.5", (context === undefined || value === undefined || valueContext === undefined) && "self-center")}>
-          <ItemTitle className="w-full">{label}</ItemTitle>
+      <div className="flex min-w-0 flex-1 items-start gap-3 @max-[14rem]/finance-row:flex-col @max-[14rem]/finance-row:gap-1" data-slot="finance-row-body">
+        <ItemContent className={cn("min-w-0 gap-0.5 @max-[14rem]/finance-row:w-full @max-[14rem]/finance-row:self-stretch", (context === undefined || value === undefined || valueContext === undefined) && "self-center")}>
+          <ItemTitle className="w-full" truncate="stacked">{label}</ItemTitle>
           {context === undefined ? null : (
             <ItemDescription lines={1} title={contextTitle}>
               {context}
@@ -102,14 +102,14 @@ function FinanceRow({
         {onActivate && attention ? <span className="sr-only">{attention}</span> : null}
         {hasValue ? (
           <ItemContent
-            className={cn("max-w-2/3 min-w-0 !flex-none items-end gap-0.5 overflow-hidden text-right", (value === undefined || valueContext === undefined) && "self-center")}
+            className={cn("max-w-2/3 min-w-0 !flex-none items-end gap-0.5 overflow-hidden text-end @max-[14rem]/finance-row:max-w-full", (value === undefined || valueContext === undefined) && "self-center", "@max-[14rem]/finance-row:self-end")}
             data-slot="finance-row-value"
           >
             {value === undefined ? null : (
               <ItemTitle
-                className="w-full min-w-0 justify-end"
+                className="w-full min-w-0 justify-end text-end"
                 numeric
-                truncate={false}
+                truncate="wrap"
                 tone={valueTitleTone[valueTone]}
                 data-value-tone={valueTone}
               >
@@ -120,7 +120,7 @@ function FinanceRow({
               <ItemDescription
                 lines={1}
                 size="xs"
-                className="w-full text-right"
+                className="w-full text-end"
                 title={valueContextTitle}
               >
                 {valueContext}
@@ -142,10 +142,10 @@ function FinanceRow({
   );
 
   return (
-    <li className={cn(readRetry && "relative")}>
+    <li className={cn("@container/finance-row", readRetry && "relative")}>
       <Item
         data-kind={kind}
-        className={cn("flex-nowrap items-center gap-3 py-2", onActivate && "cursor-pointer")}
+        className={cn("flex-nowrap items-center gap-3 py-2", onActivate && "h-auto cursor-pointer")}
         {...(onActivate
           ? {
               render: (

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { borrowOverviewBody } from "@/tests/browser/fixtures/bodies";
 import { VERIFIED_MORPHO_MARKETS } from "@/shared/morpho-markets/config";
 import { parseBorrowOverview, type BorrowOverviewResponse, type BorrowMarketSnapshot } from "@/shared/borrowing/contract";
-import { borrowableAssets, loanActions, openLoans, summarizeBorrowOverview } from "./borrow-overview-model";
+import { borrowableAssets, borrowDebtsMatchOverview, loanActions, openLoans, summarizeBorrowOverview } from "./borrow-overview-model";
 
 const market = VERIFIED_MORPHO_MARKETS;
 function fixture(changes: Array<[number, Partial<BorrowMarketSnapshot>]>) {
@@ -22,6 +22,24 @@ const snapshot = (overview: BorrowOverviewResponse, index: number) => {
 };
 
 describe("borrow overview derivations", () => {
+  test("matches positive debt per market within one loan-token cent, not just the aggregate", () => {
+    const base = borrowOverviewBody({ openMarketId: null });
+    const overview = fixture([
+      [0, { position: { ...snapshot(base, 0).position, ...debt("100000000") } }],
+      [2, { position: { ...snapshot(base, 2).position, ...debt("200000000") } }],
+    ]);
+    const first = market[0]!.marketId;
+    const second = market[2]!.marketId;
+    expect(borrowDebtsMatchOverview(overview, [{ marketId: second, baseUnits: "200010000" }, { marketId: first, baseUnits: "99990000" }])).toBe(true);
+    expect(borrowDebtsMatchOverview(overview, [{ marketId: second, baseUnits: "200010001" }, { marketId: first, baseUnits: "99989999" }])).toBe(false);
+    expect(borrowDebtsMatchOverview(overview, [{ marketId: first, baseUnits: "300000000" }])).toBe(false);
+    expect(borrowDebtsMatchOverview(overview, [{ marketId: first, baseUnits: "100000000" }, { marketId: second, baseUnits: "200000000" }, { marketId: second, baseUnits: "200000000" }])).toBe(false);
+    expect(borrowDebtsMatchOverview(overview, [{ marketId: first, baseUnits: "100000000" }, { marketId: second, baseUnits: "0" }])).toBe(false);
+  });
+  test("does not correlate debt while a market is unavailable", () => {
+    const overview = borrowOverviewBody({ unavailableMarketId: market[2]!.marketId });
+    expect(borrowDebtsMatchOverview(overview, [])).toBe(false);
+  });
   test("weights APR by positive base-unit debt, excluding zero-debt rates", () => {
     const base = borrowOverviewBody({ openMarketId: null });
     const overview = fixture([

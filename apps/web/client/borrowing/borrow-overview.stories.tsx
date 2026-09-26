@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useRef, useState } from "react";
 import { expect, userEvent, within } from "storybook/test";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
-import { BorrowOverviewProposal } from "./borrow-overview";
+import { BorrowOverview } from "./borrow-overview";
 import { summarizeBorrowOverview } from "./borrow-overview-model";
 import type { BorrowMarketId } from "@/shared/borrowing/config";
 import type { BorrowMarketSnapshot, BorrowOverviewResponse } from "@/shared/borrowing/contract";
@@ -21,7 +21,7 @@ import { parseBorrowActionIntent, type BorrowActionIntent } from "@/shared/borro
 import { borrowOverviewBody, sessionBody } from "@/tests/browser/fixtures/bodies";
 import { formatFiatAmount } from "@/shared/formatting";
 
-const borrowPrototypeSession = {
+const borrowStorySession = {
   user: sessionBody.user,
   smartAccount: { address: sessionBody.smartAccount.address as `0x${string}`, chainId: 8453 as const },
   accountProvider: "cdp-embedded" as const,
@@ -72,7 +72,7 @@ function withDebt(snapshot: BorrowMarketSnapshot, debt: string, health: string, 
   };
 }
 
-function borrowPrototypeOverview(): BorrowOverviewResponse {
+function borrowStoryOverview(): BorrowOverviewResponse {
   const base = borrowOverviewBody({ openMarketId: null });
   const opportunities: BorrowOverviewResponse["opportunities"] = base.opportunities.map((entry, index) => {
     if (entry.availability.status !== "available") return entry;
@@ -274,20 +274,18 @@ function applyBorrowPostState(snapshot: BorrowMarketSnapshot, input: BorrowActio
   };
 }
 
-export type BorrowPrototypeScenario = "success" | "pending" | "failure";
-function BorrowPrototypeSurface({
-  fixture = borrowPrototypeOverview(),
-  variant = "a",
+export type BorrowStoryScenario = "success" | "pending" | "failure";
+function BorrowStorySurface({
+  fixture = borrowStoryOverview(),
   status: initialStatus = "ready",
   initialMarketId,
   scenario = "success",
   recovery,
 }: {
   fixture?: BorrowOverviewResponse;
-  variant?: "a" | "b";
   status?: "ready" | "loading" | "error";
   initialMarketId?: BorrowMarketId;
-  scenario?: BorrowPrototypeScenario;
+  scenario?: BorrowStoryScenario;
   recovery?: BorrowOverviewResponse;
 }) {
   const [overview, setOverview] = useState(fixture);
@@ -309,8 +307,8 @@ function BorrowPrototypeSurface({
     const action: PreparedMoneyAction = {
       id: "11111111-1111-4111-8111-111111111111",
       owner: {
-        subject: borrowPrototypeSession.user.subject,
-        address: borrowPrototypeSession.smartAccount.address,
+        subject: borrowStorySession.user.subject,
+        address: borrowStorySession.smartAccount.address,
         chainId: 8453,
         accountProvider: "cdp-embedded",
       },
@@ -353,13 +351,13 @@ function BorrowPrototypeSurface({
     total: formatFiatAmount(BigInt(totalDebtRaw), 6, "USD", { regionId: "US", fractionDigits: 2, minimumFractionDigits: 2 }),
   };
   return (
-    <BorrowOverviewProposal
+    <BorrowOverview
       overview={overview}
-      summaryDisplay={summaryDisplay}
-      variant={variant}
+      borrowSummary={{ kind: "position", status: "complete", value: summaryDisplay.total, rate: null, debts: overview.opportunities.flatMap((entry) => entry.availability.status === "available" && BigInt(entry.availability.snapshot.position.debtAssetsRaw) > BigInt(0)
+        ? [{ marketId: entry.market.id, baseUnits: entry.availability.snapshot.position.debtAssetsRaw }] : []) }}
       status={status}
       onRetry={onRetry}
-      session={borrowPrototypeSession}
+      session={borrowStorySession}
       regionId="US"
       initialMarketId={initialMarketId}
       prepareMoneyAction={prepareMoneyAction}
@@ -372,11 +370,11 @@ function BorrowPrototypeSurface({
 }
 
 const meta = {
-  id: "explorations-borrow-overview",
-  title: "Explorations/Borrow Overview",
-  component: BorrowPrototypeSurface,
+  id: "borrowing-borrow-overview",
+  title: "Borrowing/Borrow Overview",
+  component: BorrowStorySurface,
   parameters: { layout: "fullscreen", viewport: { defaultViewport: "mobile" } },
-} satisfies Meta<typeof BorrowPrototypeSurface>;
+} satisfies Meta<typeof BorrowStorySurface>;
 export default meta;
 type Story = StoryObj<typeof meta>;
 const btc = markets[0]!.marketId;
@@ -384,7 +382,7 @@ const eth = markets[2]!.marketId;
 const doge = markets[3]!.marketId;
 const ada = markets[4]!.marketId;
 function only(...ids: BorrowMarketId[]): BorrowOverviewResponse {
-  const original = borrowPrototypeOverview();
+  const original = borrowStoryOverview();
   const opportunities = original.opportunities.map((entry) => {
     if (entry.availability.status !== "available" || ids.includes(entry.market.id)) return entry;
     const snapshot = entry.availability.snapshot;
@@ -415,7 +413,7 @@ function only(...ids: BorrowMarketId[]): BorrowOverviewResponse {
 }
 
 function partialOverview(): BorrowOverviewResponse {
-  const base = borrowPrototypeOverview();
+  const base = borrowStoryOverview();
   return {
     ...base,
     discovery: {
@@ -458,19 +456,11 @@ export const MultipleLoans: Story = {
     await expect(assets.getByText("Available")).toBeVisible();
   },
 };
-export const AlternativeBMultipleLoans: Story = {
-  args: { variant: "b" },
-  play: async ({ canvasElement }) => {
-    const loans = within(within(canvasElement).getByRole("region", { name: "Open loans" }));
-    await expect(loans.getByText("Urgent · 17%")).toBeVisible();
-    await expect(loans.getByText("Collateral available")).toBeVisible();
-  },
-};
 export const OneLoan: Story = { args: { fixture: only(btc) } };
-export const UrgentFirst: Story = { args: { fixture: borrowPrototypeOverview() } };
+export const UrgentFirst: Story = { args: { fixture: borrowStoryOverview() } };
 export const ReducingOnly: Story = {
   args: {
-    fixture: replaceSnapshot(borrowPrototypeOverview(), btc, (snapshot) => ({
+    fixture: replaceSnapshot(borrowStoryOverview(), btc, (snapshot) => ({
       ...snapshot,
       wallet: {
         ...snapshot.wallet,
@@ -505,7 +495,7 @@ export const NoDebtHeld: Story = {
 };
 export const EmptyNoCollateral: Story = { args: { fixture: only() } };
 export const Partial: Story = {
-  args: { fixture: partialOverview(), recovery: borrowPrototypeOverview() },
+  args: { fixture: partialOverview(), recovery: borrowStoryOverview() },
   play: async ({ canvasElement }) => {
     const screen = within(canvasElement);
     await expect(screen.getByText("Some loans couldn't be checked")).toBeVisible();
@@ -515,7 +505,7 @@ export const Partial: Story = {
   },
 };
 export const Unverified: Story = {
-  args: { fixture: unverifiedOverview(), initialMarketId: btc, recovery: borrowPrototypeOverview() },
+  args: { fixture: unverifiedOverview(), initialMarketId: btc, recovery: borrowStoryOverview() },
   play: async ({ canvasElement }) => {
     const screen = within(canvasElement);
     await expect(screen.getByRole("alert")).toHaveTextContent("Borrow is unavailable");
@@ -534,7 +524,7 @@ export const Unverified: Story = {
   },
 };
 export const Unavailable: Story = {
-  args: { status: "error", recovery: borrowPrototypeOverview() },
+  args: { status: "error", recovery: borrowStoryOverview() },
   play: async ({ canvasElement }) => {
     const screen = within(canvasElement);
     await expect(screen.getByRole("alert")).toHaveTextContent("Current loan values could not be verified. No zero values are shown.");
@@ -546,7 +536,7 @@ export const Unavailable: Story = {
 export const Loading: Story = { args: { status: "loading" } };
 export const LongLabelLargeAmount: Story = {
   args: {
-    fixture: replaceSnapshot(borrowPrototypeOverview(), btc, (snapshot) =>
+    fixture: replaceSnapshot(borrowStoryOverview(), btc, (snapshot) =>
       withDebt(snapshot, "12345678900000", "1900000000000000000", bps[0]!)),
   },
   play: async ({ canvasElement }) => {
@@ -573,7 +563,6 @@ export const ManagementSheetUrgent: Story = {
     await expect(dialog.getByRole("button", { name: /Withdraw collateral/ })).toBeDisabled();
   },
 };
-export const AlternativeBManagementSheet: Story = { args: { initialMarketId: btc, variant: "b" } };
 export const MarketSheetHeld: Story = { args: { initialMarketId: ada } };
 export const ZeroDebtSheet: Story = {
   args: { initialMarketId: markets[1]!.marketId },
@@ -589,3 +578,7 @@ export const ZeroDebtSheet: Story = {
 export const Desktop: Story = { parameters: { viewport: { defaultViewport: "desktop" } } };
 export const Narrow320: Story = { parameters: { viewport: { defaultViewport: "smallMobile" } } };
 export const ReducedMotionReference: Story = { args: { initialMarketId: btc } };
+export const Text200Percent: Story = {
+  parameters: { viewport: { defaultViewport: "smallMobile" } },
+  decorators: [(Story) => <div style={{ zoom: 2 }}><Story /></div>],
+};

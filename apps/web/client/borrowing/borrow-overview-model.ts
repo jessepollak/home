@@ -1,11 +1,13 @@
+import type { HomeMoneySummary } from "@/shared/balances/present";
 import type { BorrowMarketSnapshot, BorrowOverviewResponse } from "@/shared/borrowing/contract";
-import { borrowRiskDescription, borrowRiskState } from "../borrow-ui";
-import { openingBorrowAvailableBaseUnits } from "../borrowing-experience";
+import { weightedAprWad } from "@/shared/borrowing/math";
+import { borrowRiskDescription, borrowRiskState } from "./borrow-ui";
+import { openingBorrowAvailableBaseUnits } from "./borrowing-experience";
 
 export function summarizeBorrowOverview(overview: BorrowOverviewResponse) {
   let debt = BigInt(0);
-  let weightedApr = BigInt(0);
   let loanToken: BorrowMarketSnapshot["market"]["loanToken"] | null = null;
+  const weights: Array<{ weight: bigint; aprWad: string }> = [];
   for (const opportunity of overview.opportunities) {
     if (opportunity.availability.status !== "available") continue;
     const snapshot = opportunity.availability.snapshot;
@@ -17,16 +19,42 @@ export function summarizeBorrowOverview(overview: BorrowOverviewResponse) {
     }
     loanToken = token;
     debt += amount;
-    weightedApr += amount * BigInt(snapshot.state.borrowAprWad);
+    weights.push({ weight: amount, aprWad: snapshot.state.borrowAprWad });
   }
   return {
     totalDebtRaw: debt.toString(),
     loanToken: loanToken ?? overview.opportunities[0]?.market.loanToken ?? null,
-    aprWad: debt > BigInt(0) ? (weightedApr / debt).toString() : null,
+    aprWad: weightedAprWad(weights),
     completeness: overview.discovery.verifiedCount === 0 ? "unavailable" as const
       : overview.discovery.status === "complete" && overview.opportunities.every((entry) => entry.availability.status === "available") ? "complete" as const : "partial" as const,
     openLoanCount: overview.opportunities.filter((entry) => entry.availability.status === "available" && BigInt(entry.availability.snapshot.position.debtAssetsRaw) > BigInt(0)).length,
   };
+}
+
+export function borrowDebtsMatchOverview(overview: BorrowOverviewResponse, debts: Extract<HomeMoneySummary["borrow"], { kind: "position" }>["debts"]): boolean {
+  const owing = new Map<string, { baseUnits: bigint; decimals: number }>();
+  for (const entry of overview.opportunities) {
+    if (entry.availability.status !== "available") return false;
+    const { position, market } = entry.availability.snapshot;
+    const baseUnits = BigInt(position.debtAssetsRaw);
+    if (baseUnits === BigInt(0)) continue;
+    const key = market.id.toLowerCase();
+    if (owing.has(key)) return false;
+    owing.set(key, { baseUnits, decimals: market.loanToken.decimals });
+  }
+  const seen = new Set<string>();
+  for (const debt of debts) {
+    const baseUnits = BigInt(debt.baseUnits);
+    const key = debt.marketId.toLowerCase();
+    if (baseUnits === BigInt(0) || seen.has(key)) return false;
+    seen.add(key);
+    const current = owing.get(key);
+    if (!current || current.decimals < 2) return false;
+    const difference = current.baseUnits - baseUnits;
+    const tolerance = BigInt(10) ** BigInt(current.decimals - 2);
+    if (difference > tolerance || difference < -tolerance) return false;
+  }
+  return seen.size === owing.size;
 }
 
 export type OpenLoan =

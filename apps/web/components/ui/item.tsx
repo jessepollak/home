@@ -146,6 +146,8 @@ const itemTitleVariants = cva(
       truncate: {
         true: "line-clamp-1",
         false: "whitespace-nowrap",
+        wrap: "whitespace-normal wrap-anywhere",
+        stacked: "line-clamp-1 @max-[14rem]/finance-row:line-clamp-2 @max-[14rem]/finance-row:whitespace-normal @max-[14rem]/finance-row:wrap-break-word",
       },
     },
     defaultVariants: {

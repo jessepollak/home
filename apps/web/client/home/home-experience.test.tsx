@@ -778,7 +778,7 @@ describe("Home shell routing and intents", () => {
           summary: {
             cash: { status: "complete", value: "$12.34" },
             investments: { status: "complete", value: "$78.21", assetCount: 1 },
-            borrow: { kind: "position", status: "complete", value: "$30.01", rate: "5.10% APR" },
+            borrow: { kind: "position", status: "complete", value: "$30.01", rate: "5.10% APR", debts: [{ marketId: BORROW_MARKET_ID, baseUnits: "30010000" }] },
           },
           rows: [],
           hiddenRows: [],
@@ -1225,7 +1225,7 @@ describe("Home shell routing and intents", () => {
     expect(borrowRow.textContent).toContain("Borrow Cash");
     fireEvent.click(borrowRow);
     expect(`${window.location.pathname}${window.location.search}`).toBe("/borrow");
-    expect(await page().findByText("Borrow USDC against your crypto on Base.")).toBeTruthy();
+    expect(await page().findByText("Borrowed")).toBeTruthy();
     expect(within(page().getByRole("navigation", { name: "Main navigation" })).queryByRole("button", { name: "Borrow" })).toBeNull();
   });
 
@@ -1274,7 +1274,7 @@ describe("Home shell routing and intents", () => {
 
     await waitForVerifiedShell();
     expect(page().getByRole("heading", { name: "Activity" })).toBeTruthy();
-    expect(page().queryByText("Borrow USDC against your crypto on Base.")).toBeNull();
+    expect(page().queryByText("Borrowed")).toBeNull();
     expect(pushCalls).toEqual([]);
   });
 
