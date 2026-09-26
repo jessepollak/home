@@ -25,6 +25,7 @@ import { dataOwnerKey, ownerSessionBoundary } from "./owner-keys";
 import { useOwnerGenerationFence } from "./owner-generation-fence";
 import { finishHomeAuthRestore, sendHomeAuthSignOut } from "@/client/observability/auth-performance";
 import { nativeOwnerKey } from "./native-base-session-client";
+import { ACCOUNT_RESTORE_STAGE_TIMEOUT_MS, AccountRestoreStageTimeoutError, runAccountRestoreStage } from "./restore-stage";
 
 function renderSeedSdkOwnerKey(seed: AccountRenderSeed): string {
   return seed.source === "home-session"
@@ -45,6 +46,7 @@ export function AccountWalletSessionOwner({
   projectConfigured = true,
   baseAccountConnector = connectBaseAccount,
   baseAccountRestorer = restoreBaseAccount,
+  restoreStageTimeoutMs = ACCOUNT_RESTORE_STAGE_TIMEOUT_MS,
   renderSeed = null,
 }: {
   children: ReactNode;
@@ -54,6 +56,7 @@ export function AccountWalletSessionOwner({
   projectConfigured?: boolean;
   baseAccountConnector?: BaseAccountConnector;
   baseAccountRestorer?: BaseAccountRestorer;
+  restoreStageTimeoutMs?: number;
   renderSeed?: AccountRenderSeed | null;
 }) {
   const {
@@ -111,6 +114,7 @@ export function AccountWalletSessionOwner({
   const providerRef = useRef<AccountProviderRequest>("restore");
   const cleanupRef = useRef<Promise<void> | null>(null);
   const validationRef = useRef<AbortController | null>(null);
+  const stageTimedOutRef = useRef(false);
   const previousOwner = useRef(seededSdkOwnerKey ?? ownerKey);
   const initialProvisionalSession = initialRenderSeed?.session ?? (
     isInitialized && isSignedIn && ownerKey && provisionalSession?.smartAccount
@@ -215,6 +219,7 @@ export function AccountWalletSessionOwner({
   }, [clearPrivate, disconnectBase, fence, sdkSignOut]);
 
   const markUnavailable = useCallback((text: string) => {
+    stageTimedOutRef.current = false;
     fence.advance();
     clearPrivate(true);
     setStatus("unavailable");
@@ -230,6 +235,7 @@ export function AccountWalletSessionOwner({
     validationRef.current?.abort();
     const controller = new AbortController();
     validationRef.current = controller;
+    stageTimedOutRef.current = false;
     const generation = fence.capture();
     let validationProvider: AccountProvider = authentication === "native-base"
       ? "base-account"
@@ -240,12 +246,12 @@ export function AccountWalletSessionOwner({
     setSession(nextProvisional);
     setVerification(nextProvisional ? "provisional" : null);
     try {
-      const token = await getAccessToken();
+      const token = await runAccountRestoreStage("token", controller.signal, () => getAccessToken(), restoreStageTimeoutMs);
       fence.assertCurrent(generation);
-      const verified = await validateAccountSession(token, controller.signal, sessionFetch, {
+      const verified = await runAccountRestoreStage("validation", controller.signal, (signal) => validateAccountSession(token, signal, sessionFetch, {
         accountProvider: providerRef.current,
         authentication,
-      });
+      }), restoreStageTimeoutMs);
       fence.assertCurrent(generation);
       if (verified.accountProvider === "base-account") {
         validationProvider = "base-account";
@@ -284,6 +290,7 @@ export function AccountWalletSessionOwner({
       setMessage(null);
     } catch (error) { // oxlint-disable-line home/no-silent-catch -- an aborted or superseded verification must not overwrite the newer attempt's state
       if (controller.signal.aborted || !fence.isCurrent(generation)) return;
+      if (error instanceof AccountRestoreStageTimeoutError) stageTimedOutRef.current = true;
       const missingBaseConnection = error instanceof BaseAccountConnectorError &&
         error.reason === "missing-connection";
       const sessionIdentityGone = error instanceof SessionValidationError && (
@@ -300,9 +307,11 @@ export function AccountWalletSessionOwner({
       setSession(null);
       setVerification(null);
       setStatus("unavailable");
-      setMessage(error instanceof Error ? error.message : "Account verification is unavailable.");
+      setMessage(error instanceof AccountRestoreStageTimeoutError
+        ? "Checking your account took too long."
+        : error instanceof Error ? error.message : "Account verification is unavailable.");
     }
-  }, [authentication, baseAccountEnabled, baseAccountRestorer, disconnectBase, fence, getAccessToken, isInitialized, isSignedIn, onBaseInvalidated, ownerKey, provisionalSession, sessionFetch, signOutLostIdentity]);
+  }, [authentication, baseAccountEnabled, baseAccountRestorer, disconnectBase, fence, getAccessToken, isInitialized, isSignedIn, onBaseInvalidated, ownerKey, provisionalSession, restoreStageTimeoutMs, sessionFetch, signOutLostIdentity]);
 
   const validateRef = useRef(validate);
   useLayoutEffect(() => { validateRef.current = validate; }, [validate]);
@@ -518,7 +527,7 @@ export function AccountWalletSessionOwner({
 
   const retrySessionValidation = useCallback(async () => {
     if (retryInitialization) await retryInitialization();
-    else await validate();
+    if (!retryInitialization || stageTimedOutRef.current) await validate();
   }, [retryInitialization, validate]);
 
   const signTypedData = useCallback(async (

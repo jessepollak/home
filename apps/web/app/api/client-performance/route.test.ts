@@ -34,6 +34,9 @@ const authReady = {
   outcome: "signed-out",
   sdkActivateMs: 126,
   nativeSettledMs: 974,
+  tokenMs: 126,
+  validationMs: 974,
+  stalledStage: "validation",
   sessionSettledMs: 1_024,
   totalMs: 1_024,
 } as const;
@@ -103,6 +106,8 @@ describe("POST /api/client-performance", () => {
       ...authReady,
       sdkActivateMs: 150,
       nativeSettledMs: 950,
+      tokenMs: 150,
+      validationMs: 950,
       sessionSettledMs: 1_000,
       totalMs: 1_000,
     });
@@ -114,7 +119,21 @@ describe("POST /api/client-performance", () => {
       { ...authReady, route: "/?account=signin" },
       { ...authReady, sessionSettledMs: undefined },
       { ...authReady, cdpInitializedMs: "900" },
+      { ...authReady, tokenMs: "100" },
+      { ...authReady, validationMs: undefined },
+      { ...authReady, stalledStage: "upstream" },
+      { ...authReady, stalledStage: undefined },
     ]) expect(parseClientPerformanceReport(invalid)).toBeNull();
+    expect(parseClientPerformanceReport({
+      ...authReady, tokenMs: -10, validationMs: 40_000, stalledStage: "token",
+    })).toMatchObject({ tokenMs: 0, validationMs: 30_000, stalledStage: "token" });
+    expect(parseClientPerformanceReport({
+      version: 1, kind: "home-auth-phase", route: "/", flow: "restore", hint: "none",
+      outcome: "signed-out", sessionSettledMs: 100, totalMs: 100,
+    })).toEqual({
+      version: 1, kind: "home-auth-phase", route: "/", flow: "restore", hint: "none",
+      outcome: "signed-out", sessionSettledMs: 100, totalMs: 100,
+    });
   });
 
   test("normalizes the closed signout schema", () => {
@@ -142,6 +161,8 @@ describe("POST /api/client-performance", () => {
     });
     expect(parseClientPerformanceReport({ ...signout, provider: "cdp" })).toBeNull();
     expect(parseClientPerformanceReport({ ...signout, cdpSignOutAttempted: "yes" })).toBeNull();
+    expect(parseClientPerformanceReport({ ...signout, tokenMs: 100 })).toBeNull();
+    expect(parseClientPerformanceReport({ ...signout, stalledStage: "token" })).toBeNull();
   });
 
   test("enforces same-origin, JSON-only, no-encoding, bounded body, and rate shedding", async () => {
@@ -176,6 +197,26 @@ describe("POST /api/client-performance", () => {
       totalMs: 50,
     }]);
     expect(JSON.stringify(events)).not.toMatch(/owner|wallet|subject|provider|secret|query|hash/i);
+  });
+
+  test("passes bounded restore stage timings and the closed stalled stage to the log", async () => {
+    const events: ObservabilityEvent[] = [];
+    const handler = createClientPerformanceHandler({
+      takePermit: () => true,
+      log: (event) => events.push(event),
+    });
+    expect((await handler(request(JSON.stringify(authReady)))).status).toBe(204);
+    expect(events).toEqual([{
+      ...authReady,
+      sdkActivateMs: 150,
+      nativeSettledMs: 950,
+      tokenMs: 150,
+      validationMs: 950,
+      sessionSettledMs: 1_000,
+      totalMs: 1_000,
+    }]);
+    expect((await handler(request(JSON.stringify({ ...authReady, stalledStage: "unknown" })))).status).toBe(400);
+    expect(events).toHaveLength(1);
   });
 
   test("sink failures cannot change a successful ingestion response", async () => {

@@ -599,9 +599,9 @@ describe("Home shell auth and privacy", () => {
       />,
     );
 
-    expect(await page().findByRole("button", { name: "Retry account check" })).toBeTruthy();
+    expect(await page().findByRole("button", { name: "Try again" })).toBeTruthy();
     expect(page().queryByText("$12.34")).toBeNull();
-    fireEvent.click(page().getByRole("button", { name: "Retry account check" }));
+    fireEvent.click(page().getByRole("button", { name: "Try again" }));
     await waitForVerifiedShell();
     expect(page().getAllByText("$12.34").length).toBeGreaterThan(0);
   });

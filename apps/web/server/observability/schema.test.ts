@@ -131,6 +131,9 @@ describe("observability schema", () => {
       outcome: "signed-out",
       sdkActivateMs: 150,
       nativeSettledMs: 950,
+      tokenMs: 150,
+      validationMs: 850,
+      stalledStage: "validation",
       sessionSettledMs: 1_000,
       totalMs: 1_000,
     })).toEqual({
@@ -145,6 +148,9 @@ describe("observability schema", () => {
       outcome: "signed-out",
       sdkActivateMs: 150,
       nativeSettledMs: 950,
+      tokenMs: 150,
+      validationMs: 850,
+      stalledStage: "validation",
       sessionSettledMs: 1_000,
       totalMs: 1_000,
     });
@@ -158,6 +164,23 @@ describe("observability schema", () => {
       sessionSettledMs: 15_000,
       totalMs: 15_000,
     })).toMatchObject({ level: "error", code: "HOME_AUTH_PHASE" });
+    const sanitized = normalizeObservabilityEvent({
+      version: 1,
+      kind: "home-auth-phase",
+      route: "/",
+      flow: "restore",
+      hint: "none",
+      outcome: "timeout",
+      tokenMs: -10,
+      validationMs: 50_000,
+      stalledStage: "private-stage",
+      sessionSettledMs: 15_000,
+      totalMs: 15_000,
+      identity: "private-identity",
+    } as never);
+    expect(sanitized).toMatchObject({ tokenMs: 0, validationMs: 30_000 });
+    expect(sanitized).not.toHaveProperty("stalledStage");
+    expect(JSON.stringify(sanitized)).not.toContain("private-");
   });
 
   test("normalizes closed auth signout events with fixed attempts and timings", () => {
