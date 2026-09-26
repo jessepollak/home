@@ -329,12 +329,11 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
     open(true);
   };
   const overlayFocus = () => overlayReturn?.isConnected ? overlayReturn : focusFallback;
-  const overlayChange = (change: (next: boolean) => void) => (next: boolean) => {
-    change(next);
-    if (!next) requestAnimationFrame(() => {
-      if (overlayReturn && !overlayReturn.isConnected) focusFallback?.focus({ preventScroll: true });
-    });
-  };
+  const overlayChange = (change: (next: boolean) => void) => (next: boolean) => change(next);
+  useEffect(() => {
+    const active = document.activeElement;
+    if (!active || active === document.body) focusFallback?.focus({ preventScroll: true });
+  }, [outlineOpen, inspectorOpen, focusFallback]);
   const commands = boardCommands({
     fitBoard: fitAll,
     fitSelection: () => fit(selectedPosition.rect),
@@ -342,17 +341,9 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
     zoomReset: () => zoom(1 / camera.zoom),
     pan: (x, y) => moveCamera((old) => pan(old, { x, y })),
     toggleOutline: () => {
-      if (outlineOpen && overlayReturn?.closest('[aria-label="Outline"]')) {
-        setOverlayReturn(focusFallback);
-        setTimeout(() => focusFallback?.focus({ preventScroll: true }), 0);
-      }
       setOutlineOpen((old) => !old);
     },
     toggleInspector: () => {
-      if (inspectorOpen && overlayReturn?.closest('[aria-label="Inspector"]')) {
-        setOverlayReturn(focusFallback);
-        setTimeout(() => focusFallback?.focus({ preventScroll: true }), 0);
-      }
       setInspectorOpen((old) => !old);
     },
     interact: () => interact(selectedPosition),

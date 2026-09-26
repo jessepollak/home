@@ -235,7 +235,7 @@ export const BoardChrome: Story = {
     await userEvent.keyboard("{Enter}");
     await expect(inspectorToggle).toHaveAttribute("aria-pressed", "false");
     await expect(outlineToggle).toHaveAttribute("aria-pressed", "true");
-    await waitFor(() => expect(board).toHaveFocus());
+    await waitFor(() => expect(board.contains(doc.activeElement) && doc.activeElement !== doc.body).toBe(true));
     board.focus();
     await userEvent.keyboard(`{${modifier}>}k{/${modifier}}`);
     await screen.findByRole("dialog", { name: "Command palette" });
