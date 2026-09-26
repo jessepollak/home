@@ -8,11 +8,13 @@ export function AddressText({
   className,
   copiedLabel = "Copied",
   resetKey,
+  presentation,
 }: {
   address: string;
   className?: string;
   copiedLabel?: string;
   resetKey?: string;
+  presentation?: "inline" | "compact";
 }) {
   return (
     <CopyableValue
@@ -22,6 +24,7 @@ export function AddressText({
       valueKind="address"
       className={className}
       resetKey={resetKey}
+      presentation={presentation}
     />
   );
 }
