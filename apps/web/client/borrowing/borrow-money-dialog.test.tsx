@@ -2,8 +2,8 @@ import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { BORROW_MARKETS } from "@/shared/borrowing/config";
-import { formatExactPresentationTokenAmount } from "@/shared/formatting";
 import { recommendedOpeningCollateralBaseUnits } from "./borrowing-experience";
+import type { RegionId } from "@/config/regions";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { HomeShellRoutingProvider, type HomeShellRouting } from "@/client/home/panel-routing";
@@ -11,6 +11,7 @@ import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { BorrowMarketSnapshot } from "@/shared/borrowing/contract";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
+import { formatExactPresentationTokenAmount } from "@/shared/formatting";
 import { TransferExecutionError } from "@/shared/transfers/types";
 import { borrowOverviewBody, sessionBody } from "@/tests/browser/fixtures/bodies";
 
@@ -32,8 +33,9 @@ const action: PreparedMoneyAction = {
 const key = ownerQueryKey(dataOwnerKey(session), "actions");
 const row = { id: action.id, owner: action.owner, status: "pending" };
 
-function mount({ prepare = async () => action, execute = async () => ({ id: action.id, status: "submitted" as const }), fetch = async () => ({ actions: [] }), close = () => {}, openPanel = () => {}, marketSnapshot = snapshot, operation = "borrow" }: {
-  operation?: "borrow" | "supply-and-borrow" | "withdraw-collateral";
+function mount({ prepare = async () => action, execute = async () => ({ id: action.id, status: "submitted" as const }), fetch = async () => ({ actions: [] }), close = () => {}, openPanel = () => {}, marketSnapshot = snapshot, operation = "borrow", regionId = "US" }: {
+  regionId?: RegionId;
+  operation?: "borrow" | "supply-and-borrow" | "withdraw-collateral" | "supply-collateral";
   prepare?: AccountWalletClient["prepareMoneyAction"];
   marketSnapshot?: BorrowMarketSnapshot;
   execute?: (prepared: PreparedMoneyAction) => Promise<{ id: string; status: "submitted" | "failed" | "rejected" }>;
@@ -42,7 +44,7 @@ function mount({ prepare = async () => action, execute = async () => ({ id: acti
   openPanel?: (panel: string) => void;
 } = {}) {
   const routing = { openPanel } as HomeShellRouting;
-  render(<HomeShellRoutingProvider value={routing}><BorrowMoneyDialog session={session} snapshot={marketSnapshot} operation={operation} regionId="US" fetchAccountResource={async (path) => path === "/api/actions/network-fee" ? { version: 1, usdcReserveBaseUnits: null } : fetch(path)} prepareMoneyAction={prepare} executeMoneyAction={execute} onClose={close} /></HomeShellRoutingProvider>);
+  render(<HomeShellRoutingProvider value={routing}><BorrowMoneyDialog session={session} snapshot={marketSnapshot} operation={operation} regionId={regionId} fetchAccountResource={async (path) => path === "/api/actions/network-fee" ? { version: 1, usdcReserveBaseUnits: null } : fetch(path)} prepareMoneyAction={prepare} executeMoneyAction={execute} onClose={close} /></HomeShellRoutingProvider>);
   return within(document.body);
 }
 
@@ -148,6 +150,36 @@ describe("Supply and borrow amount and review", () => {
 });
 
 describe("Borrow action result", () => {
+  test("USD entry for priced collateral prepares the exact floored native amount and reviews collateral units", async () => {
+    if (action.metadata?.product !== "borrow") throw new Error("missing Borrow metadata");
+    const expected = (BigInt(123) * BigInt(10) ** BigInt(18 + 24) /
+      (BigInt(snapshot.state.oraclePriceRaw) * BigInt(100))).toString();
+    const prepared: PreparedMoneyAction = {
+      ...action,
+      kind: "supply-collateral",
+      title: "Add collateral",
+      amounts: [{ assetId: snapshot.market.collateralToken.id, symbol: snapshot.market.collateralToken.symbol, decimals: snapshot.market.collateralToken.decimals, amountBaseUnits: expected, direction: "spend" }],
+      metadata: { ...action.metadata, operation: "supply-collateral" },
+    };
+    let requested: unknown;
+    const body = mount({ operation: "supply-collateral", prepare: async (_kind, params) => { requested = params; return prepared; } });
+    const dialog = within(await body.findByRole("dialog", { name: "Add collateral" }));
+    expect(dialog.getByRole("button", { name: /as the primary amount/ })).toBeTruthy();
+    fireEvent.click(dialog.getByRole("button", { name: /as the primary amount/ }));
+    fireEvent.input(dialog.getByRole("textbox", { name: "Amount" }), { target: { value: "1.23" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
+    expect(await dialog.findByRole("button", { name: "Confirm action" })).toBeTruthy();
+    expect(requested).toMatchObject({ operation: "supply-collateral", amountBaseUnits: expected });
+    expect(dialog.getByText(`Locked as collateral (${snapshot.market.collateralToken.symbol})`).parentElement?.textContent)
+      .toContain(formatExactPresentationTokenAmount(expected, snapshot.market.collateralToken.decimals, snapshot.market.collateralToken.symbol));
+  });
+  test("collateral in a non-USD display region stays in native units without a dollar toggle", async () => {
+    const body = mount({ operation: "supply-collateral", regionId: "DE" });
+    const dialog = within(await body.findByRole("dialog", { name: "Add collateral" }));
+    expect(dialog.queryByRole("button", { name: /as the primary amount/ })).toBeNull();
+    fireEvent.input(dialog.getByRole("textbox", { name: "Amount" }), { target: { value: "1.23" } });
+    expect((dialog.getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("1.23");
+  });
   test("amount step shows dollar availability without changing the atomic Max submitted for review", async () => {
     const raw = "123456780000";
     const marketSnapshot = { ...snapshot, position: { ...snapshot.position, borrowCapacityAssetsRaw: raw } };
@@ -155,6 +187,7 @@ describe("Borrow action result", () => {
     const body = mount({ marketSnapshot, prepare: async (_kind, params) => { submitted = params; return action; } });
     const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
     expect(dialog.getByText("$123,456.78 available")).toBeTruthy();
+    expect(dialog.queryByRole("button", { name: /as the primary amount/ })).toBeNull();
     fireEvent.click(dialog.getByRole("button", { name: "Max" }));
     fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
     expect(await dialog.findByRole("button", { name: "Confirm action" })).toBeTruthy();
@@ -218,7 +251,7 @@ describe("Borrow action result", () => {
     expect(dialog.getByText("Your Borrow position didn't change.")).toBeTruthy();
     fireEvent.click(dialog.getByRole("button", { name: "Try again" }));
     expect(dialog.getByRole("button", { name: "Continue" })).toBeTruthy();
-    expect(dialog.getByRole("img", { name: /1\.00/ })).toBeTruthy();
+    expect((dialog.getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("1");
     expect(dialog.queryByRole("button", { name: "Confirm action" })).toBeNull();
     fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
     expect(await dialog.findByRole("button", { name: "Confirm action" })).toBeTruthy();

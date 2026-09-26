@@ -23,7 +23,7 @@ import {
   MoneyModalHeader,
   decimalFromBaseUnits,
   isPositiveDecimalAmount,
-  useMoneyAssetPricing,
+  useMoneyAmountUnit,
 } from "@/client/money-modal";
 import type {
   MoneyActionOwner,
@@ -46,6 +46,7 @@ import {
   type SavingsPreparedReview,
 } from "@/shared/savings/review";
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
+import { verifiedCashCurrency } from "@/config/portfolio-assets";
 import { useSavingsDialogFixture } from "./savings-dialog-fixture";
 
 export type SavingsActionMode = "deposit" | "withdraw";
@@ -133,7 +134,7 @@ function OwnerBoundSavingsMoneyDialog({
   const amountExceedsAvailable = amountExceedsKnownAvailable(amount, knownAvailable);
   const overAvailable = assetRouteConfigured && amountExceedsAvailable;
   const canContinue = assetRouteConfigured && isPositiveDecimalAmount(amount) && !amountExceedsAvailable;
-  const pricing = useMoneyAssetPricing(assetLabel);
+  const unit = useMoneyAmountUnit(assetRouteConfigured ? verifiedCashCurrency(candidate.asset.address) : null);
   const { reserve, failed: reserveFailed, retry: retryReserve } = useNetworkFeeReserve(session.smartAccount ? savingsDialogOwnerIdentity(session) : null, fetchAccountResource, open);
   const title = step === "amount" ? mode === "deposit" ? "Deposit" : "Withdraw" : step === "result" ? (mode === "deposit" ? "Deposit" : "Withdraw") : "Confirm";
 
@@ -337,7 +338,7 @@ function OwnerBoundSavingsMoneyDialog({
                 assetLabel={assetLabel}
                 assetControl="header"
                 chipSet="max"
-                pricing={pricing}
+                unit={unit}
                 nativeSymbol={assetLabel}
               >
                 {mode === "deposit" && assetRouteConfigured && candidate.asset.symbol.toUpperCase() === "USDC" && reserveFailed ? (

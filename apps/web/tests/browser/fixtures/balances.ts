@@ -82,7 +82,7 @@ export function balancesSnapshot(region: RegionId = "US"): BalancesSnapshot {
   return {
     ...snapshot,
     holdings: snapshot.holdings.map((holding) => holding.id === "cbbtc"
-      ? { ...holding, imageUrl: CBBTC_IMAGE_URL }
+      ? { ...holding, imageUrl: CBBTC_IMAGE_URL, ...(currency ? { unitValue: { currency, amount: decimal("60000", 0) } } : {}) }
       : holding),
   };
 }

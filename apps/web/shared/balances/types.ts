@@ -52,6 +52,7 @@ export type Holding = {
   balance: HoldingBalance;
   underlyingBalance?: HoldingBalance;
   value: HoldingValue;
+  unitValue?: { currency: FiatCurrencyCode; amount: ExactDecimal };
   cashValue?: HoldingCashValue;
   collateral?: { marketId: BorrowMarketKey };
 };

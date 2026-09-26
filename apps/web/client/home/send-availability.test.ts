@@ -76,6 +76,27 @@ describe("deriveSendAvailability", () => {
     });
   }
 
+  test("maps a priced holding's unit value and leaves an unpriced holding without a price", () => {
+    const fixture = buildBalancesSnapshotFixture({
+      registry: {
+        cbbtc: { balance: ready("100000") },
+        eth: { balance: ready("10000000000000000") },
+      },
+    });
+    const snapshot = {
+      ...fixture,
+      holdings: fixture.holdings.map((holding) => holding.id === "cbbtc"
+        ? { ...holding, unitValue: { currency: "USD" as const, amount: { atoms: "109390", scale: 0 } } }
+        : holding),
+    };
+
+    const availability = deriveSendAvailability(snapshot);
+    expect(availability.find((entry) => entry.id === "cbbtc")?.price).toEqual({
+      currency: "USD", perUnit: { atoms: "109390", scale: 0 },
+    });
+    expect(availability.find((entry) => entry.id === "eth")?.price).toBeNull();
+  });
+
   test("does not carry snapshot freshness into Send presentation data", () => {
     const snapshot = buildBalancesSnapshotFixture({
       fetchedAt: "2026-09-13T12:00:00.000Z",

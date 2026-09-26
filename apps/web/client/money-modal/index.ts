@@ -9,9 +9,11 @@ export {
 export {
   MoneyAmountDisplay,
   MoneyAssetPicker,
-  useMoneyAssetPricing,
+  useMoneyAmountUnit,
   type MoneyAssetOption,
 } from "./amount";
+
+export type { MoneyAssetPrice } from "./amount-units";
 
 export {
   MoneyConfirmSummary,

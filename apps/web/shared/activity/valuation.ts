@@ -1,8 +1,5 @@
 import type { FiatCurrencyCode } from "@/config/regions";
-import {
-  canonicalUsdcAsset,
-  verifiedLocalCashAssets,
-} from "@/config/portfolio-assets";
+import { verifiedCashCurrency } from "@/config/portfolio-assets";
 import {
   baseUnitsToFraction,
   exactDecimalToFraction,
@@ -85,15 +82,8 @@ export type ActivityTransferValuation =
   | ActivityPricedValuation
   | ActivityUnpricedValuation;
 
-const pegCurrencyByContract = new Map<string, FiatCurrencyCode>([
-  [canonicalUsdcAsset.contractAddress.toLowerCase(), canonicalUsdcAsset.cashCurrency],
-  ...Object.values(verifiedLocalCashAssets).map(
-    (asset) => [asset.contractAddress.toLowerCase(), asset.cashCurrency] as const,
-  ),
-]);
-
 export function activityPegCurrency(tokenAddress: string): FiatCurrencyCode | null {
-  return pegCurrencyByContract.get(tokenAddress.toLowerCase()) ?? null;
+  return verifiedCashCurrency(tokenAddress);
 }
 
 export function isActivityValuationCurrency(value: unknown): value is FiatCurrencyCode {

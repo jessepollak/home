@@ -299,6 +299,8 @@ function validateCollateral(
   ) {
     fail("borrow collateral holding");
   }
+  const value = validateValue(raw.value, balance, quoteCurrency);
+  const unitValue = validateUnitValue(raw.unitValue, value, "erc20");
   return {
     key,
     id: raw.id,
@@ -310,7 +312,8 @@ function validateCollateral(
     contractAddress: asset.address.toLowerCase() as `0x${string}`,
     cashCurrency: null,
     balance,
-    value: validateValue(raw.value, balance, quoteCurrency),
+    value,
+    ...(unitValue ? { unitValue } : {}),
     collateral: { marketId },
   };
 }
@@ -359,6 +362,7 @@ function validateHolding(
   if (!readDecimals(raw.decimals)) fail("holding decimals");
   const balance = validateBalance(raw.balance);
   const value = validateValue(raw.value, balance, quoteCurrency);
+  const unitValue = validateUnitValue(raw.unitValue, value, raw.kind);
 
   if (raw.source === "registry") {
     const expected = registry.get(raw.id);
@@ -389,6 +393,7 @@ function validateHolding(
       ...(raw.imageUrl !== undefined ? { imageUrl: raw.imageUrl as string } : {}),
       balance,
       value,
+      ...(unitValue ? { unitValue } : {}),
     };
     if (expected.kind === "vault-share") {
       if (
@@ -449,7 +454,23 @@ function validateHolding(
     ...(raw.imageUrl !== undefined ? { imageUrl: raw.imageUrl as string } : {}),
     balance,
     value,
+    ...(unitValue ? { unitValue } : {}),
   };
+}
+
+function validateUnitValue(raw: unknown, value: HoldingValue, kind: unknown): Holding["unitValue"] {
+  if (raw === undefined) return undefined;
+  if (
+    value.status !== "priced" ||
+    kind === "vault-share" ||
+    !isRecord(raw) ||
+    raw.currency !== value.currency ||
+    !validateDecimal(raw.amount) ||
+    raw.amount.atoms === "0"
+  ) {
+    fail("unitValue");
+  }
+  return { currency: value.currency, amount: raw.amount };
 }
 
 function validateBalance(raw: unknown): HoldingBalance {

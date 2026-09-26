@@ -22,7 +22,8 @@ import {
   decimalFromBaseUnits,
   amountExceedsCeiling,
   isPositiveDecimalAmount,
-  useMoneyAssetPricing,
+  useMoneyAmountUnit,
+  type MoneyAssetPrice,
 } from "@/client/money-modal";
 import {
   browserHomeQueryClient,
@@ -30,6 +31,7 @@ import {
   useHomeQueryClient,
 } from "@/client/query/query-client";
 import type { RegionId } from "@/config/regions";
+import { verifiedCashCurrency } from "@/config/portfolio-assets";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { BorrowAssetRef, BorrowMarketId } from "@/shared/borrowing/config";
 import type { BorrowMarketSnapshot } from "@/shared/borrowing/contract";
@@ -114,7 +116,15 @@ export function BorrowMoneyDialog({
   const initialAmount = fixedMaximumOperation && maximumRepayBaseUnits && maximumRepayBaseUnits !== "0"
     ? decimalFromBaseUnits(maximumRepayBaseUnits, snapshot.market.loanToken.decimals) ?? ""
     : "";
-  const primaryPricing = useMoneyAssetPricing(primaryAsset.symbol);
+  const loanCurrency = verifiedCashCurrency(snapshot.market.loanToken.address);
+  const oraclePrice = snapshot.state.oraclePriceRaw;
+  const oracleScale = 36 + snapshot.market.loanToken.decimals - snapshot.market.collateralToken.decimals;
+  const collateralPrice: MoneyAssetPrice | null = primaryAsset.id === snapshot.market.collateralToken.id && loanCurrency && oraclePrice !== "0"
+    ? { currency: loanCurrency, perUnit: oracleScale >= 0
+      ? { atoms: oraclePrice, scale: oracleScale }
+      : { atoms: (BigInt(oraclePrice) * BigInt(10) ** BigInt(-oracleScale)).toString(), scale: 0 } }
+    : null;
+  const primaryUnit = useMoneyAmountUnit(verifiedCashCurrency(primaryAsset.address), collateralPrice, regionId);
   const primaryAssetMark = presentBorrowAssetMark(primaryAsset, assetMarkResolution);
   function changeAmount(value: string) {
     setAmount(value);
@@ -296,7 +306,7 @@ export function BorrowMoneyDialog({
                   assetCurrency={primaryAssetMark.currency}
                   assetControl="header"
                   chipSet={availableBaseUnits === null ? "none" : "max"}
-                  pricing={primaryPricing}
+                  unit={primaryUnit}
                   nativeSymbol={primaryAsset.symbol}
                 >
                 {reserveRelevant && reserveFailed ? (
