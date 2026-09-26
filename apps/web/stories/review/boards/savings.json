@@ -15,8 +15,8 @@
       { "id": "amount-entry", "story": "pilot-savings-money-dialog--amount-entry", "label": "Amount entry", "viewport": "mobile", "change": "unchanged" },
       { "id": "amount-exceeds-available", "story": "pilot-savings-money-dialog--amount-exceeds-available", "label": "Exceeds available", "viewport": "mobile", "change": "unchanged" },
       { "id": "review", "story": "pilot-savings-money-dialog--review", "label": "Review", "viewport": "mobile", "change": "unchanged" },
-      { "id": "pending", "story": "pilot-savings-money-dialog--pending", "label": "Pending", "viewport": "mobile", "change": "unchanged" },
-      { "id": "failure-recovery", "story": "pilot-savings-money-dialog--failure-recovery", "label": "Failure recovery", "viewport": "mobile", "change": "unchanged" },
+      { "id": "submitting", "story": "pilot-savings-money-dialog--submitting", "label": "Submitting", "viewport": "mobile", "change": "unchanged" },
+      { "id": "failed", "story": "pilot-savings-money-dialog--failed", "label": "Failed", "viewport": "mobile", "change": "unchanged" },
       { "id": "withdraw-nothing-saved", "story": "pilot-savings-money-dialog--withdraw-nothing-saved", "label": "Nothing saved", "viewport": "mobile", "change": "unchanged" }
     ] },
     { "id": "journey", "title": "Deposit journey", "note": "Fixture-backed end-to-end component journey.", "frames": [
