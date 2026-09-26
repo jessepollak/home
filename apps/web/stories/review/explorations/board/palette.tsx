@@ -10,7 +10,7 @@ export type PaletteItem = { id: string; label: string; detail: string; keys?: st
 export function CommandPalette({ open, onOpenChange, returnFocus, items }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  returnFocus: HTMLElement | null;
+  returnFocus: () => HTMLElement | null;
   items: PaletteItem[];
 }) {
   const [query, setQuery] = useState("");
@@ -20,7 +20,7 @@ export function CommandPalette({ open, onOpenChange, returnFocus, items }: {
     onOpenChange(next);
   };
   return <Dialog open={open} onOpenChange={change}>
-    <DialogContent variant="command" finalFocus={() => returnFocus ?? true} aria-label="Command palette">
+    <DialogContent variant="command" finalFocus={() => returnFocus() ?? true} aria-label="Command palette">
       <Combobox<PaletteItem> inline open={open} onOpenChange={(next) => { if (!next) change(false); }}
         items={ranked} filter={null} autoHighlight="always"
         inputValue={query} onInputValueChange={setQuery}

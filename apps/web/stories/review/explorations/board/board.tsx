@@ -328,6 +328,7 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
       setOverlayReturn(document.activeElement);
     open(true);
   };
+  const overlayFocus = () => overlayReturn?.isConnected ? overlayReturn : focusFallback;
   const overlayChange = (change: (next: boolean) => void) => (next: boolean) => {
     change(next);
     if (!next) requestAnimationFrame(() => {
@@ -482,9 +483,9 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
     </main>
     {!mobile && <>
       <CommandPalette open={paletteOpen} onOpenChange={overlayChange(setPaletteOpen)} items={paletteItems}
-        returnFocus={overlayReturn?.isConnected ? overlayReturn : focusFallback} />
+        returnFocus={overlayFocus} />
       <ShortcutsHelp open={helpOpen} onOpenChange={overlayChange(setHelpOpen)} commands={commands}
-        returnFocus={overlayReturn?.isConnected ? overlayReturn : focusFallback} />
+        returnFocus={overlayFocus} />
     </>}
     {dialogOpen && <div className={styles.fullscreen} role="dialog" aria-modal="true"
       aria-label={`${selectedPosition.frame.label} full width`}>

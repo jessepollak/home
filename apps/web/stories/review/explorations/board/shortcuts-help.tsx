@@ -22,11 +22,11 @@ export function ShortcutList({ commands, label }: { commands: BoardCommand[]; la
 export function ShortcutsHelp({ open, onOpenChange, returnFocus, commands }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  returnFocus: HTMLElement | null;
+  returnFocus: () => HTMLElement | null;
   commands: BoardCommand[];
 }) {
   return <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent showCloseButton finalFocus={() => returnFocus ?? true}
+    <DialogContent showCloseButton finalFocus={() => returnFocus() ?? true}
       className="max-h-[80vh] max-w-2xl overflow-y-auto">
       <DialogHeader>
         <DialogTitle>Keyboard shortcuts</DialogTitle>
