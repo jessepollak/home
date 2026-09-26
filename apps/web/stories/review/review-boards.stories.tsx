@@ -25,6 +25,37 @@ type Story = StoryObj<typeof meta>;
 
 export const Changes: Story = { tags: ["!test", "review-board"], args: { board: "changes", build } };
 export const Savings: Story = { tags: ["!test", "review-board"], args: { board: savings, build } };
+export const CommentsFollowCanvas: Story = {
+  args: { board: fixture, build: fixtureBuild, frameSource: "blank" },
+  render: (args) => <div style={{ height: "100dvh", width: 1400 }}><ReviewBoardView {...args} /></div>,
+  play: async ({ canvasElement }) => {
+    const doc = canvasElement.ownerDocument;
+    const host = doc.createElement("vercel-live-feedback");
+    host.style.clipPath = "circle(50%)";
+    let scrollEvents = 0;
+    const onScroll = () => { scrollEvents += 1; };
+    doc.defaultView!.addEventListener("scroll", onScroll);
+    doc.body.append(host);
+    try {
+      const screen = within(doc.body);
+      const canvas = doc.querySelector<HTMLElement>("[data-review-canvas]");
+      if (!canvas) throw new Error("Board canvas is required");
+      const expectedClip = () => {
+        const { top, right, bottom, left } = canvas.getBoundingClientRect();
+        return `inset(${Math.max(0, top)}px ${Math.max(0, innerWidth - right)}px ${Math.max(0, innerHeight - bottom)}px ${Math.max(0, left)}px)`;
+      };
+      await waitFor(() => expect(host.style.clipPath).toBe(expectedClip()));
+      await userEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+      await waitFor(() => expect(scrollEvents).toBeGreaterThan(0));
+      const outline = screen.getByRole("button", { name: "Outline" });
+      await userEvent.click(outline);
+      await waitFor(() => expect(host.style.clipPath).toBe(expectedClip()));
+    } finally {
+      doc.defaultView!.removeEventListener("scroll", onScroll);
+      host.remove();
+    }
+  },
+};
 function ChromeFixture() {
   const [narrow, setNarrow] = useState(false);
   const [boardWidth, setBoardWidth] = useState<number>();

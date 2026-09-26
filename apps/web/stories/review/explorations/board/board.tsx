@@ -19,6 +19,7 @@ import { formatFrameStatus, useFrameLoading } from "./use-frame-loading";
 import type { ReviewBoard } from "./manifest";
 import { changesBoard, hasChangeData, markBuildChanges, resolveBoard, type ReviewBuild, type StoryIndexEntry } from "./review-build";
 import { readBoardUrl, revisionLink, storyCanvasUrl, storyManagerUrl, writeBoardUrl } from "./url-state";
+import { useVercelCommentsSync } from "./vercel-comments";
 import styles from "./board.module.css";
 
 type FrameSource = "story" | "blank";
@@ -146,6 +147,7 @@ function BoardCanvas({ board, build, frameSource, narrow, index, onNavigate }: {
   const canvas = useRef<HTMLDivElement>(null);
   const canvasLeft = useRef<number | null>(null);
   const actionButton = useRef<HTMLButtonElement>(null);
+  useVercelCommentsSync({ camera, canvasRef: canvas, enabled: !mobile && viewport.width > 0 });
   const activeFrame = useRef<HTMLIFrameElement>(null);
   const lastWidth = useRef<number | null>(null);
   const firstFit = useRef(false);
