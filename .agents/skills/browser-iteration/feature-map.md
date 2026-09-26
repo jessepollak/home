@@ -28,7 +28,7 @@ Fixtures are session-local; balances snapshots come from `tests/browser/fixtures
 
 Each surface lives in `surfaces/<id>.md`; a change edits its surface's file, not a row in a shared table. The replay and verification-evidence gate read this directory directly. Each surface's **Entry context** lists family, route, auth state, fixture state needed, and entry trigger in that order.
 
-API routes (no UI; listed for request-level assertions): `app/api/{access,access/logout,session,balances,activity,client-errors,client-performance,actions,actions/prepare,actions/[id],actions/[id]/confirm,actions/[id]/handle,auth/base/{nonce,verify,logout},borrow,borrow/markets/[marketId],funding/{providers,quotes,orders,orders/[id],offramp/orders,provider-customers,provider-customers/verification,webhooks/[provider]},invest/discover,market-prices,market-prices/history,savings/vaults,trades,transfers/{recipient-name,recent-recipients},webhooks/cdp}`. `/api/actions/*`, `/api/activity`, `/api/balances`, `/api/borrow`, `/api/borrow/markets/[marketId]`, and `/api/transfers/*` require `authorizeSession`; provider and public route authorization remains route-specific.
+API routes (no UI; listed for request-level assertions): `app/api/{access,access/logout,session,balances,activity,client-errors,client-performance,actions,actions/prepare,actions/[id],actions/[id]/confirm,actions/[id]/handle,auth/base/{nonce,verify,logout},borrow,borrow/markets/[marketId],funding/{providers,quotes,orders,orders/[id],provider-customers,provider-customers/verification,webhooks/[provider]},invest/discover,market-prices,market-prices/history,savings/vaults,trades,transfers/{recipient-name,recent-recipients},webhooks/cdp}`. `/api/actions/*`, `/api/activity`, `/api/balances`, `/api/borrow`, `/api/borrow/markets/[marketId]`, and `/api/transfers/*` require `authorizeSession`; provider and public route authorization remains route-specific.
 
 ## Live hosts
 
@@ -60,7 +60,7 @@ non-manual fixture Reaches for landing, sign-in, home-panel, balances, activity,
 invest, send, account-settings, and coverage. Manual surfaces are explicitly skipped with reasons in the test. This only checks entry
 steps; it does not cover borrow markets, activity pagination, invest categories or memes,
 coverage filters, or dev-ui behavior.
-**Journey stories:** Only `apps/web/stories/journeys/savings-deposit.stories.tsx` exists; every other surface above lacks one.
+**Journey stories:** `apps/web/stories/journeys/savings-deposit.stories.tsx` and `cash-out-activity.stories.tsx` exist; other surfaces above lack one.
 
 **Reach depends on a live provider and cannot run against the fixture server** (needs a documented fixture or an authorized live agent session):
 - Base-account/CDP sign-in (`client/account/base-account-connector.tsx`, `cdp-*`), real Coinbase onramp/offramp providers via `/api/funding/providers`, `/api/funding/quotes`, `/api/funding/provider-customers`, and `/api/funding/webhooks/[provider]` (smoke uses hand-written IDRX/PEER stubs instead of a documented shared fixture).

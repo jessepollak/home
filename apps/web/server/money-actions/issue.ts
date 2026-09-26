@@ -176,7 +176,9 @@ function normalizeMetadata(
       !validShortText(value.platform, 64) ||
       !validShortText(value.platformLabel, 100) ||
       !/^[A-Z]{3}$/.test(value.currency) ||
-      (value.operation === "deposit" ? !validShortText(value.canonicalHandle, 200) : value.canonicalHandle !== undefined) ||
+      (value.operation === "deposit" ? !validShortText(value.canonicalHandle, 200) ||
+        (value.payeeHash !== undefined && !/^0x[0-9a-fA-F]{64}$/.test(value.payeeHash))
+        : value.canonicalHandle !== undefined || value.payeeHash !== undefined) ||
       !/^(0|[1-9]\d*)(\.\d+)?$/.test(value.approximateFiatAmount) ||
       (value.etaSeconds !== undefined && value.etaSeconds !== null && (!Number.isSafeInteger(value.etaSeconds) || value.etaSeconds < 0)) ||
       !integerPattern.test(value.minConversionRate) ||
@@ -189,8 +191,9 @@ function normalizeMetadata(
       /^0x0{40}$/i.test(value.escrow) ||
       (value.operation === "withdraw" ? !validShortText(value.depositId, 200) : value.depositId !== undefined)
     ) throw new MoneyActionIssueError("invalid-draft");
+    const { payeeHash, ...rest } = value;
     const normalized = {
-      ...value,
+      ...rest,
       providerId: value.providerId.trim(),
       providerName: value.providerName.trim(),
       platform: value.platform.trim(),
@@ -204,7 +207,8 @@ function normalizeMetadata(
       escrow: value.escrow.toLowerCase() as `0x${string}`,
     };
     return value.operation === "deposit"
-      ? { ...normalized, operation: "deposit", canonicalHandle: value.canonicalHandle.trim(), depositId: undefined }
+      ? { ...normalized, operation: "deposit", canonicalHandle: value.canonicalHandle.trim(),
+          ...(payeeHash ? { payeeHash: payeeHash.toLowerCase() as `0x${string}` } : {}), depositId: undefined }
       : { ...normalized, operation: "withdraw", canonicalHandle: undefined, depositId: value.depositId.trim() };
   }
   if (value?.product === "trade") {

@@ -99,7 +99,7 @@ function isMoneyActionMetadata(value: unknown): value is MoneyActionMetadata {
     return (value.operation === "deposit" || value.operation === "withdraw") &&
       typeof value.providerId === "string" && typeof value.providerName === "string" && typeof value.environment === "string" &&
       typeof value.platform === "string" && typeof value.platformLabel === "string" && typeof value.currency === "string" &&
-      (value.operation === "deposit" ? typeof value.canonicalHandle === "string" && value.depositId === undefined : value.canonicalHandle === undefined && typeof value.depositId === "string") &&
+      (value.operation === "deposit" ? typeof value.canonicalHandle === "string" && (value.payeeHash === undefined || typeof value.payeeHash === "string") && value.depositId === undefined : value.canonicalHandle === undefined && value.payeeHash === undefined && typeof value.depositId === "string") &&
       typeof value.approximateFiatAmount === "string" &&
       typeof value.minConversionRate === "string" && isRecord(value.intentAmountRange) &&
       typeof value.intentAmountRange.min === "string" && typeof value.intentAmountRange.max === "string" &&

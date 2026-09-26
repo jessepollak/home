@@ -18,7 +18,6 @@ export const sessionBody = {
 
 export const actionsBody = { actions: [] };
 export const fundingProvidersBody = { providers: [] };
-export const fundingOfframpOrdersBody = { version: 3, recoveryEligible: false, orders: [] };
 export const basenameProfileBody = { profile: null };
 
 const BORROW_BLOCK_HASH = `0x${"ab".repeat(32)}` as `0x${string}`;

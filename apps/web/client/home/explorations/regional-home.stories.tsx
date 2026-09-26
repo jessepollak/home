@@ -195,8 +195,8 @@ export const ActivityError: Story = { args: { activity: failedActivity }, play: 
 } };
 export const CashOutPending: Story = { args: { operations: [pendingOperation] }, play: async ({ canvasElement }) => {
   const activityText = within(canvasElement).getByRole("region", { name: "Activity" }).textContent;
-  await expect(activityText).toContain("Pending");
-  await expect(activityText).toContain("Cash out to Zelle");
+  await expect(activityText).toContain("$25 to Zelle");
+  await expect(activityText).toContain("Waiting for a buyer");
 } };
 export const German320: Story = { args: { actionLabels: ["Geld hinzufügen", "Geld an eine andere Person senden", "Geld auf ein anderes Konto auszahlen"],
   regionId: "BR", assetBalances: balances("BR"), activity: activityFor("BR"), cashContext: "Brasilianischer Real und US-Dollar",

@@ -122,27 +122,3 @@ test("send shows the unavailable prepare message instead of an invalid recipient
   fireEvent.click(page().getByRole("button", { name: "Continue" }));
   expect((await page().findByRole("alert")).textContent).toBe("The network fee could not be checked. Try again.");
 });
-
-test("cash-out withdrawal recovery shows the network fee error instead of a handle error", async () => {
-  const order = {
-    providerId: "peer", providerName: "Peer", assetId: "base:usdc", assetSymbol: "USDC", assetDecimals: 6,
-    depositId: "0xescrow_7", state: "awaiting-buyer", platform: "cashapp", platformLabel: "Cash App", currency: "USD",
-    canonicalHandle: null, amountAtomic: "2000000", remainingAmountAtomic: "2000000", nextActions: ["withdraw"],
-  };
-  let preparedKind = "";
-  render(<SendDialog open immediate address={address} ownerBoundary="fee-withdraw"
-    availableAssets={[{ ...asset, balanceBaseUnits: "1000000", balanceLabel: "$1.00" }]}
-    fetchAccountResource={async (path) => path.startsWith("/api/funding/offramp/orders")
-      ? { version: 3, recoveryEligible: true, orders: [order] }
-      : path.startsWith("/api/funding/providers") ? { version: 2, direction: "offramp", providers: [] }
-      : path === "/api/actions/network-fee" ? { version: 1, usdcReserveBaseUnits: "20000" } : { version: 1, recipients: [] }}
-    prepareMoneyAction={async (kind) => { preparedKind = kind; throw Object.assign(new Error("fee"), { status: 502, code: "NETWORK_FEE_UNAVAILABLE", serverMessage: "The network fee could not be checked. Try again." }); }}
-    resumeMoneyAction={async () => { throw new Error("unexpected resume"); }}
-    executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} onClose={() => {}} />);
-  fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "0.5" } });
-  await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
-  fireEvent.click(page().getByRole("button", { name: "Continue" }));
-  fireEvent.click(await page().findByRole("button", { name: /Withdraw \$2\.00.*Peer cash-out.*awaiting-buyer/ }));
-  expect(preparedKind).toBe("cash-out-withdraw");
-  expect((await page().findByRole("alert")).textContent).toBe("The network fee could not be checked. Try again.");
-});

@@ -18,6 +18,14 @@ const baseOwner = { ...owner, subject: "action-pg-base", accountProvider: "base-
 const otherOwner = { ...owner, subject: "action-pg-other" };
 const summary = { title: "Send USDC", amounts: [], warnings: [], expiresAt: "2099-01-01T00:00:00.000Z" };
 const calls = [{ to: owner.address, data: "0x1234" as const, value: "0" }];
+const cashoutSummary = {
+  title: "Cash out with Peer", amounts: [{ assetId: "usdc", direction: "spend", amountBaseUnits: "2000000" }],
+  warnings: [], expiresAt: "2099-01-01T00:00:00.000Z",
+  metadata: { product: "cashout" as const, operation: "deposit" as const, providerId: "peer", providerName: "Peer",
+    environment: "production" as const, region: "US", platform: "cashapp", platformLabel: "Cash App", currency: "USD",
+    approximateFiatAmount: "2", etaSeconds: 100, minConversionRate: "1", intentAmountRange: { min: "2000000", max: "2000000" },
+    estimateAsOf: "2026-09-12T00:00:00.000Z", escrow: "0x1111111111111111111111111111111111111111" as const, canonicalHandle: "alice" },
+};
 
 describePostgres("actions schema and store", () => {
   beforeAll(async () => {
@@ -25,6 +33,7 @@ describePostgres("actions schema and store", () => {
     const migration = await readMigrationSql("001_actions.sql");
     const outcomesMigration = await readMigrationSql("012_action_outcomes.sql");
     const callCommitmentMigration = await readMigrationSql("013_action_call_commitment.sql");
+    const cashoutMigration = await readMigrationSql("014_cashout_orders.sql");
     await admin.unsafe(`DROP SCHEMA IF EXISTS ${TEST_SCHEMA} CASCADE`);
     await admin.unsafe(`CREATE SCHEMA ${TEST_SCHEMA}`);
     await admin.begin(async (transaction) => {
@@ -36,15 +45,13 @@ describePostgres("actions schema and store", () => {
       await transaction.unsafe(migration);
       await transaction.unsafe(outcomesMigration);
       await transaction.unsafe(callCommitmentMigration);
-      await transaction.unsafe(
-        "INSERT INTO schema_migrations (name) VALUES ($1), ($2)",
-        ["db/001_actions.sql", "db/013_action_call_commitment.sql"],
-      );
+      await transaction.unsafe(cashoutMigration);
+      await transaction.unsafe("INSERT INTO schema_migrations (name) VALUES ($1), ($2), ($3), ($4)", ["db/001_actions.sql", "db/012_action_outcomes.sql", "db/013_action_call_commitment.sql", "db/014_cashout_orders.sql"]);
     });
     sql = createPostgresSqlExecutor(connectionString!, { schema: TEST_SCHEMA });
     store = new ActionsStore(sql);
   });
-  beforeEach(async () => { await sql.query("TRUNCATE actions"); });
+  beforeEach(async () => { await sql.query("TRUNCATE actions CASCADE"); });
   afterAll(async () => {
     await sql?.dispose?.();
     await admin?.unsafe(`DROP SCHEMA IF EXISTS ${TEST_SCHEMA} CASCADE`);
@@ -53,10 +60,10 @@ describePostgres("actions schema and store", () => {
 
   test("uses the migrate-first actions schema with migration tracking", async () => {
     const tables = await sql.query<{ table_name: string }>(
-      "SELECT table_name FROM information_schema.tables WHERE table_schema = $1 AND table_name IN ('actions','schema_migrations') ORDER BY table_name",
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = $1 AND table_name IN ('actions','cashout_orders','schema_migrations') ORDER BY table_name",
       [TEST_SCHEMA],
     );
-    expect(tables.rows.map(({ table_name }) => table_name)).toEqual(["actions", "schema_migrations"]);
+    expect(tables.rows.map(({ table_name }) => table_name)).toEqual(["actions", "cashout_orders", "schema_migrations"]);
     const columns = await sql.query<{ column_name: string }>(
       "SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'actions' ORDER BY ordinal_position",
       [TEST_SCHEMA],
@@ -160,5 +167,54 @@ describePostgres("actions schema and store", () => {
       [actionOwnerKey(owner), stale],
     );
     expect(staleRows.rows).toHaveLength(0);
+  });
+
+  test("confirmation records a submitted order and repeats without duplicating", async () => {
+    const id = randomUUID();
+    await store.insert({ id, owner, kind: "cash-out", summary: cashoutSummary, pending: { calls }, createdAt: new Date().toISOString() });
+    expect(await store.hasUnsettledCashout(owner)).toBe(false);
+    await store.confirm(owner, id);
+    await store.confirm(owner, id);
+    const orders = await store.cashoutOrders(owner, [id]);
+    expect(orders).toHaveLength(1);
+    expect(orders[0]).toMatchObject({ provider_id: "peer", region: "US", state: "submitted", amount_atomic: "2000000", remaining_atomic: "2000000" });
+    expect(await store.hasUnsettledCashout(owner)).toBe(true);
+    expect(await store.cashoutOrders(otherOwner, [id])).toEqual([]);
+  });
+
+  test("legacy confirmed rows are backfilled and owner-scoped progress settles without overwrites", async () => {
+    const id = randomUUID();
+    await store.insert({ id, owner, kind: "cash-out", summary: { ...cashoutSummary, metadata: { ...cashoutSummary.metadata, region: undefined } }, pending: { calls }, createdAt: new Date().toISOString() });
+    await store.confirm(owner, id);
+    await sql.query("DELETE FROM cashout_orders WHERE action_id = $1", [id]);
+    const row = (await store.get(owner, id))!;
+    expect(await store.ensureCashoutOrder(otherOwner, row)).toBeNull();
+    expect((await store.ensureCashoutOrder(owner, row))?.region).toBe("US");
+    expect(await store.linkCashoutDeposit(otherOwner, id, "deposit_7")).toBeNull();
+    expect((await store.linkCashoutDeposit(owner, id, "deposit_7"))?.deposit_id).toBe("deposit_7");
+    expect(await store.linkCashoutDeposit(owner, id, "deposit_8")).toBeNull();
+    const progress = { state: "returned" as const, filledAtomic: "500000", returnedAtomic: "1500000", remainingAtomic: "0", withdrawable: false, settled: true };
+    expect(await store.updateCashoutProgress(otherOwner, id, progress)).toBeNull();
+    expect((await store.updateCashoutProgress(owner, id, progress))?.settled_at).not.toBeNull();
+    expect(await store.hasUnsettledCashout(owner)).toBe(false);
+    expect(await store.updateCashoutProgress(owner, id, { ...progress, state: "unknown" })).toBeNull();
+    expect((await store.cashoutOrders(owner, [id]))[0]?.state).toBe("returned");
+  });
+
+  test("extends cash-out and withdrawal visibility to 30 days and keeps unsettled older deposits", async () => {
+    const recent = randomUUID();
+    const old = randomUUID();
+    const withdrawal = randomUUID();
+    const send = randomUUID();
+    for (const [id, kind, actionSummary] of [[recent, "cash-out", cashoutSummary], [old, "cash-out", cashoutSummary],
+      [withdrawal, "cash-out-withdraw", summary], [send, "send", summary]] as const) {
+      await store.insert({ id, owner, kind, summary: actionSummary, pending: { calls }, createdAt: new Date().toISOString() });
+      await store.confirm(owner, id);
+    }
+    await sql.query("UPDATE actions SET confirmed_at = now() - interval '10 days' WHERE id = ANY($1::uuid[])", [[recent, withdrawal, send]]);
+    await sql.query("UPDATE actions SET confirmed_at = now() - interval '60 days' WHERE id = $1", [old]);
+    expect((await store.list(owner)).map(({ id }) => id).sort()).toEqual([recent, withdrawal, old].sort());
+    await store.updateCashoutProgress(owner, old, { state: "delivered", filledAtomic: "2000000", returnedAtomic: "0", remainingAtomic: "0", withdrawable: false, settled: true });
+    expect((await store.list(owner)).map(({ id }) => id).sort()).toEqual([recent, withdrawal].sort());
   });
 });

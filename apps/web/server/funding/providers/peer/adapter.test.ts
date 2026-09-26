@@ -21,6 +21,7 @@ import {
 } from "@zkp2p/sdk";
 import { BASE_USDC_ADDRESS, CASH_ATTRIBUTION_CODE, buildIntentAmountRange, derivePayouts, normalizeCashPayee } from "@zkp2p/cash";
 import { canonicalizeCashPayee } from "@/shared/funding/cash-payee";
+import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 import { createProviderContext } from "../../core/provider-context";
 import { peerProvider } from "./adapter";
 import { PEER_CREATE_DEPOSIT_ABI, PEER_ESCROW_ABI, PEER_WITHDRAW_ABI } from "./abi";
@@ -124,7 +125,10 @@ function withdrawCall(name: "pruneExpiredIntents" | "withdrawDeposit") {
   return { to: PEER_PRODUCTION_CONTRACTS.escrow, data: `${canonical}${suffix().slice(2)}` as Hex, value: BigInt(0), chainId: 8453 };
 }
 
-afterEach(() => setPeerClientFactoryForTests(null));
+afterEach(() => {
+  setPeerClientFactoryForTests(null);
+  setObservabilityLogWriterForTests();
+});
 
 describe("Peer funding provider", () => {
   test("pins published contract sources and keeps environments separated", () => {
@@ -168,6 +172,31 @@ describe("Peer funding provider", () => {
     await expect(peerProvider.offramp!.prepareWithdraw({ owner: OWNER, depositId: cashOrder().depositId }, ctx)).resolves.toMatchObject({ calls: [{ to: PEER_PRODUCTION_CONTRACTS.escrow }] });
   });
 
+  test("derives a legacy payee hash from its canonical handle through the Peer SDK", async () => {
+    const calls: unknown[] = [];
+    setPeerClientFactoryForTests(() => ({ environment: "production", cash: {} as never,
+      sdk: { registerPayeeDetails: async (input: unknown) => {
+        calls.push(input);
+        return { hashedOnchainIds: [PAYEE_HASH.toUpperCase().replace("0X", "0x")] };
+      } } as never }));
+    const ctx = context();
+    await expect(peerProvider.offramp!.payeeHash({ platform: "cashapp", currency: "USD", canonicalHandle: "Alice" }, ctx))
+      .resolves.toBe(PAYEE_HASH);
+    expect(calls).toEqual([{ processorNames: ["cashapp"], payeeData: [{ offchainId: "Alice" }] }]);
+    await expect(peerProvider.offramp!.payeeHash({ platform: "cashapp", currency: "USD", canonicalHandle: "$Alice" }, ctx))
+      .rejects.toBeInstanceOf(PeerOfframpSafetyError);
+    expect(calls).toHaveLength(1);
+  });
+
+  test("rejects zero or multiple hashes returned for a legacy payee", async () => {
+    for (const hashes of [[], [PAYEE_HASH, PAYEE_HASH], ["invalid"]]) {
+      setPeerClientFactoryForTests(() => ({ environment: "production", cash: {} as never,
+        sdk: { registerPayeeDetails: async () => ({ hashedOnchainIds: hashes }) } as never }));
+      await expect(peerProvider.offramp!.payeeHash({ platform: "cashapp", currency: "USD", canonicalHandle: "Alice" }, context()))
+        .rejects.toBeInstanceOf(PeerOfframpSafetyError);
+    }
+  });
+
   test("pins the SDK unavailable-payee representation", () => {
     const catalog = getPaymentMethodsCatalog(8453, "production");
     const paymentMethodHash = resolvePaymentMethodHashFromCatalog("cashapp", catalog);
@@ -193,6 +222,28 @@ describe("Peer funding provider", () => {
     await expect(peerProvider.offramp!.listOrders({ owner: OWNER, inFlight: true, onMalformedPayee: "throw" }, context())).resolves.toMatchObject([
       { depositId: valid.depositId, payeeHash: PAYEE_HASH },
     ]);
+  });
+
+  test("reports skipped malformed payees from the actions list route", async () => {
+    const lines: string[] = [];
+    setObservabilityLogWriterForTests((line) => { lines.push(line); });
+    const valid = cashOrder();
+    installFakeClients(PAYEE_HASH, [valid, cashOrder("invalid", `${PEER_PRODUCTION_CONTRACTS.escrow.toLowerCase()}_8`)]);
+
+    const orders = await peerProvider.offramp!.listOrders({ owner: OWNER, inFlight: false, onMalformedPayee: "skip" }, context());
+
+    expect(orders).toHaveLength(1);
+    expect(orders[0]?.depositId).toBe(valid.depositId);
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0]!)).toMatchObject({
+      kind: "funding-order",
+      route: "/api/actions",
+      code: "OFFRAMP_ORDER_MALFORMED_PAYEE_SKIPPED",
+      outcome: "ignored",
+      provider: "peer",
+      region: "US",
+      sandbox: false,
+    });
   });
 
   test("fails closed when a listed row has a malformed non-legacy payee hash", async () => {
@@ -253,10 +304,28 @@ describe("Peer funding provider", () => {
     expect(() => assertPeerWithdrawCall({ ...call, data: `${call.data}00` as Hex }, BigInt(7), ctx)).toThrow();
   });
 
+  test("binds withdrawal receipts to the deposit, depositor, and escrow", () => {
+    const escrow = PEER_PRODUCTION_CONTRACTS.escrow;
+    const event = PEER_ESCROW_ABI.find((item) => item.type === "event" && item.name === "DepositWithdrawn")!;
+    const log = (depositId: bigint, depositor: `0x${string}` = OWNER, address: `0x${string}` = escrow, amount = BigInt(750_000)) => ({
+      address,
+      topics: encodeEventTopics({ abi: [event], eventName: "DepositWithdrawn", args: { depositId, depositor } }) as ReadonlyArray<Hex>,
+      data: encodeAbiParameters([{ type: "uint256" }], [amount]),
+    });
+    const read = peerProvider.offramp!.withdrawnAmountFromReceipt;
+    const input = { owner: OWNER, depositId: `${escrow.toLowerCase()}_7` };
+    expect(read({ logs: [log(BigInt(7)), log(BigInt(7), OWNER, escrow, BigInt(250_000))] }, input)).toBe("1000000");
+    expect(read({ logs: [log(BigInt(8))] }, input)).toBeNull();
+    expect(read({ logs: [log(BigInt(7), "0x2222222222222222222222222222222222222222")] }, input)).toBeNull();
+    expect(read({ logs: [log(BigInt(7), OWNER, PEER_SANDBOX_CONTRACTS.escrow)] }, input)).toBeNull();
+    expect(read({ logs: [log(BigInt(7))] }, { ...input, depositId: `${escrow}_07` })).toBeNull();
+  });
+
   test("recovers only one owner, Base-USDC, pinned-escrow DepositReceived log", () => {
     const escrow = PEER_PRODUCTION_CONTRACTS.escrow;
     const event = PEER_ESCROW_ABI.find((item) => item.type === "event" && item.name === "DepositReceived")!;
-    const log = (depositId: bigint, depositor: `0x${string}` = OWNER, address: `0x${string}` = escrow, token: `0x${string}` = BASE_USDC_ADDRESS) => ({
+    const log = (depositId: bigint, depositor: `0x${string}` = OWNER, address: `0x${string}` = escrow, token: `0x${string}` = BASE_USDC_ADDRESS,
+      amount = BigInt(1_000_000), range = { min: BigInt(1_000_000), max: BigInt(1_000_000) }) => ({
       address,
       topics: encodeEventTopics({ abi: [event], eventName: "DepositReceived", args: { depositId, depositor, token } }) as ReadonlyArray<Hex>,
       data: encodeAbiParameters([
@@ -264,13 +333,17 @@ describe("Peer funding provider", () => {
         { type: "tuple", components: [{ name: "min", type: "uint256" }, { name: "max", type: "uint256" }] },
         { type: "address" },
         { type: "address" },
-      ], [BigInt(1_000_000), { min: BigInt(1_000_000), max: BigInt(1_000_000) }, "0x0000000000000000000000000000000000000000", PEER_PRODUCTION_CONTRACTS.intentGuardian]),
+      ], [amount, range, "0x0000000000000000000000000000000000000000", PEER_PRODUCTION_CONTRACTS.intentGuardian]),
     });
     const recover = peerProvider.offramp!.depositIdFromReceipt;
-    expect(recover({ logs: [log(BigInt(7))] }, { owner: OWNER, escrow })).toBe(`${escrow.toLowerCase()}_7`);
-    expect(recover({ logs: [log(BigInt(7), "0x2222222222222222222222222222222222222222")] }, { owner: OWNER, escrow })).toBeNull();
-    expect(recover({ logs: [log(BigInt(7), OWNER, escrow, "0x2222222222222222222222222222222222222222")] }, { owner: OWNER, escrow })).toBeNull();
-    expect(recover({ logs: [log(BigInt(7), OWNER, PEER_SANDBOX_CONTRACTS.escrow)] }, { owner: OWNER, escrow })).toBeNull();
-    expect(recover({ logs: [log(BigInt(7)), log(BigInt(8))] }, { owner: OWNER, escrow })).toBeNull();
+    const input = { owner: OWNER, escrow, amountAtomic: "1000000", intentAmountRange: { min: "1000000", max: "1000000" } };
+    expect(recover({ logs: [log(BigInt(7))] }, input)).toBe(`${escrow.toLowerCase()}_7`);
+    expect(recover({ logs: [log(BigInt(7), "0x2222222222222222222222222222222222222222")] }, input)).toBeNull();
+    expect(recover({ logs: [log(BigInt(7), OWNER, escrow, "0x2222222222222222222222222222222222222222")] }, input)).toBeNull();
+    expect(recover({ logs: [log(BigInt(7), OWNER, PEER_SANDBOX_CONTRACTS.escrow)] }, input)).toBeNull();
+    expect(recover({ logs: [log(BigInt(7), OWNER, escrow, BASE_USDC_ADDRESS, BigInt(2_000_000))] }, input)).toBeNull();
+    expect(recover({ logs: [log(BigInt(7), OWNER, escrow, BASE_USDC_ADDRESS, BigInt(1_000_000),
+      { min: BigInt(900_000), max: BigInt(1_000_000) })] }, input)).toBeNull();
+    expect(recover({ logs: [log(BigInt(7)), log(BigInt(8))] }, input)).toBeNull();
   });
 });

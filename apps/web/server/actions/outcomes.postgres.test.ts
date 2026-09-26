@@ -66,11 +66,12 @@ describePostgres("write-once action outcomes with real handlers", () => {
       await transaction.unsafe(await readMigrationSql("012_action_outcomes.sql"));
       await transaction.unsafe(await readMigrationSql("012_action_outcomes.sql"));
       await transaction.unsafe(await readMigrationSql("013_action_call_commitment.sql"));
+      await transaction.unsafe(await readMigrationSql("014_cashout_orders.sql"));
     });
     sql = createPostgresSqlExecutor(connectionString!, { schema });
     store = new ActionsStore(sql);
   });
-  beforeEach(async () => { await sql.query("TRUNCATE actions"); });
+  beforeEach(async () => { await sql.query("TRUNCATE actions CASCADE"); });
   afterAll(async () => {
     setObservabilityLogWriterForTests();
     await sql?.dispose?.();

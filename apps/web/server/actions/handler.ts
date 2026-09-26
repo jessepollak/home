@@ -8,6 +8,7 @@ import type { HandleActionResponse } from "@/shared/actions/contracts/handle";
 import { DECLINE_ACTION_CONTRACT_VERSION, parseDeclineActionRequest, type DeclineActionResponse } from "@/shared/actions/contracts/decline";
 import { RETRY_ACTION_CONTRACT_VERSION, parseRetryActionRequest, type RetryActionResponse } from "@/shared/actions/contracts/retry";
 import type { ActionListItem, ListActionsResponse } from "@/shared/actions/contracts/list";
+import type { CashoutProgress } from "@/shared/funding/contracts/cash-out-progress";
 import type { MoneyActionCall, MoneyActionOwner } from "@/shared/money-actions/types";
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
 import { actionConfirmedEvent } from "@/server/operator-events/events";
@@ -15,7 +16,7 @@ import { deferCustomerRecord } from "@/server/customers/resolve";
 import { createTransferReceiptReader, type TransferReceiptStatus } from "./receipt";
 import { moneyActionOwner } from "@/server/money-actions/session";
 import { privateError, privateJson } from "@/server/http/private-response";
-import { getActionsStore, type ActionRow, type ActionsStore, type PendingAction, type ActionOutcome } from "./store";
+import { getActionsStore, type ActionRow, type ActionsStore, type CashoutOrderRow, type PendingAction, type ActionOutcome } from "./store";
 import { deriveActionStatus, type ActionReceiptState } from "./status";
 import { finalizeTradeCalls, type PendingTradeConfirmation } from "./kinds/trade/finalize";
 import type { TradeConfirmRequest } from "@/shared/trading/contract";
@@ -23,6 +24,7 @@ import { createSmartAccountSignatureVerifier } from "./kinds/trade/signer";
 import type { SmartAccountSignatureVerifier } from "@/shared/trading/server-types";
 import { emitServerEvent } from "@/server/observability/log";
 import { awaitBalanceSignal } from "@/server/balances/signal";
+import { cashoutWithdrawalInFlight, refreshCashoutProgress, type CashoutReceiptRow } from "@/server/funding/cash-out-progress";
 import {
   applyCoinbaseBatchGasHeadroom,
   encodeCoinbaseExecuteBatch,
@@ -43,6 +45,7 @@ const RECONCILE_GRACE_MS = 20_000;
 const RECONCILE_MAX_PER_REQUEST = 5;
 const RECONCILE_ROTATION_MS = 10_000;
 const RECONCILE_DEADLINE_MS = 3_000;
+const CASHOUT_REFRESH_DEADLINE_MS = 3_000;
 const BALANCES_HOT_WINDOW_MS = 60_000;
 let defaultActionHandleResolver: ActionHandleResolver | null = null;
 
@@ -83,7 +86,7 @@ export function createGetActionHandler(dependencies: {
       } satisfies GetActionPendingResponse, 200);
     }
     const now = dependencies.now?.() ?? new Date();
-    const deadline = createDeadline(request.signal);
+    const deadline = createDeadline(request.signal, RECONCILE_DEADLINE_MS);
     try {
       const reconciled = isReconcileCandidate(row, now)
         ? await reconcileRow({
@@ -315,9 +318,10 @@ export function createRetryActionHandler(dependencies: {
 
 export function createListActionsHandler(dependencies: {
   authorize: ActionAuthorizer;
-  store?: Pick<ActionsStore, "list" | "recordHandle" | "recordOutcome">;
+  store?: Pick<ActionsStore, "list" | "recordHandle" | "recordOutcome"> & Partial<Pick<ActionsStore, "ensureCashoutOrder" | "cashoutOrders" | "linkedCashoutDepositIds" | "linkCashoutDeposit" | "updateCashoutProgress">>;
   readReceipt?: (hash: `0x${string}`, signal?: AbortSignal) => Promise<TransferReceiptStatus>;
   resolveHandle?: ActionHandleResolver;
+  refreshCashouts?: typeof refreshCashoutProgress;
   now?: () => Date;
 }) {
   return async function GET(request: Request): Promise<Response> {
@@ -333,9 +337,10 @@ export function createListActionsHandler(dependencies: {
       RECONCILE_MAX_PER_REQUEST,
       now.getTime(),
     ).map((row) => row.id));
-    const deadline = createDeadline(request.signal);
+    const deadline = createDeadline(request.signal, RECONCILE_DEADLINE_MS);
+    let observed: CashoutReceiptRow[];
     try {
-      const actions = await Promise.all(rows.map(async (row) => {
+      observed = await Promise.all(rows.map(async (row): Promise<CashoutReceiptRow> => {
         const reconciled = candidateIds.has(row.id)
           ? await reconcileRow({
               row,
@@ -346,13 +351,48 @@ export function createListActionsHandler(dependencies: {
               route: "/api/actions",
             })
           : row;
-        const result = await settleRow(reconciled, owner, store, dependencies.readReceipt, request.signal, "/api/actions");
-        return presentAction(result.row, owner, result.receipt, now);
+        return await settleRow(reconciled, owner, store, dependencies.readReceipt, deadline.signal, "/api/actions");
       }));
-      return privateJson({ actions } satisfies ListActionsResponse, 200);
     } finally {
       deadline.dispose();
     }
+    const refreshDeadline = createDeadline(request.signal, CASHOUT_REFRESH_DEADLINE_MS);
+    try {
+      const records = await (dependencies.refreshCashouts ?? refreshCashoutProgress)({ owner, rows: observed, store: store as ActionsStore, signal: refreshDeadline.signal, now: () => now });
+      const byAction = new Map(records.map((record) => [record.action_id, record]));
+      const actions = await Promise.all(observed.map(async ({ row, receipt }) => {
+        const record = row.kind === "cash-out" ? byAction.get(row.id) : undefined;
+        return {
+          ...await presentAction(row, owner, receipt, now),
+          ...(record ? { cashout: presentCashoutProgress(record,
+            record.deposit_id !== null && cashoutWithdrawalInFlight(observed, owner, record.deposit_id, now)) } : {}),
+        };
+      }));
+      return privateJson({ actions } satisfies ListActionsResponse, 200);
+    } finally {
+      refreshDeadline.dispose();
+    }
+  };
+}
+
+export function presentCashoutProgress(record: CashoutOrderRow, withdrawing: boolean): CashoutProgress {
+  return {
+    version: 1,
+    providerId: record.provider_id,
+    region: record.region,
+    depositId: record.deposit_id,
+    state: record.state,
+    platform: record.platform,
+    platformLabel: record.platform_label,
+    amountAtomic: record.amount_atomic,
+    filledAtomic: record.filled_atomic,
+    returnedAtomic: record.returned_atomic,
+    remainingAtomic: record.remaining_atomic,
+    withdrawable: record.withdrawable,
+    withdrawing,
+    etaSeconds: record.eta_seconds,
+    settledAt: iso(record.settled_at),
+    updatedAt: iso(record.updated_at)!,
   };
 }
 
@@ -521,7 +561,7 @@ function confirmedAtMs(row: ActionRow): number {
   return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY;
 }
 
-function createDeadline(parentSignal: AbortSignal): {
+function createDeadline(parentSignal: AbortSignal, ms: number): {
   signal: AbortSignal;
   dispose: () => void;
 } {
@@ -529,7 +569,7 @@ function createDeadline(parentSignal: AbortSignal): {
   const abortFromParent = () => controller.abort(parentSignal.reason);
   parentSignal.addEventListener("abort", abortFromParent, { once: true });
   if (parentSignal.aborted) abortFromParent();
-  const timeout = setTimeout(() => controller.abort(), RECONCILE_DEADLINE_MS);
+  const timeout = setTimeout(() => controller.abort(), ms);
   return {
     signal: controller.signal,
     dispose: () => {
