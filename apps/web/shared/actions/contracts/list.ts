@@ -10,6 +10,7 @@ import {
   type MoneyActionOwner,
 } from "@/shared/money-actions/types";
 import { isSavingsMetadata } from "@/shared/savings/review";
+import { parseTradeMetadata } from "@/shared/trading/review";
 
 export type ActionListItem = {
   id: string;
@@ -93,6 +94,7 @@ function isMoneyMetadata(value: unknown): value is MoneyActionMetadata {
       typeof value.estimateAsOf === "string" && typeof value.escrow === "string";
   }
   if (value.product === "savings") return isSavingsMetadata(value);
+  if (value.product === "trade") return parseTradeMetadata(value) !== null;
   return value.product === "borrow" && typeof value.operation === "string" &&
     typeof value.marketId === "string" && /^0x[0-9a-fA-F]{64}$/.test(value.marketId) &&
     isRecord(value.loanAsset) && typeof value.loanAsset.id === "string" && typeof value.loanAsset.symbol === "string" &&

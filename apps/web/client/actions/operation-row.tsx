@@ -14,6 +14,7 @@ import {
 import {
   labelForOperationStatus,
   primaryOperationAmount,
+  titleForOperation,
 } from "./operation-details";
 
 const portfolioAssetKeyById: ReadonlyMap<string, string> = new Map(
@@ -44,6 +45,7 @@ export function OperationActivityRow({
       )}`
     : null;
   const failed = operation.status === "failed";
+  const title = titleForOperation(operation);
   const icon = failed
     ? <X className="size-4" />
     : operation.status === "unknown"
@@ -62,7 +64,7 @@ export function OperationActivityRow({
     <ActivityRow
       icon={icon}
       iconTone={failed ? "outlined" : operation.status === "unknown" ? "neutral" : "mark"}
-      label={operation.action.title}
+      label={title}
       context={<><time dateTime={operation.updatedAt}>{date}</time> · {status}</>}
       value={value ? <MoneyTicker value={value} /> : status}
       valueTone={failed
@@ -73,7 +75,7 @@ export function OperationActivityRow({
             ? "success"
             : "default"}
       onActivate={onActivate}
-      activateLabel={`View ${operation.action.title} transaction details`}
+      activateLabel={`View ${title} transaction details`}
     />
   );
 }

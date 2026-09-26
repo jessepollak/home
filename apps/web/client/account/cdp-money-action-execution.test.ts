@@ -326,6 +326,7 @@ describe("thin action dispatch", () => {
         sdkGetUserOperation: undefined,
         baseConnection,
         transport,
+        signTypedData: async () => "0x12",
       });
       return null;
     }
@@ -600,6 +601,7 @@ describe("thin action dispatch", () => {
         },
         baseConnection: { current: null } as MutableRefObject<ConnectedBaseAccount | null>,
         transport,
+        signTypedData: async () => "0x12",
       });
       return null;
     }

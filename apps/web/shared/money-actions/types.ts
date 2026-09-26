@@ -1,4 +1,5 @@
 import type { AccountProvider } from "@/shared/account/session-types";
+import type { TradeMoneyActionMetadata, TradeSigningRequest } from "@/shared/trading/contract";
 
 export const ACTION_KINDS = [
   "send",
@@ -115,7 +116,8 @@ export type SavingsMoneyActionMetadata = {
 export type MoneyActionMetadata =
   | BorrowMoneyActionMetadata
   | CashoutMoneyActionMetadata
-  | SavingsMoneyActionMetadata;
+  | SavingsMoneyActionMetadata
+  | TradeMoneyActionMetadata;
 
 export type MoneyActionNetworkFee =
   | {
@@ -137,6 +139,7 @@ export type MoneyActionDraft = {
   quoteId?: string;
   metadata?: MoneyActionMetadata;
   networkFee?: MoneyActionNetworkFee;
+  signing?: TradeSigningRequest;
 };
 
 export type MoneyActionOwner = {

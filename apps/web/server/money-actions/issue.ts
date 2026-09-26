@@ -1,6 +1,7 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
+import { hashTypedData } from "viem";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { decodeMoneyActionApproval } from "@/shared/money-actions/approval";
 import { BASE_USDC_ADDRESS, BASE_USDC_PAYMASTER_ADDRESS, parseMoneyActionNetworkFee } from "@/shared/money-actions/network-fee";
@@ -16,6 +17,9 @@ import {
 import { getDirectPortfolioAssets } from "@/config/portfolio-assets";
 import { getActionsStore } from "@/server/actions/store";
 import { isSavingsMetadata } from "@/shared/savings/review";
+import { parseTradeMetadata, parseTradeSigning } from "@/shared/trading/review";
+import { validatePermit2 } from "@/server/actions/kinds/trade/permit2";
+import type { PendingAction } from "@/server/actions/store";
 import { moneyActionOwner } from "./session";
 
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
@@ -28,6 +32,7 @@ const actionIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}
 export type MoneyActionIssueOptions = {
   actionId?: string;
   createdAt?: string;
+  pending?: Omit<PendingAction, "calls">;
 };
 
 export async function issueMoneyAction(
@@ -37,7 +42,7 @@ export async function issueMoneyAction(
 ): Promise<PreparedMoneyAction> {
   const owner = moneyActionOwner(session);
   if (!owner) throw new MoneyActionIssueError("owner-unavailable");
-  const normalizedDraft = normalizeDraft(draft);
+  const normalizedDraft = normalizeDraft(draft, owner.address);
   const now = new Date();
   const nowMs = now.getTime();
   if ((options.actionId === undefined) !== (options.createdAt === undefined)) {
@@ -62,6 +67,7 @@ export async function issueMoneyAction(
   ) {
     throw new MoneyActionIssueError("invalid-draft");
   }
+  const pending = normalizePending(options.pending, normalizedDraft, owner.address);
   const action: PreparedMoneyAction = {
     ...normalizedDraft,
     id: options.actionId ?? randomUUID(),
@@ -80,8 +86,9 @@ export async function issueMoneyAction(
       expiresAt: action.expiresAt,
       ...(action.quoteId ? { quoteId: action.quoteId } : {}),
       ...(action.metadata ? { metadata: action.metadata } : {}),
+      ...(action.signing ? { signing: action.signing } : {}),
     },
-    pending: { calls: action.calls },
+    pending: { calls: action.calls, ...pending },
     createdAt: action.createdAt,
   });
   return action;
@@ -94,7 +101,7 @@ export class MoneyActionIssueError extends Error {
   }
 }
 
-function normalizeDraft(draft: MoneyActionDraft): MoneyActionDraft {
+function normalizeDraft(draft: MoneyActionDraft, owner: `0x${string}`): MoneyActionDraft {
   if (
     !draft ||
     !isActionKind(draft.kind) ||
@@ -139,6 +146,8 @@ function normalizeDraft(draft: MoneyActionDraft): MoneyActionDraft {
   const metadata = draft.metadata === undefined
     ? undefined
     : normalizeMetadata(draft.metadata, draft.kind);
+  const signing = draft.signing === undefined ? undefined : metadata?.product === "trade" ? parseTradeSigning(draft.signing, metadata, owner) : null;
+  if ((draft.kind === "trade") !== Boolean(signing) || (draft.signing !== undefined && !signing)) throw new MoneyActionIssueError("invalid-draft");
   assertExactApprovalCaps(calls, amounts, networkFee ?? undefined);
   return {
     kind: draft.kind,
@@ -150,6 +159,7 @@ function normalizeDraft(draft: MoneyActionDraft): MoneyActionDraft {
     expiresAt: new Date(draft.expiresAt).toISOString(),
     ...(draft.quoteId ? { quoteId: draft.quoteId } : {}),
     ...(metadata ? { metadata } : {}),
+    ...(signing ? { signing } : {}),
   };
 }
 
@@ -196,6 +206,11 @@ function normalizeMetadata(
     return value.operation === "deposit"
       ? { ...normalized, operation: "deposit", canonicalHandle: value.canonicalHandle.trim(), depositId: undefined }
       : { ...normalized, operation: "withdraw", canonicalHandle: undefined, depositId: value.depositId.trim() };
+  }
+  if (value?.product === "trade") {
+    const trade = parseTradeMetadata(value);
+    if (!trade || kind !== "trade") throw new MoneyActionIssueError("invalid-draft");
+    return trade;
   }
   if (value?.product === "savings") {
     const expectedKind = value.operation === "deposit"
@@ -255,6 +270,38 @@ function normalizeMetadata(
     collateralAsset: { id: value.collateralAsset.id.trim(), symbol: value.collateralAsset.symbol.trim() },
     source: { ...value.source, blockHash: value.source.blockHash.toLowerCase() as `0x${string}` },
   };
+}
+function normalizePending(pending: MoneyActionIssueOptions["pending"], draft: MoneyActionDraft, owner: `0x${string}`): MoneyActionIssueOptions["pending"] {
+  if (draft.kind !== "trade") {
+    if (pending) throw new MoneyActionIssueError("invalid-draft");
+    return undefined;
+  }
+  const metadata = draft.metadata;
+  const signing = draft.signing;
+  if (metadata?.product !== "trade" || !signing || !pending || !pending.permit2Typed ||
+    typeof pending.permitHash !== "string" || !/^0x[0-9a-f]{64}$/.test(pending.permitHash) ||
+    pending.signingTypedData?.message.hash !== pending.permitHash ||
+    pending.signingTypedData.domain.verifyingContract !== owner ||
+    typeof pending.signerAddress !== "string" || !addressPattern.test(pending.signerAddress) ||
+    pending.signerOwnerIndex !== 0 || typeof pending.signerDeployed !== "boolean" ||
+    pending.swapCallIndex !== draft.calls.length - 1 || draft.calls[pending.swapCallIndex]?.approval ||
+    (signing.signer === "cdp-embedded" && (signing.evmAccount !== pending.signerAddress.toLowerCase() ||
+      JSON.stringify(signing.typedData) !== JSON.stringify(pending.signingTypedData))) ||
+    (signing.signer === "base-account" && JSON.stringify(signing.typedData) !== JSON.stringify(pending.permit2Typed))) {
+    throw new MoneyActionIssueError("invalid-draft");
+  }
+  try {
+    const permit = validatePermit2({
+      eip712: pending.permit2Typed, providerHash: pending.permitHash,
+      token: metadata.fromAsset.address, amount: BigInt(metadata.fromAmountBaseUnits), now: new Date(metadata.quotedAt),
+    });
+    if (permit.deadline.toString() !== metadata.permitDeadline ||
+      permit.spender !== draft.calls[pending.swapCallIndex]?.to ||
+      (signing.signer === "base-account" && hashTypedData(signing.typedData as Parameters<typeof hashTypedData>[0]) !== pending.permitHash)) {
+      throw new MoneyActionIssueError("invalid-draft");
+    }
+  } catch { throw new MoneyActionIssueError("invalid-draft"); }
+  return { ...pending, signerAddress: pending.signerAddress.toLowerCase() as `0x${string}` };
 }
 function validShortText(value: unknown, max: number): value is string {
   return typeof value === "string" && value.trim().length > 0 && value.length <= max;

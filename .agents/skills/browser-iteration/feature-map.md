@@ -66,7 +66,7 @@ coverage filters, or dev-ui behavior.
 - Base-account/CDP sign-in (`client/account/base-account-connector.tsx`, `cdp-*`), real Coinbase onramp/offramp providers via `/api/funding/providers`, `/api/funding/quotes`, `/api/funding/provider-customers`, and `/api/funding/webhooks/[provider]` (smoke uses hand-written IDRX/PEER stubs instead of a documented shared fixture).
 - Real Basename/ENS resolution and reverse labels: the fixture-session helper intercepts `/api/transfers/recipient-name` and `/api/transfers/recent-recipients` with static bodies, so Base L2 Basename resolution, mainnet ENS resolution, and forward-verified reverse labels (`apps/web/server/transfers/recipient-resolver.ts`) are only exercised by an authorized live agent session or a non-fixture run.
 - Invest `Memes` discovery (`/api/invest/discover`) and market prices (`/api/market-prices*`) when the fixture returns `{}` — smoke never asserts a meme shelf; treat as unknown rather than "empty".
-- `/api/webhooks/cdp` and trades (`/api/trades`, `client/trading/trade-actions.tsx` buttons are `disabled` — trading is not user-reachable today).
+- `/api/webhooks/cdp` and live trades (`/api/trades` availability and a live Buy/Sell review require a provider and a verified account; the fixture Reach stops at amount entry).
 
 **Performance observations**: the listed initial and live mark budgets are historical baselines, not CLI gates. Read named browser performance marks if performance is in scope; explain deviations in evidence rather than claiming a pass from a static number.
 

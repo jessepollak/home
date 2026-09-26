@@ -20,6 +20,7 @@
     "test:browser-install": "playwright install --with-deps chromium",
     "db:migrate": "bun --conditions=react-server ./server/db/migrate.ts",
     "db:backfill-operator": "bun --conditions=react-server ./server/operator-events/backfill-command.ts",
+    "cdp-swaps:checkpoint": "bun --conditions=react-server ./server/actions/kinds/trade/checkpoint-command.ts",
     "figma:connect:parse": "figma connect parse --exit-on-unreadable-files --outFile /dev/null",
     "figma:connect:publish": "figma connect publish --exit-on-unreadable-files",
     "figma:variables": "node scripts/figma-variables.mjs",

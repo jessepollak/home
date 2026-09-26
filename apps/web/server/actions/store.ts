@@ -13,6 +13,7 @@ import {
 } from "@/shared/money-actions/types";
 import type { AccountProvider } from "@/shared/account/session-types";
 import type { CoinbaseSmartWalletTypedData, Address, Hex } from "@/shared/trading/server-types";
+import type { TradeSigningRequest } from "@/shared/trading/contract";
 import type { FundingMode } from "@/server/funding/core/provider-context";
 
 export type ActionSummary = {
@@ -22,6 +23,7 @@ export type ActionSummary = {
   expiresAt: string;
   quoteId?: string;
   metadata?: MoneyActionMetadata;
+  signing?: TradeSigningRequest;
   networkFee?: MoneyActionNetworkFee;
 };
 
@@ -150,11 +152,11 @@ export class ActionsStore {
       const updated = await tx.query<RawActionRow>(
         `UPDATE actions
          SET confirmed_at = now(),
-             pending = NULL,
+             pending = CASE WHEN kind = 'trade' AND $4::jsonb IS NOT NULL THEN $4::jsonb ELSE NULL END,
              confirmed_call_data_hash = $3
          WHERE id = $1 AND owner_key = $2
          RETURNING *`,
-        [id, actionOwnerKey(owner), callDataHash],
+        [id, actionOwnerKey(owner), callDataHash, row.kind === "trade" && confirmed ? JSON.stringify({ calls: confirmed }) : null],
       );
       return {
         ...normalizeActionRow(updated.rows[0]!),
@@ -172,6 +174,7 @@ export class ActionsStore {
       `UPDATE actions SET
          provider_handle = COALESCE(provider_handle, $3),
          transaction_hash = COALESCE(transaction_hash, $4),
+         pending = CASE WHEN $3::text IS NOT NULL OR $4::text IS NOT NULL THEN NULL ELSE pending END,
          handle_recorded_at = CASE WHEN $3::text IS NOT NULL OR $4::text IS NOT NULL THEN COALESCE(handle_recorded_at, now()) ELSE handle_recorded_at END
        WHERE id = $1 AND owner_key = $2 AND confirmed_at IS NOT NULL
          AND (provider_handle IS NULL OR $3::text IS NULL OR provider_handle = $3)
@@ -219,7 +222,7 @@ export class ActionsStore {
     input: { outcome: ActionOutcome; source: "chain" | "wallet"; settledAt: Date | null },
   ): Promise<{ row: ActionRow | null; written: boolean; conflict: boolean }> {
     const result = await this.sql.query<RawActionRow>(
-      `UPDATE actions SET outcome = $3, outcome_source = $4, settled_at = $5,
+      `UPDATE actions SET outcome = $3, outcome_source = $4, settled_at = $5, pending = NULL,
          outcome_recorded_at = now()
        WHERE id = $1 AND owner_key = $2 AND confirmed_at IS NOT NULL AND outcome IS NULL
          AND ($4 <> 'wallet' OR transaction_hash IS NULL) RETURNING *`,

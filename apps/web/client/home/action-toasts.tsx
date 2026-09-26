@@ -10,13 +10,12 @@ import { activityOwnerKey } from "@/client/activity/use-activity";
 import { actionFailureEvent } from "./action-toast-events";
 
 const defaultDismissAfterMs = homeToastDurationMs;
-
 type ToastAction = {
   id: string;
   kind: string;
   status: "pending" | "confirmed";
   summary: {
-    metadata?: { product: "borrow"; operation: string };
+    metadata?: { product: "borrow"; operation: string } | { product: "trade"; direction: "buy" | "sell" };
     amounts: Array<{
       symbol: string;
       decimals: number;
@@ -29,11 +28,7 @@ type ToastAction = {
   };
 };
 
-export function ActionToasts({
-  session,
-  fetchOperations,
-  dismissAfterMs = defaultDismissAfterMs,
-}: {
+export function ActionToasts({ session, fetchOperations, dismissAfterMs = defaultDismissAfterMs }: {
   session: VerifiedAccountSession | null;
   fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
   dismissAfterMs?: number;
@@ -52,23 +47,15 @@ export function ActionToasts({
     queryFn: ({ signal }) => fetchOperations(signal),
     select: parseToastActions,
   });
-
-  const addToast = useCallback((
-    message: string,
-    tone: HomeToastTone = "neutral",
-    role: HomeToastRole = "status",
-  ) => {
+  const addToast = useCallback((message: string, tone: HomeToastTone = "neutral", role: HomeToastRole = "status") => {
     add({ message, tone, role, duration: dismissAfterMs });
   }, [add, dismissAfterMs]);
 
   useEffect(() => () => closeAll(), [closeAll]);
-
   useEffect(() => {
     if (!actions.data || !ownerKey) return;
     if (!seededOwners.current.has(ownerKey)) {
-      for (const action of actions.data) {
-        seenStatuses.current.set(`${ownerKey}\u0000${action.id}`, action.status);
-      }
+      for (const action of actions.data) seenStatuses.current.set(`${ownerKey}\u0000${action.id}`, action.status);
       seededOwners.current.add(ownerKey);
       return;
     }
@@ -85,7 +72,6 @@ export function ActionToasts({
       seenStatuses.current.set(statusKey, action.status);
     }
   }, [actions.data, addToast, ownerKey]);
-
   useEffect(() => {
     const onFailure = (event: Event) => {
       const detail = (event as CustomEvent<unknown>).detail;
@@ -95,7 +81,6 @@ export function ActionToasts({
     window.addEventListener(actionFailureEvent, onFailure);
     return () => window.removeEventListener(actionFailureEvent, onFailure);
   }, [addToast]);
-
   return <Toaster />;
 }
 
@@ -110,22 +95,21 @@ function parseToastActions(value: unknown): ToastAction[] {
         typeof amount.amountBaseUnits !== "string" || !/^\d+$/.test(amount.amountBaseUnits) ||
         (amount.direction !== "spend" && amount.direction !== "receive")) return [];
       return [{
-        symbol: amount.symbol,
-        decimals: amount.decimals,
-        amountBaseUnits: amount.amountBaseUnits,
+        symbol: amount.symbol, decimals: amount.decimals, amountBaseUnits: amount.amountBaseUnits,
         direction: amount.direction as "spend" | "receive",
         ...(amount.estimated === true ? { estimated: true } : {}),
         ...(amount.maximum === true ? { maximum: true } : {}),
       }];
     });
+    const metadata = item.summary.metadata;
     return [{
-      id: item.id,
-      kind: item.kind,
-      status: item.status,
+      id: item.id, kind: item.kind, status: item.status,
       summary: {
-        ...(isRecord(item.summary.metadata) && item.summary.metadata.product === "borrow" && typeof item.summary.metadata.operation === "string"
-          ? { metadata: { product: "borrow" as const, operation: item.summary.metadata.operation } }
-          : {}),
+        ...(isRecord(metadata) && metadata.product === "borrow" && typeof metadata.operation === "string"
+          ? { metadata: { product: "borrow" as const, operation: metadata.operation } }
+          : isRecord(metadata) && metadata.product === "trade" && (metadata.direction === "buy" || metadata.direction === "sell")
+            ? { metadata: { product: "trade" as const, direction: metadata.direction } }
+            : {}),
         amounts,
         warnings: item.summary.warnings.filter((warning): warning is string => typeof warning === "string"),
       },
@@ -134,14 +118,22 @@ function parseToastActions(value: unknown): ToastAction[] {
 }
 
 function actionToastMessage(action: ToastAction, status: ToastAction["status"]): string | null {
-  const borrowOperation = action.summary.metadata?.operation;
+  const metadata = action.summary.metadata;
+  const tradeDirection = action.kind === "trade" && metadata?.product === "trade" ? metadata.direction : null;
+  if (tradeDirection) {
+    const spend = action.summary.amounts.find((amount) => amount.direction === "spend" && !amount.estimated && !amount.maximum);
+    if (!spend) return null;
+    const formatted = tradeDirection === "buy"
+      ? formatFiatAmount(BigInt(spend.amountBaseUnits), spend.decimals, "USD")
+      : formatPresentationTokenAmount(spend.amountBaseUnits, spend.decimals, "BTC");
+    return tradeDirection === "buy"
+      ? `${status === "pending" ? "Buying" : "Bought"} Bitcoin for ${formatted}`
+      : `${status === "pending" ? "Selling" : "Sold"} ${formatted} of Bitcoin`;
+  }
+  const borrowOperation = metadata?.product === "borrow" ? metadata.operation : undefined;
   const operation = operationKind(action.kind, borrowOperation);
-  if (borrowOperation === "repay-all") {
-    return status === "pending" ? "Repaying all Borrow debt" : "Repaid all Borrow debt";
-  }
-  if (borrowOperation === "close-position") {
-    return status === "pending" ? "Closing Borrow position" : "Closed Borrow position";
-  }
+  if (borrowOperation === "repay-all") return status === "pending" ? "Repaying all Borrow debt" : "Repaid all Borrow debt";
+  if (borrowOperation === "close-position") return status === "pending" ? "Closing Borrow position" : "Closed Borrow position";
   const amount = action.summary.amounts.find((candidate) =>
     operation === "withdraw" || operation === "cash-out-withdraw" || operation === "borrow"
       ? candidate.direction === "receive" && !candidate.estimated && !candidate.maximum
@@ -185,7 +177,6 @@ function operationKind(kind: string, borrowOperation?: string): "send" | "deposi
   if (kind === "repay") return "repay";
   return null;
 }
-
 function failedVerb(kind: string): string {
   switch (kind) {
     case "send": return "Send";
@@ -201,7 +192,6 @@ function failedVerb(kind: string): string {
     default: return "Action";
   }
 }
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }

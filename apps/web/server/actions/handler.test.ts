@@ -260,6 +260,7 @@ describe("actions HTTP handlers", () => {
   test("retry validates an exact request and maps missing or dispatched rows to errors", async () => {
     const attempts: number[] = [];
     const retry = createRetryActionHandler({ authorize: authorize(), store: {
+      get: async () => row,
       beginRetry: async (_owner, _id, attempt) => {
         attempts.push(attempt);
         return { row: { ...row, confirmed_at: "2026-09-12T12:05:00.000Z" }, conflict: false, dispatched: false };
@@ -274,6 +275,7 @@ describe("actions HTTP handlers", () => {
     expect(await response.json()).toMatchObject({ version: 1, action: { id: ID } });
     expect(attempts).toEqual([1]);
     const conflict = createRetryActionHandler({ authorize: authorize(), store: {
+      get: async () => row,
       beginRetry: async () => ({ row, conflict: true, dispatched: true }),
     } });
     const blocked = await conflict(request(`/api/actions/${ID}/retry`, { method: "POST", body: '{"version":1,"attempt":1}' }), context());

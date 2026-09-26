@@ -93,7 +93,7 @@ describe("consolidated route authorization", () => {
       },
       {
         name: "trades",
-        invoke: (cookie: string) => trades.POST(request("/api/trades", "POST", cookie)),
+        invoke: (cookie: string) => trades.GET(request("/api/trades", "GET", cookie)),
       },
     ] as const;
 

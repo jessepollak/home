@@ -1,12 +1,14 @@
 import "server-only";
 
+import { keccak256 } from "viem";
+
 import type { ConfirmActionResponse } from "@/shared/actions/contracts/confirm";
 import type { GetActionPendingResponse, GetActionResponse } from "@/shared/actions/contracts/get";
 import type { HandleActionResponse } from "@/shared/actions/contracts/handle";
 import { DECLINE_ACTION_CONTRACT_VERSION, parseDeclineActionRequest, type DeclineActionResponse } from "@/shared/actions/contracts/decline";
 import { RETRY_ACTION_CONTRACT_VERSION, parseRetryActionRequest, type RetryActionResponse } from "@/shared/actions/contracts/retry";
 import type { ActionListItem, ListActionsResponse } from "@/shared/actions/contracts/list";
-import type { MoneyActionOwner } from "@/shared/money-actions/types";
+import type { MoneyActionCall, MoneyActionOwner } from "@/shared/money-actions/types";
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
 import { actionConfirmedEvent } from "@/server/operator-events/events";
 import { deferCustomerRecord } from "@/server/customers/resolve";
@@ -16,12 +18,14 @@ import { privateError, privateJson } from "@/server/http/private-response";
 import { getActionsStore, type ActionRow, type ActionsStore, type PendingAction, type ActionOutcome } from "./store";
 import { deriveActionStatus, type ActionReceiptState } from "./status";
 import { finalizeTradeCalls, type PendingTradeConfirmation } from "./kinds/trade/finalize";
+import type { TradeConfirmRequest } from "@/shared/trading/contract";
 import { createSmartAccountSignatureVerifier } from "./kinds/trade/signer";
 import type { SmartAccountSignatureVerifier } from "@/shared/trading/server-types";
 import { emitServerEvent } from "@/server/observability/log";
 import { awaitBalanceSignal } from "@/server/balances/signal";
 import {
   applyCoinbaseBatchGasHeadroom,
+  encodeCoinbaseExecuteBatch,
   getBaseCoinbaseSmartAccountBatchEstimator,
   type CoinbaseSmartAccountBatchEstimator,
 } from "@/server/chain/coinbase-smart-account";
@@ -75,6 +79,7 @@ export function createGetActionHandler(dependencies: {
         summary: row.summary,
         calls: row.pending?.calls ?? [],
         expiresAt: row.summary.expiresAt,
+        ...(row.kind === "trade" && row.summary.signing ? { signing: row.summary.signing } : {}),
       } satisfies GetActionPendingResponse, 200);
     }
     const now = dependencies.now?.() ?? new Date();
@@ -136,20 +141,26 @@ export function createConfirmActionHandler(dependencies: {
     if (!uuidPattern.test(id)) return fail("INVALID_ACTION", "A valid action id is required.", 400);
     const store = dependencies.store ?? getActionsStore();
     const draft = await store.get(owner, id);
-    if (!draft || draft.confirmed_at || !draft.pending?.calls?.length) {
+    if (!draft) return fail("ACTION_NOT_FOUND", "The action is unavailable or already confirmed.", 404);
+    const replay = draft.confirmed_at ? replayableTradeCalls(draft) : null;
+    if (replay && tradeExecutionExpired(draft, dependencies.now?.() ?? new Date())) {
+      return fail("ACTION_EXPIRED", "The trade quote expired. Get a new quote.", 410);
+    }
+    const draftCalls = replay ?? (draft.confirmed_at ? null : draft.pending?.calls);
+    if (!draftCalls?.length) {
       return fail("ACTION_NOT_FOUND", "The action is unavailable or already confirmed.", 404);
     }
-    if (Date.parse(draft.summary.expiresAt) <= (dependencies.now?.() ?? new Date()).getTime()) {
+    if (!replay && Date.parse(draft.summary.expiresAt) <= (dependencies.now?.() ?? new Date()).getTime()) {
       return fail("ACTION_EXPIRED", "The action review expired. Prepare it again.", 410);
     }
 
-    let calls = draft.pending.calls;
-    if (draft.kind === "trade") {
+    let calls = draftCalls;
+    if (!replay && draft.kind === "trade") {
       const body = await readJson(request);
-      const signature = isRecord(body) && typeof body.signature === "string" && /^0x(?:[0-9a-fA-F]{2})+$/.test(body.signature)
+      const signature: TradeConfirmRequest["signature"] | null = isRecord(body) && typeof body.signature === "string" && /^0x(?:[0-9a-fA-F]{2})+$/.test(body.signature)
         ? body.signature.toLowerCase() as `0x${string}`
         : null;
-      if (!signature || !isPendingTradeConfirmation(draft.pending)) {
+      if (!signature || !draft.pending || !isPendingTradeConfirmation(draft.pending)) {
         return fail("INVALID_TRADE_SIGNATURE", "A valid reviewed Permit2 signature is required.", 400);
       }
       try {
@@ -182,9 +193,9 @@ export function createConfirmActionHandler(dependencies: {
       }
     }
 
-    const row = await store.confirm(owner, id, calls);
+    const row = replay ? draft : await store.confirm(owner, id, calls);
     if (!row || !row.pending?.calls?.length) return fail("ACTION_NOT_FOUND", "The action is unavailable or already confirmed.", 404);
-    await recordConfirmedBestEffort(row, dependencies.recordConfirmed);
+    if (!replay) await recordConfirmedBestEffort(row, dependencies.recordConfirmed);
     if (gasHintCode) {
       emitServerEvent("action-confirm", {
         route: "/api/actions/:id/confirm",
@@ -280,7 +291,8 @@ export function createDeclineActionHandler(dependencies: {
 
 export function createRetryActionHandler(dependencies: {
   authorize: ActionAuthorizer;
-  store?: Pick<ActionsStore, "beginRetry">;
+  store?: Pick<ActionsStore, "get" | "beginRetry">;
+  now?: () => Date;
 }) {
   return async function POST(request: Request, context: { params: Promise<{ id: string }> }): Promise<Response> {
     const owner = await authorizeOwner(request, dependencies.authorize);
@@ -289,7 +301,12 @@ export function createRetryActionHandler(dependencies: {
     if (!uuidPattern.test(id)) return privateError("INVALID_ACTION", "A valid action id is required.", 400);
     const body = parseRetryActionRequest(await readJson(request));
     if (!body) return privateError("INVALID_ACTION_RETRY", "A valid versioned retry request is required.", 400);
-    const result = await (dependencies.store ?? getActionsStore()).beginRetry(owner, id, body.attempt);
+    const store = dependencies.store ?? getActionsStore();
+    const row = await store.get(owner, id);
+    if (row && tradeExecutionExpired(row, dependencies.now?.() ?? new Date())) {
+      return privateError("ACTION_EXPIRED", "The trade quote expired. Get a new quote.", 409);
+    }
+    const result = await store.beginRetry(owner, id, body.attempt);
     if (!result.row) return privateError("ACTION_NOT_FOUND", "The action was not found.", 404);
     if (result.conflict) return privateError(result.dispatched ? "ACTION_ALREADY_DISPATCHED" : "ACTION_RETRY_CONFLICT", "The action cannot be retried.", 409);
     return privateJson({ version: RETRY_ACTION_CONTRACT_VERSION, action: await presentAction(result.row, owner) } satisfies RetryActionResponse, 200);
@@ -529,6 +546,27 @@ function iso(value: string | Date | null): string | null {
 
 async function readJson(request: Request): Promise<unknown> {
   try { return await request.json(); } catch { return null; }
+}
+
+function replayableTradeCalls(row: ActionRow): MoneyActionCall[] | null {
+  const calls = row.pending?.calls;
+  if (row.kind !== "trade" || !row.confirmed_at || !calls?.length || row.provider_handle || row.transaction_hash ||
+    row.outcome || row.declined_reported_at || row.dispatch_attempt !== 0 || !row.confirmed_call_data_hash) return null;
+  return keccak256(encodeCoinbaseExecuteBatch(calls)).toLowerCase() === row.confirmed_call_data_hash.toLowerCase() ? calls : null;
+}
+
+function tradeExecutionExpired(row: ActionRow, now: Date): boolean {
+  if (row.kind !== "trade") return false;
+  const metadata = row.summary.metadata;
+  if (metadata?.product !== "trade") return true;
+  const deadline = metadata.executionDeadline;
+  const permitDeadline = metadata.permitDeadline;
+  if (typeof deadline !== "string" || !/^[1-9][0-9]*$/.test(deadline) ||
+    typeof permitDeadline !== "string" || !/^[1-9][0-9]*$/.test(permitDeadline)) return true;
+  const execution = BigInt(deadline);
+  const permit = BigInt(permitDeadline);
+  return permit > (BigInt(1) << BigInt(256)) - BigInt(1) || execution > permit ||
+    execution * BigInt(1000) <= BigInt(now.getTime()) + BigInt(30_000);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

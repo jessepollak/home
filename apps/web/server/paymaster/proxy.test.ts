@@ -41,6 +41,17 @@ describe("paymaster proxy", () => {
     expect((await res.json()).result).toEqual(result);
     expect(forwarded()).toBe(1);
   });
+  test("accepts only the confirmed fee-prepended trade batch", async () => {
+    const tradeCalls = [calls[0]!, { ...calls[1]!, data: "0x095ea7b3" as const }, { to: account as `0x${string}`, data: "0x1234abcd" as const, value: "0" }];
+    const tradeData = encodeCoinbaseExecuteBatch(tradeCalls);
+    const tradeRow = { ...row, summary: { ...summary, title: "Buy Bitcoin" }, confirmed_call_data_hash: keccak256(tradeData) };
+    const accepted = call({ row: tradeRow, callData: tradeData });
+    expect((await accepted.response).status).toBe(200);
+    expect(accepted.forwarded()).toBe(1);
+    const changed = call({ row: tradeRow, callData: encodeCoinbaseExecuteBatch([tradeCalls[0]!, tradeCalls[1]!, { ...tradeCalls[2]!, data: "0x1234abce" as const }]) });
+    expect((await changed.response).status).not.toBe(200);
+    expect(changed.forwarded()).toBe(0);
+  });
   test("matches valid uppercase calldata by its lowercase bytes", async () => {
     const { response, forwarded } = call({ callData: `0x${callData.slice(2).toUpperCase()}` });
     expect((await response).status).toBe(200);

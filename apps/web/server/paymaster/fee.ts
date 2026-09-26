@@ -20,6 +20,7 @@ const VERIFICATION_GAS = BigInt(450_000);
 const DEPLOYMENT_VERIFICATION_GAS = BigInt(300_000);
 const FACTORY_ABI = [{ type: "function", name: "createAccount", stateMutability: "nonpayable", inputs: [{ name: "owners", type: "bytes[]" }, { name: "nonce", type: "uint256" }], outputs: [{ type: "address" }] }] as const;
 const PRE_VERIFICATION_GAS = BigInt(120_000);
+const APPROVAL_GAS_ALLOWANCE = BigInt(60_000);
 const MIN_PRIORITY_FEE = BigInt(1_000_000);
 const MAX_USDC_FEE = BigInt(5_000_000);
 const DUMMY_SIGNATURE = encodeAbiParameters([{ type: "tuple", components: [{ name: "ownerIndex", type: "uint8" }, { name: "signatureData", type: "bytes" }] }], [{ ownerIndex: 0, signatureData: `0x${"ff".repeat(32)}${"aa".repeat(32)}1c` }]);
@@ -72,19 +73,23 @@ export function createNetworkFeeService(deps: Dependencies = {}) {
     const maxPriorityFeePerGas = priority > MIN_PRIORITY_FEE ? priority : MIN_PRIORITY_FEE;
     return { maxPriorityFeePerGas, maxFeePerGas: BigInt(2) * baseFee + maxPriorityFeePerGas };
   };
-  const ethCost = async (account: `0x${string}`, calls: MoneyActionCall[], signal?: AbortSignal) => {
+  const ethCost = async (account: `0x${string}`, calls: MoneyActionCall[], signal?: AbortSignal, callGasLimit?: bigint) => {
     let raw: bigint;
-    try { raw = await estimator.estimateBatch(calls, account, signal); }
-    catch (error) {
-      if (!(error instanceof CoinbaseSmartAccountBatchSimulationError) || error.code !== "account-capability") throw error;
-      raw = BigInt(2_000_000);
+    if (callGasLimit !== undefined) {
+      raw = callGasLimit + BigInt(calls.filter(call => call.approval).length) * APPROVAL_GAS_ALLOWANCE;
+    } else {
+      try { raw = await estimator.estimateBatch(calls, account, signal); }
+      catch (error) {
+        if (!(error instanceof CoinbaseSmartAccountBatchSimulationError) || error.code !== "account-capability") throw error;
+        raw = BigInt(2_000_000);
+      }
     }
     const limit = applyCoinbaseBatchGasHeadroom(raw);
     if (limit === null) throw new NetworkFeeUnavailableError();
     return { limit, ...await gasPrice(signal) };
   };
-  const quote = async (input: { account: `0x${string}`; calls: MoneyActionCall[]; usdcAvailableForFeeBaseUnits: bigint; deploymentCode?: string; session?: VerifiedAccountSession; request?: Request; signal?: AbortSignal }) => {
-    const { account, calls, usdcAvailableForFeeBaseUnits: available, deploymentCode, session, request, signal } = input;
+  const quote = async (input: { account: `0x${string}`; calls: MoneyActionCall[]; usdcAvailableForFeeBaseUnits: bigint; deploymentCode?: string; session?: VerifiedAccountSession; request?: Request; signal?: AbortSignal; callGasLimit?: bigint }) => {
+    const { account, calls, usdcAvailableForFeeBaseUnits: available, deploymentCode, session, request, signal, callGasLimit } = input;
     const code = deploymentCode ?? await read("eth_getCode", [account, "latest"], signal);
     if (typeof code !== "string" || !/^0x(?:[0-9a-fA-F]{2})*$/.test(code)) throw new NetworkFeeUnavailableError();
     let initCode = "0x";
@@ -104,12 +109,13 @@ export function createNetworkFeeService(deps: Dependencies = {}) {
       verificationGas += DEPLOYMENT_VERIFICATION_GAS;
     }
     const nonce = parseRpcDataWord(await read("eth_call", [{ to: ENTRY_POINT_V06, data: encodeFunctionData({ abi: ENTRY_POINT_ABI, functionName: "getNonce", args: [account, BigInt(0)] }) }, "latest"], signal), "nonce");
-    const { limit, maxFeePerGas, maxPriorityFeePerGas } = await ethCost(account, [makePaymasterApproval(available), ...calls], signal);
+    const feeCalls = [makePaymasterApproval(available), ...calls];
+    const { limit, maxFeePerGas, maxPriorityFeePerGas } = await ethCost(account, feeCalls, signal, callGasLimit);
     const operation = {
       sender: account,
       nonce: `0x${nonce.toString(16)}`,
       initCode,
-      callData: encodeCoinbaseExecuteBatch([makePaymasterApproval(available), ...calls]),
+      callData: encodeCoinbaseExecuteBatch(feeCalls),
       callGasLimit: `0x${limit.toString(16)}`,
       verificationGasLimit: `0x${verificationGas.toString(16)}`,
       preVerificationGas: `0x${PRE_VERIFICATION_GAS.toString(16)}`,
@@ -124,8 +130,9 @@ export function createNetworkFeeService(deps: Dependencies = {}) {
     if (maxFeeBaseUnits > BigInt(usdcNetworkFeeReserveBaseUnits(code !== "0x"))) throw new PaymasterError();
     return { maxFeeBaseUnits, estimatedEthCostWei: (limit + verificationGas + PRE_VERIFICATION_GAS) * maxFeePerGas };
   };
-  const apply = async (session: VerifiedAccountSession, draft: MoneyActionDraft, options: { signal?: AbortSignal; request?: Request } = {}): Promise<MoneyActionDraft> => {
+  const apply = async (session: VerifiedAccountSession, draft: MoneyActionDraft, options: { signal?: AbortSignal; request?: Request; callGasLimit?: bigint } = {}): Promise<MoneyActionDraft> => {
     const { signal, request } = options;
+    const callGasLimit = draft.kind === "trade" ? options.callGasLimit : undefined;
     if (!(deps.enabled ?? isUsdcNetworkFeeEnabled)()) return draft;
     if (!session.smartAccount) throw new NetworkFeeUnavailableError();
     const account = session.smartAccount.address;
@@ -147,7 +154,7 @@ export function createNetworkFeeService(deps: Dependencies = {}) {
     let usdcPathUnavailable = draft.calls.length >= 8 || (codeRead.status === "fulfilled" && codeRead.value === "0x" && session.accountProvider === "base-account");
     if (available > BigInt(0) && draft.calls.length < 8 && codeRead.status === "fulfilled") {
       try {
-        quoted = await quote({ account, calls: draft.calls, usdcAvailableForFeeBaseUnits: available, deploymentCode: codeRead.value, session, request, signal });
+        quoted = await quote({ account, calls: draft.calls, usdcAvailableForFeeBaseUnits: available, deploymentCode: codeRead.value, session, request, signal, callGasLimit });
         if (quoted === null) usdcPathUnavailable = true;
       } catch { quoteFailed = true; }
     }
@@ -163,7 +170,7 @@ export function createNetworkFeeService(deps: Dependencies = {}) {
     const eth = ethRead.value;
     if (eth === BigInt(0) && !quoteFailed) throw new NetworkFeeUnfundedError(usdcPathUnavailable ? "eth" : "usdc");
     try {
-      const { limit, maxFeePerGas } = await ethCost(account, draft.calls, signal);
+      const { limit, maxFeePerGas } = await ethCost(account, draft.calls, signal, callGasLimit);
       const nativeValue = draft.calls.reduce((sum, call) => sum + BigInt(call.value), BigInt(0));
       const verificationGas = VERIFICATION_GAS + (codeRead.value === "0x" ? DEPLOYMENT_VERIFICATION_GAS : BigInt(0));
       if (eth >= (limit + verificationGas + PRE_VERIFICATION_GAS) * maxFeePerGas + nativeValue) return { ...draft, networkFee: { payment: "native" } };
