@@ -9,12 +9,12 @@ import { XIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 const dialogContentVariants = cva(
-  "fixed inset-x-0 z-50 mx-auto w-[calc(100%-2rem)] rounded-xl bg-popover text-sm text-popover-foreground shadow-lg ring-1 ring-foreground/10 outline-none duration-100 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+  "fixed inset-x-0 z-50 mx-auto w-[calc(100%-2rem)] rounded-xl bg-popover text-sm text-popover-foreground shadow-lg ring-1 ring-foreground/10 outline-none",
   {
     variants: {
       variant: {
         default:
-          "top-1/2 grid max-w-sm -translate-y-1/2 gap-4 p-4 data-open:zoom-in-95 data-closed:zoom-out-95 motion-reduce:data-open:zoom-in-100 motion-reduce:data-closed:zoom-out-100",
+          "top-1/2 grid max-w-sm -translate-y-1/2 gap-4 p-4",
         command:
           "top-[14vh] flex max-h-[72vh] max-w-xl flex-col overflow-hidden **:data-[slot=input-group]:h-12 **:data-[slot=input-group]:rounded-none **:data-[slot=input-group]:border-0 **:data-[slot=input-group]:border-b **:data-[slot=input-group]:border-border **:data-[slot=input-group]:bg-transparent **:data-[slot=input-group]:shadow-none **:data-[slot=input-group]:ring-0 **:data-[slot=input-group-control]:px-4 **:data-[slot=input-group-control]:text-sm",
       },
@@ -42,7 +42,7 @@ function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) 
     <DialogPrimitive.Backdrop
       data-slot="dialog-overlay"
       className={cn(
-        "fixed inset-0 z-50 bg-foreground/15 duration-100 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+        "fixed inset-0 z-50 bg-foreground/15",
         className
       )}
       {...props}
