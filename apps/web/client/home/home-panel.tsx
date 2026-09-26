@@ -36,6 +36,7 @@ export function HomePanel({
   initialSendFlow = false,
   initialSendActionId = null,
   regionId,
+  regionReady = true,
 }: {
   assetBalances?: HomeAssetBalancesPresentation;
   activitySession: VerifiedAccountSession | null;
@@ -53,6 +54,7 @@ export function HomePanel({
   initialSendFlow?: boolean;
   initialSendActionId?: string | null;
   regionId: RegionId;
+  regionReady?: boolean;
 }) {
   const isLoading = assetBalances?.status === "loading";
   const isRevalidating = assetBalances?.revalidating === true;
@@ -96,6 +98,7 @@ export function HomePanel({
             initialOpen={initialAddMoney}
             returnedFromProvider={returnedFromProvider}
             regionId={regionId}
+            regionReady={regionReady}
           />
           <PresentationRegionProvider regionId={regionId}>
             <TransferActions
