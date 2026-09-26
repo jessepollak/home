@@ -19,9 +19,9 @@ import {
   activityPanelId,
   balancesPanelId,
   borrowPanelId,
+  cashPanelId,
   isHomeNestedPanelId,
   nestedHomePanelTitle,
-  savePanelId,
   type ShellPanelId,
 } from "@/config/navigation";
 import {
@@ -29,6 +29,7 @@ import {
   commitFlowUrl,
   flowHref,
   isClientHistoryEntry,
+  legacyShellRedirectHref,
   parseShellLocation,
   readClientScrollTop,
   readShellAccountParam,
@@ -62,7 +63,7 @@ import {
   useBalancesRevealWindow,
 } from "./balances-panel";
 import { ActivityPage } from "./activity-panel";
-import { SavingsPanel, InvestPanel } from "./feature-panels";
+import { CashPanel, InvestPanel } from "./feature-panels";
 import { HomePanel } from "./home-panel";
 import { MountedShellPanel } from "./panel-shared";
 import type { HomeExperienceProps, HomeAssetBalancesPresentation } from "./home-types";
@@ -77,6 +78,14 @@ import { ActionToasts } from "./action-toasts";
 import { useBalancesRestore } from "./use-balances-restore";
 
 const AccountSignInSheet = deferSheet(() => import("@/client/account/account-screen").then((module) => module.AccountSignInSheet));
+
+function CashPanelContent({ render, view, onOpenSavings }: {
+  render: NonNullable<HomeExperienceProps["cashContent"]>;
+  view: "cash" | "savings";
+  onOpenSavings: () => void;
+}) {
+  return render({ view, onOpenSavings });
+}
 
 const loadingAssetBalances: HomeAssetBalancesPresentation = {
   status: "loading",
@@ -93,7 +102,7 @@ const panelStartupRoutes: Record<ShellPanelId, Exclude<HomeStartupRoute, "/">> =
   home: "/home",
   balances: "/balances",
   activity: "/activity",
-  save: "/save",
+  cash: "/cash",
   borrow: "/borrow",
   invest: "/invest",
 };
@@ -110,7 +119,7 @@ export function DashboardShell(props: DashboardShellProps) {
 
 function DashboardShellBody({
   investContent,
-  savingsContent,
+  cashContent,
   initialAccountOpen = false,
   initialPanel = "home",
   initialLocation,
@@ -193,6 +202,11 @@ function DashboardShellBody({
   const [rootRequest, setRootRequest] = useState<{ panel: ShellPanelId; revision: number } | null>(null);
   const [settingsOpenedInApp, setSettingsOpenedInApp] = useState(false);
   const [borrowMarketOpenedInApp, setBorrowMarketOpenedInApp] = useState(false);
+  const [cashSavingsOpenedInApp, setCashSavingsOpenedInApp] = useState(() =>
+    typeof window !== "undefined" && initialUrlIntent.location.cashView === "savings" &&
+    window.history.state?.__cashSavingsOpenedInApp === true,
+  );
+  const cashSavingsFocusReturnRef = useRef(false);
   const mainRef = useRef<HTMLElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
   const settingsRegionRef = useRef<HTMLElement>(null);
@@ -276,6 +290,11 @@ function DashboardShellBody({
 
   const applyUrlState = useCallback((intent: ReturnType<typeof readHomeInboundPanelState>) => {
     appliedUrlIntentRef.current = true;
+    const legacyHref = legacyShellRedirectHref(
+      window.location.pathname,
+      new URLSearchParams(window.location.search),
+    );
+    if (legacyHref) commitClientUrl(legacyHref, "replace");
     setActiveNavigation(intent.panel);
     setMountedPanels((current) => current.has(intent.panel)
       ? current
@@ -307,6 +326,14 @@ function DashboardShellBody({
       new URLSearchParams(window.location.search),
     );
     const pushed = commitFlowUrl(href, options.mode ?? "push");
+    if (pushed) {
+      window.history.replaceState({
+        ...window.history.state,
+        __homeFundingFlowPushed: flow === "add-money" || flow === "receive",
+        __cashSavingsFlowPushed: window.location.pathname === "/cash/savings" &&
+          (flow === "save-deposit" || flow === "save-withdraw"),
+      }, "");
+    }
     applyUrlState(currentUrlIntent());
     return pushed;
   }, [applyUrlState, currentUrlIntent]);
@@ -314,18 +341,25 @@ function DashboardShellBody({
   const clearFlow = useCallback((options: {
     mode?: "push" | "replace";
     fundingReturn?: boolean;
+    normalizeInbound?: boolean;
   } = {}) => {
     const next = new URL(
       withoutFlowHref(window.location.pathname, new URLSearchParams(window.location.search)),
       window.location.origin,
     );
+    if (!options.normalizeInbound && options.mode !== "push" && window.location.pathname === "/cash/savings" &&
+      window.history.state?.__cashSavingsFlowPushed === true &&
+      (urlIntent.flow === "save-deposit" || urlIntent.flow === "save-withdraw")) {
+      window.history.back();
+      return;
+    }
     if (options.fundingReturn) {
       next.searchParams.delete("return");
       next.searchParams.delete("add-money");
     }
     commitClientUrl(`${next.pathname}${next.search}`, options.mode ?? "replace");
     applyUrlState(currentUrlIntent());
-  }, [applyUrlState, currentUrlIntent]);
+  }, [applyUrlState, currentUrlIntent, urlIntent.flow]);
 
   const closeAccount = useCallback(() => {
     setIsAccountOpen(false);
@@ -346,6 +380,11 @@ function DashboardShellBody({
       const restoresBalances = intent.panel === balancesPanelId && isBalancesRestoreArmed();
       pendingBalancesRestoreRef.current = restoresBalances;
       setBorrowMarketOpenedInApp(false);
+      cashSavingsFocusReturnRef.current = urlIntent.location.cashView === "savings" &&
+        intent.panel === cashPanelId && intent.location.cashView === null;
+      setCashSavingsOpenedInApp(intent.panel === cashPanelId &&
+        intent.location.cashView === "savings" &&
+        window.history.state?.__cashSavingsOpenedInApp === true);
       applyUrlState(intent);
       setPopRevision((revision) => revision + 1);
       if (intent.panel === balancesPanelId &&
@@ -358,7 +397,7 @@ function DashboardShellBody({
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
-  }, [applyUrlState, currentUrlIntent, isBalancesRestoreArmed]);
+  }, [applyUrlState, currentUrlIntent, isBalancesRestoreArmed, urlIntent.location.cashView]);
 
   useEffect(() => {
     if (forwardRequest !== 0) pendingBalancesRestoreRef.current = false;
@@ -509,6 +548,12 @@ function DashboardShellBody({
   useEffect(() => {
     if (navigationRequest === 0 || !panelStageRef.current) return;
     panelStageRef.current.focus({ preventScroll: true });
+    if (cashSavingsFocusReturnRef.current) {
+      cashSavingsFocusReturnRef.current = false;
+      mainRef.current?.querySelector<HTMLButtonElement>(
+        '[aria-labelledby="cash-savings-heading"] button',
+      )?.focus({ preventScroll: true });
+    }
     cancelPendingShellScroll();
     const historyScrollTop = pendingHistoryScrollRestoreRef.current;
     pendingHistoryScrollRestoreRef.current = null;
@@ -606,16 +651,19 @@ function DashboardShellBody({
     nextNavigation: ShellPanelId,
     group: MoneyGroupId | null = null,
     market: BorrowMarketId | null = null,
+    cashView: "savings" | null = null,
   ) {
     settingsOpenerRef.current = null;
     settingsFocusHandoffRef.current = true;
     const skipHistory = activeNavigation === nextNavigation && !isAccountSettingsOpen &&
       (nextNavigation !== "borrow" || urlIntent.location.market === market) &&
+      (nextNavigation !== "cash" || urlIntent.location.cashView === cashView) &&
       (nextNavigation !== "invest" || window.location.pathname === shellHref({ panel: nextNavigation }));
     setRootRequest((request) => ({ panel: nextNavigation, revision: (request?.revision ?? 0) + 1 }));
     setIsAccountSettingsOpen(false);
     setSettingsOpenedInApp(false);
     if (nextNavigation !== "borrow") setBorrowMarketOpenedInApp(false);
+    if (nextNavigation !== "cash") setCashSavingsOpenedInApp(false);
     if (!skipHistory) {
       setForwardRequest((request) => request + 1);
       const mayOpenAssetDetail = activeNavigation === balancesPanelId && nextNavigation === "invest";
@@ -636,9 +684,28 @@ function DashboardShellBody({
     if (nextNavigation === balancesPanelId) setBalancesMounted(true);
     setNavigationRequest((request) => request + 1);
     if (!skipHistory) {
-      commitClientUrl(shellHref({ panel: nextNavigation, group, market }));
+      commitClientUrl(shellHref({ panel: nextNavigation, group, market, cashView }), "push",
+        nextNavigation === cashPanelId && cashView === "savings"
+          ? { __cashSavingsOpenedInApp: true }
+          : { __cashSavingsOpenedInApp: false, __cashSavingsFlowPushed: false });
       setUrlIntent(currentUrlIntent());
     }
+  }
+
+  function selectCashSavings() {
+    setCashSavingsOpenedInApp(true);
+    navigateTo(cashPanelId, null, null, "savings");
+  }
+
+  function leaveCashSavings() {
+    if (cashSavingsOpenedInApp && isClientHistoryEntry()) {
+      setCashSavingsOpenedInApp(false);
+      window.history.back();
+      return;
+    }
+    commitClientUrl(shellHref({ panel: cashPanelId }), "replace");
+    applyUrlState(currentUrlIntent());
+    setNavigationRequest((request) => request + 1);
   }
 
   function selectBorrowMarket(market: BorrowMarketId | null) {
@@ -723,7 +790,9 @@ function DashboardShellBody({
   const nestedChromeTitle = isAccountSettingsOpen
     ? null
     : isHomeNestedPanelId(activeNavigation)
-      ? nestedHomePanelTitle(activeNavigation) ?? "Save"
+      ? activeNavigation === cashPanelId && urlIntent.location.cashView === "savings"
+        ? "Savings"
+        : nestedHomePanelTitle(activeNavigation)
       : activeNavigation === "invest"
         ? investChrome?.nested?.title ?? null
         : null;
@@ -742,7 +811,9 @@ function DashboardShellBody({
   const onNestedChromeBack = isHomeNestedPanelId(activeNavigation)
     ? activeNavigation === "borrow" && urlIntent.location.market
       ? () => selectBorrowMarket(null)
-      : leaveHomeNestedPanel
+      : activeNavigation === cashPanelId && urlIntent.location.cashView === "savings"
+        ? leaveCashSavings
+        : leaveHomeNestedPanel
     : investChrome?.nested?.onBack ?? (() => {});
 
   const reloadBalances = useReloadHomeBalances();
@@ -836,8 +907,6 @@ function DashboardShellBody({
             aria-label={
               isAccountSettingsOpen
                 ? "Account settings"
-                : activeNavigation === savePanelId
-                  ? "Savings"
                   : nestedChromeTitle ?? undefined
             }
             aria-busy={isAccountSettingsOpen ? undefined : isChecking}
@@ -871,7 +940,7 @@ function DashboardShellBody({
                       assetMarkResolution={assetMarkResolution}
                       fetchActivity={account.fetchActivity}
                       fetchOperations={account.fetchOperations}
-                      onOpenCash={() => navigateTo(savePanelId)}
+                      onOpenCash={() => navigateTo(cashPanelId)}
                       onOpenInvestments={() => navigateTo("invest")}
                       onOpenBorrow={() => navigateTo(borrowPanelId)}
                       initialAddMoney={urlAddMoney}
@@ -912,13 +981,13 @@ function DashboardShellBody({
                     />
                   </MountedShellPanel>
                 ) : null}
-                {mountedPanels.has(savePanelId) ? (
-                  <MountedShellPanel active={activeNavigation === savePanelId}>
-                    <SavingsPanel
+                {mountedPanels.has(cashPanelId) ? (
+                  <MountedShellPanel active={activeNavigation === cashPanelId}>
+                    <CashPanel
                       regionId={regionId}
                       isVerified={isVerified}
                       isChecking={isChecking}
-                      content={savingsContent}
+                      content={cashContent ? <CashPanelContent render={cashContent} view={urlIntent.location.cashView === "savings" ? "savings" : "cash"} onOpenSavings={selectCashSavings} /> : null}
                     />
                   </MountedShellPanel>
                 ) : null}

@@ -3,26 +3,25 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 import { HttpResponse, http } from "msw";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
-import { getHomeQueryClient, publicQueryKey, useHomeQuery } from "@/client/query/query-client";
+import { getHomeQueryClient } from "@/client/query/query-client";
 import { HomeMoneySummary } from "@/client/home/home-overview";
 import { ShellHeader } from "@/client/home/shell-chrome";
-import { SavingsMoneyDialog } from "@/client/savings/savings-actions";
+import { CashExperience } from "./cash-experience";
 import { SavingsDialogFixtureProvider } from "@/client/savings/savings-dialog-fixture";
 import { formatExactSavingsApy, summarizeSavingsPortfolio } from "@/client/savings/portfolio-summary";
-import { savingsTeaserApyLabel } from "@/client/savings/savings-teaser-apy";
 import { MoneyMotionProvider } from "@/components/money-ticker";
 import { shellContentFrameClassName } from "@/components/shell-layout";
 import { buildBalancesSnapshotFixture, priced, pricedCash, ready, unavailableBalance } from "@/shared/balances/fixtures";
 import { presentBalances } from "@/shared/balances/present";
 import { selectVaultPositions } from "@/shared/balances/select";
-import { formatUsdStablecoinAmount } from "@/shared/formatting";
 import type { BalancesSnapshot } from "@/shared/balances/types";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { OperationResult, PreparedMoneyAction } from "@/shared/money-actions/types";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
 import { parseVaultsResult } from "@/shared/savings/contracts/vaults";
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
-import { CashOverviewExploration, SavingsDetailExploration } from "./cash-overview";
+import { balancesSnapshot } from "@/tests/browser/fixtures/balances";
+import { savingsVaultsBody } from "@/tests/browser/fixtures/bodies";
 
 const ACCOUNT = "0x1111111111111111111111111111111111111111" as const;
 const TIME = "2026-09-10T12:04:00.000Z";
@@ -149,27 +148,16 @@ type SurfaceProps = {
   ticking?: boolean;
   snapshotToggle?: boolean;
   initialView?: "cash" | "savings";
+  nowMs?: number;
 };
 
-function CashStorySurface({ snapshot, balanceStatus: initialBalanceStatus = "ready", vaultStatus = "ready", homeParity = false, pendingExecution = false, ticking = false, snapshotToggle = false, reducedMotion = false, initialView = "cash" }: SurfaceProps) {
+function CashStorySurface({ snapshot, balanceStatus: initialBalanceStatus = "ready", vaultStatus = "ready", homeParity = false, pendingExecution = false, ticking = false, snapshotToggle = false, reducedMotion = false, initialView = "cash", nowMs = NOW }: SurfaceProps) {
   const [view, setView] = useState(initialView);
-  const [mode, setMode] = useState<"deposit" | "withdraw" | null>(null);
-  const [lastMode, setLastMode] = useState<"deposit" | "withdraw">("deposit");
-  const opener = useRef<HTMLButtonElement | null>(null);
-  const [targetCandidate, setTargetCandidate] = useState<MorphoVaultCandidate | null>(null);
-  const clock = useRef(NOW);
+  const clock = useRef(nowMs);
   const now = useCallback(() => clock.current, []);
   const [snapshotUnavailable, setSnapshotUnavailable] = useState(false);
   const [balancesFailed, setBalancesFailed] = useState(false);
   const balanceStatus = balancesFailed ? "failed" : initialBalanceStatus;
-  const restoreSavingsFocus = useRef(false);
-  useEffect(() => {
-    if (!restoreSavingsFocus.current) return;
-    const row = document.querySelector<HTMLButtonElement>('main [aria-labelledby="cash-savings-heading"] button');
-    if (!row) return;
-    restoreSavingsFocus.current = false;
-    row.focus();
-  });
   useEffect(() => {
     if (!ticking) return;
     const advance = () => {
@@ -198,69 +186,34 @@ function CashStorySurface({ snapshot, balanceStatus: initialBalanceStatus = "rea
   }, [snapshotToggle]);
   const cachedSnapshot = snapshotToggle && snapshotUnavailable ? usdcUnavailableSnapshot : ticking && snapshot ? { ...snapshot, block: { ...snapshot.block, timestamp: String(Math.floor(NOW / 1000) - 120) } } : snapshot;
   const liveSnapshot = balanceStatus === "failed" ? null : cachedSnapshot;
-  const query = useHomeQuery({ queryKey: publicQueryKey("cash-l2-vaults"), queryFn: ({ signal }) => fetchVaults(signal), retry: false, staleTime: Infinity, enabled: vaultStatus !== "loading" });
-  const position = liveSnapshot?.holdings.find((holding) => holding.kind === "vault-share" && holding.contractAddress?.toLowerCase() === targetCandidate?.vaultAddress.toLowerCase());
-  const usdc = liveSnapshot?.holdings.find((holding) => holding.id === "usdc")?.balance;
-  const availableBaseUnits = mode === "withdraw" ? position?.underlyingBalance?.status === "ready" ? position.underlyingBalance.baseUnits : null : usdc?.status === "ready" ? usdc.baseUnits : null;
-  if (mode !== null && availableBaseUnits === null) setMode(null);
   const prepareMoneyAction = async (endpoint: string, input: unknown) => {
     journey.prepared.push({ endpoint, input });
-    if (!targetCandidate) throw new Error("No savings vault selected");
-    return preparedAction(targetCandidate, endpoint, (input as { amountBaseUnits: string }).amountBaseUnits);
+    const candidate = metadata.candidates.find((item) => item.vaultAddress.toLowerCase() === (input as { vaultAddress: string }).vaultAddress.toLowerCase());
+    if (!candidate) throw new Error("No savings vault selected");
+    return preparedAction(candidate, endpoint, (input as { amountBaseUnits: string }).amountBaseUnits);
   };
   const executeMoneyAction = async (action: PreparedMoneyAction): Promise<OperationResult> => {
     journey.executed.push(action);
     if (pendingExecution) return new Promise<OperationResult>(() => {});
     return { id: action.id, status: "confirmed" };
   };
-  const open = (nextMode: "deposit" | "withdraw", candidate: MorphoVaultCandidate) => {
-    opener.current = document.activeElement as HTMLButtonElement;
-    setTargetCandidate(candidate);
-    setLastMode(nextMode);
-    setMode(nextMode);
-  };
-  const surface = useRef<HTMLDivElement | null>(null);
-  const restoreDialogFocus = () => {
-    const target = opener.current;
-    opener.current = null;
-    if (target?.isConnected && !target.matches(":disabled")) {
-      target.focus();
-      return;
-    }
-    surface.current?.querySelector<HTMLButtonElement>("[data-shell-back] button:not(:disabled)")?.focus();
-  };
   const summary = liveSnapshot ? presentBalances({ status: "ready", snapshot: liveSnapshot, error: null }).summary : null;
-  const savingsSummary = liveSnapshot && query.data ? summarizeSavingsPortfolio({
-    supportedVaultAddresses: MORPHO_V1_CANDIDATE_ADDRESSES,
-    requiredAsset: query.data.asset,
-    candidates: query.data.candidates,
-    positions: selectVaultPositions(liveSnapshot),
-    metadataFetchedAt: query.data.source.fetchedAt,
-    nowMs: NOW,
-  }) : null;
-  const cashRate = balanceStatus !== "failed" && query.data ? savingsTeaserApyLabel({ summary: savingsSummary, candidates: query.data.candidates, metadata: query.data, nowMs: NOW }) : null;
-  const status = vaultStatus === "loading" || query.isPending ? "loading" : query.isError ? "failed" : "ready";
+  const cashRate = homeParity ? "4.08% APY" : null;
+  const cashSurface = <CashExperience view={view} snapshot={liveSnapshot} balanceStatus={balanceStatus} session={session} now={now} fetchVaults={vaultStatus === "loading" ? () => new Promise(() => {}) : fetchVaults} onOpenSavings={() => setView("savings")} onAddMoney={addMoney} onRetryBalances={retryBalances} prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeMoneyAction} />;
   return (
     <PresentationRegionProvider regionId="US">
       <SavingsDialogFixtureProvider value={{ motion: reducedMotion ? "reduced" : "system" }}>
         <MoneyMotionProvider reducedMotion={reducedMotion ? true : undefined}>
-        <div ref={surface} className="min-h-svh bg-muted/50">
+        <div className="min-h-svh bg-muted/50">
           <ShellHeader isAccountSettingsOpen={false} nestedChromeTitle={view === "cash" ? "Cash" : "Savings"} nestedChromeBackLabel="Back" onNestedChromeBack={() => {
             if (view === "savings") {
               setView("cash");
-              restoreSavingsFocus.current = true;
             } else back();
           }} routeMode="dashboard" activeNavigation="cash" isVerified account={account} onHome={noop} onDashboard={noop} onSignIn={noop} onSignOut={noop} onOpenSettings={noop} onCloseSettings={noop} />
           <main className={`${shellContentFrameClassName} py-4`}>
-            {homeParity ? (
-              <HomeMoneySummary summary={summary} isLoading={false} cashRate={cashRate} borrowOfferRate={null} destinations={{ onOpenCash: noop, onOpenInvestments: noop, onOpenBorrow: noop }} />
-            ) : view === "cash" ? (
-              <CashOverviewExploration snapshot={liveSnapshot} balanceStatus={balanceStatus} metadata={query.data ?? null} vaultStatus={status} nowMs={NOW} now={now} rateLabel={cashRate} onOpenSavings={() => setView("savings")} onAddMoney={addMoney} onRetryBalances={retryBalances} />
-            ) : (
-              <SavingsDetailExploration snapshot={liveSnapshot} balanceStatus={balanceStatus} metadata={query.data ?? null} vaultStatus={status} nowMs={NOW} now={now} onDepositVault={(candidate) => open("deposit", candidate)} onWithdrawVault={(candidate) => open("withdraw", candidate)} onRetryVaults={() => void query.refetch()} onRetryBalances={retryBalances} />
-            )}
+            {homeParity ? <HomeMoneySummary summary={summary} isLoading={false} cashRate={cashRate} borrowOfferRate={null} destinations={{ onOpenCash: noop, onOpenInvestments: noop, onOpenBorrow: noop }} /> : null}
+            {cashSurface}
           </main>
-          {targetCandidate ? <SavingsMoneyDialog open={mode !== null} mode={mode ?? lastMode} session={session} candidate={targetCandidate} availableLabel={availableBaseUnits ? `${formatUsdStablecoinAmount(availableBaseUnits)} available` : undefined} availableBaseUnits={availableBaseUnits} prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeMoneyAction} onClose={() => setMode(null)} onClosed={restoreDialogFocus} /> : null}
         </div>
         </MoneyMotionProvider>
       </SavingsDialogFixtureProvider>
@@ -269,9 +222,9 @@ function CashStorySurface({ snapshot, balanceStatus: initialBalanceStatus = "rea
 }
 
 const meta = {
-  id: "explorations-cash-l2", title: "Explorations/Cash L2", component: CashStorySurface,
+  id: "cash-cash-l2", title: "Cash/Cash L2", component: CashStorySurface,
   args: { snapshot: fundedSnapshot },
-  parameters: { layout: "fullscreen", viewport: { defaultViewport: "mobile" }, a11y: { test: "error" }, msw: { handlers: [http.get("/api/savings/vaults", () => HttpResponse.json(metadata))] } },
+  parameters: { design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=341-13555" }, layout: "fullscreen", viewport: { defaultViewport: "mobile" }, a11y: { test: "error" }, msw: { handlers: [http.get("/api/savings/vaults", () => HttpResponse.json(metadata))] } },
   beforeEach() { getHomeQueryClient().clear(); journey.prepared.length = 0; journey.executed.length = 0; addMoney.mockClear(); back.mockClear(); retryBalances.mockClear(); },
 } satisfies Meta<typeof CashStorySurface>;
 export default meta;
@@ -308,6 +261,18 @@ async function assertFunded({ canvasElement }: { canvasElement: HTMLElement }) {
   await expect(canvas.getByRole("button", { name: "Add money" })).toBeVisible();
   await assertButtonHeights(canvasElement, canvasElement.getBoundingClientRect().width >= 800);
 }
+const fixtureSnapshot = balancesSnapshot("US");
+const fixtureVaults = savingsVaultsBody(new Date().toISOString(), new Date().toISOString());
+const fixtureParity = {
+  nowMs: Date.now(),
+  snapshot: {
+    ...fixtureSnapshot,
+    holdings: fixtureSnapshot.holdings.map((holding) => ({ ...holding, imageUrl: undefined })),
+  },
+};
+const fixtureParameters = { msw: { handlers: [http.get("/api/savings/vaults", () => HttpResponse.json(fixtureVaults))] } };
+export const FixtureParity: Story = { args: fixtureParity, parameters: fixtureParameters };
+export const FixtureParitySavings: Story = { args: { ...fixtureParity, initialView: "savings" }, parameters: fixtureParameters };
 export const Funded: Story = { play: assertFunded };
 export const FundedDesktop: Story = { parameters: { viewport: { defaultViewport: "desktop" } }, play: assertFunded };
 const mixedCaseMetadata = { ...metadata, candidates: [metadata.candidates[1], { ...metadata.candidates[0], vaultAddress: `0x${GAUNTLET.slice(2).toUpperCase()}` }, metadata.candidates[2]] };
@@ -323,6 +288,7 @@ export const HomeRowParity: Story = { args: { homeParity: true }, play: async ({
   const cash = await within(canvasElement).findByRole("button", { description: "Open Cash" });
   await expect(cash.textContent).toContain("$1,234.00");
   await waitFor(() => expect(cash.textContent).toContain("4.08% APY"));
+  await expect(await within(within(canvasElement).getByLabelText("Cash balance")).findByText("4.08% APY")).toBeVisible();
   const summary = summarizeSavingsPortfolio({ supportedVaultAddresses: MORPHO_V1_CANDIDATE_ADDRESSES, requiredAsset: metadata.asset, candidates: metadata.candidates, positions: selectVaultPositions(fundedSnapshot), metadataFetchedAt: TIME, nowMs: NOW });
   if (summary.apy.status !== "available") throw new Error("Expected available weighted savings rate");
   await expect(formatExactSavingsApy(summary.apy.value)).toBe("4.08%");
@@ -356,6 +322,15 @@ export const EmptyNux: Story = { args: { snapshot: emptySnapshot }, play: async 
   await expect(canvas.queryByRole("region", { name: "Savings" })).toBeNull();
   await expect(canvas.getByRole("button", { name: "Add money" })).toBeVisible();
   await assertButtonHeights(canvasElement);
+} };
+export const EmptyRatesLoading: Story = { args: { snapshot: emptySnapshot, vaultStatus: "loading" }, play: async ({ canvasElement }) => {
+  const canvas = within(canvasElement);
+  const hero = canvas.getByLabelText("Cash balance");
+  await expect(hero.textContent).toContain("$0.00");
+  await expect(within(hero).getByText("Loading rate")).toBeInTheDocument();
+  await expect(hero.querySelector('[data-cash-rate] [data-slot="skeleton"]')).not.toBeNull();
+  await expect(hero).toHaveAttribute("aria-busy", "true");
+  await expect(canvas.queryByRole("region", { name: "Savings" })).toBeNull();
 } };
 export const SavingsOnly: Story = { args: { snapshot: savingsOnlySnapshot }, play: async ({ canvasElement }) => {
   await within(canvasElement).findByRole("button", { name: /US dollar.*\$800\.00/ });
@@ -560,6 +535,66 @@ export const WithdrawPending: Story = { args: { pendingExecution: true, initialV
   await expect(body.getByRole("button", { name: "Close withdraw dialog" })).toBeDisabled();
   await expect(journey.executed).toHaveLength(1);
 } };
+export const WithdrawPendingSurvivesBalanceFailure: Story = { args: { pendingExecution: true, initialView: "savings", snapshotToggle: true }, play: async ({ canvasElement }) => {
+  const screen = detail(canvasElement);
+  const body = within(canvasElement.ownerDocument.body);
+  const withdraw = await screen.findByRole("button", { name: "Withdraw" });
+  await waitFor(() => expect(withdraw).toBeEnabled());
+  await userEvent.click(withdraw);
+  await waitFor(() => expect(withdraw).toHaveAttribute("aria-expanded", "true"));
+  await userEvent.click(within(screen.getByRole("region", { name: "Withdraw from" })).getByRole("button", { name: /^Gauntlet USDC Prime/, description: "Withdraw from Gauntlet USDC Prime" }));
+  const dialog = await body.findByRole("dialog", { name: "Withdraw" });
+  await userEvent.type(await within(dialog).findByRole("textbox", { name: "Amount" }), "25");
+  await userEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
+  const confirm = await body.findByRole("dialog", { name: "Confirm" });
+  const submit = within(confirm).getByRole("button", { name: "Withdraw $25.00" });
+  await userEvent.click(submit);
+  await expect(submit).toHaveAttribute("aria-busy", "true");
+  snapshotChanges.dispatchEvent(new Event("failed"));
+  await waitFor(() => expect(screen.getByLabelText("Balance unavailable")).toBeVisible());
+  await expect(body.getByRole("dialog", { name: "Confirm" })).toBe(confirm);
+  await expect(submit).toHaveAttribute("aria-busy", "true");
+  await expect(body.getByRole("button", { name: "Close withdraw dialog" })).toBeDisabled();
+  await expect(journey.executed).toHaveLength(1);
+} };
+export const DepositResultSurvivesBalanceUnavailable: Story = { args: { initialView: "savings", snapshotToggle: true }, play: async ({ canvasElement }) => {
+  const screen = detail(canvasElement);
+  const body = within(canvasElement.ownerDocument.body);
+  const deposit = screen.getByRole("button", { name: "Deposit" });
+  await waitFor(() => expect(deposit).toBeEnabled());
+  await userEvent.click(deposit);
+  const dialog = await body.findByRole("dialog", { name: "Deposit" });
+  await userEvent.type(await within(dialog).findByRole("textbox", { name: "Amount" }), "25");
+  await userEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
+  await userEvent.click(within(await body.findByRole("dialog", { name: "Confirm" })).getByRole("button", { name: "Deposit $25.00" }));
+  const result = await body.findByRole("heading", { name: "Depositing $25.00 to Save" });
+  snapshotChanges.dispatchEvent(new Event("unavailable"));
+  await waitFor(() => expect(deposit).toBeDisabled());
+  await expect(result).toBeVisible();
+  await expect(journey.executed).toHaveLength(1);
+  await userEvent.click(body.getByRole("button", { name: "Done" }));
+  await waitFor(() => expect(body.queryByRole("dialog")).toBeNull());
+} };
+export const DepositPendingSurvivesBalanceUnavailable: Story = { args: { pendingExecution: true, initialView: "savings", snapshotToggle: true }, play: async ({ canvasElement }) => {
+  const screen = detail(canvasElement);
+  const body = within(canvasElement.ownerDocument.body);
+  const deposit = screen.getByRole("button", { name: "Deposit" });
+  await waitFor(() => expect(deposit).toBeEnabled());
+  await userEvent.click(deposit);
+  const dialog = await body.findByRole("dialog", { name: "Deposit" });
+  await userEvent.type(await within(dialog).findByRole("textbox", { name: "Amount" }), "25");
+  await userEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
+  const confirm = await body.findByRole("dialog", { name: "Confirm" });
+  const submit = within(confirm).getByRole("button", { name: "Deposit $25.00" });
+  await userEvent.click(submit);
+  await expect(submit).toHaveAttribute("aria-busy", "true");
+  snapshotChanges.dispatchEvent(new Event("unavailable"));
+  await waitFor(() => expect(deposit).toBeDisabled());
+  await expect(body.getByRole("dialog", { name: "Confirm" })).toBe(confirm);
+  await expect(submit).toHaveAttribute("aria-busy", "true");
+  await expect(body.getByRole("button", { name: "Close deposit dialog" })).toBeDisabled();
+  await expect(journey.executed).toHaveLength(1);
+} };
 export const ReducedMotion: Story = { args: { reducedMotion: true, ticking: true }, play: async ({ canvasElement }) => {
   const canvas = within(canvasElement);
   await expect(canvas.getByLabelText("Cash balance").textContent).toContain("$1,234.00");
@@ -692,6 +727,14 @@ export const SavingsDetailRatesLoading: Story = { args: { initialView: "savings"
     await expect(row.getByText("Loading rate")).toBeInTheDocument();
   }
   await expect(within(held).queryByText("Rate unavailable")).toBeNull();
+  await expect(screen.getByRole("button", { name: "Deposit" })).toBeDisabled();
+} };
+export const SavingsDetailEmptyRatesLoading: Story = { args: { snapshot: cashOnlySnapshot, initialView: "savings", vaultStatus: "loading" }, play: async ({ canvasElement }) => {
+  const screen = detail(canvasElement);
+  const more = screen.getByRole("region", { name: "More ways to save" });
+  await expect(more).toHaveAttribute("aria-busy", "true");
+  await expect(within(more).getByText("Loading rates")).toBeInTheDocument();
+  await expect(more.querySelectorAll("[data-shimmer='row']")).toHaveLength(2);
   await expect(screen.getByRole("button", { name: "Deposit" })).toBeDisabled();
 } };
 export const SavingsDetailDepositToOther: Story = { args: { initialView: "savings" }, play: async ({ canvasElement }) => {

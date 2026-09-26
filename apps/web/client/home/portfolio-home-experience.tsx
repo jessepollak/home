@@ -10,7 +10,7 @@ import { COUNTRY_PREFERENCE_VERSION, parseCountryPreferenceReadResponse, parseCo
 import { PricedInvestExperienceWithDiscover } from "@/client/invest/priced-invest-experience";
 import { investViewFromLocation } from "@/client/invest/invest-location";
 import { useInvestDiscover } from "@/client/invest/use-invest-discover";
-import { AuthenticatedSavingsExperience } from "@/client/savings/savings-experience";
+import { AuthenticatedCashExperience } from "@/client/cash/cash-experience";
 import type { ShellLocation } from "@/config/shell-location";
 import { DashboardShell } from "./shell";
 import { deriveAssetMarkResolution, deriveSendAvailability } from "./send-availability";
@@ -183,7 +183,7 @@ export function PortfolioHomeExperience({
           initialView={initialInvestView}
         />
       }
-      savingsContent={<AuthenticatedSavingsExperience regionReady={regionReady} />}
+      cashContent={({ view, onOpenSavings }) => <AuthenticatedCashExperience view={view} onOpenSavings={onOpenSavings} regionReady={regionReady} />}
       applyInboundUrlIntent
       initialSearch={initialSearch}
       balancesRevalidating={balances.revalidating === true}

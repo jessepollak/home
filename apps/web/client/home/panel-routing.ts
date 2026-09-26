@@ -33,6 +33,7 @@ export type HomeShellRouting = {
   clearFlow: (options?: {
     mode?: "push" | "replace";
     fundingReturn?: boolean;
+    normalizeInbound?: boolean;
   }) => void;
 };
 

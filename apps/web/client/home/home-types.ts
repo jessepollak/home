@@ -10,7 +10,7 @@ export type HomeAssetBalancesPresentation = BalancesPresentation;
 
 export type HomeExperienceProps = {
   investContent?: ReactNode;
-  savingsContent?: ReactNode;
+  cashContent?: (props: { view: "cash" | "savings"; onOpenSavings: () => void }) => ReactNode;
   initialAccountOpen?: boolean;
   initialPanel?: ShellPanelId;
   initialLocation?: ShellLocation;

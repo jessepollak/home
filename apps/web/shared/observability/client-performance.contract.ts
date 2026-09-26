@@ -5,7 +5,7 @@ export const HOME_STARTUP_ROUTES = [
   "/home",
   "/balances",
   "/activity",
-  "/save",
+  "/cash",
   "/borrow",
   "/invest",
 ] as const;

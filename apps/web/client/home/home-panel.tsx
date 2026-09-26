@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import { Plus } from "lucide-react";
 import type { FetchActivity } from "@/client/activity";
 import { ActivitySurface } from "@/client/activity/activity-panel";
@@ -75,12 +76,17 @@ export function HomePanel({
   });
   const activityHeading = <HomeSectionHeading id="activity-title">Activity</HomeSectionHeading>;
   const routing = useOptionalHomeShellRouting();
+  const fundingPromptRef = useRef<HTMLButtonElement>(null);
+  const restoreFundingPromptRef = useRef(false);
   const addMoneyPrompt = routing ? (
     <Button
+      ref={fundingPromptRef}
       variant="outline"
       size="touch"
       onPointerDown={() => void preloadAddMoneySheet()}
-      onClick={() => routing.setFlow("add-money", { mode: "push" })}
+      onClick={() => {
+        restoreFundingPromptRef.current = routing.setFlow("add-money", { mode: "push" });
+      }}
     >
       <Plus className="size-4" aria-hidden="true" />
       Add money
@@ -98,6 +104,12 @@ export function HomePanel({
       actions={
         <>
           <FundingActions
+            onClosed={() => {
+              if (!restoreFundingPromptRef.current) return;
+              const prompt = fundingPromptRef.current;
+              if (prompt?.isConnected && !prompt.disabled) prompt.focus();
+              restoreFundingPromptRef.current = false;
+            }}
             initialOpen={initialAddMoney}
             returnedFromProvider={returnedFromProvider}
             regionId={regionId}

@@ -6,7 +6,7 @@ import { homeHrefWithOverlays, type ShellLocation } from "@/config/shell-locatio
 import { readHomeInboundPanelState } from "./panel-routing";
 
 function location(panel: ShellLocation["panel"], rest: Partial<ShellLocation> = {}): ShellLocation {
-  return { panel, account: null, shelf: null, asset: null, group: null, market: null, ...rest };
+  return { panel, account: null, shelf: null, asset: null, group: null, market: null, cashView: null, ...rest };
 }
 
 const ACTION_ID = "11111111-1111-4111-8111-111111111111";
@@ -51,13 +51,13 @@ describe("home panel routing", () => {
       .toMatchObject({ addMoney: true, returnedFromProvider: false });
   });
 
-  test("maps send flows and their action id, and save flows to Save", () => {
+  test("maps send flows and their action id, and savings flows to Cash detail", () => {
     expect(readHomeInboundPanelState(
       location("home"),
       new URLSearchParams(`flow=send&action=${ACTION_ID}`),
     )).toMatchObject({ panel: "home", flow: "send", sendFlow: true, actionId: ACTION_ID });
-    expect(readHomeInboundPanelState(location("save"), new URLSearchParams("flow=save-deposit")))
-      .toMatchObject({ panel: "save", flow: "save-deposit", sendFlow: false, actionId: null });
+    expect(readHomeInboundPanelState(location("cash", { cashView: "savings" }), new URLSearchParams("flow=save-deposit")))
+      .toMatchObject({ panel: "cash", location: { cashView: "savings" }, flow: "save-deposit", sendFlow: false, actionId: null });
     expect(readHomeInboundPanelState(
       location("borrow", { market: BORROW_MARKET_ID }),
       new URLSearchParams("panel=home&group=cash"),

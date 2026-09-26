@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import type { ShellPanelId } from "@/config/navigation";
 import { PortfolioHomeExperience } from "@/client/home/portfolio-home-experience";
-import { parseShellLocation, searchParamsToString } from "@/config/shell-location";
+import { legacyShellRedirectHref, parseShellLocation, searchParamsToString } from "@/config/shell-location";
 import { readRequestCountry } from "@/server/region/request-country";
 import { readRenderSession } from "@/server/auth/render-session";
 import { readCountryPreferenceForRender } from "@/server/preferences/country";
@@ -11,7 +12,7 @@ const shellTitles: Record<ShellPanelId, string> = {
   home: "Home",
   balances: "Your money",
   activity: "Activity",
-  save: "Save",
+  cash: "Cash",
   borrow: "Borrow",
   invest: "Invest",
 };
@@ -37,6 +38,8 @@ export default async function ShellPage({
 }: PageProps<"/[...shell]">) {
   const { shell } = await params;
   const query = await searchParams;
+  const legacyHref = legacyShellRedirectHref(shellPathname(shell), query);
+  if (legacyHref) redirect(legacyHref);
   const rendered = readRenderSession(await cookies());
   const preference = rendered ? await readCountryPreferenceForRender(rendered.session) : null;
   const accountPreference = rendered && preference

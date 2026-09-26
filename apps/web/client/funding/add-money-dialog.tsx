@@ -48,6 +48,7 @@ export function AddMoneyDialog({
   signedOut,
   regionId,
   onClose,
+  onClosed,
   onBack,
   onSelectReceive,
   providerBindings,
@@ -70,6 +71,7 @@ export function AddMoneyDialog({
   signedOut: boolean;
   regionId: RegionId;
   onClose: () => void;
+  onClosed?: () => void;
   onBack: () => void;
   onSelectReceive: () => void;
   providerBindings: ReadonlyArray<FundingBinding>;
@@ -102,7 +104,10 @@ export function AddMoneyDialog({
       open={open}
       labelledBy="add-money-title"
       onCancel={onClose}
-      onClose={onClose}
+      onClose={() => {
+        onClose();
+        onClosed?.();
+      }}
     >
       {step !== "order" || signedOut ? (
         <MoneyModalHeader

@@ -89,7 +89,7 @@ const router = {
 mock.module("next/navigation", () => ({
   ...actualNavigation,
   useRouter: () => router,
-  usePathname: () => "/",
+  usePathname: () => window.location.pathname,
   useSearchParams: () => new URLSearchParams(window.location.search),
 }));
 
@@ -102,6 +102,7 @@ const { BASE_CHAIN_ID } = await import("@/client/account/session-client");
 const { useNestedAppChrome } = await import("@/components/app-chrome");
 const { InvestExperience } = await import("@/client/invest/invest-experience");
 const { DashboardShell } = await import("./shell");
+const { useOptionalHomeShellRouting } = await import("./panel-routing");
 const { PortfolioHomeExperience } = await import("./portfolio-home-experience");
 const { LandingShell } = await import("./landing-shell");
 const { useHomeRegion } = await import("./use-home-region");
@@ -184,6 +185,7 @@ function DashboardHarness({
   onRegionObserved,
   assetBalances,
   investContent = <section aria-label="Invest module">Invest fixture</section>,
+  cashContent = ({ view, onOpenSavings }) => <section aria-label="Cash module">{view === "cash" ? <button onClick={onOpenSavings}>Savings fixture</button> : "Savings fixture detail"}</section>,
   ...props
 }: DashboardHarnessProps) {
   const region = useHomeRegion({ detectedCountry, accountPreference, signedIn: accountPreference !== null });
@@ -193,7 +195,7 @@ function DashboardHarness({
     <DashboardShell
       {...props}
       region={resolvedRegion}
-        savingsContent={<section aria-label="Savings module">Savings fixture</section>}
+        cashContent={cashContent}
         investContent={investContent}
         assetBalances={assetBalances ?? {
           status: "ready",
@@ -327,6 +329,75 @@ afterEach(() => {
   resetHistory();
 });
 
+function CashFundingTrigger() {
+  const routing = useOptionalHomeShellRouting();
+  return <button onClick={() => routing?.setFlow("add-money", { mode: "push" })}>Add money in Cash</button>;
+}
+
+describe("pushed funding history", () => {
+  test("Home to Cash to Add money closes without a duplicate Cash history entry", async () => {
+    syncLocation("/home");
+    historyEntries = ["/home"];
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+      cashContent={() => <CashFundingTrigger />} />);
+    await waitForVerifiedShell();
+    fireEvent.click(within(page().getByRole("region", { name: "Your money" })).getByRole("button", { name: /^Cash/ }));
+    expect(window.location.pathname).toBe("/cash");
+    fireEvent.click(page().getByRole("button", { name: "Add money in Cash" }));
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/cash?flow=add-money");
+    expect(window.history.state?.__homeFundingFlowPushed).toBe(true);
+    fireEvent.click(within(await page().findByRole("dialog", { name: "Add money" })).getByRole("button", { name: /Receive crypto/ }));
+    await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe("/cash?flow=receive"));
+    expect(window.history.state?.__homeFundingFlowPushed).toBe(true);
+    fireEvent.click(within(await page().findByRole("dialog", { name: "Receive" })).getByRole("button", { name: "Close add money" }));
+    await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe("/cash"));
+    expect(historyEntries).toEqual(["/home", "/cash", "/cash?flow=receive"]);
+    act(() => popHistory());
+    await waitFor(() => expect(window.location.pathname).toBe("/home"));
+  });
+
+  test("Home activity empty Add money closes by popping the overlay entry", async () => {
+    syncLocation("/home");
+    historyEntries = ["/home"];
+    const sessionFetch: SessionFetch = async (input) => {
+      const path = String(input);
+      if (path === "/api/session") return Response.json(session());
+      if (path === "/api/actions") return Response.json({ version: "1", actions: [] });
+      if (path.startsWith("/api/activity?")) {
+        const to = new URL(path, "https://home.invalid").searchParams.get("to") ?? new Date().toISOString();
+        return Response.json({ version: 1, walletAddress: ADDRESS.toLowerCase(), chainId: 8453,
+          window: { from: new Date(Date.parse(to) - 86_400_000).toISOString(), to }, currency: "USD", transfers: [], nextCursor: null,
+          source: { provider: "cdp-sql", cached: false, stale: false, executionTimestamp: to, executionTimeMs: 1, fetchedAt: to } });
+      }
+      throw new Error(`Unexpected read: ${path}`);
+    };
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} sessionFetch={sessionFetch} />);
+    const prompt = await page().findByRole("button", { name: "Add money" });
+    await page().findByText("No activity yet");
+    const activity = page().getByRole("region", { name: "Activity" });
+    const emptyPrompt = within(activity).getByRole("button", { name: "Add money" });
+    expect(emptyPrompt).not.toBe(prompt);
+    emptyPrompt.focus();
+    fireEvent.click(emptyPrompt);
+    expect(window.history.state?.__homeFundingFlowPushed).toBe(true);
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/home?flow=add-money");
+    fireEvent.click(within(await page().findByRole("dialog", { name: "Add money" })).getByRole("button", { name: "Close add money" }));
+    await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe("/home"));
+    expect(historyEntries).toEqual(["/home", "/home?flow=add-money"]);
+  });
+
+  test("closing a direct funding deep link replaces its entry", async () => {
+    syncLocation("/cash?flow=add-money");
+    historyEntries = ["/cash?flow=add-money"];
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} initialPanel="cash"
+      initialLocation={{ panel: "cash", account: null, shelf: null, asset: null, group: null, market: null }}
+      initialSearch="flow=add-money" initialAddMoney applyInboundUrlIntent />);
+    fireEvent.click(within(await page().findByRole("dialog", { name: "Add money" })).getByRole("button", { name: "Close add money" }));
+    await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe("/cash"));
+    expect(historyEntries).toEqual(["/cash"]);
+  });
+});
+
 describe("Home shell auth and privacy", () => {
   test("gates dashboard content while signed out and opens the shared sign-in flow", async () => {
     render(<HomeHarness accountSdk={sdk()} routeMode="landing" />);
@@ -364,25 +435,26 @@ describe("Home shell auth and privacy", () => {
     expect(page().queryByRole("navigation", { name: "Main navigation" })).toBeNull();
   });
 
-  test("redirects a signed-out Save route without exposing savings content", async () => {
-    syncLocation("/save");
-    historyEntries = ["/save"];
+  test("redirects a signed-out Cash route without exposing cash content", async () => {
+    syncLocation("/cash");
+    historyEntries = ["/cash"];
     render(
       <HomeHarness
         accountSdk={sdk()}
-        initialPanel="save"
+        initialPanel="cash"
         initialLocation={{
-          panel: "save",
+          panel: "cash",
           account: null,
           shelf: null,
           asset: null,
           group: null,
           market: null,
+          cashView: null,
         }}
       />,
     );
 
-    expect(page().queryByRole("region", { name: "Savings module" })).toBeNull();
+    expect(page().queryByRole("region", { name: "Cash module" })).toBeNull();
     await waitFor(() => expect(replaceCalls).toEqual(["/?account=signin"]));
     expect(page().queryByRole("navigation", { name: "Main navigation" })).toBeNull();
   });
@@ -618,7 +690,7 @@ describe("Home shell routing and intents", () => {
       { title: "Invest", leading: "home", props: { initialPanel: "invest" } },
       { title: "Your money", leading: "back", props: { initialPanel: "balances" } },
       { title: "Activity", leading: "back", props: { initialPanel: "activity" } },
-      { title: "Save", leading: "back", props: { initialPanel: "save" } },
+      { title: "Cash", leading: "back", props: { initialPanel: "cash" } },
       { title: "Account", leading: "home", props: { initialAccountSettingsOpen: true } },
     ];
     for (const shellCase of cases) {
@@ -1089,8 +1161,13 @@ describe("Home shell routing and intents", () => {
     await waitForVerifiedShell();
 
     fireEvent.click(page().getByRole("button", { description: "Open Cash" }));
-    expect(`${window.location.pathname}${window.location.search}`).toBe("/save");
-    expect(page().getByRole("region", { name: "Savings module" })).toBeTruthy();
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/cash");
+    expect(page().getByRole("region", { name: "Cash module" })).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Savings fixture" }));
+    expect(window.location.pathname).toBe("/cash/savings");
+    expect(page().getByRole("region", { name: "Savings" })).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    expect(window.location.pathname).toBe("/cash");
 
     fireEvent.click(page().getByRole("button", { name: "Back" }));
     fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Invest" }));
@@ -1099,6 +1176,17 @@ describe("Home shell routing and intents", () => {
 
     act(() => popHistory());
     expect(page().getByLabelText("Total balance")).toBeTruthy();
+  });
+
+  test("canonicalizes a retired Save entry on in-session history navigation", async () => {
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} />);
+    await waitForVerifiedShell();
+    act(() => {
+      pushHistory("/save?flow=save-deposit&token=untrusted");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/cash/savings?flow=save-deposit");
+    expect(page().getByRole("region", { name: "Savings" })).toBeTruthy();
   });
 
   test("keeps Balances Back as forward app navigation", async () => {
