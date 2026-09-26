@@ -162,7 +162,9 @@ function BoardCanvas({ board, build, frameSource, narrow, index, onNavigate }: {
     const next = geometry.sections[Math.max(0, Math.min(geometry.sections.length - 1, current + direction))];
     if (!next) return;
     select(next.frames[0].frame.id, next.frames[0].id);
-    fit(next.rect);
+    const after = side !== "after" && !next.frames[0].frame.before
+      ? layout(board, "after").sections.find((section) => section.id === next.id) : undefined;
+    fit((after ?? next).rect);
   };
   const interactingPosition = positions.find((position) => position.id === interacting);
   const dialogOpen = full && selectedPosition !== undefined;
@@ -290,6 +292,7 @@ function BoardCanvas({ board, build, frameSource, narrow, index, onNavigate }: {
     const root = boardElement.current;
     const childListeners = new Map<HTMLIFrameElement, { doc: Document; listener: () => void }>();
     const restoreBoardFocus = (focused: Element | null = document.activeElement) => {
+      if (helpOpen) return;
       if (!(focused instanceof HTMLIFrameElement) || !root?.contains(focused) ||
         focused === activeFrame.current) return;
       try {
@@ -297,6 +300,11 @@ function BoardCanvas({ board, build, frameSource, narrow, index, onNavigate }: {
         focused.contentWindow?.blur();
       } catch { /* Cross-origin frame. */ }
       window.focus();
+      if (paletteOpen) {
+        document.querySelector<HTMLInputElement>('input[aria-label="Search board navigation"]')
+          ?.focus({ preventScroll: true });
+        return;
+      }
       const previous = lastBoardFocus.current;
       (previous?.isConnected && root.contains(previous) ? previous : container.current)
         ?.focus({ preventScroll: true });
@@ -332,7 +340,7 @@ function BoardCanvas({ board, build, frameSource, narrow, index, onNavigate }: {
       window.removeEventListener("blur", onBlur);
       for (const { doc, listener } of childListeners.values()) doc.removeEventListener("focusin", listener);
     };
-  }, []);
+  }, [paletteOpen, helpOpen]);
   useEffect(() => {
     if (!interacting && !dialogOpen) return;
     const iframe = activeFrame.current;
