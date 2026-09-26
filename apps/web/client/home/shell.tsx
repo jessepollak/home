@@ -131,6 +131,7 @@ function DashboardShellBody({
   initialSendActionId = null,
   applyInboundUrlIntent = false,
   region,
+  regionReady = true,
 }: DashboardShellProps) {
   const router = useRouter();
   const account = useAccountWallet();
@@ -876,7 +877,7 @@ function DashboardShellBody({
                       initialSendFlow={urlSendFlow}
                       initialSendActionId={urlSendActionId}
                       regionId={regionId}
-                      regionReady={isPreferenceReady}
+                      regionReady={regionReady}
                     />
                   </MountedShellPanel>
                 ) : null}
@@ -901,7 +902,7 @@ function DashboardShellBody({
                       fetchActivity={account.fetchActivity}
                       fetchOperations={account.fetchOperations}
                       regionId={regionId}
-                      showSessionShimmer={!activitySession && (
+                      showSessionShimmer={activitySession ? !regionReady : (
                         sessionSettling ||
                         paintedAssetBalances.status === "loading" ||
                         paintedAssetBalances.revalidating === true

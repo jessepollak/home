@@ -42,12 +42,13 @@ async function transportWith(
     verification?: "provisional" | "server";
     status?: "validating" | "verified" | "restoring" | "signing-out" | "signed-out" | "unavailable";
     ownerFence?: OwnerGenerationFence;
+    session?: VerifiedAccountSession;
   } = {},
 ) {
   return await new Promise<ReturnType<typeof useAuthenticatedTransport>>((resolve) => {
     function Probe() {
       const transport = useAuthenticatedTransport({
-        session,
+        session: options.session ?? session,
         status: options.status ?? "verified",
         verification: options.verification ?? "server",
         ownerKey: "owner",
@@ -150,6 +151,56 @@ describe("verified read failure tagging", () => {
     const parsed = await transportWith(async () => new Response("broken json"));
     expect(await rejectionOf(parsed.fetchActivity(""))).toMatchObject({ kind: "parse" });
   });
+});
+
+describe("wallet-free account resources", () => {
+  const walletFreeSession: VerifiedAccountSession = { ...session, smartAccount: null };
+
+  test("reads a country preference with a verified session without a smart account", async () => {
+    const calls: Array<{ path: string; method: string | undefined; body: string | undefined }> = [];
+    const result = { version: 1, regionId: "GB" };
+    const transport = await transportWith(async (path, init) => {
+      calls.push({ path: String(path), method: init?.method, body: init?.body?.toString() });
+      return Response.json(result);
+    }, undefined, { session: walletFreeSession });
+
+    expect(await transport.fetchAccountResource("/api/account/country-preference")).toEqual(result);
+    expect(calls).toEqual([{ path: "/api/account/country-preference", method: "GET", body: undefined }]);
+  });
+
+  test("writes a country preference with a verified session without a smart account", async () => {
+    const calls: Array<{ path: string; method: string | undefined; body: string | undefined }> = [];
+    const result = { version: 1, regionId: "GB" };
+    const transport = await transportWith(async (path, init) => {
+      calls.push({ path: String(path), method: init?.method, body: init?.body?.toString() });
+      return Response.json(result);
+    }, undefined, { session: walletFreeSession });
+
+    expect(await transport.fetchAccountResource("/api/account/country-preference", {
+      method: "PUT", body: { version: 1, regionId: "GB", adopt: true },
+    })).toEqual(result);
+    expect(calls).toEqual([{
+      path: "/api/account/country-preference",
+      method: "PUT",
+      body: JSON.stringify({ version: 1, regionId: "GB", adopt: true }),
+    }]);
+  });
+
+  test.each(["/api/balances", "/api/actions/prepare"])(
+    "requires a smart account for %s",
+    async (path) => {
+      let calls = 0;
+      const transport = await transportWith(async () => {
+        calls += 1;
+        return Response.json({});
+      }, undefined, { session: walletFreeSession });
+
+      const error = await rejectionOf(transport.fetchAccountResource(path));
+      expect(error).toBeInstanceOf(TransferExecutionError);
+      expect(error).toMatchObject({ reason: "stale-session" });
+      expect(calls).toBe(0);
+    },
+  );
 });
 
 describe("authenticated transport deployment expiry", () => {

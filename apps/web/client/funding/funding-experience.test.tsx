@@ -489,6 +489,31 @@ describe("FundingExperience", () => {
     expect(quoteBodies).toHaveLength(1);
   });
 
+  test("drops a selected region's funding flow and uses the new region for the next order", async () => {
+    const requests: Array<{ path: string; body: unknown }> = [];
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string, options?: { body?: unknown }) => {
+      requests.push({ path, body: options?.body });
+      if (path.startsWith("/api/funding/providers")) return { providers: path.includes("region=AR") ? [fundingBinding()] : [redirectBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return { order: null };
+      if (path === "/api/funding/quotes") return { quoteToken: "id-token", quote: { fiatAmount: "20000", tokenAmountAtomic: "2000000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" } };
+      if (path === "/api/funding/orders") return { order: { id: "11111111-1111-4111-8111-111111111111", providerId: "idrx", state: "awaiting-payment", fiatAmount: "20000", expectedTokenAmountAtomic: "2000000", fees: [], providerStatus: null, instructions: { kind: "redirect", url: REDIRECT_URL } } };
+      throw new Error("unexpected request");
+    } };
+    const view = render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+    fireEvent.click(await page().findByRole("button", { name: /Deposit ARS/ }));
+    expect(page().getByRole("heading", { name: "Deposit ARS" })).toBeTruthy();
+    view.rerender(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="ID" />);
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().queryByRole("heading", { name: "Deposit ARS" })).toBeNull();
+    fireEvent.click(await page().findByRole("button", { name: /Deposit IDR/ }));
+    enterAmount("20000");
+    fireEvent.click(page().getByRole("button", { name: "Review quote" }));
+    await page().findByRole("heading", { name: "Review quote" });
+    expect(requests.find((request) => request.path === "/api/funding/quotes")?.body).toEqual({ providerId: "idrx", region: "ID", paymentMethod: "qris", fiatAmount: "20000" });
+    fireEvent.click(page().getByRole("button", { name: "Confirm deposit" }));
+    await waitFor(() => expect(requests.find((request) => request.path === "/api/funding/orders")?.body).toEqual({ quoteToken: "id-token" }));
+  });
+
   test("lists configured provider bindings and creates an order with only the quote token", async () => {
     const requests: Array<{ path: string; body: unknown }> = [];
     const wallet = {
@@ -1327,7 +1352,7 @@ describe("FundingExperience", () => {
     const statusResult = new Promise<unknown>((resolve) => { resolveStatus = resolve; });
     const wallet = {
       ...verifiedWallet(),
-      fetchAccountResource: async (path: string, options?: { method?: "GET" | "POST" }) => {
+      fetchAccountResource: async (path: string, options?: { method?: "GET" | "POST" | "PUT" }) => {
         requests.push({ path, method: options?.method });
         if (path.startsWith("/api/funding/providers")) return { providers: [applePayBinding()] };
         if (path.startsWith("/api/funding/orders?")) return { order: null };

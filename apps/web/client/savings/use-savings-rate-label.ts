@@ -23,7 +23,7 @@ const BASE_USDC_ASSET = {
   decimals: BASE_USDC_DECIMALS,
 } as const;
 
-export function useSavingsRateLabel(regionId: RegionId): string | null {
+export function useSavingsRateLabel(regionId: RegionId, regionReady = true): string | null {
   const account = useAccountWallet();
   const session = account.verification ? account.session : null;
   const balancesSession = session?.smartAccount
@@ -35,7 +35,7 @@ export function useSavingsRateLabel(regionId: RegionId): string | null {
       }
     : null;
   const balances = useBalances(balancesSession, regionId, account.fetchBalances, {
-    enabled: account.verification === "server",
+    enabled: account.verification === "server" && regionReady,
   });
   const positions = balances.snapshot ? selectVaultPositions(balances.snapshot) : null;
   const [rateNowMs, setRateNowMs] = useState(() => Date.now());

@@ -13,7 +13,7 @@ async function signIn(page: Page) {
 
 test("IDRX funding reaches payment instructions and receipt", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.addInitScript(() => localStorage.setItem("home.country.v1", "ID"));
+  await page.addInitScript(() => localStorage.setItem("home.country.v2", "ID"));
   await installApiFixtures(page);
   await signIn(page);
   await page.getByRole("button", { name: "Add money" }).click();

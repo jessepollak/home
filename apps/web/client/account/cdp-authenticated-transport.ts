@@ -26,7 +26,10 @@ import { ResourceFailure } from "./resource-failure";
 
 type MoneyActionApiFetch = (path: string, init?: RequestInit) => Promise<unknown>;
 
+const walletFreeAccountResourcePrefixes = ["/api/account/country-preference"] as const;
+
 const accountResourcePrefixes = [
+  ...walletFreeAccountResourcePrefixes,
   "/api/actions",
   "/api/balances",
   "/api/trades",
@@ -204,7 +207,12 @@ export function useAuthenticatedTransport({
   const fetchAccountResource = useCallback(
     async (path: string, options: AccountResourceOptions = {}): Promise<unknown> => {
       const safePath = normalizeAccountResourcePath(path);
-      if (!session?.smartAccount || status !== "verified" || verification !== "server" || !ownerKey) {
+      const pathname = new URL(safePath, "https://home.invalid").pathname;
+      const walletFree = walletFreeAccountResourcePrefixes.some(
+        (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+      );
+      if (!session || status !== "verified" || verification !== "server" || !ownerKey ||
+          (!walletFree && !session.smartAccount)) {
         throw new TransferExecutionError("stale-session");
       }
       const identity = ownerFence.capture();
@@ -229,11 +237,11 @@ export function useAuthenticatedTransport({
           headers: {
             ...skewHeaders,
             Accept: "application/json",
-            ...(method === "POST" ? { "Content-Type": "application/json" } : {}),
+            ...(method !== "GET" ? { "Content-Type": "application/json" } : {}),
             ...(authentication === "cdp" ? { Authorization: `Bearer ${accessToken}` } : {}),
             [ACCOUNT_PROVIDER_HEADER]: session.accountProvider,
           },
-          ...(method === "POST" ? { body: JSON.stringify(options.body ?? {}) } : {}),
+          ...(method !== "GET" ? { body: JSON.stringify(options.body ?? {}) } : {}),
           cache: "no-store",
           credentials: "same-origin",
           redirect: "error",

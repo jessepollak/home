@@ -16,7 +16,7 @@ cleanup() { rm -f "$routes"; }
 fail() { browser_command close >/dev/null 2>&1 || true; rm -f "$init"; }
 trap cleanup EXIT
 trap fail ERR
-printf '%s\n' 'sessionStorage.setItem("home:playwright-smoke:signed-in","1");localStorage.setItem("home.country.v1","US");' > "$init"
+printf '%s\n' 'sessionStorage.setItem("home:playwright-smoke:signed-in","1");localStorage.setItem("home.country.v2","US");' > "$init"
 chmod 600 "$init"
 env -i HOME="$HOME" PATH="$PATH" bun -e 'import {fixtureRoutes} from "./tests/browser/feature-map/fixtures.ts"; for (const [pattern, body] of fixtureRoutes()) console.log(`${pattern}\t${JSON.stringify(body)}`);' > "$routes"
 browser_command open --init-script "$init" >/dev/null

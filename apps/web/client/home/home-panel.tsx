@@ -65,8 +65,10 @@ export function HomePanel({
     ),
     pending: false,
   };
-  const showSessionShimmer = !activitySession && (sessionSettling || isLoading || isRevalidating);
-  const cashRate = useSavingsRateLabel(regionId);
+  const showSessionShimmer = activitySession
+    ? !regionReady
+    : sessionSettling || isLoading || isRevalidating;
+  const cashRate = useSavingsRateLabel(regionId, regionReady);
   const borrowOfferRate = useBorrowOfferRate({
     enabled: assetBalances?.summary?.borrow.kind === "none",
     regionId,
@@ -108,6 +110,7 @@ export function HomePanel({
               availableAssets={sendAvailability}
               assetMarkResolution={resolvedAssetMarks}
               regionId={regionId}
+              regionReady={regionReady}
             />
           </PresentationRegionProvider>
         </>

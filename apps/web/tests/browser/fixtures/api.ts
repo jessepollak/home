@@ -2,6 +2,7 @@ import type { Page, Route } from "@playwright/test";
 import type { RegionId } from "../../../config/regions";
 import type { BalancesSnapshot } from "../../../shared/balances/types";
 import { balancesSnapshot } from "./balances";
+import { COUNTRY_PREFERENCE_VERSION, parseCountryPreferenceRequest } from "../../../shared/account/contracts/country-preference";
 import {
   actionsBody,
   basenameProfileBody,
@@ -109,7 +110,7 @@ export async function json(route: Route, body: unknown) {
 export function seedSignedInSession(page: Page, country = "US") {
   return page.addInitScript((region) => {
     sessionStorage.setItem("home:playwright-smoke:signed-in", "1");
-    localStorage.setItem("home.country.v1", region);
+    localStorage.setItem("home.country.v2", region);
   }, country);
 }
 
@@ -286,6 +287,14 @@ export async function installApiFixtures(
         route,
         activityPageBody(url.searchParams.get("to"), url.searchParams.get("currency") ?? "USD"),
       );
+    }
+    if (path === "/api/account/country-preference") {
+      if (request.method() === "PUT") {
+        const body = parseCountryPreferenceRequest(request.postDataJSON());
+        if (!body) return route.fulfill({ status: 400, contentType: "application/json", body: "{}" });
+        return json(route, { version: COUNTRY_PREFERENCE_VERSION, regionId: body.regionId });
+      }
+      return json(route, { version: COUNTRY_PREFERENCE_VERSION, regionId: null });
     }
     if (path === "/api/basename-profile") return json(route, basenameProfileBody);
     return json(route, {});

@@ -37,6 +37,11 @@ function ProvisionalHarness({ fetchBalances, provisional }: {
     : state.status}</output>;
 }
 
+function HeldHarness({ fetchBalances, held }: { fetchBalances: FetchBalances; held: boolean }) {
+  const state = useBalances(session, "US", fetchBalances, { held });
+  return <output>{state.status === "ready" ? `ready:${state.snapshot.fetchedAt}` : state.status}</output>;
+}
+
 function RetryHarness({ fetchBalances }: { fetchBalances: FetchBalances }) {
   const state = useBalances(session, "US", fetchBalances);
   return (
@@ -83,6 +88,21 @@ describe("useBalances", () => {
     }} />);
     await waitFor(() => expect(reads).toBe(1));
     expect(view.getByRole("status").textContent).toBe(`${balancesSnapshotFixture.fetchedAt}:ready`);
+  });
+
+  test("held balances hide cached data and make no read until released", async () => {
+    const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
+    getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture);
+    let reads = 0;
+    const fetchBalances: FetchBalances = async () => {
+      reads += 1;
+      return balancesSnapshotFixture;
+    };
+    const view = render(<HeldHarness held fetchBalances={fetchBalances} />);
+    expect(view.getByRole("status").textContent).toBe("loading");
+    expect(reads).toBe(0);
+    view.rerender(<HeldHarness held={false} fetchBalances={fetchBalances} />);
+    expect(view.getByRole("status").textContent).toBe(`ready:${balancesSnapshotFixture.fetchedAt}`);
   });
 
   test("a cached provisional failure stays ready without an error before verification refetches", async () => {

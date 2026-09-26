@@ -76,7 +76,7 @@ export function useBalances(
   session: BalancesQuerySession | null,
   region: RegionId,
   fetchBalances: FetchBalances,
-  options: { enabled?: boolean; provisional?: boolean } = {},
+  options: { enabled?: boolean; provisional?: boolean; held?: boolean } = {},
 ): RecoverableBalancesState {
   const validSession = isBalancesSession(session) ? session : null;
   const ownerKey = validSession ? dataOwnerKey(validSession) : null;
@@ -85,7 +85,7 @@ export function useBalances(
     queryKey: ownerKey
       ? ownerQueryKey(ownerKey, "balances", region)
       : ["unauthenticated", "balances-disabled", region],
-    enabled: (queryState) => ownerKey !== null && options.enabled !== false &&
+    enabled: (queryState) => ownerKey !== null && options.enabled !== false && options.held !== true &&
       (!options.provisional || !(queryState.state.error instanceof ProvisionalBalancesFailure)),
     staleTime: balancesStaleTimeMs,
     retry: false,
@@ -122,6 +122,7 @@ export function useBalances(
 
   const identity = ownerKey ? `${ownerKey}\u0000${region}` : null;
   const suppressedFailure = query.isError && query.error instanceof ProvisionalBalancesFailure;
+  const held = options.held === true;
 
   const refetch = query.refetch;
   const retry = useCallback(async () => {
@@ -129,7 +130,7 @@ export function useBalances(
   }, [refetch]);
 
   const verifiedRefetchDue = suppressedFailure && !options.provisional &&
-    ownerKey !== null && options.enabled !== false && query.fetchStatus === "idle";
+    ownerKey !== null && options.enabled !== false && !held && query.fetchStatus === "idle";
   useEffect(() => {
     if (verifiedRefetchDue) void refetch({ cancelRefetch: false });
   }, [verifiedRefetchDue, refetch]);
@@ -146,7 +147,7 @@ export function useBalances(
     if (!ownerKey) {
       return { status: "unavailable", snapshot: null, error: null, retry, observation };
     }
-    if (query.isPending || (suppressedFailure && query.data === undefined)) {
+    if (held || query.isPending || (suppressedFailure && query.data === undefined)) {
       return { status: "loading", snapshot: null, error: null, retry, observation };
     }
     if (query.data) {
@@ -173,7 +174,7 @@ export function useBalances(
       };
     }
     return { status: "loading", snapshot: null, error: null, retry, observation };
-  }, [identity, ownerKey, query.data, query.dataUpdatedAt, query.error, query.errorUpdatedAt, query.fetchStatus, query.isError, query.isFetching, query.isPending, retry, suppressedFailure]);
+  }, [held, identity, ownerKey, query.data, query.dataUpdatedAt, query.error, query.errorUpdatedAt, query.fetchStatus, query.isError, query.isFetching, query.isPending, retry, suppressedFailure]);
 }
 
 function isBalancesSession(value: BalancesQuerySession | null): value is BalancesQuerySession {
