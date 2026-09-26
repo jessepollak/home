@@ -1,4 +1,3 @@
-import type { RefObject } from "react";
 import { Dialog } from "@base-ui/react/dialog";
 import { XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -24,13 +23,13 @@ export function ShortcutList({ commands, label }: { commands: BoardCommand[]; la
 export function ShortcutsHelp({ open, onOpenChange, returnFocus, commands }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  returnFocus: RefObject<HTMLElement | null>;
+  returnFocus: HTMLElement | null;
   commands: BoardCommand[];
 }) {
   return <Dialog.Root open={open} onOpenChange={onOpenChange}>
     <Dialog.Portal>
       <Dialog.Backdrop className={styles.overlayBackdrop} />
-      <Dialog.Popup className={`${styles.overlay} ${styles.help}`} finalFocus={returnFocus}>
+      <Dialog.Popup className={`${styles.overlay} ${styles.help}`} finalFocus={() => returnFocus ?? true}>
         <div className={styles.helpHeader}>
           <Dialog.Title className={styles.helpTitle}>Keyboard shortcuts</Dialog.Title>
           <Dialog.Close render={<Button variant="ghost" size="icon-sm" aria-label="Close" />}>

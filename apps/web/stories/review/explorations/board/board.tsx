@@ -98,6 +98,7 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [overlayReturn, setOverlayReturn] = useState<HTMLElement | null>(null);
   const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, zoom: 1 });
   const [interacting, setInteracting] = useState<string>();
   const [spacePan, setSpacePan] = useState(false);
@@ -108,7 +109,6 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
   const container = useRef<HTMLDivElement>(null);
   const boardElement = useRef<HTMLDivElement>(null);
   const lastBoardFocus = useRef<HTMLElement | null>(null);
-  const overlayReturn = useRef<HTMLElement | null>(null);
   const canvas = useRef<HTMLDivElement>(null);
   const fullButton = useRef<HTMLButtonElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
@@ -294,7 +294,7 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
   };
   const openOverlay = (open: (value: boolean) => void) => {
     if (!paletteOpen && !helpOpen && document.activeElement instanceof HTMLElement)
-      overlayReturn.current = document.activeElement;
+      setOverlayReturn(document.activeElement);
     open(true);
   };
   const commands = boardCommands({
