@@ -40,7 +40,7 @@
   "460:4469": {"Label#460:0":"To","Value#460:5":"0x2211…d77DA9","Placeholder#460:10":"0x…","state":["empty","focused","entered","disabled"]},
   "282:5882": {"Amount#282:3":"+$25.00","tone":["default","success"]},
   "274:5577": {},
-  "166:1776": {"Show helper#166:10":[true,false],"state":["empty","entered","error"]},
+  "166:1776": {"Show helper#166:10":[true,false],"Show prefix#512:0":[true,false],"Prefix#512:4":"$","Show suffix#512:8":[false,true],"Suffix#512:12":" USDC","state":["empty","entered","error"]},
   "166:1787": {"chipSet":["quick-local","max"]},
   "166:1788": {},
   "166:1803": {"Amount#166:20":"$25.00","Lead#166:21":"to Alex Rivera"},
