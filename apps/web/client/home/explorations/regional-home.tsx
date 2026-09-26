@@ -3,13 +3,12 @@
 import { Banknote, ChartLine, HandCoins, Plus } from "lucide-react";
 import { ActivityPanelView } from "@/client/activity";
 import type { UseActivityResult } from "@/client/activity/use-activity";
-import { HomeSectionHeading } from "@/client/home/home-overview";
+import { HomeBalanceBreakdown, HomeSectionHeading } from "@/client/home/home-overview";
 import { homeBalancesStatus, HomeHeaderStatus } from "@/client/home/home-status";
 import type { HomeAssetBalancesPresentation } from "@/client/home/home-types";
 import type { HomeMoneySummary } from "@/shared/balances/present";
 import { GlyphMark } from "@/components/currency-mark";
 import { MoneyTicker } from "@/components/money-ticker";
-import { MoneyBreakdownLegend, SignedBalanceBar } from "@/components/signed-balance-bar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -108,8 +107,7 @@ export function RegionalHomeProposal({ regionId, assetBalances, activity, operat
                     <div className="@container"><div className={cn("text-3xl font-semibold tabular-nums @xs:text-4xl", totalStatus !== "complete" && "text-muted-foreground")} data-total-status={totalStatus === "complete" ? undefined : totalStatus}><bdi dir="ltr"><MoneyTicker value={assetBalances.displayTotal ?? "—"} reserveDigits={false} /></bdi></div></div>
                   )}
                   {!loading && assetBalances.breakdown.length > 0 ? (
-                    <div className="space-y-2"><SignedBalanceBar items={assetBalances.breakdown} />
-                      <div className="@container [&_ul]:grid-cols-1 @xs:[&_ul]:grid-cols-3 [&_[data-slot=money-ticker]]:[direction:ltr] [&_[data-slot=money-ticker]]:[unicode-bidi:isolate]"><MoneyBreakdownLegend items={assetBalances.breakdown} /></div>
+                    <div className="@container [&_ul]:grid-cols-1 @xs:[&_ul]:grid-cols-3 [&_[data-slot=money-ticker]]:[direction:ltr] [&_[data-slot=money-ticker]]:[unicode-bidi:isolate]"><HomeBalanceBreakdown items={assetBalances.breakdown} />
                     </div>
                   ) : null}
                 </CardContent>

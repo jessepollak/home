@@ -237,6 +237,10 @@ export const Rtl: Story = { args: { rtlActivity: true, moneyLabels: ["رصيد �
 export const KeyboardFocus: Story = { play: async ({ canvasElement }) => {
   const canvas = within(canvasElement);
   canvas.getByRole("button", { name: "Account" }).focus();
+  for (const category of within(canvas.getByRole("list", { name: "Balance allocation" })).getAllByRole("button")) {
+    await userEvent.tab();
+    await expect(category).toHaveFocus();
+  }
   for (const name of ["Add money", "Send", "Cash out"]) {
     await userEvent.tab();
     await expect(within(canvas.getByLabelText("Money actions")).getByRole("button", { name })).toHaveFocus();

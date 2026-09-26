@@ -392,6 +392,7 @@ function DesktopShell({ initialPanel, initialRailCollapsed = false, extendedActi
     <div className="space-y-4 lg:grid lg:grid-cols-[minmax(320px,3fr)_minmax(340px,2fr)] lg:items-start lg:gap-6 lg:space-y-0 xl:gap-8">
       <div data-desktop-money-column="" className="self-start lg:[@media(min-height:640px)]:sticky lg:[@media(min-height:640px)]:top-20">
         <HomeOverview
+          accountKey={WALLET}
           assetBalances={balances}
           cashRate={state === "empty" ? "Up to 4.20% APY" : "4.20% APY"}
           borrowOfferRate={state === "empty" ? "5.10% APR" : null}
