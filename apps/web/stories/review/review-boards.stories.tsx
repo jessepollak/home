@@ -66,7 +66,8 @@ export const BoardChrome: Story = {
     if (!panelsShown) await userEvent.click(panels);
     await expect(panels).toHaveAttribute("aria-pressed", "true");
     const outline = within(screen.getByRole("complementary", { name: "Outline" }));
-    await userEvent.click(outline.getByRole("button", { name: /First frame.*new.*390/i }));
+    const firstSection = within(outline.getByRole("group", { name: "First section" }));
+    await userEvent.click(firstSection.getByRole("button", { name: /First frame.*new.*390/i }));
     await waitFor(() => expect(zoomPercent(zoomControl.textContent))
       .toBeGreaterThan(zoomPercent(boardZoom) + 5));
     const frameZoom = zoomControl.textContent;
@@ -120,7 +121,7 @@ export const BoardChrome: Story = {
     await expect(screen.getByText(/^Interacting with/)).toBeVisible();
     await userEvent.click(outline.getByRole("button", { name: /Second frame/i }));
     await waitFor(() => expect(screen.queryByText(/^Interacting with/)).not.toBeInTheDocument());
-    await userEvent.click(outline.getByRole("button", { name: /First frame.*new.*390/i }));
+    await userEvent.click(firstSection.getByRole("button", { name: /First frame.*new.*390/i }));
     frameOverlay(/First section · First frame · New/).focus();
     await userEvent.keyboard("{Enter}");
     await expect(screen.getByText(/^Interacting with/)).toBeVisible();
@@ -299,6 +300,47 @@ export const MissingStoryExcluded: Story = {
     await expect(screen.getByRole("dialog", { name: "Second frame full width" })).toBeVisible();
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  },
+};
+const changedFixture = parseBoard({
+  id: "changed-fixture", title: "Changed outline test", summary: "Changed frames first", sections: [
+    { id: "intro", title: "Intro", frames: [{ id: "plain", story: "fixture-plain--default", label: "Plain frame", viewport: "mobile", change: "unchanged" }] },
+    { id: "later", title: "Later section", frames: [{ id: "edited", story: "fixture-edited--default", label: "Edited frame", viewport: "narrow", change: "unchanged" }] },
+  ],
+});
+export const ChangedFramesFirst: Story = {
+  args: {
+    board: changedFixture, frameSource: "story",
+    build: { ...fixtureBuild, pr: 999, changedFiles: ["apps/web/client/edited.tsx"], addedFiles: [] },
+  },
+  render: (args) => <div style={{ height: "100dvh", width: 1400 }}><ReviewBoardView {...args} /></div>,
+  parameters: { a11y: { test: "error" } },
+  beforeEach: () => {
+    const restoreSearch = withSearch({ frame: "plain" });
+    const original = globalThis.fetch;
+    const entry = (id: string, file: string) => ({ id, title: "Fixture", name: "Default", importPath: `./client/${file}.stories.tsx`, type: "story" });
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      if (!String(input).endsWith("index.json")) return original(input, init);
+      return Promise.resolve(new Response(JSON.stringify({ entries: {
+        "fixture-plain--default": entry("fixture-plain--default", "plain"),
+        "fixture-edited--default": entry("fixture-edited--default", "edited"),
+      } })));
+    }) as typeof fetch;
+    return () => { globalThis.fetch = original; restoreSearch(); };
+  },
+  play: async ({ canvasElement }) => {
+    const screen = within(canvasElement.ownerDocument.body);
+    const outline = await screen.findByRole("complementary", { name: "Outline" });
+    const groups = within(outline).getAllByRole("group");
+    await expect(groups.map((group) => group.getAttribute("aria-label"))).toEqual(["Changed in this PR", "Intro", "Later section"]);
+    const changed = within(groups[0]);
+    await expect(changed.getAllByRole("button")).toHaveLength(1);
+    await expect(changed.getByRole("button", { name: /Edited frame.*changed.*320/i })).toBeVisible();
+    await expect(within(groups[1]).getByRole("button", { name: /Plain frame/ })).not.toHaveTextContent(/unchanged/i);
+    await userEvent.click(changed.getByRole("button", { name: /Edited frame/ }));
+    await waitFor(() => expect(new URL(canvasElement.ownerDocument.location.href).searchParams.get("frame")).toBe("edited"));
+    await expect(screen.getByRole("complementary", { name: "Inspector" })).toHaveTextContent("fixture-edited--default");
+    await waitFor(() => expect(changed.getByRole("button", { name: /Edited frame/ })).toHaveAttribute("aria-current", "true"));
   },
 };
 export const IndexUnavailable: Story = {

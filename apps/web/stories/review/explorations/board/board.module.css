@@ -193,6 +193,16 @@
 .outlineSection {
   margin-block-end: 20px;
 }
+.outlineChanged {
+  margin-block-end: 20px;
+  padding-block-end: 16px;
+  border-block-end: 1px solid var(--border);
+}
+.outlineGroupTitle {
+  font-weight: 650;
+  padding-inline: 5px;
+  margin-block-end: 4px;
+}
 .board .outlineSectionButton {
   display: block;
   width: 100%;
@@ -216,6 +226,9 @@
 }
 .outlineRow[aria-current="true"] {
   background: var(--muted);
+}
+.outlineRow[aria-current="true"] .muted {
+  color: var(--foreground);
 }
 .rowLabel {
   flex: 1;

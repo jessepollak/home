@@ -8,7 +8,7 @@ import { MobileReview } from "./mobile-review";
 import { Outline } from "./outline";
 import { formatFrameStatus, useFrameLoading } from "./use-frame-loading";
 import type { ReviewBoard } from "./manifest";
-import { changesBoard, hasChangeData, resolveBoard, type ReviewBuild, type StoryIndexEntry } from "./review-build";
+import { changesBoard, hasChangeData, markBuildChanges, resolveBoard, type ReviewBuild, type StoryIndexEntry } from "./review-build";
 import { readBoardUrl, revisionLink, storyCanvasUrl, writeBoardUrl } from "./url-state";
 import styles from "./board.module.css";
 
@@ -37,7 +37,9 @@ export function ReviewBoardView({ board, build, frameSource = "story", narrow = 
   const resolved = useMemo(() => {
     if (index === undefined || index === "unavailable") return index;
     if (board === "changes") return index ? changesBoard(build, index) : null;
-    return index ? resolveBoard(board, index) : board;
+    if (!index) return board;
+    const present = resolveBoard(board, index);
+    return present && markBuildChanges(present, build, index);
   }, [board, build, index]);
   const title = board === "changes" ? "Story changes" : board.title;
   if (resolved === undefined) return <BoardMessage title={title} build={build}>Loading board…</BoardMessage>;
@@ -381,7 +383,7 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
         frameSource={frameSource} fullButton={fullButton} onSelect={select} onSide={changeSide}
         onOpen={() => setFull(true)} onMark={mark} onFinish={finish} onCancel={cancel}
       /> : <div className={styles.desktop}>
-        {panels && <Outline board={board} sections={geometry.sections} selected={selectedPosition.id}
+        {panels && <Outline board={board} sections={geometry.sections} selected={selectedPosition.id} inPr={build.pr !== null}
           onSelect={selectAndFit} onFitSection={(section) => fit(section.rect)} />}
         <div ref={canvas} className={styles.canvasHost}>
           <DesktopCanvas

@@ -128,18 +128,44 @@ function storyStem(path: string): string {
   return path.replace(/\.[^.\/]+$/, "").replace(/\.stories$/, "");
 }
 
-export function changesBoard(build: ReviewBuild, entries: Record<string, StoryIndexEntry>): ReviewBoard | null {
+function buildChanges(build: ReviewBuild): ((entry: StoryIndexEntry) => "new" | "changed" | null) | null {
   if (!hasChangeData(build)) return null;
   const changed = new Set(build.changedFiles);
   const stems = new Set(build.changedFiles.filter((path) => !/\.stories\.[^/]+$/.test(path)).map(storyStem));
   const added = new Set(build.addedFiles ?? []);
-  const groups = new Map<string, StoryIndexEntry[]>();
+  return (entry) => {
+    const path = storyPath(entry.importPath);
+    if (!/\.stories\.[^/]+$/.test(path) || !(changed.has(path) || stems.has(storyStem(path)))) return null;
+    return added.has(path) ? "new" : "changed";
+  };
+}
+
+export function markBuildChanges(board: ReviewBoard, build: ReviewBuild, entries: Record<string, StoryIndexEntry>): ReviewBoard {
+  const change = buildChanges(build);
+  if (!change) return board;
+  return {
+    ...board,
+    sections: board.sections.map((section) => ({
+      ...section,
+      frames: section.frames.map((frame) => {
+        const entry = entries[frame.story];
+        const derived = entry?.type === "story" && entry.importPath ? change(entry) : null;
+        return derived && derived !== frame.change ? { ...frame, change: derived } : frame;
+      }),
+    })),
+  };
+}
+
+export function changesBoard(build: ReviewBuild, entries: Record<string, StoryIndexEntry>): ReviewBoard | null {
+  const change = buildChanges(build);
+  if (!change) return null;
+  const groups = new Map<string, { story: StoryIndexEntry; change: "new" | "changed" }[]>();
   for (const entry of Object.values(entries)) {
     if (entry.type !== "story" || /^review-boards--/.test(entry.id)) continue;
-    const path = storyPath(entry.importPath);
-    if (!/\.stories\.[^/]+$/.test(path) || !(changed.has(path) || stems.has(storyStem(path)))) continue;
+    const kind = change(entry);
+    if (!kind) continue;
     const group = groups.get(entry.title) ?? [];
-    group.push(entry);
+    group.push({ story: entry, change: kind });
     groups.set(entry.title, group);
   }
   if (groups.size === 0) return null;
@@ -151,12 +177,12 @@ export function changesBoard(build: ReviewBuild, entries: Record<string, StoryIn
     sections: Array.from(groups, ([title, stories], index) => ({
       id: `stories-${index + 1}`,
       title,
-      frames: stories.map((story) => ({
+      frames: stories.map(({ story, change }) => ({
         id: story.id,
         story: story.id,
         label: story.name,
         viewport: viewports[storyViewport(story)],
-        change: added.has(storyPath(story.importPath)) ? "new" as const : "changed" as const,
+        change,
       })),
     })),
   };

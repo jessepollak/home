@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test, mock } from "bun:test";
-import { changesBoard, fetchPrStatus, hasChangeData, prUrl, readReviewBuild, resolveBoard, type ReviewBuild, type StoryIndexEntry } from "../../stories/review/explorations/board/review-build";
+import { changesBoard, fetchPrStatus, hasChangeData, markBuildChanges, prUrl, readReviewBuild, resolveBoard, type ReviewBuild, type StoryIndexEntry } from "../../stories/review/explorations/board/review-build";
 import { parseBoard } from "../../stories/review/explorations/board/manifest";
 
 const build: ReviewBuild = { revision: "abc1234", deployment: "", branch: "", repo: { owner: "example", name: "home" }, pr: 999, changedFiles: [] };
@@ -51,6 +51,23 @@ test("builds matching story sections from changed stories and sibling source fil
 test("does not invent an automatic board for unknown changes or unrelated files", () => {
   expect(changesBoard({ ...build, changedFiles: null }, entries)).toBeNull();
   expect(changesBoard({ ...build, changedFiles: ["apps/web/client/different.tsx"] }, entries)).toBeNull();
+});
+
+test("marks board frames changed or new from the build's changed and added files", () => {
+  const board = parseBoard({ id: "fixture", title: "Fixture", summary: "Review", sections: [
+    { id: "one", title: "One", frames: [
+      { id: "source", story: "foo--normal", label: "Normal", viewport: "mobile", change: "unchanged" },
+      { id: "added", story: "other--narrow", label: "Narrow", viewport: "narrow", change: "unchanged" },
+      { id: "manual", story: "review-boards--changes", label: "Manual", viewport: "desktop", change: "new" },
+      { id: "missing", story: "gone--normal", label: "Gone", viewport: "mobile", change: "unchanged" },
+    ] },
+  ] });
+  const marked = markBuildChanges(board, { ...build, changedFiles: ["apps/web/client/foo.tsx", "apps/web/client/other.stories.tsx"], addedFiles: ["apps/web/client/other.stories.tsx"] }, entries);
+  expect(marked.sections[0].frames.map((frame) => [frame.id, frame.change])).toEqual([
+    ["source", "changed"], ["added", "new"], ["manual", "new"], ["missing", "unchanged"],
+  ]);
+  expect(board.sections[0].frames[0].change).toBe("unchanged");
+  expect(markBuildChanges(board, { ...build, changedFiles: null }, entries)).toBe(board);
 });
 
 const originalFetch = globalThis.fetch;
