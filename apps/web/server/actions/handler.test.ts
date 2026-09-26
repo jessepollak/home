@@ -220,7 +220,7 @@ describe("actions HTTP handlers", () => {
     });
   });
 
-  test("an attributable receipt cannot present an outcome when the write fails or returns no row", async () => {
+  test("an attributable receipt without a recorded outcome stays pending when the write fails or returns no row", async () => {
     const confirmed = { ...row, pending: null, confirmed_at: "2026-09-12T12:05:00.000Z", provider_handle: HASH, transaction_hash: HASH };
     for (const recordOutcome of [
       async () => { throw new Error("database unavailable"); },
@@ -229,9 +229,10 @@ describe("actions HTTP handlers", () => {
       const handler = createGetActionHandler({
         authorize: authorize(),
         store: { get: async () => confirmed, recordHandle: async () => null, recordOutcome },
+        now: () => new Date("2026-09-12T12:10:00.000Z"),
         readReceipt: async () => ({ status: "confirmed", transactionHash: HASH, blockNumber: "1", blockTimestamp, finalized: true, userOperations: [operation(true)] }),
       });
-      expect((await (await handler(request(`/api/actions/${ID}`), context())).json()).status).toBe("unknown");
+      expect((await (await handler(request(`/api/actions/${ID}`), context())).json()).status).toBe("pending");
     }
   });
 
@@ -322,6 +323,60 @@ describe("actions HTTP handlers", () => {
     }, readReceipt: async () => ({ status: "confirmed", transactionHash: HASH, blockNumber: "1", blockTimestamp, finalized: false, userOperations: [operation(false)] }) });
     expect((await (await handler(request(`/api/actions/${ID}`), context())).json()).status).toBe("failed");
     expect(writes).toBe(0);
+  });
+
+  test("GET distinguishes pending, unreadable, attributable, and unattributable repay receipts", async () => {
+    const repay = confirmedBaseRow({
+      kind: "repay",
+      transaction_hash: HASH,
+      summary: {
+        ...row.summary,
+        title: "Repay all",
+        metadata: {
+          product: "borrow", operation: "repay-all", marketId: HASH,
+          loanAsset: { id: "usdc", symbol: "USDC" },
+          collateralAsset: { id: "eth", symbol: "ETH" },
+          projectedHealthFactorWad: null, projectedLiquidationPriceRaw: null,
+          borrowAprWad: "0",
+          source: { blockNumber: "1", blockHash: HASH, blockTimestamp: "1789214400" },
+        },
+      },
+    });
+    for (const [receiptState, expectedStatus, expectedCode] of [
+      ["pending", "pending", null],
+      ["throws", "pending", null],
+      ["confirmed", "confirmed", null],
+      ["unattributed", "unknown", "OUTCOME_UNATTRIBUTED"],
+    ] as const) {
+      const lines: string[] = [];
+      setObservabilityLogWriterForTests((line) => lines.push(line));
+      const handler = createGetActionHandler({
+        authorize: authorize("owner-a", "base-account"),
+        now: () => new Date("2026-09-12T12:10:00.000Z"),
+        store: {
+          get: async () => repay,
+          recordHandle: async () => null,
+          recordOutcome: async () => { throw new Error("unexpected outcome write"); },
+        },
+        readReceipt: async (hash) => {
+          expect(hash).toBe(HASH);
+          if (receiptState === "throws") throw new Error("Base receipt read failed");
+          if (receiptState === "pending") return { status: "pending", transactionHash: hash };
+          return {
+            status: "confirmed", transactionHash: hash, blockNumber: "1", blockTimestamp,
+            finalized: false, userOperations: receiptState === "confirmed" ? [operation(true)] : [],
+          };
+        },
+      });
+      const response = await handler(baseRequest(`/api/actions/${ID}`), context());
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ id: ID, kind: "repay", transactionHash: HASH, status: expectedStatus });
+      expect(lines).toHaveLength(expectedCode ? 1 : 0);
+      expect(lines.map((line) => JSON.parse(line))).toMatchObject(expectedCode ? [{
+        kind: "action-outcome", route: "/api/actions/:redacted", code: expectedCode,
+        outcome: "conflict", provider: "base-account",
+      }] : []);
+    }
   });
 
   test("GET returns a confirmed row with derived status", async () => {
@@ -621,6 +676,39 @@ describe("actions HTTP handlers", () => {
     expect(response.status).toBe(200);
     expect(confirmedCalls).toEqual([{ ...CALL, data: `0x1234${"41".padStart(64, "0")}${signature.slice(2)}` }]);
     expect(estimatedCalls).toEqual(confirmedCalls);
+  });
+
+  test("a late-approved submission gets the pending grace window from its recorded handle", async () => {
+    const late = confirmedBaseRow({
+      confirmed_at: "2026-09-12T11:30:00.000Z",
+      handle_recorded_at: "2026-09-12T11:59:00.000Z",
+      transaction_hash: HASH,
+    });
+    const handler = createListActionsHandler({
+      authorize: authorize("owner-a", "base-account"),
+      now: () => new Date("2026-09-12T12:00:00.000Z"),
+      store: { list: async () => [late], recordHandle: async () => null, recordOutcome: recorded },
+      readReceipt: async () => { throw new Error("Base receipt read failed"); },
+    });
+    const response = await handler(baseRequest("/api/actions"));
+    expect(response.status).toBe(200);
+    expect((await response.json()).actions[0]).toMatchObject({ id: ID, status: "pending" });
+  });
+
+  test("list keeps a hashless ambiguous dispatch unknown after the grace window", async () => {
+    const ambiguous = confirmedBaseRow({
+      confirmed_at: "2026-09-12T11:44:59.000Z",
+      provider_handle: null,
+      transaction_hash: null,
+    });
+    const handler = createListActionsHandler({
+      authorize: authorize("owner-a", "base-account"),
+      now: () => new Date("2026-09-12T12:00:00.000Z"),
+      store: { list: async () => [ambiguous], recordHandle: async () => null, recordOutcome: recorded },
+    });
+    const response = await handler(baseRequest("/api/actions"));
+    expect(response.status).toBe(200);
+    expect((await response.json()).actions[0]).toMatchObject({ id: ID, status: "unknown" });
   });
 
   test("list does not reconcile a candidate inside the client grace period", async () => {

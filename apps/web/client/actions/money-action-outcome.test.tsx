@@ -25,6 +25,7 @@ describe("result outcome mapping", () => {
     ["submitted", "failed", "failed"],
     ["ambiguous", "failed", "failed"],
     ["submitted", "unknown", "unknown"],
+    ["ambiguous", "unknown", "unknown"],
     ["submitted", "pending", "pending"],
     ["ambiguous", "pending", "unknown"],
     ["submitted", undefined, "pending"],

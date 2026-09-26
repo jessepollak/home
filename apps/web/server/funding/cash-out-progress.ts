@@ -141,7 +141,7 @@ export async function refreshCashoutProgress(input: {
       }
       if (!record.settled_at) {
         let verifiedOrder: OfframpOrder | undefined;
-        let unproven = receipt === "failed" || receipt === "unavailable";
+        let unproven = receipt === "failed" || receipt === "unavailable" || receipt === "unattributed";
         if (!record.deposit_id && receipt === "confirmed" && row.transaction_hash && providerReads < 2 && withinBudget()) {
           await claim();
           let depositId: string | null = null;

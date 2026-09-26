@@ -454,6 +454,7 @@ export async function presentAction(
     summary: row.summary,
     status: deriveActionStatus({
       confirmedAt,
+      submittedAt: iso(row.handle_recorded_at),
       transactionHash: row.transaction_hash,
       receipt,
       outcome: row.outcome,
@@ -569,7 +570,7 @@ async function settleRow(
     const outcome = attributeReceipt(row, owner, receipt);
     if (!outcome) {
       emitOutcomeEvent(route, row, owner, "OUTCOME_UNATTRIBUTED", "conflict", startedAt);
-      return { row, receipt: "unavailable" };
+      return { row, receipt: "unattributed" };
     }
     if (!receipt.finalized) return { row, receipt: outcome === "succeeded" ? "confirmed" : "failed" };
     const updated = await recordRowOutcome(store, row, owner, outcome, "chain", new Date(receipt.blockTimestamp), route, startedAt);

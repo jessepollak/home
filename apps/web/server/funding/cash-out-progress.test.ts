@@ -697,10 +697,10 @@ describe("durable cash-out progress refresh", () => {
     expect(result[0]).toMatchObject({ deposit_id: null, state: "submitted", settled_at: null });
   });
 
-  test("an unavailable receipt recovers the matching provider order without settling", async () => {
+  test.each(["unavailable", "unattributed"] as const)("an %s receipt recovers the matching provider order without settling", async (receipt) => {
     const run = (orders: OfframpOrder[]) => {
       const { store } = fixture(false);
-      return refreshCashoutProgress({ owner, rows: [{ row: depositRow(), receipt: "unavailable" }], store, signal, now: outsideWindow,
+      return refreshCashoutProgress({ owner, rows: [{ row: depositRow(), receipt }], store, signal, now: outsideWindow,
         readTransactionReceipt: async () => { throw new Error("Must not read an unavailable receipt."); },
         providerForId: () => ({ ...peerProvider, offramp: { ...peerProvider.offramp!, listOrders: async () => orders,
           readOrder: async () => fakeOrder("awaiting-buyer", "0", "0", "2000000") } }), env: { PEER_OFFRAMP_ENABLED: "0" },
