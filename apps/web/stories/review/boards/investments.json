@@ -1,0 +1,205 @@
+{
+  "id": "investments",
+  "title": "Investments L2 — proposal",
+  "summary": "Unreviewed holdings and owned-asset detail proposal for #1038; production adoption #1040.",
+  "refs": {
+    "issue": 1038
+  },
+  "sections": [
+    {
+      "id": "cash-and-investments",
+      "title": "Cash and Investments",
+      "note": "Same balances snapshot on Cash and Investments.",
+      "frames": [
+        {
+          "id": "shared-portfolio",
+          "story": "explorations-cash-l2--shared-portfolio",
+          "label": "Cash · shared portfolio",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Cash on the same combined balances snapshot."
+        },
+        {
+          "id": "matching-cash",
+          "story": "explorations-investments-l2--matching-cash",
+          "label": "Investments · shared portfolio",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Investments total on the shared portfolio."
+        }
+      ]
+    },
+    {
+      "id": "holdings",
+      "title": "Holdings states",
+      "note": "Owned assets, empty and recovery states.",
+      "frames": [
+        {
+          "id": "funded",
+          "story": "explorations-investments-l2--funded",
+          "label": "Funded",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "All owned assets, including tiny and collateral."
+        },
+        {
+          "id": "single",
+          "story": "explorations-investments-l2--single",
+          "label": "Single",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "One investment."
+        },
+        {
+          "id": "empty",
+          "story": "explorations-investments-l2--empty",
+          "label": "Empty",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Zero holdings and primary exploration action."
+        },
+        {
+          "id": "loading",
+          "story": "explorations-investments-l2--loading",
+          "label": "Loading",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Skeleton and reserved action."
+        },
+        {
+          "id": "partial-inventory",
+          "story": "explorations-investments-l2--partial-inventory",
+          "label": "Partial Inventory",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Unavailable balance remains visible."
+        },
+        {
+          "id": "unpriced",
+          "story": "explorations-investments-l2--unpriced",
+          "label": "Unpriced",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Unpriced wallet token remains visible."
+        },
+        {
+          "id": "metadata-fallback",
+          "story": "explorations-investments-l2--metadata-fallback",
+          "label": "Metadata Fallback",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Symbol fallback without name or image."
+        },
+        {
+          "id": "refresh-failed",
+          "story": "explorations-investments-l2--refresh-failed",
+          "label": "Refresh Failed",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Cached holdings with retry."
+        },
+        {
+          "id": "balances-failed",
+          "story": "explorations-investments-l2--balances-failed",
+          "label": "Balances Failed",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "No snapshot; recovery only."
+        },
+        {
+          "id": "collateral",
+          "story": "explorations-investments-l2--collateral",
+          "label": "Collateral",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Merged and collateral-only holdings."
+        }
+      ]
+    },
+    {
+      "id": "stress",
+      "title": "Stress",
+      "note": "Mobile containment and desktop composition.",
+      "frames": [
+        {
+          "id": "narrow",
+          "story": "explorations-investments-l2--narrow",
+          "label": "Narrow",
+          "viewport": "narrow",
+          "change": "new",
+          "note": "Long names and large values at 320 px."
+        },
+        {
+          "id": "funded-desktop",
+          "story": "explorations-investments-l2--funded-desktop",
+          "label": "Desktop",
+          "viewport": "desktop",
+          "change": "new",
+          "note": "Full holdings list at desktop width."
+        }
+      ]
+    },
+    {
+      "id": "detail",
+      "title": "Owned asset detail",
+      "note": "Owned catalog and non-catalog assets.",
+      "frames": [
+        {
+          "id": "detail",
+          "story": "explorations-investments-l2--detail",
+          "label": "Detail",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Catalog asset price, chart and balance."
+        },
+        {
+          "id": "detail-collateral",
+          "story": "explorations-investments-l2--detail-collateral",
+          "label": "Detail Collateral",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Available wallet versus collateral."
+        },
+        {
+          "id": "detail-stock",
+          "story": "explorations-investments-l2--detail-stock",
+          "label": "Detail Stock",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Stock trade eligibility unchanged."
+        },
+        {
+          "id": "detail-not-listed",
+          "story": "explorations-investments-l2--detail-not-listed",
+          "label": "Detail Not Listed",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Unlisted ownership without trade actions."
+        }
+      ]
+    },
+    {
+      "id": "journey",
+      "title": "Journey",
+      "note": "Home, holdings, detail and focus return.",
+      "frames": [
+        {
+          "id": "home-to-explore",
+          "story": "journeys-investments-holdings--home-to-explore",
+          "label": "Mobile",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Home to holdings to detail and back, then explore."
+        },
+        {
+          "id": "home-to-explore-desktop",
+          "story": "journeys-investments-holdings--home-to-explore-desktop",
+          "label": "Desktop",
+          "viewport": "desktop",
+          "change": "new",
+          "note": "The same focus-return journey at desktop width."
+        }
+      ]
+    }
+  ]
+}

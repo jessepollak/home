@@ -5,9 +5,11 @@ import { ReviewBoardView } from "./explorations/board/board";
 import { parseBoard } from "./explorations/board/manifest";
 import { readReviewBuild, type ReviewBuild } from "./explorations/board/review-build";
 import savingsJson from "./boards/savings.json";
+import investmentsJson from "./boards/investments.json";
 
 const build = readReviewBuild(import.meta.env);
 const savings = parseBoard(savingsJson);
+const investments = parseBoard(investmentsJson);
 const fixture = parseBoard({
   id: "chrome-fixture", title: "Board chrome test", summary: "Empty document controls", sections: [
     { id: "first", title: "First section", frames: [
@@ -25,6 +27,7 @@ type Story = StoryObj<typeof meta>;
 
 export const Changes: Story = { tags: ["!test", "review-board"], args: { board: "changes", build } };
 export const Savings: Story = { tags: ["!test", "review-board"], args: { board: savings, build } };
+export const Investments: Story = { tags: ["!test", "review-board"], args: { board: investments, build } };
 export const CommentsFollowCanvas: Story = {
   args: { board: fixture, build: fixtureBuild, frameSource: "blank" },
   render: (args) => <div style={{ height: "100dvh", width: 1400 }}><ReviewBoardView {...args} /></div>,
