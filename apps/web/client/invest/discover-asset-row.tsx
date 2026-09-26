@@ -25,11 +25,13 @@ export function DiscoverAssetRow({
   asset,
   market,
   assetMarkResolution = {},
+  discriminator,
   onOpen,
 }: {
   asset: InvestAsset;
   market: MarketDataState;
   assetMarkResolution?: AssetMarkResolution;
+  discriminator?: string;
   onOpen: () => void;
 }) {
   const price = useMarketDisplay(asset.id, market);
@@ -50,10 +52,17 @@ export function DiscoverAssetRow({
           <AssetIcon mark={mark} />
         </ItemMedia>
         <ItemContent className="min-w-0">
-          <ItemTitle>{asset.displayName}</ItemTitle>
-          <ItemDescription>{asset.displaySymbol}</ItemDescription>
+          <span className="block min-w-0 max-w-full truncate">
+            <ItemTitle>{asset.displayName}</ItemTitle>
+          </span>
+          <span className="block min-w-0 max-w-full truncate">
+            <ItemDescription>
+              {asset.displaySymbol}
+              {discriminator ? <span className="ms-1 text-xs">· {discriminator}</span> : null}
+            </ItemDescription>
+          </span>
         </ItemContent>
-        <ItemContent className="items-end text-right">
+        <ItemContent className="min-w-0 shrink-0 items-end text-right">
           {isMarketLoading ? (
             <>
               <Skeleton className="h-5 w-16" data-shimmer="price" />
@@ -83,7 +92,7 @@ export function DiscoverAssetRow({
           <ChevronRight className="size-4" />
         </ItemActions>
         <span id={`${asset.id}-action-hint`} hidden>
-          View {asset.displayName} details
+          View {asset.displayName} details{discriminator ? `, ${discriminator}` : ""}
         </span>
       </Item>
     </li>
