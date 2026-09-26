@@ -96,7 +96,7 @@ function FinanceRow({
         <ItemContent className={cn("min-w-0 gap-0.5 @max-[14rem]/finance-row:w-full @max-[14rem]/finance-row:self-stretch", contextLines === 2 && "min-w-min", (context === undefined || value === undefined || valueContext === undefined) && "self-center")}>
           <ItemTitle className="w-full" truncate="stacked">{label}</ItemTitle>
           {context === undefined ? null : (
-            <ItemDescription lines={contextLines} title={contextTitle}>
+            <ItemDescription lines={contextLines} className={contextLines === 2 ? "whitespace-normal" : undefined} title={contextTitle}>
               {context}
             </ItemDescription>
           )}
