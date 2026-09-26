@@ -154,11 +154,51 @@ describe("Borrow overview and management", () => {
     expect(body.queryByRole("img", { name: "$101.50" })).toBeNull();
   });
 
-  test("zero debt shows the region's display currency and No open loans", async () => {
-    render(<BorrowExperience session={session()} regionId="GB" fetchAccountResource={accountFetch(noPosition())} />);
+  test("pledged collateral without debt shows the region's zero summary instead of the intro", async () => {
+    const collateralOnly = noPosition({ position: { ...noPosition().position, collateralRaw: "50000000" } });
+    render(<BorrowExperience session={session()} regionId="GB" fetchAccountResource={accountFetch(collateralOnly)} />);
     const body = within(document.body);
     expect(await body.findByRole("img", { name: "£0.00" })).toBeTruthy();
     expect(body.getByText("No open loans")).toBeTruthy();
+    expect(body.queryByRole("heading", { name: "Borrow against your crypto" })).toBeNull();
+  });
+
+  test("the first-loan intro hides the zero summary and picks a held asset in a sheet", async () => {
+    render(<BorrowExperience session={session()} regionId="GB" fetchAccountResource={accountFetch(noPosition())} />);
+    const body = within(document.body);
+    expect(await body.findByRole("heading", { name: "Borrow against your crypto" })).toBeTruthy();
+    expect(body.queryByRole("img", { name: "£0.00" })).toBeNull();
+    expect(body.queryByText("Borrowed")).toBeNull();
+    expect(body.queryByText("No open loans")).toBeNull();
+    expect(body.queryByRole("region", { name: "Assets you can borrow against" })).toBeNull();
+    const cta = body.getByRole("button", { name: "Choose an asset" });
+    fireEvent.click(cta);
+    const picker = within(await body.findByRole("dialog", { name: "Choose an asset" }));
+    fireEvent.click(picker.getByRole("button", { description: "Borrow against Bitcoin" }));
+    const management = within(await body.findByRole("dialog", { name: "Bitcoin" }));
+    await waitFor(() => expect(body.queryByRole("dialog", { name: "Choose an asset" })).toBeNull());
+    fireEvent.click(management.getByRole("button", { name: "Close Bitcoin details" }));
+    await waitFor(() => expect(document.activeElement).toBe(cta));
+  });
+
+  test("the intro lists supported assets when none are held, but leaves an existing position alone", async () => {
+    const { BorrowOverview } = await import("./borrow-overview");
+    const emptyWallet = noPosition({ wallet: { ...noPosition().wallet, collateralBalanceRaw: "0" } });
+    render(<BorrowOverview session={session()} overview={overview({ position: false, snapshots: [emptyWallet] })} />);
+    const body = within(document.body);
+    const cta = body.getByRole("button", { name: "See supported assets" });
+    fireEvent.click(cta);
+    const picker = within(await body.findByRole("dialog", { name: "Supported assets" }));
+    expect(picker.getByText("Add a supported asset to your wallet to borrow USDC.")).toBeTruthy();
+    expect(picker.getByText("Bitcoin")).toBeTruthy();
+    expect(picker.queryByRole("button", { description: "Borrow against Bitcoin" })).toBeNull();
+    fireEvent.click(picker.getByRole("button", { name: "Close asset list" }));
+    await waitFor(() => expect(document.activeElement).toBe(cta));
+    cleanup();
+    render(<BorrowOverview session={session()} overview={overview()} />);
+    expect(body.getByRole("button", { description: "Manage Bitcoin loan" })).toBeTruthy();
+    expect(body.getByRole("region", { name: "Assets you can borrow against" })).toBeTruthy();
+    expect(body.queryByRole("heading", { name: "Borrow against your crypto" })).toBeNull();
   });
 
   test("partial data never uses priced valuation and Retry refetches", async () => {
