@@ -34,7 +34,7 @@ Factory coordination never displaces the delegating session's authority or Jesse
 Jesse files issues on `jessepollak/home`. The issue title tells the factory what kind of work it is, and a prefix is required for pickup:
 
 - `product(...)` requests research and a recommendation posted as an issue comment rather than a code pull request;
-- `design(...)` requests design work and reviewable design evidence;
+- `design(...)` requests design work and reviewable evidence on the [Storybook review board](design-system.md#review-boards);
 - `feat(...)`, `fix(...)`, `test(...)`, `ops(...)`, `dx(...)`, `docs(...)`, or `chore(...)` requests implementation and a pull request.
 
 Issues without one of these prefixes (for example workstream parents titled `MVP: ...`) are never factory leaves. If one is labelled by mistake, the factory comments that a prefix is required and removes the label.
@@ -51,7 +51,7 @@ Give each follow-up exactly one disposition: **Implemented** (landed PR and evid
 
 The design document links one logical coverage table—follow-up, disposition, delivery link, state—stored as one file per numbered follow-up (including its subparts) in its follow-up directory. The PR body links that directory. Do not leave orphan prose TODOs; each design/code difference a follow-up leaves open gets its own row. Count implemented, covered, filed, deferred, and rejected items so the totals equal the directory's rows. Report actual states (open, `factory:working`, `factory:review`, merged) read at edit time. A label is not running or landed code; a link establishes ownership, not shipped code. The independent reviewer checks coverage and design/code parity. Claim production adoption only from landed code, not a Figma publish, a design PR merge, removal of archived design nodes, or an issue closed for consolidation.
 
-Adoption PRs update the gap matrix and Code Connect parity (`apps/web/figma/components/<Name>.json`) and close only their delivered scope. One writer coordinates each shared component. Reuse existing issues and prefer few coherent vertical slices. Use the existing issue and PR workflow; add no board, manifest, scheduler, approval step, or reporting system. See [library pass coverage](design-explorations/design-system.md#follow-up-code-issues).
+Adoption PRs update the gap matrix and Code Connect parity (`apps/web/figma/components/<Name>.json`) where mapped Figma components are affected, and close only their delivered scope. One writer coordinates each shared component. Reuse existing issues and prefer few coherent vertical slices. Use the existing issue and PR workflow; the Storybook review board is not a parallel tracking board or approval system. See [library pass coverage](design-explorations/design-system.md#follow-up-code-issues).
 
 ## Factory runs
 
@@ -115,13 +115,13 @@ The bot-dedicated Home account is configured by `HOME_VERIFY_ACCOUNT_EMAIL`, not
 
 Lead the PR body with `## Review` (at most 150 words): 1–3 **Changes for the user** bullets, **Your call** for choices made without Jesse, issue deviations, or risky logic (otherwise "none"), and one **Not verified / risk** line (otherwise "none"). Do not narrate implementation visible in the diff or enumerate tests; give counts and commands. Put durable rationale in commits, docs, or the issue. Rewrite the body for the current head on every push; never append history such as rebases, earlier-head runs, or thread IDs.
 
-Keep `## Preview` visible with the current Vercel preview link and every retained screenshot or clip directly in the PR description. There is no screenshot cap. Use a compact Markdown table with state and CSS-pixel viewport labels; pair Before/After at matching state, data, and viewport when useful:
+Keep `## Preview` visible. For design work lead with the direct [Storybook board](design-system.md#review-boards) link on the PR's Storybook preview; keep the current Home Vercel preview link and every retained screenshot or clip directly in the PR description. There is no screenshot cap. Use a compact Markdown table with state and CSS-pixel viewport labels; pair Before/After at matching state, data, and viewport when useful:
 
 | State + viewport | Evidence |
 |---|---|
 | Save review — 390×844 CSS px | GitHub screenshot attachment |
 
-Only labels and media belong in Preview. Put `## Verification` (table and `Verified:` / `Not verified:` lines), `## Test plan` (including optional `Playwright-rung:` / `Test-weight:` lines), `## Real money`, and `## Operator action required` inside `<details><summary>Evidence</summary>` with a blank line after the summary; close `</details>`. There summarize browser mode, route, viewport, exercised path including recovery/Back, final state, browser console/errors, exact fixture-server cleanup, observed facts, limitations, and review findings. End with exactly one `Closes #<issue>` or `Refs #<issue>` line. Refresh affected media after implementation changes. Docs-only, CI-only, and pure server PRs put `N/A: docs-only / CI-only / pure server` in Preview. [UI PR previews](ui-pr-previews.md) is the detailed workflow.
+Only preview links, labels, and media belong in Preview. Put `## Verification` (table and `Verified:` / `Not verified:` lines), `## Test plan` (including optional `Playwright-rung:` / `Test-weight:` lines), `## Real money`, and `## Operator action required` inside `<details><summary>Evidence</summary>` with a blank line after the summary; close `</details>`. There summarize browser mode, route, viewport, exercised path including recovery/Back, final state, browser console/errors, exact fixture-server cleanup, observed facts, limitations, and review findings. End with exactly one `Closes #<issue>` or `Refs #<issue>` line. Refresh affected media after implementation changes. Docs-only, CI-only, and pure server PRs put `N/A: docs-only / CI-only / pure server` in Preview. [UI PR previews](ui-pr-previews.md) is the detailed workflow.
 
 PR hygiene, enforced by the dead-code gate:
 
