@@ -25,7 +25,7 @@ export function Outline({ board, sections, selected, inPr, onSelect, onFitSectio
     title={frameLabel(position)}
   >
     <span className={styles.rowLabel}>{frameLabel(position)}</span>
-    {position.frame.change !== "unchanged" && <ChangeTag change={position.frame.change} />}
+    <ChangeTag change={position.frame.change} />
     <span className={styles.muted}>{position.rect.width}</span>
   </button>;
   const changedTitle = inPr ? "Changed in this PR" : "Changed";
