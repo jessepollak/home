@@ -5,7 +5,8 @@
   "componentDirectory": "figma/components",
   "frames": [
     { "figmaName": "Home — final", "nodeId": "92:922", "source": "client/home/home-overview.tsx", "component": "HomeOverview", "stories": ["client/home/home-overview.stories.tsx"] },
-    { "figmaName": "Regional & desktop proposal (#638, unreviewed)", "nodeId": "311:12034", "source": "client/home/explorations/regional-home.tsx", "component": "RegionalHomeProposal", "stories": ["client/home/explorations/regional-home.stories.tsx", "client/home/explorations/regional-money-sheets.stories.tsx", "client/account/explorations/regional-preferences.stories.tsx"] }
+    { "figmaName": "Regional & desktop proposal (#638, unreviewed)", "nodeId": "311:12034", "source": "client/home/explorations/regional-home.tsx", "component": "RegionalHomeProposal", "stories": ["client/home/explorations/regional-home.stories.tsx", "client/home/explorations/regional-money-sheets.stories.tsx", "client/account/explorations/regional-preferences.stories.tsx"] },
+    { "figmaName": "Invest asset detail proposal (#938, unreviewed)", "nodeId": "422:4404", "source": "client/invest/explorations/asset-detail-options.tsx", "component": "OptionA", "stories": ["stories/explorations/invest-asset-detail.stories.tsx"] }
   ],
   "notMapped": [
     { "figmaName": "InputOTPSlot", "nodeId": "211:3547", "reason": "Sub-part of mapped InputOTP; rendered by the owned InputOTPSlot." },

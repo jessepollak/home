@@ -40,6 +40,12 @@ Proposed in [#694](https://github.com/jessepollak/home/issues/694). **Not accept
   - reconciling the fine-pointer size reductions in `ShellHeader` and the header status with the 44px desktop targets
 - **References:** Figma section [`322:11819`](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=322-11819) on the Shell / desktop page (`333:13092`), and Storybook `journeys-desktop-shell`.
 
+## Invest asset detail direction (#938)
+
+- **Jesse's decision (2026-09-26, Figma comment on Option A, `427:5012`):** “Full bleed seems right.” Option A, the full-bleed chart whose header follows the scrub, is the direction. Options B (carded chart) and C (panel chart with a desktop rail) are not carried forward.
+- **Jesse's refinement requests on the same review:** use the standard finance row for the balance; pin Buy/Sell to the viewport bottom, hide it while scrolling down and bring it back when scrolling stops; make the details more useful; keep the data vendor off the page except for a footnote; drop elements that don't help; lighten the scrub line; make pre-data, first data and range changes smooth; and use a chart library rather than a custom build.
+- **Unreviewed:** the round-5 refinement answering those requests (Figma section `422:4404`, Storybook `explorations-invest-asset-detail--*`) is a proposal, not an approved revision. The proposed market-stats tiles, and the choice of chart library, remain open decisions.
+
 ## Motion
 
 - Motion is short and optical, and must earn its place: purpose (feedback, spatial continuity, state indication, preventing a jarring change), frequency, and content sensitivity decide. Tab ≤180ms, chip ≤120ms, CTA press 100–160ms; other motion stays comparably short. Frequently read financial surfaces stay still — functional balances, amounts, and positions do not move merely for decoration.
