@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
+
 import {
   parseSurfaceOwnership,
+  readSurfaceOwnership,
   parseVerificationRows,
   pathMatchesGlob,
   requiredRung,
@@ -42,13 +47,26 @@ test("parses owned paths and verification rows", () => {
   assert.equal(pathMatchesGlob("apps/web/client/home/page.tsx", "apps/web/client/landing/**"), false);
 });
 
+test("reads surface ownership from individual files and rejects mismatched names", () => {
+  const directory = mkdtempSync(join(tmpdir(), "home-surface-"));
+  try {
+    writeFileSync(join(directory, "send.md"), featureMap.split("\n\n")[1]);
+    writeFileSync(join(directory, "landing.md"), featureMap.split("\n\n")[0]);
+    assert.deepEqual(readSurfaceOwnership(directory), surfaces);
+    writeFileSync(join(directory, "wrong.md"), "### `landing`\n- **Owned paths**: `apps/web/app/page.tsx`\n");
+    assert.throws(() => readSurfaceOwnership(directory), /Invalid feature-map surface: wrong.md/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("requires Rung 1 for read-only, Rung 2 for a money client, and Rung 3 for money infrastructure", () => {
   assert.equal(requiredRung(surfaces[0], "apps/web/client/landing/page.tsx"), 1);
   assert.equal(requiredRung(surfaces[1], "apps/web/client/transfers/recipient.tsx"), 2);
   assert.equal(requiredRung(surfaces[1], "apps/web/server/actions/confirm.ts"), 3);
 });
 
-const realMap = parseSurfaceOwnership(readFileSync(new URL("../../../.agents/skills/browser-iteration/feature-map.md", import.meta.url), "utf8"));
+const realMap = readSurfaceOwnership(fileURLToPath(new URL("../../../.agents/skills/browser-iteration/surfaces/", import.meta.url)));
 const realSurface = (id) => realMap.find((surface) => surface.id === id);
 
 test("maps the money engine directories to their surfaces", () => {

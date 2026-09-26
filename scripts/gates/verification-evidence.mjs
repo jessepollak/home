@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -16,6 +16,16 @@ export function parseSurfaceOwnership(markdown) {
     surfaces.push({ id, live, ownedPaths });
   }
   return surfaces;
+}
+
+export function readSurfaceOwnership(directory) {
+  return readdirSync(directory).filter((name) => name.endsWith(".md")).sort().flatMap((name) => {
+    const surfaces = parseSurfaceOwnership(readFileSync(`${directory}/${name}`, "utf8"));
+    if (surfaces.length !== 1 || name !== `${surfaces[0].id}.md`) {
+      throw new Error(`Invalid feature-map surface: ${name}`);
+    }
+    return surfaces;
+  });
 }
 
 function globPattern(glob) {
@@ -104,10 +114,10 @@ function changedFiles(base) {
 
 function main() {
   const root = fileURLToPath(new URL("../..", import.meta.url));
-  const featureMap = readFileSync(`${root}/.agents/skills/browser-iteration/feature-map.md`, "utf8");
+  const surfaces = readSurfaceOwnership(`${root}/.agents/skills/browser-iteration/surfaces`);
   const base = process.env.BASE_REF || "main";
   const body = process.env.PR_BODY || "";
-  const findings = verificationEvidenceFindings(changedFiles(base), body, parseSurfaceOwnership(featureMap));
+  const findings = verificationEvidenceFindings(changedFiles(base), body, surfaces);
   if (findings.length === 0) {
     console.log("Verification evidence gate passed.");
     return;
