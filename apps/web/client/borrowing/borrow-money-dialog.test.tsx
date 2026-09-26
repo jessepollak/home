@@ -1,6 +1,9 @@
 import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
+import { BORROW_MARKETS } from "@/shared/borrowing/config";
+import { formatExactPresentationTokenAmount } from "@/shared/formatting";
+import { recommendedOpeningCollateralBaseUnits } from "./borrowing-experience";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { HomeShellRoutingProvider, type HomeShellRouting } from "@/client/home/panel-routing";
@@ -30,7 +33,7 @@ const key = ownerQueryKey(dataOwnerKey(session), "actions");
 const row = { id: action.id, owner: action.owner, status: "pending" };
 
 function mount({ prepare = async () => action, execute = async () => ({ id: action.id, status: "submitted" as const }), fetch = async () => ({ actions: [] }), close = () => {}, openPanel = () => {}, marketSnapshot = snapshot, operation = "borrow" }: {
-  operation?: "borrow" | "withdraw-collateral";
+  operation?: "borrow" | "supply-and-borrow" | "withdraw-collateral";
   prepare?: AccountWalletClient["prepareMoneyAction"];
   marketSnapshot?: BorrowMarketSnapshot;
   execute?: (prepared: PreparedMoneyAction) => Promise<{ id: string; status: "submitted" | "failed" | "rejected" }>;
@@ -52,6 +55,98 @@ async function review(body: ReturnType<typeof within>) {
 
 afterEach(() => { cleanup(); getHomeQueryClient().clear(); });
 
+function describedByText(input: HTMLElement): string {
+  return (input.getAttribute("aria-describedby") ?? "").split(" ").filter(Boolean)
+    .map((id) => document.getElementById(id)?.textContent ?? "").join(" ");
+}
+
+describe("Supply and borrow amount and review", () => {
+  for (const market of [BORROW_MARKETS[0]!, BORROW_MARKETS[2]!]) {
+    test(`${market.collateralToken.symbol} shows collateral only from the prepared action on review and re-prepares after Back`, async () => {
+      const opportunity = borrowOverviewBody({ openMarketId: null }).opportunities.find((item) => item.market.id === market.marketId);
+      if (opportunity?.availability.status !== "available") throw new Error("Borrow fixture unavailable");
+      const marketSnapshot = opportunity.availability.snapshot;
+      const collateral = market.collateralToken;
+      const preparedAmounts = collateral.decimals === 8 ? ["1234567", "2345678"] : ["123456789012345678", "234567890123456789"];
+      const intents: unknown[] = [];
+      const body = mount({ operation: "supply-and-borrow", marketSnapshot, prepare: async (_kind, params) => {
+        intents.push(params);
+        const index = intents.length - 1;
+        return {
+          ...action,
+          amounts: [
+            { assetId: collateral.id, symbol: collateral.symbol, decimals: collateral.decimals, amountBaseUnits: preparedAmounts[index]!, direction: "spend" },
+            { assetId: market.loanToken.id, symbol: market.loanToken.symbol, decimals: market.loanToken.decimals, amountBaseUnits: `${index + 1}000000`, direction: "receive" },
+          ],
+          metadata: { ...action.metadata!, operation: "supply-and-borrow", marketId: market.marketId, collateralAsset: { id: collateral.id, symbol: collateral.symbol } },
+        } as PreparedMoneyAction;
+      } });
+      const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
+      const continueButton = dialog.getByRole("button", { name: "Continue" }) as HTMLButtonElement;
+      expect(dialog.queryByText(/collateral|will lock|Enter an amount to preview/i)).toBeNull();
+      expect(continueButton.disabled).toBe(true);
+      const input = dialog.getByRole("textbox", { name: "Amount" });
+      fireEvent.change(input, { target: { value: "1" } });
+      expect(dialog.queryByText(/collateral|will lock|Enter an amount to preview/i)).toBeNull();
+      expect(continueButton.disabled).toBe(false);
+      fireEvent.click(continueButton);
+      expect(await dialog.findByRole("button", { name: "Confirm action" })).toBeTruthy();
+      expect(intents).toHaveLength(1);
+      expect(intents[0]).toMatchObject({ operation: "supply-and-borrow", amountBaseUnits: "1000000" });
+      const recommended = recommendedOpeningCollateralBaseUnits(marketSnapshot, "1000000");
+      expect(recommended).not.toBeNull();
+      expect((intents[0] as { collateralAmountBaseUnits: string }).collateralAmountBaseUnits).toBe(recommended!);
+      expect(preparedAmounts[0]).not.toBe(recommended);
+      const lockedLabel = `Locked as collateral (${collateral.symbol})`;
+      expect(dialog.getByText(lockedLabel).nextElementSibling?.textContent).toBe(formatExactPresentationTokenAmount(preparedAmounts[0]!, collateral.decimals, collateral.symbol));
+      expect(dialog.getByText("You receive (USDC)").nextElementSibling?.textContent).toBe("1 USDC");
+      expect(dialog.getByText("Variable rate")).toBeTruthy();
+      fireEvent.click(dialog.getAllByRole("button", { name: "Back" })[0]!);
+      expect(dialog.queryByText(/collateral|will lock|Enter an amount to preview/i)).toBeNull();
+      fireEvent.change(dialog.getByRole("textbox", { name: "Amount" }), { target: { value: "2" } });
+      fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
+      expect(await dialog.findByRole("button", { name: "Confirm action" })).toBeTruthy();
+      expect(intents).toHaveLength(2);
+      expect(intents[1]).toMatchObject({ operation: "supply-and-borrow", amountBaseUnits: "2000000" });
+      expect(dialog.getByText(lockedLabel).nextElementSibling?.textContent).toBe(formatExactPresentationTokenAmount(preparedAmounts[1]!, collateral.decimals, collateral.symbol));
+      expect(dialog.getByText("You receive (USDC)").nextElementSibling?.textContent).toBe("2 USDC");
+    });
+
+    test(`${market.collateralToken.symbol} insufficient collateral blocks prepare and describes the invalid amount`, async () => {
+      const opportunity = borrowOverviewBody({ openMarketId: null }).opportunities.find((item) => item.market.id === market.marketId);
+      if (opportunity?.availability.status !== "available") throw new Error("Borrow fixture unavailable");
+      const marketSnapshot = { ...opportunity.availability.snapshot, wallet: { ...opportunity.availability.snapshot.wallet, collateralBalanceRaw: "1" } };
+      let prepares = 0;
+      const body = mount({ operation: "supply-and-borrow", marketSnapshot, prepare: async () => { prepares++; return action; } });
+      const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
+      const input = dialog.getByRole("textbox", { name: "Amount" });
+      fireEvent.change(input, { target: { value: "1" } });
+      expect(input.getAttribute("aria-invalid")).toBe("true");
+      const collateralError = dialog.getByText(`That amount needs more ${market.collateralToken.symbol} than is available in this wallet.`);
+      expect(input.getAttribute("aria-describedby")?.split(" ")).toContain(collateralError.id);
+      expect(describedByText(input)).toContain(collateralError.textContent!);
+      expect(dialog.queryByText(/Only .* available/)).toBeNull();
+      const continueButton = dialog.getByRole("button", { name: "Continue" }) as HTMLButtonElement;
+      expect(continueButton.disabled).toBe(true);
+      fireEvent.click(continueButton);
+      expect(prepares).toBe(0);
+    });
+  }
+
+  test("an amount above liquidity with enough collateral keeps the standard available ceiling", async () => {
+    const opportunity = borrowOverviewBody({ openMarketId: null }).opportunities.find((item) => item.market.id === BORROW_MARKETS[0]!.marketId);
+    if (opportunity?.availability.status !== "available") throw new Error("Borrow fixture unavailable");
+    const body = mount({ operation: "supply-and-borrow", marketSnapshot: opportunity.availability.snapshot });
+    const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
+    const input = dialog.getByRole("textbox", { name: "Amount" });
+    fireEvent.change(input, { target: { value: "600" } });
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(describedByText(input)).toContain("Only $500.00 available");
+    expect(dialog.queryByText(/needs more/)).toBeNull();
+    expect((dialog.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
 describe("Borrow action result", () => {
   test("amount step shows dollar availability without changing the atomic Max submitted for review", async () => {
     const raw = "123456780000";
@@ -65,6 +160,7 @@ describe("Borrow action result", () => {
     expect(await dialog.findByRole("button", { name: "Confirm action" })).toBeTruthy();
     expect(submitted).toMatchObject({ amountBaseUnits: raw });
     expect(dialog.getByText("You receive (USDC)")).toBeTruthy();
+    expect(dialog.queryByText(/Locked as collateral/)).toBeNull();
   });
   test("collateral availability stays in collateral units", async () => {
     const marketSnapshot = { ...snapshot, position: { ...snapshot.position, collateralRaw: "50000000", withdrawableCollateralRaw: "50000000" } };

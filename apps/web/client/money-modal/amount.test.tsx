@@ -24,6 +24,7 @@ function AmountHarness({
   maxDecimals = 6,
   initialAmount = "",
   overAvailable = false,
+  amountError,
   disabled = false,
   onSubmit,
   autoFocus = true,
@@ -41,6 +42,7 @@ function AmountHarness({
   maxDecimals?: number;
   initialAmount?: string;
   overAvailable?: boolean;
+  amountError?: string;
   disabled?: boolean;
   onSubmit?: () => void;
   autoFocus?: boolean;
@@ -53,6 +55,7 @@ function AmountHarness({
       onAmountChange={setAmount}
       maxDecimals={maxDecimals}
       overAvailable={overAvailable}
+      amountError={amountError}
       disabled={disabled}
       onSubmit={onSubmit}
       autoFocus={autoFocus}
@@ -216,6 +219,25 @@ describe("MoneyAmountDisplay", () => {
     expect(amountInput().getAttribute("aria-invalid")).toBe("true");
     expect(amountInput().getAttribute("aria-describedby")?.split(" ")).toContain(error.id);
     expect(accessibleDescription(amountInput())).toBe("Currency: US dollar Only $12.00 available");
+  });
+
+  test("amount error replaces the available description, including over the generic ceiling", () => {
+    const errorText = "That amount needs more cbBTC than is available in this wallet.";
+    const view = render(<AmountHarness amountError={errorText} availableLabel="$12.00 available" />);
+    const input = amountInput();
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    const error = page().getByText(errorText);
+    expect(error.getAttribute("aria-live")).toBe("polite");
+    expect(input.getAttribute("aria-describedby")?.split(" ")).toContain(error.id);
+    expect(accessibleDescription(input)).toBe(`Currency: US dollar ${errorText}`);
+    view.rerender(<AmountHarness amountError={errorText} availableLabel="$12.00 available" overAvailable />);
+    expect(page().queryByText("Only $12.00 available")).toBeNull();
+    expect(accessibleDescription(amountInput())).toBe(`Currency: US dollar ${errorText}`);
+    expect(amountInput().getAttribute("aria-invalid")).toBe("true");
+    cleanup();
+    render(<AmountHarness amountError={errorText} availableLabel="" />);
+    expect(amountInput().getAttribute("aria-describedby")?.split(" ")).toContain(page().getByText(errorText).id);
+    expect(accessibleDescription(amountInput())).toBe(`Currency: US dollar ${errorText}`);
   });
 
   test("reports a four-digit exact ceiling below the displayed balance with grouping", () => {
