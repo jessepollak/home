@@ -49,6 +49,7 @@ export function DesktopCanvas({
     const stopPageGesture = (event: Event) => event.preventDefault();
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
+      if (lastScale !== undefined && event.ctrlKey) return;
       const bounds = canvas.getBoundingClientRect();
       const pointer = { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
       moveCamera((old) => wheelCamera(old, event, pointer, canvas.clientHeight));

@@ -59,12 +59,13 @@ test("marks board frames changed or new from the build's changed and added files
       { id: "source", story: "foo--normal", label: "Normal", viewport: "mobile", change: "unchanged" },
       { id: "added", story: "other--narrow", label: "Narrow", viewport: "narrow", change: "unchanged" },
       { id: "manual", story: "review-boards--changes", label: "Manual", viewport: "desktop", change: "new" },
+      { id: "kept", story: "foo--normal", label: "Kept", viewport: "mobile", change: "new" },
       { id: "missing", story: "gone--normal", label: "Gone", viewport: "mobile", change: "unchanged" },
     ] },
   ] });
   const marked = markBuildChanges(board, { ...build, changedFiles: ["apps/web/client/foo.tsx", "apps/web/client/other.stories.tsx"], addedFiles: ["apps/web/client/other.stories.tsx"] }, entries);
   expect(marked.sections[0].frames.map((frame) => [frame.id, frame.change])).toEqual([
-    ["source", "changed"], ["added", "new"], ["manual", "new"], ["missing", "unchanged"],
+    ["source", "changed"], ["added", "new"], ["manual", "new"], ["kept", "new"], ["missing", "unchanged"],
   ]);
   expect(board.sections[0].frames[0].change).toBe("unchanged");
   expect(markBuildChanges(board, { ...build, changedFiles: null }, entries)).toBe(board);

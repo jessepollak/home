@@ -149,8 +149,9 @@ export function markBuildChanges(board: ReviewBoard, build: ReviewBuild, entries
       ...section,
       frames: section.frames.map((frame) => {
         const entry = entries[frame.story];
+        if (frame.change !== "unchanged") return frame;
         const derived = entry?.type === "story" && entry.importPath ? change(entry) : null;
-        return derived && derived !== frame.change ? { ...frame, change: derived } : frame;
+        return derived ? { ...frame, change: derived } : frame;
       }),
     })),
   };
