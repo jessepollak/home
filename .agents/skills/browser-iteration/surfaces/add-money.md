@@ -4,7 +4,7 @@
 - **Live**: up-to-review
 - **Owned paths**: `apps/web/client/funding/**`, `apps/web/app/api/funding/**`, `apps/web/server/funding/**`, `apps/web/shared/funding/**`
 - **Confirm labels**: "Confirm deposit"
-- **Reach** (smoke-verified IDRX path, funding.pw.ts): 1) seed country `ID` (`localStorage["home.country.v1"]="ID"`) + `installApiFixtures`. 2) `signIn(page)` helper. 3) click `Add money` (funding-actions.tsx). 4) method step button `/Deposit IDR/` must contain `IDRX · Bank transfer · Mandiri` (funding.pw.ts). 5) type `20000` into the `Amount` textbox. 6) `Review quote` → heading `Review quote`, row `Receive` contains `20.000,00 IDRX`. 7) `Confirm deposit` → heading `Review payment details`, row `Network` contains `Rp 100,00`. 8) `View payment instructions` → `123456789012` visible; then `Money received` (≤7s budget, funding.pw.ts).
+- **Reach** (smoke-verified IDRX path, funding.pw.ts): 1) seed country `ID` (`localStorage["home.country.v2"]="ID"`) + `installApiFixtures`. 2) `signIn(page)` helper. 3) click `Add money` (funding-actions.tsx). 4) method step button `/Deposit IDR/` must contain `IDRX · Bank transfer · Mandiri` (funding.pw.ts). 5) type `20000` into the `Amount` textbox. 6) `Review quote` → heading `Review quote`, row `Receive` contains `20.000,00 IDRX`. 7) `Confirm deposit` → heading `Review payment details`, row `Network` contains `Rp 100,00`. 8) `View payment instructions` → `123456789012` visible; then `Money received` (≤7s budget, funding.pw.ts).
 - **Reach (live)**:
   1. `goto "/home"`
   2. `click "Add money"`

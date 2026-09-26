@@ -104,7 +104,7 @@ type PositionState =
 
 const SavingsMoneySheet = deferSheet(() => import("@/client/savings/savings-actions").then((module) => module.SavingsMoneyDialog));
 
-export function AuthenticatedSavingsExperience() {
+export function AuthenticatedSavingsExperience({ regionReady = true }: { regionReady?: boolean } = {}) {
   const account = useAccountWallet();
   const region = usePresentationRegionId();
   const session = isServerVerified(account) ? account.session : null;
@@ -116,7 +116,7 @@ export function AuthenticatedSavingsExperience() {
         accountProvider: session.accountProvider,
       }
     : null;
-  const balances = useBalances(balancesSession, region, account.fetchBalances);
+  const balances = useBalances(balancesSession, region, account.fetchBalances, { held: !regionReady });
   const availableUsdcBaseUnits = balances.snapshot
     ? selectBalanceBaseUnits(balances.snapshot, "usdc")
     : null;

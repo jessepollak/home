@@ -292,7 +292,7 @@ const context = await browser.newContext({
   serviceWorkers: "block",
 });
 const page = await context.newPage();
-await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+await page.addInitScript(() => localStorage.setItem("home.country.v2", "US"));
 await installFixtures(context);
 
 try {

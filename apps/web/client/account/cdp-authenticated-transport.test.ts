@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { normalizeAccountResourcePath } from "./cdp-authenticated-transport";
 import {
   afterActionScopes,
   applyActionHandleEffects,
@@ -42,6 +43,15 @@ function queryClientFixture() {
     },
   };
 }
+
+describe("authenticated account resources", () => {
+  test("allows country preference writes without opening unrelated account endpoints", () => {
+    expect(normalizeAccountResourcePath("/api/account/country-preference"))
+      .toBe("/api/account/country-preference");
+    expect(() => normalizeAccountResourcePath("/api/account/private"))
+      .toThrow();
+  });
+});
 
 describe("authenticated action handle effects", () => {
   test("starts balance freshness when the provider handle is recorded", async () => {

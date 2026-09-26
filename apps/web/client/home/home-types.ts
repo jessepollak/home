@@ -34,4 +34,5 @@ export type HomeExperienceProps = {
   applyInboundUrlIntent?: boolean;
   initialSearch?: string;
   region: HomeRegionState;
+  regionReady?: boolean;
 };

@@ -87,6 +87,7 @@ export function SendDialog({
   executeMoneyAction,
   ownerBoundary,
   regionId = "US",
+  regionReady = true,
   immediate = false,
   resumeActionId = null,
   onReview,
@@ -105,6 +106,7 @@ export function SendDialog({
   executeMoneyAction: AccountWalletClient["executeMoneyAction"];
   ownerBoundary: string | null;
   regionId?: RegionId;
+  regionReady?: boolean;
   resumeActionId?: string | null;
   immediate?: boolean;
   onReview?: (actionId: string) => void;
@@ -181,8 +183,8 @@ export function SendDialog({
   const recentRecipients = ownerBoundary && recentRecipientState?.ownerBoundary === ownerBoundary
     ? recentRecipientState.recipients
     : [];
-  const providersLoaded = providersLoadedFor === resourceBoundary;
-  const ordersLoaded = ordersLoadedFor === resourceBoundary;
+  const providersLoaded = regionReady && providersLoadedFor === resourceBoundary;
+  const ordersLoaded = regionReady && ordersLoadedFor === resourceBoundary;
   const eligibleOfframps = (providersLoaded ? offramps ?? [] : []).filter((binding) => selectedAsset?.symbol === "USDC" && binding.assetId === "base:usdc");
   const visibleActiveOrders = ordersLoaded ? activeOrders : [];
   const recoveryAttempted = recoveryAttemptedFor === resourceBoundary;
@@ -233,7 +235,7 @@ export function SendDialog({
   }, [fetchAccountResource, open, ownerBoundary, recentRecipientState]);
 
   useEffect(() => {
-    if (!open || !ownerBoundary || !fetchAccountResource) return;
+    if (!open || !ownerBoundary || !fetchAccountResource || !regionReady) return;
     let cancelled = false;
     const requestedBoundary = resourceBoundary;
     void fetchAccountResource(`/api/funding/providers?region=${encodeURIComponent(regionId)}&direction=offramp`)
@@ -241,10 +243,10 @@ export function SendDialog({
       .catch(() => { if (!cancelled) setOfframps(null); })
       .finally(() => { if (!cancelled) setProvidersLoadedFor(requestedBoundary); });
     return () => { cancelled = true; };
-  }, [fetchAccountResource, open, ownerBoundary, regionId, resourceBoundary, providerRetry]);
+  }, [fetchAccountResource, open, ownerBoundary, regionId, regionReady, resourceBoundary, providerRetry]);
 
   useEffect(() => {
-    if (!open || !ownerBoundary || !fetchAccountResource) return;
+    if (!open || !ownerBoundary || !fetchAccountResource || !regionReady) return;
     let cancelled = false;
     const requestedBoundary = resourceBoundary;
     void fetchAccountResource(`/api/funding/offramp/orders?region=${encodeURIComponent(regionId)}&inFlight=1`)
@@ -262,10 +264,10 @@ export function SendDialog({
       })
       .finally(() => { if (!cancelled) setOrdersLoadedFor(requestedBoundary); });
     return () => { cancelled = true; };
-  }, [fetchAccountResource, open, ownerBoundary, regionId, resourceBoundary]);
+  }, [fetchAccountResource, open, ownerBoundary, regionId, regionReady, resourceBoundary]);
 
   useEffect(() => {
-    if (!open || !ownerBoundary || !resumeActionId || resumedActionRef.current === resumeActionId) return;
+    if (!open || !ownerBoundary || !regionReady || !resumeActionId || resumedActionRef.current === resumeActionId) return;
     resumedActionRef.current = resumeActionId;
     let cancelled = false;
     let settled = false;
@@ -315,7 +317,7 @@ export function SendDialog({
       cancelled = true;
       if (!settled && resumedActionRef.current === resumeActionId) resumedActionRef.current = null;
     };
-  }, [onInvalidResume, open, ownerBoundary, resumeActionId, resumeMoneyAction]);
+  }, [onInvalidResume, open, ownerBoundary, regionReady, resumeActionId, resumeMoneyAction]);
 
   function reset() {
     setAssetId(availableAssets?.[0]?.id ?? null); setRecipient(""); changeAmount("");
@@ -336,7 +338,7 @@ export function SendDialog({
   }
 
   async function recoverCashouts() {
-    if (!fetchAccountResource) return;
+    if (!regionReady || !fetchAccountResource) return;
     setRecoveryAttemptedFor(resourceBoundary);
     setOrdersLoadedFor(null);
     try {
@@ -374,6 +376,7 @@ export function SendDialog({
   }
 
   async function prepareCashout() {
+    if (!regionReady) return;
     try {
       if (!selectedAsset || !selectedOfframp || !selectedPlatform || !canonicalHandle || handleConfirmation !== canonicalHandle) throw new Error("invalid");
       const amountBaseUnits = parseTransferAmount(amount.replace(/\.$/, ""), selectedAsset.decimals);
@@ -400,6 +403,7 @@ export function SendDialog({
   }
 
   async function prepareWithdraw(order: CashoutOrderSummary) {
+    if (!regionReady) return;
     try {
       if (!order.nextActions.includes("withdraw")) throw new Error("invalid");
       setStep("preparing"); setError(null);

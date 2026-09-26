@@ -1,5 +1,6 @@
 import { balancesSnapshot } from "../fixtures/balances";
 import { preparedSendFixtureAction } from "../fixtures/api";
+import { COUNTRY_PREFERENCE_VERSION } from "../../../shared/account/contracts/country-preference";
 import {
   actionsBody, basenameProfileBody, fundingOfframpOrdersBody,
   fundingProvidersBody, borrowOverviewBody, sessionBody,
@@ -49,6 +50,7 @@ export function fixtureRoutes() {
   const prepared = preparedSendFixtureAction(recentRecipient);
   return [
     ["**/api/session", sessionBody],
+    ["**/api/account/country-preference", { version: COUNTRY_PREFERENCE_VERSION, regionId: null }],
     ["**/api/balances**", {
       ...balances,
       holdings: balances.holdings.map((holding) => ({ ...holding, imageUrl: undefined })),

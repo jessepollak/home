@@ -1,7 +1,8 @@
 import "@/client/account/dom-test-harness";
 
-import { getHomeQueryClient } from "@/client/query/query-client";
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
+import { dataOwnerKey } from "@/client/account/owner-keys";
+import { afterEach, describe, expect, jest, mock, test } from "bun:test";
 import { useState, type ComponentProps } from "react";
 import type { HomeRegionState } from "./use-home-region";
 import type { AccountWalletSdkBoundary } from "@/client/account/cdp-client";
@@ -101,6 +102,7 @@ const { BASE_CHAIN_ID } = await import("@/client/account/session-client");
 const { useNestedAppChrome } = await import("@/components/app-chrome");
 const { InvestExperience } = await import("@/client/invest/invest-experience");
 const { DashboardShell } = await import("./shell");
+const { PortfolioHomeExperience } = await import("./portfolio-home-experience");
 const { LandingShell } = await import("./landing-shell");
 const { useHomeRegion } = await import("./use-home-region");
 
@@ -170,19 +172,21 @@ function HomeHarness({
 
 type DashboardHarnessProps = Omit<ComponentProps<typeof DashboardShell>, "region"> & {
   detectedCountry?: string | null;
+  accountPreference?: "DE" | null;
   regionOverride?: Partial<HomeRegionState>;
   onRegionObserved?: (regionId: HomeRegionState["regionId"]) => void;
 };
 
 function DashboardHarness({
   detectedCountry = null,
+  accountPreference = null,
   regionOverride,
   onRegionObserved,
   assetBalances,
   investContent = <section aria-label="Invest module">Invest fixture</section>,
   ...props
 }: DashboardHarnessProps) {
-  const region = useHomeRegion({ detectedCountry });
+  const region = useHomeRegion({ detectedCountry, accountPreference, signedIn: accountPreference !== null });
   const resolvedRegion = { ...region, ...regionOverride };
   onRegionObserved?.(resolvedRegion.regionId);
   return (
@@ -313,6 +317,7 @@ function resetHistory() {
 }
 
 afterEach(() => {
+  jest.useRealTimers();
   restoreAnimationFrames?.();
   cleanup();
   getHomeQueryClient().clear();
@@ -897,7 +902,7 @@ describe("Home shell routing and intents", () => {
   });
 
   test("preserves Balances offset across background value and topology refreshes", async () => {
-    window.localStorage.setItem("home.country.v1", "US");
+    window.localStorage.setItem("home.country.v2", "US");
     const accountSdk = sdk({ isSignedIn: true, ownerKey: OWNER });
     const cashRow: BalanceRowModel = {
       key: "usdc",
@@ -1349,10 +1354,360 @@ function expectSheetOpen(dialog: HTMLElement) {
   expect(dialog.hasAttribute("data-open")).toBe(true);
 }
 
+describe("walletless country preference read", () => {
+  const location = { panel: "home" as const, account: null, shelf: null, asset: null, group: null, market: null };
+
+  for (const accountPreference of [null, { accountProvider: "cdp-embedded" as const, subject: "previous-account", regionId: "BR" as const }]) {
+    test(`holds provisional balances without a matching account country seed (${accountPreference ? "switched account" : "timed-out seed"})`, async () => {
+      const pendingSession = deferred<Response>();
+      const pendingPreference = deferred<Response>();
+      const cached = buildBalancesSnapshotFixture({
+        region: "BR",
+        registry: { usdc: { balance: ready("1000000"), value: priced("BRL", "123456"), cashValue: pricedCash("USD", "100") } },
+      });
+      const saved = buildBalancesSnapshotFixture({
+        region: "DE",
+        registry: { usdc: { balance: ready("1000000"), value: priced("EUR", "7890"), cashValue: pricedCash("USD", "100") } },
+      });
+      getHomeQueryClient().setQueryData(ownerQueryKey(dataOwnerKey(session()), "balances", "BR"), cached);
+      const requests: string[] = [];
+      const sessionFetch: SessionFetch = async (input) => {
+        const path = String(input);
+        requests.push(path);
+        if (path === "/api/session") return pendingSession.promise;
+        if (path === "/api/account/country-preference") return pendingPreference.promise;
+        if (path === "/api/balances?region=DE") return Response.json(saved);
+        throw new Error(`Unexpected read: ${path}`);
+      };
+      render(<AccountWalletSessionOwner sdk={sdk({ isSignedIn: true, ownerKey: OWNER, provisionalSession: session() })} sessionFetch={sessionFetch}>
+        <PortfolioHomeExperience detectedCountry="BR" accountPreference={accountPreference} initialLocation={location} />
+      </AccountWalletSessionOwner>);
+      expect(document.body.textContent).not.toContain("1.234,56");
+      expect(requests.filter((path) => path.startsWith("/api/balances?"))).toEqual([]);
+      await act(async () => { pendingSession.resolve(Response.json(session())); await pendingSession.promise; });
+      await waitFor(() => expect(requests).toContain("/api/account/country-preference"));
+      expect(document.body.textContent).not.toContain("1.234,56");
+      expect(requests.filter((path) => path.startsWith("/api/balances?"))).toEqual([]);
+      await act(async () => { pendingPreference.resolve(Response.json({ version: 1, regionId: "DE" })); await pendingPreference.promise; });
+      await waitFor(() => expect(requests).toContain("/api/balances?region=DE"));
+      await waitFor(() => expect(document.body.textContent).toContain("78,90"));
+      expect(document.body.textContent).not.toContain("1.234,56");
+    });
+  }
+
+  test("holds balances and funding methods until the account country read resolves", async () => {
+    window.localStorage.setItem("home.country.v2", "MX");
+    const read = deferred<Response>();
+    const requests: string[] = [];
+    const sessionFetch: SessionFetch = async (input) => {
+      const path = String(input);
+      if (path === "/api/session") return Response.json(session());
+      requests.push(path);
+      if (path === "/api/account/country-preference") return read.promise;
+      return Response.json({ error: { code: "UNAVAILABLE", message: "Unavailable." } }, { status: 503 });
+    };
+    render(<AccountWalletSessionOwner sdk={sdk({ isSignedIn: true, ownerKey: OWNER })} sessionFetch={sessionFetch}>
+      <PortfolioHomeExperience detectedCountry="BR" accountPreference={null} initialLocation={location} />
+    </AccountWalletSessionOwner>);
+    await waitFor(() => expect(requests).toContain("/api/account/country-preference"));
+    fireEvent.click(await waitForVerifiedShell());
+    const country = await page().findByRole("combobox", { name: "Country" });
+    expect(country.getAttribute("value")).not.toContain("Mexico");
+    fireEvent.click(page().getByRole("button", { name: "Done" }));
+    fireEvent.click(page().getByRole("button", { name: "Add money" }));
+    const dialog = await page().findByRole("dialog", { name: "Add money" });
+    expect(within(dialog).getByRole("button", { name: /Receive crypto/ })).toBeTruthy();
+    expect(within(dialog).queryByRole("button", { name: /Deposit/ })).toBeNull();
+    expect(within(dialog).queryByText(/No local deposit method/)).toBeNull();
+    expect(requests.filter((path) => path.startsWith("/api/balances?") || path.startsWith("/api/funding/"))).toEqual([]);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close add money" }));
+    fireEvent.click(page().getByRole("button", { name: "Send" }));
+    const send = await page().findByRole("dialog", { name: "Send" });
+    expect(within(send).getByRole("textbox", { name: "Amount" })).toBeTruthy();
+    expect(requests.filter((path) => path.startsWith("/api/funding/providers") || path.startsWith("/api/funding/offramp/orders"))).toEqual([]);
+    await act(async () => { read.resolve(Response.json({ version: 1, regionId: "DE" })); await read.promise; });
+    await waitFor(() => expect(requests.some((path) => path === "/api/balances?region=DE")).toBe(true));
+    await waitFor(() => expect(requests.some((path) => path.startsWith("/api/funding/providers?region=DE"))).toBe(true));
+    expect(requests.some((path) => path.startsWith("/api/balances?region=MX") || path.startsWith("/api/balances?region=BR") || path.startsWith("/api/funding/providers?region=MX") || path.startsWith("/api/funding/providers?region=BR"))).toBe(false);
+  });
+
+  test("never paints held detected-country balances while the saved-country fetch is pending", async () => {
+    const read = deferred<Response>();
+    const savedRead = deferred<Response>();
+    const cached = buildBalancesSnapshotFixture({
+      region: "BR",
+      registry: { usdc: { balance: ready("1000000"), value: priced("BRL", "123456"), cashValue: pricedCash("USD", "100") } },
+    });
+    const saved = buildBalancesSnapshotFixture({
+      region: "DE",
+      registry: { usdc: { balance: ready("1000000"), value: priced("EUR", "7890"), cashValue: pricedCash("USD", "100") } },
+    });
+    getHomeQueryClient().setQueryData(ownerQueryKey(dataOwnerKey(session()), "balances", "BR"), cached);
+    const requests: string[] = [];
+    const sessionFetch: SessionFetch = async (input) => {
+      const path = String(input);
+      if (path === "/api/session") return Response.json(session());
+      requests.push(path);
+      if (path === "/api/account/country-preference") return read.promise;
+      if (path === "/api/balances?region=DE") return savedRead.promise;
+      throw new Error(`Unexpected read: ${path}`);
+    };
+    render(<AccountWalletSessionOwner sdk={sdk({ isSignedIn: true, ownerKey: OWNER, provisionalSession: session() })} sessionFetch={sessionFetch}>
+      <PortfolioHomeExperience detectedCountry="BR" accountPreference={null} initialLocation={location} />
+    </AccountWalletSessionOwner>);
+    await waitFor(() => expect(requests).toContain("/api/account/country-preference"));
+    await waitForVerifiedShell();
+    expect(document.body.textContent).not.toContain("1.234,56");
+    expect(document.body.textContent).not.toContain("78,90");
+    expect(requests).not.toContain("/api/balances?region=BR");
+    await act(async () => { read.resolve(Response.json({ version: 1, regionId: "DE" })); await read.promise; });
+    await waitFor(() => expect(requests).toContain("/api/balances?region=DE"));
+    expect(document.body.textContent).not.toContain("1.234,56");
+    expect(document.body.textContent).not.toContain("78,90");
+    await act(async () => { savedRead.resolve(Response.json(saved)); await savedRead.promise; });
+    await waitFor(() => expect(document.body.textContent).toContain("78,90"));
+    expect(document.body.textContent).not.toContain("1.234,56");
+  });
+
+  for (const panel of ["home", "activity"] as const) {
+    test(`holds ${panel === "home" ? "the Home feed" : "/activity"} until the account country read resolves`, async () => {
+      const read = deferred<Response>();
+      const activityCurrencies: (string | null)[] = [];
+      const sessionFetch: SessionFetch = async (input) => {
+        const path = String(input);
+        if (path === "/api/session") return Response.json(session());
+        if (path === "/api/account/country-preference") return read.promise;
+        if (path.startsWith("/api/activity?")) {
+          const query = new URLSearchParams(path.split("?")[1]);
+          activityCurrencies.push(query.get("currency"));
+          const to = query.get("to")!;
+          return Response.json({
+            version: 1,
+            walletAddress: ADDRESS,
+            chainId: 8453,
+            window: { from: new Date(new Date(to).getTime() - 31 * 24 * 60 * 60 * 1000).toISOString(), to },
+            currency: query.get("currency"),
+            transfers: [],
+            nextCursor: null,
+            source: { provider: "cdp-sql", cached: false, stale: false, executionTimestamp: to, executionTimeMs: 1, fetchedAt: to },
+          });
+        }
+        if (path === "/api/actions") return Response.json({ version: "1", actions: [] });
+        return Response.json({ error: { code: "UNAVAILABLE", message: "Unavailable." } }, { status: 503 });
+      };
+      render(<AccountWalletSessionOwner sdk={sdk({ isSignedIn: true, ownerKey: OWNER })} sessionFetch={sessionFetch}>
+        <PortfolioHomeExperience detectedCountry="BR" accountPreference={null} initialLocation={{ ...location, panel }} />
+      </AccountWalletSessionOwner>);
+      await waitForVerifiedShell();
+      expect(page().getAllByRole("region", { name: "Activity", busy: true }).length).toBeGreaterThan(0);
+      expect(page().queryByText("No activity yet")).toBeNull();
+      expect(activityCurrencies).toEqual([]);
+      await act(async () => { read.resolve(Response.json({ version: 1, regionId: "DE" })); await read.promise; });
+      await waitFor(() => expect(page().getAllByText("No activity yet").length).toBeGreaterThan(0));
+      expect(activityCurrencies).toEqual(["EUR"]);
+    });
+  }
+
+  test("retries an unreadable country response and applies the account value", async () => {
+    const first = deferred<Response>();
+    const requests: string[] = [];
+    const sessionFetch: SessionFetch = async (input) => {
+      const path = String(input);
+      if (path === "/api/session") return Response.json({ ...session(), smartAccount: null });
+      if (path === "/api/account/country-preference") {
+        requests.push(path);
+        return requests.length === 1 ? first.promise : Response.json({ version: 1, regionId: "DE" });
+      }
+      return Response.json({ error: { code: "UNAVAILABLE", message: "Unavailable." } }, { status: 503 });
+    };
+    render(<AccountWalletSessionOwner sdk={sdk({ isSignedIn: true, ownerKey: OWNER })} sessionFetch={sessionFetch}>
+      <PortfolioHomeExperience detectedCountry="BR" accountPreference={null} initialLocation={location} />
+    </AccountWalletSessionOwner>);
+    await waitFor(() => expect(requests).toHaveLength(1));
+    jest.useFakeTimers();
+    await act(async () => { first.resolve(Response.json({ version: 2, regionId: "BR" })); await first.promise; });
+    expect(requests).toHaveLength(1);
+    await act(async () => { jest.advanceTimersByTime(500); });
+    await waitFor(() => expect(requests).toHaveLength(2));
+    fireEvent.click(await waitForVerifiedShell());
+    expect((await page().findByRole("combobox", { name: "Country" })).getAttribute("value")).toContain("Germany");
+  });
+
+  test("settles to the browser only after all three read attempts fail", async () => {
+    window.localStorage.setItem("home.country.v2", "MX");
+    const first = deferred<Response>();
+    const requests: Array<{ path: string; method: string }> = [];
+    const sessionFetch: SessionFetch = async (input, init) => {
+      const path = String(input);
+      const method = init?.method ?? "GET";
+      if (path === "/api/session") return Response.json({ ...session(), smartAccount: null });
+      if (path === "/api/account/country-preference") {
+        requests.push({ path, method });
+        if (method === "PUT") return Response.json({ version: 1, regionId: "MX" });
+        return requests.length === 1 ? first.promise : Response.json({ version: 2, regionId: "MX" });
+      }
+      return Response.json({ error: { code: "UNAVAILABLE", message: "Unavailable." } }, { status: 503 });
+    };
+    render(<AccountWalletSessionOwner sdk={sdk({ isSignedIn: true, ownerKey: OWNER })} sessionFetch={sessionFetch}>
+      <PortfolioHomeExperience detectedCountry="BR" accountPreference={null} initialLocation={location} />
+    </AccountWalletSessionOwner>);
+    await waitFor(() => expect(requests).toHaveLength(1));
+    jest.useFakeTimers();
+    fireEvent.click(await waitForVerifiedShell());
+    const country = await page().findByRole("combobox", { name: "Country" });
+    await act(async () => { first.resolve(Response.json({ version: 2, regionId: "MX" })); await first.promise; });
+    expect(country.getAttribute("value")).not.toContain("Mexico");
+    await act(async () => { jest.advanceTimersByTime(500); });
+    expect(requests.filter((request) => request.method === "GET")).toHaveLength(2);
+    expect(country.getAttribute("value")).not.toContain("Mexico");
+    await act(async () => { jest.advanceTimersByTime(1500); });
+    expect(requests.filter((request) => request.method === "GET")).toHaveLength(3);
+    await waitFor(() => expect(country.getAttribute("value")).toContain("Mexico"));
+    await waitFor(() => expect(requests.filter((request) => request.method === "PUT")).toHaveLength(1));
+  });
+
+  test("a null server seed settles the read without a client GET", async () => {
+    const requests: string[] = [];
+    const sessionFetch: SessionFetch = async (input) => {
+      const path = String(input);
+      if (path === "/api/session") return Response.json({ ...session(), smartAccount: null });
+      requests.push(path);
+      return Response.json({ error: { code: "UNAVAILABLE", message: "Unavailable." } }, { status: 503 });
+    };
+    render(<AccountWalletSessionOwner sdk={sdk({ isSignedIn: true, ownerKey: OWNER })} sessionFetch={sessionFetch}>
+      <PortfolioHomeExperience detectedCountry="BR" accountPreference={{ accountProvider: "cdp-embedded", subject: "subject-home", regionId: null }} initialLocation={location} />
+    </AccountWalletSessionOwner>);
+    fireEvent.click(await waitForVerifiedShell());
+    expect((await page().findByRole("combobox", { name: "Country" })).getAttribute("value")).toContain("Brazil");
+    expect(requests).not.toContain("/api/account/country-preference");
+  });
+  test("waits for the account read before adopting v2 and resolves the saved country", async () => {
+    window.localStorage.setItem("home.country.v2", "MX");
+    const read = deferred<Response>();
+    const requests: Array<{ path: string; method: string }> = [];
+    const sessionFetch: SessionFetch = async (input, init) => {
+      const path = String(input);
+      const method = init?.method ?? "GET";
+      if (path === "/api/session") return Response.json({ ...session(), smartAccount: null });
+      if (path === "/api/account/country-preference") {
+        requests.push({ path, method });
+        if (method === "GET") return read.promise;
+      }
+      return Response.json({ error: { code: "UNAVAILABLE", message: "Unavailable." } }, { status: 503 });
+    };
+    render(<AccountWalletSessionOwner sdk={sdk({ isSignedIn: true, ownerKey: OWNER })} sessionFetch={sessionFetch}>
+      <PortfolioHomeExperience detectedCountry="BR" accountPreference={null}
+        initialLocation={{ panel: "home", account: null, shelf: null, asset: null, group: null, market: null }} />
+    </AccountWalletSessionOwner>);
+    await waitFor(() => expect(requests).toEqual([{ path: "/api/account/country-preference", method: "GET" }]));
+    fireEvent.click(await waitForVerifiedShell());
+    const country = await page().findByRole("combobox", { name: "Country" });
+    expect(country.getAttribute("value")).not.toContain("Mexico");
+    await act(async () => { read.resolve(Response.json({ version: 1, regionId: "DE" })); await read.promise; });
+    await waitFor(() => expect(country.getAttribute("value")).toContain("Germany"));
+    expect(requests).toEqual([{ path: "/api/account/country-preference", method: "GET" }]);
+  });
+
+  test("a server-rendered preference applies only to the account it was read for", async () => {
+    const requests: string[] = [];
+    const fetchFor = (subject: string, address: `0x${string}`): SessionFetch => async (input, init) => {
+      const path = String(input);
+      if (path === "/api/session") return Response.json(session(address, subject));
+      if (path === "/api/account/country-preference" && (init?.method ?? "GET") === "GET") {
+        requests.push(subject);
+        return Response.json({ version: 1, regionId: "GB" });
+      }
+      return Response.json({ error: { code: "UNAVAILABLE", message: "Unavailable." } }, { status: 503 });
+    };
+    const location = { panel: "home" as const, account: null, shelf: null, asset: null, group: null, market: null };
+    const seed = { accountProvider: "cdp-embedded" as const, subject: "subject-home", regionId: "DE" as const };
+    const view = render(<AccountWalletSessionOwner sdk={sdk({ isSignedIn: true, ownerKey: OWNER })} sessionFetch={fetchFor("subject-home", ADDRESS)}>
+      <PortfolioHomeExperience detectedCountry="BR" accountPreference={seed} initialLocation={location} />
+    </AccountWalletSessionOwner>);
+    fireEvent.click(await waitForVerifiedShell());
+    const country = await page().findByRole("combobox", { name: "Country" });
+    expect(country.getAttribute("value")).toContain("Germany");
+    expect(requests).toEqual([]);
+    view.rerender(<AccountWalletSessionOwner sdk={sdk({ isSignedIn: true, ownerKey: OWNER_B })} sessionFetch={fetchFor("subject-home-b", ADDRESS_B)}>
+      <PortfolioHomeExperience detectedCountry="BR" accountPreference={seed} initialLocation={location} />
+    </AccountWalletSessionOwner>);
+    await waitFor(() => expect(requests).toEqual(["subject-home-b"]));
+    await waitFor(async () => expect((await page().findByRole("combobox", { name: "Country" })).getAttribute("value")).toContain("United Kingdom"));
+  });
+
+  test("a server-rendered preference is not reused after its account signs out", async () => {
+    const requests: string[] = [];
+    const sessionFetch: SessionFetch = async (input, init) => {
+      const path = String(input);
+      if (path === "/api/session") return Response.json(session());
+      if (path === "/api/account/country-preference" && (init?.method ?? "GET") === "GET") {
+        requests.push(path);
+        return Response.json({ version: 1, regionId: "GB" });
+      }
+      return Response.json({ error: { code: "UNAVAILABLE", message: "Unavailable." } }, { status: 503 });
+    };
+    const location = { panel: "home" as const, account: null, shelf: null, asset: null, group: null, market: null };
+    const seed = { accountProvider: "cdp-embedded" as const, subject: "subject-home", regionId: "DE" as const };
+    const shell = (signedIn: boolean) => (
+      <AccountWalletSessionOwner sdk={sdk(signedIn ? { isSignedIn: true, ownerKey: OWNER } : {})} sessionFetch={sessionFetch}>
+        <PortfolioHomeExperience detectedCountry="BR" accountPreference={seed} initialLocation={location} />
+      </AccountWalletSessionOwner>
+    );
+    const view = render(shell(true));
+    await waitForVerifiedShell();
+    expect(requests).toEqual([]);
+    view.rerender(shell(false));
+    await waitFor(() => expect(page().queryByRole("button", { name: "Account" })).toBeNull());
+    view.rerender(shell(true));
+    await waitFor(() => expect(requests).toEqual(["/api/account/country-preference"]));
+  });
+
+  test("holds a walletless explicit choice until the account read settles", async () => {
+    const read = deferred<Response>();
+    const writes: unknown[] = [];
+    const sessionFetch: SessionFetch = async (input, init) => {
+      if (String(input) === "/api/session") return Response.json({ ...session(), smartAccount: null });
+      if (String(input) === "/api/account/country-preference") {
+        if (init?.method === "GET") return read.promise;
+        writes.push(JSON.parse(String(init?.body)));
+        return Response.json({ version: 1, regionId: "GB" });
+      }
+      return Response.json({ error: { code: "UNAVAILABLE", message: "Unavailable." } }, { status: 503 });
+    };
+    render(<AccountWalletSessionOwner sdk={sdk({ isSignedIn: true, ownerKey: OWNER })} sessionFetch={sessionFetch}>
+      <PortfolioHomeExperience detectedCountry="BR" accountPreference={null}
+        initialLocation={{ panel: "home", account: null, shelf: null, asset: null, group: null, market: null }} />
+    </AccountWalletSessionOwner>);
+    fireEvent.click(await waitForVerifiedShell());
+    const country = await page().findByRole("combobox", { name: "Country" });
+    fireEvent.click(country.parentElement!.querySelector("button")!);
+    fireEvent.click(await page().findByRole("option", { name: "United Kingdom" }));
+    expect(writes).toEqual([]);
+    await act(async () => { read.resolve(Response.json({ version: 1, regionId: "DE" })); await read.promise; });
+    await waitFor(() => expect(writes).toEqual([{ version: 1, regionId: "GB", adopt: false }]));
+    expect(country.getAttribute("value")).toContain("United Kingdom");
+  });
+});
+
 describe("Balances scope scroll interleavings (#485)", () => {
+  test("signed-in account preference never flips after first paint", async () => {
+    window.localStorage.setItem("home.country.v2", "MX");
+    const frames = controlAnimationFrames();
+    const observedRegions: HomeRegionState["regionId"][] = [];
+    const onRegionObserved = (regionId: HomeRegionState["regionId"]) => {
+      if (observedRegions.at(-1) !== regionId) observedRegions.push(regionId);
+    };
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+      detectedCountry="BR" accountPreference="DE" initialPanel="balances" onRegionObserved={onRegionObserved} />);
+    expect(observedRegions).toEqual(["DE"]);
+    act(() => frames.flush());
+    await waitForVerifiedShell();
+    expect(observedRegions).toEqual(["DE"]);
+  });
+
   const balancesLocation = { panel: "balances" as const, account: null, shelf: null, asset: null, group: null, market: null };
   test("persisted region hydrates once without resetting the balances scroll scope", async () => {
-    window.localStorage.setItem("home.country.v1", "GB");
+    window.localStorage.setItem("home.country.v2", "GB");
     const frames = controlAnimationFrames();
     const accountSdk = sdk({ isSignedIn: true, ownerKey: OWNER });
     const observedRegions: HomeRegionState["regionId"][] = [];
@@ -1375,7 +1730,7 @@ describe("Balances scope scroll interleavings (#485)", () => {
   });
   for (const mode of ["Account", "asset", "history"] as const) {
     test(`scope change cancels the queued ${mode} restore`, async () => {
-      window.localStorage.setItem("home.country.v1", "US");
+      window.localStorage.setItem("home.country.v2", "US");
       const startsInBalances = mode !== "history";
       syncLocation(startsInBalances ? "/balances" : "/home");
       historyEntries = [window.location.pathname];
@@ -1423,7 +1778,7 @@ describe("Balances scope scroll interleavings (#485)", () => {
     });
   }
   test("readiness, explicit scope, sign-out, and new baseline stay ordered", async () => {
-    window.localStorage.setItem("home.country.v1", "GB");
+    window.localStorage.setItem("home.country.v2", "GB");
     const frames = controlAnimationFrames();
     const accountSdk = sdk({ isSignedIn: true, ownerKey: OWNER });
     const view = render(<HomeHarness accountSdk={accountSdk} initialPanel="balances" />);
@@ -1442,7 +1797,7 @@ describe("Balances scope scroll interleavings (#485)", () => {
     expect(main.scrollTop).toBe(190);
   });
   test("cold canonical A to B cancels the old group RAF, re-anchors once, and consumes", async () => {
-    window.localStorage.setItem("home.country.v1", "US");
+    window.localStorage.setItem("home.country.v2", "US");
     syncLocation("/balances/cash"); historyEntries = ["/balances/cash"];
     const pending = deferred<Response>(); const coldLocation = { ...balancesLocation, group: "cash" as const };
     const view = render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} initialPanel="balances" initialLocation={coldLocation} />);

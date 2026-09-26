@@ -122,6 +122,23 @@ describe("SendDialog availability", () => {
 });
 
 describe("SendDialog review", () => {
+  test("defers resuming a route action until the region settles", async () => {
+    const resumes: string[] = [];
+    const props: ComponentProps<typeof SendDialog> = {
+      open: true, immediate: true, address: ACCOUNT, ownerBoundary: "owner-pending-resume", resumeActionId: ACTION_ID,
+      prepareMoneyAction: async () => resumedAction(),
+      resumeMoneyAction: async (id) => { resumes.push(id); return resumedAction(); },
+      executeMoneyAction: async () => ({ id: ACTION_ID, status: "submitted" }), onClose: () => {},
+    };
+    const view = render(<SendDialog {...props} regionReady={false} />);
+    expect(page().getByRole("dialog", { name: "Send" })).toBeTruthy();
+    expect(resumes).toEqual([]);
+
+    view.rerender(<SendDialog {...props} regionId="DE" regionReady />);
+    await waitFor(() => expect(resumes).toEqual([ACTION_ID]));
+    expect(await page().findByRole("dialog", { name: "Confirm" })).toBeTruthy();
+  });
+
   test("keeps the prepared review on screen when the route adopts its action id", async () => {
     const resumes: string[] = [];
     const reviews: string[] = [];
@@ -168,6 +185,38 @@ describe("SendDialog review", () => {
 });
 
 describe("SendDialog Peer cash-out", () => {
+  test("waits for the settled region before discovering cash-out destinations and orders", async () => {
+    const requests: string[] = [];
+    const props: ComponentProps<typeof SendDialog> = {
+      open: true, immediate: true, address: ACCOUNT, ownerBoundary: "owner-region-pending", regionId: "US",
+      availableAssets: [{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }],
+      fetchAccountResource: async (url) => {
+        requests.push(url);
+        return url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers")
+          ? { ...offrampResponse, providers: [{ ...offrampResponse.providers[0], region: "DE", currency: "EUR" }] }
+          : { version: 3, recoveryEligible: false, orders: [] };
+      },
+      prepareMoneyAction: async () => cashoutAction(), resumeMoneyAction: async () => cashoutAction(),
+      executeMoneyAction: async () => ({ id: ACTION_ID, status: "submitted" }), onClose: () => {},
+    };
+    const view = render(<SendDialog {...props} regionReady={false} />);
+    fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    expect(page().getByLabelText("To")).toBeTruthy();
+    expect(page().queryByRole("button", { name: /Send to Cash App/ })).toBeNull();
+    expect(page().queryByRole("button", { name: /Withdraw|Recover a Peer cash-out/ })).toBeNull();
+    expect(page().queryByText(/Cash out isn't available/)).toBeNull();
+    expect(requests.filter((url) => url.startsWith("/api/funding/"))).toEqual([]);
+
+    view.rerender(<SendDialog {...props} regionId="DE" regionReady />);
+    await waitFor(() => expect(requests.filter((url) => url.startsWith("/api/funding/"))).toEqual([
+      "/api/funding/providers?region=DE&direction=offramp",
+      "/api/funding/offramp/orders?region=DE&inFlight=1",
+    ]));
+    expect(await page().findByRole("button", { name: /Send to Cash App/ })).toBeTruthy();
+  });
+
   test("names only the payout apps in the loaded regional binding", async () => {
     for (const [region, currency, methods, title] of [
       ["DE", "EUR", [{ id: "revolut", label: "Revolut" }], "Send to Revolut"],

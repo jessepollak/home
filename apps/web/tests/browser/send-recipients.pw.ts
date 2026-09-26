@@ -49,7 +49,7 @@ async function json(route: Route, body: unknown, status = 200) {
 function seedSignedInSession(page: Page) {
   return page.addInitScript(() => {
     sessionStorage.setItem("home:playwright-smoke:signed-in", "1");
-    localStorage.setItem("home.country.v1", "US");
+    localStorage.setItem("home.country.v2", "US");
   });
 }
 

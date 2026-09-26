@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { dehydrate } from "@tanstack/react-query";
 import { balancesSnapshotFixture } from "@/shared/balances/fixtures";
+import { anonymousCountryPreferenceKey, legacyCountryPreferenceKey } from "@/config/country-preference";
 import {
   clearOwnerQueryBoundary,
   createHomeQueryClient,
@@ -41,14 +42,16 @@ describe("owner query cache boundary", () => {
     client.setQueryData(ownerQueryKey("owner-a", "balances", "US"), { total: "1" });
     storage.setItem(`${ownerQueryCachePrefix}owner-a`, "a");
     storage.setItem(`${ownerQueryCachePrefix}owner-b`, "b");
-    storage.setItem("home.country.v1", "US");
+    storage.setItem(legacyCountryPreferenceKey, "US");
+    storage.setItem(anonymousCountryPreferenceKey, "GB");
 
     clearOwnerQueryBoundary(client, storage);
 
     expect(client.getQueryCache().getAll()).toHaveLength(0);
     expect(storage.getItem(`${ownerQueryCachePrefix}owner-a`)).toBeNull();
     expect(storage.getItem(`${ownerQueryCachePrefix}owner-b`)).toBeNull();
-    expect(storage.getItem("home.country.v1")).toBe("US");
+    expect(storage.getItem(legacyCountryPreferenceKey)).toBe("US");
+    expect(storage.getItem(anonymousCountryPreferenceKey)).toBe("GB");
   });
 
   test("preserving one owner clears other memory and persisted stores", () => {

@@ -7,9 +7,10 @@ import {
   ownerQueryKey,
   shouldPersistOwnerQuery,
 } from "@/client/query/query-client";
-import { balancesSnapshotFixture } from "@/shared/balances/fixtures";
+import { balancesSnapshotFixture, buildBalancesSnapshotFixture } from "@/shared/balances/fixtures";
 import { presentBalances } from "@/shared/balances/present";
 import type { FetchBalances } from "@/shared/balances/types";
+import type { RegionId } from "@/config/regions";
 import {
   nextStaleRefetchDelay,
   useBalances,
@@ -35,6 +36,16 @@ function ProvisionalHarness({ fetchBalances, provisional }: {
   return <output>{state.status === "ready"
     ? `${state.snapshot.fetchedAt}:${state.refreshError === true ? "refresh-error" : "ready"}`
     : state.status}</output>;
+}
+
+function HeldHarness({ fetchBalances, held }: { fetchBalances: FetchBalances; held: boolean }) {
+  const state = useBalances(session, "US", fetchBalances, { held });
+  return <output>{state.status === "ready" ? `ready:${state.snapshot.fetchedAt}` : state.status}</output>;
+}
+
+function RegionHarness({ region, fetchBalances }: { region: RegionId; fetchBalances: FetchBalances }) {
+  const state = useBalances(session, region, fetchBalances);
+  return <output>{state.status === "ready" ? state.snapshot.region : state.status}</output>;
 }
 
 function RetryHarness({ fetchBalances }: { fetchBalances: FetchBalances }) {
@@ -83,6 +94,38 @@ describe("useBalances", () => {
     }} />);
     await waitFor(() => expect(reads).toBe(1));
     expect(view.getByRole("status").textContent).toBe(`${balancesSnapshotFixture.fetchedAt}:ready`);
+  });
+
+  test("held balances hide cached data and make no read until released", async () => {
+    const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
+    getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture);
+    let reads = 0;
+    const fetchBalances: FetchBalances = async () => {
+      reads += 1;
+      return balancesSnapshotFixture;
+    };
+    const view = render(<HeldHarness held fetchBalances={fetchBalances} />);
+    expect(view.getByRole("status").textContent).toBe("loading");
+    expect(reads).toBe(0);
+    view.rerender(<HeldHarness held={false} fetchBalances={fetchBalances} />);
+    expect(view.getByRole("status").textContent).toBe(`ready:${balancesSnapshotFixture.fetchedAt}`);
+  });
+  test("keeps visible region balances during an ordinary country switch", async () => {
+    const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
+    getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture);
+    let finishRead!: (snapshot: typeof balancesSnapshotFixture) => void;
+    const pendingRead = new Promise<typeof balancesSnapshotFixture>((resolve) => { finishRead = resolve; });
+    const fetchBalances: FetchBalances = async (region) => region === "DE"
+      ? pendingRead
+      : balancesSnapshotFixture;
+    const view = render(<RegionHarness region="US" fetchBalances={fetchBalances} />);
+    expect(view.getByRole("status").textContent).toBe("US");
+
+    view.rerender(<RegionHarness region="DE" fetchBalances={fetchBalances} />);
+    expect(view.getByRole("status").textContent).toBe("US");
+
+    await act(async () => { finishRead(buildBalancesSnapshotFixture({ region: "DE" })); });
+    await waitFor(() => expect(view.getByRole("status").textContent).toBe("DE"));
   });
 
   test("a cached provisional failure stays ready without an error before verification refetches", async () => {

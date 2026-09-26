@@ -38,7 +38,7 @@ export type AccountSessionStatus =
 export type BaseAccountLoginPhase = "connecting" | "signing" | "verifying";
 
 export type AccountResourceOptions = {
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "PUT";
   body?: unknown;
   signal?: AbortSignal;
 };
