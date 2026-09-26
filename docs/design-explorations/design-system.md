@@ -309,7 +309,7 @@ Issue [#953](https://github.com/jessepollak/home/issues/953) completes the #791 
 
 ## File structure and the instances-only rule
 
-The Home Figma file is the foundation new screens are assembled from, so every pass keeps it in this shape.
+When working in the optional Home Figma file, keep its screens in this shape. New design proposals follow the [Storybook review board](../design-system.md#review-boards).
 
 - **Pages by purpose:** [Components](figma-workflow.md#page-layout) (`4:2`) holds Foundations → Primitives → Finance patterns → Home components; finance pattern boards stay there. Home (`333:13084`) holds Screens → Home states → the whole #638 proposal. Activity (`333:13088`) holds #637; Card (`333:13091`) holds #636; Shell / desktop (`333:13092`) holds #694; Send / Add money / Cash out (`333:13089`) holds the #953 recipient board. Cash, Invest, Borrow and Account are empty destinations. References (`333:13093`) is private. New screens go on their area page, current screens first, each proposal in its own labelled section to the right; new library components go in their Components section. See [Page layout](figma-workflow.md#page-layout).
 - **Instances only.** Every UI element on a screen or pattern board is an instance of a library component, configured through its variants, properties and slots. Do not detach, draw raw frames, rectangles or text that stand in for a component, or keep local copies.

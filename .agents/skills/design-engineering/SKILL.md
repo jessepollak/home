@@ -24,6 +24,8 @@ Non-production design-lane code has exactly two homes: inside a `*.stories.*` fi
 
 For a requested comparison, keep data and viewport matched. If blind review is requested, use neutral labels and show the critic renders without the author's preference. Rankings are advice; Jesse selects. At selection, retain the accepted revision and rationale in [UI direction](../../../docs/ui-direction.md#carrying-decisions-forward); check transfer to another relevant surface before broad adoption.
 
+Propose, review, and select design work on the [Storybook review board](../../../docs/design-system.md#review-boards). Figma is optional for references, sketches, and existing mappings; if an assignment explicitly edits Figma, follow its [edit-access preflight](../../../docs/design-explorations/figma-workflow.md#edit-access-preflight).
+
 ## Why craft compounds
 
 - **Taste is trained.** Judgment is not personal preference. Study why existing Home surfaces and respected reference interfaces feel right, then apply that reading to the next decision.
@@ -34,7 +36,7 @@ For a requested comparison, keep data and viewport matched. If blind review is r
 
 ## Working sequence
 
-1. **Check Figma edit access first.** When the assignment edits Figma, run the [edit-access preflight](../../../docs/design-explorations/figma-workflow.md#edit-access-preflight) before any other step. If it fails, stop and report the failing step with a redacted error summary as the preflight describes; never continue as a Storybook-only round.
+1. **Check optional Figma edit access if needed.** When the assignment explicitly edits Figma, run the [edit-access preflight](../../../docs/design-explorations/figma-workflow.md#edit-access-preflight) before changing Figma or Storybook. If it fails, stop and report the failing step with a redacted error summary; do not silently drop the requested Figma work.
 2. **Inspect the surface and its context.** Read the current component, its tokens, states, tests, and nearest established pattern before proposing anything. Reuse before replacing. Discover Home's owned components through the Storybook MCP docs tools (`docs-list`, then `docs-show <id>`) instead of guessing props or re-inventing a component.
 3. **Name hierarchy and default-state intent.** State the primary action, secondary actions and the states relevant to the current checkpoint. Maintenance/adoption covers affected edge states; exploration does not require fully implementing them across every candidate.
 4. **Review interaction edges at the scoped depth.** For maintenance/adoption, check press, focus-visible, keyboard, touch, capability-gated hover, long or translated content, partial data, slow or failed responses, and reduced motion — not only the happy path.
@@ -59,7 +61,7 @@ Purpose, frequency, and content sensitivity gate motion; `docs/ui-direction.md` 
 
 [UI PR previews](../../../docs/ui-pr-previews.md) is normative for visual proof.
 
-- Screenshots use an adaptive comparison: pair Before and After only when the baseline materially improves judgment, with identical state, data, and CSS-pixel viewport and the current PR head as After. Otherwise keep current-head evidence only. Motion uses a short clip when stills cannot show behavior. A design proposal's Figma motion frame also carries the GIF, stills, duration, easing and story links per [Motion frames](../../../docs/design-explorations/figma-workflow.md#motion-frames).
+- Screenshots use an adaptive comparison: pair Before and After only when the baseline materially improves judgment, with identical state, data, and CSS-pixel viewport and the current PR head as After. Otherwise keep current-head evidence only. Motion uses a short clip when stills cannot show behavior. If a design proposal includes a Figma motion frame, follow [Motion frames](../../../docs/design-explorations/figma-workflow.md#motion-frames).
 - Publish review findings separately from screenshots as `| Severity | Evidence | Judgment / action |`. Use the assignment-specific judgment in [UI PR previews](../../../docs/ui-pr-previews.md#review-findings); a generic readiness verdict does not select an exploration.
 - A Before/After table is screenshot evidence for comparable states, not a required shape for every review response; upstream's mandatory review format is not adopted.
 - Keep the existing Storybook Before / Proposed / Implemented lifecycle; this skill creates no second evidence system. The discover → compose → run-story-tests → capture-proof loop in [UI PR previews](../../../docs/ui-pr-previews.md) is how a journey proposal is built and evidenced: a failing `play` fails the story-test run, and the a11y audit's findings are recorded rather than hidden.

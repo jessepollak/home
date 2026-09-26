@@ -25,6 +25,6 @@ The dead-code gate (`bun run --cwd apps/web knip`, from `bun check`) ignores
 design candidate that lives inside a story never has to masquerade as a
 production module to pass the gate.
 
-See [design-system](../design-system.md) and the
+Propose, review, and select candidates on the [Storybook review board](../design-system.md#review-boards). See [design-system](../design-system.md) and the
 [design-engineering skill](../../.agents/skills/design-engineering/SKILL.md)
 for the exploration workflow and its review checkpoint.
