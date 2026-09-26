@@ -2,7 +2,7 @@ import type { Ref } from "react";
 import { frameLabel, type Positioned } from "./layout";
 import { changeLabel } from "./manifest";
 import type { Metric } from "./use-frame-loading";
-import { watchStoryRender } from "./render-watcher";
+import { isPreviewUpdated, PREVIEW_UPDATED, watchStoryRender } from "./render-watcher";
 import { storyCanvasUrl } from "./url-state";
 import styles from "./board.module.css";
 
@@ -40,9 +40,10 @@ export function LiveFrame({
         onFinish(id, "rendered");
         return;
       }
-      watchStoryRender(iframe, story, (status) => {
+      if (isPreviewUpdated(iframe.contentDocument)) { onFinish(id, "errored", PREVIEW_UPDATED); return; }
+      watchStoryRender(iframe, story, (status, error) => {
         if (status === "cancelled") onCancel(id);
-        else onFinish(id, status);
+        else onFinish(id, status, error);
       });
       const channel = child?.__STORYBOOK_ADDONS_CHANNEL__;
       if (!channel) return;
@@ -56,7 +57,8 @@ export function LiveFrame({
         const listener = (payload: { storyId?: string }) => {
           if (payload.storyId !== story) return;
           for (const [eventName, fn] of listeners) channel.off(eventName, fn);
-          onFinish(id, status);
+          onFinish(id, status, status === "errored" && isPreviewUpdated(iframe.contentDocument)
+            ? PREVIEW_UPDATED : undefined);
         };
         channel.on(name, listener);
         listeners.push([name, listener]);
@@ -72,7 +74,7 @@ export function LiveFrame({
       </div>}
       {metric?.status !== "rendered" && metric?.status !== "errored" &&
         <div className={styles.skeleton} role="status">Loading {frame.label}…</div>}
-      {loaded && <iframe
+      {loaded && metric?.status !== "errored" && <iframe
         ref={frameRef}
         title={`${position.section} · ${frame.label}${before ? " · Before" : ""}`}
         src={frameSource === "blank" ? "about:blank" : storyCanvasUrl(story)}

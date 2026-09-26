@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { MinusIcon, PanelLeftIcon, PanelRightIcon, PlusIcon } from "lucide-react";
+import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Kbd } from "@/components/ui/kbd";
 import { Button } from "@/components/ui/button";
@@ -64,7 +65,7 @@ export function ReviewBoardView({ board, build, frameSource = "story", narrow = 
 }
 
 function BoardMessage({ title, build, children }: { title: string; build: ReviewBuild; children: string }) {
-  return <div className={styles.board}>
+  return <div className={styles.board} data-review-board="message">
     <header className={styles.header}>
       <h1 title={title}>{title}</h1>
       <BuildChip build={build} />
@@ -149,6 +150,7 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
     writeBoardUrl(new URL(typeof window === "undefined" ? "http://localhost/iframe.html" : location.href),
       { rev: original.rev, deployment: original.deployment }));
   const canInteract = loaded.has(selectedPosition.id);
+  const previewUpdated = metrics.frames.some((entry) => entry.error === "This preview was updated");
   const updateUrl = useCallback((update: { frame?: string; side?: Side; variant?: "before";
     rev?: string; deployment?: string }) => {
     history.replaceState(history.state, "", writeBoardUrl(new URL(location.href), update));
@@ -159,10 +161,10 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
       frame: initialFrame,
       variant: linkedSide === "both" && linkedFrame ? original?.variant : undefined });
   }, [revision, deployment, updateUrl, linkedSide, linkedFrame, original?.variant, initialFrame]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = container.current;
     if (!element) return;
-    const observer = new ResizeObserver(() => {
+    const measure = () => {
       const width = element.clientWidth;
       setMobile(narrow || width < 768);
       if (lastWidth.current === null || (lastWidth.current >= 1280) !== (width >= 1280)) {
@@ -181,10 +183,11 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
         firstFit.current);
       if (initial) {
         firstFit.current = true;
-        setTransition(true);
         setCamera(initial);
       }
-    });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
     observer.observe(element);
     if (canvas.current) observer.observe(canvas.current);
     return () => observer.disconnect();
@@ -244,14 +247,14 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
     setInteracting(undefined);
     setFull(false);
     requestAnimationFrame(() => {
-      if (dialogOpen) fullButton.current?.focus();
+      if (dialogOpen) fullButton.current?.focus({ preventScroll: true });
       else container.current?.querySelector<HTMLElement>(
         `[data-review-frame="${CSS.escape(selectedVariant ?? selected)}"]`,
-      )?.focus();
+      )?.focus({ preventScroll: true });
     });
   }, [dialogOpen, selected, selectedVariant]);
   useEffect(() => {
-    if (dialogOpen) closeButton.current?.focus();
+    if (dialogOpen) closeButton.current?.focus({ preventScroll: true });
   }, [dialogOpen]);
   useEffect(() => {
     const root = boardElement.current;
@@ -304,7 +307,7 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
     if (!interacting && !dialogOpen) return;
     const iframe = activeFrame.current;
     const child = iframe?.contentWindow;
-    if (!dialogOpen) iframe?.focus();
+    if (!dialogOpen) iframe?.focus({ preventScroll: true });
     const escape = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") { event.preventDefault(); leave(); }
     };
@@ -439,6 +442,12 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
       {staleFrame && <>Frame “{staleFrame}” is not on this revision; showing the first frame.</>}
       {mismatch && originalLink && <a href={originalLink}>Open original deployment</a>}
     </div>}
+    {previewUpdated && <Alert className={styles.updateBanner} inert={dialogOpen}>
+      <AlertDescription>A newer build of this preview is available.</AlertDescription>
+      <AlertAction>
+        <Button variant="outline" size="sm" onClick={() => location.reload()}>Reload</Button>
+      </AlertAction>
+    </Alert>}
     <main ref={setContainer} className={styles.content} tabIndex={-1} aria-label="Review board" inert={dialogOpen}>
       {mobile ? <MobileReview
         board={board} current={current} position={selectedPosition} index={currentIndex}
@@ -482,7 +491,7 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
     </>}
     {dialogOpen && <div className={styles.fullscreen} role="dialog" aria-modal="true"
       aria-label={`${selectedPosition.frame.label} full width`}>
-      <span tabIndex={0} className={styles.focusSentinel} onFocus={() => activeFrame.current?.focus()} />
+      <span tabIndex={0} className={styles.focusSentinel} onFocus={() => activeFrame.current?.focus({ preventScroll: true })} />
       <div className={styles.fullscreenBar}><strong>{selectedPosition.frame.label}</strong>
         <Button ref={closeButton} variant="outline" size="touch" aria-label="Close full width" onClick={leave}>
           Close
@@ -490,7 +499,7 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
       <iframe ref={activeFrame} title={`${selectedPosition.frame.label} full width`}
         src={frameSource === "blank" ? "about:blank" : storyCanvasUrl(selectedPosition.story)}
         onLoad={() => setActiveFrameReady((old) => old + 1)} />
-      <span tabIndex={0} className={styles.focusSentinel} onFocus={() => closeButton.current?.focus()} />
+      <span tabIndex={0} className={styles.focusSentinel} onFocus={() => closeButton.current?.focus({ preventScroll: true })} />
     </div>}
   </div>;
 }

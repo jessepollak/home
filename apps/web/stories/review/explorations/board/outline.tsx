@@ -15,7 +15,16 @@ export function Outline({ board, sections, selected, inPr, onSelect, onFitSectio
   onFitSection: (section: Section) => void;
 }) {
   const selectedRow = useRef<HTMLButtonElement>(null);
-  useEffect(() => { selectedRow.current?.scrollIntoView({ block: "nearest" }); }, [selected]);
+  const outlineBody = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const row = selectedRow.current;
+    const body = outlineBody.current;
+    if (!row || !body) return;
+    const top = row.getBoundingClientRect().top - body.getBoundingClientRect().top;
+    if (top < 0) body.scrollTop += top;
+    else if (top + row.offsetHeight > body.clientHeight)
+      body.scrollTop += top + row.offsetHeight - body.clientHeight;
+  }, [selected]);
   const changed = sections.flatMap((section) => section.frames).filter((position) => position.frame.change !== "unchanged");
   const pinned = changed.some((position) => position.id === selected);
   const row = (position: Positioned, track: boolean) => <Button
@@ -36,7 +45,7 @@ export function Outline({ board, sections, selected, inPr, onSelect, onFitSectio
   const changedTitle = inPr ? "Changed in this PR" : "Changed";
   return <aside className={styles.outline} aria-label="Outline">
     <div className={styles.panelHeading}><strong>Outline</strong></div>
-    <div className={styles.outlineBody}>
+    <div ref={outlineBody} className={styles.outlineBody}>
       <p className={styles.summary}>{board.summary}</p>
       {changed.length > 0 && <>
         <div className={styles.outlineGroup} role="group" aria-label={changedTitle}>

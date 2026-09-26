@@ -1,3 +1,8 @@
+:global(html:has([data-review-board])),
+:global(body:has([data-review-board])) {
+  overflow: hidden;
+  margin: 0;
+}
 .board {
   color: var(--foreground);
   background: var(--background);
@@ -113,6 +118,9 @@
   padding: 8px 16px;
   background: var(--muted);
   border-block-end: 1px solid var(--border);
+}
+.updateBanner {
+  flex: none;
 }
 .banner a {
   color: var(--primary);

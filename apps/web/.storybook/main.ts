@@ -4,12 +4,14 @@ import { readReviewBuild } from "../stories/review/explorations/board/review-bui
 
 const buildEnv = reviewEnv();
 
-function vercelComments(topOnly: boolean): string {
+function vercelComments(): string {
   if (process.env.VERCEL_ENV !== "preview") return "";
   const deployment = JSON.stringify(process.env.VERCEL_DEPLOYMENT_ID ?? "").replace(/</g, "\\u003c");
-  const mount = `const s=document.createElement("script");s.src="https://vercel.live/_next-live/feedback/feedback.js";` +
+  const mount = `if(window.__reviewFeedbackMounted||document.querySelector('script[src*="vercel.live"],vercel-live-feedback'))return;` +
+    `window.__reviewFeedbackMounted=true;const s=document.createElement("script");s.src="https://vercel.live/_next-live/feedback/feedback.js";` +
     `s.async=true;s.dataset.explicitOptIn="true";s.dataset.deploymentId=${deployment};document.head.appendChild(s);`;
-  return `<script>${topOnly ? `if(window.top===window){${mount}}` : mount}</script>`;
+  return `<script>if(window.top===window){const mount=()=>{${mount}};` +
+    `if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",mount,{once:true});else mount();}</script>`;
 }
 
 // `experimentalComponentsManifest` is not in Storybook's public
@@ -46,8 +48,8 @@ const config: StorybookConfig = {
   features,
   env: async (env) => ({ ...env, ...await buildEnv }),
   managerHead: async (head) => `${head}<script>window.__REVIEW_BUILD__ = ${
-    JSON.stringify(readReviewBuild(await buildEnv)).replace(/</g, "\\u003c")};</script>${vercelComments(false)}`,
-  previewHead: (head) => `${head}${vercelComments(true)}`,
+    JSON.stringify(readReviewBuild(await buildEnv)).replace(/</g, "\\u003c")};</script>${vercelComments()}`,
+  previewHead: (head) => `${head}${vercelComments()}`,
 };
 
 export default config;
