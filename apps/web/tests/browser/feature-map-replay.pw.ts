@@ -5,7 +5,7 @@ import { fixtureRoutes, requiresSignedInFixture } from "./feature-map/fixtures";
 import { readFeatureMap, type ReachStep } from "./feature-map/map";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 
-const mapPromise = readFeatureMap(resolve(__dirname, "../../../../.agents/skills/browser-iteration/feature-map.md"));
+const mapPromise = readFeatureMap(resolve(__dirname, "../../../../.agents/skills/browser-iteration/surfaces"));
 const replaySurfaceIds = [
   "landing", "sign-in", "home-panel", "balances", "activity", "save", "invest",
   "send", "account-settings", "coverage",

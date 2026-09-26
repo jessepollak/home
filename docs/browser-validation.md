@@ -10,10 +10,10 @@ Status: normative browser-development contract. Home pins Vercel Labs `agent-bro
 
 ## Verify a change
 
-1. Map the diff's paths to surfaces using each [feature-map](../.agents/skills/browser-iteration/feature-map.md) surface's **Owned paths**. For every affected surface, choose the highest rung required by the [verification ladder](operating-manual.md#verification-ladder).
+1. Map the diff's paths to surfaces using each [surface file](../.agents/skills/browser-iteration/surfaces/)'s **Owned paths**. For every affected surface, choose the highest rung required by the [verification ladder](operating-manual.md#verification-ladder).
 2. For a new route/page, `*-experience.tsx`, flow, dialog step, money action kind, or provider behavior, consider map and fixture changes even if no Owned path matches. The bar is a user-reachable surface agents must find again or a money action; prefer extending an existing entry. If mapped, keep **Owned paths**, fixture/live **Reach** split before marked controls, **Expect**, **States**, confirm labels, and **Unknowns** current; consider bounded fixture replay coverage or document its skip. Trivial/internal additions need nothing. Every new confirm control **must** carry `data-money-action-id` backed by an unexpired prepared action (#799); assign its rung and change live rules only for new review facts.
 3. Run Rung 0 before the first edit and after the last edit. Run required Rungs 1–3 on a provisioned runner; never substitute a fixture result for a live rung or treat a Reach as confirmation authority.
-4. In the collapsed PR-body Evidence section record `Verified: <surface> rung <n>` with safe evidence, or `Not verified: <surface> rung <n> — <reason>` naming the blocker. Keep the existing `## Verification` surface rows and evidence pointers there; keep `## Preview` visible for labeled media only. Update the feature map in the same PR if the live UI differs from it.
+4. In the collapsed PR-body Evidence section record `Verified: <surface> rung <n>` with safe evidence, or `Not verified: <surface> rung <n> — <reason>` naming the blocker. Keep the existing `## Verification` surface rows and evidence pointers there; keep `## Preview` visible for labeled media only. Update the affected surface file in the same PR if the live UI differs from it.
 
 ## Pinned browser and sessions
 
