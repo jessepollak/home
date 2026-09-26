@@ -2,7 +2,7 @@
 
 Verified: September 25, 2026
 
-The Invest feature is a presentation surface with one execution exception: Bitcoin (cbBTC on Base) can be bought with USDC and sold back to USDC through the shared action flow described in [Execution checkpoint](#execution-checkpoint-cdp-swaps). Every other asset stays read-only, with no swap, quote, or wallet path; stocks say they aren't available yet. Prices are absent by default and can only appear when the caller passes a display value with a source label and timestamp. A display price never authorizes a trade; only a server-validated executable quote does.
+The Invest feature is a presentation surface with one execution exception: Bitcoin (cbBTC on Base) can be bought with USDC and sold back to USDC through the shared action flow described in [Execution checkpoint](#execution-checkpoint-cdp-swaps). Every other asset stays read-only, with no swap, quote, or wallet path; stocks display eligibility or not-routed status without offering execution. Prices are absent by default and can only appear when the caller passes a display value with a source label and timestamp. A display price never authorizes a trade; only a server-validated executable quote does.
 
 ## Display identity and token representation
 
@@ -17,7 +17,7 @@ This is enough for the current seam and can also describe a local stablecoin or 
 
 ## Tokenized stocks
 
-The bounded launch roster follows the official Base stock page and its linked Base explorer contracts. These are Coinbase-issued Regulation S instruments and remain unavailable in the United States. A country preference is presentation only and cannot unlock them. Invest hub Stocks preview is the first `STOCK_PREVIEW_COUNT` (6) catalog entries; the Stocks category lists the full curated roster. COINc, CRCLc, and INTCc stay out until they appear on the product roster page.
+The bounded launch roster follows the official Base stock page and its linked Base explorer contracts. These are Coinbase-issued Regulation S instruments. The server permits stock buys only when a trusted edge request country is present, valid, and outside the US and its territories (PR, GU, VI, AS, MP, UM); missing or invalid country fails closed. Stock sells to Base USDC remain allowed regardless of country. A country preference cannot unlock trading. The provider currently refuses stock routes, so eligible customers see a not-routed state rather than a trade control. Invest hub Stocks preview is the first `STOCK_PREVIEW_COUNT` (6) catalog entries; the Stocks category lists the full curated roster. COINc, CRCLc, and INTCc stay out until they appear on the product roster page.
 
 | Company display | Display symbol | Base token | Base contract |
 | --- | --- | --- | --- |

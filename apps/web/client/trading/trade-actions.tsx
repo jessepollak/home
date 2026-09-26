@@ -11,6 +11,7 @@ import type { InvestAsset } from "@/config/invest-assets";
 import { getTradeAssetStatus } from "@/shared/trading/assets";
 import type { TradeDirection } from "@/shared/trading/contract";
 import { useTradeAvailability } from "./use-trade-availability";
+import { StockTradeActions } from "./stock-trade-actions";
 
 const TradeMoneySheet = deferSheet(() => import("./trade-money-dialog").then((module) => module.TradeMoneyDialog));
 
@@ -21,7 +22,7 @@ export function TradeActions({ asset, layout = "row" }: {
   const status = getTradeAssetStatus(asset.id);
   if (!status) return null;
   if (status.status === "eligibility-required") {
-    return <div className={layout === "sticky" ? "mt-4 text-sm text-muted-foreground" : "text-end text-sm text-muted-foreground"} role="note">Stocks aren&apos;t available yet.</div>;
+    return <StockTradeActions asset={asset} layout={layout} />;
   }
   if (asset.id !== "cbbtc") return <UnavailableActions asset={asset} layout={layout} />;
   return <BitcoinTradeActions asset={asset} layout={layout} />;

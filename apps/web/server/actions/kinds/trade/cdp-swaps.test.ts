@@ -3,7 +3,7 @@ import { encodeAbiParameters, encodeFunctionData, hashTypedData, parseAbi, parse
 import type { Address } from "@/shared/trading/server-types";
 import { createCdpSwapsClient, type CdpSwapsClient, type SwapQuote } from "./cdp-swaps";
 import { checkpointExitCode, runSwapsCheckpoint } from "./checkpoint";
-import { PERMIT2_ADDRESS } from "./permit2";
+import { PERMIT2_ADDRESS, TradePreparationError } from "./permit2";
 import { swapTokens } from "./quote";
 
 const TAKER = "0x1111111111111111111111111111111111111111" as Address;
@@ -44,6 +44,19 @@ const env = { CDP_API_KEY_ID: "test-id", CDP_API_KEY_SECRET: "test-secret" };
 const jwt = (async () => "sensitive-jwt") as NonNullable<Parameters<typeof createCdpSwapsClient>[0]>["generateJwtImpl"];
 
 describe("CDP Swaps client", () => {
+  test("turns the exact provider refusal into a sanitized not-routed failure", async () => {
+    const client = createCdpSwapsClient({ env, generateJwtImpl: jwt,
+      fetchImpl: (async () => Response.json({ errorType: "invalid_request", errorMessage: "The token you're trying to buy isn't authorized for this swap." }, { status: 400 })) as unknown as typeof fetch,
+    });
+    try {
+      await client.createQuote(request);
+      throw new Error("Expected a refusal");
+    } catch (error) {
+      expect(error).toBeInstanceOf(TradePreparationError);
+      expect((error as TradePreparationError).reason).toBe("token-not-routed");
+      expect((error as Error).message).not.toContain("authorized for this swap");
+    }
+  });
   test("uses signed exact paths, query/body and unique POST keys without leaking them to GET", async () => {
     const calls: Array<{ url: string; init: RequestInit }> = [];
     const signed: unknown[] = [];

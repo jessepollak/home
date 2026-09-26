@@ -25,6 +25,7 @@ import {
 } from "@/server/funding/cash-out";
 import type { ActionAuthorizer } from "./handler";
 import { prepareTradeAction, tradePreparationResponse } from "./kinds/trade/prepare";
+import { assertStockTradePrepareAllowed } from "./kinds/trade/stock-eligibility";
 import { isTradeErrorCode } from "@/shared/trading/contract";
 import { getActionsStore, UnresolvedTradeError } from "./store";
 import { moneyActionOwner } from "@/server/money-actions/session";
@@ -140,6 +141,7 @@ async function prepare(
     return issue(preparation.draft);
   }
   if (kind === "trade") {
+    assertStockTradePrepareAllowed({ params, request });
     const owner = moneyActionOwner(session);
     if (owner && await getActionsStore().findUnresolvedTrade(owner)) throw new UnresolvedTradeError();
     const { draft, pending, callGasLimit } = await (dependencies.prepareTrade ?? prepareTradeAction)({ session, request, params, signal });
