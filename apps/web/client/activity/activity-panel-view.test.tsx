@@ -119,7 +119,7 @@ function failed(retry: () => void = noop): UseActivityResult {
 afterEach(cleanup);
 
 describe("combined Activity panel", () => {
-  test("interleaves every loaded row into one uncarded feed list with a spinner continuation", () => {
+  test("interleaves every loaded row into one feed list with a spinner continuation", () => {
     const view = render(
       <ActivityPanelView
         activity={ready(
@@ -137,9 +137,27 @@ describe("combined Activity panel", () => {
     expect(view.getAllByRole("button", { description: /transaction details/ })).toHaveLength(5);
     expect(view.getByRole("list").textContent).toMatch(/Received.*action-5.*Received.*action-3.*Received/);
     expect(view.queryByText("action-1")).toBeNull();
-    expect(view.getByRole("region", { name: "Activity" }).querySelector("[data-slot='card']")).toBeNull();
+    expect(view.getByRole("region", { name: "Activity" }).querySelectorAll("[data-slot='card']")).toHaveLength(1);
     expect(view.container.querySelector("[data-activity-loader]")).not.toBeNull();
     expect(view.container.querySelector("[data-shimmer='row']")).toBeNull();
+  });
+
+  test("keeps the feed heading, rows, and continuation sentinel inside a single Activity card", () => {
+    const view = render(
+      <ActivityPanelView
+        activity={ready([transfer("received", 5)], "cursor-1")}
+        density="feed"
+        header={<h2 id="activity-title">Activity</h2>}
+      />,
+    );
+
+    const region = view.getByRole("region", { name: "Activity" });
+    const cards = region.querySelectorAll<HTMLElement>("[data-slot='card']");
+    expect(cards).toHaveLength(1);
+    const card = cards[0]!;
+    expect(within(card).getByRole("heading", { name: "Activity" })).toBeTruthy();
+    expect(within(card).getByRole("list")).toBeTruthy();
+    expect(card.querySelector("[data-activity-sentinel]")).not.toBeNull();
   });
 
   test("localizes transfer and recorded action dates and action amounts in the same feed", async () => {
@@ -343,6 +361,10 @@ describe("combined Activity panel", () => {
     expect(prompt?.textContent).toContain("No activity yet");
     expect(within(prompt!).getByRole("button", { name: "Add money" })).toBeTruthy();
     expect(view.container.querySelector("[data-activity-unavailable]")).toBeNull();
+    const region = view.getByRole("region", { name: "Activity" });
+    const cards = region.querySelectorAll<HTMLElement>("[data-slot='card']");
+    expect(cards).toHaveLength(1);
+    expect(cards[0]!.contains(prompt)).toBe(true);
   });
 
   test("does not claim an empty feed when recorded actions fail on the Home feed", () => {

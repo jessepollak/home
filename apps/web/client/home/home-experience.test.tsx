@@ -479,6 +479,9 @@ describe("Home shell auth and privacy", () => {
       expect(page().getAllByText("$12.34").length).toBeGreaterThan(0);
       const activity = page().getAllByRole("region", { name: "Activity", busy: true }).at(-1)!;
       expect(activity.getAttribute("aria-busy")).toBe("true");
+      if (initialPanel === "home") {
+        expect(activity.querySelectorAll("[data-slot='card']")).toHaveLength(1);
+      }
       expect(page().queryByText("No activity yet")).toBeNull();
       expect(activityReads).toBe(0);
 
@@ -489,6 +492,10 @@ describe("Home shell auth and privacy", () => {
       await waitFor(() => expect(activityReads).toBe(1));
       await waitFor(() => expect(page().getAllByText("No activity yet").length).toBeGreaterThan(0));
       expect(page().queryAllByRole("region", { name: "Activity", busy: true })).toHaveLength(0);
+      if (initialPanel === "home") {
+        expect(page().getAllByRole("region", { name: "Activity" }).at(-1)!
+          .querySelectorAll("[data-slot='card']")).toHaveLength(1);
+      }
     });
   }
 

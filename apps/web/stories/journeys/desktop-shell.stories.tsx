@@ -408,7 +408,7 @@ function DesktopShell({ initialPanel, initialRailCollapsed = false, extendedActi
           activity={null}
         />
       </div>
-      <div data-desktop-activity-column="" className="lg:pt-5">
+      <div data-desktop-activity-column="">
         <ActivityPanelView
           activity={activity}
           operations={regionId === "US" && (state === "funded" || state === "partial") ? [borrowOperation] : []}
@@ -556,6 +556,8 @@ export const HomeDesktop: Story = {
     await expectCenteredContent(canvasElement, 1120);
     const balanceLabel = canvas.getByText("Total balance");
     const activityHeading = activity.getByRole("heading", { name: "Activity" });
+    const activityCard = activityHeading.closest("[data-slot='card']")!;
+    await expect(Math.abs(activityCard.getBoundingClientRect().top - canvas.getByLabelText("Total balance").getBoundingClientRect().top)).toBeLessThanOrEqual(1);
     await expect(Math.abs(activityHeading.getBoundingClientRect().top - balanceLabel.getBoundingClientRect().top)).toBeLessThanOrEqual(4);
     const balanceCard = canvas.getByLabelText("Total balance");
     const balanceBar = balanceCard.querySelector("[data-balance-breakdown] [data-signed-balance-bar]")!;
