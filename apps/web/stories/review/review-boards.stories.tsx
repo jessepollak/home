@@ -38,6 +38,14 @@ function ChromeFixture() {
     <ReviewBoardView board={fixture} build={fixtureBuild} frameSource="blank" narrow={narrow} />
   </div>;
 }
+async function interactOnMobile(screen: ReturnType<typeof within>) {
+  const action = screen.getByRole("button", { name: "Interact" });
+  await waitFor(() => expect(action).toBeEnabled());
+  await userEvent.click(action);
+  await expect(action).toHaveTextContent("Close");
+  await expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  return action;
+}
 export const BoardChrome: Story = {
   args: { board: fixture, build: fixtureBuild, frameSource: "blank" },
   render: () => <ChromeFixture />,
@@ -143,7 +151,17 @@ export const BoardChrome: Story = {
     await userEvent.click(firstSection.getByRole("button", { name: /First frame.*new.*390/i }));
     frameOverlay(/First section · First frame · New/).focus();
     await userEvent.keyboard("{Enter}");
-    await expect(screen.getByText(/^Interacting with/)).toBeVisible();
+    const chip = screen.getByText(/^Interacting with/);
+    await expect(chip).toBeVisible();
+    const chipCanvas = doc.querySelector<HTMLElement>("[data-review-canvas]")!.getBoundingClientRect();
+    await waitFor(async () => {
+      const frame = screen.getByTitle("First section · First frame").getBoundingClientRect();
+      const bounds = chip.getBoundingClientRect();
+      const expected = Math.min(chipCanvas.right - 8 - bounds.width / 2,
+        Math.max(chipCanvas.left + 8 + bounds.width / 2, (frame.left + frame.right) / 2));
+      await expect(Math.abs((bounds.left + bounds.right) / 2 - expected)).toBeLessThan(2);
+      await expect(bounds.bottom).toBeLessThanOrEqual(frame.top - 20 - 8 + 1);
+    });
     const comparison = screen.getByRole("combobox", { name: "Before and after" });
     await userEvent.selectOptions(comparison, "before");
     await waitFor(() => expect(screen.queryByText(/^Interacting with/)).not.toBeInTheDocument());
@@ -200,21 +218,26 @@ export const BoardChrome: Story = {
     const canvasWidth = surface.getBoundingClientRect().width;
     const outlinePanel = () => screen.queryByRole("complementary", { name: "Outline" });
     const inspectorPanel = () => screen.queryByRole("complementary", { name: "Inspector" });
+    await Promise.all(surface.getAnimations({ subtree: true }).map((animation) => animation.finished));
+    const frameLeft = first.getBoundingClientRect().left;
     board.focus();
     await userEvent.keyboard("[[");
     await expect(outlineToggle).toHaveAttribute("aria-pressed", "false");
     await expect(outlinePanel()).not.toBeInTheDocument();
     await expect(inspectorPanel()).toBeVisible();
+    await expect(first.getBoundingClientRect().left).toBeCloseTo(frameLeft, 0);
     await userEvent.keyboard("]");
     await expect(inspectorToggle).toHaveAttribute("aria-pressed", "false");
     await expect(inspectorPanel()).not.toBeInTheDocument();
     await waitFor(() => expect(surface.getBoundingClientRect().width).toBeGreaterThan(canvasWidth));
+    await expect(first.getBoundingClientRect().left).toBeCloseTo(frameLeft, 0);
     await userEvent.click(inspectorToggle);
     await expect(inspectorToggle).toHaveAttribute("aria-pressed", "true");
     await expect(inspectorPanel()).toBeVisible();
     await expect(outlinePanel()).not.toBeInTheDocument();
     await userEvent.keyboard("[[");
     await expect(outlinePanel()).toBeVisible();
+    await expect(first.getBoundingClientRect().left).toBeCloseTo(frameLeft, 0);
     board.focus();
     await userEvent.keyboard(`{${modifier}>}k{/${modifier}}`);
     const palette = await screen.findByRole("dialog", { name: "Command palette" });
@@ -278,37 +301,53 @@ export const BoardChrome: Story = {
       await expect(frameBounds.left).toBeGreaterThanOrEqual(cardBounds.left);
       await expect(frameBounds.right).toBeLessThanOrEqual(cardBounds.right);
     });
-    const previous = screen.getByRole("button", { name: "Previous" });
     const header = board.parentElement?.querySelector("header");
-    await userEvent.click(screen.getByRole("button", { name: "Interact" }));
-    const dialog = screen.getByRole("dialog", { name: "Second frame full width" });
-    await expect(dialog).toBeVisible();
-    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Close full width" })).toHaveFocus());
-    await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
-    await waitFor(() => expect(dialog.contains(doc.activeElement)).toBe(true));
-    await expect(previous.closest("[inert]")).not.toBeNull();
-    await expect(header?.closest("[inert]")).not.toBeNull();
-    await userEvent.keyboard("{Escape}");
-    await waitFor(() => expect(screen.getByRole("button", { name: "Interact" })).toHaveFocus());
-    await expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    const headerText = header?.textContent;
     const nav = screen.getByRole("navigation", { name: "Frame navigation" });
+    const heights = [...nav.querySelectorAll("button, select")].map((control) => control.getBoundingClientRect().height);
+    await expect(Math.min(...heights)).toBeGreaterThanOrEqual(44);
+    await expect(Math.max(...heights) - Math.min(...heights)).toBeLessThan(1);
+    const action = await interactOnMobile(screen);
+    const activeMobileFrame = screen.getByTitle("First section · Second frame");
+    await expect(activeMobileFrame).not.toHaveAttribute("inert");
+    await waitFor(() => expect(activeMobileFrame).toHaveFocus());
+    await expect(header?.textContent).toBe(headerText);
+    await expect(header?.closest("[inert]")).toBeNull();
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(action).toHaveTextContent("Interact"));
+    await waitFor(() => expect(action).toHaveFocus());
+    await expect(screen.getByTitle("First section · Second frame")).toHaveAttribute("inert");
+    await interactOnMobile(screen);
+    await userEvent.click(action);
+    await expect(action).toHaveTextContent("Interact");
     for (const name of ["Previous", "Select frame", "Next", "Interact"])
       await expect(within(nav).getByRole(name === "Select frame" ? "combobox" : "button", { name })).toBeVisible();
     await expect(within(board).getByText("First section · 320×700")).toBeVisible();
   },
 };
 
-export const TapOpensFullWidthOnMobile: Story = {
+export const DoubleTapInteractsOnMobile: Story = {
   args: { board: fixture, build: fixtureBuild, frameSource: "blank", narrow: true },
   render: (args) => <div style={{ height: "100dvh", width: 390 }}><ReviewBoardView {...args} /></div>,
   beforeEach: () => withSearch({ frame: "two" }),
   play: async ({ canvasElement }) => {
     const screen = within(canvasElement.ownerDocument.body);
-    await userEvent.click(await screen.findByRole("button", { name: /First section · Second frame · Unchanged/ }));
-    const dialog = await screen.findByRole("dialog", { name: "Second frame full width" });
-    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Close full width" })).toHaveFocus());
+    const overlay = await screen.findByRole("button", { name: /First section · Second frame · Unchanged/ });
+    const action = screen.getByRole("button", { name: "Interact" });
+    await waitFor(() => expect(action).toBeEnabled());
+    const bounds = overlay.getBoundingClientRect();
+    const at = (x: number, y: number) => ({ target: overlay, keys: "[TouchA]", coords: { x: bounds.left + x, y: bounds.top + y } });
+    await userEvent.pointer([at(20, 20)]);
+    await expect(await screen.findByText("Double-tap to interact")).toBeVisible();
+    await expect(action).toHaveTextContent("Interact");
+    await expect(screen.getByTitle("First section · Second frame")).toHaveAttribute("inert");
+    await userEvent.pointer([at(120, 160), at(126, 166)]);
+    await waitFor(() => expect(action).toHaveTextContent("Close"));
+    await expect(screen.queryByText("Double-tap to interact")).not.toBeInTheDocument();
+    await expect(screen.getByTitle("First section · Second frame")).not.toHaveAttribute("inert");
+    await expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     await userEvent.keyboard("{Escape}");
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(action).toHaveTextContent("Interact"));
     await expect(new URL(canvasElement.ownerDocument.location.href).searchParams.get("frame")).toBe("two");
   },
 };
@@ -337,10 +376,9 @@ export const StaleFrameLink: Story = {
     await expect(screen.getByText(/not on this revision/)).toBeVisible();
     await expect(screen.getByRole("button", { name: /First section · First frame · New/ })).toBeVisible();
     await expect(new URL(canvasElement.ownerDocument.location.href).searchParams.get("frame")).toBe("one");
-    await userEvent.click(screen.getByRole("button", { name: "Interact" }));
-    await expect(screen.getByRole("dialog", { name: "First frame full width" })).toBeVisible();
+    const action = await interactOnMobile(screen);
     await userEvent.keyboard("{Escape}");
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(action).toHaveTextContent("Interact"));
   },
 };
 export const RestoredBeforeOnMobile: Story = {
@@ -397,10 +435,9 @@ export const MissingStoryExcluded: Story = {
     await expect(await screen.findByRole("combobox", { name: "Select frame" })).toHaveValue("two");
     await expect(screen.queryByRole("option", { name: /First frame/ })).not.toBeInTheDocument();
     await expect(screen.getByText(/not on this revision/)).toBeVisible();
-    await userEvent.click(screen.getByRole("button", { name: "Interact" }));
-    await expect(screen.getByRole("dialog", { name: "Second frame full width" })).toBeVisible();
+    const action = await interactOnMobile(screen);
     await userEvent.keyboard("{Escape}");
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(action).toHaveTextContent("Interact"));
   },
 };
 const changedFixture = parseBoard({

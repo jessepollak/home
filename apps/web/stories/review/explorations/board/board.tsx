@@ -132,7 +132,6 @@ function BoardCanvas({ board, build, frameSource, narrow, index, onNavigate }: {
   const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, zoom: 1 });
   const [interacting, setInteracting] = useState<string>();
   const [spacePan, setSpacePan] = useState(false);
-  const [full, setFull] = useState(false);
   const [viewport, setViewport] = useState<Size>({ width: 0, height: 0 });
   const [transition, setTransition] = useState(false);
   const [activeFrameReady, setActiveFrameReady] = useState(0);
@@ -145,8 +144,8 @@ function BoardCanvas({ board, build, frameSource, narrow, index, onNavigate }: {
   const boardElement = useRef<HTMLDivElement>(null);
   const lastBoardFocus = useRef<HTMLElement | null>(null);
   const canvas = useRef<HTMLDivElement>(null);
-  const fullButton = useRef<HTMLButtonElement>(null);
-  const closeButton = useRef<HTMLButtonElement>(null);
+  const canvasLeft = useRef<number | null>(null);
+  const actionButton = useRef<HTMLButtonElement>(null);
   const activeFrame = useRef<HTMLIFrameElement>(null);
   const lastWidth = useRef<number | null>(null);
   const firstFit = useRef(false);
@@ -167,7 +166,6 @@ function BoardCanvas({ board, build, frameSource, narrow, index, onNavigate }: {
     fit((after ?? next).rect);
   };
   const interactingPosition = positions.find((position) => position.id === interacting);
-  const dialogOpen = full && selectedPosition !== undefined;
   const center = useMemo(() => ({
     x: (viewport.width / 2 - camera.x) / camera.zoom,
     y: (viewport.height / 2 - camera.y) / camera.zoom,
@@ -234,6 +232,13 @@ function BoardCanvas({ board, build, frameSource, narrow, index, onNavigate }: {
     setTransition(false);
     setCamera(updater);
   }, []);
+  useLayoutEffect(() => {
+    const left = canvas.current?.getBoundingClientRect().left ?? null;
+    const previous = canvasLeft.current;
+    canvasLeft.current = left;
+    if (previous === null || left === null || previous === left) return;
+    moveCamera((old) => ({ ...old, x: old.x + previous - left }));
+  }, [outlineOpen, mobile, moveCamera]);
   const zoom = (factor: number) =>
     moveCamera((old) => zoomAt(old, { x: viewport.width / 2, y: viewport.height / 2 }, factor));
   const select = (id: string, variant?: string) => {
@@ -241,7 +246,6 @@ function BoardCanvas({ board, build, frameSource, narrow, index, onNavigate }: {
     if (!hasBefore && side !== "after") setSide("after");
     const before = hasBefore && side === "both" && variant === `${id}:before`;
     setSelected(id);
-    setFull(false);
     setInteracting((old) => old === (variant ?? id) ? old : undefined);
     setSelectedVariant(before ? variant : undefined);
     updateUrl({ frame: id, variant: before ? "before" : undefined,
@@ -277,17 +281,13 @@ function BoardCanvas({ board, build, frameSource, narrow, index, onNavigate }: {
   };
   const leave = useCallback(() => {
     setInteracting(undefined);
-    setFull(false);
     requestAnimationFrame(() => {
-      if (dialogOpen) fullButton.current?.focus({ preventScroll: true });
+      if (mobile) actionButton.current?.focus({ preventScroll: true });
       else container.current?.querySelector<HTMLElement>(
         `[data-review-frame="${CSS.escape(selectedVariant ?? selected)}"]`,
       )?.focus({ preventScroll: true });
     });
-  }, [dialogOpen, selected, selectedVariant]);
-  useEffect(() => {
-    if (dialogOpen) closeButton.current?.focus({ preventScroll: true });
-  }, [dialogOpen]);
+  }, [mobile, selected, selectedVariant]);
   useEffect(() => {
     const root = boardElement.current;
     const childListeners = new Map<HTMLIFrameElement, { doc: Document; listener: () => void }>();
@@ -342,10 +342,10 @@ function BoardCanvas({ board, build, frameSource, narrow, index, onNavigate }: {
     };
   }, [paletteOpen, helpOpen]);
   useEffect(() => {
-    if (!interacting && !dialogOpen) return;
+    if (!interacting) return;
     const iframe = activeFrame.current;
     const child = iframe?.contentWindow;
-    if (!dialogOpen) iframe?.focus({ preventScroll: true });
+    iframe?.focus({ preventScroll: true });
     const escape = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") { event.preventDefault(); leave(); }
     };
@@ -355,12 +355,11 @@ function BoardCanvas({ board, build, frameSource, narrow, index, onNavigate }: {
       window.removeEventListener("keydown", escape);
       try { child?.removeEventListener("keydown", escape, true); } catch { /* Detached frame. */ }
     };
-  }, [interacting, dialogOpen, leave, activeFrameReady]);
+  }, [interacting, leave, activeFrameReady]);
   const selectedHasBefore = Boolean(allFrames.find(({ frame }) => frame.id === selected)?.frame.before);
   const changeSide = (requested: Side) => {
     const value = requested === "before" && !selectedHasBefore ? "after" : requested;
     setSide(value);
-    setFull(false);
     setInteracting(undefined);
     setSelectedVariant(undefined);
     if (!mobile) fit({ x: 0, y: 0, ...layout(board, value).size });
@@ -415,7 +414,7 @@ function BoardCanvas({ board, build, frameSource, narrow, index, onNavigate }: {
   };
   const keyHandler = useRef(onKey);
   useEffect(() => { keyHandler.current = onKey; });
-  const keysActive = !mobile && !full && !interacting && !paletteOpen && !helpOpen;
+  const keysActive = !mobile && !interacting && !paletteOpen && !helpOpen;
   useEffect(() => {
     if (!keysActive) return;
     const down = (event: globalThis.KeyboardEvent) => keyHandler.current(event);
@@ -432,7 +431,7 @@ function BoardCanvas({ board, build, frameSource, narrow, index, onNavigate }: {
     };
   }, [keysActive]);
   return <div ref={boardElement} className={styles.board} data-review-board={board.id}>
-    <header className={styles.header} inert={dialogOpen}>
+    <header className={styles.header}>
       {!mobile && <Toggle size="sm" aria-label="Outline" title="Toggle outline ([)"
         pressed={outlineOpen} onPressedChange={setOutlineOpen}>
         <PanelLeftIcon />
@@ -467,24 +466,27 @@ function BoardCanvas({ board, build, frameSource, narrow, index, onNavigate }: {
         </Toggle>
       </>}
     </header>
-    {(mismatch || staleFrame) && <div className={styles.banner} role="status" inert={dialogOpen}>
+    {(mismatch || staleFrame) && <div className={styles.banner} role="status">
       {mismatch && <>Opened from a comment on revision {original.rev?.slice(0, 7)}; this is {revision.slice(0, 7)}. </>}
       {staleFrame && <>Frame “{staleFrame}” is not on this revision; showing the first frame.</>}
       {mismatch && originalLink && <a href={originalLink}>Open original deployment</a>}
     </div>}
-    {previewUpdated && <Alert className={styles.updateBanner} inert={dialogOpen}>
+    {previewUpdated && <Alert className={styles.updateBanner}>
       <AlertDescription>A newer build of this preview is available.</AlertDescription>
       <AlertAction>
         <Button variant="outline" size="sm" onClick={() => location.reload()}>Reload</Button>
       </AlertAction>
     </Alert>}
-    <main ref={setContainer} className={styles.content} tabIndex={-1} aria-label="Review board" inert={dialogOpen}>
+    <main ref={setContainer} className={styles.content} tabIndex={-1} aria-label="Review board">
       {mobile ? <MobileReview
         board={board} current={current} position={selectedPosition} index={currentIndex}
         metric={metrics.frames.find((entry) => entry.id === selectedPosition.id)}
-        loaded={loaded.has(selectedPosition.id)}
-        frameSource={frameSource} fullButton={fullButton} onSelect={select} onSide={changeSide}
-        onOpen={() => setFull(true)} onMark={mark} onFinish={finish} onCancel={cancel}
+        loaded={loaded.has(selectedPosition.id)} interacting={interacting === selectedPosition.id}
+        frameSource={frameSource} actionButton={actionButton} activeFrame={activeFrame}
+        onSelect={select} onSide={changeSide}
+        onInteract={() => interact(selectedPosition)} onLeave={leave}
+        onActiveLoad={() => setActiveFrameReady((old) => old + 1)}
+        onMark={mark} onFinish={finish} onCancel={cancel}
       /> : <div className={styles.desktop}>
         {outlineOpen && <Outline board={board} sections={geometry.sections} selected={selectedPosition.id} inPr={build.pr !== null}
           onSelect={selectAndFit} onFitSection={(section) => fit(section.rect)} />}
@@ -503,7 +505,8 @@ function BoardCanvas({ board, build, frameSource, narrow, index, onNavigate }: {
             onExitInteract={() => setInteracting(undefined)}
             onMark={mark} onFinish={finish} onCancel={cancel}
           />
-          {interactingPosition && <InteractChip position={interactingPosition} camera={camera} />}
+          {interactingPosition && <InteractChip position={interactingPosition} camera={camera}
+            viewportWidth={viewport.width} />}
         </div>
         {inspectorOpen && <Inspector section={selectedSection} position={selectedPosition}
           onInteract={() => interact(selectedPosition)} canInteract={canInteract}
@@ -519,17 +522,5 @@ function BoardCanvas({ board, build, frameSource, narrow, index, onNavigate }: {
       <ShortcutsHelp open={helpOpen} onOpenChange={overlayChange(setHelpOpen)} commands={commands}
         returnFocus={overlayFocus} />
     </>}
-    {dialogOpen && <div className={styles.fullscreen} role="dialog" aria-modal="true"
-      aria-label={`${selectedPosition.frame.label} full width`}>
-      <span tabIndex={0} className={styles.focusSentinel} onFocus={() => activeFrame.current?.focus({ preventScroll: true })} />
-      <div className={styles.fullscreenBar}><strong>{selectedPosition.frame.label}</strong>
-        <Button ref={closeButton} variant="outline" size="touch" aria-label="Close full width" onClick={leave}>
-          Close
-        </Button></div>
-      <iframe ref={activeFrame} title={`${selectedPosition.frame.label} full width`}
-        src={frameSource === "blank" ? "about:blank" : storyCanvasUrl(selectedPosition.story)}
-        onLoad={() => setActiveFrameReady((old) => old + 1)} />
-      <span tabIndex={0} className={styles.focusSentinel} onFocus={() => closeButton.current?.focus({ preventScroll: true })} />
-    </div>}
   </div>;
 }

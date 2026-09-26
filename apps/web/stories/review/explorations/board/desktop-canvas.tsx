@@ -1,5 +1,5 @@
 import type { CSSProperties, PointerEvent } from "react";
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Kbd } from "@/components/ui/kbd";
 import { gestureCamera, pan, pinch, showFrameLabel, wheelCamera, type Camera, type Point, type Rect, type Size } from "./camera";
@@ -259,14 +259,32 @@ const CHIP_GAP = 8;
 const LABEL_ROW = 20;
 const EDGE = 8;
 
-export function interactChipPlacement(camera: Camera, rect: Rect): CSSProperties | undefined {
+export function interactChipPlacement(camera: Camera, rect: Rect,
+  bounds: { viewportWidth: number; chipWidth: number }): CSSProperties | undefined {
   const top = camera.y + rect.y * camera.zoom - LABEL_ROW - CHIP_GAP - CHIP_HEIGHT;
   if (top < EDGE) return undefined;
-  return { top, insetInlineStart: Math.max(EDGE, camera.x + rect.x * camera.zoom), translate: "none" };
+  const half = bounds.chipWidth / 2;
+  const center = camera.x + (rect.x + rect.width / 2) * camera.zoom;
+  const min = EDGE + half;
+  const max = Math.max(min, bounds.viewportWidth - EDGE - half);
+  return { top, insetInlineStart: Math.min(max, Math.max(min, center)) };
 }
 
-export function InteractChip({ position, camera }: { position: Positioned; camera: Camera }) {
-  return <Badge className={styles.interactChip} style={interactChipPlacement(camera, position.rect)} role="status">
+export function InteractChip({ position, camera, viewportWidth }: {
+  position: Positioned; camera: Camera; viewportWidth: number;
+}) {
+  const chip = useRef<HTMLSpanElement>(null);
+  const [chipWidth, setChipWidth] = useState(0);
+  useLayoutEffect(() => {
+    const element = chip.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => setChipWidth(element.offsetWidth));
+    setChipWidth(element.offsetWidth);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  return <Badge ref={chip} className={styles.interactChip} role="status"
+    style={interactChipPlacement(camera, position.rect, { viewportWidth, chipWidth })}>
     Interacting with <strong>{frameLabel(position)}</strong> · <Kbd variant="inverse">Esc</Kbd> to exit
   </Badge>;
 }

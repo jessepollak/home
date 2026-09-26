@@ -22,7 +22,7 @@
   color: inherit;
   font: inherit;
 }
-.board button:not([data-slot]), .board select {
+.board button:not([data-slot]), .board select:not(.mobilePicker) {
   min-height: 32px;
   min-width: 32px;
   border: 1px solid var(--border);
@@ -35,7 +35,7 @@
   opacity: .45;
   cursor: not-allowed;
 }
-.board :is(button:not([data-slot]), select, a:not([data-slot]), [role="button"]):focus-visible {
+.board :is(button:not([data-slot]), select:not(.mobilePicker), a:not([data-slot]), [role="button"]):focus-visible {
   outline: 3px solid var(--ring);
   outline-offset: 2px;
 }
@@ -409,7 +409,7 @@
   outline: calc(2px / var(--zoom)) solid var(--ring);
   outline-offset: calc(2px / var(--zoom));
 }
-.interactChip {
+.interactChip, .mobileHint {
   position: absolute;
   inset-block-start: 12px;
   inset-inline-start: 50%;
@@ -518,9 +518,11 @@
   gap: 8px;
 }
 .mobileFrameSpace {
+  position: relative;
   width: 100%;
   min-width: 0;
   overflow: hidden;
+  touch-action: manipulation;
 }
 .mobileFrameHeading {
   display: flex;
@@ -551,52 +553,38 @@
 .mobileActions {
   flex: none;
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 8px;
   padding-block: 8px calc(8px + env(safe-area-inset-bottom));
   padding-inline: calc(12px + env(safe-area-inset-left)) calc(12px + env(safe-area-inset-right));
   background: var(--card);
   border-block-start: 1px solid var(--border);
 }
+.mobileStepper {
+  flex: 1;
+  min-width: 0;
+}
+.mobileStep {
+  flex: none;
+  width: 44px;
+}
 .board .mobilePicker {
   flex: 1;
   min-width: 0;
+  appearance: none;
+  overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+  text-align-last: center;
   font-size: 16px;
 }
-.fullscreen {
-  position: fixed;
-  inset: 0;
-  z-index: 10;
-  background: var(--background);
-  height: 100dvh;
-  padding-block: env(safe-area-inset-top) env(safe-area-inset-bottom);
-  padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
-  display: flex;
-  flex-direction: column;
-}
-.focusSentinel {
-  position: absolute;
-  inline-size: 1px;
-  block-size: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-.fullscreenBar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 14px;
-}
-.fullscreen iframe {
-  border: 0;
-  width: 100%;
-  flex: 1;
-  min-height: 0;
+.mobileAction {
+  flex: none;
+  min-width: 96px;
 }
 @media (max-width: 767px) {
-  .board button:not([data-slot]), .board select {
+  .board button:not([data-slot]), .board select:not(.mobilePicker) {
     min-height: 44px;
     min-width: 44px;
   }
