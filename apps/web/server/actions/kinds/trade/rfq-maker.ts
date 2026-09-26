@@ -1,6 +1,6 @@
 import "server-only";
 
-import { encodeFunctionData, parseAbi, recoverAddress } from "viem";
+import { encodeFunctionData, erc20Abi, parseAbi, recoverAddress } from "viem";
 import type { Address, Hex } from "@/shared/trading/server-types";
 import { PERMIT2_ADDRESS, TradePreparationError } from "./permit2";
 import type { RfqMakerAuthorization } from "./quote";
@@ -63,6 +63,23 @@ export async function verifyRfqMakerAuthorizations(
     if (typeof bitmap !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(bitmap)) throw new TradePreparationError("provider-unavailable");
     if ((BigInt(bitmap) & (BigInt(1) << (auth.permit.nonce & BigInt(255)))) !== BigInt(0)) {
       throw new TradePreparationError("quote-rejected");
+    }
+    let balance: bigint;
+    let allowance: bigint;
+    try {
+      const token = auth.permit.permitted.token;
+      const readWord = async (data: Hex): Promise<bigint> => {
+        const result = await read("eth_call", [{ to: token, data }, blockTag]);
+        if (typeof result !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(result)) throw new Error("Invalid maker token read");
+        return BigInt(result);
+      };
+      balance = await readWord(encodeFunctionData({ abi: erc20Abi, functionName: "balanceOf", args: [auth.maker] }));
+      allowance = await readWord(encodeFunctionData({ abi: erc20Abi, functionName: "allowance", args: [auth.maker, PERMIT2_ADDRESS] }));
+    } catch (error) {
+      throw new TradePreparationError("provider-unavailable", error);
+    }
+    if (balance < auth.permit.permitted.amount || allowance < auth.permit.permitted.amount) {
+      throw new TradePreparationError("stale-quote");
     }
   }
 }

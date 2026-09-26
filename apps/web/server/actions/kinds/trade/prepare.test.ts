@@ -85,6 +85,9 @@ async function prepared(direction: "buy" | "sell", provider: "base-account" | "c
   throwBitmap?: boolean;
   onBitmapCall?: (to: string, data: string, blockTag: unknown) => void;
   onTokenCall?: (functionName: "balanceOf" | "allowance", to: string, data: string, blockTag: unknown) => void;
+  onMakerTokenCall?: (functionName: "balanceOf" | "allowance", to: string, data: string, blockTag: unknown) => void;
+  makerBalanceResult?: unknown;
+  makerAllowanceResult?: unknown;
   balanceResult?: unknown;
   allowanceResult?: unknown;
   chainAllowance?: bigint;
@@ -126,6 +129,13 @@ async function prepared(direction: "buy" | "sell", provider: "base-account" | "c
         return options.bitmapResult === undefined ? `0x${word(BigInt(0))}` : options.bitmapResult;
       }
       if (call.to.toLowerCase() === "0x00000000000004533fe15556b1e086bb1a72ceae" && call.data.slice(0, 10) === "0x6352211e") return `0x${"0".repeat(24)}${ROUTER.slice(2)}`;
+      if (options.makerDeadline !== undefined && call.to.toLowerCase() === swapTokens(direction).toToken) {
+        const functionName = call.data.slice(0, 10) === "0x70a08231" ? "balanceOf" : call.data.slice(0, 10) === "0xdd62ed3e" ? "allowance" : null;
+        if (!functionName) throw new Error(`Unexpected maker token call: ${call.data}`);
+        options.onMakerTokenCall?.(functionName, call.to, call.data, rpcParams[1]);
+        expect(call.data).toBe(encodeFunctionData({ abi: erc20Abi, functionName, args: functionName === "balanceOf" ? [POOL] : [POOL, PERMIT2_ADDRESS] }));
+        return functionName === "balanceOf" ? options.makerBalanceResult ?? `0x${word(1000)}` : options.makerAllowanceResult ?? `0x${word(1000)}`;
+      }
       if (call.to.toLowerCase() === swapTokens(direction).fromToken) {
         const functionName = call.data.slice(0, 10) === "0x70a08231" ? "balanceOf" : call.data.slice(0, 10) === "0xdd62ed3e" ? "allowance" : null;
         if (!functionName) throw new Error(`Unexpected token call: ${call.data}`);
@@ -166,14 +176,21 @@ describe("trade preparation", () => {
   });
   test("reads the RFQ maker's nonce bitmap at the same pinned block as the taker's", async () => {
     const reads: string[] = [];
+    const makerReads: string[] = [];
     await prepared("buy", "cdp-embedded", false, undefined, {
       makerDeadline: BigInt(Math.floor(NOW.getTime() / 1000) + 45),
+      onMakerTokenCall: (method, to, _data, tag) => {
+        expect(to).toBe(swapTokens("buy").toToken);
+        expect(tag).toBe("0x3e8");
+        makerReads.push(method);
+      },
       onBitmapCall: (_to, data, tag) => {
         expect(tag).toBe("0x3e8");
         reads.push(data);
       },
     });
     expect(reads).toEqual([`0x4fe02b44${addr(OWNER)}${word(0)}`, `0x4fe02b44${addr(POOL)}${word(0)}`]);
+    expect(makerReads).toEqual(["balanceOf", "allowance"]);
   });
   test("rejects an invalid maker signature without issuing a draft", async () => {
     const failure = await prepared("buy", "cdp-embedded", false, undefined, {
@@ -286,7 +303,7 @@ describe("trade preparation", () => {
   test.each([false, true])("persists final swap index with fee prepended: %s", async (fee) => {
     const trade = await prepared("buy");
     const inserts: Array<Parameters<ActionsStore["insert"]>[0]> = [];
-    setActionsStoreForTests({ insert: async (value: Parameters<ActionsStore["insert"]>[0]) => { inserts.push(value); } } as ActionsStore);
+    setActionsStoreForTests({ insert: async (value: Parameters<ActionsStore["insert"]>[0]) => { inserts.push(value); }, findUnresolvedTrade: async () => null } as unknown as ActionsStore);
     const handler = createPrepareActionHandler({
       authorize: async () => Response.json(sessions()),
       prepareTrade: async () => trade,

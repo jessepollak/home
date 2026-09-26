@@ -4,9 +4,9 @@ import { encodeCoinbaseExecuteBatch } from "@/server/chain/coinbase-smart-accoun
 import { keccak256 } from "viem";
 import { makePaymasterApproval } from "@/server/paymaster/fee";
 import { BASE_USDC_ADDRESS, BASE_USDC_PAYMASTER_ADDRESS } from "@/shared/money-actions/network-fee";
-import type { ActionRow } from "./store";
+import { UnresolvedTradeError, type ActionRow } from "./store";
 import type { TradeMoneyActionMetadata } from "@/shared/trading/contract";
-import { createConfirmActionHandler, createGetActionHandler, createRetryActionHandler } from "./handler";
+import { createConfirmActionHandler, createGetActionHandler, createGetPendingTradeHandler, createRetryActionHandler } from "./handler";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const OWNER = "0x1111111111111111111111111111111111111111" as const;
@@ -83,6 +83,36 @@ describe("trade confirmation", () => {
     expect(body.calls[2].data).toStartWith("0x1234");
     expect(body.calls[2].data.length).toBeGreaterThan(swap.data.length);
     expect(committed).toBe(keccak256(encodeCoinbaseExecuteBatch(body.calls)));
+  });
+  test("reports an owner-scoped unresolved trade for dialog reopening", async () => {
+    const row = retryRow(String(Date.parse("2026-09-25T12:03:00.000Z") / 1000));
+    row.summary.metadata = { ...row.summary.metadata, direction: "sell" } as TradeMoneyActionMetadata;
+    const handler = createGetPendingTradeHandler({
+      authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
+      store: { findUnresolvedTrade: async (owner) => owner.subject === "owner" ? row : null },
+    });
+    const result = await handler(new Request("https://home.test/api/actions/trade-pending", { headers: { "X-Home-Account-Provider": "cdp-embedded" } }));
+    expect(result.status).toBe(200);
+    expect(await result.json()).toEqual({ version: 1, trade: { id: ID, direction: "sell" } });
+    const reconciled = createGetPendingTradeHandler({
+      authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
+      store: { findUnresolvedTrade: async () => null },
+    });
+    expect(await (await reconciled(new Request("https://home.test/api/actions/trade-pending", { headers: { "X-Home-Account-Provider": "cdp-embedded" } }))).json())
+      .toEqual({ version: 1, trade: null });
+  });
+  test("rejects a competing trade confirmation while an earlier trade is unresolved", async () => {
+    const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
+    const handler = createConfirmActionHandler({
+      authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
+      now: () => new Date("2026-09-25T12:01:00.000Z"),
+      verifySmartAccountSignature: async () => true,
+      store: { get: async () => row, confirm: async () => { throw new UnresolvedTradeError(); } },
+    });
+    const signature = await SIGNER.signTypedData({ ...typed, domain: { ...typed.domain, chainId: BigInt(8453) } });
+    const result = await handler(request(signature, "cdp-embedded"), context);
+    expect(result.status).toBe(409);
+    expect(await result.json()).toMatchObject({ error: { code: "TRADE_UNRESOLVED" } });
   });
   test("reload returns the verified trade signing request", async () => {
     const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");

@@ -5,6 +5,7 @@ import { LoaderCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { MoneyMotionProvider } from "@/components/money-ticker";
 import { useReactiveExpiry } from "@/client/actions/expiry";
+import { parsePendingTradeResponse } from "@/shared/actions/contracts/trade-pending";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import {
@@ -37,7 +38,8 @@ type Props = {
   onClosed?: () => void;
   onConfirmed?: (result: OperationResult) => void | Promise<void>;
 };
-type Step = "amount" | "confirm" | "pending" | "failed";
+type Step = "amount" | "confirm" | "pending" | "failed" | "unresolved";
+type TradeGate = "checking" | "ready" | "unavailable" | { direction: TradeDirection | null };
 
 export function TradeMoneyDialog({ open, direction, session, availableBaseUnits, fetchAccountResource, prepareMoneyAction, executeMoneyAction, onClose, onClosed, onConfirmed }: Props) {
   const ownerKey = session.smartAccount ? dataOwnerKey(session) : null;
@@ -51,9 +53,11 @@ export function TradeMoneyDialog({ open, direction, session, availableBaseUnits,
   const [step, setStep] = useState<Step>("amount");
   const [error, setError] = useState<string | null>(null);
   const [attempted, setAttempted] = useState(false);
+  const [tradeGate, setTradeGate] = useState<TradeGate>("checking");
   const [serverExpiredId, setServerExpiredId] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const preparation = useRef(0);
+  const fetchPendingTrade = useRef(fetchAccountResource);
   const metadata = prepared?.metadata?.product === "trade" ? prepared.metadata : null;
   const { expired, recheckExpired } = useReactiveExpiry(prepared?.expiresAt ?? null);
   const actionExpired = expired || (prepared !== null && serverExpiredId === prepared.id);
@@ -66,14 +70,38 @@ export function TradeMoneyDialog({ open, direction, session, availableBaseUnits,
     return () => window.clearInterval(timer);
   }, [step, prepared, actionExpired]);
   useEffect(() => () => { preparation.current += 1; }, []);
+  useEffect(() => { fetchPendingTrade.current = fetchAccountResource; }, [fetchAccountResource]);
+  useEffect(() => {
+    if (!open || !ownerKey) return;
+    let current = true;
+    void (async () => {
+      try {
+        const response = parsePendingTradeResponse(await fetchPendingTrade.current("/api/actions/trade-pending"));
+        if (!response) throw new Error("Invalid pending trade response.");
+        if (!current) return;
+        setTradeGate(response.trade ? { direction: response.trade.direction } : "ready");
+        if (response.trade) {
+          setStep("unresolved"); setPrepared(null); setAttempted(true); setError(null);
+        } else {
+          setStep("amount"); setPrepared(null); setAttempted(false); setError(null);
+        }
+      } catch { // oxlint-disable-line home/no-silent-catch -- an unreadable owner-scoped trade check disables preparation and shows recovery copy
+        if (current) setTradeGate("unavailable");
+      }
+    })();
+    return () => { current = false; };
+  }, [open, ownerKey]);
 
   function changeAmount(value: string) {
     setAmount(value);
   }
   function close() {
     preparation.current += 1;
-    setAmount(""); setAmountBaseUnits(null); setPrepared(null); setAttempted(false);
-    setServerExpiredId(null); setStep("amount"); setError(null);
+    setTradeGate("checking");
+    if (!attempted) {
+      setAmount(""); setAmountBaseUnits(null); setPrepared(null);
+      setServerExpiredId(null); setStep("amount"); setError(null);
+    }
     onClose();
   }
   function back() {
@@ -82,12 +110,12 @@ export function TradeMoneyDialog({ open, direction, session, availableBaseUnits,
   const enteredBaseUnits = parseTradeAmount(amount, decimals);
   const reservePending = direction === "buy" && reserve === undefined;
   const exceedsAvailable = !reservePending && enteredBaseUnits !== null && maxBaseUnits !== null && BigInt(enteredBaseUnits) > BigInt(maxBaseUnits);
-  const canContinue = !!ownerKey && maxBaseUnits !== null && !reservePending &&
+  const canContinue = tradeGate === "ready" && !!ownerKey && maxBaseUnits !== null && !reservePending &&
     isPositiveDecimalAmount(amount) && enteredBaseUnits !== null && !exceedsAvailable;
 
   async function prepare(requote = false) {
     const amountToPrepare = requote ? amountBaseUnits : enteredBaseUnits;
-    if (!amountToPrepare || !session.smartAccount) return;
+    if (tradeGate !== "ready" || !amountToPrepare || !session.smartAccount) return;
     const request: TradeActionParams = { version: TRADE_ACTION_CONTRACT_VERSION, assetId: TRADE_ASSET_ID, direction, amountBaseUnits: amountToPrepare };
     const generation = ++preparation.current;
     setError(null);
@@ -100,6 +128,9 @@ export function TradeMoneyDialog({ open, direction, session, availableBaseUnits,
       setPrepared(action); setServerExpiredId(null); setAttempted(false); setNow(Date.now()); setStep("confirm");
     } catch (caught) { // oxlint-disable-line home/no-silent-catch -- superseded quote failures are fenced; current failures show recovery copy
       if (generation !== preparation.current) return;
+      if (isRecord(caught) && caught.code === "TRADE_UNRESOLVED") {
+        setTradeGate({ direction: null }); setStep("unresolved"); return;
+      }
       setError(messageForTradeError(caught));
       setStep(requote ? "confirm" : "amount");
     }
@@ -130,11 +161,22 @@ export function TradeMoneyDialog({ open, direction, session, availableBaseUnits,
       }
       close();
     } catch (caught) {
+      if (isRecord(caught) && caught.code === "TRADE_UNRESOLVED") {
+        setAttempted(true);
+        setTradeGate({ direction: null });
+        setStep("unresolved");
+        return;
+      }
       if (isRecord(caught) && (caught.code === "ACTION_EXPIRED" || caught.code === "TRADE_QUOTE_STALE")) {
         setServerExpiredId(prepared.id);
         setError("This quote expired. Get a new quote.");
       } else if (caught instanceof TransferExecutionError && (caught.reason === "not-submitted" || caught.reason === "invalid-request")) {
         setError(caught.reason === "not-submitted" ? "Couldn't sign this trade. Try again or get a new quote." : "This quote can't be signed. Get a new quote.");
+      } else if (caught instanceof TransferExecutionError && caught.reason === "dispatch-unknown") {
+        setAttempted(true);
+        setTradeGate({ direction });
+        setStep("unresolved");
+        return;
       } else {
         setAttempted(true);
         setError("We couldn't confirm this trade yet. Retry to record the same trade, or check Activity before trading again.");
@@ -145,7 +187,7 @@ export function TradeMoneyDialog({ open, direction, session, availableBaseUnits,
 
   return <MoneyMotionProvider>
     <MoneyModal open={open} labelledBy="trade-action-title" pending={step === "pending"} onCancel={close} onClose={onClosed ?? (() => {})}>
-      <MoneyModalHeader title={step === "amount" ? direction === "buy" ? "Buy Bitcoin" : "Sell Bitcoin" : "Confirm"} titleId="trade-action-title"
+      <MoneyModalHeader title={step === "amount" ? direction === "buy" ? "Buy Bitcoin" : "Sell Bitcoin" : step === "unresolved" ? "Trade unresolved" : "Confirm"} titleId="trade-action-title"
         {...(canGoBack ? { onBack: back } : {})} onClose={close} closeLabel="Close trade dialog" />
       <MoneyModalBody hasFooter={step !== "pending"} className="gap-4 pt-4">
         {step === "amount" ? <>
@@ -162,11 +204,13 @@ export function TradeMoneyDialog({ open, direction, session, availableBaseUnits,
             {maxBaseUnits === null ? <Notice>Balance unavailable. Try again shortly.</Notice> : null}
           </MoneyAmountDisplay>
         </> : null}
-        {prepared && metadata && step !== "amount" ? <MoneyConfirmSummary action={prepared}
+        {prepared && metadata && step !== "amount" && step !== "unresolved" ? <MoneyConfirmSummary action={prepared}
           amount={tradeDisplayAmount(metadata.direction, metadata.fromAmountBaseUnits)}
           lead={direction === "buy" ? "Buy Bitcoin" : "Sell Bitcoin"}
           rows={tradeReviewRows(prepared, metadata, actionExpired ? 0 : secondsLeft)} /> : null}
         {step === "pending" ? <Notice><span className="flex items-center gap-2"><LoaderCircle className="size-4 animate-spin" aria-hidden="true" />{prepared ? "Waiting for your wallet…" : "Getting a quote…"}</span></Notice> : null}
+        {step === "amount" && tradeGate === "unavailable" ? <Notice tone="error">Couldn&apos;t check previous trades. Close and try again.</Notice> : null}
+        {step === "unresolved" ? <Notice tone="error" role="alert">{typeof tradeGate === "object" && tradeGate.direction ? `Your ${tradeGate.direction === "buy" ? "Buy" : "Sell"} Bitcoin trade` : "A trade"} has an unresolved dispatch. Check Activity before trading again.</Notice> : null}
         {expiredUnresolved ? <Notice tone="error" role="alert">This quote expired before the outcome was recorded. Check Activity before trading again.</Notice>
           : error ? <Notice tone="error" role="alert">{error}</Notice> : null}
       </MoneyModalBody>
@@ -176,6 +220,7 @@ export function TradeMoneyDialog({ open, direction, session, availableBaseUnits,
         primaryDisabled={!metadata} onPrimary={() => void (expiredUnresolved ? close() : actionExpired ? prepare(true) : confirm())}
         {...(canGoBack ? { secondaryLabel: "Back", onSecondary: back } : {})} /> : null}
       {step === "failed" ? <MoneyModalFooter primaryLabel="Back" onPrimary={back} secondaryLabel="Close" onSecondary={close} /> : null}
+      {step === "unresolved" ? <MoneyModalFooter primaryLabel="Close" onPrimary={close} /> : null}
     </MoneyModal>
   </MoneyMotionProvider>;
 }
@@ -234,6 +279,7 @@ function messageForTradeError(error: unknown): string {
       case "TRADE_NO_LIQUIDITY": return "No liquidity for this amount. Try a smaller trade.";
       case "TRADE_INSUFFICIENT_BALANCE": return "Not enough balance for this trade. Try a smaller amount.";
       case "TRADE_QUOTE_STALE": case "TRADE_QUOTE_REJECTED": return "This quote changed. Get a new quote.";
+      case "TRADE_UNRESOLVED": return "Check Activity for the previous trade before trading again.";
       case "TRADE_SIGNER_UNSUPPORTED": return "Trading isn't available for this account.";
       case "TRADE_UNAVAILABLE": return "Trading isn't available right now. Try again later.";
       case "TRADE_INVALID": return "Enter a valid amount and try again.";

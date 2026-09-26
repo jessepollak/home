@@ -26,6 +26,8 @@ import {
 import type { ActionAuthorizer } from "./handler";
 import { prepareTradeAction, tradePreparationResponse } from "./kinds/trade/prepare";
 import { isTradeErrorCode } from "@/shared/trading/contract";
+import { getActionsStore, UnresolvedTradeError } from "./store";
+import { moneyActionOwner } from "@/server/money-actions/session";
 
 export function createPrepareActionHandler(dependencies: {
   authorize: ActionAuthorizer;
@@ -57,6 +59,7 @@ export function createPrepareActionHandler(dependencies: {
       const action = await prepare(session, body.kind, body.params, request, dependencies);
       return privateJson(action satisfies PrepareActionResponse, 201);
     } catch (error) {
+      if (error instanceof UnresolvedTradeError) return fail("TRADE_UNRESOLVED", "Check Activity for the previous trade before trading again.", 409);
       if (error instanceof NetworkFeeUnfundedError) return fail(error.code, error.message, 409);
       if (error instanceof NetworkFeeUnavailableError) return fail(NETWORK_FEE_UNAVAILABLE_CODE, error.message, 502);
       const tradeFailure = body.kind === "trade" ? tradePreparationResponse(error) : null;
@@ -137,6 +140,8 @@ async function prepare(
     return issue(preparation.draft);
   }
   if (kind === "trade") {
+    const owner = moneyActionOwner(session);
+    if (owner && await getActionsStore().findUnresolvedTrade(owner)) throw new UnresolvedTradeError();
     const { draft, pending, callGasLimit } = await (dependencies.prepareTrade ?? prepareTradeAction)({ session, request, params, signal });
     const withFee = await (dependencies.applyFee ?? applyNetworkFee)(session, draft, { signal, request, callGasLimit });
     return issueMoneyAction(session, withFee, { pending: { ...pending, swapCallIndex: withFee.calls.length - 1 } });

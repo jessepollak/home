@@ -9,6 +9,7 @@ import { DECLINE_ACTION_CONTRACT_VERSION, parseDeclineActionRequest, type Declin
 import { RETRY_ACTION_CONTRACT_VERSION, parseRetryActionRequest, type RetryActionResponse } from "@/shared/actions/contracts/retry";
 import type { ActionListItem, ListActionsResponse } from "@/shared/actions/contracts/list";
 import type { CashoutProgress } from "@/shared/funding/contracts/cash-out-progress";
+import type { PendingTradeResponse } from "@/shared/actions/contracts/trade-pending";
 import type { MoneyActionCall, MoneyActionOwner } from "@/shared/money-actions/types";
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
 import { actionConfirmedEvent } from "@/server/operator-events/events";
@@ -16,7 +17,7 @@ import { deferCustomerRecord } from "@/server/customers/resolve";
 import { createTransferReceiptReader, type TransferReceiptStatus } from "./receipt";
 import { moneyActionOwner } from "@/server/money-actions/session";
 import { privateError, privateJson } from "@/server/http/private-response";
-import { getActionsStore, type ActionRow, type ActionsStore, type CashoutOrderRow, type PendingAction, type ActionOutcome } from "./store";
+import { getActionsStore, UnresolvedTradeError, type ActionRow, type ActionsStore, type CashoutOrderRow, type PendingAction, type ActionOutcome } from "./store";
 import { deriveActionStatus, type ActionReceiptState } from "./status";
 import { finalizeTradeCalls, type PendingTradeConfirmation } from "./kinds/trade/finalize";
 import type { TradeConfirmRequest } from "@/shared/trading/contract";
@@ -196,7 +197,13 @@ export function createConfirmActionHandler(dependencies: {
       }
     }
 
-    const row = replay ? draft : await store.confirm(owner, id, calls);
+    let row: ActionRow | null;
+    try {
+      row = replay ? draft : await store.confirm(owner, id, calls);
+    } catch (error) {
+      if (error instanceof UnresolvedTradeError) return fail("TRADE_UNRESOLVED", "Check Activity for the previous trade before trading again.", 409);
+      throw error;
+    }
     if (!row || !row.pending?.calls?.length) return fail("ACTION_NOT_FOUND", "The action is unavailable or already confirmed.", 404);
     if (!replay) await recordConfirmedBestEffort(row, dependencies.recordConfirmed);
     if (gasHintCode) {
@@ -313,6 +320,20 @@ export function createRetryActionHandler(dependencies: {
     if (!result.row) return privateError("ACTION_NOT_FOUND", "The action was not found.", 404);
     if (result.conflict) return privateError(result.dispatched ? "ACTION_ALREADY_DISPATCHED" : "ACTION_RETRY_CONFLICT", "The action cannot be retried.", 409);
     return privateJson({ version: RETRY_ACTION_CONTRACT_VERSION, action: await presentAction(result.row, owner) } satisfies RetryActionResponse, 200);
+  };
+}
+
+export function createGetPendingTradeHandler(dependencies: {
+  authorize: ActionAuthorizer;
+  store?: Pick<ActionsStore, "findUnresolvedTrade">;
+  now?: () => Date;
+}) {
+  return async function GET(request: Request): Promise<Response> {
+    const owner = await authorizeOwner(request, dependencies.authorize);
+    if (owner instanceof Response) return owner;
+    const row = await (dependencies.store ?? getActionsStore()).findUnresolvedTrade(owner, dependencies.now?.() ?? new Date());
+    const direction = row?.summary.metadata?.product === "trade" ? row.summary.metadata.direction : null;
+    return privateJson({ version: 1, trade: row ? { id: row.id, direction } : null } satisfies PendingTradeResponse, 200);
   };
 }
 

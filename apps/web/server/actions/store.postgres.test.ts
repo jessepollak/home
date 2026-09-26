@@ -4,7 +4,8 @@ import { keccak256 } from "viem";
 import { encodeCoinbaseExecuteBatch } from "@/server/chain/coinbase-smart-account";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
 import { readMigrationSql } from "@/tests/helpers/migrations";
-import { ActionsStore, actionOwnerKey } from "./store";
+import { ActionsStore, UnresolvedTradeError, actionOwnerKey } from "./store";
+import type { TradeMoneyActionMetadata } from "@/shared/trading/contract";
 
 const connectionString = process.env.ACTION_PG_TEST_URL?.trim();
 const describePostgres = connectionString ? describe : describe.skip;
@@ -111,6 +112,34 @@ describePostgres("actions schema and store", () => {
     expect((await store.get(owner, handled))?.pending).toBeNull();
     await store.recordOutcome(owner, settled, { outcome: "not_submitted", source: "wallet", settledAt: null });
     expect((await store.get(owner, settled))?.pending).toBeNull();
+  });
+
+  test("blocks other trades for the owner until reconciliation or execution deadline, but not explicit declines", async () => {
+    const deadline = Math.floor(Date.now() / 1000) + 180;
+    const tradeSummary = { ...summary, metadata: { product: "trade", direction: "buy", executionDeadline: String(deadline) } as TradeMoneyActionMetadata };
+    const first = randomUUID();
+    const second = randomUUID();
+    await store.insert({ id: first, owner, kind: "trade", summary: tradeSummary, pending: { calls }, createdAt: new Date().toISOString() });
+    await store.insert({ id: second, owner, kind: "trade", summary: tradeSummary, pending: { calls }, createdAt: new Date().toISOString() });
+    await store.confirm(owner, first);
+    expect((await store.findUnresolvedTrade(owner))?.id).toBe(first);
+    expect(await store.findUnresolvedTrade(otherOwner)).toBeNull();
+    await expect(store.insert({ id: randomUUID(), owner, kind: "trade", summary: tradeSummary, pending: { calls }, createdAt: new Date().toISOString() }))
+      .rejects.toBeInstanceOf(UnresolvedTradeError);
+    await expect(store.confirm(owner, second)).rejects.toBeInstanceOf(UnresolvedTradeError);
+    await store.recordOutcome(owner, first, { outcome: "succeeded", source: "chain", settledAt: new Date() });
+    expect(await store.findUnresolvedTrade(owner)).toBeNull();
+    await store.confirm(owner, second);
+    expect((await store.findUnresolvedTrade(owner))?.id).toBe(second);
+    expect(await store.findUnresolvedTrade(owner, new Date((deadline + 1) * 1000))).toBeNull();
+    await sql.query("UPDATE actions SET summary = jsonb_set(summary, '{metadata,executionDeadline}', to_jsonb($2::text)) WHERE id = $1", [second, String(Math.floor(Date.now() / 1000) - 1)]);
+    expect(await store.findUnresolvedTrade(owner)).toBeNull();
+    const third = randomUUID();
+    await store.insert({ id: third, owner, kind: "trade", summary: tradeSummary, pending: { calls }, createdAt: new Date().toISOString() });
+    await store.confirm(owner, third);
+    await store.recordDecline(owner, third, 0);
+    expect(await store.findUnresolvedTrade(owner)).toBeNull();
+    await store.insert({ id: randomUUID(), owner, kind: "trade", summary: tradeSummary, pending: { calls }, createdAt: new Date().toISOString() });
   });
 
   test("confirmation without pending calls does not write a commitment", async () => {

@@ -83,6 +83,8 @@ export async function executeActionOnce(input: {
     if (retryGateFailed && input.providerDispatches.get(input.id) === dispatch) {
       input.providerDispatches.delete(input.id);
     }
+    if (error instanceof TransferExecutionError && error.reason === "stale-session") throw error;
+    if (!retryGateFailed) throw new TransferExecutionError("dispatch-unknown", error);
     throw error;
   }
   input.fence.assertCurrent(input.generation);

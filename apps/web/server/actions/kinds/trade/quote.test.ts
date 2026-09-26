@@ -647,7 +647,7 @@ function rfqQuote(signature: Hex, maker: Address = makerAddress) {
     action("0xd92aadfb", rfqAbi, [TARGET, rfqPermit(quote), maker, signature, quote.fromToken, quote.fromAmount]), positive(request)] });
   return quote;
 }
-function makerRead(maker: Address, options: { code?: unknown; result?: unknown; bitmap?: unknown; fail?: string } = {}) {
+function makerRead(maker: Address, options: { code?: unknown; result?: unknown; bitmap?: unknown; balance?: unknown; allowance?: unknown; fail?: string } = {}) {
   const calls: Array<[string, readonly unknown[]]> = [];
   const read = async (method: string, params: readonly unknown[]): Promise<unknown> => {
     calls.push([method, params]);
@@ -661,6 +661,15 @@ function makerRead(maker: Address, options: { code?: unknown; result?: unknown; 
     if (call.to === PERMIT2_ADDRESS) {
       expect(call.data).toBe(`0x4fe02b44${addressWord(maker)}${word(1)}`);
       return options.bitmap ?? `0x${word(0)}`;
+    }
+    if (call.to === swapTokens("buy").toToken) {
+      if (options.fail === call.data.slice(0, 10)) throw new Error("RPC error");
+      if (call.data.slice(0, 10) === "0x70a08231") {
+        expect(call.data).toBe(encodeFunctionData({ abi: parseAbi(["function balanceOf(address) view returns (uint256)"]), functionName: "balanceOf", args: [maker] }));
+        return options.balance ?? `0x${word(1000)}`;
+      }
+      expect(call.data).toBe(encodeFunctionData({ abi: parseAbi(["function allowance(address,address) view returns (uint256)"]), functionName: "allowance", args: [maker, PERMIT2_ADDRESS] }));
+      return options.allowance ?? `0x${word(1000)}`;
     }
     expect(call.to).toBe(maker);
     expect(call.data.slice(0, 10)).toBe("0x1626ba7e");
@@ -687,7 +696,7 @@ describe("RFQ maker authorization", () => {
     expect(auths[0]!.digest).toBe(hashTypedData(witnessData(rfq)));
     const { read, calls } = makerRead(makerAddress);
     await verifyRfqMakerAuthorizations(auths, read, "0x3e8");
-    expect(calls.map(([method]) => method)).toEqual(["eth_getCode", "eth_call"]);
+    expect(calls.map(([method]) => method)).toEqual(["eth_getCode", "eth_call", "eth_call", "eth_call"]);
   });
   test.each([
     ["malformed 0x1234", async () => "0x1234" as Hex],
@@ -713,6 +722,28 @@ describe("RFQ maker authorization", () => {
     expect(swapExecutionMatches(request, quote, TARGET).actionsVerified).toBe(false);
     expect(() => validate(quote)).toThrow("unverified-actions");
   });
+  test.each([
+    ["insufficient output balance", { balance: `0x${word(999)}` }],
+    ["insufficient Permit2 allowance", { allowance: `0x${word(999)}` }],
+  ] as const)("rejects %s at the pinned block", async (_label, options) => {
+    const quote = fixture();
+    const rfq = rfqQuote(await makerAccount.signTypedData(witnessData(quote)));
+    const { read } = makerRead(makerAddress, options);
+    await expect(verifyRfqMakerAuthorizations(rfqMakerAuthorizations(request, rfq, TARGET), read, "0x3e8"))
+      .rejects.toMatchObject({ reason: "stale-quote" });
+  });
+  test.each([
+    ["balance read failure", { fail: "0x70a08231" }],
+    ["allowance read failure", { fail: "0xdd62ed3e" }],
+    ["malformed balance", { balance: "0x" }],
+    ["malformed allowance", { allowance: "0x" }],
+  ] as const)("fails closed on %s", async (_label, options) => {
+    const quote = fixture();
+    const rfq = rfqQuote(await makerAccount.signTypedData(witnessData(quote)));
+    const { read } = makerRead(makerAddress, options);
+    await expect(verifyRfqMakerAuthorizations(rfqMakerAuthorizations(request, rfq, TARGET), read, "0x3e8"))
+      .rejects.toMatchObject({ reason: "provider-unavailable" });
+  });
   test("rejects a used maker nonce", async () => {
     const quote = fixture();
     const rfq = rfqQuote(await makerAccount.signTypedData(witnessData(quote)));
@@ -726,7 +757,7 @@ describe("RFQ maker authorization", () => {
     const { read, calls } = makerRead(MAKER, valid ? { code: "0x6000" } : { code: "0x6000", result: `0x00000000${"0".repeat(56)}` });
     if (valid) await verifyRfqMakerAuthorizations(auth, read, "0x3e8");
     else await expect(verifyRfqMakerAuthorizations(auth, read, "0x3e8")).rejects.toMatchObject({ reason: "unverified-actions" });
-    expect(calls.map(([method]) => method)).toEqual(valid ? ["eth_getCode", "eth_call", "eth_call"] : ["eth_getCode", "eth_call"]);
+    expect(calls.map(([method]) => method)).toEqual(valid ? ["eth_getCode", "eth_call", "eth_call", "eth_call", "eth_call"] : ["eth_getCode", "eth_call"]);
     expect((calls[1]![1][0] as { data: Hex }).data).toBe(encodeFunctionData({
       abi: parseAbi(["function isValidSignature(bytes32 hash, bytes signature) view returns (bytes4)"]),
       functionName: "isValidSignature", args: [auth[0]!.digest, "0x1234"],

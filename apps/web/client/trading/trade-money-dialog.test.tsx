@@ -43,14 +43,15 @@ function dialog(direction: TradeDirection, options: {
   prepare?: (kind: string, params: TradeActionParams) => Promise<PreparedMoneyAction>;
   execute?: () => Promise<{ id: string; status: "rejected" | "submitted" }>;
   balance?: string;
-  fetchAccountResource?: () => Promise<unknown>;
+  fetchAccountResource?: (path: string) => Promise<unknown>;
 } = {}) {
   const requests: TradeActionParams[] = [];
   const prepare = options.prepare ?? (async (_kind: string, params: TradeActionParams) => action(direction, params.amountBaseUnits));
   let executions = 0;
   const view = render(<TradeMoneyDialog open direction={direction} session={session}
     availableBaseUnits={options.balance ?? (direction === "buy" ? "10000000" : "123456")}
-    fetchAccountResource={options.fetchAccountResource ?? (async () => ({ version: 1, usdcReserveBaseUnits: "20000" }))}
+    fetchAccountResource={options.fetchAccountResource ?? (async (path) => path === "/api/actions/trade-pending"
+      ? { version: 1, trade: null } : { version: 1, usdcReserveBaseUnits: "20000" })}
     prepareMoneyAction={async (kind, params) => {
       requests.push(params as TradeActionParams);
       return prepare(kind, params as TradeActionParams);
@@ -191,6 +192,74 @@ describe("Bitcoin trade review", () => {
     await waitFor(() => expect(trade.view.getByRole("alert").textContent).toBe("This quote can't be signed. Get a new quote."));
     expect(trade.view.getByRole("button", { name: "Buy $1.00" })).toBeTruthy();
   });
+  test("close and reopen after ambiguous dispatch blocks quotes until the trade is reconciled", async () => {
+    let pending = false;
+    let prepares = 0;
+    let dispatches = 0;
+    const options = {
+      prepare: async (_kind: string, params: TradeActionParams) => { prepares++; return action("buy", params.amountBaseUnits); },
+      execute: async (): Promise<{ id: string; status: "submitted" }> => {
+        dispatches++;
+        pending = true;
+        throw new TransferExecutionError("dispatch-unknown");
+      },
+      fetchAccountResource: async (path: string) => path === "/api/actions/trade-pending"
+        ? { version: 1, trade: pending ? { id: "previous", direction: "buy" } : null }
+        : { version: 1, usdcReserveBaseUnits: "20000" },
+    };
+    const initial = dialog("buy", options);
+    typeAmount(initial.view, "1");
+    await continueTrade(initial.view);
+    await waitFor(() => expect(initial.view.getByRole("button", { name: "Buy $1.00" })).toBeTruthy());
+    key(initial.view, "Buy $1.00");
+    await waitFor(() => expect(initial.view.getByRole("alert").textContent).toContain("Check Activity"));
+    expect(initial.view.queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(initial.view.queryByRole("button", { name: "Continue" })).toBeNull();
+    key(initial.view, "Close trade dialog");
+    initial.view.unmount();
+    const blocked = dialog("sell", options);
+    await waitFor(() => expect(blocked.view.getByRole("alert").textContent).toContain("Your Buy Bitcoin trade has an unresolved dispatch"));
+    expect(blocked.view.queryByRole("button", { name: "Continue" })).toBeNull();
+    expect({ prepares, dispatches }).toEqual({ prepares: 1, dispatches: 1 });
+    key(blocked.view, "Close");
+    blocked.view.unmount();
+    pending = false;
+    const recovered = dialog("buy", options);
+    typeAmount(recovered.view, "2");
+    await continueTrade(recovered.view);
+    await waitFor(() => expect(recovered.view.getByRole("button", { name: "Buy $2.00" })).toBeTruthy());
+    expect({ prepares, dispatches }).toEqual({ prepares: 2, dispatches: 1 });
+  });
+  test("an unreadable unresolved-trade check fails closed before preparing", async () => {
+    const trade = dialog("buy", { fetchAccountResource: async (path) => {
+      if (path === "/api/actions/trade-pending") throw new Error("check unavailable");
+      return { version: 1, usdcReserveBaseUnits: "20000" };
+    } });
+    typeAmount(trade.view, "1");
+    await waitFor(() => expect(trade.view.getByText("Couldn't check previous trades. Close and try again.")).toBeTruthy());
+    expect((trade.view.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(trade.requests).toHaveLength(0);
+  });
+  test("a competing confirm blocked by the owner gate offers Activity, not Retry", async () => {
+    const trade = dialog("buy", { execute: async () => { throw { code: "TRADE_UNRESOLVED" }; } });
+    typeAmount(trade.view, "1");
+    await continueTrade(trade.view);
+    await waitFor(() => expect(trade.view.getByRole("button", { name: "Buy $1.00" })).toBeTruthy());
+    key(trade.view, "Buy $1.00");
+    await waitFor(() => expect(trade.view.getByRole("alert").textContent).toContain("Check Activity"));
+    expect(trade.view.queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(trade.executions()).toBe(1);
+  });
+  test("a lost confirm response retains Retry on the same trade", async () => {
+    const trade = dialog("buy", { execute: async () => { throw new TransferExecutionError("submission-unknown"); } });
+    typeAmount(trade.view, "1");
+    await continueTrade(trade.view);
+    await waitFor(() => expect(trade.view.getByRole("button", { name: "Buy $1.00" })).toBeTruthy());
+    key(trade.view, "Buy $1.00");
+    await waitFor(() => expect(trade.view.getByRole("button", { name: "Retry" })).toBeTruthy());
+    expect(trade.view.getByRole("alert").textContent).toContain("Retry to record the same trade");
+    expect(trade.requests).toHaveLength(1);
+  });
   test("signing failure does not clear a previous unresolved dispatch", async () => {
     let attempts = 0;
     const trade = dialog("buy", { execute: async () => {
@@ -247,12 +316,13 @@ describe("Bitcoin trade review", () => {
     expect(trade.view.queryAllByRole("button", { name: "Back" })).toHaveLength(0);
     key(trade.view, "Close");
     expect(trade.executions()).toBe(1);
-    expect(trade.view.getByRole("button", { name: "Continue" })).toBeTruthy();
+    expect(trade.view.queryByRole("button", { name: "Continue" })).toBeNull();
   });
   test("a failed network-fee check offers Try again and recovers Buy", async () => {
     let settle: (() => void) | undefined;
     let requests = 0;
-    const trade = dialog("buy", { fetchAccountResource: async () => {
+    const trade = dialog("buy", { fetchAccountResource: async (path) => {
+      if (path === "/api/actions/trade-pending") return { version: 1, trade: null };
       requests++;
       if (requests <= 3) throw new Error("synthetic fee policy failure");
       return new Promise((resolve) => { settle = () => resolve({ version: 1, usdcReserveBaseUnits: "20000" }); });
