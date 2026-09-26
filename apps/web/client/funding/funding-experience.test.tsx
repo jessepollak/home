@@ -2,6 +2,7 @@ import "@/client/account/dom-test-harness";
 
 import { page } from "@/tests/helpers/dom";
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import { renderToStaticMarkup } from "react-dom/server";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { getHomeQueryClient } from "@/client/query/query-client";
 
@@ -9,6 +10,7 @@ const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-libr
 const { FundingExperienceForWallet, preloadAddMoneySheet } = await import("./funding-experience");
 await preloadAddMoneySheet();
 const { shouldPollFundingOrder } = await import("./order-polling");
+const { MethodBody } = await import("./add-money-dialog");
 
 const ADDRESS_A = "0x1111111111111111111111111111111111111111" as const;
 const ADDRESS_B = "0x2222222222222222222222222222222222222222" as const;
@@ -57,6 +59,12 @@ function multiMethodBinding() {
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
 function verifiedWallet(address: `0x${string}` = ADDRESS_A): FundingWallet {
   return {
     ownerKey: `owner-${address}`,
@@ -88,6 +96,24 @@ afterEach(() => {
 });
 
 describe("FundingExperience", () => {
+  test("mounts an empty live region before announcing loading on cold open", () => {
+    const html = renderToStaticMarkup(
+      <MethodBody
+        onSelectReceive={() => {}}
+        providerBindings={[]}
+        providersStatus="loading"
+        countryName="Germany"
+        providerBindingsDisabled={false}
+        customerSetupReady={false}
+        fundingReadError={null}
+        onSelectBinding={() => {}}
+      />,
+    );
+    const document = new DOMParser().parseFromString(html, "text/html");
+    expect(document.querySelector('[role="status"]')?.textContent).toBe("");
+    expect(document.querySelector('[aria-busy="true"] [data-shimmer="deposit-method"]')?.closest('[aria-hidden="true"]')).toBeTruthy();
+  });
+
   test("shows the local deposit empty state only after providers load, without hiding Receive", async () => {
     let resolveProviders!: (value: unknown) => void;
     const providerRead = new Promise<unknown>((resolve) => { resolveProviders = resolve; });
@@ -98,13 +124,176 @@ describe("FundingExperience", () => {
     } };
     render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="DE" />);
     expect(await page().findByRole("button", { name: /Receive crypto/ })).toBeTruthy();
+    expect(page().getByRole("status").textContent).toBe("Loading deposit methods");
     expect(page().queryByText("No local deposit method in Germany yet.")).toBeNull();
 
     await act(async () => { resolveProviders({ providers: [] }); await providerRead; });
-    expect((await page().findByRole("status")).textContent).toBe("No local deposit method in Germany yet.");
+    const emptyDescription = await page().findByText("No local deposit method in Germany yet.", { selector: '[data-slot="alert-description"]' });
+    expect(emptyDescription.closest('[aria-hidden="true"]')).toBeTruthy();
+    expect(page().getAllByText("No local deposit method in Germany yet.").filter((node) => !node.closest('[aria-hidden="true"]'))).toEqual([page().getByRole("status")]);
+    expect(page().getByRole("status").textContent).toBe("No local deposit method in Germany yet.");
+    expect(page().queryByText("Loading deposit methods")).toBeNull();
     expect(page().getByRole("button", { name: /Receive crypto/ })).toBeTruthy();
     expect(page().queryByRole("button", { name: /Deposit EUR/ })).toBeNull();
   });
+  test("reserves a noninteractive deposit row while loading without selecting a method", async () => {
+    const providers = deferred<unknown>();
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers")) return providers.promise;
+      if (path.startsWith("/api/funding/orders?")) return { order: null };
+      throw new Error("unexpected request");
+    } };
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="US" />);
+
+    const receive = await page().findByRole("button", { name: /Receive crypto/ });
+    expect(receive.hasAttribute("disabled")).toBe(false);
+    expect(page().getByRole("status").textContent).toBe("Loading deposit methods");
+    expect(page().getByRole("status").closest('[aria-busy]')).toBeNull();
+    expect(page().getByRole("button", { name: /Receive crypto/ }).closest('[aria-busy="true"]')).toBeTruthy();
+    expect(page().queryByRole("button", { name: /Deposit USD/ })).toBeNull();
+    fireEvent.click(receive);
+    expect(page().getByRole("heading", { name: "Receive" })).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+
+    await act(async () => { providers.resolve({ providers: [applePayBinding()] }); await providers.promise; });
+    expect(await page().findByRole("button", { name: /Deposit USD/ })).toBeTruthy();
+    expect(page().queryByText("Loading deposit methods")).toBeNull();
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().getByRole("status").textContent).toBe("");
+  });
+
+  test("reuses the scoped provider cache on reopen during background refetch", async () => {
+    const refetch = deferred<unknown>();
+    let providerReads = 0;
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers")) {
+        providerReads += 1;
+        return providerReads === 1 ? { providers: [applePayBinding()] } : refetch.promise;
+      }
+      if (path.startsWith("/api/funding/orders?")) return { order: null };
+      throw new Error("unexpected request");
+    } };
+    const props = { wallet, navigateToRedirect: () => {}, regionId: "US" as const };
+    const view = render(<FundingExperienceForWallet {...props} open />);
+    expect(await page().findByRole("button", { name: /Deposit USD/ })).toBeTruthy();
+    view.rerender(<FundingExperienceForWallet {...props} open={false} />);
+    await getHomeQueryClient().invalidateQueries();
+    view.rerender(<FundingExperienceForWallet {...props} open />);
+    expect(page().getByRole("button", { name: /Deposit USD/ })).toBeTruthy();
+    expect(page().queryByText("Loading deposit methods")).toBeNull();
+    await waitFor(() => expect(providerReads).toBe(2));
+    expect(page().getByRole("button", { name: /Deposit USD/ })).toBeTruthy();
+    await act(async () => { refetch.resolve({ providers: [applePayBinding()] }); await refetch.promise; });
+  });
+
+  test("withdraws cached provider rows and offers retry when a background refetch fails", async () => {
+    const retry = deferred<unknown>();
+    let providerReads = 0;
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers")) {
+        providerReads += 1;
+        if (providerReads === 1) return { providers: [applePayBinding()] };
+        if (providerReads === 2) throw new Error("PROVIDERS_UNAVAILABLE");
+        return retry.promise;
+      }
+      if (path.startsWith("/api/funding/orders?")) return { order: null };
+      throw new Error("unexpected request");
+    } };
+    const props = { wallet, navigateToRedirect: () => {}, regionId: "US" as const };
+    const view = render(<FundingExperienceForWallet {...props} open />);
+    expect(await page().findByRole("button", { name: /Deposit USD/ })).toBeTruthy();
+    view.rerender(<FundingExperienceForWallet {...props} open={false} />);
+    await getHomeQueryClient().invalidateQueries();
+    view.rerender(<FundingExperienceForWallet {...props} open />);
+    expect((await page().findByRole("alert")).textContent).toContain("Funding methods are unavailable. Try again.");
+    expect(page().queryByRole("button", { name: /Deposit USD/ })).toBeNull();
+    expect(page().queryByText("Loading deposit methods")).toBeNull();
+    expect(page().queryByText(/No local deposit method/)).toBeNull();
+    expect(page().getByRole("button", { name: /Receive crypto/ }).hasAttribute("disabled")).toBe(false);
+    fireEvent.click(page().getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(providerReads).toBe(3));
+    expect(page().queryByRole("alert")).toBeNull();
+    expect(page().getByRole("status").textContent).toBe("Loading deposit methods");
+    expect(page().queryByRole("button", { name: /Deposit USD/ })).toBeNull();
+    await act(async () => { retry.resolve({ providers: [applePayBinding()] }); await retry.promise; });
+    expect(await page().findByRole("button", { name: /Deposit USD/ })).toBeTruthy();
+    expect(page().queryByText("Loading deposit methods")).toBeNull();
+  });
+
+  test("replaces a provider failure with the loading row during retry", async () => {
+    const retry = deferred<unknown>();
+    let providerReads = 0;
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers")) {
+        providerReads += 1;
+        if (providerReads === 1) throw new Error("PROVIDERS_UNAVAILABLE");
+        return retry.promise;
+      }
+      if (path.startsWith("/api/funding/orders?")) return { order: null };
+      throw new Error("unexpected request");
+    } };
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="US" />);
+    expect((await page().findByRole("alert")).textContent).toContain("Funding methods are unavailable. Try again.");
+    expect(page().queryByText("Loading deposit methods")).toBeNull();
+    const status = page().getByRole("status");
+    expect(status.textContent).toBe("");
+    expect(status.closest('[aria-busy]')).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(providerReads).toBe(2));
+    expect(page().queryByRole("alert")).toBeNull();
+    expect(page().getByRole("status")).toBe(status);
+    expect(status.textContent).toBe("Loading deposit methods");
+    await act(async () => { retry.resolve({ providers: [applePayBinding()] }); await retry.promise; });
+    expect(await page().findByRole("button", { name: /Deposit USD/ })).toBeTruthy();
+    expect(page().queryByText("Loading deposit methods")).toBeNull();
+  });
+
+  test("does not reuse a previous region's provider row", async () => {
+    const indonesia = deferred<unknown>();
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers?region=US")) return { providers: [applePayBinding()] };
+      if (path.startsWith("/api/funding/providers?region=ID")) return indonesia.promise;
+      if (path.startsWith("/api/funding/orders?")) return { order: null };
+      throw new Error("unexpected request");
+    } };
+    const view = render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="US" />);
+    expect(await page().findByRole("button", { name: /Deposit USD/ })).toBeTruthy();
+    view.rerender(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="ID" />);
+    expect(page().getByRole("status").textContent).toBe("Loading deposit methods");
+    expect(page().queryByRole("button", { name: /Deposit USD/ })).toBeNull();
+    await act(async () => { indonesia.resolve({ providers: [redirectBinding()] }); await indonesia.promise; });
+    expect(await page().findByRole("button", { name: /Deposit IDR/ })).toBeTruthy();
+  });
+
+  test("does not reuse a previous account's provider row", async () => {
+    const secondAccount = deferred<unknown>();
+    const walletA = { ...verifiedWallet(ADDRESS_A), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers")) return { providers: [applePayBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return { order: null };
+      throw new Error("unexpected request");
+    } };
+    const walletB = { ...verifiedWallet(ADDRESS_B), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers")) return secondAccount.promise;
+      if (path.startsWith("/api/funding/orders?")) return { order: null };
+      throw new Error("unexpected request");
+    } };
+    const view = render(<FundingExperienceForWallet wallet={walletA} navigateToRedirect={() => {}} regionId="US" />);
+    expect(await page().findByRole("button", { name: /Deposit USD/ })).toBeTruthy();
+    view.rerender(<FundingExperienceForWallet wallet={walletB} navigateToRedirect={() => {}} regionId="US" />);
+    expect(page().getByRole("status").textContent).toBe("Loading deposit methods");
+    expect(page().queryByRole("button", { name: /Deposit USD/ })).toBeNull();
+    await act(async () => { secondAccount.resolve({ providers: [applePayBinding()] }); await secondAccount.promise; });
+    expect(await page().findByRole("button", { name: /Deposit USD/ })).toBeTruthy();
+  });
+
+  test("omits the loading row when the region has no provider query", async () => {
+    render(<FundingExperienceForWallet wallet={verifiedWallet()} navigateToRedirect={() => {}} regionId="GLOBAL" />);
+    expect(await page().findByRole("button", { name: /Receive crypto/ })).toBeTruthy();
+    expect(page().queryByText("Loading deposit methods")).toBeNull();
+    expect(page().queryByText(/No local deposit method/)).toBeNull();
+  });
+
   test("does not present a disabled regional candidate as receive support", async () => {
     await act(async () => {
       render(
@@ -191,7 +380,8 @@ describe("FundingExperience", () => {
     await waitFor(() => expect(orderReads).toBe(1));
     expect(receive.hasAttribute("disabled")).toBe(false);
     expect(page().queryByRole("alert")).toBeNull();
-    expect(await page().findByRole("status")).toHaveProperty("textContent", "No local deposit method in Argentina yet.");
+    expect(await page().findByText("No local deposit method in Argentina yet.", { selector: '[data-slot="alert-description"]' })).toBeTruthy();
+    expect(page().getByRole("status").textContent).toBe("No local deposit method in Argentina yet.");
   });
 
   test("keeps a provider-list failure visible for retry", async () => {

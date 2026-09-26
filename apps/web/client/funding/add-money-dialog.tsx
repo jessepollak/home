@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Alert, AlertAction, AlertIcon, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -39,6 +39,7 @@ import {
 } from "./order-flow";
 
 export type AddMoneyStep = "method" | "receive" | "order";
+export type ProvidersStatus = "unavailable" | "loading" | "loaded" | "failed";
 
 export function AddMoneyDialog({
   open,
@@ -50,7 +51,7 @@ export function AddMoneyDialog({
   onBack,
   onSelectReceive,
   providerBindings,
-  providersLoaded,
+  providersStatus,
   providerBindingsDisabled,
   customerSetupReady,
   fundingReadError,
@@ -71,7 +72,7 @@ export function AddMoneyDialog({
   onBack: () => void;
   onSelectReceive: () => void;
   providerBindings: ReadonlyArray<FundingBinding>;
-  providersLoaded: boolean;
+  providersStatus: ProvidersStatus;
   providerBindingsDisabled: boolean;
   customerSetupReady: boolean;
   fundingReadError: { message: string; retry: () => void } | null;
@@ -116,7 +117,7 @@ export function AddMoneyDialog({
         <MethodBody
           onSelectReceive={onSelectReceive}
           providerBindings={providerBindings}
-          providersLoaded={providersLoaded}
+          providersStatus={providersStatus}
           countryName={presentationRegions[regionId].countryName}
           providerBindingsDisabled={providerBindingsDisabled}
           customerSetupReady={customerSetupReady}
@@ -158,7 +159,7 @@ export function AddMoneyDialog({
 export function MethodBody({
   onSelectReceive,
   providerBindings,
-  providersLoaded,
+  providersStatus,
   countryName,
   providerBindingsDisabled,
   customerSetupReady,
@@ -167,13 +168,24 @@ export function MethodBody({
 }: {
   onSelectReceive: () => void;
   providerBindings: ReadonlyArray<FundingBinding>;
-  providersLoaded: boolean;
+  providersStatus: ProvidersStatus;
   countryName: string;
   providerBindingsDisabled: boolean;
   customerSetupReady: boolean;
   fundingReadError: { message: string; retry: () => void } | null;
   onSelectBinding: (binding: FundingBinding) => void;
 }) {
+  const statusRef = useRef<HTMLSpanElement>(null);
+  const statusMessage = providersStatus === "loading"
+    ? "Loading deposit methods"
+    : providersStatus === "loaded" && !fundingReadError && providerBindings.length === 0
+      ? `No local deposit method in ${countryName} yet.`
+      : "";
+
+  useEffect(() => {
+    if (statusRef.current) statusRef.current.textContent = statusMessage;
+  }, [statusMessage]);
+
   return (
     <MoneyModalBody hasFooter={false} className="pt-4">
       {fundingReadError ? (
@@ -185,9 +197,10 @@ export function MethodBody({
           </AlertAction>
         </Alert>
       ) : null}
+      <span ref={statusRef} role="status" className="sr-only" />
       <Card variant="flush">
         <CardContent inset="list">
-          <div>
+          <div aria-busy={providersStatus === "loading"}>
             <Item
               render={
                 <Button
@@ -212,6 +225,20 @@ export function MethodBody({
                 <ChevronRight className="size-4 text-muted-foreground" />
               </ItemActions>
             </Item>
+            {providersStatus === "loading" ? (
+              <>
+                <ItemSeparator className="my-0" />
+                <Item aria-hidden="true" className="h-14 flex-nowrap items-center">
+                  <ItemMedia variant="avatar">
+                    <Skeleton className="size-full" data-shimmer="deposit-method" />
+                  </ItemMedia>
+                  <ItemContent className="min-w-0">
+                    <Skeleton className="h-4 w-24" data-shimmer="deposit-method" />
+                    <Skeleton className="h-3.5 w-44 max-w-full" data-shimmer="deposit-method" />
+                  </ItemContent>
+                </Item>
+              </>
+            ) : null}
             {providerBindings.map((binding) => (
               <Fragment key={`${binding.providerId}:${binding.assetId}`}>
                 <ItemSeparator className="my-0" />
@@ -248,8 +275,8 @@ export function MethodBody({
           </div>
         </CardContent>
       </Card>
-      {providersLoaded && !fundingReadError && providerBindings.length === 0 ? (
-        <Alert role="status">
+      {providersStatus === "loaded" && !fundingReadError && providerBindings.length === 0 ? (
+        <Alert role={undefined} aria-hidden="true">
           <AlertDescription>No local deposit method in {countryName} yet.</AlertDescription>
         </Alert>
       ) : null}
