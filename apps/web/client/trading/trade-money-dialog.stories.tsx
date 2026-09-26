@@ -69,7 +69,9 @@ function TradeStory({ direction = "buy", view = "amount", availability = "availa
       ? { ...holding, balance: { status: "ready" as const, baseUnits: tradeBalance } }
       : holding),
   });
-  const fetchAccountResource = async (path: string) => path === "/api/trades"
+  const fetchAccountResource = async (path: string) => path === "/api/actions/trade-pending"
+    ? { version: 1, trade: null }
+    : path === "/api/trades"
     ? availability === "available" || availability === "zero-balance"
       ? { version: 1, status: "available" }
       : { version: 1, status: "unavailable", reason: availability }

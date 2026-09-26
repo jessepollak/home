@@ -491,7 +491,7 @@ async function findUnresolvedTrade(sql: SqlExecutor, owner: MoneyActionOwner, no
     `SELECT * FROM actions WHERE owner_key = $1 AND kind = 'trade' AND confirmed_at IS NOT NULL
        AND outcome IS NULL AND (declined_reported_at IS NULL OR provider_handle IS NOT NULL OR transaction_hash IS NOT NULL)
        AND CASE WHEN summary->'metadata'->>'executionDeadline' ~ '^[1-9][0-9]{0,14}$'
-         THEN (summary->'metadata'->>'executionDeadline')::bigint > $2
+         THEN (summary->'metadata'->>'executionDeadline')::bigint + 120 > $2
          ELSE true END
      ORDER BY confirmed_at DESC LIMIT 1`,
     [actionOwnerKey(owner), Math.floor(now.getTime() / 1000)],

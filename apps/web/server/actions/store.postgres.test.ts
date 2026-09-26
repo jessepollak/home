@@ -131,8 +131,9 @@ describePostgres("actions schema and store", () => {
     expect(await store.findUnresolvedTrade(owner)).toBeNull();
     await store.confirm(owner, second);
     expect((await store.findUnresolvedTrade(owner))?.id).toBe(second);
-    expect(await store.findUnresolvedTrade(owner, new Date((deadline + 1) * 1000))).toBeNull();
-    await sql.query("UPDATE actions SET summary = jsonb_set(summary, '{metadata,executionDeadline}', to_jsonb($2::text)) WHERE id = $1", [second, String(Math.floor(Date.now() / 1000) - 1)]);
+    expect(await store.findUnresolvedTrade(owner, new Date((deadline + 60) * 1000))).not.toBeNull();
+    expect(await store.findUnresolvedTrade(owner, new Date((deadline + 121) * 1000))).toBeNull();
+    await sql.query("UPDATE actions SET summary = jsonb_set(summary, '{metadata,executionDeadline}', to_jsonb($2::text)) WHERE id = $1", [second, String(Math.floor(Date.now() / 1000) - 121)]);
     expect(await store.findUnresolvedTrade(owner)).toBeNull();
     const third = randomUUID();
     await store.insert({ id: third, owner, kind: "trade", summary: tradeSummary, pending: { calls }, createdAt: new Date().toISOString() });

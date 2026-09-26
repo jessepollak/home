@@ -783,13 +783,13 @@ describe("SavingsMoneyDialog", () => {
     expect(page().getByRole("button", { name: "Try again" })).toBeTruthy();
   });
 
-  test("submission-unknown never offers retry and opens Activity after closing", async () => {
+  test.each(["submission-unknown", "dispatch-unknown"] as const)("%s never offers retry and opens Activity after closing", async (reason) => {
     const events: string[] = [];
     const routing = { openPanel: (panel: string) => { events.push(`panel:${panel}`); } } as HomeShellRouting;
     render(<HomeShellRoutingProvider value={routing}>
       <SavingsMoneyDialog open mode="deposit" session={session} candidate={candidate}
         prepareMoneyAction={async () => prepared()}
-        executeMoneyAction={async () => { throw new TransferExecutionError("submission-unknown"); }}
+        executeMoneyAction={async () => { throw new TransferExecutionError(reason); }}
         fetchAccountResource={async () => ({ actions: [{ id: "action-1", owner: prepared().owner, status: "pending" }] })}
         onClose={() => { events.push("close"); }} />
     </HomeShellRoutingProvider>);

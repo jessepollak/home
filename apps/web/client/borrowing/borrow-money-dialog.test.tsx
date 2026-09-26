@@ -115,9 +115,9 @@ describe("Borrow action result", () => {
     expect(dialog.getByRole("button", { name: "Try again" })).toBeTruthy();
   });
 
-  test("submission-unknown is not retriable and routes to Activity after closing", async () => {
+  test.each(["submission-unknown", "dispatch-unknown"] as const)("%s is not retriable and routes to Activity after closing", async (reason) => {
     const events: string[] = [];
-    const body = mount({ execute: async () => { throw new TransferExecutionError("submission-unknown"); }, close: () => events.push("close"), openPanel: (panel) => events.push(panel) });
+    const body = mount({ execute: async () => { throw new TransferExecutionError(reason); }, close: () => events.push("close"), openPanel: (panel) => events.push(panel) });
     const { dialog, confirm } = await review(body);
     fireEvent.click(confirm);
     expect(await dialog.findByText("We can't confirm 1 USDC")).toBeTruthy();

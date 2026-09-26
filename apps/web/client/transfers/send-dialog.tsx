@@ -383,7 +383,7 @@ export function SendDialog({
       setSubmittedAt(new Date().toISOString());
       setSubmission("submitted"); setStep("result");
     } catch (caught) {
-      if (caught instanceof TransferExecutionError && caught.reason === "submission-unknown") {
+      if (caught instanceof TransferExecutionError && (caught.reason === "submission-unknown" || caught.reason === "dispatch-unknown")) {
         onSubmitted?.();
         setSubmission("ambiguous"); setStep("result");
         return;
