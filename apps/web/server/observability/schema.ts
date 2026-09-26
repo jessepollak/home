@@ -5,6 +5,7 @@ import {
   sanitizeRoutePath,
   scrubString,
 } from "@/shared/observability/scrub";
+import { HOME_AUTH_RESTORE_STAGES } from "@/shared/observability/client-performance.contract";
 import type {
   HomeAuthRestoreReport,
   HomeAuthSignOutReport,
@@ -253,6 +254,9 @@ export type ObservabilityLogLine = ObservabilityLogBase &
         sdkActivateMs?: number;
         cdpInitializedMs?: number;
         nativeSettledMs?: number;
+        tokenMs?: number;
+        validationMs?: number;
+        stalledStage?: HomeAuthRestoreReport["stalledStage"];
         sessionSettledMs: number;
         totalMs: number;
       }
@@ -425,6 +429,15 @@ export function normalizeObservabilityEvent(
       ...(event.nativeSettledMs === undefined
         ? {}
         : { nativeSettledMs: boundedInteger(event.nativeSettledMs, 30_000) }),
+      ...(event.tokenMs === undefined
+        ? {}
+        : { tokenMs: boundedInteger(event.tokenMs, 30_000) }),
+      ...(event.validationMs === undefined
+        ? {}
+        : { validationMs: boundedInteger(event.validationMs, 30_000) }),
+      ...(event.stalledStage !== undefined && HOME_AUTH_RESTORE_STAGES.includes(event.stalledStage)
+        ? { stalledStage: event.stalledStage }
+        : {}),
       sessionSettledMs: boundedInteger(event.sessionSettledMs, 30_000),
       totalMs: boundedInteger(event.totalMs, 30_000),
     };

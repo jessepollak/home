@@ -40,8 +40,7 @@ import {
   type ShellFlow,
 } from "@/config/shell-location";
 import { AppChromeProvider, useOptionalAppChrome } from "@/components/app-chrome";
-import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
+import { LoadErrorCard } from "@/components/load-error";
 import { PrimaryNavigation } from "@/components/primary-navigation";
 import { AuthenticatedBorrowExperience } from "@/client/borrowing/borrowing-experience";
 import {
@@ -808,14 +807,12 @@ function DashboardShellBody({
       >
         <div className={`${shellContentFrameClassName} py-4 sm:py-6`}>
         {isUnavailable ? (
-          <Alert className="mb-4" role="alert">
-            <AlertDescription>{account.message ?? "Account check unavailable."}</AlertDescription>
-            <AlertAction>
-              <Button variant="outline" size="touch" onClick={() => void account.retrySessionValidation()}>
-                Retry account check
-              </Button>
-            </AlertAction>
-          </Alert>
+          <div className="mb-4">
+            <LoadErrorCard
+              description={account.message ?? "Account check unavailable."}
+              onRetry={() => void account.retrySessionValidation()}
+            />
+          </div>
         ) : null}
 
         {isSignedOut ? (

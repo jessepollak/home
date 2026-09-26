@@ -18,6 +18,7 @@ export const HOME_STARTUP_OUTCOMES = [
 export const HOME_STARTUP_CACHE_STATES = ["restored", "cold", "unknown"] as const;
 export const HOME_AUTH_HINTS = ["none", "cdp", "base"] as const;
 export const HOME_AUTH_OUTCOMES = ["signed-out", "verified", "unavailable", "timeout"] as const;
+export const HOME_AUTH_RESTORE_STAGES = ["token", "validation"] as const;
 export const HOME_AUTH_SIGNOUT_OUTCOMES = ["success", "error", "timeout"] as const;
 
 export type HomeStartupRoute = (typeof HOME_STARTUP_ROUTES)[number];
@@ -25,6 +26,7 @@ export type HomeStartupOutcome = (typeof HOME_STARTUP_OUTCOMES)[number];
 export type HomeStartupCacheState = (typeof HOME_STARTUP_CACHE_STATES)[number];
 export type HomeAuthHint = (typeof HOME_AUTH_HINTS)[number];
 export type HomeAuthOutcome = (typeof HOME_AUTH_OUTCOMES)[number];
+export type HomeAuthRestoreStage = "token" | "validation";
 export type HomeAuthSignOutOutcome = (typeof HOME_AUTH_SIGNOUT_OUTCOMES)[number];
 
 export type HomeStartupReport = {
@@ -50,6 +52,9 @@ export type HomeAuthRestoreReport = {
   sdkActivateMs?: number;
   cdpInitializedMs?: number;
   nativeSettledMs?: number;
+  tokenMs?: number;
+  validationMs?: number;
+  stalledStage?: HomeAuthRestoreStage;
   sessionSettledMs: number;
   totalMs: number;
 };
@@ -103,6 +108,9 @@ const authAllowedKeys = new Set([
   "sdkActivateMs",
   "cdpInitializedMs",
   "nativeSettledMs",
+  "tokenMs",
+  "validationMs",
+  "stalledStage",
   "sessionSettledMs",
   "totalMs",
 ]);
@@ -198,7 +206,8 @@ function parseHomeAuthRestoreReport(record: Record<string, unknown>): HomeAuthRe
     record.flow !== "restore" ||
     !isAllowed(record.route, HOME_STARTUP_ROUTES) ||
     !isAllowed(record.hint, HOME_AUTH_HINTS) ||
-    !isAllowed(record.outcome, HOME_AUTH_OUTCOMES)
+    !isAllowed(record.outcome, HOME_AUTH_OUTCOMES) ||
+    (Object.hasOwn(record, "stalledStage") && !isAllowed(record.stalledStage, HOME_AUTH_RESTORE_STAGES))
   ) return null;
 
   const sessionSettledMs = normalizeDuration(record.sessionSettledMs, 50, 30_000);
@@ -207,9 +216,9 @@ function parseHomeAuthRestoreReport(record: Record<string, unknown>): HomeAuthRe
 
   const optionalDurations: Partial<Pick<
     HomeAuthRestoreReport,
-    "sdkActivateMs" | "cdpInitializedMs" | "nativeSettledMs"
+    "sdkActivateMs" | "cdpInitializedMs" | "nativeSettledMs" | "tokenMs" | "validationMs"
   >> = {};
-  for (const key of ["sdkActivateMs", "cdpInitializedMs", "nativeSettledMs"] as const) {
+  for (const key of ["sdkActivateMs", "cdpInitializedMs", "nativeSettledMs", "tokenMs", "validationMs"] as const) {
     if (!Object.hasOwn(record, key)) continue;
     const normalized = normalizeDuration(record[key], 50, 30_000);
     if (normalized === null) return null;
@@ -224,6 +233,7 @@ function parseHomeAuthRestoreReport(record: Record<string, unknown>): HomeAuthRe
     hint: record.hint,
     outcome: record.outcome,
     ...optionalDurations,
+    ...(Object.hasOwn(record, "stalledStage") ? { stalledStage: record.stalledStage as HomeAuthRestoreStage } : {}),
     sessionSettledMs,
     totalMs,
   };

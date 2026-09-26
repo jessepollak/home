@@ -424,9 +424,11 @@
           "error",
           {
             "safeHelpers": [
+              "beginHomeAuthRestoreStage",
               "createClientErrorHandler",
               "createClientPerformanceHandler",
               "emitServerEvent",
+              "endHomeAuthRestoreStage",
               "finishHomeAuthRestore",
               "installClientErrorReporting",
               "markHomeAuthRestore",
