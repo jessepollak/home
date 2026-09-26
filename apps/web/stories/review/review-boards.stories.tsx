@@ -265,6 +265,17 @@ export const RestoredBeforeOnMobile: Story = {
     await expect(comparison.getByRole("button", { name: "Proposed" })).toHaveAttribute("aria-pressed", "true");
   },
 };
+export const UnavailableBeforeLinkFallsBack: Story = {
+  args: { board: fixture, build: fixtureBuild, frameSource: "blank", narrow: true },
+  render: (args) => <div style={{ height: "100dvh", width: 390 }}><ReviewBoardView {...args} /></div>,
+  beforeEach: () => withSearch({ frame: "two", side: "both", variant: "before" }),
+  play: async ({ canvasElement }) => {
+    const screen = within(canvasElement.ownerDocument.body);
+    await expect(await screen.findByRole("combobox", { name: "Select frame" })).toHaveValue("two");
+    await expect(screen.queryByLabelText("Before and after")).not.toBeInTheDocument();
+    await waitFor(() => expect(new URL(location.href).searchParams.get("variant")).toBeNull());
+  },
+};
 export const MissingStoryExcluded: Story = {
   args: { board: fixture, build: fixtureBuild, frameSource: "story", narrow: true },
   render: (args) => <div style={{ height: "100dvh", width: 390 }}><ReviewBoardView {...args} /></div>,

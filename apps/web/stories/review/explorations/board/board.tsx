@@ -86,7 +86,9 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
   const staleFrame = original?.frame && !linkedFrame ? original.frame : undefined;
   const initialFrame = linkedFrame ?? allFrames[0].frame.id;
   const hasBefore = allFrames.some(({ frame }) => frame.before);
-  const linkedSide = hasBefore ? original?.side ?? "after" : "after";
+  const linkedHasBefore = linkedFrame
+    ? Boolean(allFrames.find(({ frame }) => frame.id === linkedFrame)?.frame.before) : hasBefore;
+  const linkedSide = linkedHasBefore ? original?.side ?? "after" : "after";
   const [side, setSide] = useState<Side>(linkedSide);
   const [selected, setSelected] = useState(initialFrame);
   const [selectedVariant, setSelectedVariant] = useState<string | undefined>(
