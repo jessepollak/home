@@ -4,11 +4,11 @@ export type Rect = Point & Size;
 export type Camera = Point & { zoom: number };
 export const MIN_ZOOM = 0.05;
 export const MAX_ZOOM = 2;
-export function clampZoom(zoom: number): number { return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom)); }
-export function fitRect(viewport: Size, rect: Rect, padding = 32): Camera {
+export function clampZoom(value: number): number { return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, value)); }
+export function fitRect(viewport: Size, rect: Rect, padding: number): Camera {
   const zoom = clampZoom(Math.min(
-    (viewport.width - 2 * padding) / Math.max(1, rect.width),
-    (viewport.height - 2 * padding) / Math.max(1, rect.height),
+    (viewport.width - padding * 2) / rect.width,
+    (viewport.height - padding * 2) / rect.height,
   ));
   return {
     x: (viewport.width - rect.width * zoom) / 2 - rect.x * zoom,
@@ -39,4 +39,28 @@ export function pinch(camera: Camera, from: [Point, Point], to: [Point, Point]):
   const toDistance = Math.hypot(to[1].x - to[0].x, to[1].y - to[0].y);
   const zoomed = fromDistance === 0 ? camera : zoomAt(camera, fromMid, toDistance / fromDistance);
   return pan(zoomed, { x: toMid.x - fromMid.x, y: toMid.y - fromMid.y });
+}
+
+export type WheelInput = {
+  deltaX: number;
+  deltaY: number;
+  deltaMode: number;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  shiftKey: boolean;
+};
+const LINE_PX = 16;
+const WHEEL_ZOOM_RATE = 0.01;
+const WHEEL_ZOOM_STEP = 30;
+
+export function wheelCamera(camera: Camera, event: WheelInput, pointer: Point, pageHeight: number): Camera {
+  const unit = event.deltaMode === 1 ? LINE_PX : event.deltaMode === 2 ? pageHeight : 1;
+  const dx = event.deltaX * unit;
+  const dy = event.deltaY * unit;
+  if (event.ctrlKey || event.metaKey) {
+    const step = Math.max(-WHEEL_ZOOM_STEP, Math.min(WHEEL_ZOOM_STEP, dy));
+    return zoomAt(camera, pointer, Math.exp(-step * WHEEL_ZOOM_RATE));
+  }
+  if (event.shiftKey) return pan(camera, { x: -(Math.abs(dx) > Math.abs(dy) ? dx : dy), y: 0 });
+  return pan(camera, { x: -dx, y: -dy });
 }

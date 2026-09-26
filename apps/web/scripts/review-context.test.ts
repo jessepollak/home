@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
-import invest from "../stories/review/boards/invest-asset-page.json";
 import savings from "../stories/review/boards/savings.json";
 import {
   buildReviewContext,
+  changesReviewManifest,
   formatReviewContext,
   parseReviewUrl,
   resolveFrame,
@@ -142,19 +142,48 @@ test("reports unknown freshness without a revision or source index", () => {
   expect(context.urls.board).toContain("frame=compact&side=after&deployment=review.example");
 });
 
-test("real board URLs default to after without side and resolve manifests without refs", () => {
-  const investUrl = parseReviewUrl(
-    "http://localhost:6963/iframe.html?id=review-boards--invest-asset-page&frame=holding-entry",
-  );
+test("real savings board URLs default to after without side and resolve the manifest without refs", () => {
   const savingsUrl = parseReviewUrl(
     "http://localhost:6963/iframe.html?id=review-boards--savings&frame=funded",
   );
-  expect(investUrl.side).toBe("after");
-  expect(resolveFrame(invest as ReviewManifest, investUrl.frame, investUrl.side).story)
-    .toBe("explorations-invest-asset-detail--holding-entry");
+  expect(savingsUrl.side).toBe("after");
   const context = buildReviewContext(savingsUrl, savings as ReviewManifest, null, "head", "no", "no");
   expect(formatReviewContext(context)).toContain("Board: Savings — current system (savings)");
   expect(context.frame.story).toBe("pilot-savings-experience--funded");
+});
+
+test("automatic changes board resolves indexed frame name and viewport without a manifest", () => {
+  const parsed = parseReviewUrl(
+    "https://review.example/iframe.html?id=review-boards--changes&frame=pilot-savings-experience--funded&side=after",
+  );
+  const entries = {
+    "pilot-savings-experience--funded": {
+      id: parsed.frame, title: "Savings", name: "Funded desktop", type: "story",
+      importPath: "./client/savings.stories.tsx",
+    },
+  };
+  const context = buildReviewContext(parsed, changesReviewManifest(parsed, entries), null, "head", "no", "unknown");
+  expect(context.board.id).toBe("changes");
+  expect(context.frame.story).toBe("pilot-savings-experience--funded");
+  expect(context.frame.label).toBe("Funded desktop");
+  expect(context.frame.viewport).toBe("1440x900");
+  expect(context.urls.canvas).toContain("id=pilot-savings-experience--funded");
+  expect(resolveFrame(changesReviewManifest(parsed, {
+    [parsed.frame]: { ...entries["pilot-savings-experience--funded"], name: "Funded narrow" },
+  }), parsed.frame, "after").viewport).toBe("320x700");
+});
+
+test("automatic changes board rejects unknown frames and non-story index entries", () => {
+  const parsed = parseReviewUrl(
+    "https://review.example/iframe.html?id=review-boards--changes&frame=missing--frame&side=after",
+  );
+  expect(() => changesReviewManifest(parsed, {})).toThrow('Unknown story frame "missing--frame" in the story index');
+  expect(() => changesReviewManifest(parsed, {
+    [parsed.frame]: { id: parsed.frame, title: "Docs", name: "Docs", type: "docs", importPath: "./docs.mdx" },
+  })).toThrow('Unknown story frame "missing--frame" in the story index');
+  expect(() => changesReviewManifest(parsed, {
+    [parsed.frame]: { id: "different--story", title: "Other", name: "Other", type: "story", importPath: "./other.stories.tsx" },
+  })).toThrow('Unknown story frame "missing--frame" in the story index');
 });
 
 test("side by side reports both stories and uses after for the primary canvas", () => {

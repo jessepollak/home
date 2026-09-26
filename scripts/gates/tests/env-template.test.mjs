@@ -23,6 +23,9 @@ const PLATFORM_ALLOWLIST = [
   "VERCEL_ENV",
   "VERCEL_GIT_COMMIT_REF", // Vercel-owned build branch, shown on Storybook review boards
   "VERCEL_GIT_COMMIT_SHA", // Vercel-owned build commit, recorded by Storybook review boards
+  "VERCEL_GIT_PULL_REQUEST_ID", // Vercel-owned PR number, linked from Storybook review boards
+  "VERCEL_GIT_REPO_OWNER", // Vercel-owned repository owner for Storybook review links
+  "VERCEL_GIT_REPO_SLUG", // Vercel-owned repository name for Storybook review links
   "VERCEL_PROJECT_PRODUCTION_URL", // Vercel-owned production deployment hostname
   "VERCEL_URL", // Vercel-owned unique deployment hostname for Storybook review links
 ];

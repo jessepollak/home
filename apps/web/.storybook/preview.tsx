@@ -40,6 +40,10 @@ const preview: Preview = {
     nextjs: {
       appDirectory: true,
     },
+    // Review boards sort first in the sidebar; everything else keeps configure order.
+    options: {
+      storySort: { order: ["Review", ["Boards"]] },
+    },
     // Every story test runs the a11y addon's checks. Violations are reported as
     // warnings (`todo`) so the gate fails on behavior, not on pre-existing
     // product findings that need their own product decision; audit-clean

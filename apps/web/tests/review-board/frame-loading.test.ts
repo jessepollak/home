@@ -42,7 +42,7 @@ function clock() {
 
 test("render timeout fails a frame after 20 seconds and frees the queue slot", () => {
   const time = clock();
-  const store = createFrameStore("fixture", "rev", positions, null, time);
+  const store = createFrameStore("fixture", "rev", positions, time);
   store.subscribe(() => {
     const snapshot = store.getSnapshot();
     expect(snapshot.loaded.size).toBeLessThanOrEqual(6);
@@ -75,7 +75,7 @@ test("render timeout fails a frame after 20 seconds and frees the queue slot", (
 
 test("cancelled loading frames return to the queue and can render on retry", () => {
   const time = clock();
-  const store = createFrameStore("fixture", "rev", positions.slice(0, 1), null, time);
+  const store = createFrameStore("fixture", "rev", positions.slice(0, 1), time);
   const center = { x: 0, y: 0 };
   store.start(center);
   expect(store.getSnapshot().loaded.has("0")).toBe(true);
@@ -101,7 +101,7 @@ test("cancelled loading frames return to the queue and can render on retry", () 
 
 test("frames rendered on mobile never hold a desktop load slot", () => {
   const time = clock();
-  const store = createFrameStore("fixture", "rev", positions, null, time);
+  const store = createFrameStore("fixture", "rev", positions, time);
   for (const id of ["0", "1", "2", "3", "4", "5"]) {
     store.start({ x: 0, y: 0 }, id);
     store.finish(id, "rendered");
@@ -110,20 +110,13 @@ test("frames rendered on mobile never hold a desktop load slot", () => {
   expect(store.metrics.frames.find((frame) => frame.id === "6")?.status).toBe("loading");
 });
 
-test("completed frames cancel their timeout; missing stories count as terminal", () => {
+test("completed frames cancel their timeout and report live status", () => {
   const time = clock();
-  const store = createFrameStore("fixture", "rev", positions.slice(0, 2), new Set(["story-0"]), time);
+  const store = createFrameStore("fixture", "rev", positions.slice(0, 1), time);
   store.start({ x: 0, y: 0 });
   time.advance(3_100);
   store.finish("0", "rendered");
   expect(store.metrics.allRenderedAt).toBe(3_200);
   expect(time.count()).toBe(0);
-  expect(formatFrameStatus(store.metrics)).toBe("1 live · 1 not in this build · 3.1 s");
-  const missing = createFrameStore("fixture", "rev", positions, new Set(), time);
-  expect(formatFrameStatus(missing.metrics)).toBe("0 of 7 in this build");
-  const live = createFrameStore("fixture", "rev", positions.slice(0, 1), null, time);
-  live.start({ x: 0, y: 0 });
-  time.advance(3_100);
-  live.finish("0", "rendered");
-  expect(formatFrameStatus(live.metrics)).toBe("1 of 1 live · 3.1 s");
+  expect(formatFrameStatus(store.metrics)).toBe("1 of 1 live · 3.1 s");
 });

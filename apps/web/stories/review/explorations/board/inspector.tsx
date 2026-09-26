@@ -1,44 +1,47 @@
-import { changeLabel, type ReviewBoard } from "./manifest";
-import type { Positioned, Section } from "./layout";
+import { ChangeTag } from "./change-tag";
+import { frameLabel, type Positioned, type Section } from "./layout";
 import { storyCanvasUrl, storyManagerUrl } from "./url-state";
 import styles from "./board.module.css";
 
-export function Inspector({ board, section, position, onInteract, onFit, missing, canInteract }: {
-  board: ReviewBoard;
+const shortcuts: Array<[string, string]> = [
+  ["Scroll", "Pan"],
+  ["⌘ Scroll / Pinch", "Zoom"],
+  ["Space + Drag", "Pan"],
+  ["⇧1 / ⇧2", "Fit board / selection"],
+  ["⌘0", "Zoom to 100%"],
+  ["Enter / Double-click", "Interact"],
+  ["⌘\\", "Hide panels"],
+];
+
+export function Inspector({ section, position, onInteract, onFit, canInteract }: {
   section?: Section;
-  position?: Positioned;
+  position: Positioned;
   onInteract: () => void;
   onFit: () => void;
-  missing: boolean;
   canInteract: boolean;
 }) {
   return <aside className={styles.inspector} aria-label="Inspector">
     <div className={styles.panelHeading}><strong>Inspector</strong></div>
-    {position ? <div className={styles.inspectorBody}>
+    <div className={styles.inspectorBody}>
       <h2>{section?.title}</h2>
       {section?.note && <p>{section.note}</p>}
       <div className={styles.inspectorDivider} />
-      <h3>{position.before ? "Before · " : ""}{position.frame.label}</h3>
+      <h3>{frameLabel(position)}</h3>
       <div className={styles.inspectorFacts}>
-        <span className={position.frame.change === "unchanged" ? styles.muted : styles.accent}>
-          {changeLabel(position.frame.change)}
-        </span>
+        <ChangeTag change={position.frame.change} />
         <span>{position.rect.width} × {position.rect.height}</span>
       </div>
       {position.frame.note && <p>{position.frame.note}</p>}
       <span className={styles.fieldLabel}>Story ID</span>
       <code className={styles.storyId}>{position.story}</code>
-      <button className={styles.primary} onClick={onInteract} disabled={missing || !canInteract}>Interact</button>
+      <button className={styles.primary} onClick={onInteract} disabled={!canInteract}>Interact</button>
       <button onClick={onFit}>Fit frame</button>
-      {!missing && <>
-        <a href={storyManagerUrl(position.story)} target="_blank" rel="noreferrer">Open story ↗</a>
-        <a href={storyCanvasUrl(position.story)} target="_blank" rel="noreferrer">Open canvas ↗</a>
-      </>}
-    </div> : <div className={styles.inspectorBody}>
-      <p>{board.summary}</p>
-      <h2>Shortcuts</h2>
-      <p>+ / − Zoom · 0 Reset · 1 Fit board · 2 / F Fit frame</p>
-      <p>Arrow keys Pan · Tab Browse frames · Enter Interact · Esc Return</p>
-    </div>}
+      <a href={storyManagerUrl(position.story)} target="_blank" rel="noreferrer">Open story ↗</a>
+      <a href={storyCanvasUrl(position.story)} target="_blank" rel="noreferrer">Open canvas ↗</a>
+      <div className={styles.inspectorDivider} />
+      <dl className={styles.shortcuts} aria-label="Shortcuts">
+        {shortcuts.map(([keys, action]) => <div key={keys}><dt>{keys}</dt><dd>{action}</dd></div>)}
+      </dl>
+    </div>
   </aside>;
 }

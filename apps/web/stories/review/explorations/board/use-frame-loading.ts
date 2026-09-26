@@ -10,7 +10,7 @@ export type Metric = {
   loadStartAt?: number;
   loadedAt?: number;
   renderedAt?: number;
-  status: "queued" | "loading" | "loaded" | "rendered" | "errored" | "missing";
+  status: "queued" | "loading" | "loaded" | "rendered" | "errored";
   error?: string;
 };
 export type Metrics = {
@@ -43,7 +43,6 @@ export function createFrameStore(
   boardId: string,
   revision: string,
   positions: Positioned[],
-  available: Set<string> | null,
   clock: FrameClock = {
     now: () => performance.now(),
     schedule: (callback, delay) => setTimeout(callback, delay),
@@ -58,12 +57,11 @@ export function createFrameStore(
       id: position.id,
       story: position.story,
       queuedAt: startedAt,
-      status: available && !available.has(position.story) ? "missing" : "queued",
+      status: "queued",
     })),
     startedAt,
   };
-  const queue = createLoadQueue(positions.filter((position) => !available || available.has(position.story))
-    .map((position) => ({ id: position.id, ...position.rect })));
+  const queue = createLoadQueue(positions.map((position) => ({ id: position.id, ...position.rect })));
   const listeners = new Set<() => void>();
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
   let snapshot = { metrics, loaded: new Set<string>() };
@@ -74,21 +72,18 @@ export function createFrameStore(
   const mark = (id: string, patch: Partial<Metric>) => {
     const index = metrics.frames.findIndex((entry) => entry.id === id);
     const metric = metrics.frames[index];
-    if (!metric || ["rendered", "errored", "missing"].includes(metric.status)) return;
+    if (!metric || ["rendered", "errored"].includes(metric.status)) return;
     metrics.frames[index] = { ...metric, ...patch };
     if (patch.status === "rendered") metrics.firstRenderedAt ??= patch.renderedAt;
     if (metrics.frames.length && metrics.frames.every((entry) =>
-      ["rendered", "errored", "missing"].includes(entry.status))) {
+      ["rendered", "errored"].includes(entry.status))) {
       metrics.allRenderedAt ??= clock.now();
     }
     publish();
   };
-  if (metrics.frames.every((entry) => entry.status === "missing")) {
-    metrics.allRenderedAt = startedAt;
-  }
   const finish = (id: string, status: "rendered" | "errored", error?: string, unload = false) => {
     const metric = metrics.frames.find((entry) => entry.id === id);
-    if (!metric || ["rendered", "errored", "missing"].includes(metric.status)) return;
+    if (!metric || ["rendered", "errored"].includes(metric.status)) return;
     const timer = timers.get(id);
     if (timer !== undefined) clock.cancel(timer);
     timers.delete(id);
@@ -128,7 +123,7 @@ export function createFrameStore(
     cancel(id: string) {
       const index = metrics.frames.findIndex((entry) => entry.id === id);
       const metric = metrics.frames[index];
-      if (!metric || ["queued", "rendered", "errored", "missing"].includes(metric.status)) return;
+      if (!metric || ["queued", "rendered", "errored"].includes(metric.status)) return;
       const timer = timers.get(id);
       if (timer !== undefined) clock.cancel(timer);
       timers.delete(id);
@@ -143,16 +138,13 @@ export function createFrameStore(
 export function formatFrameStatus(metrics: Metrics): string {
   const live = metrics.frames.filter((entry) => entry.status === "rendered").length;
   const failed = metrics.frames.filter((entry) => entry.status === "errored").length;
-  const missing = metrics.frames.filter((entry) => entry.status === "missing").length;
   const total = metrics.frames.length;
   if (metrics.allRenderedAt === undefined) return `Loading ${live} of ${total}`;
-  if (missing === total) return `0 of ${total} in this build`;
   const duration = `${((metrics.allRenderedAt - metrics.startedAt) / 1000).toFixed(1)} s`;
-  if (!failed && !missing) return `${live} of ${total} live · ${duration}`;
+  if (!failed) return `${live} of ${total} live · ${duration}`;
   return [
     `${live} live`,
     ...(failed ? [`${failed} failed`] : []),
-    ...(missing ? [`${missing} not in this build`] : []),
     duration,
   ].join(" · ");
 }
@@ -161,13 +153,12 @@ export function useFrameLoading(
   boardId: string,
   revision: string,
   positions: Positioned[],
-  available: Set<string> | null,
   center: Point,
   mobileId?: string,
 ) {
   const store = useMemo(
-    () => createFrameStore(boardId, revision, positions, available),
-    [boardId, revision, positions, available],
+    () => createFrameStore(boardId, revision, positions),
+    [boardId, revision, positions],
   );
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getServerSnapshot);
   useEffect(() => {

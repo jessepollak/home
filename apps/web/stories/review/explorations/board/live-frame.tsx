@@ -1,16 +1,15 @@
 import type { Ref } from "react";
-import type { Positioned } from "./layout";
+import { frameLabel, type Positioned } from "./layout";
 import { changeLabel } from "./manifest";
 import type { Metric } from "./use-frame-loading";
 import { watchStoryRender } from "./render-watcher";
 import { storyCanvasUrl } from "./url-state";
 import styles from "./board.module.css";
 
-export type LiveFrameProps = {
+type LiveFrameProps = {
   position: Positioned;
   metric?: Metric;
   loaded: boolean;
-  missing: boolean;
   active: boolean;
   frameSource: "story" | "blank";
   scale?: number;
@@ -22,12 +21,11 @@ export type LiveFrameProps = {
   onSelect: () => void;
   onFocusSelect?: () => void;
   onInteract: () => void;
-  overlayTabIndex?: number;
 };
 
 export function LiveFrame({
-  position, metric, loaded, missing, active, frameSource, scale = 1, frameRef, onActiveLoad,
-  onMark, onFinish, onCancel, onSelect, onFocusSelect = onSelect, onInteract, overlayTabIndex = 0,
+  position, metric, loaded, active, frameSource, scale = 1, frameRef, onActiveLoad,
+  onMark, onFinish, onCancel, onSelect, onFocusSelect = onSelect, onInteract,
 }: LiveFrameProps) {
   const { id, story, frame, rect, before } = position;
   const handleLoad = (iframe: HTMLIFrameElement) => {
@@ -68,39 +66,40 @@ export function LiveFrame({
     style={{ width: rect.width * scale, height: rect.height * scale }}>
     <div className={styles.frameInner}
       style={{ width: rect.width, height: rect.height, transform: `scale(${scale})` }}>
-      {missing ? <div className={styles.message} role="status">Not in this build: {story}</div> : <>
-        {metric?.status === "errored" && <div className={styles.message} role="alert">
-          {metric.error ?? `Story failed to render: ${story}`}
-        </div>}
-        {metric?.status !== "rendered" && metric?.status !== "errored" &&
-          <div className={styles.skeleton} role="status">Loading {frame.label}…</div>}
-        {loaded && <iframe
-          ref={frameRef}
-          title={`${position.section} · ${frame.label}${before ? " · Before" : ""}`}
-          src={frameSource === "blank" ? "about:blank" : storyCanvasUrl(story)}
-          width={rect.width}
-          height={rect.height}
-          inert={!active}
-          onLoad={(event) => handleLoad(event.currentTarget)}
-          onError={() => onFinish(id, "errored")}
-        />}
-        {!active && <div
-          role="button"
-          tabIndex={overlayTabIndex}
-          className={styles.frameOverlay}
-          data-review-frame={id}
-          data-review-story={story}
-          aria-label={`${position.section} · ${before ? "Before · " : ""}${frame.label} · ${
-            changeLabel(frame.change)} · ${rect.width} × ${rect.height}`}
-          onFocus={onFocusSelect}
-          onClick={onSelect}
-          onDoubleClick={onInteract}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") { event.preventDefault(); onInteract(); }
-            if (event.key === " ") { event.preventDefault(); onSelect(); }
-          }}
-        />}
-      </>}
+      {metric?.status === "errored" && <div className={styles.message} role="alert">
+        {metric.error ?? `Story failed to render: ${story}`}
+      </div>}
+      {metric?.status !== "rendered" && metric?.status !== "errored" &&
+        <div className={styles.skeleton} role="status">Loading {frame.label}…</div>}
+      {loaded && <iframe
+        ref={frameRef}
+        title={`${position.section} · ${frame.label}${before ? " · Before" : ""}`}
+        src={frameSource === "blank" ? "about:blank" : storyCanvasUrl(story)}
+        width={rect.width}
+        height={rect.height}
+        inert={!active}
+        onLoad={(event) => handleLoad(event.currentTarget)}
+        onError={() => onFinish(id, "errored")}
+      />}
+      {!active && <div
+        role="button"
+        tabIndex={0}
+        className={styles.frameOverlay}
+        data-review-frame={id}
+        data-review-story={story}
+        aria-label={`${position.section} · ${frameLabel(position)} · ${
+          changeLabel(frame.change)} · ${rect.width} × ${rect.height}`}
+        onFocus={onFocusSelect}
+        onClick={onSelect}
+        onDoubleClick={onInteract}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") { event.preventDefault(); onInteract(); }
+          if (event.key === " ") { event.preventDefault(); onSelect(); }
+        }}
+      >
+        {metric?.status === "rendered" &&
+          <span className={styles.frameHint} aria-hidden="true">Double-click to interact</span>}
+      </div>}
     </div>
   </div>;
 }

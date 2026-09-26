@@ -1,21 +1,21 @@
 import { useLayoutEffect, useRef, useState, type Ref } from "react";
-import { changeLabel, type BoardSection, type ReviewBoard } from "./manifest";
+import type { BoardFrame, BoardSection, ReviewBoard } from "./manifest";
+import { ChangeTag } from "./change-tag";
 import type { Positioned, Side } from "./layout";
 import type { Metric } from "./use-frame-loading";
 import { LiveFrame } from "./live-frame";
 import styles from "./board.module.css";
 
 export function MobileReview({
-  board, current, position, index, metric, loaded, missing, frameSource, fullButton,
+  board, current, position, index, metric, loaded, frameSource, fullButton,
   onSelect, onSide, onOpen, onMark, onFinish, onCancel,
 }: {
   board: ReviewBoard;
-  current: { section: BoardSection; frame: ReviewBoard["sections"][number]["frames"][number] };
+  current: { section: BoardSection; frame: BoardFrame };
   position?: Positioned;
   index: number;
   metric?: Metric;
   loaded: boolean;
-  missing: boolean;
   frameSource: "story" | "blank";
   fullButton: Ref<HTMLButtonElement>;
   onSelect: (id: string) => void;
@@ -52,9 +52,7 @@ export function MobileReview({
       {position && <div className={styles.mobileCard}>
         <div className={styles.mobileFrameHeading}>
           <strong>{position.frame.label}</strong>
-          <span className={position.frame.change === "unchanged" ? styles.muted : styles.accent}>
-            {changeLabel(position.frame.change)}
-          </span>
+          <ChangeTag change={position.frame.change} />
         </div>
         <span className={styles.muted}>{position.rect.width} × {position.rect.height}</span>
         {position.frame.before && <div className={styles.segment} aria-label="Before and after">
@@ -66,11 +64,9 @@ export function MobileReview({
             position={position}
             metric={metric}
             loaded={loaded}
-            missing={missing}
             active={false}
             frameSource={frameSource}
             scale={scale}
-            overlayTabIndex={0}
             onMark={onMark}
             onFinish={onFinish}
             onCancel={onCancel}
@@ -83,7 +79,7 @@ export function MobileReview({
     </div>
     <nav className={styles.mobileActions} aria-label="Frame navigation">
       <button disabled={index === 0} onClick={() => onSelect(frames[index - 1].id)}>Previous</button>
-      <button ref={fullButton} className={styles.primary} disabled={missing} onClick={onOpen}>Open full width</button>
+      <button ref={fullButton} className={styles.primary} onClick={onOpen}>Open full width</button>
       <button disabled={index === frames.length - 1}
         onClick={() => onSelect(frames[index + 1].id)}>Next</button>
     </nav>

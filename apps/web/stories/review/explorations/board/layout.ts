@@ -46,3 +46,7 @@ export function layout(board: ReviewBoard, side: Side): { sections: Section[]; s
   });
   return { sections, size: { width: maxWidth + 48, height: y - 172 } };
 }
+
+export function frameLabel(position: Positioned): string {
+  return `${position.before ? "Before · " : ""}${position.frame.label}`;
+}

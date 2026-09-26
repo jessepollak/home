@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
+import { storyViewport, type StoryIndexEntry } from "../stories/review/explorations/board/review-build";
 
 export type ReviewManifest = {
   id: string;
@@ -74,6 +75,23 @@ export function resolveFrame(manifest: ReviewManifest, frameId: string, side: Si
     change: frame.change,
     note: frame.note ?? null,
     stories: side === "both" ? { after: frame.story, before: frame.before ?? null } : undefined,
+  };
+}
+
+export function changesReviewManifest(
+  parsed: ReturnType<typeof parseReviewUrl>, entries: Record<string, StoryIndexEntry>,
+): ReviewManifest {
+  if (parsed.board !== "changes") throw new Error(`Unknown automatic board "${parsed.board}"`);
+  const story = entries[parsed.frame];
+  if (story?.type !== "story" || story.id !== parsed.frame || /^review-boards--/.test(story.id))
+    throw new Error(`Unknown story frame "${parsed.frame}" in the story index`);
+  return {
+    id: "changes", title: "Changes in this PR", summary: "Stories for files changed in this build.",
+    sections: [{ id: "stories", title: "Changed stories", frames: [{
+      id: story.id, story: story.id, label: story.name,
+      viewport: storyViewport(story),
+      change: "changed",
+    }] }],
   };
 }
 
@@ -179,24 +197,25 @@ function main() {
   if (!head) throw new Error("Cannot determine current git HEAD");
   const validRev = parsed.rev && /^[0-9a-fA-F]{7,64}$/.test(parsed.rev) && git("cat-file", "-e", `${parsed.rev}^{commit}`).exitCode === 0 ? parsed.rev : null;
   if (options.atRevision && !validRev) throw new Error("--at-revision requires a rev available in local git");
-  const manifestPath = resolve(options.boards, `${parsed.board}.json`);
-  const path = repoPath(manifestPath);
+  const manifestPath = parsed.board === "changes" ? null : resolve(options.boards, `${parsed.board}.json`);
+  const path = manifestPath ? repoPath(manifestPath) : null;
   const historical = validRev && path ? gitText("show", `${validRev}:${path}`) : null;
-  const contents = historical ?? (options.atRevision ? null : existsSync(manifestPath) ? readFileSync(manifestPath, "utf8") : null);
-  if (!contents) throw new Error(`Unknown board "${parsed.board}": manifest not found at ${manifestPath}${parsed.rev ? ` or revision ${parsed.rev}` : ""}`);
-  const manifest = JSON.parse(contents) as ReviewManifest;
+  const contents = historical ?? (options.atRevision ? null : manifestPath && existsSync(manifestPath) ? readFileSync(manifestPath, "utf8") : null);
+  if (parsed.board !== "changes" && !contents) throw new Error(`Unknown board "${parsed.board}": manifest not found at ${manifestPath}${parsed.rev ? ` or revision ${parsed.rev}` : ""}`);
+  const index = existsSync(options.index)
+    ? JSON.parse(readFileSync(options.index, "utf8")) as { entries?: Record<string, StoryIndexEntry> } : null;
+  if (parsed.board === "changes" && !index?.entries)
+    throw new Error(`Story index unavailable for Changes board: build Storybook or pass --index <index.json path>`);
+  const manifest = parsed.board === "changes" ? changesReviewManifest(parsed, index!.entries!) : JSON.parse(contents!) as ReviewManifest;
   const frame = resolveFrame(manifest, parsed.frame, parsed.side, parsed.variant);
   let source: string | null = null;
-  if (existsSync(options.index)) {
-    const index = JSON.parse(readFileSync(options.index, "utf8")) as { entries?: Record<string, { importPath?: string }> };
-    const importPath = index.entries?.[frame.story]?.importPath;
-    if (importPath) {
-      const candidate = resolve(import.meta.dir, "..", importPath);
-      const located = repoPath(candidate);
-      if (located?.startsWith("apps/web/")) source = located;
-    }
+  const importPath = index?.entries?.[frame.story]?.importPath;
+  if (importPath) {
+    const candidate = resolve(import.meta.dir, "..", importPath);
+    const located = repoPath(candidate);
+    if (located?.startsWith("apps/web/")) source = located;
   }
-  const context = buildReviewContext(parsed, manifest, source, head, changed(validRev, head, path), changed(validRev, head, source));
+  const context = buildReviewContext(parsed, manifest, source, head, path ? changed(validRev, head, path) : "no", changed(validRev, head, source));
   console.log(options.json ? JSON.stringify(context, null, 2) : formatReviewContext(context));
 }
 
