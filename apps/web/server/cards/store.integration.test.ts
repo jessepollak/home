@@ -16,7 +16,7 @@ run("card event PostgreSQL store", () => {
     await admin.unsafe(`CREATE SCHEMA ${schema}`);
     await admin.begin(async (tx) => {
       await tx.unsafe(`SET LOCAL search_path TO ${schema}`);
-      await tx.unsafe(await readMigrationSql("009_cards.sql"));
+      await tx.unsafe(await readMigrationSql("015_cards.sql"));
     });
     sql = createPostgresSqlExecutor(connectionString!, { schema });
   });

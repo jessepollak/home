@@ -54,7 +54,7 @@ Public shared sandbox credentials are revocable; no real personal data is sent t
 
 ## Delivery slices
 
-1. **Provider foundation (no UI or money action).** `server/cards` validated config and read-only JWKS/supported-regions client, verified public webhook ingress at listener URL `…/api/cards/webhooks/immersve` + `/<topic>`, mode-scoped event dedupe, `009_cards.sql`, synthetic SIWE probe.
+1. **Provider foundation (no UI or money action).** `server/cards` validated config and read-only JWKS/supported-regions client, verified public webhook ingress at listener URL `…/api/cards/webhooks/immersve` + `/<topic>`, mode-scoped event dedupe, `015_cards.sql`, synthetic SIWE probe.
 2. **Card journey and enrollment.** Subject to Q2 and Q6: a deploy-if-needed step, owner-linked cardholder identity and encrypted token rotation, approval-based funding-source creation, the bounded-approval rule and `card-allowance` Action, Activity projection joining payment events with draws, card lifecycle routes and UI, feature-map/browser coverage. Deploy-if-needed: before Immersve sign-in, read Base `eth_getCode` for the session smart account; if empty, the customer approves a deployment in their wallet (Jesse, September 24, 2026) and enrollment continues once code is observed at the latest block.
 3. **Identity.** Immersve-hosted KYC, contact and expected-spend prerequisites, activation; partner Sumsub once confirmed.
 4. **Deposit fallback.** Only if Immersve cannot offer approval-based funding to Home's program: `card-fund`, withdrawal intent through Actions, and the card balance as a cash-total component.
