@@ -99,6 +99,7 @@ export const SERVER_EVENT_KINDS = [
   "borrow-overview",
   "funding-order",
   "funding-webhook",
+  "cards-webhook",
   "balances-webhook",
   "balances-webhook-subscription",
   "balances-store",

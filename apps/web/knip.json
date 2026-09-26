@@ -42,7 +42,8 @@
     // Review context CLI is run directly by its package script.
     "scripts/review-context.ts!",
     // Figma variables sync, run by package scripts and the main-only CI job.
-    "scripts/figma-variables.mjs!"
+    "scripts/figma-variables.mjs!",
+    "scripts/immersve-probe.ts!"
   ],
   "ignore": [
     // Non-production design-lane code lives under explorations/ or inside a
