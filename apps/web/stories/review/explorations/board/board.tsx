@@ -1,15 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { PanelLeftIcon, PanelRightIcon } from "lucide-react";
+import { Toggle } from "@/components/ui/toggle";
 import { fitRect, initialFrameFit, pan, zoomAt, type Camera, type Rect, type Size } from "./camera";
 import { BuildChip } from "./build-chip";
+import { boardCommands, commandForKey } from "./commands";
 import { DesktopCanvas } from "./desktop-canvas";
 import { Inspector } from "./inspector";
 import { frameLabel, layout, type Positioned, type Side } from "./layout";
 import { MobileReview } from "./mobile-review";
 import { Outline } from "./outline";
+import { CommandPalette, type PaletteItem } from "./palette";
+import { ShortcutsHelp } from "./shortcuts-help";
 import { formatFrameStatus, useFrameLoading } from "./use-frame-loading";
 import type { ReviewBoard } from "./manifest";
 import { changesBoard, hasChangeData, markBuildChanges, resolveBoard, type ReviewBuild, type StoryIndexEntry } from "./review-build";
-import { readBoardUrl, revisionLink, storyCanvasUrl, writeBoardUrl } from "./url-state";
+import { readBoardUrl, revisionLink, storyCanvasUrl, storyManagerUrl, writeBoardUrl } from "./url-state";
 import styles from "./board.module.css";
 
 type FrameSource = "story" | "blank";
@@ -64,14 +69,6 @@ function BoardMessage({ title, build, children }: { title: string; build: Review
   </div>;
 }
 
-function PanelsIcon() {
-  return <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"
-    strokeWidth="1.25" aria-hidden="true">
-    <rect x="1.5" y="2.5" width="13" height="11" rx="2" />
-    <path d="M5.5 2.5v11M10.5 2.5v11" />
-  </svg>;
-}
-
 function BoardCanvas({ board, build, frameSource, narrow }: {
   board: ReviewBoard;
   build: ReviewBuild;
@@ -97,7 +94,10 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
       ? `${linkedFrame}:before` : undefined,
   );
   const [mobile, setMobile] = useState(narrow);
-  const [panels, setPanels] = useState(true);
+  const [outlineOpen, setOutlineOpen] = useState(true);
+  const [inspectorOpen, setInspectorOpen] = useState(true);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, zoom: 1 });
   const [interacting, setInteracting] = useState<string>();
   const [spacePan, setSpacePan] = useState(false);
@@ -153,7 +153,7 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
       const width = element.clientWidth;
       setMobile(narrow || width < 768);
       if (lastWidth.current === null || (lastWidth.current >= 1280) !== (width >= 1280)) {
-        setPanels(width >= 1280);
+        setOutlineOpen(width >= 1280);
       }
       lastWidth.current = width;
       const canvasElement = canvas.current;
@@ -291,44 +291,49 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
     if (!mobile) fit({ x: 0, y: 0, ...layout(board, value).size });
     updateUrl({ side: value, variant: undefined });
   };
+  const commands = boardCommands({
+    fitBoard: fitAll,
+    fitSelection: () => fit(selectedPosition.rect),
+    zoom,
+    zoomReset: () => zoom(1 / camera.zoom),
+    pan: (x, y) => moveCamera((old) => pan(old, { x, y })),
+    toggleOutline: () => setOutlineOpen((old) => !old),
+    toggleInspector: () => setInspectorOpen((old) => !old),
+    interact: () => interact(selectedPosition),
+    canInteract,
+    openStory: () => window.open(storyManagerUrl(selectedPosition.story), "_blank", "noreferrer"),
+    openCanvas: () => window.open(storyCanvasUrl(selectedPosition.story), "_blank", "noreferrer"),
+    copyLink: () => void navigator.clipboard?.writeText(location.href).catch(() => undefined),
+    openPalette: () => setPaletteOpen(true),
+    openShortcuts: () => setHelpOpen(true),
+  });
+  const paletteItems: PaletteItem[] = [
+    ...commands.filter((command) => command.run && command.palette !== false && command.enabled !== false)
+      .map((command) => ({ id: command.id, label: command.label, detail: command.group, keys: command.keys,
+        run: () => command.run?.() })),
+    ...geometry.sections.flatMap((section) => section.frames.map((position) => ({
+      id: `frame:${position.id}`, label: frameLabel(position), detail: section.title,
+      run: () => selectAndFit(position.id),
+    }))),
+  ];
   const onKey = (event: globalThis.KeyboardEvent) => {
-    if (event.target instanceof Element &&
-      event.target.closest("a[href], button, input, select, textarea, [contenteditable]")) return;
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest("input, select, textarea, [contenteditable]")) return;
     if (event.defaultPrevented && event.key !== " ") return;
-    const command = event.metaKey || event.ctrlKey;
-    if (command) {
-      if (event.key === "=" || event.key === "+") zoom(1.2);
-      else if (event.key === "-") zoom(1 / 1.2);
-      else if (event.key === "0") zoom(1 / camera.zoom);
-      else if (event.key === "\\") setPanels((old) => !old);
-      else return;
-      event.preventDefault();
-      return;
-    }
-    if (event.altKey) return;
-    if (event.key === " ") {
+    const onControl = Boolean(target?.closest("a[href], button"));
+    if (event.key === " " && !onControl && !event.metaKey && !event.ctrlKey && !event.altKey) {
       if (!event.repeat) setSpacePan(true);
       event.preventDefault();
       return;
     }
-    if (event.key === "Enter") interact(selectedPosition);
-    else if (event.key === "+" || event.key === "=") zoom(1.2);
-    else if (event.key === "-") zoom(1 / 1.2);
-    else if (event.code === "Digit0") zoom(1 / camera.zoom);
-    else if (event.code === "Digit1") fitAll();
-    else if (event.code === "Digit2" || event.key.toLowerCase() === "f") fit(selectedPosition.rect);
-    else if (event.key.startsWith("Arrow")) {
-      const step = event.shiftKey ? 120 : 40;
-      moveCamera((old) => pan(old, {
-        x: event.key === "ArrowLeft" ? step : event.key === "ArrowRight" ? -step : 0,
-        y: event.key === "ArrowUp" ? step : event.key === "ArrowDown" ? -step : 0,
-      }));
-    } else return;
+    const command = commandForKey(commands, event, onControl);
+    if (!command) return;
     event.preventDefault();
+    command.run?.(event);
   };
   const keyHandler = useRef(onKey);
   useEffect(() => { keyHandler.current = onKey; });
-  const keysActive = !mobile && !full && !interacting;
+  const keysActive = !mobile && !full && !interacting && !paletteOpen && !helpOpen;
   useEffect(() => {
     if (!keysActive) return;
     const down = (event: globalThis.KeyboardEvent) => keyHandler.current(event);
@@ -346,10 +351,10 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
   }, [keysActive]);
   return <div ref={boardElement} className={styles.board} data-review-board={board.id}>
     <header className={styles.header} inert={dialogOpen}>
-      {!mobile && <button className={styles.iconButton} aria-label="Panels" aria-pressed={panels}
-        title="Show or hide panels (⌘\)" onClick={() => setPanels((old) => !old)}>
-        <PanelsIcon />
-      </button>}
+      {!mobile && <Toggle size="sm" aria-label="Outline" title="Toggle outline ([)"
+        pressed={outlineOpen} onPressedChange={setOutlineOpen}>
+        <PanelLeftIcon />
+      </Toggle>}
       <h1 title={board.title}>{board.title}</h1>
       {mobile && <span className={styles.position}>{currentIndex + 1} of {allFrames.length}</span>}
       <BuildChip build={build} />
@@ -370,6 +375,10 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
             <option value="both">Side by side</option>
           </select>}
         </nav>
+        <Toggle size="sm" aria-label="Inspector" title="Toggle inspector (])"
+          pressed={inspectorOpen} onPressedChange={setInspectorOpen}>
+          <PanelRightIcon />
+        </Toggle>
       </>}
     </header>
     {(mismatch || staleFrame) && <div className={styles.banner} role="status" inert={dialogOpen}>
@@ -385,7 +394,7 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
         frameSource={frameSource} fullButton={fullButton} onSelect={select} onSide={changeSide}
         onOpen={() => setFull(true)} onMark={mark} onFinish={finish} onCancel={cancel}
       /> : <div className={styles.desktop}>
-        {panels && <Outline board={board} sections={geometry.sections} selected={selectedPosition.id} inPr={build.pr !== null}
+        {outlineOpen && <Outline board={board} sections={geometry.sections} selected={selectedPosition.id} inPr={build.pr !== null}
           onSelect={selectAndFit} onFitSection={(section) => fit(section.rect)} />}
         <div ref={canvas} className={styles.canvasHost}>
           <DesktopCanvas
@@ -404,11 +413,16 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
             Interacting with <strong>{frameLabel(interactingPosition)}</strong> · Esc to exit
           </div>}
         </div>
-        {panels && <Inspector section={selectedSection} position={selectedPosition}
+        {inspectorOpen && <Inspector section={selectedSection} position={selectedPosition}
           onInteract={() => interact(selectedPosition)} canInteract={canInteract}
-          onFit={() => fit(selectedPosition.rect)} />}
+          onFit={() => fit(selectedPosition.rect)}
+          shortcuts={commands.filter((command) => command.featured)} onShowShortcuts={() => setHelpOpen(true)} />}
       </div>}
     </main>
+    {!mobile && <>
+      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} items={paletteItems} />
+      <ShortcutsHelp open={helpOpen} onOpenChange={setHelpOpen} commands={commands} />
+    </>}
     {dialogOpen && <div className={styles.fullscreen} role="dialog" aria-modal="true"
       aria-label={`${selectedPosition.frame.label} full width`}>
       <span tabIndex={0} className={styles.focusSentinel} onFocus={() => activeFrame.current?.focus()} />

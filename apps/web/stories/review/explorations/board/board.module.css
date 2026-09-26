@@ -12,7 +12,7 @@
   color: inherit;
   font: inherit;
 }
-.board button, .board select {
+.board button:not([data-slot]), .board select {
   min-height: 32px;
   min-width: 32px;
   border: 1px solid var(--border);
@@ -48,23 +48,6 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.board .iconButton {
-  display: grid;
-  place-items: center;
-  padding: 0;
-  margin-inline-start: -8px;
-  border-color: transparent;
-  background: transparent;
-  color: var(--muted-foreground);
-}
-.board .iconButton:hover {
-  color: var(--foreground);
-  background: var(--muted);
-}
-.board .iconButton[aria-pressed="true"] {
-  color: var(--foreground);
-  background: var(--muted);
 }
 .chipGroup {
   display: flex;
@@ -308,6 +291,112 @@
 .shortcuts dd {
   margin: 0;
   text-align: end;
+}
+.keys {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.keyAlternative {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.keySeparator {
+  color: var(--muted-foreground);
+  font-size: 10px;
+}
+.keys kbd {
+  font: 500 11px/18px var(--font-mono, ui-monospace, monospace);
+  min-width: 18px;
+  padding-inline: 5px;
+  text-align: center;
+  color: var(--foreground);
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.overlayBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: color-mix(in oklab, var(--foreground) 16%, transparent);
+}
+.overlay {
+  position: fixed;
+  z-index: 50;
+  inset-inline: 0;
+  top: 14vh;
+  margin-inline: auto;
+  width: min(560px, calc(100vw - 32px));
+  max-height: 72vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--popover-foreground);
+  background: var(--popover);
+  border-radius: 12px;
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--foreground) 10%, transparent), 0 16px 48px rgb(0 0 0 / .18);
+  font-size: 13px;
+  outline: none;
+}
+.palette {
+  padding: 6px;
+  gap: 6px;
+}
+.paletteList {
+  max-height: min(360px, 56vh);
+}
+.paletteLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.paletteDetail {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.paletteEmpty {
+  margin: 0;
+  padding: 16px;
+  text-align: center;
+  color: var(--muted-foreground);
+}
+.help {
+  width: min(640px, calc(100vw - 32px));
+}
+.helpHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 10px 10px 16px;
+  border-block-end: 1px solid var(--border);
+}
+.helpTitle {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+}
+.helpGroups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 20px 28px;
+  padding: 16px;
+  overflow-y: auto;
+}
+.helpGroups h3 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted-foreground);
+}
+.helpGroups .shortcuts {
+  gap: 8px;
+  font-size: 12px;
 }
 .board .primary {
   background: var(--primary);

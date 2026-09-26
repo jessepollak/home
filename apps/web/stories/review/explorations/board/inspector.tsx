@@ -1,24 +1,18 @@
 import { ChangeTag } from "./change-tag";
 import { frameLabel, type Positioned, type Section } from "./layout";
 import { storyCanvasUrl, storyManagerUrl } from "./url-state";
+import type { BoardCommand } from "./commands";
+import { ShortcutList } from "./shortcuts-help";
 import styles from "./board.module.css";
 
-const shortcuts: Array<[string, string]> = [
-  ["Scroll", "Pan"],
-  ["⌘ Scroll / Pinch", "Zoom"],
-  ["Space + Drag", "Pan"],
-  ["⇧1 / ⇧2", "Fit board / selection"],
-  ["⌘0", "Zoom to 100%"],
-  ["Enter / Double-click", "Interact"],
-  ["⌘\\", "Hide panels"],
-];
-
-export function Inspector({ section, position, onInteract, onFit, canInteract }: {
+export function Inspector({ section, position, onInteract, onFit, canInteract, shortcuts, onShowShortcuts }: {
   section?: Section;
   position: Positioned;
   onInteract: () => void;
   onFit: () => void;
   canInteract: boolean;
+  shortcuts: BoardCommand[];
+  onShowShortcuts: () => void;
 }) {
   return <aside className={styles.inspector} aria-label="Inspector">
     <div className={styles.panelHeading}><strong>Inspector</strong></div>
@@ -39,9 +33,8 @@ export function Inspector({ section, position, onInteract, onFit, canInteract }:
       <a href={storyManagerUrl(position.story)} target="_blank" rel="noreferrer">Open story ↗</a>
       <a href={storyCanvasUrl(position.story)} target="_blank" rel="noreferrer">Open canvas ↗</a>
       <div className={styles.inspectorDivider} />
-      <dl className={styles.shortcuts} aria-label="Shortcuts">
-        {shortcuts.map(([keys, action]) => <div key={keys}><dt>{keys}</dt><dd>{action}</dd></div>)}
-      </dl>
+      <ShortcutList label="Shortcuts" commands={shortcuts} />
+      <button onClick={onShowShortcuts}>All shortcuts</button>
     </div>
   </aside>;
 }
