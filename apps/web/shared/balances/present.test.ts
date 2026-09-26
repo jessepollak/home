@@ -20,6 +20,21 @@ import {
 } from "./present";
 
 describe("balance presentation", () => {
+  test("a successful post-action refetch keeps Borrow visible while a genuine empty failure is unavailable", () => {
+    const position = borrowPosition({
+      collateralBaseUnits: "100000", collateralValue: priced("USD", "5000"),
+      debtBaseUnits: "30010000", debtValue: priced("USD", "3001"),
+    });
+    const refreshed = buildBalancesSnapshotFixture({
+      fetchedAt: "2026-09-13T12:00:30.000Z",
+      borrow: { coverage: "complete", positions: [position] },
+    });
+    const failed = buildBalancesSnapshotFixture({ borrow: { coverage: "partial", positions: [] } });
+    expect(presentBalances({ status: "ready", snapshot: refreshed, error: null }, { showSmallBalances: false }).summary?.borrow)
+      .toMatchObject({ kind: "position", value: "$30.01" });
+    expect(presentBalances({ status: "ready", snapshot: failed, error: null }, { showSmallBalances: false }).summary?.borrow)
+      .toEqual({ kind: "unavailable" });
+  });
   test("keeps cash truth, hides noncash zero/unavailable and vault shares, and includes catalog rows", () => {
     const rows = presentBalanceRows(balancesSnapshotFixture);
     expect(rows.map((row) => row.name)).toEqual([
