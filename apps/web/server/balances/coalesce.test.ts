@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseBalancesSnapshot } from "@/shared/balances/contract";
+import { presentBalances } from "@/shared/balances/present";
 import { BORROW_MARKETS } from "@/shared/borrowing/config";
 import {
   borrowPosition,
@@ -15,12 +16,12 @@ import { borrowReadComplete } from "./borrow";
 import type { BalancesEnumeration, BalancesRead, BorrowRead, ReadHolding } from "./types";
 
 const borrowMarketId = BORROW_MARKETS[0].marketId.toLowerCase() as `0x${string}`;
-function readyBorrow(): BorrowRead {
+function readyBorrow(blockNumber = "11"): BorrowRead {
   return {
     markets: BORROW_MARKETS.map((market) => ({
       marketId: market.marketId.toLowerCase() as `0x${string}`,
       status: "ready" as const,
-      blockNumber: "11",
+      blockNumber,
       collateralRaw: "0",
       debtAssetsRaw: "0",
       borrowAprWad: "0",
@@ -94,7 +95,7 @@ function observation(overrides: Partial<BalanceObservation> = {}): BalanceObserv
     observedAt: value.observedAt,
     holdings: value.holdings,
     coverage: value.coverage,
-    borrow: readyBorrow(),
+    borrow: readyBorrow("10"),
     ...overrides,
   };
 }
@@ -121,7 +122,7 @@ function setup(options: {
   registryRead?: () => Promise<BalancesRead>;
   enumerate?: (cursor?: string | null) => Promise<BalancesEnumeration>;
   price?: (read: BalancesRead) => Holding[];
-  pricedBorrow?: BalancesBorrow;
+  pricedBorrow?: BalancesBorrow | ((read: BalancesRead) => BalancesBorrow);
   readBorrow?: (at: BalancesRead["block"]) => Promise<BorrowRead>;
 }) {
   const store = options.store ?? new MemoryBalanceSnapshotStore();
@@ -182,7 +183,8 @@ function setup(options: {
     },
     priceBalances: async (value) => ({
       holdings: options.price?.(value) ?? priced(value.holdings),
-      borrow: options.pricedBorrow ?? { coverage: borrowReadComplete(value.borrow) ? "complete" : "partial", positions: [] },
+      borrow: typeof options.pricedBorrow === "function" ? options.pricedBorrow(value) :
+        options.pricedBorrow ?? { coverage: borrowReadComplete(value.borrow) ? "complete" : "partial", positions: [] },
       revalidating: false,
       durationMs: { store: 0, codex: 0, coinbase: 0 },
     } as never),
@@ -515,7 +517,7 @@ describe("balance observations", () => {
     const flagged = await due.service(owner, "US");
     expect(due.reads()).toBe(1);
     expect(flagged.stale).toBeTrue();
-    expect(flagged.borrow.coverage).toBe("partial");
+    expect(flagged.borrow.coverage).toBe("complete");
     expect(due.pending()).toBe(1);
 
     const recent = setup({ now: "2026-09-13T12:00:45.000Z", readBorrow: async () => unavailableBorrow() });
@@ -523,9 +525,71 @@ describe("balance observations", () => {
     await recent.store.markHot(8453, owner, new Date("2026-09-13T12:01:00.000Z"));
     const waiting = await recent.service(owner, "US");
     expect(waiting.stale).toBeUndefined();
-    expect(waiting.borrow.coverage).toBe("partial");
-    expect(waiting.totals.net.status).not.toBe("complete");
+    expect(waiting.borrow.coverage).toBe("complete");
     expect(recent.pending()).toBe(0);
+  });
+
+  test("hot Borrow failures retain the verified position until a successful pinned read replaces it", async () => {
+    let failing = true;
+    let nextBlock = "11";
+    const position = borrowPosition({
+      collateralBaseUnits: "100000", collateralValue: fixturePriced("USD", "5000"),
+      debtBaseUnits: "30010000", debtValue: fixturePriced("USD", "3001"),
+    });
+    const fixture = setup({
+      registryRead: async () => read(nextBlock, "2026-09-13T12:00:30.000Z", [registry]),
+      readBorrow: async (at) => failing ? unavailableBorrow() : readyBorrow(at.number),
+      pricedBorrow: (value) => ({
+        coverage: borrowReadComplete(value.borrow) ? "complete" : "partial",
+        positions: value.borrow?.markets[0]?.status === "ready" &&
+            value.borrow.markets[0].debtAssetsRaw !== "0" ? [position] : [],
+      }),
+    });
+    await fixture.store.putObservation(observation({
+      observedAt: "2026-09-13T12:00:15.000Z",
+      borrow: { markets: readyBorrow("10").markets.map((market) => market.marketId === borrowMarketId && market.status === "ready"
+        ? { ...market, debtAssetsRaw: "30010000", collateralRaw: "100000" }
+        : market) },
+    }));
+    await fixture.store.markHot(8453, owner, new Date("2026-09-13T12:01:00.000Z"));
+
+    const carried = await fixture.service(owner, "US");
+    expect(carried.borrow.coverage).toBe("complete");
+    expect(carried.borrow.positions).toEqual([position]);
+    expect(presentBalances({ status: "ready", snapshot: carried, error: null }, { showSmallBalances: false }).summary?.borrow)
+      .toMatchObject({ kind: "position", value: "$30.01" });
+    expect(carried.stale).toBeUndefined();
+    expect(carried.holdings.map((holding) => holding.key)).toContain(registry.key);
+    expect((await fixture.store.get(8453, owner))?.borrow?.markets[0]).toMatchObject({ status: "ready", blockNumber: "10", debtAssetsRaw: "30010000" });
+
+    failing = false;
+    nextBlock = "12";
+    const current = await fixture.service(owner, "US");
+    expect(current.borrow.coverage).toBe("complete");
+    expect(current.borrow.positions).toEqual([]);
+    expect(current.stale).toBeUndefined();
+    expect((await fixture.store.get(8453, owner))?.borrow?.markets[0]).toMatchObject({ status: "ready", blockNumber: "12", debtAssetsRaw: "0" });
+  });
+
+  test("a full re-observation carries a verified Borrow market during a transient failure", async () => {
+    const fixture = setup({ now: "2026-09-13T12:02:01.000Z", readBorrow: async () => unavailableBorrow() });
+    await fixture.store.putObservation(observation());
+    expect((await fixture.service(owner, "US")).stale).toBeTrue();
+    await fixture.flush();
+    expect((await fixture.store.get(8453, owner))?.borrow?.markets[0]).toMatchObject({ status: "ready", blockNumber: "10" });
+    expect((await fixture.service(owner, "US")).stale).toBeTrue();
+  });
+
+  test("a hot failure beyond the carry-forward bound stays unavailable", async () => {
+    const fixture = setup({ registryRead: async () => read("71", "2026-09-13T12:00:30.000Z", [registry]), readBorrow: async () => unavailableBorrow() });
+    await fixture.store.putObservation(observation());
+    await fixture.store.markHot(8453, owner, new Date("2026-09-13T12:01:00.000Z"));
+    const snapshot = await fixture.service(owner, "US");
+    expect(snapshot.borrow.coverage).toBe("partial");
+    expect(snapshot.totals.net.status).not.toBe("complete");
+    expect(presentBalances({ status: "ready", snapshot, error: null }, { showSmallBalances: false }).summary?.borrow)
+      .toEqual({ kind: "unavailable" });
+    expect((await fixture.store.get(8453, owner))?.borrow?.markets[0]?.status).toBe("unavailable");
   });
 
   test("a stored row observed before Borrow was tracked is served stale and revalidated", async () => {

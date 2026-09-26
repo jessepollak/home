@@ -112,9 +112,9 @@ export function balanceSnapshotStoreContract(options: {
           { marketId: OTHER_MARKET, status: "unavailable" as const },
         ],
       };
-      await store.putObservation({ ...observation("11", "2026-09-13T12:00:11.000Z"), borrow });
+      await store.putObservation({ ...observation("12", "2026-09-13T12:00:11.000Z"), borrow });
       await store.markStale(8453, ADDRESS, new Date("2026-09-13T12:00:20.000Z"));
-      expect((await store.get(8453, ADDRESS))?.borrow).toEqual(borrow);
+      expect(await store.get(8453, ADDRESS)).toMatchObject({ blockNumber: "12", borrow });
       expect(await store.putObservation({ ...observation("10", "2026-09-13T12:00:30.000Z"), borrow: null })).toBeFalse();
       expect((await store.get(8453, ADDRESS))?.borrow).toEqual(borrow);
     });
