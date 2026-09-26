@@ -179,7 +179,8 @@ export type NativeBaseAuthDependencies = {
   sessionSecret?: string;
   now?: () => Date;
   randomId?: () => string;
-  onVerified?: (session: VerifiedAccountSession, context: { request: Request }) => void;
+  onVerified?: (session: VerifiedAccountSession, context: { request: Request }) => void | Promise<void>;
+  verifiedCookies?: (request: Request) => string[];
   verify?: (input: {
     address: `0x${string}`;
     domain: string;
@@ -351,8 +352,9 @@ export function createNativeBaseVerifyHandler(input: NativeBaseAuthDependencies 
     const response = json(issued.session, 200, [
       clearChallenge,
       cookie(HOME_SESSION_COOKIE, issued.token, request, NATIVE_BASE_SESSION_TTL_MS / 1000),
+      ...(input.verifiedCookies?.(request) ?? []),
     ]);
-    try { input.onVerified?.(issued.session, { request }); } catch { return response; }
+    try { await input.onVerified?.(issued.session, { request }); } catch { return response; }
     return response;
   };
 }

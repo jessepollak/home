@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { LogOut } from "lucide-react";
+import type { AccountWalletClient } from "@/client/account/cdp-client";
+import { useInviteLink } from "@/client/account/use-invite-link";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -35,6 +37,61 @@ const sourceLabels: Record<ResolutionSource, string> = {
   fallback: "Default country",
 };
 
+function subscribeShare() {
+  return () => {};
+}
+
+function shareSnapshot() {
+  return typeof navigator.share === "function";
+}
+
+function serverShareSnapshot() {
+  return false;
+}
+
+function InviteLinkControl({ url }: { url: string }) {
+  const [shareError, setShareError] = useState(false);
+  const canShare = useSyncExternalStore(subscribeShare, shareSnapshot, serverShareSnapshot);
+
+  async function shareLink(): Promise<"shared" | "cancelled" | "failed"> {
+    setShareError(false);
+    try {
+      await navigator.share({ title: "Home", url });
+      return "shared";
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return "cancelled";
+      setShareError(true);
+      return "failed";
+    }
+  }
+
+  return (
+    <>
+      <ItemContent className="min-w-0 flex-1">
+        <div dir="ltr">
+          <CopyableValue
+            value={url}
+            display={url.replace(/^https?:\/\//, "")}
+            presentation="compact"
+            valueKind="invite link"
+            copyLabelPrefix="Copy invite link "
+          />
+        </div>
+        {shareError ? (
+          <ItemDescription role="status">Couldn&apos;t share your invite link.</ItemDescription>
+        ) : null}
+      </ItemContent>
+      {canShare ? (
+        <ItemActions className="flex-wrap">
+          <Button variant="outline" size="touch" aria-label="Share invite link" onClick={() => void shareLink()}>
+            Share
+          </Button>
+        </ItemActions>
+      ) : null}
+    </>
+  );
+}
+
 export function AccountSettings({
   regionId,
   onRegionChange,
@@ -43,6 +100,7 @@ export function AccountSettings({
   isPreferenceReady,
   accountAddress,
   accountOwnerKey = null,
+  fetchAccountResource,
   showSmallBalances,
   onShowSmallBalancesChange,
   appearancePreference,
@@ -56,6 +114,7 @@ export function AccountSettings({
   isPreferenceReady: boolean;
   accountAddress: string | null;
   accountOwnerKey?: string | null;
+  fetchAccountResource: AccountWalletClient["fetchAccountResource"];
   showSmallBalances: boolean;
   onShowSmallBalancesChange: (value: boolean) => void;
   appearancePreference: AppearancePreference;
@@ -69,6 +128,11 @@ export function AccountSettings({
     address: accountAddress,
   });
   const basename = basenameProfile.data?.name ?? null;
+  const inviteLink = useInviteLink({
+    ownerKey: accountAddress ? accountOwnerKey : null,
+    fetchAccountResource,
+  });
+  const inviteUrl = inviteLink.data;
 
   return (
     <div className="min-w-0 space-y-8 py-2 pb-6">
@@ -197,6 +261,38 @@ export function AccountSettings({
           </CardContent>
         </Card>
       </section>
+
+      {accountAddress && accountOwnerKey && (inviteLink.isPending || inviteLink.isError || inviteUrl) ? (
+        <section className="space-y-3" aria-labelledby="invites-heading">
+          <h2 id="invites-heading" className="text-lg font-semibold">
+            Invite friends
+          </h2>
+          <Card>
+            <CardContent inset="list">
+              <Item className="min-w-0 flex-wrap">
+                {inviteUrl && !inviteLink.isPending && !inviteLink.isError ? (
+                  <InviteLinkControl key={inviteUrl} url={inviteUrl} />
+                ) : (
+                  <ItemContent className="min-w-0">
+                    {inviteLink.isPending ? (
+                      <Skeleton className="h-5 w-full" aria-label="Loading invite link" />
+                    ) : inviteLink.isError ? (
+                      <>
+                        <ItemDescription>Couldn&apos;t load your invite link.</ItemDescription>
+                        <ItemActions>
+                          <Button variant="outline" size="touch" onClick={() => void inviteLink.refetch()}>
+                            Try again
+                          </Button>
+                        </ItemActions>
+                      </>
+                    ) : null}
+                  </ItemContent>
+                )}
+              </Item>
+            </CardContent>
+          </Card>
+        </section>
+      ) : null}
 
       <section className="space-y-3" aria-labelledby="disclosures-heading">
         <h2 id="disclosures-heading" className="text-lg font-semibold">

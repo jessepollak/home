@@ -388,6 +388,7 @@ function DesktopShell({ initialPanel, initialRailCollapsed = false, extendedActi
     <AccountSettings
       regionId={regionId} onRegionChange={setRegionId} resolutionSource="explicit"
       preferenceMessage="" isPreferenceReady accountAddress={WALLET} accountOwnerKey="jesse.base.eth"
+      fetchAccountResource={async () => ({ version: 1, code: "abcdefghjk" })}
       showSmallBalances={showSmallBalances} onShowSmallBalancesChange={setShowSmallBalances}
       appearancePreference={appearancePreference}
       onAppearancePreferenceChange={(value) => { setAppearancePreference(value); return true; }}

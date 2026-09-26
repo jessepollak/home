@@ -1,6 +1,7 @@
 import "server-only";
 
 import { after } from "next/server";
+import { isInviteCode } from "@/shared/invites/contract";
 import { BASE_CHAIN_ID, type VerifiedAccountSession } from "@/shared/account/session-types";
 import { getSqlExecutor, type SqlExecutor } from "@/server/db/sql";
 import { emitServerEvent } from "@/server/observability/log";
@@ -11,7 +12,7 @@ const STATEMENT_TIMEOUT = "SET LOCAL statement_timeout = '5s'";
 type Resolution = { id: string; status: string; created: boolean };
 type CustomerRow = { id: string; status: string; first_seen_at: Date; invite_code: string | null };
 type CredentialRow = { id: string; customer_id: string };
-type CreateOptions = { create: true; at?: Date; email?: string | null; country?: string | null };
+type CreateOptions = { create: true; at?: Date; email?: string | null; country?: string | null; inviteCode?: string | null };
 type ReadOptions = { create: false };
 
 export class CustomerResolver {
@@ -30,13 +31,13 @@ export class CustomerResolver {
     }
     return this.sql.transaction(async (tx) => {
       await tx.query(STATEMENT_TIMEOUT);
-      return this.resolveInTransaction(tx, session, options.at ?? new Date(), "sign_in", options.email, options.country);
+      return this.resolveInTransaction(tx, session, options.at ?? new Date(), "sign_in", options.email, options.country, options.inviteCode);
     });
   }
 
   private async resolveInTransaction(
     tx: SqlExecutor, session: VerifiedAccountSession, at: Date,
-    source: "sign_in" | "activity", email?: string | null, country?: string | null,
+    source: "sign_in" | "activity", email?: string | null, country?: string | null, inviteCode?: string | null,
   ): Promise<Resolution> {
     const candidateId = crypto.randomUUID();
     const normalizedEmail = session.accountProvider === "cdp-embedded" && email ? email.toLowerCase() : null;
@@ -50,11 +51,31 @@ export class CustomerResolver {
     let credential = inserted.rows[0];
     let customer: CustomerRow;
     if (created) {
+      let attribution: { customer_id: string } | undefined;
+      if (source === "sign_in" && isInviteCode(inviteCode)) {
+        attribution = (await tx.query<{ customer_id: string }>(
+          `SELECT i.customer_id FROM invite_codes i JOIN customers c ON c.id=i.customer_id
+           WHERE i.code=$1 AND c.status='active'
+             AND NOT EXISTS (SELECT 1 FROM customer_wallets w WHERE w.customer_id=i.customer_id
+               AND w.chain_id=$2 AND w.address=$3)
+             AND NOT EXISTS (SELECT 1 FROM customer_credentials cr WHERE cr.customer_id=i.customer_id
+               AND cr.email=$4::text)`,
+          [inviteCode, session.smartAccount?.chainId ?? null, session.smartAccount?.address.toLowerCase() ?? null, normalizedEmail],
+        )).rows[0];
+      }
       customer = (await tx.query<CustomerRow>(
-        `INSERT INTO customers (id,country,first_seen_at,last_seen_at,first_seen_source)
-         VALUES ($1,$2,$3,$3,$4) RETURNING id,status,first_seen_at,invite_code`,
-        [candidateId, country ?? null, at, source],
+        `INSERT INTO customers (id,country,first_seen_at,last_seen_at,first_seen_source,invite_code)
+         VALUES ($1,$2,$3,$3,$4,$5) RETURNING id,status,first_seen_at,invite_code`,
+        [candidateId, country ?? null, at, source, attribution ? inviteCode : null],
       )).rows[0];
+      if (attribution) {
+        await tx.query(
+          `INSERT INTO operator_events (id,customer_id,name,occurred_at,source,props,idempotency_key)
+           VALUES (gen_random_uuid(),$1,'invite.attributed',$2,'live',$3::jsonb,$4)
+           ON CONFLICT (idempotency_key) DO NOTHING`,
+          [candidateId, at, JSON.stringify({ inviteCode, inviterCustomerId: attribution.customer_id }), `invite:${candidateId}`],
+        );
+      }
     } else {
       credential = (await tx.query<CredentialRow>(
         `UPDATE customer_credentials SET first_seen_at=LEAST(first_seen_at,$3::timestamptz),
@@ -129,7 +150,7 @@ export async function resolveCustomer(session: VerifiedAccountSession, options: 
   return options.create ? resolver.resolveCustomer(session, options) : resolver.resolveCustomer(session, options);
 }
 
-async function bestEffortCustomerRecord(operation: (resolver: CustomerResolver) => Promise<unknown>): Promise<void> {
+export async function bestEffortCustomerRecord(operation: (resolver: CustomerResolver) => Promise<unknown>): Promise<void> {
   try {
     const resolver = getCustomerResolver();
     if (resolver) await operation(resolver);

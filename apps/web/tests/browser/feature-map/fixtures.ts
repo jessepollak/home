@@ -55,6 +55,7 @@ export function fixtureRoutes() {
   return [
     ["**/api/session", sessionBody],
     ["**/api/account/country-preference", { version: COUNTRY_PREFERENCE_VERSION, regionId: null }],
+    ["**/api/invites/link", { version: 1, code: "abcdefghjk" }],
     ["**/api/balances**", {
       ...balances,
       holdings: balances.holdings.map((holding) => ({ ...holding, imageUrl: undefined })),

@@ -294,6 +294,7 @@ export async function installApiFixtures(
       }
       return json(route, { version: COUNTRY_PREFERENCE_VERSION, regionId: null });
     }
+    if (path === "/api/invites/link") return json(route, { version: 1, code: "abcdefghjk" });
     if (path === "/api/basename-profile") return json(route, basenameProfileBody);
     return json(route, {});
   });

@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, mock, test } from "bun:test";
 import { createSiweMessage } from "viem/siwe";
+import { issueInviteCookie } from "@/server/invites/cookie";
 import type { NativeBaseChallenge } from "@/shared/account/contracts/base-nonce";
 import {
   ACCOUNT_PROVIDER_HEADER,
@@ -75,6 +76,17 @@ afterAll(() => {
 });
 
 describe("consolidated route authorization", () => {
+  test("production CDP sign-in clears the presented invite cookie on verification", async () => {
+    const invite = issueInviteCookie(new Request(`${ORIGIN}/invite/abcdefghjk`), "abcdefghjk", new Date(), SECRET)!;
+    const invitePair = setCookiePair(invite);
+    const cdp = await sessionRoute.GET(new Request(`${ORIGIN}/api/session`, { headers: {
+      Authorization: "Bearer verified.token.value", Cookie: invitePair,
+      [ACCOUNT_PROVIDER_HEADER]: "cdp-embedded",
+    } }));
+    expect(cdp.status).toBe(200);
+    expect(cdp.headers.getSetCookie()).toContainEqual(expect.stringContaining("home_invite=;"));
+
+  });
   test("accepts valid native Base sessions and rejects invalid sessions", async () => {
     const validCookie = await createSessionCookie();
     const invalidCookie = tamper(validCookie);
