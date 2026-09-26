@@ -16,7 +16,7 @@ const dialogContentVariants = cva(
         default:
           "top-1/2 grid max-w-sm -translate-y-1/2 gap-4 p-4",
         command:
-          "top-[14vh] flex max-h-[72vh] max-w-xl flex-col overflow-hidden **:data-[slot=input-group]:h-12 **:data-[slot=input-group]:rounded-none **:data-[slot=input-group]:border-0 **:data-[slot=input-group]:border-b **:data-[slot=input-group]:border-border **:data-[slot=input-group]:bg-transparent **:data-[slot=input-group]:shadow-none **:data-[slot=input-group]:ring-0 **:data-[slot=input-group-control]:px-4 **:data-[slot=input-group-control]:text-sm",
+          "top-[14vh] flex max-h-[72vh] max-w-xl flex-col overflow-hidden *:data-[slot=combobox-list]:min-h-0 *:data-[slot=combobox-list]:flex-1 *:data-[slot=combobox-list]:scroll-pt-2 *:data-[slot=combobox-list]:scroll-pb-1.5 *:data-[slot=combobox-list]:px-1.5 *:data-[slot=combobox-list]:pt-2 *:data-[slot=combobox-list]:pb-1.5",
       },
     },
     defaultVariants: {

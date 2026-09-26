@@ -31,12 +31,12 @@ export function CommandPalette({ open, onOpenChange, returnFocus, items }: {
           item.run();
         }}>
         <ComboboxInput aria-label="Search commands and frames"
-          placeholder="Search commands and frames…" showTrigger={false} />
-        <ComboboxList className="max-h-[min(22.5rem,56vh)] p-1.5">
+          placeholder="Search commands and frames…" showTrigger={false} variant="search" />
+        <ComboboxList className="max-h-[min(22.5rem,56vh)]">
           {(item: PaletteItem) => <ComboboxItem key={item.id} value={item} className="gap-3 px-2.5">
             <span className={styles.paletteLabel}>{item.label}</span>
             <span className={styles.paletteDetail}>{item.detail}</span>
-            {item.keys?.[0] && <Kbd>{item.keys[0]}</Kbd>}
+            <span className={styles.paletteKeys}>{item.keys?.[0] && <Kbd>{item.keys[0]}</Kbd>}</span>
           </ComboboxItem>}
         </ComboboxList>
         {ranked.length === 0 && <p className={styles.paletteEmpty} role="status">No matches</p>}

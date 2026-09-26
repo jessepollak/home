@@ -1,5 +1,7 @@
 import type { CSSProperties, PointerEvent } from "react";
 import { useEffect, useRef } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Kbd } from "@/components/ui/kbd";
 import { gestureCamera, pan, pinch, showFrameLabel, wheelCamera, type Camera, type Point, type Rect, type Size } from "./camera";
 import { ChangeTag } from "./change-tag";
 import { frameLabel, type Positioned, type Section } from "./layout";
@@ -245,4 +247,21 @@ export function DesktopCanvas({
         </p>)}
     </div>
   </div>;
+}
+
+const CHIP_HEIGHT = 24;
+const CHIP_GAP = 8;
+const LABEL_ROW = 20;
+const EDGE = 8;
+
+export function interactChipPlacement(camera: Camera, rect: Rect): CSSProperties | undefined {
+  const top = camera.y + rect.y * camera.zoom - LABEL_ROW - CHIP_GAP - CHIP_HEIGHT;
+  if (top < EDGE) return undefined;
+  return { top, insetInlineStart: Math.max(EDGE, camera.x + rect.x * camera.zoom), translate: "none" };
+}
+
+export function InteractChip({ position, camera }: { position: Positioned; camera: Camera }) {
+  return <Badge className={styles.interactChip} style={interactChipPlacement(camera, position.rect)} role="status">
+    Interacting with <strong>{frameLabel(position)}</strong> · <Kbd variant="inverse">Esc</Kbd> to exit
+  </Badge>;
 }

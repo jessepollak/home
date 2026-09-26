@@ -31,8 +31,8 @@ function CommandExample() {
       <DialogTrigger render={<Button variant="outline" />}>Open palette</DialogTrigger>
       <DialogContent variant="command" aria-label="Command palette">
         <Combobox<(typeof commands)[number]> items={commands} inline autoHighlight="always" itemToStringLabel={(item) => item.label}>
-          <ComboboxInput aria-label="Search commands" placeholder="Search commands…" showTrigger={false} />
-          <ComboboxList className="p-1.5">
+          <ComboboxInput aria-label="Search commands" placeholder="Search commands…" showTrigger={false} variant="search" />
+          <ComboboxList>
             {(item: (typeof commands)[number]) => (
               <ComboboxItem key={item.id} value={item} className="justify-between gap-3 px-2.5">
                 {item.label}

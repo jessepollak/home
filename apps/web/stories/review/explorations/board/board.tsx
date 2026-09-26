@@ -1,15 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { MinusIcon, PanelLeftIcon, PanelRightIcon, PlusIcon } from "lucide-react";
 import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
-import { Kbd } from "@/components/ui/kbd";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { Toggle } from "@/components/ui/toggle";
 import { fitRect, initialFrameFit, pan, zoomAt, type Camera, type Rect, type Size } from "./camera";
 import { BuildChip } from "./build-chip";
 import { boardCommands, commandForKey } from "./commands";
-import { DesktopCanvas } from "./desktop-canvas";
+import { DesktopCanvas, InteractChip } from "./desktop-canvas";
 import { Inspector } from "./inspector";
 import { frameLabel, layout, type Positioned, type Side } from "./layout";
 import { MobileReview } from "./mobile-review";
@@ -473,9 +471,7 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
             onExitInteract={() => setInteracting(undefined)}
             onMark={mark} onFinish={finish} onCancel={cancel}
           />
-          {interactingPosition && <Badge className={styles.interactChip} role="status">
-            Interacting with <strong>{frameLabel(interactingPosition)}</strong> · <Kbd>Esc</Kbd> to exit
-          </Badge>}
+          {interactingPosition && <InteractChip position={interactingPosition} camera={camera} />}
         </div>
         {inspectorOpen && <Inspector section={selectedSection} position={selectedPosition}
           onInteract={() => interact(selectedPosition)} canInteract={canInteract}

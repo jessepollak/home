@@ -31,3 +31,11 @@ export const InBadge: Story = {
     </Badge>
   ),
 };
+
+export const InverseInBadge: Story = {
+  render: () => (
+    <Badge>
+      Interacting with <strong>Savings</strong> · <Kbd variant="inverse">Esc</Kbd> to exit
+    </Badge>
+  ),
+};

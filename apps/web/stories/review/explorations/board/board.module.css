@@ -289,6 +289,12 @@
   font-size: 12px;
   white-space: nowrap;
 }
+.paletteKeys {
+  display: flex;
+  flex: none;
+  justify-content: flex-end;
+  min-width: 20px;
+}
 .paletteEmpty {
   margin: 0;
   padding: 24px 16px;
@@ -409,6 +415,9 @@
   inset-inline-start: 50%;
   translate: -50% 0;
   z-index: 4;
+  height: 24px;
+  gap: 6px;
+  padding-inline: 10px;
   pointer-events: none;
 }
 .skeleton, .message {
