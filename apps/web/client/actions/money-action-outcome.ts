@@ -3,6 +3,7 @@
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
 import type { PreparedMoneyAction, DerivedActionStatus, MoneyActionOwner } from "@/shared/money-actions/types";
+import { fetchRecentActions, recentActionsQueryOptions } from "./recent-actions-query";
 
 type Submission = "submitted" | "ambiguous" | "failed";
 type MoneyResultStatus = "success" | "pending" | "failed" | "unknown";
@@ -51,11 +52,9 @@ export function useMoneyActionOutcome({ action, submission, fetchOperations }: {
   const actions = useHomeQuery({
     queryKey: ownerQueryKey(ownerKey, "actions"),
     enabled: submission !== "failed",
-    staleTime: 10_000,
-    retry: false,
-    refetchOnWindowFocus: false,
+    ...recentActionsQueryOptions,
     meta: ownerQueryMeta(ownerKey, "owner"),
-    queryFn: ({ signal }) => fetchOperations(signal),
+    queryFn: ({ signal }) => fetchRecentActions(fetchOperations, signal),
     refetchInterval: (query) => {
       const outcome = moneyResultOutcome({ submission, row: matchingRow(query.state.data, action) });
       return outcome === "pending" || outcome === "unknown" ? 5_000 : false;

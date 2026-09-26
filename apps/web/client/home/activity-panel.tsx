@@ -8,10 +8,11 @@ import {
 } from "@/client/activity";
 import { activityOwnerKey, useActivity } from "@/client/activity/use-activity";
 import { parseRecentMoneyActions } from "@/client/actions";
+import { fetchRecentActions, recentActionsQueryOptions, useRecentActionsStatus } from "@/client/actions/recent-actions-query";
 import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
 import { AccountWalletContext } from "@/client/account/cdp-client";
 import { linkedCashoutWithdraw, presentCashout } from "@/client/activity/cash-out-presenter";
-import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
+import { isRecentActionsResponse, type RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { RegionId } from "@/config/regions";
 import { networkFeeErrorMessage } from "@/shared/money-actions/network-fee";
@@ -87,22 +88,27 @@ export function ConnectedActivityPanel({
       ? ownerQueryKey(ownerKey, "actions")
       : ["unauthenticated", "actions-disabled"],
     enabled: ownerKey !== null,
-    staleTime: 10_000,
-    retry: false,
-    refetchOnWindowFocus: false,
+    ...recentActionsQueryOptions,
     refetchInterval: (query) => {
-      if (typeof document === "undefined" || document.visibilityState !== "visible" || !activitySession?.smartAccount) return false;
+      if (typeof document === "undefined" || document.visibilityState !== "visible" || !activitySession?.smartAccount ||
+        !isRecentActionsResponse(query.state.data)) return false;
       const operations = parseRecentMoneyActions(query.state.data, activitySession);
       return operations.some((operation) => operation.action.kind === "cash-out" &&
         presentCashout(operation, linkedCashoutWithdraw(operation, operations)).refreshing) ? 15_000 : false;
     },
     meta: ownerKey ? ownerQueryMeta(ownerKey, "owner") : undefined,
-    queryFn: ({ signal }) => fetchOperations(signal),
+    queryFn: ({ signal }) => fetchRecentActions(fetchOperations, signal),
     select: (value) => activitySession?.smartAccount
       ? parseRecentMoneyActions(value, activitySession)
       : [],
   });
-  const actionStatus = actions.isPending ? "loading" : actions.isError ? "error" : "ready";
+  const actionStatus = useRecentActionsStatus({
+    hasData: actions.data !== undefined,
+    isPending: actions.isPending,
+    isError: actions.isError,
+    dataUpdatedAt: actions.dataUpdatedAt,
+    errorUpdatedAt: actions.errorUpdatedAt,
+  });
   const refetchActions = actions.refetch;
   const retryActions = useCallback(() => { void refetchActions(); }, [refetchActions]);
 

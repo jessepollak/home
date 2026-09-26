@@ -99,6 +99,36 @@ function baseRequest(path: string, init?: RequestInit) {
 }
 
 describe("actions HTTP handlers", () => {
+  test("list returns a typed unavailable error and records a store-read event", async () => {
+    const lines: string[] = [];
+    setObservabilityLogWriterForTests((line) => lines.push(line));
+    const handler = createListActionsHandler({
+      authorize: authorize(),
+      store: { list: async () => { throw new Error("store offline"); }, recordHandle: async () => null, recordOutcome: recorded },
+    });
+    const response = await handler(request("/api/actions"));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: { code: "ACTIONS_UNAVAILABLE", message: "Recorded actions are temporarily unavailable." } });
+    expect(lines.map((line) => JSON.parse(line))).toMatchObject([{
+      kind: "action-read", route: "/api/actions", code: "ACTIONS_STORE_UNAVAILABLE", outcome: "unavailable", provider: "cdp-embedded",
+    }]);
+  });
+
+  test("get returns a typed unavailable error and records a store-read event", async () => {
+    const lines: string[] = [];
+    setObservabilityLogWriterForTests((line) => lines.push(line));
+    const handler = createGetActionHandler({
+      authorize: authorize(),
+      store: { get: async () => { throw new Error("store offline"); }, recordHandle: async () => null, recordOutcome: recorded },
+    });
+    const response = await handler(request(`/api/actions/${ID}`), context());
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: { code: "ACTIONS_UNAVAILABLE", message: "Recorded actions are temporarily unavailable." } });
+    expect(lines.map((line) => JSON.parse(line))).toMatchObject([{
+      kind: "action-read", route: "/api/actions/:redacted", code: "ACTIONS_STORE_UNAVAILABLE", outcome: "unavailable", provider: "cdp-embedded",
+    }]);
+  });
+
   test("GET resumes an owner-scoped unconfirmed review without exposing pending metadata", async () => {
     const handler = createGetActionHandler({
       authorize: authorize(),

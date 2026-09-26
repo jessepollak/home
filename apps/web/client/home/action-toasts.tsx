@@ -11,6 +11,7 @@ import { cashoutMoney, outranksCashoutWithdraw, presentCashout } from "@/client/
 import { readCashoutProgress, type CashoutProgress } from "@/shared/funding/contracts/cash-out-progress";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import { actionFailureEvent } from "./action-toast-events";
+import { fetchRecentActions, recentActionsQueryOptions } from "@/client/actions/recent-actions-query";
 
 const defaultDismissAfterMs = homeToastDurationMs;
 type ToastAction = {
@@ -85,14 +86,12 @@ export function ActionToasts({
   const actions = useHomeQuery({
     queryKey: ownerKey ? ownerQueryKey(ownerKey, "actions") : ["unauthenticated", "action-toasts-disabled"],
     enabled: ownerKey !== null,
-    staleTime: 10_000,
-    retry: false,
-    refetchOnWindowFocus: false,
+    ...recentActionsQueryOptions,
     refetchInterval: (query) => typeof document !== "undefined" && document.visibilityState === "visible" &&
       parseToastActions(query.state.data).some((action, _index, all) => action.kind === "cash-out" &&
         presentCashout(asOperation(action), linkedWithdraw(action, all)).refreshing) ? 15_000 : false,
     meta: ownerKey ? ownerQueryMeta(ownerKey, "owner") : undefined,
-    queryFn: ({ signal }) => fetchOperations(signal),
+    queryFn: ({ signal }) => fetchRecentActions(fetchOperations, signal),
     select: parseToastActions,
   });
   const addToast = useCallback((message: string, tone: HomeToastTone = "neutral", role: HomeToastRole = "status") => {
