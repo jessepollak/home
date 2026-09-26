@@ -63,6 +63,7 @@ import {
 } from "@/shared/borrowing/math";
 import {
   formatOracleUsd,
+  formatPresentationCashAmount,
   formatPresentationDate,
   formatPresentationTokenAmount,
   formatWadPercent,
@@ -456,6 +457,12 @@ export function formatToken(raw: string, asset: BorrowMarketIdentity["loanToken"
   });
 }
 
+export function formatCash(raw: string, asset: BorrowMarketIdentity["loanToken"], regionId: RegionId): string {
+  return asset.id === canonicalUsdcAsset.assetKey && canonicalUsdcAsset.cashCurrency
+    ? formatPresentationCashAmount(raw, asset.decimals, canonicalUsdcAsset.cashCurrency, { regionId })
+    : formatToken(raw, asset, regionId);
+}
+
 export function openingBorrowAvailableBaseUnits(snapshot: BorrowMarketSnapshot): string {
   const rawMaximumDebt = borrowCapacityAssets(
     BigInt(snapshot.wallet.collateralBalanceRaw),
@@ -510,7 +517,7 @@ function bufferCopy(healthFactorWad: string | null, marketId: BorrowMarketId): s
 export function borrowTeaserPositionDescription(position: BorrowOverviewPosition, regionId: RegionId): string {
   return BigInt(position.debtAssetsRaw) === BigInt(0)
     ? `No debt · ${formatToken(position.collateralRaw, position.market.collateralToken, regionId)} locked`
-    : `${formatToken(position.debtAssetsRaw, position.market.loanToken, regionId)} borrowed · ${bufferCopy(position.healthFactorWad, position.market.id)}`;
+    : `${formatCash(position.debtAssetsRaw, position.market.loanToken, regionId)} borrowed · ${bufferCopy(position.healthFactorWad, position.market.id)}`;
 }
 
 export function recommendedRepayMaximumBaseUnits(debtBaseUnits: string, walletBaseUnits: string, ratePerSecondWad: string): string {

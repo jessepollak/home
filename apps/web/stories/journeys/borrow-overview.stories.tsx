@@ -97,7 +97,8 @@ export const ZeroDebtFullWithdrawReturnsAsset: Story = {
     await expect(loans.queryByRole("button", { description: "Manage XRP loan" })).toBeNull();
     const assets = within(screen.getByRole("region", { name: "Assets you can borrow against" }));
     const held = await assets.findByRole("button", { description: "Borrow against XRP" });
-    await expect(held).toHaveTextContent("In wallet");
+    await expect(held).not.toHaveTextContent("In wallet");
+    await expect(held).toHaveTextContent("Available");
   },
 };
 export const BorrowMaxRespectsMarketLiquidity: Story = {

@@ -447,7 +447,7 @@ const collateralMarkImages = Object.fromEntries(markets.map((market) => [
 function wideAmountsOverview(): BorrowOverviewResponse {
   const withLargeHoldings = [markets[0]!, markets[2]!].reduce((overview, market) => replaceSnapshot(overview, market.marketId, (snapshot) => ({
     ...snapshot,
-    state: { ...snapshot.state, liquidityAssetsRaw: "23456789000000" },
+    state: { ...snapshot.state, liquidityAssetsRaw: "123456780000" },
     wallet: {
       ...snapshot.wallet,
       collateralBalanceRaw: (BigInt(100_000_000) * BigInt(10) ** BigInt(snapshot.market.collateralToken.decimals)).toString(),
@@ -477,11 +477,16 @@ async function assertWideAmountRows(canvasElement: HTMLElement) {
     const button = row.querySelector<HTMLButtonElement>("button");
     if (button) {
       heldCount++;
+      await expect(text).toMatch(/^\d+\.\d{2}%\u00a0APR$/);
+      await expect(text).not.toContain("In wallet");
       await expect(button.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
       const value = row.querySelector<HTMLElement>("[data-slot=finance-row-value] [data-slot=item-title]");
-      await expect(value?.textContent).toContain("USDC");
+      await expect(value?.textContent).toMatch(/^\$/);
+      await expect(value?.textContent).not.toContain("USDC");
       if (!row.textContent?.includes("Cardano")) {
-        await expect(Number((value?.textContent ?? "").replace(/[^0-9.,]/g, "").replaceAll(",", ""))).toBeGreaterThanOrEqual(12_345_678.9);
+        await expect(value?.textContent).toBe("$123,456.78");
+        const label = row.querySelector<HTMLElement>("[data-slot=finance-row-body] > [data-slot=item-content] [data-slot=item-title]");
+        await expect(Math.abs((label?.getBoundingClientRect().top ?? 0) - (value?.getBoundingClientRect().top ?? Infinity))).toBeLessThanOrEqual(1);
       }
     }
     const descriptions = row.querySelectorAll<HTMLElement>("[data-slot=item-description], [data-slot=finance-row-value] [data-slot=item-title]");
@@ -535,7 +540,7 @@ export const MultipleLoans: Story = {
     await expect(loans.getByText("Collateral available")).toBeVisible();
     await expect(loans.getByText("No debt")).toBeVisible();
     const assets = within(screen.getByRole("region", { name: "Assets you can borrow against" }));
-    await expect(assets.getByText((_text, element) => element?.getAttribute("data-slot") === "item-description" && element.textContent === "In\u00a0wallet · 5.10%\u00a0APR")).toBeVisible();
+    await expect(assets.getByText((_text, element) => element?.getAttribute("data-slot") === "item-description" && element.textContent === "5.10%\u00a0APR")).toBeVisible();
     await expect(assets.getByText("Available")).toBeVisible();
     await assertRowMarkGeometry(canvasElement);
   },
@@ -627,7 +632,7 @@ export const WideAmountsMobile: Story = {
     const label = cardano?.querySelector<HTMLElement>("[data-slot=finance-row-body] > [data-slot=item-content] [data-slot=item-title]");
     const value = cardano?.querySelector<HTMLElement>("[data-slot=finance-row-value] [data-slot=item-title]");
     if (!label || !value) throw new Error("Missing realistic Cardano row value or label");
-    await expect(value.textContent).toContain("298.35");
+    await expect(value.textContent).toMatch(/^\$298\.35$/);
     await expect(Math.abs(label.getBoundingClientRect().top - value.getBoundingClientRect().top)).toBeLessThanOrEqual(1);
   },
 };

@@ -14,6 +14,7 @@ const { cleanup, fireEvent, render, waitFor, within } = await import("@testing-l
 const {
   BorrowExperience,
   borrowTeaserPositionDescription,
+  formatCash,
   openingBorrowAvailableBaseUnits,
   presentBorrowAssetMark,
   recommendedOpeningCollateralBaseUnits,
@@ -136,13 +137,96 @@ describe("Borrow overview and management", () => {
     expect(body.getAllByText(/APR/)).toBeTruthy();
   });
 
+  test("renders wide debt and held opening capacity as dollars, preserving collateral units and inert rows", async () => {
+    const { BorrowOverview } = await import("./borrow-overview");
+    const loan = detail({ position: { ...detail().position, debtAssetsRaw: "123456780000", borrowSharesRaw: "123456780000" } });
+    const xrp = noPosition({ position: { ...noPosition().position, collateralRaw: "500000000", withdrawableCollateralRaw: "500000000" } });
+    const ethMarket = VERIFIED_MORPHO_MARKETS[2]!;
+    const eth = noPosition({
+      state: { ...noPosition().state, liquidityAssetsRaw: "123456780000" },
+      wallet: { ...noPosition().wallet, collateralBalanceRaw: "1000000000000000000000" },
+    });
+    const held = { ...eth, market: detail({}, ethMarket).market };
+    const noCapacity = noPosition({
+      state: { ...noPosition().state, liquidityAssetsRaw: "0" },
+      wallet: { ...noPosition().wallet, collateralBalanceRaw: "200000000" },
+    });
+    const doge = { ...noCapacity, market: detail({}, VERIFIED_MORPHO_MARKETS[3]!).market };
+    const unheld = { ...noPosition(), market: detail({}, VERIFIED_MORPHO_MARKETS[4]!).market, wallet: { ...noPosition().wallet, collateralBalanceRaw: "0" } };
+    const data = overview({ snapshots: [loan, { ...xrp, market: detail({}, VERIFIED_MORPHO_MARKETS[1]!).market }, held, doge, unheld] });
+    let submitted: unknown = null;
+    const view = render(<BorrowOverview session={session()} regionId="US" overview={data}
+      prepareMoneyAction={async (_kind, params) => {
+        submitted = params;
+        const action = prepared("supply-and-borrow");
+        if (action.metadata?.product !== "borrow") throw new Error("Expected Borrow review");
+        return { ...action, metadata: { ...action.metadata, marketId: held.market.id } };
+      }}
+      executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })}
+      fetchAccountResource={async () => ({ version: 1, usdcReserveBaseUnits: null })} />);
+    const body = within(document.body);
+    expect(body.getByRole("img", { name: "$123,456.78" })).toBeTruthy();
+    const debtRow = body.getByRole("button", { description: "Manage Bitcoin loan" });
+    expect(debtRow.textContent).toContain("$123,456.78");
+    expect(debtRow.textContent).not.toContain("USDC");
+    const zeroDebt = body.getByRole("button", { description: "Manage XRP loan" });
+    expect(zeroDebt.textContent).toContain("No debt");
+    expect(zeroDebt.textContent).toContain("XRP");
+    const heldRow = body.getByRole("button", { description: "Borrow against Staked ETH" });
+    expect(openingBorrowAvailableBaseUnits(held)).toBe("123456780000");
+    expect(heldRow.textContent).toContain("$123,456.78");
+    expect(heldRow.textContent).toContain("Available");
+    expect(heldRow.textContent).not.toContain("USDC");
+    expect(heldRow.textContent).not.toContain("In wallet");
+    expect(within(heldRow).getByText("3.15% APR")).toBeTruthy();
+    const assets = within(body.getByRole("region", { name: "Assets you can borrow against" }));
+    expect(assets.getByText("No USDC to borrow now").closest("li")?.textContent).toContain("In wallet");
+    expect(assets.getByText("No USDC to borrow now").closest("li")?.textContent).toContain("DOGE");
+    expect(assets.getByText("Cardano").closest("li")?.textContent).toContain("Not in wallet");
+    expect(assets.queryByRole("button", { description: "Borrow against Cardano" })).toBeNull();
+    fireEvent.click(debtRow);
+    const management = within(await body.findByRole("dialog", { name: "Bitcoin" }));
+    expect(management.getByRole("img", { name: "$123,456.78" })).toBeTruthy();
+    fireEvent.click(management.getByRole("button", { name: "Details" }));
+    expect(management.getByText("Available to borrow").nextElementSibling?.textContent).toMatch(/^\$/);
+    expect(management.getByText("Collateral").nextElementSibling?.textContent).toContain("cbBTC");
+    fireEvent.click(management.getByRole("button", { name: "Close Bitcoin details" }));
+    await waitFor(() => expect(body.queryByRole("dialog", { name: "Bitcoin" })).toBeNull());
+    fireEvent.click(heldRow);
+    const heldSheet = within(await body.findByRole("dialog", { name: "Staked ETH" }));
+    expect(heldSheet.getByRole("img", { name: "$123,456.78" })).toBeTruthy();
+    fireEvent.click(heldSheet.getByRole("button", { name: "Borrow" }));
+    const money = within(await body.findByRole("dialog", { name: "Borrow" }));
+    expect(money.getByText("$123,456.78 available")).toBeTruthy();
+    fireEvent.click(money.getByRole("button", { name: "Max" }));
+    fireEvent.click(money.getByRole("button", { name: "Continue" }));
+    expect(await body.findByRole("button", { name: "Confirm action" })).toBeTruthy();
+    expect(submitted).toMatchObject({ operation: "supply-and-borrow", amountBaseUnits: "123456780000" });
+    view.unmount();
+  }, 30_000);
+
+  test("keeps unavailable assets unavailable and same-symbol noncanonical loans in token units", async () => {
+    const { BorrowOverview } = await import("./borrow-overview");
+    const market = VERIFIED_MORPHO_MARKETS[0]!;
+    const available = detail({ market: { ...detail().market, loanToken: { ...market.loanToken, id: market.collateralToken.id } } });
+    const unavailable = { ...noPosition(), market: detail({}, VERIFIED_MORPHO_MARKETS[1]!).market };
+    const data = overview({ snapshots: [available, unavailable] });
+    data.positions = data.positions.filter((position) => BigInt(position.debtAssetsRaw) > BigInt(0));
+    data.discovery.status = "partial";
+    data.opportunities[1] = { market: data.opportunities[1]!.market, availability: { status: "unavailable", mode: "enabled", reason: "Unavailable", source: null } };
+    render(<BorrowOverview session={session()} regionId="US" overview={data} />);
+    const body = within(document.body);
+    expect(body.getByRole("img", { name: /USDC/ })).toBeTruthy();
+    expect(body.getByText("Couldn't load").closest("li")?.textContent).not.toContain("$0.00");
+  });
+
   test("uses complete priced Home valuation only when the overview is complete", async () => {
     const priced = { kind: "position" as const, status: "complete" as const, value: "$101.50", rate: null, debts: [{ marketId: BORROW_MARKET_ID, baseUnits: "100000000" }] };
     const view = render(<BorrowExperience session={session()} regionId="US" borrowSummary={priced} fetchAccountResource={accountFetch(detail())} />);
     const body = within(document.body);
     expect(await body.findByRole("img", { name: "$101.50" })).toBeTruthy();
     view.rerender(<BorrowExperience session={session()} regionId="US" borrowSummary={{ ...priced, status: "partial" }} fetchAccountResource={accountFetch(detail())} />);
-    expect(body.getByRole("img", { name: /100\.00.*USDC/ })).toBeTruthy();
+    expect(body.getByRole("img", { name: "$100.00" })).toBeTruthy();
   });
 
   test("a stale priced summary falls back to the exact overview debt", async () => {
@@ -150,7 +234,7 @@ describe("Borrow overview and management", () => {
       borrowSummary={{ kind: "position", status: "complete", value: "$101.50", rate: null, debts: [{ marketId: BORROW_MARKET_ID, baseUnits: "99000000" }] }}
       fetchAccountResource={accountFetch(detail())} />);
     const body = within(document.body);
-    expect(await body.findByRole("img", { name: /100\.00.*USDC/ })).toBeTruthy();
+    expect(await body.findByRole("img", { name: "$100.00" })).toBeTruthy();
     expect(body.queryByRole("img", { name: "$101.50" })).toBeNull();
   });
 
@@ -379,5 +463,7 @@ describe("Borrow bigint helpers", () => {
     const active = overview().positions[0];
     const collateralOnly = { ...active, borrowSharesRaw: "0", debtAssetsRaw: "0", healthFactorWad: null };
     expect(borrowTeaserPositionDescription(collateralOnly, "US")).toBe("No debt · 0.5000 cbBTC locked");
+    expect(borrowTeaserPositionDescription(active, "US")).toContain("$100.00 borrowed · ");
+    expect(formatCash("100000000", { ...BORROW_LOAN_TOKEN, id: BORROW_COLLATERAL_TOKEN.id }, "US")).toContain("USDC");
   });
 });

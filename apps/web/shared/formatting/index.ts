@@ -10,6 +10,7 @@ export {
   formatFiatAmount,
   formatHealthFactor,
   formatOracleUsd,
+  formatPresentationCashAmount,
   formatPresentationDate,
   formatPresentationPercentage,
   formatPresentationPrice,
