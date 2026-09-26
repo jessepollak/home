@@ -103,8 +103,10 @@ describePostgres("actions schema and store", () => {
     const finalCalls = [{ ...calls[0]!, data: "0x5678" as const }];
     const handled = randomUUID();
     const settled = randomUUID();
+    // Past the execution deadline, so the first trade does not block the second: this test is about pending plans, not the guard.
+    const expiredTrade = { ...summary, metadata: { product: "trade", direction: "buy", executionDeadline: String(Math.floor(Date.now() / 1000) - 300) } as TradeMoneyActionMetadata };
     for (const id of [handled, settled]) {
-      await store.insert({ id, owner, kind: "trade", summary, pending: { calls, swapCallIndex: 0 }, createdAt: "2026-09-12T10:00:00.000Z" });
+      await store.insert({ id, owner, kind: "trade", summary: expiredTrade, pending: { calls, swapCallIndex: 0 }, createdAt: "2026-09-12T10:00:00.000Z" });
       await store.confirm(owner, id, finalCalls);
       expect((await store.get(owner, id))?.pending).toEqual({ calls: finalCalls });
     }
