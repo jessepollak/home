@@ -1,0 +1,60 @@
+{
+  "id": "invest-asset-page",
+  "title": "Invest asset page — chart-first options",
+  "summary": "Three unreviewed chart-first options for the Invest asset page with entry, interaction, states and motion. Nothing here is approved; Jesse selects in #982.",
+  "refs": { "issue": 938, "pr": 982 },
+  "sections": [
+    { "id": "entry", "title": "Journey entry", "note": "Production DiscoverAssetRow leads into the asset page.", "frames": [
+      { "id": "discover-entry", "story": "explorations-invest-asset-detail--discover-entry", "label": "Invest → Bitcoin", "viewport": "mobile", "change": "unchanged" },
+      { "id": "holding-entry", "story": "explorations-invest-asset-detail--holding-entry", "label": "Holding → Bitcoin", "viewport": "mobile", "change": "unchanged" }
+    ] },
+    { "id": "option-a", "title": "Option A", "note": "Chart-first layout across assets and viewport sizes.", "frames": [
+      { "id": "option-a-crypto", "story": "explorations-invest-asset-detail--option-a-crypto", "label": "Bitcoin held", "viewport": "mobile", "change": "new" },
+      { "id": "option-a-stock", "story": "explorations-invest-asset-detail--option-a-stock", "label": "NVIDIA unheld", "viewport": "mobile", "change": "new" },
+      { "id": "option-a-meme", "story": "explorations-invest-asset-detail--option-a-meme", "label": "Dynamic meme · fractional price", "viewport": "mobile", "change": "new" },
+      { "id": "option-a-narrow", "story": "explorations-invest-asset-detail--option-a-narrow", "label": "Narrow · long labels", "viewport": "narrow", "change": "new" },
+      { "id": "option-a-local-currency", "story": "explorations-invest-asset-detail--option-a-local-currency", "label": "EUR presentation", "viewport": "mobile", "change": "new" },
+      { "id": "option-a-desktop", "story": "explorations-invest-asset-detail--option-a-desktop", "label": "Desktop", "viewport": "desktop", "change": "new" }
+    ] },
+    { "id": "option-b", "title": "Option B", "note": "Holds the previous range as a snapshot while the next loads; about 880 ms range-swap latency.", "frames": [
+      { "id": "option-b-crypto", "story": "explorations-invest-asset-detail--option-b-crypto", "label": "Bitcoin held", "viewport": "mobile", "change": "new" },
+      { "id": "option-b-stock", "story": "explorations-invest-asset-detail--option-b-stock", "label": "NVIDIA unheld", "viewport": "mobile", "change": "new" },
+      { "id": "option-b-stock-held", "story": "explorations-invest-asset-detail--option-b-stock-held", "label": "NVIDIA held · #624 fixture", "viewport": "mobile", "change": "new" },
+      { "id": "option-b-meme", "story": "explorations-invest-asset-detail--option-b-meme", "label": "Dynamic meme", "viewport": "mobile", "change": "new" },
+      { "id": "option-b-narrow", "story": "explorations-invest-asset-detail--option-b-narrow", "label": "Narrow", "viewport": "narrow", "change": "new" },
+      { "id": "option-b-canceled-range-switch", "story": "explorations-invest-asset-detail--option-b-canceled-range-switch", "label": "Canceled range switch", "viewport": "mobile", "change": "new" },
+      { "id": "option-b-desktop", "story": "explorations-invest-asset-detail--option-b-desktop", "label": "Desktop", "viewport": "desktop", "change": "new" }
+    ] },
+    { "id": "option-c", "title": "Option C", "note": "Desktop adds a position rail beside the chart; omitted when there is no position.", "frames": [
+      { "id": "option-c-crypto", "story": "explorations-invest-asset-detail--option-c-crypto", "label": "Bitcoin held", "viewport": "mobile", "change": "new" },
+      { "id": "option-c-stock", "story": "explorations-invest-asset-detail--option-c-stock", "label": "NVIDIA unheld", "viewport": "mobile", "change": "new" },
+      { "id": "option-c-meme", "story": "explorations-invest-asset-detail--option-c-meme", "label": "Dynamic meme", "viewport": "mobile", "change": "new" },
+      { "id": "option-c-narrow", "story": "explorations-invest-asset-detail--option-c-narrow", "label": "Narrow", "viewport": "narrow", "change": "new" },
+      { "id": "option-c-desktop", "story": "explorations-invest-asset-detail--option-c-desktop", "label": "Desktop · position rail", "viewport": "desktop", "change": "new" },
+      { "id": "option-c-desktop-meme", "story": "explorations-invest-asset-detail--option-c-desktop-meme", "label": "Desktop · no rail", "viewport": "desktop", "change": "new" }
+    ] },
+    { "id": "interaction", "title": "Scrub, range and back", "note": "Interactive scrub and navigation states.", "frames": [
+      { "id": "asset-interaction-option-a", "story": "explorations-invest-asset-detail--asset-interaction-option-a", "label": "Option A interaction", "viewport": "mobile", "change": "new" },
+      { "id": "asset-interaction-option-b", "story": "explorations-invest-asset-detail--asset-interaction-option-b", "label": "Option B interaction", "viewport": "mobile", "change": "new" },
+      { "id": "asset-interaction-option-c", "story": "explorations-invest-asset-detail--asset-interaction-option-c", "label": "Option C interaction", "viewport": "mobile", "change": "new" },
+      { "id": "state-keyboard-scrub", "story": "explorations-invest-asset-detail--state-keyboard-scrub", "label": "Keyboard scrub", "viewport": "mobile", "change": "new" }
+    ] },
+    { "id": "states", "title": "States", "note": "Slow, empty, error/retry, stale and #624 valuation fixtures.", "frames": [
+      { "id": "state-slow-history", "story": "explorations-invest-asset-detail--state-slow-history", "label": "Slow history", "viewport": "mobile", "change": "new" },
+      { "id": "state-slow-history-resets", "story": "explorations-invest-asset-detail--state-slow-history-resets", "label": "Slow history resets", "viewport": "mobile", "change": "new" },
+      { "id": "state-error", "story": "explorations-invest-asset-detail--state-error", "label": "Error", "viewport": "mobile", "change": "new" },
+      { "id": "state-error-retry", "story": "explorations-invest-asset-detail--state-error-retry", "label": "Error retry", "viewport": "mobile", "change": "new" },
+      { "id": "state-empty", "story": "explorations-invest-asset-detail--state-empty", "label": "Empty", "viewport": "mobile", "change": "new" },
+      { "id": "state-stale", "story": "explorations-invest-asset-detail--state-stale", "label": "Stale", "viewport": "mobile", "change": "new" },
+      { "id": "state-paused-holding", "story": "explorations-invest-asset-detail--state-paused-holding", "label": "Paused holding", "viewport": "mobile", "change": "new" },
+      { "id": "state-removed-holding", "story": "explorations-invest-asset-detail--state-removed-holding", "label": "Removed holding", "viewport": "mobile", "change": "new" },
+      { "id": "state-unpriced-holding", "story": "explorations-invest-asset-detail--state-unpriced-holding", "label": "Unpriced holding", "viewport": "mobile", "change": "new" },
+      { "id": "state-long-labels", "story": "explorations-invest-asset-detail--state-long-labels", "label": "Long labels", "viewport": "mobile", "change": "new" },
+      { "id": "configured-meme-unheld", "story": "explorations-invest-asset-detail--configured-meme-unheld", "label": "Configured meme unheld", "viewport": "mobile", "change": "new" },
+      { "id": "state-reduced-motion", "story": "explorations-invest-asset-detail--state-reduced-motion", "label": "Reduced motion", "viewport": "mobile", "change": "new" }
+    ] },
+    { "id": "motion", "title": "Motion", "note": "Chart motion study.", "frames": [
+      { "id": "motion-study", "story": "explorations-invest-asset-detail--motion-study", "label": "Motion study", "viewport": "mobile", "change": "new" }
+    ] }
+  ]
+}

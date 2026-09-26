@@ -1,4 +1,5 @@
 import type { StorybookConfig } from "@storybook/nextjs-vite";
+import { execFileSync } from "node:child_process";
 
 // `experimentalComponentsManifest` is not in Storybook's public
 // `StorybookFeatures` type, so the features live in a named object rather than
@@ -32,6 +33,19 @@ const config: StorybookConfig = {
   },
   staticDirs: ["../public", "./static"],
   features,
+  env: (env) => {
+    let revision = process.env.VERCEL_GIT_COMMIT_SHA;
+    if (!revision) {
+      try { revision = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(); }
+      catch { revision = "local"; }
+    }
+    return {
+      ...env,
+      STORYBOOK_REVIEW_REVISION: revision,
+      STORYBOOK_REVIEW_DEPLOYMENT: process.env.VERCEL_URL ?? "",
+      STORYBOOK_REVIEW_BRANCH: process.env.VERCEL_GIT_COMMIT_REF ?? "",
+    };
+  },
 };
 
 export default config;

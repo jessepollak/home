@@ -1,0 +1,523 @@
+.board {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: var(--font-sans, system-ui, sans-serif);
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-size: 13px;
+}
+.board button, .board select, .board a {
+  color: inherit;
+  font: inherit;
+}
+.board button, .board select {
+  min-height: 32px;
+  min-width: 32px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: 6px;
+  padding-inline: 10px;
+  cursor: pointer;
+}
+.board button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+.board :is(button, select, a, [role="button"]):focus-visible {
+  outline: 3px solid var(--ring);
+  outline-offset: 2px;
+}
+.header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding-inline: 16px;
+  background: var(--card);
+  border-block-end: 1px solid var(--border);
+  z-index: 3;
+}
+.header h1 {
+  font-size: 14px;
+  font-weight: 650;
+  margin: 0;
+  min-width: 0;
+  max-width: 30%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.revision {
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+  padding: 4px 7px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--card);
+  color: var(--muted-foreground);
+}
+.renderStatus {
+  font-size: 11px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.toolbar {
+  margin-inline-start: auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.toolbar button, .toolbar select {
+  font-size: 12px;
+}
+.mode {
+  padding-inline: 8px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.position {
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  font-size: 12px;
+}
+.banner {
+  padding: 8px 16px;
+  background: var(--muted);
+  border-block-end: 1px solid var(--border);
+}
+.banner a, .inspector a {
+  color: var(--primary);
+  text-decoration: underline;
+  margin-inline-start: 5px;
+}
+.content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.content:focus {
+  outline: none;
+}
+.desktop {
+  display: flex;
+  height: 100%;
+}
+.outline {
+  width: 260px;
+  flex: none;
+  background: var(--card);
+  border-inline-end: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.outline.collapsed {
+  width: 44px;
+}
+.panelHeading {
+  min-height: 48px;
+  padding-inline: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-block-end: 1px solid var(--border);
+}
+.panelHeading strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+.outlineBody {
+  overflow-y: auto;
+  flex: 1;
+  padding: 12px;
+}
+.summary {
+  line-height: 1.5;
+  color: var(--muted-foreground);
+  margin: 0 0 22px;
+}
+.outlineSection {
+  margin-block-end: 20px;
+}
+.board .outlineSectionButton {
+  display: block;
+  width: 100%;
+  text-align: start;
+  border: 0;
+  background: none;
+  font-weight: 650;
+  padding-inline: 5px;
+  margin-block-end: 4px;
+}
+.board .outlineRow {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 5px;
+  text-align: start;
+  border: 0;
+  background: transparent;
+  padding-inline: 7px;
+  font-size: 11px;
+}
+.outlineRow[aria-current="true"] {
+  background: var(--muted);
+}
+.rowLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.muted {
+  color: var(--muted-foreground);
+}
+.accent {
+  color: var(--primary);
+  text-transform: capitalize;
+}
+.inspector {
+  width: 300px;
+  flex: none;
+  background: var(--card);
+  border-inline-start: 1px solid var(--border);
+  overflow-y: auto;
+}
+.inspectorBody {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  line-height: 1.5;
+}
+.inspectorBody :is(h2, h3, p) {
+  margin: 0;
+}
+.inspectorBody h2 {
+  font-size: 14px;
+}
+.inspectorBody h3 {
+  font-size: 16px;
+}
+.inspectorBody p {
+  color: var(--muted-foreground);
+}
+.inspectorDivider {
+  border-block-start: 1px solid var(--border);
+  margin-block: 10px;
+}
+.inspectorFacts {
+  display: flex;
+  justify-content: space-between;
+}
+.fieldLabel {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  margin-block-start: 12px;
+}
+.storyId {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.board .primary {
+  background: var(--primary);
+  color: var(--background);
+  border-color: var(--primary);
+}
+.inspectorBody a {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  margin: 0;
+}
+.canvasHost {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  background: var(--background);
+}
+.canvas {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  touch-action: none;
+  cursor: grab;
+}
+.canvas:active {
+  cursor: grabbing;
+}
+.layer {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  transform-origin: 0 0;
+}
+.fitTransition {
+  transition: transform 140ms ease-out;
+}
+.section {
+  position: absolute;
+  background: var(--muted);
+  border-radius: 14px;
+}
+.desktopFrame {
+  position: absolute;
+  box-sizing: border-box;
+  border: calc(1px / var(--zoom)) solid var(--border);
+  border-radius: calc(6px / var(--zoom));
+  background: var(--card);
+}
+.desktopFrame.emphasis, .desktopFrame.interacting {
+  outline: calc(2px / var(--zoom)) solid var(--primary);
+}
+.desktopFrame.selected {
+  outline: calc(3px / var(--zoom)) solid var(--ring);
+}
+.desktopFrame.interacting {
+  outline-color: var(--primary);
+}
+.frameScreen {
+  position: relative;
+  overflow: hidden;
+  background: var(--muted);
+}
+.desktopFrame .frameScreen {
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: inherit;
+}
+.frameInner {
+  position: relative;
+  transform-origin: 0 0;
+}
+.frameInner iframe {
+  display: block;
+  border: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--background);
+}
+.frameInner iframe:not([inert]) {
+  position: relative;
+  z-index: 2;
+}
+.frameInner:has(.skeleton) iframe {
+  opacity: 0;
+}
+.frameOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  cursor: pointer;
+}
+.skeleton, .message {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  text-align: center;
+  font-size: 15px;
+  background: var(--muted);
+  overflow-wrap: anywhere;
+}
+.skeleton {
+  z-index: 1;
+}
+.message {
+  z-index: 4;
+}
+.screenLabels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.sectionLabel, .screenFrameLabel, .screenFrameNote {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 16px;
+  height: 16px;
+  margin: 0;
+}
+.sectionLabel {
+  font-size: 13px;
+  font-weight: 600;
+  max-width: 90%;
+}
+.sectionLabel strong, .sectionLabel span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sectionLabel span {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted-foreground);
+}
+.screenFrameLabel {
+  font-size: 12px;
+  font-weight: 500;
+}
+.board .screenFrameLabel button {
+  pointer-events: auto;
+  border: 0;
+  background: transparent;
+  text-align: start;
+  flex: 1;
+  min-width: 0;
+  min-height: 20px;
+  padding: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.screenFrameLabel span {
+  font-size: 10px;
+  flex: none;
+}
+.screenFrameNote {
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.mobile {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.mobileScroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+.mobileScroll select {
+  width: 100%;
+}
+.mobileScroll h2 {
+  font-size: 16px;
+  margin: 8px 0 0;
+}
+.mobileScroll p {
+  margin: 0;
+  line-height: 1.5;
+}
+.mobileCard {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.mobileFrameSpace {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+.mobileFrameHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 8px;
+}
+.mobileFrameHeading strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.segment {
+  display: flex;
+  gap: 4px;
+  margin-block: 4px;
+}
+.segment [aria-pressed="true"] {
+  color: var(--primary);
+  border-color: var(--primary);
+}
+.mobileActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 16px calc(8px + env(safe-area-inset-bottom));
+  background: var(--card);
+  border-block-start: 1px solid var(--border);
+}
+.mobileActions button {
+  flex: 1;
+  white-space: nowrap;
+}
+.fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  background: var(--background);
+  height: 100dvh;
+  padding-block: env(safe-area-inset-top) env(safe-area-inset-bottom);
+  padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
+  display: flex;
+  flex-direction: column;
+}
+.focusSentinel {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.fullscreen > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 14px;
+}
+.fullscreen iframe {
+  border: 0;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+}
+@media (max-width: 767px) {
+  .board button, .board select {
+  min-height: 44px;
+  min-width: 44px;
+}
+  .header {
+  position: sticky;
+  inset-block-start: 0;
+  min-height: 52px;
+}
+  .header h1 {
+  flex: 1;
+  max-width: none;
+  font-size: 14px;
+}
+  .revision {
+  max-width: 80px;
+}
+}
+@media (prefers-reduced-motion: reduce) { .fitTransition { transition: none; } }

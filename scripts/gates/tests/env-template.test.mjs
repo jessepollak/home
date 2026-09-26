@@ -21,7 +21,10 @@ const PLATFORM_ALLOWLIST = [
   "PATH",
   "VERCEL",
   "VERCEL_ENV",
+  "VERCEL_GIT_COMMIT_REF", // Vercel-owned build branch, shown on Storybook review boards
+  "VERCEL_GIT_COMMIT_SHA", // Vercel-owned build commit, recorded by Storybook review boards
   "VERCEL_PROJECT_PRODUCTION_URL", // Vercel-owned production deployment hostname
+  "VERCEL_URL", // Vercel-owned unique deployment hostname for Storybook review links
 ];
 
 // Test and smoke toggles, not operator configuration.

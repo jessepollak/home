@@ -34,6 +34,8 @@
     "server/operator-events/backfill-command.ts!",
     "server/funding/core/user-token-rotation.ts!",
     "live-login.ts!",
+    // Review context CLI is run directly by its package script.
+    "scripts/review-context.ts!",
     // Figma variables sync, run by package scripts and the main-only CI job.
     "scripts/figma-variables.mjs!"
   ],
