@@ -1,0 +1,35 @@
+{
+  "id": "savings",
+  "title": "Savings — current system",
+  "summary": "Current Savings screen, deposit dialog, journey and row components on one board. Use it to try the canvas and comments; it proposes no change.",
+  "sections": [
+    { "id": "screen", "title": "Savings screen", "note": "Current Savings states.", "frames": [
+      { "id": "funded", "story": "pilot-savings-experience--funded", "label": "Funded", "viewport": "mobile", "change": "unchanged" },
+      { "id": "verified-empty", "story": "pilot-savings-experience--verified-empty", "label": "Verified empty", "viewport": "mobile", "change": "unchanged" },
+      { "id": "loading", "story": "pilot-savings-experience--loading", "label": "Loading", "viewport": "mobile", "change": "unchanged" },
+      { "id": "stale-rates", "story": "pilot-savings-experience--stale-rates", "label": "Stale rates", "viewport": "mobile", "change": "unchanged" },
+      { "id": "unavailable-partial", "story": "pilot-savings-experience--unavailable-partial", "label": "Partially unavailable", "viewport": "mobile", "change": "unchanged" },
+      { "id": "long-localized-content", "story": "pilot-savings-experience--long-localized-content", "label": "Long localized content", "viewport": "mobile", "change": "unchanged" }
+    ] },
+    { "id": "deposit", "title": "Deposit dialog", "note": "Amount, review and recovery states.", "frames": [
+      { "id": "amount-entry", "story": "pilot-savings-money-dialog--amount-entry", "label": "Amount entry", "viewport": "mobile", "change": "unchanged" },
+      { "id": "amount-exceeds-available", "story": "pilot-savings-money-dialog--amount-exceeds-available", "label": "Exceeds available", "viewport": "mobile", "change": "unchanged" },
+      { "id": "review", "story": "pilot-savings-money-dialog--review", "label": "Review", "viewport": "mobile", "change": "unchanged" },
+      { "id": "submitting", "story": "pilot-savings-money-dialog--submitting", "label": "Submitting", "viewport": "mobile", "change": "unchanged" },
+      { "id": "failed", "story": "pilot-savings-money-dialog--failed", "label": "Failed", "viewport": "mobile", "change": "unchanged" },
+      { "id": "withdraw-nothing-saved", "story": "pilot-savings-money-dialog--withdraw-nothing-saved", "label": "Nothing saved", "viewport": "mobile", "change": "unchanged" }
+    ] },
+    { "id": "journey", "title": "Deposit journey", "note": "Fixture-backed end-to-end component journey.", "frames": [
+      { "id": "deposit-mobile", "story": "journeys-savings-deposit--deposit", "label": "Deposit · mobile", "viewport": "mobile", "change": "unchanged" },
+      { "id": "deposit-desktop", "story": "journeys-savings-deposit--deposit", "label": "Deposit · desktop", "viewport": "desktop", "change": "unchanged" }
+    ] },
+    { "id": "components", "title": "Components", "note": "Current row treatments and edge states.", "frames": [
+      { "id": "row-normal", "story": "pilot-financial-row--normal", "label": "Financial row", "viewport": { "width": 420, "height": 320 }, "change": "unchanged" },
+      { "id": "row-loading", "story": "pilot-financial-row--loading", "label": "Loading row", "viewport": { "width": 420, "height": 320 }, "change": "unchanged" },
+      { "id": "row-unavailable", "story": "pilot-financial-row--unavailable-value", "label": "Unavailable value", "viewport": { "width": 420, "height": 320 }, "change": "unchanged" },
+      { "id": "row-long", "story": "pilot-financial-row--long-label-large-amount", "label": "Long label · large amount", "viewport": { "width": 420, "height": 320 }, "change": "unchanged" },
+      { "id": "finance-balance", "story": "ui-finance-rows--balance", "label": "Balance row", "viewport": { "width": 420, "height": 320 }, "change": "unchanged" },
+      { "id": "finance-activity", "story": "ui-finance-rows--activity", "label": "Activity row", "viewport": { "width": 420, "height": 320 }, "change": "unchanged" }
+    ] }
+  ]
+}

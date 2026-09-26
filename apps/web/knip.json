@@ -28,12 +28,18 @@
     "vitest.config.ts!",
     // Owned Progress wrapper awaiting a product consumer with a real step count (#951); drop this entry once a screen imports it.
     "components/ui/progress.tsx!",
+    // Owned Dialog, Kbd, and ButtonGroup wrappers are consumed by the review-board exploration only; drop these entries once a screen imports them.
+    "components/ui/dialog.tsx!",
+    "components/ui/kbd.tsx!",
+    "components/ui/button-group.tsx!",
     // Direct Bun entry points are invoked by package scripts rather than
     // imported from production code.
     "server/db/migrate.ts!",
     "server/operator-events/backfill-command.ts!",
     "server/funding/core/user-token-rotation.ts!",
     "live-login.ts!",
+    // Review context CLI is run directly by its package script.
+    "scripts/review-context.ts!",
     // Figma variables sync, run by package scripts and the main-only CI job.
     "scripts/figma-variables.mjs!"
   ],
