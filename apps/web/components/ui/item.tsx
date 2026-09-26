@@ -181,6 +181,7 @@ const itemDescriptionVariants = cva(
       lines: {
         1: "truncate",
         2: "line-clamp-2",
+        wrap: "whitespace-normal wrap-break-word",
       },
       size: {
         default: "",

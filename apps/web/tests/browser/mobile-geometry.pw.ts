@@ -24,6 +24,26 @@ const IDRX_TWO_METHODS = {
   }],
 };
 
+const ID_LONG_METHODS = {
+  version: 3,
+  direction: "onramp",
+  providers: [
+    IDRX_TWO_METHODS.providers[0],
+    {
+      ...IDRX_TWO_METHODS.providers[0],
+      providerId: "island-pay",
+      assetId: "base:idrx-island-pay",
+      displayName: "Island Payment Network",
+      paymentMethods: [
+        { id: "bank", label: "Bank transfer with any Indonesian financial institution" },
+        { id: "wallet", label: "Mobile wallet payment at participating merchants" },
+        { id: "card", label: "Debit card" },
+        { id: "cash", label: "Cash deposit" },
+      ],
+    },
+  ],
+};
+
 async function inputMetrics(locator: Locator) {
   return locator.evaluate((element) => {
     const style = getComputedStyle(element);
@@ -69,6 +89,88 @@ async function installPickerFixtures(page: Page) {
     return json(route, IDRX_TWO_METHODS);
   });
 }
+
+test("add-money method rows contain their full descriptions and loading geometry matches", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedSignedInSession(page, "ID");
+  await installApiFixtures(page);
+  let releaseProviders = () => {};
+  const providersReleased = new Promise<void>((resolve) => { releaseProviders = resolve; });
+  await page.route("**/api/funding/providers**", async (route) => {
+    if (new URL(route.request().url()).searchParams.get("region") !== "ID") return route.fallback();
+    await providersReleased;
+    return json(route, ID_LONG_METHODS);
+  });
+  await page.goto("/home?flow=add-money");
+  const dialog = page.getByRole("dialog", { name: "Add money" });
+  const receive = dialog.getByRole("button", { name: /Receive crypto/ });
+  const deposits = dialog.getByRole("button", { name: /Deposit IDR/ });
+  const shimmer = dialog.locator('[aria-hidden="true"]:has([data-shimmer="deposit-method"])');
+  await expect(receive).toBeVisible();
+  await expect(shimmer).toBeVisible();
+  const loaded = await receive.evaluate((element) => {
+    const rowBox = element.getBoundingClientRect();
+    const content = element.querySelector('[data-slot="item-content"]')!.getBoundingClientRect();
+    const lines = [...element.querySelectorAll('[data-slot="item-content"] > :not([hidden])')];
+    const description = lines[1]!;
+    const lineHeight = parseFloat(getComputedStyle(description).lineHeight);
+    const extraLines = description.getBoundingClientRect().height - lineHeight;
+    return {
+      height: rowBox.height - extraLines,
+      top: content.top - rowBox.top,
+      bottom: rowBox.bottom - content.bottom,
+      title: lines[0]!.getBoundingClientRect().height,
+      description: lineHeight,
+    };
+  });
+  const loading = await shimmer.evaluate((element) => {
+    const rowBox = element.getBoundingClientRect();
+    const content = element.querySelector('[data-slot="item-content"]')!.getBoundingClientRect();
+    const [title, description] = element.querySelectorAll('[data-slot="item-content"] > [data-shimmer]');
+    return {
+      height: rowBox.height,
+      top: content.top - rowBox.top,
+      bottom: rowBox.bottom - content.bottom,
+      title: title!.getBoundingClientRect().height,
+      description: description!.getBoundingClientRect().height,
+    };
+  });
+  for (const key of Object.keys(loaded) as (keyof typeof loaded)[]) {
+    expect(Math.abs(loading[key] - loaded[key]), key).toBeLessThanOrEqual(1);
+  }
+
+  releaseProviders();
+  await expect(deposits).toHaveCount(2);
+  await expect(shimmer).toHaveCount(0);
+  await expect(deposits.nth(1).locator('[data-slot="item-description"]'))
+    .toContainText("Mobile wallet payment at participating merchants");
+
+  for (const rootFontSize of ["100%", "200%"]) {
+    await page.evaluate((size) => { document.documentElement.style.fontSize = size; }, rootFontSize);
+    for (const row of [receive, deposits.nth(0), deposits.nth(1)]) {
+      const metrics = await row.evaluate((element) => {
+        const rowBox = element.getBoundingClientRect();
+        const contentBox = element.querySelector('[data-slot="item-content"]')!.getBoundingClientRect();
+        const text = element.querySelector('[data-slot="item-description"]')!;
+        return {
+          height: rowBox.height,
+          top: contentBox.top - rowBox.top,
+          bottom: rowBox.bottom - contentBox.bottom,
+          description: {
+            scrollHeight: text.scrollHeight, clientHeight: text.clientHeight,
+            scrollWidth: text.scrollWidth, clientWidth: text.clientWidth,
+          },
+        };
+      });
+      expect(metrics.height).toBeGreaterThanOrEqual(44);
+      expect(metrics.top).toBeGreaterThanOrEqual(8);
+      expect(metrics.bottom).toBeGreaterThanOrEqual(8);
+      const { description } = metrics;
+      expect(description.scrollHeight).toBeLessThanOrEqual(description.clientHeight + 1);
+      expect(description.scrollWidth).toBeLessThanOrEqual(description.clientWidth + 1);
+    }
+  }
+});
 
 test("coverage native selects keep a mobile-zoom-safe font size", async ({ page }) => {
   for (const viewport of [{ width: 390, height: 844 }, { width: 844, height: 390 }]) {
