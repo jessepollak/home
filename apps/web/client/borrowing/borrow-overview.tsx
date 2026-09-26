@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, CircleDollarSign, Coins, ShieldCheck } from "lucide-react";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import { borrowRiskCopy, borrowRiskState } from "./borrow-ui";
@@ -12,6 +12,7 @@ import { AppDrawer, MoneyModalBody, MoneyModalHeader } from "@/client/money-moda
 import { deferSheet } from "@/client/money-modal/deferred-sheet";
 import { CurrencyMark } from "@/components/currency-mark";
 import { AssetRow } from "@/components/finance-rows";
+import { FeatureIntro } from "@/components/ui/feature-intro";
 import { MoneyTicker } from "@/components/money-ticker";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -214,6 +215,7 @@ export function BorrowOverview({ overview = null, borrowSummary, status = "ready
   const loansHeadingId = useId();
   const assetsHeadingId = useId();
   const summaryRef = useRef<HTMLParagraphElement>(null);
+  const assetsSectionRef = useRef<HTMLElement>(null);
   const opener = useRef<HTMLElement | null>(null);
   const leavingForActivity = useRef(false);
   const actionFocusRef = useRef<HTMLButtonElement>(null);
@@ -231,6 +233,9 @@ export function BorrowOverview({ overview = null, borrowSummary, status = "ready
   const loans = overview ? openLoans(overview) : [];
   const assets = overview ? borrowableAssets(overview) : [];
   const ready = status === "ready" && overview !== null;
+  const complete = ready && summarizeBorrowOverview(overview).completeness === "complete";
+  const showIntro = complete && loans.length === 0;
+  const hasBorrowableAsset = assets.some((asset) => asset.kind === "held");
   const empty = !loans.length && !assets.some((asset) => asset.kind === "held" || asset.kind === "held-no-capacity");
   const held = assets.find((asset): asset is Extract<BorrowableAsset, { kind: "held" }> => asset.kind === "held" && asset.market.id === marketId);
   function openMarket(id: BorrowMarketId, element: HTMLElement) {
@@ -314,10 +319,25 @@ export function BorrowOverview({ overview = null, borrowSummary, status = "ready
     <h2 className="sr-only" id="borrow-overview-title">Borrow</h2>
     <Summary overview={overview} borrowSummary={borrowSummary} status={status} onRetry={onRetry} regionId={regionId} summaryRef={summaryRef} />
     {ready ? <>
+      {showIntro ? <FeatureIntro
+        size="compact"
+        illustration="borrow"
+        headline="Borrow against your crypto"
+        description="Use a supported asset as collateral to borrow USDC."
+        benefits={[
+          { icon: Coins, text: "Borrow without selling" },
+          { icon: ShieldCheck, text: "See the variable rate and liquidation risk" },
+          { icon: CircleDollarSign, text: "Repay when you're ready" },
+        ]}
+        primary={{
+          label: hasBorrowableAsset ? "Choose an asset" : "See supported assets",
+          onClick: () => assetsSectionRef.current?.focus(),
+        }}
+      /> : null}
       {loans.length ? <section aria-labelledby={loansHeadingId}><Card className="gap-3"><CardHeader><HomeSectionHeading id={loansHeadingId}>Open loans</HomeSectionHeading></CardHeader><CardContent inset="list"><ul className="list-none p-0">
         {loans.map((row) => <LoanRow key={row.market.id} row={row} regionId={regionId} resolution={assetMarkResolution} openMarket={openMarket} />)}
       </ul></CardContent></Card></section> : null}
-      {summarizeBorrowOverview(overview).completeness !== "unavailable" ? <section aria-labelledby={assetsHeadingId}><Card className="gap-3"><CardHeader><HomeSectionHeading id={assetsHeadingId}>Assets you can borrow against</HomeSectionHeading></CardHeader>
+      {summarizeBorrowOverview(overview).completeness !== "unavailable" ? <section ref={assetsSectionRef} tabIndex={-1} aria-labelledby={assetsHeadingId}><Card className="gap-3"><CardHeader><HomeSectionHeading id={assetsHeadingId}>Assets you can borrow against</HomeSectionHeading></CardHeader>
         {empty ? <p className="px-4 text-sm text-muted-foreground">Add a supported asset to your wallet to borrow USDC.</p> : null}
         <CardContent inset="list"><ul className="list-none p-0"><AssetRows assets={assets} regionId={regionId} resolution={assetMarkResolution} openMarket={openMarket} empty={empty} /></ul></CardContent>
       </Card></section> : null}
