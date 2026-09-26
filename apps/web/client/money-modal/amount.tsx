@@ -83,6 +83,15 @@ export function fitAmountFontSize(
   return Math.min(baseFontSize, Math.max(minFontSize, scaled));
 }
 
+export function fitAmountText(available: number, natural: number, base: number, min: number): { fontSize: number; overflows: boolean } {
+  const fitted = available * AMOUNT_FIT_SAFETY_FACTOR;
+  const rounded = Math.floor(fitAmountFontSize(fitted, natural, base, min) * 10) / 10;
+  return {
+    fontSize: rounded,
+    overflows: natural * min / base > available,
+  };
+}
+
 export function useAutoFitAmountText<T extends HTMLElement = HTMLLabelElement>(
   text: string,
   options: { minRem?: number } = {},
@@ -93,6 +102,7 @@ export function useAutoFitAmountText<T extends HTMLElement = HTMLLabelElement>(
   const [fontSize, setFontSize] = useState<number | undefined>(undefined);
   const [overflows, setOverflows] = useState(false);
   const lastWidthRef = useRef(-1);
+  const lastNaturalWidthRef = useRef(-1);
 
   const measure = useCallback(() => {
     const container = containerRef.current;
@@ -107,16 +117,16 @@ export function useAutoFitAmountText<T extends HTMLElement = HTMLLabelElement>(
     const available = container.clientWidth - horizontalPadding;
     const base = Number.parseFloat(window.getComputedStyle(sizer).fontSize);
     const natural = sizer.getBoundingClientRect().width;
+    lastNaturalWidthRef.current = natural;
     if (available <= 0 || natural <= 0 || !Number.isFinite(base) || base <= 0) return;
     const minRaw = computed.getPropertyValue(AMOUNT_MIN_FONT_PROPERTY);
     const min = minRem === undefined
       ? Number.parseFloat(minRaw) || AMOUNT_MIN_FONT_SIZE_FALLBACK
       : minRem * Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize);
-    const fitted = available * AMOUNT_FIT_SAFETY_FACTOR;
-    const rounded = Math.floor(fitAmountFontSize(fitted, natural, base, min) * 10) / 10;
-    const target = minRem === undefined ? rounded : Math.max(min, rounded);
+    const fit = fitAmountText(available, natural, base, min);
+    const target = minRem === undefined ? fit.fontSize : Math.max(min, fit.fontSize);
 
-    setOverflows(natural * min / base > available);
+    setOverflows(fit.overflows);
     setFontSize((current) =>
       current !== undefined
         && Math.abs(current - target) < AMOUNT_FIT_TOLERANCE_PX
@@ -134,9 +144,11 @@ export function useAutoFitAmountText<T extends HTMLElement = HTMLLabelElement>(
     let observer: ResizeObserver | undefined;
     if (typeof ResizeObserver !== "undefined") {
       observer = new ResizeObserver(() => {
-        if (container.clientWidth !== lastWidthRef.current) measure();
+        if (container.clientWidth !== lastWidthRef.current
+          || sizer.getBoundingClientRect().width !== lastNaturalWidthRef.current) measure();
       });
       observer.observe(container);
+      observer.observe(sizer);
     }
     const rootStyleObserver = typeof MutationObserver === "undefined"
       ? undefined
@@ -147,7 +159,8 @@ export function useAutoFitAmountText<T extends HTMLElement = HTMLLabelElement>(
     });
 
     let active = true;
-    const fonts = (document as Document & { fonts?: { ready?: Promise<unknown> } }).fonts;
+    const fonts = document.fonts;
+    fonts?.addEventListener?.("loadingdone", measure);
     fonts?.ready?.then(() => {
       if (active) measure();
     }).catch(() => {});
@@ -156,6 +169,7 @@ export function useAutoFitAmountText<T extends HTMLElement = HTMLLabelElement>(
       active = false;
       observer?.disconnect();
       rootStyleObserver?.disconnect();
+      fonts?.removeEventListener?.("loadingdone", measure);
     };
   }, [measure]);
 
