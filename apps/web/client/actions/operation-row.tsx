@@ -7,13 +7,10 @@ import { MoneyTicker } from "@/components/money-ticker";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import type { RegionId } from "@/config/regions";
 import { getDirectPortfolioAssets } from "@/config/portfolio-assets";
-import {
-  formatPresentationCashAmount,
-  formatPresentationDate,
-  formatPresentationTokenAmount,
-} from "@/shared/formatting";
+import { formatPresentationCashAmount, formatPresentationDate } from "@/shared/formatting";
 import { presentCashout } from "@/client/activity/cash-out-presenter";
 import {
+  formatOperationAmount,
   labelForOperationStatus,
   primaryOperationAmount,
   titleForOperation,
@@ -42,9 +39,9 @@ export function OperationActivityRow({
   const status = labelForOperationStatus(operation.status);
   const date = formatPresentationDate(operation.updatedAt, { style: "activity-short", regionId });
   const value = amount && !cashout
-    ? `${amount.direction === "spend" ? "−" : "+"}${amount.estimated ? "~" : ""}${amount.symbol === "USDC"
+    ? `${amount.direction === "spend" ? "−" : "+"}${amount.estimated ? "~" : ""}${amount.symbol === "USDC" && !amount.maximum
         ? formatPresentationCashAmount(amount.amountBaseUnits, amount.decimals, "USD", { regionId })
-        : formatPresentationTokenAmount(amount.amountBaseUnits, amount.decimals, amount.symbol, { regionId })}`
+        : formatOperationAmount(amount, regionId)}`
     : null;
   const failed = cashout ? cashout.stage === "failed" : operation.status === "failed";
   const title = cashout?.label ?? titleForOperation(operation);

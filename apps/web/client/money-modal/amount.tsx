@@ -82,10 +82,15 @@ export function fitAmountFontSize(
   return Math.min(baseFontSize, Math.max(minFontSize, scaled));
 }
 
-export function useAutoFitAmountText(text: string) {
-  const containerRef = useRef<HTMLLabelElement>(null);
+export function useAutoFitAmountText<T extends HTMLElement = HTMLLabelElement>(
+  text: string,
+  options: { minRem?: number } = {},
+) {
+  const { minRem } = options;
+  const containerRef = useRef<T>(null);
   const sizerRef = useRef<HTMLSpanElement>(null);
   const [fontSize, setFontSize] = useState<number | undefined>(undefined);
+  const [overflows, setOverflows] = useState(false);
   const lastWidthRef = useRef(-1);
 
   const measure = useCallback(() => {
@@ -103,16 +108,22 @@ export function useAutoFitAmountText(text: string) {
     const natural = sizer.getBoundingClientRect().width;
     if (available <= 0 || natural <= 0 || !Number.isFinite(base) || base <= 0) return;
     const minRaw = computed.getPropertyValue(AMOUNT_MIN_FONT_PROPERTY);
-    const min = Number.parseFloat(minRaw) || AMOUNT_MIN_FONT_SIZE_FALLBACK;
+    const min = minRem === undefined
+      ? Number.parseFloat(minRaw) || AMOUNT_MIN_FONT_SIZE_FALLBACK
+      : minRem * Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize);
     const fitted = available * AMOUNT_FIT_SAFETY_FACTOR;
-    const target = Math.floor(fitAmountFontSize(fitted, natural, base, min) * 10) / 10;
+    const rounded = Math.floor(fitAmountFontSize(fitted, natural, base, min) * 10) / 10;
+    const target = minRem === undefined ? rounded : Math.max(min, rounded);
 
+    setOverflows(natural * min / base > available);
     setFontSize((current) =>
-      current !== undefined && Math.abs(current - target) < AMOUNT_FIT_TOLERANCE_PX
+      current !== undefined
+        && Math.abs(current - target) < AMOUNT_FIT_TOLERANCE_PX
+        && (minRem === undefined || current >= min)
         ? current
         : target,
     );
-  }, []);
+  }, [minRem]);
 
   useLayoutEffect(() => {
     const container = containerRef.current;
@@ -151,7 +162,7 @@ export function useAutoFitAmountText(text: string) {
     measure();
   }, [measure, text]);
 
-  return { containerRef, sizerRef, fontSize };
+  return { containerRef, sizerRef, fontSize, overflows };
 }
 
 export function useMoneyAssetPricing(assetSymbol: string): MoneyAssetPricing {

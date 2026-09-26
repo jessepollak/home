@@ -1,6 +1,7 @@
 import {
-  formatPresentationDate,
   formatExactPresentationTokenAmount,
+  formatPresentationDate,
+  formatPresentationTokenAmount,
 } from "@/shared/formatting";
 import {
   baseNetworkRow,
@@ -16,6 +17,16 @@ import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list
 import type { RegionId } from "@/config/regions";
 
 const VAULT_SHARE_SYMBOL = "vault shares";
+
+export function formatOperationAmount(amount: MoneyActionAmount, regionId?: RegionId): string {
+  if (amount.maximum) {
+    return formatExactPresentationTokenAmount(amount.amountBaseUnits, amount.decimals, amount.symbol, { regionId });
+  }
+  return formatPresentationTokenAmount(amount.amountBaseUnits, amount.decimals, amount.symbol, {
+    cashCurrency: amount.symbol === "USDC" ? "USD" : null,
+    regionId,
+  });
+}
 
 export function labelForOperationStatus(
   status: OperationResult["status"],
@@ -107,12 +118,7 @@ export function presentOperationDetails(
           : amount.direction === "spend"
             ? "You spend"
             : "You receive",
-      value: `${amount.estimated ? "Estimated " : ""}${formatExactPresentationTokenAmount(
-        amount.amountBaseUnits,
-        amount.decimals,
-        amount.symbol,
-        { regionId: options.regionId },
-      )}`,
+      value: `${amount.estimated ? "Estimated " : ""}${formatOperationAmount(amount, options.regionId)}`,
     });
   }
 

@@ -185,7 +185,7 @@ describe("combined Activity panel", () => {
     fireEvent.click(actionRow);
     const details = await view.findByRole("dialog", { name: "Sent USDC" });
     expect(within(details).getByText("Updated").nextElementSibling?.textContent).toMatch(/\d{1,2} de set\./);
-    expect(within(details).getByText("You spend").nextElementSibling?.textContent).toBe("1.234,56789 USDC");
+    expect(within(details).getByText("You spend").nextElementSibling?.textContent).toBe("1.234,56 USDC");
   });
 
   test("keeps transaction details during exit and restores focus after closing", async () => {

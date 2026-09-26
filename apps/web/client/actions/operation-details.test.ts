@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  formatOperationAmount,
   labelForMoneyActionKind,
   labelForOperationStatus,
   presentOperationDetails,
@@ -71,7 +72,7 @@ describe("operation transaction details", () => {
     expect(details.title).toBe("Trade USDC for ETH");
     expect(details.rows).toContainEqual({ label: "Status", value: "Confirmed", statusTone: "success" });
     expect(details.rows).toContainEqual({ label: "Type", value: "Trade" });
-    expect(details.rows).toContainEqual({ label: "You spend", value: "1.234567 USDC" });
+    expect(details.rows).toContainEqual({ label: "You spend", value: "1.23 USDC" });
     expect(details.rows).toContainEqual({ label: "Network", value: "Base", network: "base" });
     expect(details.header).toBeUndefined();
     expect(details.explorer).toEqual({
@@ -159,11 +160,11 @@ describe("operation transaction details", () => {
     });
     const british = presentOperationDetails(operation, { regionId: "GB", timeZone: "UTC" });
     expect(british.rows.find((row) => row.label === "Updated")?.value).toMatch(/^8 Sept?, 5:03$/);
-    expect(british.rows).toContainEqual({ label: "You spend", value: "1,234.56789 USDC" });
+    expect(british.rows).toContainEqual({ label: "You spend", value: "1,234.56 USDC" });
 
     const brazilian = presentOperationDetails(operation, { regionId: "BR", timeZone: "UTC" });
     expect(brazilian.rows).toContainEqual({ label: "Updated", value: "8 de set., 5:03" });
-    expect(brazilian.rows).toContainEqual({ label: "You spend", value: "1.234,56789 USDC" });
+    expect(brazilian.rows).toContainEqual({ label: "You spend", value: "1.234,56 USDC" });
   });
 
   test("distinguishes spend and receive directions with shared presentation formatting", () => {
@@ -192,21 +193,21 @@ describe("operation transaction details", () => {
       }),
     );
 
-    expect(details.rows).toContainEqual({ label: "You spend", value: "0.5 USDC" });
+    expect(details.rows).toContainEqual({ label: "You spend", value: "0.50 USDC" });
     expect(details.rows).toContainEqual({
       label: "You receive",
-      value: "Estimated 0.000000000000000001 ETH",
+      value: "Estimated <0.000001 ETH",
     });
   });
 
-  test("orders exact underlying USDC before estimated vault shares for withdrawals", () => {
+  test("orders underlying USDC before estimated vault shares for withdrawals", () => {
     const details = presentOperationDetails(withdrawalOperation());
 
     const receiveIndex = details.rows.findIndex(
-      (row) => row.label === "You receive" && row.value === "1.234567 USDC",
+      (row) => row.label === "You receive" && row.value === "1.23 USDC",
     );
     const spendIndex = details.rows.findIndex(
-      (row) => row.label === "You spend" && row.value === "Estimated 0.000000000000999999 vault shares",
+      (row) => row.label === "You spend" && row.value === "Estimated <0.000001 vault shares",
     );
     expect(receiveIndex).toBeGreaterThan(-1);
     expect(spendIndex).toBeGreaterThan(receiveIndex);
@@ -307,5 +308,39 @@ describe("operation transaction details", () => {
     expect(labelForOperationStatus("failed")).toBe("Failed");
     expect(labelForOperationStatus("rejected")).toBe("Rejected");
     expect(labelForOperationStatus("submitted")).toBe("Submitted");
+  });
+});
+
+describe("operation upper-bound amounts", () => {
+  function repayAll(amountBaseUnits: string, symbol = "USDC", decimals = 6): RecentMoneyActionOperation {
+    return baseOperation({
+      status: "pending",
+      action: {
+        ...baseOperation().action,
+        kind: "borrow",
+        title: "Repay all",
+        amounts: [{ assetId: symbol, symbol, decimals, amountBaseUnits, direction: "spend", maximum: true }],
+      },
+    });
+  }
+
+  test("never understates a maximum debit in the detail or the row amount", () => {
+    const operation = repayAll("100000362");
+    expect(presentOperationDetails(operation).rows).toContainEqual({ label: "Up to", value: "100.000362 USDC" });
+    const amount = primaryOperationAmount(operation);
+    expect(amount && formatOperationAmount(amount)).toBe("100.000362 USDC");
+    expect(amount?.amountBaseUnits).toBe("100000362");
+  });
+
+  test("keeps every digit of a maximum for other token classes and locales", () => {
+    const operation = repayAll("1000000000000000001", "ETH", 18);
+    expect(presentOperationDetails(operation, { regionId: "DE" }).rows)
+      .toContainEqual({ label: "Up to", value: "1,000000000000000001 ETH" });
+  });
+
+  test("bounds a settled amount once the maximum flag is gone", () => {
+    const operation = repayAll("100000362");
+    const settled = { ...operation, action: { ...operation.action, amounts: [{ ...operation.action.amounts[0]!, maximum: undefined }] } };
+    expect(presentOperationDetails(settled).rows).toContainEqual({ label: "You spend", value: "100.00 USDC" });
   });
 });
