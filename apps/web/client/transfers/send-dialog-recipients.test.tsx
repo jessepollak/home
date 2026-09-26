@@ -75,8 +75,8 @@ function renderDialog({
       availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
       fetchAccountResource={async (url) => {
         requested.push(url);
+        if (url === "/api/actions/network-fee") return { version: 1, usdcReserveBaseUnits: "20000" };
         if (url.startsWith("/api/funding/providers")) return { version: 2, direction: "offramp", providers: [] };
-        if (url.startsWith("/api/funding/offramp/orders")) return { version: 3, recoveryEligible: false, orders: [] };
         if (url.startsWith("/api/transfers/recent-recipients")) return { version: 1, recipients: recent };
         const name = new URL(url, "https://home.test").searchParams.get("name") ?? "";
         const gate = gates.get(name);
@@ -105,7 +105,8 @@ function sendField(): HTMLInputElement {
 }
 
 async function openDestinationStep() {
-  fireEvent.click(page().getByRole("button", { name: "1" }));
+  fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+  await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(page().getByRole("button", { name: "Continue" }));
   await waitFor(() => expect(sendField()).toBeTruthy());
 }
@@ -130,7 +131,7 @@ function continueButton(): HTMLButtonElement {
 }
 
 function resolvedAddressControl(): Element | null {
-  const controls = document.querySelectorAll(`button[aria-label="Copy ${RECIPIENT}"]`);
+  const controls = document.querySelectorAll(`button[aria-label="Show full address ${formatAddress(RECIPIENT)}"]`);
   return controls[controls.length - 1] ?? null;
 }
 
@@ -156,7 +157,10 @@ describe("SendDialog recipient names", () => {
         recipientName: "example.base.eth",
       },
     }]);
-    expect(resolvedAddressControl()).toBeTruthy();
+    const reveal = resolvedAddressControl();
+    expect(reveal).toBeTruthy();
+    fireEvent.click(reveal!);
+    expect(await page().findByLabelText(`Full address ${RECIPIENT}`)).toBeTruthy();
   });
 
   test("keeps a settled resolution when an edit normalizes to the same name", async () => {
@@ -252,7 +256,6 @@ describe("SendDialog recipient names", () => {
     const fetchAccountResource = async (url: string) => {
       requested.push(url);
       if (url.startsWith("/api/funding/providers")) return { version: 2, direction: "offramp", providers: [] };
-      if (url.startsWith("/api/funding/offramp/orders")) return { version: 3, recoveryEligible: false, orders: [] };
       if (url.startsWith("/api/transfers/recent-recipients")) return { version: 1, recipients: [{ address: RECIPIENT, name: "example.base.eth" }] };
       return {};
     };

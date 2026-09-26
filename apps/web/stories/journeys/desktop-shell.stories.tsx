@@ -6,6 +6,7 @@ import { HttpResponse, http } from "msw";
 import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 import { ActivityPanelView } from "@/client/activity";
 import type { UseActivityResult } from "@/client/activity/use-activity";
+import type { AppearancePreference } from "@/shared/appearance/preference";
 import { AccountSettings } from "@/client/account/account-settings";
 import { profileGlyph } from "@/client/account/basename-profile";
 import { AppChromeProvider } from "@/components/app-chrome";
@@ -51,7 +52,7 @@ import type { MarketDataState } from "@/shared/invest/invest-market";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
-import { presentationMoneyMetadata } from "@/shared/formatting";
+import { formatAddress, presentationMoneyMetadata } from "@/shared/formatting";
 
 const noop = () => undefined;
 const previewOnlyMoneyAction = async (): Promise<never> => {
@@ -308,6 +309,7 @@ function DesktopShell({ initialPanel, initialRailCollapsed = false, extendedActi
   const [navigationRequest, setNavigationRequest] = useState(0);
   const [accountOpen, setAccountOpen] = useState(false);
   const [showSmallBalances, setShowSmallBalances] = useState(false);
+  const [appearancePreference, setAppearancePreference] = useState<AppearancePreference>("system");
   const [regionId, setRegionId] = useState<RegionId>("US");
   const rootRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLElement>(null);
@@ -386,34 +388,38 @@ function DesktopShell({ initialPanel, initialRailCollapsed = false, extendedActi
     <AccountSettings
       regionId={regionId} onRegionChange={setRegionId} resolutionSource="explicit"
       preferenceMessage="" isPreferenceReady accountAddress={WALLET} accountOwnerKey="jesse.base.eth"
-      showSmallBalances={showSmallBalances} onShowSmallBalancesChange={setShowSmallBalances} onSignOut={noop}
+      showSmallBalances={showSmallBalances} onShowSmallBalancesChange={setShowSmallBalances}
+      appearancePreference={appearancePreference}
+      onAppearancePreferenceChange={(value) => { setAppearancePreference(value); return true; }}
+      onSignOut={noop}
     />
   ) : panel === "home" ? (
     <div className="space-y-4 lg:grid lg:grid-cols-[minmax(320px,3fr)_minmax(340px,2fr)] lg:items-start lg:gap-6 lg:space-y-0 xl:gap-8">
       <div data-desktop-money-column="" className="self-start lg:[@media(min-height:640px)]:sticky lg:[@media(min-height:640px)]:top-20">
         <HomeOverview
+          accountKey={WALLET}
           assetBalances={balances}
           cashRate={state === "empty" ? "Up to 4.20% APY" : "4.20% APY"}
           borrowOfferRate={state === "empty" ? "5.10% APR" : null}
           destinations={{ onOpenCash: () => requestPanel("save"), onOpenInvestments: () => navigate("invest"), onOpenBorrow: noop }}
           actions={
             <>
-              <Button size="lg" className="h-11 w-full">
+              <Button size="touch" className="w-full">
                 <Plus className="size-4" aria-hidden="true" /> Add money
               </Button>
-              <Button variant="outline" size="lg" className="h-11 w-full">Send</Button>
+              <Button variant="outline" size="touch" className="w-full">Send</Button>
             </>
           }
           activity={null}
         />
       </div>
-      <div data-desktop-activity-column="" className="lg:pt-5">
+      <div data-desktop-activity-column="">
         <ActivityPanelView
           activity={activity}
           operations={regionId === "US" && (state === "funded" || state === "partial") ? [borrowOperation] : []}
           regionId={regionId} density="feed"
           header={<HomeSectionHeading id="activity-title">Activity</HomeSectionHeading>}
-          emptyAction={<div className="lg:hidden"><Button variant="outline" size="lg" className="h-11"><Plus className="size-4" aria-hidden="true" />Add money</Button></div>}
+          emptyAction={<div className="lg:hidden"><Button variant="outline" size="touch"><Plus className="size-4" aria-hidden="true" />Add money</Button></div>}
         />
       </div>
     </div>
@@ -455,7 +461,7 @@ function DesktopShell({ initialPanel, initialRailCollapsed = false, extendedActi
                     <h1 className="min-w-0 truncate text-base font-semibold">{title}</h1>
                   </div>
                   {accountOpen ? (
-                    <Button variant="outline" className="h-11" onClick={closeAccount}>Done</Button>
+                    <Button variant="outline" size="touch" onClick={closeAccount}>Done</Button>
                   ) : headerStatus ? <div className="[&_[data-home-status]]:!size-11">{headerStatus}</div> : null}
                 </header>
                 <div ref={settingsRef} className="py-4 outline-none sm:py-6" tabIndex={accountOpen ? -1 : undefined} role={accountOpen ? "region" : undefined} aria-label={accountOpen ? "Account settings" : undefined}>{content}</div>
@@ -555,6 +561,8 @@ export const HomeDesktop: Story = {
     await expectCenteredContent(canvasElement, 1120);
     const balanceLabel = canvas.getByText("Total balance");
     const activityHeading = activity.getByRole("heading", { name: "Activity" });
+    const activityCard = activityHeading.closest("[data-slot='card']")!;
+    await expect(Math.abs(activityCard.getBoundingClientRect().top - canvas.getByLabelText("Total balance").getBoundingClientRect().top)).toBeLessThanOrEqual(1);
     await expect(Math.abs(activityHeading.getBoundingClientRect().top - balanceLabel.getBoundingClientRect().top)).toBeLessThanOrEqual(4);
     const balanceCard = canvas.getByLabelText("Total balance");
     const balanceBar = balanceCard.querySelector("[data-balance-breakdown] [data-signed-balance-bar]")!;
@@ -599,7 +607,7 @@ export const HomeDesktop: Story = {
     await expect(canvas.getByRole("region", { name: "Account settings" })).toHaveFocus();
     const settingsAccount = within(canvas.getByRole("region", { name: "Account" }));
     await expect(settingsAccount.queryByText("Setup in progress")).not.toBeInTheDocument();
-    await expect(settingsAccount.getByRole("button", { name: `Copy ${WALLET}` })).toBeVisible();
+    await expect(settingsAccount.getByRole("button", { name: `Show full address ${formatAddress(WALLET)}` })).toBeVisible();
     await expect(await settingsAccount.findByText("jesse.base.eth")).toBeVisible();
     const country = canvas.getByRole("combobox", { name: "Country" });
     await expect(country).toHaveValue("United States");
@@ -764,7 +772,7 @@ export const Breakpoint1024: Story = {
     await expect(grid.clientWidth - 17).toBeGreaterThanOrEqual(320 + 24 + 340);
     await userEvent.click(canvas.getByRole("button", { name: "Sidebar" }));
     await waitFor(() => expect(Math.abs(rail.getBoundingClientRect().width - 64)).toBeLessThanOrEqual(1));
-    await expectColumns(canvasElement, 355);
+    await waitFor(() => expectColumns(canvasElement, 355));
   },
 };
 export const ShortViewport: Story = {

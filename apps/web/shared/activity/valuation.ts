@@ -11,7 +11,7 @@ import {
 } from "@/shared/balances/math";
 import type { ExactDecimal } from "@/shared/balances/types";
 
-export const ACTIVITY_VALUATION_MAX_CLOSE_GAP_SECONDS = 3_600;
+export const ACTIVITY_VALUATION_MAX_CLOSE_GAP_SECONDS = 86_400;
 export const ACTIVITY_VALUATION_BAR_RESOLUTION_MINUTES = 15;
 export const ACTIVITY_VALUATION_BAR_SECONDS =
   ACTIVITY_VALUATION_BAR_RESOLUTION_MINUTES * 60;

@@ -1,8 +1,8 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { ArrowLeft } from "lucide-react";
-import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
+import { CircleAlertIcon, ArrowLeft } from "lucide-react";
+import { Alert, AlertAction, AlertIcon, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { HomeMark } from "@/components/home-mark";
 import { ProfileMark } from "@/components/profile-mark";
@@ -197,12 +197,12 @@ export function SignedOutLanding({
           </p>
           <div className="flex flex-wrap items-center gap-3">
             {isVerified ? (
-              <Button size="lg" className="h-11" onClick={onDashboard}>Open dashboard</Button>
+              <Button size="touch" onClick={onDashboard}>Open dashboard</Button>
             ) : (
               <>
-                <Button size="lg" className="h-11" onClick={onSignIn}>Sign in</Button>
+                <Button size="touch" onClick={onSignIn}>Sign in</Button>
                 {showCreateAccount ? (
-                  <Button size="lg" className="h-11" variant="secondary" onClick={onSignIn}>
+                  <Button size="touch" variant="secondary" onClick={onSignIn}>
                     Create account
                   </Button>
                 ) : null}
@@ -211,9 +211,10 @@ export function SignedOutLanding({
           </div>
           {signOutError ? (
             <Alert variant="destructive" role="alert">
+              <AlertIcon><CircleAlertIcon /></AlertIcon>
               <AlertDescription>{signOutError}</AlertDescription>
               <AlertAction>
-                <Button variant="ghost" onClick={onRetrySignOut}>Retry sign out</Button>
+                <Button variant="outline" size="touch" onClick={onRetrySignOut}>Retry sign out</Button>
               </AlertAction>
             </Alert>
           ) : null}

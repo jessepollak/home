@@ -1,15 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertAction, AlertIcon, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyTitle,
-} from "@/components/ui/empty";
+import { FeatureIntro } from "@/components/ui/feature-intro";
 import {
   Item,
   ItemContent,
@@ -18,11 +13,12 @@ import {
   ItemTitle,
 } from "@/components/ui/item";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft } from "lucide-react";
+import { CircleAlertIcon, ArrowLeft, ArrowUpFromLine, LockOpen, Percent } from "lucide-react";
 import { MoneyTicker } from "@/components/money-ticker";
 import { AddressText } from "@/components/address-text";
 import { useOptionalAppChrome } from "@/components/app-chrome";
 import { isServerVerified, useAccountWallet } from "@/client/account/cdp-client";
+import type { AccountWalletClient } from "@/client/account/cdp-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type {
   OperationResult,
@@ -46,12 +42,10 @@ import type {
   MorphoVaultCandidate,
   MorphoVaultsResult,
 } from "@/shared/savings/types";
-import { parseVaultsResult } from "@/shared/savings/contracts/vaults";
 import {
   preferredSavingsCandidates,
   readUsdcBaseUnits,
   savingsVaultApyLabel,
-  shortVaultLabel,
 } from "./format";
 import {
   createSavingsGrowthAnchor,
@@ -65,11 +59,7 @@ import {
   summarizeSavingsPortfolio,
   type SavingsApySummary,
 } from "./portfolio-summary";
-import {
-  publicQueryKey,
-  useHomeQuery,
-} from "@/client/query/query-client";
-import { deploymentHeaders } from "@/client/query/deployment-headers";
+import { useSavingsVaults } from "./use-savings-vaults";
 import { useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 
 type SavingsExperienceProps = {
@@ -85,6 +75,7 @@ type SavingsExperienceProps = {
   balanceStale?: boolean;
   onRetryBalances?: () => void;
   growthAuthority?: SavingsGrowthAuthority | null;
+  fetchAccountResource?: AccountWalletClient["fetchAccountResource"];
   prepareMoneyAction?: (
     endpoint: string,
     input: unknown,
@@ -113,7 +104,7 @@ type PositionState =
 
 const SavingsMoneySheet = deferSheet(() => import("@/client/savings/savings-actions").then((module) => module.SavingsMoneyDialog));
 
-export function AuthenticatedSavingsExperience() {
+export function AuthenticatedSavingsExperience({ regionReady = true }: { regionReady?: boolean } = {}) {
   const account = useAccountWallet();
   const region = usePresentationRegionId();
   const session = isServerVerified(account) ? account.session : null;
@@ -125,7 +116,7 @@ export function AuthenticatedSavingsExperience() {
         accountProvider: session.accountProvider,
       }
     : null;
-  const balances = useBalances(balancesSession, region, account.fetchBalances);
+  const balances = useBalances(balancesSession, region, account.fetchBalances, { held: !regionReady });
   const availableUsdcBaseUnits = balances.snapshot
     ? selectBalanceBaseUnits(balances.snapshot, "usdc")
     : null;
@@ -153,6 +144,7 @@ export function AuthenticatedSavingsExperience() {
       balanceStale={balances.snapshot?.stale === true}
       onRetryBalances={() => void balances.retry()}
       growthAuthority={growthAuthority}
+      fetchAccountResource={account.fetchAccountResource}
       prepareMoneyAction={account.prepareMoneyAction}
       executeMoneyAction={account.executeMoneyAction}
     />
@@ -162,7 +154,7 @@ export function AuthenticatedSavingsExperience() {
 export function SavingsExperience({
   initialData = null,
   session = null,
-  fetchVaults = fetchSavingsVaults,
+  fetchVaults,
   now = Date.now,
   availableUsdcBaseUnits = null,
   balancePositions = null,
@@ -172,6 +164,7 @@ export function SavingsExperience({
   balanceStale = false,
   onRetryBalances,
   growthAuthority = null,
+  fetchAccountResource,
   prepareMoneyAction,
   executeMoneyAction,
   onBack,
@@ -194,19 +187,7 @@ export function SavingsExperience({
   const normalizedInitialRouteRef = useRef(false);
   const hosted = Boolean(useOptionalAppChrome());
   const hasSession = Boolean(session?.smartAccount);
-  const metadataQuery = useHomeQuery({
-    queryKey: publicQueryKey("savings-vaults"),
-    initialData: initialData ?? undefined,
-    staleTime: 60_000,
-    retry: false,
-    refetchOnWindowFocus: false,
-    queryFn: ({ signal }) => fetchVaults(signal),
-    select: (value) => {
-      const data = parseVaultsResult(value);
-      if (!data) throw new Error("Savings vault metadata is invalid.");
-      return data;
-    },
-  });
+  const metadataQuery = useSavingsVaults({ initialData, fetchVaults });
   const loadState = useMemo<LoadState>(
     () =>
       metadataQuery.data
@@ -338,6 +319,7 @@ export function SavingsExperience({
     portfolioSummary?.balance.status === "available"
       ? portfolioSummary.balance
       : null;
+  const notStarted = !funded && loadState.status === "ready" && selected !== null && (availableBalance !== null || !hasSession);
   const showBalanceRows = funded || (hasSession && !availableBalance);
   const selectedBalance = selected
     ? balances.find(
@@ -442,31 +424,12 @@ export function SavingsExperience({
                 ) : (
                   <FundedApyCaption apy={portfolioSummary.apy} />
                 )
-              ) : (
-                <SavingsEmpty
-                  title="Nothing saved yet"
-                  description={
-                    selected && loadState.status === "ready"
-                      ? `Available vault · ${shortVaultLabel(selected.name)} · ${savingsVaultApyLabel(selected, loadState.data, rateNowMs)}`
-                      : undefined
-                  }
-                />
-              )}
+              ) : null}
             </>
           ) : !hasSession ? (
-            <>
-              <p className="text-4xl font-semibold tracking-tight text-muted-foreground tabular-nums">
-                <MoneyTicker value="$0.00" />
-              </p>
-              <SavingsEmpty
-                title="Nothing saved yet"
-                description={
-                  selected && loadState.status === "ready"
-                    ? `Available vault · ${shortVaultLabel(selected.name)} · ${savingsVaultApyLabel(selected, loadState.data, rateNowMs)}`
-                    : undefined
-                }
-              />
-            </>
+            <p className="text-4xl font-semibold tracking-tight text-muted-foreground tabular-nums">
+              <MoneyTicker value="$0.00" />
+            </p>
           ) : (
             <>
               <p className="text-4xl font-semibold tracking-tight tabular-nums">
@@ -487,7 +450,7 @@ export function SavingsExperience({
               </AlertDescription>
               {onRetryBalances ? (
                 <AlertAction>
-                  <Button variant="ghost" onClick={onRetryBalances}>Retry</Button>
+                  <Button variant="outline" size="touch" onClick={onRetryBalances}>Retry</Button>
                 </AlertAction>
               ) : null}
             </Alert>
@@ -495,15 +458,24 @@ export function SavingsExperience({
         </CardContent>
       </Card>
 
-      {loadState.status === "ready" && loadState.data.stale ? (
-        <Alert role="status">
-          <AlertDescription>
-            Vault rates stale.
-          </AlertDescription>
-          <AlertAction>
-            <Button variant="ghost" onClick={() => void metadataQuery.refetch()}>Retry</Button>
-          </AlertAction>
-        </Alert>
+      {notStarted ? (
+        <FeatureIntro
+          size="compact"
+          illustration="savings"
+          headline="Start saving"
+          benefits={[
+            { icon: Percent, text: "Earn interest on USDC" },
+            { icon: ArrowUpFromLine, text: "Withdraw anytime" },
+            { icon: LockOpen, text: "No lockups" },
+          ]}
+          primary={{
+            label: "Get started",
+            ref: depositOpenerRef,
+            disabled: !actionsReady,
+            onPointerDown: () => void SavingsMoneySheet.preload(),
+            onClick: () => openAction("deposit"),
+          }}
+        />
       ) : null}
 
       {loadState.status === "loading" ? (
@@ -515,7 +487,7 @@ export function SavingsExperience({
         <Alert role="alert">
           <AlertDescription>Vaults are temporarily unavailable.</AlertDescription>
           <AlertAction>
-            <Button variant="ghost" onClick={() => void metadataQuery.refetch()}>Retry</Button>
+            <Button variant="outline" size="touch" onClick={() => void metadataQuery.refetch()}>Retry</Button>
           </AlertAction>
         </Alert>
       ) : !coldLoading && !positionFailed && candidates.length > 0 ? (
@@ -530,6 +502,12 @@ export function SavingsExperience({
                   entry.vaultAddress.toLowerCase() ===
                   candidate.vaultAddress.toLowerCase(),
               );
+              const apyLabel = loadState.status === "ready"
+                ? savingsVaultApyLabel(candidate, loadState.data, rateNowMs)
+                : null;
+              const fundedApy = funded && loadState.status === "ready"
+                ? fundedVaultApyLabel(candidate, loadState.data, rateNowMs)
+                : null;
               const rowValue = showBalanceRows ? (
                 <MoneyTicker
                   value={
@@ -538,11 +516,7 @@ export function SavingsExperience({
                       : formatUsdStablecoinAmount(balance.amount.toString())
                   }
                 />
-              ) : loadState.status === "ready" ? (
-                savingsVaultApyLabel(candidate, loadState.data, rateNowMs)
-              ) : (
-                "APY unavailable"
-              );
+              ) : apyLabel;
               return (
                 <div
                   key={candidate.vaultAddress}
@@ -576,19 +550,15 @@ export function SavingsExperience({
                     </ItemMedia>
                     <ItemContent className="min-w-0">
                       <ItemTitle>{candidate.name}</ItemTitle>
-                      {funded && loadState.status === "ready" ? (
-                        <ItemDescription>
-                          {fundedVaultApyLabel(
-                            candidate,
-                            loadState.data,
-                            rateNowMs,
-                          )}
-                        </ItemDescription>
+                      {fundedApy !== null ? (
+                        <ItemDescription>{fundedApy}</ItemDescription>
                       ) : null}
                     </ItemContent>
-                    <ItemContent className="items-end text-right">
-                      <ItemTitle numeric>{rowValue}</ItemTitle>
-                    </ItemContent>
+                    {rowValue !== null ? (
+                      <ItemContent className="items-end text-right">
+                        <ItemTitle numeric>{rowValue}</ItemTitle>
+                      </ItemContent>
+                    ) : null}
                   </Item>
                   {isSelected ? (
                     <dl
@@ -628,29 +598,27 @@ export function SavingsExperience({
         </section>
       ) : null}
 
-      {loadState.status !== "error" && (availableBalance || !hasSession) ? (
-        <div className={`grid gap-2 ${funded ? "grid-cols-2" : "grid-cols-1"}`}>
-          <Button className="h-11"
+      {funded && loadState.status !== "error" && availableBalance ? (
+        <div className="grid grid-cols-2 gap-2">
+          <Button
             ref={depositOpenerRef}
-            size="lg"
+            size="touch"
             disabled={!actionsReady}
             onPointerDown={() => void SavingsMoneySheet.preload()}
             onClick={() => openAction("deposit")}
           >
-            {funded ? "Deposit" : "Get started"}
+            Deposit
           </Button>
-          {funded ? (
-            <Button className="h-11"
-              ref={withdrawOpenerRef}
-              size="lg"
-              variant="outline"
-              disabled={!actionsReady || !canWithdraw}
-              onPointerDown={() => void SavingsMoneySheet.preload()}
-              onClick={() => openAction("withdraw")}
-            >
-              Withdraw
-            </Button>
-          ) : null}
+          <Button
+            ref={withdrawOpenerRef}
+            size="touch"
+            variant="outline"
+            disabled={!actionsReady || !canWithdraw}
+            onPointerDown={() => void SavingsMoneySheet.preload()}
+            onClick={() => openAction("withdraw")}
+          >
+            Withdraw
+          </Button>
         </div>
       ) : null}
 
@@ -675,6 +643,7 @@ export function SavingsExperience({
               : (selectedAmount?.toString() ?? null)
           }
           availableStale={balanceStale || balanceRefreshError}
+          fetchAccountResource={fetchAccountResource}
           prepareMoneyAction={prepareMoneyAction}
           executeMoneyAction={executeMoneyAction}
           onClose={closeAction}
@@ -707,65 +676,25 @@ function fundedVaultApyLabel(
   candidate: MorphoVaultCandidate,
   metadata: MorphoVaultsResult,
   nowMs: number,
-): string {
+): string | null {
   const rate = getSavingsRateState(candidate, {
     metadataFetchedAt: metadata.source.fetchedAt,
     metadataStale: metadata.stale,
     nowMs,
   });
-  if (rate.status === "stale") return "APY stale";
-  if (rate.status === "unavailable") return "APY unavailable";
+  if (rate.status === "unavailable") return null;
   return formatPresentationPercentage(rate.value);
 }
 
 function FundedApyCaption({ apy }: { apy: SavingsApySummary }) {
-  if (apy.status === "available") {
+  if (apy.status === "available" || apy.status === "stale") {
     return (
       <p className="text-sm text-muted-foreground">
         Earning ~{formatExactSavingsApy(apy.value)}
       </p>
     );
   }
-  if (apy.status === "partial") {
-    return (
-      <p className="text-sm text-muted-foreground" role="status">
-        APY partially unavailable
-      </p>
-    );
-  }
-  if (apy.status === "stale") {
-    return (
-      <p className="text-sm text-muted-foreground" role="status">
-        APY data stale
-      </p>
-    );
-  }
-  return (
-    <p className="text-sm text-muted-foreground" role="status">
-      APY unavailable
-    </p>
-  );
-}
-
-function SavingsEmpty({
-  className,
-  description,
-  title,
-}: {
-  className?: string;
-  description?: React.ReactNode;
-  title: React.ReactNode;
-}) {
-  return (
-    <Empty className={className}>
-      <EmptyHeader>
-        <EmptyTitle>{title}</EmptyTitle>
-        {description ? (
-          <EmptyDescription>{description}</EmptyDescription>
-        ) : null}
-      </EmptyHeader>
-    </Empty>
-  );
+  return null;
 }
 
 function SavingsNotice({
@@ -785,6 +714,7 @@ function SavingsNotice({
       role={role}
       variant={tone === "error" ? "destructive" : "default"}
     >
+      {tone === "error" ? <AlertIcon><CircleAlertIcon /></AlertIcon> : null}
       <AlertDescription>{children}</AlertDescription>
     </Alert>
   );
@@ -835,15 +765,6 @@ function collectVaultBalances(
       amount: readUsdcBaseUnits(entry.position.assetsRaw),
     };
   });
-}
-
-async function fetchSavingsVaults(signal?: AbortSignal): Promise<unknown> {
-  const response = await fetch("/api/savings/vaults", {
-    headers: { ...deploymentHeaders(), accept: "application/json" },
-    signal,
-  });
-  if (!response.ok) throw new Error("Vault request failed");
-  return response.json();
 }
 
 const BASE_USDC_ASSET = {

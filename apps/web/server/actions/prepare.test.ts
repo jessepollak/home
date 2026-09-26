@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
 import { SavingsActionError } from "@/server/savings/prepare";
+import { makePaymasterApproval, NetworkFeeUnfundedError } from "@/server/paymaster/fee";
+import { BASE_USDC_ADDRESS, BASE_USDC_PAYMASTER_ADDRESS, NETWORK_FEE_ETH_UNFUNDED_MESSAGE, NETWORK_FEE_UNFUNDED_MESSAGE } from "@/shared/money-actions/network-fee";
 import type { MoneyActionDraft } from "@/shared/money-actions/types";
 import { setActionsStoreForTests, type ActionsStore } from "./store";
 import { createPrepareActionHandler } from "./prepare";
@@ -165,5 +167,37 @@ describe("prepare action handler", () => {
         message: "A valid action kind and parameters are required.",
       },
     });
+  });
+
+  test.each(["send", "savings-deposit"] as const)("prepares %s with the approved USDC fee as first call", async (kind) => {
+    const inserts: Array<Parameters<ActionsStore["insert"]>[0]> = [];
+    setActionsStoreForTests({ insert: async (input: Parameters<ActionsStore["insert"]>[0]) => { inserts.push(input); } } as ActionsStore);
+    let feeRequest: Request | undefined;
+    const handler = createPrepareActionHandler({
+      authorize: async () => authorized(),
+      prepareSavings: async () => savingsDraft("deposit"),
+      applyFee: async (_session, draft, options) => {
+        feeRequest = options?.request;
+        return { ...draft, calls: [makePaymasterApproval(BigInt(100000)), ...draft.calls], networkFee: { payment: "usdc", token: BASE_USDC_ADDRESS, paymaster: BASE_USDC_PAYMASTER_ADDRESS, maxFeeBaseUnits: "100000", decimals: 6 } };
+      },
+    });
+    const input = kind === "send" ? new Request("https://home.test/api/actions/prepare", { method: "POST", headers: { "content-type": "application/json", [ACCOUNT_PROVIDER_HEADER]: "cdp-embedded" }, body: JSON.stringify({ kind, params: { assetId: "usdc", recipient: "0x2222222222222222222222222222222222222222", amountBaseUnits: "1000000" } }) }) : request(kind);
+    const response = await handler(input);
+    const action = await response.json() as { calls?: Array<{ approval?: { spender: string } }>; networkFee?: { maxFeeBaseUnits: string } };
+    expect(response.status).toBe(201);
+    expect(feeRequest).toBe(input);
+    expect(action.calls?.[0]?.approval?.spender).toBe(BASE_USDC_PAYMASTER_ADDRESS.toLowerCase());
+    expect(action.networkFee?.maxFeeBaseUnits).toBe("100000");
+    expect(JSON.stringify(inserts[0]?.pending.calls)).toBe(JSON.stringify(action.calls));
+  });
+
+  test.each([
+    ["usdc", NETWORK_FEE_UNFUNDED_MESSAGE],
+    ["eth", NETWORK_FEE_ETH_UNFUNDED_MESSAGE],
+  ] as const)("reports missing %s network fee funding as HTTP 409", async (asset, message) => {
+    const handler = createPrepareActionHandler({ authorize: async () => authorized(), prepareSavings: async () => savingsDraft("deposit"), applyFee: async () => { throw new NetworkFeeUnfundedError(asset); } });
+    const response = await handler(request());
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: { code: "NETWORK_FEE_UNFUNDED", message } });
   });
 });

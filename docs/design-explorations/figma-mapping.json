@@ -16,7 +16,7 @@
       { "name": "Invest", "nodeId": "333:13086", "url": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13086", "contents": "Empty destination for future screens and proposals" },
       { "name": "Borrow", "nodeId": "333:13087", "url": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13087", "contents": "Empty destination for future screens and proposals" },
       { "name": "Activity", "nodeId": "333:13088", "url": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13088", "contents": "Activity ledger proposal #637 308:5918" },
-      { "name": "Send / Add money / Cash out", "nodeId": "333:13089", "url": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13089", "contents": "Empty destination for future screens and proposals" },
+      { "name": "Send / Add money / Cash out", "nodeId": "333:13089", "url": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13089", "contents": "Send recipient — current (#953) 468:4498: nine 390×844 recipient frames, a 1280×800 desktop frame and the review frame (library pattern, not parity); code parity otherwise" },
       { "name": "Account", "nodeId": "333:13090", "url": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13090", "contents": "Empty destination for future screens and proposals" },
       { "name": "Card", "nodeId": "333:13091", "url": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13091", "contents": "Card proposal #636 309:7257" },
       { "name": "Shell / desktop", "nodeId": "333:13092", "url": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13092", "contents": "Desktop proposal #694 322:11819" },
@@ -36,7 +36,7 @@
     "note": "mainSha is the render used to build the historical Home — funded baseline. Home — final is the approved final Home design (Jesse, 2026-09-23) and, since #789, the production Home layout rendered by apps/web/client/home/home-overview.tsx."
   },
   "codeConnect": {
-    "status": "Owned by #684 (Code Connect templates, parse check and publish job). Node ownership — which node maps to which code owner, which are not mapped, and which code components have no Figma node — lives only in nodeOwnership (apps/web/figma-components.json). #841 kept every node ID stable through the page move; #684 re-read every mapped ID from the live file afterwards and all resolve. Its 28 earlier add_code_connect_map writes are superseded by #684's publish; existing mappings preserved",
+    "status": "Owned by #684 (Code Connect templates, parse check and publish job). Mapped node ownership lives in apps/web/figma/components/<Name>.json; unmapped nodes and code components without a Figma node live in nodeOwnership (apps/web/figma-components.json). #841 kept every node ID stable through the page move; #684 re-read every mapped ID from the live file afterwards and all resolve. Its 28 earlier add_code_connect_map writes are superseded by #684's publish; existing mappings preserved",
     "label": "React",
     "evidence": [
       "The 12 previously published families remained mapped from prior runs; this run did not delete, disconnect, or recreate any existing mapping.",
@@ -45,7 +45,7 @@
       "get_code_connect_map still returns an empty object for this file (known Figma API read-back defect); Jesse approved that combined evidence on 2026-09-22.",
       "Run 24 (publish-ready closeout) changed only definitions, descriptions, variant value names, positions, and the new color/market-gain variable; no component or set was deleted, recreated, or detached and no Code Connect mapping was touched. Renaming variant values (e.g. Kind=cash -> Kind=Cash) keeps node IDs and node->file mappings.",
       "#789 (2026-09-23): add_code_connect_map succeeded for SignedBalanceBar 91:927 -> apps/web/components/signed-balance-bar.tsx (SignedBalanceBar) and ActivityLoader 91:932 -> apps/web/components/activity-loader.tsx (ActivityLoader). It returned 'already mapped' for FinanceRow 96:1147, MoneyBreakdownItem 12:20 and SectionHeader 12:33; no mapping was disconnected or replaced.",
-      "#841, before Code Connect moved to #684: add_code_connect_map with label React reported success for 28 rows; none returned already mapped. Every one of those nodes is in apps/web/figma-components.json components, where #684's templates supersede them; #841 makes no further Code Connect calls. get_code_connect_map still reads back {}."
+      "#841, before Code Connect moved to #684: add_code_connect_map with label React reported success for 28 rows; none returned already mapped. Every one of those nodes now has an entry in apps/web/figma/components/<Name>.json, where #684's templates supersede them; #841 makes no further Code Connect calls. get_code_connect_map still reads back {}."
     ],
     "limitation": "Code Connect maps Figma to code metadata; it does not synchronize React changes into Figma or Figma edits into code automatically.",
     "actionRequiredFromJesse": "Publish #841 changes: FinanceRow 96:1147, CurrencyMarkSlot 12:59, ShimmerRow 274:6015, CopyableValue 282:5961, MoneyConfirmRow 166:1802, Card 269:5270 and Home/Mono tight. Publish the library to remove the #882 deletions from the published library.",
@@ -197,7 +197,7 @@
       "codeComponentName": "ActivityLoader",
       "codeConnectStatus": "mapped (#789)",
       "publishStatus": "CHANGED (description)",
-      "fidelityNotes": "Activity infinite-scroll continuation boundary with a centered spinner and no visible copy (a screen-reader-only status announces older rows loading). Rendered by apps/web/client/activity/activity-panel.tsx on Home and the Activity page since #789."
+      "fidelityNotes": "Activity infinite-scroll continuation boundary with a centered spinner and no visible copy (a screen-reader-only status announces older rows loading). Rendered by apps/web/client/activity/activity-panel.tsx on Home and the Activity page since #789. #637 (2026-09-24) set the master's primary-axis alignment to centre so the 24px spinner sits at the vertical centre of the 56px frame, as code's h-14 items-center does; it had sat 4px high."
     },
     {
       "figmaName": "MoreRow",
@@ -228,6 +228,46 @@
       "codeConnectStatus": "mapped-existing",
       "publishStatus": "CHANGED",
       "fidelityNotes": "Exactly one instance in each screen frame; prototype motion is not reproduced."
+    },
+    {
+      "figmaName": "AddressField",
+      "nodeId": "460:4469",
+      "nodeUrl": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=460-4469",
+      "codeSourcePath": "apps/web/components/address-field.tsx",
+      "codeComponentName": "AddressField",
+      "codeConnectStatus": "template added (#953); publishes with the #684 job",
+      "publishStatus": "NEW",
+      "fidelityNotes": "state=empty|focused|entered|disabled only (460:4404, 460:4420, 460:4437, 460:4453); props Label, Value, Placeholder. Entered shows the shortened display 0x2211…d77DA9 that formatAddress renders while unfocused; focused shows the full address. Disabled draws the empty placeholder. Resolution status is the sibling SendRecipientStatus, not a variant. Code Connect emits Value as the value prop for focused and entered, expanding only the default shortened display to its full address; set a full address in Value when overriding."
+    },
+    {
+      "figmaName": "FieldSeparator",
+      "nodeId": "465:4432",
+      "nodeUrl": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=465-4432",
+      "codeSourcePath": "apps/web/components/ui/field.tsx",
+      "codeComponentName": "FieldSeparator",
+      "codeConnectStatus": "not mapped (sub-part of Field; see apps/web/figma-components.json notMapped)",
+      "publishStatus": "NEW",
+      "fidelityNotes": "The Or row between free-form entry and suggestions; prop Label."
+    },
+    {
+      "figmaName": "SendRecipientStatus",
+      "nodeId": "465:4497",
+      "nodeUrl": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=465-4497",
+      "codeSourcePath": "apps/web/client/transfers/send-dialog.tsx (send-recipient-status content)",
+      "codeComponentName": "(Figma-only composition)",
+      "codeConnectStatus": "not mapped (not a code component; see apps/web/figma-components.json notMapped)",
+      "publishStatus": "NEW",
+      "fidelityNotes": "state=resolving|resolved|could-not-resolve|hint. Sibling content under AddressField. Alert has no content slot, so resolved draws the Alert box with bound tokens around a nested CopyableValue."
+    },
+    {
+      "figmaName": "RecentRecipients",
+      "nodeId": "465:4498",
+      "nodeUrl": "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=465-4498",
+      "codeSourcePath": "apps/web/client/transfers/send-dialog.tsx (private RecentRecipients)",
+      "codeComponentName": "(Figma-only composition)",
+      "codeConnectStatus": "not mapped (not a code component; see apps/web/figma-components.json notMapped)",
+      "publishStatus": "NEW",
+      "fidelityNotes": "Group label plus suggestion Item rows (a Basename and a shortened address). Suggestions never replace free-form entry."
     }
   ],
   "frames": [
@@ -306,11 +346,12 @@
       "Rows": ["FinanceRow 96:1147", "MoreRow 12:79", "FinanceRow — all variants 131:1285 (board)", "FinanceRow — usage reference 116:1154 (board)"],
       "Marks": ["CurrencyMarkSlot 12:59"],
       "Feedback / loading": ["ActivityLoader 91:932"],
-      "Navigation": ["TabItem 12:94", "TabBar 12:95"]
+      "Navigation": ["TabItem 12:94", "TabBar 12:95"],
+      "Added by #953 outside Home components (Primitives: AddressField under Finance components, FieldSeparator under Inputs and selection; see design-system.md#send-recipient-board-953)": ["AddressField 460:4469", "FieldSeparator 465:4432", "SendRecipientStatus 465:4497", "RecentRecipients 465:4498"]
     },
     "publishChecklist": {
       "expectInPublishDialog": "#841: FinanceRow 96:1147, CurrencyMarkSlot 12:59, ShimmerRow 274:6015, CopyableValue 282:5961, MoneyConfirmRow 166:1802, Card 269:5270 and new Home/Mono tight text style. #882 deletions of MoneyNumpad, MoneyNumpadKey and the legacy Card variant also require publication. Earlier unpublished changes may also appear; see design-system.md publish checklist.",
-      "codeConnectAfterPublish": ["#684 owns Code Connect and publishes its templates for the nodes in apps/web/figma-components.json; #841's 28 earlier writes are superseded by that publish. Do not replace existing mappings to address the read-back."]
+      "codeConnectAfterPublish": ["#684 owns Code Connect and publishes its templates for the nodes in apps/web/figma/components/<Name>.json; #841's 28 earlier writes are superseded by that publish. Do not replace existing mappings to address the read-back."]
     },
     "items": [
       { "name": "FinanceRow (variant set)", "nodeId": "96:1147", "variantsOrProps": "Layout=Title aligned (default) | Centered (legacy) x Value tone=Default|Success|Error|Muted; props Label, Context, Show context, Value, Value context, Show value context, Mark, Show chevron", "owner": "apps/web/components/finance-rows.tsx (wrappers ActivityRow, BalanceRow, AssetRow)", "publish": "#841 body alignment and description changed — Jesse must publish" },
@@ -328,7 +369,11 @@
       { "name": "MoneyTicker", "nodeId": "12:2", "variantsOrProps": "Label, Amount", "owner": "apps/web/components/money-ticker.tsx", "publish": "CURRENT" },
       { "name": "ShellHeader", "nodeId": "11:773", "variantsOrProps": "Title, Show status", "owner": "apps/web/client/home/shell-chrome.tsx", "publish": "CHANGED — Jesse must publish" },
       { "name": "TabBar", "nodeId": "12:95", "variantsOrProps": "one instance per screen", "owner": "apps/web/components/primary-navigation.tsx", "publish": "CHANGED (nests TabItem) — Jesse must publish" },
-      { "name": "TabItem", "nodeId": "12:94", "variantsOrProps": "Icon=Home|Invest|Card (Card is the #636 proposal); Label, Active", "owner": "apps/web/components/primary-navigation.tsx", "publish": "CHANGED — Jesse must publish" }
+      { "name": "TabItem", "nodeId": "12:94", "variantsOrProps": "Icon=Home|Invest|Card (Card is the #636 proposal); Label, Active", "owner": "apps/web/components/primary-navigation.tsx", "publish": "CHANGED — Jesse must publish" },
+      { "name": "AddressField", "nodeId": "460:4469", "variantsOrProps": "state=empty|focused|entered|disabled; Label, Value, Placeholder", "owner": "apps/web/components/address-field.tsx", "publish": "NEW (#953) — Jesse must publish" },
+      { "name": "FieldSeparator", "nodeId": "465:4432", "variantsOrProps": "Label", "owner": "apps/web/components/ui/field.tsx (FieldSeparator)", "publish": "NEW (#953) — Jesse must publish" },
+      { "name": "SendRecipientStatus", "nodeId": "465:4497", "variantsOrProps": "state=resolving|resolved|could-not-resolve|hint", "owner": "design-only composition of send-recipient-status in apps/web/client/transfers/send-dialog.tsx", "publish": "NEW (#953) — Jesse must publish" },
+      { "name": "RecentRecipients", "nodeId": "465:4498", "variantsOrProps": "none", "owner": "design-only composition of RecentRecipients in apps/web/client/transfers/send-dialog.tsx", "publish": "NEW (#953) — Jesse must publish" }
     ]
   },
   "desktopProposal": {

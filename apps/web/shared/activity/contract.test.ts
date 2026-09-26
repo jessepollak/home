@@ -438,7 +438,7 @@ describe("activity valuation parser", () => {
   test("downgrades inconsistent or unsupported valuations to unpriced without dropping the transfer", () => {
     const invalid = [
       historicalValuation({ amount: { atoms: "1234", scale: 2 } }),
-      historicalValuation({ close: { ...close, closedAt: "2026-09-07T09:59:59.000Z" } }),
+      historicalValuation({ close: { ...close, closedAt: "2026-09-06T10:59:59.000Z" } }),
       historicalValuation({ close: { ...close, closedAt: "2026-09-07T11:15:00.000Z" } }),
       historicalValuation({ method: "spot" }),
       historicalValuation({ method: "peg", peg: "USD", close: null }),

@@ -210,8 +210,9 @@ describe("Base Account connector boundary", () => {
 
     await connection.sendCalls?.(calls, "hinted-action", undefined, "150000");
     const request = provider.requests.find(({ method }) => method === "wallet_sendCalls");
-    const sentCalls = (request?.params as Array<{ calls: unknown[] }> | undefined)?.[0]?.calls;
-    expect(sentCalls).toEqual([
+    const sentParams = (request?.params as Array<{ calls: unknown[]; capabilities?: unknown }> | undefined)?.[0];
+    expect(sentParams).not.toHaveProperty("capabilities");
+    expect(sentParams?.calls).toEqual([
       { to: OTHER_ADDRESS, value: "0x0", data: "0x095ea7b3" },
       {
         to: ADDRESS,
@@ -221,12 +222,21 @@ describe("Base Account connector boundary", () => {
       },
     ]);
 
+    const paymaster = { url: "https://example.test/api/actions/paid-action/paymaster", context: { erc20: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" } };
+    await connection.sendCalls?.(calls, "paid-action", undefined, "150000", paymaster);
+    const paidRequest = provider.requests.filter(({ method }) => method === "wallet_sendCalls").at(-1);
+    const paidParams = (paidRequest?.params as Array<{ calls: unknown[]; capabilities?: unknown }> | undefined)?.[0];
+    expect(paidParams?.capabilities).toEqual({ paymasterService: paymaster });
+    expect(paidParams?.calls).toEqual([
+      { to: OTHER_ADDRESS, value: "0x0", data: "0x095ea7b3" },
+      { to: ADDRESS, value: "0x0", data: "0x1234", capabilities: { gasLimitOverride: { value: "0x249f0" } } },
+    ]);
     for (const hint of ["0", "0x10", "2000001"]) {
       await expect(connection.sendCalls?.(calls, "bad-hint", undefined, hint)).rejects.toMatchObject({
         reason: "invalid-provider-response",
       });
     }
-    expect(provider.requests.filter(({ method }) => method === "wallet_sendCalls")).toHaveLength(1);
+    expect(provider.requests.filter(({ method }) => method === "wallet_sendCalls")).toHaveLength(2);
   });
 
   test("returns the Base submission handle before a later account-state read could discard it", async () => {

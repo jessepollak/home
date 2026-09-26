@@ -10,6 +10,7 @@ function action(overrides: Partial<ActionRow> = {}): ActionRow {
   return {
     id: ID,
     owner_key: "fixture",
+    account_address: "0x1111111111111111111111111111111111111111",
     provider: "base-account",
     kind: "send",
     summary: { title: "Send", amounts: [], warnings: [], expiresAt: "2026-09-13T12:30:00.000Z" },
@@ -19,6 +20,12 @@ function action(overrides: Partial<ActionRow> = {}): ActionRow {
     provider_handle: HANDLE,
     transaction_hash: null,
     handle_recorded_at: null,
+    declined_reported_at: null,
+    dispatch_attempt: 0,
+    outcome: null,
+    outcome_source: null,
+    settled_at: null,
+    outcome_recorded_at: null,
     ...overrides,
   };
 }
@@ -64,15 +71,18 @@ describe("Base Account handle reconciliation", () => {
       overrides: { status: 200, receipts: [{ transactionHash: HASH }] },
       expected: { status: "complete", transactionHash: HASH.toLowerCase() as `0x${string}` },
     },
-    ...[400, 500, 600].map((status): {
+    { name: "undefined 300 range", overrides: { status: 300, receipts: [{ transactionHash: HASH }] }, expected: { status: "unavailable" } },
+    { name: "not submitted 400", overrides: { status: 400, receipts: [{ transactionHash: HASH }] }, expected: { status: "not_submitted" } },
+    ...[500, 600].map((status): {
       name: string;
       overrides: Record<string, unknown>;
       expected: HandleResolution;
     } => ({
-      name: `failed ${status} without a hash`,
+      name: `reverted ${status} with a hash`,
       overrides: { status, receipts: [{ transactionHash: HASH }] },
-      expected: { status: "failed" },
+      expected: { status: "reverted", transactionHash: HASH.toLowerCase() as `0x${string}` },
     })),
+    { name: "reverted without hash", overrides: { status: 500 }, expected: { status: "reverted" } },
     { name: "mismatched result id", overrides: { id: "other" }, expected: { status: "unavailable" } },
     { name: "wrong chain", overrides: { chainId: 1 }, expected: { status: "unavailable" } },
     { name: "non-atomic result", overrides: { atomic: false }, expected: { status: "unavailable" } },
@@ -200,10 +210,10 @@ describe("Base Account handle reconciliation", () => {
     const { calls, fetchImpl } = fixtureFetch((handle) => rpcResult(handle, { status: 500 }));
     const resolver = createActionHandleResolver({ fetchImpl, now: () => currentTime });
 
-    expect(await resolver(action())).toEqual({ status: "failed" });
+    expect(await resolver(action())).toEqual({ status: "reverted" });
     currentTime += 299_999;
     expect(await resolver(action())).toEqual({ status: "unavailable" });
-    expect(await resolver(action({ provider_handle: "different-handle" }))).toEqual({ status: "failed" });
+    expect(await resolver(action({ provider_handle: "different-handle" }))).toEqual({ status: "reverted" });
     expect(calls).toHaveLength(2);
   });
 

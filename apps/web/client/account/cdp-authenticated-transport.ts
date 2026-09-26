@@ -26,7 +26,10 @@ import { ResourceFailure } from "./resource-failure";
 
 type MoneyActionApiFetch = (path: string, init?: RequestInit) => Promise<unknown>;
 
+const walletFreeAccountResourcePrefixes = ["/api/account/country-preference"] as const;
+
 const accountResourcePrefixes = [
+  ...walletFreeAccountResourcePrefixes,
   "/api/actions",
   "/api/balances",
   "/api/trades",
@@ -121,11 +124,23 @@ export function useAuthenticatedTransport({
         | "/api/actions",
       signal?: AbortSignal,
       query?: string,
+      allowProvisionalBalances = false,
     ): Promise<unknown> => {
-      if (!session || status !== "verified" || verification !== "server" || !ownerKey) {
+      const provisionalBalances = allowProvisionalBalances && endpoint === "/api/balances" &&
+        verification === "provisional" && status === "validating" &&
+        session?.smartAccount;
+      if (!session || !ownerKey || (!provisionalBalances && (status !== "verified" || verification !== "server"))) {
         throw new ResourceFailure("session");
       }
+      const generation = provisionalBalances ? ownerFence.capture() : null;
+      const assertCurrent = () => {
+        if (generation !== null && !ownerFence.isCurrent(generation)) {
+          throw new ResourceFailure("session");
+        }
+      };
+      assertCurrent();
       const accessToken = await getAccessToken();
+      assertCurrent();
       if (authentication === "cdp" && !accessToken) {
         throw new ResourceFailure("session");
       }
@@ -152,7 +167,9 @@ export function useAuthenticatedTransport({
         if (signal?.aborted) throw error;
         throw new ResourceFailure("network");
       }
+      assertCurrent();
       if (await redirectOnAccessRequired(response, accessNavigation)) {
+        assertCurrent();
         throw new ResourceFailure("access", "Deployment access is required.");
       }
       if (!response.ok) {
@@ -162,17 +179,21 @@ export function useAuthenticatedTransport({
         } catch {
         }
         throwIfDeploymentExpired(response, skewHeaders, details.code);
+        assertCurrent();
         const unavailable = new ResourceFailure("http", undefined, response.status);
         Object.assign(unavailable, { status: response.status, ...details });
         throw unavailable;
       }
       try {
-        return await response.json();
-      } catch {
+        const value: unknown = await response.json();
+        assertCurrent();
+        return value;
+      } catch (error) {
+        if (error instanceof ResourceFailure) throw error;
         throw new ResourceFailure("parse");
       }
     },
-    [accessNavigation, authentication, getAccessToken, ownerKey, session, sessionFetch, status, verification],
+    [accessNavigation, authentication, getAccessToken, ownerFence, ownerKey, session, sessionFetch, status, verification],
   );
 
   const startActionBalanceFreshness = useCallback((actionId: string) => startBalanceFreshness({
@@ -186,7 +207,12 @@ export function useAuthenticatedTransport({
   const fetchAccountResource = useCallback(
     async (path: string, options: AccountResourceOptions = {}): Promise<unknown> => {
       const safePath = normalizeAccountResourcePath(path);
-      if (!session?.smartAccount || status !== "verified" || verification !== "server" || !ownerKey) {
+      const pathname = new URL(safePath, "https://home.invalid").pathname;
+      const walletFree = walletFreeAccountResourcePrefixes.some(
+        (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+      );
+      if (!session || status !== "verified" || verification !== "server" || !ownerKey ||
+          (!walletFree && !session.smartAccount)) {
         throw new TransferExecutionError("stale-session");
       }
       const identity = ownerFence.capture();
@@ -211,11 +237,11 @@ export function useAuthenticatedTransport({
           headers: {
             ...skewHeaders,
             Accept: "application/json",
-            ...(method === "POST" ? { "Content-Type": "application/json" } : {}),
+            ...(method !== "GET" ? { "Content-Type": "application/json" } : {}),
             ...(authentication === "cdp" ? { Authorization: `Bearer ${accessToken}` } : {}),
             [ACCOUNT_PROVIDER_HEADER]: session.accountProvider,
           },
-          ...(method === "POST" ? { body: JSON.stringify(options.body ?? {}) } : {}),
+          ...(method !== "GET" ? { body: JSON.stringify(options.body ?? {}) } : {}),
           cache: "no-store",
           credentials: "same-origin",
           redirect: "error",
@@ -282,6 +308,7 @@ export function useAuthenticatedTransport({
         "/api/balances",
         signal,
         new URLSearchParams({ region }).toString(),
+        true,
       ),
     [fetchVerifiedResource],
   );

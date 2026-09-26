@@ -14,6 +14,8 @@ Missing, malformed, invalid, expired, or cross-project tokens return `401 UNAUTH
 4. Run `bun dev`, then open `http://localhost:3000/account`.
 5. Complete email sign-in in the browser. Keep the real one-time code and access token in the browser flow; do not paste either into a shell command or shell history.
 
+To enable customer-paid USDC network fees, optionally set the server-only HTTPS `CDP_PAYMASTER_URL` to a CDP ERC-20 paymaster/bundler JSON-RPC endpoint. Unset disables USDC fee payment; the URL contains a credential and must not use a `NEXT_PUBLIC_` prefix.
+
 The server SDK's usage tracking and error reporting are disabled by Home before the SDK loads when `DISABLE_CDP_USAGE_TRACKING` and `DISABLE_CDP_ERROR_REPORTING` are unset. Operators may explicitly set either variable to `false` to opt that channel back in after reviewing CDP's data policy. This default applies in production even when `.env.example` was not copied.
 
 ## Activity history source

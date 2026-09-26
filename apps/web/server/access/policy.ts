@@ -13,11 +13,14 @@ import {
 const appleAssociationPath =
   "/.well-known/apple-developer-merchantid-domain-association";
 const fundingWebhookPattern = /^\/api\/funding\/webhooks\/[a-z0-9_-]+$/;
+const actionPaymasterPattern =
+  /^\/api\/actions\/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/paymaster$/i;
 
 function isPublicPath(pathname: string): boolean {
   return pathname === appleAssociationPath ||
     pathname === "/api/webhooks/cdp" ||
     fundingWebhookPattern.test(pathname) ||
+    actionPaymasterPattern.test(pathname) ||
     pathname === "/access" ||
     pathname === "/api/access" ||
     pathname === "/api/access/logout" ||

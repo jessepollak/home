@@ -5,19 +5,19 @@ import { base } from "viem/chains";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { BASE_USDC } from "@/shared/assets/base";
 import type { FiatCurrencyCode } from "@/config/regions";
-import type { MoneyActionDraft } from "@/shared/money-actions/types";
+import type { MoneyActionDraft, MoneyActionOwner } from "@/shared/money-actions/types";
 import type { FundingProviderManifest } from "@/shared/funding/provider-contract";
 import { resolveBaseRpcUrl } from "@/server/chain/rpc";
 import { getActionsStore, type ActionRow, type ActionsStore } from "@/server/actions/store";
 import { moneyActionOwner } from "@/server/money-actions/session";
 import { createProviderContext, environmentAvailable, resolveFundingMode, type FundingMode } from "@/server/funding/core/provider-context";
 import { canonicalizeCashPayee } from "@/shared/funding/cash-payee";
-import { fundingProviders, getFundingProvider } from "@/server/funding/providers";
+import { getFundingProvider } from "@/server/funding/providers";
 import { assertPeerDepositCall } from "@/server/funding/providers/peer/offramp";
+import { UNKNOWN_WINDOW_MS } from "@/server/funding/cash-out-window";
 
 const APPROVE_ABI = parseAbi(["function approve(address spender,uint256 amount) returns (bool)"]);
 const ALLOWANCE_ABI = parseAbi(["function allowance(address owner,address spender) view returns (uint256)"]);
-const UNKNOWN_WINDOW_MS = 15 * 60 * 1000;
 const ACTION_EXPIRY_MS = 10 * 60 * 1000;
 const USDC_ACTION_ASSET_ID = BASE_USDC.id;
 
@@ -40,7 +40,7 @@ type WithdrawInput = {
 
 export type CashoutPreparationDependencies = {
   env?: Readonly<Record<string, string | undefined>>;
-  store?: Pick<ActionsStore, "list">;
+  store?: Pick<ActionsStore, "list" | "hasUnsettledCashout" | "cashoutOrders">;
   now?: () => Date;
   readAllowance?: (owner: `0x${string}`, spender: `0x${string}`, signal?: AbortSignal) => Promise<bigint>;
 };
@@ -89,9 +89,13 @@ export async function prepareCashoutAction(
   const owner = moneyActionOwner(session);
   if (!owner) unavailable();
   const now = dependencies.now?.() ?? new Date();
-  const rows = await (dependencies.store ?? getActionsStore()).list(owner);
-  if (hasRecentHashlessCashout(rows, now)) {
+  const store = dependencies.store ?? getActionsStore();
+  const rows = await store.list(owner);
+  if (await hasUnresolvedHashlessCashout(store, owner, rows, now)) {
     throw new CashoutPreparationError("duplicate-unknown", "A recent cash-out has no transaction hash yet. Check Activity and wait up to 15 minutes before preparing another deposit.");
+  }
+  if (await store.hasUnsettledCashout(owner)) {
+    throw new CashoutPreparationError("order-in-flight", "You already have a cash-out in progress. Check Activity.");
   }
   const ctx = createProviderContext({
     manifest: provider.manifest,
@@ -109,7 +113,7 @@ export async function prepareCashoutAction(
     (capability.maximumAmountAtomic !== null && amount > BigInt(capability.maximumAmountAtomic))) unavailable();
   const existingOrders = await provider.offramp.listOrders({ owner: session.smartAccount.address, inFlight: true, onMalformedPayee: "throw" }, ctx);
   if (existingOrders.length > 0) {
-    throw new CashoutPreparationError("order-in-flight", "This account already has an in-flight Peer cash-out. Resume or withdraw it before creating another deposit.");
+    throw new CashoutPreparationError("order-in-flight", "You already have a cash-out in progress. Check Activity.");
   }
   const estimate = await provider.offramp.estimate({ amountAtomic: amount, platform: input.platform, currency: input.currency }, ctx);
   if (estimate.amountAtomic !== input.amountBaseUnits || estimate.currency !== input.currency ||
@@ -159,10 +163,12 @@ export async function prepareCashoutAction(
       providerId: provider.manifest.id,
       providerName: provider.manifest.displayName,
       environment: sandbox ? "sandbox" : "production",
+      region: binding.region,
       platform: input.platform,
       platformLabel: direction.paymentMethods.find((method) => method.id === input.platform)?.label ?? input.platform,
       currency: input.currency,
       canonicalHandle,
+      payeeHash: prepared.payee.hash.toLowerCase() as `0x${string}`,
       approximateFiatAmount: estimate.approximateFiatAmount,
       etaSeconds: estimate.etaSeconds,
       minConversionRate: estimate.minConversionRate,
@@ -219,82 +225,6 @@ export async function prepareCashoutWithdrawAction(
   };
 }
 
-export async function listCashoutOrders(
-  session: VerifiedAccountSession,
-  input: { providerId?: string; region: string; inFlight?: boolean; recover?: boolean },
-  env: Readonly<Record<string, string | undefined>> = process.env,
-  dependencies: { store?: Pick<ActionsStore, "hasCashoutHistory" | "cashoutRecoveryModes"> } = {},
-) {
-  const actionOwner = moneyActionOwner(session);
-  if (!session.smartAccount || !actionOwner) unavailable();
-  const owner = session.smartAccount.address;
-  const store = dependencies.store ?? getActionsStore();
-  const hasHistory = await store.hasCashoutHistory(actionOwner);
-  const historicalModes = hasHistory ? await store.cashoutRecoveryModes(actionOwner) : [];
-  const candidates = fundingProviders.flatMap((provider) => {
-    if (input.providerId && provider.manifest.id !== input.providerId) return [];
-    const offramp = provider.offramp;
-    if (!offramp) return [];
-    const currentMode = resolveFundingMode(provider.manifest, "offramp", env);
-    return provider.manifest.bindings.flatMap((binding) => {
-      const direction = binding.directions.offramp;
-      const method = direction?.paymentMethods[0];
-      if (binding.region !== input.region || !direction || !method) return [];
-      const requiredCredentials = direction.env.filter((name) => !name.endsWith("_ENABLED"));
-      if (!environmentAvailable(requiredCredentials, env)) return [];
-      const enabled = environmentAvailable(direction.env, env);
-      if (!enabled && !hasHistory && !input.recover) return [];
-      const modes = supportedRecoveryModes(provider.manifest, [currentMode, ...historicalModes]);
-      return modes.map((mode) => ({ provider, offramp, binding, direction, method, mode }));
-    });
-  });
-  if (input.providerId && candidates.length === 0 && (hasHistory || input.recover)) unavailable();
-  const recoveryEnv = {
-    ...env,
-    ...Object.fromEntries(candidates.flatMap(({ direction }) =>
-      direction.env.filter((name) => name.endsWith("_ENABLED")).map((name) => [name, "1"]),
-    )),
-  };
-  const results = await Promise.all(candidates.map(async ({ provider, offramp, binding, method, mode }) => {
-    const ctx = createProviderContext({
-      manifest: provider.manifest,
-      region: binding.region,
-      direction: "offramp",
-      paymentMethodId: method.id,
-      env: recoveryEnv,
-      sandbox: mode === "sandbox",
-    });
-    const orders = await offramp.listOrders({ owner, inFlight: input.inFlight, onMalformedPayee: "skip" }, ctx);
-    return orders.map((order) => ({
-      providerId: provider.manifest.id,
-      providerName: provider.manifest.displayName,
-      assetId: binding.assetId,
-      assetSymbol: ctx.binding.asset.symbol,
-      assetDecimals: ctx.binding.asset.decimals,
-      depositId: order.depositId,
-      state: order.state,
-      platform: order.platform,
-      platformLabel: ctx.binding.paymentMethods.find((candidate) => candidate.id === order.platform)?.label ?? order.platform,
-      currency: order.currency,
-      canonicalHandle: order.canonicalHandle,
-      amountAtomic: order.amountAtomic,
-      remainingAmountAtomic: order.remainingAmountAtomic,
-      nextActions: order.nextActions,
-    }));
-  }));
-  return {
-    recoveryEligible: hasHistory,
-    orders: [...new Map(results.flat().map((order) => [`${order.providerId}:${order.depositId}`, order])).values()],
-  };
-}
-
-function supportedRecoveryModes(
-  manifest: FundingProviderManifest,
-  modes: ReadonlyArray<FundingMode>,
-): FundingMode[] {
-  return [...new Set(modes)].filter((mode) => mode === "production" || Boolean(manifest.offramp?.sandbox));
-}
-
 function modeForDeposit(
   manifest: FundingProviderManifest,
   depositId: string,
@@ -306,9 +236,22 @@ function modeForDeposit(
   return null;
 }
 
-export function hasRecentHashlessCashout(rows: readonly ActionRow[], now: Date): boolean {
-  return rows.some((row) => row.kind === "cash-out" && row.confirmed_at !== null && row.transaction_hash === null &&
+export function recentHashlessCashouts(rows: readonly ActionRow[], now: Date): ActionRow[] {
+  return rows.filter((row) => row.kind === "cash-out" && row.confirmed_at !== null && row.transaction_hash === null && row.outcome !== "not_submitted" &&
     now.getTime() - new Date(row.confirmed_at).getTime() < UNKNOWN_WINDOW_MS);
+}
+
+async function hasUnresolvedHashlessCashout(
+  store: Pick<ActionsStore, "cashoutOrders">,
+  owner: MoneyActionOwner,
+  rows: readonly ActionRow[],
+  now: Date,
+) {
+  const candidates = recentHashlessCashouts(rows, now);
+  if (candidates.length === 0) return false;
+  const orders = await store.cashoutOrders(owner, candidates.map(({ id }) => id));
+  const resolved = new Set(orders.filter((order) => order.deposit_id !== null || order.settled_at !== null).map((order) => order.action_id));
+  return candidates.some(({ id }) => !resolved.has(id));
 }
 
 async function readAllowance(owner: `0x${string}`, spender: `0x${string}`, signal?: AbortSignal): Promise<bigint> {

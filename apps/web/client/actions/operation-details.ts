@@ -3,10 +3,12 @@ import {
   formatExactPresentationTokenAmount,
 } from "@/shared/formatting";
 import {
+  baseNetworkRow,
   condensedTransactionHash,
   transactionExplorerLink,
   type TransactionDetailRow,
   type TransactionDetails,
+  type TransactionStatusTone,
 } from "@/components/transaction-explorer";
 import type { OperationResult } from "@/shared/money-actions/types";
 import type { ActionKind, MoneyActionAmount } from "@/shared/money-actions/types";
@@ -28,6 +30,17 @@ export function labelForOperationStatus(
   }
 }
 
+export function toneForOperationStatus(status: OperationResult["status"]): TransactionStatusTone {
+  switch (status) {
+    case "confirmed": return "success";
+    case "pending":
+    case "submitted": return "pending";
+    case "failed": return "failure";
+    case "rejected":
+    case "unknown": return "neutral";
+  }
+}
+
 export function labelForMoneyActionKind(kind: ActionKind): string {
   switch (kind) {
     case "send": return "Send";
@@ -43,6 +56,17 @@ export function labelForMoneyActionKind(kind: ActionKind): string {
   }
 }
 
+export function titleForOperation(operation: RecentMoneyActionOperation): string {
+  const metadata = operation.action.metadata;
+  if (operation.action.kind !== "trade" || metadata?.product !== "trade") return operation.action.title;
+  switch (operation.status) {
+    case "confirmed": return metadata.direction === "buy" ? "Bought Bitcoin" : "Sold Bitcoin";
+    case "pending": return metadata.direction === "buy" ? "Buying Bitcoin" : "Selling Bitcoin";
+    case "failed": return metadata.direction === "buy" ? "Buy Bitcoin failed" : "Sell Bitcoin failed";
+    case "unknown": return metadata.direction === "buy" ? "Buy Bitcoin" : "Sell Bitcoin";
+  }
+}
+
 export function primaryOperationAmount(
   operation: RecentMoneyActionOperation,
 ): MoneyActionAmount | undefined {
@@ -54,7 +78,7 @@ export function presentOperationDetails(
   options: { regionId?: RegionId; timeZone?: string } = {},
 ): TransactionDetails {
   const rows: TransactionDetailRow[] = [
-    { label: "Status", value: labelForOperationStatus(operation.status) },
+    { label: "Status", value: labelForOperationStatus(operation.status), statusTone: toneForOperationStatus(operation.status) },
     { label: "Type", value: labelForStoredOperation(operation) },
   ];
   if (operation.action.metadata?.product === "borrow") {
@@ -76,11 +100,13 @@ export function presentOperationDetails(
 
   for (const amount of orderedOperationAmounts(operation.action.amounts)) {
     rows.push({
-      label: amount.maximum
-        ? "Up to"
-        : amount.direction === "spend"
-          ? "You spend"
-          : "You receive",
+      label: operation.action.metadata?.product === "trade"
+        ? amount.direction === "spend" ? "You pay" : "You receive"
+        : amount.maximum
+          ? "Up to"
+          : amount.direction === "spend"
+            ? "You spend"
+            : "You receive",
       value: `${amount.estimated ? "Estimated " : ""}${formatExactPresentationTokenAmount(
         amount.amountBaseUnits,
         amount.decimals,
@@ -91,7 +117,7 @@ export function presentOperationDetails(
   }
 
   rows.push(
-    { label: "Network", value: "Base (8453)" },
+    baseNetworkRow(),
     { label: "Updated", value: formatPresentationDate(operation.updatedAt, {
       style: "activity-short",
       regionId: options.regionId,
@@ -108,14 +134,30 @@ export function presentOperationDetails(
   }
 
   return {
-    title: operation.action.title,
+    title: titleForOperation(operation),
     rows,
+    ...(operation.status === "pending" && (operation.submittedAt || operation.transactionHash || operation.userOperationHash) ? { steps: [
+      {
+        status: "complete" as const,
+        title: "Submitted",
+        ...(operation.submittedAt && Number.isFinite(Date.parse(operation.submittedAt)) ? { time: formatPresentationDate(operation.submittedAt, {
+          style: "activity-short",
+          regionId: options.regionId,
+          timeZone: options.timeZone,
+        }) } : {}),
+      },
+      { status: "current" as const, title: "Confirming on Base" },
+    ] } : {}),
     explorer: transactionExplorerLink(operation.transactionHash),
   };
 }
 
 function labelForStoredOperation(operation: RecentMoneyActionOperation): string {
-  const borrow = operation.action.metadata?.product === "borrow" ? operation.action.metadata.operation : null;
+  const metadata = operation.action.metadata;
+  if (operation.action.kind === "trade" && metadata?.product === "trade") {
+    return metadata.direction === "buy" ? "Buy Bitcoin" : "Sell Bitcoin";
+  }
+  const borrow = metadata?.product === "borrow" ? metadata.operation : null;
   switch (borrow) {
     case "supply-collateral": return "Add collateral";
     case "borrow": return "Borrow";

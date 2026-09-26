@@ -62,6 +62,11 @@ describe("recent Home action activity", () => {
     expect(parseRecentMoneyActions({ actions: [cashout] }, session)[0]?.action.metadata).toMatchObject({
       product: "cashout", providerId: "peer", platform: "cashapp", canonicalHandle: "$alice",
     });
+    const withPayee = { ...cashout, summary: { ...cashout.summary,
+      metadata: { ...cashout.summary.metadata, payeeHash: `0x${"ab".repeat(32)}` } } };
+    expect(parseRecentMoneyActions({ actions: [withPayee] }, session)[0]?.action.metadata).toMatchObject({
+      payeeHash: `0x${"ab".repeat(32)}`,
+    });
   });
 
   test("preserves validated savings metadata for confirmed Activity rows", () => {
@@ -116,5 +121,13 @@ describe("recent Home action activity", () => {
     expect(parsed[0]?.status).toBe("pending");
     expect(parsed[0]?.transactionHash).toBeUndefined();
     expect(parseRecentMoneyActions({ actions: [{ ...row(), status: "rejected" }] }, session)).toEqual([]);
+  });
+
+  test("carries the recorded submission time separately from the confirmation time", () => {
+    const [submitted] = parseRecentMoneyActions({ actions: [{ ...row(undefined, "pending"), submittedAt: "2026-09-12T05:06:00.000Z" }] }, session);
+    expect(submitted?.updatedAt).toBe("2026-09-12T05:02:00.000Z");
+    expect(submitted?.submittedAt).toBe("2026-09-12T05:06:00.000Z");
+    expect(parseRecentMoneyActions({ actions: [{ ...row(undefined, "pending"), submittedAt: "not-a-date" }] }, session)[0]?.submittedAt).toBeUndefined();
+    expect(parseRecentMoneyActions({ actions: [row(undefined, "pending")] }, session)[0]?.submittedAt).toBeUndefined();
   });
 });

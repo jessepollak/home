@@ -51,8 +51,8 @@ export function BaseAccountOnlySignIn({
     <div className="mt-4">
       <Button
         ref={buttonRef}
-        className={phase ? "h-11 w-full whitespace-normal" : "h-11 w-full"}
-        size="lg"
+        className="w-full"
+        size="touch"
         variant="secondary"
         onClick={onSignIn}
         aria-busy={phase ? true : undefined}

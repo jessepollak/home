@@ -1,5 +1,10 @@
 "use client";
 
+import { BorrowOverview } from "./borrow-overview";
+import type { HomeMoneySummary } from "@/shared/balances/present";
+import { leadingBorrowOffer } from "@/shared/borrowing/offer";
+import type { BorrowOverviewPosition } from "@/shared/borrowing/contract";
+import { CircleAlertIcon } from "lucide-react";
 import { useEffect, useState, type ComponentProps, type ReactNode } from "react";
 import { CurrencyMark } from "@/components/currency-mark";
 import {
@@ -23,11 +28,11 @@ import {
   useHomeQuery,
   useHomeQueryClient,
 } from "@/client/query/query-client";
-import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertIcon, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { LoadErrorCard } from "@/components/load-error";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { MoneyTicker } from "@/components/money-ticker";
 import type { RegionId } from "@/config/regions";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
@@ -42,8 +47,6 @@ import {
   parseSnapshot,
   type BorrowMarketIdentity,
   type BorrowMarketSnapshot,
-  type BorrowOverviewOpportunity,
-  type BorrowOverviewPosition,
   type BorrowOverviewResponse,
 } from "@/shared/borrowing/contract";
 import {
@@ -58,10 +61,7 @@ import {
   toAssetsUp,
   toSharesUp,
 } from "@/shared/borrowing/math";
-import type { BorrowOperation } from "@/shared/borrowing/types";
-import { leadingBorrowOffer } from "@/shared/borrowing/offer";
 import {
-  formatHealthFactor,
   formatOracleUsd,
   formatPresentationDate,
   formatPresentationTokenAmount,
@@ -83,18 +83,15 @@ type BorrowExperienceProps = {
   onSelectMarket?: (marketId: BorrowMarketId | null) => void;
   regionId?: RegionId;
   assetMarkResolution?: AssetMarkResolution;
+  borrowSummary?: HomeMoneySummary["borrow"] | null;
 };
-
-type BorrowDialogState = {
-  operation: BorrowOperation;
-  snapshot: BorrowMarketSnapshot;
-} | null;
 
 const BorrowMoneySheet = deferSheet(() => import("./borrow-money-dialog").then((module) => module.BorrowMoneyDialog));
 
 export function AuthenticatedBorrowExperience({
   selectedMarketId = null,
   onSelectMarket,
+  borrowSummary,
   regionId = "GLOBAL",
   assetMarkResolution,
 }: {
@@ -102,6 +99,7 @@ export function AuthenticatedBorrowExperience({
   onSelectMarket?: (marketId: BorrowMarketId | null) => void;
   regionId?: RegionId;
   assetMarkResolution?: AssetMarkResolution;
+  borrowSummary?: HomeMoneySummary["borrow"] | null;
 }) {
   const account = useAccountWallet();
   return (
@@ -113,6 +111,7 @@ export function AuthenticatedBorrowExperience({
       executeMoneyAction={account.executeMoneyAction}
       selectedMarketId={selectedMarketId}
       onSelectMarket={onSelectMarket}
+      borrowSummary={borrowSummary}
       regionId={regionId}
       assetMarkResolution={assetMarkResolution}
     />
@@ -148,6 +147,7 @@ function BorrowExperienceInner({
   executeMoneyAction,
   selectedMarketId = null,
   onSelectMarket,
+  borrowSummary,
   regionId = "GLOBAL",
   assetMarkResolution,
 }: BorrowExperienceProps) {
@@ -172,53 +172,26 @@ function BorrowExperienceInner({
   }
 
   return (
-    <section className="space-y-4" aria-labelledby="borrow-overview-title">
-      <div className="space-y-1">
-        <h2 className="text-2xl font-semibold tracking-tight" id="borrow-overview-title">Borrow</h2>
-        <p className="text-sm text-muted-foreground">Borrow USDC against your crypto on Base.</p>
-      </div>
-
+    <>
       {!session?.smartAccount && !sessionSettling ? <BorrowNotice title="Sign in to view Borrow" /> : null}
-      {(!session?.smartAccount && sessionSettling) || (session?.smartAccount && overview.isPending) ? <BorrowOverviewLoading /> : null}
-      {session?.smartAccount && overview.isError ? (
-        <BorrowNotice
-          tone="error"
-          role="alert"
-          title={overview.data ? "Borrow data could not be refreshed" : "Borrow is unavailable"}
-          action={<Button variant="secondary" onClick={() => void overview.refetch()}>Retry</Button>}
-        >
-          {overview.data
-            ? `Showing values last verified ${formatPresentationDate(overview.data.discovery.fetchedAt, { regionId, style: "date-time-zone" })}; current values could not be verified.`
-            : "Current market and position values could not be verified. No zero values are shown."}
-        </BorrowNotice>
+      {session?.smartAccount && overview.isError && overview.data ? (
+        <LoadErrorCard tone="destructive" role="alert" title="Borrow data could not be refreshed"
+          description={`Showing values last verified ${formatPresentationDate(overview.data.discovery.fetchedAt, { regionId, style: "date-time-zone" })}; current values could not be verified.`}
+          onRetry={() => void overview.refetch()} />
       ) : null}
-
-      {overview.data && session ? (
-        <>
-          {overview.data.discovery.status === "partial" ? (
-            <BorrowNotice tone="error" role="alert" title="Some Borrow data is unavailable">
-              {overview.data.discovery.reason ?? "Position discovery may be incomplete. Missing values are not zero."}
-            </BorrowNotice>
-          ) : null}
-          <div className="space-y-3" aria-label="Borrow markets" role="list">
-            {overview.data.opportunities
-              .slice()
-              .sort((a, b) => a.market.rank - b.market.rank)
-              .map((opportunity) => (
-                <BorrowMarketCard
-                  key={opportunity.market.id}
-                  opportunity={opportunity}
-                  session={session}
-                  prepareMoneyAction={prepareMoneyAction}
-                  executeMoneyAction={executeMoneyAction}
-                  regionId={regionId}
-                  assetMarkResolution={assetMarkResolution}
-                />
-              ))}
-          </div>
-        </>
-      ) : null}
-    </section>
+      {session?.smartAccount || sessionSettling ? <BorrowOverview
+        overview={overview.data ?? null}
+        borrowSummary={borrowSummary}
+        status={(!session?.smartAccount && sessionSettling) || overview.isPending ? "loading" : overview.isError && !overview.data ? "error" : "ready"}
+        onRetry={() => void overview.refetch()}
+        session={session}
+        fetchAccountResource={fetchAccountResource}
+        prepareMoneyAction={prepareMoneyAction}
+        executeMoneyAction={executeMoneyAction}
+        regionId={regionId}
+        assetMarkResolution={assetMarkResolution}
+      /> : null}
+    </>
   );
 }
 
@@ -251,6 +224,7 @@ function BorrowDirectMarket({
     risk !== "urgent" && risk !== "liquidatable" && BigInt(snapshot.state.liquidityAssetsRaw) > BigInt(0) &&
     (hasCollateral ? BigInt(snapshot.position.borrowCapacityAssetsRaw) > BigInt(0) : BigInt(openingBorrowAvailableBaseUnits(snapshot)) > BigInt(0)));
   const [dialogSnapshot, setDialogSnapshot] = useState<BorrowMarketSnapshot | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(true);
   if (!dialogSnapshot && snapshot && canOpen) setDialogSnapshot(snapshot);
 
   return (
@@ -262,9 +236,7 @@ function BorrowDirectMarket({
       {!session?.smartAccount && !sessionSettling ? <BorrowNotice title="Sign in to view Borrow" /> : null}
       {(!session?.smartAccount && sessionSettling) || (session?.smartAccount && detail.isPending) ? <BorrowOverviewLoading /> : null}
       {session?.smartAccount && detail.isError ? (
-        <BorrowNotice tone="error" role="alert" title="Borrow is unavailable" action={<Button variant="secondary" onClick={() => void detail.refetch()}>Retry</Button>}>
-          Current wallet, market, and position values could not be verified.
-        </BorrowNotice>
+        <LoadErrorCard tone="destructive" role="alert" title="Borrow is unavailable" description="Current wallet, market, and position values could not be verified." onRetry={() => void detail.refetch()} />
       ) : null}
       {snapshot && !canOpen && !dialogSnapshot ? (
         <Card className="overflow-hidden">
@@ -286,72 +258,17 @@ function BorrowDirectMarket({
           session={session}
           snapshot={dialogSnapshot}
           operation={BigInt(dialogSnapshot.position.collateralRaw) > BigInt(0) ? "borrow" : "supply-and-borrow"}
+          fetchAccountResource={fetchAccountResource}
           prepareMoneyAction={prepareMoneyAction}
           executeMoneyAction={executeMoneyAction}
           regionId={regionId}
-          onClose={onClose}
+          open={dialogOpen}
+          onClose={() => setDialogOpen(false)}
+          onClosed={onClose}
           assetMarkResolution={assetMarkResolution}
         />
       ) : null}
     </section>
-  );
-}
-
-function BorrowMarketCard({
-  opportunity,
-  session,
-  prepareMoneyAction,
-  executeMoneyAction,
-  regionId,
-  assetMarkResolution,
-}: {
-  opportunity: BorrowOverviewOpportunity;
-  session: VerifiedAccountSession;
-  prepareMoneyAction?: PrepareMoneyAction;
-  executeMoneyAction?: ExecuteMoneyAction;
-  regionId: RegionId;
-  assetMarkResolution?: AssetMarkResolution;
-}) {
-  const [dialog, setDialog] = useState<BorrowDialogState>(null);
-  const snapshot = opportunity.availability.status === "available" ? opportunity.availability.snapshot : null;
-  const hasDebt = snapshot ? BigInt(snapshot.position.debtAssetsRaw) > BigInt(0) : false;
-
-  return (
-    <Card className="overflow-hidden" data-testid="borrow-market-card" role="listitem">
-      <CardContent>
-        <div className="space-y-4 sm:px-1">
-          <BorrowMarketHeading market={opportunity.market} assetMarkResolution={assetMarkResolution} />
-          {opportunity.availability.status === "unavailable" ? (
-            <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">{opportunity.availability.reason}</p>
-              <Button disabled className="w-full sm:w-auto">Borrow</Button>
-            </div>
-          ) : snapshot ? (
-            <>
-              {hasDebt ? (
-                <BorrowPositionSummary snapshot={snapshot} regionId={regionId} />
-              ) : (
-                <BorrowOpenSummary snapshot={snapshot} regionId={regionId} />
-              )}
-              <BorrowCardActions snapshot={snapshot} onOpen={(operation) => { void BorrowMoneySheet.preload(); setDialog({ operation, snapshot }); }} />
-            </>
-          ) : null}
-        </div>
-      </CardContent>
-      {dialog && prepareMoneyAction && executeMoneyAction ? (
-        <BorrowMoneySheet
-          key={`${dialog.snapshot.market.id}:${dialog.operation}`}
-          session={session}
-          snapshot={dialog.snapshot}
-          operation={dialog.operation}
-          prepareMoneyAction={prepareMoneyAction}
-          executeMoneyAction={executeMoneyAction}
-          regionId={regionId}
-          onClose={() => setDialog(null)}
-          assetMarkResolution={assetMarkResolution}
-        />
-      ) : null}
-    </Card>
   );
 }
 
@@ -412,106 +329,16 @@ export function presentBorrowAssetMark(
   }, resolution);
 }
 
-function BorrowOpenSummary({ snapshot, regionId }: { snapshot: BorrowMarketSnapshot; regionId: RegionId }) {
-  const hasSuppliedCollateral = BigInt(snapshot.position.collateralRaw) > BigInt(0);
-  const hasWalletCollateral = BigInt(snapshot.wallet.collateralBalanceRaw) > BigInt(0);
-  const available = hasSuppliedCollateral
-    ? snapshot.position.borrowCapacityAssetsRaw
-    : openingBorrowAvailableBaseUnits(snapshot);
-  const collateralCopy = hasSuppliedCollateral
-    ? `${formatToken(snapshot.position.collateralRaw, snapshot.market.collateralToken, regionId)} locked as collateral`
-    : hasWalletCollateral
-      ? `Backed by ${formatToken(snapshot.wallet.collateralBalanceRaw, snapshot.market.collateralToken, regionId)} in your wallet`
-      : `You need ${snapshot.market.collateralToken.symbol} in this wallet before you can borrow.`;
-  return (
-    <div className="space-y-1">
-      <p className="text-xl font-semibold tabular-nums"><MoneyTicker className="overflow-x-auto" reserveDigits={false} value={formatToken(available, snapshot.market.loanToken, regionId)} /> available</p>
-      <p className="text-sm text-muted-foreground">
-        {collateralCopy}{hasSuppliedCollateral || hasWalletCollateral ? ` · ${formatWadPercent(snapshot.state.borrowAprWad, regionId)} variable rate` : ""}
-      </p>
-    </div>
-  );
-}
-
-function BorrowPositionSummary({ snapshot, regionId }: { snapshot: BorrowMarketSnapshot; regionId: RegionId }) {
-  return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div className="min-w-0 rounded-lg bg-muted/50 p-3">
-          <p className="text-xs text-muted-foreground">Borrowed</p>
-          <p className="font-semibold tabular-nums"><MoneyTicker className="overflow-x-auto" value={formatToken(snapshot.position.debtAssetsRaw, snapshot.market.loanToken, regionId)} /></p>
-        </div>
-        <div className="min-w-0 rounded-lg bg-muted/50 p-3">
-          <p className="text-xs text-muted-foreground">{collateralDisplayName(snapshot.market.id)} locked</p>
-          <p className="font-semibold tabular-nums"><MoneyTicker className="overflow-x-auto" value={formatToken(snapshot.position.collateralRaw, snapshot.market.collateralToken, regionId)} /></p>
-        </div>
-      </div>
-      <LiquidationBufferMeter
-        healthFactorWad={snapshot.position.healthFactorWad}
-        liquidationPriceRaw={snapshot.position.liquidationPriceRaw}
-        market={snapshot.market}
-        regionId={regionId}
-        showHealth
-      />
-    </div>
-  );
-}
-
-function BorrowCardActions({ snapshot, onOpen }: { snapshot: BorrowMarketSnapshot; onOpen: (operation: BorrowOperation) => void }) {
-  const hasDebt = BigInt(snapshot.position.debtAssetsRaw) > BigInt(0);
-  const hasCollateral = BigInt(snapshot.position.collateralRaw) > BigInt(0);
-  const hasWalletCollateral = BigInt(snapshot.wallet.collateralBalanceRaw) > BigInt(0);
-  const hasWalletLoan = BigInt(snapshot.wallet.loanBalanceRaw) > BigInt(0);
-  const risk = borrowRiskState(snapshot.position.healthFactorWad);
-  const canNewRisk = snapshot.eligibility.newRisk && snapshot.eligibility.mode === "enabled" && risk !== "urgent" && risk !== "liquidatable";
-  const canBorrow = canNewRisk && BigInt(snapshot.state.liquidityAssetsRaw) > BigInt(0) &&
-    (hasCollateral ? BigInt(snapshot.position.borrowCapacityAssetsRaw) > BigInt(0) : hasWalletCollateral && BigInt(openingBorrowAvailableBaseUnits(snapshot)) > BigInt(0));
-  const primaryActions = hasDebt
-    ? [
-        { label: "Borrow more", operation: "borrow" as const, disabled: !canBorrow },
-        { label: "Repay", operation: "repay" as const, disabled: !hasWalletLoan },
-      ]
-    : [
-        { label: "Borrow", operation: hasCollateral ? "borrow" as const : "supply-and-borrow" as const, disabled: !canBorrow },
-      ];
-  return (
-    <div className="space-y-3" onPointerDown={() => void BorrowMoneySheet.preload()}>
-      <div className={`grid grid-cols-1 gap-2 ${primaryActions.length > 1 ? "sm:grid-cols-2" : ""}`}>
-        {primaryActions.map((action, index) => (
-          <Button key={action.operation} className="min-h-11 h-auto whitespace-normal" variant={index === 0 ? "default" : "secondary"} disabled={action.disabled} onClick={() => onOpen(action.operation)}>
-            <span className="py-2">{action.label}</span>
-          </Button>
-        ))}
-      </div>
-      {hasDebt || hasCollateral ? (
-        <div className="grid grid-cols-2 gap-2" role="group" aria-label={`Manage ${collateralDisplayName(snapshot.market.id)} position`}>
-          <Button className="min-h-11 h-auto w-full whitespace-normal" size="sm" variant="outline" disabled={!hasWalletCollateral} onClick={() => onOpen("supply-collateral")}>
-            <span className="py-2">Add collateral</span>
-          </Button>
-          <Button aria-label={`Withdraw collateral from ${collateralDisplayName(snapshot.market.id)} position`} className="min-h-11 h-auto w-full whitespace-normal" size="sm" variant="outline" disabled={!hasCollateral || (hasDebt && !canNewRisk) || BigInt(snapshot.position.withdrawableCollateralRaw) === BigInt(0)} onClick={() => onOpen("withdraw-collateral")}>
-            <span className="py-2">Withdraw</span>
-          </Button>
-        </div>
-      ) : null}
-      {snapshot.eligibility.mode === "reducing-only" || !snapshot.eligibility.newRisk ? (
-        <p className="text-sm text-destructive">{snapshot.eligibility.reason ?? "New borrowing is paused. You can still repay or add collateral."}</p>
-      ) : null}
-    </div>
-  );
-}
-
 export function LiquidationBufferMeter({
   healthFactorWad,
   liquidationPriceRaw,
   market,
   regionId,
-  showHealth = false,
 }: {
   healthFactorWad: string | null;
   liquidationPriceRaw: string | null;
   market: BorrowMarketIdentity;
   regionId: RegionId;
-  showHealth?: boolean;
 }) {
   const healthFactor = healthFactorWad === null ? null : BigInt(healthFactorWad);
   const bps = liquidationBufferBps(healthFactor);
@@ -525,7 +352,6 @@ export function LiquidationBufferMeter({
     <div className="space-y-2">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <p className={`text-sm font-medium ${belowFloor ? "text-destructive" : ""}`}>{copy}</p>
-        {showHealth ? <span className="text-xs text-muted-foreground">HF {formatHealthFactor(healthFactorWad, regionId)}</span> : null}
       </div>
       <div
         className="relative h-2 overflow-visible rounded-full bg-muted"
@@ -549,12 +375,12 @@ function BorrowOverviewLoading() {
   return <Card aria-busy="true"><CardContent><div className="space-y-3 py-5"><Skeleton className="h-5 w-36" /><Skeleton className="h-16 w-full" /><Skeleton className="h-16 w-full" /><span className="sr-only">Loading Borrow overview</span></div></CardContent></Card>;
 }
 
-export function BorrowNotice({ action, children, role = "status", title, tone = "neutral", ...props }: Omit<ComponentProps<typeof Alert>, "children" | "title"> & { action?: ReactNode; children?: ReactNode; role?: "status" | "alert"; title?: ReactNode; tone?: "neutral" | "error" }) {
+export function BorrowNotice({ children, role = "status", title, tone = "neutral", ...props }: Omit<ComponentProps<typeof Alert>, "children" | "title"> & { children?: ReactNode; role?: "status" | "alert"; title?: ReactNode; tone?: "neutral" | "error" }) {
   return (
     <Alert role={role} variant={tone === "error" ? "destructive" : "default"} {...props}>
+      {tone === "error" ? <AlertIcon><CircleAlertIcon /></AlertIcon> : null}
       {title ? <AlertTitle>{title}</AlertTitle> : null}
       {children ? <AlertDescription>{children}</AlertDescription> : null}
-      {action ? <AlertAction>{action}</AlertAction> : null}
     </Alert>
   );
 }

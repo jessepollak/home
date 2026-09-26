@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useState } from "react";
-import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
+import { Fragment, useEffect, useRef, useState } from "react";
+import { Alert, AlertAction, AlertIcon, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,7 +17,7 @@ import {
   ItemTitle,
 } from "@/components/ui/item";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowDownToLine, ChevronRight, Landmark } from "lucide-react";
+import { CircleAlertIcon, ArrowDownToLine, ChevronRight, Landmark } from "lucide-react";
 import { CurrencyMark } from "@/components/currency-mark";
 import {
   verifiedLocalCashAssets,
@@ -39,6 +39,7 @@ import {
 } from "./order-flow";
 
 export type AddMoneyStep = "method" | "receive" | "order";
+export type ProvidersStatus = "unavailable" | "loading" | "loaded" | "failed";
 
 export function AddMoneyDialog({
   open,
@@ -50,9 +51,10 @@ export function AddMoneyDialog({
   onBack,
   onSelectReceive,
   providerBindings,
-  providersLoaded,
+  providersStatus,
   providerBindingsDisabled,
   customerSetupReady,
+  resumableBinding,
   fundingReadError,
   selectedBinding,
   initialOrder,
@@ -71,9 +73,10 @@ export function AddMoneyDialog({
   onBack: () => void;
   onSelectReceive: () => void;
   providerBindings: ReadonlyArray<FundingBinding>;
-  providersLoaded: boolean;
+  providersStatus: ProvidersStatus;
   providerBindingsDisabled: boolean;
   customerSetupReady: boolean;
+  resumableBinding: (binding: FundingBinding) => boolean;
   fundingReadError: { message: string; retry: () => void } | null;
   selectedBinding: FundingBinding | null;
   initialOrder: FundingOrderSummary | null;
@@ -116,10 +119,11 @@ export function AddMoneyDialog({
         <MethodBody
           onSelectReceive={onSelectReceive}
           providerBindings={providerBindings}
-          providersLoaded={providersLoaded}
+          providersStatus={providersStatus}
           countryName={presentationRegions[regionId].countryName}
           providerBindingsDisabled={providerBindingsDisabled}
           customerSetupReady={customerSetupReady}
+          resumableBinding={resumableBinding}
           fundingReadError={fundingReadError}
           onSelectBinding={onSelectBinding}
         />
@@ -144,7 +148,7 @@ export function AddMoneyDialog({
       {signedOut ? (
         <DrawerFooter>
           <Link
-            className={buttonVariants({ size: "lg", className: "h-11" })}
+            className={buttonVariants({ size: "touch" })}
             href="/?account=signin"
           >
             Sign in
@@ -158,35 +162,50 @@ export function AddMoneyDialog({
 export function MethodBody({
   onSelectReceive,
   providerBindings,
-  providersLoaded,
+  providersStatus,
   countryName,
   providerBindingsDisabled,
   customerSetupReady,
+  resumableBinding,
   fundingReadError,
   onSelectBinding,
 }: {
   onSelectReceive: () => void;
   providerBindings: ReadonlyArray<FundingBinding>;
-  providersLoaded: boolean;
+  providersStatus: ProvidersStatus;
   countryName: string;
   providerBindingsDisabled: boolean;
   customerSetupReady: boolean;
+  resumableBinding: (binding: FundingBinding) => boolean;
   fundingReadError: { message: string; retry: () => void } | null;
   onSelectBinding: (binding: FundingBinding) => void;
 }) {
+  const statusRef = useRef<HTMLSpanElement>(null);
+  const statusMessage = providersStatus === "loading"
+    ? "Loading deposit methods"
+    : providersStatus === "loaded" && !fundingReadError && providerBindings.length === 0
+      ? `No local deposit method in ${countryName} yet.`
+      : "";
+
+  useEffect(() => {
+    if (statusRef.current) statusRef.current.textContent = statusMessage;
+  }, [statusMessage]);
+
   return (
     <MoneyModalBody hasFooter={false} className="pt-4">
       {fundingReadError ? (
         <Alert variant="destructive">
+          <AlertIcon><CircleAlertIcon /></AlertIcon>
           <AlertDescription>{fundingReadError.message}</AlertDescription>
           <AlertAction>
-            <Button variant="ghost" onClick={fundingReadError.retry}>Retry</Button>
+            <Button variant="outline" size="touch" onClick={fundingReadError.retry}>Retry</Button>
           </AlertAction>
         </Alert>
       ) : null}
+      <span ref={statusRef} role="status" className="sr-only" />
       <Card variant="flush">
         <CardContent inset="list">
-          <div>
+          <div aria-busy={providersStatus === "loading"}>
             <Item
               render={
                 <Button
@@ -211,6 +230,20 @@ export function MethodBody({
                 <ChevronRight className="size-4 text-muted-foreground" />
               </ItemActions>
             </Item>
+            {providersStatus === "loading" ? (
+              <>
+                <ItemSeparator className="my-0" />
+                <Item aria-hidden="true" className="h-14 flex-nowrap items-center">
+                  <ItemMedia variant="avatar">
+                    <Skeleton className="size-full" data-shimmer="deposit-method" />
+                  </ItemMedia>
+                  <ItemContent className="min-w-0">
+                    <Skeleton className="h-4 w-24" data-shimmer="deposit-method" />
+                    <Skeleton className="h-3.5 w-44 max-w-full" data-shimmer="deposit-method" />
+                  </ItemContent>
+                </Item>
+              </>
+            ) : null}
             {providerBindings.map((binding) => (
               <Fragment key={`${binding.providerId}:${binding.assetId}`}>
                 <ItemSeparator className="my-0" />
@@ -222,7 +255,7 @@ export function MethodBody({
                       type="button"
                       disabled={
                         providerBindingsDisabled ||
-                        (binding.customerSetup !== null && !customerSetupReady)
+                        (binding.customerSetup !== null && !customerSetupReady && !resumableBinding(binding))
                       }
                       onClick={() => onSelectBinding(binding)}
                       aria-describedby={`funding-method-${binding.providerId}-${binding.assetId}`}
@@ -247,8 +280,8 @@ export function MethodBody({
           </div>
         </CardContent>
       </Card>
-      {providersLoaded && !fundingReadError && providerBindings.length === 0 ? (
-        <Alert role="status">
+      {providersStatus === "loaded" && !fundingReadError && providerBindings.length === 0 ? (
+        <Alert role={undefined} aria-hidden="true">
           <AlertDescription>No local deposit method in {countryName} yet.</AlertDescription>
         </Alert>
       ) : null}
@@ -338,7 +371,7 @@ function ReceiveAddress({ address }: { address: `0x${string}` }) {
       <Button
         variant="ghost"
         className="select-text"
-        size="lg"
+        size="touch"
         title={address}
         aria-label={copyStatus === "copied" ? "Copied" : `Copy ${condensed}`}
         aria-describedby="receive-address-help"
@@ -349,6 +382,7 @@ function ReceiveAddress({ address }: { address: `0x${string}` }) {
       {copyStatus === "error" ? (
         <div className="grid w-full max-w-xs justify-items-center gap-2">
           <Alert id="receive-address-help" variant="destructive" role="alert">
+            <AlertIcon><CircleAlertIcon /></AlertIcon>
             <AlertDescription>
               Clipboard access is unavailable. Select and copy the full address
               below.

@@ -11,9 +11,11 @@ import {
   formatPresentationDate,
   formatPresentationTokenAmount,
 } from "@/shared/formatting";
+import { presentCashout } from "@/client/activity/cash-out-presenter";
 import {
   labelForOperationStatus,
   primaryOperationAmount,
+  titleForOperation,
 } from "./operation-details";
 
 const portfolioAssetKeyById: ReadonlyMap<string, string> = new Map(
@@ -26,16 +28,19 @@ const portfolioAssetKeyById: ReadonlyMap<string, string> = new Map(
 export function OperationActivityRow({
   operation,
   regionId,
+  withdraw,
   onActivate,
 }: {
   operation: RecentMoneyActionOperation;
   regionId: RegionId;
+  withdraw?: RecentMoneyActionOperation;
   onActivate: () => void;
 }) {
   const amount = primaryOperationAmount(operation);
+  const cashout = operation.action.kind === "cash-out" ? presentCashout(operation, withdraw, { regionId }) : null;
   const status = labelForOperationStatus(operation.status);
   const date = formatPresentationDate(operation.updatedAt, { style: "activity-short", regionId });
-  const value = amount
+  const value = amount && !cashout
     ? `${amount.direction === "spend" ? "−" : "+"}${amount.estimated ? "~" : ""}${formatPresentationTokenAmount(
         amount.amountBaseUnits,
         amount.decimals,
@@ -43,10 +48,11 @@ export function OperationActivityRow({
         { cashCurrency: amount.symbol === "USDC" ? "USD" : null, regionId },
       )}`
     : null;
-  const failed = operation.status === "failed";
+  const failed = cashout ? cashout.stage === "failed" : operation.status === "failed";
+  const title = cashout?.label ?? titleForOperation(operation);
   const icon = failed
     ? <X className="size-4" />
-    : operation.status === "unknown"
+    : operation.status === "unknown" && !cashout
       ? <CircleQuestionMark className="size-4" />
       : operation.action.kind === "borrow" || operation.action.kind === "repay"
         ? <GlyphMark size="sm"><HandCoins /></GlyphMark>
@@ -61,19 +67,19 @@ export function OperationActivityRow({
   return (
     <ActivityRow
       icon={icon}
-      iconTone={failed ? "outlined" : operation.status === "unknown" ? "neutral" : "mark"}
-      label={operation.action.title}
-      context={<><time dateTime={operation.updatedAt}>{date}</time> · {status}</>}
-      value={value ? <MoneyTicker value={value} /> : status}
+      iconTone={failed ? "outlined" : operation.status === "unknown" && !cashout ? "neutral" : "mark"}
+      label={title}
+      context={<><time dateTime={operation.updatedAt}>{date}</time> · {cashout?.status ?? status}</>}
+      value={value ? <MoneyTicker value={value} /> : cashout ? undefined : status}
       valueTone={failed
         ? "error"
-        : operation.status === "unknown"
+        : operation.status === "unknown" && !cashout
           ? "muted"
           : amount?.direction === "receive"
             ? "success"
             : "default"}
       onActivate={onActivate}
-      activateLabel={`View ${operation.action.title} transaction details`}
+      activateLabel={`View ${title} transaction details`}
     />
   );
 }

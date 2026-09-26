@@ -1,4 +1,5 @@
 import type { FiatCurrencyCode, RegionId } from "@/config/regions";
+import { weightedAprWad } from "@/shared/borrowing/math";
 import {
   formatPresentationFiat,
   formatPresentationTokenAmount,
@@ -59,7 +60,7 @@ export type HomeMoneySummary = {
   cash: HomeSummaryAmount;
   investments: HomeSummaryAmount & { assetCount: number };
   borrow:
-    | (HomeSummaryAmount & { kind: "position"; rate: string | null })
+    | (HomeSummaryAmount & { kind: "position"; rate: string | null; debts: Array<{ marketId: string; baseUnits: string }> })
     | { kind: "none" }
     | { kind: "unavailable" };
 };
@@ -272,18 +273,15 @@ function presentBorrowSummary(
     kind: "position",
     ...summaryAmount(total, snapshot.region),
     rate: rate === null ? null : `${formatWadPercent(rate, snapshot.region)} APR`,
+    debts: owing.map((position) => ({ marketId: position.marketId, baseUnits: position.debt.balance.baseUnits })),
   };
 }
 
 function weightedBorrowAprWad(positions: readonly BorrowPosition[]): string | null {
   const weights = borrowDebtWeights(positions);
-  const debt = weights.reduce((sum, weight) => sum + weight, BigInt(0));
-  if (debt === BigInt(0)) return null;
-  const weighted = positions.reduce(
-    (sum, position, index) => sum + BigInt(position.borrowAprWad) * weights[index]!,
-    BigInt(0),
-  );
-  return (weighted / debt).toString();
+  return weightedAprWad(positions.map((position, index) => ({
+    weight: weights[index]!, aprWad: position.borrowAprWad,
+  })));
 }
 
 function borrowDebtWeights(positions: readonly BorrowPosition[]): bigint[] {

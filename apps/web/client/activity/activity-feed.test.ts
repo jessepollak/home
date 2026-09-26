@@ -54,6 +54,99 @@ function operation(id: string, updatedAt: string, transactionHash?: `0x${string}
 }
 
 describe("combined Activity feed", () => {
+  test("defers an old confirmed action until transfer pages pass it or finish", () => {
+    const recent = transfer("recent", "2026-09-15T12:04:00.000Z");
+    const older = transfer("older", "2026-09-15T12:00:00.000Z", HASH_B);
+    const settled = operation("settled", "2026-09-15T12:01:00.000Z");
+    const first = mergeActivityFeed({
+      transfers: [recent], operations: [settled], loadedThrough: "2026-09-15T12:03:00.000Z",
+    });
+    const later = mergeActivityFeed({
+      transfers: [recent, older], operations: [settled], loadedThrough: "2026-09-15T12:00:00.000Z",
+    });
+    const complete = mergeActivityFeed({ transfers: [recent], operations: [settled], loadedThrough: null });
+
+    expect(first.map(({ id }) => id)).toEqual([recent.id]);
+    expect(later.map(({ id }) => id)).toEqual([recent.id, "settled", older.id]);
+    expect(complete.map(({ id }) => id)).toEqual([recent.id, "settled"]);
+  });
+
+  test("defers equal-time settled actions while showing more recent ones", () => {
+    const atBoundary = "2026-09-15T12:02:00.000Z";
+    const items = mergeActivityFeed({
+      transfers: [transfer("boundary", atBoundary)],
+      operations: [
+        operation("newer", "2026-09-15T12:03:00.000Z"),
+        operation("equal", atBoundary),
+      ],
+      loadedThrough: atBoundary,
+    });
+
+    expect(items.map(({ id }) => id)).toEqual(["newer", `8453:${TOKEN}:boundary`]);
+  });
+
+  test("old unmatched pending actions lead newest-first and recent pending actions remain chronological", () => {
+    const items = mergeActivityFeed({
+      transfers: [transfer("newest", "2026-09-15T12:05:00.000Z")],
+      operations: [
+        { ...operation("oldest-pending", "2026-09-15T11:58:00.000Z"), status: "pending" },
+        { ...operation("older-pending", "2026-09-15T11:59:00.000Z"), status: "pending" },
+        { ...operation("recent-pending", "2026-09-15T12:03:00.000Z"), status: "pending" },
+        { ...operation("boundary-pending", "2026-09-15T12:02:00.000Z"), status: "pending" },
+      ],
+      loadedThrough: "2026-09-15T12:02:00.000Z",
+    });
+
+    expect(items.map(({ id }) => id)).toEqual([
+      "older-pending", "oldest-pending", `8453:${TOKEN}:newest`, "recent-pending", "boundary-pending",
+    ]);
+  });
+
+  test("shows a matched action and hides its transfer even when updatedAt precedes the loaded boundary", () => {
+    const indexed = transfer("matched", "2026-09-15T12:04:00.000Z");
+    const items = mergeActivityFeed({
+      transfers: [indexed],
+      operations: [operation("matched-action", "2026-09-15T11:59:00.000Z", HASH_A)],
+      loadedThrough: "2026-09-15T12:03:00.000Z",
+    });
+
+    expect(items.map(({ kind, id }) => `${kind}:${id}`)).toEqual(["action:matched-action"]);
+    expect(items[0]?.kind === "action" && items[0].timestamp).toBe(indexed.blockTimestamp);
+    expect(items[0]?.kind === "action" && items[0].transfers).toEqual([indexed]);
+  });
+
+  test("defers old failed and unknown actions without matched transfers", () => {
+    const actions = [
+      { ...operation("failed", "2026-09-15T12:00:00.000Z"), status: "failed" as const },
+      { ...operation("unknown", "2026-09-15T12:01:00.000Z"), status: "unknown" as const },
+    ];
+    const first = mergeActivityFeed({ transfers: [], operations: actions, loadedThrough: "2026-09-15T12:02:00.000Z" });
+    const complete = mergeActivityFeed({ transfers: [], operations: actions, loadedThrough: null });
+
+    expect(first).toEqual([]);
+    expect(complete.map(({ id }) => id)).toEqual(["unknown", "failed"]);
+  });
+
+  test("appending older transfer pages preserves existing item ids as an exact prefix", () => {
+    const newest = transfer("newest", "2026-09-15T12:05:00.000Z");
+    const firstBoundary = transfer("first-boundary", "2026-09-15T12:04:00.000Z", HASH_B);
+    const older = transfer("older", "2026-09-15T12:02:00.000Z", HASH_C);
+    const operations = [
+      operation("recent", "2026-09-15T12:06:00.000Z"),
+      operation("deferred", "2026-09-15T12:03:00.000Z"),
+    ];
+    const first = mergeActivityFeed({
+      transfers: [newest, firstBoundary], operations, loadedThrough: firstBoundary.blockTimestamp,
+    });
+    const second = mergeActivityFeed({
+      transfers: [newest, firstBoundary, older], operations, loadedThrough: older.blockTimestamp,
+    });
+    const ids = (items: typeof first) => items.map(({ kind, id }) => `${kind}:${id}`);
+
+    expect(ids(first)).toEqual(["action:recent", `transfer:${newest.id}`, `transfer:${firstBoundary.id}`]);
+    expect(ids(second)).toEqual([...ids(first), "action:deferred", `transfer:${older.id}`]);
+  });
+
   test("interleaves both directions with deterministic equal-time ties", () => {
     const items = mergeActivityFeed({
       transfers: [
@@ -65,6 +158,7 @@ describe("combined Activity feed", () => {
         operation("same-action", "2026-09-15T12:01:00.000Z"),
         operation("old-action", "2026-09-15T12:00:00.000Z"),
       ],
+      loadedThrough: null,
     });
 
     expect(items.map(({ kind, id }) => `${kind}:${id}`)).toEqual([
@@ -83,6 +177,7 @@ describe("combined Activity feed", () => {
         operation("alpha", "2026-09-15T12:00:00.000Z"),
         operation("Beta", "2026-09-15T12:00:00.000Z"),
       ],
+      loadedThrough: null,
     });
 
     expect(items.map(({ id }) => id)).toEqual(["Beta", "alpha"]);
@@ -92,7 +187,7 @@ describe("combined Activity feed", () => {
     const first = { ...operation("same-action", "2026-09-15T12:00:00.000Z"), status: "pending" as const };
     const second = { ...operation("same-action", "2026-09-15T12:00:00.000Z"), status: "confirmed" as const };
 
-    const items = mergeActivityFeed({ transfers: [], operations: [first, second] });
+    const items = mergeActivityFeed({ transfers: [], operations: [first, second], loadedThrough: null });
 
     expect(items.map((item) => item.kind === "action" ? item.operation.status : null)).toEqual([
       "pending",
@@ -115,6 +210,7 @@ describe("combined Activity feed", () => {
     const items = mergeActivityFeed({
       transfers: [newerLog, olderLog],
       operations: [],
+      loadedThrough: null,
     });
 
     expect(items.map(({ id }) => id)).toEqual([newerLog.id, olderLog.id]);
@@ -132,6 +228,7 @@ describe("combined Activity feed", () => {
         { ...operation("unmatched-action", "2026-09-15T12:01:00.000Z", HASH_C), status: "pending" },
         { ...operation("hashless-action", "2026-09-15T12:00:00.000Z"), status: "unknown" },
       ],
+      loadedThrough: null,
     });
 
     expect(items.map(({ kind, id }) => `${kind}:${id}`)).toEqual([
@@ -160,6 +257,7 @@ describe("combined Activity feed", () => {
     const items = mergeActivityFeed({
       transfers: [transfer("indexed", "2026-09-15T12:04:00.000Z", HASH_A)],
       operations,
+      loadedThrough: null,
     });
 
     expect(items.map((item) => item.kind === "action" ? item.operation.status : null))
@@ -174,7 +272,7 @@ describe("combined Activity feed", () => {
       operation("hashless-fallback", "2026-09-15T12:01:00.000Z"),
     ];
 
-    const beforeLoadingMore = mergeActivityFeed({ transfers: firstPage, operations });
+    const beforeLoadingMore = mergeActivityFeed({ transfers: firstPage, operations, loadedThrough: null });
     expect(beforeLoadingMore.filter(({ kind }) => kind === "action").map(({ id }) => id))
       .toEqual(["unmatched-fallback", "hashless-fallback"]);
     expect(beforeLoadingMore.filter((item) => item.kind === "action")
@@ -185,7 +283,7 @@ describe("combined Activity feed", () => {
       ]);
 
     const laterPage = transfer("page-2-match", "2026-09-15T11:59:00.000Z", HASH_C);
-    const afterLoadingMore = mergeActivityFeed({ transfers: [...firstPage, laterPage], operations });
+    const afterLoadingMore = mergeActivityFeed({ transfers: [...firstPage, laterPage], operations, loadedThrough: null });
     expect(afterLoadingMore.map(({ kind, id }) => `${kind}:${id}`)).toEqual([
       `transfer:${firstPage[0]!.id}`,
       "action:hashless-fallback",
@@ -199,6 +297,7 @@ describe("combined Activity feed", () => {
     const items = mergeActivityFeed({
       transfers: [transfer("loaded", "2026-09-15T12:02:00.000Z", HASH_A)],
       operations: [operation("matched", "2026-09-15T12:03:00.000Z", HASH_A.toUpperCase() as `0x${string}`)],
+      loadedThrough: null,
     });
 
     expect(items.map(({ kind, id }) => `${kind}:${id}`)).toEqual(["action:matched"]);
@@ -231,7 +330,7 @@ describe("combined Activity feed", () => {
       { assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "7", direction: "receive", estimated: true },
     ];
 
-    const items = mergeActivityFeed({ transfers: [usdcOut, vaultIn, vaultInSecond, wrongDecimals, selfTransfer], operations: [deposit] });
+    const items = mergeActivityFeed({ transfers: [usdcOut, vaultIn, vaultInSecond, wrongDecimals, selfTransfer], operations: [deposit], loadedThrough: null });
     const settled = items[0];
     expect(settled?.kind).toBe("action");
     if (settled?.kind !== "action") return;
@@ -256,7 +355,7 @@ describe("combined Activity feed", () => {
     ];
     const debit = { ...transfer("repay", "2026-09-15T12:02:00.000Z"), direction: "outgoing" as const,
       amountBaseUnits: "1000042", tokenDecimals: null };
-    const [item] = mergeActivityFeed({ transfers: [debit], operations: [repay] });
+    const [item] = mergeActivityFeed({ transfers: [debit], operations: [repay], loadedThrough: null });
 
     expect(item?.kind === "action" && item.operation.action.amounts).toEqual([
       { assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1000042", direction: "spend" },
@@ -276,7 +375,7 @@ describe("combined Activity feed", () => {
     ];
     const one = { ...transfer("one", "2026-09-15T12:01:00.000Z"), direction: "outgoing" as const, amountBaseUnits: "1000000" };
     const two = { ...transfer("two", "2026-09-15T12:01:00.000Z"), direction: "outgoing" as const, amountBaseUnits: "2000000" };
-    const items = mergeActivityFeed({ transfers: [one, two], operations: [first, second] });
+    const items = mergeActivityFeed({ transfers: [one, two], operations: [first, second], loadedThrough: null });
 
     expect(items.map(({ kind, id }) => `${kind}:${id}`)).toEqual(["action:send-one", "action:send-two"]);
     const amounts = items.map((item) => item.kind === "action" ? item.operation.action.amounts : []);
@@ -292,6 +391,7 @@ describe("combined Activity feed", () => {
     const items = mergeActivityFeed({
       transfers: [latest, other, first],
       operations: [operation("settled", "2026-09-15T12:00:00.000Z", HASH_A)],
+      loadedThrough: null,
     });
 
     expect(items.map(({ kind, id }) => `${kind}:${id}`)).toEqual(["action:settled", `transfer:${other.id}`]);

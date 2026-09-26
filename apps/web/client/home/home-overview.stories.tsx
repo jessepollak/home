@@ -125,14 +125,16 @@ const handlers = {
   retryLoadMore: noop,
 };
 
+const readyActivityPage = activityPage([
+  transfer("received", 22, "incoming", "25000000"),
+  { ...transfer("logo", 21, "incoming", "12000000"), id: `8453:${ZORA}:logo`, tokenAddress: ZORA, assetId: null, tokenSymbol: "ZORA", tokenDecimals: 18, tokenImageUrl: logoImage },
+  { ...transfer("credits", 14, "outgoing", "60000000"), id: `8453:${CREDITS}:credits`, tokenAddress: CREDITS, assetId: null, tokenSymbol: "CREDITS", tokenDecimals: 18 },
+  { ...transfer("unknown", 13, "incoming", "60000000"), id: `8453:${UNKNOWN}:unknown`, tokenAddress: UNKNOWN, assetId: null, tokenSymbol: null, tokenDecimals: null },
+], "cursor-2");
+
 const readyActivity: UseActivityResult = {
   status: "ready",
-  page: activityPage([
-    transfer("received", 22, "incoming", "25000000"),
-    { ...transfer("logo", 21, "incoming", "12000000"), id: `8453:${ZORA}:logo`, tokenAddress: ZORA, assetId: null, tokenSymbol: "ZORA", tokenDecimals: 18, tokenImageUrl: logoImage },
-    { ...transfer("credits", 14, "outgoing", "60000000"), id: `8453:${CREDITS}:credits`, tokenAddress: CREDITS, assetId: null, tokenSymbol: "CREDITS", tokenDecimals: 18 },
-    { ...transfer("unknown", 13, "incoming", "60000000"), id: `8453:${UNKNOWN}:unknown`, tokenAddress: UNKNOWN, assetId: null, tokenSymbol: null, tokenDecimals: null },
-  ], "cursor-2"),
+  page: readyActivityPage,
   loadingMore: true,
   loadMoreError: false,
   continuing: true,
@@ -158,6 +160,8 @@ const loadingActivity: UseActivityResult = {
 };
 
 const retryFailedActivity = fn();
+const retryFailedActions = fn();
+const retryFailedLoadMore = fn();
 
 const failedActivity: UseActivityResult = {
   status: "error",
@@ -235,6 +239,7 @@ type HomeOverviewStoryProps = {
   assetBalances: HomeAssetBalancesPresentation;
   activity: UseActivityResult;
   operations?: RecentMoneyActionOperation[];
+  actionsStatus?: "loading" | "ready" | "error";
   cashRate: string | null;
   borrowOfferRate: string | null;
   onRetry: () => void;
@@ -246,6 +251,7 @@ function HomeOverviewStory({
   assetBalances,
   activity,
   operations = [],
+  actionsStatus = "ready",
   cashRate,
   borrowOfferRate,
   onRetry,
@@ -276,28 +282,32 @@ function HomeOverviewStory({
       />
       <main className={shellContentFrameClassName}>
         <HomeOverview
+          accountKey={WALLET}
+          onRetryBalances={status?.recovery === "none" ? undefined : onRetry}
           assetBalances={assetBalances}
           cashRate={cashRate}
           borrowOfferRate={borrowOfferRate}
           destinations={{ onOpenCash: noop, onOpenInvestments: noop, onOpenBorrow: noop }}
           actions={
             <>
-              <Button size="lg" className="h-11">
+              <Button size="touch">
                 <Plus className="size-4" aria-hidden="true" />
                 Add money
               </Button>
-              <Button variant="outline" size="lg" className="h-11">Send</Button>
+              <Button variant="outline" size="touch">Send</Button>
             </>
           }
           activity={
             <ActivityPanelView
               activity={activity}
               operations={operations}
+              actionsStatus={actionsStatus}
+              retryActions={retryFailedActions}
               regionId="US"
               density="feed"
               header={<HomeSectionHeading id="activity-title">Activity</HomeSectionHeading>}
               emptyAction={
-                <Button variant="outline" size="lg" className="h-11">
+                <Button variant="outline" size="touch">
                   <Plus className="size-4" aria-hidden="true" />
                   Add money
                 </Button>
@@ -358,7 +368,7 @@ export const Funded: Story = {
     }
     await expect(canvasElement.querySelector("[data-home-status]")).toBeNull();
     const activity = canvas.getByRole("region", { name: "Activity" });
-    await expect(activity.querySelector("[data-slot='card']")).toBeNull();
+    await expect(activity.querySelectorAll("[data-slot='card']")).toHaveLength(1);
     await expect(activity.querySelector("[data-activity-loader]")).not.toBeNull();
     for (const loadingCopy of within(activity).queryAllByText(/Loading/)) {
       await expect(loadingCopy.getBoundingClientRect().width).toBeLessThanOrEqual(1);
@@ -373,10 +383,85 @@ export const Funded: Story = {
   },
 };
 
+export const BalanceAllocationSelection: Story = {
+  play: async ({ canvasElement }) => {
+    const legend = within(canvasElement).getByRole("list", { name: "Balance allocation" });
+    const item = (id: string) => legend.querySelector<HTMLElement>(`[data-breakdown-item="${id}"]`)!;
+    const segment = (id: string) => canvasElement.querySelector<HTMLElement>(`[data-balance-segment="${id}"]`)!;
+    const press = async (id: string, selected: boolean) => {
+      await expect(within(item(id)).getByRole("button")).toHaveAttribute("aria-pressed", String(selected));
+      await expect(item(id).getAttribute("data-selected")).toBe(selected ? "true" : null);
+      await expect(segment(id).getAttribute("data-selected")).toBe(selected ? "true" : null);
+    };
+    await userEvent.click(segment("cash"));
+    await press("cash", true);
+    await press("borrow", false);
+    await press("investments", false);
+    await userEvent.click(within(item("investments")).getByRole("button"));
+    await press("cash", false);
+    await press("investments", true);
+    await userEvent.click(within(item("investments")).getByRole("button"));
+    for (const id of ["borrow", "cash", "investments"]) await press(id, false);
+  },
+};
+
+export const BalanceAllocationKeyboard: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const legend = canvas.getByRole("list", { name: "Balance allocation" });
+    const borrow = within(legend).getByRole("button", { name: /Borrow/ });
+    canvas.getByRole("button", { name: "Account" }).focus();
+    await userEvent.tab();
+    await expect(borrow).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    await expect(borrow).toHaveAttribute("aria-pressed", "true");
+    await userEvent.keyboard("[Space]");
+    await expect(borrow).toHaveAttribute("aria-pressed", "false");
+  },
+};
+
+export const BalanceAllocationBorrow: Story = {
+  play: async ({ canvasElement }) => {
+    const borrowSegment = canvasElement.querySelector<HTMLButtonElement>('[data-balance-segment="borrow"]')!;
+    await userEvent.click(borrowSegment);
+    await expect(borrowSegment).toHaveAttribute("data-selected", "true");
+    const legend = within(canvasElement).getByRole("list", { name: "Balance allocation" });
+    await expect(within(legend).getByRole("button", { name: /Borrow/ })).toHaveAttribute("aria-pressed", "true");
+  },
+};
+
+export const BalanceAllocationTinyAndZero: Story = {
+  args: {
+    assetBalances: {
+      ...fundedBalances,
+      breakdown: [
+        { id: "borrow", label: "Borrow", value: "−$9.99", weight: 999 },
+        { id: "cash", label: "Cash", value: "$0.01", weight: 1 },
+        { id: "investments", label: "Investments", value: "$0.00", weight: 0 },
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const legend = within(canvasElement).getByRole("list", { name: "Balance allocation" });
+    const tiny = canvasElement.querySelector<HTMLButtonElement>('[data-balance-segment="cash"]')!;
+    await userEvent.click(tiny);
+    await expect(tiny).toHaveAttribute("data-selected", "true");
+    await expect(within(legend).getByRole("button", { name: /Cash/ })).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(within(legend).getByRole("button", { name: /Investments/ }));
+    await expect(within(legend).getByRole("button", { name: /Investments/ })).toHaveAttribute("aria-pressed", "true");
+    await expect(tiny).not.toHaveAttribute("data-selected");
+    await expect(canvasElement.querySelector('[data-balance-segment="investments"]')).toBeNull();
+  },
+};
+
 export const KeyboardOrder: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     canvas.getByRole("button", { name: "Account" }).focus();
+    for (const item of ["Borrow", "Cash", "Investments"]) {
+      await userEvent.tab();
+      await expect(canvas.getByRole("list", { name: "Balance allocation" }).querySelector(`[data-breakdown-item="${item.toLowerCase()}"] button`)).toHaveFocus();
+    }
     await userEvent.tab();
     await expect(canvas.getByRole("button", { name: /Add money/ })).toHaveFocus();
     await userEvent.tab();
@@ -519,7 +604,7 @@ export const PartialBalances: Story = {
     await expect(canvasElement.querySelector("[data-total-status='partial']")).not.toBeNull();
     const borrow = canvas.getByRole("button", { description: "Open Borrow" });
     await expect(borrow.textContent).toContain("—");
-    await expect(borrow.querySelector("[data-slot='item-actions']")).toBeNull();
+    await expect(canvas.getByRole("button", { name: "Retry Borrow balance" })).toBeTruthy();
     await expect(canvasElement.querySelector("[data-value-tone='error']")).toBeNull();
     await expect(canvas.queryByRole("alert")).toBeNull();
   },
@@ -546,6 +631,9 @@ export const BalancesUnavailable: Story = {
   },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement);
+    const cashRetry = canvas.getByRole("button", { name: "Retry Cash balance" });
+    await userEvent.click(cashRetry);
+    await expect(args.onRetry).toHaveBeenCalledTimes(1);
     await userEvent.click(canvas.getByRole("button", { name: "Balances are unavailable" }));
     const detail = await waitFor(() => {
       const node = canvasElement.ownerDocument.querySelector<HTMLElement>("[data-home-status-detail]");
@@ -578,6 +666,48 @@ export const ActivityError: Story = {
   },
 };
 
+export const ActivityPartialFailure: Story = {
+  args: {
+    activity: {
+      ...readyActivity,
+      page: { ...readyActivityPage, nextCursor: null },
+      loadingMore: false,
+      continuing: false,
+    },
+    operations: [],
+    actionsStatus: "error",
+  },
+  play: async ({ canvasElement }) => {
+    const activity = within(within(canvasElement).getByRole("region", { name: "Activity" }));
+    await expect(activity.getByText("Some activity is unavailable")).toBeVisible();
+    await expect(activity.getAllByRole("listitem").length).toBeGreaterThan(0);
+    retryFailedActions.mockClear();
+    await userEvent.click(activity.getByRole("button", { name: "Reload activity" }));
+    await expect(retryFailedActions).toHaveBeenCalledTimes(1);
+  },
+};
+
+export const ActivityLoadMoreFailure: Story = {
+  args: {
+    activity: {
+      ...readyActivity,
+      loadingMore: false,
+      loadMoreError: true,
+      continuing: false,
+      retryLoadMore: retryFailedLoadMore,
+    },
+    operations: [],
+  },
+  play: async ({ canvasElement }) => {
+    const activity = within(within(canvasElement).getByRole("region", { name: "Activity" }));
+    await expect(activity.getByText("More activity unavailable")).toBeVisible();
+    await expect(activity.getAllByRole("listitem").length).toBeGreaterThan(0);
+    retryFailedLoadMore.mockClear();
+    await userEvent.click(activity.getByRole("button", { name: "Reload activity" }));
+    await expect(retryFailedLoadMore).toHaveBeenCalledTimes(1);
+  },
+};
+
 export const NoCountry: Story = {
   args: {
     assetBalances: noCountryBalances,
@@ -586,6 +716,7 @@ export const NoCountry: Story = {
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement);
     const message = "Choose a country in Account to set how money is shown";
+    await expect(canvas.queryByRole("button", { name: /^Retry .* balance$/ })).toBeNull();
     await userEvent.click(canvas.getByRole("button", { name: message }));
     const detail = await waitFor(() => {
       const node = canvasElement.ownerDocument.querySelector<HTMLElement>("[data-home-status-detail]");
@@ -609,6 +740,16 @@ export const Offline: Story = {
     const detail = await within(canvasElement.ownerDocument.body).findByRole("dialog", { name: "Status" });
     await expect(detail.textContent).toContain(message);
     await expect(within(detail).queryByRole("button")).toBeNull();
+  },
+};
+
+export const OfflineBalancesUnavailable: Story = {
+  args: { assetBalances: failedBalances, interruption: { kind: "offline" }, operations: [] },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole("button", { description: "Open Cash" }).textContent).toContain("—");
+    await expect(canvas.queryByRole("button", { name: /^Retry .* balance$/ })).toBeNull();
+    await expect(canvas.getByRole("button", { name: "You’re offline. Home will update when you reconnect." })).toBeTruthy();
   },
 };
 

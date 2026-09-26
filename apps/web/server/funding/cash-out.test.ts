@@ -5,15 +5,14 @@ import { encodeFunctionData, type Hex } from "viem";
 import { BASE_BUILDER_CODE, currencyInfo, getPaymentMethodsCatalog, getSpreadOracleConfig, resolvePaymentMethodHashFromCatalog } from "@zkp2p/sdk";
 import { BASE_USDC_ADDRESS, CASH_ATTRIBUTION_CODE, buildIntentAmountRange } from "@zkp2p/cash";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import { setActionsStoreForTests, type ActionRow, type ActionsStore } from "@/server/actions/store";
+import { setActionsStoreForTests, type ActionRow, type ActionsStore, type CashoutOrderRow } from "@/server/actions/store";
 import { issueMoneyAction } from "@/server/money-actions/issue";
-import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 import { createProviderContext } from "@/server/funding/core/provider-context";
 import { peerProvider } from "@/server/funding/providers/peer/adapter";
 import { PEER_CREATE_DEPOSIT_ABI, PEER_WITHDRAW_ABI } from "@/server/funding/providers/peer/abi";
 import { setPeerClientFactoryForTests } from "@/server/funding/providers/peer/offramp";
 import { PEER_PRODUCTION_CONTRACTS } from "@/server/funding/providers/peer/manifest";
-import { CashoutPreparationError, hasRecentHashlessCashout, listCashoutOrders, prepareCashoutAction, prepareCashoutWithdrawAction } from "./cash-out";
+import { prepareCashoutAction, prepareCashoutWithdrawAction, recentHashlessCashouts } from "./cash-out";
 
 const OWNER = "0x1111111111111111111111111111111111111111" as const;
 const PAYEE_HASH = `0x${"ab".repeat(32)}` as Hex;
@@ -68,20 +67,31 @@ function row(overrides: Partial<ActionRow> = {}): ActionRow {
     id: "11111111-1111-4111-8111-111111111111", owner_key: "owner", provider: "cdp-embedded", kind: "cash-out",
     summary: { title: "Cash out", amounts: [], warnings: [], expiresAt: new Date(Date.now() + 60_000).toISOString() }, pending: null,
     created_at: new Date().toISOString(), confirmed_at: new Date().toISOString(), provider_handle: null, transaction_hash: null, handle_recorded_at: null,
+    account_address: "0x1111111111111111111111111111111111111111", declined_reported_at: null, dispatch_attempt: 0, outcome: null,
+    outcome_source: null, settled_at: null, outcome_recorded_at: null,
+    ...overrides,
+  };
+}
+const clearStore = { list: async () => [], hasUnsettledCashout: async () => false, cashoutOrders: async () => [] };
+function order(overrides: Partial<CashoutOrderRow> = {}): CashoutOrderRow {
+  return {
+    action_id: row().id, owner_key: "owner", provider_id: "peer", environment: "production", region: "US", deposit_id: null, deposit_proven: false,
+    state: "awaiting-buyer", platform: "cashapp", platform_label: "Cash App", amount_atomic: "2000000", filled_atomic: "0",
+    returned_atomic: "0", remaining_atomic: "2000000", withdrawable: true, eta_seconds: null,
+    created_at: new Date().toISOString(), updated_at: new Date().toISOString(), refreshed_at: null, settled_at: null,
     ...overrides,
   };
 }
 afterEach(() => {
   setPeerClientFactoryForTests(null);
   setActionsStoreForTests(null);
-  setObservabilityLogWriterForTests();
 });
 
 describe("Peer cash-out action preparation", () => {
   test("authors an exact approval and preserves reviewed identity/estimate metadata", async () => {
     installClients();
     const draft = await prepareCashoutAction(session, input(), undefined, {
-      env: { PEER_OFFRAMP_ENABLED: "1" }, store: { list: async () => [] }, readAllowance: async () => BigInt(0),
+      env: { PEER_OFFRAMP_ENABLED: "1" }, store: clearStore, readAllowance: async () => BigInt(0),
     });
     expect(draft.kind).toBe("cash-out");
     expect(draft.calls).toHaveLength(2);
@@ -89,7 +99,7 @@ describe("Peer cash-out action preparation", () => {
     expect(draft.amounts[0]?.assetId).toBe("usdc");
     expect(draft.calls[0]?.data.slice(0, 10)).toBe("0x095ea7b3");
     expect(BigInt(`0x${draft.calls[0]!.data.slice(74)}`)).toBe(BigInt(2_000_000));
-    expect(draft.metadata).toMatchObject({ product: "cashout", canonicalHandle: "Alice", approximateFiatAmount: "2", minConversionRate: "1" });
+    expect(draft.metadata).toMatchObject({ product: "cashout", region: "US", canonicalHandle: "Alice", payeeHash: PAYEE_HASH.toLowerCase(), approximateFiatAmount: "2", minConversionRate: "1" });
     expect(Date.parse(draft.expiresAt) - Date.now()).toBeLessThanOrEqual(10 * 60 * 1000);
   });
 
@@ -98,7 +108,7 @@ describe("Peer cash-out action preparation", () => {
     const inserts: unknown[] = [];
     setActionsStoreForTests({ insert: async (value: unknown) => { inserts.push(value); } } as ActionsStore);
     const draft = await prepareCashoutAction(session, input(), undefined, {
-      env: { PEER_OFFRAMP_ENABLED: "1" }, store: { list: async () => [] }, readAllowance: async () => BigInt(0),
+      env: { PEER_OFFRAMP_ENABLED: "1" }, store: clearStore, readAllowance: async () => BigInt(0),
     });
 
     const issued = await issueMoneyAction(session, draft);
@@ -112,7 +122,7 @@ describe("Peer cash-out action preparation", () => {
   test("omits approval only when allowance already covers the exact reviewed amount", async () => {
     installClients();
     const draft = await prepareCashoutAction(session, input(), undefined, {
-      env: { PEER_OFFRAMP_ENABLED: "1" }, store: { list: async () => [] }, readAllowance: async () => BigInt(2_000_000),
+      env: { PEER_OFFRAMP_ENABLED: "1" }, store: clearStore, readAllowance: async () => BigInt(2_000_000),
     });
     expect(draft.calls).toHaveLength(1);
     expect(draft.calls[0]?.to).toBe(PEER_PRODUCTION_CONTRACTS.escrow);
@@ -121,7 +131,7 @@ describe("Peer cash-out action preparation", () => {
   test("rejects non-verbatim canonical confirmation before curator registration", async () => {
     installClients();
     await expect(prepareCashoutAction(session, { ...input(), canonicalHandleConfirmation: "$Alice" }, undefined, {
-      env: { PEER_OFFRAMP_ENABLED: "1" }, store: { list: async () => [] }, readAllowance: async () => BigInt(0),
+      env: { PEER_OFFRAMP_ENABLED: "1" }, store: clearStore, readAllowance: async () => BigInt(0),
     })).rejects.toMatchObject({ code: "identity-mismatch" });
   });
 
@@ -145,76 +155,15 @@ describe("Peer cash-out action preparation", () => {
   test("keeps preparation fail-closed when an in-flight row has a malformed payee", async () => {
     installClients(true, ["invalid"]);
     await expect(prepareCashoutAction(session, input(), undefined, {
-      env: { PEER_OFFRAMP_ENABLED: "1" }, store: { list: async () => [] }, readAllowance: async () => BigInt(0),
+      env: { PEER_OFFRAMP_ENABLED: "1" }, store: clearStore, readAllowance: async () => BigInt(0),
     })).rejects.toThrow("Peer order payee hash is invalid");
   });
 
-  test("skips malformed recovery rows and reports each skipped row", async () => {
-    const lines: string[] = [];
-    setObservabilityLogWriterForTests((line) => { lines.push(line); });
-    installClients(true, [PAYEE_HASH, "invalid"]);
-
-    const result = await listCashoutOrders(
-      session,
-      { region: "US", inFlight: true },
-      { PEER_OFFRAMP_ENABLED: "1" },
-      { store: { hasCashoutHistory: async () => true, cashoutRecoveryModes: async () => ["production"] } },
-    );
-
-    expect(result.orders).toHaveLength(1);
-    expect(result.orders[0]?.depositId).toEndWith("_7");
-    expect(lines).toHaveLength(1);
-    expect(JSON.parse(lines[0]!)).toMatchObject({
-      kind: "funding-order",
-      route: "/api/funding/offramp/orders",
-      code: "OFFRAMP_ORDER_MALFORMED_PAYEE_SKIPPED",
-      outcome: "ignored",
-      provider: "peer",
-      region: "US",
-      sandbox: false,
-    });
-  });
-
-  test("lists owner recovery orders with provider labels while discovery is disabled", async () => {
-    installClients(true);
-    for (const disabled of [undefined, "0", "false"]) {
-      const result = await listCashoutOrders(
-        session,
-        { region: "US", inFlight: true },
-        { PEER_OFFRAMP_ENABLED: disabled },
-        { store: { hasCashoutHistory: async () => true, cashoutRecoveryModes: async () => ["production"] } },
-      );
-      expect(result.recoveryEligible).toBe(true);
-      expect(result.orders).toHaveLength(1);
-      expect(result.orders[0]).toMatchObject({
-        providerId: "peer", providerName: "Peer", assetId: "base:usdc", assetSymbol: "USDC", assetDecimals: 6,
-        platform: "cashapp", platformLabel: "Cash App",
-      });
-      expect(result.orders[0]).not.toHaveProperty("owner");
-      expect(result.orders[0]).not.toHaveProperty("payeeHash");
-    }
-  });
-
-  test("does not query disabled Peer recovery without owner history or an explicit request", async () => {
-    installClients(true);
-    const store = { hasCashoutHistory: async () => false, cashoutRecoveryModes: async () => [] };
-    expect(await listCashoutOrders(session, { region: "US" }, { PEER_OFFRAMP_ENABLED: "0" }, { store }))
-      .toEqual({ recoveryEligible: false, orders: [] });
-    expect((await listCashoutOrders(session, { region: "US", recover: true }, { PEER_OFFRAMP_ENABLED: "0" }, { store })).orders).toHaveLength(1);
-  });
-
-  test("fails closed on the legacy global sandbox setting before provider reads", async () => {
-    let historyReads = 0;
-    await expect(listCashoutOrders(
-      session,
-      { region: "US" },
-      { FUNDING_SANDBOX: "", PEER_OFFRAMP_ENABLED: "1" },
-      { store: {
-        hasCashoutHistory: async () => { historyReads += 1; return false; },
-        cashoutRecoveryModes: async () => [],
-      } },
-    )).rejects.toMatchObject({ code: "FUNDING_SANDBOX_MIGRATION_REQUIRED" });
-    expect(historyReads).toBe(1);
+  test("refuses an unsettled local cash-out before querying Peer", async () => {
+    installClients(true, ["invalid"]);
+    await expect(prepareCashoutAction(session, input(), undefined, {
+      env: { PEER_OFFRAMP_ENABLED: "1" }, store: { ...clearStore, hasUnsettledCashout: async () => true },
+    })).rejects.toMatchObject({ code: "order-in-flight", message: "You already have a cash-out in progress. Check Activity." });
   });
 
   test("keeps withdrawal recovery available while new Peer cash-outs are disabled", async () => {
@@ -226,15 +175,41 @@ describe("Peer cash-out action preparation", () => {
     expect(draft.amounts[0]?.assetId).toBe("usdc");
     expect(draft.metadata).toMatchObject({ operation: "withdraw", providerName: "Peer", platformLabel: "Cash App" });
     expect(draft.metadata).not.toHaveProperty("canonicalHandle");
+    expect(draft.metadata).not.toHaveProperty("payeeHash");
   });
 
   test("enforces the 15-minute confirmed hashless ambiguity window", async () => {
     const now = new Date();
-    expect(hasRecentHashlessCashout([row({ confirmed_at: new Date(now.getTime() - 14 * 60_000).toISOString() })], now)).toBe(true);
-    expect(hasRecentHashlessCashout([row({ confirmed_at: new Date(now.getTime() - 15 * 60_000).toISOString() })], now)).toBe(false);
+    expect(recentHashlessCashouts([row({ confirmed_at: new Date(now.getTime() - 14 * 60_000).toISOString() })], now)).toHaveLength(1);
+    expect(recentHashlessCashouts([row({ confirmed_at: new Date(now.getTime() - 15 * 60_000).toISOString() })], now)).toHaveLength(0);
+    expect(recentHashlessCashouts([row({ confirmed_at: new Date(now.getTime() - 14 * 60_000).toISOString(), outcome: "not_submitted", outcome_source: "wallet" })], now)).toHaveLength(0);
     installClients();
     await expect(prepareCashoutAction(session, input(), undefined, {
-      env: { PEER_OFFRAMP_ENABLED: "1" }, store: { list: async () => [row()] }, readAllowance: async () => BigInt(0),
-    })).rejects.toBeInstanceOf(CashoutPreparationError);
+      env: { PEER_OFFRAMP_ENABLED: "1" }, store: { ...clearStore, list: async () => [row()] }, readAllowance: async () => BigInt(0),
+    })).rejects.toMatchObject({ code: "duplicate-unknown" });
+    await expect(prepareCashoutAction(session, input(), undefined, {
+      env: { PEER_OFFRAMP_ENABLED: "1" }, store: { ...clearStore, list: async () => [row()], cashoutOrders: async () => [order()] },
+      readAllowance: async () => BigInt(0),
+    })).rejects.toMatchObject({ code: "duplicate-unknown" });
+  });
+
+  test("lets a recovered hashless cash-out that already settled stop blocking the next one", async () => {
+    installClients();
+    const settled = order({ deposit_id: `${PEER_PRODUCTION_CONTRACTS.escrow.toLowerCase()}_7`, state: "delivered", settled_at: new Date().toISOString() });
+    const draft = await prepareCashoutAction(session, input(), undefined, {
+      env: { PEER_OFFRAMP_ENABLED: "1" }, store: { ...clearStore, list: async () => [row()], cashoutOrders: async () => [settled] },
+      readAllowance: async () => BigInt(0),
+    });
+    expect(draft.kind).toBe("cash-out");
+  });
+
+  test("hands a recovered hashless cash-out that is still open to the in-progress guard", async () => {
+    installClients();
+    const linked = order({ deposit_id: `${PEER_PRODUCTION_CONTRACTS.escrow.toLowerCase()}_7` });
+    await expect(prepareCashoutAction(session, input(), undefined, {
+      env: { PEER_OFFRAMP_ENABLED: "1" },
+      store: { list: async () => [row()], cashoutOrders: async () => [linked], hasUnsettledCashout: async () => true },
+      readAllowance: async () => BigInt(0),
+    })).rejects.toMatchObject({ code: "order-in-flight" });
   });
 });

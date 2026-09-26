@@ -6,6 +6,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { useState } from "react";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
+import { HomeShellRoutingProvider, type HomeShellRouting } from "@/client/home/panel-routing";
+import { TransferExecutionError } from "@/shared/transfers/types";
 import { formatAddress } from "@/shared/formatting";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
@@ -87,8 +89,8 @@ function prepared(
     },
   };
 }
-function typeAmount(digits: string) {
-  for (const digit of digits) fireEvent.click(page().getByRole("button", { name: digit === "." ? "Decimal point" : digit }));
+function typeAmount(value: string) {
+  fireEvent.change(page().getByRole("textbox", { name: "Amount" }), { target: { value } });
 }
 afterEach(() => {
   cleanup();
@@ -122,6 +124,39 @@ function ReopenHarness() {
 }
 
 describe("SavingsMoneyDialog", () => {
+  test("deposit Max reports a failed USDC fee lookup and recovers on Retry", async () => {
+    let requests = 0;
+    render(<SavingsMoneyDialog open mode="deposit" session={session} candidate={candidate}
+      availableLabel="$50.00 available" availableBaseUnits="50000000"
+      fetchAccountResource={async () => {
+        requests++;
+        if (requests <= 3) throw new Error("network unavailable");
+        return { version: 1, usdcReserveBaseUnits: "20000" };
+      }}
+      prepareMoneyAction={async () => { throw new Error("unexpected prepare"); }}
+      executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })} onClose={() => {}} />);
+    const alert = await page().findByRole("alert");
+    expect(alert.textContent).toContain("Couldn't check the network fee.");
+    expect((page().getByRole("button", { name: "Max" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(page().getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(page().queryByRole("alert") === null).toBe(true));
+    await waitFor(() => expect((page().getByRole("button", { name: "Max" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(page().getByRole("button", { name: "Max" }));
+    expect((page().getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("49.98");
+    expect(requests).toBe(4);
+  });
+
+  test("withdraw does not report an irrelevant USDC fee lookup failure", async () => {
+    render(<SavingsMoneyDialog open mode="withdraw" session={session} candidate={candidate}
+      availableLabel="$50.00 available" availableBaseUnits="50000000"
+      fetchAccountResource={async () => { throw new Error("network unavailable"); }}
+      prepareMoneyAction={async () => { throw new Error("unexpected prepare"); }}
+      executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })} onClose={() => {}} />);
+    await waitFor(() => expect(getHomeQueryClient().isFetching()).toBe(0));
+    expect(page().queryByRole("alert")).toBeNull();
+    expect(page().queryByRole("button", { name: "Retry" })).toBeNull();
+  });
+
   test("prepares a deposit through the unified actions endpoint", async () => {
     const requests: Array<{ kind: string; input: unknown }> = [];
     render(
@@ -147,6 +182,23 @@ describe("SavingsMoneyDialog", () => {
     expect(document.body.textContent).toContain("Minimum shares0.1234567 vault shares");
     expect(document.body.textContent).not.toContain("no minimum-shares protection");
     expect(requests).toEqual([{ kind: "savings-deposit", input: { kind: "deposit", vaultAddress: VAULT, amountBaseUnits: "1234567" } }]);
+  });
+  test("Enter continues a valid amount into review without dispatching it", async () => {
+    const requests: unknown[] = [];
+    let executions = 0;
+    render(
+      <SavingsMoneyDialog
+        open mode="deposit" session={session} candidate={candidate}
+        prepareMoneyAction={async (_kind, input) => { requests.push(input); return prepared("savings-deposit", "1234567"); }}
+        executeMoneyAction={async () => { executions += 1; return { id: "action-1", status: "submitted" }; }}
+        onClose={() => {}}
+      />,
+    );
+    typeAmount("1.234567");
+    fireEvent.keyDown(page().getByRole("textbox", { name: "Amount" }), { key: "Enter" });
+    expect(await page().findByRole("button", { name: "Deposit $1.234567" })).toBeTruthy();
+    expect(requests).toEqual([{ kind: "deposit", vaultAddress: VAULT, amountBaseUnits: "1234567" }]);
+    expect(executions).toBe(0);
   });
 
   test("explains an empty withdrawal balance before entry and blocks preparation", () => {
@@ -195,10 +247,13 @@ describe("SavingsMoneyDialog", () => {
       />,
     );
     typeAmount("60");
-    expect(page().getByRole("status").textContent).toBe("That's more than you have available.");
+    const input = page().getByRole("textbox", { name: "Amount" });
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(page().getByText("Only $50.00 available")).toBeTruthy();
     const continueButton = page().getByRole("button", { name: "Continue" }) as HTMLButtonElement;
     expect(continueButton.disabled).toBe(true);
     fireEvent.click(continueButton);
+    fireEvent.keyDown(input, { key: "Enter" });
     expect(prepareCalls).toBe(0);
     expect(page().queryByRole("alert")).toBeNull();
   });
@@ -365,9 +420,9 @@ describe("SavingsMoneyDialog", () => {
       </SavingsDialogFixtureProvider>,
     );
 
-    const tickers = view.container.ownerDocument.querySelectorAll("[data-slot='money-ticker']");
-    expect(tickers).toHaveLength(3);
-    for (const ticker of tickers) expect(ticker.getAttribute("data-animated")).toBe("false");
+    typeAmount("1.234567");
+    expect((page().getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("1.234567");
+    expect(page().getByText("$50.00 available")).toBeTruthy();
     expect(view.container.ownerDocument.querySelector("[data-money-sheet]")?.hasAttribute("data-immediate")).toBe(true);
     expect(view.container.ownerDocument.querySelector("[data-slot='drawer-overlay']")?.hasAttribute("data-immediate")).toBe(true);
   });
@@ -396,7 +451,7 @@ describe("SavingsMoneyDialog", () => {
     expect((await page().findByRole("alert")).textContent).toContain("wallet request was rejected");
     fireEvent.click(page().getAllByRole("button", { name: "Back" }).at(-1)!);
     expect(await page().findByRole("dialog", { name: "Deposit" })).toBeTruthy();
-    expect(document.body.textContent).toContain("1.00 USDC");
+    expect((page().getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("1");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     expect(await page().findByRole("button", { name: "Deposit $1.00" })).toBeTruthy();
     expect(prepares).toBe(2);
@@ -419,7 +474,7 @@ describe("SavingsMoneyDialog", () => {
 
     typeAmount("1");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
-    await page().findByText("Waiting for your wallet…");
+    await page().findByRole("dialog", { name: "Confirm" });
 
     view.rerender(
       <ReducedSavingsMoneyDialog
@@ -432,7 +487,7 @@ describe("SavingsMoneyDialog", () => {
         onClose={() => {}}
       />,
     );
-    expect(page().queryByText("Waiting for your wallet…")).toBeNull();
+    expect(page().queryByRole("button", { name: "Deposit $1.00" })).toBeNull();
     expect(page().queryByRole("button", { name: "Deposit $1.00" })).toBeNull();
     expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
 
@@ -546,14 +601,17 @@ describe("SavingsMoneyDialog", () => {
       fireEvent.click(page().getByRole("button", { name: "Continue" }));
       fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
 
-      await waitFor(() => expect(closes).toBe(1));
+      await page().findByRole("heading", { name: "Depositing $1.00 to Save" });
+      expect(closes).toBe(0);
       expect(page().queryByRole("alert")).toBeNull();
-      expect(reports).toHaveLength(1);
+      await waitFor(() => expect(reports).toHaveLength(1));
       expect(reports[0]?.input).toBe("/api/client-errors");
       expect(JSON.parse(String(reports[0]?.init?.body))).toMatchObject({
         name: "Error",
         message: "refresh failed",
       });
+      fireEvent.click(page().getByRole("button", { name: "Done" }));
+      expect(closes).toBe(1);
     } finally {
       globalThis.fetch = previousFetch;
     }
@@ -574,7 +632,10 @@ describe("SavingsMoneyDialog", () => {
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
     fireEvent.click(await page().findByRole("button", { name: "Retry" }));
-    await waitFor(() => expect(closes).toBe(1));
+    await page().findByRole("heading", { name: "Depositing $1.00 to Save" });
+    expect(closes).toBe(0);
+    fireEvent.click(page().getByRole("button", { name: "Done" }));
+    expect(closes).toBe(1);
     expect(executions).toBe(2);
   });
 
@@ -616,6 +677,8 @@ describe("SavingsMoneyDialog", () => {
 
   test("surfaces typed prepare errors", async () => {
     for (const failure of [
+    { name: "network fee", error: Object.assign(new Error("unfunded"), { status: 409, code: "NETWORK_FEE_UNFUNDED", serverMessage: "Add USDC to cover the network fee." }), message: "Add USDC to cover the network fee." },
+    { name: "network fee unavailable", error: Object.assign(new Error("unavailable"), { status: 502, code: "NETWORK_FEE_UNAVAILABLE", serverMessage: "The network fee could not be checked. Try again." }), message: "The network fee could not be checked. Try again." },
     { name: "limit", error: Object.assign(new Error("limit"), { status: 409 }), message: "exceeds the current onchain account balance or vault limit" },
     { name: "rate limit", error: Object.assign(new Error("limited"), { status: 429, code: "SAVINGS_ACTION_RATE_LIMITED", serverMessage: "Base RPC is rate limited. Try again shortly." }), message: "Base RPC is rate limited. Try again shortly. No transaction was submitted." },
     { name: "RPC", error: Object.assign(new Error("unavailable"), { status: 502, code: "SAVINGS_ACTION_RPC", serverMessage: "Base RPC rejected a savings state read: execution reverted" }), message: "Base RPC rejected a savings state read: execution reverted (SAVINGS_ACTION_RPC) No transaction was submitted." },
@@ -633,5 +696,112 @@ describe("SavingsMoneyDialog", () => {
       expect((await page().findByRole("alert")).textContent).toContain(failure.message);
       cleanup();
     }
+  });
+
+  test("keeps one focused busy confirm control and ignores a second submit", async () => {
+    let release!: (value: { id: string; status: "submitted" }) => void;
+    let calls = 0;
+    render(<SavingsMoneyDialog open mode="deposit" session={session} candidate={candidate}
+      prepareMoneyAction={async () => prepared()}
+      executeMoneyAction={() => { calls += 1; return new Promise((resolve) => { release = resolve; }); }}
+      onClose={() => {}} />);
+    typeAmount("1");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    const confirm = await page().findByRole("button", { name: "Deposit $1.00" });
+    confirm.focus();
+    fireEvent.click(confirm);
+    expect(page().getByRole("button", { name: "Deposit $1.00" })).toBe(confirm);
+    expect(confirm.getAttribute("aria-busy")).toBe("true");
+    expect(confirm).toBe(document.activeElement as HTMLElement);
+    expect(page().queryByText("Waiting for your wallet…")).toBeNull();
+    expect((page().getByRole("button", { name: "Close deposit dialog" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(confirm);
+    expect(calls).toBe(1);
+    await act(async () => release({ id: "action-1", status: "submitted" }));
+    expect(await page().findByRole("heading", { name: "Depositing $1.00 to Save" })).toBeTruthy();
+    expect(page().getByText("Submitted")).toBeTruthy();
+    expect(page().getByText("Confirming on Base")).toBeTruthy();
+    expect(page().queryByRole("button", { name: "Back" })).toBeNull();
+    expect((page().getByRole("button", { name: "Close deposit dialog" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  test("ignores another owner's matching id and follows this owner's confirmed row", async () => {
+    let rowOwner = prepared().owner;
+    let closes = 0;
+    const fetchAccountResource = async () => ({ actions: [{ id: "action-1", owner: rowOwner, status: "confirmed" }] });
+    render(<SavingsMoneyDialog open mode="withdraw" session={session} candidate={candidate}
+      prepareMoneyAction={async () => prepared("savings-withdraw")}
+      executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
+      fetchAccountResource={fetchAccountResource} onClose={() => { closes += 1; }} />);
+    rowOwner = prepared("savings-deposit", "1000000", sessionB).owner;
+    typeAmount("1");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.click(await page().findByRole("button", { name: "Withdraw $1.00" }));
+    expect(await page().findByRole("heading", { name: "Withdrawing $1.00 from Save" })).toBeTruthy();
+    expect(page().getByText("Confirming on Base")).toBeTruthy();
+    rowOwner = prepared().owner;
+    await act(async () => { await getHomeQueryClient().invalidateQueries(); });
+    expect(await page().findByRole("heading", { name: "Withdrew $1.00 from Save" })).toBeTruthy();
+    expect(page().queryByText("Confirming on Base")).toBeNull();
+    expect(closes).toBe(0);
+    fireEvent.click(page().getByRole("button", { name: "Done" }));
+    expect(closes).toBe(1);
+  });
+
+  test("a failed owner row offers a fresh review with the amount retained", async () => {
+    let preparations = 0;
+    render(<SavingsMoneyDialog open mode="deposit" session={session} candidate={candidate}
+      prepareMoneyAction={async () => { preparations += 1; return prepared(); }}
+      executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
+      fetchAccountResource={async () => ({ actions: [{ id: "action-1", owner: prepared().owner, status: "failed" }] })}
+      onClose={() => {}} />);
+    typeAmount("1");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
+    expect(await page().findByRole("heading", { name: "Deposit didn't go through" })).toBeTruthy();
+    expect(page().getByText("Your $1.00 is still in your account.")).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Try again" }));
+    expect(await page().findByRole("dialog", { name: "Deposit" })).toBeTruthy();
+    expect(document.body.textContent).toContain("1.00 USDC");
+    expect(page().queryByRole("button", { name: "Deposit $1.00" })).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    expect(await page().findByRole("button", { name: "Deposit $1.00" })).toBeTruthy();
+    expect(preparations).toBe(2);
+  });
+
+  test("typed failed execution shows a result instead of the old alert", async () => {
+    render(<SavingsMoneyDialog open mode="withdraw" session={session} candidate={candidate}
+      prepareMoneyAction={async () => prepared("savings-withdraw")}
+      executeMoneyAction={async () => ({ id: "action-1", status: "failed" })}
+      onClose={() => {}} />);
+    typeAmount("1");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.click(await page().findByRole("button", { name: "Withdraw $1.00" }));
+    expect(await page().findByRole("heading", { name: "Withdrawal didn't go through" })).toBeTruthy();
+    expect(page().getByText("Your $1.00 is still in Save.")).toBeTruthy();
+    expect(page().queryByRole("alert")).toBeNull();
+    expect(page().getByRole("button", { name: "Try again" })).toBeTruthy();
+  });
+
+  test("submission-unknown never offers retry and opens Activity after closing", async () => {
+    const events: string[] = [];
+    const routing = { openPanel: (panel: string) => { events.push(`panel:${panel}`); } } as HomeShellRouting;
+    render(<HomeShellRoutingProvider value={routing}>
+      <SavingsMoneyDialog open mode="deposit" session={session} candidate={candidate}
+        prepareMoneyAction={async () => prepared()}
+        executeMoneyAction={async () => { throw new TransferExecutionError("submission-unknown"); }}
+        fetchAccountResource={async () => ({ actions: [{ id: "action-1", owner: prepared().owner, status: "pending" }] })}
+        onClose={() => { events.push("close"); }} />
+    </HomeShellRoutingProvider>);
+    typeAmount("1");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
+    expect(await page().findByRole("heading", { name: "We can't confirm $1.00" })).toBeTruthy();
+    expect(page().getByText("It may have gone through. Check Activity before trying again.")).toBeTruthy();
+    expect(page().queryByRole("button", { name: /retry|try again/i })).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "View in Activity" }));
+    expect(events).toEqual(["close"]);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    expect(events).toEqual(["close", "panel:activity"]);
   });
 });

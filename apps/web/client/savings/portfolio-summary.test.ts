@@ -111,7 +111,7 @@ describe("savings portfolio summary", () => {
     expect(formatExactSavingsApy(summary.apy.value)).toBe("4.00%");
   });
 
-  test("fails APY closed for missing, negative, and stale funded rates", () => {
+  test("keeps stale funded rates numeric while missing and negative rates remain incomplete", () => {
     const missing = summarizeSavingsPortfolio(input(
       { [VAULT_A]: "100000000", [VAULT_B]: "300000000" },
       { [VAULT_A]: 0.04, [VAULT_B]: null },
@@ -129,6 +129,27 @@ describe("savings portfolio summary", () => {
       metadataStale: true,
     });
     expect(stale.apy.status).toBe("stale");
+    if (stale.apy.status !== "stale") throw new Error("Expected retained APY");
+    expect(formatExactSavingsApy(stale.apy.value)).toBe("4.00%");
+
+    const mixed = input(
+      { [VAULT_A]: "100000000", [VAULT_B]: "300000000" },
+      { [VAULT_A]: 0.04, [VAULT_B]: 0.06 },
+    );
+    mixed.candidates = mixed.candidates.map((entry) =>
+      entry.vaultAddress === VAULT_A
+        ? { ...entry, source: { ...entry.source, fetchedAt: new Date(TEST_NOW - 6 * 60_000).toISOString() } }
+        : entry
+    );
+    const weighted = summarizeSavingsPortfolio(mixed);
+    expect(weighted.apy.status).toBe("stale");
+    if (weighted.apy.status !== "stale") throw new Error("Expected weighted retained APY");
+    expect(formatExactSavingsApy(weighted.apy.value)).toBe("5.50%");
+
+    mixed.candidates = mixed.candidates.map((entry) =>
+      entry.vaultAddress === VAULT_B ? { ...entry, netApy: null } : entry
+    );
+    expect(summarizeSavingsPortfolio(mixed).apy).toEqual({ status: "partial", value: null });
   });
 
   test("separates read freshness from Morpho indexed-state age", () => {
@@ -144,13 +165,13 @@ describe("savings portfolio summary", () => {
         name: "six-minute-old source read",
         candidate: { ...fresh, source: { ...fresh.source, fetchedAt: new Date(TEST_NOW - 6 * 60_000).toISOString() } },
         metadataFetchedAt: new Date(TEST_NOW).toISOString(),
-        expected: { status: "stale", value: null },
+        expected: { status: "stale", value: 0.04 },
       },
       {
         name: "twenty-five-hour-old indexed state",
         candidate: { ...fresh, stateAsOf: new Date(TEST_NOW - 25 * 60 * 60_000).toISOString() },
         metadataFetchedAt: new Date(TEST_NOW).toISOString(),
-        expected: { status: "stale", value: null },
+        expected: { status: "stale", value: 0.04 },
       },
       {
         name: "future source skew",

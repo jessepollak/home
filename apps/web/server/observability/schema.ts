@@ -34,6 +34,13 @@ export const ACTIVITY_READ_SOURCES = [
 export type ActivityReadOutcome = (typeof ACTIVITY_READ_OUTCOMES)[number];
 export type ActivityReadReason = (typeof ACTIVITY_READ_REASONS)[number];
 export type ActivityReadSource = (typeof ACTIVITY_READ_SOURCES)[number];
+export type ActivityReadValuation = {
+  priced: number;
+  unknownToken: number;
+  noRecentClose: number;
+  quoteUnavailable: number;
+  fxUnavailable: number;
+};
 
 export type PortfolioBalanceSourceReason =
   | "not-configured"
@@ -86,6 +93,8 @@ export const SERVER_EVENT_KINDS = [
   "action-prepare",
   "action-confirm",
   "action-handle",
+  "action-decline",
+  "action-outcome",
   "action-reconcile",
   "borrow-overview",
   "funding-order",
@@ -96,6 +105,7 @@ export const SERVER_EVENT_KINDS = [
   "balances-store",
   "balances-signal",
   "balances-valuation",
+  "operator-registry",
 ] as const;
 export const SERVER_EVENT_OUTCOMES = [
   "failed",
@@ -138,7 +148,6 @@ export const FUNDING_ORDER_CODES = [
   "OFFRAMP_DISCOVERY_CONFIGURATION",
   "OFFRAMP_DISCOVERY_PROVIDER",
   "OFFRAMP_ORDER_MALFORMED_PAYEE_SKIPPED",
-  "OFFRAMP_ORDERS_PROVIDER_ERROR",
   "QUOTE_ECHO_MISMATCH",
   "ORDER_ECHO_MISMATCH",
   "STATUS_ECHO_MISMATCH",
@@ -199,6 +208,7 @@ export type ObservabilityEvent =
       sourceAttemptCount: number;
       pageCount: number;
       rowCount: number;
+      valuation: ActivityReadValuation;
     }
   | {
       kind: ServerEventKind;
@@ -312,6 +322,7 @@ export type ObservabilityLogLine = ObservabilityLogBase &
         sourceAttemptCount: number;
         pageCount: number;
         rowCount: number;
+        valuation: ActivityReadValuation;
       }
     | {
         level: "error" | "info";
@@ -460,6 +471,13 @@ export function normalizeObservabilityEvent(
       sourceAttemptCount: boundedInteger(event.sourceAttemptCount, 10),
       pageCount: boundedInteger(event.pageCount, 10),
       rowCount: boundedInteger(event.rowCount, 10_000),
+      valuation: {
+        priced: boundedInteger(event.valuation?.priced, 10_000),
+        unknownToken: boundedInteger(event.valuation?.unknownToken, 10_000),
+        noRecentClose: boundedInteger(event.valuation?.noRecentClose, 10_000),
+        quoteUnavailable: boundedInteger(event.valuation?.quoteUnavailable, 10_000),
+        fxUnavailable: boundedInteger(event.valuation?.fxUnavailable, 10_000),
+      },
     };
   }
 

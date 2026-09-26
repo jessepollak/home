@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Query } from "@tanstack/react-query";
 import {
   compareActivityTransferKeys,
   isVerifiedActivitySession,
@@ -33,6 +34,8 @@ import { presentationMoneyMetadata } from "@/shared/formatting";
 export const activityStaleTimeMs = 10_000;
 export const activityContinuationBurstPages = 3;
 export const activityContinuationYieldMs = 250;
+export const activityValuationRetryDelaysMs = [15_000, 60_000, 180_000];
+const activityContinuationRetryDelaysMs = [1_000, 3_000] as const;
 
 export type UseActivityResult = ActivityState & {
   retry: () => void;
@@ -50,19 +53,52 @@ type ContinuationState = {
   scheduled: boolean;
   consumed: Set<string>;
   burst: number;
+  retries: number;
+  retryAt: number;
   generation: number;
   timer: ReturnType<typeof setTimeout> | null;
 };
 
+type ScheduleValuationRetry = (run: () => void, delayMs: number) => () => void;
+
+type ValuationRetryState = {
+  attempts: number;
+  cancel: (() => void) | null;
+  consumers: number;
+};
+
+const valuationRetries = new WeakMap<Query, ValuationRetryState>();
+
+function scheduleValuationRetryTimeout(run: () => void, delayMs: number): () => void {
+  const timer = setTimeout(run, delayMs);
+  return () => clearTimeout(timer);
+}
+
+function valuationRetryState(query: Query): ValuationRetryState {
+  let state = valuationRetries.get(query);
+  if (!state) {
+    state = { attempts: 0, cancel: null, consumers: 0 };
+    valuationRetries.set(query, state);
+  }
+  return state;
+}
+
+function cancelValuationRetry(state: ValuationRetryState) {
+  state.cancel?.();
+  state.cancel = null;
+}
+
 type ContinuationCursor = {
   fetchNextPage: (options: { cancelRefetch: boolean }) => Promise<{
-    data?: { pages: ActivityPage[] };
+    data?: { pages: ActivityPage[]; pageParams: unknown[] };
     hasNextPage?: boolean;
     isError?: boolean;
     isFetchNextPageError?: boolean;
   }>;
   hasNextPage: boolean;
   nextCursor: string | null;
+  pageParams: readonly unknown[];
+  pageCount: number;
 };
 
 type ScopedFlag = {
@@ -74,6 +110,7 @@ export function useActivity(
   session: VerifiedAccountSession | null,
   fetchActivity: FetchActivity,
   regionId: RegionId = "GLOBAL",
+  scheduleValuationRetry: ScheduleValuationRetry = scheduleValuationRetryTimeout,
 ): UseActivityResult {
   const currency = presentationMoneyMetadata(regionId).currency;
   const validSession = isVerifiedActivitySession(session) ? session : null;
@@ -92,11 +129,12 @@ export function useActivity(
     queryFn: async () => ownerKey ? initialActivityWindowEnd() : "",
   });
   const windowEnd = windowQuery.data ?? "";
+  const activityQueryKey = useMemo(() => ownerKey
+    ? ownerQueryKey(ownerKey, "activity", windowEnd, currency)
+    : ["unauthenticated", "activity-disabled"], [ownerKey, windowEnd, currency]);
 
   const query = useHomeInfiniteQuery({
-    queryKey: ownerKey
-      ? ownerQueryKey(ownerKey, "activity", windowEnd, currency)
-      : ["unauthenticated", "activity-disabled"],
+    queryKey: activityQueryKey,
     enabled: ownerKey !== null,
     initialPageParam: null as string | null,
     staleTime: activityStaleTimeMs,
@@ -135,6 +173,48 @@ export function useActivity(
   }, [query.data?.pages]);
 
   const continuationScope = `${ownerKey ?? "signed-out"}\u0000${windowEnd}\u0000${currency}`;
+  const activityQuery = ownerKey
+    ? queryClient.getQueryCache().find({ queryKey: activityQueryKey, exact: true })
+    : undefined;
+  const valuationReady = Boolean(ownerKey && query.isSuccess && !query.isFetching &&
+    hasRecoverableUnpriced(query.data?.pages));
+  useEffect(() => {
+    if (!activityQuery) return;
+    const state = valuationRetryState(activityQuery);
+    state.consumers += 1;
+    return () => {
+      state.consumers -= 1;
+      if (state.consumers === 0) cancelValuationRetry(state);
+    };
+  }, [activityQuery]);
+  useEffect(() => {
+    if (!activityQuery) return;
+    const state = valuationRetryState(activityQuery);
+    const readyNow = () => activityQuery.state.status === "success" &&
+      activityQuery.state.fetchStatus !== "fetching" &&
+      hasRecoverableUnpriced((activityQuery.state.data as { pages: ActivityPage[] } | undefined)?.pages);
+    const sync = (ready: boolean) => {
+      if (!ready || queryClient.getQueryCache().find({ queryKey: activityQueryKey, exact: true }) !== activityQuery) {
+        cancelValuationRetry(state);
+        return;
+      }
+      if (state.consumers === 0 || state.cancel || state.attempts >= activityValuationRetryDelaysMs.length) return;
+      state.cancel = scheduleValuationRetry(() => {
+        state.cancel = null;
+        if (state.consumers === 0 ||
+          queryClient.getQueryCache().find({ queryKey: activityQueryKey, exact: true }) !== activityQuery ||
+          document.visibilityState === "hidden" || !readyNow()) return;
+        state.attempts += 1;
+        void queryClient.refetchQueries({ queryKey: activityQueryKey, exact: true }, { cancelRefetch: false });
+      }, activityValuationRetryDelaysMs[state.attempts]);
+    };
+    const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+      if (event.query === activityQuery) sync(readyNow());
+    });
+    sync(valuationReady);
+    return unsubscribe;
+  }, [activityQuery, activityQueryKey, queryClient, scheduleValuationRetry, valuationReady]);
+
   const scopeRef = useRef(continuationScope);
   const [continuingFlag, setContinuingFlag] = useState<ScopedFlag>({
     scope: continuationScope,
@@ -160,13 +240,17 @@ export function useActivity(
     scheduled: false,
     consumed: new Set<string>(),
     burst: 0,
+    retries: 0,
     generation: 0,
+    retryAt: 0,
     timer: null,
   });
   const latestRef = useRef<ContinuationCursor>({
     fetchNextPage: query.fetchNextPage,
     hasNextPage: query.hasNextPage,
     nextCursor: mergedPage?.nextCursor ?? null,
+    pageParams: query.data?.pageParams ?? [],
+    pageCount: query.data?.pages.length ?? 0,
   });
   const pumpRef = useRef<() => Promise<void>>(async () => undefined);
   useEffect(() => {
@@ -174,6 +258,8 @@ export function useActivity(
       fetchNextPage: query.fetchNextPage,
       hasNextPage: query.hasNextPage,
       nextCursor: mergedPage?.nextCursor ?? null,
+      pageParams: query.data?.pageParams ?? [],
+      pageCount: query.data?.pages.length ?? 0,
     };
   });
 
@@ -193,11 +279,16 @@ export function useActivity(
 
   const pump = useCallback(async () => {
     const state = continuationRef.current;
-    if (state.running || state.failed || !state.visible) return;
+    if (state.running || state.failed || !state.visible || state.scheduled) return;
+    const retryWaitMs = state.retryAt - Date.now();
+    if (retryWaitMs > 0) {
+      schedule(retryWaitMs);
+      return;
+    }
     const latest = latestRef.current;
     const cursor = latest.nextCursor;
     if (!latest.hasNextPage || !cursor) return;
-    if (state.consumed.has(cursor)) {
+    if (state.consumed.has(cursor) || latest.pageParams.includes(cursor)) {
       state.failed = true;
       markFailed(true);
       markContinuing(false);
@@ -212,25 +303,50 @@ export function useActivity(
     state.running = true;
     const result = await latest.fetchNextPage({ cancelRefetch: false });
     const current = continuationRef.current;
-    current.running = false;
     if (generation !== current.generation) return;
+    current.running = false;
+    const data = result.data;
+    const appended = !!data && data.pages.length > latest.pageCount && data.pageParams.at(-1) === cursor;
     if (result.isError || result.isFetchNextPageError) {
-      current.failed = true;
-      markFailed(true);
-      markContinuing(false);
+      if (current.retries >= activityContinuationRetryDelaysMs.length) {
+        current.failed = true;
+        markFailed(true);
+        markContinuing(false);
+      } else {
+        const delay = activityContinuationRetryDelaysMs[current.retries]!;
+        current.retries += 1;
+        current.retryAt = Date.now() + delay;
+        if (current.visible) schedule(delay);
+      }
       return;
     }
-    const nextCursor = result.data?.pages.at(-1)?.nextCursor ?? null;
-    latestRef.current = {
-      ...latestRef.current,
-      hasNextPage: nextCursor !== null,
-      nextCursor,
-    };
-    current.consumed.add(cursor);
-    current.burst += 1;
-    markContinuing(nextCursor !== null && current.visible);
-    if (nextCursor === null || !current.visible) return;
-    schedule(0);
+    if (data) {
+      const nextCursor = data.pages.at(-1)?.nextCursor ?? null;
+      latestRef.current = {
+        ...latestRef.current,
+        hasNextPage: nextCursor !== null,
+        nextCursor,
+        pageParams: data.pageParams,
+        pageCount: data.pages.length,
+      };
+      if (appended) {
+        current.consumed.add(cursor);
+        current.retries = 0;
+        current.retryAt = 0;
+        current.burst += 1;
+        current.failed = false;
+        markFailed(false);
+        if (nextCursor !== null && (current.consumed.has(nextCursor) || data.pageParams.includes(nextCursor))) {
+          current.failed = true;
+          markFailed(true);
+          markContinuing(false);
+          return;
+        }
+      }
+      markContinuing(nextCursor !== null && current.visible);
+      if (nextCursor === null || !current.visible) return;
+    }
+    schedule(appended ? 0 : activityContinuationYieldMs);
   }, [markContinuing, markFailed, schedule]);
   useEffect(() => {
     pumpRef.current = pump;
@@ -246,6 +362,8 @@ export function useActivity(
     state.scheduled = false;
     state.consumed = new Set<string>();
     state.burst = 0;
+    state.retries = 0;
+    state.retryAt = 0;
     if (state.timer !== null) {
       clearTimeout(state.timer);
       state.timer = null;
@@ -294,13 +412,14 @@ export function useActivity(
     state.failed = false;
     state.consumed = new Set<string>();
     state.burst = 0;
+    state.retries = 0;
+    state.retryAt = 0;
     state.visible = true;
     markFailed(false);
     markContinuing(true);
     void pumpRef.current();
   }, [markContinuing, markFailed]);
 
-  const readError = loadMoreFailed || query.isFetchNextPageError;
   if (!ownerKey) {
     return {
       status: "unavailable", page: null, loadingMore: false,
@@ -327,13 +446,27 @@ export function useActivity(
     status: "ready",
     page: mergedPage,
     loadingMore: query.isFetchingNextPage,
-    loadMoreError: readError,
+    loadMoreError: loadMoreFailed,
     continuing,
     retry,
     refresh,
     setSentinelVisible,
     retryLoadMore,
   };
+}
+
+function hasRecoverableUnpriced(pages: readonly ActivityPage[] | undefined): boolean {
+  if (!pages?.length) return false;
+  const merged = mergeActivityPages([...pages]);
+  return merged.transfers.some((transfer) => isRecoverableUnpriced(transfer, merged.window.to));
+}
+
+function isRecoverableUnpriced(transfer: ActivityTransfer, windowEnd: string): boolean {
+  if (transfer.valuation.status !== "unpriced") return false;
+  if (transfer.valuation.reason === "quote-unavailable" || transfer.valuation.reason === "fx-unavailable") return true;
+  if (transfer.valuation.reason !== "no-recent-close") return false;
+  const ageMs = Date.parse(windowEnd) - Date.parse(transfer.blockTimestamp);
+  return ageMs >= 0 && ageMs <= 60 * 60_000;
 }
 
 function mergeActivityPages(pages: ActivityPage[]): ActivityPage {
@@ -401,7 +534,7 @@ function retainKnownValuations(page: ActivityPage, previousPages: readonly Activ
   });
 }
 
-const transientUnpricedReasons = new Set(["quote-unavailable", "fx-unavailable"]);
+const transientUnpricedReasons = new Set(["quote-unavailable", "fx-unavailable", "no-recent-close"]);
 
 function readActivityFailure(reason: unknown): { code: string | null; message: string | null } {
   if (!reason || typeof reason !== "object") return { code: null, message: null };

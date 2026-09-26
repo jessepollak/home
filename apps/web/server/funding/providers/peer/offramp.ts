@@ -172,6 +172,19 @@ export const peerOfframp: FundingOfframpProvider = {
     };
   },
 
+  async payeeHash(input, ctx) {
+    assertBinding(input.platform, input.currency, ctx);
+    const canonical = normalizeCashPayee(input.platform, input.canonicalHandle);
+    if (!canonical || typeof canonical !== "object" || typeof canonical.offchainId !== "string" || !canonical.offchainId ||
+      canonical.offchainId !== input.canonicalHandle ||
+      canonical.offchainId !== canonicalizeCashPayee(input.platform, input.canonicalHandle)) fail("Enter a valid payout handle.");
+    const registered = await clients(ctx).sdk.registerPayeeDetails({
+      processorNames: [input.platform], payeeData: [{ offchainId: canonical.offchainId }],
+    });
+    if (registered.hashedOnchainIds.length !== 1 || !isBytes32(registered.hashedOnchainIds[0])) fail();
+    return registered.hashedOnchainIds[0].toLowerCase() as `0x${string}`;
+  },
+
   async prepareWithdraw(input, ctx) {
     const { cash } = clients(ctx);
     const owned = await cash.orders(input.owner, { inFlight: false, limit: 100 });
@@ -207,7 +220,7 @@ export const peerOfframp: FundingOfframpProvider = {
         if (!isBytes32(payeeHash)) {
           if (input.onMalformedPayee === "throw") fail("Peer order payee hash is invalid.");
           emitServerEvent("funding-order", {
-            route: "/api/funding/offramp/orders",
+            route: "/api/actions",
             code: "OFFRAMP_ORDER_MALFORMED_PAYEE_SKIPPED",
             outcome: "ignored",
             provider: "peer",
@@ -218,6 +231,27 @@ export const peerOfframp: FundingOfframpProvider = {
         }
         return [mapOrder(order, input.owner, ctx)];
       });
+  },
+
+  withdrawnAmountFromReceipt(receipt, input) {
+    const parsed = depositIdParts(input.depositId);
+    if (!parsed || ![PEER_PRODUCTION_CONTRACTS.escrow, PEER_SANDBOX_CONTRACTS.escrow]
+      .some((escrow) => escrow.toLowerCase() === parsed.escrow.toLowerCase())) return null;
+    let amount = BigInt(0);
+    let matched = false;
+    for (const log of receipt.logs) {
+      if (log.address.toLowerCase() !== parsed.escrow.toLowerCase()) continue;
+      try {
+        const decoded = decodeEventLog({ abi: PEER_ESCROW_ABI, eventName: "DepositWithdrawn",
+          data: log.data, topics: log.topics as Log["topics"], strict: true });
+        if (decoded.args.depositId !== parsed.number || decoded.args.depositor.toLowerCase() !== input.owner.toLowerCase()) continue;
+        amount += decoded.args.amount;
+        matched = true;
+      } catch {
+        continue;
+      }
+    }
+    return matched ? amount.toString(10) : null;
   },
 
   depositIdFromReceipt(receipt, input) {
@@ -235,7 +269,10 @@ export const peerOfframp: FundingOfframpProvider = {
         });
         const args = decoded.args;
         return args.depositor.toLowerCase() === owner &&
-          args.token.toLowerCase() === BASE_USDC_ADDRESS.toLowerCase()
+          args.token.toLowerCase() === BASE_USDC_ADDRESS.toLowerCase() &&
+          args.amount === BigInt(input.amountAtomic) &&
+          args.intentAmountRange.min === BigInt(input.intentAmountRange.min) &&
+          args.intentAmountRange.max === BigInt(input.intentAmountRange.max)
           ? [`${escrow}_${args.depositId.toString(10)}`]
           : [];
       } catch {
@@ -379,6 +416,8 @@ function mapOrder(order: CashOrder, owner: `0x${string}`, ctx: OfframpContext): 
     canonicalHandle: null,
     payeeHash: requirePayeeHash(payout.payeeHash),
     amountAtomic: order.totalAmount.toString(10),
+    filledAmountAtomic: order.filledAmount.toString(10),
+    returnedAmountAtomic: order.returnedAmount.toString(10),
     remainingAmountAtomic: (order.totalAmount - order.filledAmount - order.returnedAmount).toString(10),
     nextActions: order.nextActions.includes("withdraw") ? ["withdraw"] : [],
     updatedAt: new Date((order.updatedAt ?? 0) * 1000).toISOString(),
@@ -406,12 +445,18 @@ function requirePayeeHash(value: unknown): Hex {
   return value;
 }
 
-function parseDepositId(value: string, ctx: OfframpContext): bigint {
+function depositIdParts(value: string): { escrow: `0x${string}`; number: bigint } | null {
   const split = value.lastIndexOf("_");
-  if (split < 1 || value.slice(0, split).toLowerCase() !== ctx.deployment.contracts.escrow.toLowerCase()) fail();
+  const escrow = value.slice(0, split);
   const raw = value.slice(split + 1);
-  if (!/^(0|[1-9]\d*)$/.test(raw)) fail();
-  return BigInt(raw);
+  if (split < 1 || !/^0x[0-9a-fA-F]{40}$/.test(escrow) || !/^(0|[1-9]\d*)$/.test(raw)) return null;
+  return { escrow: escrow as `0x${string}`, number: BigInt(raw) };
+}
+
+function parseDepositId(value: string, ctx: OfframpContext): bigint {
+  const parsed = depositIdParts(value);
+  if (!parsed || parsed.escrow.toLowerCase() !== ctx.deployment.contracts.escrow.toLowerCase()) fail();
+  return parsed.number;
 }
 
 function attributionSuffix(codes: readonly string[]): Hex {

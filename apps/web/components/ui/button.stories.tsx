@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useState } from "react";
-import { X } from "lucide-react";
-import { expect, fireEvent, userEvent, waitFor, within } from "storybook/test";
+import { Plus, X } from "lucide-react";
+import { expect, fireEvent, fn, userEvent, waitFor, within } from "storybook/test";
 import { Button } from "./button";
 
 const meta = {
@@ -17,6 +17,8 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
+export const Dark: Story = { ...Default, globals: { theme: "dark" } };
+
 export const Variants: Story = {
   render: () => (
     <div className="flex flex-wrap items-center gap-2">
@@ -29,7 +31,68 @@ export const Variants: Story = {
   ),
 };
 
+export const Sizes: Story = {
+  render: () => (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button size="default">Default</Button>
+      <Button size="sm">Small</Button>
+      <Button size="lg">Large</Button>
+      <Button size="touch">Touch</Button>
+      <Button size="icon-xs" aria-label="Extra small icon"><X aria-hidden="true" /></Button>
+      <Button size="icon-sm" aria-label="Small icon"><X aria-hidden="true" /></Button>
+      <Button size="icon" aria-label="Icon"><X aria-hidden="true" /></Button>
+      <Button size="icon-lg" aria-label="Large icon"><X aria-hidden="true" /></Button>
+    </div>
+  ),
+};
+
+function TouchStory() {
+  const [activations, setActivations] = useState(0);
+  return (
+    <div className="flex w-80 flex-col items-stretch gap-2">
+      <Button size="touch" onClick={() => setActivations((count) => count + 1)}>Primary touch</Button>
+      <Button size="touch" variant="outline" onClick={() => setActivations((count) => count + 1)}>
+        <Plus data-icon="inline-start" aria-hidden="true" />Outline touch
+      </Button>
+      <Button size="touch" disabled>Disabled touch</Button>
+      <Button size="touch" aria-busy="true">Busy touch</Button>
+      <Button size="touch">Retry loading more memes from the category after your connection is restored</Button>
+      <p role="status">{activations} activations</p>
+    </div>
+  );
+}
+
+export const Touch: Story = {
+  render: () => <TouchStory />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const buttons = ["Primary touch", "Outline touch", "Disabled touch", "Busy touch", "Retry loading more memes from the category after your connection is restored"].map((name) => canvas.getByRole("button", { name }));
+    for (const button of buttons) {
+      await expect(button.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    }
+    const longLabel = buttons[4];
+    await expect(longLabel.scrollWidth).toBeLessThanOrEqual(longLabel.clientWidth);
+    await expect(longLabel.getBoundingClientRect().height).toBeGreaterThan(44);
+    await expect(buttons[2]).toBeDisabled();
+    await expect(buttons[3]).toHaveAttribute("aria-busy", "true");
+    await userEvent.click(buttons[0]);
+    await userEvent.click(buttons[1]);
+    await expect(canvas.getByRole("status")).toHaveTextContent("2 activations");
+  },
+};
+
 export const Disabled: Story = { args: { disabled: true } };
+
+export const Loading: Story = {
+  args: { loading: true, onClick: fn() },
+  play: async ({ canvasElement, args }) => {
+    const button = within(canvasElement).getByRole("button", { name: "Continue" });
+    await expect(button).toHaveAttribute("aria-busy", "true");
+    await expect(button).toHaveAccessibleName("Continue");
+    await fireEvent.click(button);
+    await expect(args.onClick).not.toHaveBeenCalled();
+  },
+};
 
 function PressFeedbackStory() {
   const [activations, setActivations] = useState(0);

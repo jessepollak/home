@@ -71,6 +71,8 @@ describe("thin action dispatch", () => {
       fence: { assertCurrent: () => { throw new TransferExecutionError("stale-session"); } },
       confirmedPlans: new Map(),
       providerDispatches: new Map(),
+      dispatchAttempts: new Map(),
+      pendingDeclines: new Map(),
       confirm: async () => { serverPosts += 1; return plan; },
       dispatch: async () => { providerCalls += 1; return `0x${"ab".repeat(32)}`; },
       recordHandle: async () => { serverPosts += 1; },
@@ -84,47 +86,166 @@ describe("thin action dispatch", () => {
       new MfaError("CANCELLED", "fixture MFA cancellation"),
     ]) {
       let dispatches = 0;
+      let declines = 0;
+      const events: string[] = [];
       const providerDispatches = new Map<string, Promise<string>>();
+      const dispatchAttempts = new Map<string, number>();
+      const pendingDeclines = new Map<string, Promise<void>>();
       const execute = () => executeActionOnce({
         id,
         generation: 3,
         fence: { assertCurrent: () => {} },
         confirmedPlans: new Map([[id, plan]]),
         providerDispatches,
+        dispatchAttempts,
+        pendingDeclines,
+        beginRetry: async (attempt) => { events.push(`retry:${attempt}`); },
         confirm: async () => plan,
         dispatch: async () => {
           dispatches += 1;
+          events.push(`dispatch:${dispatches}`);
           if (dispatches === 1) throw rejection;
           return `0x${"ab".repeat(32)}`;
         },
         recordHandle: async () => {},
+        recordDecline: async (attempt) => { declines += 1; events.push(`decline:${attempt}`); throw new Error("decline POST unavailable"); },
       });
 
       await expect(execute()).rejects.toMatchObject({ reason: "rejected", cause: rejection });
       await expect(execute()).resolves.toBe(`0x${"ab".repeat(32)}`);
       expect(dispatches).toBe(2);
+      expect(declines).toBe(1);
+      expect(events).toEqual(["dispatch:1", "decline:0", "retry:1", "dispatch:2"]);
     }
 
     const ambiguous = new Error("transport aborted after dispatch began");
     let ambiguousDispatches = 0;
+    let ambiguousDeclines = 0;
     const providerDispatches = new Map<string, Promise<string>>();
+    const dispatchAttempts = new Map<string, number>();
+    const pendingDeclines = new Map<string, Promise<void>>();
     const executeAmbiguous = () => executeActionOnce({
       id,
       generation: 3,
       fence: { assertCurrent: () => {} },
       confirmedPlans: new Map([[id, plan]]),
       providerDispatches,
+      dispatchAttempts,
+      pendingDeclines,
       confirm: async () => plan,
       dispatch: async () => {
         ambiguousDispatches += 1;
         throw ambiguous;
       },
       recordHandle: async () => {},
+      recordDecline: async () => { ambiguousDeclines += 1; },
     });
 
     await expect(executeAmbiguous()).rejects.toBe(ambiguous);
     await expect(executeAmbiguous()).rejects.toBe(ambiguous);
     expect(ambiguousDispatches).toBe(1);
+    expect(ambiguousDeclines).toBe(0);
+  });
+
+  test("retry waits for a pending decline report before opening the next attempt", async () => {
+    let finishReport!: () => void;
+    const report = new Promise<void>((resolve) => { finishReport = resolve; });
+    const events: string[] = [];
+    const dispatchAttempts = new Map<string, number>();
+    const pendingDeclines = new Map<string, Promise<void>>();
+    const providerDispatches = new Map<string, Promise<string>>();
+    let dispatches = 0;
+    const execute = () => executeActionOnce({ id, generation: 3, fence: { assertCurrent: () => {} },
+      confirmedPlans: new Map([[id, plan]]), dispatchAttempts, pendingDeclines, providerDispatches,
+      confirm: async () => plan,
+      dispatch: async () => {
+        dispatches += 1;
+        events.push(`dispatch:${dispatches}`);
+        if (dispatches === 1) throw new BaseAccountConnectorError("cancelled");
+        return "handle";
+      },
+      recordHandle: async () => {},
+      recordDecline: async (attempt) => { events.push(`decline:${attempt}`); await report; },
+      beginRetry: async (attempt) => { events.push(`retry:${attempt}`); },
+    });
+    await expect(execute()).rejects.toMatchObject({ reason: "rejected" });
+    const second = execute();
+    await Promise.resolve();
+    expect(events).toEqual(["dispatch:1", "decline:0"]);
+    finishReport();
+    await expect(second).resolves.toBe("handle");
+    expect(events).toEqual(["dispatch:1", "decline:0", "retry:1", "dispatch:2"]);
+  });
+
+  test("a failed beginRetry prevents that provider dispatch and a later retry can proceed", async () => {
+    let dispatches = 0;
+    let retries = 0;
+    const dispatchAttempts = new Map<string, number>();
+    const pendingDeclines = new Map<string, Promise<void>>();
+    const providerDispatches = new Map<string, Promise<string>>();
+    const execute = () => executeActionOnce({ id, generation: 3, fence: { assertCurrent: () => {} },
+      confirmedPlans: new Map([[id, plan]]), dispatchAttempts, pendingDeclines, providerDispatches,
+      confirm: async () => plan,
+      dispatch: async () => {
+        dispatches += 1;
+        if (dispatches === 1) throw new BaseAccountConnectorError("cancelled");
+        return "handle";
+      },
+      recordHandle: async () => {}, recordDecline: async () => {},
+      beginRetry: async (attempt) => {
+        retries += 1;
+        expect(attempt).toBe(1);
+        if (retries === 1) throw new Error("retry unavailable");
+      },
+    });
+    await expect(execute()).rejects.toMatchObject({ reason: "rejected" });
+    await expect(execute()).rejects.toMatchObject({ reason: "unavailable" });
+    expect(dispatches).toBe(1);
+    await expect(execute()).resolves.toBe("handle");
+    expect(retries).toBe(2);
+    expect(dispatches).toBe(2);
+  });
+
+  test("a never-settling decline report does not delay rejection and bounds retry waiting", async () => {
+    const fake = fakeClock();
+    const originalSetTimeout = globalThis.setTimeout;
+    const originalClearTimeout = globalThis.clearTimeout;
+    globalThis.setTimeout = ((callback: TimerHandler, delay?: number) => fake.clock.setTimer(() => {
+      if (typeof callback === "function") callback();
+    }, delay ?? 0)) as typeof setTimeout;
+    globalThis.clearTimeout = ((timer: unknown) => fake.clock.clearTimer(timer)) as typeof clearTimeout;
+    try {
+      let reportStarted = false;
+      const pendingReport = new Promise<void>(() => {});
+      const providerDispatches = new Map<string, Promise<string>>();
+      const dispatchAttempts = new Map<string, number>();
+      const pendingDeclines = new Map<string, Promise<void>>();
+      let dispatches = 0;
+      const execute = () => executeActionOnce({
+        id, generation: 3, fence: { assertCurrent: () => {} },
+        confirmedPlans: new Map([[id, plan]]), providerDispatches, dispatchAttempts, pendingDeclines,
+        confirm: async () => plan,
+        dispatch: async () => {
+          dispatches += 1;
+          if (dispatches === 1) throw new BaseAccountConnectorError("cancelled");
+          return "handle";
+        },
+        recordHandle: async () => {},
+        recordDecline: () => { reportStarted = true; return pendingReport; },
+        beginRetry: async () => {},
+      });
+      await expect(execute()).rejects.toMatchObject({ reason: "rejected" });
+      expect(reportStarted).toBe(true);
+      const retry = execute();
+      await Promise.resolve();
+      expect(dispatches).toBe(1);
+      await fake.advance(5_000);
+      await expect(retry).resolves.toBe("handle");
+      expect(dispatches).toBe(2);
+    } finally {
+      globalThis.setTimeout = originalSetTimeout;
+      globalThis.clearTimeout = originalClearTimeout;
+    }
   });
 
   test("records and resolves a Base Account wallet-generated handle", async () => {
@@ -144,6 +265,7 @@ describe("thin action dispatch", () => {
       updateAuthorizationBoundary: () => {},
       updateOwnerKey: () => false,
     };
+    const fee = { payment: "usdc", token: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", paymaster: "0x2FAEB0760D4230Ef2aC21496Bb4F0b47D634FD4c", maxFeeBaseUnits: "20000", decimals: 6 };
     const handlePosts: Array<{ path: string; body: unknown }> = [];
     const transport = {
       fetchAccountResource: async (path: string, options?: { body?: unknown }) => {
@@ -153,6 +275,7 @@ describe("thin action dispatch", () => {
             kind: "send",
             summary: {
               title: "Send",
+              networkFee: fee,
               amounts: [],
               warnings: [],
               expiresAt: "2099-01-01T00:00:00.000Z",
@@ -176,9 +299,10 @@ describe("thin action dispatch", () => {
       assertUnchanged: async () => {},
       signMessage: async () => "0x12",
       signTypedData: async () => "0x12",
-      sendCalls: async (_calls, requestId, beforeDispatch, batchGasLimit) => {
+      sendCalls: async (_calls, requestId, beforeDispatch, batchGasLimit, paymaster) => {
         expect(requestId).toBe(id);
         expect(batchGasLimit).toBe("150000");
+        expect(paymaster).toEqual({ url: new URL(`/api/actions/${id}/paymaster`, window.location.origin).toString(), context: { erc20: fee.token.toLowerCase() } });
         await beforeDispatch?.();
         return walletHandle;
       },
@@ -202,6 +326,7 @@ describe("thin action dispatch", () => {
         sdkGetUserOperation: undefined,
         baseConnection,
         transport,
+        signTypedData: async () => "0x12",
       });
       return null;
     }
@@ -443,7 +568,7 @@ describe("thin action dispatch", () => {
           return {
             id,
             kind: "send",
-            summary: { title: "Send", amounts: [], warnings: [], expiresAt: "2099-01-01T00:00:00.000Z" },
+            summary: { title: "Send", networkFee: { payment: "usdc", token: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", paymaster: "0x2FAEB0760D4230Ef2aC21496Bb4F0b47D634FD4c", maxFeeBaseUnits: "20000", decimals: 6 }, amounts: [], warnings: [], expiresAt: "2099-01-01T00:00:00.000Z" },
             calls: plan.calls,
             expiresAt: "2099-01-01T00:00:00.000Z",
           };
@@ -454,6 +579,7 @@ describe("thin action dispatch", () => {
       },
     } as unknown as AuthenticatedTransport;
     const sentTo: string[] = [];
+    const paymasterOptions: unknown[] = [];
     const polledFor: string[] = [];
     let execution!: ReturnType<typeof useMoneyActionExecution>;
 
@@ -466,6 +592,7 @@ describe("thin action dispatch", () => {
         ownerFence,
         sdkSendUserOperation: async (options) => {
           sentTo.push(options.evmSmartAccount);
+          paymasterOptions.push({ paymasterUrl: options.paymasterUrl, paymasterContext: options.paymasterContext, useCdpPaymaster: options.useCdpPaymaster });
           return { userOperationHash };
         },
         sdkGetUserOperation: async (options) => {
@@ -474,6 +601,7 @@ describe("thin action dispatch", () => {
         },
         baseConnection: { current: null } as MutableRefObject<ConnectedBaseAccount | null>,
         transport,
+        signTypedData: async () => "0x12",
       });
       return null;
     }
@@ -491,9 +619,12 @@ describe("thin action dispatch", () => {
     try {
       const action = await execution.resumeMoneyAction(id);
       expect(action.owner.address).toBe(lowercase);
+      await expect(execution.executeMoneyAction({ ...action, networkFee: { payment: "usdc", token: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", paymaster: "0x2FAEB0760D4230Ef2aC21496Bb4F0b47D634FD4c", maxFeeBaseUnits: "bad", decimals: 6 } })).rejects.toMatchObject({ reason: "unavailable" });
+      expect(sentTo).toEqual([]);
       await expect(execution.executeMoneyAction(action)).resolves.toMatchObject({ id, status: "submitted", userOperationHash });
       await fake.advance(1_500);
       expect(sentTo).toEqual([checksummed]);
+      expect(paymasterOptions).toEqual([{ paymasterUrl: new URL(`/api/actions/${id}/paymaster`, window.location.origin).toString(), paymasterContext: { erc20: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" }, useCdpPaymaster: undefined }]);
       expect(polledFor).toEqual([checksummed]);
     } finally {
       globalThis.setTimeout = originalSetTimeout;
@@ -509,12 +640,16 @@ describe("thin action dispatch", () => {
     let recordedHandle: string | null = null;
     const confirmedPlans = new Map();
     const providerDispatches = new Map<string, Promise<string>>();
+    const dispatchAttempts = new Map<string, number>();
+    const pendingDeclines = new Map<string, Promise<void>>();
     const execute = () => executeActionOnce({
       id,
       generation: 3,
       fence: { assertCurrent: (generation) => { if (generation !== 3) throw new Error("stale"); } },
       confirmedPlans,
       providerDispatches,
+      dispatchAttempts,
+      pendingDeclines,
       confirm: async () => { confirmPosts += 1; return plan; },
       dispatch: async () => {
         dispatches += 1;

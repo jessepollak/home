@@ -57,7 +57,7 @@ function usePersistedPresentationRegion(): RegionId {
     return resolvePresentation({
       persistedCountry: readAnonymousCountryPreference(
         () => window.localStorage,
-      ),
+      ).country,
     }).region.id;
   });
   return regionId;

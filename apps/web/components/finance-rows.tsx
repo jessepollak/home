@@ -1,5 +1,5 @@
 import { useId, type ReactNode } from "react";
-import { ArrowDown, ArrowLeftRight, ArrowUp, ChevronRight } from "lucide-react";
+import { ArrowDown, ArrowLeftRight, ArrowUp, ChevronRight, CircleAlert, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Item,
@@ -19,14 +19,17 @@ type FinanceRowProps = {
   iconTone?: "neutral" | "incoming" | "outgoing" | "self" | "outlined" | "mark";
   label: ReactNode;
   context?: ReactNode;
+  contextLines?: 1 | 2;
   contextTitle?: string;
   value?: ReactNode;
   valueContext?: ReactNode;
   valueContextTitle?: string;
   valueTone?: FinanceRowTone;
-  onActivate?: () => void;
+  onActivate?: (opener: HTMLElement) => void;
   activateLabel?: string;
+  attention?: string;
   chevron?: boolean;
+  readRetry?: { label: string; onRetry: () => void };
 };
 
 export type ActivityRowProps = Omit<FinanceRowProps, "kind">;
@@ -58,6 +61,7 @@ function FinanceRow({
   iconTone = "neutral",
   label,
   context,
+  contextLines = 1,
   contextTitle,
   value,
   valueContext,
@@ -65,7 +69,9 @@ function FinanceRow({
   valueTone = "default",
   onActivate,
   activateLabel,
+  attention,
   chevron = true,
+  readRetry,
 }: FinanceRowProps) {
   const hintId = useId();
   const hasValue = value !== undefined || valueContext !== undefined;
@@ -86,25 +92,26 @@ function FinanceRow({
           {typeof icon === "string" ? <DirectionIcon value={icon} /> : icon}
         </span>
       </ItemMedia>
-      <div className="flex min-w-0 flex-1 items-start gap-3" data-slot="finance-row-body">
-        <ItemContent className="min-w-0 gap-0.5">
-          <ItemTitle className="w-full">{label}</ItemTitle>
+      <div className={cn("flex min-w-0 flex-1 items-start gap-3 @max-[14rem]/finance-row:flex-col @max-[14rem]/finance-row:gap-1", contextLines === 2 && "flex-wrap gap-y-1")} data-slot="finance-row-body">
+        <ItemContent className={cn("min-w-0 gap-0.5 @max-[14rem]/finance-row:w-full @max-[14rem]/finance-row:self-stretch", contextLines === 2 && "min-w-min", (context === undefined || value === undefined || valueContext === undefined) && "self-center")}>
+          <ItemTitle className="w-full" truncate="stacked">{label}</ItemTitle>
           {context === undefined ? null : (
-            <ItemDescription lines={1} title={contextTitle}>
+            <ItemDescription lines={contextLines} title={contextTitle}>
               {context}
             </ItemDescription>
           )}
         </ItemContent>
+        {onActivate && attention ? <span className="sr-only">{attention}</span> : null}
         {hasValue ? (
           <ItemContent
-            className="max-w-2/3 min-w-0 !flex-none items-end gap-0.5 overflow-hidden text-right"
+            className={cn("max-w-2/3 min-w-0 !flex-none items-end gap-0.5 overflow-hidden text-end @max-[14rem]/finance-row:max-w-full", contextLines === 2 && "ms-auto max-w-full", (value === undefined || valueContext === undefined) && "self-center", "@max-[14rem]/finance-row:self-end")}
             data-slot="finance-row-value"
           >
             {value === undefined ? null : (
               <ItemTitle
-                className="w-full min-w-0 justify-end"
+                className="w-full min-w-0 justify-end text-end"
                 numeric
-                truncate={false}
+                truncate="wrap"
                 tone={valueTitleTone[valueTone]}
                 data-value-tone={valueTone}
               >
@@ -115,7 +122,7 @@ function FinanceRow({
               <ItemDescription
                 lines={1}
                 size="xs"
-                className="w-full text-right"
+                className="w-full text-end"
                 title={valueContextTitle}
               >
                 {valueContext}
@@ -124,19 +131,23 @@ function FinanceRow({
           </ItemContent>
         ) : null}
       </div>
-      {onActivate && chevron ? (
+      {readRetry || (onActivate && (attention || chevron)) ? (
         <ItemActions aria-hidden="true">
-          <ChevronRight className="size-4 text-muted-foreground" />
+          {readRetry
+            ? <span className="size-4" />
+            : attention
+            ? <CircleAlert className="size-4 text-foreground" />
+            : <ChevronRight className="size-4 text-muted-foreground" />}
         </ItemActions>
       ) : null}
     </>
   );
 
   return (
-    <li>
+    <li className={cn("@container/finance-row", readRetry && "relative")}>
       <Item
         data-kind={kind}
-        className={cn("flex-nowrap items-center gap-3 py-2", onActivate && "cursor-pointer")}
+        className={cn("flex-nowrap items-center gap-3 py-2", onActivate && "h-auto cursor-pointer")}
         {...(onActivate
           ? {
               render: (
@@ -145,7 +156,7 @@ function FinanceRow({
                   variant="ghost"
                   press="none"
                   aria-describedby={hintId}
-                  onClick={onActivate}
+                  onClick={(event) => onActivate(event.currentTarget)}
                 />
               ),
             }
@@ -158,6 +169,18 @@ function FinanceRow({
           </span>
         ) : null}
       </Item>
+      {readRetry ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-lg"
+          className="absolute -inset-e-0.5 top-1/2 z-10 size-11 -translate-y-1/2"
+          aria-label={readRetry.label}
+          onClick={readRetry.onRetry}
+        >
+          <RotateCw className="size-4 text-primary" aria-hidden="true" />
+        </Button>
+      ) : null}
     </li>
   );
 }

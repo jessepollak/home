@@ -23,20 +23,20 @@
 }
 
 .trigger[data-tone="green"]::before {
-  background: #137333;
+  background: var(--status-positive);
 }
 
 .trigger[data-tone="yellow"]::before {
-  background: #9a6700;
+  background: var(--status-caution);
 }
 
 .trigger[data-tone="yellow"][data-indicator="hollow"]::before {
   background: transparent;
-  box-shadow: inset 0 0 0 2px #9a6700;
+  box-shadow: inset 0 0 0 2px var(--status-caution);
 }
 
 .trigger[data-tone="red"]::before {
-  background: #b42318;
+  background: var(--status-negative);
 }
 
 .trigger:focus-visible {
@@ -110,3 +110,4 @@
   text-decoration: underline;
   text-underline-offset: 0.15em;
 }
+

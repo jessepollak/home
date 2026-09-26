@@ -507,6 +507,7 @@ export function AccountWalletSessionOwner({
     sdkGetUserOperation: getUserOperation,
     baseConnection: baseConnectionRef,
     transport,
+    signTypedData: (...args) => signTypedData(...args),
   });
   useLayoutEffect(() => {
     ownerBoundaryResetRef.current = () => {

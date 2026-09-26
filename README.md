@@ -43,6 +43,7 @@ Capture provenance and regeneration instructions are in [`docs/readme/`](docs/re
 
 - [Bun](https://bun.sh/) **1.3.12**, pinned by `packageManager`.
 - Node.js **22.13 or newer**.
+- [FFmpeg](https://ffmpeg.org/download.html), only for design runs that put motion clips in Figma ([Motion frames](docs/design-explorations/figma-workflow.md#motion-frames)); for example `brew install ffmpeg` or `apt-get install ffmpeg`.
 
 ### Install and run
 

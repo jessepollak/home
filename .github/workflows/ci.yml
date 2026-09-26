@@ -321,5 +321,5 @@ jobs:
       - name: Apply the Home database schema
         run: bun run --cwd apps/web db:migrate
 
-      - name: Test actions, funding, and balance stores against disposable PostgreSQL
-        run: bun test apps/web/server/operator-settings/store.postgres.test.ts apps/web/server/actions/store.postgres.test.ts apps/web/server/funding/core/postgres-store.integration.test.ts apps/web/server/funding/core/customer-postgres-store.integration.test.ts apps/web/server/funding/core/user-token-postgres-store.integration.test.ts apps/web/server/balances/postgres-snapshot-store.test.ts apps/web/server/balances/postgres-webhook-subscription-store.test.ts apps/web/server/balances/postgres-price-observation-store.test.ts
+      - name: Test actions, funding, balances, and operator stores against disposable PostgreSQL
+        run: bun test apps/web/server/operator-settings/store.postgres.test.ts apps/web/server/customers/resolve.postgres.test.ts apps/web/server/actions/store.postgres.test.ts apps/web/server/actions/outcomes.postgres.test.ts apps/web/server/actions/store.cashout.postgres.test.ts apps/web/server/funding/core/postgres-store.integration.test.ts apps/web/server/funding/core/customer-postgres-store.integration.test.ts apps/web/server/funding/core/user-token-postgres-store.integration.test.ts apps/web/server/balances/postgres-snapshot-store.test.ts apps/web/server/balances/postgres-webhook-subscription-store.test.ts apps/web/server/balances/postgres-price-observation-store.test.ts

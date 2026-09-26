@@ -123,6 +123,36 @@ async function markPersistedQueriesStale(page: Page) {
   });
 }
 
+test("cold balances request and paint finish before delayed session verification", async ({ page }) => {
+  await seedSignedInSession(page);
+  const fixtures = await installApiFixtures(page);
+  const sessionObserved = fixtures.delayNextSession();
+  const balancesObserved = fixtures.delayNextBalances();
+  try {
+    await page.goto("/home");
+    await sessionObserved;
+    await balancesObserved;
+    expect(fixtures.balancesReads()).toBeGreaterThan(0);
+    fixtures.releaseBalances();
+    await expect.poll(() => page.evaluate(() =>
+      performance.getEntriesByName("balances:painted", "mark").length,
+    )).toBeGreaterThan(0);
+    expect(await page.evaluate(() =>
+      performance.getEntriesByName("session:verified", "mark").length,
+    )).toBe(0);
+    await expect(page.getByText("Across 2 assets", { exact: true }).first()).toBeVisible();
+    fixtures.releaseSession();
+    await expect.poll(() => page.evaluate(() =>
+      performance.getEntriesByName("session:verified", "mark").length,
+    )).toBeGreaterThan(0);
+    await expect(page.locator('[data-shell-panel]:not([hidden]) [aria-label="Total balance"]'))
+      .not.toHaveAttribute("aria-busy", "true");
+  } finally {
+    fixtures.releaseBalances();
+    fixtures.releaseSession();
+  }
+});
+
 test("persisted balances paint before verification and settle without row shift", async ({ page }) => {
   await seedSignedInSession(page);
   const fixtures = await installApiFixtures(page);
@@ -144,21 +174,21 @@ test("persisted balances paint before verification and settle without row shift"
   await page.reload();
   await sessionObserved;
   await expect(page.getByText("Across 2 assets", { exact: true }).first()).toBeVisible();
-  expect(fixtures.balancesReads()).toBe(balancesReadsBeforeReload);
+  await balancesObserved;
+  expect(fixtures.balancesReads()).toBeGreaterThan(balancesReadsBeforeReload);
   const provisionalLayout = await visibleBalanceRowLayout(page);
   const provisionalPaint = await page.evaluate(() => ({
     balances: performance.getEntriesByName("balances:painted", "mark")[0]?.startTime ?? Infinity,
     verified: performance.getEntriesByName("session:verified", "mark")[0]?.startTime ?? Infinity,
   }));
-  expect(provisionalPaint.balances).toBeLessThan(coldPaint);
+  expect(provisionalPaint.balances).toBeLessThan(BALANCES_PAINTED_BUDGET_MS);
   expect(provisionalPaint.balances).toBeLessThan(provisionalPaint.verified);
 
+  fixtures.releaseBalances();
   fixtures.releaseSession();
   await expect.poll(() => page.evaluate(() =>
     performance.getEntriesByName("session:verified", "mark").length,
   )).toBeGreaterThan(0);
-  await balancesObserved;
-  fixtures.releaseBalances();
   await expect(page.locator('[data-shell-panel]:not([hidden]) [aria-label="Total balance"]'))
     .not.toHaveAttribute("aria-busy", "true");
   expect(await visibleBalanceRowLayout(page)).toEqual(provisionalLayout);

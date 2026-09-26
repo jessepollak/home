@@ -634,8 +634,8 @@ describe("composite account provider switches", () => {
 
     act(() => setCdpState({ isInitialized: true }));
     await view.findByRole("textbox", { name: "Verification code" });
-    fireEvent.input(view.getByRole("textbox", { name: "Verification code" }), {
-      target: { value: "123456" },
+    fireEvent.paste(view.getByRole("textbox", { name: "Verification code" }), {
+      clipboardData: { getData: () => "123456" },
     });
     fireEvent.click(view.getByRole("button", { name: "Verify and continue" }));
 

@@ -1,4 +1,5 @@
 import type { AccountProvider } from "@/shared/account/session-types";
+import type { TradeMoneyActionMetadata, TradeSigningRequest } from "@/shared/trading/contract";
 
 export const ACTION_KINDS = [
   "send",
@@ -62,6 +63,7 @@ type CashoutMoneyActionMetadataBase = {
   providerId: string;
   providerName: string;
   environment: "production" | "sandbox";
+  region?: string;
   platform: string;
   platformLabel: string;
   currency: string;
@@ -73,8 +75,8 @@ type CashoutMoneyActionMetadataBase = {
   escrow: `0x${string}`;
 };
 export type CashoutMoneyActionMetadata = CashoutMoneyActionMetadataBase & (
-  | { operation: "deposit"; canonicalHandle: string; depositId?: never }
-  | { operation: "withdraw"; canonicalHandle?: never; depositId: string }
+  | { operation: "deposit"; canonicalHandle: string; payeeHash?: `0x${string}`; depositId?: never }
+  | { operation: "withdraw"; canonicalHandle?: never; payeeHash?: never; depositId: string }
 );
 
 export type SavingsMoneyActionMetadata = {
@@ -115,7 +117,18 @@ export type SavingsMoneyActionMetadata = {
 export type MoneyActionMetadata =
   | BorrowMoneyActionMetadata
   | CashoutMoneyActionMetadata
-  | SavingsMoneyActionMetadata;
+  | SavingsMoneyActionMetadata
+  | TradeMoneyActionMetadata;
+
+export type MoneyActionNetworkFee =
+  | {
+      payment: "usdc";
+      token: `0x${string}`;
+      paymaster: `0x${string}`;
+      maxFeeBaseUnits: string;
+      decimals: 6;
+    }
+  | { payment: "native" };
 
 export type MoneyActionDraft = {
   kind: ActionKind;
@@ -126,6 +139,8 @@ export type MoneyActionDraft = {
   expiresAt: string;
   quoteId?: string;
   metadata?: MoneyActionMetadata;
+  networkFee?: MoneyActionNetworkFee;
+  signing?: TradeSigningRequest;
 };
 
 export type MoneyActionOwner = {

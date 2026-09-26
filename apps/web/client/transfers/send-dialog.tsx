@@ -1,14 +1,17 @@
 "use client";
 
+import { useMoneyActionOutcome } from "@/client/actions/money-action-outcome";
+import { openPanelAfterClose, useOptionalHomeShellRouting } from "@/client/home/panel-routing";
+import { MoneyResult, MoneyResultFooter } from "@/client/money-modal/money-result";
 import { type SendAvailability } from "@/client/home/send-availability";
 import { MoneyTicker } from "@/components/money-ticker";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertIcon, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { presentPortfolioAssetMark, type AssetMarkResolution } from "@/client/asset-mark/presentation";
 import { useEffect, useRef, useState, type ComponentProps, type ReactNode, useMemo } from "react";
-import { ChevronRight, LoaderCircle } from "lucide-react";
+import { CircleAlertIcon, ChevronRight, LoaderCircle } from "lucide-react";
 import { AddressField } from "@/components/address";
 import { FieldSeparator } from "@/components/ui/field";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from "@/components/ui/item";
@@ -19,7 +22,6 @@ import { formatAddress, formatUsdStablecoinAmount } from "@/shared/formatting";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { presentationRegions, type RegionId } from "@/config/regions";
 import { readProviderBindings, type FundingOfframpBinding } from "@/shared/funding/contracts/providers";
-import { readCashoutOrdersResponse, type CashoutOrderSummary } from "@/shared/funding/contracts/offramp-orders";
 import { canonicalizeCashPayee } from "@/shared/funding/cash-payee";
 import {
   readRecentTransferRecipientsResponse,
@@ -37,10 +39,9 @@ import {
   MoneyModalBody,
   MoneyModalFooter,
   MoneyModalHeader,
-  MoneyNumpad,
+  amountExceedsCeiling,
   isPositiveDecimalAmount,
   useMoneyAssetPricing,
-  type MoneyAmountChangeSource,
 } from "@/client/money-modal";
 import {
   assertTransferRequest,
@@ -53,8 +54,10 @@ import {
 } from "@/shared/transfers/transfer-helpers";
 import { TransferExecutionError, type TransferRequest } from "@/shared/transfers/types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
+import { networkFeeErrorMessage } from "@/shared/money-actions/network-fee";
+import { maxAmountAfterNetworkFee, useNetworkFeeReserve } from "@/client/money-modal/network-fee-policy";
 
-type SendStep = "amount" | "destination" | "payout" | "handle" | "handle-confirm" | "preparing" | "confirm" | "pending" | "error";
+type SendStep = "amount" | "destination" | "payout" | "handle" | "handle-confirm" | "preparing" | "confirm" | "pending" | "error" | "result";
 type CashoutRequest = {
   operation: "deposit" | "withdraw";
   providerId: string;
@@ -83,10 +86,12 @@ export function SendDialog({
   executeMoneyAction,
   ownerBoundary,
   regionId = "US",
+  regionReady = true,
   immediate = false,
   resumeActionId = null,
   onReview,
   onInvalidResume,
+  onSubmitted,
   onClose,
   onClosed,
 }: {
@@ -100,10 +105,12 @@ export function SendDialog({
   executeMoneyAction: AccountWalletClient["executeMoneyAction"];
   ownerBoundary: string | null;
   regionId?: RegionId;
+  regionReady?: boolean;
   resumeActionId?: string | null;
   immediate?: boolean;
   onReview?: (actionId: string) => void;
   onInvalidResume?: () => void;
+  onSubmitted?: () => void;
   onClose: () => void;
   onClosed?: () => void;
 }) {
@@ -115,17 +122,11 @@ export function SendDialog({
     recipients: ReadonlyArray<RecentTransferRecipient>;
   } | null>(null);
   const [amount, setAmount] = useState("");
-  const [amountChangeSource, setAmountChangeSource] =
-    useState<MoneyAmountChangeSource>("programmatic");
   const [request, setRequest] = useState<TransferRequest | null>(null);
   const [cashout, setCashout] = useState<CashoutRequest | null>(null);
   const [offramps, setOfframps] = useState<ReadonlyArray<FundingOfframpBinding> | null>([]);
   const [providersLoadedFor, setProvidersLoadedFor] = useState<string | null>(null);
   const [providerRetry, setProviderRetry] = useState(0);
-  const [activeOrders, setActiveOrders] = useState<ReadonlyArray<CashoutOrderSummary>>([]);
-  const [ordersLoadedFor, setOrdersLoadedFor] = useState<string | null>(null);
-  const [recoveryEligible, setRecoveryEligible] = useState(false);
-  const [recoveryAttemptedFor, setRecoveryAttemptedFor] = useState<string | null>(null);
   const [selectedOfframp, setSelectedOfframp] = useState<FundingOfframpBinding | null>(null);
   const [selectedPlatform, setSelectedPlatform] = useState<FundingOfframpBinding["paymentMethods"][number] | null>(null);
   const [payoutHandle, setPayoutHandle] = useState("");
@@ -133,12 +134,15 @@ export function SendDialog({
   const [handleConfirmation, setHandleConfirmation] = useState("");
   const [action, setAction] = useState<PreparedMoneyAction | null>(null);
   const [step, setStep] = useState<SendStep>("amount");
+  const [submission, setSubmission] = useState<"submitted" | "ambiguous" | "failed" | null>(null);
+  const [submittedAt, setSubmittedAt] = useState<string | undefined>();
+  const submittingRef = useRef(false);
+  const routing = useOptionalHomeShellRouting();
   const [error, setError] = useState<string | null>(null);
   const resumedActionRef = useRef<string | null>(null);
   const selectedStillAvailable = !assetId || availableAssets?.some((asset) => asset.id === assetId) !== false;
   const activeAssetId = assetId && selectedStillAvailable ? assetId : availableAssets?.[0]?.id ?? null;
-  function changeAmount(value: string, source: MoneyAmountChangeSource) {
-    setAmountChangeSource(source);
+  function changeAmount(value: string) {
     setAmount(value);
   }
   function changeRecipient(value: string) {
@@ -147,7 +151,7 @@ export function SendDialog({
 
   if (assetId && !selectedStillAvailable) {
     setAssetId(activeAssetId);
-    if (amount !== "") changeAmount("", "programmatic");
+    if (amount !== "") changeAmount("");
   }
   const trimmedRecipient = recipient.trim();
   const typedAddress = isTransferRecipient(trimmedRecipient) ? normalizeTransferRecipient(trimmedRecipient) : null;
@@ -163,16 +167,19 @@ export function SendDialog({
     : "Enter a 0x address or a name like example.base.eth.";
   const selectedAsset = activeAssetId ? getTransferAsset(activeAssetId) : null;
   const pricing = useMoneyAssetPricing(selectedAsset?.symbol ?? "");
+  const { reserve, failed: reserveFailed, retry: retryReserve } = useNetworkFeeReserve(ownerBoundary, fetchAccountResource, open);
   const selectedAvailability = availableAssets?.find((asset) => asset.id === activeAssetId);
+  const sendCeiling = selectedAvailability ? atomicToDecimal(maxAmountAfterNetworkFee(selectedAvailability.balanceBaseUnits, selectedAsset?.symbol ?? "", reserve) ?? "0", selectedAvailability.decimals) : null;
+  const ceilingSettled = selectedAsset?.symbol.toUpperCase() !== "USDC" || reserve !== undefined;
+  const overAvailable = ceilingSettled && amountExceedsCeiling(amount, sendCeiling);
+  const canContinueAmount = Boolean(selectedAsset) && ceilingSettled && isPositiveDecimalAmount(amount) && !overAvailable;
+  const continueFromAmount = () => { setError(null); setStep("destination"); };
   const resourceBoundary = `${ownerBoundary ?? ""}:${regionId}`;
   const recentRecipients = ownerBoundary && recentRecipientState?.ownerBoundary === ownerBoundary
     ? recentRecipientState.recipients
     : [];
-  const providersLoaded = providersLoadedFor === resourceBoundary;
-  const ordersLoaded = ordersLoadedFor === resourceBoundary;
+  const providersLoaded = regionReady && providersLoadedFor === resourceBoundary;
   const eligibleOfframps = (providersLoaded ? offramps ?? [] : []).filter((binding) => selectedAsset?.symbol === "USDC" && binding.assetId === "base:usdc");
-  const visibleActiveOrders = ordersLoaded ? activeOrders : [];
-  const recoveryAttempted = recoveryAttemptedFor === resourceBoundary;
   const assetOptions = useMemo(() => availableAssets?.map((asset) => ({
     id: asset.id, label: asset.symbol, description: asset.name, currency: asset.cashCurrency,
     mark: presentPortfolioAssetMark({ assetKey: asset.assetKey, name: asset.name, symbol: asset.symbol, currency: asset.cashCurrency }, assetMarkResolution),
@@ -220,7 +227,7 @@ export function SendDialog({
   }, [fetchAccountResource, open, ownerBoundary, recentRecipientState]);
 
   useEffect(() => {
-    if (!open || !ownerBoundary || !fetchAccountResource) return;
+    if (!open || !ownerBoundary || !fetchAccountResource || !regionReady) return;
     let cancelled = false;
     const requestedBoundary = resourceBoundary;
     void fetchAccountResource(`/api/funding/providers?region=${encodeURIComponent(regionId)}&direction=offramp`)
@@ -228,31 +235,10 @@ export function SendDialog({
       .catch(() => { if (!cancelled) setOfframps(null); })
       .finally(() => { if (!cancelled) setProvidersLoadedFor(requestedBoundary); });
     return () => { cancelled = true; };
-  }, [fetchAccountResource, open, ownerBoundary, regionId, resourceBoundary, providerRetry]);
+  }, [fetchAccountResource, open, ownerBoundary, regionId, regionReady, resourceBoundary, providerRetry]);
 
   useEffect(() => {
-    if (!open || !ownerBoundary || !fetchAccountResource) return;
-    let cancelled = false;
-    const requestedBoundary = resourceBoundary;
-    void fetchAccountResource(`/api/funding/offramp/orders?region=${encodeURIComponent(regionId)}&inFlight=1`)
-      .then((value) => {
-        if (cancelled) return;
-        const response = readCashoutOrdersResponse(value);
-        setActiveOrders(response.orders);
-        setRecoveryEligible(response.recoveryEligible);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setActiveOrders([]);
-          setRecoveryEligible(false);
-        }
-      })
-      .finally(() => { if (!cancelled) setOrdersLoadedFor(requestedBoundary); });
-    return () => { cancelled = true; };
-  }, [fetchAccountResource, open, ownerBoundary, regionId, resourceBoundary]);
-
-  useEffect(() => {
-    if (!open || !ownerBoundary || !resumeActionId || resumedActionRef.current === resumeActionId) return;
+    if (!open || !ownerBoundary || !regionReady || !resumeActionId || resumedActionRef.current === resumeActionId) return;
     resumedActionRef.current = resumeActionId;
     let cancelled = false;
     let settled = false;
@@ -263,11 +249,13 @@ export function SendDialog({
       if (resumed.kind === "send") {
         const nextRequest = transferRequestFromAction(resumed);
         if (!nextRequest) throw new TransferExecutionError("unavailable");
-        setAssetId(nextRequest.assetId); setRecipient(nextRequest.recipient); setRequest(nextRequest); setCashout(null);
+        setAssetId(nextRequest.assetId); changeAmount(atomicToDecimal(nextRequest.amountBaseUnits, getTransferAsset(nextRequest.assetId)?.decimals ?? 6)); setRecipient(nextRequest.recipient); setRequest(nextRequest); setCashout(null);
       } else if (resumed.kind === "cash-out" && resumed.metadata?.product === "cashout" && resumed.metadata.operation === "deposit") {
         const spent = resumed.amounts.find((item) => item.direction === "spend");
         if (!spent) throw new TransferExecutionError("unavailable");
         const metadata = resumed.metadata;
+        changeAmount(atomicToDecimal(spent.amountBaseUnits, spent.decimals));
+        setAssetId(spent.assetId);
         setRequest(null);
         setCashout({
           operation: "deposit", providerId: metadata.providerId, providerName: metadata.providerName, assetId: spent.assetId,
@@ -279,6 +267,8 @@ export function SendDialog({
       } else if (resumed.kind === "cash-out-withdraw" && resumed.metadata?.product === "cashout" && resumed.metadata.operation === "withdraw") {
         const received = resumed.amounts.find((item) => item.direction === "receive");
         if (!received) throw new TransferExecutionError("unavailable");
+        changeAmount(atomicToDecimal(received.amountBaseUnits, received.decimals));
+        setAssetId(received.assetId);
         const metadata = resumed.metadata;
         setRequest(null);
         setCashout({
@@ -298,12 +288,12 @@ export function SendDialog({
       cancelled = true;
       if (!settled && resumedActionRef.current === resumeActionId) resumedActionRef.current = null;
     };
-  }, [onInvalidResume, open, ownerBoundary, resumeActionId, resumeMoneyAction]);
+  }, [onInvalidResume, open, ownerBoundary, regionReady, resumeActionId, resumeMoneyAction]);
 
   function reset() {
-    setAssetId(availableAssets?.[0]?.id ?? null); setRecipient(""); changeAmount("", "programmatic");
+    setAssetId(availableAssets?.[0]?.id ?? null); setRecipient(""); changeAmount("");
     setResolution(null);
-    setRequest(null); setCashout(null); setSelectedOfframp(null); setSelectedPlatform(null); setPayoutHandle("");
+    setSubmission(null); setSubmittedAt(undefined); submittingRef.current = false; setRequest(null); setCashout(null); setSelectedOfframp(null); setSelectedPlatform(null); setPayoutHandle("");
     setCanonicalHandle(""); setHandleConfirmation(""); setAction(null); setStep("amount"); setError(null);
   }
   function back() {
@@ -313,24 +303,12 @@ export function SendDialog({
     else if (step === "handle") setStep("payout");
     else if (step === "handle-confirm") setStep("handle");
     else if (step === "confirm" || step === "error") {
+      if (cashout?.operation === "withdraw") {
+        onClose();
+        return;
+      }
       setAction(null);
-      setStep(cashout?.operation === "withdraw" ? "destination" : cashout ? "handle-confirm" : "destination");
-    }
-  }
-
-  async function recoverCashouts() {
-    if (!fetchAccountResource) return;
-    setRecoveryAttemptedFor(resourceBoundary);
-    setOrdersLoadedFor(null);
-    try {
-      const value = await fetchAccountResource(`/api/funding/offramp/orders?region=${encodeURIComponent(regionId)}&inFlight=1&recover=1`);
-      const response = readCashoutOrdersResponse(value);
-      setActiveOrders(response.orders);
-      setRecoveryEligible(response.recoveryEligible);
-    } catch {
-      setActiveOrders([]);
-    } finally {
-      setOrdersLoadedFor(resourceBoundary);
+      setStep(cashout ? "handle-confirm" : "destination");
     }
   }
 
@@ -351,12 +329,13 @@ export function SendDialog({
       assertTransferRequest(next); setRequest(next); setCashout(null); setStep("preparing"); setError(null);
       const prepared = await prepareMoneyAction("send", next);
       showPreparedReview(prepared);
-    } catch {
-      setError("Enter a valid Base address and positive amount, then try again."); setStep("destination");
+    } catch (caught) {
+      setError(networkFeeErrorMessage(caught) ?? "Enter a valid Base address and positive amount, then try again."); setStep("destination");
     }
   }
 
   async function prepareCashout() {
+    if (!regionReady) return;
     try {
       if (!selectedAsset || !selectedOfframp || !selectedPlatform || !canonicalHandle || handleConfirmation !== canonicalHandle) throw new Error("invalid");
       const amountBaseUnits = parseTransferAmount(amount.replace(/\.$/, ""), selectedAsset.decimals);
@@ -378,33 +357,13 @@ export function SendDialog({
       });
       setRequest(null); showPreparedReview(prepared);
     } catch (caught) {
-      setError(serverCashoutMessage(caught)); setStep("handle-confirm");
-    }
-  }
-
-  async function prepareWithdraw(order: CashoutOrderSummary) {
-    try {
-      if (!order.nextActions.includes("withdraw")) throw new Error("invalid");
-      setStep("preparing"); setError(null);
-      const prepared = await prepareMoneyAction("cash-out-withdraw", { providerId: order.providerId, region: regionId, depositId: order.depositId });
-      if (prepared.kind !== "cash-out-withdraw" || prepared.metadata?.product !== "cashout" || prepared.metadata.operation !== "withdraw") throw new Error("invalid");
-      const received = prepared.amounts.find((item) => item.direction === "receive");
-      if (!received) throw new Error("invalid");
-      setCashout({
-        operation: "withdraw", providerId: order.providerId, providerName: order.providerName, assetId: received.assetId,
-        symbol: received.symbol, decimals: received.decimals, amountBaseUnits: received.amountBaseUnits,
-        platform: order.platform, platformLabel: order.platformLabel,
-        currency: order.currency, payoutHandle: order.canonicalHandle ?? "", canonicalHandle: order.canonicalHandle,
-        approximateFiatAmount: "0", etaSeconds: null, depositId: order.depositId,
-      });
-      setRequest(null); showPreparedReview(prepared);
-    } catch (caught) {
-      setError(serverCashoutMessage(caught)); setStep("destination");
+      setError(networkFeeErrorMessage(caught) ?? serverCashoutMessage(caught)); setStep("handle-confirm");
     }
   }
 
   async function confirm() {
-    if (!action || (!request && !cashout)) return;
+    if (!action || (!request && !cashout) || submittingRef.current || step !== "confirm") return;
+    submittingRef.current = true;
     setStep("pending"); setError(null);
     try {
       const result = await executeMoneyAction(action);
@@ -416,17 +375,25 @@ export function SendDialog({
         return;
       }
       if (result.status === "failed") {
-        setError("The wallet could not submit this action. Your review is still ready to retry.");
-        setStep("error");
+        setSubmission("failed"); setStep("result");
         return;
       }
       if (request) setRecentRecipientState(null);
-      reset(); onClose();
+      onSubmitted?.();
+      setSubmittedAt(new Date().toISOString());
+      setSubmission("submitted"); setStep("result");
     } catch (caught) {
+      if (caught instanceof TransferExecutionError && caught.reason === "submission-unknown") {
+        onSubmitted?.();
+        setSubmission("ambiguous"); setStep("result");
+        return;
+      }
       if (isUnavailableReview(caught)) {
         reset(); setError("This review is no longer available — start again."); onInvalidResume?.(); return;
       }
       setError(messageForError(caught, Boolean(cashout))); setStep("error");
+    } finally {
+      submittingRef.current = false;
     }
   }
 
@@ -443,7 +410,7 @@ export function SendDialog({
     assetLabel: selectedAsset?.symbol,
     assetCurrency: selectedAsset?.cashCurrency,
     assetOptions,
-    onAssetChange: (next: string) => { setAssetId(next); changeAmount("", "programmatic"); },
+    onAssetChange: (next: string) => { setAssetId(next); changeAmount(""); },
   };
   return (
     <MoneyModal open={open} labelledBy="send-title" immediate={immediate} pending={busy} onCancel={onClose} onClose={() => { reset(); (onClosed ?? onClose)(); }}>
@@ -452,16 +419,20 @@ export function SendDialog({
         titleId="send-title"
         {...(step === "amount"
           ? { assetControl: <MoneyAssetPicker {...amountAssetProps} /> }
-          : busy ? {} : { onBack: back })}
+          : busy || step === "result" ? {} : { onBack: back })}
         onClose={onClose}
         closeLabel="Close send dialog"
       />
-      <MoneyModalBody hasFooter={["amount", "destination", "handle", "handle-confirm", "confirm", "error"].includes(step)} className="gap-4 pt-4">
+      {step !== "result" ? <MoneyModalBody hasFooter={["amount", "destination", "handle", "handle-confirm", "confirm", "error"].includes(step)} className="gap-4 pt-4">
         {step === "amount" ? <>
-          <MoneyAmountDisplay amount={amount} amountChangeSource={amountChangeSource} onAmountChange={changeAmount} availableLabel={selectedAvailability ? `${selectedAvailability.balanceLabel} available` : undefined} availableAmount={selectedAvailability ? atomicToDecimal(selectedAvailability.balanceBaseUnits, selectedAvailability.decimals) : null} assetId={activeAssetId ?? undefined} assetLabel={selectedAsset?.symbol} assetControl="header" chipSet={pricing.status === "priced" ? "quick-local" : "none"} pricing={pricing} nativeSymbol={selectedAsset?.symbol ?? ""} />
-          {selectedAsset ? <MoneyNumpad value={amount} maxDecimals={selectedAsset.decimals} onChange={changeAmount} /> : <StatusMessage>No catalog balance is available to send.</StatusMessage>}
-          {!selectedAsset && visibleActiveOrders.length > 0 ? <div className="grid gap-1">{visibleActiveOrders.map((order) => <RecoveryItem key={order.depositId} order={order} onWithdraw={() => void prepareWithdraw(order)} />)}</div> : null}
-          {!selectedAsset && providersLoaded && ordersLoaded && recoveryEligible && !recoveryAttempted && visibleActiveOrders.length === 0 ? <Button variant="ghost" size="sm" onClick={() => void recoverCashouts()}>Recover a Peer cash-out</Button> : null}
+          <MoneyAmountDisplay amount={amount} maxDecimals={selectedAsset?.decimals ?? 6} onAmountChange={changeAmount} overAvailable={overAvailable} onSubmit={canContinueAmount ? continueFromAmount : undefined} availableLabel={selectedAvailability ? `${selectedAvailability.balanceLabel} available` : undefined} availableAmount={sendCeiling} assetId={activeAssetId ?? undefined} assetLabel={selectedAsset?.symbol} assetControl="header" chipSet={pricing.status === "priced" ? "quick-local" : "none"} pricing={pricing} nativeSymbol={selectedAsset?.symbol ?? ""}>
+            {selectedAsset?.symbol.toUpperCase() === "USDC" && reserveFailed ? (
+              <StatusMessage tone="error" role="alert">
+                Couldn&apos;t check the network fee. <Button variant="ghost" size="sm" onClick={retryReserve}>Retry</Button>
+              </StatusMessage>
+            ) : null}
+          </MoneyAmountDisplay>
+          {!selectedAsset ? <StatusMessage>No catalog balance is available to send.</StatusMessage> : null}
         </> : null}
         {step === "destination" ? <div className="grid gap-4">
           <AddressField
@@ -472,7 +443,7 @@ export function SendDialog({
             aria-describedby={resolvedRecipient || resolving || unresolved || recipientHint ? "send-recipient-status" : undefined}
           />
           <div id="send-recipient-status" className="grid gap-2">
-            {resolvedRecipient && typedName ? <StatusMessage>Resolves to <CopyableValue value={resolvedRecipient} presentation="full" valueKind="address" /></StatusMessage> : null}
+            {resolvedRecipient && typedName ? <StatusMessage>Resolves to <CopyableValue value={resolvedRecipient} presentation="reveal" valueKind="address" /></StatusMessage> : null}
             {resolving && typedName ? <StatusMessage aria-busy="true">Resolving {typedName}…</StatusMessage> : null}
             {unresolved && typedName ? <StatusMessage tone="error">{`We couldn't resolve ${typedName}. Check the name and try again.`}</StatusMessage> : null}
             {recipientHint ? <StatusMessage>{recipientHint}</StatusMessage> : null}
@@ -480,14 +451,12 @@ export function SendDialog({
           <FieldSeparator>Or</FieldSeparator>
           <div className="grid gap-1">
             {recentRecipients.length > 0 ? <RecentRecipients recipients={recentRecipients} onSelect={changeRecipient} /> : null}
-            {visibleActiveOrders.map((order) => <RecoveryItem key={order.depositId} order={order} onWithdraw={() => void prepareWithdraw(order)} />)}
             {eligibleOfframps.length > 0 ? <CashoutItem binding={eligibleOfframps[0]!} onSelect={() => { setSelectedOfframp(eligibleOfframps[0]!); setStep("payout"); }} /> : null}
             {providersLoaded && offramps === null ? <>
               <StatusMessage>Cash out is unavailable right now.</StatusMessage>
               <Button variant="ghost" size="sm" onClick={() => setProviderRetry((count) => count + 1)}>Try again</Button>
             </> : null}
             {providersLoaded && offramps?.length === 0 ? <StatusMessage>Cash out isn&apos;t available in {presentationRegions[regionId].countryName} yet.</StatusMessage> : null}
-            {providersLoaded && ordersLoaded && recoveryEligible && !recoveryAttempted && visibleActiveOrders.length === 0 ? <Button variant="ghost" size="sm" onClick={() => void recoverCashouts()}>Recover a Peer cash-out</Button> : null}
           </div>
         </div> : null}
         {step === "payout" && selectedOfframp ? <div className="grid gap-2">
@@ -526,7 +495,7 @@ export function SendDialog({
           />
         </div> : null}
         {(request || cashout) && (!request || requestAsset) && (step === "confirm" || busy || step === "error") ? <>
-          <MoneyConfirmSummary amount={confirmAmount} lead={cashout ? (cashout.operation === "withdraw" ? `You're withdrawing from ${cashout.providerName}` : `You're cashing out with ${cashout.providerName}`) : `You're sending ${requestAsset?.symbol ?? ""}`} rows={cashout ? [
+          <MoneyConfirmSummary action={action} amount={confirmAmount} lead={cashout ? (cashout.operation === "withdraw" ? `You're withdrawing from ${cashout.providerName}` : `You're cashing out with ${cashout.providerName}`) : `You're sending ${requestAsset?.symbol ?? ""}`} rows={cashout ? [
             ...(action ? [moneyConfirmFromRow(action.owner)] : []),
             { label: "Provider", value: cashout.providerName },
             { label: "Payout app", value: cashout.platformLabel },
@@ -538,23 +507,48 @@ export function SendDialog({
             { label: "Network", value: "Base" },
           ] : [
             ...(action ? [moneyConfirmFromRow(action.owner)] : []),
-            { label: "To", value: <CopyableValue value={request!.recipient} presentation="full" valueKind="address" className="sm:justify-end" />, fullValue: true },
+            { label: "To", value: <CopyableValue value={request!.recipient} presentation="reveal" valueKind="address" className="-my-3 justify-end" /> },
             { label: "Asset", value: requestAsset?.symbol ?? "" }, { label: "Network", value: "Base" },
           ]} />
           {cashout?.operation === "deposit" ? <StatusMessage>The fiat amount and delivery time are approximate, not guaranteed.</StatusMessage> : null}
-          {step === "pending" ? <StatusMessage><span className="flex items-center gap-2"><LoaderCircle className="size-4 animate-spin" aria-hidden="true" />Waiting for your wallet…</span></StatusMessage> : null}
         </> : null}
         {step === "preparing" ? <StatusMessage><span className="flex items-center gap-2"><LoaderCircle className="size-4 animate-spin" aria-hidden="true" />Preparing review…</span></StatusMessage> : null}
         {error ? <StatusMessage tone="error" role="alert">{error}</StatusMessage> : null}
-      </MoneyModalBody>
-      {step === "amount" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!selectedAsset || !isPositiveDecimalAmount(amount)} onPrimary={() => { setError(null); setStep("destination"); }} /> : null}
+      </MoneyModalBody> : null}
+      {step === "result" && action && submission ? <SendResult action={action} submission={submission} amount={confirmAmount} provider={cashout?.providerName} submittedAt={submittedAt} fetchAccountResource={fetchAccountResource} onDone={() => { reset(); onClose(); }} onTryAgain={() => { setAction(null); setSubmission(null); setStep("amount"); onInvalidResume?.(); }} onViewActivity={() => openPanelAfterClose(routing, "activity", () => { reset(); onClose(); })} /> : null}
+      {step === "amount" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!canContinueAmount} onPrimary={continueFromAmount} /> : null}
       {step === "destination" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={effectiveRecipient === null || resolving} onPrimary={() => void prepareSend()} /> : null}
       {step === "handle" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!payoutHandle.trim()} onPrimary={() => { const normalized = canonicalizeCashPayee(selectedPlatform?.platform ?? "", payoutHandle); setCanonicalHandle(normalized); setHandleConfirmation(""); setStep("handle-confirm"); }} /> : null}
       {step === "handle-confirm" ? <MoneyModalFooter primaryLabel="Review" primaryDisabled={!canonicalHandle || handleConfirmation !== canonicalHandle} onPrimary={() => void prepareCashout()} /> : null}
-      {step === "confirm" && action ? <MoneyConfirmFooter action={action} primaryLabel={cashout ? <>{cashout.operation === "withdraw" ? "Withdraw" : "Cash out"} <MoneyTicker value={confirmAmount} /></> : <>Send <MoneyTicker value={confirmAmount} /></>} onPrimary={() => void confirm()} secondaryLabel="Back" onSecondary={back} /> : null}
+      {(step === "confirm" || step === "pending") && action ? <MoneyConfirmFooter action={action} primaryLabel={cashout ? <>{cashout.operation === "withdraw" ? "Withdraw" : "Cash out"} <MoneyTicker value={confirmAmount} /></> : <>Send <MoneyTicker value={confirmAmount} /></>} submitting={step === "pending"} onPrimary={() => void confirm()} secondaryLabel="Back" onSecondary={back} /> : null}
       {step === "error" ? <MoneyModalFooter primaryLabel="Try again" onPrimary={() => { setError(null); setStep("confirm"); }} secondaryLabel="Back" onSecondary={back} /> : null}
     </MoneyModal>
   );
+}
+
+function SendResult({ action, submission, amount, provider, submittedAt, fetchAccountResource, onDone, onTryAgain, onViewActivity }: {
+  action: PreparedMoneyAction;
+  submission: "submitted" | "ambiguous" | "failed";
+  amount: string;
+  provider?: string;
+  submittedAt?: string;
+  fetchAccountResource?: AccountWalletClient["fetchAccountResource"];
+  onDone: () => void;
+  onTryAgain: () => void;
+  onViewActivity: () => void;
+}) {
+  const { outcome } = useMoneyActionOutcome({
+    action, submission,
+    fetchOperations: (signal) => fetchAccountResource
+      ? fetchAccountResource("/api/actions", { signal })
+      : Promise.reject(new Error("Actions unavailable")),
+  });
+  return <>
+    <MoneyModalBody hasFooter className="gap-4 pt-4">
+      <MoneyResult kind={action.kind === "cash-out" || action.kind === "cash-out-withdraw" ? action.kind : "send"} outcome={outcome} amount={amount} provider={provider} submittedAt={submittedAt} />
+    </MoneyModalBody>
+    <MoneyResultFooter outcome={outcome} onDone={onDone} onTryAgain={onTryAgain} onViewActivity={onViewActivity} />
+  </>;
 }
 
 function RecentRecipients({ recipients, onSelect }: { recipients: ReadonlyArray<RecentTransferRecipient>; onSelect: (address: `0x${string}`) => void }) {
@@ -592,30 +586,13 @@ function CashoutItem({ binding, onSelect }: { binding: FundingOfframpBinding; on
   </Item>;
 }
 
-function RecoveryItem({ order, onWithdraw }: { order: CashoutOrderSummary; onWithdraw: () => void }) {
-  const amount = order.assetSymbol === "USDC"
-    ? formatUsdStablecoinAmount(order.remainingAmountAtomic, order.assetDecimals)
-    : `${atomicToDecimal(order.remainingAmountAtomic, order.assetDecimals)} ${order.assetSymbol}`;
-  return <Item
-    render={<Button variant="ghost" press="none" />}
-    className="flex-nowrap items-center text-left"
-    onClick={onWithdraw}
-  >
-    <ItemContent className="min-w-0">
-      <ItemTitle>{`Withdraw ${amount}`}</ItemTitle>
-      <ItemDescription lines={1}>{`${order.providerName} cash-out · ${order.state}`}</ItemDescription>
-    </ItemContent>
-    <ItemActions aria-hidden="true"><ChevronRight className="size-4 text-muted-foreground" /></ItemActions>
-  </Item>;
-}
-
 function formatEta(seconds: number): string {
   if (seconds < 60) return `${seconds} sec`;
   const minutes = Math.ceil(seconds / 60);
   return `${minutes} min`;
 }
 function StatusMessage({ children, tone = "neutral", role, ...props }: Omit<ComponentProps<typeof Alert>, "children"> & { children: ReactNode; tone?: "neutral" | "error" }) {
-  return <Alert variant={tone === "error" ? "destructive" : "default"} role={role ?? (tone === "error" ? "alert" : "status")} {...props}><AlertDescription>{children}</AlertDescription></Alert>;
+  return <Alert variant={tone === "error" ? "destructive" : "default"} role={role ?? (tone === "error" ? "alert" : "status")} {...props}>{tone === "error" ? <AlertIcon><CircleAlertIcon /></AlertIcon> : null}<AlertDescription>{children}</AlertDescription></Alert>;
 }
 function isUnavailableReview(error: unknown): boolean {
   if (!(error instanceof TransferExecutionError) || error.reason !== "unavailable") return false;
@@ -627,10 +604,7 @@ function messageForError(error: unknown, cashout: boolean): string {
   if (error instanceof TransferExecutionError && error.reason === "rejected") return cashout
     ? "The wallet request was rejected. Your reviewed cash-out is still ready to retry."
     : "The wallet request was rejected. Your reviewed send is still ready to retry.";
-  const reason = error instanceof TransferExecutionError && error.reason === "submission-unknown" && error.cause instanceof Error ? error.cause.message.replace(/\s+/g, " ").trim().slice(0, 160) : "";
-  return reason
-    ? `The wallet result is unknown: ${reason}. Check Activity before trying again.`
-    : "The wallet result is unknown. Check Activity before trying again.";
+  return "The wallet result is unknown. Check Activity before trying again.";
 }
 function serverCashoutMessage(error: unknown): string {
   const value = error as { code?: unknown; serverMessage?: unknown };

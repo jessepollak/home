@@ -2,7 +2,8 @@
 
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
+import { REGEXP_ONLY_DIGITS } from "input-otp";
 import type { FormEvent, RefObject } from "react";
 
 export function SignInOtp({
@@ -10,6 +11,7 @@ export function SignInOtp({
   otp,
   isSendingCode,
   isVerifyingCode,
+  invalid,
   resendSeconds,
   inputRef,
   onOtpChange,
@@ -21,6 +23,7 @@ export function SignInOtp({
   otp: string;
   isSendingCode: boolean;
   isVerifyingCode: boolean;
+  invalid: boolean;
   resendSeconds: number;
   inputRef: RefObject<HTMLInputElement | null>;
   onOtpChange: (otp: string) => void;
@@ -34,28 +37,34 @@ export function SignInOtp({
         <FieldLabel htmlFor="account-otp">
           Verification code<span className="text-destructive" aria-hidden="true">*</span>
         </FieldLabel>
-        <div className="flex min-w-0 flex-wrap items-stretch gap-2 sm:flex-nowrap">
-          <Input
-            ref={inputRef}
-            id="account-otp"
-            className="h-11 min-w-0 flex-1"
-            variant="otp"
-            type="text"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            pattern="[0-9]{6}"
-            maxLength={6}
-            value={otp}
-            onInput={(event) => onOtpChange(event.currentTarget.value.replace(/\D/g, "").slice(0, 6))}
-            disabled={isVerifyingCode}
-            aria-describedby="account-otp-hint"
-            required
-            autoFocus
-            data-initial-focus
-          />
+        <InputOTP
+          ref={inputRef}
+          id="account-otp"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          pattern={REGEXP_ONLY_DIGITS}
+          maxLength={6}
+          value={otp}
+          onChange={onOtpChange}
+          pasteTransformer={(pasted) => pasted.replace(/\D/g, "").slice(0, 6)}
+          disabled={isVerifyingCode}
+          aria-invalid={invalid || undefined}
+          aria-describedby="account-otp-hint"
+          required
+          autoFocus
+          data-initial-focus
+        >
+          <InputOTPGroup>
+            {Array.from({ length: 6 }, (_, index) => <InputOTPSlot key={index} index={index} />)}
+          </InputOTPGroup>
+        </InputOTP>
+        <div className="flex min-w-0 items-center justify-between gap-2">
+          <FieldDescription id="account-otp-hint" className="min-w-0 flex-1">
+            Sent to {email}. Codes expire.
+          </FieldDescription>
           <Button
-            className="h-11 w-full sm:w-auto"
-            size="lg"
+            className="shrink-0"
+            size="touch"
             variant="ghost"
             onClick={onChangeEmail}
             disabled={isVerifyingCode || isSendingCode}
@@ -63,21 +72,18 @@ export function SignInOtp({
             Change email
           </Button>
         </div>
-        <FieldDescription id="account-otp-hint">
-          Sent to {email}. Codes expire.
-        </FieldDescription>
       </Field>
       <Button
-        className="h-11 w-full"
-        size="lg"
+        className="w-full"
+        size="touch"
         type="submit"
         disabled={isVerifyingCode || otp.length !== 6}
       >
         {isVerifyingCode ? "Verifying…" : "Verify and continue"}
       </Button>
       <Button
-        className="h-11 w-full"
-        size="lg"
+        className="w-full"
+        size="touch"
         variant="secondary"
         onClick={onResend}
         disabled={isSendingCode || resendSeconds > 0}

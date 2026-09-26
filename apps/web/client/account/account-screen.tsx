@@ -1,10 +1,10 @@
 "use client";
 
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertIcon, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { AppDrawer, MoneyModalBody } from "@/client/money-modal";
-import { X } from "lucide-react";
+import { CircleAlertIcon, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type FormEvent, type ReactNode } from "react";
 import { classifyEmailCodeError } from "./auth-errors";
 import {
@@ -54,6 +54,7 @@ function StatusMessage({
 }) {
   return (
     <Alert variant={tone === "error" ? "destructive" : "default"} role={role ?? (tone === "error" ? "alert" : "status")} {...props}>
+      {tone === "error" ? <AlertIcon><CircleAlertIcon /></AlertIcon> : null}
       <AlertDescription>{children}</AlertDescription>
     </Alert>
   );
@@ -87,10 +88,12 @@ export function AccountSignInSheet({
   const [flowId, setFlowId] = useState<string | null>(null);
   const [otp, setOtp] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
+  const [codeRejected, setCodeRejected] = useState(false);
   const [isSendingCode, setIsSendingCode] = useState(false);
   const [isVerifyingCode, setIsVerifyingCode] = useState(false);
   const [baseAccountPhase, setBaseAccountPhase] = useState<BaseAccountLoginPhase | null>(null);
   const [completedAttemptSequence, setCompletedAttemptSequence] = useState<number | null>(null);
+  const [handoffAttempt, setHandoffAttempt] = useState<number | null>(null);
   const [resendAvailableAt, setResendAvailableAt] = useState<number | null>(null);
   const [resendSeconds, setResendSeconds] = useState(0);
   const emailInputRef = useRef<HTMLInputElement>(null);
@@ -98,6 +101,9 @@ export function AccountSignInSheet({
   const baseAccountButtonRef = useRef<HTMLButtonElement>(null);
   const uiAttemptSequence = useRef(0);
   const consumedVerifiedAttempt = useRef<number | null>(null);
+  const verifiedAttempt = session && status === "verified" ? completedAttemptSequence : null;
+  if (open && verifiedAttempt !== null && handoffAttempt === null) setHandoffAttempt(verifiedAttempt);
+  const isHandingOff = handoffAttempt !== null || (open && verifiedAttempt !== null);
   const baseAccountFailed = status === "unavailable" || status === "signout-error" ||
     (status === "signed-out" && message !== null);
   const activeBaseAccountPhase = baseAccountFailed ? null : baseAccountPhase;
@@ -105,7 +111,7 @@ export function AccountSignInSheet({
   const signInBlocked = signInAvailability === "unconfigured" ||
     signInAvailability === "provider-unavailable";
   const isCleaningUp = !signInBlocked && status === "signing-out";
-  const isChecking = !signInBlocked && (status === "restoring" || status === "validating");
+  const isChecking = !signInBlocked && (isHandingOff || status === "restoring" || status === "validating");
   const initialFocusRef = flowId
     ? otpInputRef
     : projectConfigured
@@ -133,10 +139,19 @@ export function AccountSignInSheet({
     ) {
       consumedVerifiedAttempt.current = completedAttemptSequence;
       setBaseAccountPhase(null);
+      if (open) return;
+      resetLocalAttempt();
       onClose();
       onVerified?.();
     }
-  }, [completedAttemptSequence, onClose, onVerified, session, status]);
+  }, [completedAttemptSequence, onClose, onVerified, open, session, status]);
+
+  function finishVerifiedHandoff() {
+    if (handoffAttempt === null) return;
+    resetLocalAttempt();
+    onClose();
+    onVerified?.();
+  }
 
   useEffect(() => {
     if (!open || resendAvailableAt === null) return;
@@ -152,8 +167,10 @@ export function AccountSignInSheet({
     uiAttemptSequence.current += 1;
     setCompletedAttemptSequence(null);
     setFlowId(null);
+    setHandoffAttempt(null);
     setOtp("");
     setAuthError(null);
+    setCodeRejected(false);
     setIsSendingCode(false);
     setIsVerifyingCode(false);
     setBaseAccountPhase(null);
@@ -162,6 +179,7 @@ export function AccountSignInSheet({
   }
 
   function closeAndCancelAttempt() {
+    if (isHandingOff) return;
     if (isBusy || flowId !== null || completedAttemptSequence !== null) cancelSignInAttempt();
     resetLocalAttempt();
     onClose();
@@ -172,6 +190,7 @@ export function AccountSignInSheet({
     setCompletedAttemptSequence(null);
     setIsSendingCode(true);
     setAuthError(null);
+    setCodeRejected(false);
     try {
       const result = await requestEmailCode(nextEmail);
       if (sequence !== uiAttemptSequence.current) return;
@@ -206,6 +225,7 @@ export function AccountSignInSheet({
     const sequence = uiAttemptSequence.current;
     setIsVerifyingCode(true);
     setAuthError(null);
+    setCodeRejected(false);
     try {
       await verifyEmailCode(flowId, otp);
       if (sequence !== uiAttemptSequence.current) return;
@@ -214,7 +234,10 @@ export function AccountSignInSheet({
       setFlowId(null);
       setResendAvailableAt(null);
     } catch (error) { // oxlint-disable-line home/no-silent-catch -- a superseded verify attempt must not overwrite the newer attempt's error state
-      if (sequence === uiAttemptSequence.current) setAuthError(messageForCodeError(error));
+      if (sequence === uiAttemptSequence.current) {
+        setAuthError(messageForCodeError(error));
+        setCodeRejected(classifyEmailCodeError(error) !== "unavailable");
+      }
     } finally {
       if (sequence === uiAttemptSequence.current) setIsVerifyingCode(false);
     }
@@ -224,6 +247,7 @@ export function AccountSignInSheet({
     setFlowId(null);
     setOtp("");
     setAuthError(null);
+    setCodeRejected(false);
     setResendAvailableAt(null);
     setResendSeconds(0);
   }
@@ -246,15 +270,13 @@ export function AccountSignInSheet({
     }
   }
 
-  if (!open) return null;
-
   return (
     <AppDrawer
-      open
+      open={open && !isHandingOff}
       labelledBy="account-sign-in-title"
       onCancel={closeAndCancelAttempt}
+      onClose={finishVerifiedHandoff}
       initialFocusRef={initialFocusRef}
-      immediate
     >
       <DrawerHeader className="grid grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center text-left">
         <span />
@@ -300,9 +322,10 @@ export function AccountSignInSheet({
                 otp={otp}
                 isSendingCode={isSendingCode}
                 isVerifyingCode={isVerifyingCode}
+                invalid={codeRejected}
                 resendSeconds={resendSeconds}
                 inputRef={otpInputRef}
-                onOtpChange={setOtp}
+                onOtpChange={(nextOtp) => { setOtp(nextOtp); setCodeRejected(false); }}
                 onSubmit={(event) => void handleOtpSubmit(event)}
                 onChangeEmail={changeEmail}
                 onResend={() => { setOtp(""); void sendCode(email); }}

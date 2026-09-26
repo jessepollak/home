@@ -2,6 +2,7 @@
 
 import { Plus } from "lucide-react";
 import type { FetchActivity } from "@/client/activity";
+import { ActivitySurface } from "@/client/activity/activity-panel";
 import { Button } from "@/components/ui/button";
 import { FundingActions } from "@/client/funding/funding-actions";
 import { preloadAddMoneySheet } from "@/client/funding/funding-experience";
@@ -22,6 +23,7 @@ import { useOptionalHomeShellRouting } from "./panel-routing";
 export function HomePanel({
   assetBalances,
   activitySession,
+  onRetryBalances,
   sessionSettling,
   sendAvailability,
   assetMarkResolution,
@@ -35,9 +37,11 @@ export function HomePanel({
   initialSendFlow = false,
   initialSendActionId = null,
   regionId,
+  regionReady = true,
 }: {
   assetBalances?: HomeAssetBalancesPresentation;
   activitySession: VerifiedAccountSession | null;
+  onRetryBalances?: () => void;
   sessionSettling: boolean;
   sendAvailability: readonly (TransferAssetAvailability & { imageUrl?: string })[];
   assetMarkResolution?: AssetMarkResolution;
@@ -51,6 +55,7 @@ export function HomePanel({
   initialSendFlow?: boolean;
   initialSendActionId?: string | null;
   regionId: RegionId;
+  regionReady?: boolean;
 }) {
   const isLoading = assetBalances?.status === "loading";
   const isRevalidating = assetBalances?.revalidating === true;
@@ -60,8 +65,10 @@ export function HomePanel({
     ),
     pending: false,
   };
-  const showSessionShimmer = !activitySession && (sessionSettling || isLoading || isRevalidating);
-  const cashRate = useSavingsRateLabel(regionId);
+  const showSessionShimmer = activitySession
+    ? !regionReady
+    : sessionSettling || isLoading || isRevalidating;
+  const cashRate = useSavingsRateLabel(regionId, regionReady);
   const borrowOfferRate = useBorrowOfferRate({
     enabled: assetBalances?.summary?.borrow.kind === "none",
     regionId,
@@ -71,8 +78,7 @@ export function HomePanel({
   const addMoneyPrompt = routing ? (
     <Button
       variant="outline"
-      size="lg"
-      className="h-11"
+      size="touch"
       onPointerDown={() => void preloadAddMoneySheet()}
       onClick={() => routing.setFlow("add-money", { mode: "push" })}
     >
@@ -83,7 +89,9 @@ export function HomePanel({
 
   return (
     <HomeOverview
+      accountKey={activitySession?.smartAccount?.address ?? null}
       assetBalances={assetBalances}
+      onRetryBalances={onRetryBalances}
       cashRate={cashRate}
       borrowOfferRate={borrowOfferRate}
       destinations={{ onOpenCash, onOpenInvestments, onOpenBorrow }}
@@ -93,6 +101,7 @@ export function HomePanel({
             initialOpen={initialAddMoney}
             returnedFromProvider={returnedFromProvider}
             regionId={regionId}
+            regionReady={regionReady}
           />
           <PresentationRegionProvider regionId={regionId}>
             <TransferActions
@@ -101,15 +110,16 @@ export function HomePanel({
               availableAssets={sendAvailability}
               assetMarkResolution={resolvedAssetMarks}
               regionId={regionId}
+              regionReady={regionReady}
             />
           </PresentationRegionProvider>
         </>
       }
       activity={showSessionShimmer ? (
-        <section className="space-y-3" aria-labelledby="activity-title" aria-busy="true">
-          <div className="px-4">{activityHeading}</div>
-          <div className="px-1"><ShimmerRows count={3} /></div>
-        </section>
+        <ActivitySurface heading={activityHeading} labelledBy="activity-title" plain busy>
+          <ShimmerRows count={3} />
+          <span className="sr-only">Loading recent activity…</span>
+        </ActivitySurface>
       ) : (
         <ConnectedActivityPanel
           density="feed"

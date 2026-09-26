@@ -639,6 +639,7 @@ export type PresentationDateStyle =
   | "activity-full"
   | "activity-short"
   | "date-time-zone"
+  | "quote-time"
   | "chart-time"
   | "chart-weekday"
   | "chart-date";
@@ -661,6 +662,7 @@ export function formatPresentationDate(
     "activity-full": { month: "short", day: "numeric", year: "numeric" },
     "activity-short": { month: "short", day: "numeric" },
     "date-time-zone": { month: "short", day: "numeric", year: "numeric" },
+    "quote-time": null,
     "chart-time": null,
     "chart-weekday": { weekday: "short" },
     "chart-date": { month: "short", day: "numeric" },
@@ -669,6 +671,7 @@ export function formatPresentationDate(
     "activity-full": { hour: "numeric", minute: "2-digit" },
     "activity-short": { hour: "numeric", minute: "2-digit" },
     "date-time-zone": { hour: "numeric", minute: "2-digit", timeZoneName: "short" },
+    "quote-time": { hour: "numeric", minute: "2-digit", second: "2-digit", timeZoneName: "short" },
     "chart-time": { hour: "numeric", minute: "2-digit" },
     "chart-weekday": null,
     "chart-date": null,

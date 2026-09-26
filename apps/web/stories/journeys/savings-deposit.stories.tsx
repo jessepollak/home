@@ -189,7 +189,7 @@ const executeMoneyAction = async (
   action: PreparedMoneyAction,
 ): Promise<OperationResult> => {
   journey.dispatched.push(action);
-  return { id: action.id, status: "confirmed" };
+  return { id: action.id, status: "submitted" };
 };
 
 function SavingsJourneySurface() {
@@ -203,6 +203,7 @@ function SavingsJourneySurface() {
           balancePositions={fundedPositions}
           balanceStatus="ready"
           prepareMoneyAction={prepareMoneyAction}
+          fetchAccountResource={async () => ({ actions: [{ id: "storybook-journey-savings-deposit", status: "confirmed", owner: preparedAction(gauntlet, "25000000").owner }] })}
           executeMoneyAction={executeMoneyAction}
         />
       </main>
@@ -261,11 +262,7 @@ export const Deposit: Story = {
     // Deposit $25.00 from the savings screen into the selected vault.
     await userEvent.click(await screen.findByRole("button", { name: "Deposit" }));
     const depositDialog = await screen.findByRole("dialog", { name: "Deposit" });
-    for (const digit of "25") {
-      await userEvent.click(
-        await within(depositDialog).findByRole("button", { name: digit }),
-      );
-    }
+    await userEvent.type(await within(depositDialog).findByRole("textbox", { name: "Amount" }), "25");
     await userEvent.click(
       await within(depositDialog).findByRole("button", { name: "Continue" }),
     );
@@ -295,9 +292,11 @@ export const Deposit: Story = {
     await userEvent.click(
       within(confirmDialog).getByRole("button", { name: "Deposit $25.00" }),
     );
-    await waitFor(() =>
-      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
-    );
+    await expect(await screen.findByRole("heading", { name: "Deposited $25.00 to Save" })).toBeVisible();
+    await expect(screen.getByRole("dialog", { name: "Deposit" })).toBeVisible();
+    await expect(screen.queryByRole("button", { name: "Back" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await expect(journey.dispatched).toHaveLength(1);
     await expect(journey.dispatched[0]?.metadata).toMatchObject({
       product: "savings",

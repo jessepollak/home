@@ -1,14 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { RotateCw } from "lucide-react";
-import {
-  Alert,
-  AlertAction,
-  AlertDescription,
-  AlertTitle,
-} from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { LoadErrorCard, LoadRetryButton } from "@/components/load-error";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { ActivityLoader } from "@/components/activity-loader";
@@ -26,13 +21,16 @@ import {
   presentActivityTransferDetails,
   presentActivityTransferRow,
 } from "./activity-presenter";
+import { presentCashout, presentCashoutDetails, cashoutMoney } from "./cash-out-presenter";
 import { mergeActivityFeed } from "./activity-feed";
 import { type UseActivityResult } from "./use-activity";
 import { ShimmerRows } from "@/client/home/panel-shared";
 import type { ActivityPanelDensity, ActivityTransfer } from "./types";
 
 const TransactionDetailsSheet = deferSheet(() => import("@/components/transaction-details").then((module) => module.TransactionDetailsModal));
+const EMPTY_TRANSFERS: readonly ActivityTransfer[] = [];
 
+type Selection = { operation: RecentMoneyActionOperation; withdraw?: RecentMoneyActionOperation } | null;
 export function ActivityPanelView({
   activity,
   operations = [],
@@ -42,6 +40,10 @@ export function ActivityPanelView({
   header,
   emptyAction,
   retryActions,
+  onCancelCashout,
+  cancelBusy = false,
+  cancelError = null,
+  onDetailsChange,
 }: {
   activity: UseActivityResult;
   operations?: readonly RecentMoneyActionOperation[];
@@ -51,9 +53,14 @@ export function ActivityPanelView({
   header?: ReactNode | null;
   emptyAction?: ReactNode;
   retryActions?: () => void;
+  onCancelCashout?: (operation: RecentMoneyActionOperation) => void;
+  cancelBusy?: boolean;
+  cancelError?: string | null;
+  onDetailsChange?: () => void;
 }) {
   const [selectedTransfer, setSelectedTransfer] = useState<ActivityTransfer | null>(null);
-  const [selectedOperation, setSelectedOperation] = useState<RecentMoneyActionOperation | null>(null);
+  const [selection, setSelection] = useState<Selection>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const detailOpenerRef = useRef<HTMLElement | null>(null);
   const rememberDetailOpener = () => {
     const active = document.activeElement;
@@ -63,15 +70,23 @@ export function ActivityPanelView({
   if (detailsStatus !== activity.status) {
     setDetailsStatus(activity.status);
     if (activity.status !== "ready") {
+      setDetailsOpen(false);
       setSelectedTransfer(null);
-      setSelectedOperation(null);
+      setSelection(null);
     }
   }
   const heading = header === undefined ? <DefaultActivityHeader /> : header;
   const labelledBy = header === null ? undefined : "activity-title";
   const labelled = header === null ? "Activity" : undefined;
-  const transfers = activity.status === "ready" ? activity.page.transfers : [];
-  const items = mergeActivityFeed({ transfers, operations });
+  const transfers = activity.status === "ready" ? activity.page.transfers : EMPTY_TRANSFERS;
+  const loadedThrough = activity.status === "ready" && activity.page.nextCursor !== null
+    ? transfers.length > 0
+      ? transfers.reduce((oldest, transfer) =>
+        Date.parse(transfer.blockTimestamp) < Date.parse(oldest) ? transfer.blockTimestamp : oldest,
+      transfers[0]!.blockTimestamp)
+      : activity.page.window.to
+    : null;
+  const items = useMemo(() => mergeActivityFeed({ transfers, operations, loadedThrough }), [transfers, operations, loadedThrough]);
   const hasRows = items.length > 0;
   const exhausted = activity.status !== "ready" || activity.page.nextCursor === null;
   const plain = density === "feed";
@@ -113,23 +128,25 @@ export function ActivityPanelView({
   if (activity.status === "error" && !hasRows) {
     return (
       <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain}>
-        <Alert variant="destructive" role="alert">
-          <AlertTitle>Activity is temporarily unavailable.</AlertTitle>
-          {activity.error.message || activity.error.code ? (
-            <AlertDescription>{activity.error.message || activity.error.code}</AlertDescription>
-          ) : null}
-          <AlertAction>
-            <Button variant="secondary" onClick={activity.retry}>Try again</Button>
-          </AlertAction>
-        </Alert>
+        <LoadErrorCard
+          tone="destructive"
+          role="alert"
+          title="Activity is temporarily unavailable."
+          description={activity.error.message || activity.error.code || undefined}
+          onRetry={activity.retry}
+        />
       </ActivitySurface>
     );
   }
 
+  const selected = selection && items.find((item) => item.kind === "action" && item.id === selection.operation.action.id);
+  const operation = selected?.kind === "action" ? selected.operation : selection?.operation;
+  const withdraw = selected?.kind === "action" ? selected.withdraw : selection?.withdraw;
+  const cashout = operation?.action.kind === "cash-out" ? presentCashout(operation, withdraw, { regionId }) : null;
   const details = selectedTransfer
     ? presentActivityTransferDetails(selectedTransfer, { regionId })
-    : selectedOperation
-      ? presentOperationDetails(selectedOperation, { regionId })
+    : operation
+      ? cashout ? presentCashoutDetails(operation, withdraw, { regionId }) : presentOperationDetails(operation, { regionId })
       : null;
   return (
     <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain}>
@@ -138,7 +155,7 @@ export function ActivityPanelView({
           <p role="status" className="text-sm text-muted-foreground">
             Onchain transfers are unavailable. Recorded Home actions are still shown.
           </p>
-          <Button variant="secondary" onClick={activity.retry}>Try again</Button>
+          <LoadRetryButton onRetry={activity.retry} />
         </div>
       ) : null}
       {inlineStatus && actionsStatus === "error" ? (
@@ -158,8 +175,10 @@ export function ActivityPanelView({
               regionId={regionId}
               onActivate={() => {
                 rememberDetailOpener();
-                setSelectedOperation(null);
+                onDetailsChange?.();
+                setSelection(null);
                 setSelectedTransfer(item.transfer);
+                setDetailsOpen(true);
               }}
             />
           ) : (
@@ -167,10 +186,13 @@ export function ActivityPanelView({
               key={`action:${item.id}`}
               operation={item.operation}
               regionId={regionId}
+              withdraw={item.withdraw}
               onActivate={() => {
                 rememberDetailOpener();
+                onDetailsChange?.();
                 setSelectedTransfer(null);
-                setSelectedOperation(item.operation);
+                setSelection({ operation: item.operation, withdraw: item.withdraw });
+                setDetailsOpen(true);
               }}
             />
           ))}
@@ -192,12 +214,19 @@ export function ActivityPanelView({
       ) : null}
 
       <TransactionDetailsSheet
-        open={selectedTransfer !== null || selectedOperation !== null}
+        open={detailsOpen}
         titleId="activity-transaction-details-title"
         details={details}
-        onClose={() => {
+        footerAction={cashout?.cancellable && operation && onCancelCashout ? {
+          label: <>Cancel cash-out <MoneyTicker value={cashoutMoney(cashout.remaining, cashout.decimals, regionId)} /></>,
+          onClick: () => onCancelCashout(operation),
+          busy: cancelBusy,
+          error: cancelError,
+        } : undefined}
+        onClose={() => { setDetailsOpen(false); onDetailsChange?.(); }}
+        onClosed={() => {
           setSelectedTransfer(null);
-          setSelectedOperation(null);
+          setSelection(null);
           const opener = detailOpenerRef.current;
           if (opener?.isConnected) opener.focus({ preventScroll: true });
         }}
@@ -206,7 +235,7 @@ export function ActivityPanelView({
   );
 }
 
-function ActivitySurface({
+export function ActivitySurface({
   heading,
   labelledBy,
   label,
@@ -224,14 +253,17 @@ function ActivitySurface({
   if (plain) {
     return (
       <section
-        className="space-y-3"
         aria-labelledby={labelledBy}
         aria-label={label}
         aria-busy={busy || undefined}
         data-activity-feed=""
       >
-        {heading ? <div className="px-4">{heading}</div> : null}
-        <div className="space-y-3 px-1">{children}</div>
+        <Card className="gap-3">
+          {heading ? <CardHeader>{heading}</CardHeader> : null}
+          <CardContent inset="list">
+            <div className="space-y-3">{children}</div>
+          </CardContent>
+        </Card>
       </section>
     );
   }
@@ -283,23 +315,33 @@ function ActivityContinuation({
       <p className="sr-only" role="status">
         {activity.continuing ? "Loading older activity" : ""}
       </p>
-      {activity.loadingMore ? <ActivityLoader /> : null}
-      {activity.loadMoreError ? inlineStatus ? (
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs text-destructive" role="alert">
-            More activity could not be loaded. Your current results are unchanged.
-          </p>
-          <Button variant="secondary" onClick={activity.retryLoadMore}>Retry</Button>
-        </div>
-      ) : feedStatus ? (
-        <ActivityUnavailable message="More activity unavailable" onReload={activity.retryLoadMore} />
-      ) : null : null}
+      <ActivityLoader loading={!activity.loadMoreError && (activity.continuing || activity.loadingMore)}>
+        {activity.loadMoreError ? inlineStatus ? (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-destructive" role="alert">
+              More activity could not be loaded. Your current results are unchanged.
+            </p>
+            <LoadRetryButton onRetry={activity.retryLoadMore} />
+          </div>
+        ) : feedStatus ? (
+          <ActivityUnavailable message="More activity unavailable" onReload={activity.retryLoadMore} />
+        ) : null : null}
+      </ActivityLoader>
       <div ref={sentinelRef} className="h-px w-full" data-activity-sentinel="" aria-hidden="true" />
     </div>
   );
 }
 
-function ActivityUnavailable({ message, onReload }: { message: string; onReload: () => void }) {
+/** @public Reused by the Activity ledger exploration stories for per-source reload. */
+export function ActivityUnavailable({
+  message,
+  onReload,
+  reloadLabel = "Reload activity",
+}: {
+  message: string;
+  onReload: () => void;
+  reloadLabel?: string;
+}) {
   return (
     <div className="flex items-center justify-center gap-1" data-activity-unavailable="">
       <p role="status" className="text-sm text-muted-foreground">{message}</p>
@@ -307,7 +349,7 @@ function ActivityUnavailable({ message, onReload }: { message: string; onReload:
         variant="ghost"
         size="icon"
         className="size-11 md:pointer-fine:size-8"
-        aria-label="Reload activity"
+        aria-label={reloadLabel}
         onClick={onReload}
       >
         <RotateCw aria-hidden="true" />

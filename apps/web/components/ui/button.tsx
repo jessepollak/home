@@ -1,8 +1,9 @@
 import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { cva, type VariantProps } from "class-variance-authority";
+import { LoaderCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const buttonVariants = cva(
+const buttonVariantStyles = cva(
   "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap outline-none select-none transition-[scale,color,background-color,border-color,opacity,box-shadow] duration-150 active:duration-0 motion-reduce:transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-busy:opacity-60 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
@@ -17,6 +18,8 @@ const buttonVariants = cva(
         destructive:
           "bg-destructive/10 text-destructive hover:bg-destructive/20 active:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:active:bg-destructive/30 dark:focus-visible:ring-destructive/40",
         link: "text-primary underline-offset-4 hover:underline active:underline",
+        "balance-segment": "border-0 before:absolute before:inset-x-0 before:-top-3 before:-bottom-1 before:content-[''] transition-[opacity,scale] duration-200 ease-out data-muted:opacity-35 data-selected:scale-y-150 data-selected:before:-top-2 data-selected:before:-bottom-px motion-reduce:transition-none",
+        "balance-legend": "border-0 text-xs leading-tight font-normal whitespace-normal text-muted-foreground transition-colors duration-200 ease-out hover:text-foreground active:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 data-selected:text-foreground data-selected:font-semibold motion-reduce:transition-none",
         navigation:
           "rounded-none text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted active:text-foreground aria-[current=page]:text-foreground dark:hover:bg-muted/50 dark:active:bg-muted/50",
       },
@@ -26,6 +29,7 @@ const buttonVariants = cva(
         xs: "h-6 gap-1 rounded-md px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
         sm: "h-7 gap-1 rounded-md px-2.5 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
         lg: "h-9 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+        touch: "min-h-11 gap-1.5 px-2.5 py-2 whitespace-normal text-center has-data-[icon=inline-end]:pe-2 has-data-[icon=inline-start]:ps-2",
         icon: "size-8",
         "icon-xs":
           "size-6 rounded-md in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3",
@@ -34,6 +38,8 @@ const buttonVariants = cva(
         "icon-lg": "size-9",
         inline:
           "h-auto min-h-0 gap-1 rounded-sm p-0 [&_svg:not([class*='size-'])]:size-3.5",
+        "balance-segment": "h-auto min-h-0 rounded-xs p-0",
+        "balance-legend": "h-auto min-h-0 rounded-md p-0",
         "card-action":
           "-mr-2 h-auto min-h-7 gap-1 rounded-md pt-0.5 pr-2 pb-1.5 pl-2.5 [&_svg:not([class*='size-'])]:size-3.5",
       },
@@ -51,9 +57,14 @@ const buttonVariants = cva(
   },
 );
 
-type ButtonVariant = NonNullable<VariantProps<typeof buttonVariants>["variant"]>;
-type ButtonSize = NonNullable<VariantProps<typeof buttonVariants>["size"]>;
-type ButtonPress = NonNullable<VariantProps<typeof buttonVariants>["press"]>;
+type ButtonVariantProps = VariantProps<typeof buttonVariantStyles>;
+type ButtonVariant = NonNullable<ButtonVariantProps["variant"]>;
+type ButtonSize = NonNullable<ButtonVariantProps["size"]>;
+type ButtonPress = NonNullable<ButtonVariantProps["press"]>;
+
+function buttonVariants(props?: Parameters<typeof buttonVariantStyles>[0]) {
+  return cn(buttonVariantStyles(props));
+}
 
 const iconPressSizes = new Set<ButtonSize>([
   "icon",
@@ -65,6 +76,8 @@ const iconPressSizes = new Set<ButtonSize>([
 const stillPressVariants = new Set<ButtonVariant>([
   "link",
   "navigation",
+  "balance-segment",
+  "balance-legend",
 ]);
 
 function defaultButtonPress(variant: ButtonVariant, size: ButtonSize): ButtonPress {
@@ -77,8 +90,12 @@ function Button({
   variant = "default",
   size = "default",
   press,
+  loading = false,
+  disabled,
+  focusableWhenDisabled,
+  children,
   ...props
-}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
+}: ButtonPrimitive.Props & ButtonVariantProps & { loading?: boolean }) {
   const resolvedVariant = variant ?? "default";
   const resolvedSize = size ?? "default";
 
@@ -94,7 +111,13 @@ function Button({
         }),
       )}
       {...props}
-    />
+      disabled={disabled || loading}
+      focusableWhenDisabled={loading || focusableWhenDisabled}
+      aria-busy={loading ? "true" : props["aria-busy"]}
+    >
+      {loading && <LoaderCircle data-icon="inline-start" aria-hidden="true" className="motion-safe:animate-spin" />}
+      {children}
+    </ButtonPrimitive>
   );
 }
 

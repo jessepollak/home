@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { ArrowLeft } from "lucide-react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { LoadErrorCard } from "@/components/load-error";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
@@ -166,16 +166,11 @@ function MemePaginationFooter({
         </div>
       ) : null}
       {loadMoreError ? (
-        <Alert variant="destructive">
-          <AlertDescription>
-            More memes could not be loaded. Your current results are unchanged.
-          </AlertDescription>
-        </Alert>
-      ) : null}
-      {loadMoreError ? (
-        <Button className="w-full" size="lg" variant="secondary" onClick={onRetryLoadMore}>
-          Retry loading memes
-        </Button>
+        <LoadErrorCard
+          tone="destructive"
+          description="More memes could not be loaded. Your current results are unchanged."
+          onRetry={() => onRetryLoadMore?.()}
+        />
       ) : null}
       {autoLoadPaused ? (
         <p className="text-sm text-muted-foreground" role="status">

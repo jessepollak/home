@@ -4,6 +4,7 @@ import {
   labelForOperationStatus,
   presentOperationDetails,
   primaryOperationAmount,
+  toneForOperationStatus,
 } from "./operation-details";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 
@@ -68,15 +69,79 @@ describe("operation transaction details", () => {
     const details = presentOperationDetails(baseOperation());
 
     expect(details.title).toBe("Trade USDC for ETH");
-    expect(details.rows).toContainEqual({ label: "Status", value: "Confirmed" });
+    expect(details.rows).toContainEqual({ label: "Status", value: "Confirmed", statusTone: "success" });
     expect(details.rows).toContainEqual({ label: "Type", value: "Trade" });
     expect(details.rows).toContainEqual({ label: "You spend", value: "1.234567 USDC" });
-    expect(details.rows).toContainEqual({ label: "Network", value: "Base (8453)" });
+    expect(details.rows).toContainEqual({ label: "Network", value: "Base", network: "base" });
+    expect(details.header).toBeUndefined();
     expect(details.explorer).toEqual({
       href: `https://basescan.org/tx/${HASH}`,
       label: "View on explorer",
       title: "View the transaction on BaseScan",
     });
+  });
+
+  test("pending operations show the recorded submission time, not the confirmation time, beside current confirmation", () => {
+    const details = presentOperationDetails(baseOperation({ status: "pending", submittedAt: "2026-09-08T05:07:00.000Z" }), { regionId: "US", timeZone: "UTC" });
+
+    expect(details.steps).toEqual([
+      { status: "complete", title: "Submitted", time: "Sep 8, 5:07 AM" },
+      { status: "current", title: "Confirming on Base" },
+    ]);
+    expect(details.rows).toContainEqual({ label: "Status", value: "Pending", statusTone: "pending" });
+    expect(details.rows).toContainEqual({ label: "Updated", value: "Sep 8, 5:03 AM" });
+  });
+
+  test("pending operations without a transaction or user operation hash have no receipt steps", () => {
+    const details = presentOperationDetails(baseOperation({
+      status: "pending",
+      transactionHash: undefined,
+      userOperationHash: undefined,
+    }));
+
+    expect(details.steps).toBeUndefined();
+    expect(details.rows).toContainEqual({ label: "Status", value: "Pending", statusTone: "pending" });
+  });
+
+  test("pending operations with only a user operation hash show receipt steps", () => {
+    const details = presentOperationDetails(baseOperation({
+      status: "pending",
+      transactionHash: undefined,
+      userOperationHash: HASH,
+      submittedAt: "2026-09-08T05:07:00.000Z",
+    }), { regionId: "US", timeZone: "UTC" });
+
+    expect(details.steps).toEqual([
+      { status: "complete", title: "Submitted", time: "Sep 8, 5:07 AM" },
+      { status: "current", title: "Confirming on Base" },
+    ]);
+  });
+
+  test("pending operations with a recorded non-hash handle show receipt steps with the submission time", () => {
+    const details = presentOperationDetails(baseOperation({
+      status: "pending",
+      transactionHash: undefined,
+      submittedAt: "2026-09-08T05:07:00.000Z",
+    }), { regionId: "US", timeZone: "UTC" });
+
+    expect(details.steps?.[0]).toEqual({ status: "complete", title: "Submitted", time: "Sep 8, 5:07 AM" });
+  });
+
+  test("confirmed, failed, and unknown operations have no receipt steps", () => {
+    for (const status of ["confirmed", "failed", "unknown"] as const) {
+      expect(presentOperationDetails(baseOperation({ status })).steps).toBeUndefined();
+    }
+  });
+
+  test("pending operations omit a missing or invalid submission time instead of using the confirmation time", () => {
+    for (const submittedAt of [undefined, "not-a-date"]) {
+      const details = presentOperationDetails(baseOperation({ status: "pending", submittedAt }), { timeZone: "UTC" });
+
+      expect(details.steps).toEqual([
+        { status: "complete", title: "Submitted" },
+        { status: "current", title: "Confirming on Base" },
+      ]);
+    }
   });
 
   test("localizes recorded action details by presentation region", () => {
@@ -214,6 +279,25 @@ describe("operation transaction details", () => {
     expect(labelForMoneyActionKind("borrow")).toBe("Borrow");
     expect(labelForMoneyActionKind("repay")).toBe("Repay");
     expect(labelForMoneyActionKind("withdraw-collateral")).toBe("Withdraw collateral");
+  });
+
+  test("maps every operation status to a status tone without changing its label", () => {
+    expect(toneForOperationStatus("confirmed")).toBe("success");
+    expect(toneForOperationStatus("pending")).toBe("pending");
+    expect(toneForOperationStatus("submitted")).toBe("pending");
+    expect(toneForOperationStatus("failed")).toBe("failure");
+    expect(toneForOperationStatus("rejected")).toBe("neutral");
+    expect(toneForOperationStatus("unknown")).toBe("neutral");
+    for (const [status, tone, label] of [
+      ["confirmed", "success", "Confirmed"],
+      ["pending", "pending", "Pending"],
+      ["failed", "failure", "Failed"],
+      ["unknown", "neutral", "Outcome unknown"],
+    ] as const) {
+      expect(presentOperationDetails(baseOperation({ status })).rows[0]).toEqual({
+        label: "Status", value: label, statusTone: tone,
+      });
+    }
   });
 
   test("labels the four derived statuses plus client dispatch outcomes", () => {
