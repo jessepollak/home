@@ -4,7 +4,7 @@ import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { Toggle } from "@/components/ui/toggle";
-import { fitRect, initialFrameFit, pan, zoomAt, type Camera, type Rect, type Size } from "./camera";
+import { FIT_PADDING, FIT_TOP_CLEARANCE, fitRect, initialFrameFit, pan, zoomAt, type Camera, type Rect, type Size } from "./camera";
 import { BuildChip } from "./build-chip";
 import { boardCommands, commandForKey } from "./commands";
 import { DesktopCanvas, InteractChip } from "./desktop-canvas";
@@ -193,7 +193,7 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
   const fit = useCallback((rect: Rect) => {
     if (!viewport.width || !viewport.height) return;
     setTransition(true);
-    setCamera(fitRect(viewport, rect, 32));
+    setCamera(fitRect(viewport, rect, FIT_PADDING, FIT_TOP_CLEARANCE));
   }, [viewport]);
   const fitAll = () => fit({ x: 0, y: 0, ...geometry.size });
   const moveCamera = useCallback((updater: (old: Camera) => Camera) => {

@@ -5,20 +5,23 @@ export type Camera = Point & { zoom: number };
 export const MIN_ZOOM = 0.05;
 export const MAX_ZOOM = 2;
 export function clampZoom(value: number): number { return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, value)); }
-export function fitRect(viewport: Size, rect: Rect, padding: number): Camera {
+export const FIT_PADDING = 32;
+export const FIT_TOP_CLEARANCE = 60;
+export function fitRect(viewport: Size, rect: Rect, padding: number, topClearance = padding): Camera {
+  const top = Math.max(padding, topClearance);
   const zoom = clampZoom(Math.min(
     (viewport.width - padding * 2) / rect.width,
-    (viewport.height - padding * 2) / rect.height,
+    (viewport.height - padding - top) / rect.height,
   ));
   return {
     x: (viewport.width - rect.width * zoom) / 2 - rect.x * zoom,
-    y: (viewport.height - rect.height * zoom) / 2 - rect.y * zoom,
+    y: top + (viewport.height - padding - top - rect.height * zoom) / 2 - rect.y * zoom,
     zoom,
   };
 }
 export function initialFrameFit(viewport: Size, rect: Rect, fitted: boolean): Camera | undefined {
   if (fitted || !viewport.width || !viewport.height) return undefined;
-  return fitRect(viewport, rect, 32);
+  return fitRect(viewport, rect, FIT_PADDING, FIT_TOP_CLEARANCE);
 }
 export const FRAME_HEADROOM = 120;
 export function showFrameLabel(width: number, zoom: number, headroom = FRAME_HEADROOM): boolean {

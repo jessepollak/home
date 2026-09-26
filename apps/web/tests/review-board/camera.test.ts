@@ -19,8 +19,8 @@ describe("board camera", () => {
     const other = { x: 96, y: 112, width: 390, height: 844 };
     expect(initialFrameFit({ width: 0, height: 852 }, first, false)).toBeUndefined();
     const camera = initialFrameFit({ width: 880, height: 852 }, first, false);
-    expect(camera).toEqual(fitRect({ width: 880, height: 852 }, first, 32));
-    const selectedCamera = fitRect({ width: 880, height: 852 }, other, 32);
+    expect(camera).toEqual(fitRect({ width: 880, height: 852 }, first, 32, 60));
+    const selectedCamera = fitRect({ width: 880, height: 852 }, other, 32, 60);
     expect(initialFrameFit({ width: 640, height: 852 }, first, true)).toBeUndefined();
     expect(initialFrameFit({ width: 880, height: 852 }, first, true)).toBeUndefined();
     expect(selectedCamera).not.toEqual(camera);
@@ -86,4 +86,10 @@ describe("board camera", () => {
     expect(gestureCamera(camera, 0, 1.5, point)).toEqual(camera);
     expect(gestureCamera(camera, 1, Number.NaN, point)).toEqual(camera);
   });
+});
+
+test("fitting a frame leaves top clearance for its label and the interaction chip", () => {
+  const camera = fitRect({ width: 1000, height: 800 }, { x: 0, y: 0, width: 390, height: 844 }, 32, 60);
+  expect(camera.y).toBeGreaterThanOrEqual(60);
+  expect(camera.y + 844 * camera.zoom).toBeLessThanOrEqual(800 - 32 + 0.001);
 });
