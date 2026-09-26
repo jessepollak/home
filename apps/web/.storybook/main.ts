@@ -4,12 +4,17 @@ import { readReviewBuild } from "../stories/review/explorations/board/review-bui
 
 const buildEnv = reviewEnv();
 
+const storybookProject = { id: "prj_g2Z1QnL2lhLddSxhQxo8yTCWFTVU", owner: "team_ymxui13vYrTC0G95tx4BCCqE" };
+
 function vercelComments(): string {
   if (process.env.VERCEL_ENV !== "preview") return "";
-  const deployment = JSON.stringify(process.env.VERCEL_DEPLOYMENT_ID ?? "").replace(/</g, "\\u003c");
+  const attribute = (value: string) => JSON.stringify(value).replace(/</g, "\\u003c");
+  const deployment = attribute(process.env.VERCEL_DEPLOYMENT_ID ?? "");
+  const branch = attribute(process.env.VERCEL_GIT_COMMIT_REF ?? "");
   const mount = `if(window.__reviewFeedbackMounted||document.querySelector('script[src*="vercel.live"],vercel-live-feedback'))return;` +
     `window.__reviewFeedbackMounted=true;const s=document.createElement("script");s.src="https://vercel.live/_next-live/feedback/feedback.js";` +
-    `s.async=true;s.dataset.explicitOptIn="true";s.dataset.deploymentId=${deployment};document.head.appendChild(s);`;
+    `s.async=true;s.dataset.explicitOptIn="true";s.dataset.deploymentId=${deployment};s.dataset.projectId=${attribute(storybookProject.id)};` +
+    `s.dataset.ownerId=${attribute(storybookProject.owner)};s.dataset.branch=${branch};document.head.appendChild(s);`;
   return `<script>if(window.top===window){const mount=()=>{${mount}};` +
     `if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",mount,{once:true});else mount();}</script>`;
 }
