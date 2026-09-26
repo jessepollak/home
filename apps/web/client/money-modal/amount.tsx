@@ -82,6 +82,10 @@ export function fitAmountFontSize(
   return Math.min(baseFontSize, Math.max(minFontSize, scaled));
 }
 
+export function centredAmountWidth(prefix: number, figure: number, suffix: number): number {
+  return figure + 2 * Math.max(prefix, suffix);
+}
+
 export function useAutoFitAmountText(text: string) {
   const containerRef = useRef<HTMLLabelElement>(null);
   const sizerRef = useRef<HTMLSpanElement>(null);
@@ -100,7 +104,8 @@ export function useAutoFitAmountText(text: string) {
       + (Number.parseFloat(computed.paddingRight) || 0);
     const available = container.clientWidth - horizontalPadding;
     const base = Number.parseFloat(window.getComputedStyle(sizer).fontSize);
-    const natural = sizer.getBoundingClientRect().width;
+    const [prefixPart, figurePart, suffixPart] = Array.from(sizer.children, (part) => part.getBoundingClientRect().width);
+    const natural = centredAmountWidth(prefixPart ?? 0, figurePart ?? 0, suffixPart ?? 0);
     if (available <= 0 || natural <= 0 || !Number.isFinite(base) || base <= 0) return;
     const minRaw = computed.getPropertyValue(AMOUNT_MIN_FONT_PROPERTY);
     const min = Number.parseFloat(minRaw) || AMOUNT_MIN_FONT_SIZE_FALLBACK;
@@ -311,10 +316,11 @@ export function MoneyPrimaryAmount({
   nativeSymbol: string;
 }) {
   const text = formatPrimaryAmount(amount, unit, pricing, fiatCurrency, nativeSymbol);
-  const figure = amount === "" ? "0" : amount;
-  const figureIndex = text.indexOf(figure);
-  const prefix = text.slice(0, figureIndex);
-  const suffix = text.slice(figureIndex + figure.length);
+  const amountFigure = amount === "" ? "0" : amount;
+  const figureIndex = text.indexOf(amountFigure);
+  const figure = figureIndex === -1 ? text : amountFigure;
+  const prefix = figureIndex === -1 ? "" : text.slice(0, figureIndex);
+  const suffix = figureIndex === -1 ? "" : text.slice(figureIndex + figure.length);
   const unitName = formatPrimaryAmountUnit(unit, pricing, fiatCurrency, nativeSymbol);
   const unitId = useId();
   const describedBy = [unitName ? unitId : undefined, availableId].filter(Boolean).join(" ") || undefined;
@@ -376,15 +382,15 @@ export function MoneyPrimaryAmount({
       <label
         ref={containerRef}
         dir="ltr"
-        className="flex w-full min-w-0 max-w-full shrink-0 cursor-text items-center justify-center overflow-hidden whitespace-nowrap px-4 py-3 text-5xl font-semibold leading-none tabular-nums"
+        className="grid w-full min-w-0 max-w-full shrink-0 cursor-text grid-cols-[1fr_auto_1fr] items-center overflow-hidden whitespace-nowrap px-4 py-3 text-5xl font-semibold leading-none tabular-nums"
         data-primary-amount
         style={fontSize === undefined ? undefined : { fontSize }}
       >
         {onAmountChange ? (
           <>
-            {prefix ? <span aria-hidden="true" className={`whitespace-pre ${amount === "" ? "text-muted-foreground" : ""}`.trim()}>{prefix}</span> : null}
-            <span className="relative inline-block min-w-[1ch] max-w-full">
-              <span className="invisible whitespace-pre pe-0.5" aria-hidden="true">{figure}</span>
+            {prefix ? <span aria-hidden="true" className={`col-start-1 justify-self-end whitespace-pre ${amount === "" ? "text-muted-foreground" : ""}`.trim()}>{prefix}</span> : null}
+            <span className="relative col-start-2 -me-0.5 inline-block min-w-[1ch] max-w-full">
+              <span className="invisible whitespace-pre pe-0.5" aria-hidden="true" data-amount-figure>{figure}</span>
               <Input
                 ref={inputRef}
                 variant="amount"
@@ -429,9 +435,13 @@ export function MoneyPrimaryAmount({
                 }}
               />
             </span>
-            {suffix ? <span aria-hidden="true" className={`whitespace-pre ${amount === "" ? "text-muted-foreground" : ""}`.trim()}>{suffix}</span> : null}
+            {suffix ? <span aria-hidden="true" className={`col-start-3 justify-self-start whitespace-pre ${amount === "" ? "text-muted-foreground" : ""}`.trim()}>{suffix}</span> : null}
           </>
-        ) : <span>{text}</span>}
+        ) : <>
+          {prefix ? <span className="col-start-1 justify-self-end whitespace-pre">{prefix}</span> : null}
+          <span className="col-start-2 whitespace-pre" data-amount-figure>{figure}</span>
+          {suffix ? <span className="col-start-3 justify-self-start whitespace-pre">{suffix}</span> : null}
+        </>}
       </label>
       {onAmountChange && unitName ? <span id={unitId} className="sr-only">{`Currency: ${unitName}`}</span> : null}
       <span
@@ -439,7 +449,7 @@ export function MoneyPrimaryAmount({
         className="pointer-events-none absolute invisible whitespace-nowrap text-5xl font-semibold leading-none tabular-nums"
         data-amount-sizer
         aria-hidden="true"
-      >{text}</span>
+      ><span>{prefix}</span><span className="pe-0.5">{figure}</span><span>{suffix}</span></span>
     </>
   );
 }

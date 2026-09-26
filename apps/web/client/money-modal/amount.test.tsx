@@ -5,7 +5,7 @@ import { useState } from "react";
 
 const { page } = await import("@/tests/helpers/dom");
 const { cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
-const { MoneyAmountDisplay, MoneyAssetPicker, matchesMoneyAssetOption, fitAmountFontSize } = await import("./amount");
+const { MoneyAmountDisplay, MoneyAssetPicker, matchesMoneyAssetOption, fitAmountFontSize, centredAmountWidth } = await import("./amount");
 const { moneyAssetPricing } = await import("./amount-units");
 
 const usdUsdc = moneyAssetPricing("USDC", "US");
@@ -85,6 +85,13 @@ function accessibleDescription(element: HTMLElement): string {
     .map((id) => document.getElementById(id)?.textContent ?? "")
     .join(" ");
 }
+
+test("primary amount width reserves equal space on both sides of the digits", () => {
+  expect(centredAmountWidth(24, 80, 0)).toBe(128);
+  expect(centredAmountWidth(0, 80, 42)).toBe(164);
+  expect(centredAmountWidth(24, 80, 42)).toBe(164);
+  expect(centredAmountWidth(0, 80, 0)).toBe(80);
+});
 
 test("primary amount auto-fit shrinks and clamps longer number and unit combinations", () => {
   expect(fitAmountFontSize(280, 420, 48, 20)).toBe(32);
@@ -251,7 +258,8 @@ describe("MoneyAmountDisplay", () => {
   test("keeps a read-only amount as text and renders unpriced native amounts", () => {
     render(<MoneyAmountDisplay amount="1.1010" maxDecimals={18} pricing={unpricedEth} nativeSymbol="ETH" />);
     expect(page().queryByRole("textbox", { name: "Amount" })).toBeNull();
-    expect(page().getAllByText("1.1010 ETH").length).toBeGreaterThan(0);
+    expect(document.querySelector("[data-primary-amount]")?.textContent).toBe("1.1010 ETH");
+    expect(document.querySelector("[data-amount-figure]")?.textContent).toBe("1.1010");
     cleanup();
     render(<AmountHarness pricing={unpricedEth} nativeSymbol="ETH" availableLabel="1.1010 ETH available" availableAmount="1.1010" />);
     expect(page().queryByRole("button", { name: /as the primary amount/ })).toBeNull();

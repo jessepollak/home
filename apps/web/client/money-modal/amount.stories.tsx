@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, userEvent, within } from "storybook/test";
+import { expect, userEvent, waitFor, within } from "storybook/test";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { isPositiveDecimalAmount } from "./amount-input";
@@ -53,6 +53,44 @@ function AmountStory({
   );
 }
 
+async function expectDigitsCentred(canvasElement: HTMLElement, checkFit = false) {
+  await waitFor(async () => {
+    const label = canvasElement.querySelector<HTMLElement>("[data-primary-amount]");
+    const figure = label?.querySelector<HTMLElement>("[data-amount-figure]");
+    const text = figure?.firstChild;
+    await expect(label).toBeTruthy();
+    await expect(text?.nodeType).toBe(Node.TEXT_NODE);
+    const range = document.createRange();
+    range.selectNodeContents(text!);
+    const figureRect = range.getBoundingClientRect();
+    const axisRect = label!.parentElement?.querySelector("p[aria-live]")?.getBoundingClientRect() ?? label!.getBoundingClientRect();
+    await expect(Math.abs(figureRect.left + figureRect.width / 2 - (axisRect.left + axisRect.width / 2))).toBeLessThanOrEqual(1);
+    if (checkFit) {
+      const input = label!.querySelector<HTMLInputElement>("[data-money-amount-input]");
+      await expectPartsInsideLabel(label!);
+      await expect(input).toBeTruthy();
+      await expect(input!.scrollWidth).toBeLessThanOrEqual(input!.clientWidth + 1);
+    }
+  });
+}
+
+async function expectPartsInsideLabel(label: HTMLElement) {
+  const labelRect = label.getBoundingClientRect();
+  for (const part of Array.from(label.children)) {
+    const partRect = part.getBoundingClientRect();
+    await expect(partRect.left).toBeGreaterThanOrEqual(labelRect.left);
+    await expect(partRect.right).toBeLessThanOrEqual(labelRect.right);
+  }
+}
+
+async function expectUnitInside(canvasElement: HTMLElement) {
+  await waitFor(async () => {
+    const label = canvasElement.querySelector<HTMLElement>("[data-primary-amount]");
+    await expect(label).toBeTruthy();
+    await expectPartsInsideLabel(label!);
+  });
+}
+
 const meta = {
   title: "Money/Primary Amount",
   component: AmountStory,
@@ -72,9 +110,11 @@ export const Empty: Story = {
     const canvas = within(canvasElement);
     const input = canvas.getByRole("textbox", { name: "Amount" });
     await expect(input).toHaveValue("");
+    await expectDigitsCentred(canvasElement);
     await expect(canvas.getByRole("button", { name: "Continue" })).toBeDisabled();
     await userEvent.type(input, "10");
     await expect(input).toHaveValue("10");
+    await expectDigitsCentred(canvasElement);
     await expect(canvas.getByRole("button", { name: "Continue" })).toBeEnabled();
     await userEvent.keyboard("{Enter}");
     await expect(canvas.getByText("Ready to review 10 USDC")).toBeVisible();
@@ -87,6 +127,7 @@ export const Entered: Story = {
     const canvas = within(canvasElement);
     const input = canvas.getByRole("textbox", { name: "Amount" });
     await expect(input).toHaveValue("3.50");
+    await expectDigitsCentred(canvasElement);
     await userEvent.clear(input);
     await userEvent.type(input, "4,25");
     await expect(input).toHaveValue("4.25");
@@ -102,6 +143,11 @@ export const LongAmount: Story = {
     await expect(input).toHaveValue("123456789012.123456");
     await userEvent.type(input, "7");
     await expect(input).toHaveValue("123456789012.123456");
+    await expectDigitsCentred(canvasElement, true);
+    await userEvent.clear(input);
+    await userEvent.type(input, "123456789.12");
+    await expect(input).toHaveValue("123456789.12");
+    await expectDigitsCentred(canvasElement, true);
   },
 };
 
@@ -112,6 +158,7 @@ export const OverAvailable: Story = {
     const input = canvas.getByRole("textbox", { name: "Amount" });
     await expect(input).toHaveAttribute("aria-invalid", "true");
     await expect(canvas.getByText("Only $12.00 available")).toBeVisible();
+    await expectDigitsCentred(canvasElement);
     await expect(canvas.getByRole("button", { name: "Continue" })).toBeDisabled();
     await userEvent.clear(input);
     await userEvent.type(input, "5");
@@ -127,7 +174,20 @@ export const NativeUnit: Story = {
     const input = canvas.getByRole("textbox", { name: "Amount" });
     await userEvent.type(input, "0.123456789012345678");
     await expect(input).toHaveValue("0.123456789012345678");
+    await expectUnitInside(canvasElement);
     await expect(canvas.getByRole("button", { name: "Continue" })).toBeEnabled();
+  },
+};
+
+export const RightToLeft: Story = {
+  render: (args) => <div dir="rtl"><AmountStory {...args} /></div>,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const input = canvas.getByRole("textbox", { name: "Amount" });
+    await expectDigitsCentred(canvasElement);
+    await userEvent.type(input, "5.25");
+    await expect(input).toHaveValue("5.25");
+    await expectDigitsCentred(canvasElement);
   },
 };
 
@@ -138,6 +198,7 @@ export const FiatDeposit: Story = {
     const input = canvas.getByRole("textbox", { name: "Amount" });
     await userEvent.type(input, "250.50");
     await expect(input).toHaveValue("250.50");
+    await expectDigitsCentred(canvasElement);
     await expect(canvas.getByRole("button", { name: "Continue" })).toBeEnabled();
   },
 };
