@@ -1,0 +1,64 @@
+.root {
+  --ease-draw: cubic-bezier(0.45, 0, 0.55, 1);
+  --ease-plane: cubic-bezier(0.32, 0.72, 0, 1);
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.tilt {
+  transform-box: view-box;
+  transform-origin: 120px 108px;
+}
+
+.root[data-state="ready"] .draw,
+.root[data-state="playing"] .draw {
+  animation: draw var(--duration) var(--delay) var(--ease-draw) both;
+}
+
+.root[data-state="ready"] .fade,
+.root[data-state="playing"] .fade {
+  animation: fade-in var(--duration) var(--delay) var(--ease-plane) both;
+}
+
+.root[data-state="ready"] .enter,
+.root[data-state="playing"] .enter {
+  animation: enter var(--duration) var(--delay) var(--ease-plane) both;
+}
+
+.root[data-state="ready"] .tilt,
+.root[data-state="playing"] .tilt {
+  animation: tilt var(--duration) var(--delay) both;
+}
+
+.root[data-state="ready"] * { animation-play-state: paused !important; }
+
+@keyframes draw {
+  from { stroke-dashoffset: 1.01; }
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes enter {
+  0% { opacity: 0; transform: translate(var(--x, 0px), var(--y, 0px)); }
+  45% { opacity: 1; }
+  100% { opacity: 1; transform: translate(0px, 0px); }
+}
+
+@keyframes tilt {
+  0% { transform: rotate(0deg); animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1); }
+  70% { transform: rotate(calc(var(--tilt) * 1.15)); animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1); }
+  100% { transform: rotate(var(--tilt)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .root, .root * { animation: none !important; }
+}
+
+.root[data-motion="reduce"],
+.root[data-motion="reduce"] * { animation: none !important; }
