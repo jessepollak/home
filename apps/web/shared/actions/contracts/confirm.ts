@@ -10,6 +10,14 @@ export type ConfirmActionResponse = {
   batchGasLimit?: string;
 };
 
+export function supportsBaseBatchGasHint(calls: readonly { data: string }[]): boolean {
+  if (calls.length < 1) return false;
+  for (let index = 1; index < calls.length - 1; index += 1) {
+    if (!/^0x095ea7b3[0-9a-f]{128}$/i.test(calls[index].data)) return false;
+  }
+  return true;
+}
+
 export function parseConfirmActionResponse(
   value: unknown,
 ): Pick<ConfirmActionResponse, "calls" | "batchGasLimit"> | null {

@@ -481,6 +481,60 @@ describe("actions HTTP handlers", () => {
     });
   });
 
+  test("Base confirm still estimates a two-call batch", async () => {
+    const calls = [CALL, { ...CALL, data: "0x5678" as const }];
+    const estimatedCalls: MoneyActionCall[][] = [];
+    const handler = createConfirmActionHandler({
+      authorize: authorize("owner-a", "base-account"),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      estimateBaseBatch: async (batch) => { estimatedCalls.push([...batch]); return BigInt(100_000); },
+      store: {
+        get: async () => ({ ...row, provider: "base-account", pending: { calls } }),
+        confirm: async (_owner, _id, confirmedCalls) => ({
+          ...row, provider: "base-account", confirmed_at: "2026-09-12T12:05:00.000Z",
+          pending: { calls: confirmedCalls ?? [] },
+        }),
+      },
+    });
+    const response = await handler(baseRequest(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ calls, batchGasLimit: "150000" });
+    expect(estimatedCalls).toEqual([calls]);
+  });
+
+  test("Base confirm skips the gas hint for a finalized three-call batch without altering its calls", async () => {
+    const calls: MoneyActionCall[] = [
+      { to: "0x2222222222222222222222222222222222222222", data: "0x095ea7b3", value: "0" },
+      { to: "0x3333333333333333333333333333333333333333", data: "0x238d6579", value: "0" },
+      { to: "0x3333333333333333333333333333333333333333", data: "0x50d8cd4b", value: "0" },
+    ];
+    const writes: string[] = [];
+    setObservabilityLogWriterForTests((line) => writes.push(line));
+    let estimates = 0;
+    const handler = createConfirmActionHandler({
+      authorize: authorize("owner-a", "base-account"),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      estimateBaseBatch: async () => { estimates += 1; return BigInt(100_000); },
+      store: {
+        get: async () => ({ ...row, provider: "base-account", pending: { calls } }),
+        confirm: async (_owner, _id, confirmedCalls) => ({
+          ...row, provider: "base-account", confirmed_at: "2026-09-12T12:05:00.000Z",
+          pending: { calls: confirmedCalls ?? [] },
+        }),
+      },
+    });
+    const response = await handler(baseRequest(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.calls).toEqual(calls);
+    expect(body).not.toHaveProperty("batchGasLimit");
+    expect(estimates).toBe(0);
+    expect(writes).toHaveLength(1);
+    expect(JSON.parse(writes[0] ?? "{}")).toMatchObject({
+      level: "info", kind: "action-confirm", code: "BASE_BATCH_GAS_HINT_SKIPPED", outcome: "skipped", provider: "base-account",
+    });
+  });
+
   test("CDP confirm never invokes the Base estimator", async () => {
     let estimates = 0;
     const handler = createConfirmActionHandler({

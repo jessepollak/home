@@ -240,6 +240,56 @@ describe("Base Account connector boundary", () => {
     expect(provider.requests.filter(({ method }) => method === "wallet_sendCalls")).toHaveLength(2);
   });
 
+  test("rejects a three-call gas hint before dispatch but sends an unhinted batch unchanged", async () => {
+    const provider = new ProviderFixture();
+    const connection = await connectWithBaseProvider(asProvider(provider), CHALLENGE, () => {});
+    const calls = [
+      { to: OTHER_ADDRESS as `0x${string}`, value: BigInt(0), data: "0x095ea7b3" as `0x${string}` },
+      { to: ADDRESS as `0x${string}`, value: BigInt(0), data: "0x238d6579" as `0x${string}` },
+      { to: ADDRESS as `0x${string}`, value: BigInt(0), data: "0x50d8cd4b" as `0x${string}` },
+    ];
+    let beforeDispatchCalls = 0;
+    const beforeDispatch = async () => { beforeDispatchCalls += 1; };
+    await expect(connection.sendCalls?.(calls, "hinted-action", beforeDispatch, "150000")).rejects.toMatchObject({
+      reason: "not-submitted",
+      cause: expect.objectContaining({ reason: "invalid-provider-response" }),
+    });
+    expect(beforeDispatchCalls).toBe(0);
+    expect(provider.requests.filter(({ method }) => method === "wallet_sendCalls")).toHaveLength(0);
+
+    await expect(connection.sendCalls?.(calls, "unhinted-action", beforeDispatch)).resolves.toBe("0xfixture-call-bundle");
+    expect(beforeDispatchCalls).toBe(1);
+    const sent = provider.requests.filter(({ method }) => method === "wallet_sendCalls");
+    expect(sent).toHaveLength(1);
+    const params = (sent[0]?.params as Array<{ calls: unknown[] }>)[0];
+    expect(params.calls).toEqual([
+      { to: OTHER_ADDRESS, value: "0x0", data: "0x095ea7b3" },
+      { to: ADDRESS, value: "0x0", data: "0x238d6579" },
+      { to: ADDRESS, value: "0x0", data: "0x50d8cd4b" },
+    ]);
+    for (const call of params.calls) expect(call).not.toHaveProperty("capabilities");
+  });
+
+  test("sends a three-call batch with an intermediate token approval and a final-call gas hint", async () => {
+    const provider = new ProviderFixture();
+    const connection = await connectWithBaseProvider(asProvider(provider), CHALLENGE, () => {});
+    const calls = [
+      { to: OTHER_ADDRESS as `0x${string}`, value: BigInt(0), data: "0x095ea7b3" as `0x${string}` },
+      { to: OTHER_ADDRESS as `0x${string}`, value: BigInt(0), data: `0x095ea7b3${"0".repeat(128)}` as `0x${string}` },
+      { to: ADDRESS as `0x${string}`, value: BigInt(0), data: "0x1234" as `0x${string}` },
+    ];
+
+    await expect(connection.sendCalls?.(calls, "hinted-action", undefined, "150000")).resolves.toBe("0xfixture-call-bundle");
+    const sent = provider.requests.filter(({ method }) => method === "wallet_sendCalls");
+    expect(sent).toHaveLength(1);
+    const params = (sent[0]?.params as Array<{ calls: unknown[] }>)[0];
+    expect(params.calls).toEqual([
+      { to: OTHER_ADDRESS, value: "0x0", data: "0x095ea7b3" },
+      { to: OTHER_ADDRESS, value: "0x0", data: calls[1].data },
+      { to: ADDRESS, value: "0x0", data: "0x1234", capabilities: { gasLimitOverride: { value: "0x249f0" } } },
+    ]);
+  });
+
   test("returns the Base submission handle before a later account-state read could discard it", async () => {
     const provider = new ProviderFixture();
     provider.accountsAfterSendCalls = [OTHER_ADDRESS];

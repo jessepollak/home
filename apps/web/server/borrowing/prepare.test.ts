@@ -79,6 +79,26 @@ describe("Borrow action preparation across verified markets", () => {
     }
   });
 
+  test("supply-and-borrow approves the exact collateral amount only when allowance is not exact", async () => {
+    const market = BORROW_MARKETS[0];
+    const supplied = BigInt(100);
+    const borrowed = BigInt(100000);
+    const withoutAllowance = await prepare(market, "supply-and-borrow");
+    expect(withoutAllowance.result.draft.calls).toEqual([
+      approveCall(market.collateralToken, market.morpho, supplied),
+      supplyCollateralCall(market, supplied, OWNER),
+      borrowCall(market, borrowed, OWNER),
+    ]);
+    const state = snapshot(market);
+    state.wallet.collateralAllowanceRaw = supplied.toString();
+    const withExactAllowance = await prepare(market, "supply-and-borrow", state);
+    expect(withExactAllowance.result.draft.calls).toEqual([
+      supplyCollateralCall(market, supplied, OWNER),
+      borrowCall(market, borrowed, OWNER),
+    ]);
+    expect(withExactAllowance.simulations[0]?.calls).toEqual(withExactAllowance.result.draft.calls);
+  });
+
   test.each([...BORROW_MARKETS])("preserves $collateralToken.symbol management access in reducing-only mode", async (enabled) => {
     const market = { ...enabled, availability: "reducing-only" as const };
     const state = snapshot(market);

@@ -6,6 +6,7 @@ import { base } from "viem/chains";
 import { connect } from "viem/experimental/erc7846";
 import type { NativeBaseChallenge } from "@/shared/account/contracts/base-nonce";
 import { BASE_CHAIN_ID } from "@/shared/account/session-types";
+import { supportsBaseBatchGasHint } from "@/shared/actions/contracts/confirm";
 import { TransferExecutionError } from "@/shared/transfers/types";
 
 const BASE_CHAIN_HEX = "0x2105";
@@ -380,7 +381,7 @@ async function openBaseProvider(
       }
       if (
         calls.length < 1 || calls.length > 8 || !requestId ||
-        (batchGasLimit !== undefined && !isValidBatchGasLimit(batchGasLimit))
+        (batchGasLimit !== undefined && (!isValidBatchGasLimit(batchGasLimit) || !supportsBaseBatchGasHint(calls)))
       ) {
         throw new TransferExecutionError("not-submitted", new BaseAccountConnectorError("invalid-provider-response"));
       }
