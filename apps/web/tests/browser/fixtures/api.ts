@@ -228,6 +228,7 @@ export async function installApiFixtures(
         createdAt: CREATED_AT,
         confirmedAt: CREATED_AT,
         providerHandle: handleRecorded ? USER_OPERATION_HASH : undefined,
+        submittedAt: handleRecorded ? CREATED_AT : undefined,
         transactionHash: status === "confirmed" ? TRANSACTION_HASH : undefined,
         owner: currentAction.owner,
       }];

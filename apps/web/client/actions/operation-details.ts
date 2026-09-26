@@ -123,6 +123,18 @@ export function presentOperationDetails(
   return {
     title: operation.action.title,
     rows,
+    ...(operation.status === "pending" && (operation.submittedAt || operation.transactionHash || operation.userOperationHash) ? { steps: [
+      {
+        status: "complete" as const,
+        title: "Submitted",
+        ...(operation.submittedAt && Number.isFinite(Date.parse(operation.submittedAt)) ? { time: formatPresentationDate(operation.submittedAt, {
+          style: "activity-short",
+          regionId: options.regionId,
+          timeZone: options.timeZone,
+        }) } : {}),
+      },
+      { status: "current" as const, title: "Confirming on Base" },
+    ] } : {}),
     explorer: transactionExplorerLink(operation.transactionHash),
   };
 }
