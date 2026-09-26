@@ -434,12 +434,38 @@ describe("Save simplify", () => {
 
     const balancesFirstSave = await page().findByRole("region", { name: "Save" });
     expect(balancesFirstSave.textContent).toContain("$0.00");
+    expect(page().getByRole("region", { name: "Vaults" }).getAttribute("aria-busy")).toBe("true");
+    expect(page().queryByRole("heading", { name: "Start saving" })).toBeNull();
+    expect(page().queryByRole("button", { name: "Get started" })).toBeNull();
     expect(page().queryByRole("radio")).toBeNull();
     await act(async () => {
       pendingMetadata.resolve(initialData);
       await pendingMetadata.promise;
     });
     expect(await page().findByRole("radio", { name: /Gauntlet USDC Prime/ })).toBeTruthy();
+    expect(page().getByRole("heading", { name: "Start saving" })).toBeTruthy();
+  });
+
+  test("does not offer Get started when a successful vault response has no candidates", async () => {
+    const pendingMetadata = deferred<unknown>();
+    render(
+      <SavingsExperience
+        now={testNow}
+        session={session()}
+        balanceStatus="ready"
+        balancePositions={balancePositions()}
+        fetchVaults={() => pendingMetadata.promise}
+      />,
+    );
+    await act(async () => {
+      pendingMetadata.resolve({ ...initialData, candidates: [] });
+      await pendingMetadata.promise;
+    });
+
+    await waitFor(() => expect(page().queryByRole("region", { name: "Vaults" })).toBeNull());
+    expect(page().queryByRole("heading", { name: "Start saving" })).toBeNull();
+    expect(page().queryByRole("button", { name: "Get started" })).toBeNull();
+    expect(page().queryByRole("radio")).toBeNull();
   });
 
   test("shows an unavailable balance without inventing zero or an offer", async () => {

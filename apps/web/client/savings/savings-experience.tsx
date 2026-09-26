@@ -319,7 +319,7 @@ export function SavingsExperience({
     portfolioSummary?.balance.status === "available"
       ? portfolioSummary.balance
       : null;
-  const notStarted = !funded && loadState.status !== "error" && (availableBalance !== null || !hasSession);
+  const notStarted = !funded && loadState.status === "ready" && selected !== null && (availableBalance !== null || !hasSession);
   const showBalanceRows = funded || (hasSession && !availableBalance);
   const selectedBalance = selected
     ? balances.find(
