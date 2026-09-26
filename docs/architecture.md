@@ -87,7 +87,7 @@ Funding already has the full plugin shape: one provider directory, one registrat
 | `webhook_subscriptions` | record | each app-created CDP subscription and the signing secret returned only at creation, required to authenticate later deliveries |
 | `operator_settings` | record | versioned per-domain administrator values with optimistic revisions and the last operator update |
 | `admin_audit_log` | record | append-only administrator settings changes and individual customer reads, with actor, target, and purpose where required |
-| `card_events` | record | verified Immersve/Bridge/Stripe notification identity and allowlisted invalidation IDs, scoped by `(provider, mode, event_id)`; no payload bodies; retained 30 days by bounded lazy pruning ([cards.md](cards.md)) |
+| `card_events` | record | verified Immersve/Bridge/Stripe notification identity, `kind` and allowlisted invalidation IDs, scoped by `(provider, mode, event_id)`; no payload bodies; retained 30 days by bounded lazy pruning ([cards.md](cards.md)) |
 | `schema_migrations` | — | makes `bun run db:migrate` idempotent |
 
 Every table appears in this inventory with its kind; one shared executor (`server/db/sql.ts`) serves them all. Authentication creates no rows: the SIWE challenge is a signed cookie. Country preference is a device-side record (cookie-readable for server rendering); it moves to the server only for a cross-device need. The server never caches prices per owner. A future history table is decided on its own: reconstructible chain or price history is an observation; what Home displayed or committed to at a time is a record with its own retention contract.
