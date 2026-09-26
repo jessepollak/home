@@ -274,6 +274,17 @@ describe("presentation money formatting", () => {
     });
   });
 
+  test("formats quote expiry from the supplied instant with seconds and zone", () => {
+    expect(formatPresentationDate("2026-09-10T12:04:30.000Z", {
+      timeZone: "UTC",
+      style: "quote-time",
+    })).toBe("12:04:30 PM UTC");
+    expect(formatPresentationDate("not-a-date", {
+      timeZone: "UTC",
+      style: "quote-time",
+    })).toBe("—");
+  });
+
   test("returns a deterministic unavailable value for malformed dates", () => {
     expect(formatPresentationDate("not-a-date", {
       timeZone: "UTC",
