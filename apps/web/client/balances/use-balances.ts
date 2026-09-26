@@ -76,7 +76,7 @@ export function useBalances(
   session: BalancesQuerySession | null,
   region: RegionId,
   fetchBalances: FetchBalances,
-  options: { enabled?: boolean; provisional?: boolean; held?: boolean } = {},
+  options: { enabled?: boolean; provisional?: boolean; held?: boolean; paintCachedWhileHeld?: boolean } = {},
 ): RecoverableBalancesState {
   const validSession = isBalancesSession(session) ? session : null;
   const ownerKey = validSession ? dataOwnerKey(validSession) : null;
@@ -147,7 +147,15 @@ export function useBalances(
   }, [verifiedRefetchDue, refetch]);
 
   return useMemo(() => {
-    const observation = {
+    const heldSnapshot = held && options.paintCachedWhileHeld === true && query.data !== undefined && !query.isPlaceholderData;
+    const observation = heldSnapshot ? {
+      identity,
+      fetchStatus: "idle" as const,
+      errorUpdatedAt: 0,
+      dataUpdatedAt: query.dataUpdatedAt,
+      failureEligible: false,
+      hasData: true,
+    } : {
       identity,
       fetchStatus: query.fetchStatus,
       errorUpdatedAt: query.errorUpdatedAt,
@@ -157,6 +165,9 @@ export function useBalances(
     };
     if (!ownerKey) {
       return { status: "unavailable", snapshot: null, error: null, retry, observation };
+    }
+    if (heldSnapshot) {
+      return { status: "ready", snapshot: query.data!, error: null, retry, observation, revalidating: true };
     }
     if (held || query.isPending || (suppressedFailure && query.data === undefined)) {
       return { status: "loading", snapshot: null, error: null, retry, observation };
@@ -185,7 +196,7 @@ export function useBalances(
       };
     }
     return { status: "loading", snapshot: null, error: null, retry, observation };
-  }, [held, identity, ownerKey, query.data, query.dataUpdatedAt, query.error, query.errorUpdatedAt, query.fetchStatus, query.isError, query.isFetching, query.isPending, retry, suppressedFailure]);
+  }, [held, identity, options.paintCachedWhileHeld, ownerKey, query.data, query.dataUpdatedAt, query.error, query.errorUpdatedAt, query.fetchStatus, query.isError, query.isFetching, query.isPending, query.isPlaceholderData, retry, suppressedFailure]);
 }
 
 function isBalancesSession(value: BalancesQuerySession | null): value is BalancesQuerySession {

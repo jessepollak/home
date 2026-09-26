@@ -73,22 +73,28 @@ async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
   );
 }
 
-describe("provisional balance transport", () => {
-  test("only balances GET crosses the provisional boundary", async () => {
+describe("provisional read transport", () => {
+  test("only balances and country preference GETs cross the provisional boundary", async () => {
     const requests: string[] = [];
     const transport = await transportWith(async (input, init) => {
       requests.push(`${init?.method} ${String(input)}`);
       return Response.json({ balance: "1" });
     }, undefined, { verification: "provisional", status: "validating" });
     expect(await transport.fetchBalances("US")).toEqual({ balance: "1" });
+    expect(await transport.fetchCountryPreference()).toEqual({ balance: "1" });
     expect(await rejectionOf(transport.fetchActivity(""))).toMatchObject({ kind: "session" });
     expect(await rejectionOf(transport.fetchAccountResource("/api/actions")))
       .toMatchObject({ reason: "stale-session" });
     expect(await rejectionOf(transport.fetchAccountResource("/api/balances")))
       .toMatchObject({ reason: "stale-session" });
+    expect(await rejectionOf(transport.fetchAccountResource("/api/account/country-preference", {
+      method: "PUT", body: { version: 1, regionId: "US", adopt: false },
+    }))).toMatchObject({ reason: "stale-session" });
+    expect(await rejectionOf(transport.fetchAccountResource("/api/account/country-preference")))
+      .toMatchObject({ reason: "stale-session" });
     expect(await rejectionOf(transport.fetchMoneyActionApi("/api/actions/prepare", { method: "POST", body: "{}" })))
       .toMatchObject({ reason: "stale-session" });
-    expect(requests).toEqual(["GET /api/balances?region=US"]);
+    expect(requests).toEqual(["GET /api/balances?region=US", "GET /api/account/country-preference"]);
   });
 
   test("drops an in-flight provisional response after the owner fence advances", async () => {
@@ -106,7 +112,7 @@ describe("provisional balance transport", () => {
     expect(await rejectionOf(read)).toMatchObject({ kind: "session" });
   });
 
-  test("rejects seeded restoring and all other non-validating provisional balance reads", async () => {
+  test("rejects seeded restoring and all other non-validating provisional reads", async () => {
     const requests: string[] = [];
     for (const status of ["restoring", "signing-out", "signed-out", "unavailable"] as const) {
       const transport = await transportWith(async (input) => {
@@ -114,8 +120,29 @@ describe("provisional balance transport", () => {
         return Response.json({});
       }, undefined, { verification: "provisional", status });
       expect(await rejectionOf(transport.fetchBalances("US"))).toMatchObject({ kind: "session" });
+      expect(await rejectionOf(transport.fetchCountryPreference())).toMatchObject({ kind: "session" });
     }
+    const walletless = await transportWith(async (input) => {
+      requests.push(String(input));
+      return Response.json({});
+    }, undefined, { verification: "provisional", status: "validating", session: { ...session, smartAccount: null } });
+    expect(await rejectionOf(walletless.fetchCountryPreference())).toMatchObject({ kind: "session" });
     expect(requests).toEqual([]);
+  });
+
+  test("discards a provisional country preference when the owner fence advances during the read", async () => {
+    let generation = 0;
+    let release!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { release = resolve; });
+    const transport = await transportWith(async () => pending, undefined, {
+      verification: "provisional", status: "validating",
+      ownerFence: { ...ownerFence, capture: () => generation, isCurrent: (value) => value === generation },
+    });
+    const read = transport.fetchCountryPreference();
+    await Promise.resolve();
+    generation += 1;
+    release(Response.json({ version: 1, regionId: "GB" }));
+    expect(await rejectionOf(read)).toMatchObject({ kind: "session" });
   });
 });
 

@@ -569,6 +569,7 @@ export function AccountWalletSessionOwner({
     fetchBalances: transport.fetchBalances,
     fetchActivity: transport.fetchActivity,
     fetchAccountResource: transport.fetchAccountResource,
+    fetchCountryPreference: transport.fetchCountryPreference,
     prepareMoneyAction: moneyActions.prepareMoneyAction,
     resumeMoneyAction: moneyActions.resumeMoneyAction,
     executeMoneyAction: moneyActions.executeMoneyAction,

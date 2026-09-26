@@ -1358,7 +1358,7 @@ describe("walletless country preference read", () => {
   const location = { panel: "home" as const, account: null, shelf: null, asset: null, group: null, market: null };
 
   for (const accountPreference of [null, { accountProvider: "cdp-embedded" as const, subject: "previous-account", regionId: "BR" as const }]) {
-    test(`holds provisional balances without a matching account country seed (${accountPreference ? "switched account" : "timed-out seed"})`, async () => {
+    test(`starts the account country read and resolved-region balances before verification without a matching seed (${accountPreference ? "switched account" : "timed-out seed"})`, async () => {
       const pendingSession = deferred<Response>();
       const pendingPreference = deferred<Response>();
       const cached = buildBalancesSnapshotFixture({
@@ -1382,18 +1382,150 @@ describe("walletless country preference read", () => {
       render(<AccountWalletSessionOwner sdk={sdk({ isSignedIn: true, ownerKey: OWNER, provisionalSession: session() })} sessionFetch={sessionFetch}>
         <PortfolioHomeExperience detectedCountry="BR" accountPreference={accountPreference} initialLocation={location} />
       </AccountWalletSessionOwner>);
-      expect(document.body.textContent).not.toContain("1.234,56");
-      expect(requests.filter((path) => path.startsWith("/api/balances?"))).toEqual([]);
-      await act(async () => { pendingSession.resolve(Response.json(session())); await pendingSession.promise; });
       await waitFor(() => expect(requests).toContain("/api/account/country-preference"));
-      expect(document.body.textContent).not.toContain("1.234,56");
+      expect(requests).toContain("/api/session");
       expect(requests.filter((path) => path.startsWith("/api/balances?"))).toEqual([]);
+      expect(document.body.textContent).not.toContain("1.234,56");
       await act(async () => { pendingPreference.resolve(Response.json({ version: 1, regionId: "DE" })); await pendingPreference.promise; });
       await waitFor(() => expect(requests).toContain("/api/balances?region=DE"));
+      expect(requests.filter((path) => path === "/api/account/country-preference")).toHaveLength(1);
+      await act(async () => { pendingSession.resolve(Response.json(session())); await pendingSession.promise; });
       await waitFor(() => expect(document.body.textContent).toContain("78,90"));
       expect(document.body.textContent).not.toContain("1.234,56");
+      expect(requests.filter((path) => path === "/api/account/country-preference")).toHaveLength(1);
     });
   }
+
+  test("a seeded region keeps its cached balance visible through pending verification and refresh", async () => {
+    const verification = deferred<Response>();
+    const freshRead = deferred<Response>();
+    const cached = buildBalancesSnapshotFixture({
+      region: "DE",
+      registry: { usdc: { balance: ready("1000000"), value: priced("EUR", "123456"), cashValue: pricedCash("USD", "100") } },
+    });
+    const fresh = buildBalancesSnapshotFixture({
+      region: "DE",
+      registry: { usdc: { balance: ready("1000000"), value: priced("EUR", "7890"), cashValue: pricedCash("USD", "100") } },
+    });
+    getHomeQueryClient().setQueryData(ownerQueryKey(dataOwnerKey(session()), "balances", "DE"), cached, {
+      updatedAt: Date.now() - 60_000,
+    });
+    const requests: string[] = [];
+    const sessionFetch: SessionFetch = async (input) => {
+      const path = String(input);
+      requests.push(path);
+      if (path === "/api/session") return verification.promise;
+      if (path === "/api/balances?region=DE") return freshRead.promise;
+      throw new Error(`Unexpected read: ${path}`);
+    };
+    render(<AccountWalletSessionOwner sdk={sdk({ isSignedIn: true, ownerKey: OWNER, provisionalSession: session() })} sessionFetch={sessionFetch}>
+      <PortfolioHomeExperience detectedCountry="BR" accountPreference={{ accountProvider: "cdp-embedded", subject: "subject-home", regionId: "DE" }} initialLocation={location} />
+    </AccountWalletSessionOwner>);
+    await waitFor(() => expect(requests).toContain("/api/balances?region=DE"));
+    const total = page().getByLabelText("Total balance");
+    expect(total.textContent).toContain("1.234,56");
+    expect(requests).toContain("/api/session");
+    const painted: string[] = [];
+    const observer = new MutationObserver(() => painted.push(total.textContent ?? ""));
+    observer.observe(total, { subtree: true, childList: true, characterData: true });
+    try {
+      await act(async () => { verification.resolve(Response.json(session())); await verification.promise; });
+      await waitForVerifiedShell();
+      expect(total.textContent).toContain("1.234,56");
+      await act(async () => { freshRead.resolve(Response.json(fresh)); await freshRead.promise; });
+      await waitFor(() => expect(total.textContent).toContain("78,90"));
+      expect(painted.every((text) => text.includes("1.234,56") || text.includes("78,90"))).toBe(true);
+      expect(requests.filter((path) => path === "/api/balances?region=DE")).toHaveLength(1);
+      expect(requests).not.toContain("/api/balances?region=BR");
+    } finally {
+      observer.disconnect();
+    }
+  });
+
+  test("discards a provisional country response after the owner changes", async () => {
+    const verificationA = deferred<Response>();
+    const verificationB = deferred<Response>();
+    const preferenceA = deferred<Response>();
+    const preferenceB = deferred<void>();
+    let verificationCount = 0;
+    let preferenceCount = 0;
+    const requests: string[] = [];
+    const sessionFetch: SessionFetch = async (input) => {
+      const path = String(input);
+      requests.push(path);
+      if (path === "/api/session") return ++verificationCount === 1 ? verificationA.promise : verificationB.promise;
+      if (path === "/api/account/country-preference") {
+        return ++preferenceCount === 1 ? preferenceA.promise : preferenceB.promise.then(() => Response.json({ version: 1, regionId: "DE" }));
+      }
+      if (path === "/api/balances?region=DE") return Response.json({});
+      return Response.json({ error: { code: "UNAVAILABLE" } }, { status: 503 });
+    };
+    const shell = (ownerKey: string, provisionalSession: VerifiedAccountSession) => (
+      <AccountWalletSessionOwner sdk={sdk({ isSignedIn: true, ownerKey, provisionalSession })} sessionFetch={sessionFetch}>
+        <PortfolioHomeExperience detectedCountry="BR" accountPreference={null} initialLocation={location} />
+      </AccountWalletSessionOwner>
+    );
+    const view = render(shell(OWNER, session()));
+    await waitFor(() => expect(preferenceCount).toBe(1));
+    view.rerender(shell(OWNER_B, session(ADDRESS_B, "subject-home-b")));
+    await waitFor(() => expect(preferenceCount).toBeGreaterThanOrEqual(2));
+    await act(async () => { preferenceA.resolve(Response.json({ version: 1, regionId: "GB" })); await preferenceA.promise; });
+    expect(requests.filter((path) => path.startsWith("/api/balances?"))).toEqual([]);
+    await act(async () => { preferenceB.resolve(); await preferenceB.promise; });
+    await waitFor(() => expect(requests).toContain("/api/balances?region=DE"));
+    expect(requests).not.toContain("/api/balances?region=GB");
+    const provisionalReadCount = preferenceCount;
+    await act(async () => { verificationB.resolve(Response.json(session(ADDRESS_B, "subject-home-b"))); await verificationB.promise; });
+    expect(preferenceCount).toBe(provisionalReadCount);
+  });
+
+  test("re-reads the country preference if verification returns a different identity", async () => {
+    const verification = deferred<Response>();
+    const requests: string[] = [];
+    const sessionFetch: SessionFetch = async (input) => {
+      const path = String(input);
+      requests.push(path);
+      if (path === "/api/session") return verification.promise;
+      if (path === "/api/account/country-preference") {
+        return Response.json({ version: 1, regionId: requests.filter((request) => request === path).length === 1 ? "GB" : "DE" });
+      }
+      return Response.json({ error: { code: "UNAVAILABLE", message: "Unavailable." } }, { status: 503 });
+    };
+    render(<AccountWalletSessionOwner sdk={sdk({ isSignedIn: true, ownerKey: OWNER, provisionalSession: session() })} sessionFetch={sessionFetch}>
+      <PortfolioHomeExperience detectedCountry="BR" accountPreference={null} initialLocation={location} />
+    </AccountWalletSessionOwner>);
+    await waitFor(() => expect(requests).toContain("/api/account/country-preference"));
+    await act(async () => { verification.resolve(Response.json(session(ADDRESS_B, "subject-home-b"))); await verification.promise; });
+    await waitFor(() => expect(requests.filter((path) => path === "/api/account/country-preference")).toHaveLength(2));
+    fireEvent.click(await waitForVerifiedShell());
+    expect((await page().findByRole("combobox", { name: "Country" })).getAttribute("value")).toContain("Germany");
+  });
+
+  test("retries a failed provisional preference read only after verification", async () => {
+    const verification = deferred<Response>();
+    const requests: string[] = [];
+    const sessionFetch: SessionFetch = async (input) => {
+      const path = String(input);
+      requests.push(path);
+      if (path === "/api/session") return verification.promise;
+      if (path === "/api/account/country-preference") {
+        return requests.filter((request) => request === path).length === 1
+          ? Response.json({ error: { code: "UNAVAILABLE" } }, { status: 503 })
+          : Response.json({ version: 1, regionId: "DE" });
+      }
+      if (path === "/api/balances?region=DE") return Response.json({});
+      throw new Error(`Unexpected read: ${path}`);
+    };
+    render(<AccountWalletSessionOwner sdk={sdk({ isSignedIn: true, ownerKey: OWNER, provisionalSession: session() })} sessionFetch={sessionFetch}>
+      <PortfolioHomeExperience detectedCountry="BR" accountPreference={null} initialLocation={location} />
+    </AccountWalletSessionOwner>);
+    await waitFor(() => expect(requests).toContain("/api/account/country-preference"));
+    expect(requests.filter((path) => path === "/api/account/country-preference")).toHaveLength(1);
+    expect(requests.filter((path) => path.startsWith("/api/balances?"))).toEqual([]);
+    await act(async () => { verification.resolve(Response.json(session())); await verification.promise; });
+    await waitFor(() => expect(requests.filter((path) => path === "/api/account/country-preference")).toHaveLength(2));
+    await waitFor(() => expect(requests).toContain("/api/balances?region=DE"));
+  });
 
   test("holds balances and funding methods until the account country read resolves", async () => {
     window.localStorage.setItem("home.country.v2", "MX");
@@ -1457,6 +1589,7 @@ describe("walletless country preference read", () => {
     </AccountWalletSessionOwner>);
     await waitFor(() => expect(requests).toContain("/api/account/country-preference"));
     await waitForVerifiedShell();
+    expect(requests.filter((path) => path === "/api/account/country-preference")).toHaveLength(1);
     expect(document.body.textContent).not.toContain("1.234,56");
     expect(document.body.textContent).not.toContain("78,90");
     expect(requests).not.toContain("/api/balances?region=BR");

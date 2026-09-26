@@ -122,18 +122,20 @@ export function useAuthenticatedTransport({
       endpoint:
         | "/api/balances"
         | "/api/activity"
-        | "/api/actions",
+        | "/api/actions"
+        | "/api/account/country-preference",
       signal?: AbortSignal,
       query?: string,
-      allowProvisionalBalances = false,
+      allowProvisionalRead = false,
     ): Promise<unknown> => {
-      const provisionalBalances = allowProvisionalBalances && endpoint === "/api/balances" &&
+      const provisionalRead = allowProvisionalRead &&
+        (endpoint === "/api/balances" || endpoint === "/api/account/country-preference") &&
         verification === "provisional" && status === "validating" &&
         session?.smartAccount;
-      if (!session || !ownerKey || (!provisionalBalances && (status !== "verified" || verification !== "server"))) {
+      if (!session || !ownerKey || (!provisionalRead && (status !== "verified" || verification !== "server"))) {
         throw new ResourceFailure("session");
       }
-      const generation = provisionalBalances ? ownerFence.capture() : null;
+      const generation = provisionalRead ? ownerFence.capture() : null;
       const assertCurrent = () => {
         if (generation !== null && !ownerFence.isCurrent(generation)) {
           throw new ResourceFailure("session");
@@ -303,6 +305,10 @@ export function useAuthenticatedTransport({
     [fetchAccountResource],
   );
 
+  const fetchCountryPreference = useCallback(
+    (signal?: AbortSignal) => fetchVerifiedResource("/api/account/country-preference", signal, undefined, true),
+    [fetchVerifiedResource],
+  );
   const fetchBalances = useCallback(
     (region: import("@/config/regions").RegionId, signal?: AbortSignal) =>
       fetchVerifiedResource(
@@ -322,6 +328,7 @@ export function useAuthenticatedTransport({
     fetchBalances,
     fetchActivity,
     fetchAccountResource,
+    fetchCountryPreference,
     fetchMoneyActionApi,
     reset,
   };
