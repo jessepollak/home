@@ -20,7 +20,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { presentationRegions, type RegionId } from "@/config/regions";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { HomeMoneySummary } from "@/shared/balances/present";
-import type { BorrowMarketId } from "@/shared/borrowing/config";
+import type { BorrowAssetRef, BorrowMarketId } from "@/shared/borrowing/config";
 import type { BorrowMarketSnapshot, BorrowOverviewResponse } from "@/shared/borrowing/contract";
 import type { BorrowOperation } from "@/shared/borrowing/types";
 import { formatHealthFactor, formatPresentationDate, formatPresentationFiat, formatWadPercent } from "@/shared/formatting";
@@ -44,9 +44,9 @@ type Props = {
 
 type SheetAction = { operation: BorrowOperation; enabled: boolean; label: string; variant: "default" | "secondary" | "outline"; ariaLabel?: string };
 
-function Mark({ snapshot, resolution }: { snapshot: BorrowMarketSnapshot; resolution?: AssetMarkResolution }) {
-  const mark = presentBorrowAssetMark(snapshot.market.collateralToken, resolution);
-  return <CurrencyMark assetKey={mark.assetKey} currency={mark.currency} symbol={mark.symbol} src={mark.imageUrl} pending={mark.pending} />;
+function RowMark({ asset, resolution }: { asset: BorrowAssetRef; resolution?: AssetMarkResolution }) {
+  const mark = presentBorrowAssetMark(asset, resolution);
+  return <CurrencyMark assetKey={mark.assetKey} currency={mark.currency} symbol={mark.symbol} src={mark.imageUrl} pending={mark.pending} size="sm" />;
 }
 
 function Facts({ rows }: { rows: Array<[string, string]> }) {
@@ -101,8 +101,7 @@ function Summary({ overview, borrowSummary, status, onRetry, regionId, summaryRe
 function LoanRow({ row, regionId, resolution, openMarket }: { row: OpenLoan; regionId: RegionId; resolution?: AssetMarkResolution; openMarket: (id: BorrowMarketId, element: HTMLElement) => void }) {
   const rowName = collateralDisplayName(row.market.id);
   if (row.kind === "unavailable") {
-    const mark = presentBorrowAssetMark(row.market.collateralToken, resolution);
-    return <AssetRow icon={<CurrencyMark assetKey={mark.assetKey} currency={mark.currency} symbol={mark.symbol} src={mark.imageUrl} pending={mark.pending} />} iconTone="mark" label={rowName} context="Couldn't load this loan" />;
+    return <AssetRow icon={<RowMark asset={row.market.collateralToken} resolution={resolution} />} iconTone="mark" label={rowName} context="Couldn't load this loan" />;
   }
   const position = row.snapshot.position;
   const hasDebt = BigInt(position.debtAssetsRaw) > BigInt(0);
@@ -114,7 +113,7 @@ function LoanRow({ row, regionId, resolution, openMarket }: { row: OpenLoan; reg
   const context = !hasDebt ? "Collateral available" : paused && !urgent ? `${tier} · Paused` : tier;
   const contextTitle = !hasDebt ? undefined : `${borrowRiskCopy(risk)}${paused ? " · New borrowing paused" : ""}`;
   return <AssetRow
-    icon={<Mark snapshot={row.snapshot} resolution={resolution} />} iconTone="mark" label={rowName}
+    icon={<RowMark asset={row.market.collateralToken} resolution={resolution} />} iconTone="mark" label={rowName}
     context={context} contextTitle={contextTitle}
     value={hasDebt ? formatToken(position.debtAssetsRaw, row.market.loanToken, regionId) : "No debt"}
     valueTone={hasDebt ? "default" : "muted"}
@@ -126,13 +125,13 @@ function LoanRow({ row, regionId, resolution, openMarket }: { row: OpenLoan; reg
 function AssetRows({ assets, regionId, resolution, openMarket, empty }: { assets: BorrowableAsset[]; regionId: RegionId; resolution?: AssetMarkResolution; openMarket: (id: BorrowMarketId, element: HTMLElement) => void; empty: boolean }) {
   return assets.map((asset) => {
     const rowName = collateralDisplayName(asset.market.id);
-    const mark = presentBorrowAssetMark(asset.market.collateralToken, resolution);
     const context = asset.kind === "unavailable" ? "Couldn't load"
       : asset.kind === "held-no-capacity" ? BigInt(asset.snapshot.state.liquidityAssetsRaw) === BigInt(0) ? `No ${asset.market.loanToken.symbol} to borrow now` : "Too little to borrow"
-        : [...(asset.kind === "held" ? ["In wallet"] : []), ...(asset.kind === "not-held" && !empty ? ["Not in wallet"] : []), `${formatWadPercent(asset.snapshot.state.borrowAprWad, regionId)} APR`].join(" · ");
+        : [...(asset.kind === "held" ? ["In wallet"] : []), ...(asset.kind === "not-held" && !empty ? ["Not in wallet"] : []), `${formatWadPercent(asset.snapshot.state.borrowAprWad, regionId)} APR`]
+          .map((segment) => segment.replaceAll(" ", "\u00a0")).join(" · ");
     return <AssetRow key={asset.market.id}
-      icon={<CurrencyMark assetKey={mark.assetKey} currency={mark.currency} symbol={mark.symbol} src={mark.imageUrl} pending={mark.pending} />}
-      iconTone="mark" label={rowName} context={context}
+      icon={<RowMark asset={asset.market.collateralToken} resolution={resolution} />}
+      iconTone="mark" label={rowName} context={context} contextLines={2}
       value={asset.kind === "held" ? formatToken(asset.openingAvailableRaw, asset.market.loanToken, regionId)
         : asset.kind === "held-no-capacity" ? formatToken(asset.snapshot.wallet.collateralBalanceRaw, asset.market.collateralToken, regionId) : undefined}
       valueContext={asset.kind === "held" ? "Available" : asset.kind === "held-no-capacity" ? "In wallet" : undefined}
