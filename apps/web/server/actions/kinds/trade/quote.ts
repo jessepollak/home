@@ -244,9 +244,10 @@ function validateV3(action: Hex, context: ActionContext): boolean {
 
 function validateRfq(action: Hex, context: ActionContext): boolean {
   const [recipient, permit, maker, makerSig, takerToken, maxTakerAmount] = decodeAction(RFQ_ABI, action);
-  return [context.router.toLowerCase(), context.request.taker.toLowerCase()].includes(recipient.toLowerCase()) &&
+  return recipient.toLowerCase() === context.router.toLowerCase() &&
     takerToken.toLowerCase() === context.fromToken && permit.permitted.token.toLowerCase() === context.toToken &&
-    maxTakerAmount > BigInt(0) && maxTakerAmount <= context.request.fromAmount && permit.permitted.amount > BigInt(0) &&
+    maxTakerAmount > BigInt(0) && maxTakerAmount <= context.request.fromAmount &&
+    permit.permitted.amount > BigInt(0) && permit.permitted.amount <= ((BigInt(1) << BigInt(256)) - BigInt(1)) - BigInt(1_000_000) &&
     !special(maker, context) && makerSig.length > 2;
 }
 
@@ -264,6 +265,56 @@ function sellsFromToken(action: Hex, context: ActionContext): boolean {
   if (selector === UNISWAPV3) return decodeAction(V3_ABI, action)[2].slice(0, 42).toLowerCase() === context.fromToken;
   if (selector === RFQ) return decodeAction(RFQ_ABI, action)[4].toLowerCase() === context.fromToken;
   return false;
+}
+
+function isSwapAction(action: Hex): boolean {
+  const selector = action.slice(0, 10);
+  if (selector === UNISWAPV2 || selector === MAVERICKV2 || selector === UNISWAPV3 || selector === RFQ) return true;
+  if (selector !== BASIC) return false;
+  const [sellToken, , pool] = decodeAction(BASIC_ABI, action);
+  return sellToken.toLowerCase() !== pool.toLowerCase();
+}
+
+function rfqBoundsValid(context: ActionContext): boolean {
+  const swaps = context.actions.slice(1).filter(isSwapAction);
+  const permits = swaps.filter((action) => action.slice(0, 10) === RFQ).map((action) => decodeAction(RFQ_ABI, action));
+  if (!permits.length) return true;
+  if (permits.length !== swaps.length) return false;
+  const seen = new Set<string>();
+  let capacity = BigInt(0);
+  let spend = BigInt(0);
+  for (const [, permit, maker, , , maxTakerAmount] of permits) {
+    const nonce = `${maker.toLowerCase()}:${permit.nonce}`;
+    if (seen.has(nonce)) return false;
+    seen.add(nonce);
+    capacity += permit.permitted.amount;
+    spend += maxTakerAmount;
+  }
+  const fee = context.quote.fees.protocolFee;
+  const quotedOutputFee = fee?.token.toLowerCase() === context.toToken ? fee.amount : BigInt(0);
+  const outputFeePpm = context.actions.filter((action) => action.slice(0, 10) === BASIC)
+    .map((action) => decodeAction(BASIC_ABI, action))
+    .filter(([token, , pool]) => token.toLowerCase() === context.toToken && token.toLowerCase() === pool.toLowerCase())
+    .reduce((sum, [, ppm]) => sum + ppm, BigInt(0));
+  const maximumOutputFee = capacity * outputFeePpm / BigInt(1_000_000);
+  return capacity >= context.quote.minToAmount + (maximumOutputFee > quotedOutputFee ? maximumOutputFee : quotedOutputFee) &&
+    spend >= context.request.fromAmount;
+}
+
+function settlerInputFullySpent(context: ActionContext): boolean {
+  if (addressWord(context.actions[0], 4) !== context.router.toLowerCase()) return true;
+  const swaps = context.actions.slice(1).filter(isSwapAction);
+  if (swaps.every((action) => action.slice(0, 10) === RFQ)) return true;
+  if (swaps.length !== 1 || !sellsFromToken(swaps[0]!, context)) return false;
+  const action = swaps[0]!;
+  const selector = action.slice(0, 10);
+  if (selector === UNISWAPV3) {
+    const [, ppm, path] = decodeAction(V3_ABI, action);
+    return ppm === BigInt(1_000_000) && `0x${path.slice(-40)}`.toLowerCase() === context.toToken;
+  }
+  const ppm = selector === BASIC ? decodeAction(BASIC_ABI, action)[1] :
+    selector === UNISWAPV2 ? decodeAction(V2_ABI, action)[2] : decodeAction(MAVERICK_ABI, action)[2];
+  return ppm === BigInt(1_000_000);
 }
 
 function feesMatch(context: ActionContext): boolean {
@@ -343,7 +394,8 @@ export function swapExecutionMatches(request: SwapReviewRequest, quote: LiquidQu
     const context = { actions, request, quote, router: swapRouter, fromToken, toToken };
     try {
       actionsVerified = actions.some((action) => sellsFromToken(action, context)) &&
-        actions.every((action, index) => SETTLER_ACTION_VALIDATORS.get(action.slice(0, 10) as Hex)?.(action, context, index) === true) && feesMatch(context);
+        actions.every((action, index) => SETTLER_ACTION_VALIDATORS.get(action.slice(0, 10) as Hex)?.(action, context, index) === true) &&
+        feesMatch(context) && rfqBoundsValid(context) && settlerInputFullySpent(context);
     } catch {
       actionsVerified = false;
     }
