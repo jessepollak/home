@@ -576,12 +576,21 @@ export const NoDebtHeld: Story = {
       },
     })),
   },
+  play: async ({ canvasElement }) => {
+    const screen = within(canvasElement);
+    await expect(screen.getByRole("heading", { name: "Borrow against your crypto" })).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Choose an asset" }));
+    await expect(screen.getByRole("region", { name: "Assets you can borrow against" })).toHaveFocus();
+  },
 };
 export const EmptyNoCollateral: Story = {
   args: { fixture: only() },
   play: async ({ canvasElement }) => {
     await expect(assetMarks(canvasElement)).toHaveLength(5);
     await assertRowMarkGeometry(canvasElement);
+    const screen = within(canvasElement);
+    await userEvent.click(screen.getByRole("button", { name: "See supported assets" }));
+    await expect(screen.getByRole("region", { name: "Assets you can borrow against" })).toHaveFocus();
   },
 };
 export const ImageMarksLoaded: Story = {

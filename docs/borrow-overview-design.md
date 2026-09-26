@@ -10,6 +10,8 @@ The source Figma frames remain on the [Borrow page](https://www.figma.com/design
 2. **Open loans.** A whole-row target opens each market's management sheet. Liquidatable and urgent debt leads, then other debt ordered by health factor and registry rank. Zero-debt pledged collateral follows with “Collateral available” and “No debt”; rows always use exact token units. A known but unreadable position would follow last when the parser can admit it.
 3. **Assets you can borrow against.** Held enabled assets with positive opening capacity show “In wallet · APR” and available loan-token units, followed by held assets with no opening capacity as inert rows with a reason and wallet collateral units. Unheld assets are inert. Reducing-only markets without a position are excluded; pledged and wallet collateral are not combined.
 
+When discovery is complete and there is no debt or pledged collateral, Borrow uses the shared `FeatureIntro` between the zero summary and asset list. Its primary action focuses the asset list: “Choose an asset” when an eligible asset is held, otherwise “See supported assets.” The intro explains collateral, variable borrowing costs and liquidation risk without implying that an unheld asset can be borrowed against. Partial, unavailable, loading and existing-position states do not show it.
+
 Direction A uses the words Healthy, Low buffer, Urgent, At risk (and “· Paused” where applicable) rather than Direction B's numeric row buffers. The in-panel Borrow heading is screen-reader only because the shell already supplies a visible Borrow header and Back.
 
 ## Derivations

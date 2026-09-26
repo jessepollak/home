@@ -1,0 +1,19 @@
+{
+  "id": "borrow-illustration",
+  "title": "Borrow — first-loan illustration motion",
+  "summary": "Three illustration and motion directions for the first-loan intro on Borrow. Each plays once when the intro scrolls into view; reduced motion shows the final frame. Replay sits under each card.",
+  "refs": { "issue": 1034 },
+  "sections": [
+    { "id": "options", "title": "Options in the intro", "note": "Compact intro size, as shipped. Before shows the current illustration.", "frames": [
+      { "id": "option-a", "story": "explorations-borrow-illustration--option-a-keep", "label": "A — Keep & draw", "viewport": "mobile", "change": "new", "before": "explorations-borrow-illustration--current", "note": "USDC slides out from behind the coins you keep: borrowing without selling." },
+      { "id": "option-b", "story": "explorations-borrow-illustration--option-b-counterweight", "label": "B — Counterweight", "viewport": "mobile", "change": "new", "before": "explorations-borrow-illustration--current", "note": "Collateral drops onto the beam and outweighs the loan: the buffer made physical." },
+      { "id": "option-c", "story": "explorations-borrow-illustration--option-c-tether", "label": "C — Tether", "viewport": "mobile", "change": "new", "before": "explorations-borrow-illustration--current", "note": "USDC lifts off and a line ties it back to your coins: the loan stays linked to collateral." }
+    ] },
+    { "id": "final-frames", "title": "Final frames", "note": "Resting state at intro and larger sizes, light and dark.", "frames": [
+      { "id": "final-frames-desktop", "story": "explorations-borrow-illustration--final-frames", "label": "Final frames", "viewport": "desktop", "change": "new" }
+    ] },
+    { "id": "reduced-motion", "title": "Reduced motion", "note": "No movement; the final frame renders immediately.", "frames": [
+      { "id": "reduced-motion-mobile", "story": "explorations-borrow-illustration--reduced-motion", "label": "Reduced motion", "viewport": "mobile", "change": "new" }
+    ] }
+  ]
+}

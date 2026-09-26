@@ -159,6 +159,22 @@ describe("Borrow overview and management", () => {
     const body = within(document.body);
     expect(await body.findByRole("img", { name: "£0.00" })).toBeTruthy();
     expect(body.getByText("No open loans")).toBeTruthy();
+    expect(body.getByRole("heading", { name: "Borrow against your crypto" })).toBeTruthy();
+    fireEvent.click(body.getByRole("button", { name: "Choose an asset" }));
+    expect(document.activeElement).toBe(body.getByRole("region", { name: "Assets you can borrow against" }));
+  });
+
+  test("the intro points to supported assets when none are held, but leaves an existing position alone", async () => {
+    const { BorrowOverview } = await import("./borrow-overview");
+    const emptyWallet = noPosition({ wallet: { ...noPosition().wallet, collateralBalanceRaw: "0" } });
+    render(<BorrowOverview session={session()} overview={overview({ position: false, snapshots: [emptyWallet] })} />);
+    const body = within(document.body);
+    fireEvent.click(body.getByRole("button", { name: "See supported assets" }));
+    expect(document.activeElement).toBe(body.getByRole("region", { name: "Assets you can borrow against" }));
+    cleanup();
+    render(<BorrowOverview session={session()} overview={overview()} />);
+    expect(body.getByRole("button", { description: "Manage Bitcoin loan" })).toBeTruthy();
+    expect(body.queryByRole("heading", { name: "Borrow against your crypto" })).toBeNull();
   });
 
   test("partial data never uses priced valuation and Retry refetches", async () => {
