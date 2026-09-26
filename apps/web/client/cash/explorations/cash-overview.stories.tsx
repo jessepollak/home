@@ -23,6 +23,7 @@ import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savin
 import { parseVaultsResult } from "@/shared/savings/contracts/vaults";
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
 import { CashOverviewExploration, SavingsDetailExploration } from "./cash-overview";
+import { sharedPortfolioSnapshot } from "@/client/invest/explorations/investments-fixtures.stories.fixture";
 
 const ACCOUNT = "0x1111111111111111111111111111111111111111" as const;
 const TIME = "2026-09-10T12:04:00.000Z";
@@ -309,6 +310,12 @@ async function assertFunded({ canvasElement }: { canvasElement: HTMLElement }) {
   await assertButtonHeights(canvasElement, canvasElement.getBoundingClientRect().width >= 800);
 }
 export const Funded: Story = { play: assertFunded };
+export const SharedPortfolio: Story = { args: { snapshot: sharedPortfolioSnapshot }, play: async ({ canvasElement }) => {
+  const cash = within(canvasElement).getByLabelText("Cash balance");
+  await expect(cash).toHaveTextContent(presentBalances({ status: "ready", snapshot: sharedPortfolioSnapshot, error: null }).summary!.cash.value!);
+  await expect(within(canvasElement).getByRole("region", { name: "Currencies" })).toBeVisible();
+  await assertButtonHeights(canvasElement);
+} };
 export const FundedDesktop: Story = { parameters: { viewport: { defaultViewport: "desktop" } }, play: assertFunded };
 const mixedCaseMetadata = { ...metadata, candidates: [metadata.candidates[1], { ...metadata.candidates[0], vaultAddress: `0x${GAUNTLET.slice(2).toUpperCase()}` }, metadata.candidates[2]] };
 export const ProviderAddressCasing: Story = { parameters: { msw: { handlers: [http.get("/api/savings/vaults", () => HttpResponse.json(mixedCaseMetadata))] } }, play: async ({ canvasElement }) => {
