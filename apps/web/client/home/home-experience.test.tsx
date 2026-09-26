@@ -1431,8 +1431,9 @@ describe("walletless country preference read", () => {
     expect(requests.some((path) => path.startsWith("/api/balances?region=MX") || path.startsWith("/api/balances?region=BR") || path.startsWith("/api/funding/providers?region=MX") || path.startsWith("/api/funding/providers?region=BR"))).toBe(false);
   });
 
-  test("does not paint cached detected-country balances before the saved-country read resolves", async () => {
+  test("never paints held detected-country balances while the saved-country fetch is pending", async () => {
     const read = deferred<Response>();
+    const savedRead = deferred<Response>();
     const cached = buildBalancesSnapshotFixture({
       region: "BR",
       registry: { usdc: { balance: ready("1000000"), value: priced("BRL", "123456"), cashValue: pricedCash("USD", "100") } },
@@ -1448,10 +1449,10 @@ describe("walletless country preference read", () => {
       if (path === "/api/session") return Response.json(session());
       requests.push(path);
       if (path === "/api/account/country-preference") return read.promise;
-      if (path === "/api/balances?region=DE") return Response.json(saved);
+      if (path === "/api/balances?region=DE") return savedRead.promise;
       throw new Error(`Unexpected read: ${path}`);
     };
-    render(<AccountWalletSessionOwner sdk={sdk({ isSignedIn: true, ownerKey: OWNER })} sessionFetch={sessionFetch}>
+    render(<AccountWalletSessionOwner sdk={sdk({ isSignedIn: true, ownerKey: OWNER, provisionalSession: session() })} sessionFetch={sessionFetch}>
       <PortfolioHomeExperience detectedCountry="BR" accountPreference={null} initialLocation={location} />
     </AccountWalletSessionOwner>);
     await waitFor(() => expect(requests).toContain("/api/account/country-preference"));
@@ -1461,6 +1462,9 @@ describe("walletless country preference read", () => {
     expect(requests).not.toContain("/api/balances?region=BR");
     await act(async () => { read.resolve(Response.json({ version: 1, regionId: "DE" })); await read.promise; });
     await waitFor(() => expect(requests).toContain("/api/balances?region=DE"));
+    expect(document.body.textContent).not.toContain("1.234,56");
+    expect(document.body.textContent).not.toContain("78,90");
+    await act(async () => { savedRead.resolve(Response.json(saved)); await savedRead.promise; });
     await waitFor(() => expect(document.body.textContent).toContain("78,90"));
     expect(document.body.textContent).not.toContain("1.234,56");
   });

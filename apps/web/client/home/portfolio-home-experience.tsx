@@ -113,11 +113,13 @@ export function PortfolioHomeExperience({
       }
     : null;
   const provisionalBalances = account.verification === "provisional" && account.status === "validating";
+  const deviceCountryReady = accountPreference === null && region.isPreferenceReady &&
+    region.resolutionSource === "persisted";
   const suppressBalances = (account.verification === "server" && (!region.isPreferenceReady || accountPreferencePending)) ||
-    (provisionalBalances && !hasSeed);
+    (provisionalBalances && !hasSeed && !deviceCountryReady);
   const balances = useBalances(session, region.regionId, account.fetchBalances, {
     enabled: (account.verification === "server" && region.isPreferenceReady && !accountPreferencePending) ||
-      (provisionalBalances && hasSeed),
+      (provisionalBalances && (hasSeed || deviceCountryReady)),
     provisional: provisionalBalances,
     held: suppressBalances,
   });

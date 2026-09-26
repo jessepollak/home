@@ -81,6 +81,7 @@ export function useBalances(
   const validSession = isBalancesSession(session) ? session : null;
   const ownerKey = validSession ? dataOwnerKey(validSession) : null;
   const stalePolling = useRef({ identity: "", dataUpdatedAt: 0, completedRefetches: 0 });
+  const heldRegion = useRef<string | null>(null);
   const query = useHomeQuery<BalancesSnapshot>({
     queryKey: ownerKey
       ? ownerQueryKey(ownerKey, "balances", region)
@@ -100,7 +101,9 @@ export function useBalances(
       ),
     meta: ownerKey ? ownerQueryMeta(ownerKey, "owner") : undefined,
     placeholderData: (previousData, previousQuery) =>
-      previousQuery?.queryKey[0] === ownerKey ? keepPreviousData(previousData) : undefined,
+      previousQuery?.queryKey[0] === ownerKey &&
+      (heldRegion.current !== `${ownerKey}\u0000${previousQuery.queryKey[2]}` || previousQuery.queryKey[2] === region)
+        ? keepPreviousData(previousData) : undefined,
     queryFn: async ({ signal }) => {
       if (!validSession) throw new Error("Balances are unavailable.");
       try {
@@ -123,6 +126,14 @@ export function useBalances(
   const identity = ownerKey ? `${ownerKey}\u0000${region}` : null;
   const suppressedFailure = query.isError && query.error instanceof ProvisionalBalancesFailure;
   const held = options.held === true;
+
+  useEffect(() => {
+    if (held && identity) {
+      heldRegion.current = identity;
+    } else if (!held && query.data !== undefined && !query.isPlaceholderData) {
+      heldRegion.current = null;
+    }
+  }, [held, identity, query.data, query.isPlaceholderData]);
 
   const refetch = query.refetch;
   const retry = useCallback(async () => {
