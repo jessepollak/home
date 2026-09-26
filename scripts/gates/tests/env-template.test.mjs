@@ -20,6 +20,7 @@ const PLATFORM_ALLOWLIST = [
   "NODE_ENV",
   "PATH",
   "VERCEL",
+  "VERCEL_DEPLOYMENT_ID", // Vercel-owned deployment id for the Storybook preview comments toolbar
   "VERCEL_ENV",
   "VERCEL_GIT_COMMIT_REF", // Vercel-owned build branch, shown on Storybook review boards
   "VERCEL_GIT_COMMIT_SHA", // Vercel-owned build commit, recorded by Storybook review boards

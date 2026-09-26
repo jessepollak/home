@@ -4,6 +4,14 @@ import { readReviewBuild } from "../stories/review/explorations/board/review-bui
 
 const buildEnv = reviewEnv();
 
+function vercelComments(topOnly: boolean): string {
+  if (process.env.VERCEL_ENV !== "preview") return "";
+  const deployment = JSON.stringify(process.env.VERCEL_DEPLOYMENT_ID ?? "");
+  const mount = `const s=document.createElement("script");s.src="https://vercel.live/_next-live/feedback/feedback.js";` +
+    `s.async=true;s.dataset.explicitOptIn="true";s.dataset.deploymentId=${deployment};document.head.appendChild(s);`;
+  return `<script>${topOnly ? `if(window.top===window){${mount}}` : mount}</script>`;
+}
+
 // `experimentalComponentsManifest` is not in Storybook's public
 // `StorybookFeatures` type, so the features live in a named object rather than
 // a fresh literal that TypeScript's excess-property check would reject.
@@ -38,7 +46,8 @@ const config: StorybookConfig = {
   features,
   env: async (env) => ({ ...env, ...await buildEnv }),
   managerHead: async (head) => `${head}<script>window.__REVIEW_BUILD__ = ${
-    JSON.stringify(readReviewBuild(await buildEnv)).replace(/</g, "\\u003c")};</script>`,
+    JSON.stringify(readReviewBuild(await buildEnv)).replace(/</g, "\\u003c")};</script>${vercelComments(false)}`,
+  previewHead: (head) => `${head}${vercelComments(true)}`,
 };
 
 export default config;
