@@ -46,7 +46,7 @@ export function BuildChip({ build }: { build: ReviewBuild }) {
       <span className={styles.statusDot} data-checks={status?.checks ?? "none"} aria-hidden="true" />
       <span className={styles.chipText}>{parts.join(" · ")}</span>
     </Badge>
-    {status && !status.current && <Badge variant="outline" className={`${styles.chip} ${styles.stale}`}
+    {status && !status.current && <Badge variant="warning" className={styles.chip}
       render={link(status.url, `PR head is ${status.headSha.slice(0, 7)}`)}>
       Newer commit on PR
     </Badge>}

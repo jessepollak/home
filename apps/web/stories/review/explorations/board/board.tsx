@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MinusIcon, PanelLeftIcon, PanelRightIcon, PlusIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Kbd } from "@/components/ui/kbd";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { Toggle } from "@/components/ui/toggle";
@@ -9,7 +10,6 @@ import { BuildChip } from "./build-chip";
 import { boardCommands, commandForKey } from "./commands";
 import { DesktopCanvas } from "./desktop-canvas";
 import { Inspector } from "./inspector";
-import { Kbd } from "./kbd";
 import { frameLabel, layout, type Positioned, type Side } from "./layout";
 import { MobileReview } from "./mobile-review";
 import { Outline } from "./outline";

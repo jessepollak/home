@@ -55,15 +55,9 @@
   gap: 6px;
   min-width: 0;
 }
-.board .chip {
+.chip {
   max-width: 320px;
   justify-content: flex-start;
-  color: var(--muted-foreground);
-  font-weight: 400;
-  text-decoration: none;
-}
-.board a.chip:hover {
-  color: var(--foreground);
 }
 .chipText {
   min-width: 0;
@@ -85,10 +79,6 @@
 }
 .statusDot[data-checks="pending"] {
   background: var(--warning);
-}
-.board .stale {
-  color: var(--warning);
-  border-color: color-mix(in oklab, var(--warning) 40%, transparent);
 }
 .renderStatus {
   font-size: 11px;
@@ -187,16 +177,11 @@
   min-height: 28px;
   padding-inline: 10px;
   font-size: 12px;
-  font-weight: 600;
-}
-.outlineRow {
-  font-weight: 400;
-}
-.outlineRow[aria-current="true"] {
-  background: var(--muted);
+  font-weight: 500;
 }
 .rowLabel {
   flex: 1;
+  font-weight: 400;
   min-width: 0;
   text-align: start;
   overflow: hidden;
@@ -275,84 +260,9 @@
   margin: 0;
   text-align: end;
 }
-.keys {
-  display: inline-flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 4px;
-}
-.keyAlternative {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
 .keySeparator {
   color: var(--muted-foreground);
   font-size: 10px;
-}
-.kbd {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  box-sizing: border-box;
-  height: 20px;
-  min-width: 20px;
-  padding-inline: 5px;
-  font: 500 11px/1 var(--font-sans, system-ui, sans-serif);
-  color: var(--foreground);
-  background: var(--muted);
-  border-radius: 4px;
-  box-shadow: inset 0 -1px 0 var(--border);
-  white-space: nowrap;
-}
-.overlayBackdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  background: color-mix(in oklab, var(--foreground) 16%, transparent);
-}
-.overlay {
-  position: fixed;
-  z-index: 50;
-  inset-inline: 0;
-  top: 14vh;
-  margin-inline: auto;
-  width: min(560px, calc(100vw - 32px));
-  max-height: 72vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  color: var(--popover-foreground);
-  background: var(--popover);
-  border-radius: 12px;
-  box-shadow: 0 0 0 1px color-mix(in oklab, var(--foreground) 10%, transparent), 0 16px 48px rgb(0 0 0 / .18);
-  font-size: 13px;
-  outline: none;
-}
-.palette {
-  padding: 0;
-}
-.board .paletteSearch, .paletteSearch {
-  height: 48px;
-  border: 0;
-  border-block-end: 1px solid var(--border);
-  border-radius: 0;
-  box-shadow: none;
-  background: transparent;
-}
-.paletteSearch input {
-  padding-inline: 16px;
-  font-size: 14px;
-}
-.paletteList {
-  max-height: min(360px, 56vh);
-  padding: 6px;
-}
-.paletteItem {
-  gap: 12px;
-  padding-inline: 10px;
-  min-height: 36px;
 }
 .paletteLabel {
   flex: 1;
@@ -372,21 +282,6 @@
   text-align: center;
   color: var(--muted-foreground);
 }
-.help {
-  width: min(640px, calc(100vw - 32px));
-}
-.helpHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 10px 10px 16px;
-  border-block-end: 1px solid var(--border);
-}
-.helpTitle {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 650;
-}
 .helpGroups {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -403,11 +298,6 @@
 .helpGroups .shortcuts {
   gap: 8px;
   font-size: 12px;
-}
-.board .primary {
-  background: var(--primary);
-  color: var(--primary-foreground);
-  border-color: var(--primary);
 }
 .canvasHost {
   flex: 1;
@@ -506,17 +396,7 @@
   inset-inline-start: 50%;
   translate: -50% 0;
   z-index: 4;
-  height: 28px;
-  padding-inline: 12px;
-  font-weight: 400;
-  box-shadow: 0 2px 8px color-mix(in oklab, var(--foreground) 18%, transparent);
   pointer-events: none;
-}
-.interactChip .kbd {
-  height: 18px;
-  color: var(--primary);
-  background: var(--primary-foreground);
-  box-shadow: none;
 }
 .skeleton, .message {
   position: absolute;
@@ -567,6 +447,7 @@
   color: var(--muted-foreground);
 }
 .screenFrameLabel {
+  height: 20px;
   font-size: 12px;
   font-weight: 500;
 }
@@ -582,11 +463,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.screenFrameLabel [data-slot="badge"] {
-  flex: none;
-  height: 16px;
-  font-size: 10px;
 }
 .screenFrameNote {
   font-size: 11px;

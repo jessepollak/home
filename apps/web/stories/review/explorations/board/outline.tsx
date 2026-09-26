@@ -21,10 +21,10 @@ export function Outline({ board, sections, selected, inPr, onSelect, onFitSectio
   const row = (position: Positioned, track: boolean) => <Button
     key={position.id}
     ref={track && position.id === selected ? selectedRow : undefined}
-    variant="ghost"
+    variant={position.id === selected ? "secondary" : "ghost"}
     size="sm"
     press="none"
-    className={`${styles.outlineRow} w-full justify-start`}
+    className="w-full justify-start"
     aria-current={position.id === selected ? "true" : undefined}
     onClick={() => onSelect(position.id)}
     title={frameLabel(position)}
@@ -46,7 +46,7 @@ export function Outline({ board, sections, selected, inPr, onSelect, onFitSectio
         <Separator />
       </>}
       {sections.map((section) => <div className={styles.outlineGroup} key={section.id} role="group" aria-label={section.title}>
-        <Button variant="ghost" size="sm" press="none" className={`${styles.outlineHeading} w-full justify-start`}
+        <Button variant="ghost" size="sm" press="none" className="w-full justify-start"
           onClick={() => onFitSection(section)}>
           {section.title}
         </Button>
