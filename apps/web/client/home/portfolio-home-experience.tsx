@@ -8,6 +8,7 @@ import { presentBalances } from "@/shared/balances/present";
 import type { CountryCode } from "@/config/regions";
 import { COUNTRY_PREFERENCE_VERSION, parseCountryPreferenceReadResponse, parseCountryPreferenceResponse, type CountryPreferenceRequest, type CountryPreferenceSeed } from "@/shared/account/contracts/country-preference";
 import { PricedInvestExperienceWithDiscover } from "@/client/invest/priced-invest-experience";
+import { InvestmentsExperience } from "@/client/investments/investments-experience";
 import { investViewFromLocation } from "@/client/invest/invest-location";
 import { useInvestDiscover } from "@/client/invest/use-invest-discover";
 import { AuthenticatedCashExperience } from "@/client/cash/cash-experience";
@@ -184,6 +185,7 @@ export function PortfolioHomeExperience({
         />
       }
       cashContent={({ view, onOpenSavings }) => <AuthenticatedCashExperience view={view} onOpenSavings={onOpenSavings} regionReady={regionReady} />}
+      investmentsContent={(props) => <InvestmentsExperience {...props} balances={balances} discover={discover} />}
       applyInboundUrlIntent
       initialSearch={initialSearch}
       balancesRevalidating={balances.revalidating === true}

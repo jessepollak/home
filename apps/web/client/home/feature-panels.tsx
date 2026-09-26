@@ -34,6 +34,14 @@ export function InvestPanel({
   );
 }
 
+export function InvestmentsPanel({ regionId, content }: { regionId: RegionId; content?: ReactNode }) {
+  return (
+    <PresentationRegionProvider regionId={regionId}>
+      {content ?? <EmptyPanel label="Investments" />}
+    </PresentationRegionProvider>
+  );
+}
+
 function CashPanelShell() {
   return (
     <section className="space-y-4" aria-busy="true">

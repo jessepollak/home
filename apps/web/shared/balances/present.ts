@@ -7,6 +7,7 @@ import {
   presentationCurrencyName,
 } from "@/shared/formatting";
 import { exactDecimalToFraction } from "@/shared/balances/math";
+import { selectOwnedInvestments } from "./owned-investments";
 import {
   selectBalanceTotals,
   selectBorrowPositions,
@@ -58,7 +59,7 @@ export type HomeSummaryAmount = {
 
 export type HomeMoneySummary = {
   cash: HomeSummaryAmount;
-  investments: HomeSummaryAmount & { assetCount: number };
+  investments: HomeSummaryAmount & { assetCount: number; ownedCount: number };
   borrow:
     | (HomeSummaryAmount & { kind: "position"; rate: string | null; debts: Array<{ marketId: string; baseUnits: string }> })
     | { kind: "none" }
@@ -253,6 +254,7 @@ function presentHomeSummary(
     investments: {
       ...summaryAmount(totals.investments, snapshot.region),
       assetCount: assetKeys.size,
+      ownedCount: selectOwnedInvestments(snapshot).length,
     },
     borrow: presentBorrowSummary(snapshot, totals.borrow),
   };

@@ -5,12 +5,14 @@ export const navigationItems = [
 
 export const cashPanelId = "cash" as const;
 export const borrowPanelId = "borrow" as const;
+export const investmentsPanelId = "investments" as const;
 export const balancesPanelId = "balances" as const;
 export const activityPanelId = "activity" as const;
 
 export const homeNestedPanelIds = [
   cashPanelId,
   borrowPanelId,
+  investmentsPanelId,
   balancesPanelId,
   activityPanelId,
 ] as const;
@@ -33,10 +35,11 @@ export function isShellPanelId(value: string): value is ShellPanelId {
 
 export function nestedHomePanelTitle(
   panel: ShellPanelId,
-): "Your money" | "Activity" | "Borrow" | "Cash" | null {
+): "Your money" | "Activity" | "Borrow" | "Cash" | "Investments" | null {
   if (panel === balancesPanelId) return "Your money";
   if (panel === activityPanelId) return "Activity";
   if (panel === borrowPanelId) return "Borrow";
   if (panel === cashPanelId) return "Cash";
+  if (panel === investmentsPanelId) return "Investments";
   return null;
 }

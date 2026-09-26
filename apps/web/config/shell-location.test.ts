@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { BORROW_MARKETS } from "@/shared/borrowing/config";
+import { erc20AssetKey, nativeAssetKey } from "@/shared/balances/types";
 import {
   flowHref, homeHrefWithOverlays, isCanonicalShellPathname, legacyShellRedirectHref, parseInboundUrlIntent,
   parseShellLocation, parseShellOverlayIntent, searchParamsToString, shellHref, withoutFlowHref,
@@ -9,7 +10,7 @@ import {
 const DYNAMIC_ASSET_ID = "base:0x1111111111111111111111111111111111111111";
 const ACTION_ID = "11111111-1111-4111-8111-111111111111";
 function location(panel: ShellLocation["panel"], rest: Partial<ShellLocation> = {}): ShellLocation {
-  return { panel, account: null, shelf: null, asset: null, group: null, market: null, cashView: null, ...rest };
+  return { panel, account: null, shelf: null, asset: null, group: null, market: null, cashView: null, holding: null, ...rest };
 }
 const canonicalLocations: Array<[string, ShellLocation]> = [
   ["/home", location("home")], ["/balances", location("balances")],
@@ -18,6 +19,9 @@ const canonicalLocations: Array<[string, ShellLocation]> = [
   ["/activity", location("activity")], ["/cash", location("cash")],
   ["/cash/savings", location("cash", { cashView: "savings" })],
   ["/borrow", location("borrow")],
+  ["/investments", location("investments")],
+  ["/investments/native", location("investments", { holding: nativeAssetKey() })],
+  [`/investments/0x${"ab".repeat(20)}`, location("investments", { holding: erc20AssetKey(`0x${"ab".repeat(20)}`) })],
   ...BORROW_MARKETS.map((market): [string, ShellLocation] => [`/borrow/${market.marketId}`, location("borrow", { market: market.marketId })]),
   ["/invest", location("invest")], ["/invest/stocks", location("invest", { shelf: "stocks" })],
   ["/invest/crypto", location("invest", { shelf: "crypto" })],
@@ -32,6 +36,10 @@ const fallbackLocations: Array<[string, ShellLocation]> = [
   ["/%zz", location("home")], ["/balances/grocery", location("balances")],
   ["/balances/cash/extra", location("balances")], ["/borrow/not-a-market", location("borrow")],
   [`/borrow/0x${"ff".repeat(32)}`, location("borrow")],
+  ["/investments/nope", location("investments")],
+  ["/investments/native/extra", location("investments")],
+  ["/investments/%zz", location("investments")],
+  [`/investments/0x${"ff".repeat(19)}`, location("investments")],
   ["/invest/forex", location("invest")], ["/invest/not-an-asset", location("invest")],
   ["/invest/base:0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", location("invest")],
   ["/home/nope", location("home")], ["/cash/nope", location("cash")],
@@ -53,6 +61,8 @@ describe("shell location", () => {
     const cases = [
       [{}, "/home"], [{ panel: "cash" as const }, "/cash"],
       [{ panel: "cash" as const, cashView: "savings" as const }, "/cash/savings"],
+      [{ panel: "investments" as const, holding: nativeAssetKey() }, "/investments/native"],
+      [{ panel: "investments" as const, holding: erc20AssetKey(`0x${"AB".repeat(20)}`) }, `/investments/0x${"ab".repeat(20)}`],
       [{ panel: "balances" as const, group: "cash" as const }, "/balances/cash"],
       [{ panel: "invest" as const, shelf: "stocks" }, "/invest/stocks"],
       ...BORROW_MARKETS.map((market) => [{ panel: "borrow" as const, market: market.marketId }, `/borrow/${market.marketId}`] as const),
@@ -62,6 +72,18 @@ describe("shell location", () => {
       [{ panel: "borrow" as const, market: `0x${"ff".repeat(32)}` }, "/borrow"],
     ] as const;
     for (const [value, expected] of cases) expect(shellHref(value)).toBe(expected);
+  });
+  test("normalizes owned ERC-20 case while preserving Invest discovery and overlay parsing", () => {
+    const upper = `0x${"AB".repeat(20)}`;
+    const lower = `0x${"ab".repeat(20)}`;
+    expect(parseShellLocation(`/investments/${upper}`).holding).toBe(erc20AssetKey(lower));
+    expect(shellHref(parseShellLocation(`/investments/${upper}`))).toBe(`/investments/${lower}`);
+    expect(parseInboundUrlIntent("/investments/native", new URLSearchParams("account=settings&flow=send")))
+      .toMatchObject({ location: location("investments", { account: "settings", holding: nativeAssetKey() }), flow: "send" });
+    expect(parseInboundUrlIntent(`/investments/${lower}`, new URLSearchParams("flow=send")))
+      .toMatchObject({ location: location("investments", { holding: erc20AssetKey(lower) }), flow: "send" });
+    expect(parseShellLocation("/invest/stocks")).toEqual(location("invest", { shelf: "stocks" }));
+    expect(parseShellLocation("/invest/cbbtc")).toEqual(location("invest", { asset: "cbbtc" }));
   });
   test("combines pathname page state with allowlisted overlay query state", () => {
     expect(parseInboundUrlIntent("/balances", new URLSearchParams(
@@ -107,7 +129,7 @@ describe("shell location", () => {
     expect(legacyShellRedirectHref("/saver", new URLSearchParams())).toBeNull();
   });
   test("recognizes the closed canonical shell route set", () => {
-    for (const pathname of ["/home", "/balances", "/balances/cash", "/cash", "/cash/savings", "/borrow/x", "/invest/cbbtc"]) {
+    for (const pathname of ["/home", "/balances", "/balances/cash", "/cash", "/cash/savings", "/borrow/x", "/investments", "/investments/native", "/invest/cbbtc"]) {
       expect(isCanonicalShellPathname(pathname)).toBe(true);
     }
     for (const pathname of ["/", "/dashboard", "/account", "/fund", "/save", "/unknown", "/balancesx"]) {

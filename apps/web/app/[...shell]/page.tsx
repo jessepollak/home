@@ -14,6 +14,7 @@ const shellTitles: Record<ShellPanelId, string> = {
   activity: "Activity",
   cash: "Cash",
   borrow: "Borrow",
+  investments: "Investments",
   invest: "Invest",
 };
 

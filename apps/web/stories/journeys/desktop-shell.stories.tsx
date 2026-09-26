@@ -405,7 +405,7 @@ function DesktopShell({ initialPanel, initialRailCollapsed = false, extendedActi
           assetBalances={balances}
           cashRate={state === "empty" ? "Up to 4.20% APY" : "4.20% APY"}
           borrowOfferRate={state === "empty" ? "5.10% APR" : null}
-          destinations={{ onOpenCash: () => requestPanel("cash"), onOpenInvestments: () => navigate("invest"), onOpenBorrow: noop }}
+          destinations={{ onOpenCash: () => requestPanel("cash"), onOpenInvestments: noop, onOpenBorrow: noop }}
           actions={
             <>
               <Button size="touch" className="w-full">
@@ -597,7 +597,7 @@ export const HomeDesktop: Story = {
     await userEvent.click(canvas.getByRole("button", { name: "Back" }));
     await waitFor(() => expect(view.scrollY).toBe(0));
     await expect(main).toHaveFocus();
-    await userEvent.click(canvas.getByRole("button", { description: "Open Invest" }));
+    await userEvent.click(within(rail).getByRole("button", { name: "Invest" }));
     await expect(within(rail).getByRole("button", { name: "Invest" })).toHaveAttribute("aria-current", "page");
     await userEvent.click(within(rail).getByRole("button", { name: "Home" }));
     const account = canvas.getByRole("button", { name: /Account jesse\.base\.eth/ });

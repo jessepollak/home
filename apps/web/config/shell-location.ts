@@ -1,6 +1,7 @@
 import { isShellPanelId, type ShellPanelId } from "./navigation";
 import { getBorrowMarketRef, type BorrowMarketId } from "@/shared/borrowing/config";
 import { resolveMarketPriceAssetIdentity } from "@/shared/invest/contracts/market-price-history";
+import { erc20AssetKey, nativeAssetKey, type AssetKey } from "@/shared/balances/types";
 
 // The pathname is authoritative for page state. Only the ephemeral account and
 // flow overlays below may appear as query keys; obsolete `panel`, `shelf`,
@@ -26,6 +27,7 @@ export type ShellLocation = {
   group: MoneyGroupId | null;
   market: BorrowMarketId | null;
   cashView?: "savings" | null;
+  holding?: AssetKey | null;
 };
 
 export type InboundUrlIntent = {
@@ -120,7 +122,7 @@ function parseShellFlow(value: string | undefined): ShellFlow | null {
 }
 
 function emptyLocation(panel: ShellPanelId): ShellLocation {
-  return { panel, account: null, shelf: null, asset: null, group: null, market: null, cashView: null };
+  return { panel, account: null, shelf: null, asset: null, group: null, market: null, cashView: null, holding: null };
 }
 
 /**
@@ -147,6 +149,9 @@ export function parseShellLocation(pathname: string): ShellLocation {
   if (first === "cash") {
     return { ...emptyLocation("cash"), cashView: second === "savings" ? "savings" : null };
   }
+  if (first === "investments") {
+    return { ...emptyLocation("investments"), holding: parseHolding(second) };
+  }
   if (first === "invest") {
     if (investCategories.has(second)) {
       return { ...emptyLocation("invest"), shelf: second };
@@ -168,6 +173,11 @@ export function legacyShellRedirectHref(pathname: string, search: ShellSearchInp
   if (overlay.fundingReturn) params.set("return", overlay.fundingReturn);
   if (overlay.addMoney) params.set("add-money", "1");
   return `/cash/savings${params.size ? `?${params}` : ""}`;
+}
+
+function parseHolding(segment: string): AssetKey | null {
+  if (segment === "native") return nativeAssetKey();
+  return /^0x[0-9a-f]{40}$/i.test(segment) ? erc20AssetKey(segment) : null;
 }
 
 export type ShellOverlayIntent = {
@@ -225,6 +235,13 @@ export function shellHref(location: Partial<ShellLocation> = {}): string {
   if (panel === "borrow" && location.market) {
     const configuredMarket = getBorrowMarketRef(location.market);
     if (configuredMarket) pathname += `/${configuredMarket.marketId}`;
+  }
+  if (panel === "investments" && location.holding) {
+    if (location.holding === nativeAssetKey()) pathname += "/native";
+    else {
+      const address = location.holding.split("/erc20:")[1];
+      if (address && /^0x[0-9a-f]{40}$/i.test(address)) pathname += `/${address.toLowerCase()}`;
+    }
   }
   if (panel === "invest") {
     // One L2 segment: a flat asset path wins; categories are only emitted alone.

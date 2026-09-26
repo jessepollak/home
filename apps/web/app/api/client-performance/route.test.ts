@@ -86,12 +86,15 @@ describe("POST /api/client-performance", () => {
       totalMs: 70_000,
     })).toMatchObject({ shellMs: 0, totalMs: 60_000 });
 
+    expect(parseClientPerformanceReport({ ...ready, route: "/investments" }))
+      .toMatchObject({ route: "/investments" });
     for (const invalid of [
       null,
       [],
       {},
       { ...ready, extra: "wallet-or-provider" },
       { ...ready, route: "/balances/investments" },
+      { ...ready, route: "/investments/native" },
       { ...ready, route: "/home?owner=secret" },
       { ...ready, outcome: "failed" },
       { ...ready, cache: "owner-123" },
