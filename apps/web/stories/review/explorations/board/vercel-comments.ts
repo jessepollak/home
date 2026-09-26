@@ -1,13 +1,15 @@
 import { useEffect, useRef, type RefObject } from "react";
 import type { Camera } from "./camera";
 
-export function canvasClipPath(rect: Pick<DOMRect, "top" | "right" | "bottom" | "left">,
-  viewport: { width: number; height: number }): string {
-  const top = Math.max(0, Math.min(viewport.height, rect.top));
-  const right = Math.max(0, Math.min(viewport.width, viewport.width - rect.right));
-  const bottom = Math.max(0, Math.min(viewport.height, viewport.height - rect.bottom));
-  const left = Math.max(0, Math.min(viewport.width, rect.left));
-  return `inset(${top}px ${right}px ${bottom}px ${left}px)`;
+type Box = Pick<DOMRect, "top" | "right" | "bottom" | "left">;
+
+export function canvasClipPath(rect: Box, host: Box): string | null {
+  const width = host.right - host.left;
+  const height = host.bottom - host.top;
+  if (width <= 0 || height <= 0) return null;
+  const inset = (value: number, size: number) => Math.max(0, Math.min(size, value));
+  return `inset(${inset(rect.top - host.top, height)}px ${inset(host.right - rect.right, width)}px ${
+    inset(host.bottom - rect.bottom, height)}px ${inset(rect.left - host.left, width)}px)`;
 }
 
 export function frameThrottle(callback: () => void, requestFrame: (callback: FrameRequestCallback) => number,
@@ -64,8 +66,7 @@ export function useVercelCommentsSync({ camera, canvasRef, enabled }: {
         host = next;
         original = host?.style.clipPath ?? "";
       }
-      if (host) host.style.clipPath = canvasClipPath(canvas.getBoundingClientRect(),
-        { width: window.innerWidth, height: window.innerHeight });
+      if (host) host.style.clipPath = canvasClipPath(canvas.getBoundingClientRect(), host.getBoundingClientRect()) ?? original;
     };
     update();
     const resize = new ResizeObserver(update);

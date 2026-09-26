@@ -31,7 +31,7 @@ export const CommentsFollowCanvas: Story = {
   play: async ({ canvasElement }) => {
     const doc = canvasElement.ownerDocument;
     const host = doc.createElement("vercel-live-feedback");
-    host.style.clipPath = "circle(50%)";
+    host.style.cssText = "position: fixed; inset: 0; pointer-events: none; clip-path: circle(50%)";
     let scrollEvents = 0;
     const onScroll = () => { scrollEvents += 1; };
     doc.defaultView!.addEventListener("scroll", onScroll);

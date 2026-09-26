@@ -44,7 +44,7 @@ The board URL keeps Storybook `id` and `viewMode` plus `frame` (selected frame),
 
 Open the board on the PR's commit-specific Storybook preview deployment, whose URL is unique to one build; the branch preview alias moves with later pushes. Review comments use the Vercel Comments toolbar on previews. On load the board writes the build's `rev` and `deployment` into its URL, so a comment's page URL records the revision it was made on, and each frame is covered by an element carrying `data-review-frame` and `data-review-story` for comments to anchor to. Opening that URL on a newer build shows a banner linking back to the reviewed deployment. To recover a comment's context, run `bun run --cwd apps/web review:context '<comment page URL>'` (`--json` for machine output). It prints the board, frame, story, viewport, notes, story source (after `build-storybook`), story and board links on the reviewed deployment, and whether the story or manifest changed between the reviewed revision and `HEAD`. Comments stay in Vercel. Record dispositions on the GitHub issue or PR.
 
-On desktop, comment pins and threads follow camera movement and remain clipped to the canvas viewport instead of covering the board controls and panels.
+On a desktop board opened on its own page (the toolbar's **Review board** link), comment pins and threads follow camera movement and are clipped to the canvas instead of covering the board controls and panels. Inside the Storybook manager the toolbar belongs to the outer page, so neither applies.
 
 ### MCP workshop tools
 

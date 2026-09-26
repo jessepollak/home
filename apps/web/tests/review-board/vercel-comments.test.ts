@@ -3,10 +3,15 @@ import { canvasClipPath, frameThrottle } from "../../stories/review/explorations
 
 describe("Vercel Comments canvas sync", () => {
   test("converts canvas bounds to viewport insets, clamping offscreen edges", () => {
+    const viewport = { top: 0, left: 0, right: 1200, bottom: 800 };
+    expect(canvasClipPath({ top: 72, right: 840, bottom: 620, left: 260 }, viewport))
+      .toBe("inset(72px 360px 180px 260px)");
+    expect(canvasClipPath({ top: -40, right: 1300, bottom: 900, left: -30 }, viewport))
+      .toBe("inset(0px 0px 0px 0px)");
     expect(canvasClipPath({ top: 72, right: 840, bottom: 620, left: 260 },
-      { width: 1200, height: 800 })).toBe("inset(72px 360px 180px 260px)");
-    expect(canvasClipPath({ top: -40, right: 1300, bottom: 900, left: -30 },
-      { width: 1200, height: 800 })).toBe("inset(0px 0px 0px 0px)");
+      { top: 100, left: 200, right: 1000, bottom: 700 })).toBe("inset(0px 160px 80px 60px)");
+    expect(canvasClipPath({ top: 72, right: 840, bottom: 620, left: 260 },
+      { top: 0, left: 0, right: 0, bottom: 0 })).toBeNull();
   });
 
   test("runs once per frame, schedules trailing changes, and cancels pending work", () => {
