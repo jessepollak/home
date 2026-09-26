@@ -17,6 +17,7 @@ export type BoardCommand = {
 export type CommandActions = {
   fitBoard: () => void;
   fitSelection: () => void;
+  stepSection: (direction: -1 | 1) => void;
   zoom: (factor: number) => void;
   zoomReset: () => void;
   pan: (x: number, y: number) => void;
@@ -49,6 +50,12 @@ export function boardCommands(actions: CommandActions): BoardCommand[] {
     { id: "fit-selection", label: "Fit selection", group: "Canvas", keys: ["⇧2", "F"], featured: true,
       match: (event) => plain(event) && (event.code === "Digit2" || event.key.toLowerCase() === "f"),
       run: actions.fitSelection },
+    { id: "previous-section", label: "Previous section", group: "Canvas", keys: ["⌥↑"],
+      match: (event) => event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey && event.key === "ArrowUp",
+      run: () => actions.stepSection(-1) },
+    { id: "next-section", label: "Next section", group: "Canvas", keys: ["⌥↓"],
+      match: (event) => event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey && event.key === "ArrowDown",
+      run: () => actions.stepSection(1) },
     { id: "zoom-in", label: "Zoom in", group: "Canvas", keys: ["+", `${mod}+`],
       match: (event) => (plain(event) || withMod(event)) && (event.key === "+" || event.key === "="),
       run: zoomIn },

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { boardCommands, commandForKey, type CommandActions } from "../../stories/review/explorations/board/commands";
 
 const actions: CommandActions = {
-  fitBoard: () => {}, fitSelection: () => {}, zoom: () => {}, zoomReset: () => {},
+  fitBoard: () => {}, fitSelection: () => {}, stepSection: () => {}, zoom: () => {}, zoomReset: () => {},
   pan: () => {}, toggleOutline: () => {}, toggleInspector: () => {}, interact: () => {},
   canInteract: true, openStory: () => {}, openCanvas: () => {}, copyLink: () => {},
   openPalette: () => {}, openShortcuts: () => {},

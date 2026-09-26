@@ -218,7 +218,7 @@ export const BoardChrome: Story = {
     board.focus();
     await userEvent.keyboard(`{${modifier}>}k{/${modifier}}`);
     const palette = await screen.findByRole("dialog", { name: "Command palette" });
-    const search = within(palette).getByRole("combobox", { name: "Search commands and frames" });
+    const search = within(palette).getByRole("combobox", { name: "Search board navigation" });
     await waitFor(() => expect(search).toHaveFocus());
     await userEvent.keyboard("second frame");
     await waitFor(() => expect(within(palette).getAllByRole("option")[0]).toHaveTextContent("Second frame"));
@@ -437,5 +437,61 @@ export const IndexUnavailable: Story = {
     const canvas = within(canvasElement);
     await expect(await canvas.findByText(/Couldn.t load this build.s story list/)).toBeVisible();
     await expect(canvasElement.querySelector("iframe")).toBeNull();
+  },
+};
+
+const navigationFixture = parseBoard({
+  id: "navigation", title: "Navigation test", summary: "Board navigation controls", sections: [
+    { id: "first", title: "First section", frames: [
+      { id: "one", story: "blank-one", label: "First frame", viewport: "mobile", change: "new" },
+    ] },
+    { id: "second", title: "Second section", frames: [
+      { id: "three", story: "blank-three", label: "Third frame", viewport: "mobile", change: "new" },
+    ] },
+  ],
+});
+export const BoardNavigation: Story = {
+  args: { board: navigationFixture, build: fixtureBuild, frameSource: "blank" },
+  render: (args) => <div style={{ height: "100dvh", width: 1400 }}>
+    <ReviewBoardView {...args} storyIndex={{
+      "review-boards--savings": { id: "review-boards--savings", name: "Savings", title: "Review/Boards",
+        importPath: "board", type: "story" },
+      "account-settings--default": { id: "account-settings--default", name: "Account Settings",
+        title: "Account/Settings", importPath: "settings", type: "story" },
+    }} onNavigate={(url, newTab) => {
+      if (!newTab) history.replaceState(history.state, "", new URL(url, location.href));
+    }} />
+  </div>,
+  play: async ({ canvasElement }) => {
+    const doc = canvasElement.ownerDocument;
+    const screen = within(doc.body);
+    const original = doc.location.href;
+    const board = screen.getByRole("main", { name: "Review board" });
+    const modifier = /Mac|iPhone|iPad|iPod/i.test((navigator as Navigator & { userAgentData?: { platform?: string } })
+      .userAgentData?.platform ?? navigator.userAgent) ? "Meta" : "Control";
+    try {
+      board.focus();
+      await userEvent.keyboard(`{${modifier}>}k{/${modifier}}`);
+      const palette = await screen.findByRole("dialog", { name: "Command palette" });
+      const search = within(palette).getByRole("combobox", { name: "Search board navigation" });
+      await waitFor(() => expect(search).toHaveFocus());
+      await userEvent.keyboard("Account Settings");
+      await waitFor(() => expect(within(palette).getAllByRole("option")[0]).toHaveTextContent("Account Settings"));
+      await userEvent.keyboard("{Enter}");
+      await waitFor(() => expect(new URL(doc.location.href).searchParams.get("path"))
+        .toBe("/story/account-settings--default"));
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: "Command palette" })).not.toBeInTheDocument());
+      board.focus();
+      await userEvent.keyboard("{Alt>}{ArrowDown}{/Alt}");
+      await waitFor(() => expect(new URL(doc.location.href).searchParams.get("frame")).toBe("three"));
+      await expect(screen.getByRole("complementary", { name: "Inspector" })).toHaveTextContent("blank-three");
+      board.focus();
+      await userEvent.keyboard("?");
+      await expect(within(await screen.findByRole("dialog", { name: "Keyboard shortcuts" }))
+        .getByText("Next section")).toBeVisible();
+      await userEvent.keyboard("{Escape}");
+    } finally {
+      history.replaceState(history.state, "", original);
+    }
   },
 };

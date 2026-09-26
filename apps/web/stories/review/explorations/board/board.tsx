@@ -9,10 +9,11 @@ import { BuildChip } from "./build-chip";
 import { boardCommands, commandForKey } from "./commands";
 import { DesktopCanvas, InteractChip } from "./desktop-canvas";
 import { Inspector } from "./inspector";
-import { frameLabel, layout, type Positioned, type Side } from "./layout";
+import { layout, type Positioned, type Side } from "./layout";
 import { MobileReview } from "./mobile-review";
 import { Outline } from "./outline";
-import { CommandPalette, type PaletteItem } from "./palette";
+import { CommandPalette } from "./palette";
+import { buildPaletteItems } from "./palette-items";
 import { ShortcutsHelp } from "./shortcuts-help";
 import { formatFrameStatus, useFrameLoading } from "./use-frame-loading";
 import type { ReviewBoard } from "./manifest";
@@ -23,14 +24,34 @@ import styles from "./board.module.css";
 type FrameSource = "story" | "blank";
 type StoryIndex = Record<string, StoryIndexEntry>;
 
-export function ReviewBoardView({ board, build, frameSource = "story", narrow = false }: {
+type Navigate = (url: string, newTab: boolean) => void;
+
+function navigate(url: string, newTab: boolean) {
+  const destination = new URL(url, location.href).href;
+  if (newTab) {
+    window.open(destination, "_blank", "noopener,noreferrer");
+    return;
+  }
+  try {
+    if (window.top && window.top !== window && window.top.location.origin === location.origin) {
+      window.top.location.assign(destination);
+      return;
+    }
+  } catch {}
+  location.assign(destination);
+}
+
+export function ReviewBoardView({ board, build, frameSource = "story", narrow = false,
+  storyIndex, onNavigate = navigate }: {
   board: ReviewBoard | "changes";
   build: ReviewBuild;
   frameSource?: FrameSource;
+  storyIndex?: StoryIndex;
+  onNavigate?: Navigate;
   narrow?: boolean;
 }) {
   const [index, setIndex] = useState<StoryIndex | "unavailable" | null | undefined>(
-    frameSource === "blank" ? null : undefined);
+    storyIndex ?? (frameSource === "blank" ? null : undefined));
   useEffect(() => {
     if (frameSource === "blank") return;
     const abort = new AbortController();
@@ -44,11 +65,12 @@ export function ReviewBoardView({ board, build, frameSource = "story", narrow = 
   }, [frameSource]);
   const resolved = useMemo(() => {
     if (index === undefined || index === "unavailable") return index;
+    if (frameSource === "blank" && board !== "changes") return board;
     if (board === "changes") return index ? changesBoard(build, index) : null;
     if (!index) return board;
     const present = resolveBoard(board, index);
     return present && markBuildChanges(present, build, index);
-  }, [board, build, index]);
+  }, [board, build, index, frameSource]);
   const title = board === "changes" ? "Story changes" : board.title;
   if (resolved === undefined) return <BoardMessage title={title} build={build}>Loading board…</BoardMessage>;
   if (resolved === "unavailable") return <BoardMessage title={title} build={build}>
@@ -59,7 +81,8 @@ export function ReviewBoardView({ board, build, frameSource = "story", narrow = 
       ? "Change data isn't available for this build."
       : "No story changes in this build." : "No stories from this board are in this build."}
   </BoardMessage>;
-  return <BoardCanvas board={resolved} build={build} frameSource={frameSource} narrow={narrow} />;
+  return <BoardCanvas board={resolved} build={build} frameSource={frameSource} narrow={narrow}
+    index={typeof index === "object" ? index : null} onNavigate={onNavigate} />;
 }
 
 function BoardMessage({ title, build, children }: { title: string; build: ReviewBuild; children: string }) {
@@ -74,11 +97,13 @@ function BoardMessage({ title, build, children }: { title: string; build: Review
   </div>;
 }
 
-function BoardCanvas({ board, build, frameSource, narrow }: {
+function BoardCanvas({ board, build, frameSource, narrow, index, onNavigate }: {
   board: ReviewBoard;
   build: ReviewBuild;
   frameSource: FrameSource;
   narrow: boolean;
+  index: StoryIndex | null;
+  onNavigate: Navigate;
 }) {
   const { revision, deployment } = build;
   const allFrames = useMemo(() => board.sections.flatMap((section) =>
@@ -132,6 +157,13 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
     position.frame.id === selected) ?? positions.find((position) => position.frame.id === selected &&
     !position.before) ?? positions.find((position) => position.frame.id === selected) ?? positions[0];
   const selectedSection = geometry.sections.find((section) => section.frames.includes(selectedPosition));
+  const stepSection = (direction: -1 | 1) => {
+    const current = geometry.sections.findIndex((section) => section.id === selectedSection?.id);
+    const next = geometry.sections[Math.max(0, Math.min(geometry.sections.length - 1, current + direction))];
+    if (!next) return;
+    select(next.frames[0].frame.id, next.frames[0].id);
+    fit(next.rect);
+  };
   const interactingPosition = positions.find((position) => position.id === interacting);
   const dialogOpen = full && selectedPosition !== undefined;
   const center = useMemo(() => ({
@@ -340,6 +372,7 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
   const commands = boardCommands({
     fitBoard: fitAll,
     fitSelection: () => fit(selectedPosition.rect),
+    stepSection: (direction) => stepSection(direction),
     zoom,
     zoomReset: () => zoom(1 / camera.zoom),
     pan: (x, y) => moveCamera((old) => pan(old, { x, y })),
@@ -357,15 +390,6 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
     openPalette: () => openOverlay(setPaletteOpen),
     openShortcuts: () => openOverlay(setHelpOpen),
   });
-  const paletteItems: PaletteItem[] = [
-    ...commands.filter((command) => command.run && command.palette !== false && command.enabled !== false)
-      .map((command) => ({ id: command.id, label: command.label, detail: command.group, keys: command.keys,
-        run: () => command.run?.() })),
-    ...geometry.sections.flatMap((section) => section.frames.map((position) => ({
-      id: `frame:${position.id}`, label: frameLabel(position), detail: section.title,
-      run: () => selectAndFit(position.id),
-    }))),
-  ];
   const onKey = (event: globalThis.KeyboardEvent) => {
     const target = event.target instanceof Element ? event.target : null;
     if (target?.closest("input, select, textarea, [contenteditable]")) return;
@@ -480,7 +504,9 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
       </div>}
     </main>
     {!mobile && <>
-      <CommandPalette open={paletteOpen} onOpenChange={overlayChange(setPaletteOpen)} items={paletteItems}
+      <CommandPalette open={paletteOpen} onOpenChange={overlayChange(setPaletteOpen)}
+        items={() => buildPaletteItems({ commands, sections: geometry.sections, index,
+          boardId: board.id, selectFrame: selectAndFit, fitSection: (section) => fit(section.rect), navigate: onNavigate })}
         returnFocus={overlayFocus} />
       <ShortcutsHelp open={helpOpen} onOpenChange={overlayChange(setHelpOpen)} commands={commands}
         returnFocus={overlayFocus} />
