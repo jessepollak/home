@@ -11,6 +11,8 @@ const publicRoutes = new Set([
   "client-errors/route.ts",
   "client-performance/route.ts",
   "cards/webhooks/immersve/[topic]/route.ts",
+  "cards/webhooks/bridge/route.ts",
+  "cards/webhooks/stripe/route.ts",
   "funding/webhooks/[provider]/route.ts",
   "invest/discover/route.ts",
   "market-prices/history/route.ts",

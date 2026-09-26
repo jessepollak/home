@@ -3,7 +3,7 @@ import { expect, spyOn, test } from "bun:test";
 import * as sqlModule from "@/server/db/sql";
 import * as storeModule from "@/server/cards/store";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
-import type { CardEvent } from "@/server/cards/store";
+import type { CardObservation } from "@/server/cards/provider";
 import { POST } from "./route";
 
 function request(body: string, topic: string, headers?: Headers) {
@@ -33,21 +33,29 @@ test("unknown URL topic is rejected before reading a delivery", async () => {
   } finally { setObservabilityLogWriterForTests(); }
 });
 
-test("misconfigured enabled ingress remains a deliberate 202 rejection", async () => {
+test("unset mode and incomplete enabled config disable Immersve ingress", async () => {
   const previousEnabled = process.env.IMMERSVE_ENABLED;
+  const previousMode = process.env.IMMERSVE_MODE;
   const previousPartner = process.env.IMMERSVE_PARTNER_ACCOUNT_ID;
   process.env.IMMERSVE_ENABLED = "1";
-  process.env.IMMERSVE_PARTNER_ACCOUNT_ID = "";
+  delete process.env.IMMERSVE_MODE;
   const logs: string[] = [];
   setObservabilityLogWriterForTests((line) => { logs.push(line); });
   try {
-    const response = await POST(request("{}", "payment-updated"), context("payment-updated"));
-    expect(response.status).toBe(202);
-    expect(logs.map((line) => JSON.parse(line) as { code: string })).toEqual([expect.objectContaining({ code: "WEBHOOK_REJECTED" })]);
-    expect(logs.join(" ")).not.toContain("IMMERSVE_PARTNER_ACCOUNT_ID");
+    const unsetMode = await POST(request("{}", "payment-updated"), context("payment-updated"));
+    expect(unsetMode.status).toBe(202);
+    expect(await unsetMode.json()).toEqual({ accepted: false });
+    process.env.IMMERSVE_MODE = "sandbox";
+    process.env.IMMERSVE_PARTNER_ACCOUNT_ID = "";
+    const incomplete = await POST(request("{}", "payment-updated"), context("payment-updated"));
+    expect(incomplete.status).toBe(202);
+    expect(await incomplete.json()).toEqual({ accepted: false });
+    expect(logs).toEqual([]);
   } finally {
     if (previousEnabled === undefined) delete process.env.IMMERSVE_ENABLED;
     else process.env.IMMERSVE_ENABLED = previousEnabled;
+    if (previousMode === undefined) delete process.env.IMMERSVE_MODE;
+    else process.env.IMMERSVE_MODE = previousMode;
     if (previousPartner === undefined) delete process.env.IMMERSVE_PARTNER_ACCOUNT_ID;
     else process.env.IMMERSVE_PARTNER_ACCOUNT_ID = previousPartner;
     setObservabilityLogWriterForTests();
@@ -87,14 +95,14 @@ test("enabled ingress returns 503 for retryable failures and 202 for deliberate 
   };
   const previous = Object.fromEntries(Object.keys(env).map((key) => [key, process.env[key]]));
   Object.assign(process.env, env);
-  const stored: CardEvent[] = [];
+  const stored: CardObservation[] = [];
   let storeUnavailable = false;
   let jwks: "fetch-failure" | "malformed" | "valid" = "fetch-failure";
   const logs: string[] = [];
   setObservabilityLogWriterForTests((line) => { logs.push(line); });
   const store = spyOn(storeModule, "createCardEventStore").mockReturnValue({ insert: async (event) => {
     if (storeUnavailable) throw new Error("private database failure");
-    if (stored.some((row) => row.mode === event.mode && row.messageId === event.messageId)) return false;
+    if (stored.some((row) => row.provider === event.provider && row.mode === event.mode && row.eventId === event.eventId)) return false;
     stored.push(event);
     return true;
   } });
@@ -136,7 +144,7 @@ test("enabled ingress returns 503 for retryable failures and 202 for deliberate 
     storeUnavailable = false;
     const accepted = await signed();
     expect(accepted.status).toBe(202);
-    expect(stored).toEqual([{ mode: "sandbox", messageId: "event-route", topic: "payment-updated", cardholderAccountId: "owner-route", cardId: "card-route", paymentId: "payment-route" }]);
+    expect(stored).toEqual([{ provider: "immersve", mode: "sandbox", eventId: "event-route", kind: "payment-updated", occurredAt: envelope.createdAt, externalIds: { cardholder: "owner-route", card: "card-route", transaction: "payment-route", customer: null } }]);
     expect((await signed()).status).toBe(202);
     expect(stored).toHaveLength(1);
     expect(logs.map((line) => JSON.parse(line) as { code: string })).toEqual([

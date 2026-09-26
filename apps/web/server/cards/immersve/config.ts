@@ -27,8 +27,8 @@ const idPattern = /^[a-fA-F0-9]{32}$/;
 export function readImmersveConfig(env: Readonly<Record<string, string | undefined>> = process.env): ImmersveConfig | null {
   if (env.IMMERSVE_ENABLED !== "1") return null;
   const modeValue = env.IMMERSVE_MODE?.trim();
-  if (modeValue && modeValue !== "sandbox") throw new Error("Invalid Immersve mode");
-  const mode = modeValue === "sandbox" ? "sandbox" : "production";
+  if (modeValue !== "sandbox" && modeValue !== "production") throw new Error("Invalid Immersve mode");
+  const mode = modeValue;
   const required = [
     "IMMERSVE_API_KEY", "IMMERSVE_API_SECRET", "IMMERSVE_PARTNER_ACCOUNT_ID",
     "IMMERSVE_CLIENT_APPLICATION_ID", "IMMERSVE_CARD_PROGRAM_ID",
