@@ -360,6 +360,7 @@ export async function presentAction(
     }),
     createdAt: iso(row.created_at)!,
     confirmedAt,
+    ...(iso(row.handle_recorded_at) ? { submittedAt: iso(row.handle_recorded_at)! } : {}),
     ...(row.provider_handle ? { providerHandle: row.provider_handle } : {}),
     ...(row.transaction_hash ? { transactionHash: row.transaction_hash.toLowerCase() } : {}),
     owner: {

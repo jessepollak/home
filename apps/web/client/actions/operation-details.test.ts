@@ -81,6 +81,69 @@ describe("operation transaction details", () => {
     });
   });
 
+  test("pending operations show the recorded submission time, not the confirmation time, beside current confirmation", () => {
+    const details = presentOperationDetails(baseOperation({ status: "pending", submittedAt: "2026-09-08T05:07:00.000Z" }), { regionId: "US", timeZone: "UTC" });
+
+    expect(details.steps).toEqual([
+      { status: "complete", title: "Submitted", time: "Sep 8, 5:07 AM" },
+      { status: "current", title: "Confirming on Base" },
+    ]);
+    expect(details.rows).toContainEqual({ label: "Status", value: "Pending", statusTone: "pending" });
+    expect(details.rows).toContainEqual({ label: "Updated", value: "Sep 8, 5:03 AM" });
+  });
+
+  test("pending operations without a transaction or user operation hash have no receipt steps", () => {
+    const details = presentOperationDetails(baseOperation({
+      status: "pending",
+      transactionHash: undefined,
+      userOperationHash: undefined,
+    }));
+
+    expect(details.steps).toBeUndefined();
+    expect(details.rows).toContainEqual({ label: "Status", value: "Pending", statusTone: "pending" });
+  });
+
+  test("pending operations with only a user operation hash show receipt steps", () => {
+    const details = presentOperationDetails(baseOperation({
+      status: "pending",
+      transactionHash: undefined,
+      userOperationHash: HASH,
+      submittedAt: "2026-09-08T05:07:00.000Z",
+    }), { regionId: "US", timeZone: "UTC" });
+
+    expect(details.steps).toEqual([
+      { status: "complete", title: "Submitted", time: "Sep 8, 5:07 AM" },
+      { status: "current", title: "Confirming on Base" },
+    ]);
+  });
+
+  test("pending operations with a recorded non-hash handle show receipt steps with the submission time", () => {
+    const details = presentOperationDetails(baseOperation({
+      status: "pending",
+      transactionHash: undefined,
+      submittedAt: "2026-09-08T05:07:00.000Z",
+    }), { regionId: "US", timeZone: "UTC" });
+
+    expect(details.steps?.[0]).toEqual({ status: "complete", title: "Submitted", time: "Sep 8, 5:07 AM" });
+  });
+
+  test("confirmed, failed, and unknown operations have no receipt steps", () => {
+    for (const status of ["confirmed", "failed", "unknown"] as const) {
+      expect(presentOperationDetails(baseOperation({ status })).steps).toBeUndefined();
+    }
+  });
+
+  test("pending operations omit a missing or invalid submission time instead of using the confirmation time", () => {
+    for (const submittedAt of [undefined, "not-a-date"]) {
+      const details = presentOperationDetails(baseOperation({ status: "pending", submittedAt }), { timeZone: "UTC" });
+
+      expect(details.steps).toEqual([
+        { status: "complete", title: "Submitted" },
+        { status: "current", title: "Confirming on Base" },
+      ]);
+    }
+  });
+
   test("localizes recorded action details by presentation region", () => {
     const operation = baseOperation({
       action: {

@@ -19,6 +19,7 @@ export type ActionListItem = {
   status: DerivedActionStatus;
   createdAt: string;
   confirmedAt: string;
+  submittedAt?: string;
   providerHandle?: string;
   transactionHash?: string;
   owner: MoneyActionOwner;
@@ -42,6 +43,7 @@ export type RecentMoneyActionOperation = {
   userOperationHash?: `0x${string}`;
   createdAt: string;
   updatedAt: string;
+  submittedAt?: string;
 };
 
 export function parseRecentMoneyActions(value: unknown, session: VerifiedAccountSession): RecentMoneyActionOperation[] {
@@ -69,6 +71,7 @@ export function parseRecentMoneyActions(value: unknown, session: VerifiedAccount
       status: item.status,
       createdAt: item.createdAt,
       updatedAt: item.confirmedAt,
+      ...(typeof item.submittedAt === "string" && Number.isFinite(Date.parse(item.submittedAt)) ? { submittedAt: item.submittedAt } : {}),
       ...(typeof item.transactionHash === "string" && /^0x[0-9a-fA-F]{64}$/.test(item.transactionHash) ? { transactionHash: item.transactionHash.toLowerCase() as `0x${string}` } : {}),
       ...(typeof item.providerHandle === "string" && /^0x[0-9a-fA-F]{64}$/.test(item.providerHandle) ? { userOperationHash: item.providerHandle.toLowerCase() as `0x${string}` } : {}),
     });

@@ -1,11 +1,11 @@
 import { Circle, CircleCheck, CircleX, LoaderCircle } from "lucide-react";
 import type { ReactNode } from "react";
-import { Card } from "./card";
+import { Card, CardContent } from "./card";
 
-type StepStatus = "complete" | "current" | "upcoming" | "failed";
+export type StepStatus = "complete" | "current" | "upcoming" | "failed";
 
 export function StatusSteps({ children }: { children: ReactNode }) {
-  return <Card className="gap-0 py-3"><ol className="flex flex-col px-4">{children}</ol></Card>;
+  return <Card variant="flush"><CardContent inset="list"><ol className="flex flex-col px-3 py-2">{children}</ol></CardContent></Card>;
 }
 
 export function StatusStep({ status, title, time, showConnector = true }: {

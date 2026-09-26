@@ -1,3 +1,7 @@
+import type { StepStatus } from "./ui/status-step";
+
+export type TransactionDetailStep = { status: StepStatus; title: string; time?: string };
+
 export type TransactionExplorerLink = {
   href: string;
   label: string;
@@ -27,6 +31,7 @@ export type TransactionDetails = {
   title: string;
   header?: TransactionAmountHeader;
   rows: TransactionDetailRow[];
+  steps?: TransactionDetailStep[];
   explorer: TransactionExplorerLink | null;
 };
 

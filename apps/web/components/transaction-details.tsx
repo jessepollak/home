@@ -3,6 +3,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { CopyableValue } from "@/components/copyable-value";
 import { NetworkMark } from "./network-mark";
+import { StatusStep, StatusSteps } from "./ui/status-step";
 import { TransactionAmount } from "./transaction-amount";
 import { TransactionStatusMark } from "./transaction-status";
 import { MoneyModal, MoneyModalBody, MoneyModalHeader } from "@/client/money-modal";
@@ -40,6 +41,9 @@ export function TransactionDetailsModal({
       />
       <MoneyModalBody hasFooter={false} className="pt-4">
         {details?.header ? <div className="pb-4"><TransactionAmount {...details.header} /></div> : null}
+        {details?.steps?.length ? <div className="pb-4"><StatusSteps>
+          {details.steps.map((step) => <StatusStep key={step.title} status={step.status} title={step.title} time={step.time} />)}
+        </StatusSteps></div> : null}
         <Card variant="flush">
           <CardContent inset="list">
             <dl>

@@ -46,6 +46,7 @@ describe("transaction details", () => {
     expect(image?.getAttribute("alt")).toBe("");
     expect(image?.getAttribute("aria-hidden")).toBe("true");
     expect(dialog.queryAllByRole("img")).toHaveLength(0);
+    expect(dialog.queryByRole("list")).toBeNull();
     expect(dialog.getByRole("button", { name: "Copy 0x1111…111111" })).toBeTruthy();
     expect(dialog.getByRole("button", { name: "Copy 0x2222…222222" })).toBeTruthy();
     expect(dialog.getByRole("button", { name: "Copy 0xaaaa…aaaaaaaa" })).toBeTruthy();
@@ -69,6 +70,30 @@ describe("transaction details", () => {
     }
   });
 
+  test("renders pending receipt steps in an ordered standard block before receipt rows", () => {
+    const dialog = renderDetails({
+      title: "Pending transfer",
+      steps: [
+        { status: "complete", title: "Submitted", time: "Sep 8, 5:03 AM" },
+        { status: "current", title: "Confirming on Base" },
+      ],
+      rows: [{ label: "Status", value: "Pending", statusTone: "pending" }],
+      explorer: null,
+    });
+
+    const list = dialog.getByRole("list");
+    expect(list.tagName).toBe("OL");
+    const items = within(list).getAllByRole("listitem");
+    expect(items).toHaveLength(2);
+    expect(items[0]?.textContent).toContain("Complete: Submitted");
+    expect(items[0]?.textContent).toContain("Sep 8, 5:03 AM");
+    expect(items[1]?.textContent).toContain("In progress: Confirming on Base");
+    expect(list.closest('[data-slot="card-content"][data-inset="list"]')).not.toBeNull();
+    const receipt = dialog.getByText("Status").closest("dl");
+    expect(receipt).not.toBeNull();
+    expect(list.compareDocumentPosition(receipt as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   test("renders operation status labels without a header", () => {
     for (const [label, tone] of [["Pending", "pending"], ["Failed", "failure"]] as const) {
       const dialog = renderDetails({
@@ -79,6 +104,7 @@ describe("transaction details", () => {
       expect(dialog.getByText(label)).toBeTruthy();
       expect(dialog.getByText("Status").tagName).toBe("DT");
       expect(dialog.queryByText("Amount")).toBeNull();
+      expect(dialog.queryByRole("list")).toBeNull();
       cleanup();
     }
   });

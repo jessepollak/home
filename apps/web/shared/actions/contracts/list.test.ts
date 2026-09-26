@@ -117,4 +117,12 @@ describe("recent Home action activity", () => {
     expect(parsed[0]?.transactionHash).toBeUndefined();
     expect(parseRecentMoneyActions({ actions: [{ ...row(), status: "rejected" }] }, session)).toEqual([]);
   });
+
+  test("carries the recorded submission time separately from the confirmation time", () => {
+    const [submitted] = parseRecentMoneyActions({ actions: [{ ...row(undefined, "pending"), submittedAt: "2026-09-12T05:06:00.000Z" }] }, session);
+    expect(submitted?.updatedAt).toBe("2026-09-12T05:02:00.000Z");
+    expect(submitted?.submittedAt).toBe("2026-09-12T05:06:00.000Z");
+    expect(parseRecentMoneyActions({ actions: [{ ...row(undefined, "pending"), submittedAt: "not-a-date" }] }, session)[0]?.submittedAt).toBeUndefined();
+    expect(parseRecentMoneyActions({ actions: [row(undefined, "pending")] }, session)[0]?.submittedAt).toBeUndefined();
+  });
 });

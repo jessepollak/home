@@ -304,6 +304,20 @@ describe("actions HTTP handlers", () => {
     expect(await response.json()).toMatchObject({ id: ID, kind: "send", status: "pending", summary: row.summary });
   });
 
+  test("GET exposes the recorded handle time as submission time and omits it before a handle exists", async () => {
+    const base = { ...row, pending: null, confirmed_at: "2026-09-12T12:05:00.000Z" };
+    for (const [stored, expected] of [[{ ...base, provider_handle: HASH, handle_recorded_at: "2026-09-12T12:08:00.000Z" }, "2026-09-12T12:08:00.000Z"], [base, undefined]] as const) {
+      const handler = createGetActionHandler({
+        authorize: authorize(),
+        store: { get: async () => stored, recordHandle: async () => null, recordOutcome: recorded },
+        now: () => new Date("2026-09-12T12:10:00.000Z"),
+      });
+      const body = await (await handler(request(`/api/actions/${ID}`), context())).json();
+      expect(body.confirmedAt).toBe("2026-09-12T12:05:00.000Z");
+      expect(body.submittedAt).toBe(expected);
+    }
+  });
+
   test("GET returns the same 404 for another owner", async () => {
     const handler = createGetActionHandler({
       authorize: authorize("owner-b"),
