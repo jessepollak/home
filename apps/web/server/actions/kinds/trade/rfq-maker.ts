@@ -1,6 +1,6 @@
 import "server-only";
 
-import { encodeFunctionData, parseAbi, recoverAddress } from "viem";
+import { encodeFunctionData, erc20Abi, parseAbi, recoverAddress } from "viem";
 import type { Address, Hex } from "@/shared/trading/server-types";
 import { PERMIT2_ADDRESS, TradePreparationError } from "./permit2";
 import type { RfqMakerAuthorization } from "./quote";
@@ -23,6 +23,7 @@ export async function verifyRfqMakerAuthorizations(
   read: (method: string, params: readonly unknown[]) => Promise<unknown>,
   blockTag: Hex,
 ): Promise<void> {
+  const required = new Map<string, { maker: Address; token: Address; amount: bigint }>();
   for (const auth of auths) {
     let code: unknown;
     try {
@@ -64,5 +65,25 @@ export async function verifyRfqMakerAuthorizations(
     if ((BigInt(bitmap) & (BigInt(1) << (auth.permit.nonce & BigInt(255)))) !== BigInt(0)) {
       throw new TradePreparationError("quote-rejected");
     }
+    const key = `${auth.maker.toLowerCase()}:${auth.permit.permitted.token.toLowerCase()}`;
+    const entry = required.get(key) ?? { maker: auth.maker, token: auth.permit.permitted.token, amount: BigInt(0) };
+    entry.amount += auth.permit.permitted.amount;
+    required.set(key, entry);
+  }
+  for (const { maker, token, amount } of required.values()) {
+    let balance: bigint;
+    let allowance: bigint;
+    try {
+      const readWord = async (data: Hex): Promise<bigint> => {
+        const result = await read("eth_call", [{ to: token, data }, blockTag]);
+        if (typeof result !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(result)) throw new Error("Invalid maker token read");
+        return BigInt(result);
+      };
+      balance = await readWord(encodeFunctionData({ abi: erc20Abi, functionName: "balanceOf", args: [maker] }));
+      allowance = await readWord(encodeFunctionData({ abi: erc20Abi, functionName: "allowance", args: [maker, PERMIT2_ADDRESS] }));
+    } catch (error) {
+      throw new TradePreparationError("provider-unavailable", error);
+    }
+    if (balance < amount || allowance < amount) throw new TradePreparationError("stale-quote");
   }
 }

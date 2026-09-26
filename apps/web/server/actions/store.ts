@@ -43,6 +43,13 @@ export type PendingAction = {
 
 export type ActionOutcome = "succeeded" | "reverted" | "not_submitted";
 
+export class UnresolvedTradeError extends Error {
+  constructor() {
+    super("An earlier trade has not been reconciled.");
+    this.name = "UnresolvedTradeError";
+  }
+}
+
 export type ActionRow = {
   id: string;
   owner_key: string;
@@ -157,12 +164,24 @@ export class ActionsStore {
     pending: PendingAction;
     createdAt: string;
   }): Promise<void> {
-    await this.sql.query(
-      `INSERT INTO actions (id, owner_key, account_address, provider, kind, summary, pending, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::timestamptz)`,
-      [input.id, actionOwnerKey(input.owner), input.owner.address.toLowerCase(), input.owner.accountProvider, input.kind,
-        JSON.stringify(input.summary), JSON.stringify(input.pending), input.createdAt],
-    );
+    const insert = async (tx: SqlExecutor) => {
+      await tx.query(
+        `INSERT INTO actions (id, owner_key, account_address, provider, kind, summary, pending, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::timestamptz)`,
+        [input.id, actionOwnerKey(input.owner), input.owner.address.toLowerCase(), input.owner.accountProvider, input.kind,
+          JSON.stringify(input.summary), JSON.stringify(input.pending), input.createdAt],
+      );
+    };
+    if (input.kind !== "trade") return insert(this.sql);
+    await this.sql.transaction(async (tx) => {
+      await lockTradeOwner(tx, input.owner);
+      if (await findUnresolvedTrade(tx, input.owner, new Date())) throw new UnresolvedTradeError();
+      await insert(tx);
+    });
+  }
+
+  async findUnresolvedTrade(owner: MoneyActionOwner, now = new Date()): Promise<ActionRow | null> {
+    return findUnresolvedTrade(this.sql, owner, now);
   }
 
   async getForPaymaster(id: string): Promise<Pick<ActionRow, "owner_key" | "summary" | "created_at" | "confirmed_at" | "confirmed_call_data_hash"> | null> {
@@ -192,6 +211,10 @@ export class ActionsStore {
       const row = normalizeActionRowOrNull(selected.rows[0]);
       if (!row) return null;
       if (row.confirmed_at) return row;
+      if (row.kind === "trade") {
+        await lockTradeOwner(tx, owner);
+        if (await findUnresolvedTrade(tx, owner, new Date())) throw new UnresolvedTradeError();
+      }
       const confirmed = row.pending ? finalCalls ?? row.pending.calls : null;
       const callDataHash = confirmed ? keccak256(encodeCoinbaseExecuteBatch(confirmed)).toLowerCase() : null;
       const updated = await tx.query<RawActionRow>(
@@ -457,6 +480,24 @@ export class ActionsStore {
   async dispose(): Promise<void> {
     await this.sql.dispose?.();
   }
+}
+
+async function lockTradeOwner(tx: SqlExecutor, owner: MoneyActionOwner): Promise<void> {
+  await tx.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [actionOwnerKey(owner)]);
+}
+
+async function findUnresolvedTrade(sql: SqlExecutor, owner: MoneyActionOwner, now: Date): Promise<ActionRow | null> {
+  const result = await sql.query<RawActionRow>(
+    `SELECT * FROM actions WHERE owner_key = $1 AND kind = 'trade' AND confirmed_at IS NOT NULL
+       AND outcome IS NULL AND (declined_reported_at IS NULL OR provider_handle IS NOT NULL OR transaction_hash IS NOT NULL)
+       AND CASE WHEN summary->'metadata'->>'executionDeadline' ~ '^[1-9][0-9]{0,14}$'
+         THEN (summary->'metadata'->>'executionDeadline')::bigint + 120 > $2
+         ELSE true END
+     ORDER BY confirmed_at DESC LIMIT 1`,
+    [actionOwnerKey(owner), Math.floor(now.getTime() / 1000)],
+    { timeoutMs: 5_000 },
+  );
+  return normalizeActionRowOrNull(result.rows[0]);
 }
 
 export function actionOwnerKey(owner: MoneyActionOwner): string {

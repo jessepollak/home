@@ -266,7 +266,7 @@ function OwnerBoundSavingsMoneyDialog({
       setSubmission("submitted");
       setStep("result");
     } catch (caught) {
-      if (caught instanceof TransferExecutionError && caught.reason === "submission-unknown") {
+      if (caught instanceof TransferExecutionError && (caught.reason === "submission-unknown" || caught.reason === "dispatch-unknown")) {
         setAttemptedAction(true);
         setSubmission("ambiguous");
         setStep("result");

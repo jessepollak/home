@@ -222,7 +222,7 @@ export function BorrowMoneyDialog({
       setSubmission("submitted");
       setStep("result");
     } catch (caught) {
-      if (caught instanceof TransferExecutionError && caught.reason === "submission-unknown") {
+      if (caught instanceof TransferExecutionError && (caught.reason === "submission-unknown" || caught.reason === "dispatch-unknown")) {
         setSubmission("ambiguous");
         setStep("result");
         return;

@@ -692,10 +692,10 @@ describe("SendDialog resume", () => {
     expect(closes).toBe(0);
   });
 
-  test("an ambiguous submission shows unknown without offering retry", async () => {
+  test.each(["submission-unknown", "dispatch-unknown"] as const)("an ambiguous %s shows unknown without offering retry", async (reason) => {
     render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-unknown-send" resumeActionId={ACTION_ID}
       prepareMoneyAction={async () => resumedAction()} resumeMoneyAction={async () => resumedAction()}
-      executeMoneyAction={async () => { throw new TransferExecutionError("submission-unknown", new Error("provider uncertainty")); }}
+      executeMoneyAction={async () => { throw new TransferExecutionError(reason, new Error("provider uncertainty")); }}
       onClose={() => {}} />);
     fireEvent.click(await page().findByRole("button", { name: "Send $1.00" }));
     expect(await page().findByRole("heading", { name: /confirm \$1\.00/ })).toBeTruthy();

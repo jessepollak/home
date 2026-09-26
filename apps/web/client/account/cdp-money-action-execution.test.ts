@@ -141,10 +141,49 @@ describe("thin action dispatch", () => {
       recordDecline: async () => { ambiguousDeclines += 1; },
     });
 
-    await expect(executeAmbiguous()).rejects.toBe(ambiguous);
-    await expect(executeAmbiguous()).rejects.toBe(ambiguous);
+    await expect(executeAmbiguous()).rejects.toMatchObject({ reason: "dispatch-unknown", cause: ambiguous });
+    await expect(executeAmbiguous()).rejects.toMatchObject({ reason: "dispatch-unknown", cause: ambiguous });
     expect(ambiguousDispatches).toBe(1);
     expect(ambiguousDeclines).toBe(0);
+  });
+
+  test("a failure proven before the provider request is not submitted: it reports a decline and a retry dispatches again", async () => {
+    let dispatches = 0;
+    let declines = 0;
+    const execute = () => executeActionOnce({
+      id, generation: 3, fence: { assertCurrent: () => {} }, confirmedPlans: new Map([[id, plan]]),
+      providerDispatches: new Map(), dispatchAttempts: new Map(), pendingDeclines: new Map(),
+      confirm: async () => plan,
+      dispatch: async () => {
+        if (++dispatches === 1) throw new TransferExecutionError("not-submitted", new Error("account changed before wallet_sendCalls"));
+        return "handle";
+      },
+      recordHandle: async () => {},
+      recordDecline: async () => { declines += 1; },
+    });
+    await expect(execute()).rejects.toMatchObject({ reason: "not-submitted" });
+    expect(declines).toBe(1);
+    await expect(execute()).resolves.toBe("handle");
+    expect(dispatches).toBe(2);
+  });
+
+  test("a lost confirm response retries confirmation without opening a second provider dispatch", async () => {
+    let confirms = 0;
+    let dispatches = 0;
+    const confirmedPlans = new Map();
+    const providerDispatches = new Map<string, Promise<string>>();
+    const execute = () => executeActionOnce({
+      id, generation: 3, fence: { assertCurrent: () => {} }, confirmedPlans, providerDispatches,
+      dispatchAttempts: new Map(), pendingDeclines: new Map(),
+      confirm: async () => { if (++confirms === 1) throw new Error("confirm response lost"); return plan; },
+      dispatch: async () => { dispatches++; return "handle"; },
+      recordHandle: async () => {},
+    });
+    await expect(execute()).rejects.toThrow("confirm response lost");
+    expect(dispatches).toBe(0);
+    await expect(execute()).resolves.toBe("handle");
+    await expect(execute()).resolves.toBe("handle");
+    expect({ confirms, dispatches }).toEqual({ confirms: 2, dispatches: 1 });
   });
 
   test("retry waits for a pending decline report before opening the next attempt", async () => {

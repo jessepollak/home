@@ -61,6 +61,7 @@ export function fixtureRoutes() {
     }],
     ["**/api/actions", { actions: [...actionsBody.actions, cashoutFixtureAction] }],
     ["**/api/actions/prepare", prepared],
+    ["**/api/actions/trade-pending", { version: 1, trade: null }],
     ["**/api/trades", { version: 1, status: "available" }],
     ["**/api/actions/network-fee", { version: 1, usdcReserveBaseUnits: "20000" }],
     [`**/api/actions/${prepared.id}`, {

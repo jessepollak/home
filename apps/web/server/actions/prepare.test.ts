@@ -4,7 +4,8 @@ import { SavingsActionError } from "@/server/savings/prepare";
 import { makePaymasterApproval, NetworkFeeUnfundedError } from "@/server/paymaster/fee";
 import { BASE_USDC_ADDRESS, BASE_USDC_PAYMASTER_ADDRESS, NETWORK_FEE_ETH_UNFUNDED_MESSAGE, NETWORK_FEE_UNFUNDED_MESSAGE } from "@/shared/money-actions/network-fee";
 import type { MoneyActionDraft } from "@/shared/money-actions/types";
-import { setActionsStoreForTests, type ActionsStore } from "./store";
+import { setActionsStoreForTests, type ActionRow, type ActionsStore } from "./store";
+import { TradePreparationError } from "./kinds/trade/permit2";
 import { createPrepareActionHandler } from "./prepare";
 
 const OWNER = "0x1111111111111111111111111111111111111111";
@@ -89,6 +90,25 @@ describe("prepare action handler", () => {
       expect(inserts[0]?.summary.metadata).toMatchObject({ product: "savings", operation });
     },
   );
+
+  test("refuses to quote a second trade while its owner has an unresolved confirmed trade", async () => {
+    let unresolved = true;
+    let quotes = 0;
+    setActionsStoreForTests({ findUnresolvedTrade: async () => unresolved ? { id: "previous" } as ActionRow : null } as unknown as ActionsStore);
+    const handler = createPrepareActionHandler({
+      authorize: async () => authorized(),
+      prepareTrade: async () => { quotes++; throw new TradePreparationError("no-liquidity"); },
+    });
+    const blocked = await handler(request("trade"));
+    expect(blocked.status).toBe(409);
+    expect(await blocked.json()).toMatchObject({ error: { code: "TRADE_UNRESOLVED" } });
+    expect(quotes).toBe(0);
+    unresolved = false;
+    const resumed = await handler(request("trade"));
+    expect(resumed.status).toBe(422);
+    expect((await resumed.json() as { error: { code: string } }).error.code).toBe("TRADE_NO_LIQUIDITY");
+    expect(quotes).toBe(1);
+  });
 
   test("preserves the unsupported savings vault response on the single prepare route", async () => {
     const handler = createPrepareActionHandler({

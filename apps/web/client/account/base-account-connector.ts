@@ -6,6 +6,7 @@ import { base } from "viem/chains";
 import { connect } from "viem/experimental/erc7846";
 import type { NativeBaseChallenge } from "@/shared/account/contracts/base-nonce";
 import { BASE_CHAIN_ID } from "@/shared/account/session-types";
+import { TransferExecutionError } from "@/shared/transfers/types";
 
 const BASE_CHAIN_HEX = "0x2105";
 const evmAddressPattern = /^0x[0-9a-fA-F]{40}$/;
@@ -372,12 +373,16 @@ async function openBaseProvider(
       return signature.toLowerCase() as `0x${string}`;
     },
     async sendCalls(calls, requestId, beforeDispatch, batchGasLimit, paymaster) {
-      await assertUnchanged();
+      try {
+        await assertUnchanged();
+      } catch (error) {
+        throw new TransferExecutionError("not-submitted", error);
+      }
       if (
         calls.length < 1 || calls.length > 8 || !requestId ||
         (batchGasLimit !== undefined && !isValidBatchGasLimit(batchGasLimit))
       ) {
-        throw new BaseAccountConnectorError("invalid-provider-response");
+        throw new TransferExecutionError("not-submitted", new BaseAccountConnectorError("invalid-provider-response"));
       }
       await beforeDispatch?.();
       let result: unknown;
