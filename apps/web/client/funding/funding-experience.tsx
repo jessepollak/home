@@ -9,7 +9,7 @@ import {
 } from "@/client/account/cdp-client";
 import { dataOwnerKey, uiBoundary } from "@/client/account/owner-keys";
 import { deferSheet } from "@/client/money-modal/deferred-sheet";
-import type { AddMoneyStep } from "./add-money-dialog";
+import type { AddMoneyStep, ProvidersStatus } from "./add-money-dialog";
 import { shouldPollFundingOrder } from "./order-polling";
 import { readFundingOrder, type FundingOrderSummary } from "@/shared/funding/contracts/order";
 import { readProviderBindings, type FundingBinding } from "@/shared/funding/contracts/providers";
@@ -108,9 +108,15 @@ function FundingExperienceBoundary({
         { signal },
       ),
   });
+  const providersFailed = queryEnabled && providerQuery.isError;
+  const providersStatus: ProvidersStatus = providersFailed
+    ? providerQuery.isFetching ? "loading" : "failed"
+    : providerQuery.data !== undefined
+      ? "loaded"
+      : queryEnabled ? "loading" : "unavailable";
   const providerBindings = useMemo(
-    () => providerQuery.data ? readProviderBindings(providerQuery.data) : [],
-    [providerQuery.data],
+    () => providerQuery.data && !providersFailed ? readProviderBindings(providerQuery.data) : [],
+    [providerQuery.data, providersFailed],
   );
   const customerSetupRequired = providerBindings.some(
     (binding) => binding.customerSetup !== null,
@@ -191,7 +197,7 @@ function FundingExperienceBoundary({
 
   const customerSetupReady = customersQuery.isSuccess || !customerSetupRequired;
   const openOrder = readFundingOrder(ordersQuery.data);
-  const fundingReadError = providerQuery.isError
+  const fundingReadError = providersStatus === "failed"
     ? {
         message: "Funding methods are unavailable. Try again.",
         retry: () => void providerQuery.refetch(),
@@ -240,7 +246,7 @@ function FundingExperienceBoundary({
       onBack={goBack}
       onSelectReceive={() => navigateTo("receive")}
       providerBindings={providerBindings}
-      providersLoaded={providerQuery.isSuccess}
+      providersStatus={providersStatus}
       providerBindingsDisabled={!ordersQuery.isSuccess}
       customerSetupReady={customerSetupReady}
       fundingReadError={fundingReadError}
