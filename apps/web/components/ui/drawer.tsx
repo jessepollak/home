@@ -6,6 +6,7 @@ import { cn } from "cn"
 
 type DrawerContextProps = {
   hasSnapPoints: boolean
+  keyboardAware: boolean
   modal: DrawerPrimitive.Root.Props["modal"]
   showSwipeHandle: boolean
   swipeDirection: NonNullable<DrawerPrimitive.Root.Props["swipeDirection"]>
@@ -37,8 +38,8 @@ function Drawer({
 }) {
   const hasSnapPoints = snapPoints != null && snapPoints.length > 0
   const contextValue = React.useMemo(
-    () => ({ hasSnapPoints, modal, showSwipeHandle, swipeDirection }),
-    [hasSnapPoints, modal, showSwipeHandle, swipeDirection]
+    () => ({ hasSnapPoints, keyboardAware, modal, showSwipeHandle, swipeDirection }),
+    [hasSnapPoints, keyboardAware, modal, showSwipeHandle, swipeDirection]
   )
   const resolvedChildren: DrawerPrimitive.Root.Props["children"] = keyboardAware
     ? typeof children === "function"
@@ -112,9 +113,30 @@ function DrawerContent({
   immediate = false,
   ...props
 }: DrawerPrimitive.Popup.Props & { immediate?: boolean }) {
-  const { hasSnapPoints, modal, showSwipeHandle, swipeDirection } = useDrawer()
+  const { hasSnapPoints, keyboardAware, modal, showSwipeHandle, swipeDirection } = useDrawer()
   const swipeAxis =
     swipeDirection === "down" || swipeDirection === "up" ? "y" : "x"
+  const viewportRef = React.useCallback((element: HTMLDivElement | null) => {
+    if (!element || !keyboardAware || !window.visualViewport) return
+
+    const viewport = window.visualViewport
+    const updateInset = () => {
+      if (element.querySelector("[data-slot=drawer-popup][data-closed]")) return
+      const height = window.innerHeight
+      const inset = viewport.scale === 1 && height - viewport.height > 60
+        ? Math.max(0, Math.ceil(height - Math.min(height, Math.max(0, viewport.offsetTop) + viewport.height)))
+        : 0
+      element.style.setProperty("--sheet-keyboard-inset", `${inset}px`)
+    }
+    updateInset()
+    viewport.addEventListener("resize", updateInset)
+    viewport.addEventListener("scroll", updateInset)
+    return () => {
+      viewport.removeEventListener("resize", updateInset)
+      viewport.removeEventListener("scroll", updateInset)
+      element.style.removeProperty("--sheet-keyboard-inset")
+    }
+  }, [keyboardAware])
 
   return (
     <DrawerPortal data-slot="drawer-portal">
@@ -126,6 +148,7 @@ function DrawerContent({
         />
       )}
       <DrawerPrimitive.Viewport
+        ref={viewportRef}
         data-slot="drawer-viewport"
         data-modal={modal}
         className="pointer-events-none fixed inset-0 z-50 select-none data-[modal=true]:pointer-events-auto"
@@ -136,15 +159,15 @@ function DrawerContent({
           data-swipe-axis={swipeAxis}
           data-snap-points={hasSnapPoints ? "" : undefined}
           className={cn(
-            "group/drawer-popup pointer-events-auto fixed z-50 m-(--drawer-inset,0px) flex h-(--drawer-content-height) max-h-(--drawer-content-max-height,none) min-h-0 w-(--drawer-content-width,auto) transform-[translate3d(var(--translate-x,0px),var(--translate-y,0px),0)_scale(var(--stack-scale))] flex-col bg-background text-sm text-foreground shadow-lg transition-[transform,height,opacity,filter,bottom] duration-350 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform motion-reduce:duration-0! outline-none select-none [interpolate-size:allow-keywords] data-[immediate]:duration-0 data-[swipe-direction=down]:rounded-t-xl data-[swipe-direction=down]:border-t data-[swipe-direction=left]:rounded-r-xl data-[swipe-direction=left]:border-r data-[swipe-direction=right]:rounded-l-xl data-[swipe-direction=right]:border-l data-[swipe-direction=up]:rounded-b-xl data-[swipe-direction=up]:border-b",
+            "group/drawer-popup pointer-events-auto fixed z-50 m-(--drawer-inset,0px) flex h-(--drawer-content-height) max-h-(--drawer-content-max-height,none) min-h-0 w-(--drawer-content-width,auto) transform-[translate3d(var(--translate-x,0px),var(--translate-y,0px),0)_scale(var(--stack-scale))] flex-col bg-background text-sm text-foreground shadow-lg transition-[transform,height,max-height,opacity,filter,bottom] duration-350 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform motion-reduce:duration-0! outline-none select-none [interpolate-size:allow-keywords] data-[immediate]:duration-0 data-[swipe-direction=down]:rounded-t-xl data-[swipe-direction=down]:border-t data-[swipe-direction=left]:rounded-r-xl data-[swipe-direction=left]:border-r data-[swipe-direction=right]:rounded-l-xl data-[swipe-direction=right]:border-l data-[swipe-direction=up]:rounded-b-xl data-[swipe-direction=up]:border-b",
             "data-nested-drawer-open:overflow-hidden data-nested-drawer-open:brightness-95",
-            "after:pointer-events-none after:absolute after:bg-(--drawer-bleed-background,var(--color-popover)) data-[swipe-axis=x]:after:inset-y-0 data-[swipe-axis=x]:after:w-(--bleed) data-[swipe-axis=y]:after:inset-x-0 data-[swipe-axis=y]:after:h-(--bleed) data-[swipe-direction=down]:after:top-full data-[swipe-direction=left]:after:right-full data-[swipe-direction=right]:after:left-full data-[swipe-direction=up]:after:bottom-full",
+            "after:pointer-events-none after:absolute after:bg-(--drawer-bleed-background,var(--color-background)) data-[swipe-axis=x]:after:inset-y-0 data-[swipe-axis=x]:after:w-(--bleed) data-[swipe-axis=y]:after:inset-x-0 data-[swipe-axis=y]:after:h-(--bleed) data-[swipe-direction=down]:after:top-full data-[swipe-direction=left]:after:right-full data-[swipe-direction=right]:after:left-full data-[swipe-direction=up]:after:bottom-full",
             "[--drawer-content-height:var(--drawer-height,auto)] data-[swipe-axis=x]:[--drawer-content-width:75%] data-[swipe-axis=y]:[--drawer-content-max-height:calc(100svh-6rem)] data-[swipe-axis=y]:data-snap-points:[--drawer-content-height:100svh] data-[swipe-axis=x]:sm:[--drawer-content-width:24rem]",
-            "[--bleed:3rem] [--peek:1rem] [--stack-height:var(--drawer-frontmost-height,var(--drawer-height,0px))] [--stack-peek-offset:max(0px,calc((var(--nested-drawers)-var(--stack-progress))*var(--peek)))] [--stack-progress:clamp(0,var(--drawer-swipe-progress),1)] [--stack-scale-base:max(0,calc(1-(var(--nested-drawers)*var(--stack-step))))] [--stack-scale:clamp(0,calc(var(--stack-scale-base)+(var(--stack-step)*var(--stack-progress))),1)] [--stack-shrink:calc(1-var(--stack-scale))] [--stack-step:0.05]",
+            "[--bleed:3rem] data-[swipe-direction=down]:[--bleed:100lvh] [--peek:1rem] [--stack-height:var(--drawer-frontmost-height,var(--drawer-height,0px))] [--stack-peek-offset:max(0px,calc((var(--nested-drawers)-var(--stack-progress))*var(--peek)))] [--stack-progress:clamp(0,var(--drawer-swipe-progress),1)] [--stack-scale-base:max(0,calc(1-(var(--nested-drawers)*var(--stack-step))))] [--stack-scale:clamp(0,calc(var(--stack-scale-base)+(var(--stack-step)*var(--stack-progress))),1)] [--stack-shrink:calc(1-var(--stack-scale))] [--stack-step:0.05]",
             "data-ending-style:transform-(--closed-transform) data-ending-style:opacity-[0.9999] data-ending-style:duration-[calc(var(--drawer-swipe-strength)*400ms)] data-nested-drawer-swiping:duration-0 data-ending-style:data-nested-drawer-swiping:duration-[calc(var(--drawer-swipe-strength)*400ms)] data-starting-style:transform-(--closed-transform) data-swiping:duration-0 data-ending-style:data-swiping:duration-[calc(var(--drawer-swipe-strength)*400ms)]",
             "data-[swipe-axis=y]:inset-x-0 data-[swipe-axis=y]:data-nested-drawer-open:h-(--stack-height)",
             "data-[swipe-axis=x]:inset-y-0 data-[swipe-axis=x]:flex-row",
-            "data-[swipe-direction=down]:bottom-[var(--drawer-keyboard-inset,0px)] data-[swipe-direction=down]:origin-bottom data-[swipe-direction=down]:[--closed-transform:translate3d(0,calc(100%+var(--drawer-inset,0px)+2px),0)] data-[swipe-direction=down]:[--translate-y:calc(var(--drawer-snap-point-offset,0px)+var(--drawer-swipe-movement-y)-var(--stack-peek-offset)-(var(--stack-shrink)*var(--stack-height)))]",
+            "data-[swipe-direction=down]:bottom-[var(--sheet-keyboard-inset,0px)] data-[swipe-direction=down]:origin-bottom data-[swipe-direction=down]:[--closed-transform:translate3d(0,calc(100%+var(--drawer-inset,0px)+var(--sheet-keyboard-inset,0px)+2px),0)] data-[swipe-direction=down]:[--translate-y:calc(var(--drawer-snap-point-offset,0px)+var(--drawer-swipe-movement-y)-var(--stack-peek-offset)-(var(--stack-shrink)*var(--stack-height)))]",
             "data-[swipe-direction=up]:top-0 data-[swipe-direction=up]:origin-top data-[swipe-direction=up]:[--closed-transform:translate3d(0,calc(-100%-var(--drawer-inset,0px)-2px),0)] data-[swipe-direction=up]:[--translate-y:calc(var(--drawer-snap-point-offset,0px)+var(--drawer-swipe-movement-y)+var(--stack-peek-offset)+(var(--stack-shrink)*var(--stack-height)))]",
             "data-[swipe-direction=left]:left-0 data-[swipe-direction=left]:origin-left data-[swipe-direction=left]:[--closed-transform:translate3d(calc(-100%-var(--drawer-inset,0px)-2px),0,0)] data-[swipe-direction=left]:[--translate-x:calc(var(--drawer-swipe-movement-x)+var(--stack-peek-offset)+(var(--stack-shrink)*100%))]",
             "data-[swipe-direction=right]:right-0 data-[swipe-direction=right]:origin-right data-[swipe-direction=right]:[--closed-transform:translate3d(calc(100%+var(--drawer-inset,0px)+2px),0,0)] data-[swipe-direction=right]:[--translate-x:calc(var(--drawer-swipe-movement-x)-var(--stack-peek-offset)-(var(--stack-shrink)*100%))]",
@@ -185,7 +208,7 @@ function DrawerFooter({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="drawer-footer"
       className={cn(
-        "mt-auto flex shrink-0 flex-col gap-2 p-4 group-data-[swipe-direction=down]/drawer-popup:pb-[calc(1rem_+_max(0px,env(safe-area-inset-bottom)_-_var(--drawer-keyboard-inset,0px)))]",
+        "mt-auto flex shrink-0 flex-col gap-2 p-4 group-data-[swipe-direction=down]/drawer-popup:pb-[calc(1rem_+_max(0px,env(safe-area-inset-bottom)_-_var(--sheet-keyboard-inset,0px)))]",
         className
       )}
       {...props}
