@@ -595,6 +595,16 @@ export const NoDebtHeld: Story = {
     await expect(picker.getByRole("button", { description: "Borrow against Cardano" })).toBeVisible();
   },
 };
+export const FirstLoanIntro: Story = {
+  args: NoDebtHeld.args,
+  play: async ({ canvasElement }) => {
+    const screen = within(canvasElement);
+    await expect(screen.getByRole("heading", { name: "Borrow against your crypto" })).toBeVisible();
+    const illustration = canvasElement.querySelector('svg[data-slot="borrow-illustration"]');
+    await expect(illustration).toHaveAttribute("aria-hidden", "true");
+    await expect(screen.getByRole("button", { name: "Choose an asset" })).toBeEnabled();
+  },
+};
 export const NoDebtHeldPickerOpen: Story = {
   args: NoDebtHeld.args,
   play: async ({ canvasElement }) => {
