@@ -18,11 +18,9 @@ trap cleanup EXIT
 trap fail ERR
 printf '%s\n' 'sessionStorage.setItem("home:playwright-smoke:signed-in","1");localStorage.setItem("home.country.v2","US");' > "$init"
 chmod 600 "$init"
-env -i HOME="$HOME" PATH="$PATH" bun -e 'import {fixtureRoutes} from "./tests/browser/feature-map/fixtures.ts"; for (const [pattern, body] of fixtureRoutes()) console.log(`${pattern}\t${JSON.stringify(body)}`);' > "$routes"
+env -i HOME="$HOME" PATH="$PATH" bun -e 'import {fixtureRoutes} from "./tests/browser/feature-map/fixtures.ts"; console.log(JSON.stringify(fixtureRoutes().map(([pattern, body]) => ["network", "route", pattern, "--body", JSON.stringify(body)])));' > "$routes"
 browser_command open --init-script "$init" >/dev/null
-while IFS=$'\t' read -r pattern body; do
-  browser_command network route "$pattern" --body "$body" >/dev/null
-done < "$routes"
+browser_command batch --bail < "$routes" >/dev/null
 browser_command open "http://127.0.0.1:${HOME_FIXTURE_PORT:-3199}/home" >/dev/null
 browser_command wait --fn "Boolean(document.querySelector('[data-app-main-authenticated]'))" >/dev/null
 trap - ERR
