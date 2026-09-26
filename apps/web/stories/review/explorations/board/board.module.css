@@ -499,18 +499,10 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 16px;
+  padding: 8px 12px 12px;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 12px;
-}
-.mobileScroll select {
-  width: 100%;
-}
-.mobileScroll h2 {
-  font-size: 16px;
-  margin: 8px 0 0;
+  align-items: stretch;
 }
 .mobileScroll p {
   margin: 0;
@@ -520,13 +512,10 @@
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 6px;
+  gap: 8px;
 }
 .mobileFrameSpace {
   width: 100%;
@@ -538,31 +527,42 @@
   align-items: center;
   justify-content: space-between;
   width: 100%;
+  min-width: 0;
   gap: 8px;
 }
-.mobileFrameHeading strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
+.mobileFrameTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
   white-space: nowrap;
 }
-.segment {
-  margin-block: 4px;
+.mobileFrameTitle > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mobileFrameTitle strong {
+  flex: none;
+  max-width: 60%;
 }
 .segmentItem {
   min-height: 44px;
 }
 .mobileActions {
+  flex: none;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
-  padding: 8px 16px calc(8px + env(safe-area-inset-bottom));
+  padding-block: 8px calc(8px + env(safe-area-inset-bottom));
+  padding-inline: calc(12px + env(safe-area-inset-left)) calc(12px + env(safe-area-inset-right));
   background: var(--card);
   border-block-start: 1px solid var(--border);
 }
-.mobileAction {
+.board .mobilePicker {
   flex: 1;
-  white-space: nowrap;
+  min-width: 0;
+  text-overflow: ellipsis;
+  font-size: 16px;
 }
 .fullscreen {
   position: fixed;

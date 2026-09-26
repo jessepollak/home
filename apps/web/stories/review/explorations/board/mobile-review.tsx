@@ -1,3 +1,4 @@
+import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { useLayoutEffect, useRef, useState, type Ref } from "react";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -41,23 +42,17 @@ export function MobileReview({
   const scale = position ? Math.min(1, frameWidth / position.rect.width) : 1;
   return <div className={styles.mobile}>
     <div className={styles.mobileScroll}>
-      <select aria-label="Select frame" value={current.frame.id}
-        onChange={(event) => onSelect(event.target.value)}>
-        {board.sections.map((section) => <optgroup key={section.id} label={section.title}>
-          {section.frames.map((frame) => <option key={frame.id} value={frame.id}>
-            {section.title} · {frame.label}
-          </option>)}
-        </optgroup>)}
-      </select>
-      <h2>{current.section.title}</h2>
-      {current.section.note && <p className={styles.muted}>{current.section.note}</p>}
       {position && <div className={styles.mobileCard}>
         <div className={styles.mobileFrameHeading}>
-          <strong>{position.frame.label}</strong>
+          <div className={styles.mobileFrameTitle}>
+            <strong>{position.frame.label}</strong>
+            <span className={styles.muted}>
+              {current.section.title} · {position.rect.width}×{position.rect.height}
+            </span>
+          </div>
           <ChangeTag change={position.frame.change} />
         </div>
-        <span className={styles.muted}>{position.rect.width} × {position.rect.height}</span>
-        {position.frame.before && <ToggleGroup variant="outline" spacing={0} className={styles.segment}
+        {position.frame.before && <ToggleGroup variant="outline" spacing={0}
           aria-label="Before and after" value={[position.before ? "before" : "after"]}
           onValueChange={(value) => { if (value[0]) onSide(value[0] as Side); }}>
           <ToggleGroupItem value="after" className={styles.segmentItem}>Proposed</ToggleGroupItem>
@@ -74,7 +69,9 @@ export function MobileReview({
             onMark={onMark}
             onFinish={onFinish}
             onCancel={onCancel}
-            onSelect={() => onSelect(position.frame.id)}
+            onSelect={onOpen}
+            onFocusSelect={() => onSelect(position.frame.id)}
+            onFit={onOpen}
             onInteract={onOpen}
           />
         </div>
@@ -82,11 +79,19 @@ export function MobileReview({
       </div>}
     </div>
     <nav className={styles.mobileActions} aria-label="Frame navigation">
-      <Button variant="outline" size="touch" className={styles.mobileAction} disabled={index === 0}
-        onClick={() => onSelect(frames[index - 1].id)}>Previous</Button>
-      <Button ref={fullButton} size="touch" className={styles.mobileAction} onClick={onOpen}>Open full width</Button>
-      <Button variant="outline" size="touch" className={styles.mobileAction} disabled={index === frames.length - 1}
-        onClick={() => onSelect(frames[index + 1].id)}>Next</Button>
+      <Button variant="outline" size="touch" aria-label="Previous" disabled={index === 0}
+        onClick={() => onSelect(frames[index - 1].id)}><ChevronLeftIcon /></Button>
+      <select className={styles.mobilePicker} aria-label="Select frame" value={current.frame.id}
+        onChange={(event) => onSelect(event.target.value)}>
+        {board.sections.map((section) => <optgroup key={section.id} label={section.title}>
+          {section.frames.map((frame) => <option key={frame.id} value={frame.id}>
+            {section.title} · {frame.label}
+          </option>)}
+        </optgroup>)}
+      </select>
+      <Button variant="outline" size="touch" aria-label="Next" disabled={index === frames.length - 1}
+        onClick={() => onSelect(frames[index + 1].id)}><ChevronRightIcon /></Button>
+      <Button ref={fullButton} size="touch" onClick={onOpen}>Interact</Button>
     </nav>
   </div>;
 }

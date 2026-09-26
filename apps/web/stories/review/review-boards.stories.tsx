@@ -280,7 +280,7 @@ export const BoardChrome: Story = {
     });
     const previous = screen.getByRole("button", { name: "Previous" });
     const header = board.parentElement?.querySelector("header");
-    await userEvent.click(screen.getByRole("button", { name: "Open full width" }));
+    await userEvent.click(screen.getByRole("button", { name: "Interact" }));
     const dialog = screen.getByRole("dialog", { name: "Second frame full width" });
     await expect(dialog).toBeVisible();
     await waitFor(() => expect(within(dialog).getByRole("button", { name: "Close full width" })).toHaveFocus());
@@ -289,8 +289,27 @@ export const BoardChrome: Story = {
     await expect(previous.closest("[inert]")).not.toBeNull();
     await expect(header?.closest("[inert]")).not.toBeNull();
     await userEvent.keyboard("{Escape}");
-    await waitFor(() => expect(screen.getByRole("button", { name: "Open full width" })).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Interact" })).toHaveFocus());
     await expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    const nav = screen.getByRole("navigation", { name: "Frame navigation" });
+    for (const name of ["Previous", "Select frame", "Next", "Interact"])
+      await expect(within(nav).getByRole(name === "Select frame" ? "combobox" : "button", { name })).toBeVisible();
+    await expect(within(board).getByText("First section · 320×700")).toBeVisible();
+  },
+};
+
+export const TapOpensFullWidthOnMobile: Story = {
+  args: { board: fixture, build: fixtureBuild, frameSource: "blank", narrow: true },
+  render: (args) => <div style={{ height: "100dvh", width: 390 }}><ReviewBoardView {...args} /></div>,
+  beforeEach: () => withSearch({ frame: "two" }),
+  play: async ({ canvasElement }) => {
+    const screen = within(canvasElement.ownerDocument.body);
+    await userEvent.click(await screen.findByRole("button", { name: /First section · Second frame · Unchanged/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Second frame full width" });
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Close full width" })).toHaveFocus());
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await expect(new URL(canvasElement.ownerDocument.location.href).searchParams.get("frame")).toBe("two");
   },
 };
 
@@ -318,7 +337,7 @@ export const StaleFrameLink: Story = {
     await expect(screen.getByText(/not on this revision/)).toBeVisible();
     await expect(screen.getByRole("button", { name: /First section · First frame · New/ })).toBeVisible();
     await expect(new URL(canvasElement.ownerDocument.location.href).searchParams.get("frame")).toBe("one");
-    await userEvent.click(screen.getByRole("button", { name: "Open full width" }));
+    await userEvent.click(screen.getByRole("button", { name: "Interact" }));
     await expect(screen.getByRole("dialog", { name: "First frame full width" })).toBeVisible();
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
@@ -378,7 +397,7 @@ export const MissingStoryExcluded: Story = {
     await expect(await screen.findByRole("combobox", { name: "Select frame" })).toHaveValue("two");
     await expect(screen.queryByRole("option", { name: /First frame/ })).not.toBeInTheDocument();
     await expect(screen.getByText(/not on this revision/)).toBeVisible();
-    await userEvent.click(screen.getByRole("button", { name: "Open full width" }));
+    await userEvent.click(screen.getByRole("button", { name: "Interact" }));
     await expect(screen.getByRole("dialog", { name: "Second frame full width" })).toBeVisible();
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
