@@ -63,6 +63,8 @@ export const TRADE_ERROR_CODES = [
   "TRADE_QUOTE_STALE",
   "TRADE_QUOTE_REJECTED",
   "TRADE_UNRESOLVED",
+  "TRADE_STOCK_RESTRICTED",
+  "TRADE_NOT_ROUTED",
 ] as const;
 export type TradeErrorCode = (typeof TRADE_ERROR_CODES)[number];
 
