@@ -8,7 +8,7 @@
   overflow: hidden;
   font-size: 13px;
 }
-.board button, .board select, .board a {
+.board :is(button, select, a):not([data-slot]) {
   color: inherit;
   font: inherit;
 }
@@ -120,7 +120,7 @@
   background: var(--muted);
   border-block-end: 1px solid var(--border);
 }
-.banner a, .inspector a {
+.banner a {
   color: var(--primary);
   text-decoration: underline;
   margin-inline-start: 5px;
@@ -166,52 +166,33 @@
 .outlineBody {
   overflow-y: auto;
   flex: 1;
-  padding: 12px;
+  padding: 12px 8px;
 }
 .summary {
   line-height: 1.5;
   color: var(--muted-foreground);
-  margin: 0 0 22px;
+  margin: 0 0 4px;
+  padding-inline: 10px;
 }
-.outlineSection {
-  margin-block-end: 20px;
-}
-.outlineChanged {
-  margin-block-end: 20px;
-  padding-block-end: 16px;
-  border-block-end: 1px solid var(--border);
-}
-.outlineGroupTitle {
-  font-weight: 650;
-  padding-inline: 5px;
-  margin-block-end: 4px;
-}
-.board .outlineSectionButton {
-  display: block;
-  width: 100%;
-  text-align: start;
-  border: 0;
-  background: none;
-  font-weight: 650;
-  padding-inline: 5px;
-  margin-block-end: 4px;
-}
-.board .outlineRow {
+.outlineGroup {
   display: flex;
-  width: 100%;
+  flex-direction: column;
+  gap: 1px;
+  margin-block: 12px;
+}
+.outlineHeading {
+  display: flex;
   align-items: center;
-  gap: 5px;
-  text-align: start;
-  border: 0;
-  background: transparent;
-  padding-inline: 7px;
-  font-size: 11px;
+  min-height: 28px;
+  padding-inline: 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.outlineRow {
+  font-weight: 400;
 }
 .outlineRow[aria-current="true"] {
   background: var(--muted);
-}
-.outlineRow[aria-current="true"] .muted {
-  color: var(--foreground);
 }
 .rowLabel {
   flex: 1;
@@ -222,10 +203,6 @@
 }
 .muted {
   color: var(--muted-foreground);
-}
-.accent {
-  color: var(--primary);
-  text-transform: capitalize;
 }
 .inspector {
   width: 300px;
@@ -254,13 +231,16 @@
 .inspectorBody p {
   color: var(--muted-foreground);
 }
-.inspectorDivider {
-  border-block-start: 1px solid var(--border);
-  margin-block: 10px;
-}
 .inspectorFacts {
   display: flex;
-  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+.inspectorActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-block: 4px;
 }
 .fieldLabel {
   color: var(--muted-foreground);
@@ -402,12 +382,6 @@
   background: var(--primary);
   color: var(--primary-foreground);
   border-color: var(--primary);
-}
-.inspectorBody a {
-  display: flex;
-  align-items: center;
-  min-height: 32px;
-  margin: 0;
 }
 .canvasHost {
   flex: 1;
@@ -580,9 +554,10 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.screenFrameLabel span {
-  font-size: 10px;
+.screenFrameLabel [data-slot="badge"] {
   flex: none;
+  height: 16px;
+  font-size: 10px;
 }
 .screenFrameNote {
   font-size: 11px;

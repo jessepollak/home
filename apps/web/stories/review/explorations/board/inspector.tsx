@@ -1,9 +1,13 @@
-import { ChangeTag } from "./change-tag";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import { ChangeTag, FrameSize } from "./change-tag";
 import { frameLabel, type Positioned, type Section } from "./layout";
 import { storyCanvasUrl, storyManagerUrl } from "./url-state";
 import type { BoardCommand } from "./commands";
 import { ShortcutList } from "./shortcuts-help";
 import styles from "./board.module.css";
+
+const keyShortcuts = ["fit-board", "fit-selection", "interact", "command-palette"];
 
 export function Inspector({ section, position, onInteract, onFit, canInteract, shortcuts, onShowShortcuts }: {
   section?: Section;
@@ -14,27 +18,31 @@ export function Inspector({ section, position, onInteract, onFit, canInteract, s
   shortcuts: BoardCommand[];
   onShowShortcuts: () => void;
 }) {
+  const link = (href: string, label: string) => <Button variant="link" size="inline" nativeButton={false}
+    className="self-start" render={<a href={href} target="_blank" rel="noreferrer" />}>{label} ↗</Button>;
   return <aside className={styles.inspector} aria-label="Inspector">
     <div className={styles.panelHeading}><strong>Inspector</strong></div>
     <div className={styles.inspectorBody}>
       <h2>{section?.title}</h2>
       {section?.note && <p>{section.note}</p>}
-      <div className={styles.inspectorDivider} />
+      <Separator className="my-2" />
       <h3>{frameLabel(position)}</h3>
       <div className={styles.inspectorFacts}>
         <ChangeTag change={position.frame.change} />
-        <span>{position.rect.width} × {position.rect.height}</span>
+        <FrameSize width={position.rect.width} height={position.rect.height} />
       </div>
       {position.frame.note && <p>{position.frame.note}</p>}
       <span className={styles.fieldLabel}>Story ID</span>
       <code className={styles.storyId}>{position.story}</code>
-      <button className={styles.primary} onClick={onInteract} disabled={!canInteract}>Interact</button>
-      <button onClick={onFit}>Fit frame</button>
-      <a href={storyManagerUrl(position.story)} target="_blank" rel="noreferrer">Open story ↗</a>
-      <a href={storyCanvasUrl(position.story)} target="_blank" rel="noreferrer">Open canvas ↗</a>
-      <div className={styles.inspectorDivider} />
-      <ShortcutList label="Shortcuts" commands={shortcuts} />
-      <button onClick={onShowShortcuts}>All shortcuts</button>
+      <div className={styles.inspectorActions}>
+        <Button onClick={onInteract} disabled={!canInteract}>Interact</Button>
+        <Button variant="outline" onClick={onFit}>Fit frame</Button>
+      </div>
+      {link(storyManagerUrl(position.story), "Open story")}
+      {link(storyCanvasUrl(position.story), "Open canvas")}
+      <Separator className="my-2" />
+      <ShortcutList label="Shortcuts" commands={shortcuts.filter((command) => keyShortcuts.includes(command.id))} />
+      <Button variant="ghost" size="sm" className="self-start" onClick={onShowShortcuts}>All shortcuts</Button>
     </div>
   </aside>;
 }
