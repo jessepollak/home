@@ -4,7 +4,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { getHomeQueryClient } from "@/client/query/query-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
-import type { TradeActionParams, TradeDirection } from "@/shared/trading/contract";
+import type { TradeActionParams, TradeDirection, TradeMoneyActionMetadata } from "@/shared/trading/contract";
 import { TransferExecutionError } from "@/shared/transfers/types";
 
 const { cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
@@ -103,6 +103,22 @@ describe("Bitcoin trade review", () => {
     expect(view.getByText("Price").parentElement?.textContent).toContain("1 BTC ≈ $1,000.00");
     expect(view.getByText("Network").parentElement?.textContent).toBe("NetworkBase");
     expect(view.queryByText("Do not use this warning for review facts")).toBeNull();
+  });
+  test("review lists the protocol fee but not the provider's gas estimate, which Home's network fee replaces", async () => {
+    const withFees = async (_kind: string, params: TradeActionParams) => {
+      const prepared = action("buy", params.amountBaseUnits);
+      const metadata = prepared.metadata as TradeMoneyActionMetadata;
+      metadata.fees = [
+        { kind: "gas", assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "12000" },
+        { kind: "protocol", assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1500" },
+      ];
+      return prepared;
+    };
+    const { view } = dialog("buy", { prepare: withFees });
+    typeAmount(view, "1");
+    await continueTrade(view);
+    await waitFor(() => expect(view.getByText("Protocol fee")).toBeTruthy());
+    expect(view.queryByText("Gas fee")).toBeNull();
   });
   test("expired quote prepares a new action instead of executing the stale one", async () => {
     let count = 0;

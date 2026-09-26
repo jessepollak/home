@@ -219,7 +219,7 @@ function tradeReviewRows(action: PreparedMoneyAction, metadata: TradeMoneyAction
     { label: "Minimum received", value: formatAsset(metadata.minimumToAmountBaseUnits, metadata.toAsset) },
     { label: "Slippage", value: `${metadata.slippageBps / 100}%` },
     { label: "Price", value: `1 BTC ≈ ${formatUsdStablecoinAmount(priceCents, 2)}` },
-    ...metadata.fees.map((fee) => ({ label: `${fee.kind === "gas" ? "Gas" : "Protocol"} fee`, value: formatExactPresentationTokenAmount(fee.amountBaseUnits, fee.decimals, fee.symbol) })),
+    ...metadata.fees.filter((fee) => fee.kind !== "gas").map((fee) => ({ label: "Protocol fee", value: formatExactPresentationTokenAmount(fee.amountBaseUnits, fee.decimals, fee.symbol) })),
     { label: "Network", value: metadata.network.name },
     { label: "Quote expires in", value: secondsLeft > 0 ? `${secondsLeft}s` : "Expired" },
   ];
