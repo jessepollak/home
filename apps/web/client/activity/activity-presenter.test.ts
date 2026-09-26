@@ -4,6 +4,7 @@ import {
   presentActivityTransferRow,
 } from "./activity-presenter";
 import { computeActivityValuationAmount } from "@/shared/activity/valuation";
+import { joinAmountAndSymbol } from "@/shared/formatting";
 import {
   activityAssets,
   type ActivityAsset,
@@ -102,7 +103,7 @@ describe("presentActivityTransferRow", () => {
     ).toBe("−1.2345 cbBTC");
   });
 
-  test("presents incoming ZORA with exact contract and dynamic decimals", () => {
+  test("presents incoming ZORA with contract-resolved decimals", () => {
     const tokenAddress = "0x1111111111166b7fe7bd91427724b487980afc69" as const;
     const zora = transfer("incoming", {
       id: `8453:${tokenAddress}:zora-log`,
@@ -114,14 +115,44 @@ describe("presentActivityTransferRow", () => {
       amountBaseUnits: "1000000000000000001",
     });
 
-    expect(presentActivityTransferRow(zora, UTC).value).toBe("+1 ZORA");
+    expect(presentActivityTransferRow(zora, UTC).value).toBe("+1.00 ZORA");
     const details = presentActivityTransferDetails(zora, UTC);
     expect(details.title).toBe("Received ZORA");
-    expect(details.header?.amount).toBe("+1.000000000000000001 ZORA");
+    expect(details.header).toMatchObject({ amount: "+1.00", unit: "ZORA" });
     expect(details.rows).toContainEqual({
       label: "Token contract",
       value: tokenAddress,
       display: "0x1111…0afc69",
+    });
+  });
+
+  test("uses the same quantity for row and detail without changing atomic amounts", () => {
+    const samples = [
+      transfer("incoming", { amountBaseUnits: "1000001" }),
+      transfer("outgoing", { assetId: "cbbtc", tokenSymbol: "cbBTC", tokenDecimals: 8, amountBaseUnits: "123450000" }),
+      transfer("self", { assetId: null, tokenSymbol: "ZORA", tokenDecimals: 18, amountBaseUnits: "1234567890123456789012" }),
+      transfer("incoming", { assetId: null, tokenSymbol: "DEGEN", tokenDecimals: 0, amountBaseUnits: "1234567" }),
+      transfer("incoming", { assetId: null, tokenSymbol: "ETH", tokenDecimals: 18, amountBaseUnits: "42" }),
+      transfer("incoming", { assetId: null, tokenSymbol: "TOKEN1", tokenDecimals: 0, amountBaseUnits: "5678" }),
+      transfer("outgoing", { assetId: null, tokenSymbol: null, tokenDecimals: null, amountBaseUnits: "123456789" }),
+    ];
+    for (const sample of samples) {
+      const original = sample.amountBaseUnits;
+      const row = presentActivityTransferRow(sample, { ...UTC, regionId: "DE" });
+      const detail = presentActivityTransferDetails(sample, { ...UTC, regionId: "DE" });
+      expect(joinAmountAndSymbol(detail.header!.amount, detail.header!.unit ?? ""))
+        .toBe(row.valueContext ?? row.value);
+      expect(sample.amountBaseUnits).toBe(original);
+    }
+  });
+
+  test("keeps digits in the token symbol outside the quantity", () => {
+    const sample = transfer("incoming", {
+      assetId: null, tokenSymbol: "TOKEN1", tokenDecimals: 0, amountBaseUnits: "5678",
+    });
+    expect(presentActivityTransferRow(sample, UTC).value).toBe("+5,678 TOKEN1");
+    expect(presentActivityTransferDetails(sample, UTC).header).toMatchObject({
+      amount: "+5,678", unit: "TOKEN1",
     });
   });
 
@@ -143,7 +174,8 @@ describe("presentActivityTransferRow", () => {
     const details = presentActivityTransferDetails(unknown, UTC);
     expect(details.title).toBe("Received unknown token");
     expect(details.header).toMatchObject({
-      amount: "+123456789 base units",
+      amount: "+123456789",
+      unit: "base units",
       tone: "success",
       status: { label: "Confirmed", tone: "success" },
     });
@@ -154,12 +186,13 @@ describe("presentActivityTransferRow", () => {
     });
   });
 
-  test("derives exact owner-fenced detail rows and contract identity", () => {
+  test("derives owner-fenced detail rows and contract identity", () => {
     const details = presentActivityTransferDetails(transfer("incoming"), UTC);
 
     expect(details.title).toBe("Received USDC");
     expect(details.header).toEqual({
-      amount: "+1.000001 USDC",
+      amount: "+1.00",
+      unit: "USDC",
       tone: "success",
       status: { label: "Confirmed", tone: "success" },
     });
@@ -182,12 +215,12 @@ describe("presentActivityTransferRow", () => {
     });
   });
 
-  test("keeps exact outgoing and self amounts without presentation rounding", () => {
+  test("keeps bounded outgoing and self amounts with their signs", () => {
     const outgoing = presentActivityTransferDetails(
       transfer("outgoing", { amountBaseUnits: "123450000" }), UTC,
     );
     expect(outgoing.header).toEqual({
-      amount: "−123.45 USDC", tone: "default", status: { label: "Confirmed", tone: "success" },
+      amount: "−123.45", unit: "USDC", tone: "default", status: { label: "Confirmed", tone: "success" },
     });
     expect(outgoing.rows.map((row) => row.label)).toEqual([
       "Value", "From", "To", "Token contract", "Network", "Date", "Transaction",
@@ -196,7 +229,7 @@ describe("presentActivityTransferRow", () => {
     const self = presentActivityTransferDetails(transfer("self"), UTC);
     expect(self.title).toBe("Self transfer USDC");
     expect(self.header).toEqual({
-      amount: "1.000001 USDC", tone: "default", status: { label: "Confirmed", tone: "success" },
+      amount: "1.00", unit: "USDC", tone: "default", status: { label: "Confirmed", tone: "success" },
     });
     expect(self.rows).toContainEqual({ label: "To", value: WALLET, display: "0x1111…111111" });
   });
@@ -243,17 +276,17 @@ describe("activity transfer valuation presentation", () => {
   test("puts signed fiat above signed native quantity for every direction", () => {
     expect(presentActivityTransferRow(volatile("incoming"), UTC)).toMatchObject({
       value: "+$12.34",
-      valueContext: "+56 TEST",
+      valueContext: "+56.78 TEST",
       priced: true,
     });
     expect(presentActivityTransferRow(volatile("outgoing"), UTC)).toMatchObject({
       value: "−$12.34",
-      valueContext: "−56 TEST",
+      valueContext: "−56.78 TEST",
     });
     expect(presentActivityTransferRow(volatile("self"), UTC)).toMatchObject({
       directionLabel: "Self transfer",
       value: "$12.34",
-      valueContext: "56 TEST",
+      valueContext: "56.78 TEST",
     });
   });
 
@@ -271,7 +304,7 @@ describe("activity transfer valuation presentation", () => {
       reason: "no-recent-close",
     });
     expect(presentActivityTransferRow(unpriced, UTC)).toMatchObject({
-      value: "+56 TEST",
+      value: "+56.78 TEST",
       valueContext: null,
       priced: false,
     });
@@ -292,7 +325,7 @@ describe("activity transfer valuation presentation", () => {
 
   test("keeps the priced value without provenance rows in details", () => {
     const details = presentActivityTransferDetails(volatile("incoming"), UTC);
-    expect(details.header?.amount).toBe("+56.78 TEST");
+    expect(details.header).toMatchObject({ amount: "+56.78", unit: "TEST" });
     expect(details.rows).toContainEqual({ label: "Value", value: "+$12.34" });
     expect(details.rows.map((row) => row.label)).toEqual([
       "Value", "From", "Token contract", "Network", "Date", "Transaction",

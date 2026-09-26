@@ -37,6 +37,35 @@ describe("trade activity rows", () => {
     expect(view.getByRole("button", { name: new RegExp(`^${title}`) })).toBeTruthy();
     expect(presentOperationDetails(trade).title).toBe(title);
   });
+  test("renders the same quantity in the row and read-only detail across token classes", () => {
+    for (const [symbol, decimals, amountBaseUnits] of [
+      ["USDC", 6, "1234567"],
+      ["ETH", 18, "1"],
+      ["cbBTC", 8, "990000"],
+      ["vault shares", 18, "999999"],
+      ["ZORA", 18, "1234567890123456789012"],
+    ] as const) {
+      const original = operation("buy", "confirmed");
+      const amount = { assetId: symbol, symbol, decimals, amountBaseUnits, direction: "spend" as const, estimated: true };
+      const trade = { ...original, action: { ...original.action, amounts: [amount] } };
+      const details = presentOperationDetails(trade, { regionId: "DE" });
+      const display = details.rows.find((row) => row.label === "You pay")?.value;
+      expect(display).toBeDefined();
+      const view = render(<OperationActivityRow operation={trade} regionId="DE" onActivate={() => undefined} />);
+      expect(view.getByRole("img", { name: `−~${display?.replace(/^Estimated /, "")}` })).toBeTruthy();
+      expect(amount.amountBaseUnits).toBe(amountBaseUnits);
+      cleanup();
+    }
+  });
+
+  test("keeps a pending maximum debit exact in the row", () => {
+    const original = operation("buy", "pending");
+    const amount = { assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "100000362", direction: "spend" as const, maximum: true };
+    const repay = { ...original, action: { ...original.action, amounts: [amount] } };
+    const view = render(<OperationActivityRow operation={repay} regionId="US" onActivate={() => undefined} />);
+    expect(view.getByRole("img", { name: "−100.000362 USDC" })).toBeTruthy();
+  });
+
   test("missing trade metadata preserves the stored title", () => {
     const view = render(<OperationActivityRow operation={operation("buy", "failed", false)} regionId="US" onActivate={() => undefined} />);
     expect(view.getByText("Stored title")).toBeTruthy();

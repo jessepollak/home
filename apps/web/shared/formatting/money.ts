@@ -54,7 +54,7 @@ function joinCurrencySuffix(amount: string, symbol: string): string {
   return compact ? `${amount}${NBSP}${compact}` : amount;
 }
 
-function joinAmountAndSymbol(
+export function joinAmountAndSymbol(
   amount: string,
   symbol: string,
   useNoBreakSpace = false,
@@ -276,12 +276,12 @@ export function presentationAssetClass(
   return "meme";
 }
 
-export function formatPresentationTokenAmount(
+export function formatPresentationTokenAmountParts(
   balanceBaseUnits: AtomicAmount,
   decimals: number,
   symbol: string,
   options: PresentationTokenAmountOptions = {},
-): string {
+): { amount: string; symbol: string } {
   try {
     const parsedBaseUnits = parseAtomicAmount(balanceBaseUnits);
     const assetClass = presentationAssetClass({ ...options, symbol });
@@ -297,10 +297,23 @@ export function formatPresentationTokenAmount(
       minimumFractionDigits,
       options.regionId,
     );
-    return joinAmountAndSymbol(amount, symbol, options.useNoBreakSpace);
+    return {
+      amount,
+      symbol: collapseSpaces(symbol, options.useNoBreakSpace ? NBSP : " "),
+    };
   } catch {
-    return "—";
+    return { amount: "—", symbol: "" };
   }
+}
+
+export function formatPresentationTokenAmount(
+  balanceBaseUnits: AtomicAmount,
+  decimals: number,
+  symbol: string,
+  options: PresentationTokenAmountOptions = {},
+): string {
+  const parts = formatPresentationTokenAmountParts(balanceBaseUnits, decimals, symbol, options);
+  return joinAmountAndSymbol(parts.amount, parts.symbol, options.useNoBreakSpace);
 }
 
 export function formatExactTokenAmount(
@@ -999,7 +1012,8 @@ function presentationFractionDigits(
   }
   if (assetClass === "meme") {
     if (amountMeetsThreshold(absolute, decimals, "1")) {
-      return { maximumFractionDigits: 0, minimumFractionDigits: 0 };
+      const digits = Math.min(2, decimals);
+      return { maximumFractionDigits: digits, minimumFractionDigits: digits };
     }
     return { maximumFractionDigits: Math.min(6, decimals), minimumFractionDigits: 0 };
   }

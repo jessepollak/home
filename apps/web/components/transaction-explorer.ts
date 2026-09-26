@@ -23,6 +23,7 @@ export function baseNetworkRow(): TransactionDetailRow {
 
 export type TransactionAmountHeader = {
   amount: string;
+  unit?: string;
   tone: "success" | "default";
   status: TransactionStatus;
 };

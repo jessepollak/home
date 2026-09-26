@@ -1,9 +1,9 @@
 import {
   formatAddress,
-  formatExactPresentationTokenAmount,
   formatFiatAmount,
   formatPresentationDate,
-  formatPresentationTokenAmount,
+  formatPresentationTokenAmountParts,
+  joinAmountAndSymbol,
 } from "@/shared/formatting";
 import type { RegionId } from "@/config/regions";
 import {
@@ -91,7 +91,8 @@ function presentRowValue(
   sign: string,
   regionId?: RegionId,
 ): Pick<ActivityRowViewModel, "value" | "valueContext" | "priced"> {
-  const quantity = `${sign}${formatActivityAmount(transfer, true, regionId)}`;
+  const { amount, symbol } = formatActivityAmountParts(transfer, regionId);
+  const quantity = joinAmountAndSymbol(`${sign}${amount}`, symbol);
   if (transfer.valuation.status !== "priced") {
     return { value: quantity, valueContext: null, priced: false };
   }
@@ -155,10 +156,12 @@ export function presentActivityTransferDetails(
     },
   ];
 
+  const { amount, symbol } = formatActivityAmountParts(transfer, options.regionId);
   return {
     title: `${direction.label} ${transfer.tokenSymbol ?? "unknown token"}`,
     header: {
-      amount: `${direction.sign}${formatActivityAmount(transfer, false, options.regionId)}`,
+      amount: `${direction.sign}${amount}`,
+      unit: symbol,
       tone: transfer.direction === "incoming" ? "success" : "default",
       status: { label: "Confirmed", tone: "success" },
     },
@@ -167,23 +170,14 @@ export function presentActivityTransferDetails(
   };
 }
 
-function formatActivityAmount(
+function formatActivityAmountParts(
   transfer: ActivityTransfer,
-  presentation: boolean,
   regionId?: RegionId,
-): string {
+): { amount: string; symbol: string } {
   if (transfer.tokenSymbol === null || transfer.tokenDecimals === null) {
-    return `${transfer.amountBaseUnits} base units`;
+    return { amount: transfer.amountBaseUnits, symbol: "base units" };
   }
-  if (!presentation) {
-    return formatExactPresentationTokenAmount(
-      transfer.amountBaseUnits,
-      transfer.tokenDecimals,
-      transfer.tokenSymbol,
-      { regionId },
-    );
-  }
-  return formatPresentationTokenAmount(
+  return formatPresentationTokenAmountParts(
     BigInt(transfer.amountBaseUnits),
     transfer.tokenDecimals,
     transfer.tokenSymbol,
