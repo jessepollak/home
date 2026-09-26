@@ -2,6 +2,7 @@
 
 import { Plus } from "lucide-react";
 import type { FetchActivity } from "@/client/activity";
+import { ActivitySurface } from "@/client/activity/activity-panel";
 import { Button } from "@/components/ui/button";
 import { FundingActions } from "@/client/funding/funding-actions";
 import { preloadAddMoneySheet } from "@/client/funding/funding-experience";
@@ -112,10 +113,10 @@ export function HomePanel({
         </>
       }
       activity={showSessionShimmer ? (
-        <section className="space-y-3" aria-labelledby="activity-title" aria-busy="true">
-          <div className="px-4">{activityHeading}</div>
-          <div className="px-1"><ShimmerRows count={3} /></div>
-        </section>
+        <ActivitySurface heading={activityHeading} labelledBy="activity-title" plain busy>
+          <ShimmerRows count={3} />
+          <span className="sr-only">Loading recent activity…</span>
+        </ActivitySurface>
       ) : (
         <ConnectedActivityPanel
           density="feed"

@@ -125,14 +125,16 @@ const handlers = {
   retryLoadMore: noop,
 };
 
+const readyActivityPage = activityPage([
+  transfer("received", 22, "incoming", "25000000"),
+  { ...transfer("logo", 21, "incoming", "12000000"), id: `8453:${ZORA}:logo`, tokenAddress: ZORA, assetId: null, tokenSymbol: "ZORA", tokenDecimals: 18, tokenImageUrl: logoImage },
+  { ...transfer("credits", 14, "outgoing", "60000000"), id: `8453:${CREDITS}:credits`, tokenAddress: CREDITS, assetId: null, tokenSymbol: "CREDITS", tokenDecimals: 18 },
+  { ...transfer("unknown", 13, "incoming", "60000000"), id: `8453:${UNKNOWN}:unknown`, tokenAddress: UNKNOWN, assetId: null, tokenSymbol: null, tokenDecimals: null },
+], "cursor-2");
+
 const readyActivity: UseActivityResult = {
   status: "ready",
-  page: activityPage([
-    transfer("received", 22, "incoming", "25000000"),
-    { ...transfer("logo", 21, "incoming", "12000000"), id: `8453:${ZORA}:logo`, tokenAddress: ZORA, assetId: null, tokenSymbol: "ZORA", tokenDecimals: 18, tokenImageUrl: logoImage },
-    { ...transfer("credits", 14, "outgoing", "60000000"), id: `8453:${CREDITS}:credits`, tokenAddress: CREDITS, assetId: null, tokenSymbol: "CREDITS", tokenDecimals: 18 },
-    { ...transfer("unknown", 13, "incoming", "60000000"), id: `8453:${UNKNOWN}:unknown`, tokenAddress: UNKNOWN, assetId: null, tokenSymbol: null, tokenDecimals: null },
-  ], "cursor-2"),
+  page: readyActivityPage,
   loadingMore: true,
   loadMoreError: false,
   continuing: true,
@@ -158,6 +160,8 @@ const loadingActivity: UseActivityResult = {
 };
 
 const retryFailedActivity = fn();
+const retryFailedActions = fn();
+const retryFailedLoadMore = fn();
 
 const failedActivity: UseActivityResult = {
   status: "error",
@@ -235,6 +239,7 @@ type HomeOverviewStoryProps = {
   assetBalances: HomeAssetBalancesPresentation;
   activity: UseActivityResult;
   operations?: RecentMoneyActionOperation[];
+  actionsStatus?: "loading" | "ready" | "error";
   cashRate: string | null;
   borrowOfferRate: string | null;
   onRetry: () => void;
@@ -246,6 +251,7 @@ function HomeOverviewStory({
   assetBalances,
   activity,
   operations = [],
+  actionsStatus = "ready",
   cashRate,
   borrowOfferRate,
   onRetry,
@@ -295,6 +301,8 @@ function HomeOverviewStory({
             <ActivityPanelView
               activity={activity}
               operations={operations}
+              actionsStatus={actionsStatus}
+              retryActions={retryFailedActions}
               regionId="US"
               density="feed"
               header={<HomeSectionHeading id="activity-title">Activity</HomeSectionHeading>}
@@ -360,7 +368,7 @@ export const Funded: Story = {
     }
     await expect(canvasElement.querySelector("[data-home-status]")).toBeNull();
     const activity = canvas.getByRole("region", { name: "Activity" });
-    await expect(activity.querySelector("[data-slot='card']")).toBeNull();
+    await expect(activity.querySelectorAll("[data-slot='card']")).toHaveLength(1);
     await expect(activity.querySelector("[data-activity-loader]")).not.toBeNull();
     for (const loadingCopy of within(activity).queryAllByText(/Loading/)) {
       await expect(loadingCopy.getBoundingClientRect().width).toBeLessThanOrEqual(1);
@@ -655,6 +663,48 @@ export const ActivityError: Story = {
     retryFailedActivity.mockClear();
     await userEvent.click(activity.getByRole("button", { name: "Reload activity" }));
     await expect(retryFailedActivity).toHaveBeenCalledTimes(1);
+  },
+};
+
+export const ActivityPartialFailure: Story = {
+  args: {
+    activity: {
+      ...readyActivity,
+      page: { ...readyActivityPage, nextCursor: null },
+      loadingMore: false,
+      continuing: false,
+    },
+    operations: [],
+    actionsStatus: "error",
+  },
+  play: async ({ canvasElement }) => {
+    const activity = within(within(canvasElement).getByRole("region", { name: "Activity" }));
+    await expect(activity.getByText("Some activity is unavailable")).toBeVisible();
+    await expect(activity.getAllByRole("listitem").length).toBeGreaterThan(0);
+    retryFailedActions.mockClear();
+    await userEvent.click(activity.getByRole("button", { name: "Reload activity" }));
+    await expect(retryFailedActions).toHaveBeenCalledTimes(1);
+  },
+};
+
+export const ActivityLoadMoreFailure: Story = {
+  args: {
+    activity: {
+      ...readyActivity,
+      loadingMore: false,
+      loadMoreError: true,
+      continuing: false,
+      retryLoadMore: retryFailedLoadMore,
+    },
+    operations: [],
+  },
+  play: async ({ canvasElement }) => {
+    const activity = within(within(canvasElement).getByRole("region", { name: "Activity" }));
+    await expect(activity.getByText("More activity unavailable")).toBeVisible();
+    await expect(activity.getAllByRole("listitem").length).toBeGreaterThan(0);
+    retryFailedLoadMore.mockClear();
+    await userEvent.click(activity.getByRole("button", { name: "Reload activity" }));
+    await expect(retryFailedLoadMore).toHaveBeenCalledTimes(1);
   },
 };
 

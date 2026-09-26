@@ -212,7 +212,7 @@ export function ActivityPanelView({
   );
 }
 
-function ActivitySurface({
+export function ActivitySurface({
   heading,
   labelledBy,
   label,
@@ -230,14 +230,17 @@ function ActivitySurface({
   if (plain) {
     return (
       <section
-        className="space-y-3"
         aria-labelledby={labelledBy}
         aria-label={label}
         aria-busy={busy || undefined}
         data-activity-feed=""
       >
-        {heading ? <div className="px-4">{heading}</div> : null}
-        <div className="space-y-3 px-1">{children}</div>
+        <Card className="gap-3">
+          {heading ? <CardHeader>{heading}</CardHeader> : null}
+          <CardContent inset="list">
+            <div className="space-y-3">{children}</div>
+          </CardContent>
+        </Card>
       </section>
     );
   }
