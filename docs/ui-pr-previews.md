@@ -89,4 +89,4 @@ Immutable manifests, SHA-256 hashes, tile sets, per-state screenshot matrices, p
 
 ## Done
 
-A reviewer can open the PR, click the Vercel preview, and see every retained screenshot or clip inline with a descriptive label that matches the described change; any recorded review findings are separate from that media.
+A reviewer can open the PR, click the Vercel preview, and see every retained screenshot or clip inline with a descriptive label that matches the described change; any recorded review findings are separate from that media. A design or library handoff PR also links its coverage table under [design handoff coverage](operating-manual.md#design-handoff-coverage), and review checks it.
