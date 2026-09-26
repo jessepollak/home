@@ -50,6 +50,10 @@ describe("authenticated account resources", () => {
       .toBe("/api/account/country-preference");
     expect(() => normalizeAccountResourcePath("/api/account/private"))
       .toThrow();
+    expect(normalizeAccountResourcePath("/api/invites/link"))
+      .toBe("/api/invites/link");
+    expect(() => normalizeAccountResourcePath("/api/invites/private"))
+      .toThrow();
   });
 });
 

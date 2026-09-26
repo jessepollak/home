@@ -11,6 +11,7 @@ import { useRouter } from "next/navigation";
 import { deferSheet } from "@/client/money-modal/deferred-sheet";
 import { isSessionSettling, useAccountWallet } from "@/client/account/cdp-client";
 import { AccountSettings } from "@/client/account/account-settings";
+import { dataOwnerKey } from "@/client/account/owner-keys";
 import { useAppearance } from "@/client/appearance/use-appearance";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { BorrowMarketId } from "@/shared/borrowing/config";
@@ -849,7 +850,8 @@ function DashboardShellBody({
                 preferenceMessage={preferenceMessage}
                 isPreferenceReady={isPreferenceReady}
                 accountAddress={isVerified ? (account.session?.smartAccount?.address ?? null) : null}
-                accountOwnerKey={isVerified ? account.ownerKey : null}
+                accountOwnerKey={isVerified && account.session?.smartAccount ? dataOwnerKey(account.session) : null}
+                fetchAccountResource={account.fetchAccountResource}
                 showSmallBalances={showSmallBalances}
                 onShowSmallBalancesChange={onShowSmallBalancesChange}
                 appearancePreference={appearancePreference}

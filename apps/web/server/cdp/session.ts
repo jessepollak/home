@@ -156,7 +156,8 @@ export type SessionHandlerDependencies = {
   baseAccountEnabled?: boolean | (() => boolean);
   homeSessionSecret?: string;
   issueCookies?: (session: VerifiedAccountSession, request: Request) => string[];
-  onVerifiedSession?: (session: VerifiedAccountSession, context: { request: Request; email: string | null }) => void;
+  verifiedCookies?: (request: Request) => string[];
+  onVerifiedSession?: (session: VerifiedAccountSession, context: { request: Request; email: string | null }) => void | Promise<void>;
 };
 
 const privateResponseHeaders = {
@@ -263,6 +264,7 @@ export function createSessionHandler({
   homeSessionSecret,
   baseAccountEnabled,
   issueCookies,
+  verifiedCookies,
   onVerifiedSession,
 }: SessionHandlerDependencies) {
   return async function GET(request: Request): Promise<Response> {
@@ -289,8 +291,8 @@ export function createSessionHandler({
     }
     if (nativeSession.kind === "valid") {
       if (accountProvider === "cdp-embedded") return invalidProviderResponse();
-      const response = jsonResponse(nativeSession.session, 200);
-      try { onVerifiedSession?.(nativeSession.session, { request, email: null }); } catch { return response; }
+      const response = jsonResponse(nativeSession.session, 200, verifiedCookies?.(request) ?? []);
+      try { await onVerifiedSession?.(nativeSession.session, { request, email: null }); } catch { return response; }
       return response;
     }
     if (!accessToken) return unauthenticatedResponse();
@@ -310,9 +312,9 @@ export function createSessionHandler({
       const response = jsonResponse(
         session,
         200,
-        session.smartAccount ? issueCookies?.(session, request) ?? [] : [],
+        [...(session.smartAccount ? issueCookies?.(session, request) ?? [] : []), ...(verifiedCookies?.(request) ?? [])],
       );
-      try { onVerifiedSession?.(session, { request, email: verifiedEmail(verifiedEndUser) }); } catch { return response; }
+      try { await onVerifiedSession?.(session, { request, email: verifiedEmail(verifiedEndUser) }); } catch { return response; }
       return response;
     } catch (error) {
       if (error instanceof InvalidAccessTokenError) {
