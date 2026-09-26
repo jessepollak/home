@@ -39,21 +39,34 @@ async function aligned(a: number, b: number) {
   await expect(Math.abs(a - b)).toBeLessThanOrEqual(1);
 }
 
-async function verifyRows(canvasElement: HTMLElement, onRetry: () => void, onActivate: () => void) {
+async function verifyRows(canvasElement: HTMLElement, onRetry: () => void, onActivate: () => void, enlarged = false) {
   const rows = [...canvasElement.querySelectorAll("li")];
   await expect(rows).toHaveLength(5);
   const label = (index: number) => rect(rows[index]!.querySelector("[data-slot=finance-row-body] > [data-slot=item-content]"));
   const value = (index: number) => rect(rows[index]!.querySelector("[data-slot=finance-row-value]"));
   const center = (box: DOMRect) => box.top + box.height / 2;
-  await aligned(center(label(0)), center(value(0)));
-  await aligned(center(label(1)), center(value(1)));
-  await aligned(rect(rows[2]!.querySelector("[data-slot=item-title]")).top,
-    rect(rows[2]!.querySelector("[data-slot=finance-row-value] [data-slot=item-title]")).top);
-  await aligned(center(label(3)), center(value(3)));
-  await aligned(center(label(4)), center(value(4)));
+  const sameLineOrWrapped = async (index: number) => {
+    if (enlarged && value(index).top >= label(index).bottom - 1) {
+      const body = rect(rows[index]!.querySelector("[data-slot=finance-row-body]"));
+      await aligned(value(index).right, body.right);
+      const title = rows[index]!.querySelector<HTMLElement>("[data-slot=finance-row-value] [data-slot=item-title]");
+      if (title) await expect(title.scrollWidth).toBeLessThanOrEqual(title.clientWidth + 1);
+      return;
+    }
+    await aligned(center(label(index)), center(value(index)));
+  };
+  await sameLineOrWrapped(0);
+  await sameLineOrWrapped(1);
+  if (!enlarged || value(2).top < label(2).bottom - 1) {
+    await aligned(rect(rows[2]!.querySelector("[data-slot=item-title]")).top,
+      rect(rows[2]!.querySelector("[data-slot=finance-row-value] [data-slot=item-title]")).top);
+  }
+  await sameLineOrWrapped(3);
+  await sameLineOrWrapped(4);
   await aligned(value(0).right, value(1).right);
   const body = rect(rows[4]!.querySelector("[data-slot=finance-row-body]"));
-  await expect(value(4).width).toBeLessThanOrEqual(body.width * 2 / 3 + 1);
+  const stacked = enlarged && value(4).top >= label(4).bottom - 1;
+  await expect(value(4).width).toBeLessThanOrEqual(stacked ? body.width + 1 : body.width * 2 / 3 + 1);
   await expect(value(4).right).toBeLessThanOrEqual(body.right + 1);
   await expect(rect(rows[0]!.querySelector("[data-slot=item-media]")).height).toBeGreaterThan(0);
   await expect(rect(rows[0]!.querySelector("[data-slot=item-actions]")).height).toBeGreaterThan(0);
@@ -79,7 +92,7 @@ export const NarrowEnlargedText: Story = {
     const previous = root.style.fontSize;
     root.style.fontSize = "200%";
     try {
-      await verifyRows(canvasElement, args.onRetry, args.onActivate);
+      await verifyRows(canvasElement, args.onRetry, args.onActivate, true);
     } finally {
       root.style.fontSize = previous;
     }

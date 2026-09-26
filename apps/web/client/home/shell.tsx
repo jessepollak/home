@@ -922,6 +922,7 @@ function DashboardShellBody({
                       onSelectMarket={selectBorrowMarket}
                       regionId={regionId}
                       assetMarkResolution={assetMarkResolution}
+                      borrowSummary={paintedAssetBalances.summary?.borrow ?? null}
                     />
                   </MountedShellPanel>
                 ) : null}

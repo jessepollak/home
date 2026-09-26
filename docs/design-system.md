@@ -92,7 +92,7 @@ The pilot and exploration inventories live in [story inventories](design-system/
 
 The unreviewed Activity ledger proposal uses `proposal-activity-ledger--mixed-chronology`, `proposal-activity-ledger--detail-funding-needs-you`, and `journeys-activity-ledger--pending-to-detail-and-back` (full inventory in [Activity ledger proposal](activity-ledger-design.md)).
 
-The unreviewed Borrow overview proposal uses `explorations-borrow-overview--multiple-loans`, `explorations-borrow-overview--alternative-b-multiple-loans`, `explorations-borrow-overview--management-sheet-open`, and `journeys-borrow-overview--repay-review-cancel-back` (full inventory in [Borrow overview proposal](borrow-overview-design.md)).
+The adopted Borrow overview uses `borrowing-borrow-overview--multiple-loans`, `borrowing-borrow-overview--management-sheet-open`, and `journeys-borrow-overview--repay-review-cancel-back` (full inventory in [Borrow overview and management](borrow-overview-design.md)).
 
 Every owned `apps/web/components/ui` module also has a minimal workshop story (`UI/<Component>`) so the MCP manifest exposes the owned inventory rather than only the pilot surfaces, plus the journey inventory `journeys-savings-deposit--deposit`. The unwired, unapproved Card proposal lives in the `Explorations/Card` group (`explorations-card--*`, [#636](https://github.com/jessepollak/home/issues/636)) until selection. The unwired, unapproved USDC ↔ cbBTC trade proposal lives in `Explorations/Invest Trade` (`explorations-invest-trade--*`, [#935](https://github.com/jessepollak/home/issues/935)); [#616](https://github.com/jessepollak/home/issues/616) owns its production adoption. The built `index.json` and the MCP `docs-list` output are the durable discoverability sources when this inventory grows. An intentional ID or export rename must update direct links and review evidence in the same change.
 
@@ -111,7 +111,8 @@ Use the stock system sans and monospace stacks: there is no `next/font` setup or
 Country selection and searchable asset selection use the `Combobox`; its value truncates by default. Simple non-searchable pickers use Base UI `Select`. Financial rows stay on `Item`; do not introduce Data Table on mobile.
 
 Use the owned component contracts rather than restyling their slots:
-- `ItemMedia variant="avatar"` owns the standard circular row media. `ItemTitle` accepts `tone` (`default | muted | primary | gain | destructive`) and `numeric`; `ItemDescription` accepts `lines={1 | 2}` (one line truncates with an ellipsis) and `size="xs"` for a 12 px value context under a row value.
+- `ItemMedia variant="avatar"` owns the standard circular row media. `ItemTitle` accepts `tone` (`default | muted | primary | gain | destructive`), `numeric`, and `truncate` (`true` clamps to one line, `false` keeps one unwrapped line, `wrap` wraps anywhere, `stacked` allows two lines when a finance row stacks); `ItemDescription` accepts `lines={1 | 2}` (one line truncates with an ellipsis) and `size="xs"` for a 12 px value context under a row value.
+- Finance rows (`AssetRow`, `BalanceRow`, `ActivityRow`) keep label and value on one line at normal text size. When a row is narrower than 14rem (for example at 200% text on a phone), the value stacks under the label at the inline end and wraps rather than clipping.
 - `CardContent inset="list"` owns list-card horizontal insets; put screen-specific flow spacing on a plain inner wrapper.
 - Grouped money rows (review summary, transaction receipt) use `Card variant="flush"` with `CardContent inset="list"`; rows inside carry `px-3` and no dividers.
 - `Button variant="navigation"` owns primary-navigation presentation, and `size="inline"` is for small actions embedded in prose.

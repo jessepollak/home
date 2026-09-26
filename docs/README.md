@@ -38,10 +38,10 @@ This map points to Home's current product, engineering, delivery, setup, and int
 - [Morpho setup](morpho-setup.md) — Save vault configuration, candidate evidence, and verification commands.
 - [Local money coverage](local-money-coverage.md) and [stablecoin candidates](stablecoin-candidates.json) — regional research inventory and contract candidates.
 - [README capture guide](readme/README.md) and [PR preview captures](pr-previews/README.md) — screenshot provenance and storage conventions.
+- [Borrow overview and management](borrow-overview-design.md) — adopted Direction A (#1004), including the summary, loan rows, sheet and handoff contract.
 
 ## Proposed specs
 
 - [Card design proposal](card-design.md) — unreviewed #636 capability map, settings structure and Card journey states.
-- [Borrow overview proposal](borrow-overview-design.md) — unreviewed #940 summary, loan rows, management sheet and handoff contract.
 - [Public transfer feed](public-transfer-feed-spec.md) — active implementation-ready proposal for a public ERC-20 transfer feed.
 - [Checking shimmer](qa/checking-97/CHECKING-SHIMMER-SPEC.md) — active QA specification for the checking loading state.

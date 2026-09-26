@@ -1,16 +1,16 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
-import borrowPrototype from "@/client/borrowing/explorations/borrow-overview.stories";
-const BorrowPrototypeSurface = borrowPrototype.component;
+import borrowOverviewStories from "@/client/borrowing/borrow-overview.stories";
+const BorrowStorySurface = borrowOverviewStories.component;
 import { VERIFIED_MORPHO_MARKETS } from "@/shared/morpho-markets/config";
 import { borrowOverviewBody } from "@/tests/browser/fixtures/bodies";
 
 const meta = {
   id: "journeys-borrow-overview",
   title: "Journeys/Borrow Overview",
-  component: BorrowPrototypeSurface,
+  component: BorrowStorySurface,
   parameters: { layout: "fullscreen", viewport: { defaultViewport: "mobile" } },
-} satisfies Meta<typeof BorrowPrototypeSurface>;
+} satisfies Meta<typeof BorrowStorySurface>;
 export default meta;
 type Story = StoryObj<typeof meta>;
 const screenFor = (canvasElement: HTMLElement) => within(canvasElement.ownerDocument.body);
