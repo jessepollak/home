@@ -117,7 +117,7 @@ Server composition is: `enumerate(owner)` concurrently with `read(registry, owne
 | `selectHolding(snapshot, id)` → `Holding \| null` | Savings USDC max |
 | `selectBalanceBaseUnits(snapshot, id)` → `string \| null` | Send max, Savings deposit max |
 | `selectVaultPositions(snapshot)` → `{vaultAddress, position: {assetsRaw} \| null}[]` | `summarizeSavingsPortfolio` (`portfolio-summary.ts:85-95` already accepts this) replaces `/api/savings/positions` |
-| `selectSendable(snapshot)` → registry ERC-20/native with `balance.status === "ready" && baseUnits !== "0"`, carrying `balanceBaseUnits` | `send-availability.ts`; `MoneyAmountDisplay` takes `availableAmount` (`amount.tsx:216`) so `parseAvailableDecimal(balanceLabel)` is retired, not moved |
+| `selectSendable(snapshot)` → registry ERC-20/native with `balance.status === "ready" && baseUnits !== "0"`, carrying `balanceBaseUnits` | `send-availability.ts`; `MoneyAmountDisplay` takes `availableAmount` (`client/money-modal/amount.tsx`) so `parseAvailableDecimal(balanceLabel)` is retired, not moved |
 | `selectCash(snapshot)` → ordered cash rows for the region (selected local, canonical USD, `unsupported` placeholder) | presenter |
 | `selectBalanceTotals(snapshot)`, `selectBorrowPositions(snapshot)`, `selectCollateralHoldings(snapshot)` | Home net total, Borrow Cash row, and collateral-as-Investments (#789) |
 

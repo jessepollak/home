@@ -9,7 +9,7 @@ function zeroDurationTransitions(locator: Locator) {
       .every((duration) => Number.parseFloat(duration) === 0));
 }
 
-test("ambiguous handle response retries without a second wallet dispatch and honors reduced motion", async ({ page }) => {
+test("submitted send shows a pending result and clears its review route before reload", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await seedSignedInSession(page);
   await installApiFixtures(page);
@@ -21,18 +21,20 @@ test("ambiguous handle response retries without a second wallet dispatch and hon
   await page.getByRole("textbox", { name: "To" }).fill(RECIPIENT);
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("button", { name: "Send $1.00" }).click();
-  const confirm = page.getByRole("dialog", { name: "Confirm" });
-  await expect(confirm.getByRole("button", { name: "Try again" })).toBeVisible();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("button", { name: "Try again" })).toBeVisible();
+  await dialog.getByRole("button", { name: "Try again" }).click();
+  await dialog.getByRole("button", { name: "Send $1.00" }).click();
+  await expect(dialog.getByRole("heading", { name: "$1.00 on its way" })).toBeVisible();
+  await expect(dialog.getByText("Submitted")).toBeVisible();
+  await expect(dialog.getByText("Confirming on Base")).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "View in Activity" })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: /try again|retry/i })).toHaveCount(0);
   await expect.poll(() => page.evaluate(() =>
     sessionStorage.getItem("home:playwright-smoke:dispatch-count"),
   )).toBe("1");
-  await confirm.getByRole("button", { name: "Try again" }).click();
-  await confirm.getByRole("button", { name: "Send $1.00" }).click();
-  await expect(confirm).toBeHidden();
-  await expect.poll(() => page.evaluate(() =>
-    sessionStorage.getItem("home:playwright-smoke:dispatch-count"),
-  )).toBe("1");
-  const toast = page.locator('[data-slot="toast"]');
-  await expect(toast.getByText("Sent $1.00 to 0x2222…222222", { exact: true })).toBeVisible();
-  expect(await zeroDurationTransitions(toast)).toBe(true);
+  await expect(page).not.toHaveURL(/actionId=|action_id=|action=/);
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Send $1.00" })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "Confirm" })).toHaveCount(0);
 });

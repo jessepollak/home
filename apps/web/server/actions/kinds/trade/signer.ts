@@ -22,7 +22,7 @@ import type {
   TradeSignerResolver,
 } from "@/shared/trading/server-types";
 
-const FACTORY_ADDRESS = "0xba5ed110efdba3d005bfc882d75358acbbb85842" as const;
+export const COINBASE_SMART_WALLET_FACTORY_ADDRESS = "0xba5ed110efdba3d005bfc882d75358acbbb85842" as const;
 const ERC1271_MAGIC = "0x1626ba7e";
 const compactJwtPattern = /^[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$/;
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
@@ -34,7 +34,6 @@ const smartWalletAbi = [
   { type: "function", name: "isValidSignature", stateMutability: "view", inputs: [{ name: "hash", type: "bytes32" }, { name: "signature", type: "bytes" }], outputs: [{ type: "bytes4" }] },
 ] as const;
 const factoryAbi = [{ type: "function", name: "getAddress", stateMutability: "view", inputs: [{ name: "owners", type: "bytes[]" }, { name: "nonce", type: "uint256" }], outputs: [{ type: "address" }] }] as const;
-/** @public exercised by server/actions/kinds/trade/signer.test.ts */
 export function createTradeSignerResolver({
   getValidator,
   fetchImpl = fetch,
@@ -70,7 +69,7 @@ export function createTradeSignerResolver({
     if (identity.ownerAddresses.length !== 1 || identity.controlledOwners.length !== 1) unsupported();
     const candidate = identity.controlledOwners[0];
     const encodedOwner = encodeAbiParameters([{ type: "address" }], [candidate]);
-    const result = await rpc.call(FACTORY_ADDRESS, encodeFunctionData({
+    const result = await rpc.call(COINBASE_SMART_WALLET_FACTORY_ADDRESS, encodeFunctionData({
       abi: factoryAbi,
       functionName: "getAddress",
       args: [[encodedOwner], BigInt(0)],

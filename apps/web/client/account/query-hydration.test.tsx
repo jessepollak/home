@@ -5,6 +5,8 @@ import { dehydrate } from "@tanstack/react-query";
 import type { AccountWalletClient, AccountWalletSdkBoundary } from "./cdp-client";
 import type { VerifiedAccountSession } from "./session-client";
 import type { AccountRenderSeed } from "@/shared/account/session-types";
+import { balancesSnapshotFixture } from "@/shared/balances/fixtures";
+import { useBalances } from "@/client/balances/use-balances";
 import {
   createHomeQueryClient,
   createOwnerQueryPersister,
@@ -78,6 +80,23 @@ function persistValuation(ownerKey: string, amount: string): void {
 }
 
 let observedClient: AccountWalletClient | null = null;
+function BalanceProbe() {
+  const account = useAccountWallet();
+  const session = account.verification && account.session?.smartAccount ? {
+    subject: account.session.user.subject,
+    smartAccountAddress: account.session.smartAccount.address,
+    chainId: account.session.smartAccount.chainId,
+    accountProvider: account.session.accountProvider,
+  } : null;
+  const balances = useBalances(session, "US", account.fetchBalances, {
+    enabled: account.verification === "server" ||
+      (account.verification === "provisional" && account.status === "validating"),
+    provisional: account.verification === "provisional" && account.status === "validating",
+  });
+  return <output data-testid="balances">{balances.status === "ready"
+    ? balances.snapshot.owner.address : balances.status}</output>;
+}
+
 function HydrationProbe({ fetchValuation }: { fetchValuation: () => Promise<unknown> }) {
   const account = useAccountWallet();
   useEffect(() => { observedClient = account; }, [account]);
@@ -167,6 +186,50 @@ describe("owner query hydration lifecycle", () => {
     await act(async () => { view.rerender(owner({ ...unsettledSdk, isInitialized: true })); });
     expect(observedClient?.verification).toBeNull();
     expect(view.getByTestId("valuation").textContent).toBe("none");
+  });
+
+  test("render seed waits for live restore before overlapping balances with session validation", async () => {
+    const seededSession = verifiedSession("subject-a", ADDRESS_A);
+    const renderSeed: AccountRenderSeed = { session: seededSession, source: "cdp-hint" };
+    let sessionReads = 0;
+    let balanceReads = 0;
+    let tokenReads = 0;
+    const sessionFetch = async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/session") {
+        sessionReads += 1;
+        return new Promise<Response>(() => {});
+      }
+      if (path.startsWith("/api/balances?")) {
+        balanceReads += 1;
+        return Response.json(balancesSnapshotFixture);
+      }
+      return Response.json({});
+    };
+    const owner = (ownerSdk: AccountWalletSdkBoundary) => (
+      <AccountWalletSessionOwner sdk={ownerSdk} renderSeed={renderSeed} sessionFetch={sessionFetch}>
+        <HydrationProbe fetchValuation={async () => ({})} />
+        <BalanceProbe />
+      </AccountWalletSessionOwner>
+    );
+    const unsettledSdk = {
+      ...sdk(null),
+      isInitialized: false,
+      getAccessToken: async () => { tokenReads += 1; return "token"; },
+    };
+    const view = render(owner(unsettledSdk));
+    await waitFor(() => expect(observedClient?.status).toBe("restoring"));
+    expect({ sessionReads, balanceReads, tokenReads }).toEqual({
+      sessionReads: 0, balanceReads: 0, tokenReads: 0,
+    });
+
+    await act(async () => { view.rerender(owner(sdk("subject-a", seededSession))); });
+    await waitFor(() => expect(sessionReads).toBe(1));
+    await waitFor(() => expect(balanceReads).toBe(1));
+    expect(observedClient?.status).toBe("validating");
+    expect(observedClient?.verification).toBe("provisional");
+    await waitFor(() => expect(view.getByTestId("balances").textContent).toBe(ADDRESS_A));
+    expect(observedClient?.verification).toBe("provisional");
   });
 
   test("different live settlement clears render-seeded owner cache", async () => {
@@ -429,6 +492,43 @@ describe("owner query hydration lifecycle", () => {
     await waitFor(() => expect(view.getByTestId("valuation").textContent).toBe("12340000"));
     expect(fetches).toBe(1);
     expect(window.localStorage.getItem(ownerQueryStorageKey(ownerKey)!)).not.toBeNull();
+  });
+
+  test("owner switch never paints cached or in-flight provisional balances from the previous owner", async () => {
+    const first = verifiedSession("subject-a", ADDRESS_A);
+    const second = verifiedSession("subject-b", ADDRESS_B);
+    const ownerAKey = dataOwnerKey(first);
+    const client = getHomeQueryClient();
+    client.setQueryData(ownerQueryKey(ownerAKey, "balances", "US"), balancesSnapshotFixture, {
+      updatedAt: Date.now() - 60_000,
+    });
+    let releaseFirst!: (response: Response) => void;
+    const pendingFirst = new Promise<Response>((resolve) => { releaseFirst = resolve; });
+    let firstReads = 0;
+    const sessionFetch = async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/session") return new Promise<Response>(() => {});
+      if (path.startsWith("/api/balances?")) {
+        if (firstReads++ === 0) return pendingFirst;
+        return Response.json({ ...balancesSnapshotFixture, owner: { address: ADDRESS_B, chainId: 8453 } });
+      }
+      return Response.json({});
+    };
+    const owner = (current: VerifiedAccountSession) => (
+      <AccountWalletSessionOwner sdk={sdk(current.user.subject, current)} sessionFetch={sessionFetch}>
+        <BalanceProbe />
+      </AccountWalletSessionOwner>
+    );
+    const view = render(owner(first));
+    await waitFor(() => expect(view.getByTestId("balances").textContent).toBe(ADDRESS_A));
+    await waitFor(() => expect(firstReads).toBe(1));
+    view.rerender(owner(second));
+    await waitFor(() => expect(view.getByTestId("balances").textContent).not.toBe(ADDRESS_A));
+    await waitFor(() => expect(view.getByTestId("balances").textContent).toBe(ADDRESS_B));
+    releaseFirst(Response.json(balancesSnapshotFixture));
+    await act(async () => { await pendingFirst; });
+    expect(view.getByTestId("balances").textContent).toBe(ADDRESS_B);
+    expect(client.getQueryData(ownerQueryKey(ownerAKey, "balances", "US"))).toBeUndefined();
   });
 
   test("owner switch and sign-out clear every persisted owner store and cached Save balance", async () => {

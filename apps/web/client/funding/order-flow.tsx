@@ -1,19 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { CircleAlertIcon } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
+import { Alert, AlertIcon, AlertDescription } from "@/components/ui/alert";
 import { buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Field, FieldLabel } from "@/components/ui/field";
+import { Field, FieldLabel, FieldTitle } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { RadioGroup, RadioGroupOption } from "@/components/ui/radio-group";
 import { MoneyTicker } from "@/components/money-ticker";
 import { CopyableValue } from "@/components/copyable-value";
 import { isTerminalFundingOrderState as terminal, shouldPollFundingOrder } from "./order-polling";
@@ -29,8 +24,6 @@ import {
   MoneyModalBody,
   MoneyModalFooter,
   MoneyModalHeader,
-  MoneyNumpad,
-  type MoneyAmountChangeSource,
 } from "@/client/money-modal";
 import {
   browserHomeQueryClient,
@@ -86,10 +79,9 @@ export function FundingOrderFlow({
   initialOrder?: FundingOrderSummary | null;
   initialCustomer?: FundingProviderCustomerSummary | null;
 }) {
+  const paymentMethodTitleId = useId();
   const [method, setMethod] = useState(binding.paymentMethods[0]?.id ?? "");
   const [amount, setAmount] = useState("");
-  const [amountChangeSource, setAmountChangeSource] =
-    useState<MoneyAmountChangeSource>("programmatic");
   const [email, setEmail] = useState("");
   const [draft, setDraft] = useState<QuoteDraft | null>(null);
   const [customer, setCustomer] = useState<FundingProviderCustomerSummary | null>(initialCustomer ?? null);
@@ -107,8 +99,7 @@ export function FundingOrderFlow({
     initialOrder?.id ?? null,
   );
 
-  function changeAmount(value: string, source: MoneyAmountChangeSource) {
-    setAmountChangeSource(source);
+  function changeAmount(value: string) {
     setAmount(value);
   }
 
@@ -331,6 +322,7 @@ export function FundingOrderFlow({
     );
   }
 
+  const quoteDisabled = busy || !positiveDecimal(amount);
   const amountAssetProps = {
     assetId: binding.currency.toLocaleLowerCase(),
     assetLabel: binding.currency,
@@ -342,63 +334,38 @@ export function FundingOrderFlow({
       <MoneyModalHeader title={`Deposit ${binding.currency}`} titleId={titleId} onClose={onClose} assetControl={<MoneyAssetPicker {...amountAssetProps} />} closeLabel="Close add money" />
       <MoneyModalBody hasFooter className="gap-4 pt-4">
         {binding.paymentMethods.length > 1 ? (
-          <Field>
-            <FieldLabel htmlFor="funding-payment-method">
-              Payment method
-            </FieldLabel>
-            <Select
-              value={method}
-              required
-              onValueChange={(value) => setMethod(value ?? "")}
-            >
-              <SelectTrigger
-                className="h-11 w-full"
-                id="funding-payment-method"
-              >
-                <SelectValue>
-                  {(selectedMethod) =>
-                    binding.paymentMethods.find(
-                      (item) => item.id === selectedMethod,
-                    )?.label ?? selectedMethod
-                  }
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {binding.paymentMethods.map((item) => (
-                  <SelectItem value={item.id} key={item.id}>
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
+          <div className="grid gap-3">
+            <FieldTitle id={paymentMethodTitleId}>Payment method</FieldTitle>
+            <RadioGroup aria-labelledby={paymentMethodTitleId} value={method} onValueChange={setMethod}>
+              {binding.paymentMethods.map((item) => (
+                <RadioGroupOption key={item.id} value={item.id} label={item.label} />
+              ))}
+            </RadioGroup>
+          </div>
         ) : null}
         <MoneyAmountDisplay
           amount={amount}
-          amountChangeSource={amountChangeSource}
+          maxDecimals={2}
+          disabled={busy}
           onAmountChange={changeAmount}
+          onSubmit={quoteDisabled ? undefined : () => void requestQuote()}
           assetId={binding.currency.toLocaleLowerCase()}
           assetLabel={binding.currency}
           assetControl="header"
           pricing={{ status: "unpriced" }}
           nativeSymbol={binding.currency}
           fiatCurrency={binding.currency}
-        />
-        <MoneyNumpad
-          value={amount}
-          maxDecimals={2}
-          onChange={changeAmount}
-          disabled={busy}
-        />
-        {error ? (
-          <FundingNotice tone="error" role="alert">
-            {error}
-          </FundingNotice>
-        ) : null}
+        >
+          {error ? (
+            <FundingNotice tone="error" role="alert">
+              {error}
+            </FundingNotice>
+          ) : null}
+        </MoneyAmountDisplay>
       </MoneyModalBody>
       <MoneyModalFooter
         primaryLabel={busy ? "Getting quote…" : "Review quote"}
-        primaryDisabled={busy || !positiveDecimal(amount)}
+        primaryDisabled={quoteDisabled}
         onPrimary={() => void requestQuote()}
         secondaryLabel="Back"
         onSecondary={onBack}
@@ -876,6 +843,7 @@ function FundingNotice({
 }) {
   return (
     <Alert role={role} variant={tone === "error" ? "destructive" : "default"}>
+      {tone === "error" ? <AlertIcon><CircleAlertIcon /></AlertIcon> : null}
       <AlertDescription>{children}</AlertDescription>
     </Alert>
   );

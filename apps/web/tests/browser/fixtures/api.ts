@@ -2,10 +2,10 @@ import type { Page, Route } from "@playwright/test";
 import type { RegionId } from "../../../config/regions";
 import type { BalancesSnapshot } from "../../../shared/balances/types";
 import { balancesSnapshot } from "./balances";
+import { COUNTRY_PREFERENCE_VERSION, parseCountryPreferenceRequest } from "../../../shared/account/contracts/country-preference";
 import {
   actionsBody,
   basenameProfileBody,
-  fundingOfframpOrdersBody,
   fundingProvidersBody,
   savingsVaultsBody,
   sessionBody,
@@ -13,6 +13,8 @@ import {
 
 export const RECIPIENT = "0x2222222222222222222222222222222222222222";
 const USDC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
+const PAYMASTER = "0x2FAEB0760D4230Ef2aC21496Bb4F0b47D634FD4c";
+const APPROVE = `0x095ea7b3${PAYMASTER.slice(2).toLowerCase().padStart(64, "0")}${BigInt(20_000).toString(16).padStart(64, "0")}`;
 const ACTION_ID = "11111111-1111-4111-8111-111111111111";
 const USER_OPERATION_HASH = `0x${"ab".repeat(32)}`;
 const TRANSACTION_HASH = `0x${"cd".repeat(32)}`;
@@ -85,7 +87,8 @@ export function preparedSendFixtureAction(recipient = RECIPIENT) {
     },
     kind: "send",
     title: "Send USDC",
-    calls: [{
+    networkFee: { payment: "usdc", token: USDC, paymaster: PAYMASTER, maxFeeBaseUnits: "20000", decimals: 6 },
+    calls: [{ to: USDC, data: APPROVE, value: "0" }, {
       to: USDC,
       data: `0xa9059cbb${recipient.slice(2).padStart(64, "0")}${BigInt(1_000_000).toString(16).padStart(64, "0")}`,
       value: "0",
@@ -93,7 +96,7 @@ export function preparedSendFixtureAction(recipient = RECIPIENT) {
     amounts: [{
       assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1000000", direction: "spend",
     }],
-    warnings: [`Recipient: ${recipient}`, "Network fee shown by wallet."],
+    warnings: [`Recipient: ${recipient}`],
     createdAt: CREATED_AT,
     expiresAt: EXPIRES_AT,
   };
@@ -106,7 +109,7 @@ export async function json(route: Route, body: unknown) {
 export function seedSignedInSession(page: Page, country = "US") {
   return page.addInitScript((region) => {
     sessionStorage.setItem("home:playwright-smoke:signed-in", "1");
-    localStorage.setItem("home.country.v1", region);
+    localStorage.setItem("home.country.v2", region);
   }, country);
 }
 
@@ -148,6 +151,7 @@ export async function installApiFixtures(
       if (delayedBalances) await delayedBalances;
       return json(route, options.balances ?? balancesSnapshot(region));
     }
+    if (path === "/api/actions/network-fee") return json(route, { version: 1, usdcReserveBaseUnits: "20000" });
     if (path === "/api/actions/prepare" && request.method() === "POST") {
       status = "unconfirmed";
       return json(route, currentAction);
@@ -193,6 +197,7 @@ export async function installApiFixtures(
             kind: "send",
             summary: {
               title: currentAction.title,
+              networkFee: currentAction.networkFee,
               amounts: currentAction.amounts,
               warnings: currentAction.warnings,
               expiresAt: EXPIRES_AT,
@@ -223,6 +228,7 @@ export async function installApiFixtures(
         createdAt: CREATED_AT,
         confirmedAt: CREATED_AT,
         providerHandle: handleRecorded ? USER_OPERATION_HASH : undefined,
+        submittedAt: handleRecorded ? CREATED_AT : undefined,
         transactionHash: status === "confirmed" ? TRANSACTION_HASH : undefined,
         owner: currentAction.owner,
       }];
@@ -238,7 +244,6 @@ export async function installApiFixtures(
         }],
       } : fundingProvidersBody);
     }
-    if (path === "/api/funding/offramp/orders") return json(route, fundingOfframpOrdersBody);
     if (path === "/api/funding/quotes") {
       return json(route, {
         quoteToken: "fixture-signed-quote",
@@ -280,6 +285,14 @@ export async function installApiFixtures(
         route,
         activityPageBody(url.searchParams.get("to"), url.searchParams.get("currency") ?? "USD"),
       );
+    }
+    if (path === "/api/account/country-preference") {
+      if (request.method() === "PUT") {
+        const body = parseCountryPreferenceRequest(request.postDataJSON());
+        if (!body) return route.fulfill({ status: 400, contentType: "application/json", body: "{}" });
+        return json(route, { version: COUNTRY_PREFERENCE_VERSION, regionId: body.regionId });
+      }
+      return json(route, { version: COUNTRY_PREFERENCE_VERSION, regionId: null });
     }
     if (path === "/api/basename-profile") return json(route, basenameProfileBody);
     return json(route, {});

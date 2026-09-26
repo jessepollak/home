@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { LogOut } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -13,12 +14,14 @@ import {
   ItemSeparator,
   ItemTitle,
 } from "@/components/ui/item";
+import { RadioGroup, RadioGroupSegment } from "@/components/ui/radio-group";
 import { CopyableValue } from "@/components/copyable-value";
 import { CountrySelect } from "@/components/country-select";
 import { CurrencyMark } from "@/components/currency-mark";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { useBasenameProfile } from "@/client/account/use-basename-profile";
+import type { AppearancePreference } from "@/shared/appearance/preference";
 import {
   presentationRegions,
   type RegionId,
@@ -42,6 +45,8 @@ export function AccountSettings({
   accountOwnerKey = null,
   showSmallBalances,
   onShowSmallBalancesChange,
+  appearancePreference,
+  onAppearancePreferenceChange,
   onSignOut,
 }: {
   regionId: RegionId;
@@ -53,8 +58,11 @@ export function AccountSettings({
   accountOwnerKey?: string | null;
   showSmallBalances: boolean;
   onShowSmallBalancesChange: (value: boolean) => void;
+  appearancePreference: AppearancePreference;
+  onAppearancePreferenceChange: (value: AppearancePreference) => boolean;
   onSignOut: () => void;
 }) {
+  const [appearanceMessage, setAppearanceMessage] = useState("");
   const region = presentationRegions[regionId];
   const basenameProfile = useBasenameProfile({
     ownerKey: accountOwnerKey,
@@ -93,6 +101,29 @@ export function AccountSettings({
               </ItemActions>
             </Item>
             <ItemSeparator className="my-0" />
+            <Item className="min-w-0 flex-wrap items-center">
+              <ItemContent className="min-w-0 flex-1">
+                <ItemTitle id="appearance-title">Appearance</ItemTitle>
+              </ItemContent>
+              <ItemActions className="min-w-0 w-full basis-full sm:w-auto sm:basis-auto">
+                <RadioGroup
+                  variant="segmented"
+                  className="sm:w-auto"
+                  aria-labelledby="appearance-title"
+                  aria-describedby="appearance-status"
+                  value={appearancePreference}
+                  onValueChange={(value) => {
+                    const persisted = onAppearancePreferenceChange(value as AppearancePreference);
+                    setAppearanceMessage(persisted ? "" : "Appearance updated for this visit. Browser storage is unavailable.");
+                  }}
+                >
+                  <RadioGroupSegment value="light">Light</RadioGroupSegment>
+                  <RadioGroupSegment value="dark">Dark</RadioGroupSegment>
+                  <RadioGroupSegment value="system">System</RadioGroupSegment>
+                </RadioGroup>
+              </ItemActions>
+            </Item>
+            <ItemSeparator className="my-0" />
             <Item className="min-w-0 flex-nowrap items-center">
               <ItemContent className="min-w-0 flex-1">
                 <ItemTitle>Show small balances</ItemTitle>
@@ -107,6 +138,9 @@ export function AccountSettings({
             </Item>
           </CardContent>
         </Card>
+        <Alert id="appearance-status" aria-live="polite" role="status" className="sr-only">
+          <AlertDescription>{appearanceMessage}</AlertDescription>
+        </Alert>
         <Alert id="preference-status" aria-live="polite" role="status" className="sr-only">
           <AlertDescription>
             {preferenceMessage ||
@@ -137,7 +171,7 @@ export function AccountSettings({
                     {accountAddress ? (
                       <CopyableValue
                         value={accountAddress}
-                        presentation="full"
+                        presentation="reveal"
                         valueKind="address"
                       />
                     ) : (
@@ -149,7 +183,8 @@ export function AccountSettings({
               <li className="px-3 py-2.5">
                 <Button
                   variant="outline"
-                  className="h-11 w-full justify-start"
+                  size="touch"
+                  className="w-full justify-start"
                   onClick={onSignOut}
                   aria-describedby="sign-out-hint"
                 >

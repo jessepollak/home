@@ -8,6 +8,7 @@ import {
   applyActionHandleEffects,
   createBalanceFreshnessState,
   indexedScopes,
+  networkFeePolicyScope,
   startBalanceFreshness,
 } from "./after-action";
 import type { FreshUntilMovedClock } from "./fresh-until-moved";
@@ -107,18 +108,26 @@ async function proveSavingsConvergence({
     queryClient.setQueryData(balanceKey, next);
     return next;
   }) as QueryClient["fetchQuery"];
-  queryClient.invalidateQueries = (async ({ queryKey }: { queryKey?: readonly unknown[] }) => {
-    invalidations.push(String(queryKey?.[1]));
+  queryClient.invalidateQueries = (async ({ queryKey, predicate }: {
+    queryKey?: readonly unknown[];
+    predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
+  }) => {
+    if (queryKey) invalidations.push(String(queryKey[1]));
+    if (predicate?.({ queryKey: [ownerKey, networkFeePolicyScope] })) invalidations.push(networkFeePolicyScope);
   }) as QueryClient["invalidateQueries"];
 
   const confirmedPlans = new Map();
   const providerDispatches = new Map<string, Promise<string>>();
+  const dispatchAttempts = new Map<string, number>();
+  const pendingDeclines = new Map<string, Promise<void>>();
   const execute = () => executeActionOnce({
     id: ACTION_ID,
     generation: 7,
     fence: { assertCurrent: (generation) => { expect(generation).toBe(7); } },
     confirmedPlans,
     providerDispatches,
+    dispatchAttempts,
+    pendingDeclines,
     confirm: async () => {
       confirms += 1;
       return { calls: [{ to: session.smartAccount!.address, data: "0x1234", value: "0" }] };
@@ -169,7 +178,7 @@ async function proveSavingsConvergence({
     dispatches: 1,
     handlePosts: 2,
   });
-  expect(invalidations).toEqual([...afterActionScopes]);
+  expect(invalidations).toEqual([...afterActionScopes, networkFeePolicyScope]);
   expect(balanceValues(queryClient.getQueryData(balanceKey))).toEqual(balanceValues(initial));
 
   await fake.advance(9_000);
@@ -177,7 +186,7 @@ async function proveSavingsConvergence({
   expect(freshReads).toBe(3);
   expect(freshnessState.moved.has(ACTION_ID)).toBe(true);
   expect(balanceValues(queryClient.getQueryData(balanceKey))).toEqual(balanceValues(final));
-  expect(invalidations).toEqual([...afterActionScopes, ...indexedScopes]);
+  expect(invalidations).toEqual([...afterActionScopes, networkFeePolicyScope, ...indexedScopes, networkFeePolicyScope]);
   expect(invalidations.filter((scope) => scope === "balances")).toHaveLength(1);
   expect(invalidations.filter((scope) => scope === "activity")).toHaveLength(2);
   expect(invalidations.filter((scope) => scope === "actions")).toHaveLength(2);

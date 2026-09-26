@@ -1,0 +1,23 @@
+### `add-money` (funding)
+- **Entry context**: funding · overlay on any shell route: `?flow=add-money` or `?flow=receive`; `/fund` redirects to `/home?add-money=1` (app/fund/page.tsx) · signed-in for methods; signed-out shows `Sign in` link (add-money-dialog.tsx) · provider fixture (`/api/funding/providers`); IDRX path in funding.pw.ts · `Add money` button (funding-actions.tsx); while providers load, a noninteractive deposit-method row reserves space beside clickable Receive crypto; with no local onramp, a country-specific deposit status appears after providers load.
+
+- **Live**: up-to-review
+- **Owned paths**: `apps/web/client/funding/**`, `apps/web/app/api/funding/**`, `apps/web/server/funding/**`, `apps/web/shared/funding/**`
+- **Confirm labels**: "Confirm deposit"
+- **Reach** (smoke-verified IDRX path, funding.pw.ts): 1) seed country `ID` (`localStorage["home.country.v2"]="ID"`) + `installApiFixtures`. 2) `signIn(page)` helper. 3) click `Add money` (funding-actions.tsx). 4) method step button `/Deposit IDR/` must contain `IDRX · Bank transfer · Mandiri` (funding.pw.ts). 5) type `20000` into the `Amount` textbox. 6) `Review quote` → heading `Review quote`, row `Receive` contains `20.000,00 IDRX`. 7) `Confirm deposit` → heading `Review payment details`, row `Network` contains `Rp 100,00`. 8) `View payment instructions` → `123456789012` visible; then `Money received` (≤7s budget, funding.pw.ts).
+- **Reach (live)**:
+  1. `goto "/home"`
+  2. `click "Add money"`
+  3. `expect "Add money"`
+  4. `click "Deposit USD Coinbase · Apple Pay"`
+  5. `fill "Amount" "25"`
+  6. `expect "Review quote"`
+  7. `click "Review quote"`
+  8. `expect "Review quote"`
+- **Verify**: manual
+- **Rung 2**: read the live `Review quote` card's `Deposit`, `Receive` and fee rows, then stop before `Confirm deposit` hands off to the provider. Provider quotes are not prepared actions, so no `From` row applies.
+- **Expect**: dialog titles `Add money` / `Receive` / `Deposit IDR` (add-money-dialog.tsx `title`); multi-method deposit input step has a `Payment method` radiogroup with one checked choice (changing it does not request a quote; `Review quote` does); method list has clickable `Receive crypto` and, while providers load, a noninteractive, screen-reader-hidden shimmer row with `aria-busy` on the list; a persistent status outside the busy list mounts empty and then receives `Loading deposit methods` or the loaded-empty message, so the first announcement is a mutation (the visible loaded-empty alert is hidden from assistive technology so the message is read once); close label `Close add money`; receive step QR (`aria-label="QR code for Base address …"`) and address copy (`Copy …`, `Full Base address …`, add-money-dialog.tsx). Signed-out body offers `Sign in` link to `/?account=signin`.
+- **States**: provider loading → reserved deposit row (`data-shimmer="deposit-method"`) without a selectable method; warm cached providers remain visible during refetch, including reopen; a failed background refetch withdraws cached rows and shows the provider failure with Retry; Retry after provider failure shows the loading row instead of the error; switching region or account shows no previous scope's provider rows; GLOBAL and signed-out show no loading row. Loaded bindings remain disabled until the open-order lookup finishes (`providerBindingsDisabled={!ordersQuery.isSuccess}`); loaded empty → `No local deposit method in <country> yet.` while `Receive crypto` remains available; `Funding methods are unavailable. Try again.` / `Home couldn't check for an open deposit. Retry.` / `Home couldn't check your provider setup. Retry.` (funding-experience.tsx); quote errors include `Coinbase needs more than $2 after fees. Enter a larger amount.`, `Coinbase couldn't quote this amount. Try a different amount.`, `Quotes are unavailable right now. Try again shortly.`, and `This quote could not be created. Try again.` (order-flow.tsx); ordinary opens stay on methods with an open order; choosing the matching provider resumes it, and a provider/verification return may auto-resume once (funding-experience.tsx); customer/KYC step for providers with `customerSetup`, whose row stays disabled while the provider-setup read is pending or failed unless it matches a resumable open order.
+- **Evidence**: screenshots per step; DOM snapshot; console/errors.
+- **Owned by**: `apps/web/client/funding/{funding-actions,funding-experience,add-money-dialog,order-flow,receive-qr}.tsx`, `/api/funding/*`.
+- **Unknowns**: provider-specific order-flow labels outside the smoke-verified IDRX path remain unknown because they depend on provider configuration; snapshot before acting.

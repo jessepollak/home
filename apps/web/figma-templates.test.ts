@@ -4,7 +4,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript'
 import * as lucide from 'lucide-react'
-import mapping from './figma-components.json'
+import mapping from './tests/helpers/figma-mapping'
 import fixture from './figma-template-props.fixture.json'
 
 type Value = string | boolean
@@ -160,7 +160,7 @@ describe('Code Connect rendered snippets', () => {
         expect(result.example, `${entry.template} variation ${index}`).not.toMatch(/\bundefined\b/)
         if (entry.nodeId === '12:27') {
           expect(result.example.includes(' disabled')).toBe(props.state === 'disabled')
-          expect(result.example.includes(' aria-busy')).toBe(props.state === 'loading')
+          expect(result.example.includes(' loading')).toBe(props.state === 'loading')
           if (props.size === 'touch') expect(result.example).not.toBe(render(text, { ...props, size: 'lg' }).example)
         }
         if (entry.nodeId === '12:59' && props.Kind === 'Unknown') expect(result.example).toContain('currency={""}')

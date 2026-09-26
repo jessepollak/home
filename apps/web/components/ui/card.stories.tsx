@@ -32,6 +32,8 @@ export const Default: Story = {
   ),
 };
 
+export const Dark: Story = { ...Default, globals: { theme: "dark" } };
+
 export const ListInset: Story = {
   render: () => (
     <Card className="w-80">

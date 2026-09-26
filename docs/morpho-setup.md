@@ -105,7 +105,7 @@ The component fetches the public candidate route, starts with no selected vault,
 
 The original read-only lane did not ship transaction calldata. Local deposit and withdrawal against these three vaults is now integrated through the [action flow](actions.md); live vault execution has not been performed.
 
-Save distinguishes current, stale, partial, and unavailable observations. It never converts an unavailable authenticated vault position into zero. A failed refresh keeps a verified snapshot visible only with an explicit stale label, source age, and retry. Stale discovery APY stays labeled stale and is never promoted to a current rate.
+Save distinguishes current, stale, partial, and unavailable observations. It never converts an unavailable authenticated vault position into zero. A failed refresh keeps a verified snapshot visible only with an explicit stale label, source age, and retry. Cash displays the last known discovery APY without a stale label while vault rates refresh in the background; a funded APY stays balance-weighted, an offer stays labelled "Up to", and a rate that was never obtained is omitted rather than shown as zero. Internally a stale rate is never promoted to a current one, so it does not drive estimated growth, quotes, or transaction checks.
 
 Savings preparation returns typed server-authored review metadata: exact USDC amount, configured vault identity and name, Base chain identity, current onchain fee, source-block limit and share preview, expiry, the deposit/withdraw exchange constraint, and discovery-rate status (`current`, `stale`, or `unavailable`) with timestamps. The client fails closed when these facts disagree with the requested owner, vault, operation, or amount; warning prose is not review authority.
 

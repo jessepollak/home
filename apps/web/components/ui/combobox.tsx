@@ -12,7 +12,15 @@ import {
 } from "@/components/ui/input-group"
 import { ChevronDownIcon, XIcon, CheckIcon } from "lucide-react"
 
-const Combobox = ComboboxPrimitive.Root
+function Combobox<Value, Multiple extends boolean | undefined = false>({
+  autoHighlight,
+  ...props
+}: Omit<ComboboxPrimitive.Root.Props<Value, Multiple>, "autoHighlight"> & {
+  autoHighlight?: boolean | "always"
+}) {
+  const highlight = { autoHighlight } as { autoHighlight?: boolean }
+  return <ComboboxPrimitive.Root<Value, Multiple> {...props} {...highlight} />
+}
 
 function ComboboxTrigger({
   className,
@@ -51,16 +59,32 @@ function ComboboxInput({
   disabled = false,
   showTrigger = true,
   showClear = false,
+  variant = "default",
   ...props
 }: ComboboxPrimitive.Input.Props & {
   showTrigger?: boolean
   groupRef?: React.Ref<HTMLDivElement>
   showClear?: boolean
+  variant?: "default" | "search"
 }) {
   return (
-    <InputGroup ref={groupRef} className={cn("w-auto", className)}>
+    <InputGroup
+      ref={groupRef}
+      data-variant={variant}
+      className={cn(
+        "w-auto",
+        variant === "search" &&
+          "h-12 shrink-0 rounded-none border-0 border-b border-border bg-transparent shadow-none has-[[data-slot=input-group-control]:focus-visible]:border-border has-[[data-slot=input-group-control]:focus-visible]:ring-0 dark:bg-transparent",
+        className
+      )}
+    >
       <ComboboxPrimitive.Input
-        render={<InputGroupInput disabled={disabled} className="truncate" />}
+        render={
+          <InputGroupInput
+            disabled={disabled}
+            className={cn("truncate", variant === "search" && "px-4 text-sm md:text-sm")}
+          />
+        }
         {...props}
       />
       <InputGroupAddon align="inline-end">
@@ -126,6 +150,33 @@ function ComboboxList({ className, ...props }: ComboboxPrimitive.List.Props) {
       {...props}
     />
   )
+}
+
+/** @public Groups items in owned navigation comboboxes. */
+export function ComboboxGroup({ className, ...props }: ComboboxPrimitive.Group.Props) {
+  return (
+    <ComboboxPrimitive.Group
+      data-slot="combobox-group"
+      className={cn(className)}
+      {...props}
+    />
+  )
+}
+
+/** @public Labels owned combobox groups for assistive technology. */
+export function ComboboxGroupLabel({ className, ...props }: ComboboxPrimitive.GroupLabel.Props) {
+  return (
+    <ComboboxPrimitive.GroupLabel
+      data-slot="combobox-group-label"
+      className={cn("px-2.5 py-1 text-xs font-medium text-muted-foreground", className)}
+      {...props}
+    />
+  )
+}
+
+/** @public Renders the items in an owned combobox group. */
+export function ComboboxCollection(props: ComboboxPrimitive.Collection.Props) {
+  return <ComboboxPrimitive.Collection {...props} />
 }
 
 function ComboboxItem({

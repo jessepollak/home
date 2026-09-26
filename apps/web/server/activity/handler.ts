@@ -11,6 +11,7 @@ import {
 import { ChainDataError } from "@/server/chain-data/errors";
 import type {
   ActivityReadSource,
+  ActivityReadValuation,
   ObservabilityEvent,
 } from "@/server/observability/schema";
 import { privateError, privateJson } from "@/server/http/private-response";
@@ -106,6 +107,7 @@ export function createActivityHandler(dependencies: {
         sourceAttemptCount: 0,
         pageCount: 0,
         rowCount: 0,
+        valuation: emptyActivityValuation(),
       });
       return activityReadError(error);
     }
@@ -122,6 +124,7 @@ export function createActivityHandler(dependencies: {
       sourceAttemptCount: 1,
       pageCount: 0,
       rowCount: 0,
+      valuation: emptyActivityValuation(),
     });
 
     let primaryFinishedAt: number | null = null;
@@ -150,6 +153,7 @@ export function createActivityHandler(dependencies: {
         sourceAttemptCount: 1,
         pageCount: 1,
         rowCount: page.transfers.length,
+        valuation: countActivityValuations(page.transfers),
       });
       return privateJson(
         { version: ACTIVITY_CONTRACT_VERSION, ...page } satisfies ActivityResponse,
@@ -171,10 +175,48 @@ export function createActivityHandler(dependencies: {
         sourceAttemptCount: 1,
         pageCount: 0,
         rowCount: 0,
+        valuation: emptyActivityValuation(),
       });
       return activityReadError(error);
     }
   };
+}
+
+function emptyActivityValuation(): ActivityReadValuation {
+  return {
+    priced: 0,
+    unknownToken: 0,
+    noRecentClose: 0,
+    quoteUnavailable: 0,
+    fxUnavailable: 0,
+  };
+}
+
+function countActivityValuations(
+  transfers: ActivityResponse["transfers"],
+): ActivityReadValuation {
+  const counts = emptyActivityValuation();
+  for (const { valuation } of transfers) {
+    if (valuation.status === "priced") {
+      counts.priced += 1;
+    } else {
+      switch (valuation.reason) {
+        case "unknown-token":
+          counts.unknownToken += 1;
+          break;
+        case "no-recent-close":
+          counts.noRecentClose += 1;
+          break;
+        case "quote-unavailable":
+          counts.quoteUnavailable += 1;
+          break;
+        case "fx-unavailable":
+          counts.fxUnavailable += 1;
+          break;
+      }
+    }
+  }
+  return counts;
 }
 
 function finalObservation(input: {
@@ -195,6 +237,7 @@ function finalObservation(input: {
     sourceAttemptCount: 0,
     pageCount: 0,
     rowCount: 0,
+    valuation: emptyActivityValuation(),
   };
 }
 

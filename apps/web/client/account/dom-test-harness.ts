@@ -30,7 +30,9 @@ if (typeof window === "undefined") {
     })) as unknown as typeof fetch;
 }
 
-const { cleanup: cleanupDomTests } = await import("@testing-library/react");
+const testingLibrary = await import("@testing-library/react");
+const cleanupDomTests = testingLibrary.cleanup;
+export const within = testingLibrary.within;
 
 afterEach(() => {
   cleanupDomTests();

@@ -1,11 +1,15 @@
 "use client";
 
 import { useRef, useState, type ComponentProps, type ReactNode } from "react";
-import { LoaderCircle } from "lucide-react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { CircleAlertIcon } from "lucide-react";
+import { Alert, AlertIcon, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { MoneyMotionProvider } from "@/components/money-ticker";
 import { useReactiveExpiry } from "@/client/actions/expiry";
+import { useMoneyActionOutcome } from "@/client/actions/money-action-outcome";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
+import { openPanelAfterClose, useOptionalHomeShellRouting } from "@/client/home/panel-routing";
+import { MoneyResult, MoneyResultFooter } from "@/client/money-modal/money-result";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
   MoneyAmountDisplay,
@@ -17,11 +21,9 @@ import {
   MoneyModalBody,
   MoneyModalFooter,
   MoneyModalHeader,
-  MoneyNumpad,
   decimalFromBaseUnits,
   isPositiveDecimalAmount,
   useMoneyAssetPricing,
-  type MoneyAmountChangeSource,
 } from "@/client/money-modal";
 import type {
   MoneyActionOwner,
@@ -29,7 +31,10 @@ import type {
   PreparedMoneyAction,
 } from "@/shared/money-actions/types";
 import { parseUsdcAmount } from "@/client/savings/format";
+import { networkFeeErrorMessage } from "@/shared/money-actions/network-fee";
+import { maxAmountAfterNetworkFee, useNetworkFeeReserve } from "@/client/money-modal/network-fee-policy";
 import { reportClientError } from "@/client/observability/client-reporter";
+import { TransferExecutionError } from "@/shared/transfers/types";
 import {
   formatExactPresentationTokenAmount,
   formatPresentationDate,
@@ -53,6 +58,7 @@ export type SavingsMoneyDialogProps = {
   availableLabel?: string;
   availableBaseUnits?: string | null;
   availableStale?: boolean;
+  fetchAccountResource?: AccountWalletClient["fetchAccountResource"];
   prepareMoneyAction: AccountWalletClient["prepareMoneyAction"];
   executeMoneyAction: AccountWalletClient["executeMoneyAction"];
   onClose: () => void;
@@ -60,7 +66,8 @@ export type SavingsMoneyDialogProps = {
   onConfirmed?: (result: OperationResult) => void | Promise<void>;
 };
 
-type DialogStep = "amount" | "confirm" | "pending" | "error" | "failed";
+type DialogStep = "amount" | "confirm" | "pending" | "error" | "result";
+type Submission = "submitted" | "ambiguous" | "failed";
 
 export function SavingsMoneyDialog(props: SavingsMoneyDialogProps) {
   const ownerIdentity = savingsDialogOwnerIdentity(props.session);
@@ -75,6 +82,7 @@ function OwnerBoundSavingsMoneyDialog({
   availableLabel,
   availableBaseUnits,
   availableStale = false,
+  fetchAccountResource,
   prepareMoneyAction,
   executeMoneyAction,
   onClose,
@@ -89,15 +97,17 @@ function OwnerBoundSavingsMoneyDialog({
     assetOptions,
     onAssetChange,
   } = useSavingsDialogFixture();
+  const routing = useOptionalHomeShellRouting();
   const [amount, setAmount] = useState("");
-  const [amountChangeSource, setAmountChangeSource] =
-    useState<MoneyAmountChangeSource>("programmatic");
   const [amountBaseUnits, setAmountBaseUnits] = useState<string | null>(null);
   const [preparedAction, setPreparedAction] = useState<PreparedMoneyAction | null>(null);
   const [attemptedAction, setAttemptedAction] = useState(false);
   const [serverExpiredActionId, setServerExpiredActionId] = useState<string | null>(null);
   const [step, setStep] = useState<DialogStep>("amount");
+  const [submission, setSubmission] = useState<Submission | null>(null);
+  const [submittedAt, setSubmittedAt] = useState<string | undefined>();
   const [error, setError] = useState<string | null>(null);
+  const confirming = useRef(false);
   const ownerIdentity = savingsDialogOwnerIdentity(session);
   const currentPreparationIdentity = useRef(ownerIdentity);
   const preparedReview = preparedAction
@@ -121,35 +131,54 @@ function OwnerBoundSavingsMoneyDialog({
     : null;
   const nothingAvailable = knownAvailable === BigInt(0);
   const amountExceedsAvailable = amountExceedsKnownAvailable(amount, knownAvailable);
+  const overAvailable = assetRouteConfigured && amountExceedsAvailable;
+  const canContinue = assetRouteConfigured && isPositiveDecimalAmount(amount) && !amountExceedsAvailable;
   const pricing = useMoneyAssetPricing(assetLabel);
-  const title = step === "confirm" || step === "pending" || step === "error" || step === "failed"
-    ? "Confirm"
-    : mode === "deposit"
-      ? "Deposit"
-      : "Withdraw";
+  const { reserve, failed: reserveFailed, retry: retryReserve } = useNetworkFeeReserve(session.smartAccount ? savingsDialogOwnerIdentity(session) : null, fetchAccountResource, open);
+  const title = step === "amount" ? mode === "deposit" ? "Deposit" : "Withdraw" : step === "result" ? (mode === "deposit" ? "Deposit" : "Withdraw") : "Confirm";
 
-  function changeAmount(value: string, source: MoneyAmountChangeSource) {
-    setAmountChangeSource(source);
+  function changeAmount(value: string) {
     setAmount(value);
   }
 
   function reset() {
-    changeAmount("", "programmatic");
+    changeAmount("");
     setAmountBaseUnits(null);
     setPreparedAction(null);
     setAttemptedAction(false);
     setServerExpiredActionId(null);
+    setSubmission(null);
+    setSubmittedAt(undefined);
     setStep("amount");
     setError(null);
   }
 
+  function close() {
+    reset();
+    onClose();
+  }
+
   function goBack() {
-    if (step === "confirm" || step === "error" || step === "failed") {
+    if (step === "confirm" || step === "error") {
       setPreparedAction(null);
       setServerExpiredActionId(null);
       setError(null);
       setStep("amount");
     }
+  }
+
+  function tryAgain() {
+    setPreparedAction(null);
+    setServerExpiredActionId(null);
+    setAttemptedAction(false);
+    setSubmission(null);
+    setSubmittedAt(undefined);
+    setError(null);
+    setStep("amount");
+  }
+
+  function viewActivity() {
+    openPanelAfterClose(routing, "activity", close);
   }
 
   async function continueFromAmount() {
@@ -203,19 +232,25 @@ function OwnerBoundSavingsMoneyDialog({
   }
 
   async function confirm() {
-    if (!preparedAction || !preparedReview || step === "pending") return;
+    if (!preparedAction || !preparedReview || step !== "confirm" || confirming.current) return;
     if (recheckExpired()) {
       setError(`This ${mode} expired. Go back and continue again.`);
       return;
     }
+    confirming.current = true;
     setError(null);
     setStep("pending");
     try {
       const result = await executeMoneyAction(preparedAction);
       setAttemptedAction(true);
-      if (result.status === "rejected" || result.status === "failed") {
+      if (result.status === "rejected") {
         setError(messageForActionStatus(result.status, mode));
-        setStep(result.status === "failed" ? "failed" : "error");
+        setStep("error");
+        return;
+      }
+      if (result.status === "failed") {
+        setSubmission("failed");
+        setStep("result");
         return;
       }
       try {
@@ -227,17 +262,26 @@ function OwnerBoundSavingsMoneyDialog({
           route: window.location.pathname,
         });
       }
-      reset();
-      onClose();
+      setSubmittedAt(new Date().toISOString());
+      setSubmission("submitted");
+      setStep("result");
     } catch (caught) {
-      if (isRecord(caught) && caught.code === "ACTION_EXPIRED") {
-        setAttemptedAction(false);
-        setServerExpiredActionId(preparedAction.id);
-      } else {
+      if (caught instanceof TransferExecutionError && caught.reason === "submission-unknown") {
         setAttemptedAction(true);
-        setError("The dispatch outcome is unresolved. Retry recording this same action; a new dispatch will not be created.");
+        setSubmission("ambiguous");
+        setStep("result");
+      } else {
+        if (isRecord(caught) && caught.code === "ACTION_EXPIRED") {
+          setAttemptedAction(false);
+          setServerExpiredActionId(preparedAction.id);
+        } else {
+          setAttemptedAction(true);
+          setError("The dispatch outcome is unresolved. Retry recording this same action; a new dispatch will not be created.");
+        }
+        setStep("confirm");
       }
-      setStep("confirm");
+    } finally {
+      confirming.current = false;
     }
   }
 
@@ -258,7 +302,6 @@ function OwnerBoundSavingsMoneyDialog({
         open={open}
         immediate={motion === "reduced"}
         labelledBy="savings-action-title"
-        describedBy={step === "pending" ? "savings-action-pending" : undefined}
         pending={step === "pending"}
         onCancel={onClose}
         onClose={() => {
@@ -272,10 +315,10 @@ function OwnerBoundSavingsMoneyDialog({
           titleId="savings-action-title"
           {...(step === "amount"
             ? { assetControl: <MoneyAssetPicker {...amountAssetProps} /> }
-            : step === "pending"
+            : step === "pending" || step === "result"
               ? {}
               : { onBack: goBack })}
-          onClose={onClose}
+          onClose={close}
           closeLabel={`Close ${mode} dialog`}
         />
 
@@ -284,46 +327,51 @@ function OwnerBoundSavingsMoneyDialog({
             <>
               <MoneyAmountDisplay
                 amount={amount}
-                amountChangeSource={amountChangeSource}
+                maxDecimals={assetDecimals}
                 onAmountChange={changeAmount}
+                overAvailable={overAvailable}
+                onSubmit={canContinue ? () => void continueFromAmount() : undefined}
                 availableLabel={availableLabel}
-                availableAmount={decimalFromBaseUnits(availableBaseUnits ?? "", assetDecimals)}
+                availableAmount={decimalFromBaseUnits(maxAmountAfterNetworkFee(availableBaseUnits, mode === "deposit" ? candidate.asset.symbol : "vault shares", reserve) ?? "", assetDecimals)}
                 assetId={assetId}
                 assetLabel={assetLabel}
                 assetControl="header"
                 chipSet="max"
                 pricing={pricing}
                 nativeSymbol={assetLabel}
-              />
-              <MoneyNumpad value={amount} maxDecimals={assetDecimals} onChange={changeAmount} />
-              {assetRouteConfigured && nothingAvailable ? (
-                <StatusMessage>
-                  {mode === "withdraw" ? "Nothing saved to withdraw." : `No ${assetLabel} available to deposit.`}
-                </StatusMessage>
-              ) : assetRouteConfigured && amountExceedsAvailable ? (
-                <StatusMessage>That&apos;s more than you have available.</StatusMessage>
-              ) : null}
-              {!assetRouteConfigured ? (
-                <StatusMessage>
-                  {assetLabel} is available for presentation review only. Savings actions remain {candidate.asset.symbol}-only.
-                </StatusMessage>
-              ) : null}
+              >
+                {mode === "deposit" && assetRouteConfigured && candidate.asset.symbol.toUpperCase() === "USDC" && reserveFailed ? (
+                  <StatusMessage tone="error" role="alert">
+                    Couldn&apos;t check the network fee. <Button variant="ghost" size="sm" onClick={retryReserve}>Retry</Button>
+                  </StatusMessage>
+                ) : null}
+                {assetRouteConfigured && nothingAvailable ? (
+                  <StatusMessage>
+                    {mode === "withdraw" ? "Nothing saved to withdraw." : `No ${assetLabel} available to deposit.`}
+                  </StatusMessage>
+                ) : null}
+                {!assetRouteConfigured ? (
+                  <StatusMessage>
+                    {assetLabel} is available for presentation review only. Savings actions remain {candidate.asset.symbol}-only.
+                  </StatusMessage>
+                ) : null}
+              </MoneyAmountDisplay>
             </>
           ) : null}
 
-          {amountBaseUnits && step !== "amount" ? (
-            <>
-              <MoneyConfirmSummary
-                amount={confirmAmount}
-                lead={mode === "deposit" ? "Deposit to Save" : "Withdraw from Save"}
-                rows={preparedReview && preparedAction ? savingsReviewRows(preparedReview, preparedAction.owner) : [
-                  { label: "Review", value: "Prepared facts unavailable" },
-                ]}
-              />
-              {step === "pending" ? (
-                <StatusMessage id="savings-action-pending"><span className="flex items-center gap-2"><LoaderCircle className="size-4 animate-spin" aria-hidden="true" />Waiting for your wallet…</span></StatusMessage>
-              ) : null}
-            </>
+          {amountBaseUnits && step !== "amount" && step !== "result" ? (
+            <MoneyConfirmSummary action={preparedAction}
+              amount={confirmAmount}
+              lead={mode === "deposit" ? "Deposit to Save" : "Withdraw from Save"}
+              rows={preparedReview && preparedAction ? savingsReviewRows(preparedReview, preparedAction.owner) : [
+                { label: "Review", value: "Prepared facts unavailable" },
+              ]}
+            />
+          ) : null}
+
+          {step === "result" && preparedAction && submission ? (
+            <SavingsResult action={preparedAction} submission={submission} fetchAccountResource={fetchAccountResource}
+              amount={confirmAmount} submittedAt={submittedAt} onDone={close} onTryAgain={tryAgain} onViewActivity={viewActivity} />
           ) : null}
 
           {error ? <StatusMessage tone="error" role="alert">{error}</StatusMessage> : null}
@@ -337,14 +385,15 @@ function OwnerBoundSavingsMoneyDialog({
         {step === "amount" ? (
           <MoneyModalFooter
             primaryLabel="Continue"
-            primaryDisabled={!assetRouteConfigured || !isPositiveDecimalAmount(amount) || amountExceedsAvailable}
+            primaryDisabled={!canContinue}
             onPrimary={() => void continueFromAmount()}
           />
         ) : null}
 
-        {step === "confirm" && preparedAction ? (
+        {(step === "confirm" || step === "pending") && preparedAction ? (
           <MoneyConfirmFooter action={preparedAction}
             actionExpired={actionExpired}
+            submitting={step === "pending"}
             primaryLabel={attemptedAction ? "Retry" : `${mode === "deposit" ? "Deposit" : "Withdraw"} ${confirmAmount}`}
             primaryDisabled={!preparedReview || (actionExpired && !attemptedAction)}
             onPrimary={() => void confirm()}
@@ -353,13 +402,9 @@ function OwnerBoundSavingsMoneyDialog({
           />
         ) : null}
 
-        {step === "failed" ? (
-          <MoneyModalFooter
-            primaryLabel="Back"
-            onPrimary={goBack}
-            secondaryLabel="Close"
-            onSecondary={onClose}
-          />
+        {step === "result" && preparedAction && submission ? (
+          <SavingsResultActions action={preparedAction} submission={submission} fetchAccountResource={fetchAccountResource}
+            onDone={close} onTryAgain={tryAgain} onViewActivity={viewActivity} />
         ) : null}
 
         {step === "error" ? (
@@ -371,6 +416,34 @@ function OwnerBoundSavingsMoneyDialog({
       </MoneyModal>
     </MoneyMotionProvider>
   );
+}
+
+function SavingsResult({ action, submission, fetchAccountResource, amount, submittedAt }: {
+  action: PreparedMoneyAction;
+  submission: Submission;
+  fetchAccountResource?: AccountWalletClient["fetchAccountResource"];
+  amount: string;
+  submittedAt?: string;
+  onDone: () => void;
+  onTryAgain: () => void;
+  onViewActivity: () => void;
+}) {
+  const { outcome } = useMoneyActionOutcome({ action, submission, fetchOperations: (signal) =>
+    fetchAccountResource ? fetchAccountResource("/api/actions", { signal }) : Promise.reject(new Error("Actions unavailable")) });
+  return <MoneyResult kind={action.kind as "savings-deposit" | "savings-withdraw"} outcome={outcome} amount={amount} submittedAt={submittedAt} />;
+}
+
+function SavingsResultActions({ action, submission, fetchAccountResource, onDone, onTryAgain, onViewActivity }: {
+  action: PreparedMoneyAction;
+  submission: Submission;
+  fetchAccountResource?: AccountWalletClient["fetchAccountResource"];
+  onDone: () => void;
+  onTryAgain: () => void;
+  onViewActivity: () => void;
+}) {
+  const { outcome } = useMoneyActionOutcome({ action, submission, fetchOperations: (signal) =>
+    fetchAccountResource ? fetchAccountResource("/api/actions", { signal }) : Promise.reject(new Error("Actions unavailable")) });
+  return <MoneyResultFooter outcome={outcome} onDone={onDone} onTryAgain={onTryAgain} onViewActivity={onViewActivity} />;
 }
 
 function amountExceedsKnownAvailable(amount: string, available: bigint | null): boolean {
@@ -437,6 +510,7 @@ function StatusMessage({
 }) {
   return (
     <Alert variant={tone === "error" ? "destructive" : "default"} role={role ?? (tone === "error" ? "alert" : "status")} {...props}>
+      {tone === "error" ? <AlertIcon><CircleAlertIcon /></AlertIcon> : null}
       <AlertDescription>{children}</AlertDescription>
     </Alert>
   );
@@ -454,6 +528,8 @@ function messageForActionStatus(status: string, mode: SavingsActionMode): string
 }
 
 function messageForPrepareError(error: unknown): string {
+  const fee = networkFeeErrorMessage(error);
+  if (fee) return fee;
   if (error instanceof SavingsActionClientError) return error.message;
   const status = isRecord(error) && typeof error.status === "number" ? error.status : null;
   const code = isRecord(error) && typeof error.code === "string" ? error.code : null;

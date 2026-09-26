@@ -77,6 +77,17 @@ export function formatPrimaryAmount(
   return formatLocalDisplay(figure, pricing.localCurrency);
 }
 
+export function formatPrimaryAmountUnit(
+  unit: MoneyPrimaryUnit,
+  pricing: MoneyAssetPricing,
+  fiatCurrency?: string,
+  nativeSymbol?: string,
+): string | undefined {
+  if (fiatCurrency) return presentationCurrencyMetadata(fiatCurrency).name;
+  if (unit === "native" || pricing.status === "unpriced") return nativeSymbol || undefined;
+  return presentationCurrencyMetadata(pricing.localCurrency).name;
+}
+
 export function formatSecondaryAmount(
   nativeAmount: string,
   unit: MoneyPrimaryUnit,
@@ -101,18 +112,26 @@ export function formatAvailableLine(
   if (!availableLabel) return undefined;
   const parsed = parseAvailableDecimal(availableLabel);
   if (!parsed) return availableLabel;
-  if (unit === "native") {
-    return `${groupDecimal(parsed)} ${nativeSymbol} available`;
-  }
-  if (pricing.status === "unpriced") return availableLabel;
-  return `${formatLocalDisplay(groupDecimal(parsed), pricing.localCurrency)} available`;
+  return formatAvailableDecimal(parsed, unit, pricing, nativeSymbol) ?? availableLabel;
+}
+
+export function formatAvailableDecimal(
+  decimal: string,
+  unit: MoneyPrimaryUnit,
+  pricing: MoneyAssetPricing,
+  nativeSymbol: string,
+): string | undefined {
+  if (!decimalPattern.test(decimal)) return undefined;
+  if (unit === "native") return `${groupDecimal(decimal)} ${nativeSymbol} available`;
+  if (pricing.status === "unpriced") return undefined;
+  return `${formatLocalDisplay(groupDecimal(decimal), pricing.localCurrency)} available`;
 }
 
 export function parseAvailableDecimal(label: string): string | null {
   const trimmed = label.trim().replace(/\s+available$/i, "");
   if (!trimmed || trimmed === "—" || trimmed === "Unavailable") return null;
   if (trimmed.startsWith("<")) return null;
-  const match = /((?:0|[1-9]\d{0,2}(?:,\d{3})*)(?:\.\d+)?)/.exec(trimmed);
+  const match = /((?:[1-9]\d{0,2}(?:,\d{3})+|[1-9]\d*|0)(?:\.\d+)?)/.exec(trimmed);
   if (!match) return null;
   const decimal = match[1].replace(/,/g, "");
   return decimalPattern.test(decimal) ? decimal : null;
@@ -128,6 +147,12 @@ export function clampDecimal(amount: string, maximum: string | null | undefined)
     return amount;
   }
   return compareDecimal(amount, maximum) > 0 ? maximum : amount;
+}
+
+export function amountExceedsCeiling(amount: string, ceiling: string | null | undefined): boolean {
+  const normalized = amount.replace(/\.$/, "");
+  if (!ceiling || !decimalPattern.test(ceiling) || !isAvailablePositive(normalized)) return false;
+  return compareDecimal(normalized, ceiling) > 0;
 }
 
 export function decimalFromBaseUnits(baseUnits: string, decimals: number): string | null {

@@ -54,6 +54,11 @@ function findExecutable(
 }
 
 const executablePath = cachedChromiumExecutable();
+const fixturePort = process.env.HOME_FIXTURE_PORT || "3199";
+if (!/^[1-9]\d{0,4}$/.test(fixturePort) || Number(fixturePort) > 65535) {
+  throw new Error("HOME_FIXTURE_PORT must be a valid TCP port.");
+}
+const fixtureBaseUrl = `http://localhost:${fixturePort}`;
 
 const playwrightCredentialKey = ["HOME", "PLAYWRIGHT", "ACCESS", "CREDENTIAL"].join("_");
 const playwrightSigningSecretKey = ["HOME", "PLAYWRIGHT", "ACCESS", "SIGNING", "SECRET"].join("_");
@@ -91,13 +96,13 @@ export default defineConfig({
   // still fails three times, and every failure keeps its trace + video.
   retries: process.env.CI ? 2 : 0,
   webServer: {
-    command: "bun run dev -- --port 3199",
-    url: "http://localhost:3199",
+    command: `bun run dev -- --port ${fixturePort}`,
+    url: fixtureBaseUrl,
     reuseExistingServer: false,
     env: {
       ...process.env,
       HOME_PLAYWRIGHT_SMOKE: "1",
-      HOME_OPERATOR_ADDRESSES: "0x1111111111111111111111111111111111111111",
+      HOME_OPERATOR_ADDRESSES: "0x1111111111111111111111111111111111111111,0x3333333333333333333333333333333333333333",
       HOME_SESSION_SECRET: "playwright-smoke-home-session-secret-32-bytes!!",
       HOME_ACCESS_REQUIRED: "1",
       HOME_ACCESS_SIGNING_SECRET: accessSigningSecret,
@@ -105,7 +110,7 @@ export default defineConfig({
     },
   },
   use: {
-    baseURL: "http://localhost:3199",
+    baseURL: fixtureBaseUrl,
     headless: true,
     trace: "retain-on-failure",
     video: "retain-on-failure",

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { dehydrate } from "@tanstack/react-query";
 import { balancesSnapshotFixture } from "@/shared/balances/fixtures";
+import { anonymousCountryPreferenceKey, legacyCountryPreferenceKey } from "@/config/country-preference";
 import {
   clearOwnerQueryBoundary,
   createHomeQueryClient,
@@ -10,6 +11,7 @@ import {
   ownerQueryCachePrefix,
   ownerQueryKey,
   ownerQueryMeta,
+  ownerQueryCacheTtlMs,
   ownerRestoreCacheState,
   restoreOwnerQueries,
   shouldPersistOwnerQuery,
@@ -40,14 +42,16 @@ describe("owner query cache boundary", () => {
     client.setQueryData(ownerQueryKey("owner-a", "balances", "US"), { total: "1" });
     storage.setItem(`${ownerQueryCachePrefix}owner-a`, "a");
     storage.setItem(`${ownerQueryCachePrefix}owner-b`, "b");
-    storage.setItem("home.country.v1", "US");
+    storage.setItem(legacyCountryPreferenceKey, "US");
+    storage.setItem(anonymousCountryPreferenceKey, "GB");
 
     clearOwnerQueryBoundary(client, storage);
 
     expect(client.getQueryCache().getAll()).toHaveLength(0);
     expect(storage.getItem(`${ownerQueryCachePrefix}owner-a`)).toBeNull();
     expect(storage.getItem(`${ownerQueryCachePrefix}owner-b`)).toBeNull();
-    expect(storage.getItem("home.country.v1")).toBe("US");
+    expect(storage.getItem(legacyCountryPreferenceKey)).toBe("US");
+    expect(storage.getItem(anonymousCountryPreferenceKey)).toBe("GB");
   });
 
   test("preserving one owner clears other memory and persisted stores", () => {
@@ -96,6 +100,61 @@ describe("owner query cache boundary", () => {
       .toHaveLength(3);
   });
 
+  test("restores a matching owner's balances through seven days and rejects older cache", () => {
+    const ownerKey = "owner-a";
+    const storage = memoryStorage();
+    const now = Date.now();
+    const client = createHomeQueryClient();
+    client.setQueryDefaults(ownerQueryKey(ownerKey, "balances", "US"), {
+      meta: ownerQueryMeta(ownerKey, "owner"),
+    });
+    client.setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture, {
+      updatedAt: now - ownerQueryCacheTtlMs + 1,
+    });
+    const persister = createOwnerQueryPersister(storage, ownerKey)!;
+    persister.persistClient({
+      timestamp: now - ownerQueryCacheTtlMs + 1,
+      buster: "home-query-v3",
+      clientState: dehydrateOwnerQueries(client, ownerKey, now),
+    });
+    persister.flush();
+    const restored = createHomeQueryClient();
+    expect(restoreOwnerQueries(restored, storage, ownerKey, now)).toBe(true);
+    expect(restored.getQueryData<typeof balancesSnapshotFixture>(ownerQueryKey(ownerKey, "balances", "US")))
+      .toEqual(balancesSnapshotFixture);
+    expect(restoreOwnerQueries(createHomeQueryClient(), storage, ownerKey, now + 2)).toBe(false);
+    expect(storage.getItem(`${ownerQueryCachePrefix}${ownerKey}`)).toBeNull();
+  });
+
+  test("a fresh snapshot cannot restore a balance older than seven days", () => {
+    const ownerKey = "owner-a";
+    const storage = memoryStorage();
+    const now = Date.now();
+    const client = createHomeQueryClient();
+    for (const scope of ["balances", "activity"]) {
+      client.setQueryDefaults(ownerQueryKey(ownerKey, scope, "US"), {
+        meta: ownerQueryMeta(ownerKey, "owner"),
+      });
+    }
+    client.setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture, {
+      updatedAt: now - ownerQueryCacheTtlMs + 1,
+    });
+    client.setQueryData(ownerQueryKey(ownerKey, "activity", "US"), { items: [] }, { updatedAt: now });
+    const persister = createOwnerQueryPersister(storage, ownerKey)!;
+    persister.persistClient({
+      timestamp: now,
+      buster: "home-query-v3",
+      clientState: dehydrateOwnerQueries(client, ownerKey, now),
+    });
+    persister.flush();
+
+    const restored = createHomeQueryClient();
+    expect(restoreOwnerQueries(restored, storage, ownerKey, now + 2)).toBe(true);
+    expect(restored.getQueryData(ownerQueryKey(ownerKey, "balances", "US"))).toBeUndefined();
+    expect(restored.getQueryData<{ items: unknown[] }>(ownerQueryKey(ownerKey, "activity", "US")))
+      .toEqual({ items: [] });
+  });
+
   test("a throwing storage fails open", () => {
     const client = createHomeQueryClient();
     const storage = {
@@ -127,7 +186,7 @@ describe("owner query cache boundary", () => {
     }));
 
     const restored = createHomeQueryClient();
-    expect(restoreOwnerQueries(restored, storage, "owner-a")).toBe(true);
+    expect(restoreOwnerQueries(restored, storage, "owner-a")).toBe(false);
     expect(restored.getQueryCache().getAll()).toHaveLength(0);
     expect(restored.getQueryData(ownerQueryKey("owner-b", "balances", "US"))).toBeUndefined();
   });

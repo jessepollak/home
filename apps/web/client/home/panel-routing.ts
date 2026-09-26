@@ -25,6 +25,7 @@ export type HomeShellRouting = {
   state: HomeInboundPanelState;
   popRevision: number;
   rootRequest: { panel: ShellPanelId; revision: number } | null;
+  openPanel: (panel: ShellPanelId) => void;
   setFlow: (
     flow: ShellFlow,
     options?: { actionId?: string | null; mode?: "push" | "replace" },
@@ -49,6 +50,30 @@ export function HomeShellRoutingProvider({
 
 export function useOptionalHomeShellRouting(): HomeShellRouting | null {
   return useContext(HomeShellRoutingContext);
+}
+
+export function openPanelAfterClose(
+  routing: Pick<HomeShellRouting, "openPanel"> | null,
+  panel: ShellPanelId,
+  close: () => void,
+  schedule: (open: () => void) => void = (open) => { window.setTimeout(open, 500); },
+): void {
+  if (!routing) {
+    close();
+    return;
+  }
+  const before = window.location.href;
+  let opened = false;
+  const open = () => {
+    if (opened) return;
+    opened = true;
+    window.removeEventListener("popstate", open);
+    routing.openPanel(panel);
+  };
+  window.addEventListener("popstate", open);
+  close();
+  if (window.location.href !== before) open();
+  else schedule(open);
 }
 
 export function readHomeInboundPanelState(

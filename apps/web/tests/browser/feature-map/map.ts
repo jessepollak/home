@@ -1,4 +1,5 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
+import { join } from "node:path";
 
 export type ReachStep =
   | { kind: "goto"; path: string }
@@ -11,11 +12,15 @@ export type ReachStep =
 export type Surface = { id: string; reach: ReachStep[]; manual: boolean };
 
 export async function readFeatureMap(path: string): Promise<{ surfaces: Map<string, Surface> }> {
-  const markdown = await readFile(path, "utf8");
+  const files = (await readdir(path)).filter((name) => name.endsWith(".md")).sort();
   const surfaces = new Map<string, Surface>();
-  for (const section of markdown.split(/^###\s+/m).slice(1)) {
-    const id = section.match(/^`([^`]+)`/)?.[1];
-    if (!id) continue;
+  for (const file of files) {
+    const markdown = await readFile(join(path, file), "utf8");
+    const section = markdown.split(/^###\s+/m)[1];
+    const id = section?.match(/^`([^`]+)`/)?.[1];
+    if (!id || file !== `${id}.md` || markdown.split(/^###\s+/m).length !== 2) {
+      throw new Error(`Invalid feature-map surface: ${file}`);
+    }
     const body = section.slice(section.indexOf("\n") + 1);
     const block = body.match(/- \*\*Reach\*\*[^\n]*\n([\s\S]*?)(?=\n- \*\*[A-Z]|\n## |$)/)?.[1] ?? "";
     const reach: ReachStep[] = [...block.matchAll(/`([^`]+)`/g)].flatMap((match): ReachStep[] => {

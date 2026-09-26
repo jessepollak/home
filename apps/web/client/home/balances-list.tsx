@@ -9,19 +9,6 @@ import { presentPortfolioAssetMark } from "@/client/asset-mark/presentation";
 import type { BalanceRowModel } from "@/shared/balances/present";
 import { ShimmerRows } from "./panel-shared";
 
-export function HomeBalancesList({
-  rows,
-  isLoading,
-  isUnavailable = false,
-}: {
-  rows: readonly BalanceRowModel[];
-  isLoading: boolean;
-  isUnavailable?: boolean;
-}) {
-  if (rows.length > 0) return <BalancesList rows={rows} />;
-  return <BalancesListFallback isLoading={isLoading} isUnavailable={isUnavailable} />;
-}
-
 export function BalancesList({ rows }: { rows: readonly BalanceRowModel[] }) {
   return (
     <ul className="list-none p-0" data-balance-list="">

@@ -24,6 +24,7 @@ This map points to Home's current product, engineering, delivery, setup, and int
 - [Operating manual](operating-manual.md) — Jesse/factory roles, product framing, run triggers, delivery loop, live-money validation, PR evidence, and completion authority.
 - [PRD template](prd-template.md) and [repository gates](gates.md) — shaping and repository checks.
 - [Browser validation](browser-validation.md) and [UI PR previews](ui-pr-previews.md) — interactive iteration, regression ownership, and current-head visual proof.
+- [Activity ledger proposal](activity-ledger-design.md) — unreviewed Storybook taxonomy, details, and source gaps.
 - [UI direction](ui-direction.md), [design system](design-system.md), and [Figma workflow](design-explorations/figma-workflow.md) — product presentation rules, the canonical design source, owned components, tokens, and lint contracts; [Figma library](design-explorations/design-system.md) — gap matrix, finance pattern inventory, Code Connect plan, and publish checklist; [Mobbin references](design-explorations/mobbin.md) — real-world design references, access, and terms; [design explorations](design-explorations/README.md) — where design-lane non-production code lives.
 - [Observability](observability.md) and [performance observability](performance-observability.md) — privacy-safe events, performance marks, and verification.
 - [Vercel deploy](vercel-deploy.md) — Bun monorepo deployment and database migration setup.
@@ -37,8 +38,10 @@ This map points to Home's current product, engineering, delivery, setup, and int
 - [Morpho setup](morpho-setup.md) — Save vault configuration, candidate evidence, and verification commands.
 - [Local money coverage](local-money-coverage.md) and [stablecoin candidates](stablecoin-candidates.json) — regional research inventory and contract candidates.
 - [README capture guide](readme/README.md) and [PR preview captures](pr-previews/README.md) — screenshot provenance and storage conventions.
+- [Borrow overview and management](borrow-overview-design.md) — adopted Direction A (#1004), including the summary, loan rows, sheet and handoff contract.
 
 ## Proposed specs
 
+- [Card design proposal](card-design.md) — unreviewed #636 capability map, settings structure and Card journey states.
 - [Public transfer feed](public-transfer-feed-spec.md) — active implementation-ready proposal for a public ERC-20 transfer feed.
 - [Checking shimmer](qa/checking-97/CHECKING-SHIMMER-SPEC.md) — active QA specification for the checking loading state.

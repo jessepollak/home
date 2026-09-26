@@ -17,11 +17,9 @@ export function savingsTeaserApyLabel({
   metadata: MorphoVaultsResult;
   nowMs: number;
 }): string | null {
-  if (summary?.funded && summary.apy.status === "available") {
+  if (summary?.funded && (summary.apy.status === "available" || summary.apy.status === "stale")) {
     return `${formatExactSavingsApy(summary.apy.value)} APY`;
   }
-  if (summary?.funded && summary.apy.status === "stale") return "APY stale";
-
   const rates = candidates.map((candidate) =>
     getSavingsRateState(candidate, {
       metadataFetchedAt: metadata.source.fetchedAt,
@@ -29,12 +27,10 @@ export function savingsTeaserApyLabel({
       nowMs,
     }),
   );
-  const available = rates.flatMap((rate) =>
-    rate.status === "available" ? [rate.value] : [],
+  const known = rates.flatMap((rate) =>
+    rate.status !== "unavailable" ? [rate.value] : [],
   );
-  if (available.length > 0) {
-    return `Up to ${formatPresentationPercentage(Math.max(...available))} APY`;
-  }
-  if (rates.some((rate) => rate.status === "stale")) return "APY stale";
-  return rates.length > 0 ? "APY unavailable" : null;
+  return known.length > 0
+    ? `Up to ${formatPresentationPercentage(Math.max(...known))} APY`
+    : null;
 }

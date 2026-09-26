@@ -10,20 +10,25 @@ import {
   ComboboxItem,
   ComboboxList,
 } from "@/components/ui/combobox";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowDownUp, Delete } from "lucide-react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type SyntheticEvent } from "react";
+import { ArrowDownUp } from "lucide-react";
 import { CurrencyMark } from "@/components/currency-mark";
 import { InputGroupAddon } from "@/components/ui/input-group";
+import { Input } from "@/components/ui/input";
 import type { AssetMarkPresentation } from "@/client/asset-mark/presentation";
 import { usePresentationRegionId } from "@/client/invest/presentation-quote";
-import { applyNumpadKey, type NumpadKey } from "./numpad";
+import { decimalSeparatorForLocale, normalizeTypedAmount, parsePastedAmount } from "./amount-input";
 import {
+  amountExceedsCeiling,
   clampDecimal,
+  formatAvailableDecimal,
   formatAvailableLine,
   formatChipLabel,
   formatPrimaryAmount,
+  formatPrimaryAmountUnit,
   formatSecondaryAmount,
   isAvailablePositive,
+  isIdentityPricing,
   moneyAssetPricing,
   parseAvailableDecimal,
   resolvePrimaryUnit,
@@ -36,16 +41,6 @@ const AMOUNT_MIN_FONT_PROPERTY = "--money-amount-min-size";
 const AMOUNT_MIN_FONT_SIZE_FALLBACK = 20;
 const AMOUNT_FIT_TOLERANCE_PX = 0.5;
 const AMOUNT_FIT_SAFETY_FACTOR = 0.97;
-
-export type MoneyAmountChangeSource = "keypad" | "programmatic";
-
-function shouldAnimatePrimaryAmount(
-  previousAmount: string,
-  amount: string,
-  changeSource: MoneyAmountChangeSource,
-): boolean {
-  return previousAmount === amount || changeSource === "programmatic";
-}
 
 export type MoneyAssetOption = {
   id: string;
@@ -87,29 +82,10 @@ export function fitAmountFontSize(
   return Math.min(baseFontSize, Math.max(minFontSize, scaled));
 }
 
-export function prefersReducedMotion(): boolean {
-  return (
-    typeof window !== "undefined"
-    && typeof window.matchMedia === "function"
-    && window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
-}
-
-export function triggerKeyHaptic(durationMs = 12): void {
-  if (prefersReducedMotion()) return;
-  if (typeof navigator === "undefined" || typeof navigator.vibrate !== "function") return;
-  if (navigator.userActivation && !navigator.userActivation.isActive) return;
-  try {
-    navigator.vibrate(durationMs);
-  } catch { // oxlint-disable-line home/no-silent-catch -- haptics are optional; a blocked vibration must not fail the key press
-  }
-}
-
 export function useAutoFitAmountText(text: string) {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLLabelElement>(null);
   const sizerRef = useRef<HTMLSpanElement>(null);
   const [fontSize, setFontSize] = useState<number | undefined>(undefined);
-  const [scaleX, setScaleX] = useState(1);
   const lastWidthRef = useRef(-1);
 
   const measure = useCallback(() => {
@@ -124,27 +100,18 @@ export function useAutoFitAmountText(text: string) {
       + (Number.parseFloat(computed.paddingRight) || 0);
     const available = container.clientWidth - horizontalPadding;
     const base = Number.parseFloat(window.getComputedStyle(sizer).fontSize);
-    const currentSize = Number.parseFloat(computed.fontSize);
-    const ticker = container.querySelector<HTMLElement>("[data-slot=\"money-ticker\"]");
-    const renderedNatural = ticker?.offsetWidth || sizer.getBoundingClientRect().width;
-    if (available <= 0 || renderedNatural <= 0 || !Number.isFinite(base) || base <= 0) return;
-
-    const natural = Number.isFinite(currentSize) && currentSize > 0
-      ? renderedNatural * (base / currentSize)
-      : renderedNatural;
+    const natural = sizer.getBoundingClientRect().width;
+    if (available <= 0 || natural <= 0 || !Number.isFinite(base) || base <= 0) return;
     const minRaw = computed.getPropertyValue(AMOUNT_MIN_FONT_PROPERTY);
     const min = Number.parseFloat(minRaw) || AMOUNT_MIN_FONT_SIZE_FALLBACK;
     const fitted = available * AMOUNT_FIT_SAFETY_FACTOR;
     const target = Math.floor(fitAmountFontSize(fitted, natural, base, min) * 10) / 10;
-    const unclamped = (base * fitted) / natural;
-    const targetScaleX = Math.min(1, Math.max(0.9, unclamped / target));
 
     setFontSize((current) =>
       current !== undefined && Math.abs(current - target) < AMOUNT_FIT_TOLERANCE_PX
         ? current
         : target,
     );
-    setScaleX((current) => (Math.abs(current - targetScaleX) < 0.005 ? current : targetScaleX));
   }, []);
 
   useLayoutEffect(() => {
@@ -184,7 +151,7 @@ export function useAutoFitAmountText(text: string) {
     measure();
   }, [measure, text]);
 
-  return { containerRef, sizerRef, fontSize, scaleX };
+  return { containerRef, sizerRef, fontSize };
 }
 
 export function useMoneyAssetPricing(assetSymbol: string): MoneyAssetPricing {
@@ -194,6 +161,12 @@ export function useMoneyAssetPricing(assetSymbol: string): MoneyAssetPricing {
 export function MoneyAmountDisplay({
   amount,
   onAmountChange,
+  maxDecimals,
+  overAvailable = false,
+  onSubmit,
+  disabled = false,
+  autoFocus = true,
+  children,
   availableLabel,
   availableAmount,
   assetId,
@@ -208,11 +181,16 @@ export function MoneyAmountDisplay({
   nativeSymbol,
   fiatCurrency,
   initialUnit = "local",
-  amountChangeSource = "programmatic",
   assetControl = "body",
 }: {
   amount: string;
-  onAmountChange?: (value: string, source: MoneyAmountChangeSource) => void;
+  onAmountChange?: (value: string) => void;
+  maxDecimals: number;
+  overAvailable?: boolean;
+  onSubmit?: () => void;
+  disabled?: boolean;
+  autoFocus?: boolean;
+  children?: ReactNode;
   availableLabel?: string;
   availableAmount?: string | null;
   assetId?: string;
@@ -227,19 +205,19 @@ export function MoneyAmountDisplay({
   nativeSymbol: string;
   fiatCurrency?: string;
   initialUnit?: MoneyPrimaryUnit;
-  amountChangeSource?: MoneyAmountChangeSource;
   assetControl?: "body" | "header";
 }) {
   const [requestedUnit, setRequestedUnit] = useState<MoneyPrimaryUnit>(initialUnit);
   const lastAssetId = useRef(assetId);
-  const primaryUnit = resolvePrimaryUnit(pricing, requestedUnit);
+  const availableId = useId();
+  const primaryUnit = isIdentityPricing(pricing)
+    ? resolvePrimaryUnit(pricing, requestedUnit)
+    : "native";
   const maxAmount = availableAmount ?? parseAvailableDecimal(availableLabel ?? "");
-  const availableLine = formatAvailableLine(
-    availableLabel,
-    primaryUnit,
-    pricing,
-    nativeSymbol,
-  );
+  const availableLine = formatAvailableLine(availableLabel, primaryUnit, pricing, nativeSymbol);
+  const labelAmount = parseAvailableDecimal(availableLabel ?? "");
+  const ceilingDiffers = Boolean(maxAmount && labelAmount && (amountExceedsCeiling(labelAmount, maxAmount) || amountExceedsCeiling(maxAmount, labelAmount)));
+  const ceilingLine = ceilingDiffers && maxAmount ? formatAvailableDecimal(maxAmount, primaryUnit, pricing, nativeSymbol) : undefined;
   const secondary = formatSecondaryAmount(amount, primaryUnit, pricing, nativeSymbol);
 
   useEffect(() => {
@@ -249,7 +227,7 @@ export function MoneyAmountDisplay({
   }, [assetId]);
 
   return (
-    <div className="grid justify-items-center gap-3 py-3">
+    <div className="flex min-h-full w-full flex-col items-center gap-3 py-3">
       {assetControl === "body" && assetLabel ? (
         <MoneyAssetPicker
           assetId={assetId}
@@ -261,89 +239,207 @@ export function MoneyAmountDisplay({
           locked={assetLocked}
         />
       ) : null}
-      {onAmountChange ? (
-        <MoneyQuickChips
-          chipSet={chipSet}
-          localCurrency={pricing.status === "priced" ? pricing.localCurrency : "USD"}
-          primaryUnit={primaryUnit}
-          availableAmount={maxAmount}
-          onSelect={(value) => onAmountChange(value, "programmatic")}
-        />
-      ) : null}
       <MoneyPrimaryAmount
         amount={amount}
-        changeSource={amountChangeSource}
+        onAmountChange={onAmountChange}
+        maxDecimals={maxDecimals}
+        onSubmit={onSubmit}
+        disabled={disabled}
+        autoFocus={autoFocus}
+        focusKey={assetId}
+        availableId={availableLine ? availableId : undefined}
+        overAvailable={overAvailable}
         unit={primaryUnit}
         pricing={pricing}
         fiatCurrency={fiatCurrency}
         nativeSymbol={nativeSymbol}
       />
-      <div className="grid justify-items-center gap-1">
-        {pricing.status === "priced" ? (
-          <MoneyUnitToggle
-            secondaryLabel={secondary}
-            onToggle={() =>
-              setRequestedUnit((current) => (current === "local" ? "native" : "local"))
-            }
+      {availableLine ? (
+        <p id={availableId} aria-live="polite" className={`text-center text-sm ${overAvailable ? "text-destructive" : "text-muted-foreground"}`}>
+          {overAvailable ? `Only ${ceilingLine ?? availableLine}` : availableLine}
+        </p>
+      ) : null}
+      {isIdentityPricing(pricing) ? (
+        <MoneyUnitToggle
+          secondaryLabel={secondary}
+          onToggle={() => setRequestedUnit((current) => (current === "local" ? "native" : "local"))}
+        />
+      ) : null}
+      {children}
+      {onAmountChange && chipSet !== "none" ? (
+        <div className="mt-auto">
+          <MoneyQuickChips
+            chipSet={chipSet}
+            localCurrency={pricing.status === "priced" ? pricing.localCurrency : "USD"}
+            primaryUnit={primaryUnit}
+            availableAmount={maxAmount}
+            onSelect={onAmountChange}
           />
-        ) : null}
-        {availableLine ? (
-          <div className="text-center text-sm text-muted-foreground">
-            <MoneyTicker value={availableLine} reserveDigits={false} />
-          </div>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
     </div>
   );
 }
 
 export function MoneyPrimaryAmount({
   amount,
-  changeSource,
+  onAmountChange,
+  maxDecimals,
+  onSubmit,
+  disabled = false,
+  autoFocus = true,
+  focusKey,
+  availableId,
+  overAvailable = false,
   unit,
   pricing,
   fiatCurrency,
   nativeSymbol,
 }: {
   amount: string;
-  changeSource: MoneyAmountChangeSource;
+  onAmountChange?: (value: string) => void;
+  maxDecimals: number;
+  onSubmit?: () => void;
+  disabled?: boolean;
+  autoFocus?: boolean;
+  focusKey?: string;
+  availableId?: string;
+  overAvailable?: boolean;
   unit: MoneyPrimaryUnit;
   pricing: MoneyAssetPricing;
   fiatCurrency?: string;
   nativeSymbol: string;
 }) {
   const text = formatPrimaryAmount(amount, unit, pricing, fiatCurrency, nativeSymbol);
-  const [rendered, setRendered] = useState({ amount, text, animated: true });
-  let animated = rendered.animated;
-  if (rendered.amount !== amount || rendered.text !== text) {
-    animated = shouldAnimatePrimaryAmount(rendered.amount, amount, changeSource);
-    setRendered({ amount, text, animated });
-  }
-  const { containerRef, sizerRef, fontSize, scaleX } = useAutoFitAmountText(text);
+  const figure = amount === "" ? "0" : amount;
+  const figureIndex = text.indexOf(figure);
+  const prefix = text.slice(0, figureIndex);
+  const suffix = text.slice(figureIndex + figure.length);
+  const unitName = formatPrimaryAmountUnit(unit, pricing, fiatCurrency, nativeSymbol);
+  const unitId = useId();
+  const describedBy = [unitName ? unitId : undefined, availableId].filter(Boolean).join(" ") || undefined;
+  const { containerRef, sizerRef, fontSize } = useAutoFitAmountText(text);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const previousSelection = useRef({ start: 0, end: 0 });
+  const nextCaret = useRef<number | null>(null);
+  const handledInputEvent = useRef<Event | null>(null);
+  const focusOnMount = useRef(autoFocus && Boolean(onAmountChange) && !disabled);
+
+  useEffect(() => {
+    if (focusOnMount.current) inputRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  const lastFocusKey = useRef(focusKey);
+  useEffect(() => {
+    if (lastFocusKey.current === focusKey) return;
+    lastFocusKey.current = focusKey;
+    if (onAmountChange && !disabled) inputRef.current?.focus({ preventScroll: true });
+  }, [disabled, focusKey, onAmountChange]);
+
+  useLayoutEffect(() => {
+    if (nextCaret.current === null) return;
+    inputRef.current?.setSelectionRange(nextCaret.current, nextCaret.current);
+    nextCaret.current = null;
+  }, [amount]);
+
+  const rememberSelection = () => {
+    const input = inputRef.current;
+    if (input) previousSelection.current = { start: input.selectionStart ?? 0, end: input.selectionEnd ?? 0 };
+  };
+
+  const handleInputEvent = (event: SyntheticEvent<HTMLInputElement>) => {
+    const nativeEvent = event.nativeEvent as InputEvent;
+    if (handledInputEvent.current === nativeEvent || nativeEvent.isComposing) return;
+    handledInputEvent.current = nativeEvent;
+    const input = event.currentTarget;
+    applyEdit(input.value, input.selectionStart ?? input.value.length, input);
+  };
+
+  const applyEdit = (raw: string, rawCaret: number, input: HTMLInputElement) => {
+    const result = normalizeTypedAmount(raw, maxDecimals);
+    if (!result.ok) {
+      input.value = amount;
+      input.setSelectionRange(previousSelection.current.start, previousSelection.current.end);
+      return;
+    }
+    const prefixResult = normalizeTypedAmount(raw.slice(0, rawCaret), maxDecimals);
+    const caret = prefixResult.ok ? prefixResult.value.length : Math.min(rawCaret, result.value.length);
+    nextCaret.current = result.value === amount ? null : caret;
+    input.value = result.value;
+    input.setSelectionRange(caret, caret);
+    previousSelection.current = { start: caret, end: caret };
+    onAmountChange?.(result.value);
+  };
 
   return (
     <>
-      <div
+      <label
         ref={containerRef}
-        className="flex w-full min-w-0 max-w-full justify-center overflow-hidden whitespace-nowrap px-4 py-3 text-5xl font-semibold leading-none tabular-nums"
+        dir="ltr"
+        className="flex w-full min-w-0 max-w-full shrink-0 cursor-text items-center justify-center overflow-hidden whitespace-nowrap px-4 py-3 text-5xl font-semibold leading-none tabular-nums"
         data-primary-amount
         style={fontSize === undefined ? undefined : { fontSize }}
       >
-        <MoneyTicker
-          value={text}
-          animated={animated}
-          reserveDigits={false}
-          style={scaleX < 1 ? { transform: `scaleX(${scaleX})`, transformOrigin: "center" } : undefined}
-        />
-      </div>
+        {onAmountChange ? (
+          <>
+            {prefix ? <span aria-hidden="true" className={`whitespace-pre ${amount === "" ? "text-muted-foreground" : ""}`.trim()}>{prefix}</span> : null}
+            <span className="relative inline-block min-w-[1ch] max-w-full">
+              <span className="invisible whitespace-pre pe-0.5" aria-hidden="true">{figure}</span>
+              <Input
+                ref={inputRef}
+                variant="amount"
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+                aria-label="Amount"
+                aria-describedby={describedBy}
+                aria-invalid={overAvailable || undefined}
+                data-money-amount-input
+                className="absolute inset-0 size-full min-w-0"
+                value={amount}
+                placeholder="0"
+                disabled={disabled}
+                onSelect={rememberSelection}
+                onBeforeInput={rememberSelection}
+                onKeyDown={(event) => {
+                  rememberSelection();
+                  if (event.key === "Enter" && !event.nativeEvent.isComposing && event.keyCode !== 229) {
+                    event.preventDefault();
+                    onSubmit?.();
+                  }
+                }}
+                onInput={handleInputEvent}
+                onChange={handleInputEvent}
+                onCompositionEnd={(event) => {
+                  const input = event.currentTarget;
+                  applyEdit(input.value, input.selectionStart ?? input.value.length, input);
+                }}
+                onPaste={(event) => {
+                  event.preventDefault();
+                  const input = event.currentTarget;
+                  const start = input.selectionStart ?? amount.length;
+                  const end = input.selectionEnd ?? start;
+                  previousSelection.current = { start, end };
+                  const parsed = parsePastedAmount(event.clipboardData.getData("text"), decimalSeparatorForLocale(typeof navigator === "undefined" ? undefined : navigator.language));
+                  if (!parsed.ok) return;
+                  const raw = `${amount.slice(0, start)}${parsed.value}${amount.slice(end)}`;
+                  applyEdit(raw, start + parsed.value.length, input);
+                }}
+              />
+            </span>
+            {suffix ? <span aria-hidden="true" className={`whitespace-pre ${amount === "" ? "text-muted-foreground" : ""}`.trim()}>{suffix}</span> : null}
+          </>
+        ) : <span>{text}</span>}
+      </label>
+      {onAmountChange && unitName ? <span id={unitId} className="sr-only">{`Currency: ${unitName}`}</span> : null}
       <span
         ref={sizerRef}
         className="pointer-events-none absolute invisible whitespace-nowrap text-5xl font-semibold leading-none tabular-nums"
         data-amount-sizer
         aria-hidden="true"
-      >
-        {text}
-      </span>
+      >{text}</span>
     </>
   );
 }
@@ -531,45 +627,5 @@ export function MoneyUnitToggle({
       <ArrowDownUp className="size-4" aria-hidden="true" />
       <MoneyTicker value={secondaryLabel} />
     </Button>
-  );
-}
-
-const KEYS: NumpadKey[] = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "backspace"];
-
-export function MoneyNumpad({
-  value,
-  maxDecimals,
-  onChange,
-  disabled = false,
-}: {
-  value: string;
-  maxDecimals: number;
-  onChange: (value: string, source: MoneyAmountChangeSource) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <div className="grid grid-cols-3 gap-2" role="group" aria-label="Amount keypad">
-      {KEYS.map((key) => (
-        <Button
-          key={key}
-          className="h-14"
-          variant="ghost"
-          disabled={disabled}
-          aria-label={key === "backspace" ? "Delete last digit" : key === "." ? "Decimal point" : key}
-          onClick={() => {
-            const next = applyNumpadKey(value, key, maxDecimals);
-            if (next === value) return;
-            onChange(next, "keypad");
-            triggerKeyHaptic();
-          }}
-        >
-          {key === "backspace" ? (
-            <Delete size={22} strokeWidth={1.8} aria-hidden="true" />
-          ) : (
-            <span className="text-xl tabular-nums">{key}</span>
-          )}
-        </Button>
-      ))}
-    </div>
   );
 }

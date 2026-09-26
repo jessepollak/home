@@ -20,7 +20,8 @@ const publicRoutes = new Set([
   "savings/vaults/route.ts",
   "webhooks/cdp/route.ts",
 ]);
-const privateRoutes = routePaths.filter((path) => !publicRoutes.has(path));
+const machineRoutes = new Set(["actions/[id]/paymaster/route.ts"]);
+const privateRoutes = routePaths.filter((path) => !publicRoutes.has(path) && !machineRoutes.has(path));
 const httpVerbs = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"] as const;
 const allowedRouteExports = new Set(["runtime", "dynamic", "maxDuration", ...httpVerbs]);
 
@@ -30,7 +31,7 @@ describe("API route composition", () => {
   test("classifies every route discovered from the API directory", () => {
     expect(routePaths.length).toBeGreaterThan(0);
     for (const path of publicRoutes) expect(routePaths, path).toContain(path);
-    expect([...publicRoutes].length + privateRoutes.length).toBe(routePaths.length);
+    expect([...publicRoutes].length + [...machineRoutes].length + privateRoutes.length).toBe(routePaths.length);
   });
 
   test("keeps every route module limited to HTTP and route metadata exports", async () => {
@@ -54,6 +55,17 @@ describe("API route composition", () => {
       expect(route.runtime, path).toBe("nodejs");
       expect(route.dynamic, path).toBe("force-dynamic");
     }
+  });
+
+  test("keeps the wallet paymaster callback session-free but action-scoped", async () => {
+    const route = await loadRoute("actions/[id]/paymaster/route.ts");
+    expect(route.runtime).toBe("nodejs");
+    expect(route.dynamic).toBe("force-dynamic");
+    const handler = route.POST as (request: Request, context: { params: Promise<{ id: string }> }) => Promise<Response>;
+    const response = await handler(new Request("https://home.test/api/actions/not-a-uuid/paymaster", { method: "POST", body: "{}" }), { params: Promise.resolve({ id: "not-a-uuid" }) });
+    expect(response.status).toBe(400);
+    expect(response.headers.get("cache-control")).toContain("private");
+    expect(response.headers.get("cache-control")).toContain("no-store");
   });
 
   test("keeps every private route dynamic, Node-only, authenticated, and private", async () => {

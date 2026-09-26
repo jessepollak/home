@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  FIXTURE_BORROW_MARKET_ID,
   FIXTURE_CATALOG,
   FIXTURE_WALLET_TOKEN,
   balancesSnapshotFixture,
@@ -295,7 +296,7 @@ describe("balance presentation", () => {
     expect(presentation.summary).toEqual({
       cash: { status: "complete", value: "$12.34" },
       investments: { status: "complete", value: "$78.21", assetCount: 1 },
-      borrow: { kind: "position", status: "complete", value: "$30.01", rate: "5.10% APR" },
+      borrow: { kind: "position", status: "complete", value: "$30.01", rate: "5.10% APR", debts: [{ marketId: FIXTURE_BORROW_MARKET_ID, baseUnits: "30010000" }] },
     });
   });
 
@@ -408,6 +409,7 @@ describe("balance presentation", () => {
       status: "partial",
       value: "$30.01",
       rate: "5.10% APR",
+      debts: [{ marketId: FIXTURE_BORROW_MARKET_ID, baseUnits: "30010000" }],
     });
   });
 

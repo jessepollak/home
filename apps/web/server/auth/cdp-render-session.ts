@@ -2,12 +2,12 @@ import "server-only";
 
 import { randomBytes } from "node:crypto";
 import { getAddress } from "viem";
-import { BASE_CHAIN_ID, type VerifiedAccountSession } from "@/shared/account/session-types";
+import { BASE_CHAIN_ID, OWNER_SESSION_RETENTION_MS, type VerifiedAccountSession } from "@/shared/account/session-types";
 import { cookie, equalText, readSignedValue, signedValue } from "@/server/auth/signed-cookie";
 
 export const HOME_CDP_SESSION_COOKIE = "home-cdp-session";
 export const HOME_CDP_LIVE_COOKIE = "home-cdp-live";
-const CDP_RENDER_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+const CDP_RENDER_SESSION_TTL_MS = OWNER_SESSION_RETENTION_MS;
 const CDP_RENDER_SESSION_MAX_AGE = CDP_RENDER_SESSION_TTL_MS / 1000;
 const subjectPattern = /^[a-zA-Z0-9-]{1,100}$/;
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;

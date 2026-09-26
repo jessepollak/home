@@ -24,7 +24,7 @@ export function AppDrawer({ open, labelledBy, describedBy, immediate = false, in
 }) {
   const popupRef = useRef<HTMLDivElement>(null);
   return (
-    <Drawer open={open} modal swipeDirection="down" onOpenChange={(nextOpen, eventDetails) => {
+    <Drawer open={open} modal keyboardAware swipeDirection="down" onOpenChange={(nextOpen, eventDetails) => {
       if (nextOpen) return;
       if (onCancel() === false) eventDetails.cancel();
     }} onOpenChangeComplete={(nextOpen) => { if (!nextOpen) onClose?.(); }}>
@@ -32,10 +32,10 @@ export function AppDrawer({ open, labelledBy, describedBy, immediate = false, in
         ref={popupRef}
         aria-labelledby={labelledBy}
         aria-describedby={describedBy}
-        initialFocus={initialFocusRef ?? (() => popupRef.current?.querySelector<HTMLElement>("[data-initial-focus]:not(:disabled)") ?? true)}
+        initialFocus={initialFocusRef ?? (() => popupRef.current?.querySelector<HTMLElement>("[data-money-amount-input]:not(:disabled)") ?? popupRef.current?.querySelector<HTMLElement>("[data-initial-focus]:not(:disabled)") ?? true)}
         data-money-sheet=""
         immediate={immediate}
-        className="max-h-[88svh] sm:mx-auto sm:max-w-md"
+        className="max-h-[min(88svh,calc(100dvh_-_var(--drawer-keyboard-inset,0px)_-_2rem))] sm:mx-auto sm:max-w-md"
       >
         <DrawerSwipeHandle data-money-sheet-grabber="" />
         {children}
@@ -82,14 +82,14 @@ export function MoneyModalHeader(props: MoneyModalHeaderProps) {
 
 export function MoneyModalBody({ children, className = "", hasFooter = false }: { children: ReactNode; className?: string; hasFooter?: boolean }) {
   return (
-    <div className={`flex min-h-0 flex-1 flex-col overflow-auto px-4 ${hasFooter ? "pb-4" : "pb-[max(1rem,env(safe-area-inset-bottom))]"} ${className}`.trim()}>
+    <div data-slot="money-modal-body" className={`flex min-h-0 flex-1 flex-col overflow-auto px-4 ${hasFooter ? "pb-4" : "pb-[max(1rem,calc(env(safe-area-inset-bottom)_-_var(--drawer-keyboard-inset,0px)))]"} ${className}`.trim()}>
       {children}
     </div>
   );
 }
 
 type MoneyModalFooterProps = {
-  primaryLabel: ReactNode; onPrimary?: () => void; primaryDisabled?: boolean; primaryType?: "button" | "submit";
+  primaryLabel: ReactNode; onPrimary?: () => void; primaryDisabled?: boolean; primaryType?: "button" | "submit"; primaryAutoFocus?: boolean;
   secondaryLabel?: ReactNode; onSecondary?: () => void; secondaryDisabled?: boolean;
 };
 
@@ -97,17 +97,17 @@ export function MoneyModalFooter(props: MoneyModalFooterProps) {
   return <FooterButtons {...props} />;
 }
 
-export function MoneyConfirmFooter({ action, actionExpired = false, ...props }: MoneyModalFooterProps & { action: PreparedMoneyAction; actionExpired?: boolean }) {
-  return <FooterButtons {...props} action={action} actionExpired={actionExpired} />;
+export function MoneyConfirmFooter({ action, actionExpired = false, submitting = false, ...props }: MoneyModalFooterProps & { action: PreparedMoneyAction; actionExpired?: boolean; submitting?: boolean }) {
+  return <FooterButtons {...props} action={action} actionExpired={actionExpired} submitting={submitting} />;
 }
 
-function FooterButtons({ primaryLabel, onPrimary, primaryDisabled = false, primaryType = "button", secondaryLabel, onSecondary, secondaryDisabled = false, action, actionExpired = false }: MoneyModalFooterProps & { action?: PreparedMoneyAction; actionExpired?: boolean }) {
+function FooterButtons({ primaryLabel, onPrimary, primaryDisabled = false, primaryType = "button", primaryAutoFocus = false, secondaryLabel, onSecondary, secondaryDisabled = false, action, actionExpired = false, submitting = false }: MoneyModalFooterProps & { action?: PreparedMoneyAction; actionExpired?: boolean; submitting?: boolean }) {
   const { expired } = useReactiveExpiry(action?.expiresAt ?? null);
   const active = action && !actionExpired && !expired && Number.isFinite(Date.parse(action.expiresAt));
   return (
     <DrawerFooter>
-      <Button size="lg" className="h-11" type={primaryType} disabled={primaryDisabled} onClick={onPrimary} {...(active ? { [MONEY_ACTION_ID_ATTRIBUTE]: action.id } : {})}>{primaryLabel}</Button>
-      {secondaryLabel && onSecondary ? <Button size="lg" variant="ghost" className="h-11" disabled={secondaryDisabled} onClick={onSecondary}>{secondaryLabel}</Button> : null}
+      <Button size="touch" type={primaryType} autoFocus={primaryAutoFocus} disabled={primaryDisabled} loading={submitting} onClick={onPrimary} {...(active ? { [MONEY_ACTION_ID_ATTRIBUTE]: action.id } : {})}>{primaryLabel}</Button>
+      {secondaryLabel && onSecondary ? <Button size="touch" variant="ghost" disabled={secondaryDisabled || submitting} onClick={onSecondary}>{secondaryLabel}</Button> : null}
     </DrawerFooter>
   );
 }

@@ -14,13 +14,15 @@ const sphereFragment = `
 precision mediump float;
 varying vec2 vPosition;
 uniform float uPixels;
+uniform vec3 uShade;
+uniform vec3 uLight;
 void main() {
   float radius = dot(vPosition, vPosition);
   if (radius > 1.) discard;
   vec3 normal = vec3(vPosition, sqrt(1. - radius));
   float light = max(0., dot(normal, normalize(vec3(-.45, .65, 1.))));
   float edge = pow(1. - normal.z, 2.);
-  vec3 color = mix(vec3(.84, .88, .93), vec3(.986, .991, 1.), light);
+  vec3 color = mix(uShade, uLight, light);
   color -= edge * .028;
   float alpha = 1. - smoothstep(1. - 3. / uPixels, 1., radius);
   gl_FragColor = vec4(color, alpha);
@@ -44,11 +46,12 @@ void main() {
 const pointFragment = `
 precision mediump float;
 varying float vDepth;
+uniform vec3 uLand;
 void main() {
   if (vDepth <= .025) discard;
   float radius = length(gl_PointCoord - .5);
   float alpha = (1. - smoothstep(.28, .5, radius)) * (.32 + .38 * vDepth);
-  gl_FragColor = vec4(.51, .584, .678, alpha);
+  gl_FragColor = vec4(uLand, alpha);
 }`;
 
 export type GlobeRenderer = {
@@ -91,6 +94,7 @@ export function createGlobeRenderer(
   let drag: { id: number; startX: number; startY: number; x: number; y: number; time: number; active: boolean } | null = null;
   let resizeObserver: ResizeObserver | undefined;
   let intersectionObserver: IntersectionObserver | undefined;
+  let themeObserver: MutationObserver | undefined;
 
   function dispose() {
     if (disposed) return;
@@ -104,6 +108,7 @@ export function createGlobeRenderer(
     stage.removeEventListener("lostpointercapture", pointerCancelled);
     resizeObserver?.disconnect();
     intersectionObserver?.disconnect();
+    themeObserver?.disconnect();
     window.removeEventListener("resize", resize);
     document.removeEventListener("visibilitychange", visibilityChanged);
     canvas.removeEventListener("webglcontextlost", contextLost);
@@ -271,27 +276,45 @@ export function createGlobeRenderer(
     const spherePosition = gl.getAttribLocation(sphere, "aPosition");
     const pointPosition = gl.getAttribLocation(dots, "aPosition");
     const pixelsUniform = gl.getUniformLocation(sphere, "uPixels");
+    const shadeUniform = gl.getUniformLocation(sphere, "uShade");
+    const lightUniform = gl.getUniformLocation(sphere, "uLight");
+    const landUniform = gl.getUniformLocation(dots, "uLand");
     const longitudeUniform = gl.getUniformLocation(dots, "uLongitude");
     const tiltUniform = gl.getUniformLocation(dots, "uTilt");
     const sizeUniform = gl.getUniformLocation(dots, "uSize");
+    let paletteDirty = true;
     gl.enable(gl.BLEND);
     gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.clearColor(0, 0, 0, 0);
 
+    function setColor(uniform: WebGLUniformLocation | null, token: string, style: CSSStyleDeclaration) {
+      const color = style.getPropertyValue(token).trim();
+      if (!/^#[\da-f]{6}$/i.test(color)) return;
+      const value = Number.parseInt(color.slice(1), 16);
+      gl!.uniform3f(uniform, (value >> 16 & 255) / 255, (value >> 8 & 255) / 255, (value & 255) / 255);
+    }
+
     draw = () => {
       if (disposed) return;
+      const style = paletteDirty ? getComputedStyle(stage) : null;
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.useProgram(sphere);
       gl.bindBuffer(gl.ARRAY_BUFFER, quad);
       gl.enableVertexAttribArray(spherePosition);
       gl.vertexAttribPointer(spherePosition, 2, gl.FLOAT, false, 0, 0);
       gl.uniform1f(pixelsUniform, canvas.width);
+      if (style) {
+        setColor(shadeUniform, "--globe-sphere-shade", style);
+        setColor(lightUniform, "--globe-sphere-light", style);
+      }
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       gl.disableVertexAttribArray(spherePosition);
       gl.useProgram(dots);
       gl.bindBuffer(gl.ARRAY_BUFFER, points);
       gl.enableVertexAttribArray(pointPosition);
       gl.vertexAttribPointer(pointPosition, 3, gl.FLOAT, false, 0, 0);
+      if (style) setColor(landUniform, "--globe-land", style);
+      paletteDirty = false;
       gl.uniform1f(longitudeUniform, longitude * Math.PI / 180);
       gl.uniform1f(tiltUniform, latitude * Math.PI / 180);
       gl.uniform1f(sizeUniform, Math.max(1.5, canvas.width * .0038));
@@ -312,6 +335,11 @@ export function createGlobeRenderer(
     window.addEventListener("resize", resize);
     resizeObserver = new ResizeObserver(resize);
     resizeObserver.observe(canvas);
+    themeObserver = new MutationObserver(() => {
+      paletteDirty = true;
+      if (visible && !document.hidden) draw();
+    });
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
     intersectionObserver = new IntersectionObserver(([entry]) => {
       visible = entry.isIntersecting;
       if (visible) resize();

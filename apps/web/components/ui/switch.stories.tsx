@@ -14,6 +14,8 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
+export const Dark: Story = { ...Default, globals: { theme: "dark" } };
+
 export const Checked: Story = { args: { defaultChecked: true } };
 
 export const Disabled: Story = { args: { disabled: true } };

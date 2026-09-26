@@ -53,6 +53,20 @@ function pendingSavings(operation: "deposit" | "withdraw") {
 }
 
 describe("pending action response parser", () => {
+  test("preserves optional cash-out deposit payee hash on reload", () => {
+    const value = pendingSavings("deposit");
+    const metadata = {
+      product: "cashout", operation: "deposit", providerId: "peer", providerName: "Peer", environment: "production",
+      platform: "cashapp", platformLabel: "Cash App", currency: "USD", canonicalHandle: "Alice",
+      approximateFiatAmount: "2", minConversionRate: "1", intentAmountRange: { min: "1000000", max: "1000000" },
+      estimateAsOf: "2026-09-12T12:00:00.000Z", escrow: VAULT,
+    };
+    const cashout = { ...value, kind: "cash-out", summary: { ...value.summary, metadata } };
+    expect(parsePendingActionResponse(cashout, ID, session)?.metadata).toMatchObject(metadata);
+    const withPayee = { ...cashout, summary: { ...cashout.summary,
+      metadata: { ...metadata, payeeHash: `0x${"ab".repeat(32)}` } } };
+    expect(parsePendingActionResponse(withPayee, ID, session)?.metadata).toMatchObject(withPayee.summary.metadata);
+  });
   test.each(["deposit", "withdraw"] as const)(
     "retains validated savings %s metadata on reload",
     (operation) => {
@@ -69,6 +83,19 @@ describe("pending action response parser", () => {
       });
     },
   );
+
+  test("restores a validated USDC network fee on pending review", () => {
+    const value = pendingSavings("deposit");
+    const fee = { payment: "usdc", token: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", paymaster: "0x2FAEB0760D4230Ef2aC21496Bb4F0b47D634FD4c", maxFeeBaseUnits: "100000", decimals: 6 } as const;
+    const parsed = parsePendingActionResponse({ ...value, summary: { ...value.summary, networkFee: fee } }, ID, session);
+    expect(parsed?.networkFee).toEqual({ ...fee, token: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" });
+  });
+
+  test("rejects a malformed stored fee instead of treating it as a disabled policy", () => {
+    const value = pendingSavings("deposit");
+    expect(parsePendingActionResponse({ ...value, summary: { ...value.summary, networkFee: { payment: "usdc", maxFeeBaseUnits: "bad" } } }, ID, session)).toBeNull();
+    expect(parsePendingActionResponse(value, ID, session)).not.toBeNull();
+  });
 
   test("retains an already-stored legacy deposit on reload", () => {
     const value = pendingSavings("deposit");

@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { expect, userEvent, within } from "storybook/test";
 import {
   Select,
   SelectContent,
@@ -29,4 +30,15 @@ export const Default: Story = {
       </SelectContent>
     </Select>
   ),
+};
+
+export const Dark: Story = {
+  ...Default,
+  globals: { theme: "dark" },
+  play: async ({ canvasElement }) => {
+    await userEvent.click(within(canvasElement).getByRole("combobox", { name: "Asset" }));
+    const popup = await within(canvasElement.ownerDocument.body).findByRole("listbox");
+    await expect(canvasElement.contains(popup)).toBe(false);
+    await expect(popup).toBeVisible();
+  },
 };

@@ -1,7 +1,7 @@
 "use client";
 
 import { LoaderCircle } from "lucide-react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertIcon, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   CDP_SETUP_DOC_HREF,
@@ -63,7 +63,9 @@ export function SignInStatus({
   if (pending) {
     return (
       <Alert className="mt-4" aria-live="polite" role="status">
-        <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+        <AlertIcon>
+          <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+        </AlertIcon>
         <AlertDescription>{pending}</AlertDescription>
       </Alert>
     );
@@ -73,7 +75,7 @@ export function SignInStatus({
       <Alert className="mt-4">
         <AlertTitle>Sign-out did not finish.</AlertTitle>
         <AlertDescription>
-          <Button className="mt-2 w-full" size="lg" variant="secondary" onClick={onRetrySignOut}>
+          <Button className="mt-2 w-full" size="touch" variant="secondary" onClick={onRetrySignOut}>
             Retry sign out
           </Button>
         </AlertDescription>
@@ -85,7 +87,7 @@ export function SignInStatus({
       <Alert className="mt-4">
         <AlertTitle>We could not verify this session.</AlertTitle>
         <AlertDescription>
-          <Button className="mt-2 w-full" size="lg" variant="secondary" onClick={onRetryValidation}>
+          <Button className="mt-2 w-full" size="touch" variant="secondary" onClick={onRetryValidation}>
             Try again
           </Button>
         </AlertDescription>

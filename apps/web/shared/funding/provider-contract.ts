@@ -147,6 +147,8 @@ export type OfframpOrder = {
   canonicalHandle: string | null;
   payeeHash: `0x${string}`;
   amountAtomic: string;
+  filledAmountAtomic: string;
+  returnedAmountAtomic: string;
   remainingAmountAtomic: string;
   nextActions: ReadonlyArray<"withdraw">;
   updatedAt: string;
@@ -186,6 +188,10 @@ export type FundingOfframpProvider = {
     accessPolicyPaymentMethods: ReadonlyArray<string>;
     requiresIdentityAttestation: boolean;
   }>;
+  payeeHash(
+    input: { platform: string; currency: string; canonicalHandle: string },
+    ctx: OfframpContext,
+  ): Promise<`0x${string}`>;
   prepareWithdraw(
     input: { owner: `0x${string}`; depositId: string },
     ctx: OfframpContext,
@@ -200,8 +206,9 @@ export type FundingOfframpProvider = {
   ): Promise<ReadonlyArray<OfframpOrder>>;
   depositIdFromReceipt(
     receipt: OfframpReceipt,
-    input: { owner: `0x${string}`; escrow: `0x${string}` },
+    input: { owner: `0x${string}`; escrow: `0x${string}`; amountAtomic: string; intentAmountRange: { min: string; max: string } },
   ): string | null;
+  withdrawnAmountFromReceipt(receipt: OfframpReceipt, input: { owner: `0x${string}`; depositId: string }): string | null;
 };
 
 export type ProviderContext = {

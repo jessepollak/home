@@ -40,6 +40,7 @@ export type TransferActionsProps = {
   availableAssets?: readonly TransferAssetAvailability[];
   assetMarkResolution?: AssetMarkResolution;
   regionId?: RegionId;
+  regionReady?: boolean;
 };
 
 type TransferWallet = Pick<
@@ -66,6 +67,7 @@ export function TransferActionsForWallet({
   availableAssets,
   assetMarkResolution,
   regionId = "US",
+  regionReady = true,
 }: TransferActionsProps & { wallet: TransferWallet }) {
   const routing = useOptionalHomeShellRouting();
   const [sendOpen, setSendOpen] = useState(false);
@@ -137,8 +139,7 @@ export function TransferActionsForWallet({
       <Button
         data-action-trigger=""
         variant="outline"
-        size="lg"
-        className="h-11"
+        size="touch"
         disabled={!boundary}
         onPointerDown={() => void SendSheet.preload()}
         onClick={openSend}
@@ -149,6 +150,7 @@ export function TransferActionsForWallet({
       {mounted
         ? createPortal(
             <SendSheet
+              key={regionId}
               open={visibleSend}
               address={verifiedAddress}
               immediate={dropPrivate}
@@ -157,12 +159,14 @@ export function TransferActionsForWallet({
               prepareMoneyAction={wallet.prepareMoneyAction}
               fetchAccountResource={wallet.fetchAccountResource}
               regionId={regionId}
+              regionReady={regionReady}
               resumeMoneyAction={wallet.resumeMoneyAction}
               executeMoneyAction={wallet.executeMoneyAction}
               ownerBoundary={boundary}
               resumeActionId={initialActionId}
               onReview={showReview}
               onInvalidResume={showFirstStep}
+              onSubmitted={showFirstStep}
               onClose={close}
               onClosed={finishClose}
             />,

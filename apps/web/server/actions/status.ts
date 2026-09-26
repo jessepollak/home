@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { DerivedActionStatus } from "@/shared/money-actions/types";
+import type { ActionOutcome } from "./store";
 
 export type ActionReceiptState = "pending" | "confirmed" | "failed" | "unavailable";
 export type { DerivedActionStatus } from "@/shared/money-actions/types";
@@ -11,12 +12,12 @@ export function deriveActionStatus(input: {
   confirmedAt: string;
   transactionHash: string | null;
   receipt: ActionReceiptState | null;
+  outcome: ActionOutcome | null;
   now?: Date;
 }): DerivedActionStatus {
+  if (input.outcome) return input.outcome === "succeeded" ? "confirmed" : "failed";
   if (input.transactionHash) {
-    if (input.receipt === "confirmed") return "confirmed";
-    if (input.receipt === "failed") return "failed";
-    if (input.receipt === "pending") return "pending";
+    if (input.receipt === "pending" || input.receipt === "confirmed" || input.receipt === "failed") return input.receipt;
     return "unknown";
   }
   const confirmedAt = Date.parse(input.confirmedAt);

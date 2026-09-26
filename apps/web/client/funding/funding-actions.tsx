@@ -32,6 +32,7 @@ export type FundingActionsProps = {
   initialFlow?: FundingFlow | null;
   returnedFromProvider?: boolean;
   regionId?: RegionId;
+  regionReady?: boolean;
   onClosed?: () => void;
 };
 
@@ -46,6 +47,7 @@ export function FundingActionsForWallet({
   initialFlow = null,
   returnedFromProvider = false,
   regionId = "GLOBAL",
+  regionReady = true,
   onClosed,
 }: FundingActionsProps & {
   wallet: Parameters<typeof FundingExperienceForWallet>[0]["wallet"];
@@ -118,14 +120,14 @@ export function FundingActionsForWallet({
       initialStep={requestedFlow === "receive" ? "receive" : "method"}
       onStepChange={onStepChange}
       regionId={regionId}
+      regionReady={regionReady}
     />
   );
 
   return (
     <>
       <Button
-        size="lg"
-        className="h-11"
+        size="touch"
         onPointerDown={() => void preloadAddMoneySheet()}
         onClick={() => {
           void preloadAddMoneySheet();

@@ -1,7 +1,7 @@
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { SupportedGlobeDynamic } from "@/client/landing/supported-globe-dynamic";
-import { PortfolioHomeExperience } from "@/client/home/home-experience";
+import { LandingShell } from "@/client/home/landing-shell";
 import {
   homeHrefWithOverlays,
   readShellAccountParam,
@@ -19,10 +19,9 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
   }
 
   return (
-    <PortfolioHomeExperience
+    <LandingShell
       detectedCountry={readRequestCountry(await headers())}
       landingVisual={<SupportedGlobeDynamic />}
-      routeMode="landing"
       initialSearch={search}
     />
   );

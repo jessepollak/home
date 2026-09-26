@@ -12,9 +12,9 @@ const iconName = typeof iconValue === 'string' && /^[a-z]+(?:-[a-z]+)*$/.test(ic
   ? iconValue.replace(/(^|-)([a-z])/g, (_, _separator, letter: string) => letter.toUpperCase()) : null
 const iconExample = swappedIcon?.hasCodeConnect() ? swappedIcon.executeTemplate().example : iconName ? figma.code`<${iconName} />` : null
 const variant = instance.getEnum('variant', { default: 'default', outline: 'outline', secondary: 'secondary', ghost: 'ghost', destructive: 'destructive', link: 'link' })
-const size = instance.getEnum('size', { touch: 'lg', xs: 'xs', sm: 'sm', default: 'default', lg: 'lg', 'icon-sm': 'icon-sm', icon: 'icon', 'icon-lg': 'icon-lg' })
+const size = instance.getEnum('size', { touch: 'touch', xs: 'xs', sm: 'sm', default: 'default', lg: 'lg', 'icon-sm': 'icon-sm', icon: 'icon', 'icon-lg': 'icon-lg' })
 const state = instance.getEnum('state', { disabled: 'disabled', loading: 'loading' })
 export default {
-  example: figma.code`<Button variant="${variant}" size="${size}"${instance.getEnum('size', { touch: true }) ? figma.code` className="h-11"` : null}${state === 'disabled' ? figma.code` disabled` : null}${state === 'loading' ? figma.code` aria-busy` : null}>${showIcon ? iconExample : null}{${JSON.stringify(label)}}</Button>`,
+  example: figma.code`<Button variant="${variant}" size="${size}"${state === 'disabled' ? figma.code` disabled` : null}${state === 'loading' ? figma.code` loading` : null}>${showIcon ? iconExample : null}{${JSON.stringify(label)}}</Button>`,
   imports: ['import { Button } from "@/components/ui/button"', ...(showIcon && iconName && !swappedIcon?.hasCodeConnect() ? [`import { ${iconName} } from "lucide-react"`] : [])], id: 'button', metadata: { nestable: true },
 }

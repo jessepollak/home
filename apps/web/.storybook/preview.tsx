@@ -10,14 +10,29 @@ import "@/app/globals.css";
 import { rejectUnexpectedStoryRequest } from "./request-guard";
 
 const preview: Preview = {
+  globalTypes: {
+    theme: {
+      description: "Home appearance",
+      toolbar: {
+        title: "Theme",
+        items: ["light", "dark"],
+        dynamicTitle: true,
+      },
+    },
+  },
+  initialGlobals: { theme: "light" },
   decorators: [
-    (Story) => (
-      <HomeQueryClientProvider>
-        <PresentationRegionProvider regionId="GLOBAL">
-          <Story />
-        </PresentationRegionProvider>
-      </HomeQueryClientProvider>
-    ),
+    (Story, context) => {
+      document.documentElement.classList.toggle("dark", context.globals.theme === "dark");
+      document.body.style.backgroundColor = "var(--background)";
+      return (
+        <HomeQueryClientProvider>
+          <PresentationRegionProvider regionId="GLOBAL">
+            <Story />
+          </PresentationRegionProvider>
+        </HomeQueryClientProvider>
+      );
+    },
   ],
   loaders: [
     mswLoader(async () => {
@@ -34,11 +49,16 @@ const preview: Preview = {
     getHomeQueryClient().clear();
     return () => {
       getHomeQueryClient().clear();
+      document.documentElement.classList.remove("dark");
     };
   },
   parameters: {
     nextjs: {
       appDirectory: true,
+    },
+    // Review boards sort first in the sidebar; everything else keeps configure order.
+    options: {
+      storySort: { order: ["Review", ["Boards"]] },
     },
     // Every story test runs the a11y addon's checks. Violations are reported as
     // warnings (`todo`) so the gate fails on behavior, not on pre-existing
@@ -46,6 +66,16 @@ const preview: Preview = {
     // workshop stories opt into `error` in their own meta.
     a11y: {
       test: "todo",
+      // Base UI renders visually hidden, aria-hidden focus guards around open
+      // popups to wrap focus; they are intentional sentinels, not content.
+      config: {
+        rules: [
+          {
+            id: "aria-hidden-focus",
+            selector: "[aria-hidden=\"true\"]:not([data-base-ui-focus-guard])",
+          },
+        ],
+      },
     },
     viewport: {
       viewports: {

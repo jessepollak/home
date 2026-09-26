@@ -126,3 +126,95 @@ export const NuxWithoutValue: Story = {
     await expect(canvasElement.querySelector("[data-slot=item-actions]")).not.toBeNull();
   },
 };
+
+function LongValueRows() {
+  return (
+    <div className="flex flex-col gap-4">
+      {[390, 320].map((width) => (
+        <ul key={width} className="max-w-full list-none p-0" style={{ width }} data-row-width={width}>
+          <BalanceRow
+            icon={<PiggyBank className="size-4" />}
+            label="Staked ETH"
+            context="Healthy"
+            value="12,345,678.90 USDC"
+            valueContext="5.01% APR"
+            onActivate={() => {}}
+            activateLabel="View Staked ETH"
+          />
+        </ul>
+      ))}
+    </div>
+  );
+}
+
+async function expectLongValuesVisible(canvasElement: HTMLElement, wrapped: boolean) {
+  for (const width of [390, 320]) {
+    const list = canvasElement.querySelector<HTMLElement>(`[data-row-width="${width}"]`);
+    if (!list) throw new Error(`Missing ${width}px finance row`);
+    const canvas = within(list);
+    const row = list.querySelector<HTMLElement>("[data-slot=item]");
+    const body = list.querySelector<HTMLElement>("[data-slot=finance-row-body]");
+    const column = list.querySelector<HTMLElement>("[data-slot=finance-row-value]");
+    if (!row || !body || !column) throw new Error("Missing finance row layout");
+    const label = canvas.getByText("Staked ETH");
+    const value = canvas.getByText("12,345,678.90 USDC");
+    const labelBox = label.getBoundingClientRect();
+    const valueBox = value.getBoundingClientRect();
+    const columnBox = column.getBoundingClientRect();
+    const bodyBox = body.getBoundingClientRect();
+    const rowBox = row.getBoundingClientRect();
+    const range = document.createRange();
+    range.selectNodeContents(value);
+    const textBox = range.getBoundingClientRect();
+    const inlineEnd = list.closest("[dir=rtl]") ? "left" : "right";
+    await expect(list.getBoundingClientRect().width).toBe(width);
+    await expect(labelBox.width).toBeGreaterThanOrEqual(40);
+    await expect(value.scrollWidth).toBeLessThanOrEqual(value.clientWidth + 1);
+    await expect(textBox.left).toBeGreaterThanOrEqual(valueBox.left - 1);
+    await expect(textBox.right).toBeLessThanOrEqual(valueBox.right + 1);
+    await expect(textBox.bottom).toBeLessThanOrEqual(valueBox.bottom + 1);
+    await expect(valueBox.left).toBeGreaterThanOrEqual(rowBox.left - 1);
+    await expect(valueBox.right).toBeLessThanOrEqual(rowBox.right + 1);
+    await expect(Math.abs(columnBox[inlineEnd] - bodyBox[inlineEnd])).toBeLessThanOrEqual(1);
+    if (wrapped) {
+      await expect(columnBox.top).toBeGreaterThanOrEqual(labelBox.bottom - 1);
+    } else if (width === 390) {
+      await expect(Math.abs(labelBox.top - valueBox.top)).toBeLessThanOrEqual(1);
+    }
+    await expect(canvas.getByText("5.01% APR")).toBeVisible();
+    await expect(row.querySelector("[data-slot=item-actions]")).not.toBeNull();
+  }
+}
+
+export const LongValueAtNormalText: Story = {
+  render: () => <LongValueRows />,
+  play: async ({ canvasElement }) => expectLongValuesVisible(canvasElement, false),
+};
+
+export const LongValueAtEnlargedText: Story = {
+  render: () => <LongValueRows />,
+  play: async ({ canvasElement }) => {
+    const root = canvasElement.ownerDocument.documentElement;
+    const previous = root.style.fontSize;
+    root.style.fontSize = "200%";
+    try {
+      await expectLongValuesVisible(canvasElement, true);
+    } finally {
+      root.style.fontSize = previous;
+    }
+  },
+};
+
+export const RtlLongValueAtEnlargedText: Story = {
+  render: () => <div dir="rtl"><LongValueRows /></div>,
+  play: async ({ canvasElement }) => {
+    const root = canvasElement.ownerDocument.documentElement;
+    const previous = root.style.fontSize;
+    root.style.fontSize = "200%";
+    try {
+      await expectLongValuesVisible(canvasElement, true);
+    } finally {
+      root.style.fontSize = previous;
+    }
+  },
+};

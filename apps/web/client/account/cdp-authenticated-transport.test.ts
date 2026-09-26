@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { normalizeAccountResourcePath } from "./cdp-authenticated-transport";
 import {
   afterActionScopes,
   applyActionHandleEffects,
   createBalanceFreshnessState,
   indexedScopes,
+  networkFeePolicyScope,
   settleBalanceFreshness,
   initialActivityWindowEnd,
 } from "@/client/query/after-action";
@@ -23,12 +25,33 @@ function queryClientFixture() {
         data.set(JSON.stringify(queryKey), value);
         return value;
       },
-      invalidateQueries: async ({ queryKey }: { queryKey?: readonly unknown[] }) => {
-        invalidations.push([...(queryKey ?? [])]);
+      invalidateQueries: async ({ queryKey, predicate }: {
+        queryKey?: readonly unknown[];
+        predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
+      }) => {
+        if (queryKey) invalidations.push([...queryKey]);
+        if (predicate) {
+          for (const key of [
+            [ownerKey, networkFeePolicyScope],
+            ["other-owner", networkFeePolicyScope],
+            ["other-owner", "balances"],
+          ]) {
+            if (predicate({ queryKey: key })) invalidations.push(key);
+          }
+        }
       },
     },
   };
 }
+
+describe("authenticated account resources", () => {
+  test("allows country preference writes without opening unrelated account endpoints", () => {
+    expect(normalizeAccountResourcePath("/api/account/country-preference"))
+      .toBe("/api/account/country-preference");
+    expect(() => normalizeAccountResourcePath("/api/account/private"))
+      .toThrow();
+  });
+});
 
 describe("authenticated action handle effects", () => {
   test("starts balance freshness when the provider handle is recorded", async () => {
@@ -47,7 +70,7 @@ describe("authenticated action handle effects", () => {
     expect(fixture.invalidations).toEqual([[ownerKey, "actions"]]);
   });
 
-  test("one transaction hash post advances Activity and invalidates the four action scopes once", async () => {
+  test("one transaction hash post advances Activity and invalidates action scopes and every owner's fee policy", async () => {
     const fixture = queryClientFixture();
     const freshness: string[] = [];
     const initialWindow = initialActivityWindowEnd(Date.parse("2026-09-12T12:00:00.000Z"));
@@ -62,9 +85,9 @@ describe("authenticated action handle effects", () => {
     });
 
     expect(fixture.invalidations).toEqual(
-      afterActionScopes.map((scope) => [ownerKey, scope]),
+      [...afterActionScopes.map((scope) => [ownerKey, scope]), [ownerKey, networkFeePolicyScope], ["other-owner", networkFeePolicyScope]],
     );
-    expect(new Set(fixture.invalidations.map((key) => key.join("\u0000"))).size).toBe(4);
+    expect(new Set(fixture.invalidations.map((key) => key.join("\u0000"))).size).toBe(6);
     expect(fixture.client.getQueryData([ownerKey, "activity-window"]))
       .not.toBe(initialWindow);
     expect(freshness).toEqual([actionId]);
@@ -82,7 +105,11 @@ describe("authenticated action handle effects", () => {
     });
 
     expect(state.moved.has(actionId)).toBe(true);
-    expect(fixture.invalidations).toEqual(indexedScopes.map((scope) => [ownerKey, scope]));
+    expect(fixture.invalidations).toEqual([
+      ...indexedScopes.map((scope) => [ownerKey, scope]),
+      [ownerKey, networkFeePolicyScope],
+      ["other-owner", networkFeePolicyScope],
+    ]);
     expect(fixture.invalidations.some(([, scope]) => scope === "balances")).toBe(false);
   });
 });

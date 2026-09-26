@@ -14,11 +14,46 @@ describe("observability schema", () => {
       sourceAttemptCount: 1,
       pageCount: 1,
       rowCount: 2,
+      valuation: { priced: 1, unknownToken: 1, noRecentClose: 0, quoteUnavailable: 0, fxUnavailable: 0 },
     })).toMatchObject({
       code: "ACTIVITY_READ",
       source: "cdp-address-history",
       rowCount: 2,
+      valuation: { priced: 1, unknownToken: 1, noRecentClose: 0, quoteUnavailable: 0, fxUnavailable: 0 },
     });
+  });
+
+  test("bounds activity valuation counters and excludes extra or private fields", () => {
+    const line = normalizeObservabilityEvent({
+      kind: "activity-read",
+      route: "/api/activity",
+      outcome: "succeeded",
+      reason: "primary-source",
+      source: "cdp-sql",
+      durationMs: 10,
+      sourceDurationMs: 8,
+      sourceAttemptCount: 1,
+      pageCount: 1,
+      rowCount: 5,
+      valuation: {
+        priced: 10_001,
+        unknownToken: -1,
+        noRecentClose: "private-garbage",
+        quoteUnavailable: 2.6,
+        fxUnavailable: Infinity,
+        tokenAddress: "private-contract",
+        amount: "private-amount",
+      },
+      walletAddress: "private-address",
+    } as never);
+    expect(line).toHaveProperty("valuation", {
+      priced: 10_000,
+      unknownToken: 0,
+      noRecentClose: 0,
+      quoteUnavailable: 3,
+      fxUnavailable: 0,
+    });
+    expect(JSON.stringify(line)).not.toMatch(/private-/);
   });
 
   test("preserves cache-first balance outcomes and rejects unknown ones", () => {
@@ -265,16 +300,6 @@ describe("observability schema", () => {
       sandbox: "yes",
       durationMs: 1,
     } as never)).not.toHaveProperty("sandbox");
-  });
-
-  test("keeps the offramp orders provider-error code so a 502 is distinguishable in logs", () => {
-    expect(normalizeObservabilityEvent({
-      kind: "funding-order",
-      route: "/api/funding/offramp/orders",
-      code: "OFFRAMP_ORDERS_PROVIDER_ERROR",
-      outcome: "unavailable",
-      durationMs: 0,
-    })).toMatchObject({ code: "OFFRAMP_ORDERS_PROVIDER_ERROR", outcome: "unavailable" });
   });
 
   test("allows only closed user token diagnostics without credential fields", () => {

@@ -10,6 +10,7 @@ const STORYBOOK_RUNTIME_PATHS = [
   "/mockServiceWorker.js",
   "/currency-flags/",
   "/asset-marks/",
+  "/network-marks/",
   "/home-mark/",
   "/client/",
   "/components/",
@@ -25,8 +26,18 @@ export function isStorybookRuntimeRequest(request: Request, storybookOrigin: str
   return STORYBOOK_RUNTIME_PATHS.some((path) => url.pathname.startsWith(path));
 }
 
+const VERCEL_TOOLBAR_HOSTS = ["vercel.live", "vercel.com", "pusher.com"] as const;
+const VERCEL_TOOLBAR_PATHS = ["/.well-known/vercel/", "/_vercel/"] as const;
+
+export function isVercelToolbarRequest(request: Request, storybookOrigin: string): boolean {
+  const url = new URL(request.url);
+  if (url.origin === storybookOrigin) return VERCEL_TOOLBAR_PATHS.some((path) => url.pathname.startsWith(path));
+  return url.protocol === "https:" &&
+    VERCEL_TOOLBAR_HOSTS.some((host) => url.hostname === host || url.hostname.endsWith(`.${host}`));
+}
+
 export function rejectUnexpectedStoryRequest(request: Request, storybookOrigin: string): void {
-  if (isStorybookRuntimeRequest(request, storybookOrigin)) return;
+  if (isStorybookRuntimeRequest(request, storybookOrigin) || isVercelToolbarRequest(request, storybookOrigin)) return;
 
   throw new Error(
     `[Storybook request guard] Unexpected ${request.method} request to ${request.url}. `

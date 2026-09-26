@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import type { ShellPanelId } from "@/config/navigation";
-import { DashboardExperience } from "@/client/home/dashboard-experience";
+import { PortfolioHomeExperience } from "@/client/home/portfolio-home-experience";
 import { parseShellLocation, searchParamsToString } from "@/config/shell-location";
 import { readRequestCountry } from "@/server/region/request-country";
+import { readRenderSession } from "@/server/auth/render-session";
+import { readCountryPreferenceForRender } from "@/server/preferences/country";
 
 const shellTitles: Record<ShellPanelId, string> = {
   home: "Home",
@@ -35,9 +37,15 @@ export default async function ShellPage({
 }: PageProps<"/[...shell]">) {
   const { shell } = await params;
   const query = await searchParams;
+  const rendered = readRenderSession(await cookies());
+  const preference = rendered ? await readCountryPreferenceForRender(rendered.session) : null;
+  const accountPreference = rendered && preference
+    ? { accountProvider: rendered.session.accountProvider, subject: rendered.session.user.subject, regionId: preference.regionId }
+    : null;
   return (
-    <DashboardExperience
+    <PortfolioHomeExperience
       detectedCountry={readRequestCountry(await headers())}
+      accountPreference={accountPreference}
       initialLocation={parseShellLocation(shellPathname(shell))}
       initialSearch={searchParamsToString(query)}
     />

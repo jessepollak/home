@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { keepPreviousData } from "@tanstack/react-query";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { isInterruptionEligible } from "@/client/account/resource-failure";
@@ -15,6 +15,12 @@ import type {
 } from "@/shared/balances/types";
 
 type BalancesQuerySession = BalancesSession & { accountProvider?: string };
+
+class ProvisionalBalancesFailure extends Error {
+  constructor(cause: unknown) {
+    super("Provisional balances read failed.", { cause });
+  }
+}
 
 export type RecoverableBalancesState = BalancesState & {
   revalidating?: true;
@@ -70,16 +76,18 @@ export function useBalances(
   session: BalancesQuerySession | null,
   region: RegionId,
   fetchBalances: FetchBalances,
-  options: { enabled?: boolean } = {},
+  options: { enabled?: boolean; provisional?: boolean; held?: boolean } = {},
 ): RecoverableBalancesState {
   const validSession = isBalancesSession(session) ? session : null;
   const ownerKey = validSession ? dataOwnerKey(validSession) : null;
   const stalePolling = useRef({ identity: "", dataUpdatedAt: 0, completedRefetches: 0 });
+  const heldRegion = useRef<string | null>(null);
   const query = useHomeQuery<BalancesSnapshot>({
     queryKey: ownerKey
       ? ownerQueryKey(ownerKey, "balances", region)
       : ["unauthenticated", "balances-disabled", region],
-    enabled: ownerKey !== null && options.enabled !== false,
+    enabled: (queryState) => ownerKey !== null && options.enabled !== false && options.held !== true &&
+      (!options.provisional || !(queryState.state.error instanceof ProvisionalBalancesFailure)),
     staleTime: balancesStaleTimeMs,
     retry: false,
     refetchOnWindowFocus: true,
@@ -93,43 +101,68 @@ export function useBalances(
       ),
     meta: ownerKey ? ownerQueryMeta(ownerKey, "owner") : undefined,
     placeholderData: (previousData, previousQuery) =>
-      previousQuery?.queryKey[0] === ownerKey ? keepPreviousData(previousData) : undefined,
+      previousQuery?.queryKey[0] === ownerKey &&
+      (heldRegion.current !== `${ownerKey}\u0000${previousQuery.queryKey[2]}` || previousQuery.queryKey[2] === region)
+        ? keepPreviousData(previousData) : undefined,
     queryFn: async ({ signal }) => {
       if (!validSession) throw new Error("Balances are unavailable.");
-      return parseBalancesSnapshot(
-        await fetchBalances(region, signal),
-        {
-          subject: validSession.subject,
-          smartAccountAddress: validSession.smartAccountAddress,
-          chainId: 8453,
-        },
-        region,
-      );
+      try {
+        return parseBalancesSnapshot(
+          await fetchBalances(region, signal),
+          {
+            subject: validSession.subject,
+            smartAccountAddress: validSession.smartAccountAddress,
+            chainId: 8453,
+          },
+          region,
+        );
+      } catch (error) {
+        if (options.provisional) throw new ProvisionalBalancesFailure(error);
+        throw error;
+      }
     },
   });
+
+  const identity = ownerKey ? `${ownerKey}\u0000${region}` : null;
+  const suppressedFailure = query.isError && query.error instanceof ProvisionalBalancesFailure;
+  const held = options.held === true;
+
+  useEffect(() => {
+    if (held && identity) {
+      heldRegion.current = identity;
+    } else if (!held && query.data !== undefined && !query.isPlaceholderData) {
+      heldRegion.current = null;
+    }
+  }, [held, identity, query.data, query.isPlaceholderData]);
 
   const refetch = query.refetch;
   const retry = useCallback(async () => {
     await refetch({ cancelRefetch: false });
   }, [refetch]);
 
+  const verifiedRefetchDue = suppressedFailure && !options.provisional &&
+    ownerKey !== null && options.enabled !== false && !held && query.fetchStatus === "idle";
+  useEffect(() => {
+    if (verifiedRefetchDue) void refetch({ cancelRefetch: false });
+  }, [verifiedRefetchDue, refetch]);
+
   return useMemo(() => {
     const observation = {
-      identity: ownerKey ? `${ownerKey}\u0000${region}` : null,
+      identity,
       fetchStatus: query.fetchStatus,
       errorUpdatedAt: query.errorUpdatedAt,
       dataUpdatedAt: query.dataUpdatedAt,
-      failureEligible: isInterruptionEligible(query.error),
+      failureEligible: !suppressedFailure && isInterruptionEligible(query.error),
       hasData: query.data !== undefined,
     };
     if (!ownerKey) {
       return { status: "unavailable", snapshot: null, error: null, retry, observation };
     }
-    if (query.isPending) {
+    if (held || query.isPending || (suppressedFailure && query.data === undefined)) {
       return { status: "loading", snapshot: null, error: null, retry, observation };
     }
     if (query.data) {
-      const snapshot = query.isError
+      const snapshot = query.isError && !suppressedFailure
         ? { ...query.data, stale: true as const }
         : query.data;
       return {
@@ -139,7 +172,7 @@ export function useBalances(
         retry,
         observation,
         ...(query.isFetching ? { revalidating: true as const } : {}),
-        ...(query.isError ? { refreshError: true as const } : {}),
+        ...(query.isError && !suppressedFailure ? { refreshError: true as const } : {}),
       };
     }
     if (query.isError) {
@@ -152,7 +185,7 @@ export function useBalances(
       };
     }
     return { status: "loading", snapshot: null, error: null, retry, observation };
-  }, [ownerKey, region, query.data, query.dataUpdatedAt, query.error, query.errorUpdatedAt, query.fetchStatus, query.isError, query.isFetching, query.isPending, retry]);
+  }, [held, identity, ownerKey, query.data, query.dataUpdatedAt, query.error, query.errorUpdatedAt, query.fetchStatus, query.isError, query.isFetching, query.isPending, retry, suppressedFailure]);
 }
 
 function isBalancesSession(value: BalancesQuerySession | null): value is BalancesQuerySession {

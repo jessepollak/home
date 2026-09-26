@@ -1,28 +1,52 @@
 name: Codex review request
 
-# Codex honours `@codex review` only from accounts with a linked ChatGPT account, so the bot's pull requests get no
-# review on their own; this posts the trigger under Jesse's identity (secret CODEX_REVIEW_TOKEN, limited to
-# pull-request write on this repository). `pull_request_target` runs this file as it is on the base branch, so a pull
-# request cannot rewrite it and the job never checks the pull request's code out. A missing secret or a failed comment
-# is a warning, never a red check. Factory pull requests stay draft until handoff, so drafts are reviewed too and
-# leaving draft (same head) asks for nothing new.
+# Codex honours `@codex review` only from accounts with a linked ChatGPT account, so this posts the request under
+# Jesse's identity (secret CODEX_REVIEW_TOKEN, limited to pull-request write on this repository). The bot dispatches
+# one review per change it wants reviewed; a rebase that does not change the patch asks for nothing. Dispatch runs
+# this file from the default branch without checking out pull request code. A missing secret or failed comment is a
+# warning, never a red check.
 on:
-  pull_request_target:
-    types: [opened, reopened, synchronize]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number
+        required: true
+        type: string
 
 permissions: {}
 
 jobs:
   request:
     name: ask Codex to review a factory pull request
-    if: github.event.pull_request.user.login == 'jessepollakj'
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      pull-requests: read
     steps:
+      - name: Verify open factory pull request
+        id: lookup
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr }}
+        run: |
+          if [[ ! "$PR" =~ ^[0-9]+$ ]]; then
+            echo "::warning::pull request number must contain only digits; skipping the Codex review request"
+            exit 0
+          fi
+          if ! pr_info=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}" --jq '.state + " " + .user.login' 2>/dev/null); then
+            echo "::warning::could not look up the pull request; skipping the Codex review request"
+            exit 0
+          fi
+          if [ "$pr_info" != 'open jessepollakj' ]; then
+            echo "::warning::pull request is not an open factory pull request; skipping the Codex review request"
+            exit 0
+          fi
+          echo 'eligible=true' >> "$GITHUB_OUTPUT"
       - name: Comment `@codex review`
+        if: steps.lookup.outputs.eligible == 'true'
         env:
           GH_TOKEN: ${{ secrets.CODEX_REVIEW_TOKEN }}
-          PR: ${{ github.event.pull_request.number }}
+          PR: ${{ inputs.pr }}
         run: |
           if [ -z "$GH_TOKEN" ]; then
             echo "::warning::CODEX_REVIEW_TOKEN is not set; skipping the Codex review request"

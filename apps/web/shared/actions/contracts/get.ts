@@ -11,6 +11,10 @@ import {
   PreparedMoneyAction,
 } from "@/shared/money-actions/types";
 import { isSavingsMetadata } from "@/shared/savings/review";
+import { parseTradeMetadata, parseTradeSigning } from "@/shared/trading/review";
+import type { TradeSigningRequest } from "@/shared/trading/contract";
+import { parseMoneyActionNetworkFee } from "@/shared/money-actions/network-fee";
+import type { MoneyActionNetworkFee } from "@/shared/money-actions/types";
 
 export type ActionSummaryResponse = {
   title: string;
@@ -19,6 +23,8 @@ export type ActionSummaryResponse = {
   expiresAt: string;
   quoteId?: string;
   metadata?: MoneyActionMetadata;
+  networkFee?: MoneyActionNetworkFee;
+  signing?: TradeSigningRequest;
 };
 
 export type GetActionPendingResponse = {
@@ -27,6 +33,7 @@ export type GetActionPendingResponse = {
   summary: ActionSummaryResponse;
   calls: MoneyActionCall[];
   expiresAt: string;
+  signing?: TradeSigningRequest;
 };
 
 export type GetActionResponse = GetActionPendingResponse | {
@@ -37,6 +44,7 @@ export type GetActionResponse = GetActionPendingResponse | {
   status: DerivedActionStatus;
   createdAt: string;
   confirmedAt: string;
+  submittedAt?: string;
   providerHandle?: string;
   transactionHash?: string;
   owner: MoneyActionOwner;
@@ -57,7 +65,10 @@ export function parsePendingActionResponse(
     !Array.isArray(value.summary.warnings) ||
     !Array.isArray(value.calls) ||
     typeof value.expiresAt !== "string" ||
+    (value.summary.networkFee !== undefined && !parseMoneyActionNetworkFee(value.summary.networkFee)) ||
     !active.smartAccount
+    || (value.kind === "trade" && (!parseTradeMetadata(value.summary.metadata) ||
+      !parseTradeSigning(value.signing, parseTradeMetadata(value.summary.metadata)!, active.smartAccount.address)))
   ) {
     return null;
   }
@@ -76,6 +87,8 @@ export function parsePendingActionResponse(
     warnings: value.summary.warnings as string[],
     expiresAt: value.expiresAt,
     ...(isMoneyActionMetadata(value.summary.metadata) ? { metadata: value.summary.metadata } : {}),
+    ...(parseMoneyActionNetworkFee(value.summary.networkFee) ? { networkFee: parseMoneyActionNetworkFee(value.summary.networkFee)! } : {}),
+    ...(value.kind === "trade" ? { signing: parseTradeSigning(value.signing, parseTradeMetadata(value.summary.metadata)!, active.smartAccount.address)! } : {}),
     createdAt: new Date().toISOString(),
   };
 }
@@ -86,13 +99,14 @@ function isMoneyActionMetadata(value: unknown): value is MoneyActionMetadata {
     return (value.operation === "deposit" || value.operation === "withdraw") &&
       typeof value.providerId === "string" && typeof value.providerName === "string" && typeof value.environment === "string" &&
       typeof value.platform === "string" && typeof value.platformLabel === "string" && typeof value.currency === "string" &&
-      (value.operation === "deposit" ? typeof value.canonicalHandle === "string" && value.depositId === undefined : value.canonicalHandle === undefined && typeof value.depositId === "string") &&
+      (value.operation === "deposit" ? typeof value.canonicalHandle === "string" && (value.payeeHash === undefined || typeof value.payeeHash === "string") && value.depositId === undefined : value.canonicalHandle === undefined && value.payeeHash === undefined && typeof value.depositId === "string") &&
       typeof value.approximateFiatAmount === "string" &&
       typeof value.minConversionRate === "string" && isRecord(value.intentAmountRange) &&
       typeof value.intentAmountRange.min === "string" && typeof value.intentAmountRange.max === "string" &&
       typeof value.estimateAsOf === "string" && typeof value.escrow === "string";
   }
   if (value.product === "savings") return isSavingsMetadata(value);
+  if (value.product === "trade") return parseTradeMetadata(value) !== null;
   return value.product === "borrow";
 }
 

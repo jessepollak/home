@@ -4,7 +4,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { createPublicClient, getAddress, http } from "viem";
 import { base } from "viem/chains";
 import { createSiweMessage, parseSiweMessage } from "viem/siwe";
-import { BASE_CHAIN_ID, type VerifiedAccountSession } from "@/shared/account/session-types";
+import { BASE_CHAIN_ID, OWNER_SESSION_RETENTION_MS, type VerifiedAccountSession } from "@/shared/account/session-types";
 import {
   NATIVE_BASE_CHALLENGE_TTL_MS,
   NATIVE_BASE_STATEMENT,
@@ -31,7 +31,7 @@ export const HOME_SESSION_COOKIE = "home-session";
 export const HOME_CHALLENGE_COOKIE = "home-auth-challenge";
 /** @public exercised by server/auth/native-base-session.test.ts */
 export const NATIVE_BASE_NONCE_TTL_MS = NATIVE_BASE_CHALLENGE_TTL_MS;
-export const NATIVE_BASE_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+export const NATIVE_BASE_SESSION_TTL_MS = OWNER_SESSION_RETENTION_MS;
 const MAX_BODY_BYTES = 96 * 1024;
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const signaturePattern = /^0x(?:[0-9a-fA-F]{2})+$/;
@@ -179,6 +179,7 @@ export type NativeBaseAuthDependencies = {
   sessionSecret?: string;
   now?: () => Date;
   randomId?: () => string;
+  onVerified?: (session: VerifiedAccountSession, context: { request: Request }) => void;
   verify?: (input: {
     address: `0x${string}`;
     domain: string;
@@ -347,10 +348,12 @@ export function createNativeBaseVerifyHandler(input: NativeBaseAuthDependencies 
     if (!verified) return json({ error: { code: "INVALID_AUTH_PROOF" } }, 401, [clearChallenge]);
 
     const issued = issueSessionToken(deps.secret, address, deps.now());
-    return json(issued.session, 200, [
+    const response = json(issued.session, 200, [
       clearChallenge,
       cookie(HOME_SESSION_COOKIE, issued.token, request, NATIVE_BASE_SESSION_TTL_MS / 1000),
     ]);
+    try { input.onVerified?.(issued.session, { request }); } catch { return response; }
+    return response;
   };
 }
 
