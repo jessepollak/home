@@ -45,7 +45,6 @@ import { maxAmountAfterNetworkFee, useNetworkFeeReserve } from "@/client/money-m
 import { buildBorrowPreparedIntent } from "./borrow-ui";
 import {
   BorrowNotice,
-  collateralDisplayName,
   LiquidationBufferMeter,
   formatToken,
   formatCash,
@@ -255,7 +254,8 @@ export function BorrowMoneyDialog({
   const availableAmount = availableBaseUnits === null ? null : decimalFromBaseUnits(maxBaseUnits ?? "0", primaryAsset.decimals);
   const availableLabel = availableBaseUnits === null ? undefined : `${formatCash(availableBaseUnits, primaryAsset, regionId)} available`;
   const overAvailable = !ceilingPending && availableAmount !== null && amountExceedsCeiling(amount, availableAmount);
-  const continueDisabled = ceilingPending || (requiresPrimaryAmount && !isPositiveDecimalAmount(amount)) || (operation === "supply-and-borrow" && isPositiveDecimalAmount(amount) && !openingCollateralBaseUnits) || (requiresPrimaryAmount && overAvailable);
+  const insufficientCollateral = operation === "supply-and-borrow" && isPositiveDecimalAmount(amount) && !openingCollateralBaseUnits;
+  const continueDisabled = ceilingPending || (requiresPrimaryAmount && !isPositiveDecimalAmount(amount)) || insufficientCollateral || (requiresPrimaryAmount && overAvailable);
   const amountAssetProps = {
     assetId: primaryAsset.id,
     assetLabel: primaryAsset.symbol,
@@ -287,6 +287,7 @@ export function BorrowMoneyDialog({
                   maxDecimals={primaryAsset.decimals}
                   onAmountChange={changeAmount}
                   overAvailable={overAvailable}
+                  amountError={insufficientCollateral ? `That amount needs more ${snapshot.market.collateralToken.symbol} than is available in this wallet.` : undefined}
                   onSubmit={continueDisabled ? undefined : () => void prepare()}
                   availableLabel={availableLabel}
                   availableAmount={availableAmount}
@@ -300,18 +301,6 @@ export function BorrowMoneyDialog({
                 >
                 {reserveRelevant && reserveFailed ? (
                   <LoadErrorCard tone="destructive" role="alert" title="Couldn't check the network fee." onRetry={retryReserve} />
-                ) : null}
-                {operation === "supply-and-borrow" ? (
-                  <div className="min-h-[4.5rem] rounded-lg border bg-muted/40 px-3 py-2 text-sm" data-testid="borrow-collateral-preview">
-                    <p className="font-medium">{collateralDisplayName(snapshot.market.id)} collateral</p>
-                    <p className="text-muted-foreground">
-                      {openingCollateralBaseUnits
-                        ? `This borrow will lock ${formatToken(openingCollateralBaseUnits, snapshot.market.collateralToken, regionId)} as collateral.`
-                        : isPositiveDecimalAmount(amount)
-                          ? `That amount needs more ${snapshot.market.collateralToken.symbol} than is available in this wallet.`
-                          : `Enter an amount to preview the ${snapshot.market.collateralToken.symbol} that will be locked.`}
-                    </p>
-                  </div>
                 ) : null}
                 {fixedMaximumOperation || isFullRepayAmount(amount, snapshot.position.debtAssetsRaw, maximumRepayBaseUnits, snapshot.market.loanToken.decimals) ? (
                   <BorrowNotice title="Maximum repayment">

@@ -174,6 +174,7 @@ export function MoneyAmountDisplay({
   onAmountChange,
   maxDecimals,
   overAvailable = false,
+  amountError,
   onSubmit,
   disabled = false,
   autoFocus = true,
@@ -198,6 +199,7 @@ export function MoneyAmountDisplay({
   onAmountChange?: (value: string) => void;
   maxDecimals: number;
   overAvailable?: boolean;
+  amountError?: string;
   onSubmit?: () => void;
   disabled?: boolean;
   autoFocus?: boolean;
@@ -258,16 +260,16 @@ export function MoneyAmountDisplay({
         disabled={disabled}
         autoFocus={autoFocus}
         focusKey={assetId}
-        availableId={availableLine ? availableId : undefined}
-        overAvailable={overAvailable}
+        availableId={availableLine || amountError ? availableId : undefined}
+        overAvailable={overAvailable || Boolean(amountError)}
         unit={primaryUnit}
         pricing={pricing}
         fiatCurrency={fiatCurrency}
         nativeSymbol={nativeSymbol}
       />
-      {availableLine ? (
-        <p id={availableId} aria-live="polite" className={`text-center text-sm ${overAvailable ? "text-destructive" : "text-muted-foreground"}`}>
-          {overAvailable ? `Only ${ceilingLine ?? availableLine}` : availableLine}
+      {availableLine || amountError ? (
+        <p id={availableId} aria-live="polite" className={`text-center text-sm ${overAvailable || amountError ? "text-destructive" : "text-muted-foreground"}`}>
+          {amountError ?? (overAvailable ? `Only ${ceilingLine ?? availableLine}` : availableLine)}
         </p>
       ) : null}
       {isIdentityPricing(pricing) ? (
