@@ -35,6 +35,7 @@
     "@coinbase/cdp-sdk": "1.55.0",
     "@number-flow/react": "0.6.2",
     "@opentelemetry/api": "1.9.1",
+    "@sumsub/websdk": "2.9.0",
     "@tanstack/react-query": "5.102.8",
     "@tanstack/react-table": "8.21.3",
     "@vercel/otel": "2.1.3",

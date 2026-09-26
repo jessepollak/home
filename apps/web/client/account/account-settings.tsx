@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { LogOut } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,10 @@ import { CountrySelect } from "@/components/country-select";
 import { CurrencyMark } from "@/components/currency-mark";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import { AccountWalletContext } from "@/client/account/cdp-client";
 import { useBasenameProfile } from "@/client/account/use-basename-profile";
+import { IdentityDeletionNotice } from "@/client/identity/identity-deletion-notice";
+import { IdentityVerification } from "@/client/identity/identity-verification";
 import type { AppearancePreference } from "@/shared/appearance/preference";
 import {
   presentationRegions,
@@ -63,6 +66,7 @@ export function AccountSettings({
   onSignOut: () => void;
 }) {
   const [appearanceMessage, setAppearanceMessage] = useState("");
+  const identityWallet = useContext(AccountWalletContext);
   const region = presentationRegions[regionId];
   const basenameProfile = useBasenameProfile({
     ownerKey: accountOwnerKey,
@@ -180,6 +184,7 @@ export function AccountSettings({
                   </ItemContent>
                 </Item>
               </li>
+              {identityWallet ? <IdentityVerification wallet={identityWallet} /> : null}
               <li className="px-3 py-2.5">
                 <Button
                   variant="outline"
@@ -198,12 +203,13 @@ export function AccountSettings({
         </Card>
       </section>
 
-      <section className="space-y-3" aria-labelledby="disclosures-heading">
+      <section id="identity-disclosures" className="space-y-3" aria-labelledby="disclosures-heading">
         <h2 id="disclosures-heading" className="text-lg font-semibold">
           Disclosures &amp; terms
         </h2>
         <Card>
-          <CardContent>
+          <CardContent className="space-y-2">
+            <IdentityDeletionNotice wallet={identityWallet} />
             <p className="text-sm text-muted-foreground">
               Features and providers vary by country.{" "}
               <a className="font-medium text-primary" href="https://terms.ripio.com/" target="_blank" rel="noreferrer">
