@@ -18,7 +18,6 @@ import type { CashoutProgressState } from "@/shared/funding/contracts/cash-out-p
 import type { AccountProvider } from "@/shared/account/session-types";
 import type { CoinbaseSmartWalletTypedData, Address, Hex } from "@/shared/trading/server-types";
 import type { TradeSigningRequest } from "@/shared/trading/contract";
-import type { FundingMode } from "@/server/funding/core/provider-context";
 
 export type ActionSummary = {
   title: string;
