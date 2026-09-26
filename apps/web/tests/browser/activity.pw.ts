@@ -97,16 +97,18 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
 
     const container = page.locator("[data-app-main-authenticated]");
     const activitySection = container.locator('section[aria-label="Activity"]').last();
-    const rows = activitySection.locator("ol > li");
+    const rows = activitySection.locator("ul > li");
     const rowAt = (minute: number) => rows.filter({ has: page.locator(`time[datetime="${timestamp(minute)}"]`) });
     const pending = rows.filter({ hasText: "Pending send" });
-    const cashout = rows.filter({ hasText: "$25 to Zelle" });
+    const cashout = rows.filter({ hasText: "Cash out to Zelle" });
     const retry = activitySection.getByRole("button", { name: "Try again", exact: true });
     await page.goto("/activity");
     await expect(rowAt(12)).toHaveCount(1);
     await expect(pending).toHaveCount(1);
+    await expect(activitySection.getByRole("heading", { name: "Pending" })).toBeVisible();
+    await expect(activitySection.getByRole("heading", { name: "Recent" })).toBeVisible();
     await expect(cashout).toHaveCount(1);
-    await expect(cashout).toContainText("Waiting for a buyer");
+    await expect(activitySection.getByRole("list", { name: "Pending" }).locator("li").filter({ hasText: "Cash out to Zelle" })).toHaveCount(1);
     await container.evaluate((element) => { element.scrollTop = element.scrollHeight; });
     await pageTwoObserved;
     await expect(rowAt(12)).toBeVisible();

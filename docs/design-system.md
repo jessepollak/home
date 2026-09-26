@@ -99,7 +99,7 @@ Every story meta has an explicit stable `id`; keep its meaningful export name st
 
 The pilot and exploration inventories live in [story inventories](design-system/stories/). Add a file there for each new story group.
 
-The unreviewed Activity ledger proposal uses `proposal-activity-ledger--mixed-chronology`, `proposal-activity-ledger--detail-funding-needs-you`, and `journeys-activity-ledger--pending-to-detail-and-back` (full inventory in [Activity ledger proposal](activity-ledger-design.md)).
+The approved Activity ledger component uses `activity-ledger--mixed-chronology`, `activity-ledger--detail-funding-needs-you`, and `journeys-activity-ledger--pending-to-detail-and-back` (full inventory in [Activity ledger design](activity-ledger-design.md)).
 
 The adopted Borrow overview uses `borrowing-borrow-overview--multiple-loans`, `borrowing-borrow-overview--management-sheet-open`, and `journeys-borrow-overview--repay-review-cancel-back` (full inventory in [Borrow overview and management](borrow-overview-design.md)).
 

@@ -7,30 +7,19 @@ import { LoadErrorCard, LoadRetryButton } from "@/components/load-error";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { ActivityLoader } from "@/components/activity-loader";
-import { CurrencyMark } from "@/components/currency-mark";
-import { MoneyTicker } from "@/components/money-ticker";
-import { ActivityRow } from "@/components/finance-rows";
 import { deferSheet } from "@/client/money-modal/deferred-sheet";
-import { OperationActivityRow } from "@/client/actions/operation-row";
-import { presentOperationDetails } from "@/client/actions/operation-details";
+import { ActivityLedger, type ActivityLedgerItem } from "./activity-ledger";
+import { presentActivityLedgerItems } from "./activity-ledger-items";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import type { RegionId } from "@/config/regions";
-import { assetKeyForErc20 } from "@/config/portfolio-assets";
-import { presentPortfolioAssetMark } from "@/client/asset-mark/presentation";
-import {
-  presentActivityTransferDetails,
-  presentActivityTransferRow,
-} from "./activity-presenter";
-import { presentCashout, presentCashoutDetails, cashoutMoney } from "./cash-out-presenter";
 import { mergeActivityFeed } from "./activity-feed";
 import { type UseActivityResult } from "./use-activity";
 import { ShimmerRows } from "@/client/home/panel-shared";
 import type { ActivityPanelDensity, ActivityTransfer } from "./types";
 
-const TransactionDetailsSheet = deferSheet(() => import("@/components/transaction-details").then((module) => module.TransactionDetailsModal));
+const ActivityLedgerSheet = deferSheet(() => import("./activity-ledger-sheet").then((module) => module.ActivityLedgerDetailSheet));
 const EMPTY_TRANSFERS: readonly ActivityTransfer[] = [];
 
-type Selection = { operation: RecentMoneyActionOperation; withdraw?: RecentMoneyActionOperation } | null;
 export function ActivityPanelView({
   activity,
   operations = [],
@@ -58,20 +47,14 @@ export function ActivityPanelView({
   cancelError?: string | null;
   onDetailsChange?: () => void;
 }) {
-  const [selectedTransfer, setSelectedTransfer] = useState<ActivityTransfer | null>(null);
-  const [selection, setSelection] = useState<Selection>(null);
+  const [selection, setSelection] = useState<{ key: string; last: ActivityLedgerItem } | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const detailOpenerRef = useRef<HTMLElement | null>(null);
-  const rememberDetailOpener = () => {
-    const active = document.activeElement;
-    detailOpenerRef.current = active instanceof HTMLElement ? active : null;
-  };
   const [detailsStatus, setDetailsStatus] = useState(activity.status);
   if (detailsStatus !== activity.status) {
     setDetailsStatus(activity.status);
     if (activity.status !== "ready") {
       setDetailsOpen(false);
-      setSelectedTransfer(null);
       setSelection(null);
     }
   }
@@ -86,8 +69,12 @@ export function ActivityPanelView({
       transfers[0]!.blockTimestamp)
       : activity.page.window.to
     : null;
-  const items = useMemo(() => mergeActivityFeed({ transfers, operations, loadedThrough }), [transfers, operations, loadedThrough]);
+  const feed = useMemo(() => mergeActivityFeed({ transfers, operations, loadedThrough }), [transfers, operations, loadedThrough]);
+  const items = useMemo(() => presentActivityLedgerItems(feed, { regionId }), [feed, regionId]);
   const hasRows = items.length > 0;
+  const selectedItem = selection
+    ? items.find((item) => `${item.family}:${item.id}` === selection.key) ?? selection.last
+    : null;
   const exhausted = activity.status !== "ready" || activity.page.nextCursor === null;
   const plain = density === "feed";
   const sourcesPending = activity.status === "loading" || actionsStatus === "loading";
@@ -139,17 +126,15 @@ export function ActivityPanelView({
     );
   }
 
-  const selected = selection && items.find((item) => item.kind === "action" && item.id === selection.operation.action.id);
-  const operation = selected?.kind === "action" ? selected.operation : selection?.operation;
-  const withdraw = selected?.kind === "action" ? selected.withdraw : selection?.withdraw;
-  const cashout = operation?.action.kind === "cash-out" ? presentCashout(operation, withdraw, { regionId }) : null;
-  const details = selectedTransfer
-    ? presentActivityTransferDetails(selectedTransfer, { regionId })
-    : operation
-      ? cashout ? presentCashoutDetails(operation, withdraw, { regionId }) : presentOperationDetails(operation, { regionId })
-      : null;
+  const footer = activity.status === "ready" ? (
+    activity.page.nextCursor === null ? hasRows ? (
+      <p className="text-center text-xs text-muted-foreground" role="status">End of activity</p>
+    ) : null : (
+      <ActivityContinuation activity={activity} inlineStatus={inlineStatus} feedStatus={plain && !historyUnknown} />
+    )
+  ) : null;
   return (
-    <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain}>
+    <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} rows={hasRows}>
       {inlineStatus && activity.status === "error" ? (
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p role="status" className="text-sm text-muted-foreground">
@@ -167,69 +152,37 @@ export function ActivityPanelView({
         <ActivityUnavailable message="Some activity is unavailable" onReload={retryFailedSources} />
       ) : null}
       {!hasRows ? (exhausted && !historyUnknown ? <ActivityEmpty plain={plain} action={emptyAction} /> : null) : (
-        <ol className="list-none p-0" onPointerDown={() => void TransactionDetailsSheet.preload()}>
-          {items.map((item) => item.kind === "transfer" ? (
-            <TransferActivityRow
-              key={`transfer:${item.id}`}
-              transfer={item.transfer}
-              regionId={regionId}
-              onActivate={() => {
-                rememberDetailOpener();
-                onDetailsChange?.();
-                setSelection(null);
-                setSelectedTransfer(item.transfer);
-                setDetailsOpen(true);
-              }}
-            />
-          ) : (
-            <OperationActivityRow
-              key={`action:${item.id}`}
-              operation={item.operation}
-              regionId={regionId}
-              withdraw={item.withdraw}
-              onActivate={() => {
-                rememberDetailOpener();
-                onDetailsChange?.();
-                setSelectedTransfer(null);
-                setSelection({ operation: item.operation, withdraw: item.withdraw });
-                setDetailsOpen(true);
-              }}
-            />
-          ))}
-        </ol>
-      )}
-
-      {activity.status === "ready" ? (
-        activity.page.nextCursor === null ? (
-          hasRows ? (
-            <p className="text-center text-xs text-muted-foreground" role="status">End of activity</p>
-          ) : null
-        ) : (
-          <ActivityContinuation
-            activity={activity}
-            inlineStatus={inlineStatus}
-            feedStatus={plain && !historyUnknown}
+        <div onPointerDown={() => void ActivityLedgerSheet.preload()}>
+          <ActivityLedger
+            items={items}
+            layout={plain ? "feed" : "page"}
+            footer={footer}
+            onOpen={(item, opener) => {
+              detailOpenerRef.current = opener;
+              onDetailsChange?.();
+              setSelection({ key: `${item.family}:${item.id}`, last: item });
+              setDetailsOpen(true);
+            }}
           />
-        )
-      ) : null}
-
-      <TransactionDetailsSheet
+        </div>
+      )}
+      {!hasRows ? footer : null}
+      <ActivityLedgerSheet
         open={detailsOpen}
-        titleId="activity-transaction-details-title"
-        details={details}
-        footerAction={cashout?.cancellable && operation && onCancelCashout ? {
-          label: <>Cancel cash-out <MoneyTicker value={cashoutMoney(cashout.remaining, cashout.decimals, regionId)} /></>,
-          onClick: () => onCancelCashout(operation),
-          busy: cancelBusy,
-          error: cancelError,
-        } : undefined}
-        onClose={() => { setDetailsOpen(false); onDetailsChange?.(); }}
+        item={selectedItem}
+        onDismiss={() => { setDetailsOpen(false); onDetailsChange?.(); }}
         onClosed={() => {
-          setSelectedTransfer(null);
           setSelection(null);
           const opener = detailOpenerRef.current;
           if (opener?.isConnected) opener.focus({ preventScroll: true });
         }}
+        onAction={(item, kind) => {
+          if (kind !== "cancel-cash-out" || item.family !== "home-action") return;
+          const match = feed.find((entry) => entry.kind === "action" && entry.id === item.id);
+          if (match?.kind === "action" && match.operation.action.kind === "cash-out") onCancelCashout?.(match.operation);
+        }}
+        actionBusy={cancelBusy}
+        actionError={cancelError}
       />
     </ActivitySurface>
   );
@@ -241,6 +194,7 @@ export function ActivitySurface({
   label,
   busy = false,
   plain = false,
+  rows = false,
   children,
 }: {
   heading: ReactNode;
@@ -248,6 +202,7 @@ export function ActivitySurface({
   label?: string;
   busy?: boolean;
   plain?: boolean;
+  rows?: boolean;
   children: ReactNode;
 }) {
   if (plain) {
@@ -264,6 +219,14 @@ export function ActivitySurface({
             <div className="space-y-3">{children}</div>
           </CardContent>
         </Card>
+      </section>
+    );
+  }
+  if (rows) {
+    return (
+      <section aria-labelledby={labelledBy} aria-label={label} aria-busy={busy || undefined}>
+        {heading ? <div className="mb-3">{heading}</div> : null}
+        <div className="space-y-3">{children}</div>
       </section>
     );
   }
@@ -332,8 +295,7 @@ function ActivityContinuation({
   );
 }
 
-/** @public Reused by the Activity ledger exploration stories for per-source reload. */
-export function ActivityUnavailable({
+function ActivityUnavailable({
   message,
   onReload,
   reloadLabel = "Reload activity",
@@ -380,37 +342,4 @@ function ActivityEmpty({ plain, action }: { plain: boolean; action?: ReactNode }
 
 function DefaultActivityHeader() {
   return <h2 id="activity-title" className="text-lg font-semibold">Activity</h2>;
-}
-
-function TransferActivityRow({
-  transfer,
-  regionId,
-  onActivate,
-}: {
-  transfer: ActivityTransfer;
-  regionId: RegionId;
-  onActivate: () => void;
-}) {
-  const model = presentActivityTransferRow(transfer, { regionId });
-  const mark = presentPortfolioAssetMark({
-    assetKey: assetKeyForErc20(transfer.tokenAddress),
-    name: transfer.tokenSymbol ?? "Unknown token",
-    symbol: transfer.tokenSymbol ?? "?",
-    imageUrl: transfer.tokenImageUrl,
-  });
-  return (
-    <ActivityRow
-      icon={<CurrencyMark assetKey={mark.assetKey} src={mark.imageUrl} symbol={mark.symbol} size="sm" />}
-      iconTone="mark"
-      label={model.directionLabel}
-      context={<time dateTime={model.dateTime} aria-label={model.fullDate}>{model.shortDate}</time>}
-      contextTitle={model.fullDate}
-      value={<MoneyTicker value={model.value} />}
-      valueTone={model.valueTone}
-      valueContext={model.valueContext ?? undefined}
-      valueContextTitle={model.valueContext ?? undefined}
-      onActivate={onActivate}
-      activateLabel={`View ${model.directionLabel.toLowerCase()} ${transfer.tokenSymbol ?? "unknown token"} transaction details`}
-    />
-  );
 }

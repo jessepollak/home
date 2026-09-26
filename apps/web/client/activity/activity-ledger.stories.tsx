@@ -2,12 +2,12 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useEffect, useRef, useState } from "react";
 import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 import { PORTFOLIO_USDC_ASSET_KEY } from "@/config/portfolio-assets";
-import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   ActivityLedger,
-  ActivityLedgerDetailSheet,
   type ActivityLedgerItem,
 } from "./activity-ledger";
+import { ActivityLedgerDetailSheet } from "./activity-ledger-sheet";
 
 const funding: ActivityLedgerItem = {
   id: "funding-1",
@@ -230,20 +230,15 @@ const fixtures = [
 function Surface({
   items = fixtures,
   initial,
-  sources = [],
   pendingLabel,
   recentLabel,
+  layout = "page",
 }: {
   items?: ActivityLedgerItem[];
   initial?: ActivityLedgerItem;
   pendingLabel?: string;
   recentLabel?: string;
-  sources?: {
-    id: string;
-    label: string;
-    status: "ready" | "loading" | "error";
-    onRetry: () => void;
-  }[];
+  layout?: "page" | "feed";
 }) {
   const [selected, setSelected] = useState<ActivityLedgerItem | null>(initial ?? null);
   const [isOpen, setIsOpen] = useState(Boolean(initial));
@@ -261,14 +256,17 @@ function Surface({
     <main className="mx-auto max-w-2xl space-y-4 p-4">
       <h1 className="sr-only">Activity ledger</h1>
       <h2 className="sr-only">Activity</h2>
-      <ActivityLedger
-        items={items}
-        onOpen={open}
-        sources={sources}
-        pendingLabel={pendingLabel}
-        recentLabel={recentLabel}
-        emptyAction={<Button size="lg" className="h-11">Add money</Button>}
-      />
+      {layout === "feed" ? (
+        <Card>
+          <CardContent inset="list">
+            <ActivityLedger items={items} onOpen={open} pendingLabel={pendingLabel}
+              recentLabel={recentLabel} layout="feed" />
+          </CardContent>
+        </Card>
+      ) : (
+        <ActivityLedger items={items} onOpen={open} pendingLabel={pendingLabel}
+          recentLabel={recentLabel} />
+      )}
       <ActivityLedgerDetailSheet item={selected} open={isOpen} onDismiss={() => setIsOpen(false)}
         onClosed={closed} onAction={fn()} />
     </main>
@@ -276,8 +274,8 @@ function Surface({
 }
 
 const meta = {
-  id: "proposal-activity-ledger",
-  title: "Proposal/Activity ledger",
+  id: "activity-ledger",
+  title: "Activity/Ledger",
   component: ActivityLedger,
   args: { items: [], onOpen: () => undefined },
   parameters: { viewport: { defaultViewport: "mobile" }, a11y: { test: "error" } },
@@ -327,7 +325,6 @@ export const MixedChronology: Story = {
     await expect(pendingRows[1]).toHaveTextContent("Yesterday · Reversed");
     await expect(pendingRows[5]).toHaveTextContent("Sep 20");
     await expect(pendingRows[5]).not.toHaveTextContent(" · ");
-    await expect(pending.closest('[data-slot="card"]')).not.toBe(recent.closest('[data-slot="card"]'));
     for (const row of [...pendingRows, ...recentRows]) {
       await expect(row).not.toHaveTextContent(/With |On /);
     }
@@ -356,15 +353,40 @@ export const TerminalStates = withItems([
   received, failed, expired, ambiguous, reversed, refunded, declined,
 ]);
 export const DetailFundingNeedsYou = detail(funding);
+export const DetailHomeActionConfirming: Story = {
+  ...detail({
+    ...borrowed,
+    id: "action-confirming",
+    status: "waiting-chain",
+    title: "Send USDC",
+    amount: "−$30.00",
+    direction: "out",
+    mark: { kind: "asset", assetKey: PORTFOLIO_USDC_ASSET_KEY, symbol: "USDC" },
+    detail: { family: "home-action", operation: "Send", network: "Base" },
+    steps: [
+      { status: "complete", title: "Submitted", time: "Sep 24, 11:07 AM" },
+      { status: "current", title: "Confirming on Base" },
+    ],
+  }),
+  play: async ({ canvasElement }) => {
+    const dialog = within(await within(canvasElement.ownerDocument.body).findByRole("dialog"));
+    const stages = dialog.getAllByRole("listitem");
+    await expect(stages).toHaveLength(2);
+    await expect(stages[0]).toHaveTextContent("Complete: Submitted");
+    await expect(stages[0]).toHaveTextContent("11:07");
+    await expect(stages[1]).toHaveTextContent("In progress: Confirming on Base");
+  },
+};
 export const DetailTransferPending = detail(transfer);
 export const DetailAmbiguous: Story = {
   ...detail(ambiguous),
   play: async ({ canvasElement }) => {
     const dialog = await within(canvasElement.ownerDocument.body).findByRole("dialog");
-    await expect(within(dialog).getAllByRole("button")).toHaveLength(2);
+    await expect(within(dialog).getAllByRole("button")).toHaveLength(3);
     await expect(within(dialog).getByText("Unconfirmed")).toBeVisible();
     await expect(within(dialog).getByRole("button", { name: "Close Send details" })).toBeVisible();
     await expect(within(dialog).getByRole("button", { name: /Copy 0xaaaa/ })).toBeVisible();
+    await expect(within(dialog).getByRole("button", { name: "Copy alex.base.eth" })).toBeVisible();
   },
 };
 export const DetailAmbiguousFunding = detail(ambiguousFunding);
@@ -381,52 +403,23 @@ export const NothingPending: Story = {
     await expect(screen.queryByRole("heading", { name: "Recent" })).toBeNull();
   },
 };
-export const PartialSourceFailure: Story = {
-  render: () => (
-    <Surface
-      items={[funding, transfer]}
-      sources={[{
-        id: "cash-out",
-        label: "Cash out orders",
-        status: "error",
-        onRetry: () => undefined,
-      }]}
-    />
-  ),
+export const HomeFeed: Story = {
+  render: () => <Surface items={[funding, transfer, received]} layout="feed" />,
   play: async ({ canvasElement }) => {
-    const screen = within(canvasElement);
-    await expect(screen.getByText("Cash out orders unavailable")).toBeVisible();
-    await expect(screen.getByRole("button", { name: "Reload Cash out orders" })).toBeVisible();
-    await expect(screen.getByRole("list", { name: "Pending" })).toBeVisible();
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole("list", { name: "Pending" })).toBeVisible();
+    await expect(canvas.getByRole("list", { name: "Recent" })).toBeVisible();
+    await expect(canvas.getByRole("heading", { name: "Recent" })).toBeVisible();
   },
 };
-export const Loading: Story = {
-  render: () => (
-    <Surface items={[]} sources={[{
-      id: "transfer",
-      label: "Transfers",
-      status: "loading",
-      onRetry: () => undefined,
-    }]} />
-  ),
-};
-export const PartialSourceLoading: Story = {
-  render: () => (
-    <Surface items={[funding, transfer]} sources={[{
-      id: "cash-out",
-      label: "Cash out orders",
-      status: "loading",
-      onRetry: () => undefined,
-    }]} />
-  ),
+export const HomeFeedNothingPending: Story = {
+  render: () => <Surface items={[received, refunded]} layout="feed" />,
   play: async ({ canvasElement }) => {
-    const screen = within(canvasElement);
-    await expect(screen.getByRole("list", { name: "Pending" })).toBeVisible();
-    await expect(screen.getByRole("status")).toHaveTextContent("Loading recent activity…");
-    await expect(screen.queryByText("No activity yet")).toBeNull();
+    const canvas = within(canvasElement);
+    await expect(canvas.getAllByRole("list")).toHaveLength(1);
+    await expect(canvas.queryByRole("heading", { name: "Recent" })).toBeNull();
   },
 };
-export const Empty: Story = { render: () => <Surface items={[]} /> };
 export const LongLocalizedCopy: Story = {
   render: () => (
     <Surface pendingLabel="Ausstehend" recentLabel="Zuletzt" items={[{
@@ -450,6 +443,24 @@ export const TwoHundredPercentText: Story = { render: () => <DoubleText /> };
 export const Mobile320: Story = {
   ...withItems([funding, transfer, refunded]),
   parameters: { viewport: { defaultViewport: "smallMobile" } },
+};
+export const DetailLongExactAmount: Story = {
+  render: () => {
+    const long = { ...received, id: "transfer-long",
+      detailAmount: "+123456789012345678901234567.123456789012345678 LONGSYMBOLTOKEN" };
+    return <Surface initial={long} items={[long]} />;
+  },
+  parameters: { viewport: { defaultViewport: "smallMobile" } },
+  play: async ({ canvasElement }) => {
+    const dialog = await within(canvasElement.ownerDocument.body).findByRole("dialog");
+    const amount = within(dialog).getByText(/LONGSYMBOLTOKEN/);
+    await expect(amount).toBeVisible();
+    const bounds = dialog.getBoundingClientRect();
+    const box = amount.getBoundingClientRect();
+    await expect(box.left).toBeGreaterThanOrEqual(bounds.left);
+    await expect(box.right).toBeLessThanOrEqual(bounds.right);
+    await expect(amount.scrollWidth).toBeLessThanOrEqual(amount.clientWidth);
+  },
 };
 export const Desktop: Story = {
   ...detail(funding),

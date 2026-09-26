@@ -17,7 +17,7 @@ async function expectAligned(left: HTMLElement, right: HTMLElement, edge: "left"
   await expect(Math.abs(textEdge(left, edge) - textEdge(right, edge))).toBeLessThanOrEqual(1);
 }
 
-function FinanceRowStory({ row }: { row: "activity" | "balance" | "borrow" | "nux" }) {
+function FinanceRowStory({ row }: { row: "activity" | "attention" | "balance" | "borrow" | "nux" }) {
   return (
     <ul className="w-[30rem] max-w-full list-none p-0">
       {row === "borrow" ? (
@@ -39,6 +39,17 @@ function FinanceRowStory({ row }: { row: "activity" | "balance" | "borrow" | "nu
           context="Borrow at 5.10% APR"
           onActivate={() => {}}
           activateLabel="Open Borrow"
+        />
+      ) : row === "attention" ? (
+        <ActivityRow
+          icon={<ArrowDown className="size-4" />}
+          iconTone="mark"
+          label="Add money"
+          context={<time dateTime="2026-09-20T20:48:00.000Z">Sep 20, 8:48 PM</time>}
+          value="$50.00"
+          attention="Action needed"
+          onActivate={() => {}}
+          activateLabel="View Add money details"
         />
       ) : row === "activity" ? (
         <ActivityRow
@@ -85,6 +96,14 @@ export const Activity: Story = {
       "left",
     );
     await expect(canvas.getByText("+425 USDC").getAttribute("data-value-tone")).toBe("success");
+  },
+};
+
+export const Attention: Story = {
+  args: { row: "attention" },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole("button", { name: /Add money.*Action needed/ })).toBeVisible();
   },
 };
 

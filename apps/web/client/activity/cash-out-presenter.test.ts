@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import type { CashoutProgressState } from "@/shared/funding/contracts/cash-out-progress";
-import { linkedCashoutWithdraw, presentCashout, presentCashoutDetails } from "./cash-out-presenter";
+import { linkedCashoutWithdraw, presentCashout } from "./cash-out-presenter";
+import { presentActivityLedgerItems } from "./activity-ledger-items";
 
 const operation: RecentMoneyActionOperation = {
   action: { id: "deposit", kind: "cash-out", title: "Cash out", amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "50000000", direction: "spend" }], warnings: [], expiresAt: "", createdAt: "" },
@@ -12,6 +13,11 @@ function withState(state: CashoutProgressState, changes: Partial<NonNullable<Rec
   return { ...operation, cashout: { ...operation.cashout!, state, ...changes } };
 }
 const withdraw = (status: RecentMoneyActionOperation["status"]): RecentMoneyActionOperation => ({ ...operation, action: { ...operation.action, kind: "cash-out-withdraw" }, status });
+function ledger(entry: RecentMoneyActionOperation, linked?: RecentMoneyActionOperation) {
+  const item = presentActivityLedgerItems([{ kind: "action", id: entry.action.id, timestamp: entry.updatedAt, operation: entry, ...(linked ? { withdraw: linked } : {}), transfers: [] }], { regionId: "US" })[0]!;
+  if (item.family !== "home-action") throw new Error("expected a Home action");
+  return { ...item, facts: item.detail.facts ?? [] };
+}
 
 describe("cash-out presentation", () => {
   test.each([
@@ -35,8 +41,11 @@ describe("cash-out presentation", () => {
     const failed = { ...operation, status: "failed" as const };
     const view = presentCashout(failed);
     expect([view.stage, view.status, view.cancellable, view.inProgress]).toEqual(["waiting", "Waiting for a buyer", true, true]);
-    expect(presentCashoutDetails(failed).rows[0]).toEqual({ label: "Status", value: "Waiting for a buyer", statusTone: "pending" });
-    expect(presentCashoutDetails(failed).rows).toContainEqual({ label: "Network", value: "Base", network: "base" });
+    const item = ledger(failed);
+    expect([item.status, item.steps, item.nextAction]).toEqual([
+      "waiting-provider", [{ status: "current", title: "Waiting for a buyer" }], { kind: "cancel-cash-out", label: "Cancel cash-out $50" },
+    ]);
+    expect(item.family === "home-action" && item.detail.network).toBe("Base");
     expect(presentCashout({ ...failed, cashout: { ...failed.cashout!, withdrawing: true } }, withdraw("pending")).stage).toBe("returning");
   });
   test("an unknown action follows its linked provider progress", () => {
@@ -104,7 +113,7 @@ describe("cash-out presentation", () => {
     };
     const unverified = presentCashout(partial, confirmed);
     expect([unverified.stage, unverified.status, unverified.returned, unverified.inProgress]).toEqual(["returning", "Returning", "0", true]);
-    expect(presentCashoutDetails(partial, confirmed).rows.some((row) => row.label === "Returned")).toBe(false);
+    expect(ledger(partial, confirmed).facts.some((row) => row.label === "Returned")).toBe(false);
     const verified = withState("awaiting-buyer", { filledAtomic: "35000000", remainingAtomic: "15000000", returnedAtomic: "15000000" });
     expect(presentCashout(verified, confirmed).status).toBe("Paid $35 to Cash App · $15 returned");
     const partialReceipt = withState("awaiting-buyer", { filledAtomic: "0", remainingAtomic: "50000000", returnedAtomic: "20000000" });
@@ -150,12 +159,26 @@ describe("cash-out presentation", () => {
     expect(linkedCashoutWithdraw(operation, [attempt("w1", "failed", "2026-09-15T12:01:00Z"), attempt("w2", "failed", "2026-09-15T12:02:00Z")])?.action.id).toBe("w2");
   });
   test("details show a delivery estimate only while a buyer can still pay", () => {
-    expect(presentCashoutDetails(operation).rows).toContainEqual({ label: "Estimated delivery", value: "About 60 min" });
-    expect(presentCashoutDetails(withState("delivered")).rows.some((row) => row.label === "Estimated delivery")).toBe(false);
-    expect(presentCashoutDetails(withState("matched")).rows).toContainEqual({ label: "Estimated delivery", value: "About 60 min" });
-    const returning = presentCashoutDetails(withState("awaiting-buyer", { withdrawing: true }), withdraw("pending"));
-    expect(returning.rows[0]).toEqual({ label: "Status", value: "Returning", statusTone: "pending" });
-    expect(returning.rows.some((row) => row.label === "Estimated delivery")).toBe(false);
-    expect(presentCashoutDetails(withState("unknown")).rows.some((row) => row.label === "Estimated delivery")).toBe(false);
+    expect(ledger(operation).facts).toContainEqual({ label: "Estimated delivery", value: "About 60 min" });
+    expect(ledger(withState("delivered")).facts.some((row) => row.label === "Estimated delivery")).toBe(false);
+    expect(ledger(withState("matched")).facts).toContainEqual({ label: "Estimated delivery", value: "About 60 min" });
+    const returning = ledger(withState("awaiting-buyer", { withdrawing: true }), withdraw("pending"));
+    expect([returning.status, returning.steps, returning.nextAction]).toEqual(["waiting-chain", [{ status: "current", title: "Returning" }], undefined]);
+    expect(returning.facts.some((row) => row.label === "Estimated delivery")).toBe(false);
+    expect(ledger(withState("unknown")).facts.some((row) => row.label === "Estimated delivery")).toBe(false);
+  });
+  test("the ledger maps each cash-out stage to its lifecycle and shows the payout app as the title", () => {
+    const cases = [
+      ["awaiting-buyer", "waiting-provider"], ["matched", "waiting-provider"], ["delivered", "confirmed"],
+      ["returned", "refunded"], ["failed", "failed"], ["unknown", "ambiguous"],
+    ] as const;
+    for (const [state, status] of cases) {
+      const item = ledger(withState(state));
+      expect([item.status, item.title]).toEqual([status, "Cash out to Cash App"]);
+      if (state !== "awaiting-buyer") expect(item.nextAction).toBeUndefined();
+    }
+    expect(ledger(withState("returned")).statusLabel).toBe("Returned");
+    const moved = ledger(withState("matched", { updatedAt: "2026-09-15T14:00:00Z" }));
+    expect([moved.timestamp, moved.updatedAt]).toEqual(["2026-09-15T14:00:00Z", "2026-09-15T14:00:00Z"]);
   });
 });

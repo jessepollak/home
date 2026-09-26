@@ -514,7 +514,7 @@ export const IndexedActionContext: Story = {
     const activity = within(within(canvasElement).getByRole("region", { name: "Activity" }));
     const action = activity.getByRole("button", { description: "View Deposit USDC into Morpho transaction details" });
     await expect(action.textContent).toContain("Deposit USDC into Morpho");
-    await expect(action.textContent).toContain("Confirmed");
+    await expect(action.textContent).not.toContain("Confirmed");
     await expect(activity.queryByRole("button", { description: "View sent USDC transaction details" })).toBeNull();
     await expect(activity.queryByText("Sent")).toBeNull();
     await expect(activity.getByRole("button", { description: "View received USDC transaction details" })).toBeVisible();
