@@ -110,6 +110,11 @@ test("maps merged and failing checks and returns null on failed API responses", 
   ] }) : response({ title: "Merged", state: "closed", draft: false, merged_at: "2026-01-01", head: { sha: "abc123456789" } })) as unknown as typeof fetch;
   expect(await fetchPrStatus(build)).toMatchObject({ state: "merged", checks: "failing" });
   storage.clear();
+  globalThis.fetch = mock(async (input: RequestInfo | URL) => String(input).includes("check-runs") ? response({ check_runs: [
+    { status: "completed", conclusion: "success" }, { status: "completed", conclusion: "startup_failure" },
+  ] }) : response({ title: "Open", state: "open", draft: false, merged_at: null, head: { sha: "abc123456789" } })) as unknown as typeof fetch;
+  expect(await fetchPrStatus(build)).toMatchObject({ checks: "failing" });
+  storage.clear();
   globalThis.fetch = mock(async () => response({}, 403)) as unknown as typeof fetch;
   expect(await fetchPrStatus(build)).toBeNull();
 });

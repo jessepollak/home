@@ -95,7 +95,7 @@ export async function fetchPrStatus(build: ReviewBuild, signal?: AbortSignal): P
       if (page === 100) return null;
     }
     const checks = runs.length === 0 ? "none" :
-      runs.some((run) => ["failure", "timed_out", "cancelled", "action_required"].includes(run.conclusion ?? "")) ? "failing" :
+      runs.some((run) => ["failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale"].includes(run.conclusion ?? "")) ? "failing" :
       runs.some((run) => run.status !== "completed") ? "pending" :
       runs.every((run) => ["success", "neutral", "skipped"].includes(run.conclusion ?? "")) ? "passing" : "pending";
     const state = pull.merged_at ? "merged" : pull.state === "closed" ? "closed" : pull.draft ? "draft" : "open";
