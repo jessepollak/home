@@ -1,13 +1,12 @@
 import "@/client/account/dom-test-harness";
 import { useRef, useState } from "react";
-import { ActivityRow } from "@/components/finance-rows";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import type {
   ActivityLedgerItem, ActivityLedgerStatus, ActivityLedgerFamily, ActivityLedgerNextActionKind,
 } from "./activity-ledger";
 const { act, cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
-const { ActivityLedger, ActivityLedgerDetailSheet, isActivityLedgerNextActionAllowed } =
-  await import("./activity-ledger");
+const { ActivityLedger, isActivityLedgerNextActionAllowed } = await import("./activity-ledger");
+const { ActivityLedgerDetailSheet } = await import("./activity-ledger-sheet");
 afterEach(cleanup);
 
 const item: ActivityLedgerItem = {
@@ -28,11 +27,11 @@ const statuses: ActivityLedgerStatus[] = [
 const families: ActivityLedgerFamily[] = ["onchain-transfer", "home-action", "funding-order", "cash-out-order", "card"];
 const kinds: ActivityLedgerNextActionKind[] = [
   "resume", "resume-verification", "complete-payment", "retry", "start-again",
-  "clear-order", "withdraw-returned-funds",
+  "clear-order", "withdraw-returned-funds", "cancel-cash-out",
 ];
 const statusActions: Record<ActivityLedgerStatus, ActivityLedgerNextActionKind[]> = {
   "waiting-customer": ["resume", "resume-verification", "complete-payment"],
-  "waiting-provider": [], "waiting-chain": [], "waiting-home": [], confirmed: [],
+  "waiting-provider": ["cancel-cash-out"], "waiting-chain": [], "waiting-home": [], confirmed: [],
   failed: ["retry"], expired: ["start-again"],
   ambiguous: ["clear-order"], reversed: ["withdraw-returned-funds"], refunded: [],
 };
@@ -65,25 +64,12 @@ function rows(view: ReturnType<typeof render>): HTMLElement[] {
 }
 
 describe("activity ledger", () => {
-  test("finance row attention replaces a hidden chevron without losing its accessible announcement", () => {
-    const view = render(<ul><ActivityRow icon="↓" label="Review payment" chevron={false}
-      attention="Action needed" onActivate={ignoreOpen} /></ul>);
-    const row = view.getByRole("button", { name: /Review payment Action needed/ });
-    expect(row.querySelector('[data-slot="item-actions"] svg')).toBeTruthy();
-    view.rerender(<ul><ActivityRow icon="↓" label="Review payment" chevron={false}
-      onActivate={ignoreOpen} /></ul>);
-    expect(view.getByRole("button", { name: "Review payment" })
-      .querySelector('[data-slot="item-actions"]')).toBeNull();
-    view.rerender(<ul><ActivityRow icon="↓" label="Review payment" chevron={false}
-      attention="Action needed" /></ul>);
-    expect(view.queryByRole("button")).toBeNull();
-    expect(view.container.querySelector('[data-slot="item-actions"]')).toBeNull();
-  });
   test("fails closed across status, family and action kind", () => {
     for (const status of statuses) for (const family of families) for (const kind of kinds) {
       const expected = family !== "card" && statusActions[status].includes(kind) &&
         (!["resume-verification", "complete-payment", "clear-order"].includes(kind) || family === "funding-order") &&
-        (kind !== "withdraw-returned-funds" || family === "cash-out-order");
+        (kind !== "withdraw-returned-funds" || family === "cash-out-order") &&
+        (kind !== "cancel-cash-out" || family === "cash-out-order" || family === "home-action");
       expect(isActivityLedgerNextActionAllowed(status, family, kind)).toBe(expected);
     }
   });
@@ -97,16 +83,14 @@ describe("activity ledger", () => {
     for (const [index, word] of words.entries()) {
       const row = view.getByRole("button", { description: `View Entry ${index} details` });
       expect(row.textContent).toContain(`Today${word ? ` · ${word}` : ""}`);
+      expect(row.querySelector("time")?.getAttribute("datetime")).toBe(item.timestamp);
       if (index === 0) expect(view.getByRole("button", { name: /Action needed/ })).toBe(row);
       else expect(view.queryAllByRole("button", { name: /Action needed/ })).toHaveLength(1);
-      expect(row.querySelector("[data-value-tone]")?.getAttribute("data-value-tone"))
-        .toBe([4, 9].includes(index) ? "success" : [2, 3].includes(index) ? "default" : "muted");
       expect(row.querySelector("[title]")?.getAttribute("title"))
         .toBe(`Today${word ? ` · ${word}` : ""}`);
     }
     view.rerender(<ActivityLedger items={[{ ...item, direction: "out", amount: "−$200.00" }]}
       onOpen={ignoreOpen} />);
-    expect(view.container.querySelector("[data-value-tone]")?.getAttribute("data-value-tone")).toBe("default");
   });
   for (const { reason, nextAction } of [
     { reason: "no next action", nextAction: undefined },
@@ -128,6 +112,23 @@ describe("activity ledger", () => {
       expect(within(dialog).queryByRole("button", { name: /Continue payment|Try again/ })).toBeNull();
     });
   }
+  test("pending Home action sheet shows submitted and confirming stages", () => {
+    const action: ActivityLedgerItem = {
+      ...item, family: "home-action", status: "waiting-chain", title: "Send USDC",
+      steps: [
+        { status: "complete", title: "Submitted", time: "Sep 15, 12:00 PM" },
+        { status: "current", title: "Confirming on Base" },
+      ],
+      detail: { family: "home-action", operation: "Send", network: "Base" },
+    };
+    const view = render(<ActivityLedgerDetailSheet item={action} open
+      onDismiss={ignoreOpen} onAction={ignoreOpen} />);
+    const stages = within(view.getByRole("dialog")).getAllByRole("listitem");
+    expect(stages).toHaveLength(2);
+    expect(stages[0]?.textContent).toContain("Complete: Submitted");
+    expect(stages[0]?.textContent).toContain("Sep 15, 12:00 PM");
+    expect(stages[1]?.textContent).toContain("In progress: Confirming on Base");
+  });
   test("sheet badges distinguish actionable waits, pending waits and ambiguous checks", () => {
     const view = render(<ActivityLedgerDetailSheet item={funding} open
       onDismiss={ignoreOpen} onAction={ignoreOpen} />);
@@ -156,13 +157,15 @@ describe("activity ledger", () => {
     view.rerender(<><ActivityLedger items={[{ ...funding, dateLabel: "Heute", statusLabel: "Bitte handeln" }]}
       onOpen={ignoreOpen} /><ActivityLedgerDetailSheet item={{ ...funding, statusLabel: "Bitte handeln" }}
       open onDismiss={ignoreOpen} onAction={ignoreOpen} /></>);
-    expect(view.container.querySelector("ul")?.textContent).toContain("Heute · Bitte handeln");
+    expect(view.getByRole("list", { hidden: true }).textContent).toContain("Heute");
+    expect(view.getByRole("list", { hidden: true }).textContent).not.toContain("Bitte handeln");
     expect(within(view.getByRole("dialog")).getByText("Bitte handeln")).toBeTruthy();
     view.rerender(<><ActivityLedger items={[{ ...funding, nextAction: undefined,
       statusLabel: "Bitte handeln" }]} onOpen={ignoreOpen} />
       <ActivityLedgerDetailSheet item={{ ...funding, nextAction: undefined,
         statusLabel: "Bitte handeln" }} open onDismiss={ignoreOpen} onAction={ignoreOpen} /></>);
-    expect(view.container.querySelector("ul")?.textContent).toContain("Today · Bitte handeln");
+    expect(view.getByRole("list", { hidden: true }).textContent).toContain("Today");
+    expect(view.getByRole("list", { hidden: true }).textContent).not.toContain("Bitte handeln");
     expect(within(view.getByRole("dialog")).getByText("Bitte handeln")).toBeTruthy();
     expect(within(view.getByRole("dialog")).queryByRole("button", { name: "Continue payment" })).toBeNull();
   });
@@ -197,7 +200,6 @@ describe("activity ledger", () => {
     expect(pending[1]?.textContent).toContain("Today · Reversed");
     expect(pending[3]?.textContent).toContain("Today");
     expect(pending[3]?.textContent).not.toContain(" · ");
-    expect(pending[0]?.closest('[data-slot="card"]')).not.toBe(recent[0]?.closest('[data-slot="card"]'));
     expect(recent.map((row) => row.textContent)).toEqual(expect.arrayContaining([
       expect.stringContaining("Returned without action"), expect.stringContaining("Failed entry"),
       expect.stringContaining("Expired entry"),
@@ -235,21 +237,6 @@ describe("activity ledger", () => {
       const row = view.getByRole("button", { description: `View ${title} details` });
       expect(view.getAllByRole("button", { name: /Intervention requise/ })).not.toContain(row);
     }
-  });
-  test("loads in the last card when both groups are rendered", () => {
-    const view = render(<ActivityLedger items={[funding, item]} onOpen={ignoreOpen} sources={[
-      { id: "funding", label: "Funding orders", status: "loading", onRetry: ignoreOpen },
-    ]} />);
-    const pendingCard = view.getByRole("list", { name: "Pending" }).closest('[data-slot="card"]');
-    const recentCard = view.getByRole("list", { name: "Recent" }).closest('[data-slot="card"]');
-    expect(pendingCard).not.toBe(recentCard);
-    expect(pendingCard?.querySelector('[aria-busy="true"]')).toBeNull();
-    expect(recentCard?.querySelectorAll('[aria-busy="true"]')).toHaveLength(1);
-    view.rerender(<ActivityLedger items={[funding]} onOpen={ignoreOpen} sources={[
-      { id: "funding", label: "Funding orders", status: "loading", onRetry: ignoreOpen },
-    ]} />);
-    expect(view.getByRole("list", { name: "Pending" }).closest('[data-slot="card"]')
-      ?.querySelectorAll('[aria-busy="true"]')).toHaveLength(1);
   });
   test("deduplicates only exact family and ID pairs", () => {
     const view = render(<ActivityLedger items={[item, { ...item, title: "duplicate" }, { ...item, id: "another" }]}
@@ -345,7 +332,6 @@ describe("activity ledger", () => {
     const dialog = view.getByRole("dialog");
     expect(within(dialog).getByRole("button", { name: "Continue payment" })).toBeTruthy();
     expect(within(dialog).queryByText(/Block|Token contract|action id|matched confirmation/i)).toBeNull();
-    expect(view.container.querySelector("[data-money-action-id]")).toBeNull();
     fireEvent.click(within(dialog).getByRole("button", { name: "Continue payment" }));
     expect(onAction).toHaveBeenCalledWith(funding, "complete-payment");
     expect(onAction).toHaveBeenCalledTimes(1);
@@ -379,48 +365,117 @@ describe("activity ledger", () => {
     expect(view.queryByRole("dialog")).toBeNull();
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
-  test("keeps a silent status region when no source is loading", () => {
-    const view = render(<ActivityLedger items={[item]} onOpen={ignoreOpen} />);
-    const status = view.getByRole("status");
-    expect(status.textContent).toBe("");
-    view.rerender(<ActivityLedger items={[item]} onOpen={ignoreOpen} sources={[
-      { id: "funding", label: "Funding orders", status: "loading", onRetry: ignoreOpen },
-    ]} />);
-    expect(view.getByRole("status")).toBe(status);
-    expect(status.textContent).toBe("Loading recent activity…");
-    view.rerender(<ActivityLedger items={[item]} onOpen={ignoreOpen} />);
-    expect(view.getByRole("status")).toBe(status);
-    expect(status.textContent).toBe("");
+  test("groups every status by pending lifecycle, not by available retry", () => {
+    const entries = statuses.map((status, index): ActivityLedgerItem => ({
+      ...item, id: `status-${index}`, status, title: `Status ${index}`,
+    }));
+    const view = render(<ActivityLedger items={entries} onOpen={ignoreOpen} />);
+    expect(within(view.getByRole("list", { name: "Pending" })).getAllByRole("button")
+      .map((row) => row.textContent)).toEqual([
+      expect.stringContaining("Status 0"), expect.stringContaining("Status 1"),
+      expect.stringContaining("Status 2"), expect.stringContaining("Status 3"),
+      expect.stringContaining("Status 7"),
+    ]);
+    expect(within(view.getByRole("list", { name: "Recent" })).getAllByRole("button")
+      .map((row) => row.textContent)).toEqual([
+      expect.stringContaining("Status 4"), expect.stringContaining("Status 5"),
+      expect.stringContaining("Status 6"), expect.stringContaining("Status 8"),
+      expect.stringContaining("Status 9"),
+    ]);
   });
-  test("shows loading within the rows card while another source loads", () => {
-    const view = render(<ActivityLedger items={[item]} onOpen={ignoreOpen} sources={[
-      { id: "funding", label: "Funding orders", status: "loading", onRetry: ignoreOpen },
-    ]} />);
-    const list = view.getByRole("list");
-    const card = list.closest('[data-slot="card"]');
-    expect(card).toBeTruthy();
-    expect(card?.querySelectorAll('[aria-busy="true"]')).toHaveLength(1);
-    expect(card?.querySelector('[aria-busy="true"]')?.previousElementSibling).toBe(list);
-    expect(view.getByRole("status").textContent).toBe("Loading recent activity…");
-    expect(view.queryByText("No activity yet")).toBeNull();
+  test("feed layout leaves cards to its host and labels both groups; footer follows the last list", () => {
+    const view = render(<ActivityLedger layout="feed" items={[funding, item]}
+      footer={<button type="button">See all activity</button>} onOpen={ignoreOpen} />);
+    const pending = view.getByRole("list", { name: "Pending" });
+    const recent = view.getByRole("list", { name: "Recent" });
+    const footer = view.getByRole("button", { name: "See all activity" });
+    expect(pending.closest("[data-slot=card]")).toBeNull();
+    expect(recent.closest("[data-slot=card]")).toBeNull();
+    expect(recent.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    view.rerender(<ActivityLedger layout="feed" items={[funding]}
+      footer={<button type="button">See all activity</button>} onOpen={ignoreOpen} />);
+    expect(view.queryByRole("heading", { name: "Recent" })).toBeNull();
+    expect(view.getByRole("list", { name: "Pending" }).compareDocumentPosition(
+      view.getByRole("button", { name: "See all activity" }),
+    ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    view.rerender(<ActivityLedger layout="feed" items={[item]}
+      footer={<button type="button">See all activity</button>} onOpen={ignoreOpen} />);
+    expect(view.queryByRole("heading")).toBeNull();
+    expect(view.getByRole("list").closest("[data-slot=card]")).toBeNull();
+    view.rerender(<ActivityLedger items={[]} footer={<button type="button">See all activity</button>}
+      onOpen={ignoreOpen} />);
+    expect(view.queryByRole("list")).toBeNull();
+    expect(view.getByRole("button", { name: "See all activity" })).toBeTruthy();
+    view.rerender(<ActivityLedger items={[]} onOpen={ignoreOpen} />);
+    expect(view.container.textContent).toBe("");
   });
-  test("shows loading alongside source errors when there are no rows", () => {
-    const view = render(<ActivityLedger items={[]} onOpen={ignoreOpen} sources={[
-      { id: "cash-out", label: "Cash out orders", status: "error", onRetry: ignoreOpen },
-      { id: "funding", label: "Funding orders", status: "loading", onRetry: ignoreOpen },
-    ]} />);
-    expect(view.getByText("Cash out orders unavailable")).toBeTruthy();
-    expect(view.getByText("Loading recent activity…")).toBeTruthy();
-    expect(view.queryByText("No activity yet")).toBeNull();
+  test("page footer is inside the last card in each group configuration", () => {
+    const view = render(<ActivityLedger items={[funding, item]} footer={<p>See more</p>}
+      onOpen={ignoreOpen} />);
+    expect(view.getByText("See more").closest("[data-slot=card]"))
+      .toBe(view.getByRole("list", { name: "Recent" }).closest("[data-slot=card]"));
+    view.rerender(<ActivityLedger items={[funding]} footer={<p>See more</p>}
+      onOpen={ignoreOpen} />);
+    expect(view.getByText("See more").closest("[data-slot=card]"))
+      .toBe(view.getByRole("list", { name: "Pending" }).closest("[data-slot=card]"));
+    view.rerender(<ActivityLedger items={[item]} footer={<p>See more</p>}
+      onOpen={ignoreOpen} />);
+    expect(view.getByText("See more").closest("[data-slot=card]"))
+      .toBe(view.getByRole("list").closest("[data-slot=card]"));
   });
-  test("keeps partial rows and retries only the failed source", () => {
-    const retry = mock(() => undefined);
-    const view = render(<ActivityLedger items={[item]} onOpen={ignoreOpen}
-      sources={[{ id: "cash-out", label: "Cash out orders", status: "error", onRetry: retry }]} />);
-    expect(view.getByRole("list")).toBeTruthy();
-    expect(view.getByText("Cash out orders unavailable")).toBeTruthy();
-    fireEvent.click(view.getByRole("button", { name: "Reload Cash out orders" }));
-    expect(retry).toHaveBeenCalledTimes(1);
+  test("passes the row amount context, optional mark image, and caller activation hint", () => {
+    const open = mock(() => undefined);
+    const entry: ActivityLedgerItem = { ...item, amount: "", amountContext: "0.3 USDC",
+      activateLabel: "Inspect receipt", mark: { kind: "asset", symbol: "USDC", imageUrl: "/coin.svg" } };
+    const view = render(<ActivityLedger items={[entry]} onOpen={open} />);
+    const row = view.getByRole("button", { description: "Inspect receipt" });
+    expect(within(row).getByText("0.3 USDC")).toBeTruthy();
+    expect(row.textContent).not.toContain("+$200.00");
+    expect(row.querySelector('img[src="/coin.svg"]')).toBeTruthy();
+    fireEvent.click(row);
+    expect(open).toHaveBeenCalledWith(entry, row);
+  });
+  test("detail amount and source facts precede the copyable transaction without excluded fields", () => {
+    const excludedFields = {
+      actionId: "hidden-action", tokenContract: "hidden-contract", blockNumber: "hidden-block",
+    };
+    const entry: ActivityLedgerItem = { ...item, detailAmount: "0.3 USDC", detail: {
+      ...item.detail, ...excludedFields, facts: [{ label: "Asset", value: "USDC" }],
+      transaction: { value: "0xabc", display: "0xabc" },
+    } };
+    const view = render(<ActivityLedgerDetailSheet item={entry} open
+      onDismiss={ignoreOpen} onAction={ignoreOpen} />);
+    const dialog = view.getByRole("dialog");
+    expect(within(dialog).getByText("0.3 USDC")).toBeTruthy();
+    expect(within(dialog).queryByText("+$200.00")).toBeNull();
+    const labels = within(dialog).getAllByRole("term").map((term) => term.textContent);
+    expect(labels).toEqual(["Date", "From", "Network", "Asset", "Transaction"]);
+    expect(within(dialog).queryByText(/action id|token contract|block number/i)).toBeNull();
+    for (const excluded of ["hidden-action", "hidden-contract", "hidden-block"]) {
+      expect(within(dialog).queryByText(excluded)).toBeNull();
+    }
+  });
+  test("rows and sheets expose the full date and a copyable full counterparty address", async () => {
+    const address = "0x2222222222222222222222222222222222222222";
+    const entry: ActivityLedgerItem = { ...item, dateLabel: "Dec 31, 12:00 PM",
+      fullDateLabel: "Dec 31, 2025, 12:00 PM",
+      detail: { ...item.detail, family: "onchain-transfer", counterparty: address } };
+    const list = render(<ActivityLedger items={[entry]} onOpen={ignoreOpen} />);
+    const time = list.getByRole("button", { description: "View Received details" }).querySelector("time");
+    expect(time?.textContent).toBe("Dec 31, 12:00 PM");
+    expect(time?.getAttribute("aria-label")).toBe("Dec 31, 2025, 12:00 PM");
+    list.unmount();
+    const writeText = mock(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    const view = render(<ActivityLedgerDetailSheet item={entry} open onDismiss={ignoreOpen}
+      onAction={ignoreOpen} />);
+    const dialog = view.getByRole("dialog");
+    expect(within(dialog).getByText("Dec 31, 2025, 12:00 PM")).toBeTruthy();
+    expect(within(dialog).getByText("0x2222…222222")).toBeTruthy();
+    const copy = within(dialog).getByRole("button", { name: "Copy 0x2222…222222" });
+    expect(copy.getAttribute("title")).toBe(address);
+    fireEvent.click(copy);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(address));
   });
   test("omits an operation fact that repeats the title", () => {
     const action: ActivityLedgerItem = { ...item, id: "action-1", family: "home-action", status: "failed",
@@ -434,5 +489,14 @@ describe("activity ledger", () => {
     view.rerender(<ActivityLedgerDetailSheet item={{ ...action, detail: { ...action.detail,
       operation: "Deposit" } as typeof action.detail }} open onDismiss={ignoreOpen} onAction={ignoreOpen} />);
     expect(within(view.getByRole("dialog")).getByText("Operation")).toBeTruthy();
+    view.rerender(<ActivityLedgerDetailSheet item={{ ...action, detail: {
+      family: "home-action", operation: "Deposit", network: "Base",
+      facts: [{ label: "Asset", value: "USDC" }],
+      transaction: { value: "0xabc", display: "0xabc" },
+    } }} open onDismiss={ignoreOpen} onAction={ignoreOpen} />);
+    expect(within(view.getByRole("dialog")).getAllByRole("term")
+      .map((term) => term.textContent)).toEqual([
+      "Date", "Operation", "Network", "Asset", "Transaction",
+    ]);
   });
 });

@@ -184,8 +184,8 @@ describe("combined Activity panel", () => {
 
     fireEvent.click(actionRow);
     const details = await view.findByRole("dialog", { name: "Sent USDC" });
-    expect(within(details).getByText("Updated").nextElementSibling?.textContent).toMatch(/\d{1,2} de set\./);
-    expect(within(details).getByText("You spend").nextElementSibling?.textContent).toBe("1.234,56789 USDC");
+    expect(within(details).getByText("Date").nextElementSibling?.textContent).toMatch(/\d{1,2} de set\./);
+    expect(details.textContent).toContain("1.234,56789 USDC");
   });
 
   test("keeps transaction details during exit and restores focus after closing", async () => {
@@ -193,14 +193,13 @@ describe("combined Activity panel", () => {
     const opener = view.getByRole("button", { description: "View received USDC transaction details" });
     opener.focus();
     fireEvent.click(opener);
-    const dialog = await view.findByRole("dialog", { name: "Received USDC" });
+    const dialog = await view.findByRole("dialog", { name: "Received" });
 
     const animationFlag = globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean };
     animationFlag.BASE_UI_ANIMATIONS_DISABLED = true;
     try {
-      fireEvent.click(within(dialog).getByRole("button", { name: "Close transaction details" }));
-      expect(within(dialog).getByText("Received USDC")).toBeTruthy();
-      expect(within(dialog).getByText("Amount")).toBeTruthy();
+      fireEvent.click(within(dialog).getByRole("button", { name: "Close Received details" }));
+      expect(dialog.textContent).toContain("0.000001 USDC");
       await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
       await waitFor(() => expect(document.activeElement).toBe(opener));
     } finally {
@@ -522,7 +521,7 @@ describe("combined Activity panel", () => {
 
     const row = view.getByRole("button", { description: "View Deposit USDC into Morpho transaction details" });
     expect(row.textContent).toContain("Deposit USDC into Morpho");
-    expect(row.textContent).toContain("Confirmed");
+    expect(view.getByRole("heading", { name: "Pending" })).toBeTruthy();
     expect(row.textContent).toContain("1.25 USDC");
     expect(row.textContent).not.toContain("~");
     expect(view.queryByText("Received")).toBeNull();
@@ -531,7 +530,7 @@ describe("combined Activity panel", () => {
     fireEvent.click(row);
     const details = await view.findByRole("dialog", { name: "Deposit USDC into Morpho" });
     expect(within(details).getByText("Confirmed")).toBeTruthy();
-    expect(within(details).getByText("You spend").nextElementSibling?.textContent).toContain("1.25 USDC");
+    expect(details.textContent).toContain("1.25 USDC");
     expect(details.textContent).not.toContain("Estimated");
     expect(within(details).getByRole("heading", { name: "Deposit USDC into Morpho" })).toBeTruthy();
   });
@@ -564,6 +563,71 @@ describe("combined Activity panel", () => {
     expect(within(details).getByText("Provider").nextElementSibling?.textContent).toBe("Peer");
     expect(within(details).getByText("Confirmed")).toBeTruthy();
     expect(view.queryByText("Received")).toBeNull();
+  });
+
+  test("keeps Pending above Recent in separate page cards and in Home's single Activity card", () => {
+    const pending = { ...operation("Pending send", 7), status: "pending" as const };
+    for (const density of ["page", "feed"] as const) {
+      const view = render(<ActivityPanelView activity={ready([transfer("recent", 5)])} operations={[pending]} density={density} />);
+      const section = view.getByRole("region", { name: "Activity" });
+      const pendingHeading = within(section).getByRole("heading", { name: "Pending" });
+      const recentHeading = within(section).getByRole("heading", { name: "Recent" });
+      expect(pendingHeading.compareDocumentPosition(recentHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      const pendingCard = pendingHeading.closest("[data-slot='card']");
+      const recentCard = recentHeading.closest("[data-slot='card']");
+      expect(pendingCard === recentCard).toBe(density === "feed");
+      expect(pendingHeading.closest("[data-slot='card']")?.contains(within(section).getByText("Pending send"))).toBe(true);
+      expect(within(section).getAllByRole("list")).toHaveLength(2);
+      expect(section.querySelectorAll("[data-slot='card']").length).toBe(density === "feed" ? 1 : 2);
+      view.unmount();
+    }
+  });
+
+  test("omits group headers when nothing is pending", () => {
+    const view = render(<ActivityPanelView activity={ready([transfer("recent", 5)])} />);
+    expect(view.queryByRole("heading", { name: "Pending" })).toBeNull();
+    expect(view.queryByRole("heading", { name: "Recent" })).toBeNull();
+    expect(view.getByRole("region", { name: "Activity" }).querySelectorAll("[data-slot='card']")).toHaveLength(1);
+  });
+
+  test("a matched transfer appears once and the next snapshot moves its action from Pending to Recent", () => {
+    const indexed = transfer("indexed", 5);
+    const pending = { ...operation("Send USDC", 7), status: "pending" as const };
+    const view = render(<ActivityPanelView activity={ready([indexed])} operations={[pending]} />);
+    expect(view.getByRole("heading", { name: "Pending" })).toBeTruthy();
+    expect(view.getByRole("heading", { name: "Recent" })).toBeTruthy();
+    const confirmed = { ...pending, status: "confirmed" as const, updatedAt: "2026-09-15T12:08:30.000Z" };
+    view.rerender(<ActivityPanelView activity={ready([indexed])} operations={[confirmed]} />);
+    expect(view.queryByRole("heading", { name: "Pending" })).toBeNull();
+    expect(view.getAllByRole("button", { description: /transaction details/ })).toHaveLength(2);
+    const matched = { ...confirmed, transactionHash: indexed.transactionHash };
+    view.rerender(<ActivityPanelView activity={ready([indexed])} operations={[matched]} />);
+    expect(view.getAllByRole("button", { description: /transaction details/ })).toHaveLength(1);
+    expect(view.queryByText("Received")).toBeNull();
+  });
+
+  test("an ambiguous send shows Unconfirmed guidance with no recovery action", async () => {
+    const ambiguous = { ...operation("Send USDC", 5), status: "unknown" as const };
+    const view = render(<ActivityPanelView activity={ready([])} operations={[ambiguous]} />);
+    fireEvent.click(view.getByRole("button", { description: "View Send USDC transaction details" }));
+    const dialog = await view.findByRole("dialog", { name: "Send USDC" });
+    expect(within(dialog).getByText("Unconfirmed")).toBeTruthy();
+    expect(within(dialog).getByText("We can't confirm this yet")).toBeTruthy();
+    expect(within(dialog).queryByRole("button", { name: /retry|try again|clear/i })).toBeNull();
+    expect(dialog.querySelector("[data-slot='drawer-footer']")).toBeNull();
+  });
+
+  test("keeps the selected sheet current when its operation snapshot changes", async () => {
+    const pending = { ...operation("Send USDC", 5), status: "pending" as const };
+    const view = render(<ActivityPanelView activity={ready([])} operations={[pending]} />);
+    fireEvent.click(view.getByRole("button", { description: "View Send USDC transaction details" }));
+    const dialog = await view.findByRole("dialog", { name: "Send USDC" });
+    expect(within(dialog).getByText("Pending")).toBeTruthy();
+    view.rerender(<ActivityPanelView activity={ready([])} operations={[{ ...pending, status: "confirmed" }]} />);
+    expect(within(dialog).getByText("Confirmed")).toBeTruthy();
+    expect(view.queryByRole("heading", { name: "Pending" })).toBeNull();
+    view.rerender(<ActivityPanelView activity={ready([])} operations={[]} />);
+    expect(within(dialog).getByText("Confirmed")).toBeTruthy();
   });
 
   test("keeps an unmatched hashed action while pages remain, then hides its later loaded transfer", () => {

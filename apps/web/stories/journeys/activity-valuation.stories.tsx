@@ -265,12 +265,12 @@ export const Priced: Story = {
     await expect(within(thinRow).queryByText(/\$/)).toBeNull();
 
     await userEvent.click(receivedRow);
-    const dialog = await screen.findByRole("dialog", { name: "Received TEST" });
+    const dialog = await screen.findByRole("dialog", { name: "Received" });
     await expect(within(dialog).getByText("+$12.34")).toBeVisible();
     await expect(within(dialog).getByText("+5,678 TEST")).toBeVisible();
     await expect(within(dialog).queryByText(/Historical close/)).toBeNull();
     await expect(within(dialog).queryByText("Quote time")).toBeNull();
-    await userEvent.click(within(dialog).getByRole("button", { name: "Close transaction details" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Close Received details" }));
   },
 };
 
@@ -296,10 +296,11 @@ export const MissingPrice: Story = {
     await expect(within(receivedRow).getByRole("img", { name: "+5,678 TEST" })).toBeVisible();
     await expect(within(receivedRow).queryByText(/\$/)).toBeNull();
     await userEvent.click(receivedRow);
-    const dialog = await screen.findByRole("dialog", { name: "Received TEST" });
-    await expect(within(dialog).getByText("Unknown")).toBeVisible();
+    const dialog = await screen.findByRole("dialog", { name: "Received" });
+    await expect(within(dialog).getByText("+5,678 TEST")).toBeVisible();
+    await expect(within(dialog).queryByText("Value")).toBeNull();
     await expect(within(dialog).queryByText(/Not priced/)).toBeNull();
-    await userEvent.click(within(dialog).getByRole("button", { name: "Close transaction details" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Close Received details" }));
   },
 };
 
