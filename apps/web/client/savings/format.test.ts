@@ -5,15 +5,9 @@ import {
   parseUsdcAmount,
   readUsdcBaseUnits,
   savingsVaultApyLabel,
-  shortVaultLabel,
 } from "./format";
 
 describe("savings format", () => {
-  test("shortens vault names", () => {
-    expect(shortVaultLabel("Gauntlet USDC Prime")).toBe("Gauntlet");
-    expect(shortVaultLabel("Steakhouse USDC")).toBe("Steakhouse");
-  });
-
   test("shows valid APY regardless of freshness and omits unknown rates", () => {
     const timestamp = "2026-09-10T12:00:00.000Z";
     const candidate: MorphoVaultCandidate = {
