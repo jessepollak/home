@@ -214,8 +214,10 @@ export function BorrowOverview({ overview = null, borrowSummary, status = "ready
   const detailsId = useId();
   const loansHeadingId = useId();
   const assetsHeadingId = useId();
+  const pickerTitleId = useId();
   const summaryRef = useRef<HTMLParagraphElement>(null);
-  const assetsSectionRef = useRef<HTMLElement>(null);
+  const introActionRef = useRef<HTMLButtonElement>(null);
+  const pickedMarket = useRef<BorrowMarketId | null>(null);
   const opener = useRef<HTMLElement | null>(null);
   const leavingForActivity = useRef(false);
   const actionFocusRef = useRef<HTMLButtonElement>(null);
@@ -227,6 +229,7 @@ export function BorrowOverview({ overview = null, borrowSummary, status = "ready
   const [moneyOperation, setMoneyOperation] = useState<BorrowOperation | null>(null);
   const [moneySnapshot, setMoneySnapshot] = useState<BorrowMarketSnapshot | null>(null);
   const [moneyOpen, setMoneyOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const opportunities = overview?.opportunities ?? [];
   const selected = opportunities.find((entry) => entry.market.id === marketId);
   const snapshot = selected?.availability.status === "available" ? selected.availability.snapshot : null;
@@ -238,11 +241,24 @@ export function BorrowOverview({ overview = null, borrowSummary, status = "ready
   const hasBorrowableAsset = assets.some((asset) => asset.kind === "held");
   const empty = !loans.length && !assets.some((asset) => asset.kind === "held" || asset.kind === "held-no-capacity");
   const held = assets.find((asset): asset is Extract<BorrowableAsset, { kind: "held" }> => asset.kind === "held" && asset.market.id === marketId);
+  function focusOverview() {
+    (summaryRef.current ?? introActionRef.current)?.focus({ preventScroll: true });
+  }
   function openMarket(id: BorrowMarketId, element: HTMLElement) {
     opener.current = element;
     setFocusOperation(null);
     setMarketId(id);
     setManagementOpen(true);
+  }
+  function pickMarket(id: BorrowMarketId) {
+    pickedMarket.current = id;
+    setPickerOpen(false);
+  }
+  function onPickerClosed() {
+    const id = pickedMarket.current;
+    pickedMarket.current = null;
+    if (id && introActionRef.current) openMarket(id, introActionRef.current);
+    else introActionRef.current?.focus({ preventScroll: true });
   }
   function onManagementClosed() {
     if (pendingOperation) {
@@ -252,6 +268,7 @@ export function BorrowOverview({ overview = null, borrowSummary, status = "ready
       setMarketId(null);
       setFocusOperation(null);
       if (opener.current?.isConnected) opener.current.focus({ preventScroll: true });
+      else focusOverview();
     }
   }
   function begin(operation: BorrowOperation) {
@@ -281,7 +298,7 @@ export function BorrowOverview({ overview = null, borrowSummary, status = "ready
     } else {
       setMarketId(null);
       setFocusOperation(null);
-      summaryRef.current?.focus({ preventScroll: true });
+      focusOverview();
     }
   }
   const actions = snapshot ? loanActions(snapshot) : null;
@@ -304,7 +321,7 @@ export function BorrowOverview({ overview = null, borrowSummary, status = "ready
       setManagementOpen(false);
       setMarketId(null);
       setFocusOperation(null);
-      summaryRef.current?.focus({ preventScroll: true });
+      (summaryRef.current ?? introActionRef.current)?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
   }, [marketId, snapshot, moneyOperation, managementOpen]);
@@ -317,7 +334,7 @@ export function BorrowOverview({ overview = null, borrowSummary, status = "ready
   }, [managementOpen, focusOperation, actionEnabled]);
   return <section className="space-y-4" aria-labelledby="borrow-overview-title">
     <h2 className="sr-only" id="borrow-overview-title">Borrow</h2>
-    <Summary overview={overview} borrowSummary={borrowSummary} status={status} onRetry={onRetry} regionId={regionId} summaryRef={summaryRef} />
+    {showIntro ? null : <Summary overview={overview} borrowSummary={borrowSummary} status={status} onRetry={onRetry} regionId={regionId} summaryRef={summaryRef} />}
     {ready ? <>
       {showIntro ? <FeatureIntro
         size="compact"
@@ -331,17 +348,25 @@ export function BorrowOverview({ overview = null, borrowSummary, status = "ready
         ]}
         primary={{
           label: hasBorrowableAsset ? "Choose an asset" : "See supported assets",
-          onClick: () => assetsSectionRef.current?.focus(),
+          onClick: () => setPickerOpen(true),
+          ref: introActionRef,
         }}
       /> : null}
       {loans.length ? <section aria-labelledby={loansHeadingId}><Card className="gap-3"><CardHeader><HomeSectionHeading id={loansHeadingId}>Open loans</HomeSectionHeading></CardHeader><CardContent inset="list"><ul className="list-none p-0">
         {loans.map((row) => <LoanRow key={row.market.id} row={row} regionId={regionId} resolution={assetMarkResolution} openMarket={openMarket} />)}
       </ul></CardContent></Card></section> : null}
-      {summarizeBorrowOverview(overview).completeness !== "unavailable" ? <section ref={assetsSectionRef} tabIndex={-1} aria-labelledby={assetsHeadingId}><Card className="gap-3"><CardHeader><HomeSectionHeading id={assetsHeadingId}>Assets you can borrow against</HomeSectionHeading></CardHeader>
+      {!showIntro && summarizeBorrowOverview(overview).completeness !== "unavailable" ? <section aria-labelledby={assetsHeadingId}><Card className="gap-3"><CardHeader><HomeSectionHeading id={assetsHeadingId}>Assets you can borrow against</HomeSectionHeading></CardHeader>
         {empty ? <p className="px-4 text-sm text-muted-foreground">Add a supported asset to your wallet to borrow USDC.</p> : null}
         <CardContent inset="list"><ul className="list-none p-0"><AssetRows assets={assets} regionId={regionId} resolution={assetMarkResolution} openMarket={openMarket} empty={empty} /></ul></CardContent>
       </Card></section> : null}
     </> : null}
+    {showIntro ? <AppDrawer open={pickerOpen} labelledBy={pickerTitleId} onCancel={() => setPickerOpen(false)} onClose={onPickerClosed}>
+      <MoneyModalHeader title={hasBorrowableAsset ? "Choose an asset" : "Supported assets"} titleId={pickerTitleId} closeLabel="Close asset list" onClose={() => setPickerOpen(false)} />
+      <MoneyModalBody className="gap-3 pt-4">
+        {empty ? <p className="text-sm text-muted-foreground">Add a supported asset to your wallet to borrow USDC.</p> : null}
+        <Card variant="flush"><CardContent inset="list"><ul className="list-none p-0"><AssetRows assets={assets} regionId={regionId} resolution={assetMarkResolution} openMarket={pickMarket} empty={empty} /></ul></CardContent></Card>
+      </MoneyModalBody>
+    </AppDrawer> : null}
     {ready ? <AppDrawer open={managementOpen} labelledBy={titleId} initialFocusRef={focusOperation ? actionEnabled ? actionFocusRef : heroFocusRef : undefined}
       onCancel={() => setManagementOpen(false)} onClose={onManagementClosed}>
       {snapshot ? <ManagementSheet key={marketId} snapshot={snapshot} name={collateralDisplayName(snapshot.market.id)} regionId={regionId}

@@ -416,17 +416,22 @@ function only(...ids: BorrowMarketId[]): BorrowOverviewResponse {
   };
 }
 
-async function assertRowMarkGeometry(canvasElement: HTMLElement) {
-  const screen = within(canvasElement);
-  for (const name of ["Open loans", "Assets you can borrow against"]) {
-    const region = screen.queryByRole("region", { name });
-    if (!region) continue;
-    const rows = region.querySelectorAll("li");
+async function openAssetPicker(canvasElement: HTMLElement, action: "Choose an asset" | "See supported assets") {
+  await userEvent.click(within(canvasElement).getByRole("button", { name: action }));
+  return within(canvasElement.ownerDocument.body).findByRole("dialog", { name: action === "Choose an asset" ? "Choose an asset" : "Supported assets" });
+}
+
+async function assertRowMarkGeometry(root: HTMLElement) {
+  const screen = within(root);
+  const containers = root.getAttribute("role") === "dialog" ? [root]
+    : ["Open loans", "Assets you can borrow against"].flatMap((name) => screen.queryByRole("region", { name }) ?? []);
+  for (const container of containers) {
+    const rows = container.querySelectorAll("li");
     await expect(rows.length).toBeGreaterThan(0);
     for (const row of rows) {
       const mark = row.querySelector<HTMLElement>("[data-mark]");
       const media = row.querySelector<HTMLElement>("[data-slot=item-media]");
-      if (!mark || !media) throw new Error(`Missing ${name} row mark or media`);
+      if (!mark || !media) throw new Error("Missing row mark or media");
       const markRect = mark.getBoundingClientRect();
       const mediaRect = media.getBoundingClientRect();
       for (const dimension of ["width", "height", "left", "top"] as const) {
@@ -462,8 +467,7 @@ function wideAmountsOverview(): BorrowOverviewResponse {
   }));
 }
 
-async function assertWideAmountRows(canvasElement: HTMLElement) {
-  const assets = within(canvasElement).getByRole("region", { name: "Assets you can borrow against" });
+async function assertWideAmountRows(assets: HTMLElement) {
   const rows = assets.querySelectorAll("li");
   await expect(rows.length).toBe(5);
   let heldCount = 0;
@@ -492,7 +496,7 @@ async function assertWideAmountRows(canvasElement: HTMLElement) {
   }
   await expect(heldCount).toBeGreaterThanOrEqual(2);
   await expect(notHeldCount).toBeGreaterThan(0);
-  await assertRowMarkGeometry(canvasElement);
+  await assertRowMarkGeometry(assets);
 }
 
 function partialOverview(): BorrowOverviewResponse {
@@ -579,59 +583,78 @@ export const NoDebtHeld: Story = {
   play: async ({ canvasElement }) => {
     const screen = within(canvasElement);
     await expect(screen.getByRole("heading", { name: "Borrow against your crypto" })).toBeVisible();
-    await userEvent.click(screen.getByRole("button", { name: "Choose an asset" }));
-    await expect(screen.getByRole("region", { name: "Assets you can borrow against" })).toHaveFocus();
+    await expect(screen.queryByText("Borrowed")).not.toBeInTheDocument();
+    await expect(screen.queryByRole("img", { name: "$0.00" })).not.toBeInTheDocument();
+    await expect(screen.queryByRole("region", { name: "Assets you can borrow against" })).not.toBeInTheDocument();
+    const picker = within(await openAssetPicker(canvasElement, "Choose an asset"));
+    await expect(picker.getByRole("button", { description: "Borrow against Cardano" })).toBeVisible();
+  },
+};
+export const NoDebtHeldPickerOpen: Story = {
+  args: NoDebtHeld.args,
+  play: async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body);
+    const cta = within(canvasElement).getByRole("button", { name: "Choose an asset" });
+    const picker = within(await openAssetPicker(canvasElement, "Choose an asset"));
+    await userEvent.click(picker.getByRole("button", { description: "Borrow against Cardano" }));
+    const management = within(await body.findByRole("dialog", { name: "Cardano" }));
+    await expect(management.getByText("Borrow up to")).toBeVisible();
+    await waitFor(() => expect(body.queryByRole("dialog", { name: "Choose an asset" })).toBeNull());
+    await userEvent.click(management.getByRole("button", { name: "Close Cardano details" }));
+    await waitFor(() => expect(cta).toHaveFocus());
   },
 };
 export const EmptyNoCollateral: Story = {
   args: { fixture: only() },
   play: async ({ canvasElement }) => {
-    await expect(assetMarks(canvasElement)).toHaveLength(5);
-    await assertRowMarkGeometry(canvasElement);
-    const screen = within(canvasElement);
-    await userEvent.click(screen.getByRole("button", { name: "See supported assets" }));
-    await expect(screen.getByRole("region", { name: "Assets you can borrow against" })).toHaveFocus();
+    const picker = await openAssetPicker(canvasElement, "See supported assets");
+    await expect(within(picker).getByText("Add a supported asset to your wallet to borrow USDC.")).toBeVisible();
+    await expect(assetMarks(picker)).toHaveLength(5);
+    await expect(within(picker).queryByRole("button", { description: /Borrow against/ })).toBeNull();
+    await assertRowMarkGeometry(picker);
   },
 };
 export const ImageMarksLoaded: Story = {
   args: { fixture: only(), assetMarkResolution: { images: collateralMarkImages, pending: false } },
   play: async ({ canvasElement }) => {
+    const picker = await openAssetPicker(canvasElement, "See supported assets");
     await waitFor(async () => {
-      await expect(assetMarks(canvasElement)).toHaveLength(5);
-      for (const mark of assetMarks(canvasElement)) await expect(mark).toHaveAttribute("data-mark", "image");
+      await expect(assetMarks(picker)).toHaveLength(5);
+      for (const mark of assetMarks(picker)) await expect(mark).toHaveAttribute("data-mark", "image");
     });
-    await assertRowMarkGeometry(canvasElement);
+    await assertRowMarkGeometry(picker);
   },
 };
 export const PendingMarks: Story = {
   args: { fixture: only(), assetMarkResolution: { images: Object.fromEntries(markets.map((market) => [market.collateralToken.id, null])), pending: true } },
   play: async ({ canvasElement }) => {
-    await expect(assetMarks(canvasElement)).toHaveLength(5);
-    for (const mark of assetMarks(canvasElement)) await expect(mark).toHaveAttribute("data-mark", "shimmer");
-    await assertRowMarkGeometry(canvasElement);
+    const picker = await openAssetPicker(canvasElement, "See supported assets");
+    await expect(assetMarks(picker)).toHaveLength(5);
+    for (const mark of assetMarks(picker)) await expect(mark).toHaveAttribute("data-mark", "shimmer");
+    await assertRowMarkGeometry(picker);
   },
 };
 export const BrokenImageMarks: Story = {
   args: { fixture: only(), assetMarkResolution: { images: Object.fromEntries(markets.map((market) => [market.collateralToken.id, `/asset-marks/missing-${market.collateralToken.id}.svg`])) } },
   play: async ({ canvasElement }) => {
+    const picker = await openAssetPicker(canvasElement, "See supported assets");
     await waitFor(async () => {
-      await expect(assetMarks(canvasElement)).toHaveLength(5);
-      for (const mark of assetMarks(canvasElement)) await expect(mark).toHaveAttribute("data-mark", "brand");
+      await expect(assetMarks(picker)).toHaveLength(5);
+      for (const mark of assetMarks(picker)) await expect(mark).toHaveAttribute("data-mark", "brand");
     });
-    await assertRowMarkGeometry(canvasElement);
+    await assertRowMarkGeometry(picker);
   },
 };
 export const WideAmountsNarrow: Story = {
   args: { fixture: wideAmountsOverview() },
-  decorators: [(Story) => <div style={{ width: 320 }}><Story /></div>],
-  play: async ({ canvasElement }) => assertWideAmountRows(canvasElement),
+  parameters: { viewport: { defaultViewport: "smallMobile" } },
+  play: async ({ canvasElement }) => assertWideAmountRows(await openAssetPicker(canvasElement, "Choose an asset")),
 };
 export const WideAmountsMobile: Story = {
   args: { fixture: wideAmountsOverview() },
-  decorators: [(Story) => <div style={{ width: 390 }}><Story /></div>],
   play: async ({ canvasElement }) => {
-    await assertWideAmountRows(canvasElement);
-    const assets = within(canvasElement).getByRole("region", { name: "Assets you can borrow against" });
+    const assets = await openAssetPicker(canvasElement, "Choose an asset");
+    await assertWideAmountRows(assets);
     const cardano = within(assets).getByText("Cardano").closest("li");
     const label = cardano?.querySelector<HTMLElement>("[data-slot=finance-row-body] > [data-slot=item-content] [data-slot=item-title]");
     const value = cardano?.querySelector<HTMLElement>("[data-slot=finance-row-value] [data-slot=item-title]");

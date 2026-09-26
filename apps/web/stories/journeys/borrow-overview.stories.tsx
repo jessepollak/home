@@ -159,7 +159,8 @@ export const NotHeldRowsInert: Story = {
       : entry) };
   })() },
   play: async ({ canvasElement }) => {
-    const assets = within(within(canvasElement).getByRole("region", { name: "Assets you can borrow against" })).getByRole("list");
+    await userEvent.click(within(canvasElement).getByRole("button", { name: "See supported assets" }));
+    const assets = within(await screenFor(canvasElement).findByRole("dialog", { name: "Supported assets" })).getByRole("list");
     for (const name of ["Bitcoin", "XRP", "Staked ETH", "Dogecoin", "Cardano"]) {
       const row = within(assets).getByText(name).closest("li");
       if (!row) throw new Error(`Missing ${name} row`);
@@ -181,8 +182,9 @@ export const HeldZeroCapacityInert: Story = {
       : entry) };
   })() },
   play: async ({ canvasElement }) => {
-    const screen = within(canvasElement);
-    const assets = within(screen.getByRole("region", { name: "Assets you can borrow against" }));
+    const screen = screenFor(canvasElement);
+    await userEvent.click(within(canvasElement).getByRole("button", { name: "Choose an asset" }));
+    const assets = within(await screen.findByRole("dialog", { name: "Choose an asset" }));
     const bitcoin = assets.getByText("Bitcoin").closest("li");
     if (!bitcoin) throw new Error("Missing Bitcoin row");
     await expect(bitcoin).toHaveTextContent("No USDC to borrow now");
