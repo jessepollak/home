@@ -186,7 +186,7 @@ function IntroActions({ primary, secondary, availability }: Pick<FeatureIntroPro
         {primary.label}
       </Button>
       {secondary ? (
-        <Button variant="ghost" className="h-11 w-full" disabled={primary.pending} onClick={secondary.onClick}>
+        <Button variant="ghost" className="h-11 w-full" onClick={secondary.onClick}>
           {secondary.label}
         </Button>
       ) : null}
@@ -270,28 +270,32 @@ function InlineIntro({ alternative, props }: { alternative: Alternative; props: 
   return <Card><CardContent><IntroBody alternative={alternative} props={props} /></CardContent></Card>;
 }
 
-function LoadingIntro() {
+function IntroSkeleton({ sheet = false, hero = "inline" }: { sheet?: boolean; hero?: "inline" | "compact" }) {
+  return (
+    <div className="space-y-5" aria-hidden="true">
+      <Skeleton className={hero === "compact" ? "mx-auto aspect-[3/2] w-full max-w-40" : sheet ? "mx-auto aspect-[3/2] w-full max-w-70" : "mx-auto aspect-[3/2] w-full max-w-60"} />
+      <Skeleton className="mx-auto h-8 w-56" />
+      <div className="space-y-1 rounded-lg border px-3 py-1">
+        {[0, 1, 2].map((index) => (
+          <div key={index} className="flex items-center gap-2.5 py-2.5">
+            <Skeleton className="size-7 rounded-full" /><Skeleton className="h-4 w-40" />
+          </div>
+        ))}
+      </div>
+      {!sheet ? <Skeleton className="h-11 w-full" /> : null}
+    </div>
+  );
+}
+
+function LoadingIntro({ hero }: { hero?: "inline" | "compact" }) {
   return (
     <Card role="status" aria-busy="true" aria-label="Loading introduction">
-      <CardContent>
-        <div className="space-y-5" aria-hidden="true">
-          <Skeleton className="mx-auto aspect-[3/2] w-full max-w-60" />
-          <Skeleton className="mx-auto h-8 w-56" />
-          <div className="space-y-1 rounded-lg border px-3 py-1">
-            {[0, 1, 2].map((index) => (
-              <div key={index} className="flex items-center gap-2.5 py-2.5">
-                <Skeleton className="size-7 rounded-full" /><Skeleton className="h-4 w-40" />
-              </div>
-            ))}
-          </div>
-          <Skeleton className="h-11 w-full" />
-        </div>
-      </CardContent>
+      <CardContent><IntroSkeleton hero={hero} /></CardContent>
     </Card>
   );
 }
 
-function SheetIntro({ alternative, props }: { alternative: Alternative; props: FeatureIntroProps }) {
+function SheetIntro({ alternative, props, loading = false }: { alternative: Alternative; props: FeatureIntroProps; loading?: boolean }) {
   const [open, setOpen] = useState(false);
   const secondary: Action = { label: "Not now", onClick: () => { actions.notNow(); setOpen(false); } };
   return (
@@ -299,11 +303,23 @@ function SheetIntro({ alternative, props }: { alternative: Alternative; props: F
       <Button variant="outline" className="h-11" onClick={() => setOpen(true)}>Open introduction</Button>
       <Drawer open={open} onOpenChange={setOpen}>
         <DrawerContent>
-          <div className="min-h-0 overflow-y-auto px-4 pt-4">
-            <IntroBody alternative={alternative} props={props} sheet hero="sheet" />
+          {loading ? (
+            <>
+              <DrawerTitle className="sr-only">Feature introduction</DrawerTitle>
+              <DrawerDescription className="sr-only">The introduction is loading.</DrawerDescription>
+            </>
+          ) : null}
+          <div className="min-h-0 overflow-y-auto px-4 pt-4" role={loading ? "status" : undefined}
+            aria-busy={loading || undefined} aria-label={loading ? "Loading introduction" : undefined}>
+            {loading ? <IntroSkeleton sheet /> : <IntroBody alternative={alternative} props={props} sheet hero="sheet" />}
           </div>
           <DrawerFooter>
-            <IntroActions primary={props.primary} secondary={secondary} availability={props.availability} />
+            {loading ? (
+              <>
+                <Skeleton className="h-11 w-full" aria-hidden="true" />
+                <Button variant="ghost" className="h-11 w-full" onClick={secondary.onClick}>Not now</Button>
+              </>
+            ) : <IntroActions primary={props.primary} secondary={secondary} availability={props.availability} />}
           </DrawerFooter>
         </DrawerContent>
       </Drawer>
@@ -331,7 +347,7 @@ function CardNavigation() {
   );
 }
 
-function Shell({ surface, props }: { surface: "card" | "save"; props: FeatureIntroProps }) {
+function Shell({ surface, props, loading = false }: { surface: "card" | "save"; props: FeatureIntroProps; loading?: boolean }) {
   if (surface === "save") {
     return (
       <div className="flex h-svh max-h-svh flex-col overflow-hidden bg-muted [--shell-scrollbar-width:0px]">
@@ -349,7 +365,7 @@ function Shell({ surface, props }: { surface: "card" | "save"; props: FeatureInt
           </div>
         </header>
         <PrimaryNavigation activeNavigation="save" onNavigate={noOp} />
-        <main id="navigation-panel" data-app-main-authenticated className={`order-1 min-h-0 flex-1 overscroll-contain overflow-x-hidden bg-muted pb-4 scroll-pb-4 sm:order-2 ${shellScrollContainerClassName}`}>
+        <main id="navigation-panel" data-app-main-authenticated tabIndex={loading ? 0 : undefined} className={`order-1 min-h-0 flex-1 overscroll-contain overflow-x-hidden bg-muted pb-4 scroll-pb-4 sm:order-2 ${shellScrollContainerClassName}`}>
           <div className={`${shellContentFrameClassName} py-4 sm:py-6`}>
             <section className="w-full space-y-4" aria-label="Save">
               <Card>
@@ -359,11 +375,13 @@ function Shell({ surface, props }: { surface: "card" | "save"; props: FeatureInt
                   </p>
                 </CardContent>
               </Card>
-              <Card>
-                <CardContent>
-                  <IntroBody alternative="c" hero="compact" props={introProps("save")} />
-                </CardContent>
-              </Card>
+              {loading ? <LoadingIntro hero="compact" /> : (
+                <Card>
+                  <CardContent>
+                    <IntroBody alternative="c" hero="compact" props={introProps("save")} />
+                  </CardContent>
+                </Card>
+              )}
               <section className="space-y-4" aria-label="Vaults">
                 <h2 className="text-sm font-semibold">Vaults</h2>
                 <div className="space-y-4">
@@ -403,7 +421,7 @@ function Shell({ surface, props }: { surface: "card" | "save"; props: FeatureInt
       <CardNavigation />
       <main id="navigation-panel" className="order-1 min-h-0 flex-1 overflow-y-auto">
         <div className={`${shellContentFrameClassName} space-y-4 py-4`}>
-          <InlineIntro alternative="c" props={props} />
+          {loading ? <LoadingIntro /> : <InlineIntro alternative="c" props={props} />}
         </div>
       </main>
     </div>
@@ -412,7 +430,7 @@ function Shell({ surface, props }: { surface: "card" | "save"; props: FeatureInt
 
 function FeatureIntroWorkshop({ alternative = "c", presentation = "inline", scenario = "card", shell, compare = false }: WorkshopProps) {
   const props = introProps(scenario);
-  if (shell) return <Shell surface={shell} props={props} />;
+  if (shell) return <Shell surface={shell} props={props} loading={scenario === "loading"} />;
   if (compare) {
     return (
       <main className="grid grid-cols-1 gap-6 p-4 lg:grid-cols-3">
@@ -423,7 +441,7 @@ function FeatureIntroWorkshop({ alternative = "c", presentation = "inline", scen
         ] as const).map(([variant, label]) => (
           <section key={variant} aria-label={label} className="min-w-0 space-y-3">
             <h2 className="text-sm font-medium">{label}</h2>
-            <InlineIntro alternative={variant} props={props} />
+            {scenario === "loading" ? <LoadingIntro /> : <InlineIntro alternative={variant} props={props} />}
           </section>
         ))}
       </main>
@@ -431,9 +449,8 @@ function FeatureIntroWorkshop({ alternative = "c", presentation = "inline", scen
   }
   return (
     <main className="mx-auto w-full max-w-md p-4">
-      {scenario === "loading" ? <LoadingIntro /> : presentation === "sheet"
-        ? <SheetIntro alternative={alternative} props={props} />
-        : <InlineIntro alternative={alternative} props={props} />}
+      {presentation === "sheet" ? <SheetIntro alternative={alternative} props={props} loading={scenario === "loading"} />
+        : scenario === "loading" ? <LoadingIntro /> : <InlineIntro alternative={alternative} props={props} />}
     </main>
   );
 }
@@ -502,6 +519,39 @@ async function playSheet(canvasElement: HTMLElement) {
 export const ACentredSheet: Story = { name: "A — Centred sheet (history)", args: { alternative: "a", presentation: "sheet" }, play: async ({ canvasElement }) => playSheet(canvasElement) };
 export const BListSheet: Story = { name: "B — Left-aligned list sheet (history)", args: { alternative: "b", presentation: "sheet" }, play: async ({ canvasElement }) => playSheet(canvasElement) };
 export const CHeroSheet: Story = { args: { alternative: "c", presentation: "sheet" }, play: async ({ canvasElement }) => playSheet(canvasElement) };
+export const CHeroLoadingSheet: Story = {
+  args: { alternative: "c", presentation: "sheet", scenario: "loading" },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const body = within(canvasElement.ownerDocument.body);
+    await userEvent.click(canvas.getByRole("button", { name: "Open introduction" }));
+    const dialog = await body.findByRole("dialog", { name: "Feature introduction" });
+    const content = within(dialog);
+    await expect(content.getByRole("status", { name: "Loading introduction" })).toHaveAttribute("aria-busy", "true");
+    await expect(content.queryByRole("button", { name: "Get your card" })).not.toBeInTheDocument();
+    const dismiss = content.getByRole("button", { name: "Not now" });
+    await expect(dismiss.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    await userEvent.click(dismiss);
+    await waitFor(() => expect(body.queryByRole("dialog", { name: "Feature introduction" })).not.toBeInTheDocument());
+  },
+};
+export const CHeroPendingSheet: Story = {
+  args: { alternative: "c", presentation: "sheet", scenario: "pending" },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const body = within(canvasElement.ownerDocument.body);
+    actions.notNow.mockClear();
+    await userEvent.click(canvas.getByRole("button", { name: "Open introduction" }));
+    const dialog = await body.findByRole("dialog");
+    const content = within(dialog);
+    await expect(content.getByRole("button", { name: "Get your card" })).toBeDisabled();
+    const dismiss = content.getByRole("button", { name: "Not now" });
+    await expect(dismiss).toBeEnabled();
+    await userEvent.click(dismiss);
+    await waitFor(() => expect(body.queryByRole("dialog")).not.toBeInTheDocument());
+    await expect(actions.notNow).toHaveBeenCalledTimes(1);
+  },
+};
 export const CHeroUnavailableSheet: Story = {
   args: { alternative: "c", presentation: "sheet", scenario: "verify" },
   play: async ({ canvasElement }) => {
@@ -530,7 +580,12 @@ export const CHeroPending: Story = {
     await expect(actions.getCard).not.toHaveBeenCalled();
   },
 };
-export const CHeroLoading: Story = { args: { scenario: "loading" } };
+export const CHeroLoading: Story = {
+  args: { scenario: "loading" },
+  play: async ({ canvasElement }) => {
+    await expect(within(canvasElement).getByRole("status", { name: "Loading introduction" })).toHaveAttribute("aria-busy", "true");
+  },
+};
 async function playUnavailable(canvasElement: HTMLElement, reason: string, recovery: string, handler: typeof actions.verify) {
   const canvas = within(canvasElement);
   await expect(canvas.getByText(reason)).toBeVisible();
@@ -582,6 +637,15 @@ export const CardNotIssued: Story = {
   },
 };
 export const CardNotIssuedDesktop: Story = { args: { shell: "card" }, parameters: { viewport: { defaultViewport: "desktop" } } };
+export const CardLoading: Story = {
+  args: { shell: "card", scenario: "loading" },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole("status", { name: "Loading introduction" })).toBeVisible();
+    await expect(canvas.queryByRole("button", { name: "Get your card" })).not.toBeInTheDocument();
+    await expect(canvas.getByRole("navigation", { name: "Main navigation" })).toBeVisible();
+  },
+};
 export const CardNeedsVerification: Story = { args: { shell: "card", scenario: "verify" } };
 export const CardRegionUnavailable: Story = {
   args: { shell: "card", scenario: "region" },
@@ -617,4 +681,13 @@ export const SaveNotStarted: Story = {
 };
 export const SaveNotStartedDesktop: Story = {
   args: { shell: "save", scenario: "save" }, parameters: { viewport: { defaultViewport: "desktop" }, a11y: { test: "error" } },
+};
+export const SaveLoading: Story = {
+  args: { shell: "save", scenario: "loading" },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole("status", { name: "Loading introduction" })).toBeVisible();
+    await expect(canvas.queryByRole("button", { name: "Get started" })).not.toBeInTheDocument();
+    await expect(canvas.getByRole("region", { name: "Vaults" })).toBeInTheDocument();
+  },
 };
