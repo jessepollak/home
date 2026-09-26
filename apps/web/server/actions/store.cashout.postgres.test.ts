@@ -158,6 +158,7 @@ describePostgres("cash-out lockout eligibility", () => {
 
   test("a provisionally failed linked cash-out blocks until its durable record settles", async () => {
     const provisional = await insertOrder(new Date().toISOString(), "deposit_7", "failed");
+    await sql.query("UPDATE actions SET transaction_hash = $2 WHERE id = $1", [provisional, `0x${"a".repeat(64)}`]);
     expect((await store.cashoutOrders(owner, [provisional]))[0]).toMatchObject({ deposit_proven: false, settled_at: null });
     expect(await store.hasUnsettledCashout(owner)).toBe(true);
 
