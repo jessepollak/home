@@ -1,5 +1,5 @@
+import { TRADE_ASSET_ID } from "./contract";
 import {
-
   investAssets,
   type InvestAsset,
   type InvestAssetId,
@@ -16,6 +16,11 @@ export type TradeAssetStatus =
 const assetById = new Map<InvestAssetId, InvestAsset>(
   investAssets.map((asset) => [asset.id, asset]),
 );
+
+export function buyRouteForToken(token: { chainId: number; address: string }): typeof TRADE_ASSET_ID | null {
+  const asset = investAssets.find((entry) => entry.chainId === token.chainId && entry.contractAddress.toLowerCase() === token.address.toLowerCase());
+  return asset?.id === TRADE_ASSET_ID && getTradeAssetStatus(asset.id)?.status === "tradeable" ? TRADE_ASSET_ID : null;
+}
 
 export function getTradeAssetStatus(assetId: string): TradeAssetStatus | null {
   const asset = assetById.get(assetId as InvestAssetId);

@@ -281,8 +281,12 @@ export function CdpAccountProvider({
   return <AccountWalletClientProvider client={unconfiguredClient}>{children}</AccountWalletClientProvider>;
 }
 
+export function useOptionalAccountWallet(): AccountWalletClient | null {
+  return useContext(AccountWalletContext);
+}
+
 export function useAccountWallet(): AccountWalletClient {
-  const client = useContext(AccountWalletContext);
+  const client = useOptionalAccountWallet();
   if (!client) throw new Error("Account wallet client is unavailable outside its provider.");
   return client;
 }

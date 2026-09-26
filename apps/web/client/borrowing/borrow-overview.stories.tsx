@@ -2,7 +2,8 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useRef, useState } from "react";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
-import type { AccountWalletClient } from "@/client/account/cdp-client";
+import { AccountWalletClientProvider, createBlockedAccountWalletClient, type AccountWalletClient } from "@/client/account/cdp-client";
+import { balancesSnapshot } from "@/tests/browser/fixtures/balances";
 import { BorrowOverview } from "./borrow-overview";
 import { summarizeBorrowOverview } from "./borrow-overview-model";
 import type { BorrowMarketId } from "@/shared/borrowing/config";
@@ -547,6 +548,19 @@ export const MultipleLoans: Story = {
     await expect(assets.getByText((_text, element) => element?.getAttribute("data-slot") === "item-description" && element.textContent === "5.10%\u00a0APR")).toBeVisible();
     await expect(assets.getByText("Available")).toBeVisible();
     await assertRowMarkGeometry(canvasElement);
+  },
+};
+export const NotHeldBuy: Story = {
+  args: { fixture: borrowOverviewBody({ openMarketId: null, notHeldMarketIds: [btc, markets[1]!.marketId] }) },
+  decorators: [(StoryComponent) => <AccountWalletClientProvider client={{
+    ...createBlockedAccountWalletClient("provider-unavailable"), status: "verified", verification: "server", session: borrowStorySession,
+    fetchBalances: async (region) => balancesSnapshot(region),
+    fetchAccountResource: async (path) => path === "/api/trades" ? { version: 1, status: "available" } : { version: 1, trade: null },
+  }}><StoryComponent /></AccountWalletClientProvider>],
+  play: async ({ canvasElement }) => {
+    const assets = within(await openAssetPicker(canvasElement, "Choose an asset"));
+    await waitFor(() => expect(assets.getByRole("button", { name: "Buy Bitcoin" })).toBeEnabled());
+    await expect(assets.queryByRole("button", { name: "Buy XRP" })).toBeNull();
   },
 };
 export const OneLoan: Story = { args: { fixture: only(btc) } };

@@ -2,7 +2,7 @@ import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
 const { cleanup, fireEvent, render } = await import("@testing-library/react");
-const { BalanceRow, ActivityRow } = await import("./finance-rows");
+const { ActivityRow, AssetRow, BalanceRow } = await import("./finance-rows");
 
 afterEach(cleanup);
 
@@ -58,5 +58,41 @@ describe("FinanceRow read retry", () => {
     expect(view.getAllByRole("button")).toHaveLength(1);
     fireEvent.click(view.getByRole("button", { name: "Retry Cash balance" }));
     expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("FinanceRow trailing action", () => {
+  test("renders only the labeled action button and passes its element to the callback", () => {
+    const onAction = mock((_opener: HTMLButtonElement) => undefined);
+    const onIntent = mock(() => undefined);
+    const view = render(<ul><AssetRow icon="X" label="XRP" context="Crypto" value="$2.40"
+      action={{ label: "Buy", accessibleLabel: "Buy XRP", onAction, onIntent }} /></ul>);
+    const button = view.getByRole("button", { name: "Buy XRP" });
+    expect(view.getAllByRole("button")).toHaveLength(1);
+    expect(button.textContent).toBe("Buy");
+    expect(button.closest("[aria-hidden='true']")).toBeNull();
+    expect(button.closest("[data-slot=item]")?.tagName).toBe("DIV");
+    expect(button.closest("[data-slot=item-actions]")).not.toBeNull();
+    fireEvent.pointerDown(button);
+    fireEvent.click(button);
+    expect(onIntent).toHaveBeenCalledTimes(1);
+    expect(onAction).toHaveBeenCalledTimes(1);
+    expect(onAction).toHaveBeenCalledWith(button);
+  });
+
+  test("pending and disabled actions cannot activate", () => {
+    const onAction = mock(() => undefined);
+    const view = render(<ul>
+      <AssetRow icon="X" label="Pending" action={{ label: "Buy", accessibleLabel: "Buy pending", onAction, pending: true }} />
+      <AssetRow icon="X" label="Disabled" action={{ label: "Buy", accessibleLabel: "Buy disabled", onAction, disabled: true }} />
+    </ul>);
+    const pending = view.getByRole("button", { name: "Buy pending" });
+    const disabled = view.getByRole("button", { name: "Buy disabled" });
+    expect(pending.getAttribute("aria-busy")).toBe("true");
+    expect(pending.getAttribute("aria-disabled")).toBe("true");
+    expect(disabled.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(pending);
+    fireEvent.click(disabled);
+    expect(onAction).not.toHaveBeenCalled();
   });
 });

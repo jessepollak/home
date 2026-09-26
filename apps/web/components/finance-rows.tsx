@@ -13,7 +13,16 @@ import { cn } from "@/lib/utils";
 
 export type FinanceRowTone = "default" | "success" | "error" | "muted";
 
-type FinanceRowProps = {
+export type FinanceRowAction = {
+  label: string;
+  accessibleLabel: string;
+  onAction: (opener: HTMLButtonElement) => void;
+  onIntent?: () => void;
+  disabled?: boolean;
+  pending?: boolean;
+};
+
+type FinanceRowCommonProps = {
   kind: "activity" | "balance" | "asset";
   icon: ReactNode;
   iconTone?: "neutral" | "incoming" | "outgoing" | "self" | "outlined" | "mark";
@@ -25,16 +34,31 @@ type FinanceRowProps = {
   valueContext?: ReactNode;
   valueContextTitle?: string;
   valueTone?: FinanceRowTone;
-  onActivate?: (opener: HTMLElement) => void;
-  activateLabel?: string;
-  attention?: string;
-  chevron?: boolean;
-  readRetry?: { label: string; onRetry: () => void };
 };
 
-export type ActivityRowProps = Omit<FinanceRowProps, "kind">;
-export type BalanceRowProps = Omit<FinanceRowProps, "kind">;
-export type AssetRowProps = Omit<FinanceRowProps, "kind">;
+type FinanceRowInteractionProps =
+  | {
+      action: FinanceRowAction;
+      onActivate?: never;
+      activateLabel?: never;
+      attention?: never;
+      chevron?: never;
+      readRetry?: never;
+    }
+  | {
+      action?: never;
+      onActivate?: (opener: HTMLElement) => void;
+      activateLabel?: string;
+      attention?: string;
+      chevron?: boolean;
+      readRetry?: { label: string; onRetry: () => void };
+    };
+
+type FinanceRowProps = FinanceRowCommonProps & FinanceRowInteractionProps;
+
+export type ActivityRowProps = Omit<FinanceRowCommonProps, "kind"> & FinanceRowInteractionProps;
+export type BalanceRowProps = Omit<FinanceRowCommonProps, "kind"> & FinanceRowInteractionProps;
+export type AssetRowProps = Omit<FinanceRowCommonProps, "kind"> & FinanceRowInteractionProps;
 
 export function ActivityRow(props: ActivityRowProps) {
   return <FinanceRow {...props} kind="activity" />;
@@ -67,6 +91,7 @@ function FinanceRow({
   valueContext,
   valueContextTitle,
   valueTone = "default",
+  action,
   onActivate,
   activateLabel,
   attention,
@@ -74,6 +99,7 @@ function FinanceRow({
   readRetry,
 }: FinanceRowProps) {
   const hintId = useId();
+  const activation = action ? undefined : onActivate;
   const hasValue = value !== undefined || valueContext !== undefined;
   const content = (
     <>
@@ -101,7 +127,7 @@ function FinanceRow({
             </ItemDescription>
           )}
         </ItemContent>
-        {onActivate && attention ? <span className="sr-only">{attention}</span> : null}
+        {activation && attention ? <span className="sr-only">{attention}</span> : null}
         {hasValue ? (
           <ItemContent
             className={cn("max-w-2/3 min-w-0 !flex-none items-end gap-0.5 overflow-hidden text-end @max-[14rem]/finance-row:max-w-full", contextLines === 2 && "ms-auto max-w-full", (value === undefined || valueContext === undefined) && "self-center", "@max-[14rem]/finance-row:self-end")}
@@ -130,7 +156,22 @@ function FinanceRow({
           </ItemContent>
         ) : null}
       </div>
-      {readRetry || (onActivate && (attention || chevron)) ? (
+      {action ? (
+        <ItemActions className="shrink-0">
+          <Button
+            type="button"
+            variant="secondary"
+            size="compact-touch"
+            aria-label={action.accessibleLabel}
+            disabled={action.disabled}
+            loading={action.pending}
+            onClick={(event) => action.onAction(event.currentTarget)}
+            onPointerDown={action.onIntent}
+          >
+            {action.label}
+          </Button>
+        </ItemActions>
+      ) : readRetry || (activation && (attention || chevron)) ? (
         <ItemActions aria-hidden="true">
           {readRetry
             ? <span className="size-4" />
@@ -146,8 +187,8 @@ function FinanceRow({
     <li className={cn("@container/finance-row", readRetry && "relative")}>
       <Item
         data-kind={kind}
-        className={cn("flex-nowrap items-center gap-3 py-2", onActivate && "h-auto cursor-pointer")}
-        {...(onActivate
+        className={cn("flex-nowrap items-center gap-3 py-2", activation && "h-auto cursor-pointer")}
+        {...(activation
           ? {
               render: (
                 <Button
@@ -155,14 +196,14 @@ function FinanceRow({
                   variant="ghost"
                   press="none"
                   aria-describedby={hintId}
-                  onClick={(event) => onActivate(event.currentTarget)}
+                  onClick={(event) => activation(event.currentTarget)}
                 />
               ),
             }
           : {})}
       >
         {content}
-        {onActivate ? (
+        {activation ? (
           <span id={hintId} hidden>
             {activateLabel ?? "View details"}
           </span>

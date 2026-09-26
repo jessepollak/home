@@ -56,10 +56,12 @@ export function borrowOverviewBody({
   openMarketId = VERIFIED_MORPHO_MARKETS[2]!.marketId,
   urgentMarketId = null,
   unavailableMarketId = null,
+  notHeldMarketIds = [],
 }: {
   openMarketId?: string | null;
   urgentMarketId?: string | null;
   unavailableMarketId?: string | null;
+  notHeldMarketIds?: string[];
 } = {}): BorrowOverviewResponse {
   const source = {
     provider: "Base JSON-RPC" as const,
@@ -89,7 +91,7 @@ export function borrowOverviewBody({
         totalBorrowAssetsRaw: "500000000", totalBorrowSharesRaw: "500000000",
         liquidityAssetsRaw: "500000000", lastUpdateTimestamp: "1788897500",
       },
-      wallet: { collateralBalanceRaw: (BigInt(2) * tokenUnit).toString(), loanBalanceRaw: "200000000", collateralAllowanceRaw: "0", loanAllowanceRaw: "0" },
+      wallet: { collateralBalanceRaw: notHeldMarketIds.includes(market.marketId) ? "0" : (BigInt(2) * tokenUnit).toString(), loanBalanceRaw: "200000000", collateralAllowanceRaw: "0", loanAllowanceRaw: "0" },
       position: active
         ? borrowFixturePosition(BORROW_ORACLE_PRICES[index]!, market.lltvWad, BigInt(market.marketId === urgentMarketId ? "1200000000000000000" : "1600000000000000000"))
         : {
