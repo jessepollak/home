@@ -1,0 +1,220 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { randomUUID } from "node:crypto";
+import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
+import { CustomerResolver } from "@/server/customers/resolve";
+import { readMigrationSql } from "@/tests/helpers/migrations";
+import { PostgresIdentityStore } from "./store";
+
+const connectionString = process.env.FUNDING_PG_TEST_URL?.trim();
+const describePostgres = connectionString ? describe : describe.skip;
+const schema = "identity_verification_contract_test";
+type BunSqlClient = { unsafe(text: string, values?: unknown[]): Promise<ArrayLike<unknown>>; begin<T>(run: (transaction: BunSqlClient) => Promise<T>): Promise<T>; close(): Promise<void> };
+let admin: BunSqlClient;
+let sql: SqlExecutor;
+let store: PostgresIdentityStore;
+const at = "2026-04-30T08:04:23.379Z";
+const input = (customerId: string) => ({ customerId, env: "sandbox" as const, externalUserId: `home-${randomUUID().replaceAll("-", "")}`, level: "home-level", consentVersion: "1", at });
+const event = { source: "webhook" as const, configuredLevel: "home-level" };
+async function inSchema(text: string) { await admin.begin(async (tx) => { await tx.unsafe(`SET LOCAL search_path TO ${schema}`); await tx.unsafe(text); }); }
+async function customer() {
+  const id = randomUUID();
+  await sql.query("INSERT INTO customers (id,first_seen_at,last_seen_at,first_seen_source) VALUES ($1,$2,$2,'sign_in')", [id, at]);
+  return id;
+}
+describePostgres("identity Postgres store contract", () => {
+  beforeAll(async () => {
+    admin = new Bun.SQL(connectionString!) as unknown as BunSqlClient;
+    await admin.unsafe(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+    await admin.unsafe(`CREATE SCHEMA ${schema}`);
+    await inSchema(await readMigrationSql("011_operator_registry.sql"));
+    await inSchema(await readMigrationSql("015_identity_verifications.sql"));
+    sql = createPostgresSqlExecutor(connectionString!, { schema });
+    store = new PostgresIdentityStore(sql);
+  });
+  afterAll(async () => { await sql?.dispose?.(); await admin?.unsafe(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin?.close(); });
+  test("a configured-level change emits a revocation on the next write, even without a row change", async () => {
+    const id = await customer();
+    const row = await store.reserve(input(id));
+    const approved = (await store.apply(row, { applicantId: "applicant" + id.replaceAll("-", ""), reviewState: "approved", levelName: "home-level", approvedAt: at }, event, at))!;
+    expect(approved.approvalAnnounced).toBe(true);
+    const revoked = (await store.apply(approved, { reconciledAt: at }, { source: "reconcile", configuredLevel: "next-level" }, at))!;
+    expect(revoked.approvalAnnounced).toBe(false);
+    await store.apply(revoked, { reconciledAt: at }, { source: "reconcile", configuredLevel: "next-level" }, at);
+    const flips = (await sql.query("SELECT props FROM operator_events WHERE customer_id=$1 AND name='identity.approval_changed' ORDER BY occurred_at,id", [id])).rows as Array<{ props: { approved: string; level: string } }>;
+    expect(flips.map((item) => `${item.props.approved}:${item.props.level}`).sort()).toEqual(["false:next-level", "true:home-level"]);
+    expect((await store.active(id, "sandbox"))?.approvalAnnounced).toBe(false);
+  });
+  test("CAS, events and approval flips are durable and append-only", async () => {
+    const id = await customer();
+    const args = input(id);
+    const [row, concurrent] = await Promise.all([store.reserve(args), store.reserve({ ...args, externalUserId: `home-${randomUUID().replaceAll("-", "")}` })]);
+    expect(row.id).toBe(concurrent.id);
+    expect(await store.active(id, "production")).toBeNull();
+    const approved = await store.apply(row, { applicantId: "applicant" + id.replaceAll("-", ""), reviewState: "approved", levelName: "home-level", approvedAt: at }, event, at);
+    expect(approved?.version).toBe(1);
+    expect(await store.apply(row, { reviewState: "pending" }, event, at)).toBeNull();
+    expect((await sql.query("SELECT props FROM operator_events WHERE customer_id=$1 AND name='identity.approval_changed'", [id])).rows).toHaveLength(1);
+    const unchangedApproval = (await store.apply(approved!, { reconciledAt: at }, event, at))!;
+    expect((await sql.query("SELECT props FROM operator_events WHERE customer_id=$1 AND name='identity.approval_changed'", [id])).rows).toHaveLength(1);
+    await store.apply(unchangedApproval, { lifecycle: "deactivated" }, event, at);
+    const flips = (await sql.query("SELECT props FROM operator_events WHERE customer_id=$1 AND name='identity.approval_changed' ORDER BY recorded_at,id", [id])).rows as Array<{ props: { approved: string; level: string; providerEnv: string } }>;
+    expect(flips.map((item) => item.props.approved).sort()).toEqual(["false", "true"]);
+    expect(flips.every((item) => item.props.level === "home-level" && item.props.providerEnv === "sandbox")).toBe(true);
+    expect((await sql.query("SELECT * FROM identity_verification_events WHERE verification_id=$1", [row.id])).rows).toHaveLength(3);
+    await expect(sql.query("UPDATE identity_verification_events SET review_state='pending' WHERE verification_id=$1", [row.id])).rejects.toThrow();
+    await expect(sql.query("DELETE FROM identity_verification_events WHERE verification_id=$1", [row.id])).rejects.toThrow();
+  });
+  test("final restriction persists across removal and is released once with audited fields", async () => {
+    const id = await customer();
+    const row = await store.reserve(input(id));
+    const rejected = (await store.apply(row, { reviewState: "final", levelName: "home-level" }, event, at))!;
+    await store.apply(rejected, { lifecycle: "removed", applicantId: null, reviewState: "not-submitted" }, event, at);
+    expect(await store.restriction(id, "sandbox")).toBe(true);
+    expect(await store.restriction(id, "production")).toBe(false);
+    const restriction = (await sql.query("SELECT id FROM customer_restrictions WHERE customer_id=$1", [id])).rows[0] as { id: string };
+    expect(await store.releaseRestriction(restriction.id, "operator", at, "home-level")).toBe(true);
+    expect(await store.releaseRestriction(restriction.id, "operator", at, "home-level")).toBe(false);
+    expect(await store.restriction(id, "sandbox")).toBe(false);
+    await expect(sql.query("DELETE FROM customer_restrictions WHERE id=$1", [restriction.id])).rejects.toThrow();
+    await expect(sql.query("TRUNCATE customer_restrictions")).rejects.toThrow();
+    await expect(sql.query("DELETE FROM identity_verifications WHERE id=$1", [row.id])).rejects.toThrow();
+    await expect(sql.query("TRUNCATE identity_verifications CASCADE")).rejects.toThrow();
+    await expect(sql.query("DELETE FROM customers WHERE id=$1", [id])).rejects.toThrow();
+    expect((await sql.query("SELECT source_verification_id FROM customer_restrictions WHERE id=$1", [restriction.id])).rows[0]).toMatchObject({ source_verification_id: row.id });
+  });
+  test("a zero-attempt move boundary is durable and deactivation cannot reserve a new applicant", async () => {
+    const id = await customer();
+    const row = await store.reserve(input(id));
+    const moved = (await store.apply(row, { levelMovedAttemptCount: -1, levelMovedAt: "2026-04-30T08:04:23.378Z" }, event, at))!;
+    expect(await store.active(id, "sandbox")).toMatchObject({ levelMovedAttemptCount: -1, levelMovedAt: "2026-04-30T08:04:23.378Z" });
+    const blocked = (await store.apply(moved, { lifecycle: "deactivated", applicantId: "applicant1" }, event, at))!;
+    expect((await store.reserve(input(id))).id).toBe(blocked.id);
+    expect((await store.active(id, "sandbox"))?.externalUserId).toBe(row.externalUserId);
+  });
+  test("a final restriction suppresses green approval until release, without recreation on final replay", async () => {
+    const id = await customer();
+    const row = await store.reserve(input(id));
+    const final = (await store.apply(row, { reviewState: "final", levelName: "home-level" }, event, at))!;
+    const reset = (await store.apply(final, { reviewState: "not-submitted" }, event, at))!;
+    const green = (await store.apply(reset, { reviewState: "approved", approvedAt: at }, event, at))!;
+    expect(await store.restriction(id, "sandbox")).toBe(true);
+    expect((await sql.query("SELECT approved FROM identity_verification_events WHERE verification_id=$1", [row.id])).rows.every((item) => item.approved === false)).toBe(true);
+    expect((await sql.query("SELECT id FROM operator_events WHERE customer_id=$1 AND name='identity.approval_changed'", [id])).rows).toHaveLength(0);
+    const restriction = (await sql.query("SELECT id FROM customer_restrictions WHERE customer_id=$1", [id])).rows[0] as { id: string };
+    expect(await store.releaseRestriction(restriction.id, "operator", at, "home-level")).toBe(true);
+    expect(await store.releaseRestriction(restriction.id, "operator", at, "home-level")).toBe(false);
+    const flips = (await sql.query("SELECT props FROM operator_events WHERE customer_id=$1 AND name='identity.approval_changed'", [id])).rows as Array<{ props: { approved: string } }>;
+    expect(flips.map((item) => item.props.approved)).toEqual(["true"]);
+    const againFinal = (await store.apply(green, { reviewState: "final", approvedAt: null }, event, at))!;
+    const newRestriction = (await sql.query("SELECT id FROM customer_restrictions WHERE customer_id=$1 AND released_at IS NULL", [id])).rows[0] as { id: string };
+    expect(await store.releaseRestriction(newRestriction.id, "operator", at, "home-level")).toBe(true);
+    await store.apply(againFinal, { reviewState: "final", levelName: "home-level" }, event, at);
+    expect(await store.restriction(id, "sandbox")).toBe(false);
+    expect((await sql.query("SELECT id FROM customer_restrictions WHERE customer_id=$1", [id])).rows).toHaveLength(2);
+  });
+  test("a newer final review after release creates a new restriction while a replay does not", async () => {
+    const id = await customer();
+    const row = await store.reserve(input(id));
+    const final = (await store.apply(row, { reviewState: "final", levelName: "home-level", attemptCount: 1, reviewId: "review1", reviewCreatedAt: at }, event, at))!;
+    const restriction = (await sql.query("SELECT id FROM customer_restrictions WHERE customer_id=$1", [id])).rows[0] as { id: string };
+    expect(await store.releaseRestriction(restriction.id, "operator", at, "home-level")).toBe(true);
+    const replay = (await store.apply(final, { reviewState: "final", levelName: "home-level", attemptCount: 1, reviewId: "review1", reviewCreatedAt: at }, event, at))!;
+    expect(await store.restriction(id, "sandbox")).toBe(false);
+    await store.apply(replay, { reviewState: "final", levelName: "home-level", attemptCount: 2, reviewId: "review2", reviewCreatedAt: "2026-04-30T09:00:00.000Z" }, event, at);
+    expect(await store.restriction(id, "sandbox")).toBe(true);
+    expect((await sql.query("SELECT id FROM customer_restrictions WHERE customer_id=$1", [id])).rows).toHaveLength(2);
+  });
+  test("concurrent request consumption admits exactly ten and returns a retry interval for the rest", async () => {
+    const id = await customer();
+    const results = await Promise.all(Array.from({ length: 12 }, () => store.consumeRequest(id, at, 600_000, 10)));
+    expect(results.filter((result) => result === null)).toHaveLength(10);
+    expect(results.filter((result) => result === 600)).toHaveLength(2);
+    expect((await sql.query("SELECT requested_at FROM identity_request_limits WHERE customer_id=$1", [id])).rows).toHaveLength(10);
+    expect(await store.consumeRequest(id, "2026-04-30T08:14:23.379Z", 600_000, 10)).toBeNull();
+  });
+  test("markReconciled advances only reconciledAt without an event or version bump", async () => {
+    const id = await customer();
+    const row = await store.reserve(input(id));
+    const pending = (await store.apply(row, { reviewState: "pending", levelName: "home-level" }, event, at))!;
+    const before = (await sql.query("SELECT id FROM identity_verification_events WHERE verification_id=$1", [row.id])).rows.length;
+    const updatedAt = (await sql.query("SELECT updated_at FROM identity_verifications WHERE id=$1", [row.id])).rows[0];
+    const later = "2026-04-30T08:10:00.000Z";
+    const reconciled = (await store.markReconciled(pending, later))!;
+    expect(reconciled).toMatchObject({ reconciledAt: later, version: pending.version, reviewState: "pending" });
+    expect((await store.active(id, "sandbox"))?.reconciledAt).toBe(later);
+    expect((await sql.query("SELECT updated_at FROM identity_verifications WHERE id=$1", [row.id])).rows[0]).toEqual(updatedAt);
+    expect((await sql.query("SELECT id FROM identity_verification_events WHERE verification_id=$1", [row.id])).rows).toHaveLength(before);
+    const changed = (await store.apply(reconciled, { reviewState: "approved", approvedAt: later }, event, later))!;
+    expect(await store.markReconciled(pending, "2026-04-30T08:15:00.000Z")).toBeNull();
+    expect((await store.active(id, "sandbox"))?.version).toBe(changed.version);
+  });
+  test("failed reconcile attempt moves a row behind untouched rows without bumping its CAS version", async () => {
+    const first = await store.reserve(input(await customer()));
+    const second = await store.reserve(input(await customer()));
+    const before = "2026-05-01T08:04:23.379Z";
+    expect((await store.staleActive("sandbox", 100, before, "home-level")).map((row) => row.id)).toContain(first.id);
+    await store.markReconcileAttempt(first.id, before);
+    const current = (await store.active(first.customerId, "sandbox"))!;
+    expect(current.reconcileAttemptedAt).toBe(before);
+    expect(current.version).toBe(first.version);
+    const remaining = await store.staleActive("sandbox", 100, before, "home-level");
+    expect(remaining.some((row) => row.id === second.id)).toBe(true);
+    expect(remaining.some((row) => row.id === first.id)).toBe(false);
+    const later = (await store.staleActive("sandbox", 100, "2026-05-01T08:09:23.380Z", "home-level")).map((row) => row.id);
+    expect(later.indexOf(second.id)).toBeLessThan(later.indexOf(first.id));
+    expect(await store.apply(first, { reconciledAt: before }, event, before)).not.toBeNull();
+  });
+  test("only one caller claims a stale reconciliation", async () => {
+    const row = await store.reserve(input(await customer()));
+    const claims = await Promise.all(Array.from({ length: 5 }, (_, index) => store.claimReconcile(row, `2026-05-01T08:0${index}:00.000Z`)));
+    const won = claims.filter((claim) => claim !== null);
+    expect(won).toHaveLength(1);
+    expect(won[0]!.version).toBe(row.version);
+    expect(await store.claimReconcile(row, "2026-05-01T08:10:00.000Z")).toBeNull();
+    expect(await store.claimReconcile(won[0]!, "2026-05-01T08:10:00.000Z")).not.toBeNull();
+  });
+  test("stale reconciliation includes unadopted and released final rows but excludes removed and restricted final rows", async () => {
+    const restricted = await store.reserve(input(await customer()));
+    const released = await store.reserve(input(await customer()));
+    const unadopted = await store.reserve(input(await customer()));
+    const removed = await store.reserve(input(await customer()));
+    const removedAfterFinal = await store.reserve(input(await customer()));
+    const restrictedFinal = (await store.apply(restricted, { reviewState: "final", levelName: "home-level", applicantId: `applicant-${randomUUID()}` }, event, at))!;
+    const releasedFinal = (await store.apply(released, { reviewState: "final", levelName: "home-level", applicantId: `applicant-${randomUUID()}` }, event, at))!;
+    await store.apply(removed, { lifecycle: "removed", reviewState: "not-submitted" }, event, at);
+    const previousFinal = (await store.apply(removedAfterFinal, { reviewState: "final", levelName: "home-level" }, event, at))!;
+    await store.apply(previousFinal, { lifecycle: "removed", reviewState: "not-submitted", applicantId: null }, event, at);
+    const restriction = (await sql.query("SELECT id FROM customer_restrictions WHERE customer_id=$1 AND released_at IS NULL", [released.customerId])).rows[0] as { id: string };
+    expect(await store.releaseRestriction(restriction.id, "operator", at, "home-level")).toBe(true);
+    expect(await store.restriction(removedAfterFinal.customerId, "sandbox")).toBe(true);
+    const stale = (await store.staleActive("sandbox", 100, "2026-04-30T08:10:00.000Z", "home-level")).map((row) => row.id);
+    expect(stale).toContain(unadopted.id);
+    expect(stale).toContain(releasedFinal.id);
+    expect(stale).not.toContain(removed.id);
+    expect(stale).not.toContain(removedAfterFinal.id);
+    expect(stale).not.toContain(restrictedFinal.id);
+    await store.markReconciled(releasedFinal, "2026-04-30T08:10:00.000Z");
+    expect((await store.staleActive("sandbox", 100, "2026-04-30T08:10:00.000Z", "home-level")).map((row) => row.id)).not.toContain(releasedFinal.id);
+  });
+  test("only an approval at the configured level waits for the long reconciliation interval", async () => {
+    const atLevel = (await store.apply(await store.reserve(input(await customer())), { reviewState: "approved", levelName: "home-level", applicantId: `applicant-${randomUUID()}`, reconciledAt: at }, event, at))!;
+    const levelless = (await store.apply(await store.reserve(input(await customer())), { reviewState: "approved", levelName: null, applicantId: `applicant-${randomUUID()}`, reconciledAt: at }, event, at))!;
+    const otherLevel = (await store.apply(await store.reserve(input(await customer())), { reviewState: "approved", levelName: "old-level", applicantId: `applicant-${randomUUID()}`, reconciledAt: at }, event, at))!;
+    const stale = (await store.staleActive("sandbox", 100, "2026-04-30T08:10:00.000Z", "home-level")).map((row) => row.id);
+    expect(stale).toContain(levelless.id);
+    expect(stale).toContain(otherLevel.id);
+    expect(stale).not.toContain(atLevel.id);
+  });
+  test("two linked credential rows resolve the same customer approval", async () => {
+    const id = await customer();
+    for (const provider of ["base-account", "cdp-embedded"]) await sql.query("INSERT INTO customer_credentials (id,customer_id,account_provider,subject,first_seen_at,last_seen_at) VALUES (gen_random_uuid(),$1,$2,$3,$4,$4)", [id, provider, `synthetic-${provider}-${id}`, at]);
+    const row = await store.reserve(input(id));
+    await store.apply(row, { reviewState: "approved", levelName: "home-level" }, event, at);
+    const resolver = new CustomerResolver(sql);
+    for (const provider of ["base-account", "cdp-embedded"] as const) {
+      const result = await resolver.resolveCustomer({ accountProvider: provider, user: { subject: `synthetic-${provider}-${id}` }, smartAccount: null }, { create: false });
+      expect(result?.id).toBe(id);
+      expect((await store.active(result!.id, "sandbox"))?.reviewState).toBe("approved");
+    }
+  });
+});

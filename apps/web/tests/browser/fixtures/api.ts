@@ -142,6 +142,12 @@ export async function installApiFixtures(
       if (delayedSession) await delayedSession;
       return json(route, sessionBody);
     }
+    if (path === "/api/identity/verification" && request.method() === "GET") {
+      return json(route, { version: 1, status: {
+        state: "not-started", category: "verification-required", action: "start",
+        verifiedAt: null, retryReason: null, supportUrl: null, consentRequired: true,
+      } });
+    }
     if (path === "/api/balances") {
       const region = (url.searchParams.get("region") ?? "US") as RegionId;
       balancesReads += 1;
