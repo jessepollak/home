@@ -35,6 +35,7 @@ describePostgres("actions schema and store", () => {
     const outcomesMigration = await readMigrationSql("012_action_outcomes.sql");
     const callCommitmentMigration = await readMigrationSql("013_action_call_commitment.sql");
     const cashoutMigration = await readMigrationSql("014_cashout_orders.sql");
+    const observationsMigration = await readMigrationSql("016_action_receipt_observations.sql");
     await admin.unsafe(`DROP SCHEMA IF EXISTS ${TEST_SCHEMA} CASCADE`);
     await admin.unsafe(`CREATE SCHEMA ${TEST_SCHEMA}`);
     await admin.begin(async (transaction) => {
@@ -47,7 +48,9 @@ describePostgres("actions schema and store", () => {
       await transaction.unsafe(outcomesMigration);
       await transaction.unsafe(callCommitmentMigration);
       await transaction.unsafe(cashoutMigration);
-      await transaction.unsafe("INSERT INTO schema_migrations (name) VALUES ($1), ($2), ($3), ($4)", ["db/001_actions.sql", "db/012_action_outcomes.sql", "db/013_action_call_commitment.sql", "db/014_cashout_orders.sql"]);
+      await transaction.unsafe(observationsMigration);
+      await transaction.unsafe(observationsMigration);
+      await transaction.unsafe("INSERT INTO schema_migrations (name) VALUES ($1), ($2), ($3), ($4), ($5)", ["db/001_actions.sql", "db/012_action_outcomes.sql", "db/013_action_call_commitment.sql", "db/014_cashout_orders.sql", "db/016_action_receipt_observations.sql"]);
     });
     sql = createPostgresSqlExecutor(connectionString!, { schema: TEST_SCHEMA });
     store = new ActionsStore(sql);
@@ -73,6 +76,7 @@ describePostgres("actions schema and store", () => {
       "id", "owner_key", "provider", "kind", "summary", "pending", "created_at",
       "confirmed_at", "provider_handle", "transaction_hash", "handle_recorded_at",
       "account_address", "declined_reported_at", "dispatch_attempt", "outcome", "outcome_source", "settled_at", "outcome_recorded_at", "confirmed_call_data_hash",
+      "observed_receipt_transaction_hash", "observed_receipt_block_number", "observed_receipt_block_hash", "observed_receipt_outcome", "observed_at",
     ]);
   });
 
@@ -88,6 +92,39 @@ describePostgres("actions schema and store", () => {
     expect((await store.get(owner, id))?.confirmed_at).not.toBeNull();
     expect((await store.recordHandle(owner, id, { providerHandle: `0x${"ab".repeat(32)}` }))?.provider_handle).toBe(`0x${"ab".repeat(32)}`);
     expect(await store.recordHandle(owner, id, { providerHandle: `0x${"cd".repeat(32)}` })).toBeNull();
+  });
+
+  test("receipt observations require owner, matching transaction hash, open outcome, and matching block on clear", async () => {
+    const id = randomUUID();
+    const hash = `0x${"ab".repeat(32)}`;
+    const otherHash = `0x${"cd".repeat(32)}`;
+    const block = `0x${"ef".repeat(32)}`;
+    const nextBlock = `0x${"01".repeat(32)}`;
+    await store.insert({ id, owner, kind: "send", summary, pending: { calls }, createdAt: new Date().toISOString() });
+    await store.confirm(owner, id);
+    const observation = { transactionHash: hash.toUpperCase().replace("0X", "0x"), blockNumber: "16", blockHash: block, outcome: "succeeded" as const };
+    expect(await store.recordReceiptObservation(owner, id, observation)).toBeNull();
+    await store.recordHandle(owner, id, { transactionHash: hash });
+    expect(await store.recordReceiptObservation(otherOwner, id, observation)).toBeNull();
+    expect(await store.recordReceiptObservation(owner, id, { ...observation, transactionHash: otherHash })).toBeNull();
+    expect(await store.recordReceiptObservation(owner, id, observation)).toMatchObject({
+      observed_receipt_transaction_hash: observation.transactionHash, observed_receipt_block_number: "16", observed_receipt_outcome: "succeeded",
+    });
+    expect(await store.recordReceiptObservation(owner, id, observation)).toBeNull();
+    expect(await store.recordReceiptObservation(owner, id, { ...observation, outcome: "reverted" })).toMatchObject({
+      observed_receipt_block_hash: block, observed_receipt_outcome: "reverted",
+    });
+    expect(await store.recordReceiptObservation(owner, id, { ...observation, blockHash: nextBlock, outcome: "reverted" })).toMatchObject({
+      observed_receipt_block_hash: nextBlock, observed_receipt_outcome: "reverted",
+    });
+    expect(await store.clearReceiptObservation(otherOwner, id, nextBlock)).toBeNull();
+    expect(await store.clearReceiptObservation(owner, id, block)).toBeNull();
+    expect((await store.get(owner, id))?.observed_receipt_outcome).toBe("reverted");
+    expect(await store.clearReceiptObservation(owner, id, nextBlock)).toMatchObject({ observed_receipt_outcome: null, observed_at: null });
+    await store.recordReceiptObservation(owner, id, observation);
+    await store.recordOutcome(owner, id, { outcome: "succeeded", source: "chain", settledAt: new Date() });
+    expect(await store.recordReceiptObservation(owner, id, { ...observation, outcome: "reverted" })).toBeNull();
+    expect(await store.clearReceiptObservation(owner, id, block)).toBeNull();
   });
 
   test("confirmation commits finalized calls rather than the pending draft", async () => {

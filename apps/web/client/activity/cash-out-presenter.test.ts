@@ -105,6 +105,18 @@ describe("cash-out presentation", () => {
     expect(presentCashout(withState("delivered", { withdrawing: true }), withdraw("unknown")).stage).toBe("paid");
     expect(presentCashout(withState("delivered"), withdraw("confirmed")).stage).toBe("paid");
   });
+  test("a confirmed withdrawal remains confirmed while its original provider order awaits a buyer", () => {
+    const metadata = { product: "cashout", operation: "withdraw", depositId: "escrow-1", providerId: "peer", providerName: "Peer", environment: "production",
+      platform: "cashapp", platformLabel: "Cash App", currency: "USD", approximateFiatAmount: "0", minConversionRate: "1",
+      intentAmountRange: { min: "1", max: "2" }, estimateAsOf: "", escrow: "0x0000000000000000000000000000000000000001" } as const;
+    const confirmed = { ...withdraw("confirmed"), action: { ...withdraw("confirmed").action, id: "withdraw-1", title: "Withdraw cash-out", metadata } };
+    const linked = linkedCashoutWithdraw(operation, [operation, confirmed]);
+    expect(linked?.status).toBe("confirmed");
+    expect(presentCashout(confirmed).status).toBe("Confirmed");
+    expect(presentCashout(operation, linked).status).toBe("Returning");
+    expect(ledger(confirmed).status).toBe("confirmed");
+    expect(ledger(operation, linked).status).toBe("waiting-chain");
+  });
   test("a confirmed withdrawal keeps returning until the returned amount is verified", () => {
     const partial = withState("awaiting-buyer", { filledAtomic: "30000000", remainingAtomic: "20000000" });
     const confirmed = {

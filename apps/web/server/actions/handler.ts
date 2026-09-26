@@ -17,7 +17,7 @@ import { createTransferReceiptReader, type TransferReceiptStatus } from "./recei
 import { moneyActionOwner } from "@/server/money-actions/session";
 import { privateError, privateJson } from "@/server/http/private-response";
 import type { PendingTradeResponse } from "@/shared/actions/contracts/trade-pending";
-import { getActionsStore, type ActionRow, type ActionsStore, type CashoutOrderRow, type PendingAction, type ActionOutcome } from "./store";
+import { getActionsStore, type ActionRow, type ActionsStore, type CashoutOrderRow, type PendingAction, type ActionOutcome, type ObservedReceiptOutcome } from "./store";
 import { deriveActionStatus, type ActionReceiptState } from "./status";
 import { finalizeTradeCalls, type PendingTradeConfirmation } from "./kinds/trade/finalize";
 import { assertStockTradeConfirmAllowed } from "./kinds/trade/stock-eligibility";
@@ -65,7 +65,7 @@ async function authorizeOwner(request: Request, authorize: ActionAuthorizer): Pr
 
 export function createGetActionHandler(dependencies: {
   authorize: ActionAuthorizer;
-  store?: Pick<ActionsStore, "get" | "recordHandle" | "recordOutcome">;
+  store?: Pick<ActionsStore, "get" | "recordHandle" | "recordOutcome"> & Partial<Pick<ActionsStore, "recordReceiptObservation" | "clearReceiptObservation">>;
   readReceipt?: (hash: `0x${string}`, signal?: AbortSignal) => Promise<TransferReceiptStatus>;
   resolveHandle?: ActionHandleResolver;
   now?: () => Date;
@@ -344,7 +344,7 @@ export function createRetryActionHandler(dependencies: {
 
 export function createListActionsHandler(dependencies: {
   authorize: ActionAuthorizer;
-  store?: Pick<ActionsStore, "list" | "recordHandle" | "recordOutcome"> & Partial<Pick<ActionsStore, "ensureCashoutOrder" | "cashoutOrders" | "linkedCashoutDepositIds" | "linkCashoutDeposit" | "updateCashoutProgress">>;
+  store?: Pick<ActionsStore, "list" | "recordHandle" | "recordOutcome"> & Partial<Pick<ActionsStore, "recordReceiptObservation" | "clearReceiptObservation" | "ensureCashoutOrder" | "cashoutOrders" | "linkedCashoutDepositIds" | "linkCashoutDeposit" | "updateCashoutProgress">>;
   readReceipt?: (hash: `0x${string}`, signal?: AbortSignal) => Promise<TransferReceiptStatus>;
   resolveHandle?: ActionHandleResolver;
   refreshCashouts?: typeof refreshCashoutProgress;
@@ -353,7 +353,7 @@ export function createListActionsHandler(dependencies: {
   return async function GET(request: Request): Promise<Response> {
     const owner = await authorizeOwner(request, dependencies.authorize);
     if (owner instanceof Response) return owner;
-    let store: Pick<ActionsStore, "list" | "recordHandle" | "recordOutcome">;
+    let store: Pick<ActionsStore, "list" | "recordHandle" | "recordOutcome"> & Partial<Pick<ActionsStore, "recordReceiptObservation" | "clearReceiptObservation">>;
     let rows: ActionRow[];
     try {
       store = dependencies.store ?? getActionsStore();
@@ -547,8 +547,18 @@ function attributeReceipt(row: ActionRow, owner: MoneyActionOwner, receipt: Extr
   return candidates[0]!.success ? "succeeded" : "reverted";
 }
 
+function observedReceiptStatus(row: ActionRow): ActionReceiptState | null {
+  if (!row.transaction_hash || !row.observed_receipt_transaction_hash ||
+    row.observed_receipt_transaction_hash.toLowerCase() !== row.transaction_hash.toLowerCase() ||
+    !row.observed_receipt_block_hash || row.observed_receipt_block_number == null) return null;
+  if (row.observed_receipt_outcome === "succeeded") return "confirmed";
+  if (row.observed_receipt_outcome === "reverted") return "failed";
+  return null;
+}
+
 async function settleRow(
-  row: ActionRow, owner: MoneyActionOwner, store: Pick<ActionsStore, "recordOutcome">,
+  row: ActionRow, owner: MoneyActionOwner,
+  store: Pick<ActionsStore, "recordOutcome"> & Partial<Pick<ActionsStore, "recordReceiptObservation" | "clearReceiptObservation">>,
   readReceipt: ((hash: `0x${string}`, signal?: AbortSignal) => Promise<TransferReceiptStatus>) | undefined,
   signal: AbortSignal, route: string,
 ): Promise<{ row: ActionRow; receipt: ActionReceiptState | null }> {
@@ -558,17 +568,45 @@ async function settleRow(
     const reader = readReceipt ?? ((hash: `0x${string}`, nextSignal?: AbortSignal) =>
       createTransferReceiptReader()(hash, nextSignal));
     const receipt = await reader(row.transaction_hash.toLowerCase() as `0x${string}`, signal);
-    if (receipt.status === "pending") return { row, receipt: "pending" };
+    if (receipt.status === "pending") {
+      const observed = observedReceiptStatus(row);
+      if (!observed) return { row, receipt: "pending" };
+      if (BigInt(receipt.finalizedBlockNumber) < BigInt(row.observed_receipt_block_number!)) return { row, receipt: observed };
+      let cleared: ActionRow | null | undefined;
+      try {
+        cleared = await store.clearReceiptObservation?.(owner, row.id, row.observed_receipt_block_hash!);
+      } catch {
+        emitOutcomeEvent(route, row, owner, "OBSERVATION_UNAVAILABLE", "unavailable", startedAt);
+      }
+      return {
+        row: cleared ?? { ...row, observed_receipt_transaction_hash: null, observed_receipt_block_number: null,
+          observed_receipt_block_hash: null, observed_receipt_outcome: null, observed_at: null },
+        receipt: "pending",
+      };
+    }
     const outcome = attributeReceipt(row, owner, receipt);
     if (!outcome) {
       emitOutcomeEvent(route, row, owner, "OUTCOME_UNATTRIBUTED", "conflict", startedAt);
       return { row, receipt: "unattributed" };
     }
-    if (!receipt.finalized) return { row, receipt: outcome === "succeeded" ? "confirmed" : "failed" };
+    const observedOutcome = outcome as ObservedReceiptOutcome;
+    const freshStatus = outcome === "succeeded" ? "confirmed" : "failed";
+    if (row.observed_receipt_block_hash?.toLowerCase() !== receipt.blockHash.toLowerCase() || row.observed_receipt_outcome !== observedOutcome ||
+      row.observed_receipt_transaction_hash?.toLowerCase() !== receipt.transactionHash.toLowerCase()) {
+      try {
+        row = await store.recordReceiptObservation?.(owner, row.id, {
+          transactionHash: receipt.transactionHash, blockNumber: receipt.blockNumber,
+          blockHash: receipt.blockHash, outcome: observedOutcome,
+        }) ?? row;
+      } catch {
+        emitOutcomeEvent(route, row, owner, "OBSERVATION_UNAVAILABLE", "unavailable", startedAt);
+      }
+    }
+    if (!receipt.finalized) return { row, receipt: freshStatus };
     const updated = await recordRowOutcome(store, row, owner, outcome, "chain", new Date(receipt.blockTimestamp), route, startedAt);
-    return { row: updated, receipt: "unavailable" };
+    return { row: updated, receipt: freshStatus };
   } catch {
-    return { row, receipt: "unavailable" };
+    return { row, receipt: observedReceiptStatus(row) ?? "unavailable" };
   }
 }
 

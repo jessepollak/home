@@ -32,7 +32,7 @@ const request = (id: string, path: string, provider: "cdp-embedded" | "base-acco
 });
 const listRequest = (provider: "cdp-embedded" | "base-account" = "cdp-embedded") => new Request("https://home.test/api/actions", { headers: { "X-Home-Account-Provider": provider } });
 const receipt = (success: boolean, sender: string = address, operationHash: string = userOpHash): TransferReceiptStatus => ({
-  status: "confirmed", transactionHash: hash, blockNumber: "1", blockTimestamp, finalized: true,
+  status: "confirmed", transactionHash: hash, blockNumber: "1", blockHash: `0x${"ef".repeat(32)}`, blockTimestamp, finalized: true,
   userOperations: [{ userOpHash: operationHash, sender, success }],
 });
 async function prepared(provider: "cdp-embedded" | "base-account" = "cdp-embedded") {
@@ -67,6 +67,7 @@ describePostgres("write-once action outcomes with real handlers", () => {
       await transaction.unsafe(await readMigrationSql("012_action_outcomes.sql"));
       await transaction.unsafe(await readMigrationSql("013_action_call_commitment.sql"));
       await transaction.unsafe(await readMigrationSql("014_cashout_orders.sql"));
+      await transaction.unsafe(await readMigrationSql("016_action_receipt_observations.sql"));
     });
     sql = createPostgresSqlExecutor(connectionString!, { schema });
     store = new ActionsStore(sql);
@@ -212,9 +213,24 @@ describePostgres("write-once action outcomes with real handlers", () => {
     const nonfinal = handlers("cdp-embedded", { readReceipt: async () => ({ ...receipt(true), finalized: false }) });
     expect((await (await nonfinal.get(request(id, ""), context(id))).json()).status).toBe("confirmed");
     expect((await store.get(owner(), id))?.outcome).toBeNull();
+    expect((await store.get(owner(), id))?.observed_receipt_outcome).toBe("succeeded");
+    const unavailable = handlers("cdp-embedded", { readReceipt: async () => { throw new Error("RPC unavailable"); } });
+    expect((await (await unavailable.get(request(id, ""), context(id))).json()).status).toBe("confirmed");
+    const lagging = handlers("cdp-embedded", { readReceipt: async () => ({ status: "pending", transactionHash: hash, finalizedBlockNumber: "0" }) });
+    expect((await (await lagging.get(request(id, ""), context(id))).json()).status).toBe("confirmed");
     const final = handlers("cdp-embedded", { readReceipt: async () => receipt(true) });
     expect((await (await final.get(request(id, ""), context(id))).json()).status).toBe("confirmed");
     expect((await store.get(owner(), id))?.outcome).toBe("succeeded");
+  });
+
+  test("a finalized null receipt clears a persisted observation before deriving status", async () => {
+    const id = await prepared();
+    await store.recordHandle(owner(), id, { providerHandle: userOpHash, transactionHash: hash });
+    const included = handlers("cdp-embedded", { readReceipt: async () => ({ ...receipt(false), finalized: false }) });
+    expect((await (await included.get(request(id, ""), context(id))).json()).status).toBe("failed");
+    const dropped = handlers("cdp-embedded", { readReceipt: async () => ({ status: "pending", transactionHash: hash, finalizedBlockNumber: "1" }) });
+    expect((await (await dropped.get(request(id, ""), context(id))).json()).status).toBe("pending");
+    expect(await store.get(owner(), id)).toMatchObject({ observed_receipt_outcome: null, observed_receipt_block_hash: null });
   });
 
   test("a racing chain result emits a conflict event and preserves the first outcome", async () => {
