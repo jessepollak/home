@@ -233,7 +233,7 @@ export const ContinueToReview: Story = {
     const reveal = within(to).getByRole("button", { name: `Show full address ${formatAddress(RECIPIENT)}` });
     await expect(reveal).toBeVisible();
     await userEvent.click(reveal);
-    await expect(await screen.findByLabelText(`Full address ${RECIPIENT}`)).toBeVisible();
+    await waitFor(() => expect(screen.getByLabelText(`Full address ${RECIPIENT}`)).toBeVisible());
     await userEvent.keyboard("{Escape}");
     await expect(within(dialog).getByRole("button", { name: "Send $1.00" })).toHaveAttribute("data-money-action-id", ACTION_ID);
     await expect(journey.prepares).toEqual([{ kind: "send", params: { assetId: "usdc", recipient: RECIPIENT, amountBaseUnits: "1000000" } }]);
