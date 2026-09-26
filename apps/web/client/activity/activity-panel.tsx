@@ -155,13 +155,16 @@ export function ActivityPanelView({
           <p role="status" className="text-sm text-muted-foreground">
             Onchain transfers are unavailable. Recorded Home actions are still shown.
           </p>
-          <LoadRetryButton onRetry={activity.retry} />
+          <LoadRetryButton onRetry={activity.retry}>Retry onchain transfers</LoadRetryButton>
         </div>
       ) : null}
       {inlineStatus && actionsStatus === "error" ? (
-        <p role="status" className="text-sm text-muted-foreground">
-          Recorded Home actions are unavailable.{transfers.length > 0 ? " Onchain transfers are still shown." : ""}
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p role="status" className="text-sm text-muted-foreground">
+            Recorded Home actions are unavailable.{transfers.length > 0 ? " Onchain transfers are still shown." : ""}
+          </p>
+          {retryActions ? <LoadRetryButton onRetry={retryActions}>Retry recorded actions</LoadRetryButton> : null}
+        </div>
       ) : null}
       {plain && historyUnknown ? (
         <ActivityUnavailable message="Some activity is unavailable" onReload={retryFailedSources} />

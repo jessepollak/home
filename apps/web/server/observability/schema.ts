@@ -91,6 +91,7 @@ export type BalancesReadDurations = {
 
 export const SERVER_EVENT_KINDS = [
   "action-prepare",
+  "action-read",
   "action-confirm",
   "action-handle",
   "action-decline",

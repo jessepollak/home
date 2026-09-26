@@ -49,8 +49,24 @@ export type RecentMoneyActionOperation = {
   submittedAt?: string;
 };
 
+class RecentActionsContractError extends Error {
+  constructor() {
+    super("Recent actions response is invalid.");
+    this.name = "RecentActionsContractError";
+  }
+}
+
+export function isRecentActionsResponse(value: unknown): value is { actions: unknown[] } {
+  return isRecord(value) && Array.isArray(value.actions);
+}
+
+export function assertRecentActionsResponse(value: unknown): asserts value is { actions: unknown[] } {
+  if (!isRecentActionsResponse(value)) throw new RecentActionsContractError();
+}
+
 export function parseRecentMoneyActions(value: unknown, session: VerifiedAccountSession): RecentMoneyActionOperation[] {
-  if (!session.smartAccount || !isRecord(value) || !Array.isArray(value.actions)) return [];
+  if (!session.smartAccount) return [];
+  assertRecentActionsResponse(value);
   const parsed: RecentMoneyActionOperation[] = [];
   for (const item of value.actions) {
     if (!isRecord(item) || !isRecord(item.owner) || !isRecord(item.summary)) continue;
