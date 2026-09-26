@@ -121,7 +121,6 @@ function FinanceRow({
             {valueContext === undefined ? null : (
               <ItemDescription
                 lines={1}
-                size="xs"
                 className="w-full text-end"
                 title={valueContextTitle}
               >
