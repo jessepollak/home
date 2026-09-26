@@ -45,3 +45,13 @@ export function searchFixture(query: string): InvestSearchResponse {
     nextOffset: null,
   };
 }
+
+export function assetResolutionFixture(assetId: string) {
+  const result = [nonTrending, twin, extra].find((result) => result.kind === "dynamic" && result.asset.id === assetId);
+  return {
+    version: 1, assetId, provider: "ok",
+    asset: result?.kind === "dynamic" ? result.asset : null,
+    source: result ? "indexed" : null,
+    snapshot: searchFixture(nonTrendingAddress).snapshots.find((snapshot) => snapshot.assetId === assetId) ?? null,
+  };
+}

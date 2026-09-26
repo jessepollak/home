@@ -3,7 +3,7 @@ import { afterEach, expect, test } from "bun:test";
 import { page } from "@/tests/helpers/dom";
 import { getHomeQueryClient } from "@/client/query/query-client";
 import { AccountWalletClientProvider, createBlockedAccountWalletClient } from "@/client/account/cdp-client";
-import { nonTrendingAddress, searchFixture } from "@/tests/browser/feature-map/search-fixtures";
+import { assetResolutionFixture, nonTrendingAddress, searchFixture } from "@/tests/browser/feature-map/search-fixtures";
 const { cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const { InvestExperience } = await import("./invest-experience");
 const originalFetch = globalThis.fetch;
@@ -28,6 +28,10 @@ function mockMarketRequests(imageUrl?: string) {
     if (url.pathname === "/api/invest/search") {
       const fixture = searchFixture(url.searchParams.get("q") ?? "");
       return Response.json({ ...fixture, results: fixture.results.map((result) => result.kind === "dynamic" && imageUrl ? { ...result, asset: { ...result.asset, imageUrl } } : result) });
+    }
+    if (url.pathname === "/api/invest/asset") {
+      const fixture = assetResolutionFixture(url.searchParams.get("assetId") ?? "");
+      return Response.json(fixture.asset && imageUrl ? { ...fixture, asset: { ...fixture.asset, imageUrl } } : fixture);
     }
     return Response.json({
       version: 1, provider: "codex", assetId: trendingAsset.id, range: "1W",
@@ -100,8 +104,8 @@ test("an unpriced onchain identity resolves on deep link without a fabricated qu
   window.history.replaceState(null, "", `/invest/${id}`);
   globalThis.fetch = (async (input) => {
     const url = new URL(String(input), "http://localhost");
-    if (url.pathname === "/api/invest/search") {
-      return Response.json({ ...searchFixture(nonTrendingAddress), snapshots: [], results: [{ ...searchFixture(nonTrendingAddress).results[0], source: "onchain" }] });
+    if (url.pathname === "/api/invest/asset") {
+      return Response.json({ ...assetResolutionFixture(id), snapshot: null, source: "onchain" });
     }
     return Response.json({ version: 1, provider: "codex", assetId: id, range: "1W", currency: "USD", fetchedAt: null, status: "empty", points: [] });
   }) as typeof fetch;
@@ -111,23 +115,37 @@ test("an unpriced onchain identity resolves on deep link without a fabricated qu
   expect(page().queryByText("$0.00")).toBeNull();
 });
 
-test.each(["ready", "error"] as const)("exact address with %s lookup only offers fallback when lookup failed", async (status) => {
+test.each(["missing", "error"] as const)("exact address with %s resolution only offers fallback when resolution failed", async (status) => {
   const id = `base:${nonTrendingAddress}`;
   window.history.replaceState(null, "", `/invest/${id}`);
   globalThis.fetch = (async (input) => {
     const url = new URL(String(input), "http://localhost");
-    if (url.pathname === "/api/invest/search") {
-      return Response.json({ ...searchFixture(nonTrendingAddress), provider: status === "ready" ? "ok" : "error",
-        coverage: status === "ready" ? "complete" : "partial", results: [], snapshots: [] });
+    if (url.pathname === "/api/invest/asset") {
+      return Response.json({ version: 1, assetId: id, asset: null, source: null, snapshot: null, provider: status === "missing" ? "ok" : "error" });
     }
     return Response.json({ version: 1, provider: "codex", assetId: id, range: "1W", currency: "USD", fetchedAt: null, status: "empty", points: [] });
   }) as typeof fetch;
   render(<AccountWalletClientProvider client={createBlockedAccountWalletClient("provider-unavailable")}><InvestExperience initialView={{ screen: "detail", assetId: id, from: "hub" }} /></AccountWalletClientProvider>);
-  if (status === "ready") {
+  if (status === "missing") {
     await waitFor(() => expect(page().getByText("Asset unavailable")).toBeTruthy());
     expect(page().queryByRole("heading", { name: "0x1111…1111" })).toBeNull();
   } else {
     await waitFor(() => expect(page().getByRole("heading", { name: "0x1111…1111" })).toBeTruthy());
     expect(page().queryByText("Asset unavailable")).toBeNull();
   }
+});
+
+test("a priced deep link resolves directly without issuing a search request", async () => {
+  const id = `base:${nonTrendingAddress}`;
+  const paths: string[] = [];
+  globalThis.fetch = (async (input) => {
+    const url = new URL(String(input), "http://localhost");
+    paths.push(url.pathname);
+    if (url.pathname === "/api/invest/asset") return Response.json(assetResolutionFixture(url.searchParams.get("assetId") ?? ""));
+    return Response.json({ version: 1, provider: "codex", assetId: id, range: "1W", currency: "USD", fetchedAt: null, status: "empty", points: [] });
+  }) as typeof fetch;
+  render(<InvestExperience initialView={{ screen: "detail", assetId: id, from: "hub" }} />);
+  await waitFor(() => expect(page().getByText("$1.25")).toBeTruthy());
+  expect(paths).toContain("/api/invest/asset");
+  expect(paths).not.toContain("/api/invest/search");
 });

@@ -1,3 +1,4 @@
+import { parseAssetSnapshot } from "./asset-resolution";
 import { investAssets, type InvestAsset } from "@/config/invest-assets";
 import type { MarketSnapshot } from "@/shared/invest/invest-market";
 import { parseDynamicInvestAsset } from "./discover";
@@ -162,7 +163,7 @@ export function parseInvestSearchResponse(
   );
   const snapshots: MarketSnapshot[] = [];
   for (const item of record.snapshots) {
-    const snapshot = parseSnapshot(item);
+    const snapshot = parseAssetSnapshot(item);
     if (!snapshot) return null;
     if (dynamicIds.has(snapshot.assetId)) snapshots.push(snapshot);
   }
@@ -194,30 +195,6 @@ function parseResult(value: unknown): InvestSearchResult | null {
   }
   const asset = parseDynamicInvestAsset(record.asset);
   return asset ? { asset, match: record.match, source: record.source } : null;
-}
-
-function parseSnapshot(value: unknown): MarketSnapshot | null {
-  const snapshot = readRecord(value);
-  if (
-    !snapshot ||
-    typeof snapshot.assetId !== "string" ||
-    typeof snapshot.displayPrice !== "string" ||
-    snapshot.displayPrice.length === 0 ||
-    typeof snapshot.asOf !== "string" ||
-    typeof snapshot.sourceLabel !== "string"
-  ) {
-    return null;
-  }
-  return {
-    assetId: snapshot.assetId,
-    displayPrice: snapshot.displayPrice,
-    asOf: snapshot.asOf,
-    sourceLabel: snapshot.sourceLabel,
-    ...(typeof snapshot.sourceUrl === "string" ? { sourceUrl: snapshot.sourceUrl } : {}),
-    ...(typeof snapshot.changeLabel === "string"
-      ? { changeLabel: snapshot.changeLabel }
-      : {}),
-  };
 }
 
 function isMatch(value: unknown): value is InvestSearchMatch {
