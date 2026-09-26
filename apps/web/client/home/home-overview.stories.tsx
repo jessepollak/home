@@ -360,9 +360,9 @@ export const Funded: Story = {
     await expect(borrow.textContent).toContain("$30.01");
     await expect(borrow.textContent).toContain("5.10% APR");
     await expect(borrow.textContent).not.toContain("−");
-    await expect(summary.getByRole("button", { description: "Open Invest" }).textContent)
+    await expect(summary.getByRole("button", { description: "Open Investments" }).textContent)
       .toContain("Across 1 asset");
-    for (const destination of ["Open Cash", "Open Invest"]) {
+    for (const destination of ["Open Cash", "Open Investments"]) {
       await expect(summary.getByRole("button", { description: destination })
         .querySelector("[data-mark='glyph']")).not.toBeNull();
     }
@@ -466,7 +466,7 @@ export const KeyboardOrder: Story = {
     await expect(canvas.getByRole("button", { name: /Add money/ })).toHaveFocus();
     await userEvent.tab();
     await expect(canvas.getByRole("button", { name: "Send" })).toHaveFocus();
-    for (const destination of ["Open Cash", "Open Invest", "Open Borrow"]) {
+    for (const destination of ["Open Cash", "Open Investments", "Open Borrow"]) {
       await userEvent.tab();
       await expect(canvas.getByRole("button", { description: destination })).toHaveFocus();
     }

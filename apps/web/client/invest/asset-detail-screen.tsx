@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
@@ -65,11 +65,13 @@ export function AssetDetailScreen({
   market,
   assetMarkResolution = {},
   onBack,
+  ownership,
 }: {
   asset: InvestAsset;
   market: MarketDataState;
   assetMarkResolution?: AssetMarkResolution;
   onBack: () => void;
+  ownership?: ReactNode;
 }) {
   const [range, setRange] = useState<MarketPriceRange>("1W");
   const history = usePriceHistory(asset.id, range);
@@ -129,6 +131,7 @@ export function AssetDetailScreen({
         </p>
       </div>
 
+      {ownership}
       <PriceChart range={range} history={history} onRangeChange={setRange} />
       <TradeActions asset={asset} layout="sticky" />
     </section>

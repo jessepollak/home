@@ -66,9 +66,9 @@ test("switching away from nested Invest and back opens the Invest overview", asy
   await navigation.getByRole("button", { name: "Home", exact: true }).click();
   await page.getByRole("region", { name: "Your money" })
     .getByRole("button", { name: /^Investments/ }).click();
-  await expect(page).toHaveURL(/\/invest$/);
-  await expect(page.locator("[data-shell-header-title]").first()).toHaveText("Invest");
-  await expect(page.getByRole("button", { name: "Back to Invest" })).toHaveCount(0);
+  await expect(page).toHaveURL(/\/investments$/);
+  await expect(page.locator("[data-shell-header-title]").first()).toHaveText("Investments");
+  await expect(page.getByRole("region", { name: "Your investments" })).toBeVisible();
 });
 
 test("tapping active Invest from a category pushes a root entry that Back restores", async ({ page }) => {

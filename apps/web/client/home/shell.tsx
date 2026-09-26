@@ -15,11 +15,13 @@ import { dataOwnerKey } from "@/client/account/owner-keys";
 import { useAppearance } from "@/client/appearance/use-appearance";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { BorrowMarketId } from "@/shared/borrowing/config";
+import type { AssetKey } from "@/shared/balances/types";
 import {
   activityPanelId,
   balancesPanelId,
   borrowPanelId,
   cashPanelId,
+  investmentsPanelId,
   isHomeNestedPanelId,
   nestedHomePanelTitle,
   type ShellPanelId,
@@ -40,7 +42,7 @@ import {
   subscribeBeforeClientUrlCommit,
   type ShellFlow,
 } from "@/config/shell-location";
-import { AppChromeProvider, useOptionalAppChrome } from "@/components/app-chrome";
+import { AppChromeProvider, useOptionalAppChrome, type NestedAppChrome } from "@/components/app-chrome";
 import { LoadErrorCard } from "@/components/load-error";
 import { PrimaryNavigation } from "@/components/primary-navigation";
 import { AuthenticatedBorrowExperience } from "@/client/borrowing/borrowing-experience";
@@ -62,10 +64,10 @@ import {
   useBalancesRevealWindow,
 } from "./balances-panel";
 import { ActivityPage } from "./activity-panel";
-import { CashPanel, InvestPanel } from "./feature-panels";
+import { CashPanel, InvestPanel, InvestmentsPanel } from "./feature-panels";
 import { HomePanel } from "./home-panel";
 import { MountedShellPanel } from "./panel-shared";
-import type { HomeExperienceProps, HomeAssetBalancesPresentation } from "./home-types";
+import type { HomeExperienceProps, HomeAssetBalancesPresentation, InvestmentsContentProps } from "./home-types";
 import {
   HomeShellRoutingProvider,
   readHomeInboundPanelState,
@@ -86,6 +88,18 @@ function CashPanelContent({ render, view, onOpenSavings }: {
   return render({ view, onOpenSavings });
 }
 
+function InvestmentsPanelContent({ render, holding, onOpenHolding, onCloseHolding }: {
+  render: NonNullable<HomeExperienceProps["investmentsContent"]>;
+} & InvestmentsContentProps) {
+  return render({ holding, onOpenHolding, onCloseHolding });
+}
+
+function PanelChromeSync({ onChrome }: { onChrome: (chrome: NestedAppChrome | null) => void }) {
+  const chrome = useOptionalAppChrome();
+  useEffect(() => onChrome(chrome?.nested ?? null), [chrome?.nested, onChrome]);
+  return null;
+}
+
 const loadingAssetBalances: HomeAssetBalancesPresentation = {
   status: "loading",
   displayTotal: null,
@@ -103,6 +117,7 @@ const panelStartupRoutes: Record<ShellPanelId, Exclude<HomeStartupRoute, "/">> =
   activity: "/activity",
   cash: "/cash",
   borrow: "/borrow",
+  investments: "/investments",
   invest: "/invest",
 };
 
@@ -119,6 +134,7 @@ export function DashboardShell(props: DashboardShellProps) {
 function DashboardShellBody({
   investContent,
   cashContent,
+  investmentsContent,
   initialAccountOpen = false,
   initialPanel = "home",
   initialLocation,
@@ -206,13 +222,19 @@ function DashboardShellBody({
     window.history.state?.__cashSavingsOpenedInApp === true,
   );
   const cashSavingsFocusReturnRef = useRef(false);
+  const [investmentsHoldingOpenedInApp, setInvestmentsHoldingOpenedInApp] = useState(() =>
+    typeof window !== "undefined" && initialUrlIntent.location.holding != null &&
+    window.history.state?.__investmentsHoldingOpenedInApp === true,
+  );
+  const holdingFocusReturnRef = useRef<{ key: AssetKey; scrollIntoView: boolean } | null>(null);
+  const investChrome = useOptionalAppChrome();
+  const [investmentsChrome, setInvestmentsChrome] = useState<NestedAppChrome | null>(null);
   const mainRef = useRef<HTMLElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
   const settingsRegionRef = useRef<HTMLElement>(null);
   const settingsOpenerRef = useRef<HTMLElement | null>(null);
   const settingsFocusHandoffRef = useRef(false);
   const settingsFocusStateRef = useRef<"uninitialized" | "open" | "closed">("uninitialized");
-  const investChrome = useOptionalAppChrome();
   const cancelPendingShellScroll = useCallback(() => {
     if (pendingShellScrollFrameRef.current === null) return;
     window.cancelAnimationFrame(pendingShellScrollFrameRef.current);
@@ -384,6 +406,10 @@ function DashboardShellBody({
       setCashSavingsOpenedInApp(intent.panel === cashPanelId &&
         intent.location.cashView === "savings" &&
         window.history.state?.__cashSavingsOpenedInApp === true);
+      holdingFocusReturnRef.current = urlIntent.location.holding && intent.panel === investmentsPanelId && !intent.location.holding
+        ? { key: urlIntent.location.holding, scrollIntoView: false } : null;
+      setInvestmentsHoldingOpenedInApp(intent.panel === investmentsPanelId &&
+        intent.location.holding != null && window.history.state?.__investmentsHoldingOpenedInApp === true);
       applyUrlState(intent);
       setPopRevision((revision) => revision + 1);
       if (intent.panel === balancesPanelId &&
@@ -396,7 +422,7 @@ function DashboardShellBody({
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
-  }, [applyUrlState, currentUrlIntent, isBalancesRestoreArmed, urlIntent.location.cashView]);
+  }, [applyUrlState, currentUrlIntent, isBalancesRestoreArmed, urlIntent.location.cashView, urlIntent.location.holding]);
 
   useEffect(() => {
     if (forwardRequest !== 0) pendingBalancesRestoreRef.current = false;
@@ -553,6 +579,12 @@ function DashboardShellBody({
         '[aria-labelledby="cash-savings-heading"] button',
       )?.focus({ preventScroll: true });
     }
+    const holdingReturn = holdingFocusReturnRef.current;
+    holdingFocusReturnRef.current = null;
+    const holdingRow = holdingReturn && mainRef.current?.querySelector<HTMLElement>(
+      `[data-holding-key="${CSS.escape(holdingReturn.key)}"]`,
+    );
+    holdingRow?.closest("button")?.focus({ preventScroll: true });
     cancelPendingShellScroll();
     const historyScrollTop = pendingHistoryScrollRestoreRef.current;
     pendingHistoryScrollRestoreRef.current = null;
@@ -603,6 +635,10 @@ function DashboardShellBody({
         mainRef.current?.scrollTo({ top: 0, behavior: reducedMotion ? "auto" : "smooth" });
       }
     }
+    if (holdingReturn?.scrollIntoView) {
+      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      holdingRow?.scrollIntoView({ block: "center", behavior: reducedMotion ? "auto" : "smooth" });
+    }
     return cancelPendingShellScroll;
   }, [
     activeNavigation,
@@ -651,18 +687,21 @@ function DashboardShellBody({
     group: MoneyGroupId | null = null,
     market: BorrowMarketId | null = null,
     cashView: "savings" | null = null,
+    holding: AssetKey | null = null,
   ) {
     settingsOpenerRef.current = null;
     settingsFocusHandoffRef.current = true;
     const skipHistory = activeNavigation === nextNavigation && !isAccountSettingsOpen &&
       (nextNavigation !== "borrow" || urlIntent.location.market === market) &&
       (nextNavigation !== "cash" || urlIntent.location.cashView === cashView) &&
+      (nextNavigation !== investmentsPanelId || urlIntent.location.holding === holding) &&
       (nextNavigation !== "invest" || window.location.pathname === shellHref({ panel: nextNavigation }));
     setRootRequest((request) => ({ panel: nextNavigation, revision: (request?.revision ?? 0) + 1 }));
     setIsAccountSettingsOpen(false);
     setSettingsOpenedInApp(false);
     if (nextNavigation !== "borrow") setBorrowMarketOpenedInApp(false);
     if (nextNavigation !== "cash") setCashSavingsOpenedInApp(false);
+    if (nextNavigation !== investmentsPanelId) setInvestmentsHoldingOpenedInApp(false);
     if (!skipHistory) {
       setForwardRequest((request) => request + 1);
       const mayOpenAssetDetail = activeNavigation === balancesPanelId && nextNavigation === "invest";
@@ -683,10 +722,10 @@ function DashboardShellBody({
     if (nextNavigation === balancesPanelId) setBalancesMounted(true);
     setNavigationRequest((request) => request + 1);
     if (!skipHistory) {
-      commitClientUrl(shellHref({ panel: nextNavigation, group, market, cashView }), "push",
-        nextNavigation === cashPanelId && cashView === "savings"
-          ? { __cashSavingsOpenedInApp: true }
-          : { __cashSavingsOpenedInApp: false, __cashSavingsFlowPushed: false });
+      commitClientUrl(shellHref({ panel: nextNavigation, group, market, cashView, holding }), "push",
+        { __cashSavingsOpenedInApp: nextNavigation === cashPanelId && cashView === "savings",
+          __cashSavingsFlowPushed: false,
+          __investmentsHoldingOpenedInApp: nextNavigation === investmentsPanelId && holding !== null });
       setUrlIntent(currentUrlIntent());
     }
   }
@@ -703,6 +742,28 @@ function DashboardShellBody({
       return;
     }
     commitClientUrl(shellHref({ panel: cashPanelId }), "replace");
+    applyUrlState(currentUrlIntent());
+    setNavigationRequest((request) => request + 1);
+  }
+
+  function selectInvestmentHolding(holding: AssetKey | null) {
+    if (holding) {
+      setInvestmentsHoldingOpenedInApp(true);
+      navigateTo(investmentsPanelId, null, null, null, holding);
+      return;
+    }
+    const previousHolding = urlIntent.location.holding;
+    if (!previousHolding) return;
+    holdingFocusReturnRef.current = { key: previousHolding, scrollIntoView: false };
+    if (investmentsHoldingOpenedInApp && isClientHistoryEntry()) {
+      setInvestmentsHoldingOpenedInApp(false);
+      window.history.back();
+      return;
+    }
+    holdingFocusReturnRef.current.scrollIntoView = true;
+    setInvestmentsHoldingOpenedInApp(false);
+    commitClientUrl(shellHref({ panel: investmentsPanelId }), "replace",
+      { __investmentsHoldingOpenedInApp: false });
     applyUrlState(currentUrlIntent());
     setNavigationRequest((request) => request + 1);
   }
@@ -791,7 +852,9 @@ function DashboardShellBody({
     : isHomeNestedPanelId(activeNavigation)
       ? activeNavigation === cashPanelId && urlIntent.location.cashView === "savings"
         ? "Savings"
-        : nestedHomePanelTitle(activeNavigation)
+        : activeNavigation === investmentsPanelId && urlIntent.location.holding
+          ? investmentsChrome?.title ?? "Investments"
+          : nestedHomePanelTitle(activeNavigation)
       : activeNavigation === "invest"
         ? investChrome?.nested?.title ?? null
         : null;
@@ -812,6 +875,8 @@ function DashboardShellBody({
       ? () => selectBorrowMarket(null)
       : activeNavigation === cashPanelId && urlIntent.location.cashView === "savings"
         ? leaveCashSavings
+      : activeNavigation === investmentsPanelId && urlIntent.location.holding
+        ? () => selectInvestmentHolding(null)
         : leaveHomeNestedPanel
     : investChrome?.nested?.onBack ?? (() => {});
 
@@ -938,7 +1003,11 @@ function DashboardShellBody({
                       fetchActivity={account.fetchActivity}
                       fetchOperations={account.fetchOperations}
                       onOpenCash={() => navigateTo(cashPanelId)}
-                      onOpenInvestments={() => navigateTo("invest")}
+                      onOpenInvestments={() => navigateTo(
+                        paintedAssetBalances.summary?.investments.ownedCount === 0 &&
+                        paintedAssetBalances.summary.investments.status === "complete"
+                          ? "invest" : investmentsPanelId,
+                      )}
                       onOpenBorrow={() => navigateTo(borrowPanelId)}
                       initialAddMoney={urlAddMoney}
                       returnedFromProvider={urlReturnedFromProvider}
@@ -997,6 +1066,19 @@ function DashboardShellBody({
                       assetMarkResolution={assetMarkResolution}
                       borrowSummary={paintedAssetBalances.summary?.borrow ?? null}
                     />
+                  </MountedShellPanel>
+                ) : null}
+                {mountedPanels.has(investmentsPanelId) ? (
+                  <MountedShellPanel active={activeNavigation === investmentsPanelId}>
+                    <AppChromeProvider>
+                      <PanelChromeSync onChrome={setInvestmentsChrome} />
+                      <InvestmentsPanel regionId={regionId} content={investmentsContent ? (
+                        <InvestmentsPanelContent render={investmentsContent}
+                          holding={urlIntent.location.holding ?? null}
+                          onOpenHolding={selectInvestmentHolding}
+                          onCloseHolding={() => selectInvestmentHolding(null)} />
+                      ) : null} />
+                    </AppChromeProvider>
                   </MountedShellPanel>
                 ) : null}
                 {mountedPanels.has("invest") ? (

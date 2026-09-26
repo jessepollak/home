@@ -7,6 +7,7 @@ export const HOME_STARTUP_ROUTES = [
   "/activity",
   "/cash",
   "/borrow",
+  "/investments",
   "/invest",
 ] as const;
 export const HOME_STARTUP_OUTCOMES = [

@@ -1,0 +1,5 @@
+# Investments holdings production stories
+
+`investments-holdings--funded` and `investments-holdings--funded-desktop` cover the selected holdings hierarchy. Other `investments-holdings--*` stories cover empty, loading, failed, refresh-failed (on the list and on tradable and non-tradable details), partial, unread inventory (an unread balance is not listed as owned), unpriced, metadata fallback, collateral, matching cash, 60 holdings and focus return, duplicate names, deterministic ties, narrow and large-value layouts, and catalog, discovered, stock, collateral and noncatalog details. `investments-holdings--detail-collateral-known-zero` and `investments-holdings--detail-collateral-unavailable` verify Sell stays disabled against the displayed wallet snapshot.
+
+`journeys-investments-holdings--home-to-holdings` and `journeys-investments-holdings--home-to-holdings-desktop` walk Home → holdings → Bitcoin → Buy/Sell → Back to the focused Bitcoin row → Back to the focused Home row. Route, native Back, and refresh behavior must be verified in the app, not the story.

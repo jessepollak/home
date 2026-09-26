@@ -48,6 +48,8 @@
     // Non-production design-lane code lives under explorations/ or inside a
     // story file; see docs/design-explorations/README.md.
     "**/explorations/**",
+    // Story-only fixture modules shared by a story and its journey.
+    "**/*.stories.fixture.ts",
     // Test-only harnesses are excluded rather than treated as production roots.
     "tests/**",
     "server/funding/core/testing/**",

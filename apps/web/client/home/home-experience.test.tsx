@@ -8,6 +8,8 @@ import type { HomeRegionState } from "./use-home-region";
 import type { AccountWalletSdkBoundary } from "@/client/account/cdp-client";
 import type { SessionFetch, VerifiedAccountSession } from "@/client/account/session-client";
 import { DEFAULT_BORROW_MARKET } from "@/shared/borrowing/config";
+import { erc20AssetKey, nativeAssetKey } from "@/shared/balances/types";
+import type { InvestmentsContentProps } from "./home-types";
 
 const BORROW_MARKET_ID = DEFAULT_BORROW_MARKET.marketId;
 import {
@@ -101,6 +103,7 @@ const { AccountWalletSessionOwner } = await import("@/client/account/cdp-session
 const { BASE_CHAIN_ID } = await import("@/client/account/session-client");
 const { useNestedAppChrome } = await import("@/components/app-chrome");
 const { InvestExperience } = await import("@/client/invest/invest-experience");
+const { parseShellLocation } = await import("@/config/shell-location");
 const { DashboardShell } = await import("./shell");
 const { useOptionalHomeShellRouting } = await import("./panel-routing");
 const { PortfolioHomeExperience } = await import("./portfolio-home-experience");
@@ -218,7 +221,7 @@ function DashboardHarness({
           breakdown: [{ id: "cash", label: "Cash", value: "$12.34", weight: 1_000 }],
           summary: {
             cash: { status: "complete", value: "$12.34" },
-            investments: { status: "complete", value: "$0.00", assetCount: 0 },
+            investments: { status: "complete", value: "$0.00", assetCount: 0, ownedCount: 0 },
             borrow: { kind: "none" },
           },
           rows: [{
@@ -265,6 +268,25 @@ function NestedInvestFixture({ balancesReturn = false }: { balancesReturn?: bool
   );
 }
 
+const INVESTMENT_HOLDING = erc20AssetKey("0xABABABABABABABABABABABABABABABABABABABAB");
+const INVESTMENT_PATH = "/investments/0xabababababababababababababababababababab";
+
+function InvestmentsFixture({ holding, onOpenHolding, onCloseHolding }: InvestmentsContentProps) {
+  useNestedAppChrome(holding ? { title: "Ethereum holding", backLabel: "Back", onBack: onCloseHolding } : null);
+  return holding
+    ? <section aria-label="Holding detail">Selected {holding}</section>
+    : <section aria-label="Holding list">
+        <button type="button" onClick={() => onOpenHolding(INVESTMENT_HOLDING)}>
+          <span data-holding-key={INVESTMENT_HOLDING}>Ethereum row</span>
+        </button>
+      </section>;
+}
+
+function fundedInvestments() {
+  return presentBalances({ status: "ready", snapshot: buildBalancesSnapshotFixture({
+    registry: { eth: { balance: ready("1000000000000000000"), value: priced("USD", "10000") } },
+  }), error: null });
+}
 Object.defineProperty(window, "matchMedia", {
   configurable: true,
   value: () => ({
@@ -861,7 +883,7 @@ describe("Home shell routing and intents", () => {
           ],
           summary: {
             cash: { status: "complete", value: "$12.34" },
-            investments: { status: "complete", value: "$78.21", assetCount: 1 },
+            investments: { status: "complete", value: "$78.21", assetCount: 1, ownedCount: 1 },
             borrow: { kind: "position", status: "complete", value: "$30.01", rate: "5.10% APR", debts: [{ marketId: BORROW_MARKET_ID, baseUnits: "30010000" }] },
           },
           rows: [],
@@ -892,7 +914,7 @@ describe("Home shell routing and intents", () => {
     expect(borrowRow.textContent).toContain("$30.01");
     expect(borrowRow.textContent).not.toContain("−");
     expect(borrowRow.textContent).toContain("5.10% APR");
-    expect(summary.getByRole("button", { description: "Open Invest" }).textContent).toContain("Across 1 asset");
+    expect(summary.getByRole("button", { description: /^Open Invest(ments)?$/ }).textContent).toContain("Across 1 asset");
     expect(
       breakdown!.querySelector<HTMLElement>('[data-balance-segment="borrow"]')?.style.flexGrow,
     ).toBe("249");
@@ -1089,6 +1111,139 @@ describe("Home shell routing and intents", () => {
     fireEvent.click(summary.getByRole("button", { description: "Open Invest" }));
     expect(`${window.location.pathname}${window.location.search}`).toBe("/invest");
     expect(page().getByRole("region", { name: "Invest module" })).toBeTruthy();
+  });
+
+  test("opens funded Investments holdings separately from Invest discovery", async () => {
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+      assetBalances={fundedInvestments()} investmentsContent={InvestmentsFixture} />);
+    await waitForVerifiedShell();
+    fireEvent.click(page().getByRole("button", { description: /^Open Invest(ments)?$/ }));
+    expect(window.location.pathname).toBe("/investments");
+    expect(page().getByRole("heading", { level: 1, name: "Investments" })).toBeTruthy();
+    expect(within(page().getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Home" }).getAttribute("aria-current")).toBe("page");
+    expect(page().getByRole("region", { name: "Holding list" })).toBeTruthy();
+    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Invest" }));
+    expect(window.location.pathname).toBe("/invest");
+    expect(page().getByRole("region", { name: "Invest module" })).toBeTruthy();
+  });
+
+  test("opens Investments holdings when the only owned holding is below one cent", async () => {
+    const dust = presentBalances({ status: "ready", snapshot: buildBalancesSnapshotFixture({
+      registry: { eth: { balance: ready("1000000000000"), value: priced("USD", "5", 3) } },
+    }), error: null });
+    expect(dust.summary?.investments).toMatchObject({ status: "complete", assetCount: 0, ownedCount: 1 });
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+      assetBalances={dust} investmentsContent={InvestmentsFixture} />);
+    await waitForVerifiedShell();
+    const summary = within(page().getByRole("region", { name: "Your money" }));
+    expect(summary.queryByText("Start investing")).toBeNull();
+    fireEvent.click(summary.getByRole("button", { description: "Open Investments" }));
+    expect(window.location.pathname).toBe("/investments");
+    expect(page().getByRole("region", { name: "Holding list" })).toBeTruthy();
+  });
+
+  for (const back of ["header", "browser"] as const) {
+    test(`returns from a holding using ${back} history and focuses its list row`, async () => {
+      render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        assetBalances={fundedInvestments()} investmentsContent={InvestmentsFixture} />);
+      await waitForVerifiedShell();
+      fireEvent.click(page().getByRole("button", { description: /^Open Invest(ments)?$/ }));
+      const main = page().getByRole("main");
+      main.scrollTop = 180;
+      fireEvent.scroll(main);
+      fireEvent.click(page().getByRole("button", { name: "Ethereum row" }));
+      expect(window.location.pathname).toBe(INVESTMENT_PATH);
+      expect(window.history.state?.__investmentsHoldingOpenedInApp).toBe(true);
+      expect(page().getByRole("region", { name: "Holding detail" })).toBeTruthy();
+      expect(await page().findByRole("heading", { level: 1, name: "Ethereum holding" })).toBeTruthy();
+      expect(main.scrollTop).toBe(0);
+      if (back === "header") fireEvent.click(page().getByRole("button", { name: "Back" }));
+      else act(() => popHistory());
+      expect(window.location.pathname).toBe("/investments");
+      await waitFor(() => expect(document.activeElement).toBe(page().getByRole("button", { name: "Ethereum row" })));
+      expect(main.scrollTop).toBe(180);
+      expect(historyEntries).toContain(INVESTMENT_PATH);
+    });
+  }
+
+  test("cold holding detail replaces to the list, focuses and scrolls its row", async () => {
+    syncLocation(INVESTMENT_PATH);
+    historyEntries = [INVESTMENT_PATH];
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+      initialPanel="investments" initialLocation={parseShellLocation(INVESTMENT_PATH)}
+      investmentsContent={InvestmentsFixture} investContent={<NestedInvestFixture />} />);
+    await waitForVerifiedShell();
+    expect(page().getByRole("region", { name: "Holding detail" })).toBeTruthy();
+    expect(await page().findByRole("heading", { level: 1, name: "Ethereum holding" })).toBeTruthy();
+    const originalScroll = HTMLElement.prototype.scrollIntoView;
+    const rowScroll = mock((_options?: ScrollIntoViewOptions) => {});
+    HTMLElement.prototype.scrollIntoView = rowScroll;
+    try {
+      fireEvent.click(page().getByRole("button", { name: "Back" }));
+      expect(window.location.pathname).toBe("/investments");
+      expect(replaceCalls.at(-1)).toBe("/investments");
+      await waitFor(() => expect(document.activeElement).toBe(page().getByRole("button", { name: "Ethereum row" })));
+      expect(rowScroll).toHaveBeenCalledWith({ block: "center", behavior: "auto" });
+    } finally {
+      HTMLElement.prototype.scrollIntoView = originalScroll;
+    }
+  });
+
+  test("Invest nested chrome cannot replace the Investments detail header", async () => {
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+      assetBalances={fundedInvestments()} investContent={<NestedInvestFixture />}
+      investmentsContent={InvestmentsFixture} />);
+    await waitForVerifiedShell();
+    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" }))
+      .getByRole("button", { name: "Invest" }));
+    fireEvent.click(page().getByRole("button", { name: "Open asset details" }));
+    expect(page().getByRole("heading", { level: 1, name: "US dollar" })).toBeTruthy();
+    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" }))
+      .getByRole("button", { name: "Home" }));
+    fireEvent.click(page().getByRole("button", { description: /^Open Invest(ments)?$/ }));
+    expect(page().getByRole("heading", { level: 1, name: "Investments" })).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Ethereum row" }));
+    expect(await page().findByRole("heading", { level: 1, name: "Ethereum holding" })).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    expect(page().getByRole("heading", { level: 1, name: "Investments" })).toBeTruthy();
+  });
+
+  test("refresh keeps an in-app holding return in history", async () => {
+    syncLocation("/investments");
+    historyEntries = ["/investments"];
+    historyStates = [{}];
+    pushHistory(INVESTMENT_PATH, {
+      __homeShellClientEntry: true, __investmentsHoldingOpenedInApp: true,
+    });
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+      initialPanel="investments" initialLocation={parseShellLocation(INVESTMENT_PATH)}
+      investmentsContent={InvestmentsFixture} />);
+    await waitForVerifiedShell();
+    expect(page().getByRole("region", { name: "Holding detail" })).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    expect(window.location.pathname).toBe("/investments");
+    expect(replaceCalls).toEqual([]);
+    await waitFor(() => expect(document.activeElement).toBe(page().getByRole("button", { name: "Ethereum row" })));
+  });
+
+  test("cold Investments list returns Home and refresh state preserves a native holding detail", async () => {
+    syncLocation("/investments");
+    historyEntries = ["/investments"];
+    const view = render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+      initialPanel="investments" initialLocation={parseShellLocation("/investments")}
+      investmentsContent={InvestmentsFixture} />);
+    await waitForVerifiedShell();
+    expect(page().getByRole("heading", { level: 1, name: "Investments" })).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    expect(window.location.pathname).toBe("/home");
+    view.unmount();
+    syncLocation("/investments/native");
+    historyEntries = ["/investments/native"];
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+      initialPanel="investments" initialLocation={parseShellLocation("/investments/native")}
+      investmentsContent={InvestmentsFixture} />);
+    await waitForVerifiedShell();
+    expect(page().getByRole("region", { name: "Holding detail" }).textContent).toContain(nativeAssetKey());
   });
 
   test("returns a kept-mounted Invest category to the hub on primary tab entry", async () => {
