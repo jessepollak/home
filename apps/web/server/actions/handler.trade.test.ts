@@ -5,7 +5,7 @@ import { keccak256 } from "viem";
 import { makePaymasterApproval } from "@/server/paymaster/fee";
 import { BASE_USDC_ADDRESS, BASE_USDC_PAYMASTER_ADDRESS } from "@/shared/money-actions/network-fee";
 import { stockAssets } from "@/config/invest-assets";
-import { UnresolvedTradeError, type ActionRow } from "./store";
+import type { ActionRow } from "./store";
 import type { TradeMoneyActionMetadata } from "@/shared/trading/contract";
 import { createConfirmActionHandler, createGetActionHandler, createGetPendingTradeHandler, createRetryActionHandler } from "./handler";
 
@@ -61,6 +61,17 @@ const request = (signature: string, provider: "base-account" | "cdp-embedded") =
 });
 
 describe("trade confirmation", () => {
+  test("answers an earlier client's pending-trade check with no blocking trade", async () => {
+    const handler = createGetPendingTradeHandler({
+      authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
+    });
+    const result = await handler(new Request("https://home.test/api/actions/trade-pending", { headers: { "X-Home-Account-Provider": "cdp-embedded" } }));
+    expect(result.status).toBe(200);
+    expect(await result.json()).toEqual({ version: 1, trade: null });
+    const signedOut = createGetPendingTradeHandler({ authorize: async () => Response.json({ error: "unauthorized" }, { status: 401 }) });
+    expect((await signedOut(new Request("https://home.test/api/actions/trade-pending"))).status).toBe(401);
+  });
+
   test.each(["US", null] as const)("blocks a stock buy for %s through the real confirm handler", async (country) => {
     const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
     row.summary.metadata = { product: "trade", fromAsset: { address: BASE_USDC_ADDRESS }, toAsset: { address: stockAssets[0].contractAddress } } as unknown as TradeMoneyActionMetadata;
@@ -113,35 +124,28 @@ describe("trade confirmation", () => {
     expect(body.calls[2].data.length).toBeGreaterThan(swap.data.length);
     expect(committed).toBe(keccak256(encodeCoinbaseExecuteBatch(body.calls)));
   });
-  test("reports an owner-scoped unresolved trade for dialog reopening", async () => {
-    const row = retryRow(String(Date.parse("2026-09-25T12:03:00.000Z") / 1000));
-    row.summary.metadata = { ...row.summary.metadata, direction: "sell" } as TradeMoneyActionMetadata;
-    const handler = createGetPendingTradeHandler({
-      authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
-      store: { findUnresolvedTrade: async (owner) => owner.subject === "owner" ? row : null },
-    });
-    const result = await handler(new Request("https://home.test/api/actions/trade-pending", { headers: { "X-Home-Account-Provider": "cdp-embedded" } }));
-    expect(result.status).toBe(200);
-    expect(await result.json()).toEqual({ version: 1, trade: { id: ID, direction: "sell" } });
-    const reconciled = createGetPendingTradeHandler({
-      authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
-      store: { findUnresolvedTrade: async () => null },
-    });
-    expect(await (await reconciled(new Request("https://home.test/api/actions/trade-pending", { headers: { "X-Home-Account-Provider": "cdp-embedded" } }))).json())
-      .toEqual({ version: 1, trade: null });
-  });
-  test("rejects a competing trade confirmation while an earlier trade is unresolved", async () => {
+  test("confirms a second trade while an earlier dispatched trade has no outcome", async () => {
+    const previous = retryRow(String(Date.parse("2026-09-25T12:03:00.000Z") / 1000));
+    previous.id = "22222222-2222-4222-8222-222222222222";
+    previous.provider_handle = HASH;
     const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
+    const rows = new Map([[previous.id, previous], [row.id, row]]);
+    const confirmedIds: string[] = [];
     const handler = createConfirmActionHandler({
       authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
-      now: () => new Date("2026-09-25T12:01:00.000Z"),
+      now: () => new Date("2026-09-25T12:01:00.000Z"), markHot: async () => {}, recordConfirmed: async () => {},
       verifySmartAccountSignature: async () => true,
-      store: { get: async () => row, confirm: async () => { throw new UnresolvedTradeError(); } },
+      store: { get: async (_owner, id) => rows.get(id) ?? null, confirm: async (_owner, id, calls) => {
+        confirmedIds.push(id);
+        return { ...row, confirmed_at: "2026-09-25T12:01:00.000Z", pending: { ...row.pending!, calls: calls! } };
+      } },
     });
     const signature = await SIGNER.signTypedData({ ...typed, domain: { ...typed.domain, chainId: BigInt(8453) } });
     const result = await handler(request(signature, "cdp-embedded"), context);
-    expect(result.status).toBe(409);
-    expect(await result.json()).toMatchObject({ error: { code: "TRADE_UNRESOLVED" } });
+    expect(result.status).toBe(200);
+    expect((await result.json()).id).toBe(row.id);
+    expect(confirmedIds).toEqual([row.id]);
+    expect(rows.get(previous.id)?.outcome).toBeNull();
   });
   test("reload returns the verified trade signing request", async () => {
     const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");

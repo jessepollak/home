@@ -303,7 +303,7 @@ describe("trade preparation", () => {
   test.each([false, true])("persists final swap index with fee prepended: %s", async (fee) => {
     const trade = await prepared("buy");
     const inserts: Array<Parameters<ActionsStore["insert"]>[0]> = [];
-    setActionsStoreForTests({ insert: async (value: Parameters<ActionsStore["insert"]>[0]) => { inserts.push(value); }, findUnresolvedTrade: async () => null } as unknown as ActionsStore);
+    setActionsStoreForTests({ insert: async (value: Parameters<ActionsStore["insert"]>[0]) => { inserts.push(value); } } as ActionsStore);
     const handler = createPrepareActionHandler({
       authorize: async () => Response.json(sessions()),
       prepareTrade: async () => trade,

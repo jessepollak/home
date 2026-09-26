@@ -692,7 +692,7 @@ describe("SendDialog resume", () => {
     render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-server-refusal" regionId="US"
       availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
       fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers") ? offrampResponse : { version: 1, recipients: [] }}
-      prepareMoneyAction={async () => { throw { code: "CASHOUT_IN_PROGRESS", serverMessage: "You already have a cash-out in progress. Check Activity." }; }}
+      prepareMoneyAction={async () => { throw { code: "CASHOUT_IN_PROGRESS", serverMessage: "A cash-out for this amount to this payee is still in progress. Check Activity." }; }}
       resumeMoneyAction={async () => cashoutAction()}
       executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />);
     fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
@@ -704,7 +704,7 @@ describe("SendDialog resume", () => {
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     fireEvent.input(page().getByLabelText("Re-enter handle"), { target: { value: "alice" } });
     fireEvent.click(page().getByRole("button", { name: "Review" }));
-    expect((await page().findByRole("alert")).textContent).toBe("You already have a cash-out in progress. Check Activity.");
+    expect((await page().findByRole("alert")).textContent).toBe("A cash-out for this amount to this payee is still in progress. Check Activity.");
     expect(page().getByLabelText("Re-enter handle")).toBeTruthy();
   });
 
