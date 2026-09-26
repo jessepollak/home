@@ -348,6 +348,17 @@ export const UnavailableBeforeLinkFallsBack: Story = {
     await waitFor(() => expect(new URL(location.href).searchParams.get("variant")).toBeNull());
   },
 };
+export const BeforeDisabledWithoutComparison: Story = {
+  args: { board: fixture, build: fixtureBuild, frameSource: "blank" },
+  render: (args) => <div style={{ height: "100dvh", width: 1400 }}><ReviewBoardView {...args} /></div>,
+  beforeEach: () => withSearch({ frame: "two" }),
+  play: async ({ canvasElement }) => {
+    const screen = within(canvasElement.ownerDocument.body);
+    const sides = await screen.findByRole("combobox", { name: "Before and after" });
+    await expect(within(sides).getByRole("option", { name: "Before" })).toBeDisabled();
+    await expect(sides).toHaveValue("after");
+  },
+};
 export const MissingStoryExcluded: Story = {
   args: { board: fixture, build: fixtureBuild, frameSource: "story", narrow: true },
   render: (args) => <div style={{ height: "100dvh", width: 390 }}><ReviewBoardView {...args} /></div>,

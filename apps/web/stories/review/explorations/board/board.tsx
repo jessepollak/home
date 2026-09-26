@@ -315,7 +315,9 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
       try { child?.removeEventListener("keydown", escape, true); } catch { /* Detached frame. */ }
     };
   }, [interacting, dialogOpen, leave, activeFrameReady]);
-  const changeSide = (value: Side) => {
+  const selectedHasBefore = Boolean(allFrames.find(({ frame }) => frame.id === selected)?.frame.before);
+  const changeSide = (requested: Side) => {
+    const value = requested === "before" && !selectedHasBefore ? "after" : requested;
     setSide(value);
     setFull(false);
     setInteracting(undefined);
@@ -411,7 +413,7 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
           {hasBefore && <select className={styles.sideSelect} aria-label="Before and after" value={side}
             onChange={(event) => changeSide(event.target.value as Side)}>
             <option value="after">Proposed</option>
-            <option value="before">Before</option>
+            <option value="before" disabled={!selectedHasBefore}>Before</option>
             <option value="both">Side by side</option>
           </select>}
           <div className={styles.zoomGroup} role="group" aria-label="Zoom">
