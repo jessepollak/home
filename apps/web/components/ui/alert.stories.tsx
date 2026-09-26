@@ -45,14 +45,14 @@ export const WithAction: Story = {
       <Alert {...args}>
         <AlertDescription>Vaults are temporarily unavailable.</AlertDescription>
         <AlertAction>
-          <Button variant="outline" size="lg" className="h-11">Retry</Button>
+          <Button variant="outline" size="touch">Retry</Button>
         </AlertAction>
       </Alert>
     </div>
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    const description = canvas.getByText("Vault rates stale.").getBoundingClientRect();
+    const description = canvas.getByText("Vaults are temporarily unavailable.").getBoundingClientRect();
     const action = canvas.getByRole("button", { name: "Retry" }).getBoundingClientRect();
     const alert = canvas.getByRole("alert").getBoundingClientRect();
     await expect(action.left).toBeGreaterThanOrEqual(description.right);

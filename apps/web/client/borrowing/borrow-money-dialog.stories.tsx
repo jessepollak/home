@@ -44,7 +44,7 @@ type Story = StoryObj<typeof meta>;
 async function submit(canvasElement: HTMLElement) {
   const screen = within(canvasElement.ownerDocument.body);
   const dialog = within(await screen.findByRole("dialog", { name: "Borrow" }));
-  await userEvent.click(dialog.getByRole("button", { name: "1" }));
+  await userEvent.type(dialog.getByRole("textbox", { name: "Amount" }), "1");
   await userEvent.click(dialog.getByRole("button", { name: "Continue" }));
   await userEvent.click(await dialog.findByRole("button", { name: "Confirm action" }));
   return dialog;
