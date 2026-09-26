@@ -4,7 +4,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript'
 import * as lucide from 'lucide-react'
-import mapping from './figma-components.json'
+import mapping from './tests/helpers/figma-mapping'
 import fixture from './figma-template-props.fixture.json'
 
 type Value = string | boolean
