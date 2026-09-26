@@ -52,6 +52,8 @@ export const Success: Story = {
   },
 };
 
+export const Dark: Story = { ...Success, globals: { theme: "dark" } };
+
 export const Info: Story = {
   render: () => (
     <>

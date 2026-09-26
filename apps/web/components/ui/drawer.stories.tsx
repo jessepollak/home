@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { expect, within } from "storybook/test";
 import { Button } from "./button";
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle, DrawerTrigger } from "./drawer";
 
@@ -47,4 +48,14 @@ export const Open: Story = {
       </DrawerContent>
     </Drawer>
   ),
+};
+
+export const Dark: Story = {
+  ...Open,
+  globals: { theme: "dark" },
+  play: async ({ canvasElement }) => {
+    const popup = await within(canvasElement.ownerDocument.body).findByRole("dialog", { name: "Review deposit" });
+    await expect(canvasElement.contains(popup)).toBe(false);
+    await expect(popup).toBeVisible();
+  },
 };

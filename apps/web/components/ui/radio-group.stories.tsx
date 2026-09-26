@@ -2,7 +2,7 @@ import * as React from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, within } from "storybook/test";
 import { FieldError, FieldTitle } from "./field";
-import { RadioGroup, RadioGroupOption } from "./radio-group";
+import { RadioGroup, RadioGroupOption, RadioGroupSegment } from "./radio-group";
 
 const meta = {
   id: "ui-radio-group",
@@ -60,3 +60,25 @@ export const Default: Story = {
 export const WithDescriptions: Story = { render: () => <PaymentMethods descriptions /> };
 export const Disabled: Story = { render: () => <div className="flex flex-col gap-8"><PaymentMethods disabled /><PaymentMethods singleDisabled /></div> };
 export const Error: Story = { render: () => <PaymentMethods error /> };
+
+export const Segmented: Story = {
+  render: () => (
+    <div className="w-72">
+      <RadioGroup variant="segmented" aria-label="Appearance" defaultValue="light">
+        <RadioGroupSegment value="light">Light</RadioGroupSegment>
+        <RadioGroupSegment value="dark">Dark</RadioGroupSegment>
+        <RadioGroupSegment value="system">System</RadioGroupSegment>
+      </RadioGroup>
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const light = canvas.getByRole("radio", { name: "Light" });
+    const dark = canvas.getByRole("radio", { name: "Dark" });
+    await userEvent.tab();
+    await expect(light).toHaveFocus();
+    await userEvent.keyboard("{ArrowRight}");
+    await expect(dark).toHaveFocus();
+    await expect(dark).toHaveAttribute("aria-checked", "true");
+  },
+};

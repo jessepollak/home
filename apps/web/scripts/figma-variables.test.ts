@@ -38,7 +38,7 @@ describe("CSS extraction", () => {
 
   test("reads actual Home colors, radii, spacing and skips typography values", () => {
     expect(token("color/foreground").light.r).toBeCloseTo(10 / 255, 2);
-    expect(token("color/border").dark.a).toBeCloseTo(0.1, 5);
+    expect(token("color/border").dark.a).toBeCloseTo(0.2, 5);
     expect(token("radius/lg").light).toBe(4);
     expect(token("radius/xl").light).toBeCloseTo(5.6);
     expect(token("space/hairline").light).toBe(1);

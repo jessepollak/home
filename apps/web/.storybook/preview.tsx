@@ -10,14 +10,29 @@ import "@/app/globals.css";
 import { rejectUnexpectedStoryRequest } from "./request-guard";
 
 const preview: Preview = {
+  globalTypes: {
+    theme: {
+      description: "Home appearance",
+      toolbar: {
+        title: "Theme",
+        items: ["light", "dark"],
+        dynamicTitle: true,
+      },
+    },
+  },
+  initialGlobals: { theme: "light" },
   decorators: [
-    (Story) => (
-      <HomeQueryClientProvider>
-        <PresentationRegionProvider regionId="GLOBAL">
-          <Story />
-        </PresentationRegionProvider>
-      </HomeQueryClientProvider>
-    ),
+    (Story, context) => {
+      document.documentElement.classList.toggle("dark", context.globals.theme === "dark");
+      document.body.style.backgroundColor = "var(--background)";
+      return (
+        <HomeQueryClientProvider>
+          <PresentationRegionProvider regionId="GLOBAL">
+            <Story />
+          </PresentationRegionProvider>
+        </HomeQueryClientProvider>
+      );
+    },
   ],
   loaders: [
     mswLoader(async () => {
@@ -34,6 +49,7 @@ const preview: Preview = {
     getHomeQueryClient().clear();
     return () => {
       getHomeQueryClient().clear();
+      document.documentElement.classList.remove("dark");
     };
   },
   parameters: {

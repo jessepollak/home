@@ -40,3 +40,5 @@ export const Default: Story = {
     </ItemGroup>
   ),
 };
+
+export const Dark: Story = { ...Default, globals: { theme: "dark" } };
