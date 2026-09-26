@@ -160,7 +160,9 @@ export function DesktopCanvas({
   };
   const lastClick = useRef<Positioned | null>(null);
   const selectUnlessDragged = (position: Positioned) => {
-    if (lastGestureMoved.current) return;
+    const dragged = lastGestureMoved.current;
+    lastGestureMoved.current = false;
+    if (dragged) return;
     lastClick.current = position;
     onSelect(position);
   };
