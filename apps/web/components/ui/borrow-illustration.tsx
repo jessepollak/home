@@ -65,7 +65,9 @@ export function BorrowIllustration() {
     const first = requestAnimationFrame(() => { second = requestAnimationFrame(() => setArmed(true)); });
     return () => { cancelAnimationFrame(first); cancelAnimationFrame(second); };
   }, [seen, reduced]);
-  const state = reduced ? "idle" : armed ? "playing" : "ready";
+  const [settled, setSettled] = useState(false);
+  if (reduced && armed && !settled) setSettled(true);
+  const state = reduced || settled ? "idle" : armed ? "playing" : "ready";
   return (
     <svg ref={ref} viewBox="0 0 240 160" aria-hidden="true" focusable="false" data-slot="borrow-illustration" data-state={state} className={styles.root}>
       <ellipse data-part="ground" className={styles.fade} style={at(0, 160)} cx="120" cy="136" rx="54" ry="4" fill="var(--muted)" />
