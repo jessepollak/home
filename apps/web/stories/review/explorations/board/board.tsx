@@ -189,12 +189,15 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
   const zoom = (factor: number) =>
     moveCamera((old) => zoomAt(old, { x: viewport.width / 2, y: viewport.height / 2 }, factor));
   const select = (id: string, variant?: string) => {
-    const before = side === "both" && variant === `${id}:before`;
+    const hasBefore = allFrames.some(({ frame }) => frame.id === id && frame.before);
+    if (!hasBefore && side !== "after") setSide("after");
+    const before = hasBefore && side === "both" && variant === `${id}:before`;
     setSelected(id);
     setFull(false);
     setInteracting((old) => old === (variant ?? id) ? old : undefined);
     setSelectedVariant(before ? variant : undefined);
-    updateUrl({ frame: id, variant: before ? "before" : undefined });
+    updateUrl({ frame: id, variant: before ? "before" : undefined,
+      ...(!hasBefore ? { side: undefined } : {}) });
   };
   const selectAndFit = (id: string) => {
     const position = positions.find((item) => item.id === id);
@@ -392,8 +395,8 @@ function BoardCanvas({ board, build, frameSource, narrow }: {
             frameSource={frameSource} activeFrame={activeFrame}
             onActiveFrameLoad={() => setActiveFrameReady((old) => old + 1)}
             moveCamera={moveCamera}
-            onSelect={(position) => select(position.frame.id, position.id)}
-            onInteract={(position) => { select(position.frame.id, position.id); interact(position); }}
+            onSelect={(position) => selectAndFit(position.id)}
+            onInteract={(position) => { selectAndFit(position.id); interact(position); }}
             onExitInteract={() => setInteracting(undefined)}
             onMark={mark} onFinish={finish} onCancel={cancel}
           />

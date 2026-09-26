@@ -9,6 +9,13 @@ import styles from "./board.module.css";
 
 type SafariGesture = Event & { scale: number; clientX: number; clientY: number };
 
+export function shouldCapturePointer(panGesture: boolean, pointerCount: number,
+  start?: Point, point?: Point): boolean {
+  if (panGesture || pointerCount === 2) return true;
+  return !!start && !!point &&
+    Math.abs(point.x - start.x) + Math.abs(point.y - start.y) > 2;
+}
+
 export function DesktopCanvas({
   sections, positions, size, camera, transition, selected, interacting, spacePan, loaded, metrics,
   frameSource, activeFrame, onActiveFrameLoad, moveCamera, onSelect, onInteract, onExitInteract,
@@ -37,6 +44,7 @@ export function DesktopCanvas({
 }) {
   const element = useRef<HTMLDivElement>(null);
   const pointers = useRef(new Map<number, Point>());
+  const pointerStarts = useRef(new Map<number, Point>());
   const gestureMoved = useRef(false);
   const lastGestureMoved = useRef(false);
   useEffect(() => {
@@ -109,8 +117,12 @@ export function DesktopCanvas({
       gestureMoved.current = true;
     }
     const rect = event.currentTarget.getBoundingClientRect();
-    pointers.current.set(event.pointerId, { x: event.clientX - rect.left, y: event.clientY - rect.top });
-    event.currentTarget.setPointerCapture(event.pointerId);
+    const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    pointers.current.set(event.pointerId, point);
+    pointerStarts.current.set(event.pointerId, point);
+    if (shouldCapturePointer(panGesture, pointers.current.size)) {
+      for (const id of pointers.current.keys()) event.currentTarget.setPointerCapture(id);
+    }
   };
   const pointerMove = (event: PointerEvent<HTMLDivElement>) => {
     const previous = pointers.current.get(event.pointerId);
@@ -125,11 +137,17 @@ export function DesktopCanvas({
     } else {
       const dx = point.x - previous.x;
       const dy = point.y - previous.y;
-      gestureMoved.current ||= Math.abs(dx) + Math.abs(dy) > 2;
+      const start = pointerStarts.current.get(event.pointerId);
+      if (!gestureMoved.current &&
+        shouldCapturePointer(false, pointers.current.size, start, point)) {
+        gestureMoved.current = true;
+        event.currentTarget.setPointerCapture(event.pointerId);
+      }
       if (gestureMoved.current) moveCamera((old) => pan(old, { x: dx, y: dy }));
     }
   };
   const pointerEnd = (event: PointerEvent<HTMLDivElement>) => {
+    pointerStarts.current.delete(event.pointerId);
     if (!pointers.current.delete(event.pointerId)) return;
     if (pointers.current.size === 0) {
       lastGestureMoved.current = gestureMoved.current;

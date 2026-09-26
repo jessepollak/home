@@ -67,6 +67,12 @@ export const BoardChrome: Story = {
     await expect(panels).toHaveAttribute("aria-pressed", "true");
     const outline = within(screen.getByRole("complementary", { name: "Outline" }));
     const firstSection = within(outline.getByRole("group", { name: "First section" }));
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Before and after" }), "before");
+    await expect(new URL(doc.location.href).searchParams.get("side")).toBe("before");
+    await userEvent.click(firstSection.getByRole("button", { name: /Second frame.*320/i }));
+    await waitFor(() => expect(new URL(doc.location.href).searchParams.get("side")).toBeNull());
+    await expect(screen.getByRole("combobox", { name: "Before and after" })).toHaveValue("after");
+    await expect(screen.getByRole("complementary", { name: "Inspector" })).toHaveTextContent("blank-two");
     await userEvent.click(firstSection.getByRole("button", { name: /First frame.*new.*390/i }));
     await waitFor(() => expect(zoomPercent(zoomControl.textContent))
       .toBeGreaterThan(zoomPercent(boardZoom) + 5));
@@ -229,6 +235,14 @@ export const BoardChrome: Story = {
     await waitFor(() => expect(screen.getByRole("button", { name: "Open full width" })).toHaveFocus());
     await expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   },
+};
+
+export const FrameClicks: Story = {
+  tags: ["!test"],
+  args: { board: fixture, build: fixtureBuild, frameSource: "blank" },
+  render: (args) => <div style={{ height: "100dvh", width: 1400 }}>
+    <ReviewBoardView {...args} />
+  </div>,
 };
 function withSearch(params: Record<string, string>) {
   const previous = location.href;

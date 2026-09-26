@@ -411,35 +411,6 @@
   outline: calc(2px / var(--zoom)) solid var(--ring);
   outline-offset: calc(2px / var(--zoom));
 }
-.frameHint {
-  display: none;
-}
-@media (hover: hover) {
-  .desktopFrame .frameHint {
-    display: block;
-    position: absolute;
-    inset-block-end: calc(12px / var(--zoom));
-    inset-inline-start: 50%;
-    translate: -50% 0;
-    padding: calc(4px / var(--zoom)) calc(8px / var(--zoom));
-    border-radius: calc(999px / var(--zoom));
-    font-size: calc(11px / var(--zoom));
-    line-height: 1.3;
-    white-space: nowrap;
-    color: var(--background);
-    background: color-mix(in oklab, var(--foreground) 80%, transparent);
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 120ms ease-out;
-  }
-  .desktopFrame:hover .frameHint {
-    opacity: 1;
-    transition-delay: 400ms;
-  }
-  .canvas.panning .frameHint {
-    display: none;
-  }
-}
 .interactChip {
   position: absolute;
   inset-block-start: 12px;
@@ -656,5 +627,5 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .fitTransition, .frameHint { transition: none; }
+  .fitTransition { transition: none; }
 }

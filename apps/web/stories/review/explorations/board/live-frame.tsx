@@ -96,10 +96,7 @@ export function LiveFrame({
           if (event.key === "Enter") { event.preventDefault(); onInteract(); }
           if (event.key === " ") { event.preventDefault(); onSelect(); }
         }}
-      >
-        {metric?.status === "rendered" &&
-          <span className={styles.frameHint} aria-hidden="true">Double-click to interact</span>}
-      </div>}
+      />}
     </div>
   </div>;
 }
