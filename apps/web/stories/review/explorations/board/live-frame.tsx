@@ -1,4 +1,4 @@
-import type { Ref } from "react";
+import { useEffect, useRef, type Ref } from "react";
 import { frameLabel, type Positioned } from "./layout";
 import { changeLabel } from "./manifest";
 import type { Metric } from "./use-frame-loading";
@@ -29,6 +29,14 @@ export function LiveFrame({
   onMark, onFinish, onCancel, onSelect, onFocusSelect = onSelect, onFit = onSelect, onInteract,
 }: LiveFrameProps) {
   const { id, story, frame, rect, before } = position;
+  const status = useRef(metric?.status);
+  useEffect(() => { status.current = metric?.status; }, [metric?.status]);
+  useEffect(() => {
+    if (!loaded) return;
+    return () => {
+      if (status.current !== "rendered" && status.current !== "errored") onCancel(id);
+    };
+  }, [loaded, id, onCancel]);
   const handleLoad = (iframe: HTMLIFrameElement) => {
     if (active) onActiveLoad?.();
     onMark(id, { status: "loaded", loadedAt: performance.now() });
