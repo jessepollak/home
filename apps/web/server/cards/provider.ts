@@ -18,8 +18,9 @@ export type CardObservation = Readonly<{
 }>;
 export type CardVerification =
   | Readonly<{ outcome: "accepted"; observation: CardObservation }>
-  | Readonly<{ outcome: "rejected" | "unavailable" }>;
-export type CardWebhookResult = "accepted" | "rejected" | "unavailable";
+  | Readonly<{ outcome: "rejected"; code?: "API_VERSION_MISMATCH" }>
+  | Readonly<{ outcome: "stale" | "unavailable" }>;
+export type CardWebhookResult = "accepted" | "rejected" | "stale" | "unavailable" | Readonly<{ outcome: "rejected"; code: "API_VERSION_MISMATCH" }>;
 export type CardProvider = Readonly<{
   fundingStrategy: FundingStrategy;
   verifyAndNormalize(raw: Uint8Array, headers: Headers, topic?: string): Promise<CardVerification>;
@@ -28,6 +29,7 @@ export type CardProvider = Readonly<{
 export function createCardWebhookHandler(provider: CardProvider, store: { insert(event: CardObservation): Promise<boolean> }) {
   return async (raw: Uint8Array, headers: Headers, topic?: string): Promise<CardWebhookResult> => {
     const result = await provider.verifyAndNormalize(raw, headers, topic);
+    if (result.outcome === "rejected" && result.code) return { outcome: "rejected", code: result.code };
     if (result.outcome !== "accepted") return result.outcome;
     try { await store.insert(result.observation); }
     catch { return "unavailable"; }

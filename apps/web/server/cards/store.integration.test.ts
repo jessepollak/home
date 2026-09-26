@@ -34,9 +34,12 @@ run("card event PostgreSQL store", () => {
     expect(await store.insert(event)).toBe(false);
     expect(await store.insert({ ...event, mode: "production" })).toBe(true);
     expect(await store.insert({ ...event, provider: "bridge" })).toBe(true);
-    const legacy = await sql.query<{ provider: string; event_id: string; occurred_at: Date }>("SELECT provider, event_id, occurred_at FROM card_events WHERE event_id = 'legacy'");
+    const legacy = await sql.query<{ provider: string; event_id: string; kind: string; occurred_at: Date }>("SELECT provider, event_id, kind, occurred_at FROM card_events WHERE event_id = 'legacy'");
     expect(legacy.rows[0]?.provider).toBe("immersve");
+    expect(legacy.rows[0]?.kind).toBe("payment-updated");
     expect(legacy.rows[0]?.occurred_at).toBeTruthy();
+    const stored = await sql.query<{ kind: string }>("SELECT kind FROM card_events WHERE provider = 'bridge' AND mode = 'sandbox' AND event_id = 'same'");
+    expect(stored.rows).toEqual([{ kind: "payment-updated" }]);
     await sql.query("UPDATE card_events SET received_at = now() - interval '31 days' WHERE provider = 'immersve' AND mode = 'sandbox'");
     expect(await store.insert({ ...event, eventId: "next" })).toBe(true);
     const remaining = await sql.query<{ provider: string; mode: string; event_id: string }>("SELECT provider, mode, event_id FROM card_events ORDER BY provider, mode, event_id");

@@ -16,7 +16,7 @@ export function createBridgeWebhookProvider(config: BridgeConfig, now: () => num
     async verifyAndNormalize(raw, headers): Promise<CardVerification> {
       const signature = headers.get("x-webhook-signature");
       const match = signature && /^t=([1-9]\d{12}),v0=([A-Za-z0-9+/]+={0,2})$/.exec(signature);
-      if (!match || !within(Number(match[1]), now(), TEN_MINUTES)) return { outcome: "rejected" };
+      if (!match) return { outcome: "rejected" };
       const decoded = Buffer.from(match[2], "base64");
       if (decoded.length !== 256 && decoded.length !== 384 && decoded.length !== 512) return { outcome: "rejected" };
       if (decoded.toString("base64") !== match[2]) return { outcome: "rejected" };
@@ -28,7 +28,9 @@ export function createBridgeWebhookProvider(config: BridgeConfig, now: () => num
           typeof data.event_category !== "string" || typeof data.event_type !== "string" ||
           !data.event_type.startsWith(`${data.event_category}.`)) return { outcome: "rejected" };
       const observation = bridgeObservation(data, config.mode);
-      return observation ? { outcome: "accepted", observation } : { outcome: "rejected" };
+      if (!observation) return { outcome: "rejected" };
+      if (!within(Number(match[1]), now(), TEN_MINUTES)) return { outcome: "stale" };
+      return { outcome: "accepted", observation };
     },
   };
 }
@@ -42,7 +44,7 @@ export function createStripeWebhookProvider(config: BridgeConfig, now: () => num
       const parts = signature.split(",");
       const stamps = parts.filter((part) => /^t=[1-9]\d{9}$/.test(part));
       const candidates = parts.filter((part) => /^v1=[a-fA-F0-9]{64}$/.test(part));
-      if (stamps.length !== 1 || candidates.length === 0 || !within(Number(stamps[0].slice(2)) * 1000, now(), FIVE_MINUTES)) return { outcome: "rejected" };
+      if (stamps.length !== 1 || candidates.length === 0) return { outcome: "rejected" };
       const expected = createHmac("sha256", config.stripeWebhookSecret).update(stamps[0].slice(2)).update(".").update(raw).digest();
       let matched = false;
       for (const candidate of candidates) matched = timingSafeEqual(expected, Buffer.from(candidate.slice(3), "hex")) || matched;
@@ -51,8 +53,11 @@ export function createStripeWebhookProvider(config: BridgeConfig, now: () => num
       if (!data || !id(data.id) || typeof data.type !== "string" || !object(data.data) || !object(data.data.object) ||
           data.livemode !== (config.mode === "production") || !Number.isSafeInteger(data.created) ||
           !eventTime((data.created as number) * 1000, now())) return { outcome: "rejected" };
+      if (data.api_version !== config.stripeApiVersion) return { outcome: "rejected", code: "API_VERSION_MISMATCH" };
       const observation = stripeObservation(data, config.mode);
-      return observation ? { outcome: "accepted", observation } : { outcome: "rejected" };
+      if (!observation) return { outcome: "rejected" };
+      if (!within(Number(stamps[0].slice(2)) * 1000, now(), FIVE_MINUTES)) return { outcome: "stale" };
+      return { outcome: "accepted", observation };
     },
   };
 }

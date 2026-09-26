@@ -33,21 +33,29 @@ test("unknown URL topic is rejected before reading a delivery", async () => {
   } finally { setObservabilityLogWriterForTests(); }
 });
 
-test("misconfigured enabled ingress remains a deliberate 202 rejection", async () => {
+test("unset mode and incomplete enabled config disable Immersve ingress", async () => {
   const previousEnabled = process.env.IMMERSVE_ENABLED;
+  const previousMode = process.env.IMMERSVE_MODE;
   const previousPartner = process.env.IMMERSVE_PARTNER_ACCOUNT_ID;
   process.env.IMMERSVE_ENABLED = "1";
-  process.env.IMMERSVE_PARTNER_ACCOUNT_ID = "";
+  delete process.env.IMMERSVE_MODE;
   const logs: string[] = [];
   setObservabilityLogWriterForTests((line) => { logs.push(line); });
   try {
-    const response = await POST(request("{}", "payment-updated"), context("payment-updated"));
-    expect(response.status).toBe(202);
-    expect(logs.map((line) => JSON.parse(line) as { code: string })).toEqual([expect.objectContaining({ code: "WEBHOOK_REJECTED" })]);
-    expect(logs.join(" ")).not.toContain("IMMERSVE_PARTNER_ACCOUNT_ID");
+    const unsetMode = await POST(request("{}", "payment-updated"), context("payment-updated"));
+    expect(unsetMode.status).toBe(202);
+    expect(await unsetMode.json()).toEqual({ accepted: false });
+    process.env.IMMERSVE_MODE = "sandbox";
+    process.env.IMMERSVE_PARTNER_ACCOUNT_ID = "";
+    const incomplete = await POST(request("{}", "payment-updated"), context("payment-updated"));
+    expect(incomplete.status).toBe(202);
+    expect(await incomplete.json()).toEqual({ accepted: false });
+    expect(logs).toEqual([]);
   } finally {
     if (previousEnabled === undefined) delete process.env.IMMERSVE_ENABLED;
     else process.env.IMMERSVE_ENABLED = previousEnabled;
+    if (previousMode === undefined) delete process.env.IMMERSVE_MODE;
+    else process.env.IMMERSVE_MODE = previousMode;
     if (previousPartner === undefined) delete process.env.IMMERSVE_PARTNER_ACCOUNT_ID;
     else process.env.IMMERSVE_PARTNER_ACCOUNT_ID = previousPartner;
     setObservabilityLogWriterForTests();

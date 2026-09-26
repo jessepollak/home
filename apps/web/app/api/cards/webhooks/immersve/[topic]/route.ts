@@ -24,7 +24,7 @@ export async function POST(request: Request, context: { params: Promise<{ topic:
       return Response.json({ accepted: false }, { status: 503 });
     }
     if (result === "rejected") observe("WEBHOOK_REJECTED", "rejected", startedAt);
-    return Response.json({ accepted: true }, { status: 202 });
+    return Response.json({ accepted: result !== "disabled" }, { status: 202 });
   } catch {
     observe("WEBHOOK_UNAVAILABLE", "unavailable", startedAt);
     return Response.json({ accepted: false }, { status: 503 });
@@ -39,15 +39,15 @@ function observe(code: "WEBHOOK_UNAVAILABLE" | "WEBHOOK_REJECTED", outcome: "una
   });
 }
 
-async function processDelivery(request: Request, context: { params: Promise<{ topic: string }> }): Promise<ImmersveWebhookResult> {
+async function processDelivery(request: Request, context: { params: Promise<{ topic: string }> }): Promise<ImmersveWebhookResult | "disabled"> {
   const { topic } = await context.params;
   if (!isImmersveWebhookTopic(topic)) return "rejected";
   const raw = await readBoundedWebhookBody(request);
   if (!raw) return "rejected";
   let config: ReturnType<typeof readImmersveConfig>;
   try { config = readImmersveConfig(); }
-  catch { return "rejected"; }
-  if (!config) return "rejected";
+  catch { return "disabled"; }
+  if (!config) return "disabled";
   cachedHandler ??= createImmersveWebhookHandler({
     config,
     client: createImmersveClient(config),

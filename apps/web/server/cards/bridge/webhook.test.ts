@@ -6,7 +6,7 @@ import { createBridgeWebhookProvider, createStripeWebhookProvider } from "./webh
 const now = Date.parse("2026-09-24T12:00:00Z");
 const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const secret = "whsec_synthetic_private_fixture";
-const config = readBridgeConfig({ BRIDGE_ENABLED: "1", BRIDGE_MODE: "sandbox", BRIDGE_WEBHOOK_PUBLIC_KEY: publicKey.export({ type: "spki", format: "pem" }).toString(),
+const config = readBridgeConfig({ BRIDGE_ENABLED: "1", BRIDGE_MODE: "sandbox", BRIDGE_STRIPE_API_VERSION: "2026-08-27.basil", BRIDGE_WEBHOOK_PUBLIC_KEY: publicKey.export({ type: "spki", format: "pem" }).toString(),
   BRIDGE_STRIPE_WEBHOOK_SECRET: secret, BRIDGE_PROGRAM_SPENDER: "0x65bf8b55EEDef53C094E40003a03390De744DF33" });
 if (!config) throw new Error("Fixture config missing");
 function bridge(rawEvent: object) {
@@ -16,7 +16,7 @@ function bridge(rawEvent: object) {
 }
 function stripe(type: string, object: object) {
   const timestamp = Math.floor(now / 1000);
-  const raw = new TextEncoder().encode(JSON.stringify({ id: "evt_fixture", type, livemode: false, created: timestamp, data: { object } }));
+  const raw = new TextEncoder().encode(JSON.stringify({ id: "evt_fixture", type, api_version: "2026-08-27.basil", livemode: false, created: timestamp, data: { object } }));
   return { raw, headers: new Headers({ "stripe-signature": `t=${timestamp},v1=${createHmac("sha256", secret).update(`${timestamp}.`).update(raw).digest("hex")}` }) };
 }
 
@@ -48,6 +48,15 @@ describe("Bridge documented event structure https://apidocs.bridge.xyz/platform/
     const future = new Headers(valid.headers);
     future.set("x-webhook-signature", future.get("x-webhook-signature")!.replace(String(now), String(now + 600_001)));
     expect((await provider.verifyAndNormalize(valid.raw, future)).outcome).toBe("rejected");
+    const staleTime = now - 600_001;
+    const digest = createHash("sha256").update(`${staleTime}.`).update(valid.raw).digest();
+    const stale = new Headers({ "x-webhook-signature": `t=${staleTime},v0=${sign("RSA-SHA256", digest, privateKey).toString("base64")}` });
+    expect((await provider.verifyAndNormalize(valid.raw, stale)).outcome).toBe("stale");
+    expect((await provider.verifyAndNormalize(new Uint8Array([...valid.raw, 32]), stale)).outcome).toBe("rejected");
+    const badBody = new TextEncoder().encode("{}");
+    const badDigest = createHash("sha256").update(`${staleTime}.`).update(badBody).digest();
+    const badHeader = new Headers({ "x-webhook-signature": `t=${staleTime},v0=${sign("RSA-SHA256", badDigest, privateKey).toString("base64")}` });
+    expect((await provider.verifyAndNormalize(badBody, badHeader)).outcome).toBe("rejected");
     const futureEvent = bridge({ api_version: "v0", event_id: "wh_future", event_category: "customer", event_type: "customer.updated",
       event_object_id: "c_fixture", event_created_at: new Date(now + 300_001).toISOString(), event_object: { id: "c_fixture" } });
     expect((await provider.verifyAndNormalize(futureEvent.raw, futureEvent.headers)).outcome).toBe("rejected");
@@ -88,11 +97,30 @@ describe("Stripe Issuing events https://apidocs.bridge.xyz/platform/cards/overvi
     const futureSignature = createHmac("sha256", secret).update(`${timestamp}.`).update(future).digest("hex");
     expect((await provider.verifyAndNormalize(future, new Headers({ "stripe-signature": `t=${timestamp},v1=${futureSignature}` }))).outcome).toBe("rejected");
   });
+  test("rejects a signed event with a mismatched or missing API version", async () => {
+    const delivery = stripe("issuing_authorization.created", { object: "issuing.authorization", id: "iauth_fixture", card: "ic_fixture" });
+    for (const version of ["2026-08-27", undefined]) {
+      const data = JSON.parse(new TextDecoder().decode(delivery.raw)) as Record<string, unknown>;
+      data.api_version = version;
+      const raw = new TextEncoder().encode(JSON.stringify(data));
+      const timestamp = Math.floor(now / 1000);
+      const signature = createHmac("sha256", secret).update(`${timestamp}.`).update(raw).digest("hex");
+      expect(await provider.verifyAndNormalize(raw, new Headers({ "stripe-signature": `t=${timestamp},v1=${signature}` }))).toEqual({ outcome: "rejected", code: "API_VERSION_MISMATCH" });
+    }
+  });
   test("rejects unsupported webhook kind and malformed Stripe signature", async () => {
     const delivery = stripe("charge.succeeded", { object: "charge", id: "ch_fixture" });
     expect((await provider.verifyAndNormalize(delivery.raw, delivery.headers)).outcome).toBe("rejected");
     const invalid = stripe("issuing_authorization.created", { object: "issuing.authorization", id: "iauth_fixture", card: "ic_fixture", cardholder: "ich_fixture" });
     invalid.headers.set("stripe-signature", `t=${Math.floor(now / 1000)},v1=${"a".repeat(64)}`);
     expect((await provider.verifyAndNormalize(invalid.raw, invalid.headers)).outcome).toBe("rejected");
+    const staleTime = Math.floor(now / 1000) - 301;
+    const staleSignature = createHmac("sha256", secret).update(`${staleTime}.`).update(invalid.raw).digest("hex");
+    const stale = new Headers({ "stripe-signature": `t=${staleTime},v1=${staleSignature}` });
+    expect((await provider.verifyAndNormalize(invalid.raw, stale)).outcome).toBe("stale");
+    expect((await provider.verifyAndNormalize(new Uint8Array([...invalid.raw, 32]), stale)).outcome).toBe("rejected");
+    const badBody = new TextEncoder().encode("{}");
+    const badSignature = createHmac("sha256", secret).update(`${staleTime}.`).update(badBody).digest("hex");
+    expect((await provider.verifyAndNormalize(badBody, new Headers({ "stripe-signature": `t=${staleTime},v1=${badSignature}` }))).outcome).toBe("rejected");
   });
 });

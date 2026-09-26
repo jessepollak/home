@@ -11,6 +11,7 @@ export type BridgeConfig = Readonly<{
   token: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
   programSpender: `0x${string}`;
   webhookPublicKey: string;
+  stripeApiVersion: string;
   stripeWebhookSecret: string;
 }>;
 
@@ -19,9 +20,15 @@ export function readBridgeConfig(env: Readonly<Record<string, string | undefined
   const mode = env.BRIDGE_MODE?.trim();
   if (mode !== "sandbox" && mode !== "production") throw new Error("Invalid Bridge mode");
   const publicKey = env.BRIDGE_WEBHOOK_PUBLIC_KEY?.trim();
+  const stripeApiVersion = env.BRIDGE_STRIPE_API_VERSION?.trim();
   const stripeSecret = env.BRIDGE_STRIPE_WEBHOOK_SECRET?.trim();
   const spender = env.BRIDGE_PROGRAM_SPENDER?.trim();
-  if (!publicKey || !stripeSecret || !spender) throw new Error("Missing Bridge configuration");
+  if (!publicKey || !stripeSecret || !spender || !stripeApiVersion) throw new Error("Missing Bridge configuration");
+  const version = /^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])(?:\.[a-z][a-z0-9]*)?$/.exec(stripeApiVersion);
+  if (!version || Number.isNaN(Date.parse(`${version[1]}-${version[2]}-${version[3]}T00:00:00Z`)) ||
+      new Date(`${version[1]}-${version[2]}-${version[3]}T00:00:00Z`).toISOString().slice(0, 10) !== `${version[1]}-${version[2]}-${version[3]}`) {
+    throw new Error("Invalid Stripe API version");
+  }
   try {
     const key = createPublicKey(publicKey.replaceAll("\\n", "\n"));
     if (key.asymmetricKeyType !== "rsa" || (key.asymmetricKeyDetails?.modulusLength ?? 0) < 2048) throw new Error();
@@ -37,6 +44,7 @@ export function readBridgeConfig(env: Readonly<Record<string, string | undefined
     token: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
     programSpender: spender,
     webhookPublicKey: publicKey.replaceAll("\\n", "\n"),
+    stripeApiVersion,
     stripeWebhookSecret: stripeSecret,
   });
 }
