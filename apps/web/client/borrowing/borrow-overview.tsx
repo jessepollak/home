@@ -5,7 +5,7 @@ import { ChevronDown } from "lucide-react";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import { borrowRiskCopy, borrowRiskState } from "./borrow-ui";
-import { BorrowNotice, collateralDisplayName, formatToken, LiquidationBufferMeter, presentBorrowAssetMark } from "./borrowing-experience";
+import { BorrowNotice, collateralDisplayName, formatCash, formatToken, LiquidationBufferMeter, presentBorrowAssetMark } from "./borrowing-experience";
 import { HomeSectionHeading } from "@/client/home/home-overview";
 import { ShimmerRows } from "@/client/home/panel-shared";
 import { AppDrawer, MoneyModalBody, MoneyModalHeader } from "@/client/money-modal";
@@ -73,7 +73,7 @@ function Summary({ overview, borrowSummary, status, onRetry, regionId, summaryRe
     ? formatPresentationFiat({ atoms: "0", scale: 2 }, presentationRegions[regionId].currency.code ?? "USD", 2, regionId)
     : summary?.completeness === "complete" && borrowSummary?.kind === "position" && borrowSummary.status === "complete" && borrowSummary.value && overview && borrowDebtsMatchOverview(overview, borrowSummary.debts)
       ? borrowSummary.value
-      : summary?.loanToken ? formatToken(summary.totalDebtRaw, summary.loanToken, regionId) : "—";
+      : summary?.loanToken ? formatCash(summary.totalDebtRaw, summary.loanToken, regionId) : "—";
   return <>
     <Card variant="flush"><CardContent inset="hero">
       <p className="text-sm text-muted-foreground" ref={summaryRef} tabIndex={-1}>Borrowed</p>
@@ -115,7 +115,7 @@ function LoanRow({ row, regionId, resolution, openMarket }: { row: OpenLoan; reg
   return <AssetRow
     icon={<RowMark asset={row.market.collateralToken} resolution={resolution} />} iconTone="mark" label={rowName}
     context={context} contextTitle={contextTitle}
-    value={hasDebt ? formatToken(position.debtAssetsRaw, row.market.loanToken, regionId) : "No debt"}
+    value={hasDebt ? formatCash(position.debtAssetsRaw, row.market.loanToken, regionId) : "No debt"}
     valueTone={hasDebt ? "default" : "muted"}
     valueContext={hasDebt ? `${formatWadPercent(row.snapshot.state.borrowAprWad, regionId)} APR` : formatToken(position.collateralRaw, row.market.collateralToken, regionId)}
     attention={attention} onActivate={(element) => openMarket(row.market.id, element)} activateLabel={`Manage ${rowName} loan`}
@@ -127,12 +127,12 @@ function AssetRows({ assets, regionId, resolution, openMarket, empty }: { assets
     const rowName = collateralDisplayName(asset.market.id);
     const context = asset.kind === "unavailable" ? "Couldn't load"
       : asset.kind === "held-no-capacity" ? BigInt(asset.snapshot.state.liquidityAssetsRaw) === BigInt(0) ? `No ${asset.market.loanToken.symbol} to borrow now` : "Too little to borrow"
-        : [...(asset.kind === "held" ? ["In wallet"] : []), ...(asset.kind === "not-held" && !empty ? ["Not in wallet"] : []), `${formatWadPercent(asset.snapshot.state.borrowAprWad, regionId)} APR`]
+        : [...(asset.kind === "not-held" && !empty ? ["Not in wallet"] : []), `${formatWadPercent(asset.snapshot.state.borrowAprWad, regionId)} APR`]
           .map((segment) => segment.replaceAll(" ", "\u00a0")).join(" · ");
     return <AssetRow key={asset.market.id}
       icon={<RowMark asset={asset.market.collateralToken} resolution={resolution} />}
       iconTone="mark" label={rowName} context={context} contextLines={2}
-      value={asset.kind === "held" ? formatToken(asset.openingAvailableRaw, asset.market.loanToken, regionId)
+      value={asset.kind === "held" ? formatCash(asset.openingAvailableRaw, asset.market.loanToken, regionId)
         : asset.kind === "held-no-capacity" ? formatToken(asset.snapshot.wallet.collateralBalanceRaw, asset.market.collateralToken, regionId) : undefined}
       valueContext={asset.kind === "held" ? "Available" : asset.kind === "held-no-capacity" ? "In wallet" : undefined}
       onActivate={asset.kind === "held" ? (element) => openMarket(asset.market.id, element) : undefined}
@@ -180,7 +180,7 @@ function ManagementSheet({ snapshot, name, regionId, openingAvailableRaw, titleI
   const details: Array<[string, string]> = [
     ["Health factor", formatHealthFactor(snapshot.position.healthFactorWad, regionId)],
     ["Max LTV", formatWadPercent(snapshot.market.lltvWad, regionId)],
-    ["Available to borrow", formatToken(snapshot.position.borrowCapacityAssetsRaw, snapshot.market.loanToken, regionId)],
+    ["Available to borrow", formatCash(snapshot.position.borrowCapacityAssetsRaw, snapshot.market.loanToken, regionId)],
     ["Withdrawable collateral", formatToken(snapshot.position.withdrawableCollateralRaw, snapshot.market.collateralToken, regionId)],
     ["Checked", formatPresentationDate(snapshot.source.fetchedAt, { regionId, style: "date-time-zone" })],
   ];
@@ -194,8 +194,8 @@ function ManagementSheet({ snapshot, name, regionId, openingAvailableRaw, titleI
       <div className="space-y-1">
         <p className="text-sm text-muted-foreground">{debt ? "Borrowed" : pledged ? "Collateral" : "Borrow up to"}</p>
         <p ref={heroFocusRef} tabIndex={-1} className="text-3xl font-semibold tabular-nums"><MoneyTicker animated={false} align="start" className="max-w-full overflow-x-auto" reserveDigits={false}
-          value={debt ? formatToken(snapshot.position.debtAssetsRaw, snapshot.market.loanToken, regionId) : pledged
-            ? formatToken(snapshot.position.collateralRaw, snapshot.market.collateralToken, regionId) : formatToken(openingAvailableRaw, snapshot.market.loanToken, regionId)} /></p>
+          value={debt ? formatCash(snapshot.position.debtAssetsRaw, snapshot.market.loanToken, regionId) : pledged
+            ? formatToken(snapshot.position.collateralRaw, snapshot.market.collateralToken, regionId) : formatCash(openingAvailableRaw, snapshot.market.loanToken, regionId)} /></p>
         <p className="text-sm text-muted-foreground">{pledged && !debt ? "No debt" : `${formatWadPercent(snapshot.state.borrowAprWad, regionId)} APR · variable`}</p>
       </div>
       {debt ? <LiquidationBufferMeter healthFactorWad={snapshot.position.healthFactorWad} liquidationPriceRaw={snapshot.position.liquidationPriceRaw} market={snapshot.market} regionId={regionId} /> : null}

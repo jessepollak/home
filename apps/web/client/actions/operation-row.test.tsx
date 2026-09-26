@@ -37,6 +37,16 @@ describe("trade activity rows", () => {
     expect(view.getByRole("button", { name: new RegExp(`^${title}`) })).toBeTruthy();
     expect(presentOperationDetails(trade).title).toBe(title);
   });
+  test("USDC recent values are denominated dollars with direction and estimate prefixes, while other tokens keep units", () => {
+    const trade = operation("buy", "confirmed");
+    const usd = { ...trade, action: { ...trade.action, amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "123456789012", direction: "spend" as const, estimated: true }] } };
+    const view = render(<OperationActivityRow operation={usd} regionId="US" onActivate={() => undefined} />);
+    expect(view.getByRole("img", { name: "−~$123,456.78" })).toBeTruthy();
+    view.rerender(<OperationActivityRow operation={{ ...usd, action: { ...usd.action, amounts: [{ ...usd.action.amounts[0]!, direction: "receive" }] } }} regionId="US" onActivate={() => undefined} />);
+    expect(view.getByRole("img", { name: "+~$123,456.78" })).toBeTruthy();
+    view.rerender(<OperationActivityRow operation={{ ...usd, action: { ...usd.action, amounts: [{ ...usd.action.amounts[0]!, symbol: "BTC", estimated: false }] } }} regionId="US" onActivate={() => undefined} />);
+    expect(view.getByRole("img", { name: /BTC/ })).toBeTruthy();
+  });
   test("missing trade metadata preserves the stored title", () => {
     const view = render(<OperationActivityRow operation={operation("buy", "failed", false)} regionId="US" onActivate={() => undefined} />);
     expect(view.getByText("Stored title")).toBeTruthy();

@@ -48,6 +48,7 @@ import {
   collateralDisplayName,
   LiquidationBufferMeter,
   formatToken,
+  formatCash,
   openingBorrowAvailableBaseUnits,
   presentBorrowAssetMark,
   recommendedOpeningCollateralBaseUnits,
@@ -252,7 +253,7 @@ export function BorrowMoneyDialog({
           : snapshot.position.borrowCapacityAssetsRaw;
   const maxBaseUnits = operation === "supply-collateral" ? maxAmountAfterNetworkFee(availableBaseUnits, primaryAsset.symbol, reserve) : availableBaseUnits;
   const availableAmount = availableBaseUnits === null ? null : decimalFromBaseUnits(maxBaseUnits ?? "0", primaryAsset.decimals);
-  const availableLabel = availableBaseUnits === null ? undefined : `${formatToken(availableBaseUnits, primaryAsset, regionId)} available`;
+  const availableLabel = availableBaseUnits === null ? undefined : `${formatCash(availableBaseUnits, primaryAsset, regionId)} available`;
   const overAvailable = !ceilingPending && availableAmount !== null && amountExceedsCeiling(amount, availableAmount);
   const continueDisabled = ceilingPending || (requiresPrimaryAmount && !isPositiveDecimalAmount(amount)) || (operation === "supply-and-borrow" && isPositiveDecimalAmount(amount) && !openingCollateralBaseUnits) || (requiresPrimaryAmount && overAvailable);
   const amountAssetProps = {

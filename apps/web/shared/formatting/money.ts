@@ -303,6 +303,39 @@ export function formatPresentationTokenAmount(
   }
 }
 
+export function formatPresentationCashAmount(
+  baseUnits: AtomicAmount,
+  decimals: number,
+  currency: string,
+  options: { regionId?: RegionId } = {},
+): string {
+  try {
+    const atoms = parseAtomicAmount(baseUnits);
+    const { maximumFractionDigits } = presentationFractionDigits(
+      atoms,
+      decimals,
+      "stable",
+    );
+    const negative = atoms < BigInt(0);
+    const absolute = negative ? -atoms : atoms;
+    const visible = absolute / BigInt(10) ** BigInt(decimals - maximumFractionDigits);
+    const tiny = absolute > BigInt(0) && visible === BigInt(0);
+    const canonical = decimalFromScaledInteger(
+      tiny ? BigInt(1) : visible,
+      maximumFractionDigits,
+      maximumFractionDigits,
+    );
+    const amount = `${tiny ? "<" : ""}${formatCurrencyDecimal(
+      canonical,
+      currency,
+      options.regionId ?? "GLOBAL",
+    )}`;
+    return applySign(amount, negative, "auto");
+  } catch {
+    return "—";
+  }
+}
+
 export function formatExactTokenAmount(
   balanceBaseUnits: AtomicAmount,
   decimals: number,

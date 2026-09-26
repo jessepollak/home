@@ -26,6 +26,7 @@ import {
 } from "./money";
 import {
   formatPresentationFiat,
+  formatPresentationCashAmount,
   presentationCurrencyName,
 } from "@/shared/formatting";
 
@@ -77,6 +78,59 @@ const localeCases = [
 ];
 
 describe("presentation money formatting", () => {
+  test("presents atomic stablecoin amounts as fiat without rounding or changing the input", () => {
+    const raw = "123456789999";
+    const cases: Array<[AtomicAmount, number, string]> = [
+      [raw, 6, "$123,456.78"],
+      [BigInt(0), 6, "$0.00"],
+      ["9999", 6, "<$0.01"],
+      ["10000", 6, "$0.01"],
+      [BigInt("123456789999000000000000"), 18, "$123,456.78"],
+      ["-123456789999", 6, "−$123,456.78"],
+      ["-9999", 6, "−<$0.01"],
+    ];
+    for (const [amount, decimals, expected] of cases) {
+      expect(formatPresentationCashAmount(amount, decimals, "USD", { regionId: "US" }))
+        .toBe(expected);
+    }
+    expect(raw).toBe("123456789999");
+    expect(formatPresentationCashAmount(raw, 6, "USD", { regionId: "US" }))
+      .toBe("$123,456.78");
+    expect(formatPresentationCashAmount("01", 6, "USD")).toBe("—");
+    expect(formatPresentationCashAmount("1", -1, "USD")).toBe("—");
+  });
+
+  test("uses the region currency formatter without converting currencies", () => {
+    const formatted = formatPresentationCashAmount("1234567890", 6, "USD", { regionId: "BR" });
+    expect(formatted).toBe(formatFiatAmount(BigInt(123456), 2, "USD", { regionId: "BR" }));
+    expect(formatted).toContain("1.234,56");
+    expect(formatPresentationCashAmount("1234567890", 6, "BRL", { regionId: "BR" }))
+      .toBe(formatFiatAmount(BigInt(123456), 2, "BRL", { regionId: "BR" }));
+  });
+
+  test("keeps stable token digits and tiny thresholds when switching presentation", () => {
+    const cases: Array<[AtomicAmount, number, "US" | "BR"]> = [
+      ["123456789999", 6, "US"],
+      ["0", 6, "US"],
+      ["9999", 6, "US"],
+      ["10000", 6, "US"],
+      ["-9999", 6, "US"],
+      [BigInt("123456789999000000000000"), 18, "US"],
+      ["1", 0, "US"],
+      ["15", 1, "BR"],
+      ["123456789999", 6, "BR"],
+    ];
+    for (const [amount, decimals, regionId] of cases) {
+      const token = formatPresentationTokenAmount(amount, decimals, "USDC", {
+        cashCurrency: "USD", regionId,
+      });
+      const cash = formatPresentationCashAmount(amount, decimals, "USD", { regionId });
+      expect(cash.startsWith("−")).toBe(token.startsWith("−"));
+      expect(cash.includes("<")).toBe(token.includes("<"));
+      expect(cash.replace(/\D/g, "")).toBe(token.replace(/\D/g, ""));
+    }
+  });
+
   test("keeps internal spaces in multi-word token labels", () => {
     expect(formatPresentationTokenAmount("999999", 18, "vault shares")).toBe("<0.000001 vault shares");
     expect(formatPresentationTokenAmount("1500000000000000000", 18, "vault shares", { useNoBreakSpace: true }))

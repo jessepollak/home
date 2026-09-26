@@ -2,9 +2,11 @@ import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { dataOwnerKey } from "@/client/account/owner-keys";
+import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { HomeShellRoutingProvider, type HomeShellRouting } from "@/client/home/panel-routing";
 import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import type { BorrowMarketSnapshot } from "@/shared/borrowing/contract";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { TransferExecutionError } from "@/shared/transfers/types";
 import { borrowOverviewBody, sessionBody } from "@/tests/browser/fixtures/bodies";
@@ -27,15 +29,17 @@ const action: PreparedMoneyAction = {
 const key = ownerQueryKey(dataOwnerKey(session), "actions");
 const row = { id: action.id, owner: action.owner, status: "pending" };
 
-function mount({ prepare = async () => action, execute = async () => ({ id: action.id, status: "submitted" as const }), fetch = async () => ({ actions: [] }), close = () => {}, openPanel = () => {} }: {
-  prepare?: () => Promise<PreparedMoneyAction>;
+function mount({ prepare = async () => action, execute = async () => ({ id: action.id, status: "submitted" as const }), fetch = async () => ({ actions: [] }), close = () => {}, openPanel = () => {}, marketSnapshot = snapshot, operation = "borrow" }: {
+  operation?: "borrow" | "withdraw-collateral";
+  prepare?: AccountWalletClient["prepareMoneyAction"];
+  marketSnapshot?: BorrowMarketSnapshot;
   execute?: (prepared: PreparedMoneyAction) => Promise<{ id: string; status: "submitted" | "failed" | "rejected" }>;
   fetch?: (path: string) => Promise<unknown>;
   close?: () => void;
   openPanel?: (panel: string) => void;
 } = {}) {
   const routing = { openPanel } as HomeShellRouting;
-  render(<HomeShellRoutingProvider value={routing}><BorrowMoneyDialog session={session} snapshot={snapshot} operation="borrow" regionId="US" fetchAccountResource={async (path) => path === "/api/actions/network-fee" ? { version: 1, usdcReserveBaseUnits: null } : fetch(path)} prepareMoneyAction={prepare} executeMoneyAction={execute} onClose={close} /></HomeShellRoutingProvider>);
+  render(<HomeShellRoutingProvider value={routing}><BorrowMoneyDialog session={session} snapshot={marketSnapshot} operation={operation} regionId="US" fetchAccountResource={async (path) => path === "/api/actions/network-fee" ? { version: 1, usdcReserveBaseUnits: null } : fetch(path)} prepareMoneyAction={prepare} executeMoneyAction={execute} onClose={close} /></HomeShellRoutingProvider>);
   return within(document.body);
 }
 
@@ -49,6 +53,26 @@ async function review(body: ReturnType<typeof within>) {
 afterEach(() => { cleanup(); getHomeQueryClient().clear(); });
 
 describe("Borrow action result", () => {
+  test("amount step shows dollar availability without changing the atomic Max submitted for review", async () => {
+    const raw = "123456780000";
+    const marketSnapshot = { ...snapshot, position: { ...snapshot.position, borrowCapacityAssetsRaw: raw } };
+    let submitted: unknown = null;
+    const body = mount({ marketSnapshot, prepare: async (_kind, params) => { submitted = params; return action; } });
+    const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
+    expect(dialog.getByText("$123,456.78 available")).toBeTruthy();
+    fireEvent.click(dialog.getByRole("button", { name: "Max" }));
+    fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
+    expect(await dialog.findByRole("button", { name: "Confirm action" })).toBeTruthy();
+    expect(submitted).toMatchObject({ amountBaseUnits: raw });
+    expect(dialog.getByText("You receive (USDC)")).toBeTruthy();
+  });
+  test("collateral availability stays in collateral units", async () => {
+    const marketSnapshot = { ...snapshot, position: { ...snapshot.position, collateralRaw: "50000000", withdrawableCollateralRaw: "50000000" } };
+    const body = mount({ marketSnapshot, operation: "withdraw-collateral" });
+    const label = await body.findByText(/ available$/);
+    expect(label.textContent).toContain(snapshot.market.collateralToken.symbol);
+    expect(label.textContent).not.toContain("$");
+  });
   test("submitting keeps the focused marked button busy and ignores a second press", async () => {
     let finish!: (value: { id: string; status: "submitted" }) => void;
     let calls = 0;
