@@ -8,6 +8,7 @@ import {
   fundingProvidersBody,
   borrowOverviewBody,
   sessionBody,
+  savingsVaultsBody,
 } from "../fixtures/bodies";
 import type { TradeDirection } from "../../../shared/trading/contract";
 
@@ -84,6 +85,7 @@ export function fixtureRoutes() {
       expiresAt: cashoutFixtureWithdraw.expiresAt,
     }],
     ["**/api/activity**", {}],
+    ["**/api/savings/vaults", savingsVaultsBody(new Date().toISOString(), new Date().toISOString())],
     ["**/api/borrow", borrowOverview],
     ...borrowOverview.opportunities.flatMap((entry) => entry.availability.status === "available"
       ? [[`**/api/borrow/markets/${entry.market.id}`, entry.availability.snapshot] as const]

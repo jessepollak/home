@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -73,6 +73,10 @@ export function FundingActionsForWallet({
   );
   const routeOpen = requestedFlow !== null && (routing !== null || !dismissed);
   const open = routing ? routeOpen : userOpen || routeOpen;
+  const closingRef = useRef(false);
+  useEffect(() => {
+    if (open) closingRef.current = false;
+  }, [open]);
 
   function setFundingFlow(flow: FundingFlow, mode: "push" | "replace"): boolean {
     if (routing) return routing.setFlow(flow, { mode });
@@ -80,9 +84,12 @@ export function FundingActionsForWallet({
   }
 
   function close() {
+    if (closingRef.current) return;
+    closingRef.current = true;
     setUserOpen(false);
     setDismissed(true);
-    if (openedInAppRef.current) {
+    if ((routing && window.history.state?.__homeFundingFlowPushed === true) ||
+      (!routing && openedInAppRef.current)) {
       openedInAppRef.current = false;
       window.history.back();
     } else if (
@@ -101,7 +108,6 @@ export function FundingActionsForWallet({
         commitClientUrl(`${next.pathname}${next.search}`, "replace");
       }
     }
-    onClosed?.();
   }
 
   function onStepChange(step: AddMoneyStep) {
@@ -115,6 +121,7 @@ export function FundingActionsForWallet({
       navigateToRedirect={(url) => window.location.assign(url)}
       open={open}
       onClose={close}
+      onClosed={onClosed}
       returnedFromProvider={returnedFromProvider}
       returnedFromVerification={returnedFromVerification}
       initialStep={requestedFlow === "receive" ? "receive" : "method"}
@@ -133,7 +140,7 @@ export function FundingActionsForWallet({
           void preloadAddMoneySheet();
           setDismissed(false);
           setUserOpen(true);
-          if (setFundingFlow("add-money", "push")) openedInAppRef.current = true;
+          if (setFundingFlow("add-money", "push") && !routing) openedInAppRef.current = true;
         }}
       >
         <Plus className="size-4" aria-hidden="true" />

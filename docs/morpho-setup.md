@@ -1,6 +1,6 @@
 # Morpho USDC savings read integration
 
-Status: this file documents Save's Morpho V1 vault adapter and the candidate comparison verified 2026-09-07. Save is Home's only user-facing lending product. Local deposit and withdrawal preparation against the three configured USDC vaults is integrated with pinned reads and ordered smart-account batch simulation; live vault execution has not been performed. The execution contract is in [Actions](actions.md), and portfolio observation is in [Balances](balances.md).
+Status: this file documents Cash/Savings' Morpho V1 vault adapter and the candidate comparison verified 2026-09-07. Savings is Home's user-facing vault product within Cash. Local deposit and withdrawal preparation against the three configured USDC vaults is integrated with pinned reads and ordered smart-account batch simulation; live vault execution has not been performed. The execution contract is in [Actions](actions.md), and portfolio observation is in [Balances](balances.md).
 
 Verified (read path): 2026-09-07 UTC.
 
@@ -95,17 +95,27 @@ There is no database persistence and no endpoint accepting an arbitrary user or 
 
 ## UI integration
 
-The parent shell can render:
+The dashboard shell renders `AuthenticatedCashExperience` through its `cashContent` callback at `/cash` (overview) and `/cash/savings` (detail):
 
 ```tsx
-<SavingsExperience session={verifiedSession} />
+<DashboardShell
+  region={region}
+  regionReady={regionReady}
+  cashContent={({ view, onOpenSavings }) => (
+    <AuthenticatedCashExperience
+      view={view}
+      onOpenSavings={onOpenSavings}
+      regionReady={regionReady}
+    />
+  )}
+/>
 ```
 
-The component fetches the public candidate route, starts with no selected vault, and only reveals current APY after a successful sourced response. Passing a session changes private-position status copy only; it does not authorize or issue a private request.
+The legacy `/save` path redirects to `/cash/savings`. The authenticated wrapper obtains the verified session, reads balances through `useBalances`, and passes the current view and navigation callback to `CashExperience`. The latter accepts `view`, `onOpenSavings`, `session`, `snapshot`, `balanceStatus`, `balanceStale`, `onRetryBalances`, `onAddMoney`, optional `onAddMoneyPointerDown`, optional `fetchVaults` and `now`, and the action prepare/execute and optional account-resource handlers. It fetches public candidate metadata independently of the balances snapshot. A verified smart account is required to offer savings actions; public rate data never authorizes an action. Deposits require candidate metadata and a readable USDC balance. Withdrawals from held configured vaults remain available when rate metadata fails or omits the vault; the action uses the configured identity without inventing a rate. Unconfigured holdings are not withdrawal targets.
 
-The original read-only lane did not ship transaction calldata. Local deposit and withdrawal against these three vaults is now integrated through the [action flow](actions.md); live vault execution has not been performed.
+Cash and Savings show unavailable or partial balances without converting them to zero. If a background balance refresh fails with a retained snapshot, the wrapper continues to display that snapshot (`balanceStatus: "ready"`, `balanceStale: true`), but the current Cash/Savings UI does **not** show an explicit stale label, source age, or retry for that retained-snapshot case. When there is no snapshot and the balance read fails, the UI instead shows a balance-unavailable state and a Try again button. A rate request without cached metadata failing shows a Savings rates unavailable recovery with Try again; a background rate failure with retained metadata continues to show the last known candidates, subject to rate freshness checks, without a separate failure notice. A funded APY is balance-weighted, an offer says "Up to", and a rate that was never obtained is not shown as zero. Stale rates are not promoted to current rates for estimated growth, quotes, or transaction checks.
 
-Save distinguishes current, stale, partial, and unavailable observations. It never converts an unavailable authenticated vault position into zero. A failed refresh keeps a verified snapshot visible only with an explicit stale label, source age, and retry. Cash displays the last known discovery APY without a stale label while vault rates refresh in the background; a funded APY stays balance-weighted, an offer stays labelled "Up to", and a rate that was never obtained is omitted rather than shown as zero. Internally a stale rate is never promoted to a current one, so it does not drive estimated growth, quotes, or transaction checks.
+Local deposit and withdrawal use the [action flow](actions.md); live vault execution has not been performed.
 
 Savings preparation returns typed server-authored review metadata: exact USDC amount, configured vault identity and name, Base chain identity, current onchain fee, source-block limit and share preview, expiry, the deposit/withdraw exchange constraint, and discovery-rate status (`current`, `stale`, or `unavailable`) with timestamps. The client fails closed when these facts disagree with the requested owner, vault, operation, or amount; warning prose is not review authority.
 
@@ -124,7 +134,7 @@ Immediately before the run, verify in the deployed application and trusted relea
 1. Record the full current Git commit SHA, deployment identifier/URL, and build provenance, and prove the deployment serves that exact SHA. Do not continue from an uncommitted local build, a preview for another head, or a deployment whose SHA cannot be established.
 2. In the authenticated session, compare the complete session subject, account provider, Base chain ID `8453`, and full verified smart-account address with the privately authorized owner record. Compare exact values in the secure operator context; put only a redacted address fingerprint in shared evidence.
 3. Compare the selected vault's full address with exactly one enabled entry in `BASE_MORPHO_USDC_VAULTS`, and compare its asset with canonical Base USDC `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` and `6` decimals. Confirm `capabilities.save` is `"enabled"` for the deposit. Public discovery text or a ticker match is not authority.
-4. Capture fresh pre-run Save, Home, Activity, canonical USDC, and selected-vault position observations. Confirm the selected-vault position is zero and distinguish current observations from stale, partial, or unavailable ones. Stop on stale/partial/unavailable owner, balance, position, deployment, or vault identity.
+4. Capture fresh pre-run Cash/Savings, Home, Activity, canonical USDC, and selected-vault position observations. Confirm the selected-vault position is zero and distinguish current observations from stale, partial, or unavailable ones. Stop on stale/partial/unavailable owner, balance, position, deployment, or vault identity.
 
 ### Deposit: review once, dispatch once
 
@@ -138,7 +148,7 @@ Immediately before the run, verify in the deployed application and trusted relea
 
 Without dispatching another transaction, refresh through the normal product controls until all of these observations refer to the finalized deposit:
 
-- Save shows the selected vault position increased from zero by the test position and labels its freshness/provenance correctly.
+- Savings detail shows the selected vault position increased from zero by the test position; compare its snapshot block and fetch time with the authenticated balance read to establish freshness independently.
 - Home shows the corresponding portfolio and usable-USDC changes without inventing zero during indexer lag.
 - Activity shows one deposit with the same action/transaction, amount, vault, status, and owner context.
 - The finalized receipt and direct onchain balance/position reads reconcile with the product observations.
@@ -150,15 +160,15 @@ Use bounded manual refreshes; do not poll indefinitely. If any surface stays sta
 1. Reverify the exact deployed SHA/deployment, authenticated owner identity, Base chain, configured vault, canonical USDC route, current selected-vault position, and authorization before preparing withdrawal. Stop if any identity changed. Confirm that the selected vault still contains only the position created by this run.
 2. Prepare withdrawal of the entire current test position, bounded to that vault position; never include pre-existing or unrelated shares. On confirmation, compare operation (`withdraw`), verified owner, exact vault, Base chain, exact USDC amount, current fee, source block number/hash, `maxWithdraw`, share preview, exact-assets exchange constraint, discovery status, and expiry. The requested amount must not exceed the authoritative current test position or `maxWithdraw`.
 3. Authorize exactly one withdrawal dispatch. Apply the same no-replacement and no-ambiguous-retry rule as the deposit. On rejection, failure, timeout, ambiguity, expiry, insufficient liquidity, identity change, or review mismatch, stop and reconcile the same action; do not improvise another amount or dispatch.
-4. Require a finalized successful receipt whose calls and owner match the withdrawal review. Then verify direct onchain reads and Save show the selected-vault test position returned to zero, canonical USDC returned to the same verified smart account as usable (not merely pending or indexed), Home converged, and Activity contains exactly one matching withdrawal. Account for only explicit network costs and documented vault rounding; any unexplained residual share or USDC difference is a failed cleanup requiring escalation.
+4. Require a finalized successful receipt whose calls and owner match the withdrawal review. Then verify direct onchain reads and Savings detail show the selected-vault test position returned to zero, canonical USDC returned to the same verified smart account as usable (not merely pending or indexed), Home converged, and Activity contains exactly one matching withdrawal. Account for only explicit network costs and documented vault rounding; any unexplained residual share or USDC difference is a failed cleanup requiring escalation.
 
 ### Evidence, stop conditions, and verification status
 
-Shared evidence may contain the full Git SHA, deployment identifier, public vault address, approved maximum and actual amount, timestamps, source/finality block numbers, transaction hashes, redacted owner-address fingerprints, and privacy-safe screenshots of the review and converged Save/Home/Activity states. Crop or redact balances unrelated to the test, account identifiers, notifications, and personal data. Never publish the full owner address alongside identity data, credentials, cookies, headers, authenticated raw payloads, or environment values.
+Shared evidence may contain the full Git SHA, deployment identifier, public vault address, approved maximum and actual amount, timestamps, source/finality block numbers, transaction hashes, redacted owner-address fingerprints, and privacy-safe screenshots of the review and converged Cash/Savings/Home/Activity states. Crop or redact balances unrelated to the test, account identifiers, notifications, and personal data. Never publish the full owner address alongside identity data, credentials, cookies, headers, authenticated raw payloads, or environment values.
 
 Stop without further dispatch whenever authorization is incomplete; the approved maximum would be exceeded; owner, chain, deployment, vault, asset, amount, call, limit, preview, or expiry does not match; a required observation is stale/partial/unavailable; the vault has a pre-existing position; or either dispatch has an ambiguous or unsuccessful outcome. The recovery owner decides any follow-up after reconciling onchain state. A stopped run remains **Unverified**, even if one leg succeeded.
 
-Change live Base deposit and withdrawal from **Unverified** to **Verified** only after independent review confirms, for one exact deployed head: bounded authorization; all preflight comparisons; one finalized deposit and one finalized cleanup withdrawal; matching prepared facts and receipts; Save, Home, Activity, and direct onchain convergence for both legs; zero remaining test-vault position; returned usable USDC; privacy-safe evidence; and no unresolved discrepancy. Record the verification date and evidence location in the delivery issue and update this status statement in a reviewed change. Partial execution, fixture tests, public read smoke tests, or a deposit without verified cleanup do not satisfy this criterion.
+Change live Base deposit and withdrawal from **Unverified** to **Verified** only after independent review confirms, for one exact deployed head: bounded authorization; all preflight comparisons; one finalized deposit and one finalized cleanup withdrawal; matching prepared facts and receipts; Cash/Savings, Home, Activity, and direct onchain convergence for both legs; zero remaining test-vault position; returned usable USDC; privacy-safe evidence; and no unresolved discrepancy. Record the verification date and evidence location in the delivery issue and update this status statement in a reviewed change. Partial execution, fixture tests, public read smoke tests, or a deposit without verified cleanup do not satisfy this criterion.
 
 ## Verification
 

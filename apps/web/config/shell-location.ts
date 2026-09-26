@@ -25,6 +25,7 @@ export type ShellLocation = {
   asset: string | null;
   group: MoneyGroupId | null;
   market: BorrowMarketId | null;
+  cashView?: "savings" | null;
 };
 
 export type InboundUrlIntent = {
@@ -119,7 +120,7 @@ function parseShellFlow(value: string | undefined): ShellFlow | null {
 }
 
 function emptyLocation(panel: ShellPanelId): ShellLocation {
-  return { panel, account: null, shelf: null, asset: null, group: null, market: null };
+  return { panel, account: null, shelf: null, asset: null, group: null, market: null, cashView: null };
 }
 
 /**
@@ -132,6 +133,7 @@ export function parseShellLocation(pathname: string): ShellLocation {
   const segments = splitPathname(pathname);
   if (segments.length === 0) return emptyLocation("home");
   const [first, second, ...extra] = segments;
+  if (first === "save") return { ...emptyLocation("cash"), cashView: "savings" };
   if (first === null || !isShellPanelId(first)) return emptyLocation("home");
   if (second === undefined) return emptyLocation(first);
   // Reject extra path segments and malformed encodings to the canonical parent.
@@ -142,15 +144,30 @@ export function parseShellLocation(pathname: string): ShellLocation {
   if (first === "borrow") {
     return { ...emptyLocation("borrow"), market: parseBorrowMarket(second) };
   }
+  if (first === "cash") {
+    return { ...emptyLocation("cash"), cashView: second === "savings" ? "savings" : null };
+  }
   if (first === "invest") {
     if (investCategories.has(second)) {
       return { ...emptyLocation("invest"), shelf: second };
     }
     return { ...emptyLocation("invest"), asset: parseAsset(second) };
   }
-  // `/home`, `/save`, and `/activity` take no L2 segment; an unknown second
+  // `/home` and `/activity` take no L2 segment; an unknown second
   // segment already fell back to the parent above.
   return emptyLocation(first);
+}
+
+export function legacyShellRedirectHref(pathname: string, search: ShellSearchInput): string | null {
+  if (splitPathname(pathname)[0] !== "save") return null;
+  const overlay = parseShellOverlayIntent(search);
+  const params = new URLSearchParams();
+  if (overlay.flow) params.set(SHELL_FLOW_PARAM, overlay.flow);
+  if (overlay.account) params.set(SHELL_ACCOUNT_PARAM, overlay.account);
+  if (overlay.actionId) params.set(SHELL_ACTION_PARAM, overlay.actionId);
+  if (overlay.fundingReturn) params.set("return", overlay.fundingReturn);
+  if (overlay.addMoney) params.set("add-money", "1");
+  return `/cash/savings${params.size ? `?${params}` : ""}`;
 }
 
 export type ShellOverlayIntent = {
@@ -204,6 +221,7 @@ export function shellHref(location: Partial<ShellLocation> = {}): string {
   const panel = location.panel ?? "home";
   let pathname = `/${panel}`;
   if (panel === "balances" && location.group) pathname += `/${location.group}`;
+  if (panel === "cash" && location.cashView === "savings") pathname += "/savings";
   if (panel === "borrow" && location.market) {
     const configuredMarket = getBorrowMarketRef(location.market);
     if (configuredMarket) pathname += `/${configuredMarket.marketId}`;

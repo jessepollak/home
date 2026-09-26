@@ -305,10 +305,11 @@ try {
   await page.waitForTimeout(1_000);
   await capture(page, "home.png");
 
-  await page.goto(`${BASE_URL}/save`);
-  await page.getByText("$320.00", { exact: true }).first().waitFor();
-  await page.getByText("Gauntlet USDC Prime", { exact: true }).first().waitFor();
-  await capture(page, "save.png");
+  await page.goto(`${BASE_URL}/cash`);
+  await page.getByRole("region", { name: "Cash" }).waitFor();
+  await page.getByRole("region", { name: "Savings" }).getByRole("button", { name: /^US dollar/ }).waitFor();
+  await page.getByText(/APY/).filter({ visible: true }).first().waitFor();
+  await capture(page, "cash.png");
 
   await page.goto(`${BASE_URL}/invest`);
   await page.getByRole("heading", { name: "Stocks" }).waitFor();

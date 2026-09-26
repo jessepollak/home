@@ -25,6 +25,7 @@ export type FundingExperienceProps = {
   returnedFromVerification?: boolean;
   open?: boolean;
   onClose?: () => void;
+  onClosed?: () => void;
   initialStep?: AddMoneyStep;
   onStepChange?: (step: AddMoneyStep) => void;
   regionId?: RegionId;
@@ -105,6 +106,7 @@ function FundingExperienceBoundary({
   returnedFromVerification = false,
   open = true,
   onClose,
+  onClosed,
   initialStep,
   onStepChange,
   regionId = "GLOBAL",
@@ -303,6 +305,7 @@ function FundingExperienceBoundary({
       signedOut={signedOut}
       regionId={regionId}
       onClose={close}
+      onClosed={onClosed}
       onBack={goBack}
       onSelectReceive={() => navigateTo("receive")}
       providerBindings={providerBindings}

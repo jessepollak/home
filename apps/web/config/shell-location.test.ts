@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { BORROW_MARKETS } from "@/shared/borrowing/config";
 import {
-  flowHref, homeHrefWithOverlays, isCanonicalShellPathname, parseInboundUrlIntent,
+  flowHref, homeHrefWithOverlays, isCanonicalShellPathname, legacyShellRedirectHref, parseInboundUrlIntent,
   parseShellLocation, parseShellOverlayIntent, searchParamsToString, shellHref, withoutFlowHref,
   type ShellLocation,
 } from "./shell-location";
@@ -9,13 +9,14 @@ import {
 const DYNAMIC_ASSET_ID = "base:0x1111111111111111111111111111111111111111";
 const ACTION_ID = "11111111-1111-4111-8111-111111111111";
 function location(panel: ShellLocation["panel"], rest: Partial<ShellLocation> = {}): ShellLocation {
-  return { panel, account: null, shelf: null, asset: null, group: null, market: null, ...rest };
+  return { panel, account: null, shelf: null, asset: null, group: null, market: null, cashView: null, ...rest };
 }
 const canonicalLocations: Array<[string, ShellLocation]> = [
   ["/home", location("home")], ["/balances", location("balances")],
   ["/balances/cash", location("balances", { group: "cash" })],
   ["/balances/investments", location("balances", { group: "investments" })],
-  ["/activity", location("activity")], ["/save", location("save")],
+  ["/activity", location("activity")], ["/cash", location("cash")],
+  ["/cash/savings", location("cash", { cashView: "savings" })],
   ["/borrow", location("borrow")],
   ...BORROW_MARKETS.map((market): [string, ShellLocation] => [`/borrow/${market.marketId}`, location("borrow", { market: market.marketId })]),
   ["/invest", location("invest")], ["/invest/stocks", location("invest", { shelf: "stocks" })],
@@ -33,7 +34,9 @@ const fallbackLocations: Array<[string, ShellLocation]> = [
   [`/borrow/0x${"ff".repeat(32)}`, location("borrow")],
   ["/invest/forex", location("invest")], ["/invest/not-an-asset", location("invest")],
   ["/invest/base:0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", location("invest")],
-  ["/home/nope", location("home")], ["/save/nope", location("save")], ["/activity/nope", location("activity")],
+  ["/home/nope", location("home")], ["/cash/nope", location("cash")],
+  ["/cash/savings/extra", location("cash")], ["/save", location("cash", { cashView: "savings" })],
+  ["/save/nope", location("cash", { cashView: "savings" })], ["/activity/nope", location("activity")],
 ];
 
 describe("shell location", () => {
@@ -48,7 +51,8 @@ describe("shell location", () => {
   });
   test("emits canonical pathnames and never page-routing query keys", () => {
     const cases = [
-      [{}, "/home"], [{ panel: "save" as const }, "/save"],
+      [{}, "/home"], [{ panel: "cash" as const }, "/cash"],
+      [{ panel: "cash" as const, cashView: "savings" as const }, "/cash/savings"],
       [{ panel: "balances" as const, group: "cash" as const }, "/balances/cash"],
       [{ panel: "invest" as const, shelf: "stocks" }, "/invest/stocks"],
       ...BORROW_MARKETS.map((market) => [{ panel: "borrow" as const, market: market.marketId }, `/borrow/${market.marketId}`] as const),
@@ -74,7 +78,7 @@ describe("shell location", () => {
     expect(parseInboundUrlIntent("/", {
       account: "profile", return: "evil", "add-money": "yes", flow: "withdraw", action: "not-an-id",
     }).location).toEqual(location("home"));
-    expect(parseInboundUrlIntent("/save", new URLSearchParams("flow=save-deposit")).location).toEqual(location("save"));
+    expect(parseInboundUrlIntent("/save", new URLSearchParams("flow=save-deposit")).location).toEqual(location("cash", { cashView: "savings" }));
     expect(parseInboundUrlIntent("/home", new URLSearchParams("flow=save-deposit")).location).toEqual(location("home"));
   });
   test("allowlists every money flow and accepts action ids only for Send", () => {
@@ -93,11 +97,20 @@ describe("shell location", () => {
     ))).toBe("/home");
     expect(homeHrefWithOverlays(new URLSearchParams())).toBe("/home");
   });
+  test("redirects retired Save URLs with only validated overlay keys", () => {
+    expect(legacyShellRedirectHref("/save/anything", new URLSearchParams(
+      `flow=save-deposit&account=settings&return=funding&add-money=1&action=${ACTION_ID}&token=private`,
+    ))).toBe("/cash/savings?flow=save-deposit&account=settings&return=funding&add-money=1");
+    expect(legacyShellRedirectHref("/save", { flow: "save-withdraw", account: "nope", return: "bad" }))
+      .toBe("/cash/savings?flow=save-withdraw");
+    expect(legacyShellRedirectHref("/cash", new URLSearchParams("flow=save-deposit"))).toBeNull();
+    expect(legacyShellRedirectHref("/saver", new URLSearchParams())).toBeNull();
+  });
   test("recognizes the closed canonical shell route set", () => {
-    for (const pathname of ["/home", "/balances", "/balances/cash", "/borrow/x", "/invest/cbbtc"]) {
+    for (const pathname of ["/home", "/balances", "/balances/cash", "/cash", "/cash/savings", "/borrow/x", "/invest/cbbtc"]) {
       expect(isCanonicalShellPathname(pathname)).toBe(true);
     }
-    for (const pathname of ["/", "/dashboard", "/account", "/fund", "/unknown", "/balancesx"]) {
+    for (const pathname of ["/", "/dashboard", "/account", "/fund", "/save", "/unknown", "/balancesx"]) {
       expect(isCanonicalShellPathname(pathname)).toBe(false);
     }
   });

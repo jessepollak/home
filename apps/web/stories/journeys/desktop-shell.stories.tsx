@@ -21,7 +21,7 @@ import {
   presentationQuoteForRegion,
   type PresentationFxQuote,
 } from "@/client/invest/presentation-quote";
-import { SavingsExperience } from "@/client/savings/savings-experience";
+import { CashExperience } from "@/client/cash/cash-experience";
 import { HomeMark } from "@/components/home-mark";
 import { PrimaryNavigation } from "@/components/primary-navigation";
 import { shellContentFrameClassName, shellScrollContainerClassName } from "@/components/shell-layout";
@@ -217,12 +217,14 @@ const vaultsFixture: MorphoVaultsResult = {
   source: { provider: "Morpho GraphQL", endpoint: "https://api.morpho.org/graphql", query: "vaults", fetchedAt: "2026-09-10T12:00:00.000Z" },
   stale: false,
 };
-const fundedPositions = MORPHO_V1_CANDIDATE_ADDRESSES.map((vaultAddress) => ({
-  vaultAddress, position: { assetsRaw: vaultAddress === SPARK ? "987654321" : vaultAddress === GAUNTLET ? "123456789" : "0" },
-}));
+const saveSnapshot = buildBalancesSnapshotFixture({ registry: {
+  usdc: { balance: ready("250000000"), value: priced("USD", "25000"), cashValue: pricedCash("USD", "25000") },
+  "morpho-steakhouse-usdc": { balance: ready("987654321000000000000"), underlyingBalance: ready("987654321"), value: priced("USD", "98765") },
+  "morpho-re7-usdc": { balance: ready("123456789000000000000"), underlyingBalance: ready("123456789"), value: priced("USD", "12345") },
+} });
 
 type ShellState = "funded" | "loading" | "empty" | "partial" | "balances-error" | "activity-error";
-type DesktopShellProps = { initialPanel: "home" | "invest" | "save"; initialRailCollapsed?: boolean; extendedActivity?: boolean; state: ShellState };
+type DesktopShellProps = { initialPanel: "home" | "invest" | "cash"; initialRailCollapsed?: boolean; extendedActivity?: boolean; state: ShellState };
 
 function DesktopRail({ active, collapsed, onToggle, navigate, openAccount, accountButtonRef }: {
   active: ShellPanelId;
@@ -306,6 +308,7 @@ function isVisibleFocusTarget(element: HTMLElement | null): element is HTMLEleme
 function DesktopShell({ initialPanel, initialRailCollapsed = false, extendedActivity = false, state }: DesktopShellProps) {
   const [railCollapsed, setRailCollapsed] = useState(initialRailCollapsed);
   const [panel, setPanel] = useState<ShellPanelId>(initialPanel);
+  const [cashView, setCashView] = useState<"cash" | "savings">("cash");
   const [navigationRequest, setNavigationRequest] = useState(0);
   const [accountOpen, setAccountOpen] = useState(false);
   const [showSmallBalances, setShowSmallBalances] = useState(false);
@@ -320,7 +323,7 @@ function DesktopShell({ initialPanel, initialRailCollapsed = false, extendedActi
   const focusHandoffRef = useRef(false);
   const wasAccountOpenRef = useRef(false);
   const active = panel;
-  const title = accountOpen ? "Account" : panel === "save" ? "Cash" : panel === "invest" ? "Invest" : "Home";
+  const title = accountOpen ? "Account" : panel === "cash" ? cashView === "cash" ? "Cash" : "Savings" : panel === "invest" ? "Invest" : "Home";
   const balances = state === "loading" ? loadingBalances : regionBalances(state, regionId);
   const activityCurrency = presentationMoneyMetadata(regionId).currency;
   const activity = state === "loading" ? loadingActivity : state === "empty" ? emptyActivity(activityCurrency) : state === "activity-error" ? failedActivity : readyActivity(activityCurrency, extendedActivity);
@@ -341,7 +344,7 @@ function DesktopShell({ initialPanel, initialRailCollapsed = false, extendedActi
     setAccountOpen(true);
   };
   const closeAccount = () => setAccountOpen(false);
-  const back = () => requestPanel("home");
+  const back = () => { if (panel === "cash" && cashView === "savings") setCashView("cash"); else requestPanel("home"); };
   useEffect(() => {
     if (navigationRequest === 0) return;
     if (mainRef.current) mainRef.current.scrollTop = 0;
@@ -402,7 +405,7 @@ function DesktopShell({ initialPanel, initialRailCollapsed = false, extendedActi
           assetBalances={balances}
           cashRate={state === "empty" ? "Up to 4.20% APY" : "4.20% APY"}
           borrowOfferRate={state === "empty" ? "5.10% APR" : null}
-          destinations={{ onOpenCash: () => requestPanel("save"), onOpenInvestments: () => navigate("invest"), onOpenBorrow: noop }}
+          destinations={{ onOpenCash: () => requestPanel("cash"), onOpenInvestments: () => navigate("invest"), onOpenBorrow: noop }}
           actions={
             <>
               <Button size="touch" className="w-full">
@@ -427,9 +430,9 @@ function DesktopShell({ initialPanel, initialRailCollapsed = false, extendedActi
   ) : panel === "invest" ? (
     <InvestHub stockMarket={stockMarket} cryptoMarket={cryptoMarket} memeMarket={memeMarket} onSeeAll={noop} onOpenAsset={noop} />
   ) : (
-    <SavingsExperience
-      session={session} now={() => FIXTURE_NOW} availableUsdcBaseUnits="250000000"
-      balancePositions={fundedPositions} balanceStatus="ready"
+    <CashExperience view={cashView} onOpenSavings={() => setCashView("savings")}
+      session={session} now={() => FIXTURE_NOW} snapshot={saveSnapshot} balanceStatus="ready"
+      onRetryBalances={noop} onAddMoney={noop}
       prepareMoneyAction={previewOnlyMoneyAction} executeMoneyAction={previewOnlyMoneyAction}
     />
   );
@@ -443,7 +446,7 @@ function DesktopShell({ initialPanel, initialRailCollapsed = false, extendedActi
           <div className="flex min-h-0 min-w-0 flex-1 flex-col lg:min-h-dvh lg:px-6 xl:px-10">
             <div className="contents lg:hidden">
               <ShellHeader
-                isAccountSettingsOpen={accountOpen} nestedChromeTitle={panel === "save" && !accountOpen ? "Cash" : null}
+                isAccountSettingsOpen={accountOpen} nestedChromeTitle={panel === "cash" && !accountOpen ? cashView === "cash" ? "Cash" : "Savings" : null}
                 nestedChromeBackLabel="Back" onNestedChromeBack={back} routeMode="dashboard"
                 activeNavigation={active} isVerified account={signedInAccount}
                 onHome={back} onDashboard={back} onSignIn={noop} onSignOut={noop}
@@ -454,7 +457,7 @@ function DesktopShell({ initialPanel, initialRailCollapsed = false, extendedActi
               <div data-desktop-content-box="" className={`${shellContentFrameClassName} lg:px-0 ${panel === "home" && !accountOpen ? "lg:max-w-280" : "lg:max-w-160"}`}>
                 <header className="sticky top-0 z-10 hidden h-14 items-center justify-between gap-4 border-b bg-muted lg:flex">
                   <div className="flex min-w-0 items-center gap-2">
-                    {panel === "save" && !accountOpen ? (
+                    {panel === "cash" && !accountOpen ? (
                       <Button variant="ghost" size="icon" className="size-11" aria-label="Back" onClick={back}>
                         <ArrowLeft className="size-4" aria-hidden="true" />
                       </Button>
@@ -735,7 +738,7 @@ export const InvestDesktop: Story = {
   },
 };
 export const CashL2Desktop: Story = {
-  args: { initialPanel: "save" },
+  args: { initialPanel: "cash" },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await expect(canvas.getByRole("heading", { level: 1, name: "Cash" })).toBeVisible();
@@ -743,11 +746,12 @@ export const CashL2Desktop: Story = {
     const back = canvas.getByRole("button", { name: "Back" });
     await expect(back.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
     await expect(within(canvas.getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Home" })).toHaveAttribute("aria-current", "page");
-    const vault = await canvas.findByRole("radio", { name: /Spark USDC Vault/ });
-    await userEvent.click(vault);
-    await expect(vault).toHaveAttribute("aria-checked", "true");
-    await expect(canvas.getByRole("button", { name: "Deposit" })).toBeEnabled();
+    await userEvent.click(await canvas.findByRole("button", { name: /^US dollar/ }));
+    await expect(canvas.getByRole("heading", { level: 1, name: "Savings" })).toBeVisible();
+    await waitFor(() => expect(canvas.getByRole("button", { name: "Deposit" })).toBeEnabled());
     await expect(canvas.getByRole("button", { name: "Withdraw" })).toBeEnabled();
+    await userEvent.click(back);
+    await expect(canvas.getByRole("heading", { level: 1, name: "Cash" })).toBeVisible();
     await userEvent.click(back);
     await expect(canvas.getByRole("region", { name: "Your money" })).toBeVisible();
     await userEvent.click(canvas.getByRole("button", { description: "Open Cash" }));

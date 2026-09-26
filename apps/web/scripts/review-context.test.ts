@@ -148,8 +148,8 @@ test("real savings board URLs default to after without side and resolve the mani
   );
   expect(savingsUrl.side).toBe("after");
   const context = buildReviewContext(savingsUrl, savings as ReviewManifest, null, "head", "no", "no");
-  expect(formatReviewContext(context)).toContain("Board: Savings — current system (savings)");
-  expect(context.frame.story).toBe("pilot-savings-experience--funded");
+  expect(formatReviewContext(context)).toContain("Board: Cash and Savings — current system (savings)");
+  expect(context.frame.story).toBe("cash-cash-l2--funded");
 });
 
 test("automatic changes board resolves indexed frame name and viewport without a manifest", () => {
