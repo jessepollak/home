@@ -91,11 +91,12 @@ export async function prepareCashoutAction(
   const now = dependencies.now?.() ?? new Date();
   const store = dependencies.store ?? getActionsStore();
   const rows = await store.list(owner);
-  if (await hasUnresolvedHashlessCashout(store, owner, rows, now)) {
-    throw new CashoutPreparationError("duplicate-unknown", "A recent cash-out has no transaction hash yet. Check Activity and wait up to 15 minutes before preparing another deposit.");
+  const intent = { amountBaseUnits: input.amountBaseUnits, platform: input.platform, currency: input.currency, canonicalHandle };
+  if (await hasUnresolvedHashlessCashout(store, owner, rows, now, intent)) {
+    throw new CashoutPreparationError("duplicate-unknown", "A cash-out for this amount to this payee may still be in progress. Check Activity.");
   }
-  if (await store.hasUnsettledCashout(owner)) {
-    throw new CashoutPreparationError("order-in-flight", "You already have a cash-out in progress. Check Activity.");
+  if (await store.hasUnsettledCashout(owner, intent)) {
+    throw new CashoutPreparationError("order-in-flight", "A cash-out for this amount to this payee is still in progress. Check Activity.");
   }
   const ctx = createProviderContext({
     manifest: provider.manifest,
@@ -112,8 +113,9 @@ export async function prepareCashoutAction(
     amount < BigInt(capability.minimumAmountAtomic) ||
     (capability.maximumAmountAtomic !== null && amount > BigInt(capability.maximumAmountAtomic))) unavailable();
   const existingOrders = await provider.offramp.listOrders({ owner: session.smartAccount.address, inFlight: true, onMalformedPayee: "throw" }, ctx);
-  if (existingOrders.length > 0) {
-    throw new CashoutPreparationError("order-in-flight", "You already have a cash-out in progress. Check Activity.");
+  if (existingOrders.some((order) => order.amountAtomic === input.amountBaseUnits && order.platform === input.platform &&
+    order.currency.toUpperCase() === input.currency.toUpperCase())) {
+    throw new CashoutPreparationError("order-in-flight", "A cash-out for this amount and payout app is still in progress. Check Activity.");
   }
   const estimate = await provider.offramp.estimate({ amountAtomic: amount, platform: input.platform, currency: input.currency }, ctx);
   if (estimate.amountAtomic !== input.amountBaseUnits || estimate.currency !== input.currency ||
@@ -246,8 +248,18 @@ async function hasUnresolvedHashlessCashout(
   owner: MoneyActionOwner,
   rows: readonly ActionRow[],
   now: Date,
+  intent: Pick<CashoutInput, "amountBaseUnits" | "platform" | "currency"> & { canonicalHandle: string },
 ) {
-  const candidates = recentHashlessCashouts(rows, now);
+  const candidates = recentHashlessCashouts(rows, now).filter((row) => {
+    const metadata = row.summary.metadata;
+    return metadata?.product === "cashout" && metadata.operation === "deposit" &&
+      row.summary.amounts.some((amount) => typeof amount === "object" && amount !== null &&
+        "assetId" in amount && amount.assetId === USDC_ACTION_ASSET_ID &&
+        "direction" in amount && amount.direction === "spend" &&
+        "amountBaseUnits" in amount && amount.amountBaseUnits === intent.amountBaseUnits) &&
+      metadata.platform === intent.platform && metadata.currency.toUpperCase() === intent.currency.toUpperCase() &&
+      metadata.canonicalHandle?.toLowerCase() === intent.canonicalHandle.toLowerCase();
+  });
   if (candidates.length === 0) return false;
   const orders = await store.cashoutOrders(owner, candidates.map(({ id }) => id));
   const resolved = new Set(orders.filter((order) => order.deposit_id !== null || order.settled_at !== null).map((order) => order.action_id));

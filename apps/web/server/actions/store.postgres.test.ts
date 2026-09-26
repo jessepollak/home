@@ -4,7 +4,7 @@ import { keccak256 } from "viem";
 import { encodeCoinbaseExecuteBatch } from "@/server/chain/coinbase-smart-account";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
 import { readMigrationSql } from "@/tests/helpers/migrations";
-import { ActionsStore, UnresolvedTradeError, actionOwnerKey } from "./store";
+import { ActionsStore, actionOwnerKey } from "./store";
 import type { TradeMoneyActionMetadata } from "@/shared/trading/contract";
 
 const connectionString = process.env.ACTION_PG_TEST_URL?.trim();
@@ -103,10 +103,9 @@ describePostgres("actions schema and store", () => {
     const finalCalls = [{ ...calls[0]!, data: "0x5678" as const }];
     const handled = randomUUID();
     const settled = randomUUID();
-    // Past the execution deadline, so the first trade does not block the second: this test is about pending plans, not the guard.
-    const expiredTrade = { ...summary, metadata: { product: "trade", direction: "buy", executionDeadline: String(Math.floor(Date.now() / 1000) - 300) } as TradeMoneyActionMetadata };
+    const tradeSummary = { ...summary, metadata: { product: "trade", direction: "buy", executionDeadline: String(Math.floor(Date.now() / 1000) + 300) } as TradeMoneyActionMetadata };
     for (const id of [handled, settled]) {
-      await store.insert({ id, owner, kind: "trade", summary: expiredTrade, pending: { calls, swapCallIndex: 0 }, createdAt: "2026-09-12T10:00:00.000Z" });
+      await store.insert({ id, owner, kind: "trade", summary: tradeSummary, pending: { calls, swapCallIndex: 0 }, createdAt: "2026-09-12T10:00:00.000Z" });
       await store.confirm(owner, id, finalCalls);
       expect((await store.get(owner, id))?.pending).toEqual({ calls: finalCalls });
     }
@@ -116,33 +115,20 @@ describePostgres("actions schema and store", () => {
     expect((await store.get(owner, settled))?.pending).toBeNull();
   });
 
-  test("blocks other trades for the owner until reconciliation or execution deadline, but not explicit declines", async () => {
-    const deadline = Math.floor(Date.now() / 1000) + 180;
-    const tradeSummary = { ...summary, metadata: { product: "trade", direction: "buy", executionDeadline: String(deadline) } as TradeMoneyActionMetadata };
+  test("inserts and confirms another trade while a dispatched trade has no outcome", async () => {
+    const tradeSummary = { ...summary, metadata: { product: "trade", direction: "buy", executionDeadline: String(Math.floor(Date.now() / 1000) + 300) } as TradeMoneyActionMetadata };
     const first = randomUUID();
     const second = randomUUID();
     await store.insert({ id: first, owner, kind: "trade", summary: tradeSummary, pending: { calls }, createdAt: new Date().toISOString() });
-    await store.insert({ id: second, owner, kind: "trade", summary: tradeSummary, pending: { calls }, createdAt: new Date().toISOString() });
     await store.confirm(owner, first);
-    expect((await store.findUnresolvedTrade(owner))?.id).toBe(first);
-    expect(await store.findUnresolvedTrade(otherOwner)).toBeNull();
-    await expect(store.insert({ id: randomUUID(), owner, kind: "trade", summary: tradeSummary, pending: { calls }, createdAt: new Date().toISOString() }))
-      .rejects.toBeInstanceOf(UnresolvedTradeError);
-    await expect(store.confirm(owner, second)).rejects.toBeInstanceOf(UnresolvedTradeError);
-    await store.recordOutcome(owner, first, { outcome: "succeeded", source: "chain", settledAt: new Date() });
-    expect(await store.findUnresolvedTrade(owner)).toBeNull();
-    await store.confirm(owner, second);
-    expect((await store.findUnresolvedTrade(owner))?.id).toBe(second);
-    expect(await store.findUnresolvedTrade(owner, new Date((deadline + 60) * 1000))).not.toBeNull();
-    expect(await store.findUnresolvedTrade(owner, new Date((deadline + 121) * 1000))).toBeNull();
-    await sql.query("UPDATE actions SET summary = jsonb_set(summary, '{metadata,executionDeadline}', to_jsonb($2::text)) WHERE id = $1", [second, String(Math.floor(Date.now() / 1000) - 121)]);
-    expect(await store.findUnresolvedTrade(owner)).toBeNull();
-    const third = randomUUID();
-    await store.insert({ id: third, owner, kind: "trade", summary: tradeSummary, pending: { calls }, createdAt: new Date().toISOString() });
-    await store.confirm(owner, third);
-    await store.recordDecline(owner, third, 0);
-    expect(await store.findUnresolvedTrade(owner)).toBeNull();
-    await store.insert({ id: randomUUID(), owner, kind: "trade", summary: tradeSummary, pending: { calls }, createdAt: new Date().toISOString() });
+    await store.recordHandle(owner, first, { providerHandle: `0x${"ab".repeat(32)}` });
+    expect((await store.get(owner, first))?.outcome).toBeNull();
+    await store.insert({ id: second, owner, kind: "trade", summary: tradeSummary, pending: { calls }, createdAt: new Date().toISOString() });
+    const confirmed = await store.confirm(owner, second);
+    expect(confirmed?.id).toBe(second);
+    expect(confirmed?.confirmed_at).not.toBeNull();
+    expect(confirmed?.confirmed_call_data_hash).toBe(keccak256(encodeCoinbaseExecuteBatch(calls)));
+    expect((await store.get(owner, first))?.outcome).toBeNull();
   });
 
   test("confirmation without pending calls does not write a commitment", async () => {
@@ -204,13 +190,13 @@ describePostgres("actions schema and store", () => {
   test("confirmation records a submitted order and repeats without duplicating", async () => {
     const id = randomUUID();
     await store.insert({ id, owner, kind: "cash-out", summary: cashoutSummary, pending: { calls }, createdAt: new Date().toISOString() });
-    expect(await store.hasUnsettledCashout(owner)).toBe(false);
+    expect(await store.hasUnsettledCashout(owner, { amountBaseUnits: "2000000", platform: "cashapp", currency: "USD", canonicalHandle: "alice" })).toBe(false);
     await store.confirm(owner, id);
     await store.confirm(owner, id);
     const orders = await store.cashoutOrders(owner, [id]);
     expect(orders).toHaveLength(1);
     expect(orders[0]).toMatchObject({ provider_id: "peer", region: "US", state: "submitted", amount_atomic: "2000000", remaining_atomic: "2000000" });
-    expect(await store.hasUnsettledCashout(owner)).toBe(true);
+    expect(await store.hasUnsettledCashout(owner, { amountBaseUnits: "2000000", platform: "cashapp", currency: "USD", canonicalHandle: "alice" })).toBe(true);
     expect(await store.cashoutOrders(otherOwner, [id])).toEqual([]);
   });
 
@@ -228,7 +214,7 @@ describePostgres("actions schema and store", () => {
     const progress = { state: "returned" as const, filledAtomic: "500000", returnedAtomic: "1500000", remainingAtomic: "0", withdrawable: false, settled: true };
     expect(await store.updateCashoutProgress(otherOwner, id, progress)).toBeNull();
     expect((await store.updateCashoutProgress(owner, id, progress))?.settled_at).not.toBeNull();
-    expect(await store.hasUnsettledCashout(owner)).toBe(false);
+    expect(await store.hasUnsettledCashout(owner, { amountBaseUnits: "2000000", platform: "cashapp", currency: "USD", canonicalHandle: "alice" })).toBe(false);
     expect(await store.updateCashoutProgress(owner, id, { ...progress, state: "unknown" })).toBeNull();
     expect((await store.cashoutOrders(owner, [id]))[0]?.state).toBe("returned");
   });
