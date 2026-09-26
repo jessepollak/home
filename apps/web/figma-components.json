@@ -17,9 +17,8 @@
     { "figmaName": "FieldSeparator", "nodeId": "465:4432", "reason": "Sub-part of Field (components/ui/field.tsx); no separate template." },
     { "figmaName": "SendRecipientStatus", "nodeId": "465:4497", "reason": "Figma-only composition of the send-recipient-status content in client/transfers/send-dialog.tsx; not a code component." },
     { "figmaName": "RecentRecipients", "nodeId": "465:4498", "reason": "Figma-only composition of the private RecentRecipients rows in client/transfers/send-dialog.tsx; not a code component." },
-    { "figmaName": "FeatureIntro", "nodeId": "385:4124", "reason": "DESIGN-ONLY: feature-intro CTA proposal (#895; C selected, not yet adopted); candidates live only in a Storybook exploration story." },
-    { "figmaName": "FeatureIntroBenefit", "nodeId": "383:3881", "reason": "DESIGN-ONLY sub-part of FeatureIntro (#895)." },
-    { "figmaName": "FeatureIntroIllustration", "nodeId": "383:3888", "reason": "DESIGN-ONLY slot for the FeatureIntro illustration: placeholders plus static Line & Plane stand-ins from #905 until the illustration component tracked in #896 lands." }
+    { "figmaName": "FeatureIntroBenefit", "nodeId": "383:3881", "reason": "Sub-part rendered by the owned FeatureIntro (components/ui/feature-intro.tsx)." },
+    { "figmaName": "FeatureIntroIllustration", "nodeId": "383:3888", "reason": "Sub-part rendered by the owned FeatureIntro (components/ui/feature-intro.tsx); static Line & Plane stand-ins until #896." }
   ],
   "notInFigma": [
     { "source": "components/ui/table.tsx", "reason": "Desktop-only; P2 in the gap matrix." },

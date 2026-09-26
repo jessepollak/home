@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { expect, within } from "storybook/test";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { shellContentFrameClassName } from "@/components/shell-layout";
@@ -234,6 +235,11 @@ export const VerifiedEmpty: Story = {
     balancePositions: emptyPositions,
   },
   parameters: { viewport: { defaultViewport: "smallMobile" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole("heading", { name: "Start saving" })).toBeVisible();
+    await expect(canvas.getAllByRole("button", { name: "Get started" })).toHaveLength(1);
+  },
 };
 
 export const Loading: Story = {
