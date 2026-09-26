@@ -21,7 +21,9 @@ export type ActivityFeedItem =
 export function mergeActivityFeed(input: {
   transfers: readonly ActivityTransfer[];
   operations: readonly RecentMoneyActionOperation[];
+  loadedThrough: string | null;
 }): ActivityFeedItem[] {
+  const loadedThroughTime = input.loadedThrough === null ? null : Date.parse(input.loadedThrough);
   const transfersByHash = new Map<string, ActivityTransfer[]>();
   for (const transfer of input.transfers) {
     const hash = transfer.transactionHash.toLowerCase();
@@ -46,20 +48,22 @@ export function mergeActivityFeed(input: {
         timestamp: transfer.blockTimestamp,
         transfer,
       })),
-    ...input.operations.map((operation): ActivityFeedItem => {
+    ...input.operations.flatMap((operation): ActivityFeedItem[] => {
       const hash = operation.transactionHash?.toLowerCase();
       const transfers = hash ? transfersByHash.get(hash) ?? [] : [];
+      if (transfers.length === 0 && operation.status !== "pending" && loadedThroughTime !== null &&
+        Date.parse(operation.updatedAt) <= loadedThroughTime) return [];
       const sharedHash = hash !== undefined && (actionIdsByHash.get(hash)?.size ?? 0) > 1;
       const settled = transfers.length > 0 ? settleOperation(operation, transfers, !sharedHash) : operation;
-      return {
+      return [{
         kind: "action",
         id: operation.action.id,
         timestamp: settled.updatedAt,
         operation: settled,
         transfers,
-      };
+      }];
     }),
-  ].sort(compareActivityFeedItems);
+  ].sort((left, right) => compareActivityFeedItems(left, right, loadedThroughTime));
 }
 
 function settleOperation(
@@ -116,7 +120,14 @@ function settleAmount(amount: MoneyActionAmount, transfers: readonly ActivityTra
   return settled;
 }
 
-function compareActivityFeedItems(left: ActivityFeedItem, right: ActivityFeedItem): number {
+function compareActivityFeedItems(left: ActivityFeedItem, right: ActivityFeedItem, loadedThroughTime: number | null): number {
+  if (loadedThroughTime !== null) {
+    const leftLeads = left.kind === "action" && left.transfers.length === 0 && left.operation.status === "pending" &&
+      Date.parse(left.timestamp) < loadedThroughTime;
+    const rightLeads = right.kind === "action" && right.transfers.length === 0 && right.operation.status === "pending" &&
+      Date.parse(right.timestamp) < loadedThroughTime;
+    if (leftLeads !== rightLeads) return leftLeads ? -1 : 1;
+  }
   const time = Date.parse(right.timestamp) - Date.parse(left.timestamp);
   if (time !== 0) return time;
   if (left.kind !== right.kind) return left.kind === "transfer" ? -1 : 1;

@@ -134,8 +134,9 @@ describe("combined Activity panel", () => {
     );
 
     expect(view.getAllByRole("list")).toHaveLength(1);
-    expect(view.getAllByRole("button", { description: /transaction details/ })).toHaveLength(6);
-    expect(view.getByRole("list").textContent).toMatch(/Received.*action-5.*Received.*action-3.*Received.*action-1/);
+    expect(view.getAllByRole("button", { description: /transaction details/ })).toHaveLength(5);
+    expect(view.getByRole("list").textContent).toMatch(/Received.*action-5.*Received.*action-3.*Received/);
+    expect(view.queryByText("action-1")).toBeNull();
     expect(view.getByRole("region", { name: "Activity" }).querySelector("[data-slot='card']")).toBeNull();
     expect(view.container.querySelector("[data-activity-loader]")).not.toBeNull();
     expect(view.container.querySelector("[data-shimmer='row']")).toBeNull();
@@ -267,6 +268,30 @@ describe("combined Activity panel", () => {
     expect(view.getByText("recorded-action")).toBeTruthy();
     expect(view.getByRole("status").textContent).toBe("Some activity is unavailable");
     expect(view.queryByRole("alert")).toBeNull();
+  });
+
+  test("keeps the continuation region mounted through idle, between-page loading, and failure", () => {
+    const retryLoadMore = mock(() => undefined);
+    const activity = (overrides: Parameters<typeof ready>[2] = {}) =>
+      <ActivityPanelView activity={ready([transfer("transfer-2", 2)], "cursor-1", { ...overrides, retryLoadMore })} />;
+    const view = render(activity());
+    const region = view.container.querySelector("[data-activity-continuation]");
+    const sentinel = view.container.querySelector("[data-activity-sentinel]");
+    expect(region).not.toBeNull();
+    expect(view.container.querySelector("[data-activity-loader]")).toBeNull();
+
+    view.rerender(activity({ continuing: true }));
+    expect(view.container.querySelector("[data-activity-continuation]")).toBe(region);
+    expect(view.getByRole("status", { name: "" }).textContent).toBe("Loading older activity");
+    expect(view.container.querySelector("[data-activity-loader]")).not.toBeNull();
+
+    view.rerender(activity({ continuing: true, loadMoreError: true }));
+    expect(view.container.querySelector("[data-activity-continuation]")).toBe(region);
+    expect(view.container.querySelector("[data-activity-loader]")).toBeNull();
+    expect(view.getByRole("alert").textContent).toContain("More activity could not be loaded");
+    fireEvent.click(view.getByRole("button", { name: "Try again" }));
+    expect(retryLoadMore).toHaveBeenCalledTimes(1);
+    expect(view.container.querySelector("[data-activity-sentinel]")).toBe(sentinel);
   });
 
   test("retries an older page from the Home feed without a red alert", () => {
@@ -429,6 +454,7 @@ describe("combined Activity panel", () => {
       operation("hashed-fallback", 6, `0x${"d".repeat(64)}` as const),
       operation("hashless-fallback", 4),
     ];
+    for (const item of operations) item.status = "pending";
     const page = render(
       <ActivityPanelView activity={ready([], "cursor-1")} operations={operations} />,
     );
@@ -443,6 +469,20 @@ describe("combined Activity panel", () => {
     }
   });
 
+  test("holds an old confirmed action until transfer pages reach it and shows it at the authoritative end", () => {
+    const newer = transfer("newer", 10);
+    const old = operation("old-cash-out", 2);
+    old.status = "confirmed";
+    const paging = render(<ActivityPanelView activity={ready([newer], "cursor-1")} operations={[old]} />);
+    expect(within(paging.container).queryByText("old-cash-out")).toBeNull();
+    paging.unmount();
+    const sparse = render(<ActivityPanelView activity={ready([], "cursor-1")} operations={[old]} />);
+    expect(within(sparse.container).queryByText("old-cash-out")).toBeNull();
+    sparse.unmount();
+    const ended = render(<ActivityPanelView activity={ready([newer], null)} operations={[old]} />);
+    expect(within(ended.container).getByText("old-cash-out")).toBeTruthy();
+  });
+
   test("the feed keeps an indexed action's title and confirmed status instead of a generic transfer", async () => {
     const indexed = { ...transfer("onchain", 5), direction: "outgoing" as const, amountBaseUnits: "1250000" };
     const deposit = operation("Deposit USDC into Morpho", 6, indexed.transactionHash);
@@ -453,7 +493,7 @@ describe("combined Activity panel", () => {
     const view = render(
       <ActivityPanelView
         activity={ready([indexed], "cursor-1")}
-        operations={[deposit, operation("recorded-action", 4)]}
+        operations={[deposit, { ...operation("recorded-action", 4), status: "pending" }]}
         density="feed"
       />,
     );
