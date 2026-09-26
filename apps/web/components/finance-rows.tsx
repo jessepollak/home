@@ -19,6 +19,7 @@ type FinanceRowProps = {
   iconTone?: "neutral" | "incoming" | "outgoing" | "self" | "outlined" | "mark";
   label: ReactNode;
   context?: ReactNode;
+  contextLines?: 1 | 2;
   contextTitle?: string;
   value?: ReactNode;
   valueContext?: ReactNode;
@@ -60,6 +61,7 @@ function FinanceRow({
   iconTone = "neutral",
   label,
   context,
+  contextLines = 1,
   contextTitle,
   value,
   valueContext,
@@ -90,11 +92,11 @@ function FinanceRow({
           {typeof icon === "string" ? <DirectionIcon value={icon} /> : icon}
         </span>
       </ItemMedia>
-      <div className="flex min-w-0 flex-1 items-start gap-3 @max-[14rem]/finance-row:flex-col @max-[14rem]/finance-row:gap-1" data-slot="finance-row-body">
-        <ItemContent className={cn("min-w-0 gap-0.5 @max-[14rem]/finance-row:w-full @max-[14rem]/finance-row:self-stretch", (context === undefined || value === undefined || valueContext === undefined) && "self-center")}>
+      <div className={cn("flex min-w-0 flex-1 items-start gap-3 @max-[14rem]/finance-row:flex-col @max-[14rem]/finance-row:gap-1", contextLines === 2 && "flex-wrap gap-y-1")} data-slot="finance-row-body">
+        <ItemContent className={cn("min-w-0 gap-0.5 @max-[14rem]/finance-row:w-full @max-[14rem]/finance-row:self-stretch", contextLines === 2 && "min-w-min", (context === undefined || value === undefined || valueContext === undefined) && "self-center")}>
           <ItemTitle className="w-full" truncate="stacked">{label}</ItemTitle>
           {context === undefined ? null : (
-            <ItemDescription lines={1} title={contextTitle}>
+            <ItemDescription lines={contextLines} title={contextTitle}>
               {context}
             </ItemDescription>
           )}
@@ -102,7 +104,7 @@ function FinanceRow({
         {onActivate && attention ? <span className="sr-only">{attention}</span> : null}
         {hasValue ? (
           <ItemContent
-            className={cn("max-w-2/3 min-w-0 !flex-none items-end gap-0.5 overflow-hidden text-end @max-[14rem]/finance-row:max-w-full", (value === undefined || valueContext === undefined) && "self-center", "@max-[14rem]/finance-row:self-end")}
+            className={cn("max-w-2/3 min-w-0 !flex-none items-end gap-0.5 overflow-hidden text-end @max-[14rem]/finance-row:max-w-full", contextLines === 2 && "ms-auto max-w-full", (value === undefined || valueContext === undefined) && "self-center", "@max-[14rem]/finance-row:self-end")}
             data-slot="finance-row-value"
           >
             {value === undefined ? null : (

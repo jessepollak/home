@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useRef, useState } from "react";
-import { expect, userEvent, within } from "storybook/test";
+import { expect, userEvent, waitFor, within } from "storybook/test";
+import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { BorrowOverview } from "./borrow-overview";
 import { summarizeBorrowOverview } from "./borrow-overview-model";
@@ -281,8 +282,10 @@ function BorrowStorySurface({
   initialMarketId,
   scenario = "success",
   recovery,
+  assetMarkResolution,
 }: {
   fixture?: BorrowOverviewResponse;
+  assetMarkResolution?: AssetMarkResolution;
   status?: "ready" | "loading" | "error";
   initialMarketId?: BorrowMarketId;
   scenario?: BorrowStoryScenario;
@@ -360,6 +363,7 @@ function BorrowStorySurface({
       session={borrowStorySession}
       regionId="US"
       initialMarketId={initialMarketId}
+      assetMarkResolution={assetMarkResolution}
       prepareMoneyAction={prepareMoneyAction}
       executeMoneyAction={executeMoneyAction}
       fetchAccountResource={async (path) => path === "/api/actions/network-fee"
@@ -412,6 +416,85 @@ function only(...ids: BorrowMarketId[]): BorrowOverviewResponse {
   };
 }
 
+async function assertRowMarkGeometry(canvasElement: HTMLElement) {
+  const screen = within(canvasElement);
+  for (const name of ["Open loans", "Assets you can borrow against"]) {
+    const region = screen.queryByRole("region", { name });
+    if (!region) continue;
+    const rows = region.querySelectorAll("li");
+    await expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      const mark = row.querySelector<HTMLElement>("[data-mark]");
+      const media = row.querySelector<HTMLElement>("[data-slot=item-media]");
+      if (!mark || !media) throw new Error(`Missing ${name} row mark or media`);
+      const markRect = mark.getBoundingClientRect();
+      const mediaRect = media.getBoundingClientRect();
+      for (const dimension of ["width", "height", "left", "top"] as const) {
+        await expect(Math.abs(markRect[dimension] - mediaRect[dimension])).toBeLessThanOrEqual(0.5);
+      }
+    }
+  }
+}
+
+function assetMarks(canvasElement: HTMLElement) {
+  return canvasElement.querySelectorAll<HTMLElement>("[data-slot=item-media] [data-mark]");
+}
+
+const collateralMarkImages = Object.fromEntries(markets.map((market) => [
+  market.collateralToken.id, `/asset-marks/${market.collateralDisplay.brandMark}.svg`,
+]));
+
+function wideAmountsOverview(): BorrowOverviewResponse {
+  const withLargeHoldings = [markets[0]!, markets[2]!].reduce((overview, market) => replaceSnapshot(overview, market.marketId, (snapshot) => ({
+    ...snapshot,
+    state: { ...snapshot.state, liquidityAssetsRaw: "23456789000000" },
+    wallet: {
+      ...snapshot.wallet,
+      collateralBalanceRaw: (BigInt(100_000_000) * BigInt(10) ** BigInt(snapshot.market.collateralToken.decimals)).toString(),
+    },
+  })), only());
+  return replaceSnapshot(withLargeHoldings, ada, (snapshot) => ({
+    ...snapshot,
+    wallet: {
+      ...snapshot.wallet,
+      collateralBalanceRaw: (BigInt(2500) * BigInt(10) ** BigInt(snapshot.market.collateralToken.decimals)).toString(),
+    },
+  }));
+}
+
+async function assertWideAmountRows(canvasElement: HTMLElement) {
+  const assets = within(canvasElement).getByRole("region", { name: "Assets you can borrow against" });
+  const rows = assets.querySelectorAll("li");
+  await expect(rows.length).toBe(5);
+  let heldCount = 0;
+  let notHeldCount = 0;
+  for (const row of rows) {
+    const context = row.querySelector<HTMLElement>("[data-slot=finance-row-body] > [data-slot=item-content] [data-slot=item-description]");
+    if (!context) throw new Error("Missing asset row context");
+    const text = context.textContent ?? "";
+    await expect(text).toMatch(/\d+\.\d{2}%\u00a0APR$/);
+    if (text.startsWith("Not\u00a0in\u00a0wallet")) notHeldCount++;
+    const button = row.querySelector<HTMLButtonElement>("button");
+    if (button) {
+      heldCount++;
+      await expect(button.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+      const value = row.querySelector<HTMLElement>("[data-slot=finance-row-value] [data-slot=item-title]");
+      await expect(value?.textContent).toContain("USDC");
+      if (!row.textContent?.includes("Cardano")) {
+        await expect(Number((value?.textContent ?? "").replace(/[^0-9.,]/g, "").replaceAll(",", ""))).toBeGreaterThanOrEqual(12_345_678.9);
+      }
+    }
+    const descriptions = row.querySelectorAll<HTMLElement>("[data-slot=item-description], [data-slot=finance-row-value] [data-slot=item-title]");
+    for (const element of descriptions) {
+      await expect(element.scrollHeight).toBeLessThanOrEqual(element.clientHeight + 1);
+      await expect(element.scrollWidth).toBeLessThanOrEqual(element.clientWidth + 1);
+    }
+  }
+  await expect(heldCount).toBeGreaterThanOrEqual(2);
+  await expect(notHeldCount).toBeGreaterThan(0);
+  await assertRowMarkGeometry(canvasElement);
+}
+
 function partialOverview(): BorrowOverviewResponse {
   const base = borrowStoryOverview();
   return {
@@ -452,8 +535,9 @@ export const MultipleLoans: Story = {
     await expect(loans.getByText("Collateral available")).toBeVisible();
     await expect(loans.getByText("No debt")).toBeVisible();
     const assets = within(screen.getByRole("region", { name: "Assets you can borrow against" }));
-    await expect(assets.getByText("In wallet · 5.10% APR")).toBeVisible();
+    await expect(assets.getByText((_text, element) => element?.getAttribute("data-slot") === "item-description" && element.textContent === "In\u00a0wallet · 5.10%\u00a0APR")).toBeVisible();
     await expect(assets.getByText("Available")).toBeVisible();
+    await assertRowMarkGeometry(canvasElement);
   },
 };
 export const OneLoan: Story = { args: { fixture: only(btc) } };
@@ -493,7 +577,60 @@ export const NoDebtHeld: Story = {
     })),
   },
 };
-export const EmptyNoCollateral: Story = { args: { fixture: only() } };
+export const EmptyNoCollateral: Story = {
+  args: { fixture: only() },
+  play: async ({ canvasElement }) => {
+    await expect(assetMarks(canvasElement)).toHaveLength(5);
+    await assertRowMarkGeometry(canvasElement);
+  },
+};
+export const ImageMarksLoaded: Story = {
+  args: { fixture: only(), assetMarkResolution: { images: collateralMarkImages, pending: false } },
+  play: async ({ canvasElement }) => {
+    await waitFor(async () => {
+      await expect(assetMarks(canvasElement)).toHaveLength(5);
+      for (const mark of assetMarks(canvasElement)) await expect(mark).toHaveAttribute("data-mark", "image");
+    });
+    await assertRowMarkGeometry(canvasElement);
+  },
+};
+export const PendingMarks: Story = {
+  args: { fixture: only(), assetMarkResolution: { images: Object.fromEntries(markets.map((market) => [market.collateralToken.id, null])), pending: true } },
+  play: async ({ canvasElement }) => {
+    await expect(assetMarks(canvasElement)).toHaveLength(5);
+    for (const mark of assetMarks(canvasElement)) await expect(mark).toHaveAttribute("data-mark", "shimmer");
+    await assertRowMarkGeometry(canvasElement);
+  },
+};
+export const BrokenImageMarks: Story = {
+  args: { fixture: only(), assetMarkResolution: { images: Object.fromEntries(markets.map((market) => [market.collateralToken.id, `/asset-marks/missing-${market.collateralToken.id}.svg`])) } },
+  play: async ({ canvasElement }) => {
+    await waitFor(async () => {
+      await expect(assetMarks(canvasElement)).toHaveLength(5);
+      for (const mark of assetMarks(canvasElement)) await expect(mark).toHaveAttribute("data-mark", "brand");
+    });
+    await assertRowMarkGeometry(canvasElement);
+  },
+};
+export const WideAmountsNarrow: Story = {
+  args: { fixture: wideAmountsOverview() },
+  decorators: [(Story) => <div style={{ width: 320 }}><Story /></div>],
+  play: async ({ canvasElement }) => assertWideAmountRows(canvasElement),
+};
+export const WideAmountsMobile: Story = {
+  args: { fixture: wideAmountsOverview() },
+  decorators: [(Story) => <div style={{ width: 390 }}><Story /></div>],
+  play: async ({ canvasElement }) => {
+    await assertWideAmountRows(canvasElement);
+    const assets = within(canvasElement).getByRole("region", { name: "Assets you can borrow against" });
+    const cardano = within(assets).getByText("Cardano").closest("li");
+    const label = cardano?.querySelector<HTMLElement>("[data-slot=finance-row-body] > [data-slot=item-content] [data-slot=item-title]");
+    const value = cardano?.querySelector<HTMLElement>("[data-slot=finance-row-value] [data-slot=item-title]");
+    if (!label || !value) throw new Error("Missing realistic Cardano row value or label");
+    await expect(value.textContent).toContain("298.35");
+    await expect(Math.abs(label.getBoundingClientRect().top - value.getBoundingClientRect().top)).toBeLessThanOrEqual(1);
+  },
+};
 export const Partial: Story = {
   args: { fixture: partialOverview(), recovery: borrowStoryOverview() },
   play: async ({ canvasElement }) => {
