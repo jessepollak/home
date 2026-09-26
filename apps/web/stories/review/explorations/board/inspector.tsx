@@ -1,4 +1,4 @@
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { ChangeTag, FrameSize } from "./change-tag";
 import { frameLabel, type Positioned, type Section } from "./layout";
@@ -18,8 +18,8 @@ export function Inspector({ section, position, onInteract, onFit, canInteract, s
   shortcuts: BoardCommand[];
   onShowShortcuts: () => void;
 }) {
-  const link = (href: string, label: string) => <Button variant="link" size="inline" nativeButton={false}
-    className="self-start" render={<a href={href} target="_blank" rel="noreferrer" />}>{label} ↗</Button>;
+  const link = (href: string, label: string) => <a data-slot="button" href={href} target="_blank" rel="noreferrer"
+    className={buttonVariants({ variant: "link", size: "inline", className: "self-start" })}>{label} ↗</a>;
   return <aside className={styles.inspector} aria-label="Inspector">
     <div className={styles.panelHeading}><strong>Inspector</strong></div>
     <div className={styles.inspectorBody}>
