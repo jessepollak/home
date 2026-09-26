@@ -42,7 +42,7 @@ The generated `apps/web/storybook-static/` directory is ignored and must not be 
 
 1. Frame the change in its issue; build options and states as stories using production components (isolated story-only candidates for explicit explorations).
 2. Add or update a board manifest in `apps/web/stories/review/boards/`, or use **Changes in this PR** if it covers the proposal.
-3. Start the PR's `## Preview` with the direct board link on its Storybook preview. Jesse comments with board frame links in Vercel Comments on the preview or pasted board URLs on GitHub.
+3. Start the PR's `## Preview` with the direct board link on its Storybook preview. Jesse can pin Vercel Comments on the preview for context, but only his own GitHub comments and reviews start a factory follow-up run, so feedback the factory should act on goes in a GitHub comment on the PR, with the board frame URL pasted or linked.
 4. Record Jesse's selection and reviewed revision on the issue or PR; implement in the same components and verify in Home.
 
 The board is the default surface for design proposals, review, and selection, not approval by itself. Figma remains optional for references and early sketches; existing mappings, Code Connect, and Figma comment handling continue to work. The [issue scope](../.agents/skills/design-engineering/SKILL.md#follow-the-issue-scope) and Jesse's approval authority still govern adoption.
