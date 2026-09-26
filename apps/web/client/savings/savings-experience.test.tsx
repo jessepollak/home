@@ -435,11 +435,25 @@ describe("Save simplify", () => {
     const balancesFirstSave = await page().findByRole("region", { name: "Save" });
     expect(balancesFirstSave.textContent).toContain("$0.00");
     expect(page().queryByRole("radio")).toBeNull();
+    expect(page().queryByRole("heading", { name: "Start saving" })).toBeNull();
+    expect(page().queryByRole("button", { name: "Get started" })).toBeNull();
     await act(async () => {
       pendingMetadata.resolve(initialData);
       await pendingMetadata.promise;
     });
     expect(await page().findByRole("radio", { name: /Gauntlet USDC Prime/ })).toBeTruthy();
+    expect(page().getByRole("heading", { name: "Start saving" })).toBeTruthy();
+  });
+
+  test("hides the unfunded intro when metadata has no vault candidates", async () => {
+    render(
+      <SavingsExperience now={testNow} initialData={{ ...initialData, candidates: [] }}
+        session={session()} balanceStatus="ready" balancePositions={balancePositions()} />,
+    );
+
+    expect((await page().findByRole("region", { name: "Save" })).textContent).toContain("$0.00");
+    expect(page().queryByRole("heading", { name: "Start saving" })).toBeNull();
+    expect(page().queryByRole("button", { name: "Get started" })).toBeNull();
   });
 
   test("shows an unavailable balance without inventing zero or an offer", async () => {
@@ -639,7 +653,7 @@ describe("Save simplify", () => {
     expect(page().getByRole("region", { name: "Save" }).textContent).not.toMatch(/APY|Earning|unavailable/i);
     unknown.rerender(<SavingsExperience now={testNow} initialData={nullData} session={session()}
       balanceStatus="ready" balancePositions={balancePositions()} />);
-    expect(await page().findByText("Available vault · Gauntlet")).toBeTruthy();
+    expect(await page().findByRole("heading", { name: "Start saving" })).toBeTruthy();
     cleanup();
     getHomeQueryClient().clear();
     const zeroData = { ...initialData, candidates: initialData.candidates.map((entry) => ({ ...entry, netApy: 0 })) };
@@ -648,7 +662,72 @@ describe("Save simplify", () => {
     expect(await page().findByText("Earning ~0%")).toBeTruthy();
     zero.rerender(<SavingsExperience now={testNow} initialData={zeroData}
       session={session()} balanceStatus="ready" balancePositions={balancePositions()} />);
-    expect(await page().findByText("Available vault · Gauntlet · 0% APY")).toBeTruthy();
+    expect(await page().findByRole("heading", { name: "Start saving" })).toBeTruthy();
+  });
+
+  test("shows one Get started in the unfunded intro, opens Deposit, and restores focus on close", async () => {
+    render(
+      <SavingsExperience
+        now={testNow}
+        initialData={initialData}
+        session={session()}
+        balanceStatus="ready"
+        balancePositions={balancePositions()}
+        availableUsdcBaseUnits="50000000"
+        prepareMoneyAction={async () => preparedAction("savings-deposit")}
+        executeMoneyAction={async () => ({ id: "action-1", status: "confirmed" })}
+      />,
+    );
+
+    expect(await page().findByRole("heading", { name: "Start saving" })).toBeTruthy();
+    const buttons = page().getAllByRole("button", { name: "Get started" });
+    expect(buttons).toHaveLength(1);
+    const opener = buttons[0];
+    expect((opener as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(opener);
+    expect(await page().findByRole("dialog", { name: "Deposit" })).toBeTruthy();
+    const animationFlag = globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean };
+    animationFlag.BASE_UI_ANIMATIONS_DISABLED = true;
+    try {
+      fireEvent.click(page().getByRole("button", { name: "Close deposit dialog" }));
+      await waitFor(() => expect(page().queryByRole("dialog", { name: "Deposit" })).toBeNull());
+      await waitFor(() => expect(document.activeElement).toBe(opener));
+    } finally {
+      delete animationFlag.BASE_UI_ANIMATIONS_DISABLED;
+    }
+  });
+
+  test("funded savings show Deposit and Withdraw without an intro", async () => {
+    render(
+      <SavingsExperience now={testNow} initialData={initialData} session={session()}
+        balanceStatus="ready" balancePositions={balancePositions({ [GAUNTLET]: "100000000" })} />,
+    );
+
+    expect(await page().findByRole("button", { name: "Deposit" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Withdraw" })).toBeTruthy();
+    expect(page().queryByRole("heading", { name: "Start saving" })).toBeNull();
+    expect(page().queryByRole("button", { name: "Get started" })).toBeNull();
+  });
+
+  test("vault-metadata failure hides the unfunded intro", async () => {
+    render(
+      <SavingsExperience now={testNow} session={session()}
+        fetchVaults={async () => { throw new Error("offline"); }}
+        balanceStatus="ready" balancePositions={balancePositions()} />,
+    );
+
+    expect(await page().findByText("Vaults are temporarily unavailable.")).toBeTruthy();
+    expect(page().queryByRole("heading", { name: "Start saving" })).toBeNull();
+    expect(page().queryByRole("button", { name: "Get started" })).toBeNull();
+  });
+
+  test("signed-out Save shows the intro with a disabled Get started", async () => {
+    render(<SavingsExperience now={testNow} initialData={initialData} />);
+
+    expect(await page().findByRole("heading", { name: "Start saving" })).toBeTruthy();
+    const buttons = page().getAllByRole("button", { name: "Get started" });
+    expect(buttons).toHaveLength(1);
+    expect((buttons[0] as HTMLButtonElement).disabled).toBe(true);
   });
 
   test("retains rates through failed and null refetches, then replaces them on recovery", async () => {

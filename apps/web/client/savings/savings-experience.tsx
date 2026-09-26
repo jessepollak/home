@@ -4,12 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, AlertAction, AlertIcon, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyTitle,
-} from "@/components/ui/empty";
+import { FeatureIntro } from "@/components/ui/feature-intro";
 import {
   Item,
   ItemContent,
@@ -18,7 +13,7 @@ import {
   ItemTitle,
 } from "@/components/ui/item";
 import { Skeleton } from "@/components/ui/skeleton";
-import { CircleAlertIcon, ArrowLeft } from "lucide-react";
+import { CircleAlertIcon, ArrowLeft, ArrowUpFromLine, LockOpen, Percent } from "lucide-react";
 import { MoneyTicker } from "@/components/money-ticker";
 import { AddressText } from "@/components/address-text";
 import { useOptionalAppChrome } from "@/components/app-chrome";
@@ -51,7 +46,6 @@ import {
   preferredSavingsCandidates,
   readUsdcBaseUnits,
   savingsVaultApyLabel,
-  shortVaultLabel,
 } from "./format";
 import {
   createSavingsGrowthAnchor,
@@ -325,6 +319,7 @@ export function SavingsExperience({
     portfolioSummary?.balance.status === "available"
       ? portfolioSummary.balance
       : null;
+  const notStarted = !funded && loadState.status === "ready" && selected !== null && (availableBalance !== null || !hasSession);
   const showBalanceRows = funded || (hasSession && !availableBalance);
   const selectedBalance = selected
     ? balances.find(
@@ -429,31 +424,12 @@ export function SavingsExperience({
                 ) : (
                   <FundedApyCaption apy={portfolioSummary.apy} />
                 )
-              ) : (
-                <SavingsEmpty
-                  title="Nothing saved yet"
-                  description={
-                    selected && loadState.status === "ready"
-                      ? availableVaultDescription(selected, loadState.data, rateNowMs)
-                      : undefined
-                  }
-                />
-              )}
+              ) : null}
             </>
           ) : !hasSession ? (
-            <>
-              <p className="text-4xl font-semibold tracking-tight text-muted-foreground tabular-nums">
-                <MoneyTicker value="$0.00" />
-              </p>
-              <SavingsEmpty
-                title="Nothing saved yet"
-                description={
-                  selected && loadState.status === "ready"
-                    ? availableVaultDescription(selected, loadState.data, rateNowMs)
-                    : undefined
-                }
-              />
-            </>
+            <p className="text-4xl font-semibold tracking-tight text-muted-foreground tabular-nums">
+              <MoneyTicker value="$0.00" />
+            </p>
           ) : (
             <>
               <p className="text-4xl font-semibold tracking-tight tabular-nums">
@@ -481,6 +457,26 @@ export function SavingsExperience({
           ) : null}
         </CardContent>
       </Card>
+
+      {notStarted ? (
+        <FeatureIntro
+          size="compact"
+          illustration="savings"
+          headline="Start saving"
+          benefits={[
+            { icon: Percent, text: "Earn interest on USDC" },
+            { icon: ArrowUpFromLine, text: "Withdraw anytime" },
+            { icon: LockOpen, text: "No lockups" },
+          ]}
+          primary={{
+            label: "Get started",
+            ref: depositOpenerRef,
+            disabled: !actionsReady,
+            onPointerDown: () => void SavingsMoneySheet.preload(),
+            onClick: () => openAction("deposit"),
+          }}
+        />
+      ) : null}
 
       {loadState.status === "loading" ? (
         <section className="space-y-3" aria-label="Vaults" aria-busy="true">
@@ -602,8 +598,8 @@ export function SavingsExperience({
         </section>
       ) : null}
 
-      {loadState.status !== "error" && (availableBalance || !hasSession) ? (
-        <div className={`grid gap-2 ${funded ? "grid-cols-2" : "grid-cols-1"}`}>
+      {funded && loadState.status !== "error" && availableBalance ? (
+        <div className="grid grid-cols-2 gap-2">
           <Button
             ref={depositOpenerRef}
             size="touch"
@@ -611,20 +607,18 @@ export function SavingsExperience({
             onPointerDown={() => void SavingsMoneySheet.preload()}
             onClick={() => openAction("deposit")}
           >
-            {funded ? "Deposit" : "Get started"}
+            Deposit
           </Button>
-          {funded ? (
-            <Button
-              ref={withdrawOpenerRef}
-              size="touch"
-              variant="outline"
-              disabled={!actionsReady || !canWithdraw}
-              onPointerDown={() => void SavingsMoneySheet.preload()}
-              onClick={() => openAction("withdraw")}
-            >
-              Withdraw
-            </Button>
-          ) : null}
+          <Button
+            ref={withdrawOpenerRef}
+            size="touch"
+            variant="outline"
+            disabled={!actionsReady || !canWithdraw}
+            onPointerDown={() => void SavingsMoneySheet.preload()}
+            onClick={() => openAction("withdraw")}
+          >
+            Withdraw
+          </Button>
         </div>
       ) : null}
 
@@ -678,15 +672,6 @@ function vaultInitials(name: string): string {
     .join("");
 }
 
-function availableVaultDescription(
-  candidate: MorphoVaultCandidate,
-  metadata: MorphoVaultsResult,
-  nowMs: number,
-): string {
-  const label = savingsVaultApyLabel(candidate, metadata, nowMs);
-  return `Available vault · ${shortVaultLabel(candidate.name)}${label ? ` · ${label}` : ""}`;
-}
-
 function fundedVaultApyLabel(
   candidate: MorphoVaultCandidate,
   metadata: MorphoVaultsResult,
@@ -710,27 +695,6 @@ function FundedApyCaption({ apy }: { apy: SavingsApySummary }) {
     );
   }
   return null;
-}
-
-function SavingsEmpty({
-  className,
-  description,
-  title,
-}: {
-  className?: string;
-  description?: React.ReactNode;
-  title: React.ReactNode;
-}) {
-  return (
-    <Empty className={className}>
-      <EmptyHeader>
-        <EmptyTitle>{title}</EmptyTitle>
-        {description ? (
-          <EmptyDescription>{description}</EmptyDescription>
-        ) : null}
-      </EmptyHeader>
-    </Empty>
-  );
 }
 
 function SavingsNotice({
