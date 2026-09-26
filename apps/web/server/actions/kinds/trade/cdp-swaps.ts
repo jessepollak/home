@@ -2,6 +2,8 @@ import "server-only";
 
 import { generateJwt } from "@coinbase/cdp-sdk/auth";
 import type { Address, Hex } from "@/shared/trading/server-types";
+import { TradePreparationError } from "./permit2";
+import { classifyProviderRefusal } from "./provider-refusal";
 
 export const SWAPS_PATH = "/platform/v2/evm/swaps";
 export const PRICE_PATH = `${SWAPS_PATH}/quote`;
@@ -105,9 +107,15 @@ export function createCdpSwapsClient({
         cache: "no-store",
         signal: controller.signal,
       });
-      if (!response.ok || controller.signal.aborted) unavailable();
+      if (controller.signal.aborted) unavailable();
+      if (!response.ok) {
+        const body: unknown = await response.json().catch(() => null);
+        if (classifyProviderRefusal(response.status, body)) throw new TradePreparationError("token-not-routed");
+        unavailable();
+      }
       return await response.json();
-    } catch {
+    } catch (error) {
+      if (error instanceof TradePreparationError) throw error;
       unavailable();
     } finally {
       clearTimeout(timeout);

@@ -68,6 +68,20 @@ function authorized() {
 afterEach(() => setActionsStoreForTests(null));
 
 describe("prepare action handler", () => {
+  test("refuses a stock buy before quoting even when params claim another country", async () => {
+    let quoted = false;
+    const handler = createPrepareActionHandler({
+      authorize: async () => authorized(),
+      prepareTrade: async () => { quoted = true; throw new Error("Must not quote"); },
+    });
+    const response = await handler(new Request("https://home.test/api/actions/prepare", {
+      method: "POST", headers: { "content-type": "application/json", [ACCOUNT_PROVIDER_HEADER]: "cdp-embedded", "x-vercel-ip-country": "US" },
+      body: JSON.stringify({ kind: "trade", params: { assetId: "nvdac", direction: "buy", country: "DE" } }),
+    }));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ error: { code: "TRADE_STOCK_RESTRICTED" } });
+    expect(quoted).toBe(false);
+  });
   test.each(["deposit", "withdraw"] as const)(
     "issues a successful savings %s action through the shared prepare route",
     async (operation) => {

@@ -151,6 +151,8 @@ export function tradePreparationResponse(error: unknown): { code: string; messag
   if (!(error instanceof TradePreparationError)) return null;
   switch (error.reason) {
     case "invalid-request": return { code: "TRADE_INVALID", message: "Enter a valid trade amount and direction.", status: 400 };
+    case "stock-eligibility": return { code: "TRADE_STOCK_RESTRICTED", message: "Stock buys aren't available in this location.", status: 403 };
+    case "token-not-routed": return { code: "TRADE_NOT_ROUTED", message: "This asset can't be traded in Home yet.", status: 422 };
     case "signer-unsupported":
     case "smart-account-unavailable": return { code: "TRADE_SIGNER_UNSUPPORTED", message: "This account cannot sign this trade.", status: 422 };
     case "insufficient-balance": return { code: "TRADE_INSUFFICIENT_BALANCE", message: "The available balance is insufficient.", status: 409 };

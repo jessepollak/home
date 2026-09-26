@@ -25,6 +25,7 @@ import {
 } from "@/server/funding/cash-out";
 import type { ActionAuthorizer } from "./handler";
 import { prepareTradeAction, tradePreparationResponse } from "./kinds/trade/prepare";
+import { assertStockTradePrepareAllowed } from "./kinds/trade/stock-eligibility";
 import { isTradeErrorCode } from "@/shared/trading/contract";
 
 export function createPrepareActionHandler(dependencies: {
@@ -137,6 +138,7 @@ async function prepare(
     return issue(preparation.draft);
   }
   if (kind === "trade") {
+    assertStockTradePrepareAllowed({ params, request });
     const { draft, pending, callGasLimit } = await (dependencies.prepareTrade ?? prepareTradeAction)({ session, request, params, signal });
     const withFee = await (dependencies.applyFee ?? applyNetworkFee)(session, draft, { signal, request, callGasLimit });
     return issueMoneyAction(session, withFee, { pending: { ...pending, swapCallIndex: withFee.calls.length - 1 } });

@@ -33,6 +33,6 @@ Use the [operator checklist](operator-checklist.md) for values and destinations.
 ## Before publishing
 
 - Keep secrets out of git and use your own provider credentials.
-- Do not infer eligibility from country, language, or UI copy.
+- Do not infer eligibility from the country preference, language, or UI copy. Stock buys use only the trusted edge request country. Self-hosted forks fail closed unless their edge overwrites `x-vercel-ip-country` and they set `HOME_TRUST_EDGE_COUNTRY_HEADER=true`; stock sells to Base USDC remain allowed.
 - Keep exact amounts, fees, network, and asset identity on action review.
 - Run `bun check` before sharing a focused upstream change.

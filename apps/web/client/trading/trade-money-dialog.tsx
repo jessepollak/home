@@ -231,6 +231,8 @@ function messageForTradeError(error: unknown): string {
   const code = isRecord(error) ? error.code : null;
   if (isTradeErrorCode(code)) {
     switch (code) {
+      case "TRADE_STOCK_RESTRICTED": return "Stock buys aren't available in your location.";
+      case "TRADE_NOT_ROUTED": return "This asset can't be traded in Home yet.";
       case "TRADE_NO_LIQUIDITY": return "No liquidity for this amount. Try a smaller trade.";
       case "TRADE_INSUFFICIENT_BALANCE": return "Not enough balance for this trade. Try a smaller amount.";
       case "TRADE_QUOTE_STALE": case "TRADE_QUOTE_REJECTED": return "This quote changed. Get a new quote.";

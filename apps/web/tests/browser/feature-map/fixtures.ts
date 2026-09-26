@@ -62,6 +62,7 @@ export function fixtureRoutes() {
     ["**/api/actions", { actions: [...actionsBody.actions, cashoutFixtureAction] }],
     ["**/api/actions/prepare", prepared],
     ["**/api/trades", { version: 1, status: "available" }],
+    ["**/api/trades/stock-eligibility", { version: 1, buy: "restricted", sell: "eligible" }],
     ["**/api/actions/network-fee", { version: 1, usdcReserveBaseUnits: "20000" }],
     [`**/api/actions/${prepared.id}`, {
       id: prepared.id, kind: prepared.kind,

@@ -19,6 +19,7 @@ import { privateError, privateJson } from "@/server/http/private-response";
 import { getActionsStore, type ActionRow, type ActionsStore, type CashoutOrderRow, type PendingAction, type ActionOutcome } from "./store";
 import { deriveActionStatus, type ActionReceiptState } from "./status";
 import { finalizeTradeCalls, type PendingTradeConfirmation } from "./kinds/trade/finalize";
+import { assertStockTradeConfirmAllowed } from "./kinds/trade/stock-eligibility";
 import type { TradeConfirmRequest } from "@/shared/trading/contract";
 import { createSmartAccountSignatureVerifier } from "./kinds/trade/signer";
 import type { SmartAccountSignatureVerifier } from "@/shared/trading/server-types";
@@ -152,6 +153,9 @@ export function createConfirmActionHandler(dependencies: {
     const draftCalls = replay ?? (draft.confirmed_at ? null : draft.pending?.calls);
     if (!draftCalls?.length) {
       return fail("ACTION_NOT_FOUND", "The action is unavailable or already confirmed.", 404);
+    }
+    if (draft.kind === "trade" && !assertStockTradeConfirmAllowed({ metadata: draft.summary.metadata, request })) {
+      return fail("TRADE_STOCK_RESTRICTED", "Stock buys aren't available in this location.", 403);
     }
     if (!replay && Date.parse(draft.summary.expiresAt) <= (dependencies.now?.() ?? new Date()).getTime()) {
       return fail("ACTION_EXPIRED", "The action review expired. Prepare it again.", 410);

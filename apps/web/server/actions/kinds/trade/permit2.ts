@@ -16,6 +16,7 @@ import type {
 export type TradePreparationFailure =
   | "invalid-request"
   | "stock-eligibility"
+  | "token-not-routed"
   | "smart-account-unavailable"
   | "signer-unsupported"
   | "insufficient-balance"

@@ -4,6 +4,7 @@ import { encodeCoinbaseExecuteBatch } from "@/server/chain/coinbase-smart-accoun
 import { keccak256 } from "viem";
 import { makePaymasterApproval } from "@/server/paymaster/fee";
 import { BASE_USDC_ADDRESS, BASE_USDC_PAYMASTER_ADDRESS } from "@/shared/money-actions/network-fee";
+import { stockAssets } from "@/config/invest-assets";
 import type { ActionRow } from "./store";
 import type { TradeMoneyActionMetadata } from "@/shared/trading/contract";
 import { createConfirmActionHandler, createGetActionHandler, createRetryActionHandler } from "./handler";
@@ -60,6 +61,34 @@ const request = (signature: string, provider: "base-account" | "cdp-embedded") =
 });
 
 describe("trade confirmation", () => {
+  test.each(["US", null] as const)("blocks a stock buy for %s through the real confirm handler", async (country) => {
+    const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
+    row.summary.metadata = { product: "trade", fromAsset: { address: BASE_USDC_ADDRESS }, toAsset: { address: stockAssets[0].contractAddress } } as unknown as TradeMoneyActionMetadata;
+    const handler = createConfirmActionHandler({
+      authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
+      now: () => new Date("2026-09-25T12:01:00.000Z"),
+      store: { get: async () => row, confirm: async () => { throw new Error("Must not confirm"); } },
+    });
+    const restrictedRequest = new Request(`https://home.test/api/actions/${ID}/confirm`, {
+      method: "POST", headers: { "X-Home-Account-Provider": "cdp-embedded", ...(country ? { "x-vercel-ip-country": country } : {}) },
+      body: JSON.stringify({ signature: "0x1234" }),
+    });
+    const response = await handler(restrictedRequest, context);
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ error: { code: "TRADE_STOCK_RESTRICTED" } });
+  });
+  test("allows stock to USDC past the guard in a US request", async () => {
+    const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
+    row.summary.metadata = { product: "trade", fromAsset: { address: stockAssets[0].contractAddress }, toAsset: { address: BASE_USDC_ADDRESS } } as unknown as TradeMoneyActionMetadata;
+    const handler = createConfirmActionHandler({
+      authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
+      now: () => new Date("2026-09-25T12:01:00.000Z"),
+      store: { get: async () => row, confirm: async () => { throw new Error("Must not confirm"); } },
+    });
+    const response = await handler(request("0x1234", "cdp-embedded"), context);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: { code: "INVALID_TRADE_SIGNATURE" } });
+  });
   test.each(["base-account", "cdp-embedded"] as const)("finalizes a fee-prepended %s trade with an exact call commitment", async (provider) => {
     const row = tradeRow(provider, "2026-09-25T12:03:00.000Z");
     const signature = await SIGNER.signTypedData({ ...typed, domain: { ...typed.domain, chainId: BigInt(8453) } });
@@ -141,6 +170,17 @@ describe("confirmed trade replay", () => {
       method: "POST", headers: { "X-Home-Account-Provider": provider, "Content-Type": "application/json" }, body: "{}",
     }), context) };
   }
+
+  test("blocks a signed stock-buy replay if country is missing", async () => {
+    const row = confirmedRow((value) => {
+      value.summary.metadata = { ...value.summary.metadata, fromAsset: { address: BASE_USDC_ADDRESS }, toAsset: { address: stockAssets[0].contractAddress } } as unknown as TradeMoneyActionMetadata;
+    });
+    const { effects, confirm } = replayHandler(row);
+    const response = await confirm("cdp-embedded");
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ error: { code: "TRADE_STOCK_RESTRICTED" } });
+    expect(effects).toEqual({ confirms: 0, verifications: 0, recorded: 0, estimates: 0 });
+  });
 
   test.each(["base-account", "cdp-embedded"] as const)("returns the committed %s plan without re-finalizing", async (provider) => {
     const row = confirmedRow((value) => { value.provider = provider; value.owner_key = JSON.stringify(["owner", OWNER, 8453, provider]); });
