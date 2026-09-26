@@ -744,6 +744,16 @@ describe("RFQ maker authorization", () => {
     await expect(verifyRfqMakerAuthorizations(rfqMakerAuthorizations(request, rfq, TARGET), read, "0x3e8"))
       .rejects.toMatchObject({ reason: "provider-unavailable" });
   });
+  test("sums several authorizations from one maker against its balance and allowance", async () => {
+    const quote = fixture();
+    const rfq = rfqQuote(await makerAccount.signTypedData(witnessData(quote)));
+    const [auth] = rfqMakerAuthorizations(request, rfq, TARGET);
+    const both = [auth!, auth!];
+    await expect(verifyRfqMakerAuthorizations(both, makerRead(makerAddress).read, "0x3e8")).rejects.toMatchObject({ reason: "stale-quote" });
+    const funded = makerRead(makerAddress, { balance: `0x${word(2000)}`, allowance: `0x${word(2000)}` });
+    await verifyRfqMakerAuthorizations(both, funded.read, "0x3e8");
+    expect(funded.calls.filter(([, params]) => (params[0] as { to?: string }).to === swapTokens("buy").toToken)).toHaveLength(2);
+  });
   test("rejects a used maker nonce", async () => {
     const quote = fixture();
     const rfq = rfqQuote(await makerAccount.signTypedData(witnessData(quote)));

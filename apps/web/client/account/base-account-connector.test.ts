@@ -233,7 +233,8 @@ describe("Base Account connector boundary", () => {
     ]);
     for (const hint of ["0", "0x10", "2000001"]) {
       await expect(connection.sendCalls?.(calls, "bad-hint", undefined, hint)).rejects.toMatchObject({
-        reason: "invalid-provider-response",
+        reason: "not-submitted",
+        cause: expect.objectContaining({ reason: "invalid-provider-response" }),
       });
     }
     expect(provider.requests.filter(({ method }) => method === "wallet_sendCalls")).toHaveLength(2);
@@ -467,6 +468,17 @@ describe("Base Account connector boundary", () => {
     }
   });
 
+  test("an account change before wallet_sendCalls is reported as not submitted", async () => {
+    const provider = new ProviderFixture();
+    const connection = await connectWithBaseProvider(asProvider(provider), CHALLENGE, () => {});
+    const calls = [{ to: ADDRESS as `0x${string}`, value: BigInt(0), data: "0x1234" as `0x${string}` }];
+    provider.accounts = [OTHER_ADDRESS];
+    await expect(connection.sendCalls?.(calls, "changed", undefined)).rejects.toMatchObject({
+      reason: "not-submitted",
+      cause: expect.objectContaining({ reason: "account-changed" }),
+    });
+    expect(provider.requests.some(({ method }) => method === "wallet_sendCalls")).toBe(false);
+  });
   test("rejects account and chain changes before verification can continue", async () => {
     const accountProvider = new ProviderFixture();
     const accountConnection = await connectWithBaseProvider(

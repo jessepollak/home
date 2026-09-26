@@ -147,6 +147,26 @@ describe("thin action dispatch", () => {
     expect(ambiguousDeclines).toBe(0);
   });
 
+  test("a failure proven before the provider request is not submitted: it reports a decline and a retry dispatches again", async () => {
+    let dispatches = 0;
+    let declines = 0;
+    const execute = () => executeActionOnce({
+      id, generation: 3, fence: { assertCurrent: () => {} }, confirmedPlans: new Map([[id, plan]]),
+      providerDispatches: new Map(), dispatchAttempts: new Map(), pendingDeclines: new Map(),
+      confirm: async () => plan,
+      dispatch: async () => {
+        if (++dispatches === 1) throw new TransferExecutionError("not-submitted", new Error("account changed before wallet_sendCalls"));
+        return "handle";
+      },
+      recordHandle: async () => {},
+      recordDecline: async () => { declines += 1; },
+    });
+    await expect(execute()).rejects.toMatchObject({ reason: "not-submitted" });
+    expect(declines).toBe(1);
+    await expect(execute()).resolves.toBe("handle");
+    expect(dispatches).toBe(2);
+  });
+
   test("a lost confirm response retries confirmation without opening a second provider dispatch", async () => {
     let confirms = 0;
     let dispatches = 0;
