@@ -512,14 +512,62 @@ function ProviderEconomicsReview({
   );
 }
 
-function DefinitionRow({ label, value }: { label: string; value: string }) {
+function DefinitionRow({ label, value, ticker = true }: { label: string; value: string; ticker?: boolean }) {
   return (
     <div className="flex items-start justify-between gap-4 border-b py-3 last:border-b-0">
       <dt className="text-sm text-muted-foreground">{label}</dt>
-      <dd className="text-right text-sm font-medium tabular-nums">
-        <MoneyTicker value={value} />
+      <dd className="text-end text-sm font-medium tabular-nums">
+        {ticker ? <MoneyTicker value={value} /> : value}
       </dd>
     </div>
+  );
+}
+
+export function OpenOrderPrompt({
+  binding,
+  order,
+  startNewAllowed,
+  onContinue,
+  onStartNew,
+}: {
+  binding: FundingBinding;
+  order: FundingOrderSummary;
+  startNewAllowed: boolean;
+  onContinue: () => void;
+  onStartNew: () => void;
+}) {
+  return (
+    <>
+      <MoneyModalBody hasFooter className="gap-4 pt-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              <h3>You have an open deposit</h3>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <dl className="space-y-3">
+              <DefinitionRow label="You pay" value={formatFiatAmount(order.fiatAmount, binding.currency)} />
+              {order.createdAt ? (
+                <DefinitionRow
+                  label="Started"
+                  value={formatPresentationDate(order.createdAt, { style: "date-time-zone" })}
+                  ticker={false}
+                />
+              ) : null}
+            </dl>
+          </CardContent>
+        </Card>
+        {order.state === "dispatch-ambiguous" ? (
+          <FundingNotice>Home can&apos;t confirm this deposit yet. Continue to check it before starting another.</FundingNotice>
+        ) : null}
+      </MoneyModalBody>
+      <MoneyModalFooter
+        primaryLabel="Continue deposit"
+        onPrimary={onContinue}
+        {...(startNewAllowed ? { secondaryLabel: "Start new deposit", onSecondary: onStartNew } : {})}
+      />
+    </>
   );
 }
 function OrderStatus({
@@ -888,7 +936,7 @@ function confirmOrderErrorCopy(error: unknown): string {
     ? error.code
     : null;
   if (code === "AMBIGUOUS_ORDER_OPEN") {
-    return "Home is still waiting on an earlier deposit. Close and reopen Add money to resume it; no new provider request was created.";
+    return "Home is still waiting on an earlier deposit. Close and reopen Add money, then continue it; no new provider request was created.";
   }
   if (code === "ORDER_STATE_CHANGED") {
     return "This deposit changed while Home was confirming it. Close and reopen Add money to check the existing order before trying again.";

@@ -34,11 +34,12 @@ import { MoneyModal, MoneyModalBody, MoneyModalHeader } from "@/client/money-mod
 import { ReceiveQr } from "./receive-qr";
 import {
   FundingOrderFlow,
+  OpenOrderPrompt,
   type FundingBinding,
   type FundingOrderSummary,
 } from "./order-flow";
 
-export type AddMoneyStep = "method" | "receive" | "order";
+export type AddMoneyStep = "method" | "receive" | "open-order" | "order";
 export type ProvidersStatus = "unavailable" | "loading" | "loaded" | "failed";
 
 export function AddMoneyDialog({
@@ -59,6 +60,10 @@ export function AddMoneyDialog({
   fundingReadError,
   selectedBinding,
   initialOrder,
+  promptOrder,
+  onContinueOrder,
+  onStartNewOrder,
+  startNewAllowed,
   initialCustomer,
   fetchAccountResource,
   queryOwnerKey,
@@ -82,6 +87,10 @@ export function AddMoneyDialog({
   fundingReadError: { message: string; retry: () => void } | null;
   selectedBinding: FundingBinding | null;
   initialOrder: FundingOrderSummary | null;
+  promptOrder: FundingOrderSummary | null;
+  onContinueOrder: () => void;
+  onStartNewOrder: () => void;
+  startNewAllowed: boolean;
   initialCustomer?: FundingProviderCustomerSummary | null;
   fetchAccountResource: (
     path: string,
@@ -95,7 +104,7 @@ export function AddMoneyDialog({
   const title =
     step === "receive"
       ? "Receive"
-      : step === "order"
+      : step === "order" || step === "open-order"
         ? `Deposit ${selectedBinding?.currency ?? currency}`
         : "Add money";
 
@@ -135,6 +144,15 @@ export function AddMoneyDialog({
       ) : null}
       {!signedOut && step === "receive" ? (
         <ReceiveBody address={address} regionId={regionId} />
+      ) : null}
+      {!signedOut && step === "open-order" && selectedBinding && promptOrder ? (
+        <OpenOrderPrompt
+          binding={selectedBinding}
+          order={promptOrder}
+          startNewAllowed={startNewAllowed}
+          onContinue={onContinueOrder}
+          onStartNew={onStartNewOrder}
+        />
       ) : null}
       {!signedOut && step === "order" && selectedBinding ? (
         <FundingOrderFlow

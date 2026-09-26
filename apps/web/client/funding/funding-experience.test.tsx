@@ -653,6 +653,7 @@ describe("FundingExperience", () => {
 
     fireEvent.click(page().getByRole("button", { name: "Back" }));
     fireEvent.click(await page().findByRole("button", { name: /Deposit ARS/ }));
+    fireEvent.click(page().getByRole("button", { name: "Continue deposit" }));
     expect(await page().findByText("Don't try again yet")).toBeTruthy();
     expect(quoteCalls).toBe(1);
     expect(orderBodies).toEqual([{ quoteToken: "original-signed-token" }, { quoteToken: "original-signed-token" }]);
@@ -660,7 +661,7 @@ describe("FundingExperience", () => {
 
   test("shows typed create conflicts instead of generic retry copy", async () => {
     for (const [code, message] of [
-      ["AMBIGUOUS_ORDER_OPEN", "Home is still waiting on an earlier deposit. Close and reopen Add money to resume it; no new provider request was created."],
+      ["AMBIGUOUS_ORDER_OPEN", "Home is still waiting on an earlier deposit. Close and reopen Add money, then continue it; no new provider request was created."],
       ["ORDER_STATE_CHANGED", "This deposit changed while Home was confirming it. Close and reopen Add money to check the existing order before trying again."],
     ] as const) {
       const wallet = {
@@ -707,6 +708,10 @@ describe("FundingExperience", () => {
 
     render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
     fireEvent.click(await page().findByRole("button", { name: /Deposit ARS/ }));
+    expect(page().getByRole("heading", { name: "You have an open deposit" })).toBeTruthy();
+    expect(page().queryByRole("button", { name: "Start new deposit" })).toBeNull();
+    expect(page().getByText("Home can't confirm this deposit yet. Continue to check it before starting another.")).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Continue deposit" }));
     await page().findByText("Don't try again yet");
     expect(page().getByRole("button", { name: "Back" })).toBeTruthy();
     expect(page().getByText(/Home is waiting to learn whether the provider created this deposit/)).toBeTruthy();
@@ -725,6 +730,7 @@ describe("FundingExperience", () => {
     expect(page().queryByText("Don't try again yet")).toBeNull();
 
     fireEvent.click(page().getByRole("button", { name: /Deposit ARS/ }));
+    fireEvent.click(page().getByRole("button", { name: "Continue deposit" }));
     expect(await page().findByText("Deposit pending")).toBeTruthy();
     expect(page().queryByRole("button", { name: "Review quote" })).toBeNull();
     expect(requests.some((request) => request.path === "/api/funding/quotes" || request.path === "/api/funding/orders")).toBe(false);
@@ -746,14 +752,18 @@ describe("FundingExperience", () => {
 
     render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
     fireEvent.click(await page().findByRole("button", { name: /Deposit ARS/ }));
+    fireEvent.click(page().getByRole("button", { name: "Continue deposit" }));
     await page().findByText("Don't try again yet");
     fireEvent.click(page().getByRole("button", { name: "Back" }));
     fireEvent.click(await page().findByRole("button", { name: /Deposit USD/ }));
+    expect(page().queryByRole("heading", { name: "You have an open deposit" })).toBeNull();
+    expect(page().getByRole("button", { name: "Review quote" })).toBeTruthy();
     await waitFor(() => expect(page().queryByText("Don't try again yet")).toBeNull());
     expect(page().queryByRole("button", { name: "Clear old order" })).toBeNull();
 
     fireEvent.click(page().getByRole("button", { name: "Back" }));
     fireEvent.click(await page().findByRole("button", { name: /Deposit ARS/ }));
+    fireEvent.click(page().getByRole("button", { name: "Continue deposit" }));
     expect(await page().findByText("Don't try again yet")).toBeTruthy();
     expect(requests.some((path) => path === "/api/funding/quotes" || path === "/api/funding/orders" || path.endsWith("/resolve"))).toBe(false);
   });
@@ -775,10 +785,12 @@ describe("FundingExperience", () => {
 
     render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
     fireEvent.click(await page().findByRole("button", { name: /Deposit ARS/ }));
+    fireEvent.click(page().getByRole("button", { name: "Continue deposit" }));
     await page().findByText("Don't try again yet");
     fireEvent.click(page().getByRole("button", { name: "Back" }));
     expect(await page().findByRole("button", { name: /Receive crypto/ })).toBeTruthy();
     fireEvent.click(page().getByRole("button", { name: /Deposit ARS/ }));
+    fireEvent.click(page().getByRole("button", { name: "Continue deposit" }));
     expect(await page().findByText("Don't try again yet")).toBeTruthy();
     expect(quoteCalls).toBe(0);
     expect(createCalls).toBe(0);
@@ -818,6 +830,7 @@ describe("FundingExperience", () => {
 
     render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
     fireEvent.click(await page().findByRole("button", { name: /Deposit ARS/ }));
+    fireEvent.click(page().getByRole("button", { name: "Continue deposit" }));
     await page().findByText("Don't try again yet");
     fireEvent.click(page().getByRole("button", { name: "Clear old order" }));
     expect((await page().findByRole("alert")).textContent).toContain(
@@ -932,7 +945,24 @@ describe("FundingExperience", () => {
     expect(requests).toEqual(["/api/funding/providers?region=AR&direction=onramp", "/api/funding/orders?region=AR"]);
   });
 
-  test("selecting the matching provider resumes its pending order without quote or create", async () => {
+  test("selecting a matching pending order shows its amount without opening the order or making writes", async () => {
+    const requests: string[] = [];
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      requests.push(path);
+      if (path.startsWith("/api/funding/providers?")) return { providers: [fundingBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return { order: { ...pendingRipioOrder(), createdAt: "2026-09-13T00:05:00.000Z" } };
+      throw new Error(`unexpected request: ${path}`);
+    } };
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+    fireEvent.click(await page().findByRole("button", { name: /Deposit ARS/ }));
+    expect(page().getByRole("heading", { name: "You have an open deposit" })).toBeTruthy();
+    expect(page().getByText("You pay").parentElement?.textContent).toContain("1.000,00");
+    expect(page().getByText("Started").parentElement?.textContent).toContain("2026");
+    expect(page().queryByText("Deposit pending")).toBeNull();
+    expect(requests).toEqual(["/api/funding/providers?region=AR&direction=onramp", "/api/funding/orders?region=AR"]);
+  });
+
+  test("Continue deposit opens the selected pending order without quote or create", async () => {
     const requests: string[] = [];
     const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
       requests.push(path);
@@ -942,8 +972,64 @@ describe("FundingExperience", () => {
     } };
     render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
     fireEvent.click(await page().findByRole("button", { name: /Deposit ARS/ }));
+    fireEvent.click(page().getByRole("button", { name: "Continue deposit" }));
     expect(await page().findByText("Deposit pending")).toBeTruthy();
     expect(requests).toEqual(["/api/funding/providers?region=AR&direction=onramp", "/api/funding/orders?region=AR"]);
+  });
+
+  test("Start new deposit opens a fresh quote form instead of the pending order", async () => {
+    const requests: string[] = [];
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      requests.push(path);
+      if (path.startsWith("/api/funding/providers?")) return { providers: [fundingBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return { order: pendingRipioOrder() };
+      throw new Error(`unexpected request: ${path}`);
+    } };
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+    fireEvent.click(await page().findByRole("button", { name: /Deposit ARS/ }));
+    fireEvent.click(page().getByRole("button", { name: "Start new deposit" }));
+    expect(page().getByRole("button", { name: "Review quote" })).toBeTruthy();
+    expect(page().queryByText("Deposit pending")).toBeNull();
+    expect(page().queryByRole("heading", { name: "You have an open deposit" })).toBeNull();
+    expect(requests).toEqual(["/api/funding/providers?region=AR&direction=onramp", "/api/funding/orders?region=AR"]);
+  });
+
+  test("Back from the open-order prompt and close/reopen return to methods", async () => {
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers?")) return { providers: [fundingBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return { order: pendingRipioOrder() };
+      throw new Error(`unexpected request: ${path}`);
+    } };
+    const props = { wallet, navigateToRedirect: () => {}, regionId: "AR" as const };
+    const view = render(<FundingExperienceForWallet {...props} open />);
+    fireEvent.click(await page().findByRole("button", { name: /Deposit ARS/ }));
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().queryByRole("heading", { name: "You have an open deposit" })).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: /Deposit ARS/ }));
+    fireEvent.click(page().getByRole("button", { name: "Close add money" }));
+    view.rerender(<FundingExperienceForWallet {...props} open={false} />);
+    view.rerender(<FundingExperienceForWallet {...props} open />);
+    expect(await page().findByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().queryByRole("heading", { name: "You have an open deposit" })).toBeNull();
+  });
+
+  test("Continue uses the order selected before an open-order refetch", async () => {
+    const first = pendingRipioOrder();
+    const replacement = { ...first, id: "22222222-2222-4222-8222-222222222222", state: "dispatch-ambiguous" };
+    let reads = 0;
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers?")) return { providers: [fundingBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return { order: ++reads === 1 ? first : replacement };
+      throw new Error(`unexpected request: ${path}`);
+    } };
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+    fireEvent.click(await page().findByRole("button", { name: /Deposit ARS/ }));
+    await act(async () => { await getHomeQueryClient().refetchQueries({ queryKey: ownerQueryKey(dataOwnerKey(wallet.session!), "funding-open-order", "AR") }); });
+    expect(reads).toBe(2);
+    fireEvent.click(page().getByRole("button", { name: "Continue deposit" }));
+    expect(await page().findByText("Deposit pending")).toBeTruthy();
+    expect(page().queryByText("Don't try again yet")).toBeNull();
   });
 
   test("Back and close/reopen do not resume on an order refetch", async () => {
@@ -1286,6 +1372,7 @@ describe("FundingExperience", () => {
     );
 
     fireEvent.click(await page().findByRole("button", { name: /Deposit IDR/ }));
+    fireEvent.click(page().getByRole("button", { name: "Continue deposit" }));
     expect(await page().findByRole("link", { name: "Continue to payment" })).toBeTruthy();
     await new Promise((resolve) => queueMicrotask(() => resolve(undefined)));
     expect(navigations).toEqual([]);
@@ -1311,6 +1398,7 @@ describe("FundingExperience", () => {
     );
 
     fireEvent.click(await page().findByRole("button", { name: /Deposit IDR/ }));
+    fireEvent.click(page().getByRole("button", { name: "Continue deposit" }));
     expect(await page().findByText("Receive")).toBeTruthy();
     expect(page().getByText(/19[,.]860/)).toBeTruthy();
     expect(page().getByText("VA INA")).toBeTruthy();
@@ -1430,6 +1518,7 @@ describe("FundingExperience", () => {
 
     try {
       fireEvent.click(await page().findByRole("button", { name: /Deposit USD/ }));
+      fireEvent.click(page().getByRole("button", { name: "Continue deposit" }));
       await page().findByRole("heading", { name: "Review payment details" });
       fireEvent.click(page().getByRole("button", { name: "View payment instructions" }));
       await page().findByTitle("Apple Pay");
@@ -1462,6 +1551,7 @@ describe("FundingExperience", () => {
     };
     render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="US" />);
     fireEvent.click(await page().findByRole("button", { name: /Deposit USD/ }));
+    fireEvent.click(page().getByRole("button", { name: "Continue deposit" }));
     await page().findByRole("heading", { name: "Review payment details" });
     fireEvent.click(page().getByRole("button", { name: "View payment instructions" }));
     expect(page().queryByTitle("Apple Pay")).toBeNull();
@@ -1630,6 +1720,9 @@ describe("provider customer funding position", () => {
     expect(page().queryByRole("heading", { name: "Set up Ripio" })).toBeNull();
 
     fireEvent.click(provider);
+    expect(page().getByRole("heading", { name: "You have an open deposit" })).toBeTruthy();
+    expect(page().queryByRole("button", { name: "Start new deposit" })).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "Continue deposit" }));
     expect(await page().findByText("Deposit pending")).toBeTruthy();
     expect(page().queryByRole("heading", { name: "Set up Ripio" })).toBeNull();
     expect(requests.filter(({ method }) => method && method !== "GET")).toEqual([]);
