@@ -6,7 +6,7 @@ import { deferSheet } from "@/client/money-modal/deferred-sheet";
 import { useAccountWallet, isServerVerified } from "@/client/account/cdp-client";
 import { useBalances } from "@/client/balances";
 import { usePresentationRegionId } from "@/client/invest/presentation-quote";
-import { selectBalanceBaseUnits } from "@/shared/balances/select";
+import { selectBalanceBaseUnits, selectHolding } from "@/shared/balances/select";
 import type { InvestAsset } from "@/config/invest-assets";
 import { getTradeAssetStatus } from "@/shared/trading/assets";
 import type { TradeDirection } from "@/shared/trading/contract";
@@ -52,6 +52,8 @@ function BitcoinTradeActions({ asset, layout }: { asset: InvestAsset; layout: "r
   const usableBalances = balances.status === "ready" && !balances.snapshot.stale && !balances.refreshError;
   const cash = usableBalances ? selectBalanceBaseUnits(balances.snapshot, "usdc") : null;
   const holding = usableBalances ? selectBalanceBaseUnits(balances.snapshot, "cbbtc") : null;
+  const unitValue = usableBalances ? selectHolding(balances.snapshot, "cbbtc")?.unitValue : null;
+  const assetPrice = unitValue ? { currency: unitValue.currency, perUnit: unitValue.amount } : null;
   const [direction, setDirection] = useState<TradeDirection | null>(null);
   const [mountedDirection, setMountedDirection] = useState<TradeDirection | null>(null);
   const opener = useRef<HTMLButtonElement | null>(null);
@@ -75,6 +77,6 @@ function BitcoinTradeActions({ asset, layout }: { asset: InvestAsset; layout: "r
       <Button size="touch" variant="secondary" disabled={!ready || holding === null || holding === "0"} onPointerDown={() => void TradeMoneySheet.preload()} onClick={(event) => openTrade("sell", event.currentTarget)}>Sell</Button>
     </div>
     {note || balancesNote || sellNote || buyNote ? <p className="text-end text-sm text-muted-foreground" role="note">{note ?? balancesNote ?? sellNote ?? buyNote}</p> : null}
-    {session?.smartAccount && mountedDirection ? <TradeMoneySheet key={`${session.user.subject}:${session.smartAccount.address}:${mountedDirection}`} open={direction !== null} direction={mountedDirection} session={session} availableBaseUnits={mountedDirection === "buy" ? cash : holding} fetchAccountResource={account.fetchAccountResource} prepareMoneyAction={account.prepareMoneyAction} executeMoneyAction={account.executeMoneyAction} onClose={() => setDirection(null)} onClosed={() => { setMountedDirection(null); opener.current?.focus(); }} /> : null}
+    {session?.smartAccount && mountedDirection ? <TradeMoneySheet key={`${session.user.subject}:${session.smartAccount.address}:${mountedDirection}`} open={direction !== null} direction={mountedDirection} session={session} availableBaseUnits={mountedDirection === "buy" ? cash : holding} assetPrice={assetPrice} fetchAccountResource={account.fetchAccountResource} prepareMoneyAction={account.prepareMoneyAction} executeMoneyAction={account.executeMoneyAction} onClose={() => setDirection(null)} onClosed={() => { setMountedDirection(null); opener.current?.focus(); }} /> : null}
   </div>;
 }

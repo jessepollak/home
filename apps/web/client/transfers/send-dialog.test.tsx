@@ -85,6 +85,42 @@ const offrampResponse = {
 afterEach(cleanup);
 
 describe("SendDialog availability", () => {
+  test("priced Bitcoin offers a unit toggle while USD cash does not, and review keeps native BTC", async () => {
+    const requests: string[] = [];
+    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="priced-send" regionId="US"
+      availableAssets={[
+        { ...getTransferAsset("cbbtc")!, balanceBaseUnits: "1000000", balanceLabel: "0.01 cbBTC", price: { currency: "USD", perUnit: { atoms: "65000", scale: 0 } } },
+        { ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00", price: null },
+      ]}
+      prepareMoneyAction={async (_kind, request) => {
+        const send = request as { amountBaseUnits: string };
+        requests.push(send.amountBaseUnits);
+        return { ...resumedAction(), title: "Send cbBTC", amounts: [{ assetId: "cbbtc", symbol: "cbBTC", decimals: 8, amountBaseUnits: send.amountBaseUnits, direction: "spend" }] };
+      }}
+      resumeMoneyAction={async () => resumedAction()}
+      executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })}
+      onClose={() => {}} />);
+
+    expect(page().getByRole("button", { name: /as the primary amount/ })).toBeTruthy();
+    expect((page().getByRole("button", { name: "$10" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(page().getByRole("button", { name: /as the primary amount/ }));
+    expect((page().getByRole("button", { name: "$10" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "65" } });
+    expect((page().getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("65");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.change(page().getByRole("textbox", { name: "To" }), { target: { value: RECIPIENT } });
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    expect(await page().findByText("You're sending cbBTC")).toBeTruthy();
+    expect(requests).toEqual(["100000"]);
+    expect(page().getByRole("button", { name: /Send 0\.001\s+cbBTC/ })).toBeTruthy();
+
+    cleanup();
+    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="cash-send" regionId="US"
+      availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00", price: null }]}
+      prepareMoneyAction={async () => resumedAction()} resumeMoneyAction={async () => resumedAction()}
+      executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />);
+    expect(page().queryByRole("button", { name: /as the primary amount/ })).toBeNull();
+  });
   test("uses exact base units for Max instead of parsing the display label", () => {
     const usdc = getTransferAsset("usdc");
     if (!usdc) throw new Error("missing USDC transfer asset");

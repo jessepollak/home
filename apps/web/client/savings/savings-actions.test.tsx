@@ -762,7 +762,7 @@ describe("SavingsMoneyDialog", () => {
     expect(page().getByText("Your $1.00 is still in your account.")).toBeTruthy();
     fireEvent.click(page().getByRole("button", { name: "Try again" }));
     expect(await page().findByRole("dialog", { name: "Deposit" })).toBeTruthy();
-    expect(document.body.textContent).toContain("1.00 USDC");
+    expect((page().getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("1");
     expect(page().queryByRole("button", { name: "Deposit $1.00" })).toBeNull();
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     expect(await page().findByRole("button", { name: "Deposit $1.00" })).toBeTruthy();

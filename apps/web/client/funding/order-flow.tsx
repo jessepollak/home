@@ -352,9 +352,8 @@ export function FundingOrderFlow({
           assetId={binding.currency.toLocaleLowerCase()}
           assetLabel={binding.currency}
           assetControl="header"
-          pricing={{ status: "unpriced" }}
+          unit={{ kind: "fiat", currency: binding.currency }}
           nativeSymbol={binding.currency}
-          fiatCurrency={binding.currency}
         >
           {error ? (
             <FundingNotice tone="error" role="alert">

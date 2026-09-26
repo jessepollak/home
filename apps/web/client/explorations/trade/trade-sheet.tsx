@@ -8,12 +8,13 @@ import { MoneyMotionProvider } from "@/components/money-ticker";
 import {
   MoneyAmountDisplay, MoneyAssetPicker, MoneyConfirmFooter,
   MoneyModal, MoneyModalBody, MoneyModalFooter, MoneyModalHeader,
-  useMoneyAssetPricing,
+  useMoneyAmountUnit,
 } from "@/client/money-modal";
 import { useReactiveExpiry } from "@/client/actions/expiry";
 import { useHomeToast } from "@/client/home/use-home-toast";
 import type { OperationResult } from "@/shared/money-actions/types";
 import { formatFiatAmount } from "@/shared/formatting";
+import { canonicalUsdcAsset } from "@/config/portfolio-assets";
 import { TransferExecutionError, type TransferFailureReason } from "@/shared/transfers/types";
 import { fixtureCash, fixtureHolding, fixtureMaxNetworkFee, quoteAmount, quoteFiatReceive, quoteSpendLabel, type TradeQuote } from "./trade-fixtures";
 import { TradeStepTransition } from "./trade-step-transition";
@@ -69,7 +70,8 @@ export function TradeSheet({ open, side, initialState, available, reducedMotion,
   const { add } = useHomeToast(null);
   const requestRef = useRef(0);
   const detailsRef = useRef<HTMLDivElement>(null);
-  const pricing = useMoneyAssetPricing(side === "buy" ? "USDC" : "cbBTC");
+  const unit = useMoneyAmountUnit(side === "buy" ? canonicalUsdcAsset.cashCurrency : null,
+    side === "sell" ? { currency: "USD", perUnit: { atoms: "109390", scale: 0 } } : null);
   const asset = side === "buy" ? "USDC" : "cbBTC";
   const balance = available ?? (side === "buy" ? fixtureCash : fixtureHolding);
   const limit = side === "buy" ? buyLimit(balance) : balance;
@@ -217,7 +219,7 @@ export function TradeSheet({ open, side, initialState, available, reducedMotion,
           <TradeStepTransition stepKey={step.name === "amount" ? "amount" : "review"} direction={direction} reducedMotion={reducedMotion ? true : undefined}>
             {step.name === "amount" ? (
               <>
-                <MoneyAmountDisplay amount={amount} maxDecimals={side === "buy" ? 6 : 8} onAmountChange={changeAmount} overAvailable={tooMuch} onSubmit={canContinue ? () => void prepare() : undefined} availableLabel={side === "buy" ? `${formatFiatAmount(limit, "USD")} available` : `${balance} cbBTC available`} availableAmount={limit} chipSet="max" assetId={`fixture-${asset.toLowerCase()}`} assetLabel={asset} assetControl="header" pricing={pricing} nativeSymbol={asset} />
+                <MoneyAmountDisplay amount={amount} maxDecimals={side === "buy" ? 6 : 8} onAmountChange={changeAmount} overAvailable={tooMuch} onSubmit={canContinue ? () => void prepare() : undefined} availableLabel={side === "buy" ? `${formatFiatAmount(limit, "USD")} available` : `${balance} cbBTC available`} availableAmount={limit} chipSet="max" assetId={`fixture-${asset.toLowerCase()}`} assetLabel={asset} assetControl="header" unit={unit} nativeSymbol={asset} />
                 {step.error ? <p role="alert" className="min-w-0 break-words text-center text-sm text-foreground">{errorCopy[step.error]}</p> : null}
               </>
             ) : quote ? (

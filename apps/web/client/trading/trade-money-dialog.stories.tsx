@@ -91,6 +91,7 @@ function TradeStory({ direction = "buy", view = "amount", availability = "availa
         {!open ? <Button onClick={() => setOpen(true)}>Reopen trade</Button> : null}
         <TradeMoneyDialog open={open} direction={direction} session={session}
           availableBaseUnits={direction === "buy" ? "10000000" : "100000"}
+          assetPrice={direction === "sell" ? { currency: "USD", perUnit: { atoms: "65000", scale: 0 } } : null}
           fetchAccountResource={fetchAccountResource}
           prepareMoneyAction={prepareMoneyAction}
           executeMoneyAction={async (action) => ({ id: action.id, status: "rejected" })}
@@ -149,6 +150,13 @@ export const BuyReview: Story = {
     const screen = await enterReview(canvasElement, "buy");
     await expect(await screen.findByText("Slippage")).toBeVisible();
     await expect(await screen.findByRole("button", { name: "Buy $1.00" })).toBeEnabled();
+  },
+};
+export const SellAmount: Story = {
+  args: { direction: "sell" },
+  play: async ({ canvasElement }) => {
+    const screen = within(canvasElement.ownerDocument.body);
+    await expect(await screen.findByRole("button", { name: /as the primary amount/ })).toBeVisible();
   },
 };
 export const SellPartialReview: Story = {

@@ -1,60 +1,69 @@
 import { presentationRegions, type RegionId } from "@/config/regions";
+import type { ExactDecimal } from "@/shared/balances/types";
 import { presentationCurrencyMetadata } from "@/shared/formatting";
 
 const integerPattern = /^(?:0|[1-9]\d*)$/;
 const decimalPattern = /^(?:0|[1-9]\d*)(?:\.\d+)?$/;
-const usdStableSymbols = new Set(["DAI", "USDBC", "USDC", "USDT"]);
 const prefixSymbols = new Set(["$", "£", "€", "₺", "₦"]);
 
-export type MoneyPrimaryUnit = "local" | "native";
+export type MoneyAssetPrice = { currency: string; perUnit: ExactDecimal };
+export type MoneyAmountUnit =
+  | { kind: "fiat"; currency: string }
+  | { kind: "convertible"; currency: string; perUnit: ExactDecimal }
+  | { kind: "native" };
 export type MoneyChipSet = "none" | "max" | "quick-local";
 
-export type ExactScaleFactor = {
-  atoms: string;
-  scale: number;
-};
-
-export type MoneyAssetPricing =
-  | { status: "unpriced" }
-  | {
-      status: "priced";
-      localCurrency: string;
-      nativePerLocal: ExactScaleFactor;
-    };
-
-const identityFactor: ExactScaleFactor = { atoms: "1", scale: 0 };
-
-export function isUsdStableSymbol(symbol: string): boolean {
-  return usdStableSymbols.has(symbol.trim().toUpperCase());
+export function moneyAmountUnit(
+  assetCashCurrency: string | null | undefined,
+  displayCurrency: string | null | undefined,
+  price?: MoneyAssetPrice | null,
+): MoneyAmountUnit {
+  const cash = assetCashCurrency?.trim().toUpperCase();
+  const display = displayCurrency?.trim().toUpperCase();
+  if (cash && display && cash === display) return { kind: "fiat", currency: display };
+  const atoms = price?.perUnit?.atoms;
+  const scale = price?.perUnit?.scale;
+  if (!display || typeof price?.currency !== "string" || price.currency.trim().toUpperCase() !== display ||
+    typeof atoms !== "string" || !/^\d+$/.test(atoms) ||
+    typeof scale !== "number" || !Number.isSafeInteger(scale) || scale < 0 || BigInt(atoms) <= BigInt(0)) return { kind: "native" };
+  let normalized = BigInt(atoms).toString();
+  let normalizedScale = scale;
+  while (normalizedScale > 0 && normalized.endsWith("0")) {
+    normalized = normalized.slice(0, -1);
+    normalizedScale--;
+  }
+  return { kind: "convertible", currency: display, perUnit: { atoms: normalized, scale: normalizedScale } };
 }
 
-export function isIdentityPricing(pricing: MoneyAssetPricing): boolean {
-  return (
-    pricing.status === "priced" &&
-    pricing.nativePerLocal.atoms === "1" &&
-    pricing.nativePerLocal.scale === 0
-  );
+function decimalParts(value: string): { atoms: bigint; scale: number } {
+  const [whole, fraction = ""] = value.split(".");
+  return { atoms: BigInt(`${whole}${fraction}` || "0"), scale: fraction.length };
 }
 
-export function moneyAssetPricing(
-  assetSymbol: string,
-  regionId: RegionId = "GLOBAL",
-): MoneyAssetPricing {
-  if (!isUsdStableSymbol(assetSymbol)) return { status: "unpriced" };
-  const regionCurrency = presentationRegions[regionId].currency.code;
-  if (regionCurrency && regionCurrency !== "USD") return { status: "unpriced" };
-  return {
-    status: "priced",
-    localCurrency: "USD",
-    nativePerLocal: identityFactor,
-  };
+function decimalFromScaledAtoms(atoms: bigint, scale: number): string {
+  const digits = atoms.toString().padStart(scale + 1, "0");
+  if (scale === 0) return digits;
+  const fraction = digits.slice(-scale).replace(/0+$/, "");
+  return fraction ? `${digits.slice(0, -scale)}.${fraction}` : digits.slice(0, -scale);
 }
 
-export function resolvePrimaryUnit(
-  pricing: MoneyAssetPricing,
-  requested: MoneyPrimaryUnit,
-): MoneyPrimaryUnit {
-  return pricing.status === "priced" ? requested : "native";
+export function fiatToNative(fiat: string, perUnit: ExactDecimal, maxDecimals: number): string {
+  if (fiat === "") return "";
+  const { atoms, scale } = decimalParts(fiat);
+  const nativeAtoms = atoms * BigInt(10) ** BigInt(perUnit.scale + maxDecimals) /
+    (BigInt(perUnit.atoms) * BigInt(10) ** BigInt(scale));
+  return decimalFromScaledAtoms(nativeAtoms, maxDecimals);
+}
+
+export function nativeToFiat(native: string, perUnit: ExactDecimal): string {
+  if (native === "") return "";
+  const { atoms, scale } = decimalParts(native);
+  const cents = atoms * BigInt(perUnit.atoms) * BigInt(100) / BigInt(10) ** BigInt(scale + perUnit.scale);
+  return `${cents / BigInt(100)}.${(cents % BigInt(100)).toString().padStart(2, "0")}`;
+}
+
+export function displayCurrencyForRegion(regionId: RegionId): string {
+  return presentationRegions[regionId].currency.code ?? "USD";
 }
 
 export function formatChipLabel(units: 10 | 25, currency: string): string {
@@ -64,67 +73,40 @@ export function formatChipLabel(units: 10 | 25, currency: string): string {
 
 export function formatPrimaryAmount(
   amount: string,
-  unit: MoneyPrimaryUnit,
-  pricing: MoneyAssetPricing,
-  fiatCurrency?: string,
+  unit: MoneyAmountUnit,
   nativeSymbol?: string,
 ): string {
   const figure = amount || "0"; // oxlint-disable-line home/no-amount-fallback -- a blank editable amount field intentionally presents its zero entry state
-  if (fiatCurrency) return formatLocalDisplay(figure, fiatCurrency);
-  if (unit === "native" || pricing.status === "unpriced") {
-    return nativeSymbol ? `${figure} ${nativeSymbol}` : figure;
-  }
-  return formatLocalDisplay(figure, pricing.localCurrency);
+  if (unit.kind === "fiat" || unit.kind === "convertible") return formatLocalDisplay(figure, unit.currency);
+  return nativeSymbol ? `${figure} ${nativeSymbol}` : figure;
 }
 
 export function formatPrimaryAmountUnit(
-  unit: MoneyPrimaryUnit,
-  pricing: MoneyAssetPricing,
-  fiatCurrency?: string,
+  unit: MoneyAmountUnit,
   nativeSymbol?: string,
 ): string | undefined {
-  if (fiatCurrency) return presentationCurrencyMetadata(fiatCurrency).name;
-  if (unit === "native" || pricing.status === "unpriced") return nativeSymbol || undefined;
-  return presentationCurrencyMetadata(pricing.localCurrency).name;
-}
-
-export function formatSecondaryAmount(
-  nativeAmount: string,
-  unit: MoneyPrimaryUnit,
-  pricing: MoneyAssetPricing,
-  nativeSymbol: string,
-): string {
-  const normalized = normalizeDecimal(nativeAmount);
-  const display = padFraction(normalized, 2);
-  if (unit === "local") {
-    return `${display} ${nativeSymbol}`;
-  }
-  if (pricing.status === "unpriced") return `${display} ${nativeSymbol}`;
-  return formatLocalDisplay(display, pricing.localCurrency);
+  return unit.kind === "fiat" || unit.kind === "convertible" ? presentationCurrencyMetadata(unit.currency).name : nativeSymbol || undefined;
 }
 
 export function formatAvailableLine(
   availableLabel: string | undefined,
-  unit: MoneyPrimaryUnit,
-  pricing: MoneyAssetPricing,
+  unit: MoneyAmountUnit,
   nativeSymbol: string,
 ): string | undefined {
   if (!availableLabel) return undefined;
   const parsed = parseAvailableDecimal(availableLabel);
   if (!parsed) return availableLabel;
-  return formatAvailableDecimal(parsed, unit, pricing, nativeSymbol) ?? availableLabel;
+  return formatAvailableDecimal(parsed, unit, nativeSymbol) ?? availableLabel;
 }
 
 export function formatAvailableDecimal(
   decimal: string,
-  unit: MoneyPrimaryUnit,
-  pricing: MoneyAssetPricing,
+  unit: MoneyAmountUnit,
   nativeSymbol: string,
 ): string | undefined {
   if (!decimalPattern.test(decimal)) return undefined;
-  if (unit === "native") return `${groupDecimal(decimal)} ${nativeSymbol} available`;
-  if (pricing.status === "unpriced") return undefined;
-  return `${formatLocalDisplay(groupDecimal(decimal), pricing.localCurrency)} available`;
+  if (unit.kind !== "fiat") return `${groupDecimal(decimal)} ${nativeSymbol} available`;
+  return `${formatLocalDisplay(groupDecimal(decimal), unit.currency)} available`;
 }
 
 export function parseAvailableDecimal(label: string): string | null {
@@ -165,37 +147,9 @@ export function decimalFromBaseUnits(baseUnits: string, decimals: number): strin
   return fraction ? `${whole}.${fraction}` : whole;
 }
 
-/** @public exercised by client/money-modal/amount-units.test.ts */
-export function convertDisplayAmount(
-  amount: string,
-  from: MoneyPrimaryUnit,
-  to: MoneyPrimaryUnit,
-  pricing: MoneyAssetPricing,
-): string {
-  if (from === to) return amount;
-  if (pricing.status === "unpriced" || isIdentityPricing(pricing)) return amount;
-  const normalized = normalizeDecimal(amount);
-  if (!decimalPattern.test(normalized)) return amount;
-  return from === "local"
-    ? scaleDecimal(normalized, pricing.nativePerLocal)
-    : scaleDecimal(normalized, invertScale(pricing.nativePerLocal));
-}
-
 function formatLocalDisplay(amount: string, currency: string): string {
   const symbol = presentationCurrencyMetadata(currency).symbol;
   return prefixSymbols.has(symbol) ? `${symbol}${amount}` : `${symbol} ${amount}`;
-}
-
-function normalizeDecimal(amount: string): string {
-  const trimmed = amount.trim().replace(/\.$/, "");
-  return trimmed === "" ? "0" : trimmed;
-}
-
-function padFraction(amount: string, minFraction: number): string {
-  if (!decimalPattern.test(amount)) return amount;
-  const [whole, fraction = ""] = amount.split(".");
-  if (fraction.length >= minFraction) return amount;
-  return `${whole}.${fraction.padEnd(minFraction, "0")}`;
 }
 
 function groupDecimal(amount: string): string {
@@ -211,24 +165,4 @@ function compareDecimal(left: string, right: string): number {
   const a = BigInt(`${leftWhole}${leftFraction.padEnd(scale, "0")}`);
   const b = BigInt(`${rightWhole}${rightFraction.padEnd(scale, "0")}`);
   return a < b ? -1 : a > b ? 1 : 0;
-}
-
-function scaleDecimal(amount: string, factor: ExactScaleFactor): string {
-  if (!integerPattern.test(factor.atoms)) return amount;
-  const [whole, fraction = ""] = amount.split(".");
-  const digits = `${whole}${fraction}`.replace(/^0+(?=\d)/, "") || "0";
-  const scale = fraction.length + factor.scale;
-  const product = (BigInt(digits) * BigInt(factor.atoms)).toString();
-  if (scale === 0) return product;
-  const padded = product.padStart(scale + 1, "0");
-  const nextWhole = padded.slice(0, -scale);
-  const nextFraction = padded.slice(-scale).replace(/0+$/, "");
-  return nextFraction ? `${nextWhole}.${nextFraction}` : nextWhole;
-}
-
-function invertScale(factor: ExactScaleFactor): ExactScaleFactor {
-  if (factor.atoms === "0") return factor;
-  const places = factor.atoms.length + factor.scale;
-  const inverted = (BigInt(10) ** BigInt(places) / BigInt(factor.atoms)).toString();
-  return { atoms: inverted, scale: places - factor.scale };
 }

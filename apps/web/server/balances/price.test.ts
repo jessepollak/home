@@ -184,6 +184,91 @@ describe("balances pricing", () => {
     await expect(pending).resolves.toEqual([0, 10, 20, 30, 40, 50]);
   });
 
+  test("keeps the exact ERC-20 unit price independently of the holding's rounded value", async () => {
+    const token = holding("0x4444444444444444444444444444444444444444", "volatile", "registry", { baseUnits: "1" });
+    const price = createTestPricer({
+      readPrices: async (inputs) => inputs.map((input) => ({
+        ...quote(input.assetKey, "fresh"),
+        unitPrice: { atoms: "12345678901", scale: 5 },
+      })),
+      readExchangeRates: async () => rates(),
+    });
+
+    const result = await price({ ...read, holdings: [token] }, "DE");
+    expect(result.holdings[0]?.value.status).toBe("priced");
+    expect(result.holdings[0]?.unitValue).toEqual({
+      currency: "EUR",
+      amount: { atoms: "111111110109", scale: 6 },
+    });
+  });
+
+  test("normalizes trailing zeros after multiplying the ERC-20 price by FX", async () => {
+    const token = holding("0x4444444444444444444444444444444444444444", "volatile", "registry");
+    const price = createTestPricer({
+      readPrices: async (inputs) => inputs.map((input) => ({
+        ...quote(input.assetKey, "fresh"),
+        unitPrice: { atoms: "1234500", scale: 4 },
+      })),
+      readExchangeRates: async () => rates(),
+    });
+
+    const result = await price({ ...read, holdings: [token] }, "DE");
+    expect(result.holdings[0]?.unitValue).toEqual({ currency: "EUR", amount: { atoms: "111105", scale: 3 } });
+  });
+
+  test("floors the native ETH unit price to 18 places", async () => {
+    const native: ReadHolding = {
+      key: "eip155:8453/native",
+      id: "eth",
+      kind: "native",
+      source: "registry",
+      name: "Ethereum",
+      symbol: "ETH",
+      decimals: 18,
+      contractAddress: null,
+      cashCurrency: null,
+      balance: { status: "ready", baseUnits: "1000000000000000000" },
+    };
+    const price = createTestPricer({
+      readExchangeRates: async () => ({
+        ...(rates() as { fetchedAt: string; quotes: unknown[] }),
+        nativeEthQuote: {
+          baseCurrency: "USD",
+          assetSymbol: "ETH",
+          assetUnitsPerUsd: { atoms: "7", scale: 4 },
+          sourceValue: "0.0007",
+          status: "fresh",
+          source,
+        },
+      }) as never,
+    });
+
+    const result = await price({ ...read, holdings: [native] }, "DE");
+    expect(result.holdings[0]?.value.status).toBe("priced");
+    expect(result.holdings[0]?.unitValue).toEqual({
+      currency: "EUR",
+      amount: { atoms: "1285714285714285714285", scale: 18 },
+    });
+  });
+
+  test("omits unit prices on priced vault shares", async () => {
+    const vault: ReadHolding = {
+      ...usdc,
+      id: "vault",
+      kind: "vault-share",
+      cashCurrency: null,
+      underlying: { key: usdc.key as `eip155:8453/erc20:${string}`, symbol: "USDC", decimals: 6 },
+      underlyingBalance: { status: "ready", baseUnits: "1000000" },
+    };
+    const price = createTestPricer({
+      readPrices: async (inputs) => inputs.map((input) => quote(input.assetKey, "fresh")),
+      readExchangeRates: async () => rates(),
+    });
+    const result = await price({ ...read, holdings: [vault] }, "US");
+    expect(result.holdings[0]?.value.status).toBe("priced");
+    expect(result.holdings[0]?.unitValue).toBeUndefined();
+  });
+
   test("prices Borrow collateral and debt with the same quotes as wallet holdings", async () => {
     const cbbtcAddress = DEFAULT_BORROW_MARKET.collateralToken.address.toLowerCase() as `0x${string}`;
     const usdcAddress = DEFAULT_BORROW_MARKET.loanToken.address.toLowerCase() as `0x${string}`;
@@ -304,6 +389,7 @@ describe("balances pricing", () => {
       status: "unpriced",
       reason: "price-stale",
     });
+    expect(result.holdings.find(({ id }) => id === stale.id)?.unitValue).toBeUndefined();
     expect(result.holdings.find(({ id }) => id === "usdc")?.cashValue).toMatchObject({
       status: "priced",
       currency: "USD",
@@ -330,6 +416,7 @@ describe("balances pricing", () => {
       status: "unpriced",
       reason: "fx-unavailable",
     });
+    expect(result.holdings[0]?.unitValue).toBeUndefined();
     expect(result.holdings[0]?.cashValue).toMatchObject({
       status: "priced",
       currency: "USD",
@@ -357,6 +444,7 @@ describe("balances pricing", () => {
       status: "unpriced",
       reason: "below-market-gate",
     });
+    expect(result.holdings[0]?.unitValue).toBeUndefined();
   });
 
   test("prices enriched wallet rows and applies the same market gate", async () => {
@@ -395,6 +483,7 @@ describe("balances pricing", () => {
       status: "unpriced",
       reason: "below-market-gate",
     });
+    expect(result.holdings[1]?.unitValue).toBeUndefined();
     expect(result.holdings[2]?.value).toEqual({
       status: "unpriced",
       reason: "below-market-gate",

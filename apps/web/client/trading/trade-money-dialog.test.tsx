@@ -44,12 +44,14 @@ function dialog(direction: TradeDirection, options: {
   execute?: () => Promise<{ id: string; status: "rejected" | "submitted" }>;
   balance?: string;
   fetchAccountResource?: (path: string) => Promise<unknown>;
+  assetPrice?: { currency: string; perUnit: { atoms: string; scale: number } } | null;
 } = {}) {
   const requests: TradeActionParams[] = [];
   const prepare = options.prepare ?? (async (_kind: string, params: TradeActionParams) => action(direction, params.amountBaseUnits));
   let executions = 0;
   const view = render(<TradeMoneyDialog open direction={direction} session={session}
     availableBaseUnits={options.balance ?? (direction === "buy" ? "10000000" : "123456")}
+    assetPrice={options.assetPrice}
     fetchAccountResource={options.fetchAccountResource ?? (async (path) => path === "/api/actions/trade-pending"
       ? { version: 1, trade: null } : { version: 1, usdcReserveBaseUnits: "20000" })}
     prepareMoneyAction={async (kind, params) => {
@@ -77,6 +79,18 @@ async function continueTrade(view: ReturnType<typeof render>) {
 afterEach(() => { cleanup(); getHomeQueryClient().clear(); });
 
 describe("Bitcoin trade review", () => {
+  test("sell only offers fiat toggle when priced, and confirms the native BTC amount", async () => {
+    const priced = dialog("sell", { assetPrice: { currency: "USD", perUnit: { atoms: "65000", scale: 0 } } });
+    expect(priced.view.getByRole("button", { name: /as the primary amount/ })).toBeTruthy();
+    fireEvent.click(priced.view.getByRole("button", { name: /as the primary amount/ }));
+    typeAmount(priced.view, "32.50");
+    await continueTrade(priced.view);
+    expect(priced.requests[0]?.amountBaseUnits).toBe("50000");
+    expect(await priced.view.findByRole("button", { name: "Sell 0.0005 BTC" })).toBeTruthy();
+    cleanup();
+    const unpriced = dialog("sell");
+    expect(unpriced.view.queryByRole("button", { name: /as the primary amount/ })).toBeNull();
+  });
   test("Buy Max spends exact Cash less the network-fee reserve", async () => {
     const { view, requests } = dialog("buy");
     await waitFor(() => expect((view.getByRole("button", { name: "Max" }) as HTMLButtonElement).disabled).toBe(false));

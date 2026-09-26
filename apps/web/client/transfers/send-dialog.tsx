@@ -3,7 +3,8 @@
 import { useMoneyActionOutcome } from "@/client/actions/money-action-outcome";
 import { openPanelAfterClose, useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 import { MoneyResult, MoneyResultFooter } from "@/client/money-modal/money-result";
-import { type SendAvailability } from "@/client/home/send-availability";
+import type { MoneyAssetPrice } from "@/client/money-modal";
+import type { TransferAssetAvailability } from "@/shared/transfers/types";
 import { MoneyTicker } from "@/components/money-ticker";
 import { Alert, AlertIcon, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -41,7 +42,7 @@ import {
   MoneyModalHeader,
   amountExceedsCeiling,
   isPositiveDecimalAmount,
-  useMoneyAssetPricing,
+  useMoneyAmountUnit,
 } from "@/client/money-modal";
 import {
   assertTransferRequest,
@@ -97,7 +98,7 @@ export function SendDialog({
 }: {
   open: boolean;
   address: `0x${string}` | null;
-  availableAssets?: SendAvailability;
+  availableAssets?: readonly (TransferAssetAvailability & { price?: MoneyAssetPrice | null })[];
   assetMarkResolution?: AssetMarkResolution;
   prepareMoneyAction: AccountWalletClient["prepareMoneyAction"];
   fetchAccountResource?: AccountWalletClient["fetchAccountResource"];
@@ -166,9 +167,9 @@ export function SendDialog({
     ? null
     : "Enter a 0x address or a name like example.base.eth.";
   const selectedAsset = activeAssetId ? getTransferAsset(activeAssetId) : null;
-  const pricing = useMoneyAssetPricing(selectedAsset?.symbol ?? "");
-  const { reserve, failed: reserveFailed, retry: retryReserve } = useNetworkFeeReserve(ownerBoundary, fetchAccountResource, open);
   const selectedAvailability = availableAssets?.find((asset) => asset.id === activeAssetId);
+  const unit = useMoneyAmountUnit(selectedAsset?.cashCurrency, selectedAvailability?.price ?? null);
+  const { reserve, failed: reserveFailed, retry: retryReserve } = useNetworkFeeReserve(ownerBoundary, fetchAccountResource, open);
   const sendCeiling = selectedAvailability ? atomicToDecimal(maxAmountAfterNetworkFee(selectedAvailability.balanceBaseUnits, selectedAsset?.symbol ?? "", reserve) ?? "0", selectedAvailability.decimals) : null;
   const ceilingSettled = selectedAsset?.symbol.toUpperCase() !== "USDC" || reserve !== undefined;
   const overAvailable = ceilingSettled && amountExceedsCeiling(amount, sendCeiling);
@@ -425,7 +426,7 @@ export function SendDialog({
       />
       {step !== "result" ? <MoneyModalBody hasFooter={["amount", "destination", "handle", "handle-confirm", "confirm", "error"].includes(step)} className="gap-4 pt-4">
         {step === "amount" ? <>
-          <MoneyAmountDisplay amount={amount} maxDecimals={selectedAsset?.decimals ?? 6} onAmountChange={changeAmount} overAvailable={overAvailable} onSubmit={canContinueAmount ? continueFromAmount : undefined} availableLabel={selectedAvailability ? `${selectedAvailability.balanceLabel} available` : undefined} availableAmount={sendCeiling} assetId={activeAssetId ?? undefined} assetLabel={selectedAsset?.symbol} assetControl="header" chipSet={pricing.status === "priced" ? "quick-local" : "none"} pricing={pricing} nativeSymbol={selectedAsset?.symbol ?? ""}>
+          <MoneyAmountDisplay amount={amount} maxDecimals={selectedAsset?.decimals ?? 6} onAmountChange={changeAmount} overAvailable={overAvailable} onSubmit={canContinueAmount ? continueFromAmount : undefined} availableLabel={selectedAvailability ? `${selectedAvailability.balanceLabel} available` : undefined} availableAmount={sendCeiling} assetId={activeAssetId ?? undefined} assetLabel={selectedAsset?.symbol} assetControl="header" chipSet={unit.kind === "fiat" || unit.kind === "convertible" ? "quick-local" : "none"} unit={unit} nativeSymbol={selectedAsset?.symbol ?? ""}>
             {selectedAsset?.symbol.toUpperCase() === "USDC" && reserveFailed ? (
               <StatusMessage tone="error" role="alert">
                 Couldn&apos;t check the network fee. <Button variant="ghost" size="sm" onClick={retryReserve}>Retry</Button>

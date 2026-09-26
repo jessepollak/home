@@ -11,9 +11,10 @@ import { dataOwnerKey } from "@/client/account/owner-keys";
 import {
   MoneyAmountDisplay, MoneyConfirmFooter, MoneyConfirmSummary, MoneyModal,
   MoneyModalBody, MoneyModalFooter, MoneyModalHeader,
-  decimalFromBaseUnits, isPositiveDecimalAmount, moneyConfirmFromRow,
+  decimalFromBaseUnits, isPositiveDecimalAmount, moneyConfirmFromRow, useMoneyAmountUnit, type MoneyAssetPrice,
 } from "@/client/money-modal";
 import { Button } from "@/components/ui/button";
+import { canonicalUsdcAsset } from "@/config/portfolio-assets";
 import { maxAmountAfterNetworkFee, useNetworkFeeReserveState } from "@/client/money-modal/network-fee-policy";
 import { reportClientError } from "@/client/observability/client-reporter";
 import { formatExactPresentationTokenAmount, formatUsdStablecoinAmount } from "@/shared/formatting";
@@ -31,6 +32,7 @@ type Props = {
   direction: TradeDirection;
   session: VerifiedAccountSession;
   availableBaseUnits: string | null;
+  assetPrice?: MoneyAssetPrice | null;
   fetchAccountResource: AccountWalletClient["fetchAccountResource"];
   prepareMoneyAction: AccountWalletClient["prepareMoneyAction"];
   executeMoneyAction: AccountWalletClient["executeMoneyAction"];
@@ -41,12 +43,14 @@ type Props = {
 type Step = "amount" | "confirm" | "pending" | "failed" | "unresolved";
 type TradeGate = "checking" | "ready" | "unavailable" | { direction: TradeDirection | null };
 
-export function TradeMoneyDialog({ open, direction, session, availableBaseUnits, fetchAccountResource, prepareMoneyAction, executeMoneyAction, onClose, onClosed, onConfirmed }: Props) {
+export function TradeMoneyDialog({ open, direction, session, availableBaseUnits, assetPrice, fetchAccountResource, prepareMoneyAction, executeMoneyAction, onClose, onClosed, onConfirmed }: Props) {
   const ownerKey = session.smartAccount ? dataOwnerKey(session) : null;
   const { reserve, failed: reserveFailed, retrying: reserveRetrying, retry: retryReserve } = useNetworkFeeReserveState(ownerKey, fetchAccountResource, open);
   const maxBaseUnits = direction === "buy" ? maxAmountAfterNetworkFee(availableBaseUnits, "USDC", reserve) : availableBaseUnits;
   const decimals = direction === "buy" ? 6 : 8;
   const symbol = direction === "buy" ? "USDC" : "BTC";
+  const cashUnit = useMoneyAmountUnit(canonicalUsdcAsset.cashCurrency);
+  const sellUnit = useMoneyAmountUnit(null, assetPrice);
   const [amount, setAmount] = useState("");
   const [amountBaseUnits, setAmountBaseUnits] = useState<string | null>(null);
   const [prepared, setPrepared] = useState<PreparedMoneyAction | null>(null);
@@ -194,8 +198,7 @@ export function TradeMoneyDialog({ open, direction, session, availableBaseUnits,
           <MoneyAmountDisplay amount={amount} maxDecimals={decimals} onAmountChange={changeAmount}
             overAvailable={exceedsAvailable} onSubmit={canContinue ? () => void prepare() : undefined}
             assetId={direction === "buy" ? "usdc" : "cbbtc"} assetLabel={symbol} assetLocked
-            fiatCurrency={direction === "buy" ? "USD" : undefined}
-            nativeSymbol={symbol} pricing={direction === "buy" ? { status: "priced", localCurrency: "USD", nativePerLocal: { atoms: "1", scale: 0 } } : { status: "unpriced" }}
+            nativeSymbol={symbol} unit={direction === "buy" ? cashUnit : sellUnit}
             availableLabel={reservePending ? reserveFailed ? "Network fee unavailable" : "Checking network fee…" : maxBaseUnits !== null ? `${decimalFromBaseUnits(maxBaseUnits, decimals)} available` : "Balance unavailable"}
             availableAmount={!reservePending && maxBaseUnits !== null ? decimalFromBaseUnits(maxBaseUnits, decimals) : null} chipSet="max">
             {reservePending && reserveFailed

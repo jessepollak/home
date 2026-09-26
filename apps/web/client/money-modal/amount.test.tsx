@@ -6,14 +6,12 @@ import { useState } from "react";
 const { page } = await import("@/tests/helpers/dom");
 const { cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { MoneyAmountDisplay, MoneyAssetPicker, matchesMoneyAssetOption, fitAmountFontSize } = await import("./amount");
-const { moneyAssetPricing } = await import("./amount-units");
-
-const usdUsdc = moneyAssetPricing("USDC", "US");
-const unpricedEth = moneyAssetPricing("ETH");
+const fiatUsd = { kind: "fiat", currency: "USD" } as const;
+const native = { kind: "native" } as const;
 
 function AmountHarness({
   chipSet = "quick-local",
-  pricing = usdUsdc,
+  unit = fiatUsd,
   nativeSymbol = "USDC",
   assetId = "usdc",
   assetLabel = "USDC",
@@ -28,10 +26,9 @@ function AmountHarness({
   disabled = false,
   onSubmit,
   autoFocus = true,
-  fiatCurrency,
 }: {
   chipSet?: "none" | "max" | "quick-local";
-  pricing?: typeof usdUsdc;
+  unit?: import("./amount-units").MoneyAmountUnit;
   nativeSymbol?: string;
   assetId?: string;
   assetLabel?: string;
@@ -46,7 +43,6 @@ function AmountHarness({
   disabled?: boolean;
   onSubmit?: () => void;
   autoFocus?: boolean;
-  fiatCurrency?: string;
 }) {
   const [amount, setAmount] = useState(initialAmount);
   return <>
@@ -67,9 +63,8 @@ function AmountHarness({
       onAssetChange={() => {}}
       assetLocked={assetLocked}
       chipSet={chipSet}
-      pricing={pricing}
+      unit={unit}
       nativeSymbol={nativeSymbol}
-      fiatCurrency={fiatCurrency}
     />
     <output aria-label="Native amount">{amount}</output>
   </>;
@@ -185,10 +180,17 @@ describe("MoneyAmountDisplay", () => {
     expect(amountInput().value).toBe("12.345600");
   });
 
+  test("disables fiat quick amounts for native units but keeps exact Max", () => {
+    render(<AmountHarness unit={native} nativeSymbol="ETH" chipSet="quick-local" availableAmount="1.1010" />);
+    expect((page().getByRole("button", { name: "$10" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(page().getByRole("button", { name: "Max" }));
+    expect(amountInput().value).toBe("1.1010");
+  });
+
   test("renders step-specific notices after availability and before quick amounts", () => {
     render(
       <MoneyAmountDisplay amount="1" onAmountChange={() => {}} maxDecimals={6}
-        pricing={usdUsdc} nativeSymbol="USDC" availableLabel="$12.00 available" chipSet="max"
+        unit={fiatUsd} nativeSymbol="USDC" availableLabel="$12.00 available" chipSet="max"
         availableAmount="12">
         <p>Step notice</p>
       </MoneyAmountDisplay>,
@@ -200,16 +202,27 @@ describe("MoneyAmountDisplay", () => {
     expect(notice.compareDocumentPosition(chips) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  test("toggles display units while keeping the exact native input", () => {
-    render(<AmountHarness initialAmount="25.123456" availableAmount="1240.00" />);
-    expect(accessibleDescription(amountInput())).toContain("Currency: US dollar");
-    fireEvent.click(page().getByRole("button", { name: "Show 25.123456 USDC as the primary amount" }));
-    expect(amountInput().value).toBe("25.123456");
-    expect(accessibleDescription(amountInput())).toContain("Currency: USDC");
-    expect(page().getByLabelText("Native amount").textContent).toBe("25.123456");
-    expect((page().getByRole("button", { name: "$10" }) as HTMLButtonElement).disabled).toBe(true);
+  test("keeps exact fiat entry and Max without a unit toggle", () => {
+    render(<AmountHarness availableAmount="1240.00" />);
+    const input = amountInput();
+    fireEvent.input(input, { target: { value: "25.123456" } });
+    expect(input.value).toBe("25.123456");
+    expect(accessibleDescription(input)).toContain("Currency: US dollar");
+    expect(page().queryByRole("button", { name: /as the primary amount/ })).toBeNull();
     fireEvent.click(page().getByRole("button", { name: "Max" }));
-    expect(amountInput().value).toBe("1240.00");
+    expect(input.value).toBe("1240.00");
+  });
+
+  test("changes the unit and asset while keeping the amount and input focus", () => {
+    const view = render(<AmountHarness unit={native} nativeSymbol="ETH" assetId="eth" assetLabel="ETH" initialAmount="25.123456" />);
+    const input = amountInput();
+    expect(document.activeElement).toBe(input);
+    expect(accessibleDescription(input)).toContain("Currency: ETH");
+    view.rerender(<AmountHarness unit={fiatUsd} nativeSymbol="USDC" assetId="usdc" assetLabel="USDC" initialAmount="25.123456" />);
+    expect(input.value).toBe("25.123456");
+    expect(document.activeElement).toBe(input);
+    expect(accessibleDescription(input)).toContain("Currency: US dollar");
+    expect(page().queryByRole("button", { name: /as the primary amount/ })).toBeNull();
   });
 
   test("shows Only available as a live description and invalid input", () => {
@@ -244,7 +257,7 @@ describe("MoneyAmountDisplay", () => {
     render(<AmountHarness overAvailable availableLabel="$1,240.00 available" availableAmount="1234.56" />);
     expect(page().getByText("Only $1,234.56 available")).toBeTruthy();
     cleanup();
-    render(<AmountHarness overAvailable availableLabel="1,240.00 ETH available" availableAmount="1234.5" pricing={unpricedEth} nativeSymbol="ETH" />);
+    render(<AmountHarness overAvailable availableLabel="1,240.00 ETH available" availableAmount="1234.5" unit={native} nativeSymbol="ETH" />);
     expect(page().getByText("Only 1,234.5 ETH available")).toBeTruthy();
   });
 
@@ -271,29 +284,29 @@ describe("MoneyAmountDisplay", () => {
   });
 
   test("keeps a read-only amount as text and renders unpriced native amounts", () => {
-    render(<MoneyAmountDisplay amount="1.1010" maxDecimals={18} pricing={unpricedEth} nativeSymbol="ETH" />);
+    render(<MoneyAmountDisplay amount="1.1010" maxDecimals={18} unit={native} nativeSymbol="ETH" />);
     expect(page().queryByRole("textbox", { name: "Amount" })).toBeNull();
     expect(page().getAllByText("1.1010 ETH").length).toBeGreaterThan(0);
     cleanup();
-    render(<AmountHarness pricing={unpricedEth} nativeSymbol="ETH" availableLabel="1.1010 ETH available" availableAmount="1.1010" />);
+    render(<AmountHarness unit={native} nativeSymbol="ETH" availableLabel="1.1010 ETH available" availableAmount="1.1010" />);
     expect(page().queryByRole("button", { name: /as the primary amount/ })).toBeNull();
     fireEvent.click(page().getByRole("button", { name: "Max" }));
     expect(amountInput().value).toBe("1.1010");
   });
 
   test("renders fiat formatting outside the editable field", () => {
-    render(<AmountHarness fiatCurrency="IDR" initialAmount="123.45" maxDecimals={2} />);
+    render(<AmountHarness unit={{ kind: "fiat", currency: "IDR" }} initialAmount="123.45" maxDecimals={2} />);
     expect(amountInput().value).toBe("123.45");
     expect(amountInput().closest("label")?.textContent).toContain("Rp");
   });
 
   test("announces the fiat currency when no availability line describes the field", () => {
-    render(<AmountHarness fiatCurrency="IDR" availableLabel="" chipSet="none" />);
+    render(<AmountHarness unit={{ kind: "fiat", currency: "IDR" }} availableLabel="" chipSet="none" />);
     expect(accessibleDescription(amountInput())).toBe("Currency: Rupiah");
   });
 
   test("announces the native unit for an unpriced asset", () => {
-    render(<AmountHarness pricing={unpricedEth} nativeSymbol="ETH" availableLabel="" chipSet="none" />);
+    render(<AmountHarness unit={native} nativeSymbol="ETH" availableLabel="" chipSet="none" />);
     expect(accessibleDescription(amountInput())).toBe("Currency: ETH");
   });
 
@@ -406,5 +419,97 @@ describe("MoneyAmountDisplay", () => {
     expect(page().queryByRole("button", { name: "$10" })).toBeNull();
     fireEvent.click(page().getByRole("button", { name: "Max" }));
     expect(amountInput().value).toBe("1240");
+  });
+});
+
+const pricedBtc = { kind: "convertible", currency: "USD", perUnit: { atoms: "65000", scale: 0 } } as const;
+
+function primaryToggle(): HTMLButtonElement {
+  return page().getByRole("button", { name: /as the primary amount/ }) as HTMLButtonElement;
+}
+
+describe("priced amount toggle", () => {
+  test("shows a secondary fiat label below native availability without altering the native amount", () => {
+    render(<AmountHarness unit={pricedBtc} nativeSymbol="cbBTC" assetId="btc" assetLabel="cbBTC"
+      initialAmount="0.001" availableAmount="0.02" availableLabel="0.02 cbBTC available" maxDecimals={8} />);
+    const input = amountInput();
+    expect(input.value).toBe("0.001");
+    expect(primaryToggle().getAttribute("aria-label")).toBe("Show ≈ $65.00 as the primary amount");
+    expect(page().getByText("0.02 cbBTC available").compareDocumentPosition(primaryToggle()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(accessibleDescription(input)).toContain("Currency: cbBTC");
+    expect((page().getByRole("button", { name: "$10" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(primaryToggle());
+    expect(amountInput()).toBe(input);
+    expect(input.value).toBe("65.00");
+    expect(page().getByLabelText("Native amount").textContent).toBe("0.001");
+    expect(primaryToggle().getAttribute("aria-label")).toBe("Show 0.001 cbBTC as the primary amount");
+    expect(accessibleDescription(input)).toContain("Currency: US dollar");
+    expect(page().getByText("0.02 cbBTC available")).toBeTruthy();
+    expect((page().getByRole("button", { name: "$10" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(primaryToggle());
+    expect(input.value).toBe("0.001");
+    expect(page().getByLabelText("Native amount").textContent).toBe("0.001");
+  });
+
+  test("typing fiat emits exact floored native while retaining the typed fiat string", () => {
+    render(<AmountHarness unit={pricedBtc} nativeSymbol="cbBTC" assetId="btc" assetLabel="cbBTC"
+      availableAmount="0.05" availableLabel="0.05 cbBTC available" maxDecimals={8} />);
+    fireEvent.click(primaryToggle());
+    const input = amountInput();
+    fireEvent.input(input, { target: { value: "100.00" } });
+    expect(input.value).toBe("100.00");
+    expect(page().getByLabelText("Native amount").textContent).toBe("0.00153846");
+    expect(primaryToggle().getAttribute("aria-label")).toBe("Show 0.00153846 cbBTC as the primary amount");
+    fireEvent.input(input, { target: { value: "100.001" } });
+    expect(input.value).toBe("100.00");
+    fireEvent.click(page().getByRole("button", { name: "$10" }));
+    expect(input.value).toBe("10");
+    expect(page().getByLabelText("Native amount").textContent).toBe("0.00015384");
+  });
+
+  test("Max in fiat mode emits exact native max and derives floored fiat", () => {
+    render(<AmountHarness unit={pricedBtc} nativeSymbol="cbBTC" assetId="btc" assetLabel="cbBTC"
+      availableAmount="0.12345678" availableLabel="0.12345678 cbBTC available" maxDecimals={8} />);
+    fireEvent.click(primaryToggle());
+    fireEvent.input(amountInput(), { target: { value: "100.00" } });
+    fireEvent.click(page().getByRole("button", { name: "Max" }));
+    expect(page().getByLabelText("Native amount").textContent).toBe("0.12345678");
+    expect(amountInput().value).toBe("8024.69");
+  });
+
+  test("Max derives fiat even when the exact native max equals the typed fiat result", () => {
+    render(<AmountHarness unit={pricedBtc} nativeSymbol="cbBTC" assetId="btc" assetLabel="cbBTC"
+      availableAmount="0.00153846" availableLabel="0.00153846 cbBTC available" maxDecimals={8} />);
+    fireEvent.click(primaryToggle());
+    fireEvent.input(amountInput(), { target: { value: "100.00" } });
+    expect(amountInput().value).toBe("100.00");
+    fireEvent.click(page().getByRole("button", { name: "Max" }));
+    expect(page().getByLabelText("Native amount").textContent).toBe("0.00153846");
+    expect(amountInput().value).toBe("99.99");
+  });
+
+  test("asset change resets mode, and a unit becoming native hides toggle and restores native entry", () => {
+    const props = { nativeSymbol: "cbBTC", assetId: "btc", assetLabel: "cbBTC", initialAmount: "0.001", maxDecimals: 8,
+      availableAmount: "0.02", availableLabel: "0.02 cbBTC available" };
+    const view = render(<AmountHarness {...props} unit={pricedBtc} />);
+    fireEvent.click(primaryToggle());
+    expect(amountInput().value).toBe("65.00");
+    view.rerender(<AmountHarness {...props} assetId="other" unit={pricedBtc} />);
+    expect(amountInput().value).toBe("0.001");
+    fireEvent.click(primaryToggle());
+    view.rerender(<AmountHarness {...props} assetId="other" unit={native} />);
+    expect(amountInput().value).toBe("0.001");
+    expect(page().queryByRole("button", { name: /as the primary amount/ })).toBeNull();
+    expect(accessibleDescription(amountInput())).toContain("Currency: cbBTC");
+    view.rerender(<AmountHarness {...props} assetId="other" unit={pricedBtc} />);
+    expect(amountInput().value).toBe("0.001");
+  });
+
+  test("the native unit's Only available line stays exact in fiat mode", () => {
+    render(<AmountHarness unit={pricedBtc} nativeSymbol="cbBTC" assetId="btc" assetLabel="cbBTC"
+      overAvailable initialAmount="0.03" availableAmount="0.01999999" availableLabel="0.02 cbBTC available" maxDecimals={8} />);
+    expect(page().getByText("Only 0.01999999 cbBTC available")).toBeTruthy();
+    fireEvent.click(primaryToggle());
+    expect(page().getByText("Only 0.01999999 cbBTC available")).toBeTruthy();
   });
 });

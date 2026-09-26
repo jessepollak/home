@@ -104,6 +104,41 @@ describe("parseBalancesSnapshot", () => {
     expect(registryIds).toContain("morpho-steakhouse-usdc");
   });
 
+  test.each(["eth", "usdc", `catalog:${FIXTURE_CATALOG.priced.address}`])("accepts an exact unit value on priced %s", (id) => {
+    const snapshot = clone(balancesSnapshotFixture);
+    const holding = snapshot.holdings.find((entry) => entry.id === id)!;
+    holding.unitValue = { currency: "USD", amount: { atoms: "1234567890123456789", scale: 15 } };
+    const parsed = parseBalancesSnapshot(snapshot, session, "US");
+    expect(parsed.holdings.find((entry) => entry.id === id)?.unitValue).toEqual(holding.unitValue);
+  });
+
+  test.each([
+    ["unpriced value", "toshi", { currency: "USD", amount: { atoms: "1", scale: 0 } }],
+    ["vault share", "morpho-steakhouse-usdc", { currency: "USD", amount: { atoms: "1", scale: 0 } }],
+    ["wrong currency", "eth", { currency: "EUR", amount: { atoms: "1", scale: 0 } }],
+    ["negative atoms", "eth", { currency: "USD", amount: { atoms: "-1", scale: 0 } }],
+    ["non-integer atoms", "eth", { currency: "USD", amount: { atoms: "1.5", scale: 0 } }],
+    ["numeric atoms", "eth", { currency: "USD", amount: { atoms: 1, scale: 0 } }],
+    ["zero atoms", "eth", { currency: "USD", amount: { atoms: "0", scale: 0 } }],
+    ["leading-zero atoms", "eth", { currency: "USD", amount: { atoms: "01", scale: 0 } }],
+    ["negative scale", "eth", { currency: "USD", amount: { atoms: "1", scale: -1 } }],
+    ["fractional scale", "eth", { currency: "USD", amount: { atoms: "1", scale: 1.5 } }],
+    ["over-limit scale", "eth", { currency: "USD", amount: { atoms: "1", scale: 101 } }],
+  ] as const)("rejects a unit value with %s", (_label, id, unitValue) => {
+    const snapshot = clone(balancesSnapshotFixture);
+    const holding = snapshot.holdings.find((entry) => entry.id === id)!;
+    Object.assign(holding, { unitValue });
+    expect(() => parseBalancesSnapshot(snapshot, session, "US")).toThrow(BalancesResponseError);
+  });
+
+  test("rejects a unit value when the holding is unpriced despite a ready balance", () => {
+    const snapshot = clone(balancesSnapshotFixture);
+    const holding = snapshot.holdings.find((entry) => entry.id === "eth")!;
+    holding.value = { status: "unpriced", reason: "price-stale" };
+    holding.unitValue = { currency: "USD", amount: { atoms: "1", scale: 0 } };
+    expect(() => parseBalancesSnapshot(snapshot, session, "US")).toThrow(BalancesResponseError);
+  });
+
   type Rejection = {
     label: string;
     mutate: (snapshot: BalancesSnapshot) => unknown;
@@ -315,6 +350,15 @@ describe("parseBalancesSnapshot borrow and net totals", () => {
       borrowAprWad: FIXTURE_BORROW_APR_WAD,
     });
     expect(parsed.totals.net).toMatchObject({ status: "complete", currency: "USD", negative: false });
+  });
+
+  test("preserves and validates a borrow collateral unit value", () => {
+    const snapshot = withBorrow();
+    const collateral = snapshot.borrow.positions[0]!.collateral;
+    collateral.unitValue = { currency: "USD", amount: { atoms: "100000", scale: 0 } };
+    expect(parseBalancesSnapshot(clone(snapshot), session, "US").borrow.positions[0]!.collateral.unitValue).toEqual(collateral.unitValue);
+    collateral.unitValue = { currency: "USD", amount: { atoms: "0", scale: 0 } };
+    expect(() => parseBalancesSnapshot(snapshot, session, "US")).toThrow(BalancesResponseError);
   });
 
   test.each([
