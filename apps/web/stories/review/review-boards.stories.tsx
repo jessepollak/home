@@ -243,10 +243,10 @@ export const BoardChrome: Story = {
     await waitFor(() => expect(screen.getByRole("button", { name: "Fit board" })).toBeVisible());
     await userEvent.click(screen.getByRole("button", { name: "Test narrow layout" }));
     await expect(await screen.findByRole("combobox", { name: "Select frame" })).toBeVisible();
-    await userEvent.click(screen.getByRole("button", { name: "Next" }));
-    await expect(screen.getByRole("combobox", { name: "Select frame" })).toHaveValue("two");
     await userEvent.click(screen.getByRole("button", { name: "Previous" }));
     await expect(screen.getByRole("combobox", { name: "Select frame" })).toHaveValue("one");
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await expect(screen.getByRole("combobox", { name: "Select frame" })).toHaveValue("two");
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "Select frame" }), "two");
     await expect(screen.getByRole("combobox", { name: "Select frame" })).toHaveValue("two");
     await userEvent.click(screen.getByRole("button", { name: "Set mobile width to 390" }));
