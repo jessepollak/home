@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import config from "./.storybook/main";
-import mapping from "./figma-components.json";
+import mapping from "./tests/helpers/figma-mapping";
 
 type StoryDesigns = Record<string, { meta: unknown; stories: unknown[] }>;
 
