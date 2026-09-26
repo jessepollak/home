@@ -173,14 +173,14 @@ describe("combined Activity panel", () => {
     const transferRow = view.getByRole("button", { description: "View received USDC transaction details" });
     expect(actionRow.textContent).toMatch(/\d{1,2} Sept?\b/);
     expect(transferRow.textContent).toMatch(/\d{1,2} Sept?\b/);
-    expect(actionRow.textContent).toContain("1,234.56 USDC");
+    expect(actionRow.textContent).toContain("−$1,234.56");
 
     view.rerender(
       <ActivityPanelView activity={ready([transfer("received", 5)])} operations={[sent]} regionId="BR" />,
     );
     expect(actionRow.textContent).toMatch(/\d{1,2} de set\./);
     expect(transferRow.textContent).toMatch(/\d{1,2} de set\./);
-    expect(actionRow.textContent).toContain("1.234,56 USDC");
+    expect(actionRow.textContent).toContain("$1.234,56");
 
     fireEvent.click(actionRow);
     const details = await view.findByRole("dialog", { name: "Sent USDC" });
@@ -523,7 +523,7 @@ describe("combined Activity panel", () => {
     const row = view.getByRole("button", { description: "View Deposit USDC into Morpho transaction details" });
     expect(row.textContent).toContain("Deposit USDC into Morpho");
     expect(row.textContent).toContain("Confirmed");
-    expect(row.textContent).toContain("1.25 USDC");
+    expect(row.textContent).toContain("−$1.25");
     expect(row.textContent).not.toContain("~");
     expect(view.queryByText("Received")).toBeNull();
     expect(view.getByText("recorded-action")).toBeTruthy();
