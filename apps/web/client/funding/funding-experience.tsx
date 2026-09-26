@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RegionId } from "@/config/regions";
 import {
   isServerVerified,
@@ -28,6 +28,7 @@ export type FundingExperienceProps = {
   initialStep?: AddMoneyStep;
   onStepChange?: (step: AddMoneyStep) => void;
   regionId?: RegionId;
+  regionReady?: boolean;
 };
 
 type FundingWallet = Pick<
@@ -54,10 +55,43 @@ type FundingExperienceForWalletProps = FundingExperienceProps & {
 export function FundingExperienceForWallet(
   props: FundingExperienceForWalletProps,
 ) {
+  const boundary = uiBoundary(props.wallet);
+  const regionId = props.regionId ?? "GLOBAL";
+  const regionReady = props.regionReady ?? true;
+  const requested = Boolean(props.returnedFromProvider || props.returnedFromVerification);
+  const [returnEntry, setReturnEntry] = useState<{ boundary: string | null; regionId: RegionId; ready: boolean; eligible: boolean; requested: boolean }>(() => ({
+    boundary,
+    regionId,
+    ready: regionReady,
+    eligible: requested,
+    requested,
+  }));
+  const spendReturnEntry = useCallback(
+    () => setReturnEntry((entry) => entry.eligible ? { ...entry, eligible: false } : entry),
+    [],
+  );
+  const boundaryChanged = boundary !== null && returnEntry.boundary !== null && returnEntry.boundary !== boundary;
+  const regionChanged = returnEntry.regionId !== regionId;
+  const regionChangedAfterReady = returnEntry.ready && regionChanged;
+  if (requested !== returnEntry.requested) {
+    setReturnEntry(requested
+      ? { boundary, regionId, ready: regionReady, eligible: true, requested: true }
+      : { ...returnEntry, eligible: false, requested: false });
+  } else if ((returnEntry.boundary === null && boundary !== null) || (!returnEntry.ready && regionReady) || (boundaryChanged && returnEntry.eligible) || (regionChanged && (!returnEntry.ready || returnEntry.eligible))) {
+    setReturnEntry({
+      ...returnEntry,
+      boundary: returnEntry.boundary ?? boundary,
+      regionId: returnEntry.ready ? returnEntry.regionId : regionId,
+      ready: returnEntry.ready || regionReady,
+      eligible: returnEntry.eligible && !boundaryChanged && !regionChangedAfterReady,
+    });
+  }
   return (
     <FundingExperienceBoundary
-      key={uiBoundary(props.wallet) ?? "signed-out"}
+      key={`${boundary ?? "signed-out"}:${regionId}`}
       {...props}
+      returnResumeEligible={returnEntry.eligible && regionReady && !boundaryChanged && !(regionReady && regionChanged)}
+      onReturnResumeSpent={spendReturnEntry}
     />
   );
 }
@@ -65,6 +99,8 @@ export function FundingExperienceForWallet(
 function FundingExperienceBoundary({
   wallet,
   navigateToRedirect,
+  returnResumeEligible,
+  onReturnResumeSpent,
   returnedFromProvider = false,
   returnedFromVerification = false,
   open = true,
@@ -72,7 +108,7 @@ function FundingExperienceBoundary({
   initialStep,
   onStepChange,
   regionId = "GLOBAL",
-}: FundingExperienceForWalletProps) {
+}: FundingExperienceForWalletProps & { returnResumeEligible: boolean; onReturnResumeSpent: () => void }) {
   const boundary = uiBoundary(wallet);
   const session = isServerVerified(wallet) ? wallet.session : null;
   const address = session?.smartAccount?.address ?? null;
@@ -86,9 +122,32 @@ function FundingExperienceBoundary({
   const [initialCustomer, setInitialCustomer] = useState<FundingProviderCustomerSummary | null>(null);
   const stepRef = useRef<AddMoneyStep>(startStep);
   const navigationEpochRef = useRef(0);
+  const returnResumeRef = useRef(returnResumeEligible);
   const wasOpenRef = useRef(open);
   const onStepChangeRef = useRef(onStepChange);
-  onStepChangeRef.current = onStepChange;
+
+  useEffect(() => {
+    onStepChangeRef.current = onStepChange;
+  }, [onStepChange]);
+
+  useEffect(() => {
+    returnResumeRef.current = returnResumeEligible;
+  }, [returnResumeEligible]);
+
+  const spendReturnResume = useCallback(() => {
+    if (!returnResumeRef.current) return;
+    returnResumeRef.current = false;
+    onReturnResumeSpent();
+  }, [onReturnResumeSpent]);
+
+  const navigateTo = useCallback((next: AddMoneyStep, explicit = true) => {
+    if (explicit) {
+      navigationEpochRef.current += 1;
+      spendReturnResume();
+    }
+    stepRef.current = next;
+    setStep(next);
+  }, [spendReturnResume]);
 
   const queryEnabled = Boolean(
     open && !signedOut && regionId !== "GLOBAL" && queryOwnerKey,
@@ -155,14 +214,15 @@ function FundingExperienceBoundary({
   useEffect(() => {
     const wasOpen = wasOpenRef.current;
     wasOpenRef.current = open;
+    if (!open) spendReturnResume();
     if (open && !wasOpen && stepRef.current !== startStep) {
       queueMicrotask(() => navigateTo(startStep, false));
     }
-  }, [open, startStep]);
+  }, [open, startStep, navigateTo, spendReturnResume]);
 
   useEffect(() => {
     const orderValue = ordersQuery.data;
-    if (!orderValue) return;
+    if (!open || !returnResumeRef.current || !orderValue) return;
     const navigationEpoch = navigationEpochRef.current;
     const resumed = readFundingOrder(orderValue);
     if (!resumed || stepRef.current !== "method") return;
@@ -173,16 +233,18 @@ function FundingExperienceBoundary({
     queueMicrotask(() => {
       if (
         navigationEpochRef.current !== navigationEpoch ||
+        !returnResumeRef.current ||
         stepRef.current !== "method"
       ) return;
+      spendReturnResume();
       setSelectedBinding(binding);
       setInitialOrder(resumed);
       navigateTo("order", false);
     });
-  }, [ordersQuery.data, providerBindings]);
+  }, [open, ordersQuery.data, providerBindings, returnResumeEligible, navigateTo, spendReturnResume]);
 
   useEffect(() => {
-    if (!returnedFromVerification || !ordersQuery.isSuccess || readFundingOrder(ordersQuery.data) || stepRef.current !== "method") return;
+    if (!open || !returnResumeRef.current || !returnedFromVerification || !ordersQuery.isSuccess || readFundingOrder(ordersQuery.data) || stepRef.current !== "method") return;
     const customers = readFundingProviderCustomers(customersQuery.data);
     const customer = customers.find((candidate) => candidate.state !== "verified") ?? customers[0];
     if (!customer) return;
@@ -190,10 +252,11 @@ function FundingExperienceBoundary({
     if (!binding) return;
     const navigationEpoch = navigationEpochRef.current;
     queueMicrotask(() => {
-      if (navigationEpochRef.current !== navigationEpoch || stepRef.current !== "method") return;
+      if (navigationEpochRef.current !== navigationEpoch || !returnResumeRef.current || stepRef.current !== "method") return;
+      spendReturnResume();
       setSelectedBinding(binding); setInitialCustomer(customer); navigateTo("order", false);
     });
-  }, [customersQuery.data, ordersQuery.data, ordersQuery.isSuccess, providerBindings, returnedFromVerification]);
+  }, [customersQuery.data, open, ordersQuery.data, ordersQuery.isSuccess, providerBindings, returnedFromVerification, returnResumeEligible, navigateTo, spendReturnResume]);
 
   const customerSetupReady = customersQuery.isSuccess || !customerSetupRequired;
   const openOrder = readFundingOrder(ordersQuery.data);
@@ -213,12 +276,6 @@ function FundingExperienceBoundary({
             retry: () => void customersQuery.refetch(),
           }
         : null;
-
-  function navigateTo(next: AddMoneyStep, explicit = true) {
-    if (explicit) navigationEpochRef.current += 1;
-    stepRef.current = next;
-    setStep(next);
-  }
 
   function close() {
     navigateTo("method");
@@ -249,6 +306,7 @@ function FundingExperienceBoundary({
       providersStatus={providersStatus}
       providerBindingsDisabled={!ordersQuery.isSuccess}
       customerSetupReady={customerSetupReady}
+      resumableBinding={(binding) => isResumableBinding(openOrder, binding)}
       fundingReadError={fundingReadError}
       selectedBinding={selectedBinding}
       initialOrder={initialOrder}
@@ -257,18 +315,18 @@ function FundingExperienceBoundary({
       queryOwnerKey={queryOwnerKey}
       onSelectBinding={(binding) => {
         setSelectedBinding(binding);
-        setInitialOrder(
-          openOrder && orderMatchesBinding(openOrder, binding) &&
-            (openOrder.state === "dispatch-ambiguous" || shouldPollFundingOrder(openOrder))
-            ? openOrder
-            : null,
-        );
+        setInitialOrder(isResumableBinding(openOrder, binding) ? openOrder : null);
         setInitialCustomer(readFundingProviderCustomers(customersQuery.data).find((customer) => customer.providerId === binding.providerId) ?? null);
         navigateTo("order");
       }}
       onOpenRedirect={navigateToRedirect}
     />
   );
+}
+
+function isResumableBinding(order: FundingOrderSummary | null, binding: FundingBinding): boolean {
+  return Boolean(order && orderMatchesBinding(order, binding) &&
+    (order.state === "dispatch-ambiguous" || shouldPollFundingOrder(order)));
 }
 
 function orderMatchesBinding(order: FundingOrderSummary, binding: FundingBinding): boolean {

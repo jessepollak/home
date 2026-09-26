@@ -96,6 +96,29 @@ describe("FundingActions hydration", () => {
     }
   });
 
+  test("a verification return received after mount opens the pending deposit review", async () => {
+    window.history.replaceState(null, "", "/home?add-money=1&return=verification");
+    const requests: string[] = [];
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      requests.push(path);
+      if (path.startsWith("/api/funding/providers?")) return { providers: [{ providerId: "ripio", displayName: "Ripio", region: "AR", assetId: "base:wars", assetSymbol: "wARS", assetDecimals: 18, currency: "ARS", paymentMethods: [{ id: "bank_transfer", label: "Bank transfer" }], quotes: true, customerSetup: null }] };
+      if (path.startsWith("/api/funding/orders?")) return { order: { id: "11111111-1111-4111-8111-111111111111", providerId: "ripio", state: "awaiting-payment", fiatAmount: "1000", providerStatus: null, instructions: null } };
+      throw new Error(`unexpected request: ${path}`);
+    } };
+    const fixture = await hydrateFundingActions(<FundingActionsForWallet wallet={wallet} regionId="AR" />);
+
+    try {
+      expect(fixture.hydrationErrors).toEqual([]);
+      expect(document.body.textContent).not.toContain("Deposit pending");
+      await act(async () => fixture.root.render(<FundingActionsForWallet wallet={wallet} regionId="AR" returnedFromProvider />));
+      await waitFor(() => expect(document.body.querySelector('[data-slot="drawer-popup"]')?.textContent).toContain("Deposit pending"));
+      expect(requests.every((path) => path.startsWith("/api/funding/providers?") || path.startsWith("/api/funding/orders?"))).toBe(true);
+    } finally {
+      await unmount(fixture.root, fixture.container);
+      window.history.replaceState(null, "", "/home");
+    }
+  });
+
   test("closing an inbound flow reopened by the trigger clears the flow instead of leaving the page", async () => {
     window.history.replaceState(null, "", "/home?flow=add-money");
     const back = mock(() => {});
