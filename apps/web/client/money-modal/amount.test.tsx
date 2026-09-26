@@ -5,7 +5,7 @@ import { useState } from "react";
 
 const { page } = await import("@/tests/helpers/dom");
 const { cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
-const { MoneyAmountDisplay, MoneyAssetPicker, matchesMoneyAssetOption, fitAmountFontSize } = await import("./amount");
+const { MoneyAmountDisplay, MoneyAssetPicker, matchesMoneyAssetOption, fitAmountFontSize, fitAmountText } = await import("./amount");
 const fiatUsd = { kind: "fiat", currency: "USD" } as const;
 const native = { kind: "native" } as const;
 
@@ -88,6 +88,14 @@ test("primary amount auto-fit shrinks and clamps longer number and unit combinat
   expect(fitAmountFontSize(280, 420, 48, 20)).toBe(32);
   expect(fitAmountFontSize(280, 200, 48, 20)).toBe(48);
   expect(fitAmountFontSize(100, 1000, 48, 20)).toBe(20);
+});
+
+test("auto-fit keeps headroom, then distinguishes shrinking and minimum-size overflow", () => {
+  expect(fitAmountText(300, 291, 36, 24)).toEqual({ fontSize: 36, overflows: false });
+  expect(fitAmountText(300, 300, 36, 24)).toEqual({ fontSize: 34.9, overflows: false });
+  expect(fitAmountText(300, 301, 36, 24)).toEqual({ fontSize: 34.8, overflows: false });
+  expect(fitAmountText(300, 400, 36, 24)).toEqual({ fontSize: 26.1, overflows: false });
+  expect(fitAmountText(300, 451, 36, 24)).toEqual({ fontSize: 24, overflows: true });
 });
 
 describe("MoneyAmountDisplay", () => {

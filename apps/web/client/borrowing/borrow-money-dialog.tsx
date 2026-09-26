@@ -398,7 +398,7 @@ function BorrowPreparedReview({ action, snapshot, regionId }: { action: Prepared
   });
   return (
     <div className="space-y-3">
-      <div className="min-w-0 [&_[data-slot=money-ticker]]:overflow-x-auto [&_dd]:wrap-anywhere">
+      <div className="min-w-0 [&_dd]:wrap-anywhere">
         <MoneyConfirmSummary action={action}
           amount={amount}
           lead={action.title}
