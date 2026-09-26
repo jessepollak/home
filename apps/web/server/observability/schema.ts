@@ -118,6 +118,7 @@ export const SERVER_EVENT_OUTCOMES = [
   "unavailable",
   "accepted",
   "ignored",
+  "skipped",
 ] as const;
 export const FUNDING_ORDER_LIFECYCLE_CODES = [
   "ORDER_CREATED",
@@ -514,7 +515,7 @@ export function normalizeObservabilityEvent(
       : undefined;
     return {
       ...base,
-      level: outcome === "unmatched" || outcome === "ok" || outcome === "accepted" || outcome === "ignored" ||
+      level: outcome === "unmatched" || outcome === "ok" || outcome === "accepted" || outcome === "ignored" || outcome === "skipped" ||
         (event.kind === "action-reconcile" && outcome === "unavailable")
         ? "info"
         : "error",

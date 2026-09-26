@@ -2,7 +2,7 @@ import "server-only";
 
 import { keccak256 } from "viem";
 
-import type { ConfirmActionResponse } from "@/shared/actions/contracts/confirm";
+import { supportsBaseBatchGasHint, type ConfirmActionResponse } from "@/shared/actions/contracts/confirm";
 import type { GetActionPendingResponse, GetActionResponse } from "@/shared/actions/contracts/get";
 import type { HandleActionResponse } from "@/shared/actions/contracts/handle";
 import { DECLINE_ACTION_CONTRACT_VERSION, parseDeclineActionRequest, type DeclineActionResponse } from "@/shared/actions/contracts/decline";
@@ -195,18 +195,22 @@ export function createConfirmActionHandler(dependencies: {
     }
 
     let batchGasLimit: string | undefined;
-    let gasHintCode: "BASE_BATCH_GAS_HINT_APPLIED" | "BASE_BATCH_GAS_HINT_UNAVAILABLE" | undefined;
+    let gasHintCode: "BASE_BATCH_GAS_HINT_APPLIED" | "BASE_BATCH_GAS_HINT_UNAVAILABLE" | "BASE_BATCH_GAS_HINT_SKIPPED" | undefined;
     if (owner.accountProvider === "base-account") {
-      try {
-        const raw = await (dependencies.estimateBaseBatch ??
-          getBaseCoinbaseSmartAccountBatchEstimator.estimateBatch)(calls, owner.address, request.signal);
-        const padded = applyCoinbaseBatchGasHeadroom(raw);
-        if (padded !== null) batchGasLimit = padded.toString();
-        gasHintCode = batchGasLimit
-          ? "BASE_BATCH_GAS_HINT_APPLIED"
-          : "BASE_BATCH_GAS_HINT_UNAVAILABLE";
-      } catch {
-        gasHintCode = "BASE_BATCH_GAS_HINT_UNAVAILABLE";
+      if (!supportsBaseBatchGasHint(calls)) {
+        gasHintCode = "BASE_BATCH_GAS_HINT_SKIPPED";
+      } else {
+        try {
+          const raw = await (dependencies.estimateBaseBatch ??
+            getBaseCoinbaseSmartAccountBatchEstimator.estimateBatch)(calls, owner.address, request.signal);
+          const padded = applyCoinbaseBatchGasHeadroom(raw);
+          if (padded !== null) batchGasLimit = padded.toString();
+          gasHintCode = batchGasLimit
+            ? "BASE_BATCH_GAS_HINT_APPLIED"
+            : "BASE_BATCH_GAS_HINT_UNAVAILABLE";
+        } catch {
+          gasHintCode = "BASE_BATCH_GAS_HINT_UNAVAILABLE";
+        }
       }
     }
 
@@ -217,7 +221,7 @@ export function createConfirmActionHandler(dependencies: {
       emitServerEvent("action-confirm", {
         route: "/api/actions/:id/confirm",
         code: gasHintCode,
-        outcome: batchGasLimit ? "ok" : "unavailable",
+        outcome: gasHintCode === "BASE_BATCH_GAS_HINT_SKIPPED" ? "skipped" : batchGasLimit ? "ok" : "unavailable",
         provider: owner.accountProvider,
         owner,
         durationMs: Date.now() - startedAt,
