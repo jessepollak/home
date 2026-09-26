@@ -496,7 +496,7 @@ describe("ConnectedActivityPanel", () => {
     expect(new Set(queries.map((query) => new URLSearchParams(query).get("to"))).size).toBe(1);
   });
 
-  test("keeps rows and the list node while retrying the exact cursor after a later-page failure", async () => {
+  test("keeps rows and the list node while retrying the exact cursor after automatic retries fail", async () => {
     installControlledObserver();
     const queries: string[] = [];
     const view = render(
@@ -511,8 +511,8 @@ describe("ConnectedActivityPanel", () => {
               nextCursor: "cursor-1",
             });
           }
-          if (queries.length === 2) throw new Error("later page unavailable");
-          if (queries.length === 3) {
+          if (queries.length >= 2 && queries.length <= 4) throw new Error("later page unavailable");
+          if (queries.length === 5) {
             return pageFor(query, WALLET_A, {
               id: "event-2",
               blockNumber: "19",
@@ -530,19 +530,19 @@ describe("ConnectedActivityPanel", () => {
     const observer = await waitForSentinel();
     act(() => observer.intersect());
     const retry = await waitFor(() =>
-      view.getByRole("button", { name: "Try again" }),
+      view.getByRole("button", { name: "Try again" }), waitedFor,
     );
     const list = view.getByRole("list");
     expect(view.getByText("More activity could not be loaded. Your current results are unchanged.")).toBeTruthy();
     expect(view.getAllByRole("button", { description: /transaction details/ })).toHaveLength(1);
-    expect(requestedCursors(queries)).toEqual([null, "cursor-1"]);
+    expect(requestedCursors(queries)).toEqual([null, "cursor-1", "cursor-1", "cursor-1"]);
 
     fireEvent.click(retry);
     await waitFor(() =>
       expect(view.getByText("End of activity")).toBeTruthy(),
       waitedFor,
     );
-    expect(requestedCursors(queries)).toEqual([null, "cursor-1", "cursor-1", "cursor-2"]);
+    expect(requestedCursors(queries)).toEqual([null, "cursor-1", "cursor-1", "cursor-1", "cursor-1", "cursor-2"]);
     expect(view.getAllByRole("button", { description: /transaction details/ })).toHaveLength(3);
     expect(view.getByRole("list")).toBe(list);
     expect(view.queryByRole("button", { name: "Try again" })).toBeNull();
@@ -626,7 +626,7 @@ describe("ConnectedActivityPanel", () => {
     const observer = await waitForSentinel();
     act(() => observer.intersect());
     await waitFor(() => expect(view.getByRole("button", { name: "Try again" })).toBeTruthy(), waitedFor);
-    expect(requestedCursors(queries)).toEqual([null, "cursor-1"]);
+    expect(requestedCursors(queries)).toEqual([null, "cursor-1", "cursor-1", "cursor-1"]);
     expect(view.getAllByRole("button", { description: /transaction details/ })).toHaveLength(1);
     expect(view.queryByText("End of activity")).toBeNull();
   });

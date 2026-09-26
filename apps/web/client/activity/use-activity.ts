@@ -35,6 +35,7 @@ export const activityStaleTimeMs = 10_000;
 export const activityContinuationBurstPages = 3;
 export const activityContinuationYieldMs = 250;
 export const activityValuationRetryDelaysMs = [15_000, 60_000, 180_000];
+const activityContinuationRetryDelaysMs = [1_000, 3_000] as const;
 
 export type UseActivityResult = ActivityState & {
   retry: () => void;
@@ -52,6 +53,8 @@ type ContinuationState = {
   scheduled: boolean;
   consumed: Set<string>;
   burst: number;
+  retries: number;
+  retryAt: number;
   generation: number;
   timer: ReturnType<typeof setTimeout> | null;
 };
@@ -87,13 +90,15 @@ function cancelValuationRetry(state: ValuationRetryState) {
 
 type ContinuationCursor = {
   fetchNextPage: (options: { cancelRefetch: boolean }) => Promise<{
-    data?: { pages: ActivityPage[] };
+    data?: { pages: ActivityPage[]; pageParams: unknown[] };
     hasNextPage?: boolean;
     isError?: boolean;
     isFetchNextPageError?: boolean;
   }>;
   hasNextPage: boolean;
   nextCursor: string | null;
+  pageParams: readonly unknown[];
+  pageCount: number;
 };
 
 type ScopedFlag = {
@@ -235,13 +240,17 @@ export function useActivity(
     scheduled: false,
     consumed: new Set<string>(),
     burst: 0,
+    retries: 0,
     generation: 0,
+    retryAt: 0,
     timer: null,
   });
   const latestRef = useRef<ContinuationCursor>({
     fetchNextPage: query.fetchNextPage,
     hasNextPage: query.hasNextPage,
     nextCursor: mergedPage?.nextCursor ?? null,
+    pageParams: query.data?.pageParams ?? [],
+    pageCount: query.data?.pages.length ?? 0,
   });
   const pumpRef = useRef<() => Promise<void>>(async () => undefined);
   useEffect(() => {
@@ -249,6 +258,8 @@ export function useActivity(
       fetchNextPage: query.fetchNextPage,
       hasNextPage: query.hasNextPage,
       nextCursor: mergedPage?.nextCursor ?? null,
+      pageParams: query.data?.pageParams ?? [],
+      pageCount: query.data?.pages.length ?? 0,
     };
   });
 
@@ -268,11 +279,16 @@ export function useActivity(
 
   const pump = useCallback(async () => {
     const state = continuationRef.current;
-    if (state.running || state.failed || !state.visible) return;
+    if (state.running || state.failed || !state.visible || state.scheduled) return;
+    const retryWaitMs = state.retryAt - Date.now();
+    if (retryWaitMs > 0) {
+      schedule(retryWaitMs);
+      return;
+    }
     const latest = latestRef.current;
     const cursor = latest.nextCursor;
     if (!latest.hasNextPage || !cursor) return;
-    if (state.consumed.has(cursor)) {
+    if (state.consumed.has(cursor) || latest.pageParams.includes(cursor)) {
       state.failed = true;
       markFailed(true);
       markContinuing(false);
@@ -287,25 +303,50 @@ export function useActivity(
     state.running = true;
     const result = await latest.fetchNextPage({ cancelRefetch: false });
     const current = continuationRef.current;
-    current.running = false;
     if (generation !== current.generation) return;
+    current.running = false;
+    const data = result.data;
+    const appended = !!data && data.pages.length > latest.pageCount && data.pageParams.at(-1) === cursor;
     if (result.isError || result.isFetchNextPageError) {
-      current.failed = true;
-      markFailed(true);
-      markContinuing(false);
+      if (current.retries >= activityContinuationRetryDelaysMs.length) {
+        current.failed = true;
+        markFailed(true);
+        markContinuing(false);
+      } else {
+        const delay = activityContinuationRetryDelaysMs[current.retries]!;
+        current.retries += 1;
+        current.retryAt = Date.now() + delay;
+        if (current.visible) schedule(delay);
+      }
       return;
     }
-    const nextCursor = result.data?.pages.at(-1)?.nextCursor ?? null;
-    latestRef.current = {
-      ...latestRef.current,
-      hasNextPage: nextCursor !== null,
-      nextCursor,
-    };
-    current.consumed.add(cursor);
-    current.burst += 1;
-    markContinuing(nextCursor !== null && current.visible);
-    if (nextCursor === null || !current.visible) return;
-    schedule(0);
+    if (data) {
+      const nextCursor = data.pages.at(-1)?.nextCursor ?? null;
+      latestRef.current = {
+        ...latestRef.current,
+        hasNextPage: nextCursor !== null,
+        nextCursor,
+        pageParams: data.pageParams,
+        pageCount: data.pages.length,
+      };
+      if (appended) {
+        current.consumed.add(cursor);
+        current.retries = 0;
+        current.retryAt = 0;
+        current.burst += 1;
+        current.failed = false;
+        markFailed(false);
+        if (nextCursor !== null && (current.consumed.has(nextCursor) || data.pageParams.includes(nextCursor))) {
+          current.failed = true;
+          markFailed(true);
+          markContinuing(false);
+          return;
+        }
+      }
+      markContinuing(nextCursor !== null && current.visible);
+      if (nextCursor === null || !current.visible) return;
+    }
+    schedule(appended ? 0 : activityContinuationYieldMs);
   }, [markContinuing, markFailed, schedule]);
   useEffect(() => {
     pumpRef.current = pump;
@@ -321,6 +362,8 @@ export function useActivity(
     state.scheduled = false;
     state.consumed = new Set<string>();
     state.burst = 0;
+    state.retries = 0;
+    state.retryAt = 0;
     if (state.timer !== null) {
       clearTimeout(state.timer);
       state.timer = null;
@@ -369,13 +412,14 @@ export function useActivity(
     state.failed = false;
     state.consumed = new Set<string>();
     state.burst = 0;
+    state.retries = 0;
+    state.retryAt = 0;
     state.visible = true;
     markFailed(false);
     markContinuing(true);
     void pumpRef.current();
   }, [markContinuing, markFailed]);
 
-  const readError = loadMoreFailed || query.isFetchNextPageError;
   if (!ownerKey) {
     return {
       status: "unavailable", page: null, loadingMore: false,
@@ -402,7 +446,7 @@ export function useActivity(
     status: "ready",
     page: mergedPage,
     loadingMore: query.isFetchingNextPage,
-    loadMoreError: readError,
+    loadMoreError: loadMoreFailed,
     continuing,
     retry,
     refresh,

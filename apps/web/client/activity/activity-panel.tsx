@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LoadErrorCard, LoadRetryButton } from "@/components/load-error";
@@ -27,6 +27,7 @@ import { ShimmerRows } from "@/client/home/panel-shared";
 import type { ActivityPanelDensity, ActivityTransfer } from "./types";
 
 const TransactionDetailsSheet = deferSheet(() => import("@/components/transaction-details").then((module) => module.TransactionDetailsModal));
+const EMPTY_TRANSFERS: readonly ActivityTransfer[] = [];
 
 export function ActivityPanelView({
   activity,
@@ -67,8 +68,15 @@ export function ActivityPanelView({
   const heading = header === undefined ? <DefaultActivityHeader /> : header;
   const labelledBy = header === null ? undefined : "activity-title";
   const labelled = header === null ? "Activity" : undefined;
-  const transfers = activity.status === "ready" ? activity.page.transfers : [];
-  const items = mergeActivityFeed({ transfers, operations });
+  const transfers = activity.status === "ready" ? activity.page.transfers : EMPTY_TRANSFERS;
+  const loadedThrough = activity.status === "ready" && activity.page.nextCursor !== null
+    ? transfers.length > 0
+      ? transfers.reduce((oldest, transfer) =>
+        Date.parse(transfer.blockTimestamp) < Date.parse(oldest) ? transfer.blockTimestamp : oldest,
+      transfers[0]!.blockTimestamp)
+      : activity.page.window.to
+    : null;
+  const items = useMemo(() => mergeActivityFeed({ transfers, operations, loadedThrough }), [transfers, operations, loadedThrough]);
   const hasRows = items.length > 0;
   const exhausted = activity.status !== "ready" || activity.page.nextCursor === null;
   const plain = density === "feed";
@@ -281,17 +289,18 @@ function ActivityContinuation({
       <p className="sr-only" role="status">
         {activity.continuing ? "Loading older activity" : ""}
       </p>
-      {activity.loadingMore ? <ActivityLoader /> : null}
-      {activity.loadMoreError ? inlineStatus ? (
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs text-destructive" role="alert">
-            More activity could not be loaded. Your current results are unchanged.
-          </p>
-          <LoadRetryButton onRetry={activity.retryLoadMore} />
-        </div>
-      ) : feedStatus ? (
-        <ActivityUnavailable message="More activity unavailable" onReload={activity.retryLoadMore} />
-      ) : null : null}
+      <ActivityLoader loading={!activity.loadMoreError && (activity.continuing || activity.loadingMore)}>
+        {activity.loadMoreError ? inlineStatus ? (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-destructive" role="alert">
+              More activity could not be loaded. Your current results are unchanged.
+            </p>
+            <LoadRetryButton onRetry={activity.retryLoadMore} />
+          </div>
+        ) : feedStatus ? (
+          <ActivityUnavailable message="More activity unavailable" onReload={activity.retryLoadMore} />
+        ) : null : null}
+      </ActivityLoader>
       <div ref={sentinelRef} className="h-px w-full" data-activity-sentinel="" aria-hidden="true" />
     </div>
   );
