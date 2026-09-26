@@ -73,7 +73,16 @@ export function createGetActionHandler(dependencies: {
     if (owner instanceof Response) return owner;
     const { id } = await context.params;
     if (!uuidPattern.test(id)) return privateError("ACTION_NOT_FOUND", "The action was not found.", 404);
-    const row = await (dependencies.store ?? getActionsStore()).get(owner, id);
+    let row: ActionRow | null;
+    try {
+      row = await (dependencies.store ?? getActionsStore()).get(owner, id);
+    } catch {
+      emitServerEvent("action-read", {
+        route: "/api/actions/:id", code: "ACTIONS_STORE_UNAVAILABLE", outcome: "unavailable",
+        provider: owner.accountProvider, owner,
+      });
+      return privateError("ACTIONS_UNAVAILABLE", "Recorded actions are temporarily unavailable.", 503);
+    }
     if (!row) return privateError("ACTION_NOT_FOUND", "The action was not found.", 404);
     if (!row.confirmed_at) {
       return privateJson({
@@ -327,8 +336,18 @@ export function createListActionsHandler(dependencies: {
   return async function GET(request: Request): Promise<Response> {
     const owner = await authorizeOwner(request, dependencies.authorize);
     if (owner instanceof Response) return owner;
-    const store = dependencies.store ?? getActionsStore();
-    const rows = await store.list(owner);
+    let store: Pick<ActionsStore, "list" | "recordHandle" | "recordOutcome">;
+    let rows: ActionRow[];
+    try {
+      store = dependencies.store ?? getActionsStore();
+      rows = await store.list(owner);
+    } catch {
+      emitServerEvent("action-read", {
+        route: "/api/actions", code: "ACTIONS_STORE_UNAVAILABLE", outcome: "unavailable",
+        provider: owner.accountProvider, owner,
+      });
+      return privateError("ACTIONS_UNAVAILABLE", "Recorded actions are temporarily unavailable.", 503);
+    }
     const now = dependencies.now?.() ?? new Date();
     const candidateIds = new Set(rotatingWindow(
       rows

@@ -29,6 +29,14 @@ function row(address = session.smartAccount!.address, status = "confirmed") {
 }
 
 describe("recent Home action activity", () => {
+  test("rejects invalid top-level responses without hiding malformed individual records", () => {
+    for (const value of [null, [], {}, { actions: null }, { actions: {} }]) {
+      expect(() => parseRecentMoneyActions(value, session)).toThrow("Recent actions response is invalid.");
+    }
+    expect(parseRecentMoneyActions({ actions: [null, { ...row(), status: "legacy" }, row("0x3333333333333333333333333333333333333333"), row()] }, session)).toHaveLength(1);
+    expect(parseRecentMoneyActions(null, { ...session, smartAccount: null })).toEqual([]);
+  });
+
   test("accepts only the full verified owner tuple", () => {
     expect(parseRecentMoneyActions({ actions: [row()] }, session)).toHaveLength(1);
     expect(parseRecentMoneyActions({ actions: [row("0x3333333333333333333333333333333333333333")] }, session)).toEqual([]);

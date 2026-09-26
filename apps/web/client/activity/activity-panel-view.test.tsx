@@ -248,8 +248,29 @@ describe("combined Activity panel", () => {
     expect(view.getByRole("status").textContent).toContain("Onchain transfers are unavailable");
     expect(view.queryByRole("alert")).toBeNull();
 
-    fireEvent.click(view.getByRole("button", { name: "Try again" }));
+    fireEvent.click(view.getByRole("button", { name: "Retry onchain transfers" }));
     expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  test("names both page retry controls distinctly and retries only their failed source", () => {
+    const retry = mock(() => undefined);
+    const retryActions = mock(() => undefined);
+    const view = render(
+      <ActivityPanelView
+        activity={failed(retry)}
+        operations={[operation("recorded-action", 5)]}
+        actionsStatus="error"
+        retryActions={retryActions}
+      />,
+    );
+
+    expect(view.getByText("recorded-action")).toBeTruthy();
+    fireEvent.click(view.getByRole("button", { name: "Retry onchain transfers" }));
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(retryActions).toHaveBeenCalledTimes(0);
+    fireEvent.click(view.getByRole("button", { name: "Retry recorded actions" }));
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(retryActions).toHaveBeenCalledTimes(1);
   });
 
   test("shows a centered muted Activity unavailable line with a reload icon instead of an alert", () => {

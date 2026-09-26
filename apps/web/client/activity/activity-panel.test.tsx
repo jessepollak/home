@@ -1,13 +1,15 @@
 import "../account/dom-test-harness";
 
-import { getHomeQueryClient } from "@/client/query/query-client";
-import { afterEach, describe, expect, test } from "bun:test";
+import { getHomeQueryClient, HomeQueryClientProvider } from "@/client/query/query-client";
+import { focusManager } from "@tanstack/react-query";
+import { afterEach, describe, expect, jest, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
   ACTIVITY_CONTRACT_VERSION,
   type ActivityResponse,
 } from "@/shared/activity/contract";
 import type { FetchActivity } from "./types";
+import { TransferExecutionError } from "@/shared/transfers/types";
 
 const { act, cleanup, fireEvent, render, waitFor } = await import(
   "@testing-library/react"
@@ -20,16 +22,20 @@ const noOperations = async () => ({ actions: [] });
 function ActivityPanel({
   session,
   fetchActivity,
+  fetchOperations = noOperations,
+  density = "page",
 }: {
   session: VerifiedAccountSession | null;
   fetchActivity: FetchActivity;
+  fetchOperations?: (signal?: AbortSignal) => Promise<unknown>;
+  density?: "page" | "feed";
 }) {
   return (
     <ConnectedActivityPanel
-      density="page"
+      density={density}
       activitySession={session}
       fetchActivity={fetchActivity}
-      fetchOperations={noOperations}
+      fetchOperations={fetchOperations}
       regionId="US"
     />
   );
@@ -105,6 +111,23 @@ const originalIntersectionObserver = globalThis.IntersectionObserver;
 const WALLET_A = "0x1111111111111111111111111111111111111111" as const;
 const WALLET_B = "0x2222222222222222222222222222222222222222" as const;
 const OTHER = "0x3333333333333333333333333333333333333333" as const;
+
+function actionFor(owner: VerifiedAccountSession, title = "Recorded send") {
+  return {
+    id: "11111111-1111-4111-8111-111111111111",
+    provider: owner.accountProvider,
+    kind: "send",
+    summary: { title, amounts: [], warnings: [], expiresAt: "2026-09-15T12:30:00.000Z" },
+    status: "confirmed",
+    createdAt: "2026-09-15T12:00:00.000Z",
+    confirmedAt: "2026-09-15T12:05:00.000Z",
+    owner: { subject: owner.user.subject, address: owner.smartAccount!.address, chainId: 8453, accountProvider: owner.accountProvider },
+  };
+}
+
+function actionFailure(status: number) {
+  return Object.assign(new TransferExecutionError("unavailable"), { status });
+}
 
 function session(
   subject: string,
@@ -212,6 +235,7 @@ async function waitForSentinel() {
 afterEach(() => {
   cleanup();
   getHomeQueryClient().clear();
+  focusManager.setFocused(undefined);
   ControlledIntersectionObserver.instances = [];
   Object.defineProperty(globalThis, "IntersectionObserver", {
     configurable: true,
@@ -221,6 +245,214 @@ afterEach(() => {
 });
 
 describe("ConnectedActivityPanel", () => {
+  test("healthy empty actions and transfers resolve to the empty state", async () => {
+    const view = render(<ActivityPanel session={session("subject-a", WALLET_A)}
+      fetchActivity={async (query) => pageFor(query, WALLET_A, { empty: true })} />);
+    await waitFor(() => expect(view.getByText("No activity yet")).toBeTruthy());
+    expect(view.queryByText(/Recorded Home actions are unavailable/)).toBeNull();
+    expect(view.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
+  test("loaded actions remain visible when onchain transfers fail", async () => {
+    const owner = session("subject-a", WALLET_A);
+    const view = render(<ActivityPanel session={owner}
+      fetchActivity={async () => { throw new Error("onchain unavailable"); }}
+      fetchOperations={async () => ({ actions: [actionFor(owner)] })} />);
+    await waitFor(() => expect(view.getByText("Recorded send")).toBeTruthy());
+    expect(view.getByText(/Onchain transfers are unavailable/)).toBeTruthy();
+    expect(view.queryByText(/Recorded Home actions are unavailable/)).toBeNull();
+  });
+
+  test("page reload recovers only failed actions while keeping loaded transfers", async () => {
+    const owner = session("subject-a", WALLET_A);
+    let transfers = 0;
+    let actions = 0;
+    const view = render(<ActivityPanel session={owner} fetchActivity={async (query) => {
+      transfers += 1;
+      return pageFor(query, WALLET_A);
+    }} fetchOperations={async () => {
+      actions += 1;
+      if (actions === 1) throw actionFailure(401);
+      return { actions: [actionFor(owner)] };
+    }} />);
+    await waitFor(() => expect(view.getByText(/Recorded Home actions are unavailable/)).toBeTruthy());
+    expect(view.getByText("Received")).toBeTruthy();
+    fireEvent.click(view.getByRole("button", { name: "Retry recorded actions" }));
+    await waitFor(() => expect(view.getByText("Recorded send")).toBeTruthy());
+    expect(view.queryByText(/Recorded Home actions are unavailable/)).toBeNull();
+    expect(view.getByText("Received")).toBeTruthy();
+    expect(transfers).toBe(1);
+    expect(actions).toBe(2);
+  });
+
+  test("window focus recovers a malformed actions response without a manual retry", async () => {
+    focusManager.setFocused(false);
+    const owner = session("subject-a", WALLET_A);
+    let calls = 0;
+    const view = render(<HomeQueryClientProvider><ActivityPanel session={owner}
+      fetchActivity={async (query) => pageFor(query, WALLET_A, { empty: true })}
+      fetchOperations={async () => {
+        calls += 1;
+        return calls === 1 ? {} : { actions: [actionFor(owner)] };
+      }} /></HomeQueryClientProvider>);
+    await waitFor(() => expect(view.getByText(/Recorded Home actions are unavailable/)).toBeTruthy());
+    expect(view.getByRole("button", { name: "Retry recorded actions" })).toBeTruthy();
+    expect(calls).toBe(1);
+
+    act(() => focusManager.setFocused(true));
+    await waitFor(() => expect(view.getByText("Recorded send")).toBeTruthy());
+    expect(view.queryByText(/Recorded Home actions are unavailable/)).toBeNull();
+    expect(calls).toBe(2);
+  });
+
+  test("feed reload targets failed actions without refetching healthy transfers", async () => {
+    const owner = session("subject-a", WALLET_A);
+    let transfers = 0;
+    let actions = 0;
+    const view = render(<ActivityPanel session={owner} density="feed" fetchActivity={async (query) => {
+      transfers += 1;
+      return pageFor(query, WALLET_A);
+    }} fetchOperations={async () => {
+      actions += 1;
+      if (actions === 1) throw actionFailure(401);
+      return { actions: [actionFor(owner)] };
+    }} />);
+    await waitFor(() => expect(view.getByText("Some activity is unavailable")).toBeTruthy());
+    expect(view.getByText("Received")).toBeTruthy();
+    fireEvent.click(view.getByRole("button", { name: "Reload activity" }));
+    await waitFor(() => expect(view.getByText("Recorded send")).toBeTruthy());
+    expect(view.queryByText("Some activity is unavailable")).toBeNull();
+    expect(transfers).toBe(1);
+    expect(actions).toBe(2);
+  });
+
+  test("transient store failure retries automatically before showing a warning", async () => {
+    const owner = session("subject-a", WALLET_A);
+    let calls = 0;
+    const view = render(<ActivityPanel session={owner}
+      fetchActivity={async (query) => pageFor(query, WALLET_A)}
+      fetchOperations={async () => {
+        calls += 1;
+        if (calls === 1) throw actionFailure(503);
+        return { actions: [actionFor(owner)] };
+      }} />);
+    await waitFor(() => expect(calls).toBe(1));
+    expect(view.queryByText(/Recorded Home actions are unavailable/)).toBeNull();
+    await waitFor(() => expect(view.getByText("Recorded send")).toBeTruthy(), { timeout: 2_000 });
+    expect(calls).toBe(2);
+    expect(view.queryByText(/Recorded Home actions are unavailable/)).toBeNull();
+  });
+
+  test("stale-session failure is not retried and invalid response is not empty history", async () => {
+    const owner = session("subject-a", WALLET_A);
+    let calls = 0;
+    const view = render(<ActivityPanel session={owner}
+      fetchActivity={async (query) => pageFor(query, WALLET_A, { empty: true })}
+      fetchOperations={async () => { calls += 1; throw new TransferExecutionError("stale-session"); }} />);
+    await waitFor(() => expect(view.getByText(/Recorded Home actions are unavailable/)).toBeTruthy());
+    expect(calls).toBe(1);
+    expect(view.queryByText("No activity yet")).toBeNull();
+    view.rerender(<ActivityPanel session={session("subject-b", WALLET_B)}
+      fetchActivity={async (query) => pageFor(query, WALLET_B, { empty: true })}
+      fetchOperations={async () => ({ error: { code: "ACTIONS_UNAVAILABLE" } })} />);
+    await waitFor(() => expect(view.getByText(/Recorded Home actions are unavailable/)).toBeTruthy());
+    expect(view.queryByText("No activity yet")).toBeNull();
+  });
+
+  test("a failed background refetch retains loaded action rows without warning", async () => {
+    const owner = session("subject-a", WALLET_A);
+    let calls = 0;
+    const view = render(<ActivityPanel session={owner}
+      fetchActivity={async (query) => pageFor(query, WALLET_A)}
+      fetchOperations={async () => {
+        calls += 1;
+        if (calls > 1) throw actionFailure(401);
+        return { actions: [actionFor(owner)] };
+      }} />);
+    await waitFor(() => expect(view.getByText("Recorded send")).toBeTruthy());
+    const { activityOwnerKey } = await import("./use-activity");
+    await act(async () => { await getHomeQueryClient().invalidateQueries({ queryKey: [activityOwnerKey(owner), "actions"] }); });
+    expect(calls).toBe(2);
+    expect(view.getByText("Recorded send")).toBeTruthy();
+    expect(view.getByText("Received")).toBeTruthy();
+    expect(view.queryByText(/Recorded Home actions are unavailable/)).toBeNull();
+  });
+
+  test("a hidden refetch failure becomes actionable once the tolerance passes on a focused tab", async () => {
+    const owner = session("subject-a", WALLET_A);
+    let calls = 0;
+    const view = render(<ActivityPanel session={owner}
+      fetchActivity={async (query) => pageFor(query, WALLET_A)}
+      fetchOperations={async () => {
+        calls += 1;
+        if (calls > 1) throw actionFailure(401);
+        return { actions: [actionFor(owner)] };
+      }} />);
+    await waitFor(() => expect(view.getByText("Recorded send")).toBeTruthy());
+    const { activityOwnerKey } = await import("./use-activity");
+    jest.useFakeTimers();
+    try {
+      await act(async () => { await getHomeQueryClient().invalidateQueries({ queryKey: [activityOwnerKey(owner), "actions"] }); });
+      expect(calls).toBe(2);
+      expect(view.queryByText(/Recorded Home actions are unavailable/)).toBeNull();
+      await act(async () => { jest.advanceTimersByTime(119_000); });
+      expect(view.queryByText(/Recorded Home actions are unavailable/)).toBeNull();
+      expect(view.queryByRole("button", { name: "Retry recorded actions" })).toBeNull();
+      await act(async () => { jest.advanceTimersByTime(1_500); });
+      expect(view.getByText(/Recorded Home actions are unavailable/)).toBeTruthy();
+      expect(view.getByRole("button", { name: "Retry recorded actions" })).toBeTruthy();
+      expect(view.getByText("Recorded send")).toBeTruthy();
+      expect(calls).toBe(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test("restored action rows older than the tolerance still report a sustained failure", async () => {
+    const owner = session("subject-a", WALLET_A);
+    const { activityOwnerKey } = await import("./use-activity");
+    getHomeQueryClient().setQueryData([activityOwnerKey(owner), "actions"], { actions: [actionFor(owner, "Restored send")] }, {
+      updatedAt: Date.now() - 10 * 60_000,
+    });
+    let calls = 0;
+    const view = render(<ActivityPanel session={owner}
+      fetchActivity={async (query) => pageFor(query, WALLET_A)}
+      fetchOperations={async () => { calls += 1; throw actionFailure(401); }} />);
+    await waitFor(() => expect(view.getByText(/Recorded Home actions are unavailable/)).toBeTruthy());
+    expect(calls).toBe(1);
+    expect(view.getByText("Restored send")).toBeTruthy();
+    expect(view.getByText("Received")).toBeTruthy();
+  });
+
+  test("a malformed actions value restored from an earlier cache recovers instead of crashing", async () => {
+    const owner = session("subject-a", WALLET_A);
+    const { activityOwnerKey } = await import("./use-activity");
+    getHomeQueryClient().setQueryData([activityOwnerKey(owner), "actions"], {}, { updatedAt: Date.now() - 60_000 });
+    let calls = 0;
+    const view = render(<ActivityPanel session={owner}
+      fetchActivity={async (query) => pageFor(query, WALLET_A)}
+      fetchOperations={async () => { calls += 1; return { actions: [actionFor(owner)] }; }} />);
+    await waitFor(() => expect(view.getByText("Recorded send")).toBeTruthy());
+    expect(calls).toBe(1);
+    expect(view.getByText("Received")).toBeTruthy();
+    expect(view.queryByText(/Recorded Home actions are unavailable/)).toBeNull();
+  });
+
+  test("switching owners does not carry prior action rows or errors", async () => {
+    const first = session("subject-a", WALLET_A);
+    const second = session("subject-b", WALLET_B);
+    const view = render(<ActivityPanel session={first}
+      fetchActivity={async (query) => pageFor(query, WALLET_A, { empty: true })}
+      fetchOperations={async () => ({ actions: [actionFor(first, "Owner A action")] })} />);
+    await waitFor(() => expect(view.getByText("Owner A action")).toBeTruthy());
+    view.rerender(<ActivityPanel session={second}
+      fetchActivity={async (query) => pageFor(query, WALLET_B, { empty: true })}
+      fetchOperations={async () => { throw actionFailure(401); }} />);
+    expect(view.queryByText("Owner A action")).toBeNull();
+    await waitFor(() => expect(view.getByText(/Recorded Home actions are unavailable/)).toBeTruthy());
+    expect(view.queryByText("Owner A action")).toBeNull();
+  });
+
   test("initial load stays pending until both sources settle", () => {
     const activityPage = pageFor("to=2026-09-13T12%3A00%3A00.000Z", WALLET_A);
     const view = render(
