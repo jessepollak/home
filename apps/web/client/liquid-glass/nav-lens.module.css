@@ -34,12 +34,7 @@
 
 .icon { color: var(--primary); }
 
-.label {
-  color: var(--foreground);
-  font-size: .625rem;
-  font-weight: 500;
-  line-height: .75rem;
-}
+.label { color: var(--foreground); }
 
 .specular {
   background: var(--glass-lens-specular);

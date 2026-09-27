@@ -5,6 +5,11 @@ import { shouldRefractNavRim, type EngineBrand } from "./lens-gate";
 import { generateLensMaps } from "./lens-map";
 import { createRecentCache } from "./recent-cache";
 import { readNavLensEnvironment, type NavLensProps } from "./use-nav-lens";
+import {
+  navigationTabContentClassName,
+  navigationTabIconClassName,
+  navigationTabLabelClassName,
+} from "@/components/primary-navigation-tab";
 import styles from "./nav-lens.module.css";
 
 type LensSize = { width: number; height: number; ratio: number };
@@ -298,9 +303,9 @@ export function NavLens({ items, target, reducedMotion, onStatusChange }: NavLen
         <span className={`${styles.track} absolute inset-y-0 start-0 grid w-[200%] grid-cols-2`}>
           {items.map(({ id, label, Icon }) => (
             <span key={id} className={`${styles.tab} flex min-w-0 items-center justify-center px-2`}>
-              <span className={`${styles.content} flex min-w-0 w-full flex-col items-center justify-center gap-0.5`}>
-                <Icon className={`${styles.icon} size-5.5`} aria-hidden="true" />
-                <span className={`${styles.label} block max-w-full truncate`}>{label}</span>
+              <span className={`${styles.content} ${navigationTabContentClassName}`}>
+                <Icon className={`${styles.icon} ${navigationTabIconClassName}`} aria-hidden="true" />
+                <span className={`${styles.label} ${navigationTabLabelClassName}`}>{label}</span>
               </span>
             </span>
           ))}

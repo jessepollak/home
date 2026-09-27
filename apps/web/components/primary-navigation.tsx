@@ -13,6 +13,11 @@ import {
   shellWidthClassName,
 } from "@/components/shell-layout";
 import {
+  navigationTabContentClassName,
+  navigationTabIconClassName,
+  navigationTabLabelClassName,
+} from "@/components/primary-navigation-tab";
+import {
   isHomeNestedPanelId,
   navigationItems,
   type NavigationId,
@@ -249,9 +254,9 @@ export function PrimaryNavigation({
               aria-current={isActive ? "page" : undefined}
               aria-controls="navigation-panel"
             >
-              <span className={`${styles.content} flex min-w-0 w-full flex-col items-center justify-center gap-0.5`}>
-                <Icon className={`size-5.5 ${isActive ? "text-primary" : "text-foreground/70"}`} aria-hidden="true" />
-                <span className={`block max-w-full truncate text-[0.625rem] leading-3 font-medium ${isActive ? "text-foreground" : "text-foreground/70"}`}>{labels?.[item.id] ?? item.label}</span>
+              <span className={`${styles.content} ${navigationTabContentClassName}`}>
+                <Icon className={`${navigationTabIconClassName} ${isActive ? "text-primary" : "text-foreground/70"}`} aria-hidden="true" />
+                <span className={`${navigationTabLabelClassName} ${isActive ? "text-foreground" : "text-foreground/70"}`}>{labels?.[item.id] ?? item.label}</span>
               </span>
             </Button>
           );

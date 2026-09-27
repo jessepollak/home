@@ -149,7 +149,7 @@ function PreviewShell({ initialPanel, homeIndicator, fallback, longLabels, balan
   const shell = <div dir={rtl ? "rtl" : "ltr"} className="relative flex h-svh max-h-svh min-w-0 flex-col overflow-hidden bg-muted sm:h-dvh"
     style={{
       "--shell-safe-area-bottom": homeIndicator ? "34px" : "0px",
-      "--shell-navigation-offset": "max(calc(var(--shell-safe-area-bottom) - 0.875rem), 0.75rem)",
+      "--shell-navigation-offset": "max(calc(var(--shell-safe-area-bottom) - 0.75rem), 0.75rem)",
       "--shell-navigation-clearance": "calc(var(--spacing-shell-mobile-navigation) + var(--shell-navigation-offset) + 1rem)",
     } as React.CSSProperties}>{content}</div>;
   return <AppChromeProvider><PresentationRegionProvider regionId="US"><MoneyMotionProvider reducedMotion={reducedMotion || undefined}>
@@ -230,7 +230,7 @@ async function verifyClearance(canvasElement: HTMLElement) {
   await waitFor(() => expect(main.scrollTop).toBeGreaterThan(0));
   await expect(last.getBoundingClientRect().bottom).toBeLessThanOrEqual(nav.getBoundingClientRect().top);
   if (canvasElement.querySelector('[style*="34px"]')) {
-    await expect(Math.abs(window.innerHeight - nav.getBoundingClientRect().bottom - 20)).toBeLessThanOrEqual(1);
+    await expect(Math.abs(window.innerHeight - nav.getBoundingClientRect().bottom - 22)).toBeLessThanOrEqual(1);
   }
 }
 async function verifyRapidTabs(canvasElement: HTMLElement) {
