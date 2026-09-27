@@ -1,5 +1,5 @@
 ### `investments`
-- **Entry context**: home/investments · `/investments`, `/investments/native|0x<40-hex-address>` · signed-in; signed-out redirects to sign-in · session + `/api/balances` fixtures (`manyOwnedInvestmentsSnapshot()` for scroll/focus) · Home `Your money` Investments row (or goto path).
+- **Entry context**: home/investments · `/investments`, `/investments/native|0x<40-hex-address>` · signed-in; signed-out redirects to sign-in · session + `/api/balances` fixtures (`manyOwnedInvestmentsSnapshot()` for scroll/focus) · Home `Your money` Investments row, an owned asset's Activity detail Asset row, or goto path.
 
 - **Live**: read-only
 - **Owned paths**: `apps/web/app/investments/**`, `apps/web/client/investments/**`, `apps/web/shared/balances/owned-investments.ts`

@@ -5,6 +5,8 @@ import { useBalances } from "@/client/balances";
 import { useInterruption } from "@/client/status/use-interruption";
 import { isSessionSettling, useAccountWallet } from "@/client/account/cdp-client";
 import { presentBalances } from "@/shared/balances/present";
+import { selectOwnedInvestment } from "@/shared/balances/owned-investments";
+import type { AssetKey } from "@/shared/balances/types";
 import type { CountryCode } from "@/config/regions";
 import { COUNTRY_PREFERENCE_VERSION, parseCountryPreferenceReadResponse, parseCountryPreferenceResponse, type CountryPreferenceRequest, type CountryPreferenceSeed } from "@/shared/account/contracts/country-preference";
 import { PricedInvestExperienceWithDiscover } from "@/client/invest/priced-invest-experience";
@@ -171,6 +173,10 @@ export function PortfolioHomeExperience({
     () => deriveAssetMarkResolution(balances.snapshot, balances.status === "loading"),
     [balances.snapshot, balances.status],
   );
+  const canOpenAssetDetail = useMemo(() => {
+    const snapshot = balances.snapshot;
+    return (key: string) => snapshot !== null && selectOwnedInvestment(snapshot, key as AssetKey) !== null;
+  }, [balances.snapshot]);
 
   return (
     <DashboardShell
@@ -194,6 +200,7 @@ export function PortfolioHomeExperience({
       onRetryInterruption={interruptionStatus.retry}
       presentAssetBalances={presentAssetBalances}
       sendAvailability={sendAvailability}
+      canOpenAssetDetail={canOpenAssetDetail}
       assetMarkResolution={assetMarkResolution}
       showSmallBalances={showSmallBalances}
       onShowSmallBalancesChange={setShowSmallBalances}

@@ -19,6 +19,8 @@ function setup(prepare: AccountWalletClient["prepareMoneyAction"]) {
   const wallet = { prepareMoneyAction: async (kind: string, params: unknown) => { calls.push({ kind, params }); return prepare(kind, params); } } as AccountWalletClient;
   const routing = { state: {} as HomeInboundPanelState, popRevision: 0, rootRequest: null,
     openPanel: () => {},
+    canOpenAssetDetail: () => false,
+    openAssetDetail: () => false,
     setFlow: (flow: string, options: unknown) => { routes.push({ flow, options }); return true; },
     clearFlow: () => {},
   };

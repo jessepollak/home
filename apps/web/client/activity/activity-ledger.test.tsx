@@ -490,6 +490,75 @@ describe("activity ledger", () => {
       expect(within(dialog).queryByText(excluded)).toBeNull();
     }
   });
+  test("detail pairs a signed token hero with transaction-time fiat before status, without a Value fact", () => {
+    const entry: ActivityLedgerItem = { ...item, detailAmountParts: { amount: "+0.25", symbol: "cbBTC" },
+      detailValue: "+€25.00", detailAsset: { assetKey: `eip155:8453/erc20:0x${"a".repeat(40)}`,
+        name: "Bitcoin", symbol: "cbBTC", openable: true } };
+    const view = render(<ActivityLedgerDetailSheet item={entry} open onDismiss={ignoreOpen} onAction={ignoreOpen} />);
+    const dialog = view.getByRole("dialog");
+    const number = dialog.querySelector('[data-slot="activity-amount-number"]');
+    const value = within(dialog).getByText("+€25.00");
+    const badge = within(dialog).getByText("Confirmed");
+    expect(number?.textContent).toBe("+0.25");
+    expect(dialog.querySelector('[data-slot="activity-amount-unit"]')?.textContent).toBe("cbBTC");
+    expect(number && number.compareDocumentPosition(value) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(value.compareDocumentPosition(badge) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(value.closest("bdi")?.getAttribute("dir")).toBe("ltr");
+    expect(within(dialog).queryByRole("term", { name: "Value" })).toBeNull();
+    view.rerender(<ActivityLedgerDetailSheet item={{ ...entry, detailValue: "Unknown" }} open
+      onDismiss={ignoreOpen} onAction={ignoreOpen} />);
+    expect(within(view.getByRole("dialog")).getByText("Unknown")).toBeTruthy();
+  });
+  test("asset row activates only with exact identity and caller capability, preserving other facts", () => {
+    const onOpenAsset = mock(() => undefined);
+    const assetKey = `eip155:8453/erc20:0x${"a".repeat(40)}`;
+    const entry: ActivityLedgerItem = { ...item, detailAsset: { assetKey, name: "Bitcoin",
+      symbol: "cbBTC", imageUrl: null, openable: true }, detail: { ...item.detail,
+        transaction: { value: "0xabc", display: "0xabc", explorer: { href: "https://basescan.org/tx/0xabc", label: "View on explorer" } } } };
+    const props = { item: entry, open: true, onDismiss: ignoreOpen, onAction: ignoreOpen, onOpenAsset };
+    const view = render(<ActivityLedgerDetailSheet {...props} canOpenAsset={() => true} />);
+    const dialog = within(view.getByRole("dialog"));
+    const button = dialog.getByRole("button", { name: /Bitcoin/ });
+    expect(button.textContent).toContain("Asset");
+    expect(button.closest("li")).toBeTruthy();
+    fireEvent.click(button);
+    expect(onOpenAsset).toHaveBeenCalledWith(entry);
+    expect(onOpenAsset).toHaveBeenCalledTimes(1);
+    expect(dialog.getAllByRole("term").map((term) => term.textContent)).toEqual(["Date", "From", "Network", "Transaction"]);
+    expect(dialog.getByRole("button", { name: /Copy alex.base.eth/ })).toBeTruthy();
+    expect(dialog.getByRole("button", { name: /Copy 0xabc/ })).toBeTruthy();
+    expect(dialog.getByRole("link", { name: /View on explorer/ })).toBeTruthy();
+    for (const override of [{ canOpenAsset: () => false }, { canOpenAsset: undefined },
+      { item: { ...entry, detailAsset: { ...entry.detailAsset!, openable: false } } }]) {
+      view.rerender(<ActivityLedgerDetailSheet {...props} {...override} />);
+      const staticDialog = within(view.getByRole("dialog"));
+      expect(staticDialog.queryByRole("button", { name: /Bitcoin/ })).toBeNull();
+      expect(staticDialog.getByText("Bitcoin")).toBeTruthy();
+    }
+    view.rerender(<ActivityLedgerDetailSheet {...props} onOpenAsset={undefined} canOpenAsset={() => true} />);
+    expect(within(view.getByRole("dialog")).queryByRole("button", { name: /Bitcoin/ })).toBeNull();
+  });
+  test("multi-asset trades and cash-out keep their own facts without an asset or value line", () => {
+    const trade: ActivityLedgerItem = { ...item, family: "home-action", title: "Bought Bitcoin",
+      detail: { family: "home-action", operation: "Buy Bitcoin", network: "Base", facts: [
+        { label: "You pay", value: "100 USDC" }, { label: "You receive", value: "0.001 cbBTC" },
+      ] } };
+    const view = render(<ActivityLedgerDetailSheet item={trade} open onDismiss={ignoreOpen} onAction={ignoreOpen} />);
+    const dialog = within(view.getByRole("dialog"));
+    expect(dialog.getAllByRole("term").map((term) => term.textContent))
+      .toEqual(["Date", "Operation", "Network", "You pay", "You receive"]);
+    expect(dialog.queryByText("Asset")).toBeNull();
+    expect(dialog.queryByRole("term", { name: "Value" })).toBeNull();
+    const cashout: ActivityLedgerItem = { ...trade, title: "Cash out", detail: { family: "home-action",
+      operation: "Cash out", network: "Base", facts: [
+        { label: "Approximate receive", value: "≈ 50 USD" }, { label: "Paid", value: "25 USDC" },
+        { label: "Returned", value: "25 USDC" },
+      ] } };
+    view.rerender(<ActivityLedgerDetailSheet item={cashout} open onDismiss={ignoreOpen} onAction={ignoreOpen} />);
+    expect(within(view.getByRole("dialog")).getAllByRole("term").map((term) => term.textContent))
+      .toEqual(["Date", "Network", "Approximate receive", "Paid", "Returned"]);
+    expect(within(view.getByRole("dialog")).queryByText("Asset")).toBeNull();
+  });
   test("rows and sheets expose the full date and a copyable full counterparty address", async () => {
     const address = "0x2222222222222222222222222222222222222222";
     const entry: ActivityLedgerItem = { ...item, dateLabel: "Dec 31, 12:00 PM",

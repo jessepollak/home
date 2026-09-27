@@ -56,6 +56,7 @@ function Route({ initialFlow, snapshot, status = "ready", deferClear = false, on
   const [flow, setFlow] = useState<string | null>(initialFlow);
   const routing = {
     state: { flow } as HomeInboundPanelState, popRevision: 0, rootRequest: null, openPanel: noop,
+    canOpenAssetDetail: () => false, openAssetDetail: () => false,
     setFlow: (next: string) => { routeCalls.push(`push:${next}`); setFlow(next); return true; },
     clearFlow: ({ mode }: { mode?: "replace" | "push" } = {}) => { routeCalls.push(`clear:${mode}`); if (!deferClear) setFlow(null); },
   };

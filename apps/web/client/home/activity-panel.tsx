@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useContext, useRef, useState, type ReactNode } from "react";
+import { useCallback, useContext, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   ActivityPanelView,
   type ActivityPanelDensity,
@@ -83,6 +83,38 @@ export function ConnectedActivityPanel({
   const [cancelBusy, setCancelBusy] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [reviewOpened, setReviewOpened] = useState(0);
+  const [restoreDetailsRequest, setRestoreDetailsRequest] = useState(0);
+  const [suspendDetailsRequest, setSuspendDetailsRequest] = useState(0);
+  const assetReturnRef = useRef<{ panel: string; path: string; opening: boolean; suspended: boolean } | null>(null);
+  const previousPopRevisionRef = useRef(routing?.popRevision);
+  const previousRootRevisionRef = useRef(routing?.rootRequest?.revision);
+  useLayoutEffect(() => {
+    if (previousPopRevisionRef.current === routing?.popRevision) return;
+    previousPopRevisionRef.current = routing?.popRevision;
+    const pending = assetReturnRef.current;
+    if (!pending) return;
+    if (routing?.state.panel === pending.panel && window.location.pathname === pending.path) {
+      if (pending.suspended) {
+        pending.suspended = false;
+        setRestoreDetailsRequest((request) => request + 1);
+      }
+    } else if (!pending.suspended) {
+      pending.suspended = true;
+      setSuspendDetailsRequest((request) => request + 1);
+    }
+  }, [routing?.popRevision, routing?.state.panel]);
+  useLayoutEffect(() => {
+    if (previousRootRevisionRef.current === routing?.rootRequest?.revision) return;
+    previousRootRevisionRef.current = routing?.rootRequest?.revision;
+    const pending = assetReturnRef.current;
+    if (!pending) return;
+    if (pending.opening && routing?.rootRequest?.panel === "investments") {
+      pending.opening = false;
+      return;
+    }
+    if (!pending.suspended) setSuspendDetailsRequest((request) => request + 1);
+    assetReturnRef.current = null;
+  }, [routing?.rootRequest]);
   const cancelAttempt = useRef(0);
   const activity = useActivity(activitySession, fetchActivity, regionId);
   const actions = useHomeQuery({
@@ -160,10 +192,24 @@ export function ConnectedActivityPanel({
       emptyAction={emptyAction}
       retryActions={retryActions}
       onCancelCashout={(operation) => { void cancelCashout(operation); }}
+      canOpenAsset={routing?.canOpenAssetDetail}
+      onOpenAsset={(assetKey) => {
+        if (!routing) return false;
+        const previous = assetReturnRef.current;
+        assetReturnRef.current = { panel: routing.state.panel, path: window.location.pathname, opening: true, suspended: true };
+        if (routing.openAssetDetail(assetKey)) return true;
+        assetReturnRef.current = previous;
+        return false;
+      }}
+      restoreDetailsRequest={restoreDetailsRequest}
+      suspendDetailsRequest={suspendDetailsRequest}
       cancelBusy={cancelBusy}
       cancelError={cancelError}
       onDetailsOpenChange={onDetailsOpenChange}
-      onDetailsChange={() => {
+      onDetailsChange={(open) => {
+        assetReturnRef.current = open && routing
+          ? { panel: routing.state.panel, path: window.location.pathname, opening: false, suspended: false }
+          : null;
         cancelAttempt.current += 1;
         setCancelBusy(false);
         setCancelError(null);

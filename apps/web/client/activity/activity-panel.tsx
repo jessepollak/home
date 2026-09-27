@@ -34,6 +34,10 @@ export function ActivityPanelView({
   cancelError = null,
   onDetailsChange,
   onDetailsOpenChange,
+  canOpenAsset,
+  onOpenAsset,
+  restoreDetailsRequest = 0,
+  suspendDetailsRequest = 0,
 }: {
   activity: UseActivityResult;
   operations?: readonly RecentMoneyActionOperation[];
@@ -46,20 +50,45 @@ export function ActivityPanelView({
   onCancelCashout?: (operation: RecentMoneyActionOperation) => void;
   cancelBusy?: boolean;
   cancelError?: string | null;
-  onDetailsChange?: () => void;
+  onDetailsChange?: (open: boolean) => void;
   onDetailsOpenChange?: (open: boolean) => void;
+  canOpenAsset?: (assetKey: string) => boolean;
+  onOpenAsset?: (assetKey: string) => boolean;
+  restoreDetailsRequest?: number;
+  suspendDetailsRequest?: number;
 }) {
   const [selection, setSelection] = useState<{ key: string; last: ActivityLedgerItem } | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [immediateClose, setImmediateClose] = useState(false);
   useEffect(() => {
     onDetailsOpenChange?.(detailsOpen);
     return () => { onDetailsOpenChange?.(false); };
   }, [detailsOpen, onDetailsOpenChange]);
   const detailOpenerRef = useRef<HTMLElement | null>(null);
+  const [pendingReturn, setPendingReturn] = useState(false);
+  const [seenRestoreRequest, setSeenRestoreRequest] = useState(restoreDetailsRequest);
+  const [seenSuspendRequest, setSeenSuspendRequest] = useState(suspendDetailsRequest);
+  if (seenSuspendRequest !== suspendDetailsRequest) {
+    setSeenSuspendRequest(suspendDetailsRequest);
+    if (detailsOpen) {
+      setPendingReturn(true);
+      setImmediateClose(true);
+      setDetailsOpen(false);
+    }
+  }
+  if (seenRestoreRequest !== restoreDetailsRequest) {
+    setSeenRestoreRequest(restoreDetailsRequest);
+    if (pendingReturn && selection && activity.status === "ready") {
+      setPendingReturn(false);
+      setImmediateClose(false);
+      setDetailsOpen(true);
+    }
+  }
   const [detailsStatus, setDetailsStatus] = useState(activity.status);
   if (detailsStatus !== activity.status) {
     setDetailsStatus(activity.status);
     if (activity.status !== "ready") {
+      setPendingReturn(false);
       setDetailsOpen(false);
       setSelection(null);
     }
@@ -171,8 +200,10 @@ export function ActivityPanelView({
             layout={plain ? "feed" : "page"}
             footer={footer}
             onOpen={(item, opener) => {
+              setPendingReturn(false);
+              setImmediateClose(false);
               detailOpenerRef.current = opener;
-              onDetailsChange?.();
+              onDetailsChange?.(true);
               setSelection({ key: `${item.family}:${item.id}`, last: item });
               setDetailsOpen(true);
             }}
@@ -182,9 +213,23 @@ export function ActivityPanelView({
       {!hasRows ? footer : null}
       <ActivityLedgerSheet
         open={detailsOpen}
+        immediate={immediateClose}
         item={selectedItem}
-        onDismiss={() => { setDetailsOpen(false); onDetailsChange?.(); }}
+        canOpenAsset={canOpenAsset}
+        onOpenAsset={(item) => {
+          const key = item.detailAsset?.assetKey;
+          if (!key || !onOpenAsset?.(key)) return;
+          setPendingReturn(true);
+          setImmediateClose(true);
+          setDetailsOpen(false);
+        }}
+        onDismiss={() => {
+          setPendingReturn(false);
+          setDetailsOpen(false);
+          onDetailsChange?.(false);
+        }}
         onClosed={() => {
+          if (pendingReturn || detailsOpen) return;
           setSelection(null);
           const opener = detailOpenerRef.current;
           if (opener?.isConnected) opener.focus({ preventScroll: true });

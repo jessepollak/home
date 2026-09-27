@@ -10,19 +10,35 @@ import {
   joinAmountAndSymbol,
 } from "@/shared/formatting";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
+import { ACTIVITY_VALUATION_AMOUNT_SCALE } from "@/shared/activity/valuation";
+import { addFractions, exactDecimalToFraction, roundFractionPreservingPositive } from "@/shared/balances/math";
 import type { ActionKind, MoneyActionAmount } from "@/shared/money-actions/types";
 import { formatValuationAmount, presentActivityTransferRow } from "./activity-presenter";
-import { activityOperationTime, type ActivityFeedItem } from "./activity-feed";
-import type { ActivityLedgerItem, Transaction } from "./activity-ledger";
+import { activityOperationTime, matchesActivityAmountTransfer, type ActivityFeedItem } from "./activity-feed";
+import type { ActivityLedgerAsset, ActivityLedgerItem, Transaction } from "./activity-ledger";
 import type { ActivityTransfer } from "./types";
 import { cashoutMoney, presentCashout, type CashoutStage } from "./cash-out-presenter";
 
+const directAssets = getDirectPortfolioAssets();
 const portfolioAssetKeyById: ReadonlyMap<string, string> = new Map(
-  getDirectPortfolioAssets().flatMap((asset) => [
+  directAssets.flatMap((asset) => [
     [asset.id, asset.assetKey],
     [asset.assetKey, asset.assetKey],
   ]),
 );
+const portfolioAssetNameByKey: ReadonlyMap<string, string> = new Map(
+  directAssets.map((asset) => [asset.assetKey, asset.name]),
+);
+
+function detailAsset(mark: { assetKey: string; name: string; symbol: string; imageUrl: string | null }): ActivityLedgerAsset {
+  return {
+    assetKey: mark.assetKey,
+    name: portfolioAssetNameByKey.get(mark.assetKey) ?? mark.name,
+    symbol: mark.symbol,
+    imageUrl: mark.imageUrl,
+    openable: mark.assetKey === "eip155:8453/native" || /^eip155:8453\/erc20:0x[0-9a-f]{40}$/.test(mark.assetKey),
+  };
+}
 
 type Options = { regionId?: RegionId; timeZone?: string };
 
@@ -62,6 +78,9 @@ function transferItem(transfer: ActivityTransfer, options: Options): ActivityLed
     amountContext: row.valueContext ?? undefined,
     detailAmount: joinAmountAndSymbol(`${row.sign}${parts.amount}`, parts.symbol),
     detailAmountParts: { amount: `${row.sign}${parts.amount}`, symbol: parts.symbol },
+    detailValue: transfer.valuation.status === "priced"
+      ? `${row.sign}${formatValuationAmount(transfer.valuation, options.regionId)}` : "Unknown",
+    detailAsset: detailAsset(mark),
     direction: transfer.direction === "incoming" ? "in" : transfer.direction === "outgoing" ? "out" : "none",
     mark: { kind: "asset", assetKey: mark.assetKey, symbol: mark.symbol, imageUrl: mark.imageUrl },
     activateLabel: `View ${row.directionLabel.toLowerCase()} ${symbol} transaction details`,
@@ -71,9 +90,6 @@ function transferItem(transfer: ActivityTransfer, options: Options): ActivityLed
       counterparty: transfer.direction === "incoming" ? transfer.fromAddress : transfer.toAddress,
       network: "Base",
       transaction: transactionFor(transfer.transactionHash),
-      facts: transfer.valuation.status === "priced"
-        ? [{ label: "Value", value: `${row.sign}${formatValuationAmount(transfer.valuation, options.regionId)}` }]
-        : [],
     },
   };
 }
@@ -151,7 +167,27 @@ function secondaryAmountFacts(operation: RecentMoneyActionOperation, options: Op
   });
 }
 
-function actionItem(operation: RecentMoneyActionOperation, options: Options): ActivityLedgerItem {
+function actionDetailValue(
+  amount: MoneyActionAmount,
+  matched: readonly ActivityTransfer[],
+  confirmed: boolean,
+  regionId?: RegionId,
+): string | undefined {
+  if (matched.length === 0) return confirmed ? "Unknown" : undefined;
+  const priced = matched.flatMap((transfer) => transfer.valuation.status === "priced" ? [transfer.valuation] : []);
+  const first = priced[0];
+  if (!first || priced.length !== matched.length || priced.some((valuation) => valuation.currency !== first.currency) ||
+    matched.reduce((sum, transfer) => sum + BigInt(transfer.amountBaseUnits), BigInt(0)) !== BigInt(amount.amountBaseUnits)) {
+    return "Unknown";
+  }
+  const summed = roundFractionPreservingPositive(
+    addFractions(priced.map((valuation) => exactDecimalToFraction(valuation.amount))),
+    ACTIVITY_VALUATION_AMOUNT_SCALE,
+  );
+  return `${amount.direction === "spend" ? "−" : "+"}${formatValuationAmount({ ...first, amount: summed }, regionId)}`;
+}
+
+function actionItem(operation: RecentMoneyActionOperation, transfers: readonly ActivityTransfer[], options: Options): ActivityLedgerItem {
   const amounts = orderedAmounts(operation.action.amounts);
   const primary = amounts[0];
   const primaryParts = primary ? actionAmountParts(primary, options) : undefined;
@@ -183,6 +219,11 @@ function actionItem(operation: RecentMoneyActionOperation, options: Options): Ac
     name: primary.symbol,
     symbol: primary.symbol,
   });
+  const singleAsset = primary && mark && metadata?.product !== "trade" &&
+    !(metadata?.product === "borrow" && metadata.operation === "supply-and-borrow") &&
+    new Set(amounts.filter((amount) => amount.symbol !== "vault shares").map((amount) => amount.assetId.toLowerCase())).size === 1;
+  const matched = singleAsset && mark.assetKey.startsWith("eip155:8453/erc20:")
+    ? transfers.filter((transfer) => matchesActivityAmountTransfer(primary, transfer)) : [];
   return {
     family: "home-action",
     id: operation.action.id,
@@ -199,6 +240,10 @@ function actionItem(operation: RecentMoneyActionOperation, options: Options): Ac
         : joinAmountAndSymbol(primaryParts.amount, primaryParts.symbol)}` : "",
     detailAmount: primaryParts ? joinAmountAndSymbol(`${primaryPrefix}${primaryParts.amount}`, primaryParts.symbol) : undefined,
     detailAmountParts: primaryParts ? { amount: `${primaryPrefix}${primaryParts.amount}`, symbol: primaryParts.symbol } : undefined,
+    detailAsset: singleAsset ? detailAsset(mark) : undefined,
+    detailValue: singleAsset
+      ? actionDetailValue(primary, matched, operation.status === "confirmed", options.regionId)
+      : undefined,
     direction: primary?.direction === "spend" ? "out" : primary?.direction === "receive" ? "in" : "none",
     mark: operation.action.kind === "borrow" || operation.action.kind === "repay"
       ? { kind: "glyph", glyph: "borrow" }
@@ -239,7 +284,7 @@ function cashoutItem(
   withdraw: RecentMoneyActionOperation | undefined,
   options: Options,
 ): ActivityLedgerItem {
-  const base = actionItem(operation, options);
+  const base = actionItem(operation, [], options);
   const view = presentCashout(operation, withdraw, options);
   const money = (atoms: string) => cashoutMoney(atoms, view.decimals, options.regionId);
   const status = cashoutStatus[view.stage];
@@ -263,6 +308,8 @@ function cashoutItem(
   facts.push(...secondaryAmountFacts(operation, options));
   return {
     ...base,
+    detailValue: undefined,
+    detailAsset: undefined,
     timestamp: updatedAt,
     updatedAt,
     dateLabel: formatPresentationDate(updatedAt, { style: "activity-short", ...options }),
@@ -291,5 +338,5 @@ export function presentActivityLedgerItems(items: readonly ActivityFeedItem[], o
     : item.operation.action.kind === "cash-out" &&
       !(item.operation.action.metadata?.product === "cashout" && item.operation.action.metadata.operation === "withdraw")
       ? cashoutItem(item.operation, item.withdraw, options)
-      : actionItem(item.operation, options));
+      : actionItem(item.operation, item.transfers, options));
 }
