@@ -200,6 +200,17 @@ async function verifyLens(canvasElement: HTMLElement) {
   await expect(nav).toHaveAttribute("data-lens-pressed");
   home.dispatchEvent(new PointerEvent("pointerup", pointer));
   await waitFor(() => expect(nav).not.toHaveAttribute("data-lens-pressed"));
+  const swallow = (event: Event) => event.stopPropagation();
+  home.addEventListener("pointerup", swallow);
+  home.dispatchEvent(new PointerEvent("pointerdown", pointer));
+  await expect(nav).toHaveAttribute("data-lens-pressed");
+  home.dispatchEvent(new PointerEvent("pointerup", pointer));
+  home.removeEventListener("pointerup", swallow);
+  await waitFor(() => expect(nav).not.toHaveAttribute("data-lens-pressed"));
+  home.dispatchEvent(new PointerEvent("pointerdown", pointer));
+  await expect(nav).toHaveAttribute("data-lens-pressed");
+  window.dispatchEvent(new Event("blur"));
+  await expect(nav).not.toHaveAttribute("data-lens-pressed");
   await userEvent.click(home);
   await expect(home).toHaveAttribute("aria-current", "page");
   await waitFor(() => expect(nav).toHaveAttribute("data-lens", "resting"));

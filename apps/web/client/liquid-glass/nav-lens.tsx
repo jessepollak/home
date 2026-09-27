@@ -187,13 +187,27 @@ export function NavLens({ items, target, reducedMotion, onStatusChange }: NavLen
       pointer = null;
       release = window.setTimeout(() => nav.removeAttribute("data-lens-pressed"), Math.max(0, MIN_PRESS_MS - (event.timeStamp - pressedAt)));
     };
+    const drop = () => {
+      pointer = null;
+      window.clearTimeout(release);
+      nav.removeAttribute("data-lens-pressed");
+    };
+    const hide = () => { if (document.visibilityState === "hidden") drop(); };
     nav.addEventListener("pointerdown", press, { passive: true });
     window.addEventListener("pointerup", lift, { passive: true });
     window.addEventListener("pointercancel", lift, { passive: true });
+    document.addEventListener("pointerup", lift, { capture: true, passive: true });
+    document.addEventListener("pointercancel", lift, { capture: true, passive: true });
+    window.addEventListener("blur", drop);
+    document.addEventListener("visibilitychange", hide);
     return () => {
       nav.removeEventListener("pointerdown", press);
       window.removeEventListener("pointerup", lift);
       window.removeEventListener("pointercancel", lift);
+      document.removeEventListener("pointerup", lift, { capture: true });
+      document.removeEventListener("pointercancel", lift, { capture: true });
+      window.removeEventListener("blur", drop);
+      document.removeEventListener("visibilitychange", hide);
       window.clearTimeout(release);
       nav.removeAttribute("data-lens-pressed");
     };
