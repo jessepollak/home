@@ -489,15 +489,15 @@ export const LongLocalizedCopy: Story = {
     }, received]} />
   ),
 };
-function DoubleText() {
+function DoubleText({ items }: { items: ActivityLedgerEntry[] }) {
   useEffect(() => {
     const previous = document.documentElement.style.fontSize;
     document.documentElement.style.fontSize = "200%";
     return () => { document.documentElement.style.fontSize = previous; };
   }, []);
-  return <Surface items={[funding, received]} />;
+  return <Surface items={items} />;
 }
-export const TwoHundredPercentText: Story = { render: () => <DoubleText /> };
+export const TwoHundredPercentText: Story = { render: () => <DoubleText items={[funding, received]} /> };
 export const Mobile320: Story = {
   ...withItems([funding, transfer, refunded]),
   parameters: { viewport: { defaultViewport: "smallMobile" } },
@@ -562,11 +562,11 @@ const unpricedChildren = [
   syntheticTransfer("mystery-a", "Received", "+2.00 TEST", "TEST"),
   syntheticTransfer("mystery-b", "Received", "+3.00 TEST", "TEST"),
 ];
-function syntheticGroup(children: readonly ActivityLedgerItem[], symbol: string, amount: string, amountContext?: string): ActivityLedgerEntry {
+function syntheticGroup(children: readonly ActivityLedgerItem[], symbol: string, amount: string, amountContext?: string, title = "Received"): ActivityLedgerEntry {
   return {
     kind: "group",
     id: `transfer-run:${children[0]!.id}`,
-    title: "Received",
+    title,
     countLabel: `${children.length} transfers`,
     count: children.length,
     newestTimestamp: children[0]!.timestamp,
@@ -578,7 +578,7 @@ function syntheticGroup(children: readonly ActivityLedgerItem[], symbol: string,
     amountContext,
     direction: "in",
     mark: { kind: "asset", symbol },
-    toggleLabel: `${children.length} Received ${symbol} transfers`,
+    toggleLabel: `${children.length} ${title} ${symbol} transfers`,
     children,
   };
 }
@@ -639,6 +639,97 @@ export const LongTransferRun: Story = {
     await userEvent.click(summary);
     await expect(canvas.getAllByRole("button", { description: "View Received details" }).length).toBeLessThan(40);
     await expect(canvas.getAllByRole("button", { description: "View Received details" }).length).toBeGreaterThan(0);
+  },
+};
+
+const groupedLabelItems: ActivityLedgerEntry[] = [
+  syntheticGroup(Array.from({ length: 8 }, (_, index) => syntheticTransfer(`width-received-${index}`, "Received", "+$1,543.21", "USDC")),
+    "USDC", "+$12,345.67", "+12,345.678901 USDC"),
+  syntheticTransfer("width-single", "Received", "+$12,345.67", "USDC"),
+  syntheticGroup(Array.from({ length: 2 }, (_, index) => syntheticTransfer(`width-local-${index}`, "Recibido", "+$1,543.21", "USDC")),
+    "USDC", "+$12,345.67", "+12,345.678901 USDC", "Recibido"),
+  syntheticGroup(Array.from({ length: 128 }, (_, index) => index === 127
+    ? { ...syntheticTransfer(`width-range-${index}`, "Empfangen", "+$1.00", "USDC"), timestamp: "2026-09-22T12:00:00.000Z", dateLabel: "Sep 22", fullDateLabel: "Sep 22, 2026, 12:00 PM" }
+    : syntheticTransfer(`width-range-${index}`, "Empfangen", "+$1.00", "USDC")),
+    "USDC", "+$12,345.67", "+12,345.678901 USDC", "Empfangen"),
+  syntheticGroup(Array.from({ length: 2 }, (_, index) => syntheticTransfer(`width-symbol-${index}`, "Received", "+$1.00", "ANEXCEPTIONALLYLONGTOKENNAME")),
+    "ANEXCEPTIONALLYLONGTOKENNAME", "+$2.00", "+2.00 ANEXCEPTIONALLYLONGTOKENNAME"),
+];
+
+async function checkGroupedLabels(canvasElement: HTMLElement, expectPairs = false) {
+  const canvas = within(canvasElement);
+  const summaries = canvas.getAllByRole("button", { description: /transfers$/ });
+  await expect(summaries).toHaveLength(4);
+  await expect(canvas.getAllByRole("button", { description: "View Received details" }).length).toBeGreaterThan(0);
+  for (const summary of summaries) {
+    const row = summary.closest<HTMLElement>("li");
+    const body = summary.querySelector<HTMLElement>('[data-slot="finance-row-body"]');
+    const title = body?.querySelector<HTMLElement>('[data-slot="item-title"]');
+    const label = title?.querySelector<HTMLElement>("span > span:first-child");
+    const count = title?.querySelector<HTMLElement>('[aria-hidden="true"]');
+    const context = body?.querySelector<HTMLElement>('[data-slot="finance-row-label"] [data-slot="item-description"]');
+    const value = body?.querySelector<HTMLElement>('[data-slot="finance-row-value"]');
+    const fiat = value?.querySelector<HTMLElement>('[data-slot="item-title"]');
+    const native = value?.querySelector<HTMLElement>('[data-slot="item-description"]');
+    if (!row || !body || !title || !label || !count || !context || !value || !fiat || !native) throw new Error("Missing grouped row geometry");
+    const bounds = summary.getBoundingClientRect();
+    const bodyBounds = body.getBoundingClientRect();
+    const labelBounds = label.getBoundingClientRect();
+    const countBounds = count.getBoundingClientRect();
+    const titleBounds = title.getBoundingClientRect();
+    const contextBounds = context.getBoundingClientRect();
+    const fiatBounds = fiat.getBoundingClientRect();
+    const nativeBounds = native.getBoundingClientRect();
+    const inlineEnd = (rect: DOMRect) => summary.closest('[dir="rtl"]') ? rect.left : rect.right;
+    await expect(label.scrollWidth).toBeLessThanOrEqual(label.clientWidth + 1);
+    await expect(countBounds.width).toBeGreaterThan(0);
+    for (const rect of [labelBounds, countBounds, fiatBounds, nativeBounds]) {
+      await expect(rect.left).toBeGreaterThanOrEqual(bodyBounds.left - 1);
+      await expect(rect.right).toBeLessThanOrEqual(bodyBounds.right + 1);
+    }
+    await expect(fiat.scrollWidth).toBeLessThanOrEqual(fiat.clientWidth + 1);
+    await expect(context.scrollWidth).toBeLessThanOrEqual(context.clientWidth + 1);
+    await expect(Math.abs(inlineEnd(fiatBounds) - inlineEnd(nativeBounds))).toBeLessThanOrEqual(1);
+    await expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth + 1);
+    await expect(bodyBounds.left).toBeGreaterThanOrEqual(bounds.left - 1);
+    await expect(bodyBounds.right).toBeLessThanOrEqual(bounds.right + 1);
+    if (!native.textContent?.includes("ANEXCEPTIONALLYLONGTOKENNAME")) {
+      await expect(native.scrollWidth).toBeLessThanOrEqual(native.clientWidth + 1);
+    }
+    if (expectPairs && context.querySelector("time")?.textContent === "Sep 24" && !native.textContent?.includes("ANEXCEPTIONALLYLONGTOKENNAME")) {
+      await expect(Math.min(titleBounds.bottom, fiatBounds.bottom) - Math.max(titleBounds.top, fiatBounds.top)).toBeGreaterThan(0);
+      await expect(Math.min(contextBounds.bottom, nativeBounds.bottom) - Math.max(contextBounds.top, nativeBounds.top)).toBeGreaterThan(0);
+    }
+  }
+}
+
+const groupedLabels = (viewport: "smallMobile" | "label375" | "label430"): Story => ({
+  render: () => <Surface items={groupedLabelItems} />,
+  parameters: { viewport: { defaultViewport: viewport } },
+  play: async ({ canvasElement }) => checkGroupedLabels(canvasElement, viewport !== "smallMobile"),
+});
+export const GroupedLabels320 = groupedLabels("smallMobile");
+export const GroupedLabels375 = groupedLabels("label375");
+export const GroupedLabelsRtl375: Story = {
+  render: () => <div dir="rtl"><Surface items={groupedLabelItems} /></div>,
+  parameters: { viewport: { defaultViewport: "label375" } },
+  play: async ({ canvasElement }) => checkGroupedLabels(canvasElement, true),
+};
+export const GroupedLabels430 = groupedLabels("label430");
+
+export const GroupedLabelsDoubleText: Story = {
+  render: () => <DoubleText items={groupedLabelItems} />,
+  parameters: { viewport: { defaultViewport: "label430" } },
+  play: async ({ canvasElement }) => checkGroupedLabels(canvasElement),
+};
+export const GroupedLabelsExpanded: Story = {
+  ...groupedLabels("label375"),
+  play: async ({ canvasElement }) => {
+    const summary = within(canvasElement).getByRole("button", { description: "8 Received USDC transfers" });
+    await userEvent.click(summary);
+    await expect(summary).toHaveAttribute("aria-expanded", "true");
+    await expect(within(canvasElement).getAllByRole("button", { description: "View Received details" }).length).toBeGreaterThan(0);
+    await checkGroupedLabels(canvasElement);
   },
 };
 
