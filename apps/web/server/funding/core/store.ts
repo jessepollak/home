@@ -52,6 +52,7 @@ export type FundingReservation = Pick<FundingOrder,
 export interface FundingOrderStore {
   reserve(input: FundingReservation): Promise<{ created: boolean; order: FundingOrder }>;
   getOwned(id: string, owner: FundingOrderOwner): Promise<FundingOrder | null>;
+  listOwned(owner: FundingOrderOwner, limit: number): Promise<FundingOrder[]>;
   getByIntent(owner: FundingOrderOwner, intentDigest: string): Promise<FundingOrder | null>;
   getOpen(owner: FundingOrderOwner, region: string): Promise<FundingOrder | null>;
   getDispatchAmbiguous(owner: FundingOrderOwner, region: string, providerId: string): Promise<FundingOrder | null>;
@@ -125,17 +126,26 @@ export class MemoryFundingOrderStore implements FundingOrderStore {
     return order && sameOwner(order.owner, owner) ? clone(order) : null;
   }
 
+  async listOwned(owner: FundingOrderOwner, limit: number): Promise<FundingOrder[]> {
+    assertHistoryLimit(limit);
+    return [...this.orders.values()]
+      .filter((order) => sameOwner(order.owner, owner))
+      .sort((left, right) => Number(isOpenFundingOrder(right)) - Number(isOpenFundingOrder(left)) ||
+        right.createdAt.localeCompare(left.createdAt) || left.id.localeCompare(right.id))
+      .slice(0, limit)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || left.id.localeCompare(right.id))
+      .map(clone);
+  }
+
   async getByIntent(owner: FundingOrderOwner, intentDigest: string) {
     const id = this.intents.get(ownerKey(owner, intentDigest));
     return id ? clone(this.required(id)) : null;
   }
 
   async getOpen(owner: FundingOrderOwner, region: string) {
-    return cloneOrNull([...this.orders.values()].reverse().find((order) =>
-      sameOwner(order.owner, owner) &&
-      order.region === region &&
-      isOpenFundingOrder(order),
-    ));
+    return cloneOrNull([...this.orders.values()]
+      .filter((order) => sameOwner(order.owner, owner) && order.region === region && isOpenFundingOrder(order))
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]);
   }
 
   async getDispatchAmbiguous(owner: FundingOrderOwner, region: string, providerId: string) {
@@ -257,6 +267,12 @@ export function nextFundingState(current: OrderState, reported: ReportedState | 
     "sent-unverified": 4,
   };
   return (rank[reported] ?? -1) >= (rank[current] ?? -1) ? reported : null;
+}
+
+export function assertHistoryLimit(limit: number): void {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+    throw new Error("The order history limit must be between 1 and 100.");
+  }
 }
 
 function ownerKey(owner: FundingOrderOwner, suffix: string): string {

@@ -317,4 +317,25 @@ describePostgres("PostgresFundingOrderStore production contract", () => {
     expect((await store.getOwned(reserving.id, reserving.owner))?.version).toBe(1);
     expect((await store.getOwned(ambiguous.id, ambiguous.owner))?.version).toBe(2);
   });
+  test("keeps an older open order visible despite a newer terminal order at the limit", async () => {
+    const older = reservation();
+    const newer = { ...reservation(), createdAt: "2026-09-13T00:00:00.000Z" };
+    await store.reserve(older);
+    await store.reserve(newer);
+    await store.markDispatchAmbiguous(newer.id, 0, newer.createdAt);
+    await store.resolveDispatchAmbiguous(newer.id, newer.owner, 1, newer.createdAt);
+    expect((await store.listOwned(older.owner, 1)).map((row) => row.id)).toEqual([older.id]);
+    expect((await store.listOwned(older.owner, 2)).map((row) => row.id)).toEqual([newer.id, older.id]);
+  });
+
+  test("lists exact owner across regions newest first and rejects unbounded limits", async () => {
+    const first = reservation();
+    const second = { ...reservation(), region: "US", assetId: "base:usdc", createdAt: "2026-09-13T00:00:00.000Z" };
+    const otherSubject = { ...reservation(), owner: { subject: "different", accountProvider: "base-account" as const }, createdAt: "2026-09-14T00:00:00.000Z" };
+    const otherProvider = { ...reservation(), owner: { subject: first.owner.subject, accountProvider: "cdp-embedded" as const }, createdAt: "2026-09-15T00:00:00.000Z" };
+    for (const input of [first, second, otherSubject, otherProvider]) await store.reserve(input);
+    expect((await store.listOwned(first.owner, 50)).map((row) => row.id)).toEqual([second.id, first.id]);
+    expect((await store.listOwned(first.owner, 1)).map((row) => row.id)).toEqual([second.id]);
+    for (const limit of [0, -1, 101, 1.5, Number.NaN]) await expect(store.listOwned(first.owner, limit)).rejects.toThrow();
+  });
 });

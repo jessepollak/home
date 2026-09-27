@@ -1,4 +1,5 @@
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
+import type { ActivityCashoutOrder } from "@/shared/activity/contract-orders";
 import type { RegionId } from "@/config/regions";
 import { formatFiatAmount } from "@/shared/formatting";
 
@@ -30,16 +31,29 @@ export function outranksCashoutWithdraw(
 }
 
 export function linkedCashoutWithdraw(operation: RecentMoneyActionOperation, operations: readonly RecentMoneyActionOperation[]): RecentMoneyActionOperation | undefined {
-  const depositId = operation.cashout?.depositId?.toLowerCase();
-  if (!depositId) return undefined;
+  const depositId = operation.cashout?.depositId;
+  return depositId ? cashoutWithdrawForDeposit(depositId, operations) : undefined;
+}
+
+export function cashoutWithdrawForDeposit(depositId: string, operations: readonly RecentMoneyActionOperation[]): RecentMoneyActionOperation | undefined {
+  const deposit = depositId.toLowerCase();
   let selected: RecentMoneyActionOperation | undefined;
   for (const candidate of operations) {
     const metadata = candidate.action.metadata;
     if (candidate.action.kind !== "cash-out-withdraw" || metadata?.product !== "cashout" || metadata.operation !== "withdraw" ||
-      metadata.depositId.toLowerCase() !== depositId) continue;
+      metadata.depositId.toLowerCase() !== deposit) continue;
     if (outranksCashoutWithdraw(candidate, selected, !selected || candidate.updatedAt > selected.updatedAt)) selected = candidate;
   }
   return selected;
+}
+
+export function cashoutOrderAction(order: ActivityCashoutOrder, withdraw?: Pick<RecentMoneyActionOperation, "status">):
+  "cancel-cash-out" | "withdraw-returned-funds" | undefined {
+  if (!order.orderId || !order.withdrawable || BigInt(order.remainingAtomic) <= BigInt(0)) return undefined;
+  if (withdraw && withdraw.status !== "failed") return undefined;
+  if (order.status === "reversed") return "withdraw-returned-funds";
+  return order.status === "waiting-provider" && (order.state === "submitted" || order.state === "awaiting-buyer")
+    ? "cancel-cash-out" : undefined;
 }
 
 export function presentCashout(

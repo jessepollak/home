@@ -32,6 +32,7 @@ const accountResourcePrefixes = [
   ...walletFreeAccountResourcePrefixes,
   "/api/invites/link",
   "/api/actions",
+  "/api/activity/orders",
   "/api/balances",
   "/api/trades",
   "/api/transfers",

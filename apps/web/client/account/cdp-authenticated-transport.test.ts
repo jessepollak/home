@@ -54,6 +54,7 @@ describe("authenticated account resources", () => {
       .toBe("/api/invites/link");
     expect(() => normalizeAccountResourcePath("/api/invites/private"))
       .toThrow();
+    expect(normalizeAccountResourcePath("/api/activity/orders")).toBe("/api/activity/orders");
   });
 });
 
@@ -71,7 +72,7 @@ describe("authenticated action handle effects", () => {
     });
 
     expect(freshness).toEqual([actionId]);
-    expect(fixture.invalidations).toEqual([[ownerKey, "actions"]]);
+    expect(fixture.invalidations).toEqual([[ownerKey, "actions"], [ownerKey, "activity-orders"]]);
   });
 
   test("one transaction hash post advances Activity and invalidates action scopes and every owner's fee policy", async () => {

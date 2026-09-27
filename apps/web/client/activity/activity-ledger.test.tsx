@@ -64,6 +64,17 @@ function rows(view: ReturnType<typeof render>): HTMLElement[] {
 }
 
 describe("activity ledger", () => {
+  test("a cash-out order sheet shows its paid and returned facts", () => {
+    const order: ActivityLedgerItem = { ...funding, family: "cash-out-order", status: "refunded", title: "Cash out to Venmo",
+      amount: "−$50", direction: "out", nextAction: undefined, detail: { family: "cash-out-order", provider: "Peer",
+        payoutMethod: "Venmo", orderId: "deposit-1", facts: [{ label: "Paid", value: "$30" }, { label: "Returned", value: "$20" }] } };
+    const view = render(<ActivityLedgerDetailSheet item={order} open onDismiss={ignoreOpen} onAction={ignoreOpen} />);
+    const dialog = within(view.getByRole("dialog"));
+    expect(dialog.getByText("Paid")).toBeTruthy();
+    expect(dialog.getByText("$30")).toBeTruthy();
+    expect(dialog.getByText("$20")).toBeTruthy();
+  });
+
   test("deduplicates source pairs with the same time and lifecycle winners as ledger items", () => {
     const older = { ...funding, updatedAt: "2026-09-23T12:00:00.000Z" };
     const newer = { ...funding, updatedAt: "2026-09-24T12:00:00.000Z" };

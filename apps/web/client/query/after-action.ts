@@ -19,6 +19,7 @@ export const afterActionScopes = [
   "borrow",
   "actions",
   tradeAvailabilityScope,
+  "activity-orders",
 ] as const;
 
 export const indexedScopes = ["activity", "borrow", "actions", tradeAvailabilityScope] as const;
@@ -220,9 +221,14 @@ export async function applyActionHandleEffects(input: {
     ]);
     return;
   }
-  await input.queryClient.invalidateQueries({
-    queryKey: ownerQueryKey(input.dataOwnerKey, "actions"),
-  });
+  await Promise.all([
+    input.queryClient.invalidateQueries({
+      queryKey: ownerQueryKey(input.dataOwnerKey, "actions"),
+    }),
+    input.queryClient.invalidateQueries({
+      queryKey: ownerQueryKey(input.dataOwnerKey, "activity-orders"),
+    }),
+  ]);
   if (typeof body.providerHandle === "string") void input.startBalanceFreshness(actionId);
 }
 

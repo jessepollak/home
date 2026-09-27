@@ -2,7 +2,7 @@ import "server-only";
 
 import { getSqlExecutor, isUniqueViolation, type SqlExecutor } from "@/server/db/sql";
 import type { Instruction, Quote } from "@/shared/funding/provider-contract";
-import type { FundingOrder, FundingOrderOwner, FundingOrderStore, FundingReservation } from "./store";
+import { assertHistoryLimit, type FundingOrder, type FundingOrderOwner, type FundingOrderStore, type FundingReservation } from "./store";
 
 type Row = Record<string, unknown>;
 const TERMINAL_SQL = "'dispatch-ambiguous','received','expired','cancelled','failed','refunded'";
@@ -35,6 +35,14 @@ export class PostgresFundingOrderStore implements FundingOrderStore {
   }
 
   async getOwned(id: string, owner: FundingOrderOwner) { return this.one("SELECT * FROM funding_orders WHERE id=$1 AND account_provider=$2 AND owner_subject=$3", [id, owner.accountProvider, owner.subject]); }
+  async listOwned(owner: FundingOrderOwner, limit: number): Promise<FundingOrder[]> {
+    assertHistoryLimit(limit);
+    const result = await this.sql.query(`SELECT * FROM (
+      SELECT * FROM funding_orders WHERE account_provider=$1 AND owner_subject=$2
+      ORDER BY CASE WHEN ${OPEN_SQL} THEN 0 ELSE 1 END, created_at DESC, id ASC LIMIT $3
+    ) history ORDER BY created_at DESC, id ASC`, [owner.accountProvider, owner.subject, limit]);
+    return result.rows.map((row) => fromRow(row as Row));
+  }
   async getByIntent(owner: FundingOrderOwner, intentDigest: string) { return this.one("SELECT * FROM funding_orders WHERE account_provider=$1 AND owner_subject=$2 AND intent_digest=$3", [owner.accountProvider, owner.subject, intentDigest]); }
   async getOpen(owner: FundingOrderOwner, region: string) { return this.one(`SELECT * FROM funding_orders WHERE account_provider=$1 AND owner_subject=$2 AND region=$3 AND ${OPEN_SQL} ORDER BY updated_at DESC LIMIT 1`, [owner.accountProvider, owner.subject, region]); }
   async getDispatchAmbiguous(owner: FundingOrderOwner, region: string, providerId: string) { return this.one("SELECT * FROM funding_orders WHERE account_provider=$1 AND owner_subject=$2 AND region=$3 AND provider_id=$4 AND state='dispatch-ambiguous' ORDER BY updated_at ASC LIMIT 1", [owner.accountProvider, owner.subject, region, providerId]); }

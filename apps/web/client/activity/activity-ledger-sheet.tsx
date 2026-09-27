@@ -174,6 +174,9 @@ export function ActivityLedgerDetailSheet({
           valueKind="order ID"
         />
       )]);
+      if (item.family === "cash-out-order") {
+        facts.push(...(item.detail.facts ?? []).map((fact): [string, ReactNode] => [fact.label, fact.value]));
+      }
     } else {
       facts.push(["Merchant", item.detail.merchant], ["Card", item.detail.cardLabel]);
       if (item.detail.originalPurchase) {

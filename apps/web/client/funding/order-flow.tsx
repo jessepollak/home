@@ -133,6 +133,20 @@ export function FundingOrderFlow({
     },
   });
   const currentOrder = orderQuery.data ?? order;
+  const observedOrderStateRef = useRef<{ id: string; state: string } | null>(null);
+  const polledOrderId = orderQuery.data?.id;
+  const polledOrderState = orderQuery.data?.state;
+
+  useEffect(() => {
+    if (!polledOrderId || !polledOrderState) return;
+    const previous = observedOrderStateRef.current;
+    observedOrderStateRef.current = { id: polledOrderId, state: polledOrderState };
+    if (queryOwnerKey && previous?.id === polledOrderId && previous.state !== polledOrderState) {
+      void queryClient.invalidateQueries({
+        queryKey: ownerQueryKey(queryOwnerKey, "activity-orders"),
+      });
+    }
+  }, [polledOrderId, polledOrderState, queryOwnerKey, queryClient]);
 
   useEffect(() => {
     if (
@@ -205,6 +219,9 @@ export function FundingOrderFlow({
           queryKey: ownerQueryKey(queryOwnerKey, "funding-open-order", binding.region),
           refetchType: "all",
         });
+        void queryClient.invalidateQueries({
+          queryKey: ownerQueryKey(queryOwnerKey, "activity-orders"),
+        });
       }
     } catch (resolveFailure) {
       setResolutionError(resolveAmbiguousErrorCopy(resolveFailure));
@@ -226,6 +243,11 @@ export function FundingOrderFlow({
       const next = readFundingOrder(value);
       if (!next) throw new Error("order");
       setOrder(next);
+      if (queryOwnerKey) {
+        void queryClient.invalidateQueries({
+          queryKey: ownerQueryKey(queryOwnerKey, "activity-orders"),
+        });
+      }
       if (
         queryOwnerKey &&
         (next.state === "dispatch-ambiguous" || !terminal(next.state, next.sandbox))
