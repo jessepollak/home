@@ -1,0 +1,71 @@
+@media (max-width: 39.9375rem) {
+  .navigation {
+    width: 12rem;
+    max-width: calc(100% - 2rem);
+    height: var(--spacing-shell-mobile-navigation);
+    bottom: calc(var(--shell-navigation-offset) + var(--shell-viewport-overhang));
+    box-shadow: var(--shadow-lg);
+  }
+
+  .pill {
+    width: calc((100% - .5rem) / 2);
+  }
+
+  .floor {
+    background: color-mix(in oklch, var(--background) 78%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--foreground) 12%, transparent), 0 0 0 1px color-mix(in oklch, var(--foreground) 6%, transparent), inset 0 1px 0 color-mix(in oklch, var(--background) 80%, transparent);
+    backdrop-filter: blur(24px) saturate(150%);
+    -webkit-backdrop-filter: blur(24px) saturate(150%);
+  }
+
+  :global(.dark) .floor {
+    background: color-mix(in oklch, var(--secondary) 78%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--foreground) 15%, transparent), inset 0 1px 0 color-mix(in oklch, var(--foreground) 10%, transparent);
+  }
+
+  .content { transition: scale 140ms ease-out; }
+  .navigation :active > .content { scale: .95; transition-duration: 0ms; }
+  .navigation[data-keyboard-hidden="true"] { opacity: 0; transform: translateY(.5rem); pointer-events: none; }
+}
+
+@media (max-width: 39.9375rem) and (hover: hover) {
+  .navigation :not([aria-current="page"]):hover > .content :is(span, svg) { color: var(--foreground); }
+}
+
+@media (max-width: 39.9375rem) and (prefers-reduced-motion: reduce) {
+  .navigation, .content { transition: none; }
+  .navigation :active > .content { scale: 1; }
+  .navigation[data-keyboard-hidden="true"] { transform: none; }
+}
+
+@media (max-width: 39.9375rem) and (prefers-reduced-transparency: reduce) {
+  .floor, :global(.dark) .floor {
+    background: var(--popover);
+    box-shadow: inset 0 0 0 1px var(--border);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  @media (max-width: 39.9375rem) {
+    .floor, :global(.dark) .floor {
+      background: var(--popover);
+      box-shadow: inset 0 0 0 1px var(--border);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+  }
+}
+
+@media (max-width: 39.9375rem) and (forced-colors: active) {
+  .floor, :global(.dark) .floor {
+    background: Canvas;
+    box-shadow: inset 0 0 0 1px CanvasText;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .navigation :is(span, svg) { color: CanvasText; }
+  .pill { background: Highlight; }
+  .navigation [aria-current="page"] :is(span, svg) { color: HighlightText; }
+}

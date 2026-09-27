@@ -48,6 +48,7 @@ import { PrimaryNavigation } from "@/components/primary-navigation";
 import { AuthenticatedBorrowExperience } from "@/client/borrowing/borrowing-experience";
 import {
   shellContentFrameClassName,
+  shellNavigationClearanceClassName,
   shellScrollContainerClassName,
 } from "@/components/shell-layout";
 import {
@@ -961,7 +962,7 @@ function DashboardShellBody({
       <main
         ref={mainRef}
         data-app-main-authenticated
-        className={`relative order-1 min-h-0 flex-1 overscroll-contain overflow-x-hidden bg-muted pb-4 scroll-pb-4 sm:order-2 ${shellScrollContainerClassName}`}
+        className={`relative order-1 min-h-0 flex-1 overscroll-contain overflow-x-hidden bg-muted sm:order-2 ${shellNavigationClearanceClassName} ${shellScrollContainerClassName}`}
       >
         {homeRefreshEnabled ? <PullToRefreshIndicator phase={pullPhase} indicatorRef={indicatorRef} /> : null}
         {gestureEnabled ? <PullToRefreshAction label="Refresh Home" refreshing={refreshState.phase === "refreshing"} onRefresh={() => { void refresh(); }} /> : null}
