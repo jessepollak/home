@@ -3,7 +3,6 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import { CoverageStatusPreview } from "@/components/ui/coverage-status-preview";
 import { DataTable } from "@/components/ui/data-table";
-import styles from "./coverage-table.module.css";
 
 export type CoverageTableRow = {
   countryCode: string;
@@ -40,15 +39,15 @@ const integratedLabels = { none: "Not integrated", planned: "Planned", "in-build
 const integratedTraffic = { live: "Green", planned: "Yellow", "in-build": "Yellow", sandbox: "Yellow", none: "Red" } as const;
 
 const columns: ColumnDef<CoverageTableRow>[] = [
-  { accessorKey: "countryName", header: "Country", cell: ({ row }) => <><span aria-hidden="true" className={styles.flag}>{row.original.flag}</span>{row.original.countryName} <span className={styles.secondary}>{row.original.countryCode}</span></> },
+  { accessorKey: "countryName", header: "Country", cell: ({ row }) => <><span aria-hidden="true" className="me-[0.45rem] inline-block text-[1.05rem] leading-none">{row.original.flag}</span>{row.original.countryName} <span className="font-normal text-muted-foreground">{row.original.countryCode}</span></> },
   { accessorKey: "currencies", header: "Currency" },
   { accessorKey: "asset", header: "Asset" },
   { accessorKey: "issuerName", header: "Issuer" },
-  { id: "stablecoin", header: () => <span className={styles.statusColumn}>Stablecoin</span>, cell: ({ row }) => {
+  { id: "stablecoin", header: () => <span className="flex w-full items-center justify-center text-center">Stablecoin</span>, cell: ({ row }) => {
     const value = row.original;
     const candidate = value.stablecoin.candidate;
     const status = candidate ? "identified" as const : "not-identified" as const;
-    return <div className={styles.statusColumn}><CoverageStatusPreview status={stablecoinTraffic[status]} accessibleName={`${stablecoinTraffic[status]} — ${candidate ? "Stablecoin candidate identified" : "No stablecoin candidate identified"}`} heading={`${value.countryName} stablecoin candidate`} details={[
+    return <div className="flex w-full items-center justify-center text-center"><CoverageStatusPreview status={stablecoinTraffic[status]} accessibleName={`${stablecoinTraffic[status]} — ${candidate ? "Stablecoin candidate identified" : "No stablecoin candidate identified"}`} heading={`${value.countryName} stablecoin candidate`} details={[
       { label: "Status", value: stablecoinLabels[status] },
       { label: "Candidate asset", value: candidate?.symbol ?? "Not identified" },
       ...(candidate ? [
@@ -58,10 +57,10 @@ const columns: ColumnDef<CoverageTableRow>[] = [
       ] : []),
     ]} /></div>;
   } },
-  { id: "issuer", header: () => <span className={styles.statusColumn}>1:1 onramp</span>, cell: ({ row }) => {
+  { id: "issuer", header: () => <span className="flex w-full items-center justify-center text-center">1:1 onramp</span>, cell: ({ row }) => {
     const value = row.original;
     const status = value.issuer.status;
-    return <div className={styles.statusColumn}><CoverageStatusPreview status={issuerTraffic[status]} indicatorVariant={status === "not-researched" ? "hollow" : "solid"} accessibleName={`${issuerTraffic[status]} — ${issuerLabels[status]} 1:1 onramp`} heading={`${value.countryName} 1:1 onramp`} details={[
+    return <div className="flex w-full items-center justify-center text-center"><CoverageStatusPreview status={issuerTraffic[status]} indicatorVariant={status === "not-researched" ? "hollow" : "solid"} accessibleName={`${issuerTraffic[status]} — ${issuerLabels[status]} 1:1 onramp`} heading={`${value.countryName} 1:1 onramp`} details={[
       { label: "Status", value: issuerLabels[status] },
       { label: "Rail", value: value.issuer.rail },
       { label: "Audience", value: value.issuer.audience },
@@ -69,23 +68,23 @@ const columns: ColumnDef<CoverageTableRow>[] = [
       value.quote ? { label: "Quote observation", value: `Observed ${value.quote.quotedAt}; spread ${value.quote.spreadBps === null ? "not recorded" : `${value.quote.spreadBps} bps`}; fees: ${value.quote.feeSummary}`, href: value.quote.sourceUrl } : { label: "Quote observation", value: "None recorded" },
     ]} /></div>;
   } },
-  { id: "portfolio", header: () => <span className={styles.statusColumn}>Portfolio</span>, cell: ({ row }) => {
+  { id: "portfolio", header: () => <span className="flex w-full items-center justify-center text-center">Portfolio</span>, cell: ({ row }) => {
     const value = row.original;
     const status = value.portfolio.status;
     const routeDetails = value.portfolio.workstreams.flatMap((route, index) => [
       { label: `Route ${index + 1}`, value: `${route.currencyCode} → ${route.assetSymbol} via ${route.provider} — ${route.stage === "in-build" ? "In build" : `${route.stage[0].toUpperCase()}${route.stage.slice(1)}`}`, href: route.issueUrl },
       { label: `Route ${index + 1} gate`, value: route.note },
     ]);
-    return <div className={styles.statusColumn}><CoverageStatusPreview status="Yellow" indicatorVariant={status === "priority" ? "solid" : "hollow"} accessibleName={`Yellow — ${portfolioLabels[status]} portfolio`} heading={`${value.countryName} portfolio status`} details={[
+    return <div className="flex w-full items-center justify-center text-center"><CoverageStatusPreview status="Yellow" indicatorVariant={status === "priority" ? "solid" : "hollow"} accessibleName={`Yellow — ${portfolioLabels[status]} portfolio`} heading={`${value.countryName} portfolio status`} details={[
       { label: "Status", value: portfolioLabels[status] },
       ...routeDetails,
       ...(routeDetails.length === 0 ? [{ label: "Routes", value: status === "deferred" ? "Research retained; no active workstream" : "Outside the top-100 local non-USD pass" }] : []),
     ]} /></div>;
   } },
-  { id: "home", header: () => <span className={styles.statusColumn}>Integrated</span>, cell: ({ row }) => {
+  { id: "home", header: () => <span className="flex w-full items-center justify-center text-center">Integrated</span>, cell: ({ row }) => {
     const value = row.original;
     const status = value.home.status;
-    return <div className={styles.statusColumn}><CoverageStatusPreview status={integratedTraffic[status]} accessibleName={`${integratedTraffic[status]} — ${status === "none" ? "Not integrated" : `${integratedLabels[status]} integration`}`} heading={`${value.countryName} integration status`} details={[
+    return <div className="flex w-full items-center justify-center text-center"><CoverageStatusPreview status={integratedTraffic[status]} accessibleName={`${integratedTraffic[status]} — ${status === "none" ? "Not integrated" : `${integratedLabels[status]} integration`}`} heading={`${value.countryName} integration status`} details={[
       { label: "Status", value: integratedLabels[status] },
       { label: "Provider", value: value.home.provider ?? "None" },
       { label: "Asset", value: value.home.asset ?? "None" },

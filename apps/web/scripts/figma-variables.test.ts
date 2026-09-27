@@ -42,8 +42,8 @@ describe("CSS extraction", () => {
     expect(token("radius/lg").light).toBe(4);
     expect(token("radius/xl").light).toBeCloseTo(5.6);
     expect(token("space/hairline").light).toBe(1);
-    expect(parsed.tokens.filter((entry: { name: string }) => entry.name.startsWith("color/sidebar-"))).toHaveLength(7);
-    expect(parsed.skippedFonts.map((entry: { cssName: string }) => entry.cssName)).toEqual(["--font-heading", "--font-sans", "--font-mono"]);
+    expect(parsed.tokens.filter((entry: { name: string }) => entry.name.startsWith("color/status-"))).toHaveLength(3);
+    expect(parsed.skippedFonts.map((entry: { cssName: string }) => entry.cssName)).toEqual(["--font-sans", "--font-mono"]);
     expect(parsed.tokens.some((entry: { name: string }) => entry.name.startsWith("font/"))).toBe(false);
   });
 });
@@ -64,23 +64,42 @@ test("existing codeSyntax wins over name; proposals and Figma-only entries are n
   expect(plan.unchanged).toBeGreaterThan(0);
   expect(plan.skippedProposed.some((entry) => entry.name === "color/destructive" && !!entry.code && !!entry.figma)).toBe(true);
   expect(plan.updates.some((entry) => entry.name === "color/destructive")).toBe(false);
-  expect(plan.skippedProposed.some((entry) => entry.name === "color/chart-gain" && !!entry.code && !!entry.figma)).toBe(true);
+  expect(plan.figmaOnly.some((entry) => entry.name === "color/chart-gain" && entry.cssReference === "var(--chart-gain)")).toBe(true);
   expect(plan.figmaOnly.some((entry) => entry.name === "color/alpha/chart-gain-12" && entry.cssReference === "var(--chart-gain-12)")).toBe(true);
-  expect(plan.creates.some((entry) => entry.name === "color/sidebar-ring")).toBe(true);
-  expect(plan.creates.find((entry) => entry.name === "space/tab-indicator-offset")?.variableCollectionId).toBe("VariableCollectionId:155:1653");
+  expect(plan.creates.some((entry) => entry.name === "color/status-positive")).toBe(true);
+  expect(plan.figmaOnly.some((entry) => entry.name === "color/sidebar" && entry.cssReference === "var(--sidebar)")).toBe(true);
+  expect(plan.creates.some((entry) => entry.name === "space/tab-indicator-offset")).toBe(false);
   expect(plan.unmatched.some((entry) => entry.name === "space/0_5")).toBe(true);
-  expect(plan.skippedAliases).toContainEqual({ name: "color/sidebar", mode: "Dark" });
-  expect(plan.updates.some((entry) => entry.name === "color/sidebar" && entry.mode === "Dark")).toBe(false);
   expect(plan.updates.some((entry) => entry.name === "color/ring")).toBe(true);
   expect(plan.skippedProposed.some((entry) => entry.name === "color/ring")).toBe(false);
   expect(plan.variableUpdates).toContainEqual({ id: "VariableID:155:1688", name: "color/ring", codeSyntax: { WEB: "var(--ring)" } });
   expect(buildPayload(plan).variables).toContainEqual({ action: "UPDATE", id: "VariableID:155:1688", codeSyntax: { WEB: "var(--ring)" } });
   const output = formatPlan(plan);
-  expect(output).toContain("SKIP ALIAS color/sidebar  Dark");
+  expect(output).toContain("FIGMA-ONLY color/sidebar");
   expect(output).toContain("UNMATCHED space/0_5");
   expect(output).toContain("FIGMA-ONLY color/alpha/chart-gain-12");
   expect(output).toContain("UPDATE color/ring  WEB var(--ring)");
   expect(output).not.toContain("\"updates\":");
+});
+
+test("fixture-only proposed and aliased variables stay untouched", () => {
+  const css = parseCss(`@theme inline { --color-chart-gain: var(--chart-gain); --color-sidebar: var(--sidebar); }
+    :root { --chart-gain: #10934a; --sidebar: #ffffff; }
+    .dark { --chart-gain: #65c67d; --sidebar: #000000; }`);
+  const fixturePlan = buildPlan(css, fixture) as unknown as TestPlan;
+  expect(fixturePlan.skippedProposed.some((entry) => entry.name === "color/chart-gain" && !!entry.code && !!entry.figma)).toBe(true);
+  expect(fixturePlan.skippedAliases).toContainEqual({ name: "color/sidebar", mode: "Dark" });
+  expect(fixturePlan.updates.some((entry) => entry.name === "color/sidebar" && entry.mode === "Dark")).toBe(false);
+  expect(formatPlan(fixturePlan)).toContain("SKIP ALIAS color/sidebar  Dark");
+});
+
+test("unmatched spacing tokens create in the existing scale collection", () => {
+  const css = parseCss("@theme inline { --spacing-fixture-step: 2px; } :root {} .dark {}");
+  const plan = buildPlan(css, fixture) as unknown as TestPlan;
+  expect(plan.creates.find((entry) => entry.name === "space/fixture-step")?.variableCollectionId).toBe("VariableCollectionId:155:1653");
+  expect(buildPayload(plan).variables.find((entry: { name: string }) => entry.name === "space/fixture-step")).toMatchObject({
+    action: "CREATE", resolvedType: "FLOAT", scopes: ["GAP", "WIDTH_HEIGHT"], codeSyntax: { WEB: "var(--spacing-fixture-step)" },
+  });
 });
 
 test("idempotency after applying every planned create and value", () => {
@@ -120,8 +139,8 @@ test("adds missing Dark mode and includes mode values in a single POST payload",
   const payload = buildPayload(plan);
   expect(payload.variableModes).toEqual([{ action: "CREATE", id: "temp:dark", name: "Dark", variableCollectionId: "VariableCollectionId:4:3" }]);
   expect(payload.variableModeValues.some((entry: { modeId: string; variableId: string }) => entry.modeId === "temp:dark" && entry.variableId === "VariableID:4:5")).toBe(true);
-  expect(payload.variables.find((entry: { name: string }) => entry.name === "space/tab-indicator-offset")).toMatchObject({
-    action: "CREATE", resolvedType: "FLOAT", scopes: ["GAP", "WIDTH_HEIGHT"], codeSyntax: { WEB: "var(--spacing-tab-indicator-offset)" },
+  expect(payload.variables.find((entry: { name: string }) => entry.name === "color/status-positive")).toMatchObject({
+    action: "CREATE", resolvedType: "COLOR", scopes: ["ALL_FILLS", "STROKE_COLOR", "EFFECT_COLOR"], codeSyntax: { WEB: "var(--status-positive)" },
   });
   expect(payload.variableModeValues.every((entry: { value: unknown }) => entry.value !== undefined)).toBe(true);
   expect(payload.variables.some((entry: { name: string }) => entry.name === "color/destructive")).toBe(false);
@@ -131,7 +150,7 @@ test("dry-run without a token plans against an empty file and writes nothing", (
   const { FIGMA_ACCESS_TOKEN: _omitted, ...env } = process.env;
   const result = Bun.spawnSync(["node", new URL("./figma-variables.mjs", import.meta.url).pathname, "--dry-run"], { env });
   expect(result.exitCode).toBe(0);
-  expect(result.stdout.toString()).toContain("CREATE color/sidebar");
+  expect(result.stdout.toString()).toContain("CREATE color/status-positive");
   expect(result.stdout.toString()).toContain("Not defined in CSS:");
   const json = Bun.spawnSync(["node", new URL("./figma-variables.mjs", import.meta.url).pathname, "--dry-run", "--json"], { env });
   expect(json.exitCode).toBe(0);
