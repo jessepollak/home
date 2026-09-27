@@ -1,10 +1,14 @@
-import { createContext, type ReactNode } from "react";
+import { createContext, useContext, type ReactNode } from "react";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Item, ItemContent, ItemMedia } from "@/components/ui/item";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CurrencyMark } from "@/components/currency-mark";
 
 export const ShellPanelActiveContext = createContext(true);
+
+export function useShellPanelActive() {
+  return useContext(ShellPanelActiveContext);
+}
 
 export function MountedShellPanel({
   active,

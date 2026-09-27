@@ -88,14 +88,16 @@ export function ActivityPanelView({
   }
   const recentRef = useRef<ActivityListHandle>(null);
   const sectionRef = useRef<HTMLElement>(null);
+  const onDetailsChangeRef = useRef(onDetailsChange);
+  useEffect(() => { onDetailsChangeRef.current = onDetailsChange; }, [onDetailsChange]);
   const openDetail = useCallback((item: ActivityLedgerItem, opener: HTMLElement) => {
     setPendingReturn(false);
     setImmediateClose(false);
     detailOpenerRef.current = opener;
-    onDetailsChange?.(true);
+    onDetailsChangeRef.current?.(true);
     setSelection({ key: `${item.family}:${item.id}`, last: item });
     setDetailsOpen(true);
-  }, [onDetailsChange]);
+  }, []);
   const [detailsStatus, setDetailsStatus] = useState(activity.status);
   if (detailsStatus !== activity.status) {
     setDetailsStatus(activity.status);

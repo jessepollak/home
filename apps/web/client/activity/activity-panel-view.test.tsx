@@ -1,10 +1,12 @@
 import "@/client/account/dom-test-harness";
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import type { ActivityPage, ActivityTransfer } from "@/shared/activity/types";
 import type { UseActivityResult } from "./use-activity";
 
+const financeRows = await import("@/components/finance-rows");
+const rowSpy = spyOn(financeRows, "ActivityRow");
 const { cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const { ActivityPanelView } = await import("./activity-panel");
 
@@ -150,7 +152,9 @@ afterEach(() => {
   cleanup();
   delete (globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean }).BASE_UI_ANIMATIONS_DISABLED;
   Object.defineProperty(HTMLElement.prototype, "offsetHeight", originalHeight);
+  rowSpy.mockClear();
 });
+afterAll(() => rowSpy.mockRestore());
 
 describe("combined Activity panel", () => {
   test("bounds recent rows and announces the loaded group size", () => {
@@ -193,6 +197,24 @@ describe("combined Activity panel", () => {
     expect(document.activeElement).toBe(view.getByRole("region", { name: "Activity" }));
   });
 
+  test("skips unchanged row renders and updates a changed action", () => {
+    const activity = ready([]);
+    const first = operation("Recorded send", 5);
+    const operations = [first];
+    const view = render(<ActivityPanelView activity={activity} operations={operations}
+      header={<h2 id="activity-title">Activity</h2>} />);
+    expect(view.getByRole("button", { description: "View Recorded send transaction details" })).toBeTruthy();
+    const rendered = rowSpy.mock.calls.length;
+    view.rerender(<ActivityPanelView activity={activity} operations={operations}
+      header={<h2 id="activity-title">History</h2>} onDetailsChange={() => undefined} />);
+    expect(view.getByRole("heading", { name: "History" })).toBeTruthy();
+    expect(rowSpy.mock.calls.length).toBe(rendered);
+    const updated = { ...first, action: { ...first.action, title: "Updated send" } };
+    view.rerender(<ActivityPanelView activity={activity} operations={[updated]}
+      header={<h2 id="activity-title">History</h2>} />);
+    expect(view.getByRole("button", { description: "View Updated send transaction details" })).toBeTruthy();
+    expect(rowSpy.mock.calls.length).toBe(rendered + 1);
+  });
   test("interleaves every loaded row into one feed list with a spinner continuation", () => {
     const view = render(
       <ActivityPanelView
