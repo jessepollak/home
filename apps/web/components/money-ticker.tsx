@@ -41,6 +41,7 @@ export type MoneyTickerProps = Omit<
 > & {
   value: string;
   animated?: boolean;
+  staticUntilChange?: boolean;
   reserveDigits?: boolean;
   align?: "start" | "end";
 };
@@ -101,6 +102,7 @@ export function MoneyMotionProvider({
 export function MoneyTicker({
   value,
   animated = true,
+  staticUntilChange = false,
   reserveDigits = true,
   align = "end",
   className,
@@ -108,6 +110,11 @@ export function MoneyTicker({
   ...props
 }: MoneyTickerProps) {
   const reducedMotion = useReducedMotion();
+  const [firstValue] = useState(value);
+  const [hasChanged, setHasChanged] = useState(false);
+  if (staticUntilChange && !hasChanged && value !== firstValue) setHasChanged(true);
+  const animationsEnabled = moneyTickerAnimationsEnabled(animated, reducedMotion);
+  const staticDigits = staticUntilChange && (!hasChanged || !animationsEnabled);
   const parts = splitMoneyTickerValue(value);
   const characters = Array.from(parts.numeric);
   const digitCount = characters.filter(isAsciiDigit).length;
@@ -139,7 +146,8 @@ export function MoneyTicker({
       role="img"
       aria-label={props["aria-label"] ?? value}
       data-slot="money-ticker"
-      data-animated={moneyTickerAnimationsEnabled(animated, reducedMotion) ? "true" : "false"}
+      data-animated={animationsEnabled ? "true" : "false"}
+      data-static-digits={staticUntilChange ? String(staticDigits) : undefined}
       data-align={align}
       data-reserve-digits={reservesWidth ? "true" : "false"}
       data-reserved-digits={digitCount}
@@ -169,10 +177,13 @@ export function MoneyTicker({
 
           const positionFromRight = digitCount - digitIndex;
           digitIndex += 1;
+          if (staticDigits) {
+            return <span className="inline-block w-[1ch] flex-[0_0_1ch] text-center" key={`digit-${positionFromRight}`}>{character}</span>;
+          }
           return (
             <NumberFlow
               aria-hidden="true"
-              animated={moneyTickerAnimationsEnabled(animated, reducedMotion)}
+              animated={animationsEnabled}
               className="inline-block w-[1ch] flex-[0_0_1ch] text-center [--number-flow-mask-width:0px]"
               format={{ useGrouping: false, maximumFractionDigits: 0 }}
               isolate={false}

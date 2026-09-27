@@ -139,12 +139,60 @@ function failed(retry: () => void = noop): UseActivityResult {
   };
 }
 
+const originalHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
+function mockRowHeight() {
+  Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+    configurable: true,
+    get() { return this.tagName === "LI" ? 64 : this.tagName === "MAIN" ? 800 : 0; },
+  });
+}
 afterEach(() => {
   cleanup();
   delete (globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean }).BASE_UI_ANIMATIONS_DISABLED;
+  Object.defineProperty(HTMLElement.prototype, "offsetHeight", originalHeight);
 });
 
 describe("combined Activity panel", () => {
+  test("bounds recent rows and announces the loaded group size", () => {
+    mockRowHeight();
+    const rows = Array.from({ length: 300 }, (_, index) => ({
+      ...transfer(`long-${index}`, index % 60),
+      blockTimestamp: new Date(Date.parse("2026-09-15T12:59:00Z") - index * 60_000).toISOString(),
+    }));
+    const view = render(<ActivityPanelView activity={ready(rows, "next-page")} />);
+    const list = view.getByRole("list");
+    expect(list.querySelectorAll(":scope > li").length).toBeLessThan(50);
+    expect(list.querySelector('li[aria-posinset="1"]')?.getAttribute("aria-setsize")).toBe("-1");
+    view.rerender(<ActivityPanelView activity={ready(rows)} />);
+    expect(list.querySelector('li[aria-posinset="1"]')?.getAttribute("aria-setsize")).toBe("300");
+  });
+
+  test("keeps a focused row mounted offscreen, then focuses Activity when that row is removed", async () => {
+    mockRowHeight();
+    const rows = Array.from({ length: 160 }, (_, index) => ({
+      ...transfer(`focus-${index}`, index % 60),
+      blockTimestamp: new Date(Date.parse("2026-09-15T12:59:00Z") - index * 60_000).toISOString(),
+    }));
+    const view = render(<main data-app-main-authenticated=""><ActivityPanelView activity={ready(rows)} /></main>);
+    const button = view.getByRole("list").querySelector('li[aria-posinset="1"] button')!;
+    (button as HTMLButtonElement).focus();
+    const main = view.container.querySelector("main")!;
+    main.scrollTop = 8000;
+    fireEvent.scroll(main);
+    await waitFor(() => expect(button.isConnected).toBe(true));
+    expect(document.activeElement).toBe(button);
+    view.rerender(<main data-app-main-authenticated=""><ActivityPanelView activity={ready(rows.slice(1))} /></main>);
+    expect(document.activeElement).toBe(view.getByRole("region", { name: "Activity" }));
+  });
+
+  test("focuses Activity when the final focused row disappears", () => {
+    const view = render(<ActivityPanelView activity={ready([transfer("final", 5)])} />);
+    const button = view.getByRole("list").querySelector("button")!;
+    (button as HTMLButtonElement).focus();
+    view.rerender(<ActivityPanelView activity={ready([])} />);
+    expect(document.activeElement).toBe(view.getByRole("region", { name: "Activity" }));
+  });
+
   test("interleaves every loaded row into one feed list with a spinner continuation", () => {
     const view = render(
       <ActivityPanelView
@@ -288,6 +336,58 @@ describe("combined Activity panel", () => {
       expect(dialog.querySelector('[data-slot="activity-amount-unit"]')?.textContent).toBe("USDC");
       await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
       await waitFor(() => expect(document.activeElement).toBe(opener));
+    } finally {
+      delete animationFlag.BASE_UI_ANIMATIONS_DISABLED;
+    }
+  });
+
+  test("focuses Activity after detail close when the selected row was removed", async () => {
+    const changes = mock(() => {});
+    const view = render(<ActivityPanelView activity={ready([transfer("removed", 5)])} header={null} onDetailsChange={changes} />);
+    fireEvent.click(view.getByRole("button", { description: "View received USDC transaction details" }));
+    const dialog = await view.findByRole("dialog", { name: "Received" });
+    view.rerender(<ActivityPanelView activity={ready([])} header={null} onDetailsChange={changes} />);
+    const animationFlag = globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean };
+    animationFlag.BASE_UI_ANIMATIONS_DISABLED = true;
+    try {
+      const close = within(dialog).getByRole<HTMLButtonElement>("button", { name: "Close Received details" });
+      expect(close.isConnected).toBe(true);
+      expect(close.disabled).toBe(false);
+      fireEvent.click(close);
+      expect(changes).toHaveBeenCalledTimes(2);
+      await waitFor(() => expect(Boolean(view.queryByRole("dialog"))).toBe(false));
+      await waitFor(() => expect(document.activeElement === view.getByRole("region", { name: "Activity" })).toBe(true));
+    } finally {
+      delete animationFlag.BASE_UI_ANIMATIONS_DISABLED;
+    }
+  });
+
+  test("restores an unmounted detail opener from its ledger key", async () => {
+    mockRowHeight();
+    const rows = Array.from({ length: 160 }, (_, index) => ({
+      ...transfer(`detail-${index}`, index % 60),
+      blockTimestamp: new Date(Date.parse("2026-09-15T12:59:00Z") - index * 60_000).toISOString(),
+    }));
+    const view = render(<main data-app-main-authenticated=""><ActivityPanelView activity={ready(rows)} /></main>);
+    const main = view.container.querySelector("main")!;
+    main.scrollTo = (options?: ScrollToOptions | number, y?: number) => {
+      main.scrollTop = typeof options === "number" ? y ?? 0 : options?.top ?? 0;
+    };
+    const opener = view.getByRole("list").querySelector('li[aria-posinset="1"] button') as HTMLButtonElement;
+    opener.focus();
+    fireEvent.click(opener);
+    const dialog = await view.findByRole("dialog", { name: "Received" });
+    main.scrollTop = 8000;
+    fireEvent.scroll(main);
+    await waitFor(() => expect(opener.isConnected).toBe(false));
+    const animationFlag = globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean };
+    animationFlag.BASE_UI_ANIMATIONS_DISABLED = true;
+    try {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Close Received details" }));
+      await waitFor(() => expect(Boolean(view.queryByRole("dialog"))).toBe(false));
+      fireEvent.scroll(main);
+      await waitFor(() => expect(document.activeElement === view.getByRole("list").querySelector('li[aria-posinset="1"] button')).toBe(true));
+      expect(document.activeElement).not.toBe(opener);
     } finally {
       delete animationFlag.BASE_UI_ANIMATIONS_DISABLED;
     }

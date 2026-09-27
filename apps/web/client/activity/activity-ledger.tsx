@@ -1,6 +1,7 @@
 "use client";
 
-import { useId, type ReactNode } from "react";
+import { memo, useId, useMemo, type HTMLAttributes, type ReactNode, type Ref } from "react";
+import { VirtualActivityList, type ActivityListHandle } from "./virtual-activity-list";
 import {
   Banknote,
   Circle,
@@ -248,6 +249,48 @@ function isPending(item: ActivityLedgerItem): boolean {
   ].includes(item.status);
 }
 
+type LedgerItemRowProps = {
+  item: ActivityLedgerItem;
+  attentionLabel: string;
+  onOpen: (item: ActivityLedgerItem, opener: HTMLElement) => void;
+  liProps?: HTMLAttributes<HTMLLIElement> & { ref?: (element: HTMLLIElement | null) => void };
+};
+
+const LedgerItemRow = memo(function LedgerItemRow({ item, attentionLabel, onOpen, liProps }: LedgerItemRowProps) {
+  const status = statusWords[item.status]
+    ? item.statusLabel ?? (item.status === "failed" && item.family === "card"
+      ? "Declined" : statusWords[item.status])
+    : "";
+  const iconTone = item.status === "failed"
+    ? "outlined" : item.status === "ambiguous" ? "neutral" : "mark";
+  const valueTone = item.status === "confirmed" || item.status === "refunded"
+    ? item.direction === "in" ? "success" : "default"
+    : ["waiting-chain", "waiting-home"].includes(item.status) ? "default" : "muted";
+  return (
+    <ActivityRow
+      liProps={liProps}
+      icon={markFor(item)}
+      iconTone={iconTone}
+      label={item.title}
+      context={
+        <>
+          <time dateTime={item.timestamp} aria-label={item.fullDateLabel}>{item.dateLabel}</time>
+          {status ? ` · ${status}` : null}
+        </>
+      }
+      contextTitle={`${item.fullDateLabel ?? item.dateLabel}${status ? ` · ${status}` : ""}`}
+      value={item.amount ? <MoneyTicker value={item.amount} staticUntilChange /> : undefined}
+      valueContext={item.amountContext}
+      valueContextTitle={item.amountContext}
+      valueTone={valueTone}
+      onActivate={(opener) => onOpen(item, opener)}
+      activateLabel={item.activateLabel ?? `View ${item.title} details`}
+      attention={needsCustomer(item) ? attentionLabel : undefined}
+      chevron
+    />
+  );
+});
+
 function LedgerRows({ items, labelledBy, attentionLabel, onOpen }: {
   items: readonly ActivityLedgerItem[];
   labelledBy?: string;
@@ -256,40 +299,7 @@ function LedgerRows({ items, labelledBy, attentionLabel, onOpen }: {
 }) {
   return (
     <ul aria-labelledby={labelledBy} className="list-none p-0">
-      {items.map((item) => {
-        const status = statusWords[item.status]
-          ? item.statusLabel ?? (item.status === "failed" && item.family === "card"
-            ? "Declined" : statusWords[item.status])
-          : "";
-        const iconTone = item.status === "failed"
-          ? "outlined" : item.status === "ambiguous" ? "neutral" : "mark";
-        const valueTone = item.status === "confirmed" || item.status === "refunded"
-          ? item.direction === "in" ? "success" : "default"
-          : ["waiting-chain", "waiting-home"].includes(item.status) ? "default" : "muted";
-        return (
-          <ActivityRow
-            key={recordKey(item)}
-            icon={markFor(item)}
-            iconTone={iconTone}
-            label={item.title}
-            context={
-              <>
-                <time dateTime={item.timestamp} aria-label={item.fullDateLabel}>{item.dateLabel}</time>
-                {status ? ` · ${status}` : null}
-              </>
-            }
-            contextTitle={`${item.fullDateLabel ?? item.dateLabel}${status ? ` · ${status}` : ""}`}
-            value={item.amount ? <MoneyTicker value={item.amount} /> : undefined}
-            valueContext={item.amountContext}
-            valueContextTitle={item.amountContext}
-            valueTone={valueTone}
-            onActivate={(opener) => onOpen(item, opener)}
-            activateLabel={item.activateLabel ?? `View ${item.title} details`}
-            attention={needsCustomer(item) ? attentionLabel : undefined}
-            chevron
-          />
-        );
-      })}
+      {items.map((item) => <LedgerItemRow key={recordKey(item)} item={item} attentionLabel={attentionLabel} onOpen={onOpen} />)}
     </ul>
   );
 }
@@ -302,6 +312,8 @@ export type ActivityLedgerProps = {
   attentionLabel?: string;
   footer?: ReactNode;
   onOpen: (item: ActivityLedgerItem, opener: HTMLElement) => void;
+  recentRef?: Ref<ActivityListHandle>;
+  exhausted?: boolean;
 };
 
 function GroupHeader({ id, label }: { id: string; label: string }) {
@@ -320,31 +332,33 @@ export function ActivityLedger({
   attentionLabel = "Action needed",
   footer,
   onOpen,
+  recentRef,
+  exhausted = true,
 }: ActivityLedgerProps) {
   const pendingId = useId();
   const recentId = useId();
-  const unique = uniqueActivityLedgerItems(items);
-  if (!unique.length) return footer ?? null;
-  const pending = [
+  const unique = useMemo(() => uniqueActivityLedgerItems(items), [items]);
+  const pending = useMemo(() => [
     ...unique.filter(needsCustomer),
     ...unique.filter((item) => isPending(item) && !needsCustomer(item)),
-  ];
-  const recent = unique.filter((item) => !isPending(item));
+  ], [unique]);
+  const recent = useMemo(() => unique.filter((item) => !isPending(item)), [unique]);
+  if (!unique.length) return footer ?? null;
   const footerSlot = footer ? <div className="pt-2 pb-3">{footer}</div> : null;
   if (layout === "feed") {
     return (
-      <div className="space-y-3">
+      <div className="space-y-3" style={{ overflowAnchor: "none" }}>
         {pending.length ? (
-          <div>
+          <div key="pending">
             <GroupHeader id={pendingId} label={pendingLabel} />
             <LedgerRows items={pending} labelledBy={pendingId} attentionLabel={attentionLabel} onOpen={onOpen} />
           </div>
         ) : null}
         {recent.length ? (
-          <div>
+          <div key="recent">
             {pending.length ? <GroupHeader id={recentId} label={recentLabel} /> : null}
-            <LedgerRows items={recent} labelledBy={pending.length ? recentId : undefined}
-              attentionLabel={attentionLabel} onOpen={onOpen} />
+            <VirtualActivityList ref={recentRef} items={recent} labelledBy={pending.length ? recentId : undefined}
+              exhausted={exhausted} attentionLabel={attentionLabel} onOpen={onOpen} Row={LedgerItemRow} />
           </div>
         ) : null}
         {footerSlot}
@@ -352,9 +366,9 @@ export function ActivityLedger({
     );
   }
   return (
-    <div className="space-y-3">
+    <div className="space-y-3" style={{ overflowAnchor: "none" }}>
       {pending.length ? (
-        <Card variant="flush">
+        <Card key="pending" variant="flush">
           <CardContent inset="list">
             <GroupHeader id={pendingId} label={pendingLabel} />
             <LedgerRows items={pending} labelledBy={pendingId} attentionLabel={attentionLabel} onOpen={onOpen} />
@@ -363,11 +377,11 @@ export function ActivityLedger({
         </Card>
       ) : null}
       {recent.length ? (
-        <Card variant="flush">
+        <Card key="recent" variant="flush">
           <CardContent inset="list">
             {pending.length ? <GroupHeader id={recentId} label={recentLabel} /> : null}
-            <LedgerRows items={recent} labelledBy={pending.length ? recentId : undefined}
-              attentionLabel={attentionLabel} onOpen={onOpen} />
+            <VirtualActivityList ref={recentRef} items={recent} labelledBy={pending.length ? recentId : undefined}
+              exhausted={exhausted} attentionLabel={attentionLabel} onOpen={onOpen} Row={LedgerItemRow} />
             {footerSlot}
           </CardContent>
         </Card>

@@ -1,8 +1,10 @@
-import type { ReactNode } from "react";
+import { createContext, type ReactNode } from "react";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Item, ItemContent, ItemMedia } from "@/components/ui/item";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CurrencyMark } from "@/components/currency-mark";
+
+export const ShellPanelActiveContext = createContext(true);
 
 export function MountedShellPanel({
   active,
@@ -12,14 +14,16 @@ export function MountedShellPanel({
   children: ReactNode;
 }) {
   return (
-    <div
-      data-shell-panel=""
-      hidden={!active}
-      inert={active ? undefined : true}
-      aria-hidden={active ? undefined : true}
-    >
-      {children}
-    </div>
+    <ShellPanelActiveContext value={active}>
+      <div
+        data-shell-panel=""
+        hidden={!active}
+        inert={active ? undefined : true}
+        aria-hidden={active ? undefined : true}
+      >
+        {children}
+      </div>
+    </ShellPanelActiveContext>
   );
 }
 

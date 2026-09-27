@@ -16,6 +16,8 @@ const NBSP = "\u00A0";
 const anySpace = /[\s\u00A0\u2007\u2009\u202F]+/g;
 const numberFormatCache = new Map<string, Intl.NumberFormat>();
 const numberFormatCacheLimit = 256;
+const dateTimeFormatCache = new Map<string, Intl.DateTimeFormat>();
+const dateTimeFormatCacheLimit = 256;
 
 function cachedNumberFormat(
   locale: string,
@@ -36,6 +38,28 @@ function cachedNumberFormat(
     if (oldestKey !== undefined) numberFormatCache.delete(oldestKey);
   }
   numberFormatCache.set(key, formatter);
+  return formatter;
+}
+
+function cachedDateTimeFormat(
+  locale: string,
+  options: Intl.DateTimeFormatOptions,
+): Intl.DateTimeFormat {
+  const key = JSON.stringify([
+    locale,
+    Object.entries(options)
+      .filter(([, value]) => value !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right)),
+  ]);
+  const cached = dateTimeFormatCache.get(key);
+  if (cached) return cached;
+
+  const formatter = new Intl.DateTimeFormat(locale, options);
+  if (dateTimeFormatCache.size >= dateTimeFormatCacheLimit) {
+    const oldestKey = dateTimeFormatCache.keys().next().value;
+    if (oldestKey !== undefined) dateTimeFormatCache.delete(oldestKey);
+  }
+  dateTimeFormatCache.set(key, formatter);
   return formatter;
 }
 
@@ -703,7 +727,7 @@ export function formatPresentationDate(
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return "—";
   const part = (formatOptions: Intl.DateTimeFormatOptions) =>
-    collapseSpaces(new Intl.DateTimeFormat(locale, { ...formatOptions, ...zone }).format(date), " ");
+    collapseSpaces(cachedDateTimeFormat(locale, { ...formatOptions, ...zone }).format(date), " ");
   const dateParts: Record<PresentationDateStyle, Intl.DateTimeFormatOptions | null> = {
     "activity-full": { month: "short", day: "numeric", year: "numeric" },
     "activity-short": { month: "short", day: "numeric" },

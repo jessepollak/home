@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from "react";
+import { useId, type HTMLAttributes, type ReactNode } from "react";
 import { ArrowDown, ArrowLeftRight, ArrowUp, ChevronRight, CircleAlert, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,6 +24,7 @@ export type FinanceRowAction = {
 
 type FinanceRowCommonProps = {
   kind: "activity" | "balance" | "asset";
+  liProps?: HTMLAttributes<HTMLLIElement> & { ref?: (element: HTMLLIElement | null) => void };
   icon: ReactNode;
   iconTone?: "neutral" | "incoming" | "outgoing" | "self" | "outlined" | "mark";
   label: ReactNode;
@@ -81,6 +82,7 @@ const valueTitleTone = {
 
 function FinanceRow({
   kind,
+  liProps,
   icon,
   iconTone = "neutral",
   label,
@@ -184,7 +186,7 @@ function FinanceRow({
   );
 
   return (
-    <li className={cn("@container/finance-row", readRetry && "relative")}>
+    <li {...liProps} className={cn("@container/finance-row", readRetry && "relative", liProps?.className)}>
       <Item
         data-kind={kind}
         className={cn("flex-nowrap items-center gap-3 py-2", activation && "h-auto cursor-pointer")}
