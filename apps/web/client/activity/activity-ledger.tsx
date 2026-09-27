@@ -47,6 +47,8 @@ export type Transaction = {
   display: string;
   explorer?: { href: string; label: string; title?: string };
 };
+export type ActivityLedgerFact = { label: string; value: string; kind?: "address" };
+
 export type ActivityLedgerDetail =
   | {
     family: "onchain-transfer";
@@ -54,7 +56,7 @@ export type ActivityLedgerDetail =
     counterparty: string;
     network: string;
     transaction?: Transaction;
-    facts?: readonly { label: string; value: string }[];
+    facts?: readonly ActivityLedgerFact[];
   }
   | {
     family: "home-action";
@@ -62,7 +64,7 @@ export type ActivityLedgerDetail =
     from?: string;
     network: string;
     transaction?: Transaction;
-    facts?: readonly { label: string; value: string }[];
+    facts?: readonly ActivityLedgerFact[];
   }
   | {
     family: "funding-order";

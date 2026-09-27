@@ -51,10 +51,17 @@ export function createInvestmentsStoryWalletClient(snapshot: BalancesSnapshot = 
     verification: "server" as const,
     session: storySession,
     fetchBalances: async () => snapshot,
-    fetchAccountResource: async (path: string) => path === "/api/trades"
-      ? { version: 1, status: "available" }
-      : path === "/api/trades/stock-eligibility"
-        ? { version: 1, buy: "eligible", sell: "eligible" }
-        : Promise.reject(new Error("Resource unavailable in investments story")),
+    fetchAccountResource: async (path: string) => {
+      if (path === "/api/trades/stock-eligibility") return { version: 1, buy: "eligible", sell: "eligible" };
+      if (path.startsWith("/api/trades?assetId=")) {
+        const assetId = decodeURIComponent(path.slice("/api/trades?assetId=".length));
+        const holding = snapshot.holdings.find((entry) => entry.contractAddress &&
+          (entry.id === assetId || `base:${entry.contractAddress.toLowerCase()}` === assetId));
+        return holding?.contractAddress
+          ? { version: 2, status: "available", token: { assetId, address: holding.contractAddress.toLowerCase(), symbol: holding.symbol, decimals: holding.decimals }, buy: "available", balanceBaseUnits: holding.balance.status === "ready" ? holding.balance.baseUnits : "0" }
+          : { version: 2, status: "unavailable", reason: "asset-unsupported" };
+      }
+      throw new Error("Resource unavailable in investments story");
+    },
   };
 }

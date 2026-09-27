@@ -14,7 +14,7 @@ import { useIdlePreload } from "@/client/money-modal/deferred-sheet";
 import { CurrencyMark } from "@/components/currency-mark";
 import { AssetRow, type FinanceRowAction } from "@/components/finance-rows";
 import { buyRouteForToken } from "@/shared/trading/assets";
-import { useBitcoinTrade } from "@/client/trading/use-bitcoin-trade";
+import { useAssetTrade } from "@/client/trading/use-asset-trade";
 import { FeatureIntro } from "@/components/ui/feature-intro";
 import { MoneyTicker } from "@/components/money-ticker";
 import { Button } from "@/components/ui/button";
@@ -126,12 +126,14 @@ function LoanRow({ row, regionId, resolution, openMarket }: { row: OpenLoan; reg
   />;
 }
 
-function AssetRows({ assets, regionId, resolution, openMarket, buy, empty }: { assets: BorrowableAsset[]; regionId: RegionId; resolution?: AssetMarkResolution; openMarket: (id: BorrowMarketId, element: HTMLElement) => void; buy: { state: "none" | "pending" | "zero" | "ready"; preload: () => void; open: (button: HTMLButtonElement) => void }; empty: boolean }) {
+function AssetRows({ assets, regionId, resolution, openMarket, buy, empty }: { assets: BorrowableAsset[]; regionId: RegionId; resolution?: AssetMarkResolution; openMarket: (id: BorrowMarketId, element: HTMLElement) => void; buy: { states: ReadonlyMap<string, "none" | "pending" | "zero" | "ready">; preload: () => void; open: (assetId: string, button: HTMLButtonElement) => void }; empty: boolean }) {
   return assets.map((asset) => {
     const rowName = collateralDisplayName(asset.market.id);
-    const buyAction = asset.kind === "not-held" && buyRouteForToken({ chainId: asset.snapshot.chainId, address: asset.market.collateralToken.address }) && buy.state !== "none"
-      ? { label: "Buy", accessibleLabel: `Buy ${rowName}`, onIntent: buy.preload, onAction: buy.open,
-          pending: buy.state === "pending", disabled: buy.state === "zero" } satisfies FinanceRowAction : undefined;
+    const assetId = asset.kind === "not-held" ? buyRouteForToken({ chainId: asset.snapshot.chainId, address: asset.market.collateralToken.address }) : null;
+    const buyState = assetId ? buy.states.get(assetId) : undefined;
+    const buyAction = assetId && buyState && buyState !== "none"
+      ? { label: "Buy", accessibleLabel: `Buy ${rowName}`, onIntent: buy.preload, onAction: (button: HTMLButtonElement) => buy.open(assetId, button),
+          pending: buyState === "pending", disabled: buyState === "zero" } satisfies FinanceRowAction : undefined;
     const context = asset.kind === "unavailable" ? "Couldn't load"
       : asset.kind === "held-no-capacity" ? BigInt(asset.snapshot.state.liquidityAssetsRaw) === BigInt(0) ? `No ${asset.market.loanToken.symbol} to borrow now` : "Too little to borrow"
         : [...(asset.kind === "not-held" && buyAction?.disabled ? ["No Cash to buy"] : asset.kind === "not-held" && !empty ? ["Not in wallet"] : []), `${formatWadPercent(asset.snapshot.state.borrowAprWad, regionId)} APR`]
@@ -226,7 +228,7 @@ export function BorrowOverview({ overview = null, borrowSummary, status = "ready
   const pickerTitleId = useId();
   const summaryRef = useRef<HTMLParagraphElement>(null);
   const introActionRef = useRef<HTMLButtonElement>(null);
-  const pendingBuy = useRef(false);
+  const pendingBuy = useRef<string | null>(null);
   const opener = useRef<HTMLElement | null>(null);
   const leavingForActivity = useRef(false);
   const closeFocus = useRef<"row" | "summary" | "none">("row");
@@ -246,13 +248,12 @@ export function BorrowOverview({ overview = null, borrowSummary, status = "ready
   const snapshot = selected?.availability.status === "available" ? selected.availability.snapshot : null;
   const loans = overview ? openLoans(overview) : [];
   const assets = overview ? borrowableAssets(overview) : [];
-  const hasBuyCandidate = assets.some((asset) => asset.kind === "not-held" && buyRouteForToken({ chainId: asset.snapshot.chainId, address: asset.market.collateralToken.address }));
-  const trade = useBitcoinTrade({ session: hasBuyCandidate ? session : null, regionId, onFallbackFocus: focusOverview });
-  const buyState = !trade.hasAccount || !session?.smartAccount || trade.availability?.status === "unavailable" || trade.balances.status === "error" ||
-    (trade.balances.status === "ready" && (!trade.usableBalances || trade.cash === null)) ? "none" as const
-    : trade.availability === null || trade.balances.status === "loading" ? "pending" as const
-      : !trade.ready || trade.cash === null ? "none" as const : trade.cash === "0" ? "zero" as const : "ready" as const;
-  const buy = { state: buyState, preload: trade.preload, open: (button: HTMLButtonElement) => trade.open("buy", button) };
+  const tradeCandidates = assets.flatMap((asset) => {
+    const assetId = asset.kind === "not-held" ? buyRouteForToken({ chainId: asset.snapshot.chainId, address: asset.market.collateralToken.address }) : null;
+    return assetId ? [{ assetId, assetName: collateralDisplayName(asset.market.id) }] : [];
+  });
+  const trade = useAssetTrade(tradeCandidates, { session: tradeCandidates.length ? session : null, regionId, onFallbackFocus: focusOverview });
+  const buy = { states: trade.states, preload: trade.preload, open: (assetId: string, button: HTMLButtonElement) => trade.open(assetId, "buy", button) };
   const ready = status === "ready" && overview !== null;
   const complete = ready && summarizeBorrowOverview(overview).completeness === "complete";
   const showIntro = complete && loans.length === 0;
@@ -267,7 +268,7 @@ export function BorrowOverview({ overview = null, borrowSummary, status = "ready
     setJourneyOwner(ownerKey);
     closeFocus.current = "row";
     leavingForActivity.current = false;
-    pendingBuy.current = false;
+    pendingBuy.current = null;
     setFromPicker(picker);
     setDetailsOpen(false);
     setOperation(null);
@@ -292,8 +293,8 @@ export function BorrowOverview({ overview = null, borrowSummary, status = "ready
     setFocusOperation(null);
     setMarketId(null);
   }
-  function pickBuy() {
-    pendingBuy.current = true;
+  function pickBuy(assetId: string) {
+    pendingBuy.current = assetId;
     exitJourney("none");
   }
   function exitJourney(focus: "row" | "summary" | "none" = "row") {
@@ -307,10 +308,10 @@ export function BorrowOverview({ overview = null, borrowSummary, status = "ready
     setOperation(null);
     setMoneySnapshot(null);
     setFocusOperation(null);
-    const buyNext = pendingBuy.current && journeyOwner === ownerKey;
-    pendingBuy.current = false;
+    const buyNext = journeyOwner === ownerKey ? pendingBuy.current : null;
+    pendingBuy.current = null;
     if (journeyOwner !== ownerKey) closeFocus.current = "none";
-    if (buyNext && introActionRef.current?.isConnected) trade.open("buy", introActionRef.current);
+    if (buyNext && introActionRef.current?.isConnected) trade.open(buyNext, "buy", introActionRef.current);
     else if (closeFocus.current === "summary") focusOverview();
     else if (closeFocus.current === "row") {
       if (opener.current?.isConnected) opener.current.focus({ preventScroll: true });

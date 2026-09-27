@@ -1,4 +1,6 @@
 import { portfolioVaults, PORTFOLIO_USDC_ADDRESS } from "../../../config/portfolio-assets";
+import { investAssets } from "../../../config/invest-assets";
+import { buyRouteForToken } from "../../../shared/trading/assets";
 import { VERIFIED_MORPHO_MARKETS } from "../../../shared/morpho-markets/config";
 import type { BorrowMarketSnapshot, BorrowOverviewResponse } from "../../../shared/borrowing/contract";
 import {
@@ -19,6 +21,16 @@ export const sessionBody = {
 export const actionsBody = { actions: [] };
 export const fundingProvidersBody = { providers: [] };
 export const basenameProfileBody = { profile: null };
+
+export function tradeAvailabilityBody(assetId: string) {
+  const market = VERIFIED_MORPHO_MARKETS.find((entry) => buyRouteForToken({ chainId: entry.chainId, address: entry.collateralToken.address }) === assetId);
+  const configured = investAssets.find((asset) => asset.id === assetId && asset.category !== "stock");
+  const token = market ? market.collateralToken : configured ? {
+    address: configured.contractAddress, symbol: configured.representation.tokenSymbol, decimals: ("decimals" in configured.representation ? configured.representation.decimals : 18),
+  } : null;
+  return token ? { version: 2, status: "available", token: { assetId, address: token.address.toLowerCase(), symbol: token.symbol, decimals: token.decimals }, buy: "available", balanceBaseUnits: "100000" }
+    : { version: 2, status: "unavailable", reason: "asset-unsupported" };
+}
 
 const BORROW_BLOCK_HASH = `0x${"ab".repeat(32)}` as `0x${string}`;
 const BORROW_FETCHED_AT = "2026-09-13T12:00:00.000Z";

@@ -1,24 +1,25 @@
 import { afterEach, describe, expect, jest, test } from "bun:test";
 import { encodeAbiParameters, encodeFunctionData, hashTypedData, parseAbi, parseAbiParameters } from "viem";
 import type { Address } from "@/shared/trading/server-types";
-import { createCdpSwapsClient, type CdpSwapsClient, type SwapQuote } from "./cdp-swaps";
+import { CdpSwapsRefusalError, CdpSwapsUnavailableError, createCdpSwapsClient, type CdpSwapsClient, type SwapQuote } from "./cdp-swaps";
 import { checkpointExitCode, runSwapsCheckpoint } from "./checkpoint";
 import { PERMIT2_ADDRESS, TradePreparationError } from "./permit2";
 import { swapTokens } from "./quote";
 
+const TOKEN = "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf" as Address;
 const TAKER = "0x1111111111111111111111111111111111111111" as Address;
 const TARGET = "0x3333333333333333333333333333333333333333" as Address;
 const NOW = new Date("2026-09-24T12:00:00.000Z");
 const SETTLER_ABI = parseAbi(["function execute((address recipient,address buyToken,uint256 minAmountOut) slippage, bytes[] actions, bytes32 zid)"]);
 function settlerData(toToken: Address, direction: "buy" | "sell") {
-  const fromToken = swapTokens(direction).fromToken;
+  const fromToken = swapTokens(direction, TOKEN).fromToken;
   const word = (value: bigint | number) => BigInt(value).toString(16).padStart(64, "0");
   return `0x1fff991f${word(BigInt(TAKER))}${word(BigInt(toToken))}${word(990)}${word(0xa0)}${word(0)}${word(2)}${word(128)}${word(64)}${word(4)}aabbccdd${"0".repeat(56)}${word(0xffff)}c1fb425e${word(BigInt(TARGET))}${word(BigInt(fromToken))}${word(direction === "buy" ? 1_000_000 : 1000)}${word(4)}${word(Math.floor(NOW.getTime() / 1000) + 900)}${word(0xc0)}` as `0x${string}`;
 }
 afterEach(() => jest.useRealTimers());
-const request = { ...swapTokens("buy"), fromAmount: BigInt(1_000_000), taker: TAKER, slippageBps: 100 };
+const request = { ...swapTokens("buy", TOKEN), fromAmount: BigInt(1_000_000), taker: TAKER, slippageBps: 100 };
 function rawQuote(direction: "buy" | "sell" = "buy", balance = false) {
-  const { fromToken, toToken } = swapTokens(direction);
+  const { fromToken, toToken } = swapTokens(direction, TOKEN);
   const fromAmount = direction === "buy" ? "1000000" : "1000";
   const eip712 = {
     domain: { name: "Permit2", chainId: 8453, verifyingContract: PERMIT2_ADDRESS },
@@ -92,7 +93,7 @@ describe("CDP Swaps client", () => {
     expect(() => createCdpSwapsClient({ env: { CDP_API_KEY_ID: " ", CDP_API_KEY_SECRET: " " } })).toThrow("CDP Swaps unavailable.");
   });
   test("uses caller key once and never reuses it", async () => {
-    const client = createCdpSwapsClient({ env, generateJwtImpl: jwt, fetchImpl: (async () => Response.json(rawQuote())) as unknown as typeof fetch });
+    const client = createCdpSwapsClient({ env, generateJwtImpl: jwt, fetchImpl: (async () => Response.json(rawQuote())) as unknown as unknown as typeof fetch });
     const keyed = { ...request, requestKey: "00000000-0000-4000-8000-000000000001" };
     await client.createQuote(keyed);
     await expect(client.createQuote(keyed)).rejects.toThrow("CDP Swaps unavailable.");
@@ -107,7 +108,7 @@ describe("CDP Swaps client", () => {
     ["missing simulation flag", () => Response.json({ ...rawQuote(), issues: { allowance: null, balance: null } })],
     ["oversized integer", () => Response.json({ ...rawQuote(), blockNumber: String(BigInt(2) ** BigInt(256)) })],
   ])("fails closed on %s without body or credentials", async (_label, response) => {
-    const client = createCdpSwapsClient({ env, generateJwtImpl: jwt, fetchImpl: (async () => response()) as unknown as typeof fetch });
+    const client = createCdpSwapsClient({ env, generateJwtImpl: jwt, fetchImpl: (async () => response()) as unknown as unknown as typeof fetch });
     try { await client.createQuote(request); throw new Error("Expected rejection"); }
     catch (error) {
       expect(String(error)).toBe("CdpSwapsUnavailableError: CDP Swaps unavailable.");
@@ -133,7 +134,7 @@ describe("CDP Swaps client", () => {
     await expect(pending).rejects.toThrow("CDP Swaps unavailable.");
   });
   test("liquidity false is a valid result", async () => {
-    const client = createCdpSwapsClient({ env, generateJwtImpl: jwt, fetchImpl: (async () => Response.json({ liquidityAvailable: false })) as unknown as typeof fetch });
+    const client = createCdpSwapsClient({ env, generateJwtImpl: jwt, fetchImpl: (async () => Response.json({ liquidityAvailable: false })) as unknown as unknown as typeof fetch });
     expect(await client.getPrice(request)).toEqual({ liquidityAvailable: false });
     expect(await client.createQuote(request)).toEqual({ liquidityAvailable: false });
   });
@@ -192,7 +193,7 @@ describe("sanitized operator checkpoint", () => {
     const client = createCdpSwapsClient({ env, generateJwtImpl: jwt,
       fetchImpl: (async (url: RequestInfo | URL, init?: RequestInit) => {
         const fromToken = init?.method === "GET" ? new URL(String(url)).searchParams.get("fromToken") : (JSON.parse(String(init?.body)) as { fromToken: string }).fromToken;
-        const direction = fromToken === swapTokens("sell").fromToken ? "sell" : "buy";
+        const direction = fromToken === swapTokens("sell", TOKEN).fromToken ? "sell" : "buy";
         const row = rawQuote(direction, direction === "buy");
         return Response.json(init?.method === "GET" ? { ...row, gas: null, gasPrice: "2" } : row);
       }) as unknown as typeof fetch,
@@ -203,13 +204,13 @@ describe("sanitized operator checkpoint", () => {
     expect(report.directions.map((row) => row.executionReadiness)).toEqual(["insufficient-balance", "unverified-actions"]);
     expect(report.directions.map((row) => [row.targetMatchesRouter, row.calldataMatches])).toEqual([[true, true], [true, true]]);
     expect(report.directions.map((row) => [row.actionSelectors, row.actionsVerified])).toEqual([[["0xc1fb425e", "0xaabbccdd"], false], [["0xc1fb425e", "0xaabbccdd"], false]]);
-    expect(checkpointExitCode(report)).toBe(0);
+    expect(checkpointExitCode(report)).toBe(2);
   });
   test("checks each liquid quote against the block read after that direction's quote", async () => {
     const client = createCdpSwapsClient({ env, generateJwtImpl: jwt,
       fetchImpl: (async (url: RequestInfo | URL, init?: RequestInit) => {
         const fromToken = init?.method === "GET" ? new URL(String(url)).searchParams.get("fromToken") : (JSON.parse(String(init?.body)) as { fromToken: string }).fromToken;
-        const direction = fromToken === swapTokens("sell").fromToken ? "sell" : "buy";
+        const direction = fromToken === swapTokens("sell", TOKEN).fromToken ? "sell" : "buy";
         const row = rawQuote(direction);
         return Response.json(init?.method === "GET" ? { ...row, gas: null, gasPrice: "2" } : { ...row, blockNumber: direction === "sell" ? "1010" : "1000" });
       }) as unknown as typeof fetch,
@@ -222,13 +223,13 @@ describe("sanitized operator checkpoint", () => {
     expect(blockReads).toBe(2);
     expect(routerReads).toBe(1);
     expect(report.directions.map((row) => [row.quoteCompatible, row.compatibilityReason])).toEqual([[true, null], [true, null]]);
-    expect(checkpointExitCode(report)).toBe(0);
+    expect(checkpointExitCode(report)).toBe(2);
   });
   test("reports a failed block read for only that direction as provider-unavailable", async () => {
     const client = createCdpSwapsClient({ env, generateJwtImpl: jwt,
       fetchImpl: (async (url: RequestInfo | URL, init?: RequestInit) => {
         const fromToken = init?.method === "GET" ? new URL(String(url)).searchParams.get("fromToken") : (JSON.parse(String(init?.body)) as { fromToken: string }).fromToken;
-        const direction = fromToken === swapTokens("sell").fromToken ? "sell" : "buy";
+        const direction = fromToken === swapTokens("sell", TOKEN).fromToken ? "sell" : "buy";
         const row = rawQuote(direction);
         return Response.json(init?.method === "GET" ? { ...row, gas: null, gasPrice: "2" } : row);
       }) as unknown as typeof fetch,
@@ -239,7 +240,7 @@ describe("sanitized operator checkpoint", () => {
     });
     expect(blockReads).toBe(2);
     expect(report.directions.map((row) => [row.quoteCompatible, row.compatibilityReason, row.executionReadiness])).toEqual([
-      [true, null, "unverified-actions"], [false, "provider-unavailable", "provider-unavailable"],
+      [true, null, "unverified-actions"], [false, "chain-unavailable", "chain-unavailable"],
     ]);
     expect(checkpointExitCode(report)).toBe(2);
   });
@@ -273,7 +274,7 @@ describe("sanitized operator checkpoint", () => {
     const client = createCdpSwapsClient({ env, generateJwtImpl: jwt,
       fetchImpl: (async (url: RequestInfo | URL, init?: RequestInit) => {
         const fromToken = init?.method === "GET" ? new URL(String(url)).searchParams.get("fromToken") : (JSON.parse(String(init?.body)) as { fromToken: string }).fromToken;
-        const direction = fromToken === swapTokens("sell").fromToken ? "sell" : "buy";
+        const direction = fromToken === swapTokens("sell", TOKEN).fromToken ? "sell" : "buy";
         const row = rawQuote(direction, unfunded && direction === "buy");
         if (init?.method === "GET") return Response.json({ ...row, gas: null, gasPrice: "2" });
         return Response.json(direction === "buy" ? mutate(row) : row);
@@ -288,4 +289,57 @@ describe("sanitized operator checkpoint", () => {
     if (_label === "short action" || _label === "empty calldata") expect([buy.actionSelectors, buy.actionsVerified]).toEqual([null, false]);
     expect(checkpointExitCode(report)).toBe(2);
   });
+});
+
+describe("provider refusal classification", () => {
+  test.each([
+    [400, { errorType: "amount_below_minimum", errorMessage: "Amount too small" }, "below-minimum"],
+    [422, { errorType: "invalid_request", errorMessage: "minimum amount is 0.1" }, "below-minimum"],
+    [404, { errorType: "no_route", errorMessage: "No route" }, "route-unavailable"],
+    [400, { errorType: "invalid_request", errorMessage: "One or more swap parameters are invalid. Check the token addresses, amount, and network, then try again." }, "route-unavailable"],
+    [400, { errorType: "invalid_request", errorMessage: "address does not match regex" }, "route-unavailable"],
+  ] as const)("classifies HTTP %i with CDP body as %s", async (status, body, reason) => {
+    const client = createCdpSwapsClient({ env, generateJwtImpl: jwt,
+      fetchImpl: (async () => Response.json(body, { status })) as unknown as typeof fetch });
+    const error = await client.createQuote(request).catch((failure: unknown) => failure);
+    expect(error).toBeInstanceOf(CdpSwapsRefusalError);
+    if (!(error instanceof CdpSwapsRefusalError)) throw error;
+    expect(error.reason).toBe(reason);
+    expect(error.message).not.toContain(body.errorMessage);
+  });
+  test.each([429, 500, 401, 403, 200])("HTTP %i or malformed body is an outage", async (status) => {
+    const client = createCdpSwapsClient({ env, generateJwtImpl: jwt,
+      fetchImpl: (async () => Response.json({ errorType: "invalid_request", errorMessage: "bad" }, { status })) as unknown as typeof fetch });
+    await expect(client.createQuote(request)).rejects.toBeInstanceOf(CdpSwapsUnavailableError);
+  });
+});
+
+test("checkpoint keeps provider evidence when the chain registry is unavailable", async () => {
+  const quote = rawQuote();
+  const client: CdpSwapsClient = {
+    getPrice: async () => ({ liquidityAvailable: false }),
+    createQuote: async () => ({ ...quote, fromAmount: BigInt(1_000_000), toAmount: BigInt(1000), minToAmount: BigInt(990), blockNumber: BigInt(1000),
+      fees: { gasFee: null, protocolFee: null }, issues: { allowance: null, balance: null, simulationIncomplete: false },
+      permit2: null, transaction: { to: TARGET, data: quote.transaction.data, value: BigInt(0), gas: BigInt(100), gasPrice: BigInt(1) },
+      fromToken: request.fromToken, toToken: request.toToken }),
+  };
+  const report = await runSwapsCheckpoint({ client, taker: TAKER, amounts: { buy: BigInt(1_000_000), sell: BigInt(1_000_000) }, now: NOW,
+    readSwapRouter: async () => { throw new Error("registry unavailable"); }, readBlockNumber: async () => { throw new Error("block unavailable"); } });
+  expect(report.directions[0]).toMatchObject({ quoteLiquidityAvailable: true, chain: "unavailable", actionsVerified: null,
+    actionSelectors: ["0xc1fb425e", "0xaabbccdd"], executionReadiness: "chain-unavailable" });
+  expect(checkpointExitCode(report)).toBe(2);
+});
+
+test("checkpoint sweep sells the buy executable quote's expected amount", async () => {
+  const requests: bigint[] = [];
+  const client: CdpSwapsClient = {
+    getPrice: async () => ({ liquidityAvailable: false }),
+    createQuote: async (trade) => {
+      requests.push(trade.fromAmount);
+      return trade.fromToken === request.fromToken ? { liquidityAvailable: true, fromToken: trade.fromToken, toToken: trade.toToken, fromAmount: trade.fromAmount, toAmount: BigInt(250), minToAmount: BigInt(240), blockNumber: BigInt(1000), fees: { gasFee: null, protocolFee: null }, issues: { allowance: null, balance: null, simulationIncomplete: false }, permit2: null, transaction: { to: TARGET, data: "0x", value: BigInt(0), gas: BigInt(1), gasPrice: BigInt(1) } } : { liquidityAvailable: false };
+    },
+  };
+  await runSwapsCheckpoint({ client, taker: TAKER, amounts: { buy: BigInt(100_000), sell: BigInt(1) }, now: NOW,
+    deriveSellFromBuy: true, readSwapRouter: async () => TARGET, readBlockNumber: async () => BigInt(1000) });
+  expect(requests).toEqual([BigInt(100_000), BigInt(250)]);
 });

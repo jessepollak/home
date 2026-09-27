@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useEffect, type ComponentProps, type ReactNode } from "react";
-import { expect, waitFor, within } from "storybook/test";
+import { expect, userEvent, waitFor, within } from "storybook/test";
 import { CopyableValue } from "@/components/copyable-value";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { MoneyConfirmSummary, moneyConfirmFromRow } from "./confirm-summary";
@@ -219,6 +219,22 @@ export const ResizeRefit: Story = {
     frameElement.style.width = "448px";
     await waitFor(async () => { await expect(Math.abs(renderedWidth(headline) - wideWidth)).toBeLessThanOrEqual(1); });
     await checkFit(canvasElement, "$12,345,678,901");
+  },
+};
+
+export const ReviewDetails: Story = {
+  args: {
+    rows: [{ label: "You get", value: "≈ 1 DEGEN" }],
+    details: [{ label: "Minimum received", value: "0.99 DEGEN" }, { label: "Max slippage", value: "1%" }],
+  },
+  play: async ({ canvasElement }) => {
+    const screen = within(canvasElement);
+    const toggle = screen.getByRole("button", { name: "Details" });
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(screen.queryByText("Minimum received")).not.toBeInTheDocument();
+    await userEvent.click(toggle);
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await expect(screen.getByText("Minimum received")).toBeVisible();
   },
 };
 

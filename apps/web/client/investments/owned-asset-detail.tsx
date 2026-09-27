@@ -7,7 +7,7 @@ import { GlyphMark } from "@/components/currency-mark";
 import { BalanceRow } from "@/components/finance-rows";
 import { MoneyTicker } from "@/components/money-ticker";
 import { Card, CardContent } from "@/components/ui/card";
-import { AssetDetailScreen, AssetDetailStatusScreen } from "@/client/invest/asset-detail-screen";
+import { AssetDetailScreen, AssetDetailStatusScreen, ExactAddressAssetScreen } from "@/client/invest/asset-detail-screen";
 import { marketForAsset } from "@/client/invest/discover";
 import type { PricedInvestMarketProps } from "@/client/invest/use-market-prices";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
@@ -16,6 +16,7 @@ import { addFractions, exactDecimalToFraction, roundFractionPreservingPositive }
 import { selectOwnedInvestment, type OwnedInvestment } from "@/shared/balances/owned-investments";
 import type { AssetKey, BalancesSnapshot, Holding } from "@/shared/balances/types";
 import { matchesMarketPriceAssetIdentity } from "@/shared/invest/contracts/market-price-history";
+import { buyRouteForToken } from "@/shared/trading/assets";
 import { RefreshFailedNotice, amountLabel, holdingsQuantity, ownedQuantity, quantity, unavailableValue } from "./investments-overview";
 
 export type OwnedAssetDetailProps = {
@@ -40,6 +41,8 @@ export function OwnedAssetDetail({ snapshot, balanceStatus, refreshFailed = fals
     ?? investAssets.find((item) => item.contractAddress.toLowerCase() === address);
   const card = <OwnedBalanceCard row={row} snapshot={snapshot} refreshFailed={refreshFailed} onRetryBalances={onRetryBalances} />;
   if (asset) return <AssetDetailScreen asset={asset} market={marketForAsset(asset, markets)} assetMarkResolution={assetMarkResolution} onBack={onBack} ownership={card} />;
+  const exactAssetId = address ? buyRouteForToken({ chainId: snapshot.owner.chainId, address }) : null;
+  if (exactAssetId) return <ExactAddressAssetScreen assetId={exactAssetId} name={row.holding.name || row.holding.symbol} onBack={onBack} ownership={card} />;
   return <section className="flex w-full flex-col gap-4 overflow-x-clip" aria-label={`${row.holding.name || row.holding.symbol} details`}>
     {card}<p className="text-sm text-muted-foreground">Trading isn&apos;t available for this asset.</p>
   </section>;

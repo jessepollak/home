@@ -5,58 +5,79 @@ import { useState } from "react";
 import { getHomeQueryClient } from "@/client/query/query-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
-import type { TradeActionParams, TradeDirection, TradeMoneyActionMetadata } from "@/shared/trading/contract";
+import { BASE_USDC_PAYMASTER_ADDRESS } from "@/shared/money-actions/network-fee";
 import { TransferExecutionError } from "@/shared/transfers/types";
+import type { TradeActionParams, TradeDirection, TradeMoneyActionMetadata, TradeToken } from "@/shared/trading/contract";
 
 const { cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { TradeMoneyDialog } = await import("./trade-money-dialog");
 
 const wallet = "0x1111111111111111111111111111111111111111" as const;
 const usdc = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const;
-const btc = "0x2222222222222222222222222222222222222222" as const;
 const session: VerifiedAccountSession = {
   user: { subject: "synthetic-trade-owner" }, smartAccount: { address: wallet, chainId: 8453 }, accountProvider: "cdp-embedded",
 };
-function action(direction: TradeDirection, spend: string, expiresAt = new Date(Date.now() + 110_000).toISOString()): PreparedMoneyAction {
+const token = (decimals: number): TradeToken => ({
+  assetId: "base:0x2222222222222222222222222222222222222222",
+  symbol: "DEGEN", decimals, address: "0x2222222222222222222222222222222222222222",
+});
+
+function action(direction: TradeDirection, amount: string, traded: TradeToken, expired = false): PreparedMoneyAction {
   const buy = direction === "buy";
-  const receive = buy ? "100000" : "69000000";
-  const source = { id: buy ? "usdc" : "cbbtc", symbol: buy ? "USDC" : "cbBTC", decimals: buy ? 6 : 8, address: buy ? usdc : btc } as const;
-  const target = { id: buy ? "cbbtc" : "usdc", symbol: buy ? "cbBTC" : "USDC", decimals: buy ? 8 : 6, address: buy ? btc : usdc } as const;
+  const spend = amount === "all" ? "123000000000000000000" : amount;
+  const cash = { id: "usdc", symbol: "USDC", decimals: 6, address: usdc };
+  const tradedAsset = { id: traded.assetId, symbol: traded.symbol, decimals: traded.decimals, address: traded.address };
+  const from = buy ? cash : tradedAsset;
+  const to = buy ? tradedAsset : cash;
+  const receive = buy ? (BigInt(10) ** BigInt(traded.decimals)).toString() : "69000000";
+  const expiresAt = new Date(Date.now() + (expired ? -1000 : 110_000)).toISOString();
   return {
-    id: `fixture-${direction}-${expiresAt}`, kind: "trade", title: buy ? "Buy Bitcoin" : "Sell Bitcoin",
+    id: `fixture-${direction}-${expiresAt}`, kind: "trade", title: `${buy ? "Buy" : "Sell"} DEGEN`,
     owner: { subject: session.user.subject, address: wallet, chainId: 8453, accountProvider: session.accountProvider },
     createdAt: new Date().toISOString(), expiresAt, calls: [], warnings: ["Do not use this warning for review facts"],
+    networkFee: { payment: "usdc", token: usdc, paymaster: BASE_USDC_PAYMASTER_ADDRESS, maxFeeBaseUnits: "20000", decimals: 6 },
     amounts: [
-      { assetId: source.id, symbol: source.symbol, decimals: source.decimals, amountBaseUnits: spend, direction: "spend" },
-      { assetId: target.id, symbol: target.symbol, decimals: target.decimals, amountBaseUnits: receive, direction: "receive", estimated: true },
+      { assetId: from.id, symbol: from.symbol, decimals: from.decimals, amountBaseUnits: spend, direction: "spend" },
+      { assetId: to.id, symbol: to.symbol, decimals: to.decimals, amountBaseUnits: receive, direction: "receive", estimated: true },
     ],
     signing: { signer: "base-account", typedData: {} } as PreparedMoneyAction["signing"],
     metadata: {
       product: "trade", provider: "cdp-swaps", direction, network: { name: "Base", chainId: 8453 },
-      fromAsset: source, toAsset: target, fromAmountBaseUnits: spend, expectedToAmountBaseUnits: receive,
-      minimumToAmountBaseUnits: buy ? "99000" : "68310000", slippageBps: 100, fees: [],
-      approval: "permit2-exact", quoteBlockNumber: "123", quotedAt: new Date().toISOString(),
-      permitDeadline: String(Math.floor(Date.parse(expiresAt) / 1000) + 30), executionDeadline: String(Math.floor(Date.parse(expiresAt) / 1000) + 30),
+      assetId: traded.assetId, assetName: "DEGEN", fromAsset: from, toAsset: to,
+      fromAmountBaseUnits: spend, expectedToAmountBaseUnits: receive,
+      minimumToAmountBaseUnits: (BigInt(receive) * BigInt(99) / BigInt(100)).toString(),
+      slippageBps: 100, fees: [], approval: "permit2-exact", quoteBlockNumber: "123", quotedAt: new Date().toISOString(),
+      permitDeadline: String(Math.floor(Date.parse(expiresAt) / 1000) + 30),
+      executionDeadline: String(Math.floor(Date.parse(expiresAt) / 1000) + 30),
     },
   };
 }
-function dialog(direction: TradeDirection, options: {
-  prepare?: (kind: string, params: TradeActionParams) => Promise<PreparedMoneyAction>;
-  execute?: () => Promise<{ id: string; status: "rejected" | "submitted" }>;
+
+type DialogOptions = {
+  decimals?: number;
   balance?: string;
+  error?: string;
+  expired?: boolean;
+  prepare?: (params: TradeActionParams, traded: TradeToken, count: number) => Promise<PreparedMoneyAction>;
+  execute?: () => Promise<{ id: string; status: "rejected" | "submitted" }>;
   fetchAccountResource?: (path: string) => Promise<unknown>;
   assetPrice?: { currency: string; perUnit: { atoms: string; scale: number } } | null;
-} = {}) {
+};
+function dialog(direction: TradeDirection, options: DialogOptions = {}) {
+  const traded = token(options.decimals ?? 18);
   const requests: TradeActionParams[] = [];
-  const prepare = options.prepare ?? (async (_kind: string, params: TradeActionParams) => action(direction, params.amountBaseUnits));
   let executions = 0;
   const view = render(<TradeMoneyDialog open direction={direction} session={session}
-    availableBaseUnits={options.balance ?? (direction === "buy" ? "10000000" : "123456")}
+    token={traded} assetName="DEGEN"
+    availableBaseUnits={options.balance ?? (direction === "buy" ? "10000000" : "123000000000000000000")}
     assetPrice={options.assetPrice}
     fetchAccountResource={options.fetchAccountResource ?? (async () => ({ version: 1, usdcReserveBaseUnits: "20000" }))}
-    prepareMoneyAction={async (kind, params) => {
-      requests.push(params as TradeActionParams);
-      return prepare(kind, params as TradeActionParams);
+    prepareMoneyAction={async (_kind, input) => {
+      const request = input as TradeActionParams;
+      requests.push(request);
+      if (options.error) throw { code: options.error, message: "untrusted provider text" };
+      return options.prepare ? options.prepare(request, traded, requests.length)
+        : action(direction, request.amountBaseUnits, traded, options.expired && requests.length === 1);
     }}
     executeMoneyAction={async () => {
       executions++;
@@ -64,169 +85,209 @@ function dialog(direction: TradeDirection, options: {
     }} onClose={() => undefined} />);
   return { view, requests, executions: () => executions };
 }
-function key(view: ReturnType<typeof render>, name: string) {
-  const matches = view.getAllByRole("button", { name });
-  fireEvent.click(matches[matches.length - 1]!);
+function click(view: ReturnType<typeof render>, name: string) {
+  const buttons = view.getAllByRole("button", { name });
+  fireEvent.click(buttons[buttons.length - 1]!);
 }
-function typeAmount(view: ReturnType<typeof render>, value: string) {
-  fireEvent.input(view.getByRole("textbox", { name: "Amount" }), { target: { value } });
-}
-async function continueTrade(view: ReturnType<typeof render>) {
+async function submit(view: ReturnType<typeof render>, value?: string) {
+  if (value) fireEvent.input(view.getByRole("textbox", { name: "Amount" }), { target: { value } });
   await waitFor(() => expect((view.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
-  key(view, "Continue");
+  click(view, "Continue");
 }
 
 afterEach(() => { cleanup(); getHomeQueryClient().clear(); });
 
-describe("Bitcoin trade review", () => {
-  test("sell only offers fiat toggle when priced, and confirms the native BTC amount", async () => {
-    const priced = dialog("sell", { assetPrice: { currency: "USD", perUnit: { atoms: "65000", scale: 0 } } });
+describe("any-token trade review", () => {
+  test("sell only offers the fiat toggle when priced, and confirms the native token amount", async () => {
+    const priced = dialog("sell", { assetPrice: { currency: "USD", perUnit: { atoms: "5", scale: 1 } } });
     expect(priced.view.getByRole("button", { name: /as the primary amount/ })).toBeTruthy();
     fireEvent.click(priced.view.getByRole("button", { name: /as the primary amount/ }));
-    typeAmount(priced.view, "32.50");
-    await continueTrade(priced.view);
-    expect(priced.requests[0]?.amountBaseUnits).toBe("50000");
-    expect(await priced.view.findByRole("button", { name: "Sell 0.0005 BTC" })).toBeTruthy();
+    await submit(priced.view, "32.50");
+    await waitFor(() => expect(priced.requests[0]?.amountBaseUnits).toBe("65000000000000000000"));
+    expect(await priced.view.findByRole("button", { name: "Sell 65 DEGEN" })).toBeTruthy();
     cleanup();
     const unpriced = dialog("sell");
     expect(unpriced.view.queryByRole("button", { name: /as the primary amount/ })).toBeNull();
   });
   test("Buy Max spends exact Cash less the network-fee reserve", async () => {
-    const { view, requests } = dialog("buy");
-    await waitFor(() => expect((view.getByRole("button", { name: "Max" }) as HTMLButtonElement).disabled).toBe(false));
-    key(view, "Max");
-    await continueTrade(view);
-    await waitFor(() => expect(requests).toEqual([{ version: 1, assetId: "cbbtc", direction: "buy", amountBaseUnits: "9980000" }]));
+    const trade = dialog("buy");
+    await waitFor(() => expect((trade.view.getByRole("button", { name: "Max" }) as HTMLButtonElement).disabled).toBe(false));
+    click(trade.view, "Max");
+    await submit(trade.view);
+    await waitFor(() => expect(trade.requests).toEqual([{ version: 2, assetId: token(18).assetId, direction: "buy", amountBaseUnits: "9980000" }]));
   });
-  test("Sell supports exact partial base units and full balance Max", async () => {
-    const partial = dialog("sell");
-    typeAmount(partial.view, "0.0005");
-    await continueTrade(partial.view);
-    await waitFor(() => expect(partial.requests[0]?.amountBaseUnits).toBe("50000"));
-    cleanup();
-    const all = dialog("sell");
-    key(all.view, "Max");
-    await continueTrade(all.view);
-    await waitFor(() => expect(all.requests[0]?.amountBaseUnits).toBe("123456"));
+  test.each([6, 8, 18])("%i-decimal partial sell converts exactly", async (decimals) => {
+    const trade = dialog("sell", { decimals, balance: (BigInt(10) ** BigInt(decimals)).toString() });
+    await submit(trade.view, "0.125");
+    await waitFor(() => expect(trade.requests[0]?.amountBaseUnits).toBe((BigInt(125) * BigInt(10) ** BigInt(decimals - 3)).toString()));
+    expect(trade.view.getByText("You get").parentElement?.textContent).toContain("≈ $69.00");
+    expect(trade.view.getByRole("button", { name: /Sell 0.125 DEGEN/ })).toBeTruthy();
   });
-  test("review uses quote metadata for minimum, rate, slippage and network, not warnings", async () => {
-    const { view } = dialog("buy");
-    typeAmount(view, "1");
-    await continueTrade(view);
-    await waitFor(() => expect(view.getByText("Minimum received")).toBeTruthy());
-    expect(view.getByText("Slippage").parentElement?.textContent).toContain("1%");
-    expect(view.getByText("Price").parentElement?.textContent).toContain("1 BTC ≈ $1,000.00");
-    expect(view.getByText("Network").parentElement?.textContent).toBe("NetworkBase");
-    expect(view.queryByText("Do not use this warning for review facts")).toBeNull();
+  test("Sell Max sends all and review uses the server's exact spend", async () => {
+    const trade = dialog("sell");
+    await waitFor(() => expect((trade.view.getByRole("button", { name: "Max" }) as HTMLButtonElement).disabled).toBe(false));
+    click(trade.view, "Max");
+    await submit(trade.view);
+    await waitFor(() => expect(trade.requests[0]?.amountBaseUnits).toBe("all"));
+    expect(trade.view.getByRole("button", { name: "Sell 123 DEGEN" })).toBeTruthy();
   });
-  test("review lists the protocol fee but not the provider's gas estimate, which Home's network fee replaces", async () => {
-    const withFees = async (_kind: string, params: TradeActionParams) => {
-      const prepared = action("buy", params.amountBaseUnits);
+  test("a typed sell amount equal to the balance stays an explicit amount", async () => {
+    const trade = dialog("sell");
+    await submit(trade.view, "123");
+    await waitFor(() => expect(trade.requests[0]?.amountBaseUnits).toBe("123000000000000000000"));
+  });
+  test("editing after Max drops the sell-all intent", async () => {
+    const trade = dialog("sell");
+    await waitFor(() => expect((trade.view.getByRole("button", { name: "Max" }) as HTMLButtonElement).disabled).toBe(false));
+    click(trade.view, "Max");
+    await submit(trade.view, "12");
+    await waitFor(() => expect(trade.requests[0]?.amountBaseUnits).toBe("12000000000000000000"));
+  });
+  test.each(["buy", "sell"] as const)("%s review shows the traded contract without opening Details", async (direction) => {
+    const trade = dialog(direction);
+    await submit(trade.view, direction === "buy" ? "1" : "0.5");
+    const toggle = await trade.view.findByRole("button", { name: "Details" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(trade.view.getAllByText("DEGEN contract")).toHaveLength(1);
+    const reveal = trade.view.getByRole("button", { name: /^Show full contract 0x/ });
+    expect(reveal.getAttribute("title")).toBe(token(18).address);
+    expect(reveal.textContent).toContain("0x2222");
+    click(trade.view, "Details");
+    expect(trade.view.getAllByText("DEGEN contract")).toHaveLength(1);
+    click(trade.view, "Details");
+    expect(trade.view.getByText("DEGEN contract")).toBeTruthy();
+  });
+  test("review shows expected receive and network fee until Details exposes quote facts", async () => {
+    const trade = dialog("buy");
+    await submit(trade.view, "1");
+    const toggle = await trade.view.findByRole("button", { name: "Details" });
+    expect(trade.view.getByText("You get").parentElement?.textContent).toContain("≈ 1 DEGEN");
+    expect(trade.view.getByText("Network fee").parentElement?.textContent).toContain("USDC");
+    expect(trade.view.queryByText("You pay")).toBeNull();
+    expect(trade.view.queryByText("You receive (estimated)")).toBeNull();
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(trade.view.queryByText("Minimum received")).toBeNull();
+    click(trade.view, "Details");
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(trade.view.getByText("Minimum received").parentElement?.textContent).toContain("DEGEN");
+    expect(trade.view.getByText("Rate").parentElement?.textContent).toContain("1 DEGEN");
+    expect(trade.view.getByText("Max slippage").parentElement?.textContent).toContain("1%");
+    expect(trade.view.getByText("Quote expires in")).toBeTruthy();
+    expect(trade.view.getByText("Network").parentElement?.textContent).toBe("NetworkBase");
+    expect(trade.view.getByText("From")).toBeTruthy();
+    expect(trade.view.queryByText("Do not use this warning for review facts")).toBeNull();
+    click(trade.view, "Details");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(trade.view.queryByText("Minimum received")).toBeNull();
+  });
+  test("review lists the protocol fee but not the provider's gas estimate", async () => {
+    const trade = dialog("buy", { prepare: async (params, traded) => {
+      const prepared = action("buy", params.amountBaseUnits, traded);
       const metadata = prepared.metadata as TradeMoneyActionMetadata;
       metadata.fees = [
         { kind: "gas", assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "12000" },
         { kind: "protocol", assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1500" },
       ];
       return prepared;
-    };
-    const { view } = dialog("buy", { prepare: withFees });
-    typeAmount(view, "1");
-    await continueTrade(view);
-    await waitFor(() => expect(view.getByText("Protocol fee")).toBeTruthy());
-    expect(view.queryByText("Gas fee")).toBeNull();
+    } });
+    await submit(trade.view, "1");
+    await trade.view.findByRole("button", { name: "Details" });
+    click(trade.view, "Details");
+    expect(trade.view.getByText("Protocol fee")).toBeTruthy();
+    expect(trade.view.queryByText("Gas fee")).toBeNull();
   });
   test("expired quote prepares a new action instead of executing the stale one", async () => {
-    let count = 0;
-    const trade = dialog("sell", { prepare: async (_kind, params) => {
-      count++;
-      return action("sell", params.amountBaseUnits, new Date(Date.now() + (count === 1 ? -1000 : 110_000)).toISOString());
-    } });
-    key(trade.view, "Max");
-    await continueTrade(trade.view);
+    const trade = dialog("sell", { expired: true });
+    await submit(trade.view, "0.5");
     await waitFor(() => expect(trade.view.getByRole("button", { name: "Get new quote" })).toBeTruthy());
-    key(trade.view, "Get new quote");
+    click(trade.view, "Details");
+    expect(trade.view.getByRole("button", { name: "Details" }).getAttribute("aria-expanded")).toBe("true");
+    click(trade.view, "Get new quote");
     await waitFor(() => expect(trade.requests).toHaveLength(2));
-    expect(trade.requests[1]?.amountBaseUnits).toBe("123456");
+    await waitFor(() => expect(trade.view.getByRole("button", { name: "Details" }).getAttribute("aria-expanded")).toBe("false"));
+    expect(trade.view.queryByText("Minimum received")).toBeNull();
+    expect(trade.requests[1]).toEqual(trade.requests[0]);
     expect(trade.executions()).toBe(0);
   });
   test("Trade confirm X closes once and Back returns exactly to Buy amount", async () => {
     let closes = 0;
     function Journey() {
       const [open, setOpen] = useState(true);
-      return <TradeMoneyDialog open={open} direction="buy" session={session} availableBaseUnits="10000000"
+      return <TradeMoneyDialog open={open} direction="buy" session={session} token={token(18)} assetName="DEGEN" availableBaseUnits="10000000"
         fetchAccountResource={async (path) => path === "/api/actions/trade-pending"
           ? { version: 1, trade: null } : { version: 1, usdcReserveBaseUnits: "20000" }}
-        prepareMoneyAction={async (_kind, params) => action("buy", (params as TradeActionParams).amountBaseUnits)}
+        prepareMoneyAction={async (_kind, params) => action("buy", (params as TradeActionParams).amountBaseUnits, token(18))}
         executeMoneyAction={async () => ({ id: "fixture", status: "rejected" })}
         onClose={() => { closes++; setOpen(false); }} />;
     }
     const view = render(<Journey />);
-    typeAmount(view, "1");
-    await continueTrade(view);
+    await submit(view, "1");
     await view.findByRole("dialog", { name: "Confirm" });
-    key(view, "Back");
+    click(view, "Back");
     expect((view.getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("1");
     expect(view.getAllByRole("dialog")).toHaveLength(1);
-    await continueTrade(view);
+    await submit(view);
     await view.findByRole("dialog", { name: "Confirm" });
-    key(view, "Close trade dialog");
+    click(view, "Close trade dialog");
     await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
     expect(closes).toBe(1);
   });
 
   test("Trade amount to confirm and Back keeps one dialog and refocuses amount", async () => {
     const trade = dialog("buy");
-    typeAmount(trade.view, "1");
-    await continueTrade(trade.view);
+    await submit(trade.view, "1");
     await waitFor(() => expect(trade.view.getByRole("button", { name: "Buy $1.00" })).toBeTruthy());
     const dialogElement = trade.view.getByRole("dialog", { name: "Confirm" });
     expect(trade.view.getAllByRole("dialog")).toHaveLength(1);
     expect(dialogElement.contains(document.activeElement)).toBe(true);
     expect(document.activeElement).not.toBe(document.body);
-    key(trade.view, "Back");
+    click(trade.view, "Back");
     expect(trade.view.getAllByRole("dialog")).toHaveLength(1);
     expect(document.activeElement).toBe(trade.view.getByRole("textbox", { name: "Amount" }));
   });
 
   test("wallet rejection keeps the same review, and Back retains the amount", async () => {
     const trade = dialog("buy");
-    typeAmount(trade.view, "1");
-    await continueTrade(trade.view);
+    await submit(trade.view, "1");
     await waitFor(() => expect(trade.view.getByRole("button", { name: "Buy $1.00" })).toBeTruthy());
-    key(trade.view, "Buy $1.00");
+    click(trade.view, "Buy $1.00");
     await waitFor(() => expect(trade.view.getByText(/wallet request was rejected/)).toBeTruthy());
+    click(trade.view, "Details");
     expect(trade.view.getByText("Minimum received")).toBeTruthy();
     expect(trade.executions()).toBe(1);
-    key(trade.view, "Back");
+    click(trade.view, "Back");
     expect((trade.view.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false);
   });
   test("wallet rejection followed by expiry gets a fresh quote without executing again", async () => {
-    let count = 0;
-    const trade = dialog("sell", { prepare: async (_kind, params) => action("sell", params.amountBaseUnits,
-      new Date(Date.now() + (++count === 1 ? 1200 : 110_000)).toISOString()) });
-    key(trade.view, "Max");
-    await continueTrade(trade.view);
-    const confirm = await waitFor(() => trade.view.getByRole("button", { name: /Sell .* BTC/ }));
+    const trade = dialog("sell", { prepare: async (params, traded, count) => {
+      const prepared = action("sell", params.amountBaseUnits, traded);
+      if (count === 1) prepared.expiresAt = new Date(Date.now() + 1200).toISOString();
+      return prepared;
+    } });
+    await submit(trade.view, "0.5");
+    const confirm = await waitFor(() => trade.view.getByRole("button", { name: /Sell .* DEGEN/ }));
     expect(confirm.getAttribute("data-money-action-id")).toBeTruthy();
-    key(trade.view, confirm.textContent!);
+    click(trade.view, confirm.textContent!);
     await waitFor(() => expect(trade.view.getByText(/wallet request was rejected/)).toBeTruthy());
     expect(trade.executions()).toBe(1);
     await waitFor(() => expect(trade.view.getByRole("button", { name: "Get new quote" }).hasAttribute("data-money-action-id")).toBe(false), { timeout: 2000 });
-    key(trade.view, "Get new quote");
+    click(trade.view, "Get new quote");
     await waitFor(() => expect(trade.requests).toHaveLength(2));
-    expect(trade.requests[1]?.amountBaseUnits).toBe("123456");
+    expect(trade.requests[1]).toEqual(trade.requests[0]);
     expect(trade.executions()).toBe(1);
   });
   test("signing failure retains Buy and offers a new quote after expiry", async () => {
     const trade = dialog("buy", {
-      prepare: async (_kind, params) => action("buy", params.amountBaseUnits, new Date(Date.now() + 1200).toISOString()),
+      prepare: async (params, traded) => {
+        const prepared = action("buy", params.amountBaseUnits, traded);
+        prepared.expiresAt = new Date(Date.now() + 1200).toISOString();
+        return prepared;
+      },
       execute: async () => { throw new TransferExecutionError("not-submitted"); },
     });
-    typeAmount(trade.view, "1");
-    await continueTrade(trade.view);
-    const confirm = await waitFor(() => trade.view.getByRole("button", { name: "Buy $1.00" }));
-    expect(confirm.getAttribute("data-money-action-id")).toBeTruthy();
-    key(trade.view, "Buy $1.00");
+    await submit(trade.view, "1");
+    await waitFor(() => expect(trade.view.getByRole("button", { name: "Buy $1.00" })).toBeTruthy());
+    click(trade.view, "Buy $1.00");
     await waitFor(() => expect(trade.view.getByRole("alert").textContent).toBe("Couldn't sign this trade. Try again or get a new quote."));
     expect(trade.view.getByRole("button", { name: "Buy $1.00" })).toBeTruthy();
     expect(trade.view.queryByRole("button", { name: "Retry" })).toBeNull();
@@ -238,10 +299,9 @@ describe("Bitcoin trade review", () => {
   });
   test("an invalid signing request retains review with a new-quote recovery message", async () => {
     const trade = dialog("buy", { execute: async () => { throw new TransferExecutionError("invalid-request"); } });
-    typeAmount(trade.view, "1");
-    await continueTrade(trade.view);
+    await submit(trade.view, "1");
     await waitFor(() => expect(trade.view.getByRole("button", { name: "Buy $1.00" })).toBeTruthy());
-    key(trade.view, "Buy $1.00");
+    click(trade.view, "Buy $1.00");
     await waitFor(() => expect(trade.view.getByRole("alert").textContent).toBe("This quote can't be signed. Get a new quote."));
     expect(trade.view.getByRole("button", { name: "Buy $1.00" })).toBeTruthy();
   });
@@ -250,7 +310,7 @@ describe("Bitcoin trade review", () => {
     let prepares = 0;
     let dispatches = 0;
     const options = {
-      prepare: async (_kind: string, params: TradeActionParams) => { prepares++; return action("buy", params.amountBaseUnits); },
+      prepare: async (params: TradeActionParams, traded: TradeToken) => { prepares++; return action("buy", params.amountBaseUnits, traded); },
       execute: async (): Promise<{ id: string; status: "submitted" }> => {
         dispatches++;
         throw new TransferExecutionError("dispatch-unknown");
@@ -261,28 +321,25 @@ describe("Bitcoin trade review", () => {
       },
     };
     const initial = dialog("buy", options);
-    typeAmount(initial.view, "1");
-    await continueTrade(initial.view);
+    await submit(initial.view, "1");
     await waitFor(() => expect(initial.view.getByRole("button", { name: "Buy $1.00" })).toBeTruthy());
-    key(initial.view, "Buy $1.00");
+    click(initial.view, "Buy $1.00");
     await waitFor(() => expect(initial.view.getByRole("alert").textContent).toContain("Check Activity"));
     expect(initial.view.queryByRole("button", { name: "Retry" })).toBeNull();
     expect(initial.view.queryByRole("button", { name: "Continue" })).toBeNull();
-    key(initial.view, "Close trade dialog");
+    click(initial.view, "Close trade dialog");
     initial.view.unmount();
     const next = dialog("buy", options);
-    typeAmount(next.view, "2");
-    await continueTrade(next.view);
+    await submit(next.view, "2");
     await waitFor(() => expect(next.view.getByRole("button", { name: "Buy $2.00" })).toBeTruthy());
     expect({ prepares, dispatches }).toEqual({ prepares: 2, dispatches: 1 });
     expect(paths.every((path) => path === "/api/actions/network-fee")).toBe(true);
   });
   test("a lost confirm response retains Retry on the same trade", async () => {
     const trade = dialog("buy", { execute: async () => { throw new TransferExecutionError("submission-unknown"); } });
-    typeAmount(trade.view, "1");
-    await continueTrade(trade.view);
+    await submit(trade.view, "1");
     await waitFor(() => expect(trade.view.getByRole("button", { name: "Buy $1.00" })).toBeTruthy());
-    key(trade.view, "Buy $1.00");
+    click(trade.view, "Buy $1.00");
     await waitFor(() => expect(trade.view.getByRole("button", { name: "Retry" })).toBeTruthy());
     expect(trade.view.getByRole("alert").textContent).toContain("Retry to record the same trade");
     expect(trade.requests).toHaveLength(1);
@@ -293,46 +350,45 @@ describe("Bitcoin trade review", () => {
       if (++attempts === 1) throw new Error("synthetic dispatch outcome unknown");
       throw new TransferExecutionError("not-submitted");
     } });
-    typeAmount(trade.view, "1");
-    await continueTrade(trade.view);
+    await submit(trade.view, "1");
     await waitFor(() => expect(trade.view.getByRole("button", { name: "Buy $1.00" })).toBeTruthy());
-    key(trade.view, "Buy $1.00");
+    click(trade.view, "Buy $1.00");
     await waitFor(() => expect(trade.view.getByRole("button", { name: "Retry" })).toBeTruthy());
-    key(trade.view, "Retry");
+    click(trade.view, "Retry");
     await waitFor(() => expect(trade.view.getByRole("alert").textContent).toBe("Couldn't sign this trade. Try again or get a new quote."));
     expect(trade.view.getByRole("button", { name: "Retry" })).toBeTruthy();
     expect(trade.view.queryAllByRole("button", { name: "Back" })).toHaveLength(0);
   });
-  test("unresolved dispatch removes both Back affordances and keeps them removed after a later rejection", async () => {
+  test("unresolved dispatch removes both Back affordances after a later rejection", async () => {
     let attempts = 0;
     const trade = dialog("buy", { execute: async () => {
       if (++attempts === 1) throw new Error("synthetic dispatch outcome unknown");
       return { id: "fixture", status: "rejected" };
     } });
-    typeAmount(trade.view, "1");
-    await continueTrade(trade.view);
+    await submit(trade.view, "1");
     await waitFor(() => expect(trade.view.getAllByRole("button", { name: "Back" })).toHaveLength(2));
-    key(trade.view, "Buy $1.00");
-    await waitFor(() => expect(trade.view.getByRole("alert").textContent).toBe("We couldn't confirm this trade yet. Retry to record the same trade, or check Activity before trading again."));
+    click(trade.view, "Buy $1.00");
+    await waitFor(() => expect(trade.view.getByRole("alert").textContent).toContain("Retry to record the same trade"));
     expect(trade.view.queryAllByRole("button", { name: "Back" })).toHaveLength(0);
-    expect(trade.view.getByRole("button", { name: "Close trade dialog" })).toBeTruthy();
-    key(trade.view, "Retry");
-    await waitFor(() => expect(trade.view.getByRole("alert").textContent).toBe("The wallet request was rejected. Review the quote and try again."));
+    click(trade.view, "Retry");
+    await waitFor(() => expect(trade.view.getByRole("alert").textContent).toContain("wallet request was rejected"));
     expect(trade.view.queryAllByRole("button", { name: "Back" })).toHaveLength(0);
     expect(trade.view.getByRole("button", { name: "Retry" })).toBeTruthy();
-    expect(trade.view.queryByRole("button", { name: "Continue" })).toBeNull();
     expect(trade.executions()).toBe(2);
   });
   test("unresolved dispatch loses Retry and the money marker once its quote expires", async () => {
     const trade = dialog("buy", {
-      prepare: async (_kind, params) => action("buy", params.amountBaseUnits, new Date(Date.now() + 1200).toISOString()),
+      prepare: async (params, traded) => {
+        const prepared = action("buy", params.amountBaseUnits, traded);
+        prepared.expiresAt = new Date(Date.now() + 1200).toISOString();
+        return prepared;
+      },
       execute: async () => { throw new Error("synthetic dispatch outcome unknown"); },
     });
-    typeAmount(trade.view, "1");
-    await continueTrade(trade.view);
+    await submit(trade.view, "1");
     const confirm = await waitFor(() => trade.view.getByRole("button", { name: "Buy $1.00" }));
     expect(confirm.getAttribute("data-money-action-id")).toBeTruthy();
-    key(trade.view, "Buy $1.00");
+    click(trade.view, "Buy $1.00");
     const retry = await waitFor(() => trade.view.getByRole("button", { name: "Retry" }));
     expect(retry.getAttribute("data-money-action-id")).toBe(confirm.getAttribute("data-money-action-id"));
     await waitFor(() => {
@@ -341,7 +397,7 @@ describe("Bitcoin trade review", () => {
       expect(trade.view.getByRole("alert").textContent).toBe("This quote expired before the outcome was recorded. Check Activity before trading again.");
     }, { timeout: 2000 });
     expect(trade.view.queryAllByRole("button", { name: "Back" })).toHaveLength(0);
-    key(trade.view, "Close");
+    click(trade.view, "Close");
     expect(trade.executions()).toBe(1);
     expect(trade.view.queryByRole("button", { name: "Continue" })).toBeNull();
   });
@@ -353,7 +409,7 @@ describe("Bitcoin trade review", () => {
       if (requests <= 3) throw new Error("synthetic fee policy failure");
       return new Promise((resolve) => { settle = () => resolve({ version: 1, usdcReserveBaseUnits: "20000" }); });
     } });
-    typeAmount(trade.view, "1");
+    fireEvent.input(trade.view.getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
     await waitFor(() => expect(trade.view.getByText("Couldn't check the network fee.")).toBeTruthy());
     expect(trade.view.getAllByText("Network fee unavailable").length).toBeGreaterThan(0);
     expect((trade.view.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
@@ -363,14 +419,25 @@ describe("Bitcoin trade review", () => {
     expect(retry.isConnected).toBe(true);
     fireEvent.click(retry);
     settle?.();
-    await continueTrade(trade.view);
+    await submit(trade.view);
     await waitFor(() => expect(trade.requests[0]?.amountBaseUnits).toBe("1000000"));
     expect(requests).toBe(4);
   });
-  test("liquidity error gives a smaller-amount recovery", async () => {
-    const trade = dialog("buy", { prepare: async () => { throw { code: "TRADE_NO_LIQUIDITY" }; } });
-    typeAmount(trade.view, "1");
-    await continueTrade(trade.view);
-    await waitFor(() => expect(trade.view.getByText("No liquidity for this amount. Try a smaller trade.")).toBeTruthy());
+  test.each([
+    ["TRADE_NOT_ROUTED", "This asset can't be traded in Home yet."],
+    ["TRADE_STOCK_RESTRICTED", "Stock buys aren't available in your location."],
+    ["TRADE_ROUTE_UNAVAILABLE", "No route for this amount. Try a different amount or try again later."],
+    ["TRADE_BELOW_MINIMUM", "This amount is below the trade minimum. Enter a larger amount."],
+    ["TRADE_TOKEN_UNREADABLE", "This token couldn't be read on Base. Try again later."],
+    ["TRADE_BUY_UNAVAILABLE", "Buying is unavailable. You can still sell or send."],
+    ["TRADE_INSUFFICIENT_BALANCE", "Your Cash balance changed. Review the amount again."],
+    ["TRADE_QUOTE_STALE", "This quote changed. Get a new quote."],
+    ["TRADE_UNAVAILABLE", "Trading isn't available right now. Try again later."],
+  ] as const)("%s gives a specific recovery without provider text", async (error, message) => {
+    const trade = dialog("buy", { error });
+    await submit(trade.view, "1");
+    await waitFor(() => expect(trade.view.getByRole("alert").textContent).toBe(message));
+    expect(trade.view.queryByText("untrusted provider text")).toBeNull();
+    expect(trade.view.queryByRole("button", { name: /Buy \$/ })).toBeNull();
   });
 });

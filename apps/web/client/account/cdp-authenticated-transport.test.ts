@@ -91,7 +91,7 @@ describe("authenticated action handle effects", () => {
     expect(fixture.invalidations).toEqual(
       [...afterActionScopes.map((scope) => [ownerKey, scope]), [ownerKey, networkFeePolicyScope], ["other-owner", networkFeePolicyScope]],
     );
-    expect(new Set(fixture.invalidations.map((key) => key.join("\u0000"))).size).toBe(6);
+    expect(new Set(fixture.invalidations.map((key) => key.join("\u0000"))).size).toBe(afterActionScopes.length + 2);
     expect(fixture.client.getQueryData([ownerKey, "activity-window"]))
       .not.toBe(initialWindow);
     expect(freshness).toEqual([actionId]);

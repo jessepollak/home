@@ -17,11 +17,18 @@ describe("provider refusal", () => {
     expect(classifyProviderRefusal(400, body(message))).toBe("token-not-routed");
   });
   test.each([
-    [400, body("Invalid amount")], [403, body(buy)], [500, body(sell)],
+    [400, body("Invalid amount"), "route-unavailable"],
+    [404, { errorType: "not_found", errorMessage: buy }, "route-unavailable"],
+    [400, body("The token you're trying to buy isn't authorized for this swap. Extra"), "route-unavailable"],
+    [422, { errorType: "invalid_request", errorMessage: "below threshold" }, "below-minimum"],
+  ] as const)("classifies a CDP refusal without leaking provider text", (status, response, reason) => {
+    expect(classifyProviderRefusal(status, response)).toBe(reason);
+  });
+  test.each([
+    [403, body(buy)], [500, body(sell)],
     [400, null], [400, "error"], [400, { errorType: "invalid_request" }],
-    [400, { errorType: "not_found", errorMessage: buy }],
-    [400, body("The token you're trying to buy isn't authorized for this swap. Extra")],
-  ])("does not classify other errors: %s", (status, response) => {
+
+  ])("does not classify non-CDP or outage errors: %s", (status, response) => {
     expect(classifyProviderRefusal(status as number, response)).toBeNull();
   });
 });

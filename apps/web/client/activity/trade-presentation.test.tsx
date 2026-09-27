@@ -58,6 +58,17 @@ describe("trade activity presentation", () => {
     expect(within(details).getByText("You receive").nextElementSibling?.textContent).toMatch(/^Estimated /);
   });
 
+  test("the traded contract keeps its full copyable address", async () => {
+    const buy = operation("buy", "confirmed");
+    const metadata = buy.action.metadata;
+    if (metadata?.product !== "trade") throw new Error("trade fixture metadata missing");
+    const view = render(<ActivityPanelView activity={activity} operations={[buy]} />);
+    fireEvent.click(view.getByRole("button", { description: "View Bought Bitcoin transaction details" }));
+    const details = await view.findByRole("dialog", { name: "Bought Bitcoin" });
+    const contract = within(details).getByText(`${metadata.toAsset.symbol} contract`).nextElementSibling;
+    expect(contract?.querySelector(`[title="${metadata.toAsset.address}"]`)).not.toBeNull();
+  });
+
   test("missing trade metadata preserves the stored title", () => {
     const view = render(<ActivityPanelView activity={activity} operations={[operation("buy", "failed", false)]} />);
     expect(view.getByRole("button", { description: "View Stored title transaction details" }).textContent).toContain("Stored title");

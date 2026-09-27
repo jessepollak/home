@@ -1,4 +1,7 @@
 import { balancesSnapshot } from "../fixtures/balances";
+import { cryptoAssets, memeAssets } from "../../../config/invest-assets";
+import { VERIFIED_MORPHO_MARKETS } from "../../../shared/morpho-markets/config";
+import { buyRouteForToken } from "../../../shared/trading/assets";
 import { preparedSendFixtureAction } from "../fixtures/api";
 import { COUNTRY_PREFERENCE_VERSION } from "../../../shared/account/contracts/country-preference";
 import { cashoutFixtureAction, cashoutFixtureWithdraw } from "./cashout-fixture";
@@ -8,41 +11,48 @@ import {
   fundingProvidersBody,
   borrowOverviewBody,
   sessionBody,
+  tradeAvailabilityBody,
   savingsVaultsBody,
 } from "../fixtures/bodies";
 import type { TradeDirection } from "../../../shared/trading/contract";
 import { nonTrendingAddress, searchFixture } from "./search-fixtures";
+import { BASE_USDC_PAYMASTER_ADDRESS } from "../../../shared/money-actions/network-fee";
 
 const recentRecipient = "0x2211d1d0020daea8039e46cf1367962070d77da9";
 const syntheticUsdc = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const;
 const syntheticBtc = "0x2222222222222222222222222222222222222222" as const;
+export const syntheticDegen = "0x3333333333333333333333333333333333333333" as const;
+export const degenAssetId = `base:${syntheticDegen}` as const;
 
-export function tradePrepareFixture(direction: TradeDirection) {
+export function tradePrepareFixture(direction: TradeDirection, asset: "bitcoin" | "degen" = "bitcoin", fullSell = false) {
   const buy = direction === "buy";
-  const from = buy
-    ? { id: "usdc", symbol: "USDC", decimals: 6, address: syntheticUsdc }
-    : { id: "cbbtc", symbol: "cbBTC", decimals: 8, address: syntheticBtc };
-  const to = buy
-    ? { id: "cbbtc", symbol: "cbBTC", decimals: 8, address: syntheticBtc }
-    : { id: "usdc", symbol: "USDC", decimals: 6, address: syntheticUsdc };
-  const spend = buy ? "1000000" : "50000";
-  const receive = buy ? "1400" : "35000000";
+  const selected = asset === "degen"
+    ? { id: degenAssetId, name: "DEGEN", symbol: "DEGEN", decimals: 18, address: syntheticDegen }
+    : { id: "cbbtc", name: "Bitcoin", symbol: "cbBTC", decimals: 8, address: syntheticBtc };
+  const token = { id: selected.id, symbol: selected.symbol, decimals: selected.decimals, address: selected.address };
+  const cash = { id: "usdc", symbol: "USDC", decimals: 6, address: syntheticUsdc };
+  const from = buy ? cash : token;
+  const to = buy ? token : cash;
+  const spend = buy ? "1000000" : asset === "degen" ? fullSell ? "123000000000000000000" : "500000000000000000" : "50000";
+  const receive = buy ? asset === "degen" ? "120000000000000000000" : "1400" : "35000000";
   const expiresAt = new Date(Date.now() + 110_000).toISOString();
   const owner = { subject: sessionBody.user.subject, address: sessionBody.smartAccount.address, chainId: 8453, accountProvider: "cdp-embedded" };
   return {
-    id: `synthetic-trade-${direction}`, owner, kind: "trade", title: buy ? "Buy Bitcoin" : "Sell Bitcoin",
+    id: `synthetic-trade-${direction}-${asset}`, owner, kind: "trade", title: `${buy ? "Buy" : "Sell"} ${selected.name}`,
     createdAt: new Date().toISOString(), expiresAt,
-    calls: [{ to: syntheticUsdc, data: "0x", value: "0" }],
+    calls: [{ to: syntheticUsdc, data: `0x095ea7b3${BASE_USDC_PAYMASTER_ADDRESS.slice(2).toLowerCase().padStart(64, "0")}${BigInt(20_000).toString(16).padStart(64, "0")}`, value: "0" }],
     amounts: [
       { assetId: from.id, symbol: from.symbol, decimals: from.decimals, amountBaseUnits: spend, direction: "spend" },
       { assetId: to.id, symbol: to.symbol, decimals: to.decimals, amountBaseUnits: receive, direction: "receive", estimated: true },
     ],
     warnings: [],
+    networkFee: { payment: "usdc", token: syntheticUsdc, paymaster: BASE_USDC_PAYMASTER_ADDRESS, maxFeeBaseUnits: "20000", decimals: 6 },
     signing: { signer: "cdp-embedded", evmAccount: owner.address, typedData: { domain: {}, types: {}, primaryType: "CoinbaseSmartWalletMessage", message: {} } },
     metadata: {
       product: "trade", provider: "cdp-swaps", direction, network: { name: "Base", chainId: 8453 },
+      assetId: selected.id, assetName: selected.name,
       fromAsset: from, toAsset: to, fromAmountBaseUnits: spend, expectedToAmountBaseUnits: receive,
-      minimumToAmountBaseUnits: buy ? "1386" : "34650000", slippageBps: 100,
+      minimumToAmountBaseUnits: (BigInt(receive) * BigInt(99) / BigInt(100)).toString(), slippageBps: 100,
       fees: [], approval: "permit2-exact", quoteBlockNumber: "12345678",
       quotedAt: new Date().toISOString(), permitDeadline: String(Math.floor(Date.parse(expiresAt) / 1000) + 30),
       executionDeadline: String(Math.floor(Date.parse(expiresAt) / 1000) + 30),
@@ -54,6 +64,10 @@ export function fixtureRoutes() {
   const balances = balancesSnapshot("US");
   const borrowOverview = borrowOverviewBody();
   const prepared = preparedSendFixtureAction(recentRecipient);
+  const assetIds = new Set([
+    ...[...cryptoAssets, ...memeAssets].map((asset) => asset.id),
+    ...VERIFIED_MORPHO_MARKETS.map((market) => buyRouteForToken({ chainId: market.chainId, address: market.collateralToken.address })).filter((id): id is string => id !== null),
+  ]);
   return [
     ["**/api/session", sessionBody],
     ["**/api/account/country-preference", { version: COUNTRY_PREFERENCE_VERSION, regionId: null }],
@@ -64,8 +78,9 @@ export function fixtureRoutes() {
     }],
     ["**/api/actions", { actions: [...actionsBody.actions, cashoutFixtureAction] }],
     ["**/api/actions/prepare", prepared],
-    ["**/api/trades", { version: 1, status: "available" }],
     ["**/api/trades/stock-eligibility", { version: 1, buy: "restricted", sell: "eligible" }],
+    ["**/api/trades?**", { version: 2, status: "unavailable", reason: "asset-unsupported" }],
+    ...[...assetIds].map((assetId) => [`**/api/trades?assetId=${encodeURIComponent(assetId)}`, tradeAvailabilityBody(assetId)] as const),
     ["**/api/actions/network-fee", { version: 1, usdcReserveBaseUnits: "20000" }],
     [`**/api/actions/${prepared.id}`, {
       id: prepared.id, kind: prepared.kind,

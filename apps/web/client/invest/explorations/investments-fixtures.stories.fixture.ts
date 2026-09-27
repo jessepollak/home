@@ -1,5 +1,6 @@
 import { BASE_CHAIN_ID, cryptoAssets, stockAssets, type InvestAsset } from "@/config/invest-assets";
 import { createBlockedAccountWalletClient } from "@/client/account/cdp-client";
+import { resolveTradeAsset } from "@/shared/trading/assets";
 import { BORROW_MARKETS } from "@/shared/borrowing/config";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { borrowPosition, buildBalancesSnapshotFixture, priced, pricedCash, ready, unavailableBalance, walletHolding } from "@/shared/balances/fixtures";
@@ -110,6 +111,20 @@ const storySession: VerifiedAccountSession = {
   accountProvider: "cdp-embedded",
 };
 
+function storyTradeAvailability(snapshot: BalancesSnapshot | null, assetId: string) {
+  const resolution = resolveTradeAsset(assetId);
+  if (resolution?.status !== "tradeable") return { version: 2, status: "unavailable", reason: "asset-unsupported" };
+  const matching = (snapshot?.holdings ?? []).filter((holding) => holding.contractAddress?.toLowerCase() === resolution.address);
+  const identity = matching[0];
+  const wallet = matching.find((holding) => holding.source !== "borrow");
+  if (wallet && wallet.balance.status !== "ready") return { version: 2, status: "unavailable", reason: "chain-unavailable" };
+  return {
+    version: 2, status: "available", buy: "available",
+    token: { assetId, address: resolution.address, symbol: identity?.symbol ?? "TOKEN", decimals: identity?.decimals ?? 18 },
+    balanceBaseUnits: wallet?.balance.status === "ready" ? wallet.balance.baseUnits : "0",
+  };
+}
+
 export function createInvestmentsStoryWalletClient(snapshot: BalancesSnapshot | null) {
   return {
     ...createBlockedAccountWalletClient("provider-unavailable"),
@@ -117,8 +132,8 @@ export function createInvestmentsStoryWalletClient(snapshot: BalancesSnapshot | 
     verification: "server" as const,
     session: storySession,
     fetchBalances: () => snapshot ? Promise.resolve(snapshot) : new Promise<BalancesSnapshot>(() => {}),
-    fetchAccountResource: async (path: string) => path === "/api/trades"
-      ? { version: 1, status: "available" }
+    fetchAccountResource: async (path: string) => path.startsWith("/api/trades?assetId=")
+      ? storyTradeAvailability(snapshot, decodeURIComponent(path.slice("/api/trades?assetId=".length)))
       : path === "/api/trades/stock-eligibility"
         ? { version: 1, buy: "eligible", sell: "eligible" }
         : Promise.reject(new Error("Resource unavailable in investments story")),

@@ -289,6 +289,7 @@ describe("presentActivityLedgerItems", () => {
     trade.action.kind = "trade";
     trade.action.metadata = {
       product: "trade", provider: "cdp-swaps", direction: "buy", network: { name: "Base", chainId: 8453 },
+      assetId: "cbbtc", assetName: "Bitcoin",
       fromAsset: { id: "usdc", symbol: "USDC", decimals: 6, address: TOKEN },
       toAsset: { id: "cbbtc", symbol: "cbBTC", decimals: 8, address: TOKEN },
       fromAmountBaseUnits: "1234567", expectedToAmountBaseUnits: "500000", minimumToAmountBaseUnits: "450000",
@@ -298,7 +299,7 @@ describe("presentActivityLedgerItems", () => {
     const [entry] = present([{ ...fromAction(trade), transfers: [transfer("outgoing", true)] }]);
     expect(entry?.detailValue).toBeUndefined();
     expect(entry?.detailAsset).toBeUndefined();
-    expect(entry?.detail).toMatchObject({ facts: [{ label: "You receive", value: "0.50 USDC" }] });
+    expect(entry?.detail).toMatchObject({ facts: [{ label: "cbBTC contract", value: TOKEN, kind: "address" }, { label: "You receive", value: "0.50 USDC" }] });
   });
 
   test("supply-and-borrow keeps both legs without a value line or asset row", () => {

@@ -85,7 +85,9 @@ export function parseRecentMoneyActions(value: unknown, session: VerifiedAccount
         warnings: item.summary.warnings as string[],
         expiresAt: item.summary.expiresAt,
         ...(typeof item.summary.quoteId === "string" ? { quoteId: item.summary.quoteId } : {}),
-        ...(isMoneyMetadata(item.summary.metadata) ? { metadata: item.summary.metadata } : {}),
+        ...(isMoneyMetadata(item.summary.metadata)
+          ? { metadata: item.summary.metadata.product === "trade" ? parseTradeMetadata(item.summary.metadata)! : item.summary.metadata }
+          : {}),
         createdAt: item.createdAt,
       },
       status: item.status,

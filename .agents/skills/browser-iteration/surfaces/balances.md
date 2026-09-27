@@ -12,7 +12,7 @@
   2. `expect "Your money"`
 - **Notes**: The fixture-session helper seeds signed-in state and balances fixture. Use `/balances/investments` with `scrollableBalancesSnapshot()` for anchoring work; the group section is `id="investments"`.
 - **Expect**: scroll container `[data-app-main-authenticated]` (shell-panels.tsx); balance rows `[data-balance-list] [data-kind="balance"]` (balances.pw.ts); reveal window grows after scroll (`BALANCES_BATCH_SIZE = 10`, client/home/balances-panel.tsx); `Show small balances` switch lives in account settings, not this page (mobile-geometry.pw.ts touch test).
-- **States**: loading shimmer (`BalancesListFallback`, balances-list.tsx); unavailable; empty (`BalancesEmpty`); ready with reveal batches; stale revalidation anchored to requested group (`cold and revalidated cached Balances…` smoke test).
+- **States**: loading shimmer (`BalancesListFallback`, balances-list.tsx); unavailable; empty (`BalancesEmpty`); ready with reveal batches; Unpriced section after Investments for held wallet tokens without a price (quantity only; the shared fixture has none, so use story `balances-page--with-unpriced-tokens`); stale revalidation anchored to requested group (`cold and revalidated cached Balances…` smoke test).
 - **Evidence**: screenshot; DOM snapshot; console/errors; perf marks and scroll-offset assertions.
 - **Perf budgets (initial)**: `shell:paint` ≤ 1_500 ms; `session:verified` ≤ 3_000 ms; `balances:painted` ≤ 3_500 ms; `action:first-interactive` ≤ 3_500 ms.
 - **Live perf budgets**: `session:verified` ≤ 10_000 ms

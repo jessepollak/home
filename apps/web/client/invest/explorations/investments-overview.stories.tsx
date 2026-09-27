@@ -88,6 +88,15 @@ function RefreshTransitionSurface() {
 async function heights(canvasElement: HTMLElement) {
   for (const button of screen(canvasElement).queryAllByRole("button", { name: /^(Try again|Buy|Sell)$/ })) await expect(button.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
 }
+async function revealNextPage(region: HTMLElement, visible: number, total: number) {
+  await expect(within(region).getAllByRole("listitem")).toHaveLength(visible);
+  const status = within(region).getByRole("status");
+  await expect(status).toHaveTextContent(`Showing ${visible} of ${total} investments`);
+  const sentinel = status.nextElementSibling;
+  if (!(sentinel instanceof HTMLElement)) throw new Error("Missing pagination sentinel");
+  sentinel.scrollIntoView({ block: "center", behavior: "instant" });
+  await waitFor(() => expect(within(region).getAllByRole("listitem")).toHaveLength(Math.min(visible + 20, total)));
+}
 async function assertSnapshot(canvasElement: HTMLElement, snapshot: BalancesSnapshot) {
   const canvas = screen(canvasElement);
   const summary = presentBalances({ status: "ready", snapshot, error: null }).summary!.investments;
@@ -121,12 +130,8 @@ export const ManyHoldings: Story = { args: { snapshot: manyHoldingsSnapshot }, p
   const canvas = screen(canvasElement);
   const region = canvas.getByRole("region", { name: "Your investments" });
   const items = () => within(region).getAllByRole("listitem");
-  await expect(items()).toHaveLength(20);
-  await expect(within(region).getByText("Showing 20 of 60 investments")).toBeInTheDocument();
-  items()[19]!.scrollIntoView();
-  await waitFor(() => expect(items()).toHaveLength(40));
-  items()[39]!.scrollIntoView();
-  await waitFor(() => expect(items()).toHaveLength(60));
+  await revealNextPage(region, 20, 60);
+  await revealNextPage(region, 40, 60);
   await expect(within(region).queryByText(/Showing \d+ of 60 investments/)).toBeNull();
   const rows = ownedInvestmentRows(manyHoldingsSnapshot);
   await expect(items().map((item) => item.querySelector("[data-holding-key]")?.getAttribute("data-holding-key"))).toEqual(rows.map((row) => row.key));
@@ -228,11 +233,8 @@ export const ManyHoldingsFocusReturn: Story = { args: { snapshot: manyHoldingsSn
   const rows = ownedInvestmentRows(manyHoldingsSnapshot);
   const region = canvas.getByRole("region", { name: "Your investments" });
   const items = () => within(region).getAllByRole("listitem");
-  await expect(items()).toHaveLength(20);
-  items()[19]!.scrollIntoView();
-  await waitFor(() => expect(items()).toHaveLength(40));
-  items()[39]!.scrollIntoView();
-  await waitFor(() => expect(items()).toHaveLength(60));
+  await revealNextPage(region, 20, 60);
+  await revealNextPage(region, 40, 60);
   const target = within(items()[44]!).getByRole("button");
   const key = rows[44]!.key;
   await userEvent.click(target);
@@ -272,7 +274,7 @@ export const DetailCollateralPartialInventory: Story = { args: { snapshot: colla
   const trade = within(detail.getByLabelText("Trade XRP"));
   await expect(trade.getByRole("button", { name: "Buy" })).toBeDisabled();
   await expect(trade.getByRole("button", { name: "Sell" })).toBeDisabled();
-  await expect(detail.getByRole("note")).toHaveTextContent("Swaps aren't available right now.");
+  await expect(detail.getByRole("note")).toHaveTextContent("Trading isn't available right now. Try again later.");
   await userEvent.click(within(canvasElement).getByRole("button", { name: "Back" }));
   const listRow = canvas.getByRole("button", { description: "Open Coinbase Wrapped XRP" });
   await expect(within(listRow).getByText("Value unavailable")).toBeInTheDocument();
@@ -301,7 +303,7 @@ export const DetailCollateralKnownZero: Story = { args: { snapshot: collateralKn
   await expect(locked).toHaveTextContent("Collateral");
   await expect(within(locked!).getByRole("img", { name: "$35,000.00" })).toBeVisible();
   await expect(detail.getAllByRole("img", { name: "$35,000.00" })).toHaveLength(2);
-  const trade = await settledTrade(canvasElement, "No Bitcoin available to sell.");
+  const trade = await settledTrade(canvasElement, "No cbBTC available to sell.");
   await expect(trade.getByRole("button", { name: "Sell" })).toBeDisabled();
   await expect(trade.getByRole("button", { name: "Buy" })).toBeDisabled();
 } };
@@ -319,7 +321,7 @@ export const DetailCollateralUnavailable: Story = { args: { snapshot: collateral
   await expect(locked).toHaveTextContent("Collateral");
   await expect(within(locked!).getByRole("img", { name: "$35,000.00" })).toBeVisible();
   await expect(detail.getAllByRole("img", { name: "$35,000.00" })).toHaveLength(1);
-  const trade = await settledTrade(canvasElement, "No Cash available to buy Bitcoin.");
+  const trade = await settledTrade(canvasElement, "Trading isn't available right now. Try again later.");
   await expect(trade.getByRole("button", { name: "Sell" })).toBeDisabled();
   await expect(trade.getByRole("button", { name: "Buy" })).toBeDisabled();
   await expect(canvas.queryByText("Balances aren't available right now.")).toBeNull();
@@ -347,7 +349,7 @@ async function assertDetail(canvasElement: HTMLElement, snapshot: BalancesSnapsh
   await heights(canvasElement);
 }
 export const Detail: Story = { args: { snapshot: singleSnapshot, initialAsset: ownedInvestmentRows(singleSnapshot)[0]!.key }, play: async ({ canvasElement }) => { await assertDetail(canvasElement, singleSnapshot, ownedInvestmentRows(singleSnapshot)[0]!.key); await expect(await screen(canvasElement).findByText("+2.50%")).toBeVisible(); await expect(screen(canvasElement).getByRole("img", { name: "$70,000.00" })).toBeVisible(); await expect(screen(canvasElement).queryByText("Collateral")).toBeNull(); await expect(screen(canvasElement).queryByText("Available")).toBeNull(); } };
-export const DetailDiscovered: Story = { args: { snapshot: discoveredMemeSnapshot, initialAsset: ownedInvestmentRows(discoveredMemeSnapshot)[0]!.key, catalog: [discoveredMemeAsset], memeMarket: { status: "ready", snapshots: [{ assetId: discoveredMemeAsset.id, displayPrice: "$0.42", asOf: "2026-09-13T12:00:00.000Z", sourceLabel: "Market", changeLabel: "+3.5%" }] } }, play: async ({ canvasElement }) => { const canvas = screen(canvasElement); await expect(canvas.getByText("Your balance")).toBeVisible(); await expect(canvas.getByRole("region", { name: "Market price history" })).toBeVisible(); await expect(await canvas.findByRole("group", { name: /1 week price history/ }, { timeout: 5000 })).toBeVisible(); await expect(canvas.getByRole("img", { name: "$0.42" })).toBeVisible(); await expect(canvas.getByText("+3.50%")).toBeVisible(); await expect(canvas.queryByRole("button", { name: "Buy" })).toBeNull(); await expect(canvas.queryByRole("button", { name: "Sell" })).toBeNull(); await expect(canvas.queryByText("Trading isn't available for this asset.")).toBeNull(); } };
+export const DetailDiscovered: Story = { args: { snapshot: discoveredMemeSnapshot, initialAsset: ownedInvestmentRows(discoveredMemeSnapshot)[0]!.key, catalog: [discoveredMemeAsset], memeMarket: { status: "ready", snapshots: [{ assetId: discoveredMemeAsset.id, displayPrice: "$0.42", asOf: "2026-09-13T12:00:00.000Z", sourceLabel: "Market", changeLabel: "+3.5%" }] } }, play: async ({ canvasElement }) => { const canvas = screen(canvasElement); await expect(canvas.getByText("Your balance")).toBeVisible(); await expect(canvas.getByRole("region", { name: "Market price history" })).toBeVisible(); await expect(await canvas.findByRole("group", { name: /1 week price history/ }, { timeout: 5000 })).toBeVisible(); await expect(canvas.getByRole("img", { name: "$0.42" })).toBeVisible(); await expect(canvas.getByText("+3.50%")).toBeVisible(); await waitFor(() => expect(canvas.getByRole("button", { name: "Sell" })).toBeEnabled()); await expect(canvas.getByRole("button", { name: "Buy" })).toBeVisible(); await expect(canvas.queryByText("Trading isn't available for this asset.")).toBeNull(); } };
 export const DetailCollateral: Story = { args: { snapshot: sharedPortfolioSnapshot, initialAsset: ownedInvestmentRows(sharedPortfolioSnapshot).find((row) => row.holding.id === "cbbtc")!.key }, play: async ({ canvasElement }) => { await assertDetail(canvasElement, sharedPortfolioSnapshot, ownedInvestmentRows(sharedPortfolioSnapshot).find((row) => row.holding.id === "cbbtc")!.key); await expect(screen(canvasElement).getByText("0.5000 cbBTC")).toBeVisible(); await expect(screen(canvasElement).getByText("1.3 cbBTC")).toBeVisible(); } };
 export const DetailStock: Story = { args: { initialAsset: stockHoldingKey() }, play: async ({ canvasElement }) => { await expect(await screen(canvasElement).findByRole("status", { name: /trading$/ })).toHaveTextContent("Stocks can't be traded in Home yet."); await expect(await screen(canvasElement).findByText("+1.20%")).toBeVisible(); await expect(screen(canvasElement).getByText("Your balance")).toBeVisible(); await heights(canvasElement); } };
 export const DetailNotListed: Story = { args: { snapshot: notListedSnapshot, initialAsset: ownedInvestmentRows(notListedSnapshot)[0]!.key }, play: async ({ canvasElement }) => assertDetail(canvasElement, notListedSnapshot, ownedInvestmentRows(notListedSnapshot)[0]!.key, false) };

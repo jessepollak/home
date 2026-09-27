@@ -408,6 +408,13 @@ function assertExactApprovalCaps(
       throw new MoneyActionIssueError("invalid-draft");
     }
     if (approval.token === BASE_USDC_ADDRESS.toLowerCase() && approval.spender === BASE_USDC_PAYMASTER_ADDRESS.toLowerCase() && (index !== 0 || networkFee?.payment !== "usdc")) throw new MoneyActionIssueError("invalid-draft");
+    if (approval.amountBaseUnits === "0") {
+      const next = calls[index + 1];
+      const increase = next && decodeMoneyActionApproval(next);
+      if (!increase || increase.token !== approval.token || increase.spender !== approval.spender ||
+        increase.amountBaseUnits === "0" || next.approval?.assetId !== call.approval?.assetId) throw new MoneyActionIssueError("invalid-draft");
+      continue;
+    }
     if (index === 0 && networkFee?.payment === "usdc") continue;
     const eligibleSpends = amounts.filter((amount) =>
       amount.direction === "spend" && amount.assetId === approval.assetId

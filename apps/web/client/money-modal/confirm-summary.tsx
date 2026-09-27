@@ -2,9 +2,11 @@
 
 import { AddressText } from "@/components/address-text";
 import { splitMoneyTickerValue } from "@/components/money-ticker";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import type { MoneyActionOwner, PreparedMoneyAction } from "@/shared/money-actions/types";
-import type { ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { useAutoFitAmountText } from "./amount";
 import { NetworkFeeReview } from "./network-fee-review";
 
@@ -14,9 +16,11 @@ export function moneyConfirmFromRow(owner: MoneyActionOwner): MoneyConfirmRow {
   return { label: "From", value: <AddressText address={owner.address} className="justify-end" /> };
 }
 
-export function MoneyConfirmSummary({ amount, lead, rows, action, destination }: { amount: string; lead: string; rows: readonly MoneyConfirmRow[]; action?: PreparedMoneyAction | null; destination?: ReactNode }) {
+export function MoneyConfirmSummary({ amount, lead, rows, details, action, destination }: { amount: string; lead: string; rows: readonly MoneyConfirmRow[]; details?: readonly MoneyConfirmRow[]; action?: PreparedMoneyAction | null; destination?: ReactNode }) {
   const { containerRef, sizerRef, fontSize, overflows } = useAutoFitAmountText<HTMLDivElement>(amount, { minRem: 1.5 });
   const { prefix, numeric, suffix } = splitMoneyTickerValue(amount);
+  const detailsId = useId();
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const reviewRows: readonly MoneyConfirmRow[] = action?.networkFee?.payment === "usdc"
     ? [...rows, { label: "Network fee", value: <NetworkFeeReview fee={action.networkFee} /> }]
     : rows;
@@ -50,25 +54,32 @@ export function MoneyConfirmSummary({ amount, lead, rows, action, destination }:
         <p className="text-sm text-muted-foreground">{lead}</p>
       </div>
       {destination}
-      <Card variant="flush">
-        <CardContent inset="list">
-          <dl>
-            {reviewRows.map((row) => (
-              <div
-                className={row.fullValue
-                  ? "grid items-start gap-1 px-3 py-3 text-sm sm:grid-cols-[minmax(7rem,0.65fr)_minmax(0,1.35fr)] sm:gap-3"
-                  : "flex items-start justify-between gap-4 px-3 py-3 text-sm"}
-                key={row.label}
-              >
-                <dt className="text-muted-foreground">{row.label}</dt>
-                <dd className={row.fullValue ? "min-w-0 sm:text-end" : "min-w-0 text-end font-medium tabular-nums"}>
-                  {row.value}
-                </dd>
-              </div>
-            ))}
-          </dl>
-        </CardContent>
-      </Card>
+      <div className={details?.length ? "space-y-4" : undefined}>
+        <ConfirmRows rows={reviewRows} />
+        {details?.length ? <>
+          <Button variant="ghost" size="touch" className="w-full" aria-expanded={detailsOpen} aria-controls={detailsOpen ? detailsId : undefined}
+            onClick={() => setDetailsOpen(!detailsOpen)}>
+            Details {detailsOpen ? <ChevronUp data-icon="inline-end" aria-hidden="true" /> : <ChevronDown data-icon="inline-end" aria-hidden="true" />}
+          </Button>
+          {detailsOpen ? <ConfirmRows id={detailsId} rows={details} /> : null}
+        </> : null}
+      </div>
     </div>
   );
+}
+
+function ConfirmRows({ rows, id }: { rows: readonly MoneyConfirmRow[]; id?: string }) {
+  return <Card variant="flush"><CardContent inset="list"><dl id={id}>
+    {rows.map((row) => <div
+      className={row.fullValue
+        ? "grid items-start gap-1 px-3 py-3 text-sm sm:grid-cols-[minmax(7rem,0.65fr)_minmax(0,1.35fr)] sm:gap-3"
+        : "flex items-start justify-between gap-4 px-3 py-3 text-sm"}
+      key={row.label}
+    >
+      <dt className="text-muted-foreground">{row.label}</dt>
+      <dd className={row.fullValue ? "min-w-0 sm:text-end" : "min-w-0 text-end font-medium tabular-nums"}>
+        {row.value}
+      </dd>
+    </div>)}
+  </dl></CardContent></Card>;
 }

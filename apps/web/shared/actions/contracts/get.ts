@@ -86,7 +86,9 @@ export function parsePendingActionResponse(
     amounts: value.summary.amounts as PreparedMoneyAction["amounts"],
     warnings: value.summary.warnings as string[],
     expiresAt: value.expiresAt,
-    ...(isMoneyActionMetadata(value.summary.metadata) ? { metadata: value.summary.metadata } : {}),
+    ...(isMoneyActionMetadata(value.summary.metadata)
+      ? { metadata: value.summary.metadata.product === "trade" ? parseTradeMetadata(value.summary.metadata)! : value.summary.metadata }
+      : {}),
     ...(parseMoneyActionNetworkFee(value.summary.networkFee) ? { networkFee: parseMoneyActionNetworkFee(value.summary.networkFee)! } : {}),
     ...(value.kind === "trade" ? { signing: parseTradeSigning(value.signing, parseTradeMetadata(value.summary.metadata)!, active.smartAccount.address)! } : {}),
     createdAt: new Date().toISOString(),

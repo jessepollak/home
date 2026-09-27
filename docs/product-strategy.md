@@ -75,6 +75,8 @@ There are **six capability workstreams and two shared quality workstreams**. All
 
 **Asset and market coverage.** Define authoritative catalogs and refresh behavior for stocks, memes/majors, and cb-asset markets. Validate exact identities and per-market parameters. The meme/major catalog needs an inclusion rule; it does not mean every token on Base. Missing execution paths remain explicit gaps against the agreed coverage. New protocols may require integrations even when the UI is shared.
 
+**USDC-paired token execution.** Any exact Base ERC-20 outside tokenized stocks may request a quote; the provider and verified on-chain identity decide each route at each amount, not catalog inclusion or a liquidity floor. No display price or quote is proof of a completed trade. Chain reads bind decimals and sell-all spend, the review binds the exact pair and minimum receive, and only finalized chain activity establishes traded status. Operator removal may block buying without blocking an attempted sale. Token risk screening is deferred to #964; this execution path does not certify a token as safe.
+
 **Identity.** One coherent Home flow does not guarantee that every provider accepts the same verification. Preserve actual provider requirements, prefer provider-held documents, and keep only necessary references/status in Home.
 
 **Motion and feel.** Use shared defaults and approved reference journeys for navigation, sheets/dialogs, drag/release, back/close/reopen, number changes, charts, and loading transitions. Motion should respond immediately, remain interruptible, and avoid layout jumps. Desktop deserves intentional layouts and interactions, alongside mobile touch behavior.

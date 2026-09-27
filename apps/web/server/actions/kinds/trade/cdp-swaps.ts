@@ -14,6 +14,13 @@ const hexPattern = /^0x(?:[0-9a-fA-F]{2})*$/;
 const hashPattern = /^0x[0-9a-fA-F]{64}$/;
 const uintPattern = /^(?:0|[1-9][0-9]*)$/;
 
+export class CdpSwapsRefusalError extends Error {
+  constructor(readonly reason: "below-minimum" | "route-unavailable") {
+    super("CDP Swaps declined the trade.");
+    this.name = "CdpSwapsRefusalError";
+  }
+}
+
 export class CdpSwapsUnavailableError extends Error {
   constructor() {
     super("CDP Swaps unavailable.");
@@ -110,12 +117,14 @@ export function createCdpSwapsClient({
       if (controller.signal.aborted) unavailable();
       if (!response.ok) {
         const body: unknown = await response.json().catch(() => null);
-        if (classifyProviderRefusal(response.status, body)) throw new TradePreparationError("token-not-routed");
+        const reason = classifyProviderRefusal(response.status, body);
+        if (reason === "token-not-routed") throw new TradePreparationError(reason);
+        if (reason) throw new CdpSwapsRefusalError(reason);
         unavailable();
       }
       return await response.json();
     } catch (error) {
-      if (error instanceof TradePreparationError) throw error;
+      if (error instanceof TradePreparationError || error instanceof CdpSwapsRefusalError) throw error;
       unavailable();
     } finally {
       clearTimeout(timeout);
