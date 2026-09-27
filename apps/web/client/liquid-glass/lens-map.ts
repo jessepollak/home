@@ -6,6 +6,7 @@ export type LensOptions = {
   thickness: number;
   refractiveIndex?: number;
   lightAngle?: number;
+  falloff?: number;
 };
 
 export type LensMaps = {
@@ -41,6 +42,7 @@ export function generateLensMaps(shape: LensShape, options: LensOptions): LensMa
     ? Math.max(1, options.refractiveIndex ?? 1.5)
     : 1.5;
   const angle = Number.isFinite(options.lightAngle) ? (options.lightAngle ?? -Math.PI / 3) : -Math.PI / 3;
+  const falloff = Number.isFinite(options.falloff) ? Math.max(0, options.falloff ?? 0) : 0;
   const lightX = -Math.cos(angle);
   const lightY = Math.sin(angle);
   const steps = Math.max(1, Math.ceil(bezel * ratio * 8));
@@ -53,7 +55,7 @@ export function generateLensMaps(shape: LensShape, options: LensOptions): LensMa
       const u = 1 - x;
       const slope = (thickness / bezel) * (u * u * u) / Math.pow(1 - u * u * u * u, 0.75);
       const normalAngle = Math.atan(slope);
-      travel[step] = thickness * Math.tan(normalAngle - Math.asin(Math.sin(normalAngle) / index));
+      travel[step] = falloff > 0 ? thickness * u ** falloff : thickness * Math.tan(normalAngle - Math.asin(Math.sin(normalAngle) / index));
       slopeStrength[step] = slope / Math.hypot(1, slope);
     }
   }

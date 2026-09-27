@@ -62,6 +62,18 @@ describe("generateLensMaps", () => {
     expect(thin.scale).toBeLessThan(2 * thick.scale);
   });
 
+  test("a falloff profile caps travel at the thickness and spreads it across the bezel", () => {
+    const convex = generateLensMaps(shape, options);
+    const eased = generateLensMaps(shape, { ...options, falloff: 1.6 });
+    const travel = (result: typeof convex, y: number) => Math.abs(pixel(result.displacement, result.width, 80, y)[1] - 127.5) / 127.5 * result.scale / 2;
+    expect(generateLensMaps(shape, { ...options, falloff: 0 }).displacement).toEqual(convex.displacement);
+    expect(eased.scale).toBeLessThanOrEqual(2 * options.thickness);
+    expect(eased.scale).toBeGreaterThan(convex.scale / 2);
+    expect(travel(eased, 8)).toBeGreaterThan(2 * travel(convex, 8));
+    expect(travel(eased, 0)).toBeGreaterThan(travel(eased, 8));
+    expect(pixel(eased.displacement, eased.width, 80, 18)[1]).toBe(128);
+  });
+
   test("the rim highlight favors the top-left light and retains a faint opposite edge", () => {
     const result = generateLensMaps(shape, options);
     const alpha = (x: number, y: number) => pixel(result.specular, result.width, x, y)[3];

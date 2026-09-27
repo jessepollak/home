@@ -18,12 +18,13 @@ const BEZEL = 10;
 const THICKNESS = 10;
 const NEUTRAL = "rgb(128 128 128)";
 const SPECULAR_GAIN = 2.5;
-const RIM_BEZEL = 16;
-const RIM_THICKNESS = 14;
-const RIM_SOFTEN = 1.5;
+const RIM_BEZEL = 28;
+const RIM_THICKNESS = 12;
+const RIM_FALLOFF = 1.6;
+const RIM_SOFTEN = 0.5;
 const RIM_FROST = 24;
-const RIM_CORE_INSET = 7;
-const RIM_CORE_FEATHER = 4;
+const RIM_CORE_INSET = 19;
+const RIM_CORE_FEATHER = 5;
 const cache = createRecentCache<LensImages>(4);
 const rimCache = createRecentCache<RimImages>(4);
 
@@ -63,7 +64,7 @@ function buildRim(size: LensSize): RimImages | null {
   const key = sizeKey(size);
   const cached = rimCache.get(key);
   if (cached) return cached;
-  const maps = generateLensMaps({ width, height, radius: height / 2 }, { pixelRatio: ratio, bezel: RIM_BEZEL, thickness: RIM_THICKNESS });
+  const maps = generateLensMaps({ width, height, radius: height / 2 }, { pixelRatio: ratio, bezel: RIM_BEZEL, thickness: RIM_THICKNESS, falloff: RIM_FALLOFF });
   if (maps.width === 0 || maps.height === 0) return null;
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d");
