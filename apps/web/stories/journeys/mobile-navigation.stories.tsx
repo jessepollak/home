@@ -189,6 +189,24 @@ async function verifyNav(canvasElement: HTMLElement, selected: "Home" | "Invest"
   await expect(within(nav).getByRole("button", { name: selected })).toHaveAttribute("aria-current", "page");
   return nav;
 }
+async function verifySelectionGeometry(nav: HTMLElement, selected: "Home" | "Invest") {
+  const button = within(nav).getByRole("button", { name: selected });
+  await expect(button).toHaveAttribute("aria-current", "page");
+  await waitFor(() => expect(nav.querySelector('[data-navigation-lens="ready"]')).toBeInTheDocument());
+  await waitFor(() => expect(nav).toHaveAttribute("data-lens", "resting"));
+  const pill = nav.querySelector<HTMLElement>("[data-navigation-pill]")!;
+  const lens = nav.querySelector<HTMLElement>('[data-navigation-lens="ready"]')!;
+  await waitFor(async () => {
+    const tab = button.getBoundingClientRect();
+    for (const selection of [pill, lens]) {
+      const rect = selection.getBoundingClientRect();
+      await expect(Math.abs(rect.left - tab.left)).toBeLessThanOrEqual(2);
+      await expect(Math.abs(rect.right - tab.right)).toBeLessThanOrEqual(2);
+      await expect(Math.abs(rect.top - tab.top)).toBeLessThanOrEqual(2);
+      await expect(Math.abs(rect.bottom - tab.bottom)).toBeLessThanOrEqual(2);
+    }
+  });
+}
 async function verifyLens(canvasElement: HTMLElement) {
   const nav = await verifyNav(canvasElement, "Home");
   await new Promise<void>((resolve) => { requestIdleCallback(() => resolve(), { timeout: 2_000 }); });
@@ -305,7 +323,15 @@ async function showBusyContent(canvasElement: HTMLElement) {
     await expect(amountRect.bottom).toBeGreaterThan(labelRect.top);
   });
 }
-export const HomeLight: Story = { play: async ({ canvasElement }) => { await verifyLens(canvasElement); } };
+export const HomeLight: Story = { play: async ({ canvasElement }) => {
+  await verifyLens(canvasElement);
+  const nav = await verifyNav(canvasElement, "Home");
+  await verifySelectionGeometry(nav, "Home");
+  await userEvent.click(within(nav).getByRole("button", { name: "Invest" }));
+  await verifySelectionGeometry(nav, "Invest");
+  await userEvent.click(within(nav).getByRole("button", { name: "Home" }));
+  await verifySelectionGeometry(nav, "Home");
+} };
 export const HomeDark: Story = { globals: { theme: "dark" }, play: async ({ canvasElement }) => { await verifyNav(canvasElement, "Home"); } };
 export const Invest: Story = { args: { initialPanel: "invest" }, play: async ({ canvasElement }) => { await verifyNav(canvasElement, "Invest"); } };
 export const NestedCash: Story = { args: { initialPanel: "cash" }, play: async ({ canvasElement }) => {
@@ -388,15 +414,11 @@ export const AccountKeyboard: Story = { args: { initialPanel: "account" }, play:
 } };
 export const Rtl: Story = { args: { rtl: true }, play: async ({ canvasElement }) => {
   const nav = await verifyNav(canvasElement, "Home");
-  const invest = within(nav).getByRole("button", { name: "Invest" });
-  await userEvent.click(invest);
-  const pill = nav.querySelector<HTMLElement>("[data-navigation-pill]")!;
-  await waitFor(async () => {
-    const target = invest.getBoundingClientRect();
-    const actual = pill.getBoundingClientRect();
-    await expect(Math.abs(actual.left - target.left)).toBeLessThanOrEqual(2);
-    await expect(Math.abs(actual.right - target.right)).toBeLessThanOrEqual(2);
-  });
+  await verifySelectionGeometry(nav, "Home");
+  await userEvent.click(within(nav).getByRole("button", { name: "Invest" }));
+  await verifySelectionGeometry(nav, "Invest");
+  await userEvent.click(within(nav).getByRole("button", { name: "Home" }));
+  await verifySelectionGeometry(nav, "Home");
 } };
 async function verifyReducedMotion(canvasElement: HTMLElement) {
   const nav = await verifyNav(canvasElement, "Home");

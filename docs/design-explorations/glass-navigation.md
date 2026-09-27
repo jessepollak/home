@@ -86,7 +86,7 @@ Adopted 2026-09-27 on the owner's direction to reopen liquid glass. Nothing capt
 
 ## Owner selection and adoption
 
-The owner selected CSS glass and requested standard iOS tab-bar proportions in PR review on 2026-09-26. The candidate now ships in the single production `PrimaryNavigation`; the liquid dependency and exploration components were removed. Below 1024px the nav is fixed and centred with 192px width, 60px height, 52px tab targets, 22px icons, 10px labels, 4px padding, and the safe-area-aware clearance described above. At 1024px and wider the desktop rail replaces it; the former top strip was removed. A physical iPhone check and Safari-tab safe-area support remain deferred.
+Historical selection (2026-09-26): the owner selected CSS glass and requested standard iOS tab-bar proportions; the liquid dependency and exploration components were removed. The current production `PrimaryNavigation` adds the owned liquid lens described above. Below 1024px the nav is fixed and centred with a 192px width, 62px height, 54px tab targets, 26px icon boxes, 11px semibold labels, 4px padding, and the safe-area-aware clearance described above. At 1024px and wider the desktop rail replaces it; the former top strip was removed. A physical iPhone check and Safari-tab safe-area support remain deferred.
 
 ## Follow-ups
 

@@ -112,28 +112,27 @@ describe("PrimaryNavigation", () => {
     expect(view.container.querySelector("nav > span:first-child")?.getAttribute("aria-hidden")).toBe("true");
   });
 
-  for (const [direction, investPosition] of [["ltr", "1"], ["rtl", "-1"]] as const) {
-    test(`positions the active selection in ${direction}`, () => {
+  for (const direction of ["ltr", "rtl"] as const) {
+    test(`selects the active destination in ${direction}`, () => {
       const view = render(
         <div style={{ direction }}>
           <PrimaryNavigation activeNavigation="home" onNavigate={() => undefined} />
         </div>,
       );
-      const nav = view.getByRole("navigation", { name: "Main navigation" });
-      const position = () => nav.style.getPropertyValue("--lens-p");
-      expect(position()).toBe("0");
+      expect(view.getByRole("button", { name: "Home" }).getAttribute("aria-current")).toBe("page");
       view.rerender(
         <div style={{ direction }}>
           <PrimaryNavigation activeNavigation="invest" onNavigate={() => undefined} />
         </div>,
       );
-      expect(position()).toBe(investPosition);
+      expect(view.getByRole("button", { name: "Invest" }).getAttribute("aria-current")).toBe("page");
+      expect(view.getByRole("button", { name: "Home" }).hasAttribute("aria-current")).toBe(false);
       view.rerender(
         <div style={{ direction }}>
           <PrimaryNavigation activeNavigation="home" onNavigate={() => undefined} />
         </div>,
       );
-      expect(position()).toBe("0");
+      expect(view.getByRole("button", { name: "Home" }).getAttribute("aria-current")).toBe("page");
     });
   }
 });
