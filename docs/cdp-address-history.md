@@ -23,7 +23,7 @@ Do not enable Address History in Production until the rollout gate below passes.
 
 ## Transport revision and live evidence
 
-The initial adapter used CDP Node JSON-RPC `cdp_listAddressTransactions`. Two different Client API Key RPC URLs returned HTTP 200 with gRPC-style `result.code: 16` (`authentication required`) for that method; `cdp_listBalances` failed the same way, and adding expected Origin headers did not change the result. A CDP partner confirmed that JSON-RPC authentication problem was under investigation and supplied the REST endpoint now used by Home.
+Historical note: the initial adapter used CDP Node JSON-RPC `cdp_listAddressTransactions`. Two different Client API Key RPC URLs returned HTTP 200 with gRPC-style `result.code: 16` (`authentication required`) for that method; `cdp_listBalances` failed the same way, and adding expected Origin headers did not change the result. A CDP partner confirmed that JSON-RPC authentication problem was under investigation and supplied the REST endpoint now used by Home. That failure applied only to those JSON-RPC methods on Client API Key RPC URLs. It does not mean Home's CDP credentials lack data access: the project key authenticates this REST endpoint and CDP SQL, and other JSON-RPC methods must be probed directly rather than assumed to fail.
 
 A secret-safe direct probe with Home's existing server CDP credentials verified:
 
