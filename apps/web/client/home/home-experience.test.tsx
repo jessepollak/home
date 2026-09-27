@@ -8,7 +8,10 @@ import type { HomeRegionState } from "./use-home-region";
 import type { AccountWalletSdkBoundary } from "@/client/account/cdp-client";
 import type { SessionFetch, VerifiedAccountSession } from "@/client/account/session-client";
 import { DEFAULT_BORROW_MARKET } from "@/shared/borrowing/config";
-import { erc20AssetKey, nativeAssetKey } from "@/shared/balances/types";
+import { erc20AssetKey, nativeAssetKey, type AssetKey } from "@/shared/balances/types";
+import { selectOwnedInvestment } from "@/shared/balances/owned-investments";
+import { BASE_CBBTC, BASE_USDC } from "@/shared/assets/base";
+import { parseActivityPage } from "@/shared/activity/contract";
 import type { InvestmentsContentProps } from "./home-types";
 import { BASE_USDC_ADDRESS } from "@/shared/savings/config";
 
@@ -63,6 +66,14 @@ function popHistory() {
   window.dispatchEvent(new PopStateEvent("popstate", { state: historyStates[historyCursor] }));
 }
 
+function forwardHistory() {
+  if (historyCursor < historyEntries.length - 1) {
+    historyCursor += 1;
+    syncLocation(historyEntries[historyCursor]!, historyStates[historyCursor]);
+  }
+  window.dispatchEvent(new PopStateEvent("popstate", { state: historyStates[historyCursor] }));
+}
+
 Object.defineProperties(window.history, {
   pushState: {
     configurable: true,
@@ -82,6 +93,7 @@ Object.defineProperties(window.history, {
     },
   },
   back: { configurable: true, value: popHistory },
+  forward: { configurable: true, value: forwardHistory },
 });
 
 const actualNavigation = await import("next/navigation");
@@ -282,6 +294,11 @@ function InvestmentsFixture({ holding, onOpenHolding, onCloseHolding }: Investme
           <span data-holding-key={INVESTMENT_HOLDING}>Ethereum row</span>
         </button>
       </section>;
+}
+
+function ActivityHoldingFixture({ holding, onCloseHolding }: InvestmentsContentProps) {
+  useNestedAppChrome(holding ? { title: "Bitcoin", backLabel: "Back", onBack: onCloseHolding } : null);
+  return holding ? <section aria-label="Holding detail">Selected {holding}</section> : null;
 }
 
 function fundedInvestments() {
@@ -1115,6 +1132,100 @@ describe("Home shell routing and intents", () => {
     expect(`${window.location.pathname}${window.location.search}`).toBe("/invest");
     expect(page().getByRole("region", { name: "Invest module" })).toBeTruthy();
   });
+
+  for (const back of ["header", "browser"] as const) {
+    test(`opens the owned cbBTC contract from Activity and restores details on ${back} Back`, async () => {
+      syncLocation("/activity");
+      historyEntries = ["/activity"];
+      const snapshot = buildBalancesSnapshotFixture({ registry: {
+        cbbtc: { balance: ready("10000000"), value: priced("USD", "10000") },
+        usdc: { balance: ready("1000000"), value: priced("USD", "100") },
+      } });
+      const btc = BASE_CBBTC.address.toLowerCase();
+      const usdc = BASE_USDC.address.toLowerCase();
+      const makeTransfer = (address: string, symbol: string, index: number, to: string) => ({
+        id: `8453:${address}:activity-${index}`, logId: `activity-${index}`, chainId: 8453,
+        assetId: address === btc ? "cbbtc" : address === usdc ? "usdc" : null,
+        tokenAddress: address, tokenSymbol: symbol,
+        tokenDecimals: symbol === "cbBTC" ? 8 : 6, tokenImageUrl: null,
+        walletAddress: ADDRESS, fromAddress: ADDRESS_B, toAddress: ADDRESS,
+        direction: "incoming", amountBaseUnits: symbol === "cbBTC" ? "10000000" : "1000000",
+        blockNumber: String(4 - index), blockHash: `0x${"c".repeat(64)}`,
+        transactionHash: `0x${String(index).padStart(64, "0")}`, logIndex: "1",
+        blockTimestamp: new Date(Date.parse(to) - index * 60_000).toISOString(),
+        valuation: { status: "unpriced", currency: "USD", reason: "quote-unavailable" },
+      });
+      const sessionFetch: SessionFetch = async (input) => {
+        const path = String(input);
+        if (path === "/api/session") return Response.json(session());
+        if (path === "/api/actions") return Response.json({ version: "1", actions: [] });
+        if (path.startsWith("/api/activity?")) {
+          const to = new URL(path, "https://home.invalid").searchParams.get("to") ?? new Date().toISOString();
+          const response = { version: 1, walletAddress: ADDRESS.toLowerCase(), chainId: 8453,
+            window: { from: new Date(Date.parse(to) - 86_400_000).toISOString(), to }, currency: "USD",
+            transfers: [makeTransfer(btc, "cbBTC", 1, to), makeTransfer(usdc, "USDC", 2, to),
+              makeTransfer("0x4444444444444444444444444444444444444444", "FAKE", 3, to)],
+            nextCursor: null,
+            source: { provider: "cdp-sql", cached: false, stale: false, executionTimestamp: to, executionTimeMs: 1, fetchedAt: to },
+          };
+          parseActivityPage(response, session(), to);
+          return Response.json(response);
+        }
+        throw new Error(`Unexpected read: ${path}`);
+      };
+      render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        sessionFetch={sessionFetch} initialPanel="activity" initialLocation={parseShellLocation("/activity")}
+        canOpenAssetDetail={(key) => selectOwnedInvestment(snapshot, key as AssetKey) !== null}
+        investmentsContent={ActivityHoldingFixture} />);
+      await waitForVerifiedShell();
+      const opener = (await page().findAllByRole("button", { description: "View received cbBTC transaction details" }))[0]!;
+      const main = page().getByRole("main");
+      main.scrollTop = 170;
+      fireEvent.scroll(main);
+      opener.focus();
+      fireEvent.click(opener);
+      const details = await page().findByRole("dialog", { name: "Received" });
+      fireEvent.click(within(details).getByRole("button", { name: "Bitcoin Asset" }));
+      expect(window.location.pathname).toBe(`/investments/${btc}`);
+      expect(window.history.state?.__investmentsHoldingOpenedInApp).toBe(true);
+      expect(page().getByRole("region", { name: "Holding detail" }).textContent).toContain(erc20AssetKey(BASE_CBBTC.address));
+      expect(await page().findByRole("heading", { level: 1, name: "Bitcoin" })).toBeTruthy();
+      await waitFor(() => expect(page().queryAllByRole("dialog")).toHaveLength(0));
+      if (back === "header") fireEvent.click(page().getByRole("button", { name: "Back" }));
+      else act(() => popHistory());
+      expect(window.location.pathname).toBe("/activity");
+      expect(main.scrollTop).toBe(170);
+      const restored = await page().findByRole("dialog", { name: "Received" });
+      expect(restored.textContent).toContain("+0.1000 cbBTC");
+      act(() => forwardHistory());
+      expect(window.location.pathname).toBe(`/investments/${btc}`);
+      await waitFor(() => expect(page().queryAllByRole("dialog")).toHaveLength(0));
+      act(() => popHistory());
+      expect(window.location.pathname).toBe("/activity");
+      const restoredAgain = await page().findByRole("dialog", { name: "Received" });
+      expect(restoredAgain.textContent).toContain("+0.1000 cbBTC");
+      fireEvent.click(within(restoredAgain).getByRole("button", { name: "Close Received details" }));
+      await waitFor(() => expect(page().queryAllByRole("dialog")).toHaveLength(0));
+      expect(document.activeElement === opener).toBe(true);
+      act(() => forwardHistory());
+      expect(window.location.pathname).toBe(`/investments/${btc}`);
+      await waitFor(() => expect(page().queryAllByRole("dialog")).toHaveLength(0));
+      act(() => popHistory());
+      expect(window.location.pathname).toBe("/activity");
+      expect(page().queryAllByRole("dialog")).toHaveLength(0);
+      fireEvent.click(page().getByRole("button", { description: "View received USDC transaction details" }));
+      expect(within(await page().findByRole("dialog", { name: "Received" })).queryByRole("button", { name: "US dollar Asset" })).toBeNull();
+      act(() => forwardHistory());
+      await waitFor(() => expect(page().queryAllByRole("dialog")).toHaveLength(0));
+      act(() => popHistory());
+      expect(window.location.pathname).toBe("/activity");
+      expect(await page().findByRole("dialog", { name: "Received" })).toBeTruthy();
+      fireEvent.click(page().getByRole("button", { name: "Close Received details" }));
+      await waitFor(() => expect(page().queryAllByRole("dialog")).toHaveLength(0));
+      fireEvent.click(page().getByRole("button", { description: "View received FAKE transaction details" }));
+      expect(within(await page().findByRole("dialog", { name: "Received" })).queryByRole("button", { name: "FAKE Asset" })).toBeNull();
+    });
+  }
 
   test("opens funded Investments holdings separately from Invest discovery", async () => {
     render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}

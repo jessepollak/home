@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useEffect, useRef, useState } from "react";
 import { expect, fn, userEvent, waitFor, within } from "storybook/test";
-import { PORTFOLIO_USDC_ASSET_KEY } from "@/config/portfolio-assets";
+import { PORTFOLIO_USDC_ASSET_KEY, assetKeyForErc20 } from "@/config/portfolio-assets";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   ActivityLedger,
@@ -233,12 +233,16 @@ function Surface({
   pendingLabel,
   recentLabel,
   layout = "page",
+  canOpenAsset,
+  onOpenAsset,
 }: {
   items?: ActivityLedgerItem[];
   initial?: ActivityLedgerItem;
   pendingLabel?: string;
   recentLabel?: string;
   layout?: "page" | "feed";
+  canOpenAsset?: (assetKey: string) => boolean;
+  onOpenAsset?: (item: ActivityLedgerItem) => void;
 }) {
   const [selected, setSelected] = useState<ActivityLedgerItem | null>(initial ?? null);
   const [isOpen, setIsOpen] = useState(Boolean(initial));
@@ -268,7 +272,7 @@ function Surface({
           recentLabel={recentLabel} />
       )}
       <ActivityLedgerDetailSheet item={selected} open={isOpen} onDismiss={() => setIsOpen(false)}
-        onClosed={closed} onAction={fn()} />
+        onClosed={closed} onAction={fn()} canOpenAsset={canOpenAsset} onOpenAsset={onOpenAsset} />
     </main>
   );
 }
@@ -285,13 +289,29 @@ type Story = StoryObj<typeof meta>;
 const withItems = (items: ActivityLedgerItem[]): Story => ({
   render: () => <Surface items={items} />,
 });
-const detail = (item: ActivityLedgerItem): Story => ({
-  render: () => <Surface initial={item} items={[item]} />,
+const detail = (item: ActivityLedgerItem, options: {
+  canOpenAsset?: (assetKey: string) => boolean;
+  onOpenAsset?: (item: ActivityLedgerItem) => void;
+} = {}): Story => ({
+  render: () => <Surface initial={item} items={[item]} {...options} />,
   play: async ({ canvasElement }) => {
     const screen = within(canvasElement.ownerDocument.body);
     await expect(await screen.findByRole("dialog")).toBeVisible();
     const number = screen.getByRole("dialog").querySelector('[data-slot="activity-amount-number"]');
-    await expect(number).toHaveTextContent(item.amount);
+    await expect(number).toHaveTextContent(item.detailAmountParts?.amount ?? item.detailAmount ?? item.amount);
+    const dialog = within(screen.getByRole("dialog"));
+    if (item.detailValue !== undefined) {
+      await expect(dialog.getByText(item.detailValue)).toBeVisible();
+      await expect(dialog.queryByRole("term", { name: "Value" })).toBeNull();
+    }
+    if (item.detailAsset) {
+      await expect(dialog.getByText(item.detailAsset.name)).toBeVisible();
+      if (item.detailAsset.openable && options.onOpenAsset && options.canOpenAsset?.(item.detailAsset.assetKey)) {
+        await expect(dialog.getByRole("button", { name: new RegExp(item.detailAsset.name) })).toBeVisible();
+      } else {
+        await expect(dialog.queryByRole("button", { name: new RegExp(item.detailAsset.name) })).toBeNull();
+      }
+    }
     const allowed = item.nextAction?.label;
     if (allowed) {
       await expect(
@@ -353,6 +373,42 @@ export const PendingByOwner = withItems([funding, provider, transfer, borrowed])
 export const TerminalStates = withItems([
   received, failed, expired, ambiguous, reversed, refunded, declined,
 ]);
+const usdcAsset = { assetKey: PORTFOLIO_USDC_ASSET_KEY, name: "US dollar", symbol: "USDC", openable: true };
+const bitcoinAsset = { assetKey: assetKeyForErc20("0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf"),
+  name: "Bitcoin", symbol: "cbBTC", openable: true };
+const pricedReceived: ActivityLedgerItem = {
+  ...received, amount: "+$91.50", detailAmountParts: { amount: "+0.001", symbol: "cbBTC" },
+  detailValue: "+$91.50", detailAsset: bitcoinAsset,
+};
+export const DetailReceived = detail(pricedReceived, { canOpenAsset: () => true, onOpenAsset: fn() });
+export const DetailSent = detail({ ...transfer, status: "confirmed", detailAmountParts: { amount: "−25.00", symbol: "USDC" },
+  detailValue: "−$25.00", detailAsset: usdcAsset });
+export const DetailTinyAmount = detail({ ...pricedReceived, id: "tiny", detailAmountParts: {
+  amount: "+<0.000001", symbol: "cbBTC",
+}, detailValue: "+<$0.01" });
+export const DetailLargeAmount = detail({ ...pricedReceived, id: "large", detailAmountParts: {
+  amount: "+123,456,789.12", symbol: "cbBTC",
+}, detailValue: "+$12,345,678.90" });
+export const DetailUnknownValue = detail({ ...pricedReceived, id: "unknown", detailValue: "Unknown" });
+export const DetailEuroValue = detail({ ...pricedReceived, id: "euro", detailValue: "+€91.50" });
+export const DetailLongAssetNameMissingImage = detail({ ...pricedReceived, id: "long-asset",
+  detailAsset: { assetKey: assetKeyForErc20("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+    name: "An exceptionally long asset name that needs to remain readable", symbol: "LO", openable: true,
+    imageUrl: null } });
+export const DetailTrade: Story = {
+  ...detail({ ...borrowed, id: "trade", title: "Bought Bitcoin", status: "confirmed",
+    amount: "−$100.00", detailAmountParts: { amount: "−100.00", symbol: "USDC" },
+    detail: { family: "home-action", operation: "Buy Bitcoin", network: "Base", facts: [
+      { label: "You pay", value: "100.00 USDC" }, { label: "You receive", value: "0.001 cbBTC" },
+    ] } }),
+  play: async ({ canvasElement }) => {
+    const dialog = within(await within(canvasElement.ownerDocument.body).findByRole("dialog"));
+    await expect(dialog.getByText("100.00 USDC")).toBeVisible();
+    await expect(dialog.getByText("0.001 cbBTC")).toBeVisible();
+    await expect(dialog.queryByText("Asset")).toBeNull();
+    await expect(dialog.queryByRole("term", { name: "Value" })).toBeNull();
+  },
+};
 export const DetailFundingNeedsYou = detail(funding);
 export const DetailHomeActionConfirming: Story = {
   ...detail({

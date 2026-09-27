@@ -123,17 +123,19 @@ function settleAmounts(amounts: readonly MoneyActionAmount[], transfers: readonl
   });
 }
 
-function settleAmount(amount: MoneyActionAmount, transfers: readonly ActivityTransfer[]): MoneyActionAmount {
+export function matchesActivityAmountTransfer(amount: MoneyActionAmount, transfer: ActivityTransfer): boolean {
   const tokenAddress = amount.assetId.match(/erc20:(0x[0-9a-fA-F]{40})$/i)?.[1]
     ?? activityAssets.find((asset) => asset.id.toLowerCase() === amount.assetId.toLowerCase())?.tokenAddress;
-  if (!tokenAddress) return amount;
+  return !!tokenAddress && transfer.tokenAddress.toLowerCase() === tokenAddress.toLowerCase() &&
+    transfer.direction === (amount.direction === "spend" ? "outgoing" : "incoming") &&
+    (transfer.tokenDecimals === null || transfer.tokenDecimals === amount.decimals);
+}
 
+function settleAmount(amount: MoneyActionAmount, transfers: readonly ActivityTransfer[]): MoneyActionAmount {
   let matched = false;
   let sum = BigInt(0);
   for (const transfer of transfers) {
-    if (transfer.tokenAddress.toLowerCase() !== tokenAddress.toLowerCase() ||
-      transfer.direction !== (amount.direction === "spend" ? "outgoing" : "incoming") ||
-      (transfer.tokenDecimals !== null && transfer.tokenDecimals !== amount.decimals)) continue;
+    if (!matchesActivityAmountTransfer(amount, transfer)) continue;
     matched = true;
     sum += BigInt(transfer.amountBaseUnits);
   }

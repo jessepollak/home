@@ -26,6 +26,7 @@ export type HomeExperienceProps = {
   assetBalances?: HomeAssetBalancesPresentation;
   presentAssetBalances?: (showSmallBalances: boolean) => HomeAssetBalancesPresentation;
   sendAvailability?: readonly TransferAssetAvailability[];
+  canOpenAssetDetail?: (assetKey: string) => boolean;
   assetMarkResolution?: AssetMarkResolution;
   showSmallBalances?: boolean;
   onShowSmallBalancesChange?: (value: boolean) => void;

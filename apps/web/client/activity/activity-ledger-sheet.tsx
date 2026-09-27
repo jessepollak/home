@@ -5,6 +5,8 @@ import { ArrowDownLeft, CircleAlert, CircleCheck, CircleQuestionMark, CircleX, C
 import { MoneyModal, MoneyModalBody, MoneyModalFooter, MoneyModalHeader } from "@/client/money-modal";
 import { useAutoFitAmountText } from "@/client/money-modal/amount";
 import { CopyableValue } from "@/components/copyable-value";
+import { CurrencyMark } from "@/components/currency-mark";
+import { AssetRow } from "@/components/finance-rows";
 import { Alert, AlertIcon, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -86,12 +88,15 @@ export type ActivityLedgerDetailSheetProps = {
   immediate?: boolean;
   onClosed?: () => void;
   onAction: (item: ActivityLedgerItem, kind: ActivityLedgerNextActionKind) => void;
+  canOpenAsset?: (assetKey: string) => boolean;
+  onOpenAsset?: (item: ActivityLedgerItem) => void;
   actionBusy?: boolean;
   actionError?: string | null;
 };
 
 export function ActivityLedgerDetailSheet({
-  item, open, immediate = false, onDismiss, onClosed, onAction, actionBusy = false, actionError = null,
+  item, open, immediate = false, onDismiss, onClosed, onAction, canOpenAsset, onOpenAsset,
+  actionBusy = false, actionError = null,
 }: ActivityLedgerDetailSheetProps) {
   const titleId = useId();
   const [shown, setShown] = useState(item);
@@ -193,6 +198,11 @@ export function ActivityLedgerDetailSheet({
           <>
             <div className="flex min-w-0 flex-col items-center gap-2 py-3">
               <DetailHeadline item={item} />
+              {item.detailValue !== undefined ? (
+                <p className="text-center text-sm tabular-nums text-muted-foreground">
+                  <bdi dir="ltr">{item.detailValue}</bdi>
+                </p>
+              ) : null}
               {statusBadge(item)}
             </div>
             {owner ? (
@@ -214,6 +224,20 @@ export function ActivityLedgerDetailSheet({
             ) : null}
             <Card variant="flush">
               <CardContent inset="list">
+                {item.detailAsset ? (
+                  <ul className="list-none p-0">
+                    <AssetRow
+                      icon={<CurrencyMark assetKey={item.detailAsset.assetKey}
+                        symbol={item.detailAsset.symbol} src={item.detailAsset.imageUrl} size="sm" />}
+                      iconTone="mark"
+                      label={item.detailAsset.name}
+                      context="Asset"
+                      {...(item.detailAsset.openable && onOpenAsset && canOpenAsset?.(item.detailAsset.assetKey)
+                        ? { onActivate: () => onOpenAsset(item), activateLabel: `View ${item.detailAsset.name}` }
+                        : { chevron: false })}
+                    />
+                  </ul>
+                ) : null}
                 <dl>
                   {facts.map(([label, value]) => <Fact key={label} label={label}>{value}</Fact>)}
                 </dl>

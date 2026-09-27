@@ -139,7 +139,10 @@ function failed(retry: () => void = noop): UseActivityResult {
   };
 }
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  delete (globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean }).BASE_UI_ANIMATIONS_DISABLED;
+});
 
 describe("combined Activity panel", () => {
   test("interleaves every loaded row into one feed list with a spinner continuation", () => {
@@ -209,6 +212,65 @@ describe("combined Activity panel", () => {
     const details = await view.findByRole("dialog", { name: "Sent USDC" });
     expect(within(details).getByText("Date").nextElementSibling?.textContent).toMatch(/\d{1,2} de set\./);
     expect(details.textContent).toContain("1.234,56 USDC");
+  });
+
+  test("only offers covered asset details and retains the selection across a return", async () => {
+    (globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean }).BASE_UI_ANIMATIONS_DISABLED = true;
+    const btc = { ...transfer("btc", 5), id: `8453:0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf:btc`,
+      tokenAddress: "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf" as const,
+      assetId: "cbbtc", tokenSymbol: "cbBTC", tokenDecimals: 8, amountBaseUnits: "10000000" };
+    const activity = ready([btc, transfer("cash", 4)]);
+    const key = `eip155:8453/erc20:${btc.tokenAddress}`;
+    const openAsset = mock((_assetKey: string) => true);
+    const props = { activity, canOpenAsset: (assetKey: string) => assetKey === key, onOpenAsset: openAsset };
+    const view = render(<ActivityPanelView {...props} restoreDetailsRequest={0} />);
+    const opener = view.getByRole("button", { description: "View received cbBTC transaction details" });
+    opener.focus();
+    fireEvent.click(opener);
+    const details = await view.findByRole("dialog", { name: "Received" });
+    expect(within(details).getByRole("button", { name: "Bitcoin Asset" })).toBeTruthy();
+    fireEvent.click(within(details).getByRole("button", { name: "Bitcoin Asset" }));
+    expect(openAsset).toHaveBeenCalledWith(key);
+    await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+    view.rerender(<ActivityPanelView {...props} restoreDetailsRequest={1} />);
+    const restored = await view.findByRole("dialog", { name: "Received" });
+    expect(restored.textContent).toContain("+0.1000 cbBTC");
+    fireEvent.click(within(restored).getByRole("button", { name: "Close Received details" }));
+    await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement === view.getByRole("button", { description: "View received cbBTC transaction details" })).toBe(true);
+    fireEvent.click(view.getByRole("button", { description: "View received USDC transaction details" }));
+    expect(within(await view.findByRole("dialog", { name: "Received" })).queryByRole("button", { name: "US dollar Asset" })).toBeNull();
+  });
+
+  test("suspends an open selection immediately and restores it only while pending", async () => {
+    (globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean }).BASE_UI_ANIMATIONS_DISABLED = true;
+    const activity = ready([transfer("cash", 5)]);
+    const view = render(<ActivityPanelView activity={activity} suspendDetailsRequest={0} restoreDetailsRequest={0} />);
+    fireEvent.click(view.getByRole("button", { description: "View received USDC transaction details" }));
+    expect(await view.findByRole("dialog", { name: "Received" })).toBeTruthy();
+
+    view.rerender(<ActivityPanelView activity={activity} suspendDetailsRequest={1} restoreDetailsRequest={0} />);
+    expect(view.queryByRole("dialog")).toBeNull();
+    view.rerender(<ActivityPanelView activity={activity} suspendDetailsRequest={1} restoreDetailsRequest={1} />);
+    expect(await view.findByRole("dialog", { name: "Received" })).toBeTruthy();
+    view.rerender(<ActivityPanelView activity={activity} suspendDetailsRequest={2} restoreDetailsRequest={1} />);
+    expect(view.queryByRole("dialog")).toBeNull();
+    view.rerender(<ActivityPanelView activity={activity} suspendDetailsRequest={2} restoreDetailsRequest={2} />);
+    const restored = await view.findByRole("dialog", { name: "Received" });
+    fireEvent.click(within(restored).getByRole("button", { name: "Close Received details" }));
+    await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+    view.rerender(<ActivityPanelView activity={activity} suspendDetailsRequest={2} restoreDetailsRequest={3} />);
+    expect(view.queryByRole("dialog")).toBeNull();
+  });
+
+  test("keeps the sheet open when asset navigation declines", async () => {
+    (globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean }).BASE_UI_ANIMATIONS_DISABLED = true;
+    const view = render(<ActivityPanelView activity={ready([transfer("cash", 5)])}
+      canOpenAsset={() => true} onOpenAsset={() => false} />);
+    fireEvent.click(view.getByRole("button", { description: "View received USDC transaction details" }));
+    const details = await view.findByRole("dialog", { name: "Received" });
+    fireEvent.click(within(details).getByRole("button", { name: "US dollar Asset" }));
+    expect(view.getAllByRole("dialog")).toHaveLength(1);
   });
 
   test("keeps transaction details during exit and restores focus after closing", async () => {

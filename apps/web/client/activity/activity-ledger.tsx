@@ -82,6 +82,13 @@ export type ActivityLedgerDetail =
     originalPurchase?: string;
     reference?: string;
   };
+export type ActivityLedgerAsset = {
+  assetKey: string;
+  name: string;
+  symbol: string;
+  imageUrl?: string | null;
+  openable: boolean;
+};
 export type ActivityLedgerItem = {
   id: string;
   status: ActivityLedgerStatus;
@@ -95,6 +102,8 @@ export type ActivityLedgerItem = {
   amountContext?: string;
   detailAmount?: string;
   detailAmountParts?: { amount: string; symbol: string };
+  detailValue?: string;
+  detailAsset?: ActivityLedgerAsset;
   activateLabel?: string;
   direction: "in" | "out" | "none";
   mark?:

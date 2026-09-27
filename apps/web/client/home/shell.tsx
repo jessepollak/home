@@ -151,6 +151,7 @@ function DashboardShellBody({
   onRetryInterruption,
   presentAssetBalances,
   sendAvailability = [],
+  canOpenAssetDetail = () => false,
   assetMarkResolution,
   showSmallBalances = false,
   onShowSmallBalancesChange = () => {},
@@ -916,16 +917,30 @@ function DashboardShellBody({
     : null;
 
   const navigateToRef = useRef(navigateTo);
-  useEffect(() => { navigateToRef.current = navigateTo; });
+  const canOpenAssetDetailRef = useRef(canOpenAssetDetail);
+  const selectInvestmentHoldingRef = useRef(selectInvestmentHolding);
+  useEffect(() => {
+    navigateToRef.current = navigateTo;
+    canOpenAssetDetailRef.current = canOpenAssetDetail;
+    selectInvestmentHoldingRef.current = selectInvestmentHolding;
+  });
   const openPanel = useCallback((panel: ShellPanelId) => navigateToRef.current(panel), []);
+  const canOpenAssetDetailRoute = useCallback((key: string) => canOpenAssetDetailRef.current(key), []);
+  const openAssetDetail = useCallback((key: string) => {
+    if (!canOpenAssetDetailRef.current(key)) return false;
+    selectInvestmentHoldingRef.current(key as AssetKey);
+    return true;
+  }, []);
   const routingValue = useMemo(() => ({
     state: urlIntent,
     popRevision,
     rootRequest,
     openPanel,
+    canOpenAssetDetail: canOpenAssetDetailRoute,
+    openAssetDetail,
     setFlow,
     clearFlow,
-  }), [clearFlow, openPanel, popRevision, rootRequest, setFlow, urlIntent]);
+  }), [canOpenAssetDetailRoute, clearFlow, openAssetDetail, openPanel, popRevision, rootRequest, setFlow, urlIntent]);
 
   return (
     <HomeShellRoutingProvider value={routingValue}>
