@@ -284,13 +284,12 @@ function FundingExperienceBoundary({
           }
         : null;
 
-  function close() {
+  function resetJourney() {
     navigateTo("method");
     setSelectedBinding(null);
     setInitialOrder(null);
     setPromptOrder(null);
     setInitialCustomer(null);
-    onClose?.();
   }
 
   function goBack() {
@@ -308,8 +307,8 @@ function FundingExperienceBoundary({
       address={address}
       signedOut={signedOut}
       regionId={regionId}
-      onClose={close}
-      onClosed={onClosed}
+      onClose={() => onClose?.()}
+      onClosed={() => { resetJourney(); onClosed?.(); }}
       onBack={goBack}
       onSelectReceive={() => navigateTo("receive")}
       providerBindings={providerBindings}

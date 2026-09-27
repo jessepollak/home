@@ -19,6 +19,16 @@ export type BorrowRiskState =
   | "liquidatable"
   | "no-debt";
 
+export const borrowOperationLabels: Record<BorrowOperation, string> = {
+  "supply-collateral": "Add collateral",
+  borrow: "Borrow",
+  "supply-and-borrow": "Borrow",
+  repay: "Repay",
+  "repay-all": "Repay all",
+  "withdraw-collateral": "Withdraw collateral",
+  "close-position": "Close position",
+};
+
 export function borrowRiskState(healthFactorWad: string | null): BorrowRiskState {
   if (healthFactorWad === null) return "no-debt";
   const health = BigInt(healthFactorWad);

@@ -10,6 +10,7 @@ import { dataOwnerKey } from "@/client/account/owner-keys";
 import {
   MoneyAmountDisplay, MoneyConfirmFooter, MoneyConfirmSummary, MoneyModal,
   MoneyModalBody, MoneyModalFooter, MoneyModalHeader,
+  MoneyModalStep,
   decimalFromBaseUnits, isPositiveDecimalAmount, moneyConfirmFromRow, useMoneyAmountUnit, type MoneyAssetPrice,
 } from "@/client/money-modal";
 import { Button } from "@/components/ui/button";
@@ -75,11 +76,14 @@ export function TradeMoneyDialog({ open, direction, session, availableBaseUnits,
   }
   function close() {
     preparation.current += 1;
+    onClose();
+  }
+  function resetAfterClose() {
     if (!attempted || step === "dispatch-unknown") {
       setAmount(""); setAmountBaseUnits(null); setPrepared(null);
       setServerExpiredId(null); setStep("amount"); setError(null); setAttempted(false);
     }
-    onClose();
+    onClosed?.();
   }
   function back() {
     setPrepared(null); setServerExpiredId(null); setAttempted(false); setError(null); setStep("amount");
@@ -153,9 +157,10 @@ export function TradeMoneyDialog({ open, direction, session, availableBaseUnits,
   }
 
   return <MoneyMotionProvider>
-    <MoneyModal open={open} labelledBy="trade-action-title" pending={step === "pending"} onCancel={close} onClose={onClosed ?? (() => {})}>
+    <MoneyModal open={open} labelledBy="trade-action-title" pending={step === "pending"} onCancel={close} onClose={resetAfterClose}>
+      <MoneyModalStep step={step === "pending" || step === "failed" ? "confirm" : step} depth={step === "amount" ? 0 : step === "dispatch-unknown" ? 2 : 1}>
       <MoneyModalHeader title={step === "amount" ? direction === "buy" ? "Buy Bitcoin" : "Sell Bitcoin" : step === "dispatch-unknown" ? "Check Activity" : "Confirm"} titleId="trade-action-title"
-        {...(canGoBack ? { onBack: back } : {})} onClose={close} closeLabel="Close trade dialog" />
+        {...(canGoBack ? { onBack: back } : {})} closeLabel="Close trade dialog" />
       <MoneyModalBody hasFooter={step !== "pending"} className="gap-4 pt-4">
         {step === "amount" ? <>
           <MoneyAmountDisplay amount={amount} maxDecimals={decimals} onAmountChange={changeAmount}
@@ -186,6 +191,7 @@ export function TradeMoneyDialog({ open, direction, session, availableBaseUnits,
         {...(canGoBack ? { secondaryLabel: "Back", onSecondary: back } : {})} /> : null}
       {step === "failed" ? <MoneyModalFooter primaryLabel="Back" onPrimary={back} secondaryLabel="Close" onSecondary={close} /> : null}
       {step === "dispatch-unknown" ? <MoneyModalFooter primaryLabel="Close" onPrimary={close} /> : null}
+      </MoneyModalStep>
     </MoneyModal>
   </MoneyMotionProvider>;
 }

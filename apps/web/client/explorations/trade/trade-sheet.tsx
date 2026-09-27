@@ -214,7 +214,7 @@ export function TradeSheet({ open, side, initialState, available, reducedMotion,
   return (
     <MoneyMotionProvider reducedMotion={reducedMotion ? true : undefined}>
       <MoneyModal open={open} immediate={reducedMotion === true} labelledBy="fixture-trade-title" pending={pending} onCancel={close} onClose={resetAfterClose}>
-        <MoneyModalHeader title={title} titleId="fixture-trade-title" onClose={close} {...(step.name === "amount" ? { assetControl: <MoneyAssetPicker assetId={`fixture-${asset.toLowerCase()}`} assetLabel={asset} locked /> } : step.name === "review" || step.name === "wallet-rejected" || step.name === "execution-error" || step.name === "quote-expired" ? { onBack: back } : {})} />
+        <MoneyModalHeader title={title} titleId="fixture-trade-title" {...(step.name === "amount" ? { assetControl: <MoneyAssetPicker assetId={`fixture-${asset.toLowerCase()}`} assetLabel={asset} locked /> } : step.name === "review" || step.name === "wallet-rejected" || step.name === "execution-error" || step.name === "quote-expired" ? { onBack: back } : {})} />
         <MoneyModalBody hasFooter className="gap-4 pt-4">
           <TradeStepTransition stepKey={step.name === "amount" ? "amount" : "review"} direction={direction} reducedMotion={reducedMotion ? true : undefined}>
             {step.name === "amount" ? (

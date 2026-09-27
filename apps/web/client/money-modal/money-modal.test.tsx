@@ -25,7 +25,6 @@ describe("MoneyModal layout contract", () => {
           title="A deliberately long centered title"
           titleId="layout-title"
           assetControl={<input aria-label="Asset" />}
-          onClose={() => {}}
         />
       </MoneyModal>,
     );
@@ -52,7 +51,7 @@ describe("MoneyModal layout contract", () => {
       return <>
         <button type="button" onClick={() => setOpen(true)}>Open drawer</button>
         <MoneyModal open={open} labelledBy="keyboard-title" immediate onCancel={cancel} onClose={() => events.push("close")}>
-          <MoneyModalHeader title="Keyboard" titleId="keyboard-title" onClose={cancel} />
+          <MoneyModalHeader title="Keyboard" titleId="keyboard-title" />
           <input aria-label="Amount" data-money-amount-input />
         </MoneyModal>
       </>;
@@ -106,7 +105,7 @@ describe("MoneyModal dismissal contract", () => {
       return <>
         <button type="button" onClick={() => setOpen(true)}>Open drawer</button>
         <MoneyModal open={open} labelledBy="return-title" immediate onCancel={() => setOpen(false)} onClose={() => {}}>
-          <MoneyModalHeader title="Focus return" titleId="return-title" onClose={() => setOpen(false)} />
+          <MoneyModalHeader title="Focus return" titleId="return-title" />
         </MoneyModal>
       </>;
     }
@@ -148,7 +147,7 @@ describe("MoneyModal dismissal contract", () => {
     const events: string[] = [];
     render(
       <MoneyModal open labelledBy="pending-title" immediate pending onCancel={() => { events.push("cancel"); }} onClose={() => events.push("close")}>
-        <MoneyModalHeader title="Pending request" titleId="pending-title" onClose={() => events.push("header close")} />
+        <MoneyModalHeader title="Pending request" titleId="pending-title" />
       </MoneyModal>,
     );
 
@@ -164,7 +163,7 @@ describe("MoneyModal dismissal contract", () => {
     const events: string[] = [];
     const renderModal = (pending: boolean) => (
       <MoneyModal open labelledBy="pending-title" immediate pending={pending} onCancel={() => { events.push("cancel"); }} onClose={() => events.push("close")}>
-        <MoneyModalHeader title="Pending request" titleId="pending-title" onClose={() => events.push("header close")} />
+        <MoneyModalHeader title="Pending request" titleId="pending-title" />
       </MoneyModal>
     );
     const { rerender } = render(renderModal(true));

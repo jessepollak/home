@@ -3,6 +3,7 @@ import "@/client/account/dom-test-harness";
 import { page } from "@/tests/helpers/dom";
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { useState } from "react";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import { dataOwnerKey } from "@/client/account/owner-keys";
@@ -163,8 +164,13 @@ describe("FundingExperience", () => {
     expect(page().queryByRole("button", { name: /Deposit USD/ })).toBeNull();
     fireEvent.click(receive);
     expect(page().getByRole("heading", { name: "Receive" })).toBeTruthy();
+    expect(page().getAllByRole("dialog")).toHaveLength(1);
+    expect(page().getByRole("dialog").contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).not.toBe(document.body);
     fireEvent.click(page().getByRole("button", { name: "Back" }));
     expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().getAllByRole("dialog")).toHaveLength(1);
+    expect(page().getByRole("dialog").contains(document.activeElement)).toBe(true);
 
     await act(async () => { providers.resolve({ providers: [applePayBinding()] }); await providers.promise; });
     expect(await page().findByRole("button", { name: /Deposit USD/ })).toBeTruthy();
@@ -487,6 +493,37 @@ describe("FundingExperience", () => {
     });
     expect(await page().findByRole("heading", { name: "Review quote" })).toBeTruthy();
     expect(quoteBodies).toHaveLength(1);
+  });
+
+  test("Add money review Back returns to the amount and X exits the flow", async () => {
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers")) return { providers: [redirectBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return { order: null };
+      if (path === "/api/funding/quotes") return { quoteToken: "signed-token", quote: {
+        fiatAmount: "20000", tokenAmountAtomic: "2000000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z",
+      } };
+      throw new Error("unexpected request");
+    } };
+    let closes = 0;
+    function Journey() {
+      const [open, setOpen] = useState(true);
+      return <FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="ID"
+        open={open} onClose={() => { closes++; setOpen(false); }} />;
+    }
+    render(<Journey />);
+    fireEvent.click(await page().findByRole("button", { name: /Deposit IDR/ }));
+    enterAmount("20000");
+    fireEvent.click(page().getByRole("button", { name: "Review quote" }));
+    await page().findByRole("heading", { name: "Review quote" });
+    expect(page().getAllByRole("dialog")).toHaveLength(1);
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    expect((page().getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("20000");
+    expect(page().getAllByRole("dialog")).toHaveLength(1);
+    fireEvent.click(page().getByRole("button", { name: "Review quote" }));
+    await page().findByRole("heading", { name: "Review quote" });
+    fireEvent.click(page().getByRole("button", { name: "Close add money" }));
+    await waitFor(() => expect(page().queryByRole("dialog") === null).toBe(true));
+    expect(closes).toBe(1);
   });
 
   test("drops a selected region's funding flow and uses the new region for the next order", async () => {

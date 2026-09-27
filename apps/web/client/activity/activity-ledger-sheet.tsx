@@ -187,7 +187,6 @@ export function ActivityLedgerDetailSheet({
         title={item?.title ?? "Activity"}
         titleId={titleId}
         closeLabel={`Close ${item?.title ?? "activity"} details`}
-        onClose={onDismiss}
       />
       <MoneyModalBody hasFooter={Boolean(action)} className="gap-4 pt-4">
         {item ? (

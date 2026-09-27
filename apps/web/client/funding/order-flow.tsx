@@ -24,6 +24,7 @@ import {
   MoneyModalBody,
   MoneyModalFooter,
   MoneyModalHeader,
+  MoneyModalStep,
 } from "@/client/money-modal";
 import {
   browserHomeQueryClient,
@@ -64,7 +65,6 @@ export function FundingOrderFlow({
   queryOwnerKey,
   titleId,
   onBack,
-  onClose,
   onOpenRedirect,
   initialOrder,
   initialCustomer,
@@ -74,7 +74,6 @@ export function FundingOrderFlow({
   queryOwnerKey?: string | null;
   titleId: string;
   onBack: () => void;
-  onClose: () => void;
   onOpenRedirect: (url: string) => void;
   initialOrder?: FundingOrderSummary | null;
   initialCustomer?: FundingProviderCustomerSummary | null;
@@ -244,7 +243,7 @@ export function FundingOrderFlow({
   }
 
   if (currentOrder?.instructions?.kind === "redirect") {
-    return <><MoneyModalHeader title={`Deposit ${binding.currency}`} titleId={titleId} onBack={onBack} onClose={onClose} closeLabel="Close add money" /><OrderStatus binding={binding} order={currentOrder} /></>;
+    return <MoneyModalStep step="order:status" depth={5}><MoneyModalHeader title={`Deposit ${binding.currency}`} titleId={titleId} onBack={onBack} closeLabel="Close add money" /><OrderStatus binding={binding} order={currentOrder} /></MoneyModalStep>;
   }
   if (
     currentOrder?.instructions &&
@@ -253,20 +252,19 @@ export function FundingOrderFlow({
     !terminal(currentOrder.state, currentOrder.sandbox)
   ) {
     return (
-      <>
-        <MoneyModalHeader title={`Deposit ${binding.currency}`} titleId={titleId} onBack={onBack} onClose={onClose} closeLabel="Close add money" />
+      <MoneyModalStep step="order:economics" depth={4}>
+        <MoneyModalHeader title={`Deposit ${binding.currency}`} titleId={titleId} onBack={onBack} closeLabel="Close add money" />
         <ProviderEconomicsReview binding={binding} order={currentOrder} onContinue={() => setShowInstructions(true)} />
-      </>
+      </MoneyModalStep>
     );
   }
   if (currentOrder) {
     return (
-      <>
+      <MoneyModalStep step="order:status" depth={5}>
         <MoneyModalHeader
           title={`Deposit ${binding.currency}`}
           titleId={titleId}
           onBack={onBack}
-          onClose={onClose}
           closeLabel="Close add money"
         />
         <OrderStatus
@@ -282,7 +280,7 @@ export function FundingOrderFlow({
               }
             : {})}
         />
-      </>
+      </MoneyModalStep>
     );
   }
   if (binding.customerSetup && customer?.state !== "verified") {
@@ -291,8 +289,8 @@ export function FundingOrderFlow({
     const ambiguous = customer?.state === "dispatch-ambiguous";
     const rejected = customer?.state === "rejected";
     const blocked = reserving || ambiguous || rejected;
-    return <>
-      <MoneyModalHeader title={`Set up ${binding.displayName}`} titleId={titleId} onBack={onBack} onClose={onClose} closeLabel="Close add money" />
+    return <MoneyModalStep step="order:setup" depth={1}>
+      <MoneyModalHeader title={`Set up ${binding.displayName}`} titleId={titleId} onBack={onBack} closeLabel="Close add money" />
       <MoneyModalBody hasFooter={!pendingStarted && !blocked} className="gap-4 pt-4">
         {pendingStarted ? <FundingNotice tone="neutral">Verification is pending. Return here after Ripio completes its review. Home will not issue another hosted link automatically.</FundingNotice> : null}
         {reserving ? <FundingNotice tone="neutral">Provider setup is still being created. Home will not start another request.</FundingNotice> : null}
@@ -311,14 +309,14 @@ export function FundingOrderFlow({
         {error ? <FundingNotice tone="error" role="alert">{error}</FundingNotice> : null}
       </MoneyModalBody>
       {!pendingStarted && !blocked ? <MoneyModalFooter primaryLabel={busy ? "Working…" : "Continue to Ripio verification"} primaryDisabled={busy || !email.trim()} onPrimary={() => void startVerification()} secondaryLabel="Back" onSecondary={onBack} /> : null}
-    </>;
+    </MoneyModalStep>;
   }
   if (draft) {
     return (
-      <>
-        <MoneyModalHeader title={`Deposit ${binding.currency}`} titleId={titleId} onBack={() => setDraft(null)} backDisabled={confirmationAttempted} onClose={onClose} closeLabel="Close add money" />
+      <MoneyModalStep step="order:review" depth={3}>
+        <MoneyModalHeader title={`Deposit ${binding.currency}`} titleId={titleId} onBack={() => setDraft(null)} backDisabled={confirmationAttempted} closeLabel="Close add money" />
         <QuoteReview binding={binding} draft={draft} busy={busy} error={error} onConfirm={() => void confirmOrder()} />
-      </>
+      </MoneyModalStep>
     );
   }
 
@@ -330,8 +328,8 @@ export function FundingOrderFlow({
     locked: true,
   };
   return (
-    <>
-      <MoneyModalHeader title={`Deposit ${binding.currency}`} titleId={titleId} onClose={onClose} assetControl={<MoneyAssetPicker {...amountAssetProps} />} closeLabel="Close add money" />
+    <MoneyModalStep step="order:amount" depth={2}>
+      <MoneyModalHeader title={`Deposit ${binding.currency}`} titleId={titleId} assetControl={<MoneyAssetPicker {...amountAssetProps} />} closeLabel="Close add money" />
       <MoneyModalBody hasFooter className="gap-4 pt-4">
         {binding.paymentMethods.length > 1 ? (
           <div className="grid gap-3">
@@ -369,7 +367,7 @@ export function FundingOrderFlow({
         secondaryLabel="Back"
         onSecondary={onBack}
       />
-    </>
+    </MoneyModalStep>
   );
 }
 

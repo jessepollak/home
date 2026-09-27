@@ -150,6 +150,58 @@ describe("SendDialog availability", () => {
 
 });
 
+test("Send review X closes once and Back returns exactly to destination", async () => {
+  let closes = 0;
+  function Journey() {
+    const [open, setOpen] = useState(true);
+    return <SendDialog open={open} immediate address={ACCOUNT} ownerBoundary="send-exit"
+      availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
+      prepareMoneyAction={async () => resumedAction()} resumeMoneyAction={async () => resumedAction()}
+      executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })}
+      onClose={() => { closes++; setOpen(false); }} onClosed={() => {}} />;
+  }
+  render(<Journey />);
+  fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+  fireEvent.click(page().getByRole("button", { name: "Continue" }));
+  fireEvent.change(page().getByRole("textbox", { name: "To" }), { target: { value: RECIPIENT } });
+  fireEvent.click(page().getByRole("button", { name: "Continue" }));
+  expect(await page().findByRole("dialog", { name: "Confirm" })).toBeTruthy();
+  fireEvent.click(page().getAllByRole("button", { name: "Back" }).at(-1)!);
+  expect(page().getByRole("textbox", { name: "To" })).toBeTruthy();
+  expect(page().queryByRole("textbox", { name: "Amount" })).toBeNull();
+  expect(page().getAllByRole("dialog")).toHaveLength(1);
+  fireEvent.click(page().getByRole("button", { name: "Continue" }));
+  await page().findByRole("dialog", { name: "Confirm" });
+  fireEvent.click(page().getByRole("button", { name: "Close send dialog" }));
+  await waitFor(() => expect(page().queryByRole("dialog")).toBeNull());
+  expect(closes).toBe(1);
+});
+
+test("Send amount navigation keeps one dialog and returns focus to the amount input", async () => {
+  render(<>
+    <button type="button">Send trigger</button>
+    <SendDialog
+      open immediate address={ACCOUNT} ownerBoundary="owner-navigation"
+      availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
+      prepareMoneyAction={async () => resumedAction()}
+      resumeMoneyAction={async () => resumedAction()}
+      executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })}
+      onClose={() => {}}
+    />
+  </>);
+  fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+  await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(page().getByRole("button", { name: "Continue" }));
+  const dialog = page().getByRole("dialog", { name: "Send" });
+  expect(page().getAllByRole("dialog")).toHaveLength(1);
+  expect(page().getByLabelText("To")).toBeTruthy();
+  expect(dialog.contains(document.activeElement)).toBe(true);
+  expect(document.activeElement).not.toBe(page().getByText("Send trigger"));
+  fireEvent.click(page().getByRole("button", { name: "Back" }));
+  expect(page().getAllByRole("dialog")).toHaveLength(1);
+  expect(document.activeElement).toBe(page().getByRole("textbox", { name: "Amount" }));
+});
+
 describe("SendDialog review", () => {
   test("defers resuming a route action until the region settles", async () => {
     const resumes: string[] = [];

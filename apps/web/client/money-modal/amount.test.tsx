@@ -4,8 +4,9 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { useState } from "react";
 
 const { page } = await import("@/tests/helpers/dom");
-const { cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
+const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { MoneyAmountDisplay, MoneyAssetPicker, matchesMoneyAssetOption, fitAmountFontSize, fitAmountText } = await import("./amount");
+const { MoneyModal, MoneyModalHeader, MoneyModalStep } = await import("./money-modal");
 const fiatUsd = { kind: "fiat", currency: "USD" } as const;
 const native = { kind: "native" } as const;
 
@@ -25,7 +26,6 @@ function AmountHarness({
   amountError,
   disabled = false,
   onSubmit,
-  autoFocus = true,
 }: {
   chipSet?: "none" | "max" | "quick-local";
   unit?: import("./amount-units").MoneyAmountUnit;
@@ -42,7 +42,6 @@ function AmountHarness({
   amountError?: string;
   disabled?: boolean;
   onSubmit?: () => void;
-  autoFocus?: boolean;
 }) {
   const [amount, setAmount] = useState(initialAmount);
   return <>
@@ -54,7 +53,6 @@ function AmountHarness({
       amountError={amountError}
       disabled={disabled}
       onSubmit={onSubmit}
-      autoFocus={autoFocus}
       availableLabel={availableLabel}
       availableAmount={availableAmount}
       assetId={assetId}
@@ -221,12 +219,26 @@ describe("MoneyAmountDisplay", () => {
     expect(input.value).toBe("1240.00");
   });
 
-  test("changes the unit and asset while keeping the amount and input focus", () => {
-    const view = render(<AmountHarness unit={native} nativeSymbol="ETH" assetId="eth" assetLabel="ETH" initialAmount="25.123456" />);
+  test("changes the unit and asset from an inside control while keeping the amount and input focus", async () => {
+    function Journey() {
+      const [cash, setCash] = useState(false);
+      const [open, setOpen] = useState(false);
+      return <><button type="button" onClick={() => setOpen(true)}>Open amount</button>
+        <MoneyModal open={open} immediate labelledBy="asset-title" onCancel={() => setOpen(false)} onClose={() => {}}>
+          <MoneyModalStep step="amount">
+            <MoneyModalHeader title="Amount" titleId="asset-title" />
+            <button type="button" onClick={() => setCash(true)}>Choose USDC</button>
+            <AmountHarness unit={cash ? fiatUsd : native} nativeSymbol={cash ? "USDC" : "ETH"}
+              assetId={cash ? "usdc" : "eth"} assetLabel={cash ? "USDC" : "ETH"} initialAmount="25.123456" />
+          </MoneyModalStep>
+        </MoneyModal></>;
+    }
+    render(<Journey />);
+    await act(async () => fireEvent.click(page().getByRole("button", { name: "Open amount" })));
     const input = amountInput();
-    expect(document.activeElement).toBe(input);
+    expect(document.activeElement === input).toBe(true);
     expect(accessibleDescription(input)).toContain("Currency: ETH");
-    view.rerender(<AmountHarness unit={fiatUsd} nativeSymbol="USDC" assetId="usdc" assetLabel="USDC" initialAmount="25.123456" />);
+    fireEvent.click(page().getByRole("button", { name: "Choose USDC" }));
     expect(input.value).toBe("25.123456");
     expect(document.activeElement).toBe(input);
     expect(accessibleDescription(input)).toContain("Currency: US dollar");
@@ -269,14 +281,26 @@ describe("MoneyAmountDisplay", () => {
     expect(page().getByText("Only 1,234.5 ETH available")).toBeTruthy();
   });
 
-  test("Enter submits when enabled, disabled input cannot edit, and autofocus respects the flag", () => {
+  test("Enter submits; only the step host focuses enabled amount inputs", async () => {
     const onSubmit = mock(() => {});
     render(<AmountHarness onSubmit={onSubmit} />);
-    expect(document.activeElement).toBe(amountInput());
+    expect(document.activeElement).not.toBe(amountInput());
     fireEvent.keyDown(amountInput(), { key: "Enter" });
     expect(onSubmit).toHaveBeenCalledTimes(1);
     cleanup();
-    render(<AmountHarness disabled autoFocus={false} onSubmit={onSubmit} />);
+    function Sheet({ disabled }: { disabled: boolean }) {
+      const [open, setOpen] = useState(false);
+      return <><button type="button" onClick={() => setOpen(true)}>Open amount</button>
+        <MoneyModal open={open} immediate labelledBy="amount-title" onCancel={() => setOpen(false)} onClose={() => {}}>
+          <MoneyModalStep step="amount"><MoneyModalHeader title="Amount" titleId="amount-title" /><AmountHarness disabled={disabled} onSubmit={onSubmit} /></MoneyModalStep>
+        </MoneyModal></>;
+    }
+    render(<Sheet disabled={false} />);
+    await act(async () => fireEvent.click(page().getByRole("button", { name: "Open amount" })));
+    expect(document.activeElement === amountInput()).toBe(true);
+    cleanup();
+    render(<Sheet disabled />);
+    await act(async () => fireEvent.click(page().getByRole("button", { name: "Open amount" })));
     expect(amountInput().disabled).toBe(true);
     expect(document.activeElement).not.toBe(amountInput());
   });

@@ -35,7 +35,6 @@ test("selecting a payment method does not request a quote until Review quote", a
       }}
       titleId="deposit-title"
       onBack={() => {}}
-      onClose={() => {}}
       onOpenRedirect={() => {}}
       />
     </MoneyModal>,
