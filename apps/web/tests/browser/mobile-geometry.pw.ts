@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
+import { cashoutFixtureWithdraw } from "./feature-map/cashout-fixture";
 
 const PEER_OFFRAMP = {
   version: 2,
@@ -195,33 +196,55 @@ async function openPeerCashOutHandle(page: Page) {
   await page.getByRole("button", { name: "Cash App" }).click();
 }
 
-test("mobile cash-out handle fields meet touch-target and zoom-safe metrics", async ({ page }) => {
+test("mobile cash-out destination review remains within the dialog", async ({ page }) => {
   await seedSignedInSession(page);
   await installApiFixtures(page);
   await page.route("**/api/funding/providers**", async (route) => {
     if (new URL(route.request().url()).searchParams.get("direction") !== "offramp") return route.fallback();
     return json(route, PEER_OFFRAMP);
   });
+  const canonical = "averyveryveryveryveryveryverylongcashappcashtag@example.com";
+  await page.route("**/api/actions/prepare", (route) => {
+    if (route.request().method() !== "POST" || route.request().postDataJSON()?.kind !== "cash-out") return route.fallback();
+    return json(route, {
+      ...cashoutFixtureWithdraw, kind: "cash-out", title: "Cash out with Peer",
+      amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1000000", direction: "spend" }],
+      metadata: { ...cashoutFixtureWithdraw.metadata, operation: "deposit", canonicalHandle: canonical,
+        approximateFiatAmount: "1", etaSeconds: 60 },
+    });
+  });
 
-  for (const [portraitPass, viewport] of [{ width: 390, height: 844 }, { width: 844, height: 390 }].entries()) {
+  for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 700 }, { width: 844, height: 390 }]) {
     await page.setViewportSize(viewport);
     await openPeerCashOutHandle(page);
-
-    const handle = page.getByRole("textbox", { name: "Cash App handle" });
+    const dialog = page.getByRole("dialog");
+    const sameDialog = await dialog.elementHandle();
+    const handle = dialog.getByRole("textbox", { name: "Cash App cashtag" });
     await expect(handle).toBeVisible();
     await expect.poll(async () => (await inputMetrics(handle)).fontSize).toBeGreaterThanOrEqual(16);
-    if (portraitPass === 0) {
-      await expect.poll(async () => (await inputMetrics(handle)).height).toBeGreaterThanOrEqual(44);
-    }
+    if (viewport.width < 400) await expect.poll(async () => (await inputMetrics(handle)).height).toBeGreaterThanOrEqual(44);
 
-    await handle.fill("$alice");
-    await page.getByRole("button", { name: "Continue" }).click();
-    const confirmation = page.getByRole("textbox", { name: "Re-enter handle" });
-    await expect(confirmation).toBeVisible();
-    await expect.poll(async () => (await inputMetrics(confirmation)).fontSize).toBeGreaterThanOrEqual(16);
-    if (portraitPass === 0) {
-      await expect.poll(async () => (await inputMetrics(confirmation)).height).toBeGreaterThanOrEqual(44);
-    }
+    await handle.fill(`$${canonical}`);
+    await dialog.getByRole("button", { name: "Review" }).click();
+    const callout = dialog.getByRole("group", { name: "Payout destination" });
+    await expect(callout).toContainText(canonical);
+    await expect(callout).toContainText("Cash App · Cashtag");
+    expect(await dialog.evaluate((element, original) => element === original, sameDialog)).toBe(true);
+    expect(await callout.evaluate((element) => {
+      const dialog = element.closest('[role="dialog"]')!;
+      const box = element.getBoundingClientRect();
+      const bounds = dialog.getBoundingClientRect();
+      return box.left >= bounds.left - 1 && box.right <= bounds.right + 1 &&
+        element.scrollWidth <= element.clientWidth + 1 && dialog.scrollWidth <= dialog.clientWidth + 1 &&
+        document.documentElement.scrollWidth <= innerWidth + 1;
+    })).toBe(true);
+    expect(await page.evaluate(() => document.activeElement instanceof HTMLInputElement && document.activeElement.type === "text")).toBe(false);
+    const edit = callout.getByRole("button", { name: "Edit Cash App cashtag" });
+    if (viewport.width < 400) expect(await optionHeight(edit)).toBeGreaterThanOrEqual(44);
+    await edit.click();
+    await expect(dialog.getByRole("textbox", { name: "Cash App cashtag" })).toHaveValue(`$${canonical}`);
+    await expect(dialog.getByRole("textbox", { name: "Cash App cashtag" })).toBeFocused();
+    expect(await dialog.evaluate((element, original) => element === original, sameDialog)).toBe(true);
   }
 });
 

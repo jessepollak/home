@@ -223,6 +223,7 @@ describe("SendDialog review", () => {
   test("keeps the prepared review on screen when the route adopts its action id", async () => {
     const resumes: string[] = [];
     const reviews: string[] = [];
+    const routes: Array<string | null> = [];
     let releasePrepare!: (action: PreparedMoneyAction) => void;
     function RoutedSend() {
       const [actionId, setActionId] = useState<string | null>(null);
@@ -233,6 +234,7 @@ describe("SendDialog review", () => {
         resumeMoneyAction={(id) => { resumes.push(id); return new Promise(() => {}); }}
         executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })}
         onReview={(id) => { reviews.push(id); setActionId(id); }}
+        onInvalidResume={() => { routes.push(null); setActionId(null); }}
         onClose={() => {}}
       />;
     }
@@ -261,6 +263,11 @@ describe("SendDialog review", () => {
     expect(page().getByText("From").closest("dl")?.querySelector("dt")?.textContent).toBe("From");
     expect(page().getByRole("button", { name: `Copy ${formatAddress(resumedAction().owner.address)}` })).toBeTruthy();
     expect(reviews).toEqual([ACTION_ID]);
+    expect(resumes).toEqual([]);
+
+    fireEvent.click(page().getAllByRole("button", { name: "Back" }).at(-1)!);
+    expect(page().queryByRole("button", { name: "Send $1.00" })).toBeNull();
+    expect(routes).toEqual([null]);
     expect(resumes).toEqual([]);
   });
 });
@@ -356,49 +363,115 @@ describe("SendDialog Peer cash-out", () => {
     expect(page().queryByText(/Cash out isn't available/)).toBeNull();
     expect(page().queryByRole("button", { name: /Send to Cash App/ })).toBeNull();
   });
-  test("shows the route only after eligible discovery and requires verbatim canonical-handle confirmation", async () => {
-    const prepares: Array<{ kind: string; params: unknown }> = [];
+  test("reviews the canonical destination and invalidates the first action on Edit", async () => {
+    const prepares: Array<{ kind: string; params: Record<string, unknown> }> = [];
     const fetches: string[] = [];
-    render(
-      <SendDialog
-        open immediate address={ACCOUNT} ownerBoundary="owner-peer" regionId="US"
-        availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
-        fetchAccountResource={async (url) => {
-          fetches.push(url);
-          return url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers") ? offrampResponse : { version: 1, recipients: [] };
-        }}
-        prepareMoneyAction={async (kind, params) => { prepares.push({ kind, params }); return cashoutAction(); }}
-        resumeMoneyAction={async () => cashoutAction()}
-        executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })}
-        onClose={() => {}}
-      />,
-    );
+    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-peer" regionId="US"
+      availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
+      fetchAccountResource={async (url) => {
+        fetches.push(url);
+        return url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers") ? offrampResponse : { version: 1, recipients: [] };
+      }}
+      prepareMoneyAction={async (kind, params) => {
+        prepares.push({ kind, params: params as Record<string, unknown> });
+        const payoutHandle = (params as { payoutHandle: string }).payoutHandle;
+        return { ...cashoutAction(), id: prepares.length === 1 ? ACTION_ID : "22222222-2222-4222-8222-222222222222",
+          metadata: { ...cashoutAction().metadata!, canonicalHandle: payoutHandle.slice(1) } } as PreparedMoneyAction;
+      }}
+      resumeMoneyAction={async () => cashoutAction()}
+      executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />);
 
     fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
     await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
-    const peer = await page().findByRole("button", { name: /Available payout apps: Cash App.*Send to Cash App.*Use Peer to send via app/ });
-    expect(peer).toBeTruthy();
-    fireEvent.click(peer);
+    fireEvent.click(await page().findByRole("button", { name: /Send to Cash App/ }));
     fireEvent.click(page().getByRole("button", { name: "Cash App" }));
-    fireEvent.input(page().getByLabelText("Cash App handle"), { target: { value: "$alice" } });
-    fireEvent.click(page().getByRole("button", { name: "Continue" }));
-    expect(page().getByText("alice")).toBeTruthy();
-    expect((page().getByRole("button", { name: "Review" }) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.input(page().getByLabelText("Re-enter handle"), { target: { value: "alice" } });
+    const handle = page().getByRole("textbox", { name: "Cash App cashtag" }) as HTMLInputElement;
+    fireEvent.input(handle, { target: { value: "$alice" } });
     fireEvent.click(page().getByRole("button", { name: "Review" }));
     expect(await page().findByRole("button", { name: "Cash out $1.00" })).toBeTruthy();
+    expect(page().queryByRole("textbox", { name: "Re-enter handle" })).toBeNull();
+    expect(prepares).toEqual([{ kind: "cash-out", params: expect.objectContaining({ payoutHandle: "$alice", amountBaseUnits: "1000000" }) }]);
+    expect(prepares[0]?.params).not.toHaveProperty("canonicalHandleConfirmation");
+    const destination = page().getByRole("group", { name: "Payout destination" });
+    expect(destination.textContent).toContain("Cash App · Cashtag");
+    expect(destination.textContent).toContain("alice");
+    expect(page().queryByText("Payout handle")).toBeNull();
+    expect(page().queryByText("Payout app")).toBeNull();
     expect(page().getByRole("button", { name: "Cash out $1.00" }).getAttribute("data-money-action-id")).toBe(ACTION_ID);
-    expect(page().getAllByRole("button", { name: "Back" }).every((button) => !button.hasAttribute("data-money-action-id"))).toBe(true);
-    expect(page().getByText("From").closest("dl")?.querySelector("dt")?.textContent).toBe("From");
+    expect(destination.querySelector("[data-money-action-id]")).toBeNull();
     expect(page().getByRole("button", { name: `Copy ${formatAddress(cashoutAction().owner.address)}` })).toBeTruthy();
     expect(document.body.textContent).toContain("≈ 1 USD");
     expect(document.body.textContent).toContain("About 1 min");
     expect(document.body.textContent).toContain("approximate, not guaranteed");
-    expect(prepares).toEqual([{ kind: "cash-out", params: expect.objectContaining({ payoutHandle: "$alice", canonicalHandleConfirmation: "alice", amountBaseUnits: "1000000" }) }]);
+    fireEvent.click(page().getByRole("button", { name: "Edit Cash App cashtag" }));
+    const editing = page().getByRole("textbox", { name: "Cash App cashtag" }) as HTMLInputElement;
+    expect(editing.value).toBe("$alice");
+    expect(document.activeElement).toBe(editing);
+    expect(page().queryByRole("button", { name: "Cash out $1.00" })).toBeNull();
+    fireEvent.input(editing, { target: { value: "$bob" } });
+    fireEvent.click(page().getByRole("button", { name: "Review" }));
+    expect(await page().findByRole("button", { name: "Cash out $1.00" })).toBeTruthy();
+    expect(page().getByRole("group", { name: "Payout destination" }).textContent).toContain("bob");
+    expect(page().getByRole("group", { name: "Payout destination" }).textContent).not.toContain("alice");
+    expect(prepares.map((item) => item.params.payoutHandle)).toEqual(["$alice", "$bob"]);
+    expect(page().getByRole("button", { name: "Cash out $1.00" }).getAttribute("data-money-action-id")).toBe("22222222-2222-4222-8222-222222222222");
     await waitFor(() => expect(fetches.filter((url) => url.startsWith("/api/funding/providers"))).toHaveLength(1));
   });
+  test("a lone dollar sign cannot be reviewed", async () => {
+    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-empty-handle" regionId="US"
+      availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
+      fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers") ? offrampResponse : { version: 1, recipients: [] }}
+      prepareMoneyAction={async () => cashoutAction()} resumeMoneyAction={async () => cashoutAction()}
+      executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />);
+    fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.click(await page().findByRole("button", { name: /Send to Cash App/ }));
+    fireEvent.click(page().getByRole("button", { name: "Cash App" }));
+    fireEvent.input(page().getByRole("textbox", { name: "Cash App cashtag" }), { target: { value: "$" } });
+    expect((page().getByRole("button", { name: "Review" }) as HTMLButtonElement).disabled).toBe(true);
+  });
 
+  test("rejects server metadata that disagrees with the entered destination", async () => {
+    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-mismatched-handle" regionId="US"
+      availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
+      fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers") ? offrampResponse : { version: 1, recipients: [] }}
+      prepareMoneyAction={async () => ({ ...cashoutAction(), metadata: { ...cashoutAction().metadata!, canonicalHandle: "someone-else" } } as PreparedMoneyAction)}
+      resumeMoneyAction={async () => cashoutAction()}
+      executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />);
+    fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.click(await page().findByRole("button", { name: /Send to Cash App/ }));
+    fireEvent.click(page().getByRole("button", { name: "Cash App" }));
+    fireEvent.input(page().getByRole("textbox", { name: "Cash App cashtag" }), { target: { value: "$alice" } });
+    fireEvent.click(page().getByRole("button", { name: "Review" }));
+    expect((await page().findByRole("alert")).textContent).toBe("Check the payout details and try again.");
+    expect((page().getByRole("textbox", { name: "Cash App cashtag" }) as HTMLInputElement).value).toBe("$alice");
+    expect(page().queryByRole("button", { name: "Cash out $1.00" })).toBeNull();
+  });
+
+  test("labels Zelle email and reviews its lowercased destination", async () => {
+    const methods = [...offrampResponse.providers[0]!.paymentMethods, { ...offrampResponse.providers[0]!.paymentMethods[0]!, id: "zelle", platform: "zelle", label: "Zelle", handleHint: "Email or phone" }];
+    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-zelle" regionId="US"
+      availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
+      fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers")
+        ? { ...offrampResponse, providers: [{ ...offrampResponse.providers[0], paymentMethods: methods }] } : { version: 1, recipients: [] }}
+      prepareMoneyAction={async () => ({ ...cashoutAction(), metadata: { ...cashoutAction().metadata!, platform: "zelle", platformLabel: "Zelle", canonicalHandle: "alice@example.com" } } as PreparedMoneyAction)}
+      resumeMoneyAction={async () => cashoutAction()}
+      executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />);
+    fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.click(await page().findByRole("button", { name: /Send to Cash App or Zelle/ }));
+    fireEvent.click(page().getByRole("button", { name: "Zelle" }));
+    fireEvent.input(page().getByRole("textbox", { name: "Zelle email or phone" }), { target: { value: "Alice@Example.COM" } });
+    fireEvent.click(page().getByRole("button", { name: "Review" }));
+    const destination = await page().findByRole("group", { name: "Payout destination" });
+    expect(destination.textContent).toContain("Zelle · Email or phone");
+    expect(destination.textContent).toContain("alice@example.com");
+  });
   test("renders cash-out handle fields with input hints", async () => {
     render(
       <SendDialog
@@ -418,21 +491,17 @@ describe("SendDialog Peer cash-out", () => {
     fireEvent.click(peer);
     fireEvent.click(page().getByRole("button", { name: "Cash App" }));
 
-    const handle = page().getByLabelText("Cash App handle") as HTMLInputElement;
+    const handle = page().getByLabelText("Cash App cashtag") as HTMLInputElement;
     expect(handle.getAttribute("autocomplete")).toBe("off");
     expect(handle.getAttribute("autocapitalize")).toBe("none");
     expect(handle.getAttribute("autocorrect")).toBe("off");
     expect(handle.getAttribute("spellcheck")).toBe("false");
-    expect(handle.getAttribute("enterkeyhint")).toBe("next");
+    expect(handle.getAttribute("enterkeyhint")).toBe("go");
 
     fireEvent.input(handle, { target: { value: "$alice" } });
-    fireEvent.click(page().getByRole("button", { name: "Continue" }));
-    const confirmation = page().getByLabelText("Re-enter handle") as HTMLInputElement;
-    expect(confirmation.getAttribute("autocomplete")).toBe("off");
-    expect(confirmation.getAttribute("autocapitalize")).toBe("none");
-    expect(confirmation.getAttribute("autocorrect")).toBe("off");
-    expect(confirmation.getAttribute("spellcheck")).toBe("false");
-    expect(confirmation.getAttribute("enterkeyhint")).toBe("done");
+    fireEvent.keyDown(handle, { key: "Enter" });
+    expect(await page().findByRole("button", { name: "Cash out $1.00" })).toBeTruthy();
+    expect(page().queryByRole("textbox", { name: "Re-enter handle" })).toBeNull();
   });
 
   test("does not show Peer when discovery is unavailable", async () => {
@@ -717,6 +786,64 @@ describe("SendDialog resume", () => {
     expect(page().queryByRole("button", { name: /Withdraw/ })).toBeNull();
   });
 
+  test("Edit and Back clear the routed cash-out action so a discarded review cannot resume", async () => {
+    const SECOND_ID = "22222222-2222-4222-8222-222222222222";
+    const routes: Array<string | null> = [];
+    const resumes: string[] = [];
+    let prepared = 0;
+    function RoutedCashout() {
+      const [actionId, setActionId] = useState<string | null>(null);
+      return <SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-routed-cashout" regionId="US" resumeActionId={actionId}
+        availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
+        fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers") ? offrampResponse : { version: 1, recipients: [] }}
+        prepareMoneyAction={async () => { prepared += 1; return { ...cashoutAction(), id: prepared === 1 ? ACTION_ID : SECOND_ID } as PreparedMoneyAction; }}
+        resumeMoneyAction={(id) => { resumes.push(id); return new Promise(() => {}); }}
+        executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })}
+        onReview={(id) => { routes.push(id); setActionId(id); }}
+        onInvalidResume={() => { routes.push(null); setActionId(null); }}
+        onClose={() => {}} />;
+    }
+    render(<RoutedCashout />);
+
+    fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.click(await page().findByRole("button", { name: /Send to Cash App/ }));
+    fireEvent.click(page().getByRole("button", { name: "Cash App" }));
+    fireEvent.input(page().getByRole("textbox", { name: "Cash App cashtag" }), { target: { value: "$alice" } });
+    fireEvent.click(page().getByRole("button", { name: "Review" }));
+    expect(await page().findByRole("button", { name: "Cash out $1.00" })).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Edit Cash App cashtag" }));
+    expect(routes).toEqual([ACTION_ID, null]);
+
+    fireEvent.click(page().getByRole("button", { name: "Review" }));
+    expect(await page().findByRole("button", { name: "Cash out $1.00" })).toBeTruthy();
+    fireEvent.click(page().getAllByRole("button", { name: "Back" }).at(-1)!);
+    expect(page().getByRole("textbox", { name: "Cash App cashtag" })).toBeTruthy();
+    expect(routes).toEqual([ACTION_ID, null, SECOND_ID, null]);
+    expect(resumes).toEqual([]);
+  });
+  test("resumed cash-out Back resolves the loaded binding and preserves the canonical entry", async () => {
+    const responses = [offrampResponse, { ...offrampResponse, providers: [] }];
+    for (const [index, response] of responses.entries()) {
+      const view = render(<SendDialog open immediate address={ACCOUNT} ownerBoundary={`owner-resumed-${index}`} regionId="US" resumeActionId={ACTION_ID}
+        availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
+        fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers") ? response : { version: 1, recipients: [] }}
+        prepareMoneyAction={async () => cashoutAction()} resumeMoneyAction={async () => cashoutAction()}
+        executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />);
+      expect(await page().findByRole("button", { name: "Cash out $1.00" })).toBeTruthy();
+      await act(async () => {});
+      fireEvent.click(page().getAllByRole("button", { name: "Back" }).at(-1)!);
+      if (index === 0) {
+        expect((page().getByRole("textbox", { name: "Cash App cashtag" }) as HTMLInputElement).value).toBe("alice");
+        expect(page().queryByRole("button", { name: "Cash out $1.00" })).toBeNull();
+      } else {
+        expect(page().getByRole("textbox", { name: "To" })).toBeTruthy();
+      }
+      view.unmount();
+    }
+  });
+
   test("resumes a pending USDC withdrawal exactly when only ETH is sendable", async () => {
     let closes = 0;
     let invalidResumes = 0;
@@ -740,7 +867,7 @@ describe("SendDialog resume", () => {
     expect(closes).toBe(1);
   });
 
-  test("shows a server CASHOUT_ refusal on the payout handle confirmation step", async () => {
+  test("shows a server CASHOUT_ refusal on the payout handle step", async () => {
     render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-server-refusal" regionId="US"
       availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
       fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers") ? offrampResponse : { version: 1, recipients: [] }}
@@ -752,12 +879,10 @@ describe("SendDialog resume", () => {
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     fireEvent.click(await page().findByRole("button", { name: /Send to Cash App/ }));
     fireEvent.click(page().getByRole("button", { name: "Cash App" }));
-    fireEvent.input(page().getByLabelText("Cash App handle"), { target: { value: "$alice" } });
-    fireEvent.click(page().getByRole("button", { name: "Continue" }));
-    fireEvent.input(page().getByLabelText("Re-enter handle"), { target: { value: "alice" } });
+    fireEvent.input(page().getByLabelText("Cash App cashtag"), { target: { value: "$alice" } });
     fireEvent.click(page().getByRole("button", { name: "Review" }));
     expect((await page().findByRole("alert")).textContent).toBe("A cash-out for this amount to this payee is still in progress. Check Activity.");
-    expect(page().getByLabelText("Re-enter handle")).toBeTruthy();
+    expect(page().getByLabelText("Cash App cashtag")).toBeTruthy();
   });
 
   test("keeps an ordinary send review open when the wallet resolves rejected", async () => {

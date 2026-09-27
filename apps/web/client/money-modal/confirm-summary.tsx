@@ -14,7 +14,7 @@ export function moneyConfirmFromRow(owner: MoneyActionOwner): MoneyConfirmRow {
   return { label: "From", value: <AddressText address={owner.address} className="justify-end" /> };
 }
 
-export function MoneyConfirmSummary({ amount, lead, rows, action }: { amount: string; lead: string; rows: readonly MoneyConfirmRow[]; action?: PreparedMoneyAction | null }) {
+export function MoneyConfirmSummary({ amount, lead, rows, action, destination }: { amount: string; lead: string; rows: readonly MoneyConfirmRow[]; action?: PreparedMoneyAction | null; destination?: ReactNode }) {
   const { containerRef, sizerRef, fontSize, overflows } = useAutoFitAmountText<HTMLDivElement>(amount, { minRem: 1.5 });
   const { prefix, numeric, suffix } = splitMoneyTickerValue(amount);
   const reviewRows: readonly MoneyConfirmRow[] = action?.networkFee?.payment === "usdc"
@@ -49,6 +49,7 @@ export function MoneyConfirmSummary({ amount, lead, rows, action }: { amount: st
         </div>
         <p className="text-sm text-muted-foreground">{lead}</p>
       </div>
+      {destination}
       <Card variant="flush">
         <CardContent inset="list">
           <dl>
