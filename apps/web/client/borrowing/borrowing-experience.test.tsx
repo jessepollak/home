@@ -621,7 +621,8 @@ describe("Borrow direct market", () => {
       prepareMoneyAction={async () => prepared("borrow")}
       executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />);
     const body = within(document.body);
-    const money = within(await body.findByRole("dialog", { name: "Borrow" }));
+    await body.findByRole("textbox", { name: "Amount" });
+    const money = within(body.getByRole("dialog", { name: "Borrow" }));
     expect(money.getByRole("textbox", { name: "Amount" })).toBeTruthy();
     fireEvent.click(money.getByRole("button", { name: "Close Borrow action" }));
     await waitFor(() => expect(closed).toBe(1));

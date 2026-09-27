@@ -6,6 +6,7 @@ import { isServerVerified, useOptionalAccountWallet, type AccountWalletClient } 
 import { useBalances } from "@/client/balances";
 import { usePresentationRegionId } from "@/client/invest/presentation-quote";
 import { deferSheet, useIdlePreload } from "@/client/money-modal/deferred-sheet";
+import { moneySheetLoading } from "@/client/money-modal";
 import { browserHomeQueryClient } from "@/client/query/query-client";
 import { selectBalanceBaseUnits } from "@/shared/balances/select";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
@@ -13,7 +14,8 @@ import type { RegionId } from "@/config/regions";
 import type { TradeDirection, TradeToken } from "@/shared/trading/contract";
 import { tradeAvailabilityOptions, tradeAvailabilityResult } from "./use-trade-availability";
 
-const TradeMoneySheet = deferSheet(() => import("./trade-money-dialog").then((module) => module.TradeMoneyDialog));
+const TradeMoneySheet = deferSheet(() => import("./trade-money-dialog").then((module) => module.TradeMoneyDialog),
+  (props) => moneySheetLoading({ title: `${props.direction === "buy" ? "Buy" : "Sell"} ${props.assetName}`, titleId: "trade-action-title", closeLabel: "Close trade dialog", onCancel: props.onClose, onClosed: props.onClosed }));
 const unavailableResource: AccountWalletClient["fetchAccountResource"] = async () => { throw new Error("Account unavailable"); };
 const unavailableBalances: AccountWalletClient["fetchBalances"] = async () => { throw new Error("Account unavailable"); };
 

@@ -117,8 +117,9 @@ describe("FinanceRow trailing action", () => {
     expect(button.closest("[data-slot=item]")?.tagName).toBe("DIV");
     expect(button.closest("[data-slot=item-actions]")).not.toBeNull();
     fireEvent.pointerDown(button);
+    fireEvent.focus(button);
     fireEvent.click(button);
-    expect(onIntent).toHaveBeenCalledTimes(1);
+    expect(onIntent).toHaveBeenCalledTimes(2);
     expect(onAction).toHaveBeenCalledTimes(1);
     expect(onAction).toHaveBeenCalledWith(button);
   });

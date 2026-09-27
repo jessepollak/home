@@ -7,6 +7,10 @@ import { ActivitySurface } from "@/client/activity/activity-panel";
 import { Button } from "@/components/ui/button";
 import { FundingActions } from "@/client/funding/funding-actions";
 import { preloadAddMoneySheet } from "@/client/funding/funding-experience";
+import { prefetchAddMoneyMethods } from "@/client/funding/funding-prefetch";
+import { moneySheetIntent } from "@/client/money-modal";
+import { browserHomeQueryClient, useHomeQueryClient } from "@/client/query/query-client";
+import { useAccountWallet } from "@/client/account/cdp-client";
 import { useSavingsRateLabel } from "@/client/savings/use-savings-rate-label";
 import { useBorrowOfferRate } from "@/client/borrowing/borrowing-experience";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
@@ -78,6 +82,8 @@ export function HomePanel({
   });
   const activityHeading = <HomeSectionHeading id="activity-title">Activity</HomeSectionHeading>;
   const routing = useOptionalHomeShellRouting();
+  const wallet = useAccountWallet();
+  const queryClient = useHomeQueryClient(browserHomeQueryClient());
   const fundingPromptRef = useRef<HTMLButtonElement>(null);
   const restoreFundingPromptRef = useRef(false);
   const addMoneyPrompt = routing ? (
@@ -85,7 +91,7 @@ export function HomePanel({
       ref={fundingPromptRef}
       variant="outline"
       size="touch"
-      onPointerDown={() => void preloadAddMoneySheet()}
+      {...moneySheetIntent(preloadAddMoneySheet, () => prefetchAddMoneyMethods(wallet, regionId, regionReady, queryClient))}
       onClick={() => {
         restoreFundingPromptRef.current = routing.setFlow("add-money", { mode: "push" });
       }}

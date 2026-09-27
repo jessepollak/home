@@ -42,6 +42,7 @@ type FinanceRowInteractionProps =
   | {
       action: FinanceRowAction;
       onActivate?: never;
+      onIntent?: never;
       activateLabel?: never;
       attention?: never;
       chevron?: never;
@@ -51,6 +52,7 @@ type FinanceRowInteractionProps =
   | {
       action?: never;
       onActivate?: (opener: HTMLElement) => void;
+      onIntent?: () => void;
       activateLabel?: string;
       attention?: string;
       chevron?: boolean;
@@ -99,6 +101,7 @@ function FinanceRow({
   valueTone = "default",
   action,
   onActivate,
+  onIntent,
   activateLabel,
   attention,
   chevron = true,
@@ -195,6 +198,7 @@ function FinanceRow({
             loading={action.pending}
             onClick={(event) => action.onAction(event.currentTarget)}
             onPointerDown={action.onIntent}
+            onFocus={action.onIntent}
           >
             {action.label}
           </Button>
@@ -228,6 +232,8 @@ function FinanceRow({
                   aria-describedby={hintId}
                   aria-expanded={disclosure?.expanded}
                   aria-controls={disclosure?.expanded ? disclosure.controls : undefined}
+                  onPointerDown={onIntent}
+                  onFocus={onIntent}
                   onClick={(event) => activation(event.currentTarget)}
                 />
               ),

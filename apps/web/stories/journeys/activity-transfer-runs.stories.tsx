@@ -160,10 +160,11 @@ export const HomeFeedMobile: Story = {
     const children = within(recent).getAllByRole("button", { description: "View received USDC transaction details" });
     await expect(children).toHaveLength(4);
     await userEvent.click(children[0]!);
-    const dialog = await screen.findByRole("dialog", { name: "Received" });
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Received" }).querySelector('[data-money-step="loading"]')).toBeNull());
+    const dialog = screen.getByRole("dialog", { name: "Received" });
     await expect(dialog).toBeVisible();
     await userEvent.click(within(dialog).getByRole("button", { name: "Close Received details" }));
-    await waitFor(() => expect(children[0]).toHaveFocus());
+    await waitFor(() => expect(within(recent).getAllByRole("button", { description: "View received USDC transaction details" })[0]).toHaveFocus());
     summary.focus();
     await userEvent.keyboard(" ");
     await expect(summary).toHaveAttribute("aria-expanded", "false");

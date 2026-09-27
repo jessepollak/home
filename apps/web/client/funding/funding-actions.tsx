@@ -17,6 +17,9 @@ import { useAccountWallet } from "@/client/account/cdp-client";
 import { useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 import { uiBoundary } from "@/client/account/owner-keys";
 import { useIdlePreload } from "@/client/money-modal/deferred-sheet";
+import { moneySheetIntent } from "@/client/money-modal";
+import { browserHomeQueryClient, useHomeQueryClient } from "@/client/query/query-client";
+import { prefetchAddMoneyMethods } from "./funding-prefetch";
 import { FundingExperienceForWallet, preloadAddMoneySheet } from "./funding-experience";
 import type { AddMoneyStep } from "./add-money-dialog";
 
@@ -53,6 +56,7 @@ export function FundingActionsForWallet({
 }) {
   const pathname = usePathname();
   const routing = useOptionalHomeShellRouting();
+  const queryClient = useHomeQueryClient(browserHomeQueryClient());
   const [userOpen, setUserOpen] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const openedInAppRef = useRef(false);
@@ -62,6 +66,7 @@ export function FundingActionsForWallet({
     mountedServerSnapshot,
   );
   useIdlePreload(preloadAddMoneySheet, uiBoundary(wallet) !== null);
+  const intent = moneySheetIntent(preloadAddMoneySheet, () => prefetchAddMoneyMethods(wallet, regionId, regionReady, queryClient));
   const routedFlow = routing?.state.flow === "add-money" || routing?.state.flow === "receive"
     ? routing.state.flow
     : null;
@@ -134,7 +139,7 @@ export function FundingActionsForWallet({
     <>
       <Button
         size="touch"
-        onPointerDown={() => void preloadAddMoneySheet()}
+        {...intent}
         onClick={() => {
           void preloadAddMoneySheet();
           setDismissed(false);

@@ -402,7 +402,7 @@ describe("pushed funding history", () => {
     fireEvent.click(page().getByRole("button", { name: "Add money in Cash" }));
     expect(`${window.location.pathname}${window.location.search}`).toBe("/cash?flow=add-money");
     expect(window.history.state?.__homeFundingFlowPushed).toBe(true);
-    fireEvent.click(within(await page().findByRole("dialog", { name: "Add money" })).getByRole("button", { name: /Receive crypto/ }));
+    fireEvent.click(await page().findByRole("button", { name: /Receive crypto/ }));
     await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe("/cash?flow=receive"));
     expect(window.history.state?.__homeFundingFlowPushed).toBe(true);
     fireEvent.click(within(await page().findByRole("dialog", { name: "Receive" })).getByRole("button", { name: "Close add money" }));
@@ -1201,8 +1201,8 @@ describe("Home shell routing and intents", () => {
       fireEvent.scroll(main);
       opener.focus();
       fireEvent.click(opener);
-      const details = await page().findByRole("dialog", { name: "Received" });
-      fireEvent.click(within(details).getByRole("button", { name: "Bitcoin Asset" }));
+      await page().findByRole("dialog", { name: "Received" });
+      fireEvent.click(await page().findByRole("button", { name: "Bitcoin Asset" }));
       expect(window.location.pathname).toBe(`/investments/${btc}`);
       expect(window.history.state?.__investmentsHoldingOpenedInApp).toBe(true);
       expect(page().getByRole("region", { name: "Holding detail" }).textContent).toContain(erc20AssetKey(BASE_CBBTC.address));

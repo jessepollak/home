@@ -8,9 +8,12 @@ import {
 } from "@/client/account/cdp-client";
 import { useBalances } from "@/client/balances";
 import { preloadAddMoneySheet } from "@/client/funding/funding-experience";
+import { prefetchAddMoneyMethods } from "@/client/funding/funding-prefetch";
+import { browserHomeQueryClient, useHomeQueryClient } from "@/client/query/query-client";
 import { useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 import { usePresentationRegionId } from "@/client/invest/presentation-quote";
 import { deferSheet } from "@/client/money-modal/deferred-sheet";
+import { moneySheetIntent, moneySheetLoading } from "@/client/money-modal";
 import {
   nextSavingsRateExpiryAt,
   summarizeSavingsPortfolio,
@@ -37,10 +40,8 @@ import { CashOverview, SavingsDetail } from "./cash-overview";
 import { savingsWithdrawTargets } from "./savings-withdraw-targets";
 
 const SavingsMoneySheet = deferSheet(() =>
-  import("@/client/savings/savings-actions").then(
-    (module) => module.SavingsMoneyDialog
-  )
-);
+  import("@/client/savings/savings-actions").then((module) => module.SavingsMoneyDialog),
+  (props) => moneySheetLoading({ title: props.mode === "deposit" ? "Deposit" : "Withdraw", titleId: "savings-action-title", closeLabel: `Close ${props.mode} dialog`, onCancel: props.onClose, onClosed: props.onClosed }));
 type View = "cash" | "savings";
 type Mode = "deposit" | "withdraw";
 
@@ -53,7 +54,7 @@ export type CashExperienceProps = {
   balanceStale?: boolean;
   onRetryBalances?: () => void;
   onAddMoney: () => void;
-  onAddMoneyPointerDown?: () => void;
+  onAddMoneyIntent?: () => void;
   fetchVaults?: (signal?: AbortSignal) => Promise<unknown>;
   now?: () => number;
   prepareMoneyAction: (
@@ -73,7 +74,7 @@ export function CashExperience({
   balanceStale = false,
   onRetryBalances,
   onAddMoney,
-  onAddMoneyPointerDown,
+  onAddMoneyIntent,
   fetchVaults,
   now = Date.now,
   prepareMoneyAction,
@@ -369,7 +370,7 @@ export function CashExperience({
           growthAuthority={growthAuthority}
           onOpenSavings={onOpenSavings}
           onAddMoney={onAddMoney}
-          onAddMoneyPointerDown={onAddMoneyPointerDown}
+          onAddMoneyIntent={onAddMoneyIntent}
           onRetryBalances={onRetryBalances}
         />
       ) : (
@@ -383,6 +384,7 @@ export function CashExperience({
           growthAuthority={growthAuthority}
           requestWithdrawChoice={choiceRequest}
           actionsAvailable={Boolean(session?.smartAccount)}
+          onSavingsIntent={moneySheetIntent(SavingsMoneySheet.preload).onFocus}
           onDepositVault={(candidate) => open("deposit", candidate)}
           onWithdrawVault={(candidate) => open("withdraw", candidate)}
           onRetryVaults={() => void query.refetch()}
@@ -423,6 +425,7 @@ export function AuthenticatedCashExperience(props: {
   const account = useAccountWallet();
   const region = usePresentationRegionId();
   const routing = useOptionalHomeShellRouting();
+  const queryClient = useHomeQueryClient(browserHomeQueryClient());
   const session = isServerVerified(account) ? account.session : null;
   const balancesSession = session?.smartAccount
     ? {
@@ -451,7 +454,7 @@ export function AuthenticatedCashExperience(props: {
       }
       balanceStale={snapshot?.stale === true || balances.refreshError === true}
       onRetryBalances={balancesSession ? () => void balances.retry() : undefined}
-      onAddMoneyPointerDown={() => void preloadAddMoneySheet()}
+      onAddMoneyIntent={moneySheetIntent(preloadAddMoneySheet, () => prefetchAddMoneyMethods(account, region, regionReady, queryClient)).onFocus}
       onAddMoney={() => {
         void preloadAddMoneySheet();
         routing?.setFlow("add-money", { mode: "push" });

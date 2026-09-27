@@ -92,8 +92,9 @@ describe("Cash L2", () => {
   test("routes an inbound deposit to the highest-rate vault and normalizes Back history", async () => {
     cached();
     render(<Route initialFlow="save-deposit" snapshot={held} />);
-    const dialog = await page().findByRole("dialog", { name: "Deposit" });
-    expect(within(dialog).getByText("$234.00 available")).toBeTruthy();
+    await page().findByRole("dialog", { name: "Deposit" });
+    await page().findByText("$234.00 available");
+    const dialog = page().getByRole("dialog", { name: "Deposit" });
     fireEvent.change(within(dialog).getByRole("textbox", { name: "Amount" }), { target: { value: "2" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
     await waitFor(() => expect(preparedInputs).toEqual([{ kind: "deposit", vaultAddress: GAUNTLET, amountBaseUnits: "2000000" }]));

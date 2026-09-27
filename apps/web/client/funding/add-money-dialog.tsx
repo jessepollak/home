@@ -30,6 +30,7 @@ import {
 import { formatAddress } from "@/shared/formatting";
 import type { FundingProviderCustomerSummary } from "@/shared/funding/contracts/provider-customers";
 import { MoneyModal, MoneyModalActions, MoneyModalBody, MoneyModalHeader, MoneyModalStep } from "@/client/money-modal";
+import { MethodShimmerRow } from "./method-skeleton";
 import { ReceiveQr } from "./receive-qr";
 import {
   FundingOrderFlow,
@@ -305,20 +306,6 @@ function MethodRow({
       <ItemActions aria-hidden="true" className="@max-[12rem]/method-list:hidden">
         <ChevronRight className="size-4 text-muted-foreground rtl:-scale-x-100" />
       </ItemActions>
-    </Item>
-  );
-}
-
-function MethodShimmerRow() {
-  return (
-    <Item aria-hidden="true" className="h-auto flex-nowrap items-center">
-      <ItemMedia variant="avatar">
-        <Skeleton className="size-full" data-shimmer="deposit-method" />
-      </ItemMedia>
-      <ItemContent className="min-w-0">
-        <Skeleton className="h-[1.375em] w-24" data-shimmer="deposit-method" />
-        <Skeleton className="h-[1.5em] w-44 max-w-full" data-shimmer="deposit-method" />
-      </ItemContent>
     </Item>
   );
 }

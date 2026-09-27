@@ -10,13 +10,16 @@ import {
 import { dataOwnerKey, uiBoundary } from "@/client/account/owner-keys";
 import { deferSheet } from "@/client/money-modal/deferred-sheet";
 import type { AddMoneyStep, ProvidersStatus } from "./add-money-dialog";
+import { addMoneySheetLoading } from "./method-skeleton";
 import { shouldPollFundingOrder } from "./order-polling";
 import { readFundingOrder, type FundingOrderSummary } from "@/shared/funding/contracts/order";
 import { readProviderBindings, type FundingBinding } from "@/shared/funding/contracts/providers";
 import { readFundingProviderCustomers, type FundingProviderCustomerSummary } from "@/shared/funding/contracts/provider-customers";
 import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
+import { fundingProvidersOptions, fundingOpenOrderOptions } from "./funding-prefetch";
 
-const AddMoneySheet = deferSheet(() => import("./add-money-dialog").then((module) => module.AddMoneyDialog));
+const AddMoneySheet = deferSheet(() => import("./add-money-dialog").then((module) => module.AddMoneyDialog),
+  addMoneySheetLoading);
 
 export const preloadAddMoneySheet = AddMoneySheet.preload;
 
@@ -157,19 +160,8 @@ function FundingExperienceBoundary({
     open && regionReady && !signedOut && regionId !== "GLOBAL" && queryOwnerKey,
   );
   const providerQuery = useHomeQuery({
-    queryKey: queryOwnerKey
-      ? ownerQueryKey(queryOwnerKey, "funding-providers", regionId)
-      : ["unauthenticated", "funding-providers-disabled", regionId],
+    ...fundingProvidersOptions(queryOwnerKey, regionId, wallet.fetchAccountResource),
     enabled: queryEnabled,
-    staleTime: 15_000,
-    retry: false,
-    refetchOnWindowFocus: false,
-    meta: queryOwnerKey ? ownerQueryMeta(queryOwnerKey, "owner") : undefined,
-    queryFn: ({ signal }) =>
-      wallet.fetchAccountResource(
-        `/api/funding/providers?region=${encodeURIComponent(regionId)}&direction=onramp`,
-        { signal },
-      ),
   });
   const providersFailed = queryEnabled && providerQuery.isError;
   const providersStatus: ProvidersStatus = !regionReady
@@ -198,19 +190,8 @@ function FundingExperienceBoundary({
     queryFn: ({ signal }) => wallet.fetchAccountResource(`/api/funding/provider-customers?region=${encodeURIComponent(regionId)}`, { signal }),
   });
   const ordersQuery = useHomeQuery({
-    queryKey: queryOwnerKey
-      ? ownerQueryKey(queryOwnerKey, "funding-open-order", regionId)
-      : ["unauthenticated", "funding-open-order-disabled", regionId],
+    ...fundingOpenOrderOptions(queryOwnerKey, regionId, wallet.fetchAccountResource),
     enabled: queryEnabled,
-    staleTime: 15_000,
-    retry: false,
-    refetchOnWindowFocus: false,
-    meta: queryOwnerKey ? ownerQueryMeta(queryOwnerKey, "owner") : undefined,
-    queryFn: ({ signal }) =>
-      wallet.fetchAccountResource(
-        `/api/funding/orders?region=${encodeURIComponent(regionId)}`,
-        { signal },
-      ),
   });
 
   useEffect(() => {

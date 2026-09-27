@@ -22,11 +22,13 @@ import {
 import { markHomePerformance } from "@/client/observability/perf-marks";
 import { useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 import { deferSheet, useIdlePreload } from "@/client/money-modal/deferred-sheet";
+import { moneySheetIntent, moneySheetLoading } from "@/client/money-modal";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import type { TransferAssetAvailability } from "@/shared/transfers/types";
 import type { RegionId } from "@/config/regions";
 
-const SendSheet = deferSheet(() => import("./send-dialog").then((module) => module.SendDialog));
+const SendSheet = deferSheet(() => import("./send-dialog").then((module) => module.SendDialog),
+  (props) => moneySheetLoading({ title: "Send", titleId: "send-title", closeLabel: "Close send dialog", onCancel: props.onClose, onClosed: props.onClosed }));
 
 export type TransferActionsProps = {
   initialOpen?: boolean;
@@ -130,7 +132,7 @@ export function TransferActionsForWallet({
         variant="outline"
         size="touch"
         disabled={!boundary}
-        onPointerDown={() => void SendSheet.preload()}
+        {...moneySheetIntent(SendSheet.preload)}
         onClick={openSend}
       >
         Send
