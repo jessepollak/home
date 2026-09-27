@@ -4,6 +4,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { getSqlExecutor, type SqlExecutor } from "./sql";
 import { backfillOperatorRegistry } from "@/server/operator-events/backfill";
+import { backfillRecordCustomerIds } from "@/server/customers/record-ids-backfill";
 import { migrationGateDecision } from "./migration-gate";
 
 type Migration = {
@@ -35,6 +36,10 @@ if (!decision.run) {
         if (migration.id === "db/011_operator_registry.sql") {
           const counts = await backfillOperatorRegistry(transaction);
           console.log(`Operator registry backfill: ${counts.customers} customers, ${counts.events} events.`);
+        }
+        if (migration.id === "db/017_record_customer_ids.sql") {
+          const counts = await backfillRecordCustomerIds(transaction);
+          console.log(`Record customer IDs backfill: updated ${JSON.stringify(counts.updated)}, unresolved ${JSON.stringify(counts.unresolved)}.`);
         }
         await transaction.query(
           "INSERT INTO schema_migrations (name) VALUES ($1)",

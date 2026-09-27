@@ -9,7 +9,9 @@ import type { OperatorEventInput } from "@/server/operator-events/events";
 
 const STATEMENT_TIMEOUT = "SET LOCAL statement_timeout = '5s'";
 
-type Resolution = { id: string; status: string; created: boolean };
+type Resolution = { id: string; status: string; created: boolean; credentialId: string; walletId: string | null };
+type RecordIds = { customerId: string; credentialId: string; walletId: string | null };
+type Owner = { accountProvider: VerifiedAccountSession["accountProvider"]; subject: string; address?: string | null };
 type CustomerRow = { id: string; status: string; first_seen_at: Date; invite_code: string | null };
 type CredentialRow = { id: string; customer_id: string };
 type CreateOptions = { create: true; at?: Date; email?: string | null; country?: string | null; inviteCode?: string | null };
@@ -22,12 +24,15 @@ export class CustomerResolver {
   async resolveCustomer(session: VerifiedAccountSession, options: CreateOptions): Promise<Resolution>;
   async resolveCustomer(session: VerifiedAccountSession, options: ReadOptions | CreateOptions): Promise<Resolution | null> {
     if (!options.create) {
-      const result = await this.sql.query<CustomerRow>(
-        `SELECT c.id,c.status FROM customer_credentials cr JOIN customers c ON c.id=cr.customer_id
+      const result = await this.sql.query<{ id: string; status: string; credential_id: string; wallet_id: string | null }>(
+        `SELECT c.id,c.status,cr.id AS credential_id,w.id AS wallet_id
+         FROM customer_credentials cr JOIN customers c ON c.id=cr.customer_id
+         LEFT JOIN customer_wallets w ON w.credential_id=cr.id AND w.chain_id=$3 AND w.address=$4
          WHERE cr.account_provider=$1 AND cr.subject=$2`,
-        [session.accountProvider, session.user.subject],
+        [session.accountProvider, session.user.subject, session.smartAccount?.chainId ?? BASE_CHAIN_ID, session.smartAccount?.address.toLowerCase() ?? null],
       );
-      return result.rows[0] ? { id: result.rows[0].id, status: result.rows[0].status, created: false } : null;
+      const row = result.rows[0];
+      return row ? { id: row.id, status: row.status, created: false, credentialId: row.credential_id, walletId: row.wallet_id } : null;
     }
     return this.sql.transaction(async (tx) => {
       await tx.query(STATEMENT_TIMEOUT);
@@ -113,7 +118,25 @@ export class CustomerResolver {
         [customer.id, credential.id, session.smartAccount.chainId, session.smartAccount.address.toLowerCase()],
       );
     }
-    return { id: customer.id, status: customer.status, created };
+    const wallet = session.smartAccount ? (await tx.query<{ id: string }>(
+      `SELECT id FROM customer_wallets WHERE chain_id=$1 AND address=$2 AND credential_id=$3`,
+      [session.smartAccount.chainId, session.smartAccount.address.toLowerCase(), credential.id],
+    )).rows[0] : null;
+    return { id: customer.id, status: customer.status, created, credentialId: credential.id, walletId: wallet?.id ?? null };
+  }
+
+  async resolveOwner(owner: Owner, at: Date): Promise<RecordIds> {
+    return this.sql.transaction(async (tx) => {
+      await tx.query(STATEMENT_TIMEOUT);
+      const session: VerifiedAccountSession = {
+        accountProvider: owner.accountProvider,
+        user: { subject: owner.subject },
+        smartAccount: owner.address
+          ? { chainId: BASE_CHAIN_ID, address: owner.address.toLowerCase() as `0x${string}` } : null,
+      };
+      const result = await this.resolveInTransaction(tx, session, at, "activity");
+      return { customerId: result.id, credentialId: result.credentialId, walletId: result.walletId };
+    });
   }
 
   async record(event: OperatorEventInput): Promise<boolean> {

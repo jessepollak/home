@@ -45,6 +45,9 @@ describePostgres("PostgresFundingOrderStore production contract", () => {
     await inTestSchema(migration);
     await inTestSchema(hostedRetirementMigration);
     await inTestSchema(sandboxMigration);
+    for (const file of ["001_actions.sql", "007_funding_provider_customers.sql", "008_funding_provider_user_tokens.sql", "011_operator_registry.sql", "017_record_customer_ids.sql"]) {
+      await inTestSchema(await readMigrationSql(file));
+    }
     sql = createPostgresSqlExecutor(connectionString!, { schema: TEST_SCHEMA });
     store = new PostgresFundingOrderStore(sql);
   });
