@@ -1,7 +1,8 @@
 const STORYBOOK_HOST = /^home-storybook-[a-z0-9-]+\.vercel\.app$/i;
 const STORY_ID = /^[a-z0-9][a-z0-9-]*--[a-z0-9][a-z0-9-]*$/;
 const STORYBOOK_LINK = /\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g;
-const STORY_TOKEN = /`story:([a-z0-9-]+)`/g;
+const STORY_TOKEN = /(?<![\w/-])(`?)story:([a-z0-9-]+)\1(?![\w-])/g;
+const LEGACY_PENDING = "Storybook review board pending for current head";
 const BLOCK_START = "<!-- review-links:start -->";
 const BLOCK_END = "<!-- review-links:end -->";
 
@@ -72,9 +73,9 @@ export function rewriteReviewLinks(body: string, { host, revision, insertBoard =
   const focus: string[] = [];
   for (const line of lines) {
     if (!tableRow(line)) continue;
-    for (const match of line.matchAll(/`story:([a-z0-9-]+)`|\[[^\]]*\]\((https?:\/\/[^\s)]+)\)/g)) {
-      const url = match[2] ? reviewUrl(match[2]) : null;
-      const id = match[1] ?? (url?.searchParams.get("id") === "review-boards--changes" ? url.searchParams.get("frame") : null);
+    for (const match of line.matchAll(new RegExp(`${STORY_TOKEN.source}|\\[[^\\]]*\\]\\((https?:\\/\\/[^\\s)]+)\\)`, "g"))) {
+      const url = match[3] ? reviewUrl(match[3]) : null;
+      const id = match[2] ?? (url?.searchParams.get("id") === "review-boards--changes" ? url.searchParams.get("frame") : null);
       if (id && STORY_ID.test(id) && !focus.includes(id)) focus.push(id);
     }
   }
@@ -103,7 +104,7 @@ export function rewriteReviewLinks(body: string, { host, revision, insertBoard =
       continue;
     }
     if (tableRow(line)) {
-      retained.push(line.replace(STORY_TOKEN, (token, id: string) => STORY_ID.test(id)
+      retained.push(line.replaceAll(LEGACY_PENDING, "—").replace(STORY_TOKEN, (token, _tick: string, id: string) => STORY_ID.test(id)
         ? `[Board](${changesUrl(host, revision, focus, id)})` : token).replace(STORYBOOK_LINK, (link, text: string, input: string) => {
         const url = reviewUrl(input);
         if (!url) return link;
@@ -111,7 +112,7 @@ export function rewriteReviewLinks(body: string, { host, revision, insertBoard =
           ? changesUrl(host, revision, focus, url.searchParams.get("frame") ?? undefined)
           : refreshCurated(url, host, revision)})`;
       }));
-    } else {
+    } else if (line.trim() !== LEGACY_PENDING) {
       retained.push(line);
     }
   }

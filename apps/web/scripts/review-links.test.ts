@@ -148,3 +148,14 @@ test("matches the board insertion rule against title and changed files", () => {
   expect(needsPreviewBoard("fix(buttons): adjust", ["flow.stories.ts"])).toBe(true);
   expect(needsPreviewBoard("fix(api): adjust", ["apps/web/client/hooks/use-api.ts", "apps/web/stories/journeys/flow.stories/metadata.tsx"])).toBe(false);
 });
+
+test("accepts bare story tokens and clears the old pending placeholder", () => {
+  const body = preview("| Saved | story:flow--first | image |\n| Pending | Storybook review board pending for current head | image |\n",
+    "Storybook review board pending for current head\n\n");
+  const result = rewriteReviewLinks(body, options);
+  expect(result).not.toContain("Storybook review board pending");
+  expect(getLinks(result, "Board")[0].searchParams.get("frame")).toBe("flow--first");
+  expect(getLinks(result, "Review board")[0].searchParams.get("focus")).toBe("flow--first");
+  expect(result).toContain("| Pending | — | image |");
+  expect(rewriteReviewLinks(result, options)).toBe(result);
+});
