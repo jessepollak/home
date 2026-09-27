@@ -22,7 +22,8 @@ import type {
   ActivityLedgerAsset, ActivityLedgerEntry, ActivityLedgerFact, ActivityLedgerGroup, ActivityLedgerItem, Transaction,
 } from "./activity-ledger";
 import type { ActivityTransfer } from "./types";
-import { cashoutMoney, presentCashout, type CashoutStage } from "./cash-out-presenter";
+import type { ActivityOrder, ActivityFundingOrder, ActivityCashoutOrder } from "@/shared/activity/contract-orders";
+import { cashoutMoney, cashoutOrderAction, presentCashout, type CashoutStage } from "./cash-out-presenter";
 
 const directAssets = getDirectPortfolioAssets();
 const portfolioAssetKeyById: ReadonlyMap<string, string> = new Map(
@@ -45,7 +46,7 @@ function detailAsset(mark: { assetKey: string; name: string; symbol: string; ima
   };
 }
 
-type Options = { regionId?: RegionId; timeZone?: string };
+type Options = { regionId?: RegionId; timeZone?: string; now?: number };
 
 function transactionFor(hash: string | undefined): Transaction | undefined {
   if (!hash) return undefined;
@@ -353,6 +354,84 @@ function cashoutItem(
   };
 }
 
+function fundingItem(order: ActivityFundingOrder, options: Options): ActivityLedgerItem {
+  const full = (value: string) => formatPresentationDate(value, { style: "activity-full", ...options });
+  const created = { status: "complete" as const, title: "Order created", time: full(order.createdAt) };
+  const received = { status: "complete" as const, title: "Payment received" };
+  const steps = order.status !== "ambiguous" && ["waiting-customer", "waiting-provider", "waiting-chain", "waiting-home"].includes(order.status)
+    ? order.stage === "awaiting-payment" ? [created, { status: "current" as const, title: "Waiting for your payment", ...(order.expiresAt ? { time: `Pay by ${full(order.expiresAt)}` } : {}) }]
+      : order.stage === "provider-processing" ? [created, received, { status: "current" as const, title: `Waiting on ${order.providerName}` }]
+        : order.stage === "arriving" ? [created, received, { status: "complete" as const, title: `Sent by ${order.providerName}` }, { status: "current" as const, title: "Arriving on Base" }]
+          : undefined
+    : undefined;
+  const nextAction: ActivityLedgerItem["nextAction"] = order.status === "waiting-customer" && order.resumable && order.region === options.regionId
+    ? order.instruction === "redirect" || order.instruction === "embed"
+      ? { kind: "resume", label: `Continue with ${order.providerName}` }
+      : { kind: "complete-payment", label: "Complete payment" }
+    : order.status === "ambiguous" && order.stage === "unconfirmed" && order.clearableAt !== null &&
+        Date.parse(order.clearableAt) <= (options.now ?? Date.now())
+      ? { kind: "clear-order", label: "Clear order" } : undefined;
+  const fiat = `${order.fiatAmount} ${order.fiatCurrency}`;
+  const parts = order.tokenAmountAtomic === null ? { amount: order.fiatAmount, symbol: order.fiatCurrency }
+    : formatPresentationTokenAmountParts(order.tokenAmountAtomic, order.asset.decimals, order.asset.symbol, { regionId: options.regionId });
+  const amount = order.tokenAmountAtomic === null ? fiat : order.asset.symbol === "USDC"
+    ? formatPresentationCashAmount(order.tokenAmountAtomic, order.asset.decimals, "USD", { regionId: options.regionId })
+    : joinAmountAndSymbol(parts.amount, parts.symbol);
+  return {
+    family: "funding-order", id: order.id, status: order.status, timestamp: order.updatedAt, updatedAt: order.updatedAt,
+    dateLabel: formatPresentationDate(order.updatedAt, { style: "activity-short", ...options }), fullDateLabel: full(order.updatedAt),
+    title: "Add money", amount: `+${amount}`, detailAmount: joinAmountAndSymbol(`+${parts.amount}`, parts.symbol),
+    detailAmountParts: { amount: `+${parts.amount}`, symbol: parts.symbol },
+    direction: "in", mark: { kind: "glyph", glyph: "cash" }, activateLabel: "View Add money details",
+    ...(order.stage === "cleared" ? { statusLabel: "Cleared" } : order.stage === "cancelled" ? { statusLabel: "Cancelled" } : {}),
+    ...(steps ? { steps } : {}), ...(nextAction ? { nextAction } : {}),
+    ...(order.status === "ambiguous" && order.stage === "unconfirmed" && order.clearableAt && Date.parse(order.clearableAt) > (options.now ?? Date.now())
+      ? { ownerSentence: { title: "We can't confirm this yet", description: `Don't try again. You can clear it after ${full(order.clearableAt)}.` } } : {}),
+    detail: { family: "funding-order", provider: order.providerName, paymentMethod: order.paymentMethodLabel, orderId: order.id },
+  };
+}
+
+function cashoutOrderItem(order: ActivityCashoutOrder, withdraw: RecentMoneyActionOperation | undefined, options: Options): ActivityLedgerItem {
+  const action = cashoutOrderAction(order, withdraw);
+  const returning = withdraw !== undefined && withdraw.status !== "failed" &&
+    ["waiting-provider", "waiting-chain", "reversed", "ambiguous"].includes(order.status);
+  const money = (atoms: string) => cashoutMoney(atoms, order.decimals, options.regionId);
+  const title = `Cash out to ${order.platformLabel}`;
+  const step = returning || order.status === "waiting-chain" ? "Returning to your balance"
+    : order.status === "waiting-provider"
+      ? ["submitted", "awaiting-buyer"].includes(order.state) ? "Waiting for a buyer"
+        : ["matched", "delivering"].includes(order.state) ? "Buyer paying you" : null
+      : null;
+  const facts: { label: string; value: string }[] = [];
+  if (BigInt(order.filledAtomic) > BigInt(0) && BigInt(order.filledAtomic) < BigInt(order.amountAtomic)) {
+    facts.push({ label: "Paid", value: money(order.filledAtomic) });
+  }
+  if (BigInt(order.returnedAtomic) > BigInt(0)) facts.push({ label: "Returned", value: money(order.returnedAtomic) });
+  return {
+    family: "cash-out-order", id: order.id, status: returning ? "waiting-chain" : order.status, timestamp: order.updatedAt, updatedAt: order.updatedAt,
+    dateLabel: formatPresentationDate(order.updatedAt, { style: "activity-short", ...options }),
+    fullDateLabel: formatPresentationDate(order.updatedAt, { style: "activity-full", ...options }),
+    title, amount: `−${money(order.amountAtomic)}`, detailAmount: `−${money(order.amountAtomic)}`,
+    direction: "out", mark: { kind: "glyph", glyph: "cash" }, activateLabel: `View ${title} details`,
+    ...(order.status === "refunded" ? { statusLabel: "Returned" } : {}),
+    ...(step ? { steps: [{ status: "current" as const, title: step }] } : {}),
+    ...(returning ? { ownerSentence: { title: "Returning to your balance" } }
+      : order.status === "reversed" ? {
+        ownerSentence: { title: `${money(order.remainingAtomic)} came back`, description: "Withdraw it to your balance." },
+      } : {}),
+    ...(action === "withdraw-returned-funds" ? { nextAction: { kind: action, label: `Withdraw ${money(order.remainingAtomic)}` } }
+      : action === "cancel-cash-out" ? { nextAction: { kind: action, label: `Cancel cash-out ${money(order.remainingAtomic)}` } } : {}),
+    detail: {
+      family: "cash-out-order", provider: order.providerName, payoutMethod: order.platformLabel, orderId: order.orderId ?? order.id,
+      ...(facts.length > 0 ? { facts } : {}),
+    },
+  };
+}
+
+function orderItem(order: ActivityOrder, withdraw: RecentMoneyActionOperation | undefined, options: Options): ActivityLedgerItem {
+  return order.kind === "funding" ? fundingItem(order, options) : cashoutOrderItem(order, withdraw, options);
+}
+
 export function presentActivityLedgerEntries(
   pairs: readonly { item: ActivityLedgerItem; source: ActivityFeedItem }[],
   options: Options,
@@ -402,6 +481,7 @@ export function presentActivityLedgerEntries(
 export function presentActivityLedgerItems(items: readonly ActivityFeedItem[], options: Options): ActivityLedgerItem[] {
   return items.map((item) => item.kind === "transfer"
     ? transferItem(item.transfer, options)
+    : item.kind === "order" ? orderItem(item.order, item.withdraw, options)
     : item.operation.action.kind === "cash-out" &&
       !(item.operation.action.metadata?.product === "cashout" && item.operation.action.metadata.operation === "withdraw")
       ? cashoutItem(item.operation, item.withdraw, options)

@@ -261,4 +261,48 @@ describePostgres("cash-out lockout eligibility", () => {
     expect(await store.linkedCashoutDepositIds({ ...owner, subject: "other" }, "peer")).toEqual([]);
     expect(await store.linkedCashoutDepositIds(owner, "another-provider")).toEqual([]);
   });
+  test("keeps an older unsettled or withdrawable cash-out ahead of newer settled history", async () => {
+    const old = await insertOrder("2026-09-10T00:00:00.000Z");
+    const withdrawable = await insertOrder("2026-09-11T00:00:00.000Z");
+    const recent = await insertOrder("2026-09-12T00:00:00.000Z");
+    await sql.query("UPDATE cashout_orders SET settled_at = now(), withdrawable = true WHERE action_id = $1", [withdrawable]);
+    await sql.query("UPDATE cashout_orders SET settled_at = now() WHERE action_id = $1", [recent]);
+    await sql.query("UPDATE cashout_orders SET withdrawable = false WHERE action_id = $1", [withdrawable]);
+    expect((await store.cashoutOrderHistory(owner, 1)).map((row) => row.action_id)).toEqual([old]);
+    await sql.query("UPDATE cashout_orders SET withdrawable = true WHERE action_id = $1", [withdrawable]);
+    expect((await store.cashoutOrderHistory(owner, 1)).map((row) => row.action_id)).toEqual([withdrawable]);
+    expect((await store.cashoutOrderHistory(owner, 2)).map((row) => row.action_id)).toEqual([withdrawable, old]);
+    expect((await store.cashoutOrderHistory(owner, 3)).map((row) => row.action_id)).toEqual([recent, withdrawable, old]);
+  });
+
+  test("history excludes a declined cash-out without dispatch or deposit evidence", async () => {
+    const declined = await insertOrder(new Date().toISOString());
+    expect((await store.recordDecline(owner, declined, 0)).changed).toBe(true);
+    expect((await store.cashoutOrderHistory(owner, 50)).map((row) => row.action_id)).not.toContain(declined);
+  });
+
+  test("history retains a declined cash-out with a proven deposit", async () => {
+    const declined = await insertOrder(new Date().toISOString());
+    expect((await store.recordDecline(owner, declined, 0)).changed).toBe(true);
+    expect(await store.linkCashoutDeposit(owner, declined, "deposit_proven", true)).toMatchObject({ deposit_proven: true });
+    expect((await store.cashoutOrderHistory(owner, 50)).map((row) => row.action_id)).toContain(declined);
+  });
+
+  test("history excludes a not-submitted cash-out without deposit proof", async () => {
+    const notSubmitted = await insertOrder(new Date().toISOString(), "deposit_unproven");
+    expect((await store.recordOutcome(owner, notSubmitted, { outcome: "not_submitted", source: "wallet", settledAt: null })).written).toBe(true);
+    expect((await store.cashoutOrderHistory(owner, 50)).map((row) => row.action_id)).not.toContain(notSubmitted);
+  });
+
+  test("history spans regions but excludes other owners and unconfirmed actions", async () => {
+    const old = await insertOrder("2026-09-10T00:00:00.000Z");
+    const recent = await insertOrder("2026-09-12T00:00:00.000Z");
+    await sql.query("UPDATE cashout_orders SET region = $2 WHERE action_id = $1", [recent, "GB"]);
+    await insertOrder("2026-09-13T00:00:00.000Z", null, "submitted", otherOwner);
+    const unconfirmed = await insertOrder("2026-09-14T00:00:00.000Z");
+    await sql.query("UPDATE actions SET confirmed_at = NULL WHERE id = $1", [unconfirmed]);
+    expect((await store.cashoutOrderHistory(owner, 50)).map((row) => [row.action_id, row.region])).toEqual([[recent, "GB"], [old, "US"]]);
+    expect((await store.cashoutOrderHistory(owner, 1)).map((row) => row.action_id)).toEqual([recent]);
+    for (const limit of [0, -1, 101, 1.5, Number.NaN]) await expect(store.cashoutOrderHistory(owner, limit)).rejects.toThrow();
+  });
 });

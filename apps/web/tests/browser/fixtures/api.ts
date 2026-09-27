@@ -286,6 +286,9 @@ export async function installApiFixtures(
         activityPageBody(url.searchParams.get("to"), url.searchParams.get("currency") ?? "USD"),
       );
     }
+    if (path === "/api/activity/orders") return json(route, {
+      version: 1, owner: { subject: sessionBody.user.subject, accountProvider: sessionBody.accountProvider }, orders: [],
+    });
     if (path === "/api/account/country-preference") {
       if (request.method() === "PUT") {
         const body = parseCountryPreferenceRequest(request.postDataJSON());

@@ -36,6 +36,7 @@ export function withFundingOrderEvents(store: FundingOrderStore, record: Recorde
       return result;
     },
     getOwned: (id, owner) => store.getOwned(id, owner),
+    listOwned: (owner, limit) => store.listOwned(owner, limit),
     getByIntent: (owner, intentDigest) => store.getByIntent(owner, intentDigest),
     getOpen: (owner, region) => store.getOpen(owner, region),
     getDispatchAmbiguous: (owner, region, providerId) => store.getDispatchAmbiguous(owner, region, providerId),

@@ -1,14 +1,15 @@
 import "@/client/account/dom-test-harness";
 
-import { afterAll, afterEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, jest, mock, spyOn, test } from "bun:test";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import type { ActivityPage, ActivityTransfer } from "@/shared/activity/types";
 import type { UseActivityResult } from "./use-activity";
 import { formatPresentationDate, formatPresentationDateRange } from "@/shared/formatting";
+import { activityOrdersFixture } from "@/tests/browser/feature-map/fixtures";
 
 const financeRows = await import("@/components/finance-rows");
 const rowSpy = spyOn(financeRows, "ActivityRow");
-const { cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
+const { act, cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const { ActivityPanelView } = await import("./activity-panel");
 
 const WALLET = "0x1111111111111111111111111111111111111111" as const;
@@ -150,6 +151,7 @@ function mockRowHeight() {
   });
 }
 afterEach(() => {
+  jest.useRealTimers();
   cleanup();
   delete (globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean }).BASE_UI_ANIMATIONS_DISABLED;
   Object.defineProperty(HTMLElement.prototype, "offsetHeight", originalHeight);
@@ -1039,6 +1041,25 @@ describe("combined Activity panel", () => {
     view.rerender(<ActivityPanelView activity={ready([indexed])} operations={[matched]} />);
     expect(view.getAllByRole("button", { description: /transaction details/ })).toHaveLength(1);
     expect(view.queryByText("Received")).toBeNull();
+  });
+
+  test("reveals Clear order at the deadline without a new orders response", async () => {
+    const ambiguous = activityOrdersFixture().orders.find((order) => order.id === "fixture-funding-ambiguous");
+    if (ambiguous?.kind !== "funding") throw new Error("Missing ambiguous funding order fixture");
+    const activity = ready([]);
+    const view = render(<ActivityPanelView activity={activity} orders={[{ ...ambiguous, clearableAt: null }]} regionId="US" />);
+    fireEvent.click(view.getByRole("button", { description: "View Add money details" }));
+    const dialog = await view.findByRole("dialog", { name: "Add money" });
+    jest.useFakeTimers();
+    const orders = [{ ...ambiguous, clearableAt: new Date(Date.now() + 3_000).toISOString() }];
+    view.rerender(<ActivityPanelView activity={activity} orders={orders} regionId="US" />);
+    expect(within(dialog).getByText(/You can clear it after/)).toBeTruthy();
+    expect(within(dialog).queryByRole("button", { name: "Clear order" })).toBeNull();
+    await act(async () => { jest.advanceTimersByTime(3_001); });
+    expect(within(dialog).getByRole("button", { name: "Clear order" })).toBeTruthy();
+    expect(within(dialog).queryByText(/You can clear it after/)).toBeNull();
+    jest.useRealTimers();
+    await act(async () => { await Promise.resolve(); });
   });
 
   test("an ambiguous send shows Unconfirmed guidance with no recovery action", async () => {

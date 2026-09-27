@@ -4,7 +4,7 @@ import { VERIFIED_MORPHO_MARKETS } from "../../../shared/morpho-markets/config";
 import { buyRouteForToken } from "../../../shared/trading/assets";
 import { preparedSendFixtureAction } from "../fixtures/api";
 import { COUNTRY_PREFERENCE_VERSION } from "../../../shared/account/contracts/country-preference";
-import { cashoutFixtureAction, cashoutFixtureWithdraw } from "./cashout-fixture";
+import { cashoutFixtureAction, cashoutFixtureProgress, cashoutFixtureWithdraw } from "./cashout-fixture";
 import {
   actionsBody,
   basenameProfileBody,
@@ -15,6 +15,7 @@ import {
   savingsVaultsBody,
 } from "../fixtures/bodies";
 import type { TradeDirection } from "../../../shared/trading/contract";
+import type { ActivityOrdersResponse } from "../../../shared/activity/contract-orders";
 import { nonTrendingAddress, searchFixture } from "./search-fixtures";
 import { BASE_USDC_PAYMASTER_ADDRESS } from "../../../shared/money-actions/network-fee";
 
@@ -23,6 +24,31 @@ const syntheticUsdc = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const;
 const syntheticBtc = "0x2222222222222222222222222222222222222222" as const;
 export const syntheticDegen = "0x3333333333333333333333333333333333333333" as const;
 export const degenAssetId = `base:${syntheticDegen}` as const;
+
+export function activityOrdersFixture(): ActivityOrdersResponse {
+  const createdAt = new Date(Date.now() - 600_000).toISOString();
+  const updatedAt = new Date().toISOString();
+  const funding = {
+    kind: "funding" as const, region: "US", providerId: "coinbase", providerName: "Coinbase",
+    paymentMethodLabel: "Debit card", instruction: "embed" as const, resumable: false,
+    fiatAmount: "25.00", fiatCurrency: "USD", asset: { id: "usdc", symbol: "USDC", decimals: 6 },
+    tokenAmountAtomic: "25000000", sandbox: false, expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+    clearableAt: null, transactionHash: null, logIndex: null, createdAt, updatedAt,
+  };
+  return { version: 1, owner: { subject: sessionBody.user.subject, accountProvider: "cdp-embedded" }, orders: [
+    { ...funding, id: "fixture-funding-pending", status: "waiting-customer", stage: "awaiting-payment", resumable: true },
+    { ...funding, id: "fixture-funding-processing", status: "waiting-provider", stage: "provider-processing", instruction: null,
+      fiatAmount: "40.00", tokenAmountAtomic: "40000000", updatedAt: new Date(Date.now() - 120_000).toISOString() },
+    { ...funding, id: "fixture-funding-received", status: "confirmed", stage: "received", instruction: null,
+      updatedAt: new Date(Date.now() - 300_000).toISOString() },
+    { ...funding, id: "fixture-funding-ambiguous", status: "ambiguous", stage: "unconfirmed", instruction: null,
+      fiatAmount: "30.00", tokenAmountAtomic: "30000000", clearableAt: createdAt },
+    { kind: "cash-out", id: cashoutFixtureAction.id, orderId: cashoutFixtureProgress.depositId,
+      region: "US", providerId: "peer", providerName: "Peer", platform: "cashapp", platformLabel: "Cash App",
+      status: "waiting-provider", state: "awaiting-buyer", decimals: 6, amountAtomic: "50000000", filledAtomic: "0",
+      returnedAtomic: "0", remainingAtomic: "50000000", withdrawable: true, settledAt: null, createdAt, updatedAt },
+  ] };
+}
 
 export function tradePrepareFixture(direction: TradeDirection, asset: "bitcoin" | "degen" = "bitcoin", fullSell = false) {
   const buy = direction === "buy";
@@ -100,6 +126,7 @@ export function fixtureRoutes() {
       calls: cashoutFixtureWithdraw.calls,
       expiresAt: cashoutFixtureWithdraw.expiresAt,
     }],
+    ["**/api/activity/orders", { version: 1, owner: { subject: sessionBody.user.subject, accountProvider: sessionBody.accountProvider }, orders: [] }],
     ["**/api/activity**", {}],
     ["**/api/savings/vaults", savingsVaultsBody(new Date().toISOString(), new Date().toISOString())],
     ["**/api/borrow", borrowOverview],

@@ -250,6 +250,26 @@ export class ActionsStore {
     return result.rows;
   }
 
+  async cashoutOrderHistory(owner: MoneyActionOwner, limit: number): Promise<CashoutOrderRow[]> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+      throw new Error("The order history limit must be between 1 and 100.");
+    }
+    const result = await this.sql.query<CashoutOrderRow>(
+      `SELECT * FROM (
+         SELECT o.* FROM cashout_orders o
+         JOIN actions a ON a.id = o.action_id AND a.owner_key = o.owner_key
+         WHERE o.owner_key = $1 AND a.confirmed_at IS NOT NULL
+           AND (a.declined_reported_at IS NULL OR a.provider_handle IS NOT NULL OR a.transaction_hash IS NOT NULL
+             OR o.deposit_id IS NOT NULL OR o.deposit_proven OR (a.outcome IS NOT NULL AND a.outcome <> 'not_submitted'))
+           AND (a.outcome IS DISTINCT FROM 'not_submitted' OR o.deposit_proven)
+         ORDER BY CASE WHEN o.settled_at IS NULL OR o.withdrawable THEN 0 ELSE 1 END,
+           o.created_at DESC, o.action_id ASC LIMIT $2
+       ) history ORDER BY created_at DESC, action_id ASC`,
+      [actionOwnerKey(owner), limit], { timeoutMs: 5_000 },
+    );
+    return result.rows;
+  }
+
   async hasUnsettledCashout(owner: MoneyActionOwner, intent: {
     amountBaseUnits: string; platform: string; currency: string; canonicalHandle: string;
   }): Promise<boolean> {

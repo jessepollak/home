@@ -178,6 +178,7 @@ async function proveSavingsConvergence({
     dispatches: 1,
     handlePosts: 2,
   });
+  expect(invalidations).toContain("activity-orders");
   expect(invalidations).toEqual([...afterActionScopes, networkFeePolicyScope]);
   expect(balanceValues(queryClient.getQueryData(balanceKey))).toEqual(balanceValues(initial));
 
@@ -191,6 +192,27 @@ async function proveSavingsConvergence({
   expect(invalidations.filter((scope) => scope === "activity")).toHaveLength(2);
   expect(invalidations.filter((scope) => scope === "actions")).toHaveLength(2);
 }
+
+test("a non-hash action handle invalidates activity orders alongside actions", async () => {
+  const ownerKey = dataOwnerKey(session);
+
+  const activityOrdersKey = ownerQueryKey(ownerKey, "activity-orders");
+  const actionsKey = ownerQueryKey(ownerKey, "actions");
+  for (const body of [{}, { providerHandle: "provider-handle" }]) {
+    const queryClient = createHomeQueryClient();
+    queryClient.setQueryData(activityOrdersKey, { orders: [] });
+    queryClient.setQueryData(actionsKey, { actions: [] });
+    await applyActionHandleEffects({
+      path: `/api/actions/${ACTION_ID}/handle`,
+      body,
+      dataOwnerKey: ownerKey,
+      queryClient,
+      startBalanceFreshness: () => {},
+    });
+    expect(queryClient.getQueryState(activityOrdersKey)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(actionsKey)?.isInvalidated).toBe(true);
+  }
+});
 
 describe("savings action convergence", () => {
   test("deposit converges lower Base USDC and higher vault shares after refresh failure and indexer lag", async () => {

@@ -7,12 +7,15 @@ import {
   type FetchActivity,
 } from "@/client/activity";
 import { activityOwnerKey, useActivity } from "@/client/activity/use-activity";
+import { activityOrdersNeedPolling } from "@/client/activity/activity-feed";
 import { parseRecentMoneyActions } from "@/client/actions";
 import { fetchRecentActions, recentActionsQueryOptions, useRecentActionsStatus } from "@/client/actions/recent-actions-query";
-import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
+import { browserHomeQueryClient, ownerQueryKey, ownerQueryMeta, useHomeQuery, useHomeQueryClient } from "@/client/query/query-client";
 import { AccountWalletContext } from "@/client/account/cdp-client";
-import { linkedCashoutWithdraw, presentCashout } from "@/client/activity/cash-out-presenter";
+import { cashoutOrderAction, cashoutWithdrawForDeposit, linkedCashoutWithdraw, presentCashout } from "@/client/activity/cash-out-presenter";
 import { isRecentActionsResponse, type RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
+import { parseActivityOrders, type ActivityOrder } from "@/shared/activity/contract-orders";
+import type { ActivityLedgerNextActionKind } from "@/client/activity/activity-ledger";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { RegionId } from "@/config/regions";
 import { networkFeeErrorMessage } from "@/shared/money-actions/network-fee";
@@ -21,6 +24,7 @@ import { useOptionalHomeShellRouting } from "./panel-routing";
 import { ShimmerRows } from "./panel-shared";
 
 const EMPTY_OPERATIONS: readonly RecentMoneyActionOperation[] = [];
+const EMPTY_ORDERS: readonly ActivityOrder[] = [];
 
 export function ActivityPage({
   activitySession,
@@ -80,6 +84,7 @@ export function ConnectedActivityPanel({
   regionId: RegionId;
 }) {
   const ownerKey = activitySession?.smartAccount ? activityOwnerKey(activitySession) : null;
+  const queryClient = useHomeQueryClient(browserHomeQueryClient());
   const wallet = useContext(AccountWalletContext);
   const routing = useOptionalHomeShellRouting();
   const [cancelBusy, setCancelBusy] = useState(false);
@@ -139,6 +144,34 @@ export function ConnectedActivityPanel({
     queryFn: ({ signal }) => fetchRecentActions(fetchOperations, signal),
     select: selectActions,
   });
+  const selectOrders = useCallback((value: unknown) => activitySession?.smartAccount
+    ? parseActivityOrders(value, activitySession)
+    : EMPTY_ORDERS, [activitySession]);
+  const orders = useHomeQuery({
+    queryKey: ownerKey ? ownerQueryKey(ownerKey, "activity-orders") : ["unauthenticated", "activity-orders-disabled"],
+    enabled: ownerKey !== null && Boolean(wallet),
+    ...recentActionsQueryOptions,
+    refetchInterval: (query) => {
+      if (typeof document === "undefined" || document.visibilityState !== "visible" || !activitySession?.smartAccount ||
+        !query.state.data) return false;
+      try {
+        const parsed = parseActivityOrders(query.state.data, activitySession);
+        return activityOrdersNeedPolling(parsed) ? 15_000 : false;
+      } catch {
+        return false;
+      }
+    },
+    meta: ownerKey ? ownerQueryMeta(ownerKey, "owner") : undefined,
+    queryFn: ({ signal }) => wallet!.fetchAccountResource("/api/activity/orders", { signal }),
+    select: selectOrders,
+  });
+  const queriedOrdersStatus = useRecentActionsStatus({
+    hasData: orders.data !== undefined, isPending: orders.isPending, isError: orders.isError,
+    dataUpdatedAt: orders.dataUpdatedAt, errorUpdatedAt: orders.errorUpdatedAt,
+  });
+  const ordersStatus = ownerKey && wallet ? queriedOrdersStatus : "ready";
+  const refetchOrders = orders.refetch;
+  const retryOrders = useCallback(() => { void refetchOrders(); }, [refetchOrders]);
   const actionStatus = useRecentActionsStatus({
     hasData: actions.data !== undefined,
     isPending: actions.isPending,
@@ -149,18 +182,16 @@ export function ConnectedActivityPanel({
   const refetchActions = actions.refetch;
   const retryActions = useCallback(() => { void refetchActions(); }, [refetchActions]);
 
-  const cancelCashout = async (operation: RecentMoneyActionOperation) => {
-    const progress = operation.cashout;
-    if (!wallet || !routing || !progress?.depositId || cancelBusy ||
-      !presentCashout(operation, linkedCashoutWithdraw(operation, actions.data ?? EMPTY_OPERATIONS)).cancellable) return;
+  const prepareWithdraw = async (providerId: string, region: string, depositId: string) => {
+    if (!wallet || !routing || cancelBusy) return;
     const attempt = ++cancelAttempt.current;
     setCancelBusy(true);
     setCancelError(null);
     try {
       const prepared = await wallet.prepareMoneyAction("cash-out-withdraw", {
-        providerId: progress.providerId,
-        region: progress.region as RegionId,
-        depositId: progress.depositId,
+        providerId,
+        region: region as RegionId,
+        depositId,
       });
       if (prepared.kind !== "cash-out-withdraw" || prepared.metadata?.product !== "cashout" || prepared.metadata.operation !== "withdraw") {
         throw new Error("Cash-out withdrawal review is unavailable. Try again.");
@@ -183,17 +214,65 @@ export function ConnectedActivityPanel({
       if (attempt === cancelAttempt.current) setCancelBusy(false);
     }
   };
+  const cancelCashout = (operation: RecentMoneyActionOperation) => {
+    const progress = operation.cashout;
+    if (progress?.depositId && presentCashout(operation, linkedCashoutWithdraw(operation, actions.data ?? EMPTY_OPERATIONS)).cancellable) {
+      void prepareWithdraw(progress.providerId, progress.region, progress.depositId);
+    }
+  };
+  const onOrderAction = async (order: ActivityOrder, kind: ActivityLedgerNextActionKind) => {
+    if (kind === "resume" || kind === "complete-payment") {
+      if (order.kind === "funding" && order.resumable && order.region === regionId && routing?.setFlow("add-money", { mode: "push" })) {
+        setReviewOpened((count) => count + 1);
+      }
+      return;
+    }
+    if (kind === "withdraw-returned-funds" || kind === "cancel-cash-out") {
+      if (order.kind === "cash-out" && order.orderId &&
+        cashoutOrderAction(order, cashoutWithdrawForDeposit(order.orderId, actions.data ?? EMPTY_OPERATIONS)) === kind) {
+        void prepareWithdraw(order.providerId, order.region, order.orderId);
+      }
+      return;
+    }
+    if (kind !== "clear-order" || order.kind !== "funding" || order.status !== "ambiguous" ||
+      order.stage !== "unconfirmed" || !order.clearableAt || Date.parse(order.clearableAt) > Date.now() || !wallet || cancelBusy) return;
+    const attempt = ++cancelAttempt.current;
+    setCancelBusy(true);
+    setCancelError(null);
+    try {
+      await wallet.fetchAccountResource(`/api/funding/orders/${encodeURIComponent(order.id)}/resolve`, { method: "POST", body: { version: 1 } });
+      if (ownerKey) {
+        void queryClient.invalidateQueries({
+          queryKey: ownerQueryKey(ownerKey, "funding-open-order", order.region),
+          refetchType: "all",
+        });
+      }
+      if (attempt === cancelAttempt.current) await refetchOrders();
+    } catch (error) {
+      const failure = error as { serverMessage?: unknown };
+      const message = typeof failure.serverMessage === "string" && failure.serverMessage
+        ? failure.serverMessage : "Could not clear the order. Try again.";
+      if (attempt === cancelAttempt.current) setCancelError(message);
+      return { ok: false as const, message };
+    } finally {
+      if (attempt === cancelAttempt.current) setCancelBusy(false);
+    }
+  };
   return (
     <ActivityPanelView
       key={`${ownerKey ?? "signed-out"}:${reviewOpened}`}
       activity={activity}
       operations={actions.data ?? EMPTY_OPERATIONS}
+      orders={orders.data ?? EMPTY_ORDERS}
       actionsStatus={actionStatus}
+      ordersStatus={ordersStatus}
       regionId={regionId}
       density={density}
       header={header}
       emptyAction={emptyAction}
       retryActions={retryActions}
+      retryOrders={retryOrders}
+      onOrderAction={(order, kind) => { void onOrderAction(order, kind); }}
       onCancelCashout={(operation) => { void cancelCashout(operation); }}
       canOpenAsset={routing?.canOpenAssetDetail}
       onOpenAsset={(assetKey) => {

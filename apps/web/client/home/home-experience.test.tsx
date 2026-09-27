@@ -152,6 +152,11 @@ function sdk(overrides: Partial<AccountWalletSdkBoundary> = {}): AccountWalletSd
   };
 }
 
+function emptyOrders() {
+  const { user, accountProvider } = session();
+  return { version: 1, owner: { subject: user.subject, accountProvider }, orders: [] };
+}
+
 function session(
   address: `0x${string}` = ADDRESS,
   subject = "subject-home",
@@ -413,6 +418,7 @@ describe("pushed funding history", () => {
     const sessionFetch: SessionFetch = async (input) => {
       const path = String(input);
       if (path === "/api/session") return Response.json(session());
+      if (path === "/api/activity/orders") return Response.json(emptyOrders());
       if (path === "/api/actions") return Response.json({ version: "1", actions: [] });
       if (path.startsWith("/api/activity?")) {
         const to = new URL(path, "https://home.invalid").searchParams.get("to") ?? new Date().toISOString();
@@ -593,6 +599,7 @@ describe("Home shell auth and privacy", () => {
             },
           });
         }
+        if (url === "/api/activity/orders") return Response.json(emptyOrders());
         if (url === "/api/actions") return Response.json({ version: "1", actions: [] });
         throw new Error(`Unexpected read: ${url}`);
       };
@@ -2150,6 +2157,7 @@ describe("walletless country preference read", () => {
             source: { provider: "cdp-sql", cached: false, stale: false, executionTimestamp: to, executionTimeMs: 1, fetchedAt: to },
           });
         }
+        if (path === "/api/activity/orders") return Response.json(emptyOrders());
         if (path === "/api/actions") return Response.json({ version: "1", actions: [] });
         return Response.json({ error: { code: "UNAVAILABLE", message: "Unavailable." } }, { status: 503 });
       };

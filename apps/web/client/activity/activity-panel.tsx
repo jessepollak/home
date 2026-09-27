@@ -12,6 +12,8 @@ import { ActivityLedger, uniqueActivityLedgerItems, type ActivityLedgerEntry, ty
 import type { ActivityListHandle } from "./virtual-activity-list";
 import { presentActivityLedgerEntries, presentActivityLedgerItems } from "./activity-ledger-items";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
+import type { ActivityOrder } from "@/shared/activity/contract-orders";
+import type { ActivityLedgerNextActionKind } from "./activity-ledger";
 import type { RegionId } from "@/config/regions";
 import { mergeActivityFeed, type ActivityFeedItem } from "./activity-feed";
 import { type UseActivityResult } from "./use-activity";
@@ -21,17 +23,22 @@ import type { ActivityPanelDensity, ActivityTransfer } from "./types";
 const ActivityLedgerSheet = deferSheet(() => import("./activity-ledger-sheet").then((module) => module.ActivityLedgerDetailSheet));
 const EMPTY_TRANSFERS: readonly ActivityTransfer[] = [];
 const EMPTY_OPERATIONS: readonly RecentMoneyActionOperation[] = [];
+const EMPTY_ORDERS: readonly ActivityOrder[] = [];
 
 export function ActivityPanelView({
   activity,
   operations = EMPTY_OPERATIONS,
+  orders = EMPTY_ORDERS,
   actionsStatus = "ready",
+  ordersStatus = "ready",
   regionId = "GLOBAL",
   density = "page",
   header,
   emptyAction,
   retryActions,
+  retryOrders,
   onCancelCashout,
+  onOrderAction,
   cancelBusy = false,
   cancelError = null,
   onDetailsChange,
@@ -43,13 +50,17 @@ export function ActivityPanelView({
 }: {
   activity: UseActivityResult;
   operations?: readonly RecentMoneyActionOperation[];
+  orders?: readonly ActivityOrder[];
   actionsStatus?: "loading" | "ready" | "error";
+  ordersStatus?: "loading" | "ready" | "error";
   regionId?: RegionId;
   density?: ActivityPanelDensity;
   header?: ReactNode | null;
   emptyAction?: ReactNode;
   retryActions?: () => void;
+  retryOrders?: () => void;
   onCancelCashout?: (operation: RecentMoneyActionOperation) => void;
+  onOrderAction?: (order: ActivityOrder, kind: ActivityLedgerNextActionKind) => void;
   cancelBusy?: boolean;
   cancelError?: string | null;
   onDetailsChange?: (open: boolean) => void;
@@ -118,16 +129,29 @@ export function ActivityPanelView({
       transfers[0]!.blockTimestamp)
       : activity.page.window.to
     : null;
-  const feed = useMemo(() => mergeActivityFeed({ transfers, operations, loadedThrough }), [transfers, operations, loadedThrough]);
+  const feed = useMemo(() => mergeActivityFeed({ transfers, operations, orders, loadedThrough }), [transfers, operations, orders, loadedThrough]);
+  const [clock, setClock] = useState(0);
+  useEffect(() => {
+    const now = Date.now();
+    const deadline = orders.reduce((earliest, order) => {
+      if (order.kind !== "funding" || order.status !== "ambiguous" || order.stage !== "unconfirmed" || order.clearableAt === null) return earliest;
+      const clearableAt = Date.parse(order.clearableAt);
+      return clearableAt > now ? Math.min(earliest, clearableAt) : earliest;
+    }, Infinity);
+    if (deadline === Infinity) return;
+    const timeout = setTimeout(() => setClock((value) => value + 1), Math.min(deadline - Date.now(), 2 ** 31 - 1));
+    return () => clearTimeout(timeout);
+  }, [orders, clock]);
   const [presented, setPresented] = useState<{
     feed: readonly ActivityFeedItem[];
     regionId: RegionId;
+    clock: number;
     pairs: { source: ActivityFeedItem; item: ActivityLedgerItem }[];
     entries: ActivityLedgerEntry[];
     transfers: Map<string, { source: ActivityFeedItem; item: ActivityLedgerItem }>;
-  }>(() => ({ feed: [], regionId, pairs: [], entries: [], transfers: new Map() }));
+  }>(() => ({ feed: [], regionId, clock, pairs: [], entries: [], transfers: new Map() }));
   let current = presented;
-  if (presented.feed !== feed || presented.regionId !== regionId) {
+  if (presented.feed !== feed || presented.regionId !== regionId || presented.clock !== clock) {
     const transfers = new Map<string, { source: ActivityFeedItem; item: ActivityLedgerItem }>();
     const pairs = uniqueActivityLedgerItems(feed.map((source) => {
       const previous = source.kind === "transfer" ? presented.transfers.get(source.id) : undefined;
@@ -137,7 +161,7 @@ export function ActivityPanelView({
       if (source.kind === "transfer") transfers.set(source.id, { source, item });
       return { item, source };
     }), (pair) => pair.item);
-    current = { feed, regionId, pairs, transfers,
+    current = { feed, regionId, clock, pairs, transfers,
       entries: presentActivityLedgerEntries(pairs, { regionId }, presented.regionId === regionId ? presented.entries : []),
     };
     setPresented(current);
@@ -157,13 +181,14 @@ export function ActivityPanelView({
   const retryFailedSources = () => {
     if (activity.status === "error") activity.retry();
     if (actionsStatus === "error") retryActions?.();
+    if (ordersStatus === "error") retryOrders?.();
     if (activity.status === "ready" && activity.loadMoreError) activity.retryLoadMore();
   };
   const inlineStatus = !plain;
 
-  const historyUnknown = activity.status === "error" || actionsStatus === "error";
+  const historyUnknown = activity.status === "error" || actionsStatus === "error" || ordersStatus === "error";
 
-  if (activity.status === "unavailable" && !hasRows && actionsStatus !== "error") {
+  if (activity.status === "unavailable" && !hasRows && actionsStatus !== "error" && ordersStatus !== "error") {
     return (
       <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} sectionRef={sectionRef}>
         <ActivityEmpty plain={plain} action={emptyAction} />
@@ -171,7 +196,7 @@ export function ActivityPanelView({
     );
   }
 
-  if (sourcesPending) {
+  if (sourcesPending || ordersStatus === "loading" && !hasRows) {
     return (
       <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} busy sectionRef={sectionRef}>
         <ShimmerRows count={plain ? 3 : 4} />
@@ -228,6 +253,12 @@ export function ActivityPanelView({
             {retryActions ? <LoadRetryButton onRetry={retryActions}>Retry recorded actions</LoadRetryButton> : null}
           </div>
         ) : null}
+        {inlineStatus && ordersStatus === "error" ? (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p role="status" className="text-sm text-muted-foreground">Add money and cash-out orders are unavailable.</p>
+            {retryOrders ? <LoadRetryButton onRetry={retryOrders}>Retry orders</LoadRetryButton> : null}
+          </div>
+        ) : null}
         {plain && historyUnknown ? (
           <ActivityUnavailable message="Some activity is unavailable" onReload={retryFailedSources} />
         ) : null}
@@ -274,9 +305,11 @@ export function ActivityPanelView({
           }
         }}
         onAction={(item, kind) => {
-          if (kind !== "cancel-cash-out" || item.family !== "home-action") return;
           const source = pairs.find((pair) => `${pair.item.family}:${pair.item.id}` === `${item.family}:${item.id}`)?.source;
-          if (source?.kind === "action" && source.operation.action.kind === "cash-out") onCancelCashout?.(source.operation);
+          if (source?.kind === "order" && (item.family === "funding-order" || item.family === "cash-out-order")) {
+            onOrderAction?.(source.order, kind);
+          } else if (kind === "cancel-cash-out" && item.family === "home-action" &&
+            source?.kind === "action" && source.operation.action.kind === "cash-out") onCancelCashout?.(source.operation);
         }}
         actionBusy={cancelBusy}
         actionError={cancelError}

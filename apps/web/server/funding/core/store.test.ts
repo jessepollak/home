@@ -21,6 +21,20 @@ describe("MemoryFundingOrderStore contract", () => {
     expect((await store.getOwned(first.order.id, owner))?.destination).toBe(base.destination);
   });
 
+  test("keeps older open orders ahead of newer terminal history at the limit", async () => {
+    const store = new MemoryFundingOrderStore();
+    const newer = { ...base, id: "22222222-2222-4222-8222-222222222222", intentDigest: "newer", createdAt: "2026-09-13T00:00:00.000Z" };
+    const newest = { ...base, id: "33333333-3333-4333-8333-333333333333", intentDigest: "newest", createdAt: "2026-09-14T00:00:00.000Z" };
+    await store.reserve(base);
+    for (const input of [newer, newest]) {
+      await store.reserve(input);
+      await store.markDispatchAmbiguous(input.id, 0, input.createdAt);
+      await store.resolveDispatchAmbiguous(input.id, owner, 1, input.createdAt);
+    }
+    expect((await store.listOwned(owner, 1)).map((order) => order.id)).toEqual([base.id]);
+    expect((await store.listOwned(owner, 2)).map((order) => order.id)).toEqual([newest.id, base.id]);
+  });
+
   test("keeps distinct same-region intents as independent reservations", async () => {
     const store = new MemoryFundingOrderStore();
     const first = await store.reserve(base);
@@ -39,7 +53,7 @@ describe("MemoryFundingOrderStore contract", () => {
     const store = new MemoryFundingOrderStore();
     await store.reserve(base);
     await store.markDispatchAmbiguous(base.id, 0, "2026-09-12T00:00:01.000Z");
-    await store.reserve({ ...base, id: "66666666-6666-4666-8666-666666666666", intentDigest: "newer", quoteToken: "newer-token" });
+    await store.reserve({ ...base, id: "66666666-6666-4666-8666-666666666666", intentDigest: "newer", quoteToken: "newer-token", createdAt: "2026-09-12T00:00:02.000Z" });
     expect((await store.getOpen(owner, "ID"))?.id).toBe("66666666-6666-4666-8666-666666666666");
     expect((await store.getDispatchAmbiguous(owner, "ID", "idrx"))?.id).toBe(base.id);
     expect(await store.getDispatchAmbiguous(owner, "ID", "other-provider")).toBeNull();

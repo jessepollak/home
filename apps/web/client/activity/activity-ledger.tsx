@@ -78,6 +78,7 @@ export type ActivityLedgerDetail =
     provider: string;
     payoutMethod: string;
     orderId: string;
+    facts?: readonly { label: string; value: string }[];
   }
   | {
     family: "card";
