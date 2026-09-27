@@ -41,6 +41,7 @@
     "live-login.ts!",
     // Review context CLI is run directly by its package script.
     "scripts/review-context.ts!",
+    "scripts/activity-scroll-profile.ts!",
     // Figma variables sync, run by package scripts and the main-only CI job.
     "scripts/figma-variables.mjs!"
   ],

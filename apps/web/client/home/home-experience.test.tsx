@@ -359,11 +359,20 @@ function resetHistory() {
   syncLocation("/");
 }
 
+const originalOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
+function mockActivityLayout() {
+  Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+    configurable: true,
+    get() { return this.tagName === "LI" ? 64 : this.tagName === "MAIN" ? 800 : 0; },
+  });
+}
+
 afterEach(() => {
   jest.useRealTimers();
   globalThis.fetch = nativeFetch;
   restoreAnimationFrames?.();
   cleanup();
+  Object.defineProperty(HTMLElement.prototype, "offsetHeight", originalOffsetHeight);
   getHomeQueryClient().clear();
   window.localStorage.clear();
   window.sessionStorage.clear();
@@ -1136,6 +1145,7 @@ describe("Home shell routing and intents", () => {
   for (const back of ["header", "browser"] as const) {
     test(`opens the owned cbBTC contract from Activity and restores details on ${back} Back`, async () => {
       syncLocation("/activity");
+      mockActivityLayout();
       historyEntries = ["/activity"];
       const snapshot = buildBalancesSnapshotFixture({ registry: {
         cbbtc: { balance: ready("10000000"), value: priced("USD", "10000") },
@@ -1206,7 +1216,7 @@ describe("Home shell routing and intents", () => {
       expect(restoredAgain.textContent).toContain("+0.1000 cbBTC");
       fireEvent.click(within(restoredAgain).getByRole("button", { name: "Close Received details" }));
       await waitFor(() => expect(page().queryAllByRole("dialog")).toHaveLength(0));
-      expect(document.activeElement === opener).toBe(true);
+      await waitFor(() => expect(page().getAllByRole("button", { description: "View received cbBTC transaction details" }).some((button) => button === document.activeElement)).toBe(true));
       act(() => forwardHistory());
       expect(window.location.pathname).toBe(`/investments/${btc}`);
       await waitFor(() => expect(page().queryAllByRole("dialog")).toHaveLength(0));

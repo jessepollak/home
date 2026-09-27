@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import { RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LoadErrorCard, LoadRetryButton } from "@/components/load-error";
@@ -9,6 +9,7 @@ import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from "@/components/ui/em
 import { ActivityLoader } from "@/components/activity-loader";
 import { deferSheet } from "@/client/money-modal/deferred-sheet";
 import { ActivityLedger, uniqueActivityLedgerItems, type ActivityLedgerItem } from "./activity-ledger";
+import type { ActivityListHandle } from "./virtual-activity-list";
 import { presentActivityLedgerItems } from "./activity-ledger-items";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import type { RegionId } from "@/config/regions";
@@ -19,10 +20,11 @@ import type { ActivityPanelDensity, ActivityTransfer } from "./types";
 
 const ActivityLedgerSheet = deferSheet(() => import("./activity-ledger-sheet").then((module) => module.ActivityLedgerDetailSheet));
 const EMPTY_TRANSFERS: readonly ActivityTransfer[] = [];
+const EMPTY_OPERATIONS: readonly RecentMoneyActionOperation[] = [];
 
 export function ActivityPanelView({
   activity,
-  operations = [],
+  operations = EMPTY_OPERATIONS,
   actionsStatus = "ready",
   regionId = "GLOBAL",
   density = "page",
@@ -84,6 +86,16 @@ export function ActivityPanelView({
       setDetailsOpen(true);
     }
   }
+  const recentRef = useRef<ActivityListHandle>(null);
+  const sectionRef = useRef<HTMLElement>(null);
+  const openDetail = useCallback((item: ActivityLedgerItem, opener: HTMLElement) => {
+    setPendingReturn(false);
+    setImmediateClose(false);
+    detailOpenerRef.current = opener;
+    onDetailsChange?.(true);
+    setSelection({ key: `${item.family}:${item.id}`, last: item });
+    setDetailsOpen(true);
+  }, [onDetailsChange]);
   const [detailsStatus, setDetailsStatus] = useState(activity.status);
   if (detailsStatus !== activity.status) {
     setDetailsStatus(activity.status);
@@ -114,6 +126,9 @@ export function ActivityPanelView({
   const selectedItem = selection
     ? items.find((item) => `${item.family}:${item.id}` === selection.key) ?? selection.last
     : null;
+  if (selection && selectedItem && selectedItem !== selection.last) {
+    setSelection({ key: selection.key, last: selectedItem });
+  }
   const exhausted = activity.status !== "ready" || activity.page.nextCursor === null;
   const plain = density === "feed";
   const sourcesPending = activity.status === "loading" || actionsStatus === "loading";
@@ -128,7 +143,7 @@ export function ActivityPanelView({
 
   if (activity.status === "unavailable" && !hasRows && actionsStatus !== "error") {
     return (
-      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain}>
+      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} sectionRef={sectionRef}>
         <ActivityEmpty plain={plain} action={emptyAction} />
       </ActivitySurface>
     );
@@ -136,7 +151,7 @@ export function ActivityPanelView({
 
   if (sourcesPending) {
     return (
-      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} busy>
+      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} busy sectionRef={sectionRef}>
         <ShimmerRows count={plain ? 3 : 4} />
         <span className="sr-only">Loading recent activity…</span>
       </ActivitySurface>
@@ -145,7 +160,7 @@ export function ActivityPanelView({
 
   if (historyUnknown && !hasRows && plain) {
     return (
-      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain}>
+      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} sectionRef={sectionRef}>
         <ActivityUnavailable message="Activity unavailable" onReload={retryFailedSources} />
       </ActivitySurface>
     );
@@ -153,7 +168,7 @@ export function ActivityPanelView({
 
   if (activity.status === "error" && !hasRows) {
     return (
-      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain}>
+      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} sectionRef={sectionRef}>
         <LoadErrorCard
           tone="destructive"
           role="alert"
@@ -173,44 +188,41 @@ export function ActivityPanelView({
     )
   ) : null;
   return (
-    <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} rows={hasRows}>
-      {inlineStatus && activity.status === "error" ? (
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p role="status" className="text-sm text-muted-foreground">
-            Onchain transfers are unavailable. Recorded Home actions are still shown.
-          </p>
-          <LoadRetryButton onRetry={activity.retry}>Retry onchain transfers</LoadRetryButton>
-        </div>
-      ) : null}
-      {inlineStatus && actionsStatus === "error" ? (
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p role="status" className="text-sm text-muted-foreground">
-            Recorded Home actions are unavailable.{transfers.length > 0 ? " Onchain transfers are still shown." : ""}
-          </p>
-          {retryActions ? <LoadRetryButton onRetry={retryActions}>Retry recorded actions</LoadRetryButton> : null}
-        </div>
-      ) : null}
-      {plain && historyUnknown ? (
-        <ActivityUnavailable message="Some activity is unavailable" onReload={retryFailedSources} />
-      ) : null}
-      {!hasRows ? (exhausted && !historyUnknown ? <ActivityEmpty plain={plain} action={emptyAction} /> : null) : (
-        <div onPointerDown={() => void ActivityLedgerSheet.preload()}>
-          <ActivityLedger
-            items={items}
-            layout={plain ? "feed" : "page"}
-            footer={footer}
-            onOpen={(item, opener) => {
-              setPendingReturn(false);
-              setImmediateClose(false);
-              detailOpenerRef.current = opener;
-              onDetailsChange?.(true);
-              setSelection({ key: `${item.family}:${item.id}`, last: item });
-              setDetailsOpen(true);
-            }}
-          />
-        </div>
-      )}
-      {!hasRows ? footer : null}
+    <>
+      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} rows={hasRows} sectionRef={sectionRef}>
+        {inlineStatus && activity.status === "error" ? (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p role="status" className="text-sm text-muted-foreground">
+              Onchain transfers are unavailable. Recorded Home actions are still shown.
+            </p>
+            <LoadRetryButton onRetry={activity.retry}>Retry onchain transfers</LoadRetryButton>
+          </div>
+        ) : null}
+        {inlineStatus && actionsStatus === "error" ? (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p role="status" className="text-sm text-muted-foreground">
+              Recorded Home actions are unavailable.{transfers.length > 0 ? " Onchain transfers are still shown." : ""}
+            </p>
+            {retryActions ? <LoadRetryButton onRetry={retryActions}>Retry recorded actions</LoadRetryButton> : null}
+          </div>
+        ) : null}
+        {plain && historyUnknown ? (
+          <ActivityUnavailable message="Some activity is unavailable" onReload={retryFailedSources} />
+        ) : null}
+        {!hasRows ? (exhausted && !historyUnknown ? <ActivityEmpty plain={plain} action={emptyAction} /> : null) : (
+          <div onPointerDown={() => void ActivityLedgerSheet.preload()}>
+            <ActivityLedger
+              items={items}
+              layout={plain ? "feed" : "page"}
+              footer={footer}
+              exhausted={exhausted}
+              recentRef={recentRef}
+              onOpen={openDetail}
+            />
+          </div>
+        )}
+        {!hasRows ? footer : null}
+      </ActivitySurface>
       <ActivityLedgerSheet
         open={detailsOpen}
         immediate={immediateClose}
@@ -232,7 +244,12 @@ export function ActivityPanelView({
           if (pendingReturn || detailsOpen) return;
           setSelection(null);
           const opener = detailOpenerRef.current;
-          if (opener?.isConnected) opener.focus({ preventScroll: true });
+          detailOpenerRef.current = null;
+          if (opener?.isConnected && sectionRef.current?.contains(opener)) {
+            opener.focus({ preventScroll: true });
+          } else if (!selection || !recentRef.current?.restore(selection.key)) {
+            sectionRef.current?.focus();
+          }
         }}
         onAction={(item, kind) => {
           if (kind !== "cancel-cash-out" || item.family !== "home-action") return;
@@ -242,7 +259,7 @@ export function ActivityPanelView({
         actionBusy={cancelBusy}
         actionError={cancelError}
       />
-    </ActivitySurface>
+    </>
   );
 }
 
@@ -253,6 +270,7 @@ export function ActivitySurface({
   busy = false,
   plain = false,
   rows = false,
+  sectionRef,
   children,
 }: {
   heading: ReactNode;
@@ -261,11 +279,14 @@ export function ActivitySurface({
   busy?: boolean;
   plain?: boolean;
   rows?: boolean;
+  sectionRef?: Ref<HTMLElement>;
   children: ReactNode;
 }) {
   if (plain) {
     return (
       <section
+        ref={sectionRef}
+        tabIndex={-1}
         aria-labelledby={labelledBy}
         aria-label={label}
         aria-busy={busy || undefined}
@@ -282,14 +303,14 @@ export function ActivitySurface({
   }
   if (rows) {
     return (
-      <section aria-labelledby={labelledBy} aria-label={label} aria-busy={busy || undefined}>
+      <section ref={sectionRef} tabIndex={-1} aria-labelledby={labelledBy} aria-label={label} aria-busy={busy || undefined}>
         {heading ? <div className="mb-3">{heading}</div> : null}
         <div className="space-y-3">{children}</div>
       </section>
     );
   }
   return (
-    <section aria-labelledby={labelledBy} aria-label={label} aria-busy={busy || undefined}>
+    <section ref={sectionRef} tabIndex={-1} aria-labelledby={labelledBy} aria-label={label} aria-busy={busy || undefined}>
       <Card>
         {heading ? <CardHeader>{heading}</CardHeader> : null}
         <CardContent inset="list">

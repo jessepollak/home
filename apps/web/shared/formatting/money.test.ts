@@ -386,6 +386,28 @@ describe("presentation money formatting", () => {
     })).toBe("—");
   });
 
+  test("keeps repeated date formatting identical across locales, styles, instants, and zones", () => {
+    const cases = [
+      { regionId: "US", locale: "en-US", timeZone: "UTC", style: "activity-full", date: { month: "short", day: "numeric", year: "numeric" }, time: { hour: "numeric", minute: "2-digit" } },
+      { regionId: "US", locale: "en-US", timeZone: "America/Los_Angeles", style: "activity-full", date: { month: "short", day: "numeric", year: "numeric" }, time: { hour: "numeric", minute: "2-digit" } },
+      { regionId: "DE", locale: "de-DE", timeZone: "UTC", style: "activity-short", date: { month: "short", day: "numeric" }, time: { hour: "numeric", minute: "2-digit" } },
+      { regionId: "US", locale: "en-US", timeZone: "UTC", style: "date-time-zone", date: { month: "short", day: "numeric", year: "numeric" }, time: { hour: "numeric", minute: "2-digit", timeZoneName: "short" } },
+      { regionId: "US", locale: "en-US", timeZone: "UTC", style: "quote-time", date: null, time: { hour: "numeric", minute: "2-digit", second: "2-digit", timeZoneName: "short" } },
+      { regionId: "DE", locale: "de-DE", timeZone: "America/Los_Angeles", style: "chart-weekday", date: { weekday: "short" }, time: null },
+    ] as const;
+    for (const instant of ["2026-09-10T12:04:30.000Z", "2026-12-10T00:01:20.000Z"]) {
+      for (const entry of cases) {
+        const expected = [entry.date, entry.time]
+          .filter((part): part is NonNullable<typeof part> => part !== null)
+          .map((part) => new Intl.DateTimeFormat(entry.locale, { ...part, timeZone: entry.timeZone })
+            .format(new Date(instant)).replace(/[\s\u00A0\u2007\u2009\u202F]+/g, " ").trim())
+          .join(", ");
+        expect(formatPresentationDate(instant, entry)).toBe(expected);
+        expect(formatPresentationDate(instant, entry)).toBe(expected);
+      }
+    }
+  });
+
   test("returns a deterministic unavailable value for malformed dates", () => {
     expect(formatPresentationDate("not-a-date", {
       timeZone: "UTC",
