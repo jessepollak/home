@@ -468,6 +468,14 @@ describe("CDP SQL environment auth", () => {
     expect(() =>
       createCdpSqlAuthFromEnv({ CDP_API_KEY_ID: "synthetic-project-key-id" }),
     ).toThrow("CDP_API_KEY_ID and CDP_API_KEY_SECRET");
+    expect(
+      createCdpSqlAuthFromEnv({
+        CDP_SQL_AUTH_MODE: "  ",
+        [["CDP_SQL_CLIENT", "_API_KEY"].join("")]: "  ",
+        CDP_API_KEY_ID: "synthetic-project-key-id",
+        [generalKeyName]: "synthetic-project-key-value",
+      }).mode,
+    ).toBe("signed-jwt");
   });
 
   test("keeps a configured SQL client key when no mode is set", () => {
