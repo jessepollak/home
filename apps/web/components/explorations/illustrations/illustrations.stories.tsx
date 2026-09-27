@@ -229,6 +229,7 @@ async function assertReplay(canvasElement: HTMLElement) {
 
 const meta = {
   id: "explorations-illustrations",
+  tags: ["exploration"],
   title: "Explorations/Illustrations",
   component: Illustration,
   args: { direction: "b", subject: "card" },

@@ -80,13 +80,14 @@ Page-level flows live under `apps/web/stories/journeys/<flow>.stories.tsx`. A jo
 
 ### Story tests
 
-`@storybook/addon-vitest` runs every story in headless Chromium through the workshop's own Vite pipeline:
+`@storybook/addon-vitest` runs production component and journey stories in headless Chromium through the workshop's own Vite pipeline; exploration-tagged stories run separately as non-blocking CI review scenarios:
 
 ```sh
 bun run --cwd apps/web test:stories
+bun run --cwd apps/web test:stories:explorations
 ```
 
-The same run is available through the MCP `test-run` tool and the workshop's test widget. A failing `play` function fails the run, and the a11y addon audits every story. `a11y.test` is `"todo"` (report, do not fail) globally because owned components carry pre-existing violations that need a product decision — the `ItemMedia variant="avatar"` initials contrast (4.34:1) and the money-modal asset-picker controls' missing accessible names. Minimal workshop stories that pass the audit set `a11y: { test: "error" }` so a new violation in those components fails the run. The Storybook manager and the test runner share a Vite dependency cache, so stop a running `storybook dev` before a full `test:stories` run.
+The same story tests are available through the MCP `test-run` tool and the workshop's test widget. Every story file under `**/explorations/**` declares `tags: ["exploration"]` on its default meta; a lint rule enforces this boundary. A failing `play` function fails its run, but exploration failures do not block merge. Exploration `play` functions use a controlled clock, not wall-clock timers, and do not replace component or journey regression tests when a candidate is adopted. The a11y addon audits every selected story. `a11y.test` is `"todo"` (report, do not fail) globally because owned components carry pre-existing violations that need a product decision — the `ItemMedia variant="avatar"` initials contrast (4.34:1) and the money-modal asset-picker controls' missing accessible names. Minimal workshop stories that pass the audit set `a11y: { test: "error" }` so a new violation in those components fails the run. The Storybook manager and the test runner share a Vite dependency cache, so stop a running `storybook dev` before a full story-test run.
 
 Keep `*.stories.tsx` beside the production surface under `apps/web/components/**` or `apps/web/client/**`. A story imports the component Home uses rather than a separately styled copy, and composes the real card, list, shell, and provider constraints needed by that surface. Prefer the component's natural typed props and injected action functions; use provider fixtures or MSW only at an existing external-request boundary. The current MSW worker starts only through Storybook's global loader. Its file lives under `.storybook/static`, never `public`, and production modules may not import Storybook, stories, or MSW. Keep story-only fixtures inside a `*.stories.*` or `.storybook/**` path so the production-isolation gate can enforce that boundary.
 

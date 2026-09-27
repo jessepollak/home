@@ -39,6 +39,7 @@ const TEST_ONLY_ALLOWLIST = [
   "OPERATOR_PG_TEST_URL",
   "FIGMA_TEMPLATE_TYPECHECK", // apps/web/figma-templates.test.ts: emit renders for a one-off tsc check
   "HOME_PLAYWRIGHT_SMOKE",
+  "HOME_STORY_TEST_EXPLORATIONS",
   "MORPHO_LIVE_SMOKE",
   "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH",
 ];

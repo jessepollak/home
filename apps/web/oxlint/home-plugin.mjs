@@ -36,6 +36,7 @@ import { isolateInstrumentationCalls, noSilentCatch } from "./rules/observabilit
 import { noAmountFallback } from "./rules/amounts.mjs";
 import { noComments } from "./rules/no-comments.mjs";
 import { moneyModalPublicApi, noAlternateMoneyModal, noSheetPrimitiveReexports, noSheetPrimitives } from "./rules/money-modal.mjs";
+import { explorationStoryTag } from "./rules/exploration-story-tag.mjs";
 
 const homePlugin = {
   meta: { name: "home" },
@@ -77,6 +78,7 @@ const homePlugin = {
     "no-sheet-primitive-reexports": noSheetPrimitiveReexports,
     "money-modal-public-api": moneyModalPublicApi,
     "no-alternate-money-modal": noAlternateMoneyModal,
+    "exploration-story-tag": explorationStoryTag,
   },
 };
 

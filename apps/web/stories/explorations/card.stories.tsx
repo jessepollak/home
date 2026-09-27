@@ -683,6 +683,7 @@ function CardProposal({ variant = "active", outage = false }: { variant?: Varian
 
 const meta = {
   id: "explorations-card",
+  tags: ["exploration"],
   title: "Explorations/Card",
   component: CardProposal,
   args: { variant: "active" },
