@@ -37,8 +37,33 @@ describe("home/exploration-story-tag", () => {
     expect(await diagnostics('export const One = { tags: ["exploration"] };')).toHaveLength(1);
   });
 
-  it("accepts a default meta with the tag even alongside other tags", async () => {
-    expect(await diagnostics('const meta = { id: "x", tags: ["exploration"] } satisfies object; export default meta;')).toHaveLength(0);
+  it("rejects mutable or indirect meta and tags", async () => {
+    const invalid = [
+      'let meta = { tags: ["exploration"] }; meta = { id: "y" }; export default meta;',
+      'var meta = { tags: ["exploration"] }; export default meta;',
+      'const meta = { tags: ["exploration"], ...{ tags: ["other"] } }; export default meta;',
+      'const tags = ["exploration"]; export default { tags };',
+      'const tags = ["exploration"]; export default { tags: tags };',
+      'const meta = { tags: ["exploration"] }; export default { ...meta };',
+      'export default { tags: ["exploration", ...["other"]] };',
+      'export default { tags: ["exploration"], tags: ["other"] };',
+      'export default Object.assign({}, { tags: ["exploration"] });',
+      'export default { ["tags"]: ["exploration"] };',
+      'const meta = true ? { tags: ["exploration"] } : { tags: ["other"] }; export default meta;',
+    ];
+    for (const code of invalid) {
+      const findings = await diagnostics(code);
+      expect(findings).toHaveLength(1);
+      expect(findings[0].message).toContain("Use inline exploration meta");
+    }
+  });
+
+  it("accepts direct inline and const meta with literal tags and type wrappers", async () => {
     expect(await diagnostics('export default { id: "x", tags: ["test", "exploration"] };')).toHaveLength(0);
+    expect(await diagnostics('export default { tags: ["exploration"] } as object;')).toHaveLength(0);
+    expect(await diagnostics('export default { tags: ["exploration"] } satisfies object;')).toHaveLength(0);
+    expect(await diagnostics('const meta = { id: "x", tags: ["exploration"] } satisfies object; export default meta;')).toHaveLength(0);
+    expect(await diagnostics('const meta = { tags: ["exploration"] } as object; export default meta;')).toHaveLength(0);
+    expect(await diagnostics('export const meta = { tags: ["exploration"] }; export default meta as object;')).toHaveLength(0);
   });
 });
