@@ -43,14 +43,14 @@ export type CdpSqlHttpTransportOptions = {
 export function createCdpSqlAuthFromEnv(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): CdpSqlAuth {
-  const mode = env.CDP_SQL_AUTH_MODE?.trim() || "client-api-key";
+  const mode = env.CDP_SQL_AUTH_MODE?.trim() || defaultCdpSqlAuthMode(env);
   if (mode === "signed-jwt") {
     const apiKeyId = env.CDP_API_KEY_ID?.trim();
     const apiKeySecret = env.CDP_API_KEY_SECRET?.trim();
     if (!apiKeyId || !apiKeySecret) {
       throw new ChainDataError(
         "not-configured",
-        "CDP_API_KEY_ID and CDP_API_KEY_SECRET are required when CDP_SQL_AUTH_MODE=signed-jwt.",
+        "CDP SQL signed-jwt auth requires CDP_API_KEY_ID and CDP_API_KEY_SECRET.",
       );
     }
     return {
@@ -74,10 +74,18 @@ export function createCdpSqlAuthFromEnv(
   if (!clientApiKey) {
     throw new ChainDataError(
       "not-configured",
-      "CDP_SQL_CLIENT_API_KEY is required for the documented SQL quickstart auth mode.",
+      "CDP SQL needs CDP_API_KEY_ID and CDP_API_KEY_SECRET, or CDP_SQL_CLIENT_API_KEY with CDP_SQL_AUTH_MODE=client-api-key.",
     );
   }
   return { mode: "client-api-key", clientApiKey };
+}
+
+function defaultCdpSqlAuthMode(
+  env: Readonly<Record<string, string | undefined>>,
+): "client-api-key" | "signed-jwt" {
+  if (env.CDP_SQL_CLIENT_API_KEY?.trim()) return "client-api-key";
+  if (env.CDP_API_KEY_ID?.trim() || env.CDP_API_KEY_SECRET?.trim()) return "signed-jwt";
+  return "client-api-key";
 }
 
 export function createCdpSqlHttpTransport({

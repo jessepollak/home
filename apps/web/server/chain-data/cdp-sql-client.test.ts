@@ -457,22 +457,42 @@ describe("parseCdpSqlResponseEnvelope", () => {
 });
 
 describe("CDP SQL environment auth", () => {
-  test("defaults to only the dedicated server-side SQL client key", () => {
+  test("uses the project key when no mode or SQL client key is set", () => {
+    const generalKeyName = ["CDP_API_KEY", "_SECRET"].join("");
+    const auth = createCdpSqlAuthFromEnv({
+      CDP_API_KEY_ID: "synthetic-project-key-id",
+      [generalKeyName]: "synthetic-project-key-value",
+    });
+
+    expect(auth.mode).toBe("signed-jwt");
+    expect(() =>
+      createCdpSqlAuthFromEnv({ CDP_API_KEY_ID: "synthetic-project-key-id" }),
+    ).toThrow("CDP_API_KEY_ID and CDP_API_KEY_SECRET");
+  });
+
+  test("keeps a configured SQL client key when no mode is set", () => {
     const sqlKeyName = ["CDP_SQL_CLIENT", "_API_KEY"].join("");
     const generalKeyName = ["CDP_API_KEY", "_SECRET"].join("");
-    expect(createCdpSqlAuthFromEnv({ [sqlKeyName]: "sql-client-value" })).toEqual({
-      mode: "client-api-key",
-      clientApiKey: "sql-client-value",
-    });
+    expect(
+      createCdpSqlAuthFromEnv({
+        [sqlKeyName]: "sql-client-value",
+        CDP_API_KEY_ID: "synthetic-project-key-id",
+        [generalKeyName]: "synthetic-project-key-value",
+      }),
+    ).toEqual({ mode: "client-api-key", clientApiKey: "sql-client-value" });
+  });
+
+  test("fails closed when no CDP credential is configured", () => {
+    expect(() => createCdpSqlAuthFromEnv({})).toThrow("CDP_API_KEY_ID and CDP_API_KEY_SECRET");
     expect(() =>
       createCdpSqlAuthFromEnv({
-        CDP_API_KEY_ID: "project-key-id",
-        [generalKeyName]: "project-key-value",
+        CDP_SQL_AUTH_MODE: "client-api-key",
+        CDP_API_KEY_ID: "synthetic-project-key-id",
       }),
     ).toThrow("CDP_SQL_CLIENT_API_KEY");
   });
 
-  test("enables project-key signed JWT auth only when explicitly selected", () => {
+  test("honours an explicit signed-jwt mode", () => {
     const generalKeyName = ["CDP_API_KEY", "_SECRET"].join("");
     const auth = createCdpSqlAuthFromEnv({
       CDP_SQL_AUTH_MODE: "signed-jwt",

@@ -34,12 +34,14 @@ The chain-data adapter itself remains read-only and does not own authentication,
 
 CDP's SQL quickstart currently tells programmatic users to create a **CDP Client API key** and use it as the bearer value for `/run`. The v2 REST OpenAPI reference describes the same endpoint's bearer security scheme as a **JWT signed with a CDP API Key Secret**. Those are distinct credential paths in the current official documentation.
 
-The transport supports two explicit modes and never guesses:
+Home uses the existing CDP server key for SQL by default; no separate SQL credential is needed. `createCdpSqlAuthFromEnv` resolves one mode deterministically:
 
-- `client-api-key` (default): loaded only from `CDP_SQL_CLIENT_API_KEY` by `createCdpSqlAuthFromEnv`.
-- `signed-jwt` (explicit opt-in): set `CDP_SQL_AUTH_MODE=signed-jwt`; `createCdpSqlAuthFromEnv` then requires `CDP_API_KEY_ID` and `CDP_API_KEY_SECRET` and uses `generateJwt` from the official `@coinbase/cdp-sdk/auth` subpath for the fixed `POST api.cdp.coinbase.com/platform/v2/data/query/run` target.
+- `signed-jwt` (default when the project key is present): uses `CDP_API_KEY_ID` and `CDP_API_KEY_SECRET` with `generateJwt` from the official `@coinbase/cdp-sdk/auth` subpath for the fixed `POST api.cdp.coinbase.com/platform/v2/data/query/run` target. Setting `CDP_SQL_AUTH_MODE=signed-jwt` selects it explicitly.
+- `client-api-key` (optional override): uses `CDP_SQL_CLIENT_API_KEY`. It is selected when `CDP_SQL_AUTH_MODE=client-api-key`, or when the mode is unset and a SQL client key is configured.
 
-There is no automatic fallback from the default client-key mode to project credentials, no client-side variable, and no wallet secret. The SDK auth subpath is already installed and avoids importing the optional x402 entrypoint. The chain-data public entrypoint is guarded by `server-only`; operator scripts import the server implementation directly because they run only under Bun on the server.
+With the mode unset and neither credential configured, SQL fails closed as not configured.
+
+An explicit mode never falls back to the other credential. There is no client-side variable and no wallet secret. The SDK auth subpath is already installed and avoids importing the optional x402 entrypoint. The chain-data public entrypoint is guarded by `server-only`; operator scripts import the server implementation directly because they run only under Bun on the server.
 
 ## Safe operator commands
 
@@ -49,7 +51,7 @@ Configuration-only check (never sends a request):
 bun --conditions=react-server --env-file=apps/web/.env.local scripts/cdp-sql-check.ts
 ```
 
-For signed JWT configuration, set `CDP_SQL_AUTH_MODE=signed-jwt` in `apps/web/.env.local` (or explicitly in the command environment). Leaving the mode unset keeps the client-key default and does not reuse project credentials.
+With the CDP server key in `apps/web/.env.local`, no SQL-specific setting is needed; the check reports `signed-jwt`.
 
 It prints only whether configuration is present, the selected auth mode, and `networkRequestMade: false`.
 
