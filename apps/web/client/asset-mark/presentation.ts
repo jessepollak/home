@@ -46,6 +46,7 @@ export function presentInvestAssetMark(
       assetKey: assetKeyForInvestAsset(asset),
       name: asset.displayName,
       symbol: asset.initials,
+      imageUrl: investAssetByKey.has(assetKeyForInvestAsset(asset)) ? undefined : asset.imageUrl,
       currency: null,
     },
     resolution,

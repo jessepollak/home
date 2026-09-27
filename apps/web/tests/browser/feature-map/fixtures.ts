@@ -11,6 +11,7 @@ import {
   savingsVaultsBody,
 } from "../fixtures/bodies";
 import type { TradeDirection } from "../../../shared/trading/contract";
+import { nonTrendingAddress, searchFixture } from "./search-fixtures";
 
 const recentRecipient = "0x2211d1d0020daea8039e46cf1367962070d77da9";
 const syntheticUsdc = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const;
@@ -97,6 +98,7 @@ export function fixtureRoutes() {
       version: 1, recipients: [{ address: recentRecipient, name: "example.base.eth" }],
     }],
     ["**/api/basename-profile**", basenameProfileBody],
+    ...[...new Set(["BTC", "Bitcoin", "cbBTC", "AAPL", "Apple", "AAPLc", "ORB", "Orbit", nonTrendingAddress, "nothing-found", "partial"].flatMap((query) => [query, query.toLowerCase()]))].map((query) => [`**/api/invest/search?q=${query}`, searchFixture(query)] as const),
   ] as const;
 }
 

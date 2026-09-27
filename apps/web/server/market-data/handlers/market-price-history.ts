@@ -4,6 +4,7 @@ import {
   createErrorMarketHistoryResponse,
   getCodexMarketHistory,
 } from "@/server/market-data/codex/history";
+import { getInvestHistoryAdmission } from "@/server/market-data/codex/history-admission";
 import {
   isDynamicMarketPriceAssetId,
   isMarketPriceRange,
@@ -11,7 +12,6 @@ import {
   type MarketPriceHistoryResponse,
   type MarketPriceRange,
 } from "@/shared/invest/contracts/market-price-history";
-import { getCodexTrendingMemeAdmission } from "@/server/market-data/codex/trending";
 
 type HistoryReader = (
   assetId: string,
@@ -24,7 +24,7 @@ type DynamicAdmissionReader = (
 
 export function createMarketPriceHistoryHandler(
   readHistory: HistoryReader = getCodexMarketHistory,
-  readDynamicAdmission: DynamicAdmissionReader = getCodexTrendingMemeAdmission,
+  readDynamicAdmission: DynamicAdmissionReader = getInvestHistoryAdmission,
 ) {
   return async function GET(request: Request) {
     const url = new URL(request.url);
