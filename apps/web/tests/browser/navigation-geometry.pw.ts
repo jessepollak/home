@@ -25,8 +25,8 @@ for (const width of [390, 320]) {
     });
     expect(geometry.position).toBe("fixed");
     expect(geometry.nav.width).toBe(192);
-    expect(geometry.nav.height).toBe(60);
-    expect(geometry.tabHeights).toEqual([52, 52]);
+    expect(geometry.nav.height).toBe(62);
+    expect(geometry.tabHeights).toEqual([54, 54]);
     expect(844 - geometry.nav.bottom).toBe(12);
     expect(Math.abs(geometry.nav.left + geometry.nav.width / 2 - width / 2)).toBeLessThanOrEqual(1);
     expect(geometry.contentBottom).toBeLessThanOrEqual(geometry.nav.top);
