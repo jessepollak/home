@@ -3,12 +3,12 @@ import {
   encodeErc20Transfer,
   encodeUsdcTransfer,
   getTransferAsset,
-  transferRequestFromAction,
   formatSendConfirmAmount,
   formatTransferAmount,
   normalizeTransferRecipient,
   parseTransferAmount,
 } from "./transfer-helpers";
+import { transferRequestFromAction } from "./transfer-request";
 import { TransferExecutionError } from "./types";
 import { BASE_USDC_ADDRESS, BASE_USDC_PAYMASTER_ADDRESS } from "@/shared/money-actions/network-fee";
 

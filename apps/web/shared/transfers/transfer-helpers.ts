@@ -1,28 +1,21 @@
 import { getDirectPortfolioAssets } from "@/config/portfolio-assets";
-import type { PreparedMoneyAction } from "@/shared/money-actions/types";
-import { decodeMoneyActionApproval } from "@/shared/money-actions/approval";
-import { parseMoneyActionNetworkFee } from "@/shared/money-actions/network-fee";
 import {
   formatExactPresentationTokenAmount,
   formatUnsignedTokenAmount,
   formatUsdStablecoinAmount,
 } from "@/shared/formatting";
-import {
-  normalizeResolvedRecipientAddress,
-  normalizeTransferRecipientName,
-} from "./recipient-name";
+import { normalizeResolvedRecipientAddress } from "./recipient-address";
 import {
   TransferExecutionError,
   type TransferAsset,
   type TransferAssetId,
-  type TransferRequest,
 } from "./types";
 
 const UINT256_MAX = (BigInt(1) << BigInt(256)) - BigInt(1);
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const decimalAmountPattern = /^(?:0|[1-9][0-9]*)(?:\.([0-9]+))?$/;
 const decimalIntegerPattern = /^(?:0|[1-9][0-9]*)$/;
-const ERC20_TRANSFER_SELECTOR = "0xa9059cbb";
+export const ERC20_TRANSFER_SELECTOR = "0xa9059cbb";
 
 const transferAssetList: TransferAsset[] = getDirectPortfolioAssets().map((asset) => ({
   id: asset.id,
@@ -120,34 +113,6 @@ export function formatTransferAmount(
   return formatUnsignedTokenAmount(amountBaseUnits, decimals);
 }
 
-export function assertTransferRequest(value: TransferRequest): void {
-  if (
-    !value ||
-    typeof value.assetId !== "string" ||
-    typeof value.recipient !== "string" ||
-    typeof value.amountBaseUnits !== "string" ||
-    (value.recipientName !== undefined && typeof value.recipientName !== "string")
-  ) {
-    throw new TransferExecutionError("invalid-request");
-  }
-  const asset = getTransferAsset(value.assetId);
-  if (!asset) {
-    throw new TransferExecutionError("invalid-request");
-  }
-  const recipient = normalizeTransferRecipient(value.recipient);
-  if (value.recipientName !== undefined && normalizeTransferRecipientName(value.recipientName) === null) {
-    throw new TransferExecutionError("invalid-request");
-  }
-  if (
-    asset.kind === "erc20" &&
-    asset.contractAddress !== null &&
-    recipient.toLowerCase() === asset.contractAddress.toLowerCase()
-  ) {
-    throw new TransferExecutionError("invalid-request");
-  }
-  readBaseUnits(value.amountBaseUnits, true);
-}
-
 export function encodeErc20Transfer(
   token: `0x${string}`,
   recipient: `0x${string}`,
@@ -179,67 +144,7 @@ export function encodeUsdcTransfer(
   return encodeErc20Transfer(usdc.contractAddress, recipient, amountBaseUnits).data;
 }
 
-export function transferRequestFromAction(
-  action: PreparedMoneyAction,
-): TransferRequest | null {
-  const transferCalls = withoutNetworkFeeApproval(action);
-  if (action.kind !== "send" || !transferCalls || transferCalls.length !== 1) return null;
-  const spend = action.amounts.find((entry) => entry.direction === "spend");
-  const asset = getTransferAsset(spend?.assetId);
-  if (!spend || !asset || spend.symbol !== asset.symbol || spend.decimals !== asset.decimals) {
-    return null;
-  }
-  const call = transferCalls[0];
-  let recipient: `0x${string}`;
-  if (asset.kind === "native") {
-    if (call.data !== "0x" || call.value !== spend.amountBaseUnits) return null;
-    recipient = call.to;
-  } else {
-    if (!asset.contractAddress || call.to.toLowerCase() !== asset.contractAddress.toLowerCase() || call.value !== "0") {
-      return null;
-    }
-    if (!call.data.startsWith(ERC20_TRANSFER_SELECTOR) || call.data.length !== 138) return null;
-    recipient = `0x${call.data.slice(34, 74)}` as `0x${string}`;
-    try {
-      if (encodeErc20Transfer(asset.contractAddress, recipient, BigInt(spend.amountBaseUnits)).data !== call.data.toLowerCase()) {
-        return null;
-      }
-    } catch {
-      return null;
-    }
-  }
-  try {
-    const request = {
-      assetId: spend.assetId,
-      recipient: normalizeTransferRecipient(recipient),
-      amountBaseUnits: spend.amountBaseUnits,
-    } satisfies TransferRequest;
-    assertTransferRequest(request);
-    return request;
-  } catch {
-    return null;
-  }
-}
-
-function withoutNetworkFeeApproval(action: PreparedMoneyAction): PreparedMoneyAction["calls"] | null {
-  if (action.networkFee === undefined || action.networkFee.payment === "native") return action.calls;
-  const fee = parseMoneyActionNetworkFee(action.networkFee);
-  if (fee?.payment !== "usdc") return null;
-  const [approval, ...rest] = action.calls;
-  const decoded = approval ? decodeMoneyActionApproval(approval) : null;
-  if (
-    !decoded ||
-    decoded.token !== fee.token.toLowerCase() ||
-    decoded.spender !== fee.paymaster.toLowerCase() ||
-    decoded.amountBaseUnits !== fee.maxFeeBaseUnits ||
-    approval.value !== "0"
-  ) {
-    return null;
-  }
-  return rest;
-}
-
-function readBaseUnits(value: string, requirePositive = false): bigint {
+export function readBaseUnits(value: string, requirePositive = false): bigint {
   if (!decimalIntegerPattern.test(value)) {
     throw new TransferExecutionError("invalid-request");
   }

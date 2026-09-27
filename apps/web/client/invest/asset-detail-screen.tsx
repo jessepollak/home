@@ -11,6 +11,7 @@ import type { InvestAsset } from "@/config/invest-assets";
 import { presentInvestAssetMark, type AssetMarkResolution } from "@/client/asset-mark/presentation";
 import { useAccountWallet, isServerVerified } from "@/client/account/cdp-client";
 import { useTradeAvailability } from "@/client/trading/use-trade-availability";
+import { deferStep } from "@/client/money-modal/deferred-sheet";
 import { resolveTradeAsset } from "@/shared/trading/assets";
 import { TradeActions } from "@/client/trading/trade-actions";
 import type { MarketDataState } from "@/shared/invest/invest-market";
@@ -19,10 +20,13 @@ import { moneyChangeTone } from "@/shared/formatting";
 import { useMarketDisplay } from "./use-market-display";
 import { usePresentationQuote } from "./presentation-quote";
 import { AssetIcon } from "./asset-icon";
-import { AssetChart, useChartClock, type ChartReadout } from "./asset-chart";
+import { useChartClock, type ChartReadout } from "./asset-chart-support";
+import { ChartLoadFallback } from "./chart-load-fallback";
 import { AssetPosition } from "./asset-position";
 import { AssetStats } from "./asset-stats";
 import { PinnedTradeBar } from "./pinned-trade-bar";
+
+const AssetChart = deferStep(() => import("./asset-chart").then(({ AssetChart }) => AssetChart));
 
 export function AssetDetailStatusScreen({ status, onBack }: { status: "loading" | "unavailable"; onBack: () => void }) {
   const hosted = Boolean(useOptionalAppChrome());
@@ -138,7 +142,7 @@ export function AssetDetailScreen({ asset, market, assetMarkResolution = {}, onB
         </p>}
     </div>
     <AssetChart key={asset.id} assetId={asset.id} range={range} onRangeChange={onRangeChange}
-      clock={clock} onReadout={setScrub} onResting={onResting} />
+      clock={clock} onReadout={setScrub} onResting={onResting} fallback={ChartLoadFallback} />
     {ownership ?? <AssetPosition asset={asset} assetMarkResolution={assetMarkResolution} />}
     <AssetStats asset={asset} market={market} clock={clock} />
     {asset.category === "stock" ? <TradeActions asset={asset} layout="sticky" /> : null}

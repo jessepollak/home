@@ -5,7 +5,7 @@ import type { InvestAsset } from "@/config/invest-assets";
 import type { ExactDecimal } from "@/shared/balances/types";
 import { formatChartPrice, formatPresentationPrice, formatTrimmedChartPrice } from "@/shared/formatting";
 import type { MarketDataState } from "@/shared/invest/invest-market";
-import { endsEarly, scrubTime, type ChartClock } from "./asset-chart";
+import { endsEarly, scrubTime, type ChartClock } from "./asset-chart-support";
 import { usePresentationQuote, usePresentationRegionId } from "./presentation-quote";
 import { usePriceHistory, type PriceHistoryState } from "./use-price-history";
 import { useMarketStats } from "./use-market-stats";

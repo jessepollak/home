@@ -11,6 +11,10 @@
     width: calc((100% - .5rem) / 2);
   }
 
+  .pillReady {
+    transition: transform 180ms cubic-bezier(.25, 1.15, .35, 1);
+  }
+
   .floor {
     background: color-mix(in oklch, var(--background) 78%, transparent);
     box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--foreground) 12%, transparent), 0 0 0 1px color-mix(in oklch, var(--foreground) 6%, transparent), inset 0 1px 0 color-mix(in oklch, var(--background) 80%, transparent);
@@ -33,7 +37,7 @@
 }
 
 @media (max-width: 39.9375rem) and (prefers-reduced-motion: reduce) {
-  .navigation, .content { transition: none; }
+  .navigation, .content, .pillReady { transition: none; }
   .navigation :active > .content { scale: 1; }
   .navigation[data-keyboard-hidden="true"] { transform: none; }
 }
