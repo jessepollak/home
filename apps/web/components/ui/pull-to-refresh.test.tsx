@@ -3,8 +3,8 @@ import "@/client/account/dom-test-harness";
 import { afterEach, beforeEach, expect, test, mock, spyOn } from "bun:test";
 import { useRef } from "react";
 
-const { act, cleanup, render } = await import("@testing-library/react");
-const { PullToRefreshIndicator, usePullToRefresh } = await import("./pull-to-refresh");
+const { act, cleanup, fireEvent, render } = await import("@testing-library/react");
+const { PullToRefreshAction, PullToRefreshIndicator, usePullToRefresh } = await import("./pull-to-refresh");
 
 type Props = { enabled?: boolean; refreshing?: boolean; onRefresh: () => void };
 
@@ -12,7 +12,7 @@ function Fixture({ enabled = true, refreshing = false, onRefresh }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const gesture = usePullToRefresh({ scrollRef, contentRef, enabled, refreshing, onRefresh });
-  return <div ref={scrollRef} data-phase={gesture.phase}><PullToRefreshIndicator phase={gesture.phase} indicatorRef={gesture.indicatorRef} /><div ref={contentRef} data-testid="content"><span data-testid="target">Balance</span><div data-testid="nested"><span data-testid="nested-target">Nested</span></div><div aria-modal="true"><span data-testid="modal-target">Modal</span></div><input data-testid="input" /><div data-pull-to-refresh-ignore=""><span data-testid="ignored">Ignored</span></div></div></div>;
+  return <div ref={scrollRef} data-phase={gesture.phase}><PullToRefreshAction label="Refresh Home" refreshing={refreshing} onRefresh={onRefresh} actionRef={gesture.actionRef} /><PullToRefreshIndicator phase={gesture.phase} indicatorRef={gesture.indicatorRef} /><div ref={contentRef} data-testid="content"><span data-testid="target">Balance</span><div data-testid="nested"><span data-testid="nested-target">Nested</span></div><div aria-modal="true"><span data-testid="modal-target">Modal</span></div><input data-testid="input" /><div data-pull-to-refresh-ignore=""><span data-testid="ignored">Ignored</span></div></div></div>;
 }
 
 function touch(x: number, y: number, identifier = 1) {
@@ -115,7 +115,7 @@ test("armed release refreshes exactly once, then settles when refreshing finishe
   expect(view.container.firstElementChild?.getAttribute("data-phase")).toBe("idle");
 });
 
-test("reduced motion keeps content still while pull phases and the indicator advance", () => {
+test("reduced motion keeps pulling still, holds content clear while refreshing, and resets instantly", () => {
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
     value: (media: string) => ({
@@ -147,9 +147,18 @@ test("reduced motion keeps content still while pull phases and the indicator adv
   send(node, "touchend", [], [touch(0, 350)]);
   flushPaint();
   expect(view.container.firstElementChild?.getAttribute("data-phase")).toBe("refreshing");
-  expect(content.style.transform).toBe("");
+  expect(content.style.transform).toBe("translate3d(0, 52px, 0)");
+  expect(content.style.transition).toContain("transform 0ms");
   expect(Number(indicator.style.opacity)).toBeGreaterThan(0);
   expect(onRefresh).toHaveBeenCalledTimes(1);
+
+  view.rerender(<Fixture onRefresh={onRefresh} refreshing />);
+  view.rerender(<Fixture onRefresh={onRefresh} />);
+  flushPaint();
+  expect(content.style.transform).toBe("translate3d(0, 0px, 0)");
+  expect(content.style.transition).toContain("transform 0ms");
+  finish(content);
+  expect(view.container.firstElementChild?.getAttribute("data-phase")).toBe("idle");
 });
 
 test.each([
@@ -177,14 +186,114 @@ test("armed release keeps its hold offset when refreshing becomes true", () => {
   pull(node, 350);
   send(node, "touchend", [], [touch(0, 350)]);
   flushPaint();
-  expect(content.style.transform).toBe("translate3d(0, 38px, 0)");
+  expect(content.style.transform).toBe("translate3d(0, 52px, 0)");
   const holdTransition = content.style.transition;
   expect(holdTransition).toContain("transform 220ms");
 
   view.rerender(<Fixture onRefresh={onRefresh} refreshing />);
-  expect(content.style.transform).toBe("translate3d(0, 38px, 0)");
+  expect(content.style.transform).toBe("translate3d(0, 52px, 0)");
   expect(content.style.transition).toBe(holdTransition);
   expect(view.container.firstElementChild?.getAttribute("data-phase")).toBe("refreshing");
+});
+
+test("keyboard focus reveals the refresh action and holds idle content clear until blur", () => {
+  const flushPaint = capturePaint();
+  const view = render(<Fixture onRefresh={() => {}} />);
+  const action = view.getByRole("button", { name: "Refresh Home" });
+  const content = view.getByTestId("content");
+  const indicator = view.container.querySelector<HTMLElement>("[data-slot='pull-to-refresh-indicator']")!;
+  spyOn(action, "matches").mockImplementation((selector) => selector === ":focus-visible");
+  act(() => action.focus());
+  flushPaint();
+  expect(view.container.firstElementChild?.getAttribute("data-phase")).toBe("idle");
+  expect(content.style.transform).toBe("translate3d(0, 52px, 0)");
+  expect(indicator.style.opacity).toBe("0");
+  act(() => action.blur());
+  flushPaint();
+  expect(content.style.transform).toBe("translate3d(0, 0px, 0)");
+});
+
+test("refresh completion preserves focused action clearance through settling and releases it on blur", () => {
+  const flushPaint = capturePaint();
+  const onRefresh = mock(() => {});
+  const view = render(<Fixture onRefresh={onRefresh} refreshing />);
+  const action = view.getByRole("button", { name: "Refresh Home" });
+  const content = view.getByTestId("content");
+  spyOn(action, "matches").mockImplementation((selector) => selector === ":focus-visible");
+  act(() => action.focus());
+  flushPaint();
+  expect(content.style.transform).toBe("translate3d(0, 52px, 0)");
+  view.rerender(<Fixture onRefresh={onRefresh} />);
+  expect(view.container.firstElementChild?.getAttribute("data-phase")).toBe("settling");
+  flushPaint();
+  expect(content.style.transform).toBe("translate3d(0, 52px, 0)");
+  finish(content);
+  flushPaint();
+  expect(view.container.firstElementChild?.getAttribute("data-phase")).toBe("idle");
+  expect(content.style.transform).toBe("translate3d(0, 52px, 0)");
+  expect(onRefresh).not.toHaveBeenCalled();
+  act(() => action.blur());
+  flushPaint();
+  expect(content.style.transform).toBe("translate3d(0, 0px, 0)");
+});
+
+test("focus during settling clears the action while preserving its completion", () => {
+  const flushPaint = capturePaint();
+  const view = render(<Fixture onRefresh={() => {}} refreshing />);
+  const action = view.getByRole("button", { name: "Refresh Home" });
+  const content = view.getByTestId("content");
+  spyOn(action, "matches").mockImplementation((selector) => selector === ":focus-visible");
+  flushPaint();
+  view.rerender(<Fixture onRefresh={() => {}} />);
+  act(() => action.focus());
+  flushPaint();
+  expect(view.container.firstElementChild?.getAttribute("data-phase")).toBe("settling");
+  expect(content.style.transform).toBe("translate3d(0, 52px, 0)");
+  finish(content);
+  flushPaint();
+  expect(view.container.firstElementChild?.getAttribute("data-phase")).toBe("idle");
+  expect(content.style.transform).toBe("translate3d(0, 52px, 0)");
+});
+
+test("blur while refreshing lets completion settle to no offset", () => {
+  const flushPaint = capturePaint();
+  const view = render(<Fixture onRefresh={() => {}} refreshing />);
+  const action = view.getByRole("button", { name: "Refresh Home" });
+  const content = view.getByTestId("content");
+  spyOn(action, "matches").mockImplementation((selector) => selector === ":focus-visible");
+  act(() => action.focus());
+  flushPaint();
+  act(() => action.blur());
+  flushPaint();
+  expect(content.style.transform).toBe("translate3d(0, 52px, 0)");
+  view.rerender(<Fixture onRefresh={() => {}} />);
+  flushPaint();
+  expect(content.style.transform).toBe("translate3d(0, 0px, 0)");
+  finish(content);
+  flushPaint();
+  expect(view.container.firstElementChild?.getAttribute("data-phase")).toBe("idle");
+  expect(content.style.transform).toBe("translate3d(0, 0px, 0)");
+});
+
+test("blur during settling animates back to no offset before idle", () => {
+  const flushPaint = capturePaint();
+  const view = render(<Fixture onRefresh={() => {}} refreshing />);
+  const action = view.getByRole("button", { name: "Refresh Home" });
+  const content = view.getByTestId("content");
+  spyOn(action, "matches").mockImplementation((selector) => selector === ":focus-visible");
+  act(() => action.focus());
+  flushPaint();
+  view.rerender(<Fixture onRefresh={() => {}} />);
+  flushPaint();
+  act(() => action.blur());
+  flushPaint();
+  expect(view.container.firstElementChild?.getAttribute("data-phase")).toBe("settling");
+  expect(content.style.transform).toBe("translate3d(0, 0px, 0)");
+  expect(content.style.transition).toContain("transform 220ms");
+  finish(content);
+  flushPaint();
+  expect(view.container.firstElementChild?.getAttribute("data-phase")).toBe("idle");
+  expect(content.style.transform).toBe("translate3d(0, 0px, 0)");
 });
 
 test("refresh completion animates from hold through settling before idle", () => {
@@ -193,11 +302,11 @@ test("refresh completion animates from hold through settling before idle", () =>
   const view = render(<Fixture onRefresh={onRefresh} refreshing />);
   const content = view.getByTestId("content");
   flushPaint();
-  expect(content.style.transform).toBe("translate3d(0, 38px, 0)");
+  expect(content.style.transform).toBe("translate3d(0, 52px, 0)");
 
   view.rerender(<Fixture onRefresh={onRefresh} />);
   expect(view.container.firstElementChild?.getAttribute("data-phase")).toBe("settling");
-  expect(content.style.transform).toBe("translate3d(0, 38px, 0)");
+  expect(content.style.transform).toBe("translate3d(0, 52px, 0)");
   expect(content.style.transition).toContain("transform 220ms");
   flushPaint();
   expect(content.style.transform).toBe("translate3d(0, 0px, 0)");
@@ -206,15 +315,58 @@ test("refresh completion animates from hold through settling before idle", () =>
   expect(view.container.firstElementChild?.getAttribute("data-phase")).toBe("idle");
 });
 
+test("hold offset uses indicator geometry and subtracts content top padding", () => {
+  const flushPaint = capturePaint();
+  const onRefresh = mock(() => {});
+  const view = render(<Fixture onRefresh={onRefresh} />);
+  const indicator = view.container.querySelector<HTMLElement>("[data-slot='pull-to-refresh-indicator']")!;
+  const content = view.getByTestId("content");
+  Object.defineProperties(indicator, { offsetTop: { value: 18 }, offsetHeight: { value: 40 } });
+  content.style.paddingTop = "12px";
+  view.rerender(<Fixture onRefresh={onRefresh} refreshing />);
+  flushPaint();
+  expect(content.style.transform).toBe("translate3d(0, 64px, 0)");
+});
+
+test("hold offset falls back when layout measurements are zero", () => {
+  const flushPaint = capturePaint();
+  const view = render(<Fixture onRefresh={() => {}} refreshing />);
+  flushPaint();
+  expect(view.getByTestId("content").style.transform).toBe("translate3d(0, 52px, 0)");
+});
+
+test("refresh action is icon-only, named, and stays focusable but disabled while busy", () => {
+  const onRefresh = mock(() => {});
+  const view = render(<PullToRefreshAction label="Refresh Home" refreshing={false} onRefresh={onRefresh} />);
+  const action = view.getByRole("button", { name: "Refresh Home" });
+  expect(action.textContent).toBe("");
+  expect(action.querySelectorAll("svg[aria-hidden='true']")).toHaveLength(1);
+  fireEvent.click(action);
+  expect(onRefresh).toHaveBeenCalledTimes(1);
+  view.rerender(<PullToRefreshAction label="Refresh Home" refreshing onRefresh={onRefresh} />);
+  expect(action.textContent).toBe("");
+  expect(action.querySelectorAll("svg[aria-hidden='true']")).toHaveLength(1);
+  expect(action.getAttribute("aria-busy")).toBe("true");
+  expect(action.getAttribute("aria-disabled")).toBe("true");
+  fireEvent.click(action);
+  expect(onRefresh).toHaveBeenCalledTimes(1);
+  action.focus();
+  expect(document.activeElement).toBe(action);
+  expect(action.tabIndex).toBeGreaterThanOrEqual(0);
+});
+
 test("refreshing changes do not rebind touch listeners", () => {
   const onRefresh = mock(() => {});
   const view = render(<Fixture onRefresh={onRefresh} />);
   const owner = view.container.firstElementChild as HTMLElement;
   const add = spyOn(owner, "addEventListener");
+  const action = view.getByRole("button", { name: "Refresh Home" });
+  const actionAdd = spyOn(action, "addEventListener");
 
   view.rerender(<Fixture onRefresh={onRefresh} refreshing />);
   view.rerender(<Fixture onRefresh={onRefresh} />);
   expect(add.mock.calls.filter(([name]) => String(name).startsWith("touch"))).toHaveLength(0);
+  expect(actionAdd.mock.calls.filter(([name]) => name === "focus" || name === "blur")).toHaveLength(0);
 });
 
 test("scrolled owner never captures and horizontal motion leaves native gesture alone", () => {

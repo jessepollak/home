@@ -693,7 +693,7 @@ function DashboardShellBody({
     enabled: homeRefreshEnabled,
   });
   const gestureEnabled = homeRefreshEnabled && !flowOpen && !isAccountOpen && !homeDetailsOpen;
-  const { phase: pullPhase, indicatorRef } = usePullToRefresh({
+  const { phase: pullPhase, indicatorRef, actionRef } = usePullToRefresh({
     scrollRef: mainRef,
     contentRef: contentFrameRef,
     enabled: gestureEnabled,
@@ -979,8 +979,8 @@ function DashboardShellBody({
         data-app-main-authenticated
         className={`relative order-1 min-h-0 flex-1 overscroll-contain overflow-x-hidden bg-muted sm:order-2 ${shellNavigationClearanceClassName} ${shellScrollContainerClassName}`}
       >
+        {gestureEnabled ? <PullToRefreshAction label="Refresh Home" refreshing={refreshState.phase === "refreshing"} onRefresh={() => { void refresh(); }} actionRef={actionRef} /> : null}
         {homeRefreshEnabled ? <PullToRefreshIndicator phase={pullPhase} indicatorRef={indicatorRef} /> : null}
-        {gestureEnabled ? <PullToRefreshAction label="Refresh Home" refreshing={refreshState.phase === "refreshing"} onRefresh={() => { void refresh(); }} /> : null}
         <div ref={contentFrameRef} className={`${shellContentFrameClassName} py-4 sm:py-6`}>
         <span role="status" aria-live="polite" className="sr-only">{homeRefreshEnabled
           ? refreshState.phase === "refreshing" ? "Refreshing Home" : refreshState.phase === "complete" ? "Home updated" : null
