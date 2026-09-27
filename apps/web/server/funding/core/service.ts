@@ -9,12 +9,14 @@ import { FUNDING_BINDING_ENVIRONMENT_CODE, FUNDING_CONFIGURATION_CODE, FundingPr
 import { authenticateFundingQuote, isFundingQuoteExpired, signFundingQuote } from "./quote-token";
 import { FundingQuoteRejectedError } from "./quote-rejection";
 import { emitFundingProviderFailure } from "./provider-failure";
-import type { FundingOrder, FundingOrderOwner, FundingOrderStore } from "./store";
+import { ACTIVITY_ORDERS_LIMIT } from "@/shared/activity/contract-orders";
+import { isTerminalFundingState, type FundingOrder, type FundingOrderOwner, type FundingOrderStore } from "./store";
 import { MemoryFundingProviderCustomerStore, type FundingProviderCustomer, type FundingProviderCustomerStore } from "./customer-store";
 import { awaitBalanceSignal } from "@/server/balances/signal";
 import type { FundingUserTokenVault, ProviderUserTokenCreateOrder, FundingUserTokenBinding } from "./provider-user-token";
 
 export const AMBIGUOUS_ORDER_RECOVERY_DELAY_MS = 24 * 60 * 60 * 1_000;
+const REFRESH_COOLDOWN_MS = 3_000;
 
 export type ReceiptMatch = { transactionHash: `0x${string}`; logIndex: number } | null;
 
@@ -45,6 +47,7 @@ export type FundingCoreDependencies = {
   logOrderTransition?: (event: FundingOrderTransitionEvent) => void;
   markStale?: (address: `0x${string}`, at: Date) => Promise<void>;
   now?: () => Date;
+  random?: () => number;
 };
 
 export class FundingCore {
@@ -440,10 +443,26 @@ export class FundingCore {
     return publicOrder(created);
   }
 
+  async listOrderHistory(session: VerifiedAccountSession, limit = ACTIVITY_ORDERS_LIMIT): Promise<FundingOrder[]> {
+    const orders = await this.deps.store.listOwned(ownerFor(session), limit);
+    const now = this.now().getTime();
+    const eligible = orders.filter((order) => !isTerminalFundingState(order.state) && order.state !== "reserving" &&
+      !(order.sandbox && order.state === "sent-unverified") && now - Date.parse(order.updatedAt) >= REFRESH_COOLDOWN_MS)
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id));
+    const start = Math.floor((this.deps.random ?? Math.random)() * eligible.length) % Math.max(eligible.length, 1);
+    const candidates = Array.from({ length: Math.min(2, eligible.length) }, (_, index) => eligible[(start + index) % eligible.length]!);
+    const refreshed = new Map(await Promise.all(candidates.map(async (order) => [order.id, await this.refresh(order)] as const)));
+    return orders.map((order) => refreshed.get(order.id) ?? order);
+  }
+
   async getOrder(session: VerifiedAccountSession, id: string) {
     const order = await this.deps.store.getOwned(id, ownerFor(session));
     if (!order) throw new FundingCoreError("ORDER_NOT_FOUND", 404);
     return publicOrder(await this.refresh(order));
+  }
+
+  async peekOpenOrder(session: VerifiedAccountSession, region: string): Promise<FundingOrder | null> {
+    return this.deps.store.getOpen(ownerFor(session), region);
   }
 
   async getOpenOrder(session: VerifiedAccountSession, region: string) {
@@ -537,7 +556,7 @@ export class FundingCore {
 
   private async refresh(order: FundingOrder, force = false): Promise<FundingOrder> {
     if (["reserving", "dispatch-ambiguous", "received", "expired", "cancelled", "failed", "refunded"].includes(order.state) || !order.providerOrderId || !order.expectedTokenAmountAtomic) return order;
-    if (!force && this.now().getTime() - Date.parse(order.updatedAt) < 3_000) return order;
+    if (!force && this.now().getTime() - Date.parse(order.updatedAt) < REFRESH_COOLDOWN_MS) return order;
     const provider = this.provider(order.providerId);
     const binding = provider ? findBinding(provider, order.region, "onramp", order.paymentMethod, order.assetId) : null;
     const onramp = provider ? provider.onramp : null;

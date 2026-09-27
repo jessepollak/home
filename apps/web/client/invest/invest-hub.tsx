@@ -9,6 +9,7 @@ import {
   type MemeShelfStatus,
 } from "./discover";
 import { DiscoverShelf } from "./discover-shelf";
+import { InvestSearch, type InvestSearchState } from "./invest-search";
 
 export type InvestHubProps = {
   stockMarket: MarketDataState;
@@ -17,6 +18,11 @@ export type InvestHubProps = {
   memeAssets?: readonly InvestAsset[];
   memeStatus?: MemeShelfStatus;
   assetMarkResolution?: AssetMarkResolution;
+  query?: string;
+  onQueryChange?: (query: string) => void;
+  composing?: boolean;
+  onComposingChange?: (composing: boolean) => void;
+  search?: InvestSearchState;
   onSeeAll: (shelfId: DiscoverShelfId) => void;
   onOpenAsset: (asset: InvestAsset, from: "hub") => void;
 };
@@ -28,11 +34,21 @@ export function InvestHub({
   memeAssets = [],
   memeStatus = "empty",
   assetMarkResolution = {},
+  query = "",
+  onQueryChange = () => {},
+  composing = false,
+  onComposingChange = () => {},
+  search,
   onSeeAll,
   onOpenAsset,
 }: InvestHubProps) {
   const hosted = Boolean(useOptionalAppChrome());
   const markets = {
+    stockMarket,
+    cryptoMarket: cryptoMarket ?? unavailableMarketData,
+    memeMarket,
+  };
+  const shelfMarkets = {
     stock: stockMarket,
     crypto: cryptoMarket ?? unavailableMarketData,
     meme: memeMarket,
@@ -51,20 +67,34 @@ export function InvestHub({
           </h2>
         </header>
       )}
-      <div className="space-y-4">
-        {discoverShelves.map((shelf) => (
-          <DiscoverShelf
-            key={shelf.id}
-            title={shelf.title}
-            assets={getShelfPreviewAssets(shelf, memeAssets)}
-            market={markets[shelf.category]}
-            status={shelf.id === "memes" ? memeStatus : "ready"}
-            assetMarkResolution={assetMarkResolution}
-            onSeeAll={() => onSeeAll(shelf.id)}
-            onOpenAsset={(asset) => onOpenAsset(asset, "hub")}
-          />
-        ))}
-      </div>
+      {search ? (
+        <InvestSearch
+          query={query}
+          onQueryChange={onQueryChange}
+          composing={composing}
+          onComposingChange={onComposingChange}
+          search={search}
+          markets={markets}
+          assetMarkResolution={assetMarkResolution}
+          onOpenAsset={(asset) => onOpenAsset(asset, "hub")}
+        />
+      ) : null}
+      {!query.trim() ? (
+        <div className={search ? "mt-4 space-y-4" : "space-y-4"}>
+          {discoverShelves.map((shelf) => (
+            <DiscoverShelf
+              key={shelf.id}
+              title={shelf.title}
+              assets={getShelfPreviewAssets(shelf, memeAssets)}
+              market={shelfMarkets[shelf.category]}
+              status={shelf.id === "memes" ? memeStatus : "ready"}
+              assetMarkResolution={assetMarkResolution}
+              onSeeAll={() => onSeeAll(shelf.id)}
+              onOpenAsset={(asset) => onOpenAsset(asset, "hub")}
+            />
+          ))}
+        </div>
+      ) : null}
     </section>
   );
 }

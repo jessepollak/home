@@ -15,12 +15,12 @@ Real browser captures of the current app with sample data. Select an image for f
 <table>
   <tr>
     <td align="center">
-      <a href="docs/readme/home.png"><img src="docs/readme/home.png" width="250" alt="Sample-data capture of the Home mobile dashboard with balance, send, save, and activity actions"></a><br>
+      <a href="docs/readme/home.png"><img src="docs/readme/home.png" width="250" alt="Sample-data capture of the Home mobile dashboard with balance, Add money, Send, Your money, and Activity"></a><br>
       <strong>Home</strong>
     </td>
     <td align="center">
-      <a href="docs/readme/save.png"><img src="docs/readme/save.png" width="250" alt="Sample-data capture of the current Save screen with USDC vault choices"></a><br>
-      <strong>Save</strong>
+      <a href="docs/readme/cash.png"><img src="docs/readme/cash.png" width="250" alt="Sample-data capture of the Cash screen with stablecoin currencies and savings"></a><br>
+      <strong>Cash</strong>
     </td>
   </tr>
   <tr>

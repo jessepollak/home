@@ -145,7 +145,7 @@ export function HomeBalanceBreakdown({ items }: { items: readonly MoneyBreakdown
 
 const unavailableSummary: HomeMoneySummaryModel = {
   cash: { status: "unavailable", value: null },
-  investments: { status: "unavailable", value: null, assetCount: 0 },
+  investments: { status: "unavailable", value: null, assetCount: 0, ownedCount: 0 },
   borrow: { kind: "unavailable" },
 };
 
@@ -236,7 +236,7 @@ function InvestmentsRow({
   onOpen: () => void;
   onRetryBalances?: () => void;
 }) {
-  const empty = summary.assetCount === 0 && summary.status === "complete";
+  const empty = summary.ownedCount === 0 && summary.status === "complete";
   return (
     <BalanceRow
       icon={<GlyphMark size="sm"><ChartLine /></GlyphMark>}
@@ -250,7 +250,7 @@ function InvestmentsRow({
       value={empty ? undefined : summaryValue(summary.value)}
       valueTone={summary.status === "complete" ? "default" : "muted"}
       onActivate={onOpen}
-      activateLabel="Open Invest"
+      activateLabel={empty ? "Open Invest" : "Open Investments"}
       readRetry={!empty && summary.value === null && onRetryBalances ? { label: "Retry Investments balance", onRetry: onRetryBalances } : undefined}
       chevron={empty || summary.value !== null}
     />

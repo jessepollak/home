@@ -8,7 +8,7 @@ PRs that change user-visible UI or core flows. Skip docs-only, CI-only, and pure
 
 ## What
 
-Keep `## Preview` visible after the short `## Review` brief. For design work, start it with the direct [Storybook review board](design-system.md#review-boards) link on the PR's Storybook preview. Keep the Home **Vercel preview link** (posted automatically on every PR) as the primary implementation proof. Add to Preview:
+Keep `## Preview` visible after the short `## Review` brief. Its first line is the managed **Review board** link on the PR's current Storybook deployment (see [Storybook links](#storybook-links)). Keep the Home **Vercel preview link** (posted automatically on every PR) as the primary implementation proof. Add to Preview:
 
 - **Non-motion UI:** retain screenshots that help review the changed route on the current head; ~390px is the default mobile viewport. The comparison is adaptive, not a fixed before/after matrix.
 - **Motion / animation:** retain a short video or GIF (roughly 30 seconds or less) when stills cannot show the transition — timing, interruption, or gesture reversal.
@@ -17,16 +17,16 @@ Put every retained screenshot or clip directly in Preview as a GitHub attachment
 
 When the pre-change baseline materially improves judgment, use a paired comparison. Pair identical state, data, and CSS-pixel viewport; **After is the current PR head**:
 
-| State + viewport | Before | After |
-|---|---|---|
-| Save review — 390×844 CSS px | GitHub screenshot attachment of the PR base | GitHub screenshot attachment of the current PR head |
+| State + viewport | Board | Before | After |
+|---|---|---|---|
+| Save review — 390×844 CSS px | `story:journeys-savings-deposit--deposit` | GitHub screenshot attachment of the PR base | GitHub screenshot attachment of the current PR head |
 
 When Before adds no information, use current-head evidence only instead of filling empty comparison cells:
 
-| State + viewport | Evidence |
-|---|---|
-| Save review — 390×844 CSS px | GitHub screenshot attachment |
-| Withdrawal recovery — desktop 1440×900 | GitHub clip attachment |
+| State + viewport | Board | Evidence |
+|---|---|---|
+| Save review — 390×844 CSS px | `story:journeys-savings-deposit--deposit` | GitHub screenshot attachment |
+| Withdrawal recovery — desktop 1440×900 | — | GitHub clip attachment |
 
 Do not commit media or upload only one representative from a larger retained set. The tables present evidence you retained; they do not require capturing a screenshot matrix.
 
@@ -52,6 +52,18 @@ Include the relevant failure/recovery path. For motion, include the short clip r
 Keep an accepted Proposed reference immutable as design history. If its component, fixture, or behavior changes before review, replace its commit, deployment links, and capture and return it to unreviewed when the observable proposal changed materially. After any implementation UI change, refresh Implemented media and agent-browser evidence against the current PR head; refresh Before when the compared baseline changed.
 
 Storybook proves only the fixture-backed component scenario it renders. It does not replace Home browser verification, Safari or physical-keyboard checks, Next routing/history, app-level scroll/focus/Back behavior, or wallet/provider verification. State every unperformed check precisely.
+
+### Storybook links
+
+Every Preview link into Storybook is generated for the current head, so Jesse lands on what the PR asks him to review. The author declares only which stories matter:
+
+- Put `story:<story-id>` (inline code) in a row's **Board** cell when a Storybook story shows that state; use `—` when none does. Story IDs come from the MCP docs tools or the Storybook URL (`?path=/story/<story-id>`).
+- Keep the empty `<!-- review-links:start -->` / `<!-- review-links:end -->` block from the template at the top of Preview. The generator fills it with one **Review board** link when a story is declared or the insertion rule applies.
+- For a curated board, put its frame link (`id=review-boards--<board>&frame=<frame>`, any link text) in the Board cell or the managed block's `[Review board](…)` line instead; the generator keeps the board, frame, and link text and refreshes only the deployment.
+
+The **Storybook review links** workflow runs when the Storybook preview deployment for the PR head succeeds and whenever the PR body is edited. It rewrites each `story:` token into a `[Board](…)` link that opens that story's frame on the **Changes** board, and points the top link at the first declared story. Every Changes-board link carries `focus=<story-id>,…`, so the board opens with a **Review** section holding the declared stories in row order, followed by the other stories the diff touched. Links are pinned to the commit-specific deployment and its `rev`, and are refreshed on every push; never hand-edit them. The workflow runs its script from the default branch, edits nothing outside Preview, and warns instead of failing. Preview the rewrite locally with `bun run --cwd apps/web review:links <pr>` (`--write` applies it).
+
+Without declared stories, the top Changes-board link appears for design PRs or PRs changing `apps/web/components/**` or story files; an existing Storybook top link is also kept and refreshed. The Changes board lists stories whose own files changed first and stories matched only through shared `components/ui/**` primitives last. Declare stories whenever the PR has a specific state to review.
 
 ### Review findings
 
@@ -89,4 +101,4 @@ Immutable manifests, SHA-256 hashes, tile sets, per-state screenshot matrices, p
 
 ## Done
 
-A reviewer can open the PR, click the Vercel preview, and see every retained screenshot or clip inline with a descriptive label that matches the described change; any recorded review findings are separate from that media. A design or library handoff PR also links its coverage table under [design handoff coverage](operating-manual.md#design-handoff-coverage), and review checks it.
+A reviewer can open the PR, click the Vercel preview, and see every retained screenshot or clip inline with a descriptive label that matches the described change; the Review board link and each row's Board link open the declared story on the current head's Storybook deployment. Any recorded review findings are separate from that media. A design or library handoff PR also links its coverage table under [design handoff coverage](operating-manual.md#design-handoff-coverage), and review checks it.

@@ -5,9 +5,12 @@
   "componentDirectory": "figma/components",
   "frames": [
     { "figmaName": "Home — final", "nodeId": "92:922", "source": "client/home/home-overview.tsx", "component": "HomeOverview", "stories": ["client/home/home-overview.stories.tsx"] },
-    { "figmaName": "Regional & desktop proposal (#638, unreviewed)", "nodeId": "311:12034", "source": "client/home/explorations/regional-home.tsx", "component": "RegionalHomeProposal", "stories": ["client/home/explorations/regional-home.stories.tsx", "client/home/explorations/regional-money-sheets.stories.tsx", "client/account/explorations/regional-preferences.stories.tsx"] }
+    { "figmaName": "Cash — funded", "nodeId": "341:13555", "source": "client/cash/cash-overview.tsx", "component": "CashOverview", "stories": ["client/cash/cash-experience.stories.tsx"] },
+    { "figmaName": "Regional & desktop proposal (#638, unreviewed)", "nodeId": "311:12034", "source": "client/home/explorations/regional-home.tsx", "component": "RegionalHomeProposal", "stories": ["client/home/explorations/regional-home.stories.tsx", "client/home/explorations/regional-money-sheets.stories.tsx", "client/account/explorations/regional-preferences.stories.tsx"] },
+    { "figmaName": "Invest asset detail selected (#938)", "nodeId": "422:4404", "source": "client/invest/asset-detail-screen.tsx", "component": "AssetDetailScreen", "stories": ["client/invest/asset-detail-screen.stories.tsx", "stories/journeys/invest-asset-detail.stories.tsx"] }
   ],
   "notMapped": [
+    { "figmaName": "PriceChart (superseded)", "nodeId": "166:1959", "reason": "The selected #938 AssetChart replaces this earlier chart proposal; its node is no longer a production component." },
     { "figmaName": "InputOTPSlot", "nodeId": "211:3547", "reason": "Sub-part of mapped InputOTP; rendered by the owned InputOTPSlot." },
     { "figmaName": "AssetDetailHeader", "nodeId": "166:1917", "reason": "DESIGN-ONLY: rendered inline in asset-detail-screen.tsx, not an exported component." },
     { "figmaName": "SystemKeyboard", "nodeId": "274:5688", "reason": "DESIGN-ONLY placeholder for the OS keyboard." },

@@ -7,7 +7,7 @@ import {
   ownerQueryKey,
   shouldPersistOwnerQuery,
 } from "@/client/query/query-client";
-import { balancesSnapshotFixture, buildBalancesSnapshotFixture } from "@/shared/balances/fixtures";
+import { balancesSnapshotFixture, borrowPosition, buildBalancesSnapshotFixture, priced } from "@/shared/balances/fixtures";
 import { presentBalances } from "@/shared/balances/present";
 import type { FetchBalances } from "@/shared/balances/types";
 import type { RegionId } from "@/config/regions";
@@ -38,9 +38,17 @@ function ProvisionalHarness({ fetchBalances, provisional }: {
     : state.status}</output>;
 }
 
-function HeldHarness({ fetchBalances, held }: { fetchBalances: FetchBalances; held: boolean }) {
-  const state = useBalances(session, "US", fetchBalances, { held });
-  return <output>{state.status === "ready" ? `ready:${state.snapshot.fetchedAt}` : state.status}</output>;
+function HeldHarness({ fetchBalances, held, paintCachedWhileHeld = false, region = "US", owner = session }: {
+  fetchBalances: FetchBalances;
+  held: boolean;
+  paintCachedWhileHeld?: boolean;
+  region?: RegionId;
+  owner?: typeof session;
+}) {
+  const state = useBalances(owner, region, fetchBalances, { held, paintCachedWhileHeld });
+  return <output data-failure-eligible={state.observation.failureEligible}>{state.status === "ready"
+    ? `ready:${state.snapshot.region}:${state.snapshot.fetchedAt}:${state.revalidating === true ? "revalidating" : "settled"}:${state.observation.hasData ? "observed" : "missing"}`
+    : state.status}</output>;
 }
 
 function RegionHarness({ region, fetchBalances }: { region: RegionId; fetchBalances: FetchBalances }) {
@@ -59,6 +67,12 @@ function RetryHarness({ fetchBalances }: { fetchBalances: FetchBalances }) {
       <button type="button" onClick={() => void state.retry()}>retry balances</button>
     </>
   );
+}
+
+function BorrowHarness({ fetchBalances }: { fetchBalances: FetchBalances }) {
+  const state = useBalances(session, "US", fetchBalances);
+  const borrow = presentBalances(state, { showSmallBalances: false }).summary?.borrow;
+  return <output>{state.status}:{state.revalidating === true ? "revalidating" : "settled"}:{borrow?.kind === "position" ? borrow.value : borrow?.kind}</output>;
 }
 
 function IdentityHarness({
@@ -81,6 +95,35 @@ afterEach(() => {
 });
 
 describe("useBalances", () => {
+  test("a money-action invalidation keeps the Borrow position during refetch and shows the new position afterward", async () => {
+    const position = borrowPosition({
+      collateralBaseUnits: "100000", collateralValue: priced("USD", "5000"),
+      debtBaseUnits: "30010000", debtValue: priced("USD", "3001"),
+    });
+    const first = buildBalancesSnapshotFixture({ borrow: { coverage: "complete", positions: [position] } });
+    const second = buildBalancesSnapshotFixture({
+      fetchedAt: "2026-09-13T12:00:30.000Z",
+      borrow: { coverage: "complete", positions: [{
+        ...position, debt: { ...position.debt, balance: { status: "ready", baseUnits: "40010000" }, value: priced("USD", "4001") },
+      }] },
+    });
+    let calls = 0;
+    let finish!: (snapshot: typeof first) => void;
+    const fetchBalances: FetchBalances = () => {
+      calls += 1;
+      return calls === 1 ? Promise.resolve(first) : new Promise((resolve) => { finish = resolve; });
+    };
+    const view = render(<BorrowHarness fetchBalances={fetchBalances} />);
+    await waitFor(() => expect(view.getByRole("status").textContent).toBe("ready:settled:$30.01"));
+
+    const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
+    act(() => { void getHomeQueryClient().invalidateQueries({ queryKey: ownerQueryKey(ownerKey, "balances") }); });
+    await waitFor(() => expect(calls).toBe(2));
+    expect(view.getByRole("status").textContent).toBe("ready:revalidating:$30.01");
+    await act(async () => { finish(second); });
+    await waitFor(() => expect(view.getByRole("status").textContent).toBe("ready:settled:$40.01"));
+  });
+
   test("cached balances remain ready while a provisional refresh is pending", async () => {
     const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
     const key = ownerQueryKey(ownerKey, "balances", "US");
@@ -96,7 +139,7 @@ describe("useBalances", () => {
     expect(view.getByRole("status").textContent).toBe(`${balancesSnapshotFixture.fetchedAt}:ready`);
   });
 
-  test("held balances hide cached data and make no read until released", async () => {
+  test("held balances paint exact-key cached data only when opted in, without a read", () => {
     const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
     getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture);
     let reads = 0;
@@ -106,9 +149,61 @@ describe("useBalances", () => {
     };
     const view = render(<HeldHarness held fetchBalances={fetchBalances} />);
     expect(view.getByRole("status").textContent).toBe("loading");
+    view.rerender(<HeldHarness held paintCachedWhileHeld fetchBalances={fetchBalances} />);
+    expect(view.getByRole("status").textContent).toBe(`ready:US:${balancesSnapshotFixture.fetchedAt}:revalidating:observed`);
+    expect(view.getByRole("status").getAttribute("data-failure-eligible")).toBe("false");
     expect(reads).toBe(0);
-    view.rerender(<HeldHarness held={false} fetchBalances={fetchBalances} />);
-    expect(view.getByRole("status").textContent).toBe(`ready:${balancesSnapshotFixture.fetchedAt}`);
+  });
+
+  test("held balances never paint another region's or owner's cached snapshot", () => {
+    const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
+    getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "balances", "DE"), buildBalancesSnapshotFixture({ region: "DE" }));
+    getHomeQueryClient().setQueryData(ownerQueryKey("different-owner", "balances", "US"), balancesSnapshotFixture);
+    let reads = 0;
+    const view = render(<HeldHarness held paintCachedWhileHeld fetchBalances={async () => {
+      reads += 1;
+      return balancesSnapshotFixture;
+    }} />);
+    expect(view.getByRole("status").textContent).toBe("loading");
+    expect(reads).toBe(0);
+  });
+
+  test("release to the same region keeps cached data visible during one background fetch", async () => {
+    const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
+    getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture, { updatedAt: Date.now() - 60_000 });
+    let reads = 0;
+    let finishRead!: (snapshot: typeof balancesSnapshotFixture) => void;
+    const fetchBalances: FetchBalances = () => {
+      reads += 1;
+      return new Promise((resolve) => { finishRead = resolve; });
+    };
+    const view = render(<HeldHarness held paintCachedWhileHeld fetchBalances={fetchBalances} />);
+    expect(view.getByRole("status").textContent).toBe(`ready:US:${balancesSnapshotFixture.fetchedAt}:revalidating:observed`);
+    expect(reads).toBe(0);
+    view.rerender(<HeldHarness held={false} paintCachedWhileHeld fetchBalances={fetchBalances} />);
+    await waitFor(() => expect(reads).toBe(1));
+    expect(view.getByRole("status").textContent).toBe(`ready:US:${balancesSnapshotFixture.fetchedAt}:revalidating:observed`);
+    await act(async () => { finishRead(balancesSnapshotFixture); });
+    await waitFor(() => expect(view.getByRole("status").textContent).toBe(`ready:US:${balancesSnapshotFixture.fetchedAt}:settled:observed`));
+    expect(reads).toBe(1);
+  });
+
+  test("release to a different region does not use the held region as placeholder", async () => {
+    const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
+    getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture);
+    let reads = 0;
+    let finishRead!: (snapshot: typeof balancesSnapshotFixture) => void;
+    const fetchBalances: FetchBalances = () => {
+      reads += 1;
+      return new Promise((resolve) => { finishRead = resolve; });
+    };
+    const view = render(<HeldHarness held paintCachedWhileHeld fetchBalances={fetchBalances} />);
+    expect(view.getByRole("status").textContent).toContain("ready:US:");
+    view.rerender(<HeldHarness held={false} paintCachedWhileHeld region="DE" fetchBalances={fetchBalances} />);
+    expect(view.getByRole("status").textContent).toBe("loading");
+    await waitFor(() => expect(reads).toBe(1));
+    await act(async () => { finishRead(buildBalancesSnapshotFixture({ region: "DE" })); });
+    await waitFor(() => expect(view.getByRole("status").textContent).toContain("ready:DE:"));
   });
   test("keeps visible region balances during an ordinary country switch", async () => {
     const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
@@ -209,19 +304,19 @@ describe("useBalances", () => {
   test("bounds completed stale refetches and ignores interval recomputation", () => {
     const polling = { identity: "", dataUpdatedAt: 0, completedRefetches: 0 };
     const stale = { ...balancesSnapshotFixture, stale: true as const };
-    expect(nextStaleRefetchDelay(polling, stale, "owner-a", 100))
-      .toBe(3_000);
-    expect(nextStaleRefetchDelay(polling, stale, "owner-a", 100))
-      .toBe(3_000);
+    expect(nextStaleRefetchDelay(polling, stale, "owner-a", 100)).toBe(3_000);
+    expect(nextStaleRefetchDelay(polling, stale, "owner-a", 100)).toBe(3_000);
     for (const dataUpdatedAt of [101, 102, 103]) {
-      expect(nextStaleRefetchDelay(polling, stale, "owner-a", dataUpdatedAt))
-        .toBe(3_000);
+      expect(nextStaleRefetchDelay(polling, stale, "owner-a", dataUpdatedAt)).toBe(3_000);
+      expect(nextStaleRefetchDelay(polling, stale, "owner-a", dataUpdatedAt)).toBe(3_000);
     }
     expect(nextStaleRefetchDelay(polling, stale, "owner-a", 104)).toBeFalse();
-    expect(nextStaleRefetchDelay(polling, stale, "owner-b", 104))
+    expect(nextStaleRefetchDelay(polling, stale, "owner-a", 105)).toBeFalse();
+    expect(nextStaleRefetchDelay(polling, stale, "owner-b", 109)).toBe(3_000);
+    expect(nextStaleRefetchDelay(polling, { ...stale, fetchedAt: "2026-09-13T12:00:30.000Z" }, "owner-b", 109))
       .toBe(3_000);
-    expect(nextStaleRefetchDelay(polling, balancesSnapshotFixture, "owner-b", 105))
-      .toBeFalse();
+    expect(nextStaleRefetchDelay(polling, balancesSnapshotFixture, "owner-b", 110)).toBeFalse();
+    expect(nextStaleRefetchDelay(polling, stale, "owner-b", 110)).toBe(3_000);
   });
   test("uses the owner balances key and persists the whole snapshot", async () => {
     render(<Harness fetchBalances={async () => balancesSnapshotFixture} />);

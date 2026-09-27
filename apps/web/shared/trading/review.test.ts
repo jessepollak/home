@@ -3,7 +3,7 @@ import { parsePendingActionResponse } from "@/shared/actions/contracts/get";
 import { parseRecentMoneyActions } from "@/shared/actions/contracts/list";
 import { BASE_USDC_ADDRESS } from "@/shared/money-actions/network-fee";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import { parseTradeMetadata, parseTradeSigning } from "./review";
+import { parseTradeMetadata, parseTradeSigning, tradeRateLabel } from "./review";
 import type { Address } from "./server-types";
 
 const OWNER = "0x1111111111111111111111111111111111111111" as const;
@@ -58,5 +58,51 @@ describe("trade review parsers", () => {
     expect(parseRecentMoneyActions({ actions: [item] }, session)[0]?.action.metadata?.product).toBe("trade");
     const tampered = { ...item, summary: { ...summary, metadata: { ...metadata, minimumToAmountBaseUnits: "1001" } } };
     expect(parseRecentMoneyActions({ actions: [tampered] }, session)[0]?.action.metadata).toBeUndefined();
+  });
+});
+
+describe("generic trade metadata", () => {
+  test.each([6, 8, 18])("accepts a %i-decimal pair and fee bound to that pair", (decimals) => {
+    const token = { id: `0x${"ab".repeat(20)}`, symbol: "ABC", decimals, address: `0x${"ab".repeat(20)}` };
+    const candidate = { ...metadata, assetId: token.id, assetName: "Example", toAsset: token,
+      fees: [{ kind: "protocol", assetId: token.id, symbol: "ABC", decimals, amountBaseUnits: "1" }] };
+    expect(parseTradeMetadata(candidate)).toMatchObject({ assetId: token.id, assetName: "Example", toAsset: token });
+    expect(parseTradeMetadata({ ...candidate, direction: "sell", fromAsset: token, toAsset: metadata.fromAsset }))
+      .toMatchObject({ fromAsset: token, toAsset: { id: "usdc" } });
+    expect(parseTradeMetadata({ ...candidate, fees: [{ ...candidate.fees[0], assetId: "other" }] })).toBeNull();
+    expect(parseTradeMetadata({ ...candidate, toAsset: { ...token, decimals: 37 } })).toBeNull();
+    expect(parseTradeMetadata({ ...candidate, toAsset: { ...token, symbol: "Unsafe Symbol" } })).toBeNull();
+  });
+  test("defaults legacy cbBTC metadata to the original asset identity and title", () => {
+    expect(parseTradeMetadata(metadata)).toMatchObject({ assetId: "cbbtc", assetName: "Bitcoin" });
+    expect(parseTradeMetadata({ ...metadata, toAsset: { ...metadata.toAsset, id: "other" } })).toBeNull();
+    const item = { id, kind: "trade", owner: { subject: "owner", address: OWNER, accountProvider: "cdp-embedded" },
+      summary, status: "confirmed", createdAt: summary.expiresAt, confirmedAt: summary.expiresAt };
+    expect(parseRecentMoneyActions({ actions: [item] }, session)[0]?.action.metadata).toMatchObject({ assetId: "cbbtc", assetName: "Bitcoin" });
+    const pending = parsePendingActionResponse({ id, kind: "trade", summary, signing, calls: [{ to: OWNER, data: "0x1234", value: "0" }], expiresAt: summary.expiresAt }, id, session);
+    expect(pending?.metadata).toMatchObject({ assetId: "cbbtc", assetName: "Bitcoin" });
+  });
+});
+
+describe("trade rate label", () => {
+  const token = { id: "base:0x2222222222222222222222222222222222222222", symbol: "TINY", address: "0x2222222222222222222222222222222222222222" as Address };
+  const rate = (decimals: number, usdcUnits: string, tokenUnits: string, direction: "buy" | "sell" = "buy") => {
+    const traded = { ...token, decimals };
+    const cash = { id: "usdc", symbol: "USDC", decimals: 6, address: BASE_USDC_ADDRESS.toLowerCase() as Address };
+    const parsed = parseTradeMetadata(direction === "buy"
+      ? { ...metadata, direction, fromAsset: cash, toAsset: traded, fromAmountBaseUnits: usdcUnits, expectedToAmountBaseUnits: tokenUnits, minimumToAmountBaseUnits: "1", assetId: token.id, assetName: "Tiny" }
+      : { ...metadata, direction, fromAsset: traded, toAsset: cash, fromAmountBaseUnits: tokenUnits, expectedToAmountBaseUnits: usdcUnits, minimumToAmountBaseUnits: "1", assetId: token.id, assetName: "Tiny" });
+    if (!parsed) throw new Error("fixture metadata is invalid");
+    return tradeRateLabel(parsed);
+  };
+
+  test.each([
+    [8, "1000000", "1000", "buy", "1 TINY ≈ $100,000.00"],
+    [6, "25000000", "5000000", "sell", "1 TINY ≈ $5.00"],
+    [18, "1000000", "400000000000000000000000", "buy", "1 TINY ≈ $0.0000025"],
+    [18, "1000000", "4000000000000000000000000000", "buy", "1,000,000 TINY ≈ $0.00025"],
+    [18, "1000000", "1000000000000000000000000000000000", "sell", "1,000,000,000 TINY ≈ $0.000001"],
+  ] as const)("%i decimals, %s USDC atoms for %s token atoms (%s)", (decimals, usdcUnits, tokenUnits, direction, expected) => {
+    expect(rate(decimals, usdcUnits, tokenUnits, direction)).toBe(expected);
   });
 });

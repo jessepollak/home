@@ -14,7 +14,7 @@ test("canonical routing preserves the shell and one balances read", async ({ pag
   await expect(page.getByRole("dialog", { name: "Send" })).toHaveCount(0);
 
   await page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /^Cash/ }).click();
-  await expect(page).toHaveURL(/\/save$/);
+  await expect(page).toHaveURL(/\/cash$/);
   await page.getByRole("button", { name: "Invest", exact: true }).click();
   await expect(page).toHaveURL(/\/invest$/);
   await page.evaluate(() => {
@@ -26,11 +26,11 @@ test("canonical routing preserves the shell and one balances read", async ({ pag
     }
   });
   await page.goBack();
-  await expect(page).toHaveURL(/\/save$/);
+  await expect(page).toHaveURL(/\/cash$/);
   await page.goBack();
   await expect(page).toHaveURL(/\/home$/);
   await page.goForward();
-  await expect(page).toHaveURL(/\/save$/);
+  await expect(page).toHaveURL(/\/cash$/);
   await page.goForward();
   await expect(page).toHaveURL(/\/invest$/);
   expect(await page.evaluate(() => [
@@ -66,9 +66,9 @@ test("switching away from nested Invest and back opens the Invest overview", asy
   await navigation.getByRole("button", { name: "Home", exact: true }).click();
   await page.getByRole("region", { name: "Your money" })
     .getByRole("button", { name: /^Investments/ }).click();
-  await expect(page).toHaveURL(/\/invest$/);
-  await expect(page.locator("[data-shell-header-title]").first()).toHaveText("Invest");
-  await expect(page.getByRole("button", { name: "Back to Invest" })).toHaveCount(0);
+  await expect(page).toHaveURL(/\/investments$/);
+  await expect(page.locator("[data-shell-header-title]").first()).toHaveText("Investments");
+  await expect(page.getByRole("region", { name: "Your investments" })).toBeVisible();
 });
 
 test("tapping active Invest from a category pushes a root entry that Back restores", async ({ page }) => {
@@ -203,13 +203,13 @@ test("Account settings moves focus into the view and restores it to the account 
   await readPrimaryNavigationTargets();
 });
 
-test("sign-in returns to Save through the signed-in shell", async ({ page }) => {
+test("sign-in returns to Cash through the signed-in shell", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await installApiFixtures(page);
-  await page.goto("/save");
+  await page.goto("/cash");
   await expect(page).toHaveURL(/\/?\?account=signin$/);
   await expect(page.getByRole("dialog", { name: "Sign in to Home" })).toBeVisible();
-  await expect(page.getByRole("region", { name: "Save" })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Cash" })).toHaveCount(0);
 
   await page.getByLabel("Email address").fill("fixture@example.test");
   await page.getByLabel("Email address").press("Enter");
@@ -217,8 +217,8 @@ test("sign-in returns to Save through the signed-in shell", async ({ page }) => 
   await page.getByRole("button", { name: "Verify and continue" }).click();
   await expect(page).toHaveURL(/\/home$/);
   await page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /^Cash/ }).click();
-  await expect(page).toHaveURL(/\/save$/);
-  await expect(page.getByRole("region", { name: "Save" })).toBeVisible();
+  await expect(page).toHaveURL(/\/cash$/);
+  await expect(page.getByRole("region", { name: "Cash" })).toBeVisible();
 });
 
 test("sign-in code slots accept paste, editing and scripted autofill", async ({ page }) => {

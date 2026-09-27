@@ -39,7 +39,7 @@ describePostgres("customer registry PostgreSQL contract", () => {
       for (const migration of [
         "001_actions.sql", "002_funding_provider_seam.sql", "003_coinbase_hosted_retired.sql",
         "004_funding_sandbox.sql", "007_funding_provider_customers.sql",
-        "008_funding_provider_user_tokens.sql", "011_operator_registry.sql",
+        "008_funding_provider_user_tokens.sql", "011_operator_registry.sql", "015_invites.sql", "017_record_customer_ids.sql",
       ]) await tx.unsafe(await readMigrationSql(migration));
     });
     sql = createPostgresSqlExecutor(connectionString!, { schema });
@@ -59,7 +59,7 @@ describePostgres("customer registry PostgreSQL contract", () => {
     await signIn({ ...owner, accountProvider: "base-account" });
     const customers = await rows<{ id: string; first_seen_at: Date; last_seen_at: Date }>("customers");
     expect(first.created).toBe(true);
-    expect(later).toEqual({ id: first.id, status: "active", created: false });
+    expect(later).toEqual({ id: first.id, status: "active", created: false, credentialId: first.credentialId, walletId: first.walletId });
     expect(customers).toHaveLength(2);
     expect(await rows("customer_credentials")).toHaveLength(2);
     expect(customers.find((row) => row.id === first.id)?.first_seen_at.toISOString()).toBe(at.toISOString());
@@ -91,7 +91,7 @@ describePostgres("customer registry PostgreSQL contract", () => {
     expect(await rows("customer_credentials")).toHaveLength(0);
     expect(await rows("operator_events")).toHaveLength(0);
     const created = await signIn();
-    expect(await registry.resolveCustomer(session(owner), { create: false })).toEqual({ id: created.id, status: "active", created: false });
+    expect(await registry.resolveCustomer(session(owner), { create: false })).toEqual({ id: created.id, status: "active", created: false, credentialId: created.credentialId, walletId: created.walletId });
   });
 
   test("older sign-in lowers seen times but cannot replace newer email and country", async () => {

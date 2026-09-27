@@ -94,7 +94,7 @@ export function parseDiscoverResponse(
 
   const assets: InvestAsset[] = [];
   for (const item of memes.assets) {
-    const asset = parseInvestAsset(item);
+    const asset = parseDynamicInvestAsset(item);
     if (!asset) return null;
     assets.push(asset);
   }
@@ -161,7 +161,7 @@ function parsePagination(
 }
 
 
-function parseInvestAsset(value: unknown): InvestAsset | null {
+export function parseDynamicInvestAsset(value: unknown): InvestAsset | null {
   const record = readRecord(value);
   if (
     !record ||

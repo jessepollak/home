@@ -2,6 +2,8 @@ import "server-only";
 
 import { generateJwt } from "@coinbase/cdp-sdk/auth";
 import type { Address, Hex } from "@/shared/trading/server-types";
+import { TradePreparationError } from "./permit2";
+import { classifyProviderRefusal } from "./provider-refusal";
 
 export const SWAPS_PATH = "/platform/v2/evm/swaps";
 export const PRICE_PATH = `${SWAPS_PATH}/quote`;
@@ -11,6 +13,13 @@ const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const hexPattern = /^0x(?:[0-9a-fA-F]{2})*$/;
 const hashPattern = /^0x[0-9a-fA-F]{64}$/;
 const uintPattern = /^(?:0|[1-9][0-9]*)$/;
+
+export class CdpSwapsRefusalError extends Error {
+  constructor(readonly reason: "below-minimum" | "route-unavailable") {
+    super("CDP Swaps declined the trade.");
+    this.name = "CdpSwapsRefusalError";
+  }
+}
 
 export class CdpSwapsUnavailableError extends Error {
   constructor() {
@@ -105,9 +114,17 @@ export function createCdpSwapsClient({
         cache: "no-store",
         signal: controller.signal,
       });
-      if (!response.ok || controller.signal.aborted) unavailable();
+      if (controller.signal.aborted) unavailable();
+      if (!response.ok) {
+        const body: unknown = await response.json().catch(() => null);
+        const reason = classifyProviderRefusal(response.status, body);
+        if (reason === "token-not-routed") throw new TradePreparationError(reason);
+        if (reason) throw new CdpSwapsRefusalError(reason);
+        unavailable();
+      }
       return await response.json();
-    } catch {
+    } catch (error) {
+      if (error instanceof TradePreparationError || error instanceof CdpSwapsRefusalError) throw error;
       unavailable();
     } finally {
       clearTimeout(timeout);

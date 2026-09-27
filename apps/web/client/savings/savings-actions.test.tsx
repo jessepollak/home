@@ -435,6 +435,50 @@ describe("SavingsMoneyDialog", () => {
     await waitFor(() => expect(page().getByRole("dialog", { name: "Deposit" })).toBeTruthy());
   });
 
+  test("Save review X closes once and Back returns exactly to the typed amount", async () => {
+    let closes = 0;
+    function Journey() {
+      const [open, setOpen] = useState(true);
+      return <SavingsMoneyDialog open={open} mode="deposit" session={session} candidate={candidate}
+        prepareMoneyAction={async () => prepared()}
+        executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
+        onClose={() => { closes++; setOpen(false); }} />;
+    }
+    render(<Journey />);
+    typeAmount("1");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    await page().findByRole("dialog", { name: "Confirm" });
+    fireEvent.click(page().getAllByRole("button", { name: "Back" }).at(-1)!);
+    expect((page().getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("1");
+    expect(page().getAllByRole("dialog")).toHaveLength(1);
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    await page().findByRole("dialog", { name: "Confirm" });
+    fireEvent.click(page().getByRole("button", { name: "Close deposit dialog" }));
+    await waitFor(() => expect(page().queryByRole("dialog")).toBeNull());
+    expect(closes).toBe(1);
+  });
+
+  test("Save amount to review and Back keeps one dialog and refocuses amount", async () => {
+    render(<>
+      <button type="button">Save trigger</button>
+      <SavingsMoneyDialog open mode="deposit" session={session} candidate={candidate}
+        prepareMoneyAction={async () => prepared()}
+        executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
+        onClose={() => {}}
+      />
+    </>);
+    typeAmount("1");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    await page().findByRole("button", { name: "Deposit $1.00" });
+    const dialog = page().getByRole("dialog", { name: "Confirm" });
+    expect(page().getAllByRole("dialog")).toHaveLength(1);
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).not.toBe(page().getByText("Save trigger"));
+    fireEvent.click(page().getAllByRole("button", { name: "Back" }).at(-1)!);
+    expect(page().getAllByRole("dialog")).toHaveLength(1);
+    expect(document.activeElement).toBe(page().getByRole("textbox", { name: "Amount" }));
+  });
+
   test("Back and a rejected action preserve the selected vault, amount, and owner", async () => {
     let prepares = 0;
     render(
@@ -762,7 +806,7 @@ describe("SavingsMoneyDialog", () => {
     expect(page().getByText("Your $1.00 is still in your account.")).toBeTruthy();
     fireEvent.click(page().getByRole("button", { name: "Try again" }));
     expect(await page().findByRole("dialog", { name: "Deposit" })).toBeTruthy();
-    expect(document.body.textContent).toContain("1.00 USDC");
+    expect((page().getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("1");
     expect(page().queryByRole("button", { name: "Deposit $1.00" })).toBeNull();
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     expect(await page().findByRole("button", { name: "Deposit $1.00" })).toBeTruthy();
@@ -783,13 +827,13 @@ describe("SavingsMoneyDialog", () => {
     expect(page().getByRole("button", { name: "Try again" })).toBeTruthy();
   });
 
-  test("submission-unknown never offers retry and opens Activity after closing", async () => {
+  test.each(["submission-unknown", "dispatch-unknown"] as const)("%s never offers retry and opens Activity after closing", async (reason) => {
     const events: string[] = [];
     const routing = { openPanel: (panel: string) => { events.push(`panel:${panel}`); } } as HomeShellRouting;
     render(<HomeShellRoutingProvider value={routing}>
       <SavingsMoneyDialog open mode="deposit" session={session} candidate={candidate}
         prepareMoneyAction={async () => prepared()}
-        executeMoneyAction={async () => { throw new TransferExecutionError("submission-unknown"); }}
+        executeMoneyAction={async () => { throw new TransferExecutionError(reason); }}
         fetchAccountResource={async () => ({ actions: [{ id: "action-1", owner: prepared().owner, status: "pending" }] })}
         onClose={() => { events.push("close"); }} />
     </HomeShellRoutingProvider>);

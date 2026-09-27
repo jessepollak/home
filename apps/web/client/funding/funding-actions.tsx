@@ -1,7 +1,6 @@
 "use client";
 
-import { useRef, useState, useSyncExternalStore } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
@@ -18,6 +17,9 @@ import { useAccountWallet } from "@/client/account/cdp-client";
 import { useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 import { uiBoundary } from "@/client/account/owner-keys";
 import { useIdlePreload } from "@/client/money-modal/deferred-sheet";
+import { moneySheetIntent } from "@/client/money-modal";
+import { browserHomeQueryClient, useHomeQueryClient } from "@/client/query/query-client";
+import { prefetchAddMoneyMethods } from "./funding-prefetch";
 import { FundingExperienceForWallet, preloadAddMoneySheet } from "./funding-experience";
 import type { AddMoneyStep } from "./add-money-dialog";
 
@@ -54,6 +56,7 @@ export function FundingActionsForWallet({
 }) {
   const pathname = usePathname();
   const routing = useOptionalHomeShellRouting();
+  const queryClient = useHomeQueryClient(browserHomeQueryClient());
   const [userOpen, setUserOpen] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const openedInAppRef = useRef(false);
@@ -63,6 +66,7 @@ export function FundingActionsForWallet({
     mountedServerSnapshot,
   );
   useIdlePreload(preloadAddMoneySheet, uiBoundary(wallet) !== null);
+  const intent = moneySheetIntent(preloadAddMoneySheet, () => prefetchAddMoneyMethods(wallet, regionId, regionReady, queryClient));
   const routedFlow = routing?.state.flow === "add-money" || routing?.state.flow === "receive"
     ? routing.state.flow
     : null;
@@ -73,6 +77,10 @@ export function FundingActionsForWallet({
   );
   const routeOpen = requestedFlow !== null && (routing !== null || !dismissed);
   const open = routing ? routeOpen : userOpen || routeOpen;
+  const closingRef = useRef(false);
+  useEffect(() => {
+    if (open) closingRef.current = false;
+  }, [open]);
 
   function setFundingFlow(flow: FundingFlow, mode: "push" | "replace"): boolean {
     if (routing) return routing.setFlow(flow, { mode });
@@ -80,9 +88,12 @@ export function FundingActionsForWallet({
   }
 
   function close() {
+    if (closingRef.current) return;
+    closingRef.current = true;
     setUserOpen(false);
     setDismissed(true);
-    if (openedInAppRef.current) {
+    if ((routing && window.history.state?.__homeFundingFlowPushed === true) ||
+      (!routing && openedInAppRef.current)) {
       openedInAppRef.current = false;
       window.history.back();
     } else if (
@@ -101,7 +112,6 @@ export function FundingActionsForWallet({
         commitClientUrl(`${next.pathname}${next.search}`, "replace");
       }
     }
-    onClosed?.();
   }
 
   function onStepChange(step: AddMoneyStep) {
@@ -115,6 +125,7 @@ export function FundingActionsForWallet({
       navigateToRedirect={(url) => window.location.assign(url)}
       open={open}
       onClose={close}
+      onClosed={onClosed}
       returnedFromProvider={returnedFromProvider}
       returnedFromVerification={returnedFromVerification}
       initialStep={requestedFlow === "receive" ? "receive" : "method"}
@@ -128,18 +139,18 @@ export function FundingActionsForWallet({
     <>
       <Button
         size="touch"
-        onPointerDown={() => void preloadAddMoneySheet()}
+        {...intent}
         onClick={() => {
           void preloadAddMoneySheet();
           setDismissed(false);
           setUserOpen(true);
-          if (setFundingFlow("add-money", "push")) openedInAppRef.current = true;
+          if (setFundingFlow("add-money", "push") && !routing) openedInAppRef.current = true;
         }}
       >
         <Plus className="size-4" aria-hidden="true" />
         Add money
       </Button>
-      {mounted ? createPortal(modal, document.body) : null}
+      {mounted ? modal : null}
     </>
   );
 }

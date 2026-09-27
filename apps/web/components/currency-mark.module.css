@@ -1,3 +1,39 @@
+.stack {
+  display: block;
+  position: relative;
+  width: 2rem;
+  height: 2rem;
+  flex: none;
+  isolation: isolate;
+}
+
+.stackBack,
+.stackFront {
+  position: absolute;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+}
+
+.stackBack { inset-block-start: 0; inset-inline-start: 0; }
+
+:global(button[aria-expanded="true"]) .stackFront {
+  --mark-stack-surface: var(--muted);
+}
+
+@media (hover: hover) {
+  :global(button:hover) .stackFront {
+    --mark-stack-surface: var(--muted);
+  }
+}
+
+.stackFront {
+  inset-block-end: 0;
+  inset-inline-end: 0;
+  z-index: 1;
+  box-shadow: 0 0 0 2px var(--mark-stack-surface, var(--background));
+}
+
 .mark {
   display: grid;
   width: 2.5rem;
@@ -11,6 +47,11 @@
 .mark[data-presentation="selector"] {
   width: 2rem;
   height: 2rem;
+}
+
+.mark[data-size="xs"] {
+  width: 1.5rem;
+  height: 1.5rem;
 }
 
 .inner {
@@ -32,6 +73,10 @@
 
 .mark[data-size="sm"] .inner {
   font-size: 0.64rem;
+}
+
+.mark[data-size="xs"] .inner {
+  font-size: 0.52rem;
 }
 
 .mark[data-mark="shimmer"] .inner {
@@ -86,6 +131,11 @@
   text-align: center;
 }
 
+.mark[data-size="xs"] .fallback {
+  padding-inline: 0.125rem;
+  font-size: 0.52rem;
+}
+
 .mark[data-presentation="selector"] .fallback {
   padding-inline: 0.125rem;
   font-size: 0.44rem;
@@ -95,4 +145,15 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transform: scale(1.3846154);
+}
+
+.mark[data-presentation="selector"][data-mark="flag"] .inner::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--border);
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 1;
 }

@@ -1,79 +1,53 @@
 "use client";
 
-import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { deferSheet } from "@/client/money-modal/deferred-sheet";
-import { useAccountWallet, isServerVerified } from "@/client/account/cdp-client";
-import { useBalances } from "@/client/balances";
-import { usePresentationRegionId } from "@/client/invest/presentation-quote";
-import { selectBalanceBaseUnits } from "@/shared/balances/select";
+import { moneySheetIntent } from "@/client/money-modal";
 import type { InvestAsset } from "@/config/invest-assets";
-import { getTradeAssetStatus } from "@/shared/trading/assets";
-import type { TradeDirection } from "@/shared/trading/contract";
-import { useTradeAvailability } from "./use-trade-availability";
-
-const TradeMoneySheet = deferSheet(() => import("./trade-money-dialog").then((module) => module.TradeMoneyDialog));
+import { resolveTradeAsset } from "@/shared/trading/assets";
+import { useAssetTrade } from "./use-asset-trade";
+import { StockTradeActions } from "./stock-trade-actions";
 
 export function TradeActions({ asset, layout = "row" }: {
   asset: InvestAsset;
   layout?: "row" | "sticky";
 }) {
-  const status = getTradeAssetStatus(asset.id);
-  if (!status) return null;
-  if (status.status === "eligibility-required") {
-    return <div className={layout === "sticky" ? "mt-4 text-sm text-muted-foreground" : "text-end text-sm text-muted-foreground"} role="note">Stocks aren&apos;t available yet.</div>;
+  const resolution = resolveTradeAsset(asset.id);
+  if (!resolution) return null;
+  if (resolution.status === "eligibility-required") {
+    return <StockTradeActions asset={asset} layout={layout} />;
   }
-  if (asset.id !== "cbbtc") return <UnavailableActions asset={asset} layout={layout} />;
-  return <BitcoinTradeActions asset={asset} layout={layout} />;
+  return <AvailableTradeActions asset={asset} layout={layout} />;
 }
 
-function UnavailableActions({ asset, layout }: { asset: InvestAsset; layout: "row" | "sticky" }) {
+function AvailableTradeActions({ asset, layout }: { asset: InvestAsset; layout: "row" | "sticky" }) {
+  const trade = useAssetTrade([{ assetId: asset.id, assetName: asset.displayName }]);
+  const availability = trade.availability.get(asset.id);
+  const holding = availability?.status === "available" ? availability.balanceBaseUnits : null;
+  const ready = availability?.status === "available" && !!trade.session?.smartAccount;
+  const note = !trade.session?.smartAccount
+    ? trade.account?.status === "restoring" || trade.account?.status === "validating"
+      ? "Checking trading availability…"
+      : trade.account?.status === "verified" ? "Trading isn't available for this account." : "Sign in to trade."
+    : availability?.status === "unavailable"
+      ? availability.reason === "signer-unsupported"
+        ? "Trading isn't available for this account."
+        : availability.reason === "token-unreadable"
+          ? "This token couldn't be read on Base. You can still send it."
+          : availability.reason === "asset-unsupported"
+            ? "This asset can't be traded."
+            : "Trading isn't available right now. Try again later."
+      : availability === null
+        ? "Checking trading availability…"
+        : availability?.status === "available" && availability.buy === "blocked" ? "Buying is unavailable. You can still sell or send." : null;
+  const sellNote = ready && holding === "0" ? `No ${availability.token.symbol} available to sell.` : null;
+  const buyNote = ready && trade.cash === "0" ? `No Cash available to buy ${asset.displayName}.` : null;
+  const balancesNote = ready && (trade.balances.status === "error" || (trade.balances.status === "ready" && !trade.usableBalances)) ? "Cash balance isn't available right now." : null;
   return <div className={layout === "sticky" ? "sticky bottom-[env(safe-area-inset-bottom)] z-2 mt-4 space-y-2 bg-background pt-3" : "space-y-2"}>
     <div className={layout === "sticky" ? "grid grid-cols-2 gap-2" : "flex justify-end gap-2"} aria-label={`Trade ${asset.displayName}`}>
-      <Button size="touch" disabled>Buy</Button>
-      <Button size="touch" variant="secondary" disabled>Sell</Button>
-    </div>
-    <div className="text-end text-sm text-muted-foreground" role="note">Swaps aren&apos;t available right now.</div>
-  </div>;
-}
-
-function BitcoinTradeActions({ asset, layout }: { asset: InvestAsset; layout: "row" | "sticky" }) {
-  const account = useAccountWallet();
-  const session = isServerVerified(account) ? account.session : null;
-  const region = usePresentationRegionId();
-  const availability = useTradeAvailability(session, account.fetchAccountResource);
-  const balances = useBalances(session?.smartAccount ? {
-    subject: session.user.subject,
-    smartAccountAddress: session.smartAccount.address,
-    chainId: session.smartAccount.chainId,
-    accountProvider: session.accountProvider,
-  } : null, region, account.fetchBalances);
-  const usableBalances = balances.status === "ready" && !balances.snapshot.stale && !balances.refreshError;
-  const cash = usableBalances ? selectBalanceBaseUnits(balances.snapshot, "usdc") : null;
-  const holding = usableBalances ? selectBalanceBaseUnits(balances.snapshot, "cbbtc") : null;
-  const [direction, setDirection] = useState<TradeDirection | null>(null);
-  const [mountedDirection, setMountedDirection] = useState<TradeDirection | null>(null);
-  const opener = useRef<HTMLButtonElement | null>(null);
-  const ready = availability?.status === "available" && !!session?.smartAccount;
-  const note = availability?.status === "unavailable"
-    ? availability.reason === "signer-unsupported"
-      ? "Trading isn't available for this account."
-      : "Trading isn't available right now."
-    : availability === null ? "Checking trading availability…" : null;
-  const sellNote = ready && holding === "0" ? "No Bitcoin available to sell." : null;
-  const buyNote = ready && cash === "0" ? "No Cash available to buy Bitcoin." : null;
-  const balancesNote = ready && (balances.status === "error" || (balances.status === "ready" && !usableBalances)) ? "Balances aren't available right now." : null;
-  function openTrade(mode: TradeDirection, button: HTMLButtonElement) {
-    opener.current = button;
-    setMountedDirection(mode);
-    setDirection(mode);
-  }
-  return <div className={layout === "sticky" ? "sticky bottom-[env(safe-area-inset-bottom)] z-2 mt-4 space-y-2 bg-background pt-3" : "space-y-2"}>
-    <div className={layout === "sticky" ? "grid grid-cols-2 gap-2" : "flex justify-end gap-2"} aria-label={`Trade ${asset.displayName}`}>
-      <Button size="touch" disabled={!ready || cash === null || cash === "0"} onPointerDown={() => void TradeMoneySheet.preload()} onClick={(event) => openTrade("buy", event.currentTarget)}>Buy</Button>
-      <Button size="touch" variant="secondary" disabled={!ready || holding === null || holding === "0"} onPointerDown={() => void TradeMoneySheet.preload()} onClick={(event) => openTrade("sell", event.currentTarget)}>Sell</Button>
+      <Button size="touch" disabled={!ready || availability.buy === "blocked" || trade.cash === null || trade.cash === "0"} {...moneySheetIntent(() => trade.intent(asset.id, "buy"))} onClick={(event) => trade.open(asset.id, "buy", event.currentTarget)}>Buy</Button>
+      <Button size="touch" variant="secondary" disabled={!ready || holding === null || BigInt(holding) === BigInt(0)} {...moneySheetIntent(() => trade.intent(asset.id, "sell"))} onClick={(event) => trade.open(asset.id, "sell", event.currentTarget)}>Sell</Button>
     </div>
     {note || balancesNote || sellNote || buyNote ? <p className="text-end text-sm text-muted-foreground" role="note">{note ?? balancesNote ?? sellNote ?? buyNote}</p> : null}
-    {session?.smartAccount && mountedDirection ? <TradeMoneySheet key={`${session.user.subject}:${session.smartAccount.address}:${mountedDirection}`} open={direction !== null} direction={mountedDirection} session={session} availableBaseUnits={mountedDirection === "buy" ? cash : holding} fetchAccountResource={account.fetchAccountResource} prepareMoneyAction={account.prepareMoneyAction} executeMoneyAction={account.executeMoneyAction} onClose={() => setDirection(null)} onClosed={() => { setMountedDirection(null); opener.current?.focus(); }} /> : null}
+    {trade.sheet}
   </div>;
 }

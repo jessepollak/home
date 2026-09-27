@@ -1,0 +1,199 @@
+{
+  "id": "invest-asset-detail",
+  "title": "Invest \u2014 asset detail",
+  "summary": "Selected asset detail in production across market categories, chart motion, wallet states and navigation.",
+  "sections": [
+    {
+      "id": "page",
+      "title": "Page",
+      "frames": [
+        {
+          "id": "crypto",
+          "story": "invest-asset-detail--crypto",
+          "label": "Crypto",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "stock",
+          "story": "invest-asset-detail--stock",
+          "label": "Stock",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "meme",
+          "story": "invest-asset-detail--meme",
+          "label": "Meme",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "stock-held",
+          "story": "invest-asset-detail--stock-held",
+          "label": "Stock held",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "desktop",
+          "story": "invest-asset-detail--desktop",
+          "label": "Desktop",
+          "viewport": "desktop",
+          "change": "new"
+        },
+        {
+          "id": "narrow",
+          "story": "invest-asset-detail--narrow",
+          "label": "Narrow",
+          "viewport": "narrow",
+          "change": "new"
+        },
+        {
+          "id": "local-currency",
+          "story": "invest-asset-detail--local-currency",
+          "label": "Local currency",
+          "viewport": "mobile",
+          "change": "new"
+        }
+      ]
+    },
+    {
+      "id": "chart",
+      "title": "Chart motion & interaction",
+      "frames": [
+        {
+          "id": "rapid-range",
+          "story": "invest-asset-detail--rapid-range",
+          "label": "Rapid range",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "range-back",
+          "story": "invest-asset-detail--range-back",
+          "label": "Range back",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "keyboard-scrub",
+          "story": "invest-asset-detail--keyboard-scrub",
+          "label": "Keyboard scrub",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "touch-scrub",
+          "story": "invest-asset-detail--touch-scrub",
+          "label": "Touch scrub",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "slow",
+          "story": "invest-asset-detail--slow-held",
+          "label": "Slow history",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "error",
+          "story": "invest-asset-detail--error",
+          "label": "Error",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "error-retry",
+          "story": "invest-asset-detail--error-retry",
+          "label": "Error and retry",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "reduced-motion",
+          "story": "invest-asset-detail--reduced-motion",
+          "label": "Reduced motion",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "trade-bar-scroll",
+          "story": "invest-asset-detail--trade-bar-scroll",
+          "label": "Trade bar scroll",
+          "viewport": "mobile",
+          "change": "new"
+        }
+      ]
+    },
+    {
+      "id": "states",
+      "title": "States",
+      "frames": [
+        {
+          "id": "empty",
+          "story": "invest-asset-detail--empty",
+          "label": "Empty history",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "stale",
+          "story": "invest-asset-detail--stale",
+          "label": "Stale history",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "balance-unavailable",
+          "story": "invest-asset-detail--balance-unavailable",
+          "label": "Balance unavailable",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "stats-unavailable",
+          "story": "invest-asset-detail--stats-unavailable",
+          "label": "Stats unavailable",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "bitcoin-held",
+          "story": "invest-asset-detail--bitcoin-held",
+          "label": "Bitcoin held",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "signed-out",
+          "story": "invest-asset-detail--signed-out",
+          "label": "Signed out",
+          "viewport": "mobile",
+          "change": "new"
+        }
+      ]
+    },
+    {
+      "id": "journey",
+      "title": "Journey",
+      "frames": [
+        {
+          "id": "discover-to-detail",
+          "story": "journeys-invest-asset-detail--discover-to-detail",
+          "label": "Discover to detail",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "holding-to-detail",
+          "story": "journeys-invest-asset-detail--holding-to-detail",
+          "label": "Holding to detail",
+          "viewport": "mobile",
+          "change": "new"
+        }
+      ]
+    }
+  ]
+}

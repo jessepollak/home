@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useShellPanelActive } from "@/client/home/panel-shared";
 import { useReducedMotion } from "@/components/money-ticker";
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
 import type { SavingsPortfolioSummary } from "./portfolio-summary";
@@ -111,6 +112,8 @@ export function useEstimatedSavingsGrowth(
   now: () => number = Date.now,
 ): bigint {
   const reducedMotion = useReducedMotion();
+  const panelActive = useShellPanelActive();
+  const previousPanelActive = useRef(panelActive);
   const [sample, setSample] = useState(() => ({
     identity: anchor.identity,
     value: anchor.authoritativeBaseUnits,
@@ -127,7 +130,9 @@ export function useEstimatedSavingsGrowth(
     : anchor.authoritativeBaseUnits;
 
   useEffect(() => {
-    if (reducedMotion || anchor.estimate === null) return;
+    const resumed = !previousPanelActive.current && panelActive;
+    previousPanelActive.current = panelActive;
+    if (reducedMotion || anchor.estimate === null || !panelActive) return;
     let timeout: ReturnType<typeof setTimeout> | null = null;
     let active = true;
 
@@ -141,7 +146,7 @@ export function useEstimatedSavingsGrowth(
         : anchor.authoritativeBaseUnits;
       setSample({ identity: anchor.identity, value });
     };
-    const schedule = () => {
+    const schedule = (delay: number = SAMPLE_INTERVAL_MS) => {
       clearSample();
       if (!active || document.hidden) return;
       timeout = setTimeout(() => {
@@ -149,7 +154,7 @@ export function useEstimatedSavingsGrowth(
         if (!active || document.hidden) return;
         compute();
         schedule();
-      }, SAMPLE_INTERVAL_MS);
+      }, delay);
     };
     const onVisibilityChange = () => {
       clearSample();
@@ -159,13 +164,13 @@ export function useEstimatedSavingsGrowth(
     };
 
     document.addEventListener("visibilitychange", onVisibilityChange);
-    schedule();
+    schedule(resumed ? 0 : SAMPLE_INTERVAL_MS);
     return () => {
       active = false;
       clearSample();
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [anchor, now, reducedMotion]);
+  }, [anchor, now, reducedMotion, panelActive]);
 
   return reducedMotion ? anchor.authoritativeBaseUnits : visibleValue;
 }

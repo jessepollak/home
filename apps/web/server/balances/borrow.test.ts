@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { BORROW_MARKETS, type BorrowMarketRef } from "@/shared/borrowing/config";
 import type { MorphoMarketSnapshot, MorphoMarketRpcReader } from "@/server/morpho-markets/rpc";
-import { borrowPricingPairs, borrowReadComplete, createBorrowPositionsReader } from "./borrow";
+import { borrowPricingPairs, borrowReadComplete, borrowReadCurrent, carryForwardBorrow, createBorrowPositionsReader } from "./borrow";
 
 const OWNER = "0x1111111111111111111111111111111111111111" as const;
 const PIN = { number: "42", hash: `0x${"ab".repeat(32)}` as `0x${string}` };
@@ -18,6 +18,42 @@ function mockReader(fail = -1) {
   };
   return { readSnapshots, calls };
 }
+
+describe("borrow carry-forward", () => {
+  const marketId = BORROW_MARKETS[0].marketId.toLowerCase() as `0x${string}`;
+  const prior = { marketId, status: "ready" as const, blockNumber: "100", collateralRaw: "10", debtAssetsRaw: "20", borrowAprWad: "1" };
+  const unavailable = { marketId, status: "unavailable" as const };
+
+  test("retains a verified market at the boundary", () => {
+    expect(carryForwardBorrow({ markets: [unavailable] }, { markets: [prior] }, "160").markets).toEqual([prior]);
+  });
+
+  test("drops a stored market the fresh read no longer covers", () => {
+    expect(carryForwardBorrow({ markets: [] }, { markets: [prior] }, "160").markets).toEqual([]);
+  });
+
+  test.each(["161", "99"])("does not carry a market to block %s", (block) => {
+    expect(carryForwardBorrow({ markets: [unavailable] }, { markets: [prior] }, block).markets).toEqual([unavailable]);
+  });
+
+  test("leaves a failure unavailable with no prior ready entry", () => {
+    expect(carryForwardBorrow({ markets: [unavailable] }, null, "101").markets).toEqual([unavailable]);
+    expect(carryForwardBorrow({ markets: [unavailable] }, { markets: [unavailable] }, "101").markets).toEqual([unavailable]);
+  });
+
+  test("prefers a fresh ready market over the prior entry", () => {
+    const fresh = { ...prior, blockNumber: "101", debtAssetsRaw: "30" };
+    expect(carryForwardBorrow({ markets: [fresh] }, { markets: [prior] }, "101").markets).toEqual([fresh]);
+  });
+
+  test("a complete carried read is not current until all markets match the registry block", () => {
+    const markets = BORROW_MARKETS.map((market) => ({ ...prior, marketId: market.marketId.toLowerCase() as `0x${string}` }));
+    const read = { block: { number: "101", hash: "0x0" as const, timestamp: "0" }, borrow: { markets } };
+    expect(borrowReadComplete(read.borrow)).toBeTrue();
+    expect(borrowReadCurrent(read)).toBeFalse();
+    expect(borrowReadCurrent({ ...read, block: { ...read.block, number: "100" } })).toBeTrue();
+  });
+});
 
 describe("borrow positions read", () => {
   test("reads all markets with one pinned batch and isolates a failed market", async () => {

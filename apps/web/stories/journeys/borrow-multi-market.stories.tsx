@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, userEvent, within } from "storybook/test";
+import { expect, userEvent, waitFor, within } from "storybook/test";
 import { HttpResponse, http } from "msw";
 import { BorrowExperience } from "@/client/borrowing/borrowing-experience";
 import { shellContentFrameClassName } from "@/components/shell-layout";
@@ -51,6 +51,19 @@ export const MultiMarketOverview: Story = {
     const sheet = within(await screen.findByRole("dialog", { name: "Staked ETH" }));
     await expect(sheet.getByRole("button", { name: "Repay" })).toBeEnabled();
     await expect(sheet.getByText(/per cbETH/)).toBeVisible();
+    await userEvent.click(sheet.getByRole("button", { name: "Repay" }));
+    const money = within(await screen.findByRole("dialog", { name: "Repay" }));
+    await expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    await expect(await money.findByRole("textbox", { name: "Amount" })).toBeVisible();
+    await userEvent.click(money.getByRole("button", { name: "Back" }));
+    const returned = within(await screen.findByRole("dialog", { name: "Staked ETH" }));
+    await expect(returned.getByRole("button", { name: "Repay" })).toHaveFocus();
+    await userEvent.click(returned.getByRole("button", { name: "Borrow more" }));
+    const borrow = within(await screen.findByRole("dialog", { name: "Borrow" }));
+    await expect(await borrow.findByRole("textbox", { name: "Amount" })).toBeVisible();
+    await expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    await userEvent.click(borrow.getByRole("button", { name: "Close Borrow action" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   },
 };
 

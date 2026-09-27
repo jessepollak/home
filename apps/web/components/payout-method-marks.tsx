@@ -19,7 +19,7 @@ export function PayoutMethodMarks({ methods }: { methods: ReadonlyArray<PayoutMe
   </span>;
 }
 
-function payoutMark(platform: string, label: string): { text: string; variant: PayoutMarkVariant } {
+export function payoutMark(platform: string, label: string): { text: string; variant: PayoutMarkVariant } {
   switch (platform.toLowerCase()) {
     case "cashapp": return { text: "$", variant: "cashapp" };
     case "zelle": return { text: "Z", variant: "zelle" };

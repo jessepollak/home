@@ -1,10 +1,12 @@
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
+import type { ActivityOrder } from "@/shared/activity/contract-orders";
 import { compareActivityTransferKeys } from "@/shared/activity/contract";
 import { activityAssets, type ActivityTransfer } from "@/shared/activity/types";
 import type { MoneyActionAmount } from "@/shared/money-actions/types";
-import { outranksCashoutWithdraw, presentCashout } from "./cash-out-presenter";
+import { cashoutWithdrawForDeposit, outranksCashoutWithdraw, presentCashout } from "./cash-out-presenter";
 
 export type ActivityFeedItem =
+  | { kind: "order"; id: string; timestamp: string; order: ActivityOrder; withdraw?: RecentMoneyActionOperation }
   | {
       kind: "transfer";
       id: string;
@@ -20,9 +22,24 @@ export type ActivityFeedItem =
       transfers: readonly ActivityTransfer[];
     };
 
+export function activityOperationTime(operation: RecentMoneyActionOperation): string {
+  const cashoutUpdatedAt = operation.action.kind === "cash-out" ? operation.cashout?.updatedAt : undefined;
+  return cashoutUpdatedAt && Number.isFinite(Date.parse(cashoutUpdatedAt))
+    ? cashoutUpdatedAt : operation.updatedAt;
+}
+
+function isPendingActivityOrder(order: ActivityOrder): boolean {
+  return ["waiting-customer", "waiting-provider", "waiting-chain", "waiting-home", "ambiguous", "reversed"].includes(order.status);
+}
+
+export function activityOrdersNeedPolling(orders: readonly ActivityOrder[]): boolean {
+  return orders.some((order) => isPendingActivityOrder(order) || (order.kind === "funding" && order.resumable));
+}
+
 export function mergeActivityFeed(input: {
   transfers: readonly ActivityTransfer[];
   operations: readonly RecentMoneyActionOperation[];
+  orders?: readonly ActivityOrder[];
   loadedThrough: string | null;
 }): ActivityFeedItem[] {
   const loadedThroughTime = input.loadedThrough === null ? null : Date.parse(input.loadedThrough);
@@ -34,6 +51,19 @@ export function mergeActivityFeed(input: {
     transfersByHash.set(hash, matches);
   }
   const actionIdsByHash = new Map<string, Set<string>>();
+  const fundingReceiptLogs = new Set((input.orders ?? []).flatMap((order) =>
+    order.kind === "funding" && order.transactionHash && order.logIndex !== null
+      ? [`${order.transactionHash.toLowerCase()}:${order.logIndex}`] : []));
+  const cashoutOrders = new Map((input.orders ?? []).flatMap((order) => order.kind === "cash-out" ? [[order.id, order] as const] : []));
+  const orderWins = new Set<string>();
+  const actionWins = new Set<string>();
+  for (const operation of input.operations) {
+    const order = operation.action.kind === "cash-out" ? cashoutOrders.get(operation.action.id) : undefined;
+    if (!order) continue;
+    const current = operation.cashout !== undefined &&
+      Date.parse(activityOperationTime(operation)) >= Date.parse(order.updatedAt);
+    (current ? actionWins : orderWins).add(operation.action.id);
+  }
   for (const operation of input.operations) {
     if (!operation.transactionHash) continue;
     const hash = operation.transactionHash.toLowerCase();
@@ -56,18 +86,20 @@ export function mergeActivityFeed(input: {
   }
 
   return [
-    ...input.transfers.filter((transfer) => !actionIdsByHash.has(transfer.transactionHash.toLowerCase()))
+    ...input.transfers.filter((transfer) => !actionIdsByHash.has(transfer.transactionHash.toLowerCase()) &&
+      !fundingReceiptLogs.has(`${transfer.transactionHash.toLowerCase()}:${transfer.logIndex}`))
       .map((transfer): ActivityFeedItem => ({
         kind: "transfer",
         id: transfer.id,
         timestamp: transfer.blockTimestamp,
         transfer,
       })),
-    ...input.operations.filter((operation) => !folded.has(operation.action.id)).flatMap((operation): ActivityFeedItem[] => {
+    ...input.operations.filter((operation) => !folded.has(operation.action.id) && !orderWins.has(operation.action.id))
+      .flatMap((operation): ActivityFeedItem[] => {
       const hash = operation.transactionHash?.toLowerCase();
       const transfers = hash ? transfersByHash.get(hash) ?? [] : [];
       if (transfers.length === 0 && operation.status !== "pending" && loadedThroughTime !== null &&
-        Date.parse(operation.updatedAt) <= loadedThroughTime &&
+        Date.parse(activityOperationTime(operation)) <= loadedThroughTime &&
         !(operation.action.kind === "cash-out" && presentCashout(operation, withdrawals.get(operation.cashout?.depositId?.toLowerCase() ?? "")).inProgress)) return [];
       const sharedHash = hash !== undefined && (actionIdsByHash.get(hash)?.size ?? 0) > 1;
       const settled = transfers.length > 0 ? settleOperation(operation, transfers, !sharedHash) : operation;
@@ -75,11 +107,18 @@ export function mergeActivityFeed(input: {
       return [{
         kind: "action",
         id: operation.action.id,
-        timestamp: settled.updatedAt,
+        timestamp: activityOperationTime(settled),
         operation: settled,
         ...(withdraw ? { withdraw } : {}),
         transfers,
       }];
+    }),
+    ...(input.orders ?? []).filter((order) => {
+      if (order.kind === "cash-out" && actionWins.has(order.id)) return false;
+      return isPendingActivityOrder(order) || loadedThroughTime === null || Date.parse(order.updatedAt) > loadedThroughTime;
+    }).map((order): ActivityFeedItem => {
+      const withdraw = order.kind === "cash-out" && order.orderId ? cashoutWithdrawForDeposit(order.orderId, input.operations) : undefined;
+      return { kind: "order", id: order.id, timestamp: order.updatedAt, order, ...(withdraw ? { withdraw } : {}) };
     }),
   ].sort((left, right) => compareActivityFeedItems(left, right, loadedThroughTime));
 }
@@ -117,17 +156,19 @@ function settleAmounts(amounts: readonly MoneyActionAmount[], transfers: readonl
   });
 }
 
-function settleAmount(amount: MoneyActionAmount, transfers: readonly ActivityTransfer[]): MoneyActionAmount {
+export function matchesActivityAmountTransfer(amount: MoneyActionAmount, transfer: ActivityTransfer): boolean {
   const tokenAddress = amount.assetId.match(/erc20:(0x[0-9a-fA-F]{40})$/i)?.[1]
     ?? activityAssets.find((asset) => asset.id.toLowerCase() === amount.assetId.toLowerCase())?.tokenAddress;
-  if (!tokenAddress) return amount;
+  return !!tokenAddress && transfer.tokenAddress.toLowerCase() === tokenAddress.toLowerCase() &&
+    transfer.direction === (amount.direction === "spend" ? "outgoing" : "incoming") &&
+    (transfer.tokenDecimals === null || transfer.tokenDecimals === amount.decimals);
+}
 
+function settleAmount(amount: MoneyActionAmount, transfers: readonly ActivityTransfer[]): MoneyActionAmount {
   let matched = false;
   let sum = BigInt(0);
   for (const transfer of transfers) {
-    if (transfer.tokenAddress.toLowerCase() !== tokenAddress.toLowerCase() ||
-      transfer.direction !== (amount.direction === "spend" ? "outgoing" : "incoming") ||
-      (transfer.tokenDecimals !== null && transfer.tokenDecimals !== amount.decimals)) continue;
+    if (!matchesActivityAmountTransfer(amount, transfer)) continue;
     matched = true;
     sum += BigInt(transfer.amountBaseUnits);
   }
@@ -150,7 +191,7 @@ function compareActivityFeedItems(left: ActivityFeedItem, right: ActivityFeedIte
   }
   const time = Date.parse(right.timestamp) - Date.parse(left.timestamp);
   if (time !== 0) return time;
-  if (left.kind !== right.kind) return left.kind === "transfer" ? -1 : 1;
+  if (left.kind !== right.kind) return left.kind === "transfer" ? -1 : right.kind === "transfer" ? 1 : left.kind === "action" ? -1 : 1;
   if (left.kind === "transfer" && right.kind === "transfer") {
     return -compareActivityTransferKeys(left.transfer, right.transfer);
   }

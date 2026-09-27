@@ -321,7 +321,40 @@ function priceHolding(holding: ReadHolding, quoteCurrency: FiatCurrencyCode | nu
   if (holding.source === "wallet" && holding.marketDataResolved !== true) return { ...base, value: { status: "unpriced", reason: "below-market-gate" } };
   const valuation = valueFraction(holding, quoteCurrency, prices, rates, currentTime);
   const value: HoldingValue = valuation.fraction ? { status: "priced", currency: quoteCurrency, amount: roundFractionPreservingPositive(valuation.fraction), asOf: valuation.asOf } : { status: "unpriced", reason: valuation.reason };
-  return { ...base, value, ...(holding.cashCurrency ? { cashValue: priceCash(holding, prices, rates) } : {}) };
+  const unitValue = value.status === "priced" && holding.balance.baseUnits !== "0"
+    ? priceUnit(holding, quoteCurrency, prices, rates)
+    : undefined;
+  return { ...base, value, ...(unitValue ? { unitValue } : {}), ...(holding.cashCurrency ? { cashValue: priceCash(holding, prices, rates) } : {}) };
+}
+
+function priceUnit(holding: ReadHolding, currency: FiatCurrencyCode, prices: readonly PriceQuote[], rates: ExchangeRates | null): Holding["unitValue"] {
+  if (holding.kind === "vault-share") return undefined;
+  const fx = findFx(rates, currency);
+  if (!fx) return undefined;
+  let amount: ExactDecimal;
+  if (holding.kind === "native") {
+    const native = rates?.nativeEthQuote;
+    if (native?.status !== "fresh" || !native.assetUnitsPerUsd || native.assetUnitsPerUsd.atoms === "0") return undefined;
+    const ratio = divideFractions(exactDecimalToFraction(fx.quoteUnitsPerUsd!), exactDecimalToFraction(native.assetUnitsPerUsd));
+    amount = normalizeUnitDecimal({ atoms: (ratio.numerator * BigInt(10) ** BigInt(18) / ratio.denominator).toString(), scale: 18 });
+  } else {
+    const price = prices.find(({ assetKey }) => assetKey === holding.key);
+    if (price?.status !== "fresh" || !price.unitPrice) return undefined;
+    amount = normalizeUnitDecimal({
+      atoms: (BigInt(price.unitPrice.atoms) * BigInt(fx.quoteUnitsPerUsd!.atoms)).toString(),
+      scale: price.unitPrice.scale + fx.quoteUnitsPerUsd!.scale,
+    });
+  }
+  return amount.atoms === "0" || amount.scale > 100 ? undefined : { currency, amount };
+}
+
+function normalizeUnitDecimal(amount: ExactDecimal): ExactDecimal {
+  let { atoms, scale } = amount;
+  while (scale > 0 && atoms.endsWith("0")) {
+    atoms = atoms.slice(0, -1);
+    scale -= 1;
+  }
+  return { atoms, scale };
 }
 
 function valueFraction(holding: ReadHolding, currency: FiatCurrencyCode, prices: readonly PriceQuote[], rates: ExchangeRates | null, currentTime: Date): { fraction: Fraction | null; reason: "price-unavailable" | "price-stale" | "fx-unavailable" | "below-market-gate"; asOf: string } {

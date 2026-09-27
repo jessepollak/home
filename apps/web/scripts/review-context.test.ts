@@ -148,8 +148,8 @@ test("real savings board URLs default to after without side and resolve the mani
   );
   expect(savingsUrl.side).toBe("after");
   const context = buildReviewContext(savingsUrl, savings as ReviewManifest, null, "head", "no", "no");
-  expect(formatReviewContext(context)).toContain("Board: Savings — current system (savings)");
-  expect(context.frame.story).toBe("pilot-savings-experience--funded");
+  expect(formatReviewContext(context)).toContain("Board: Cash and Savings — current system (savings)");
+  expect(context.frame.story).toBe("cash-cash-l2--funded");
 });
 
 test("automatic changes board resolves indexed frame name and viewport without a manifest", () => {
@@ -224,4 +224,26 @@ test("rejects a mismatched board manifest", () => {
       "unknown",
     ),
   ).toThrow('Unknown board "savings"');
+});
+
+test("automatic changes board resolves focused frames in Review and retains focus in context links", () => {
+  const parsed = parseReviewUrl(
+    "https://review.example/iframe.html?id=review-boards--changes&viewMode=story" +
+    "&focus=missing--story,other--default,foo--default,other--default&frame=other--default&rev=abc1234",
+  );
+  const entries = {
+    "foo--default": { id: "foo--default", title: "Foo", name: "Foo", type: "story", importPath: "./client/foo.stories.tsx" },
+    "other--default": { id: "other--default", title: "Other", name: "Other", type: "story", importPath: "./client/other.stories.tsx" },
+  };
+  expect(parsed.focus).toEqual(["missing--story", "other--default", "foo--default"]);
+  const manifest = changesReviewManifest(parsed, entries);
+  expect(manifest.sections.map((section) => section.title)).toEqual(["Review"]);
+  expect(manifest.sections[0].frames.map((frame) => [frame.id, frame.change]))
+    .toEqual([["other--default", "unchanged"], ["foo--default", "unchanged"]]);
+  const context = buildReviewContext(parsed, manifest, null, "head", "no", "unknown");
+  expect(context.frame.section).toBe("Review");
+  expect(new URL(context.urls.board).searchParams.get("focus"))
+    .toBe("missing--story,other--default,foo--default");
+  expect(new URL(context.urls.board).searchParams.get("frame")).toBe("other--default");
+  expect(parseReviewUrl(url + "&focus=foo--default").focus).toBeUndefined();
 });

@@ -4,6 +4,7 @@ import {
   type HomeAuthHint,
   type HomeAuthOutcome,
   type HomeAuthRestoreReport,
+  type HomeAuthRestoreStage,
   type HomeAuthSignOutReport,
   type HomeStartupRoute,
 } from "@/shared/observability/client-performance.contract";
@@ -31,6 +32,9 @@ export function createHomeAuthRestoreRecorder(dependencies: RecorderDependencies
     settledAt: number;
   } | null = null;
   const marks = new Map<HomeAuthRestoreMark, number>();
+  const stageStarts = new Map<HomeAuthRestoreStage, number>();
+  const stageDurations = new Map<HomeAuthRestoreStage, number>();
+  let timedOutStage: HomeAuthRestoreStage | null = null;
 
   const finish = (
     outcome: HomeAuthOutcome,
@@ -39,6 +43,16 @@ export function createHomeAuthRestoreRecorder(dependencies: RecorderDependencies
     if (terminal || route === null) return null;
     terminal = true;
     if (timeout !== null) dependencies.clearTimeout(timeout);
+    const stageDuration = (stage: HomeAuthRestoreStage): number | undefined => {
+      const startedAt = stageStarts.get(stage);
+      if (startedAt === undefined) return undefined;
+      return stageDurations.get(stage) ?? duration(settledAt - startedAt);
+    };
+    const tokenMs = stageDuration("token");
+    const validationMs = stageDuration("validation");
+    const stalledStage = timedOutStage ??
+      (stageStarts.has("validation") && !stageDurations.has("validation") ? "validation" : null) ??
+      (stageStarts.has("token") && !stageDurations.has("token") ? "token" : null);
     const report: HomeAuthRestoreReport = {
       version: 1,
       kind: "home-auth-phase",
@@ -55,6 +69,9 @@ export function createHomeAuthRestoreRecorder(dependencies: RecorderDependencies
       ...(marks.has("native-settled")
         ? { nativeSettledMs: duration(marks.get("native-settled")!) }
         : {}),
+      ...(tokenMs === undefined ? {} : { tokenMs }),
+      ...(validationMs === undefined ? {} : { validationMs }),
+      ...(stalledStage === null ? {} : { stalledStage }),
       sessionSettledMs: duration(settledAt),
       totalMs: duration(settledAt),
     };
@@ -83,6 +100,20 @@ export function createHomeAuthRestoreRecorder(dependencies: RecorderDependencies
     mark(name: HomeAuthRestoreMark): void {
       if (terminal || marks.has(name)) return;
       marks.set(name, dependencies.now());
+    },
+    beginStage(stage: HomeAuthRestoreStage): void {
+      if (terminal || pendingTerminal !== null || stageStarts.has(stage)) return;
+      stageStarts.set(stage, dependencies.now());
+    },
+    endStage(stage: HomeAuthRestoreStage, outcome: "settled" | "timeout" | "cancelled"): void {
+      const startedAt = stageStarts.get(stage);
+      if (terminal || pendingTerminal !== null || startedAt === undefined || stageDurations.has(stage)) return;
+      if (outcome === "cancelled") {
+        stageStarts.delete(stage);
+        return;
+      }
+      stageDurations.set(stage, duration(dependencies.now() - startedAt));
+      if (outcome === "timeout") timedOutStage ??= stage;
     },
     terminate(outcome: Exclude<HomeAuthOutcome, "timeout">): HomeAuthRestoreReport | null {
       if (terminal) return null;
@@ -146,6 +177,22 @@ export function startHomeAuthRestore(hint: HomeAuthHint): void {
 export function markHomeAuthRestore(name: HomeAuthRestoreMark): void {
   try {
     recorder.mark(name);
+  } catch {
+  }
+}
+
+/** @public called by account restore lifecycle */
+export function beginHomeAuthRestoreStage(stage: HomeAuthRestoreStage): void {
+  try {
+    recorder.beginStage(stage);
+  } catch {
+  }
+}
+
+/** @public called by account restore lifecycle */
+export function endHomeAuthRestoreStage(stage: HomeAuthRestoreStage, outcome: "settled" | "timeout" | "cancelled"): void {
+  try {
+    recorder.endStage(stage, outcome);
   } catch {
   }
 }

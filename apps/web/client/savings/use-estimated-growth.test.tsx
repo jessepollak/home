@@ -2,6 +2,7 @@ import "@/client/account/dom-test-harness";
 
 import { afterAll, afterEach, describe, expect, jest, test } from "bun:test";
 import { act, cleanup, render } from "@testing-library/react";
+import { MountedShellPanel } from "@/client/home/panel-shared";
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
 import type { SavingsPortfolioSummary } from "./portfolio-summary";
 import { estimateSavingsGrowthBaseUnits } from "./estimated-growth";
@@ -102,6 +103,36 @@ describe("Save estimated-growth owner", () => {
     void act(() => document.dispatchEvent(new Event("visibilitychange")));
     expect(now).toHaveBeenCalledTimes(1);
     expect(view.container.textContent).not.toBe("1000000000000000000");
+  });
+
+  test("pauses growth in an inactive shell panel and samples right after return", () => {
+    jest.useFakeTimers();
+    let wall = 2_000_000_060_000;
+    const now = jest.fn(() => wall);
+    const value = anchor("panel", BigInt("1000000000000000000"), wall - 60_000);
+    const panel = (active: boolean) => (
+      <MountedShellPanel active={active}>
+        <Harness value={value} now={now} />
+      </MountedShellPanel>
+    );
+    const view = render(panel(true));
+    void act(() => jest.advanceTimersByTime(250));
+    expect(now).toHaveBeenCalledTimes(1);
+    const sampled = view.container.textContent;
+    view.rerender(panel(false));
+    wall += 60_000;
+    void act(() => jest.advanceTimersByTime(1_000));
+    expect(now).toHaveBeenCalledTimes(1);
+    expect(view.container.textContent).toBe(sampled);
+    view.rerender(panel(true));
+    expect(now).toHaveBeenCalledTimes(1);
+    void act(() => jest.advanceTimersByTime(0));
+    expect(now).toHaveBeenCalledTimes(2);
+    expect(view.container.textContent).toBe(estimateSavingsGrowthBaseUnits(value.estimate!, wall).toString());
+    wall += 60_000;
+    void act(() => jest.advanceTimersByTime(250));
+    expect(now).toHaveBeenCalledTimes(3);
+    expect(view.container.textContent).toBe(estimateSavingsGrowthBaseUnits(value.estimate!, wall).toString());
   });
 
   test("closes a queued callback race while hidden and expires to B0 on resume", () => {

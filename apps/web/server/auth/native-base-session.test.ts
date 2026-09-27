@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createSiweMessage } from "viem/siwe";
+import { issueInviteCookie } from "@/server/invites/cookie";
+import { inviteVerifiedCookies, verifiedInviteCode } from "@/server/invites/consumption";
 import type { NativeBaseChallenge } from "@/shared/account/contracts/base-nonce";
 import {
   HOME_CHALLENGE_COOKIE,
@@ -95,6 +97,24 @@ function verifyBody(message: string, address: `0x${string}` = ADDRESS) {
 }
 
 describe("native Base authentication handlers", () => {
+  test("verified Base sign-in consumes and clears an invitation", async () => {
+    const original = process.env.HOME_SESSION_SECRET;
+    process.env.HOME_SESSION_SECRET = SECRET;
+    const issued = await challenge(handlers().nonce);
+    const invite = issueInviteCookie(post("/api/auth/base/verify", {}), "abcdefghjk", new Date(), SECRET)!;
+    let seen: string | null = null;
+    const verify = createNativeBaseVerifyHandler({
+      sessionSecret: SECRET, now: () => START, verify: async () => true,
+      verifiedCookies: inviteVerifiedCookies,
+      onVerified: (_session, { request }) => { seen = verifiedInviteCode(request); },
+    });
+    const response = await verify(post("/api/auth/base/verify", verifyBody(issued.message), `${issued.cookie}; ${invite.split(";")[0]}`));
+    expect(response.status).toBe(200);
+    expect(String(seen)).toBe("abcdefghjk");
+    expect(response.headers.getSetCookie()).toContainEqual(expect.stringContaining("home_invite=;"));
+    if (original === undefined) delete process.env.HOME_SESSION_SECRET;
+    else process.env.HOME_SESSION_SECRET = original;
+  });
   test("requires HOME_SESSION_SECRET and an address-independent empty challenge request", async () => {
     const nonce = createNativeBaseNonceHandler({
       sessionSecret: "short",
@@ -414,6 +434,36 @@ describe("verified Base capture", () => {
       smartAccount: { address: ADDRESS, chainId: 8453 }, accountProvider: "base-account" }]);
     expect(JSON.stringify(await response.json())).not.toContain(suppliedId);
     expect(response.headers.get("set-cookie")).not.toContain(suppliedId);
+  });
+
+  test("waits for asynchronous capture and preserves verified cookies on rejection", async () => {
+    const issued = await challenge(handlers().nonce);
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const hookEntered = new Promise<void>((resolve) => { entered = resolve; });
+    const verify = createNativeBaseVerifyHandler({
+      sessionSecret: SECRET, now: () => START, verify: async () => true,
+      verifiedCookies: () => ["home_invite=; Path=/; Max-Age=0"],
+      onVerified: () => { entered(); return gate; },
+    });
+    let settled = false;
+    const pending = verify(post("/api/auth/base/verify", verifyBody(issued.message), issued.cookie))
+      .then((response) => { settled = true; return response; });
+    await hookEntered;
+    expect(settled).toBe(false);
+    release();
+    expect((await pending).status).toBe(200);
+
+    const rejecting = createNativeBaseVerifyHandler({
+      sessionSecret: SECRET, now: () => START, verify: async () => true,
+      verifiedCookies: () => ["home_invite=; Path=/; Max-Age=0"],
+      onVerified: async () => { throw new Error("capture failed"); },
+    });
+    const response = await rejecting(post("/api/auth/base/verify", verifyBody(issued.message), issued.cookie));
+    expect(response.status).toBe(200);
+    expect((await response.json()).smartAccount.address).toBe(ADDRESS);
+    expect(response.headers.getSetCookie()).toContain("home_invite=; Path=/; Max-Age=0");
   });
 
   test("throwing capture hook does not reject a valid proof", async () => {

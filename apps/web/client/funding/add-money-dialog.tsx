@@ -1,12 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Alert, AlertAction, AlertIcon, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { DrawerFooter } from "@/components/ui/drawer";
 import {
   Item,
   ItemActions,
@@ -30,15 +29,17 @@ import {
 } from "@/config/regions";
 import { formatAddress } from "@/shared/formatting";
 import type { FundingProviderCustomerSummary } from "@/shared/funding/contracts/provider-customers";
-import { MoneyModal, MoneyModalBody, MoneyModalHeader } from "@/client/money-modal";
+import { MoneyModal, MoneyModalActions, MoneyModalBody, MoneyModalHeader, MoneyModalStep } from "@/client/money-modal";
+import { MethodShimmerRow } from "./method-skeleton";
 import { ReceiveQr } from "./receive-qr";
 import {
   FundingOrderFlow,
+  OpenOrderPrompt,
   type FundingBinding,
   type FundingOrderSummary,
 } from "./order-flow";
 
-export type AddMoneyStep = "method" | "receive" | "order";
+export type AddMoneyStep = "method" | "receive" | "open-order" | "order";
 export type ProvidersStatus = "unavailable" | "loading" | "loaded" | "failed";
 
 export function AddMoneyDialog({
@@ -48,6 +49,7 @@ export function AddMoneyDialog({
   signedOut,
   regionId,
   onClose,
+  onClosed,
   onBack,
   onSelectReceive,
   providerBindings,
@@ -58,6 +60,10 @@ export function AddMoneyDialog({
   fundingReadError,
   selectedBinding,
   initialOrder,
+  promptOrder,
+  onContinueOrder,
+  onStartNewOrder,
+  startNewAllowed,
   initialCustomer,
   fetchAccountResource,
   queryOwnerKey,
@@ -70,6 +76,7 @@ export function AddMoneyDialog({
   signedOut: boolean;
   regionId: RegionId;
   onClose: () => void;
+  onClosed?: () => void;
   onBack: () => void;
   onSelectReceive: () => void;
   providerBindings: ReadonlyArray<FundingBinding>;
@@ -80,6 +87,10 @@ export function AddMoneyDialog({
   fundingReadError: { message: string; retry: () => void } | null;
   selectedBinding: FundingBinding | null;
   initialOrder: FundingOrderSummary | null;
+  promptOrder: FundingOrderSummary | null;
+  onContinueOrder: () => void;
+  onStartNewOrder: () => void;
+  startNewAllowed: boolean;
   initialCustomer?: FundingProviderCustomerSummary | null;
   fetchAccountResource: (
     path: string,
@@ -93,7 +104,7 @@ export function AddMoneyDialog({
   const title =
     step === "receive"
       ? "Receive"
-      : step === "order"
+      : step === "order" || step === "open-order"
         ? `Deposit ${selectedBinding?.currency ?? currency}`
         : "Add money";
 
@@ -102,17 +113,16 @@ export function AddMoneyDialog({
       open={open}
       labelledBy="add-money-title"
       onCancel={onClose}
-      onClose={onClose}
+      onClose={() => onClosed?.()}
     >
       {step !== "order" || signedOut ? (
+        <MoneyModalStep step={signedOut ? "signed-out" : step} depth={!signedOut && (step === "receive" || step === "open-order") ? 1 : 0}>
         <MoneyModalHeader
           title={title}
           titleId="add-money-title"
           onBack={step === "method" || step === "order" ? undefined : onBack}
-          onClose={onClose}
           closeLabel="Close add money"
         />
-      ) : null}
 
       {signedOut ? <SignedOutBody /> : null}
       {!signedOut && step === "method" ? (
@@ -131,6 +141,27 @@ export function AddMoneyDialog({
       {!signedOut && step === "receive" ? (
         <ReceiveBody address={address} regionId={regionId} />
       ) : null}
+      {!signedOut && step === "open-order" && selectedBinding && promptOrder ? (
+        <OpenOrderPrompt
+          binding={selectedBinding}
+          order={promptOrder}
+          startNewAllowed={startNewAllowed}
+          onContinue={onContinueOrder}
+          onStartNew={onStartNewOrder}
+        />
+      ) : null}
+      {signedOut ? (
+        <MoneyModalActions>
+          <Link
+            className={buttonVariants({ size: "touch" })}
+            href="/?account=signin"
+          >
+            Sign in
+          </Link>
+        </MoneyModalActions>
+      ) : null}
+        </MoneyModalStep>
+      ) : null}
       {!signedOut && step === "order" && selectedBinding ? (
         <FundingOrderFlow
           binding={selectedBinding}
@@ -138,22 +169,10 @@ export function AddMoneyDialog({
           queryOwnerKey={queryOwnerKey}
           titleId="add-money-title"
           onBack={onBack}
-          onClose={onClose}
           onOpenRedirect={onOpenRedirect}
           initialOrder={initialOrder}
           initialCustomer={initialCustomer}
         />
-      ) : null}
-
-      {signedOut ? (
-        <DrawerFooter>
-          <Link
-            className={buttonVariants({ size: "touch" })}
-            href="/?account=signin"
-          >
-            Sign in
-          </Link>
-        </DrawerFooter>
       ) : null}
     </MoneyModal>
   );
@@ -205,76 +224,34 @@ export function MethodBody({
       <span ref={statusRef} role="status" className="sr-only" />
       <Card variant="flush">
         <CardContent inset="list">
-          <div aria-busy={providersStatus === "loading"}>
-            <Item
-              render={
-                <Button
-                  variant="ghost"
-                  press="none"
-                  type="button"
-                  onClick={onSelectReceive}
-                  aria-describedby="receive-method-hint"
-                />
-              }
-              className="flex-nowrap items-center"
-            >
-              <ItemMedia variant="avatar">
-                <ArrowDownToLine className="size-4" />
-              </ItemMedia>
-              <ItemContent className="min-w-0">
-                <ItemTitle>Receive crypto</ItemTitle>
-                <ItemDescription>USDC and supported tokens on Base</ItemDescription>
-                <span id="receive-method-hint" hidden>Open receive options</span>
-              </ItemContent>
-              <ItemActions aria-hidden="true">
-                <ChevronRight className="size-4 text-muted-foreground" />
-              </ItemActions>
-            </Item>
+          <div aria-busy={providersStatus === "loading"} className="@container/method-list">
+            <MethodRow
+              icon={<ArrowDownToLine className="size-4" />}
+              title="Receive crypto"
+              description="USDC and supported tokens on Base"
+              hint="Open receive options"
+              onSelect={onSelectReceive}
+            />
             {providersStatus === "loading" ? (
               <>
                 <ItemSeparator className="my-0" />
-                <Item aria-hidden="true" className="h-14 flex-nowrap items-center">
-                  <ItemMedia variant="avatar">
-                    <Skeleton className="size-full" data-shimmer="deposit-method" />
-                  </ItemMedia>
-                  <ItemContent className="min-w-0">
-                    <Skeleton className="h-4 w-24" data-shimmer="deposit-method" />
-                    <Skeleton className="h-3.5 w-44 max-w-full" data-shimmer="deposit-method" />
-                  </ItemContent>
-                </Item>
+                <MethodShimmerRow />
               </>
             ) : null}
             {providerBindings.map((binding) => (
               <Fragment key={`${binding.providerId}:${binding.assetId}`}>
                 <ItemSeparator className="my-0" />
-                <Item
-                  render={
-                    <Button
-                      variant="ghost"
-                      press="none"
-                      type="button"
-                      disabled={
-                        providerBindingsDisabled ||
-                        (binding.customerSetup !== null && !customerSetupReady && !resumableBinding(binding))
-                      }
-                      onClick={() => onSelectBinding(binding)}
-                      aria-describedby={`funding-method-${binding.providerId}-${binding.assetId}`}
-                    />
+                <MethodRow
+                  icon={<Landmark className="size-4" />}
+                  title={`Deposit ${binding.currency}`}
+                  description={fundingMethodDescription(binding)}
+                  hint="Open deposit flow"
+                  disabled={
+                    providerBindingsDisabled ||
+                    (binding.customerSetup !== null && !customerSetupReady && !resumableBinding(binding))
                   }
-                  className="flex-nowrap items-center"
-                >
-                  <ItemMedia variant="avatar">
-                    <Landmark className="size-4" />
-                  </ItemMedia>
-                  <ItemContent className="min-w-0">
-                    <ItemTitle>{`Deposit ${binding.currency}`}</ItemTitle>
-                    <ItemDescription>{fundingMethodDescription(binding)}</ItemDescription>
-                    <span id={`funding-method-${binding.providerId}-${binding.assetId}`} hidden>Open deposit flow</span>
-                  </ItemContent>
-                  <ItemActions aria-hidden="true">
-                    <ChevronRight className="size-4 text-muted-foreground" />
-                  </ItemActions>
-                </Item>
+                  onSelect={() => onSelectBinding(binding)}
+                />
               </Fragment>
             ))}
           </div>
@@ -286,6 +263,50 @@ export function MethodBody({
         </Alert>
       ) : null}
     </MoneyModalBody>
+  );
+}
+
+function MethodRow({
+  icon,
+  title,
+  description,
+  hint,
+  disabled,
+  onSelect,
+}: {
+  icon: ReactNode;
+  title: string;
+  description: string;
+  hint: string;
+  disabled?: boolean;
+  onSelect: () => void;
+}) {
+  const hintId = useId();
+
+  return (
+    <Item
+      render={
+        <Button
+          variant="ghost"
+          press="none"
+          type="button"
+          disabled={disabled}
+          onClick={onSelect}
+          aria-describedby={hintId}
+        />
+      }
+      className="h-auto flex-nowrap items-center justify-start text-start whitespace-normal"
+    >
+      <ItemMedia variant="avatar">{icon}</ItemMedia>
+      <ItemContent className="min-w-0">
+        <ItemTitle truncate="wrap">{title}</ItemTitle>
+        <ItemDescription lines="wrap">{description}</ItemDescription>
+        <span id={hintId} hidden>{hint}</span>
+      </ItemContent>
+      <ItemActions aria-hidden="true" className="@max-[12rem]/method-list:hidden">
+        <ChevronRight className="size-4 text-muted-foreground rtl:-scale-x-100" />
+      </ItemActions>
+    </Item>
   );
 }
 

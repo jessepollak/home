@@ -5,10 +5,13 @@ import {
   sanitizeRoutePath,
   scrubString,
 } from "@/shared/observability/scrub";
+import { HOME_AUTH_RESTORE_STAGES } from "@/shared/observability/client-performance.contract";
 import type {
   HomeAuthRestoreReport,
   HomeAuthSignOutReport,
   HomeStartupReport,
+  HomeNavigationReport,
+  HomeScrollReport,
 } from "@/shared/observability/client-performance.contract";
 
 export const OBSERVABILITY_SCHEMA = "home.observability.v2" as const;
@@ -91,6 +94,7 @@ export type BalancesReadDurations = {
 
 export const SERVER_EVENT_KINDS = [
   "action-prepare",
+  "action-read",
   "action-confirm",
   "action-handle",
   "action-decline",
@@ -117,6 +121,7 @@ export const SERVER_EVENT_OUTCOMES = [
   "unavailable",
   "accepted",
   "ignored",
+  "skipped",
 ] as const;
 export const FUNDING_ORDER_LIFECYCLE_CODES = [
   "ORDER_CREATED",
@@ -161,6 +166,7 @@ export type ServerEventOutcome = (typeof SERVER_EVENT_OUTCOMES)[number];
 
 export type ObservabilityEvent =
   | HomeStartupReport
+  | ((HomeNavigationReport | HomeScrollReport) & { deployment: string })
   | HomeAuthRestoreReport
   | HomeAuthSignOutReport
   | {
@@ -243,6 +249,33 @@ export type ObservabilityLogLine = ObservabilityLogBase &
         totalMs: number;
       }
     | {
+        level: "info";
+        kind: "home-navigation";
+        code: "HOME_NAVIGATION";
+        version: 1;
+        from: HomeNavigationReport["from"];
+        trigger: HomeNavigationReport["trigger"];
+        cache: HomeNavigationReport["cache"];
+        device: HomeNavigationReport["device"];
+        deployment: string;
+        durationMs: number;
+      }
+    | {
+        level: "info";
+        kind: "home-scroll";
+        code: "HOME_SCROLL";
+        version: 1;
+        cache: HomeScrollReport["cache"];
+        device: HomeScrollReport["device"];
+        deployment: string;
+        durationMs: number;
+        frameCount: number;
+        slowFrameCount: number;
+        maxFrameMs: number;
+        longFrameCount?: number;
+        longFrameMs?: number;
+      }
+    | {
         level: "info" | "error";
         kind: "home-auth-phase";
         code: "HOME_AUTH_PHASE";
@@ -253,6 +286,9 @@ export type ObservabilityLogLine = ObservabilityLogBase &
         sdkActivateMs?: number;
         cdpInitializedMs?: number;
         nativeSettledMs?: number;
+        tokenMs?: number;
+        validationMs?: number;
+        stalledStage?: HomeAuthRestoreReport["stalledStage"];
         sessionSettledMs: number;
         totalMs: number;
       }
@@ -377,6 +413,48 @@ export function normalizeObservabilityEvent(
     };
   }
 
+  if (event.kind === "home-navigation") {
+    return {
+      schema: OBSERVABILITY_SCHEMA,
+      route: event.route,
+      level: "info",
+      kind: event.kind,
+      code: "HOME_NAVIGATION",
+      version: 1,
+      from: event.from,
+      trigger: event.trigger,
+      cache: event.cache,
+      device: event.device,
+      deployment: typeof event.deployment === "string"
+        ? sanitizeIdentifier(event.deployment, "unknown") : "unknown",
+      durationMs: boundedInteger(event.durationMs, 10_000),
+    };
+  }
+
+  if (event.kind === "home-scroll") {
+    const frameCount = boundedInteger(event.frameCount, 10_000);
+    return {
+      schema: OBSERVABILITY_SCHEMA,
+      route: event.route,
+      level: "info",
+      kind: event.kind,
+      code: "HOME_SCROLL",
+      version: 1,
+      cache: event.cache,
+      device: event.device,
+      deployment: typeof event.deployment === "string"
+        ? sanitizeIdentifier(event.deployment, "unknown") : "unknown",
+      durationMs: boundedInteger(event.durationMs, 30_000),
+      frameCount,
+      slowFrameCount: Math.min(frameCount, boundedInteger(event.slowFrameCount, 10_000)),
+      maxFrameMs: boundedInteger(event.maxFrameMs, 5_000),
+      ...(event.longFrameCount === undefined || event.longFrameMs === undefined ? {} : {
+        longFrameCount: boundedInteger(event.longFrameCount, 1_000),
+        longFrameMs: boundedInteger(event.longFrameMs, 30_000),
+      }),
+    };
+  }
+
   if (event.kind === "home-auth-phase") {
     if (event.flow === "signout") {
       return {
@@ -425,6 +503,15 @@ export function normalizeObservabilityEvent(
       ...(event.nativeSettledMs === undefined
         ? {}
         : { nativeSettledMs: boundedInteger(event.nativeSettledMs, 30_000) }),
+      ...(event.tokenMs === undefined
+        ? {}
+        : { tokenMs: boundedInteger(event.tokenMs, 30_000) }),
+      ...(event.validationMs === undefined
+        ? {}
+        : { validationMs: boundedInteger(event.validationMs, 30_000) }),
+      ...(event.stalledStage !== undefined && HOME_AUTH_RESTORE_STAGES.includes(event.stalledStage)
+        ? { stalledStage: event.stalledStage }
+        : {}),
       sessionSettledMs: boundedInteger(event.sessionSettledMs, 30_000),
       totalMs: boundedInteger(event.totalMs, 30_000),
     };
@@ -501,7 +588,7 @@ export function normalizeObservabilityEvent(
       : undefined;
     return {
       ...base,
-      level: outcome === "unmatched" || outcome === "ok" || outcome === "accepted" || outcome === "ignored" ||
+      level: outcome === "unmatched" || outcome === "ok" || outcome === "accepted" || outcome === "ignored" || outcome === "skipped" ||
         (event.kind === "action-reconcile" && outcome === "unavailable")
         ? "info"
         : "error",

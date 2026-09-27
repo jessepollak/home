@@ -106,7 +106,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
     const sections = [
       ["Customers", "Customer search isn't available yet.", "/admin/customers"],
       ["Support", "Support inbox isn't available yet.", "/admin/support"],
-      ["Growth", "Invite rewards aren't available yet.", "/admin/growth"],
+      ["Growth", "Invite data isn't available.", "/admin/growth"],
       ["Money", "Revenue isn't available yet.", "/admin/money"],
       ["Settings", "No settings available yet.", "/admin/settings"],
       ["Audit log", "Admin activity isn't recorded yet.", "/admin/audit"],

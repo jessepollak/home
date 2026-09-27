@@ -1,5 +1,6 @@
 # 18. PriceChart tone/range/scrub/error
 
-| # | Follow-up | Disposition | Delivery | State (2026-09-25) |
+| # | Follow-up | Disposition | Delivery | State (2026-09-26) |
 | --- | --- | --- | --- | --- |
-| 18 | PriceChart tone/range/scrub/error | Covered, pending selection | [#938](https://github.com/jessepollak/home/issues/938) design / [#939](https://github.com/jessepollak/home/issues/939) adoption | #938 open; PR [#982](https://github.com/jessepollak/home/pull/982) in `factory:needs-jesse` awaiting Jesse's selection; #939 `factory:needs-jesse`, held for it |
+| 18 | PriceChart tone/range/scrub/error | Implemented | [#938](https://github.com/jessepollak/home/issues/938) selection (PR [#982](https://github.com/jessepollak/home/pull/982), Figma `422:4404`) / [#939](https://github.com/jessepollak/home/issues/939) adoption, PR [#1105](https://github.com/jessepollak/home/pull/1105) | #982 merged; #1105 open. `AssetChart` in `client/invest/asset-chart.tsx` adopts the selected revision: line and fill coloured by the range change's sign (market gain/loss tokens, as selected), a borderless full-width range, pointer, touch and keyboard scrub driving the header price and time, a slow-load note and in-place Try again. `PriceChart` `166:1959` is superseded and not mapped |
+| 18a | Chart baseline and high/low labels | Deferred (owner: Jesse) | [#938](https://github.com/jessepollak/home/issues/938) | Not drawn in the selected `AssetChart` (`422:4648` hides its guide, axis and caption layers) and needs a defined data contract (#938 constraint). Stats show the Past 24h and Past year closing-price low and high instead (row 20) |

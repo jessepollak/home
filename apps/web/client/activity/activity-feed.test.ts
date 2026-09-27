@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import type { ActivityTransfer } from "@/shared/activity/types";
 import { mergeActivityFeed } from "./activity-feed";
+import { presentActivityLedgerItems } from "./activity-ledger-items";
 
 const HASH_A = `0x${"a".repeat(64)}` as const;
 const HASH_B = `0x${"b".repeat(64)}` as const;
@@ -53,7 +54,57 @@ function operation(id: string, updatedAt: string, transactionHash?: `0x${string}
   };
 }
 
+function paidCashout(providerUpdatedAt: string, transactionHash?: `0x${string}`): RecentMoneyActionOperation {
+  const base = operation("paid-cashout", "2026-09-15T12:00:00.000Z", transactionHash);
+  return {
+    ...base,
+    action: { ...base.action, kind: "cash-out" },
+    cashout: {
+      version: 1, providerId: "peer", region: "US", depositId: "escrow", state: "delivered",
+      platform: "cashapp", platformLabel: "Cash App", amountAtomic: "1000000", filledAtomic: "1000000",
+      returnedAtomic: "0", remainingAtomic: "0", withdrawable: false, withdrawing: false,
+      etaSeconds: null, settledAt: providerUpdatedAt, updatedAt: providerUpdatedAt,
+    },
+  };
+}
+
 describe("combined Activity feed", () => {
+  test("keeps a paid cash-out visible while its provider update is newer than the loaded boundary", () => {
+    const providerUpdatedAt = "2026-09-15T12:04:00.000Z";
+    const items = mergeActivityFeed({
+      transfers: [], operations: [paidCashout(providerUpdatedAt)], loadedThrough: "2026-09-15T12:02:00.000Z",
+    });
+
+    expect(items.map(({ id }) => id)).toEqual(["paid-cashout"]);
+    expect(items[0]?.timestamp).toBe(providerUpdatedAt);
+  });
+
+  test("sorts a settled cash-out by its displayed provider update rather than its transfer time", () => {
+    const providerUpdatedAt = "2026-09-15T12:04:00.000Z";
+    const matched = transfer("cashout", "2026-09-15T12:01:00.000Z", HASH_A);
+    const between = transfer("between", "2026-09-15T12:02:00.000Z", HASH_B);
+    const items = mergeActivityFeed({
+      transfers: [matched, between], operations: [paidCashout(providerUpdatedAt, HASH_A)], loadedThrough: null,
+    });
+    const displayed = presentActivityLedgerItems(items, { regionId: "US", timeZone: "UTC" });
+
+    expect(items.map(({ id }) => id)).toEqual(["paid-cashout", between.id]);
+    expect(items[0]?.timestamp).toBe(providerUpdatedAt);
+    expect(displayed[0]?.updatedAt).toBe(providerUpdatedAt);
+    expect(displayed[0]?.timestamp).toBe(items[0]?.timestamp);
+  });
+
+  test("falls back to the operation time when a cash-out provider update is unparseable", () => {
+    const cashout = paidCashout("not-a-date");
+    const items = mergeActivityFeed({ transfers: [], operations: [cashout], loadedThrough: null });
+    const displayed = presentActivityLedgerItems(items, { regionId: "US", timeZone: "UTC" });
+    const deferred = mergeActivityFeed({ transfers: [], operations: [cashout], loadedThrough: cashout.updatedAt });
+
+    expect(items[0]?.timestamp).toBe(cashout.updatedAt);
+    expect(displayed[0]?.updatedAt).toBe(cashout.updatedAt);
+    expect(deferred).toEqual([]);
+  });
+
   test("defers an old confirmed action until transfer pages pass it or finish", () => {
     const recent = transfer("recent", "2026-09-15T12:04:00.000Z");
     const older = transfer("older", "2026-09-15T12:00:00.000Z", HASH_B);

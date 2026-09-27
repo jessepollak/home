@@ -42,6 +42,22 @@ describe("GET /api/market-prices/history", () => {
     expect(catalogCalls).toBe(0);
   });
 
+  test("passes header priority to the reader without changing the cache key or active default", async () => {
+    const options: Array<{ speculative?: boolean } | undefined> = [];
+    const GET = createMarketPriceHistoryHandler(async (_assetId, _range, priority) => {
+      options.push(priority);
+      return ready;
+    });
+    const url = "http://home.test/api/market-prices/history?assetId=cbbtc&range=1W";
+    const prefetch = await GET(new Request(url, { headers: { "x-home-history-priority": "prefetch" } }));
+    const active = await GET(new Request(url));
+    const other = await GET(new Request(url, { headers: { "x-home-history-priority": "active" } }));
+
+    expect([prefetch.status, active.status, other.status]).toEqual([200, 200, 200]);
+    expect(options).toEqual([{ speculative: true }, { speculative: false }, { speculative: false }]);
+    expect(prefetch.headers.get("cache-control")).toBe(active.headers.get("cache-control"));
+  });
+
   test("serves page-2 dynamic memes through provider-backed exact admission", async () => {
     let requestedSymbol = "";
     let admissionInput: { address: string; networkId: number } | null = null;

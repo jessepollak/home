@@ -28,8 +28,11 @@ const buttonVariantStyles = cva(
           "h-8 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
         xs: "h-6 gap-1 rounded-md px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
         sm: "h-7 gap-1 rounded-md px-2.5 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
+        "sm-touch": "min-h-11 gap-1 rounded-md px-2.5 py-2 text-xs",
         lg: "h-9 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
         touch: "min-h-11 gap-1.5 px-2.5 py-2 whitespace-normal text-center has-data-[icon=inline-end]:pe-2 has-data-[icon=inline-start]:ps-2",
+        "compact-touch": "relative h-8 gap-1.5 ps-2.5 pe-2.5 before:absolute before:inset-x-0 before:-inset-y-1.5 before:content-[''] md:pointer-fine:before:content-none",
+        tab: "h-13 min-h-11 min-w-0 rounded-full px-2 max-sm:focus-visible:border-transparent max-sm:focus-visible:ring-inset hover:bg-transparent active:bg-transparent sm:h-9 sm:gap-1.5 sm:rounded-none sm:px-2.5 sm:hover:bg-muted sm:active:bg-muted dark:sm:hover:bg-muted/50 dark:sm:active:bg-muted/50",
         icon: "size-8",
         "icon-xs":
           "size-6 rounded-md in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3",

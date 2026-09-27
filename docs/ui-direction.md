@@ -40,6 +40,13 @@ Proposed in [#694](https://github.com/jessepollak/home/issues/694). **Not accept
   - reconciling the fine-pointer size reductions in `ShellHeader` and the header status with the 44px desktop targets
 - **References:** Figma section [`322:11819`](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=322-11819) on the Shell / desktop page (`333:13092`), and Storybook `journeys-desktop-shell`.
 
+## Invest asset detail direction (#938)
+
+- **Jesse's decision (2026-09-26, Figma comment on Option A, `427:5012`):** “Full bleed seems right.” Option A, the full-bleed chart whose header follows the scrub, is the direction. Options B (carded chart) and C (panel chart with a desktop rail) are not carried forward.
+- **Jesse's refinement requests on the same review:** use the standard finance row for the balance; pin Buy/Sell to the viewport bottom, hide it while scrolling down and bring it back when scrolling stops; make the details more useful; keep the data vendor off the page except for a footnote; drop elements that don't help; lighten the scrub line; make pre-data, first data and range changes smooth; and use a chart library rather than a custom build.
+- **Jesse's round-5 decisions (2026-09-26, PR comment):** keep Liveline as the chart library, accepting its hidden entry settle and the workarounds, which stay inside the chart wrapper; keep the Market cap, 24h volume and Liquidity tiles, with #939 adding the small market-stats contract at adoption; and #935's entry design adopts the pinned Buy/Sell bar, so #935 owns the trade buttons and the bar.
+- **Selected (2026-09-26):** Jesse approved the round-5 refinement as merged in #982 (Figma section `422:4404`). #939 adopts it in production as `AssetDetailScreen` (Storybook `invest-asset-detail--*`, board `review-boards--invest-asset-detail`). Stock positions show their value as unavailable until #624's valuation lands.
+
 ## Motion
 
 - Motion is short and optical, and must earn its place: purpose (feedback, spatial continuity, state indication, preventing a jarring change), frequency, and content sensitivity decide. Tab ≤180ms, chip ≤120ms, CTA press 100–160ms; other motion stays comparably short. Frequently read financial surfaces stay still — functional balances, amounts, and positions do not move merely for decoration.

@@ -73,22 +73,28 @@ async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
   );
 }
 
-describe("provisional balance transport", () => {
-  test("only balances GET crosses the provisional boundary", async () => {
+describe("provisional read transport", () => {
+  test("only balances and country preference GETs cross the provisional boundary", async () => {
     const requests: string[] = [];
     const transport = await transportWith(async (input, init) => {
       requests.push(`${init?.method} ${String(input)}`);
       return Response.json({ balance: "1" });
     }, undefined, { verification: "provisional", status: "validating" });
     expect(await transport.fetchBalances("US")).toEqual({ balance: "1" });
+    expect(await transport.fetchCountryPreference()).toEqual({ balance: "1" });
     expect(await rejectionOf(transport.fetchActivity(""))).toMatchObject({ kind: "session" });
     expect(await rejectionOf(transport.fetchAccountResource("/api/actions")))
       .toMatchObject({ reason: "stale-session" });
     expect(await rejectionOf(transport.fetchAccountResource("/api/balances")))
       .toMatchObject({ reason: "stale-session" });
+    expect(await rejectionOf(transport.fetchAccountResource("/api/account/country-preference", {
+      method: "PUT", body: { version: 1, regionId: "US", adopt: false },
+    }))).toMatchObject({ reason: "stale-session" });
+    expect(await rejectionOf(transport.fetchAccountResource("/api/account/country-preference")))
+      .toMatchObject({ reason: "stale-session" });
     expect(await rejectionOf(transport.fetchMoneyActionApi("/api/actions/prepare", { method: "POST", body: "{}" })))
       .toMatchObject({ reason: "stale-session" });
-    expect(requests).toEqual(["GET /api/balances?region=US"]);
+    expect(requests).toEqual(["GET /api/balances?region=US", "GET /api/account/country-preference"]);
   });
 
   test("drops an in-flight provisional response after the owner fence advances", async () => {
@@ -106,7 +112,7 @@ describe("provisional balance transport", () => {
     expect(await rejectionOf(read)).toMatchObject({ kind: "session" });
   });
 
-  test("rejects seeded restoring and all other non-validating provisional balance reads", async () => {
+  test("rejects seeded restoring and all other non-validating provisional reads", async () => {
     const requests: string[] = [];
     for (const status of ["restoring", "signing-out", "signed-out", "unavailable"] as const) {
       const transport = await transportWith(async (input) => {
@@ -114,8 +120,29 @@ describe("provisional balance transport", () => {
         return Response.json({});
       }, undefined, { verification: "provisional", status });
       expect(await rejectionOf(transport.fetchBalances("US"))).toMatchObject({ kind: "session" });
+      expect(await rejectionOf(transport.fetchCountryPreference())).toMatchObject({ kind: "session" });
     }
+    const walletless = await transportWith(async (input) => {
+      requests.push(String(input));
+      return Response.json({});
+    }, undefined, { verification: "provisional", status: "validating", session: { ...session, smartAccount: null } });
+    expect(await rejectionOf(walletless.fetchCountryPreference())).toMatchObject({ kind: "session" });
     expect(requests).toEqual([]);
+  });
+
+  test("discards a provisional country preference when the owner fence advances during the read", async () => {
+    let generation = 0;
+    let release!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { release = resolve; });
+    const transport = await transportWith(async () => pending, undefined, {
+      verification: "provisional", status: "validating",
+      ownerFence: { ...ownerFence, capture: () => generation, isCurrent: (value) => value === generation },
+    });
+    const read = transport.fetchCountryPreference();
+    await Promise.resolve();
+    generation += 1;
+    release(Response.json({ version: 1, regionId: "GB" }));
+    expect(await rejectionOf(read)).toMatchObject({ kind: "session" });
   });
 });
 
@@ -150,6 +177,37 @@ describe("verified read failure tagging", () => {
     });
     const parsed = await transportWith(async () => new Response("broken json"));
     expect(await rejectionOf(parsed.fetchActivity(""))).toMatchObject({ kind: "parse" });
+  });
+});
+
+describe("account resource failure tagging", () => {
+  test("tags network failures and preserves the cause", async () => {
+    const cause = new Error("socket closed");
+    const transport = await transportWith(async () => { throw cause; });
+    const error = await rejectionOf(transport.fetchAccountResource("/api/actions"));
+    expect(error).toBeInstanceOf(TransferExecutionError);
+    expect(error).toMatchObject({ reason: "unavailable", message: "unavailable", kind: "network", cause });
+  });
+
+  test("tags invalid JSON in a successful response as parse failure", async () => {
+    const transport = await transportWith(async () => new Response("broken json", { status: 200 }));
+    const error = await rejectionOf(transport.fetchAccountResource("/api/actions"));
+    expect(error).toBeInstanceOf(TransferExecutionError);
+    expect(error).toMatchObject({ reason: "unavailable", message: "unavailable", kind: "parse" });
+    expect((error as TransferExecutionError & { status?: number }).status).toBeUndefined();
+  });
+
+  test("tags non-ok responses as HTTP while preserving status, details, and 409 reason", async () => {
+    for (const [status, reason] of [[503, "unavailable"], [409, "submission-pending"]] as const) {
+      const transport = await transportWith(async () => Response.json({
+        error: { code: "UPSTREAM", message: "try later" },
+      }, { status }));
+      const error = await rejectionOf(transport.fetchAccountResource("/api/actions"));
+      expect(error).toBeInstanceOf(TransferExecutionError);
+      expect(error).toMatchObject({
+        reason, message: reason, kind: "http", status, code: "UPSTREAM", serverMessage: "try later",
+      });
+    }
   });
 });
 
@@ -227,6 +285,8 @@ describe("authenticated transport deployment expiry", () => {
     expect(balanceError).toMatchObject({ kind: "access", message: "Deployment access is required." });
     expect(isInterruptionEligible(balanceError)).toBe(false);
     expect(actionError).toBeInstanceOf(TransferExecutionError);
+    expect(actionError).toMatchObject({ reason: "unavailable", message: "unavailable", kind: "access" });
+    expect((actionError as TransferExecutionError & { status?: number }).status).toBeUndefined();
 
     expect(destinations).toEqual([
       "/access?next=%2Fprivate%3Fpanel%3Dactivity%23latest",
@@ -260,6 +320,7 @@ describe("authenticated transport deployment expiry", () => {
 
     expect(error).toBeInstanceOf(TransferExecutionError);
     expect(error).toMatchObject({
+      kind: "http",
       status: 404,
       code: "ACTION_NOT_FOUND",
       serverMessage: "Action not found.",

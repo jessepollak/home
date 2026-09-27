@@ -3,4 +3,4 @@
 // component=MoneyQuickChips
 import figma from 'figma'
 const chipSet = figma.selectedInstance.getEnum('chipSet', { 'quick-local': 'quick-local', max: 'max' })
-export default { example: figma.code`<MoneyQuickChips chipSet="${chipSet}" localCurrency="USD" primaryUnit="local" availableAmount={availableAmount} onSelect={onSelect} />`, imports: ['import { MoneyQuickChips } from "@/client/money-modal/amount"'], id: 'money-quick-chips', metadata: { nestable: false } }
+export default { example: figma.code`<MoneyQuickChips chipSet="${chipSet}" unit={{ kind: "fiat", currency: "USD" }} availableAmount={availableAmount} onSelect={onSelect} />`, imports: ['import { MoneyQuickChips } from "@/client/money-modal/amount"'], id: 'money-quick-chips', metadata: { nestable: false } }

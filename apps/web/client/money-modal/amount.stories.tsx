@@ -3,7 +3,7 @@ import { expect, userEvent, within } from "storybook/test";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { isPositiveDecimalAmount } from "./amount-input";
-import { amountExceedsCeiling, moneyAssetPricing } from "./amount-units";
+import { amountExceedsCeiling, type MoneyAmountUnit } from "./amount-units";
 import { MoneyAmountDisplay } from "./amount";
 
 type AmountStoryProps = {
@@ -11,9 +11,8 @@ type AmountStoryProps = {
   availableLabel?: string;
   availableAmount?: string | null;
   nativeSymbol?: string;
-  fiatCurrency?: string;
+  unit?: MoneyAmountUnit;
   maxDecimals?: number;
-  priced?: boolean;
 };
 
 function AmountStory({
@@ -21,9 +20,8 @@ function AmountStory({
   availableLabel = "$12.00 available",
   availableAmount = "12",
   nativeSymbol = "USDC",
-  fiatCurrency,
+  unit = { kind: "fiat", currency: "USD" },
   maxDecimals = 6,
-  priced = true,
 }: AmountStoryProps) {
   const [amount, setAmount] = useState(initialAmount);
   const [continued, setContinued] = useState(false);
@@ -43,9 +41,8 @@ function AmountStory({
         assetLabel={nativeSymbol}
         assetLocked
         chipSet={availableAmount === null ? "none" : "quick-local"}
-        pricing={priced ? moneyAssetPricing("USDC", "US") : { status: "unpriced" }}
+        unit={unit}
         nativeSymbol={nativeSymbol}
-        fiatCurrency={fiatCurrency}
       />
       <Button disabled={!canContinue} onClick={() => setContinued(true)}>Continue</Button>
       {continued ? <output>Ready to review {amount} {nativeSymbol}</output> : null}
@@ -72,6 +69,7 @@ export const Empty: Story = {
     const canvas = within(canvasElement);
     const input = canvas.getByRole("textbox", { name: "Amount" });
     await expect(input).toHaveValue("");
+    await expect(canvas.queryByRole("button", { name: /as the primary amount/ })).toBeNull();
     await expect(canvas.getByRole("button", { name: "Continue" })).toBeDisabled();
     await userEvent.type(input, "10");
     await expect(input).toHaveValue("10");
@@ -121,7 +119,7 @@ export const OverAvailable: Story = {
 };
 
 export const NativeUnit: Story = {
-  args: { priced: false, nativeSymbol: "ETH", maxDecimals: 18, availableLabel: "1.1010 ETH available", availableAmount: "1.1010" },
+  args: { unit: { kind: "native" }, nativeSymbol: "ETH", maxDecimals: 18, availableLabel: "1.1010 ETH available", availableAmount: "1.1010" },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const input = canvas.getByRole("textbox", { name: "Amount" });
@@ -132,12 +130,38 @@ export const NativeUnit: Story = {
 };
 
 export const FiatDeposit: Story = {
-  args: { priced: false, nativeSymbol: "IDR", fiatCurrency: "IDR", maxDecimals: 2, availableLabel: undefined, availableAmount: null },
+  args: { unit: { kind: "fiat", currency: "IDR" }, nativeSymbol: "IDR", maxDecimals: 2, availableLabel: undefined, availableAmount: null },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const input = canvas.getByRole("textbox", { name: "Amount" });
     await userEvent.type(input, "250.50");
     await expect(input).toHaveValue("250.50");
     await expect(canvas.getByRole("button", { name: "Continue" })).toBeEnabled();
+  },
+};
+
+export const PricedBitcoin: Story = {
+  args: {
+    initialAmount: "0.001",
+    unit: { kind: "convertible", currency: "USD", perUnit: { atoms: "65000", scale: 0 } },
+    nativeSymbol: "cbBTC",
+    maxDecimals: 8,
+    availableLabel: "0.02 cbBTC available",
+    availableAmount: "0.02",
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const input = canvas.getByRole("textbox", { name: "Amount" });
+    await expect(input).toHaveValue("0.001");
+    await expect(canvas.getByText("0.02 cbBTC available")).toBeVisible();
+    await userEvent.click(canvas.getByRole("button", { name: "Show ≈ $65.00 as the primary amount" }));
+    await expect(input).toHaveValue("65.00");
+    await expect(canvas.getByRole("button", { name: "Show 0.001 cbBTC as the primary amount" })).toBeVisible();
+    await userEvent.clear(input);
+    await userEvent.type(input, "100.00");
+    await expect(input).toHaveValue("100.00");
+    await expect(canvas.queryByText("Ready to review 0.00153846 cbBTC")).toBeNull();
+    await userEvent.click(canvas.getByRole("button", { name: "Continue" }));
+    await expect(canvas.getByText("Ready to review 0.00153846 cbBTC")).toBeVisible();
   },
 };

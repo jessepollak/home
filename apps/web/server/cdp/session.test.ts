@@ -5,6 +5,8 @@ import {
   type VerifiedAccountSession,
 } from "@/shared/account/session-types";
 import { HOME_SESSION_COOKIE, signedValue } from "@/server/auth/native-base-session";
+import { issueInviteCookie } from "@/server/invites/cookie";
+import { inviteVerifiedCookies, verifiedInviteCode } from "@/server/invites/consumption";
 import {
   AuthUnavailableError,
   InvalidAccessTokenError,
@@ -78,6 +80,22 @@ const baseAccountDisabledBody = {
 };
 
 describe("GET /api/session handler", () => {
+  test("verified CDP sign-in consumes the signed invite and clears its cookie", async () => {
+    const original = process.env.HOME_SESSION_SECRET;
+    process.env.HOME_SESSION_SECRET = SECRET;
+    const invite = issueInviteCookie(makeRequest(), "abcdefghjk", new Date(), SECRET)!;
+    let seen: string | null = null;
+    const handler = makeHandler(async () => embeddedProfile(), undefined, {
+      verifiedCookies: inviteVerifiedCookies,
+      onVerifiedSession: (_session, { request }) => { seen = verifiedInviteCode(request); },
+    });
+    const response = await handler(makeRequest("Bearer verified.token.value", undefined, invite.split(";")[0]));
+    expect(response.status).toBe(200);
+    expect(String(seen)).toBe("abcdefghjk");
+    expect(response.headers.getSetCookie()).toContainEqual(expect.stringContaining("home_invite=;"));
+    if (original === undefined) delete process.env.HOME_SESSION_SECRET;
+    else process.env.HOME_SESSION_SECRET = original;
+  });
   test("rejects missing and malformed authorization headers before provider access", async () => {
     let calls = 0;
     const handler = makeHandler(async () => {
@@ -431,7 +449,7 @@ describe("verified session capture", () => {
     test(`${name} gives the capture hook only a valid verified email`, async () => {
       const captured: Array<{ session: VerifiedAccountSession; email: string | null; request: Request }> = [];
       const handler = makeHandler(async () => ({ ...embeddedProfile(), authenticationMethods: methods }), undefined, {
-        onVerifiedSession: (session, { request, email: receivedEmail }) => captured.push({ session, email: receivedEmail, request }),
+        onVerifiedSession: (session, { request, email: receivedEmail }) => { captured.push({ session, email: receivedEmail, request }); },
       });
       const request = makeRequest("Bearer verified.token.value");
       expect((await handler(request)).status).toBe(200);
@@ -447,7 +465,7 @@ describe("verified session capture", () => {
     const captured: Array<{ email: string | null; provider: string }> = [];
     const handler = makeHandler(async () => ({}), undefined, {
       homeSessionSecret: SECRET,
-      onVerifiedSession: (session, { email }) => captured.push({ provider: session.accountProvider, email }),
+      onVerifiedSession: (session, { email }) => { captured.push({ provider: session.accountProvider, email }); },
     });
     expect((await handler(makeRequest(undefined, "base-account", nativeSessionCookie()))).status).toBe(200);
     expect(captured).toEqual([{ provider: "base-account", email: null }]);
@@ -456,7 +474,7 @@ describe("verified session capture", () => {
   test("no capture on 401 but capture a provisioning session without a smart account", async () => {
     const captured: string[] = [];
     const handler = makeHandler(async () => ({ ...embeddedProfile(), evmSmartAccountObjects: [] }), undefined, {
-      onVerifiedSession: (session) => captured.push(session.user.subject),
+      onVerifiedSession: (session) => { captured.push(session.user.subject); },
     });
     expect((await handler(makeRequest())).status).toBe(401);
     expect((await handler(makeRequest("Bearer verified.token.value"))).status).toBe(200);
@@ -486,5 +504,39 @@ describe("verified session capture", () => {
     const response = await handler(makeRequest("Bearer verified.token.value"));
     expect(response.status).toBe(200);
     expect((await response.json()).accountProvider).toBe("cdp-embedded");
+  });
+
+  test("waits for asynchronous capture on bearer and native sessions", async () => {
+    for (const native of [false, true]) {
+      let release!: () => void;
+      let entered!: () => void;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      const hookEntered = new Promise<void>((resolve) => { entered = resolve; });
+      const handler = makeHandler(async () => embeddedProfile(), undefined, {
+        baseAccountEnabled: native,
+        homeSessionSecret: SECRET,
+        onVerifiedSession: () => { entered(); return gate; },
+      });
+      let settled = false;
+      const pending = handler(native
+        ? makeRequest(undefined, "base-account", nativeSessionCookie())
+        : makeRequest("Bearer verified.token.value"))
+        .then((response) => { settled = true; return response; });
+      await hookEntered;
+      expect(settled).toBe(false);
+      release();
+      expect((await pending).status).toBe(200);
+    }
+  });
+
+  test("asynchronous capture rejection preserves verified response and cookies", async () => {
+    const handler = makeHandler(async () => embeddedProfile(), undefined, {
+      verifiedCookies: () => ["home_invite=; Path=/; Max-Age=0"],
+      onVerifiedSession: async () => { throw new Error("capture failed"); },
+    });
+    const response = await handler(makeRequest("Bearer verified.token.value"));
+    expect(response.status).toBe(200);
+    expect((await response.json()).accountProvider).toBe("cdp-embedded");
+    expect(response.headers.getSetCookie()).toContain("home_invite=; Path=/; Max-Age=0");
   });
 });

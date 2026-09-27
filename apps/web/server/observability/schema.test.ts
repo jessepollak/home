@@ -121,6 +121,50 @@ describe("observability schema", () => {
     })).toMatchObject({ level: "error", code: "HOME_STARTUP" });
   });
 
+  test("bounds identity-free interaction logs and sanitizes server deployment", () => {
+    expect(normalizeObservabilityEvent({
+      version: 1, kind: "home-navigation", route: "/home", from: "/cash", trigger: "history",
+      cache: "retained", device: "mobile-low", durationMs: 99_000,
+      deployment: "https://private.example/path", address: "private-address",
+    } as never)).toEqual({
+      schema: "home.observability.v2", level: "info", kind: "home-navigation",
+      code: "HOME_NAVIGATION", version: 1, route: "/home", from: "/cash", trigger: "history",
+      cache: "retained", device: "mobile-low", durationMs: 10_000,
+      deployment: "unknown",
+    });
+    const scroll = normalizeObservabilityEvent({
+      version: 1, kind: "home-scroll", route: "/borrow", cache: "first-visit",
+      device: "desktop-high", durationMs: 50_000, frameCount: 3, slowFrameCount: 12,
+      maxFrameMs: 6_000, longFrameCount: 2_000, longFrameMs: 40_000,
+      deployment: "deploy-42", userAgent: "private-agent",
+    } as never);
+    expect(scroll).toEqual({
+      schema: "home.observability.v2", level: "info", kind: "home-scroll", code: "HOME_SCROLL",
+      version: 1, route: "/borrow", cache: "first-visit", device: "desktop-high",
+      durationMs: 30_000, frameCount: 3, slowFrameCount: 3, maxFrameMs: 5_000,
+      longFrameCount: 1_000, longFrameMs: 30_000, deployment: "deploy-42",
+    });
+  });
+
+  test("normalizes non-string deployment on both interaction event kinds", () => {
+    const events = [
+      {
+        version: 1, kind: "home-navigation", route: "/home", from: "/cash",
+        trigger: "history", cache: "retained", device: "mobile-low",
+        durationMs: 20, deployment: false,
+      },
+      {
+        version: 1, kind: "home-scroll", route: "/cash", cache: "retained",
+        device: "desktop-high", durationMs: 400, frameCount: 4,
+        slowFrameCount: 1, maxFrameMs: 30, deployment: false,
+      },
+    ] as const;
+    for (const event of events) {
+      expect(normalizeObservabilityEvent(event as never))
+        .toMatchObject({ kind: event.kind, deployment: "unknown" });
+    }
+  });
+
   test("normalizes closed auth restore events at the expected level", () => {
     expect(normalizeObservabilityEvent({
       version: 1,
@@ -131,6 +175,9 @@ describe("observability schema", () => {
       outcome: "signed-out",
       sdkActivateMs: 150,
       nativeSettledMs: 950,
+      tokenMs: 150,
+      validationMs: 850,
+      stalledStage: "validation",
       sessionSettledMs: 1_000,
       totalMs: 1_000,
     })).toEqual({
@@ -145,6 +192,9 @@ describe("observability schema", () => {
       outcome: "signed-out",
       sdkActivateMs: 150,
       nativeSettledMs: 950,
+      tokenMs: 150,
+      validationMs: 850,
+      stalledStage: "validation",
       sessionSettledMs: 1_000,
       totalMs: 1_000,
     });
@@ -158,6 +208,23 @@ describe("observability schema", () => {
       sessionSettledMs: 15_000,
       totalMs: 15_000,
     })).toMatchObject({ level: "error", code: "HOME_AUTH_PHASE" });
+    const sanitized = normalizeObservabilityEvent({
+      version: 1,
+      kind: "home-auth-phase",
+      route: "/",
+      flow: "restore",
+      hint: "none",
+      outcome: "timeout",
+      tokenMs: -10,
+      validationMs: 50_000,
+      stalledStage: "private-stage",
+      sessionSettledMs: 15_000,
+      totalMs: 15_000,
+      identity: "private-identity",
+    } as never);
+    expect(sanitized).toMatchObject({ tokenMs: 0, validationMs: 30_000 });
+    expect(sanitized).not.toHaveProperty("stalledStage");
+    expect(JSON.stringify(sanitized)).not.toContain("private-");
   });
 
   test("normalizes closed auth signout events with fixed attempts and timings", () => {

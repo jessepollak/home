@@ -1,15 +1,15 @@
 {
   "id": "savings",
-  "title": "Savings — current system",
-  "summary": "Current Savings screen, deposit dialog, journey and row components on one board. Use it to try the canvas and comments; it proposes no change.",
+  "title": "Cash and Savings — current system",
+  "summary": "Current Cash overview, Savings detail, deposit dialog, journey and row components on one board.",
   "sections": [
-    { "id": "screen", "title": "Savings screen", "note": "Current Savings states.", "frames": [
-      { "id": "funded", "story": "pilot-savings-experience--funded", "label": "Funded", "viewport": "mobile", "change": "unchanged" },
-      { "id": "verified-empty", "story": "pilot-savings-experience--verified-empty", "label": "Verified empty", "viewport": "mobile", "change": "unchanged" },
-      { "id": "loading", "story": "pilot-savings-experience--loading", "label": "Loading", "viewport": "mobile", "change": "unchanged" },
-      { "id": "stale-rates", "story": "pilot-savings-experience--stale-rates", "label": "Stale rates", "viewport": "mobile", "change": "unchanged" },
-      { "id": "unavailable-partial", "story": "pilot-savings-experience--unavailable-partial", "label": "Partially unavailable", "viewport": "mobile", "change": "unchanged" },
-      { "id": "long-localized-content", "story": "pilot-savings-experience--long-localized-content", "label": "Long localized content", "viewport": "mobile", "change": "unchanged" }
+    { "id": "screen", "title": "Cash and Savings screens", "note": "Current Cash overview and Savings detail states.", "frames": [
+      { "id": "funded", "story": "cash-cash-l2--funded", "label": "Cash funded", "viewport": "mobile", "change": "unchanged" },
+      { "id": "verified-empty", "story": "cash-cash-l2--empty-nux", "label": "Cash empty", "viewport": "mobile", "change": "unchanged" },
+      { "id": "loading", "story": "cash-cash-l2--loading", "label": "Cash loading", "viewport": "mobile", "change": "unchanged" },
+      { "id": "stale-rates", "story": "cash-cash-l2--savings-detail-stale-rates", "label": "Savings stale rates", "viewport": "mobile", "change": "unchanged" },
+      { "id": "unavailable-partial", "story": "cash-cash-l2--partial-holding", "label": "Cash partially unavailable", "viewport": "mobile", "change": "unchanged" },
+      { "id": "savings-detail", "story": "cash-cash-l2--savings-detail", "label": "Savings detail", "viewport": "mobile", "change": "unchanged" }
     ] },
     { "id": "deposit", "title": "Deposit dialog", "note": "Amount, review and recovery states.", "frames": [
       { "id": "amount-entry", "story": "pilot-savings-money-dialog--amount-entry", "label": "Amount entry", "viewport": "mobile", "change": "unchanged" },

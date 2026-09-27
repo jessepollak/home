@@ -112,6 +112,17 @@ export const verifiedLocalCashAssets = {
   },
 } as const satisfies Partial<Record<FiatCurrencyCode, DirectPortfolioAsset>>;
 
+const verifiedCashCurrencyByContract = new Map<string, FiatCurrencyCode>([
+  [canonicalUsdcAsset.contractAddress.toLowerCase(), canonicalUsdcAsset.cashCurrency],
+  ...Object.values(verifiedLocalCashAssets).map(
+    (asset) => [asset.contractAddress.toLowerCase(), asset.cashCurrency] as const,
+  ),
+]);
+
+export function verifiedCashCurrency(contractAddress: string | null | undefined): FiatCurrencyCode | null {
+  return contractAddress ? verifiedCashCurrencyByContract.get(contractAddress.toLowerCase()) ?? null : null;
+}
+
 export const portfolioVaults = BASE_MORPHO_USDC_VAULTS;
 
 export function assetKeyForErc20(address: string): `eip155:8453/erc20:${string}` {

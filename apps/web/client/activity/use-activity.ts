@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Query } from "@tanstack/react-query";
+import { InfiniteQueryObserver, infiniteQueryOptions, type InfiniteData, type Query, type QueryClient, type QueryKey } from "@tanstack/react-query";
 import {
   compareActivityTransferKeys,
   isVerifiedActivitySession,
@@ -26,12 +26,14 @@ import {
   activityWindowScope,
   advanceActivityWindowEnd,
   initialActivityWindowEnd,
+  nextActivityWindowEnd,
 } from "@/client/query/after-action";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import type { RegionId } from "@/config/regions";
 import { presentationMoneyMetadata } from "@/shared/formatting";
 
 export const activityStaleTimeMs = 10_000;
+const activityRefreshExtraPages = 10;
 export const activityContinuationBurstPages = 3;
 export const activityContinuationYieldMs = 250;
 export const activityValuationRetryDelaysMs = [15_000, 60_000, 180_000];
@@ -106,6 +108,114 @@ type ScopedFlag = {
   value: boolean;
 };
 
+function activityQueryOptions(input: {
+  session: VerifiedAccountSession | null;
+  ownerKey: string;
+  windowEnd: string;
+  currency: ReturnType<typeof presentationMoneyMetadata>["currency"];
+  fetchActivity: FetchActivity;
+  queryClient: QueryClient;
+  previousPages?: readonly ActivityPage[];
+}) {
+  const { session, ownerKey, windowEnd, currency, fetchActivity, queryClient, previousPages } = input;
+  return infiniteQueryOptions({
+    queryKey: ownerQueryKey(ownerKey, "activity", windowEnd, currency),
+    initialPageParam: null as string | null,
+    staleTime: activityStaleTimeMs,
+    retry: false,
+    refetchOnWindowFocus: true,
+    meta: session ? ownerQueryMeta(ownerKey, "owner") : undefined,
+    queryFn: async ({ pageParam, queryKey, signal }) => {
+      if (!session) throw new Error("Activity is unavailable.");
+      const requestedWindow = queryKey[2] as string;
+      const requestedCurrency = queryKey[3] as typeof currency;
+      const queryString = new URLSearchParams({
+        to: requestedWindow,
+        ...(pageParam ? { cursor: pageParam } : {}),
+        currency: requestedCurrency,
+      }).toString();
+      const page = parseActivityPage(
+        await fetchActivity(queryString, signal),
+        session,
+        requestedWindow,
+        requestedCurrency,
+      );
+      retainKnownValuations(page, [
+        ...(queryClient.getQueryData<InfiniteData<ActivityPage>>(queryKey)?.pages ?? []),
+        ...(previousPages ?? []),
+      ]);
+      if (pageParam && page.nextCursor === pageParam) {
+        throw new Error("Activity cursor did not advance.");
+      }
+      return page;
+    },
+    getNextPageParam: (page) => page.nextCursor ?? undefined,
+  });
+}
+
+export async function refreshLatestActivity(input: {
+  queryClient: QueryClient;
+  ownerKey: string;
+  session: VerifiedAccountSession;
+  regionId: RegionId;
+  fetchActivity: FetchActivity;
+  isCurrent: () => boolean;
+  onPrefetchKey: (key: QueryKey | null) => void;
+}): Promise<void> {
+  const { queryClient, ownerKey, session, regionId, fetchActivity, isCurrent, onPrefetchKey } = input;
+  const windowKey = ownerQueryKey(ownerKey, activityWindowScope);
+  const windowEnd = queryClient.getQueryData<string>(windowKey) ?? initialActivityWindowEnd();
+  const currency = presentationMoneyMetadata(regionId).currency;
+  const currentKey = ownerQueryKey(ownerKey, "activity", windowEnd, currency);
+  const current = queryClient.getQueryData<InfiniteData<ActivityPage>>(currentKey);
+  const currentPages = current?.pages ?? [];
+  if (!currentPages.length && queryClient.getQueryCache().findAll({ queryKey: currentKey, exact: true, type: "active" }).length === 0) return;
+  const boundary = currentPages.length ? mergeActivityPages(currentPages).transfers.at(-1) : undefined;
+  const nextEnd = nextActivityWindowEnd(windowEnd);
+  const nextKey = ownerQueryKey(ownerKey, "activity", nextEnd, currency);
+  const options = activityQueryOptions({ session, ownerKey, windowEnd: nextEnd, currency, fetchActivity, queryClient, previousPages: currentPages });
+  onPrefetchKey(nextKey);
+  try {
+    let next: InfiniteData<ActivityPage> = await queryClient.fetchInfiniteQuery({
+      ...options,
+      pages: Math.max(1, currentPages.length),
+      staleTime: 0,
+    });
+    if (!isCurrent()) return;
+    if (boundary) {
+      const reachedBoundary = (pages: ActivityPage[]) => {
+        const transfers = mergeActivityPages(pages).transfers;
+        return transfers.some((transfer) => transfer.id === boundary.id) ||
+          (transfers.length > 0 && compareActivityTransferKeys(transfers.at(-1)!, boundary) <= 0);
+      };
+      const observer = new InfiniteQueryObserver(queryClient, options);
+      while (!reachedBoundary(next.pages) && next.pages.at(-1)?.nextCursor) {
+        if (next.pages.length >= currentPages.length + activityRefreshExtraPages) {
+          throw new Error("Activity refresh did not reach the previous boundary.");
+        }
+        const result = await observer.fetchNextPage({ cancelRefetch: false, throwOnError: true });
+        if (!isCurrent()) return;
+        if (!result.data || result.isFetchNextPageError) throw new Error("Activity refresh page failed.");
+        next = result.data;
+      }
+    }
+    if (!isCurrent()) return;
+    if (queryClient.getQueryData<string>(windowKey) !== windowEnd) {
+      await queryClient.cancelQueries({ queryKey: nextKey, exact: true });
+      queryClient.removeQueries({ queryKey: nextKey, exact: true });
+      return;
+    }
+    queryClient.setQueryData(windowKey, nextEnd);
+  } catch (error) {
+    if (!isCurrent()) throw error;
+    await queryClient.cancelQueries({ queryKey: nextKey, exact: true });
+    queryClient.removeQueries({ queryKey: nextKey, exact: true });
+    throw error;
+  } finally {
+    onPrefetchKey(null);
+  }
+}
+
 export function useActivity(
   session: VerifiedAccountSession | null,
   fetchActivity: FetchActivity,
@@ -116,7 +226,6 @@ export function useActivity(
   const validSession = isVerifiedActivitySession(session) ? session : null;
   const ownerKey = validSession ? activityOwnerKey(validSession) : null;
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
-  const expectedSession = validSession;
   const windowQuery = useHomeQuery({
     queryKey: ownerKey
       ? ownerQueryKey(ownerKey, activityWindowScope)
@@ -134,36 +243,11 @@ export function useActivity(
     : ["unauthenticated", "activity-disabled"], [ownerKey, windowEnd, currency]);
 
   const query = useHomeInfiniteQuery({
+    ...activityQueryOptions({
+      session: validSession, ownerKey: ownerKey ?? "unauthenticated", windowEnd, currency, fetchActivity, queryClient,
+    }),
     queryKey: activityQueryKey,
     enabled: ownerKey !== null,
-    initialPageParam: null as string | null,
-    staleTime: activityStaleTimeMs,
-    retry: false,
-    refetchOnWindowFocus: true,
-    meta: ownerKey ? ownerQueryMeta(ownerKey, "owner") : undefined,
-    queryFn: async ({ pageParam, queryKey, signal }) => {
-      if (!expectedSession) throw new Error("Activity is unavailable.");
-      const queryString = new URLSearchParams({
-        to: windowEnd,
-        ...(pageParam ? { cursor: pageParam } : {}),
-        currency,
-      }).toString();
-      const page = parseActivityPage(
-        await fetchActivity(queryString, signal),
-        expectedSession,
-        windowEnd,
-        currency,
-      );
-      retainKnownValuations(
-        page,
-        queryClient.getQueryData<{ pages: ActivityPage[] }>(queryKey)?.pages ?? [],
-      );
-      if (pageParam && page.nextCursor === pageParam) {
-        throw new Error("Activity cursor did not advance.");
-      }
-      return page;
-    },
-    getNextPageParam: (page) => page.nextCursor ?? undefined,
   });
 
   const mergedPage = useMemo(() => {

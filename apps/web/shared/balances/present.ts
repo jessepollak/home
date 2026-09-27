@@ -7,6 +7,7 @@ import {
   presentationCurrencyName,
 } from "@/shared/formatting";
 import { exactDecimalToFraction } from "@/shared/balances/math";
+import { selectOwnedInvestments } from "./owned-investments";
 import {
   selectBalanceTotals,
   selectBorrowPositions,
@@ -38,8 +39,8 @@ export type BalanceRowModel = {
 };
 
 export type MoneyGroupPresentation = {
-  id: "cash" | "investments";
-  label: "Cash" | "Investments";
+  id: "cash" | "investments" | "unpriced";
+  label: "Cash" | "Investments" | "Unpriced";
   displaySubtotal: string | null;
   rows: BalanceRowModel[];
 };
@@ -58,7 +59,7 @@ export type HomeSummaryAmount = {
 
 export type HomeMoneySummary = {
   cash: HomeSummaryAmount;
-  investments: HomeSummaryAmount & { assetCount: number };
+  investments: HomeSummaryAmount & { assetCount: number; ownedCount: number };
   borrow:
     | (HomeSummaryAmount & { kind: "position"; rate: string | null; debts: Array<{ marketId: string; baseUnits: string }> })
     | { kind: "none" }
@@ -130,6 +131,7 @@ export function presentBalances(
     partitions.investmentHoldings,
     partitions.cashRows,
     investmentRows,
+    partitions.unpricedRows,
   );
   const summary = presentHomeSummary(state.snapshot, partitions);
   const breakdown = presentBreakdown(state.snapshot);
@@ -170,6 +172,7 @@ export function presentMoneyGroups(snapshot: BalancesSnapshot): MoneyGroupPresen
     partitions.investmentHoldings,
     partitions.cashRows,
     [...partitions.investmentRows, ...partitions.hiddenRows],
+    partitions.unpricedRows,
   );
 }
 
@@ -180,38 +183,41 @@ export function presentBalanceRows(snapshot: BalancesSnapshot): BalanceRowModel[
 
 function presentMoneyGroupPartitions(snapshot: BalancesSnapshot): {
   cashSelections: CashSelection[];
-  investmentHoldings: Holding[];
   cashRows: BalanceRowModel[];
   investmentRows: BalanceRowModel[];
+  unpricedRows: BalanceRowModel[];
   hiddenRows: BalanceRowModel[];
+  investmentHoldings: Holding[];
   visibleInvestmentHoldings: Holding[];
 } {
   const selected = selectMoneyGroups(snapshot);
   const cashRows = selected.cash.map((entry) => presentCash(entry, snapshot));
   const investmentRows: BalanceRowModel[] = [];
+  const unpricedRows: BalanceRowModel[] = [];
   const hiddenRows: BalanceRowModel[] = [];
   const visibleInvestmentHoldings: Holding[] = [];
 
   for (const holding of selected.investments) {
     const row = presentAsset(holding, snapshot);
-    if (
-      (holding.value.status === "priced" && !isAtLeastOneCent(holding.value.amount)) ||
-      (holding.value.status !== "priced" && holding.source === "wallet")
-    ) {
+    if (holding.value.status === "priced" && !isAtLeastOneCent(holding.value.amount)) {
       hiddenRows.push(row);
+    } else if (holding.value.status !== "priced" && holding.source === "wallet") {
+      unpricedRows.push(row);
     } else {
       investmentRows.push(row);
       visibleInvestmentHoldings.push(holding);
     }
   }
   hiddenRows.sort(compareRows);
+  unpricedRows.sort(compareRows);
 
   return {
     cashSelections: selected.cash,
-    investmentHoldings: selected.investments,
     cashRows,
     investmentRows,
+    unpricedRows,
     hiddenRows,
+    investmentHoldings: selected.investments,
     visibleInvestmentHoldings,
   };
 }
@@ -222,6 +228,7 @@ function buildMoneyGroups(
   investmentHoldings: readonly Holding[],
   cashRows: BalanceRowModel[],
   investmentRows: BalanceRowModel[],
+  unpricedRows: BalanceRowModel[],
 ): MoneyGroupPresentation[] {
   const groups: MoneyGroupPresentation[] = [{
     id: "cash",
@@ -236,6 +243,9 @@ function buildMoneyGroups(
       displaySubtotal: presentHoldingsSubtotal(investmentHoldings, snapshot),
       rows: investmentRows,
     });
+  }
+  if (unpricedRows.length > 0) {
+    groups.push({ id: "unpriced", label: "Unpriced", displaySubtotal: null, rows: unpricedRows });
   }
   return groups;
 }
@@ -253,6 +263,7 @@ function presentHomeSummary(
     investments: {
       ...summaryAmount(totals.investments, snapshot.region),
       assetCount: assetKeys.size,
+      ownedCount: selectOwnedInvestments(snapshot).length,
     },
     borrow: presentBorrowSummary(snapshot, totals.borrow),
   };

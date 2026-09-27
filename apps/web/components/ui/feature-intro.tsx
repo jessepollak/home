@@ -3,6 +3,7 @@
 import { useId } from "react";
 import type { Ref } from "react";
 import type { LucideIcon } from "lucide-react";
+import { BorrowIllustration } from "@/components/ui/borrow-illustration";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerTitle } from "@/components/ui/drawer";
@@ -25,7 +26,7 @@ export type FeatureIntroContent = {
   headline: string;
   description?: string;
   benefits: [FeatureIntroBenefit, FeatureIntroBenefit] | [FeatureIntroBenefit, FeatureIntroBenefit, FeatureIntroBenefit] | [FeatureIntroBenefit, FeatureIntroBenefit, FeatureIntroBenefit, FeatureIntroBenefit];
-  illustration?: "card" | "savings";
+  illustration?: "card" | "savings" | "borrow";
   primary: FeatureIntroAction;
   secondary?: { label: string; onClick: () => void };
   availability?: FeatureIntroAvailability;
@@ -111,7 +112,7 @@ function IntroBody({ content, sheet = false, size = "default" }: { content: Feat
     <div className="space-y-5">
       {content.illustration ? (
         <div className={sheet ? "mx-auto w-full max-w-70" : size === "compact" ? "mx-auto w-full max-w-40" : "mx-auto w-full max-w-60"}>
-          <LinePlaneIllustration subject={content.illustration} />
+          {content.illustration === "borrow" ? <BorrowIllustration /> : <LinePlaneIllustration subject={content.illustration} />}
         </div>
       ) : null}
       <div className="space-y-2">

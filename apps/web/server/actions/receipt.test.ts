@@ -27,14 +27,14 @@ function reader(receipt: unknown, block: unknown = { number: "0x10", hash: `0x${
 
 describe("action receipt reader", () => {
   test("reads only EntryPoint-emitted operation results with block time, not bundle status", async () => {
-    await expect(reader(null)(HASH)).resolves.toEqual({ status: "pending", transactionHash: HASH });
+    await expect(reader(null)(HASH)).resolves.toEqual({ status: "pending", transactionHash: HASH, finalizedBlockNumber: "16" });
     const receipt = { transactionHash: HASH, blockNumber: "0x10", blockHash: BLOCK_HASH, status: "0x1", logs: [
       log(`${"0".repeat(63)}1`), log("0".repeat(64)), log(`${"0".repeat(63)}2`),
       { ...log("0".repeat(64)), topics: [event, "0x1"] },
       log("0".repeat(64), ACCOUNT), { ...log("0".repeat(64)), address: undefined },
     ] };
     await expect(reader(receipt)(HASH)).resolves.toEqual({ status: "confirmed", transactionHash: HASH,
-      blockNumber: "16", blockTimestamp: "1970-01-01T00:01:46.000Z", finalized: true,
+      blockNumber: "16", blockHash: BLOCK_HASH, blockTimestamp: "1970-01-01T00:01:46.000Z", finalized: true,
       userOperations: [{ userOpHash: HASH, sender: ACCOUNT, success: true },
         { userOpHash: HASH, sender: ACCOUNT, success: false }] });
   });
@@ -51,7 +51,8 @@ describe("action receipt reader", () => {
             : { number: "0x10", hash: BLOCK_HASH, timestamp: "0x6a" } });
     } });
     expect((await read(HASH)).status).toBe("confirmed");
-    expect(await read(HASH)).toMatchObject({ finalized: false });
+    expect(await read(HASH)).toMatchObject({ finalized: false, blockHash: BLOCK_HASH });
+    expect(await reader(null, undefined, { number: "0xf" })(HASH)).toMatchObject({ status: "pending", finalizedBlockNumber: "15" });
     expect(requests.indexOf("eth_getBlockByNumber:finalized")).toBeLessThan(requests.indexOf("eth_getBlockByNumber:0x10"));
     await expect(reader(receipt, undefined, { number: "invalid" })(HASH)).rejects.toBeInstanceOf(TransferReceiptRpcError);
     await expect(reader(receipt, undefined, null)(HASH)).rejects.toBeInstanceOf(TransferReceiptRpcError);

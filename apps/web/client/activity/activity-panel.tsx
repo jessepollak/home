@@ -1,77 +1,122 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import { RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LoadErrorCard, LoadRetryButton } from "@/components/load-error";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { ActivityLoader } from "@/components/activity-loader";
-import { CurrencyMark } from "@/components/currency-mark";
-import { MoneyTicker } from "@/components/money-ticker";
-import { ActivityRow } from "@/components/finance-rows";
 import { deferSheet } from "@/client/money-modal/deferred-sheet";
-import { OperationActivityRow } from "@/client/actions/operation-row";
-import { presentOperationDetails } from "@/client/actions/operation-details";
+import { moneySheetLoading } from "@/client/money-modal";
+import { ActivityLedger, uniqueActivityLedgerItems, type ActivityLedgerEntry, type ActivityLedgerItem } from "./activity-ledger";
+import type { ActivityListHandle } from "./virtual-activity-list";
+import { presentActivityLedgerEntries, presentActivityLedgerItems } from "./activity-ledger-items";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
+import type { ActivityOrder } from "@/shared/activity/contract-orders";
+import type { ActivityLedgerNextActionKind } from "./activity-ledger";
 import type { RegionId } from "@/config/regions";
-import { assetKeyForErc20 } from "@/config/portfolio-assets";
-import { presentPortfolioAssetMark } from "@/client/asset-mark/presentation";
-import {
-  presentActivityTransferDetails,
-  presentActivityTransferRow,
-} from "./activity-presenter";
-import { presentCashout, presentCashoutDetails, cashoutMoney } from "./cash-out-presenter";
-import { mergeActivityFeed } from "./activity-feed";
+import { mergeActivityFeed, type ActivityFeedItem } from "./activity-feed";
 import { type UseActivityResult } from "./use-activity";
 import { ShimmerRows } from "@/client/home/panel-shared";
 import type { ActivityPanelDensity, ActivityTransfer } from "./types";
 
-const TransactionDetailsSheet = deferSheet(() => import("@/components/transaction-details").then((module) => module.TransactionDetailsModal));
+const ActivityLedgerSheet = deferSheet(() => import("./activity-ledger-sheet").then((module) => module.ActivityLedgerDetailSheet),
+  (props) => moneySheetLoading({ title: props.item?.title ?? "Activity", closeLabel: `Close ${props.item?.title ?? "activity"} details`, onCancel: props.onDismiss, onClosed: props.onClosed }));
 const EMPTY_TRANSFERS: readonly ActivityTransfer[] = [];
+const EMPTY_OPERATIONS: readonly RecentMoneyActionOperation[] = [];
+const EMPTY_ORDERS: readonly ActivityOrder[] = [];
 
-type Selection = { operation: RecentMoneyActionOperation; withdraw?: RecentMoneyActionOperation } | null;
 export function ActivityPanelView({
   activity,
-  operations = [],
+  operations = EMPTY_OPERATIONS,
+  orders = EMPTY_ORDERS,
   actionsStatus = "ready",
+  ordersStatus = "ready",
   regionId = "GLOBAL",
   density = "page",
   header,
   emptyAction,
   retryActions,
+  retryOrders,
   onCancelCashout,
+  onOrderAction,
   cancelBusy = false,
   cancelError = null,
   onDetailsChange,
+  onDetailsOpenChange,
+  canOpenAsset,
+  onOpenAsset,
+  restoreDetailsRequest = 0,
+  suspendDetailsRequest = 0,
 }: {
   activity: UseActivityResult;
   operations?: readonly RecentMoneyActionOperation[];
+  orders?: readonly ActivityOrder[];
   actionsStatus?: "loading" | "ready" | "error";
+  ordersStatus?: "loading" | "ready" | "error";
   regionId?: RegionId;
   density?: ActivityPanelDensity;
   header?: ReactNode | null;
   emptyAction?: ReactNode;
   retryActions?: () => void;
+  retryOrders?: () => void;
   onCancelCashout?: (operation: RecentMoneyActionOperation) => void;
+  onOrderAction?: (order: ActivityOrder, kind: ActivityLedgerNextActionKind) => void;
   cancelBusy?: boolean;
   cancelError?: string | null;
-  onDetailsChange?: () => void;
+  onDetailsChange?: (open: boolean) => void;
+  onDetailsOpenChange?: (open: boolean) => void;
+  canOpenAsset?: (assetKey: string) => boolean;
+  onOpenAsset?: (assetKey: string) => boolean;
+  restoreDetailsRequest?: number;
+  suspendDetailsRequest?: number;
 }) {
-  const [selectedTransfer, setSelectedTransfer] = useState<ActivityTransfer | null>(null);
-  const [selection, setSelection] = useState<Selection>(null);
+  const [selection, setSelection] = useState<{ key: string; last: ActivityLedgerItem } | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [immediateClose, setImmediateClose] = useState(false);
+  useEffect(() => {
+    onDetailsOpenChange?.(detailsOpen);
+    return () => { onDetailsOpenChange?.(false); };
+  }, [detailsOpen, onDetailsOpenChange]);
   const detailOpenerRef = useRef<HTMLElement | null>(null);
-  const rememberDetailOpener = () => {
-    const active = document.activeElement;
-    detailOpenerRef.current = active instanceof HTMLElement ? active : null;
-  };
+  const [pendingReturn, setPendingReturn] = useState(false);
+  const [seenRestoreRequest, setSeenRestoreRequest] = useState(restoreDetailsRequest);
+  const [seenSuspendRequest, setSeenSuspendRequest] = useState(suspendDetailsRequest);
+  if (seenSuspendRequest !== suspendDetailsRequest) {
+    setSeenSuspendRequest(suspendDetailsRequest);
+    if (detailsOpen) {
+      setPendingReturn(true);
+      setImmediateClose(true);
+      setDetailsOpen(false);
+    }
+  }
+  if (seenRestoreRequest !== restoreDetailsRequest) {
+    setSeenRestoreRequest(restoreDetailsRequest);
+    if (pendingReturn && selection && activity.status === "ready") {
+      setPendingReturn(false);
+      setImmediateClose(false);
+      setDetailsOpen(true);
+    }
+  }
+  const recentRef = useRef<ActivityListHandle>(null);
+  const sectionRef = useRef<HTMLElement>(null);
+  const onDetailsChangeRef = useRef(onDetailsChange);
+  useEffect(() => { onDetailsChangeRef.current = onDetailsChange; }, [onDetailsChange]);
+  const openDetail = useCallback((item: ActivityLedgerItem, opener: HTMLElement) => {
+    setPendingReturn(false);
+    setImmediateClose(false);
+    detailOpenerRef.current = opener;
+    onDetailsChangeRef.current?.(true);
+    setSelection({ key: `${item.family}:${item.id}`, last: item });
+    setDetailsOpen(true);
+  }, []);
   const [detailsStatus, setDetailsStatus] = useState(activity.status);
   if (detailsStatus !== activity.status) {
     setDetailsStatus(activity.status);
     if (activity.status !== "ready") {
+      setPendingReturn(false);
       setDetailsOpen(false);
-      setSelectedTransfer(null);
       setSelection(null);
     }
   }
@@ -86,31 +131,76 @@ export function ActivityPanelView({
       transfers[0]!.blockTimestamp)
       : activity.page.window.to
     : null;
-  const items = useMemo(() => mergeActivityFeed({ transfers, operations, loadedThrough }), [transfers, operations, loadedThrough]);
+  const feed = useMemo(() => mergeActivityFeed({ transfers, operations, orders, loadedThrough }), [transfers, operations, orders, loadedThrough]);
+  const [clock, setClock] = useState(0);
+  useEffect(() => {
+    const now = Date.now();
+    const deadline = orders.reduce((earliest, order) => {
+      if (order.kind !== "funding" || order.status !== "ambiguous" || order.stage !== "unconfirmed" || order.clearableAt === null) return earliest;
+      const clearableAt = Date.parse(order.clearableAt);
+      return clearableAt > now ? Math.min(earliest, clearableAt) : earliest;
+    }, Infinity);
+    if (deadline === Infinity) return;
+    const timeout = setTimeout(() => setClock((value) => value + 1), Math.min(deadline - Date.now(), 2 ** 31 - 1));
+    return () => clearTimeout(timeout);
+  }, [orders, clock]);
+  const [presented, setPresented] = useState<{
+    feed: readonly ActivityFeedItem[];
+    regionId: RegionId;
+    clock: number;
+    pairs: { source: ActivityFeedItem; item: ActivityLedgerItem }[];
+    entries: ActivityLedgerEntry[];
+    transfers: Map<string, { source: ActivityFeedItem; item: ActivityLedgerItem }>;
+  }>(() => ({ feed: [], regionId, clock, pairs: [], entries: [], transfers: new Map() }));
+  let current = presented;
+  if (presented.feed !== feed || presented.regionId !== regionId || presented.clock !== clock) {
+    const transfers = new Map<string, { source: ActivityFeedItem; item: ActivityLedgerItem }>();
+    const pairs = uniqueActivityLedgerItems(feed.map((source) => {
+      const previous = source.kind === "transfer" ? presented.transfers.get(source.id) : undefined;
+      const item = previous && source.kind === "transfer" && previous.source.kind === "transfer" &&
+        previous.source.transfer === source.transfer && presented.regionId === regionId
+        ? previous.item : presentActivityLedgerItems([source], { regionId })[0]!;
+      if (source.kind === "transfer") transfers.set(source.id, { source, item });
+      return { item, source };
+    }), (pair) => pair.item);
+    current = { feed, regionId, clock, pairs, transfers,
+      entries: presentActivityLedgerEntries(pairs, { regionId }, presented.regionId === regionId ? presented.entries : []),
+    };
+    setPresented(current);
+  }
+  const { pairs, entries } = current;
+  const items = useMemo(() => pairs.map((pair) => pair.item), [pairs]);
   const hasRows = items.length > 0;
+  const selectedItem = selection
+    ? items.find((item) => `${item.family}:${item.id}` === selection.key) ?? selection.last
+    : null;
+  if (selection && selectedItem && selectedItem !== selection.last) {
+    setSelection({ key: selection.key, last: selectedItem });
+  }
   const exhausted = activity.status !== "ready" || activity.page.nextCursor === null;
   const plain = density === "feed";
   const sourcesPending = activity.status === "loading" || actionsStatus === "loading";
   const retryFailedSources = () => {
     if (activity.status === "error") activity.retry();
     if (actionsStatus === "error") retryActions?.();
+    if (ordersStatus === "error") retryOrders?.();
     if (activity.status === "ready" && activity.loadMoreError) activity.retryLoadMore();
   };
   const inlineStatus = !plain;
 
-  const historyUnknown = activity.status === "error" || actionsStatus === "error";
+  const historyUnknown = activity.status === "error" || actionsStatus === "error" || ordersStatus === "error";
 
-  if (activity.status === "unavailable" && !hasRows && actionsStatus !== "error") {
+  if (activity.status === "unavailable" && !hasRows && actionsStatus !== "error" && ordersStatus !== "error") {
     return (
-      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain}>
+      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} sectionRef={sectionRef}>
         <ActivityEmpty plain={plain} action={emptyAction} />
       </ActivitySurface>
     );
   }
 
-  if (sourcesPending) {
+  if (sourcesPending || ordersStatus === "loading" && !hasRows) {
     return (
-      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} busy>
+      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} busy sectionRef={sectionRef}>
         <ShimmerRows count={plain ? 3 : 4} />
         <span className="sr-only">Loading recent activity…</span>
       </ActivitySurface>
@@ -119,7 +209,7 @@ export function ActivityPanelView({
 
   if (historyUnknown && !hasRows && plain) {
     return (
-      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain}>
+      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} sectionRef={sectionRef}>
         <ActivityUnavailable message="Activity unavailable" onReload={retryFailedSources} />
       </ActivitySurface>
     );
@@ -127,7 +217,7 @@ export function ActivityPanelView({
 
   if (activity.status === "error" && !hasRows) {
     return (
-      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain}>
+      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} sectionRef={sectionRef}>
         <LoadErrorCard
           tone="destructive"
           role="alert"
@@ -139,99 +229,94 @@ export function ActivityPanelView({
     );
   }
 
-  const selected = selection && items.find((item) => item.kind === "action" && item.id === selection.operation.action.id);
-  const operation = selected?.kind === "action" ? selected.operation : selection?.operation;
-  const withdraw = selected?.kind === "action" ? selected.withdraw : selection?.withdraw;
-  const cashout = operation?.action.kind === "cash-out" ? presentCashout(operation, withdraw, { regionId }) : null;
-  const details = selectedTransfer
-    ? presentActivityTransferDetails(selectedTransfer, { regionId })
-    : operation
-      ? cashout ? presentCashoutDetails(operation, withdraw, { regionId }) : presentOperationDetails(operation, { regionId })
-      : null;
+  const footer = activity.status === "ready" ? (
+    activity.page.nextCursor === null ? hasRows ? (
+      <p className="text-center text-xs text-muted-foreground" role="status">End of activity</p>
+    ) : null : (
+      <ActivityContinuation activity={activity} inlineStatus={inlineStatus} feedStatus={plain && !historyUnknown} />
+    )
+  ) : null;
   return (
-    <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain}>
-      {inlineStatus && activity.status === "error" ? (
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p role="status" className="text-sm text-muted-foreground">
-            Onchain transfers are unavailable. Recorded Home actions are still shown.
-          </p>
-          <LoadRetryButton onRetry={activity.retry} />
-        </div>
-      ) : null}
-      {inlineStatus && actionsStatus === "error" ? (
-        <p role="status" className="text-sm text-muted-foreground">
-          Recorded Home actions are unavailable.{transfers.length > 0 ? " Onchain transfers are still shown." : ""}
-        </p>
-      ) : null}
-      {plain && historyUnknown ? (
-        <ActivityUnavailable message="Some activity is unavailable" onReload={retryFailedSources} />
-      ) : null}
-      {!hasRows ? (exhausted && !historyUnknown ? <ActivityEmpty plain={plain} action={emptyAction} /> : null) : (
-        <ol className="list-none p-0" onPointerDown={() => void TransactionDetailsSheet.preload()}>
-          {items.map((item) => item.kind === "transfer" ? (
-            <TransferActivityRow
-              key={`transfer:${item.id}`}
-              transfer={item.transfer}
-              regionId={regionId}
-              onActivate={() => {
-                rememberDetailOpener();
-                onDetailsChange?.();
-                setSelection(null);
-                setSelectedTransfer(item.transfer);
-                setDetailsOpen(true);
-              }}
+    <>
+      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} rows={hasRows} sectionRef={sectionRef}>
+        {inlineStatus && activity.status === "error" ? (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p role="status" className="text-sm text-muted-foreground">
+              Onchain transfers are unavailable. Recorded Home actions are still shown.
+            </p>
+            <LoadRetryButton onRetry={activity.retry}>Retry onchain transfers</LoadRetryButton>
+          </div>
+        ) : null}
+        {inlineStatus && actionsStatus === "error" ? (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p role="status" className="text-sm text-muted-foreground">
+              Recorded Home actions are unavailable.{transfers.length > 0 ? " Onchain transfers are still shown." : ""}
+            </p>
+            {retryActions ? <LoadRetryButton onRetry={retryActions}>Retry recorded actions</LoadRetryButton> : null}
+          </div>
+        ) : null}
+        {inlineStatus && ordersStatus === "error" ? (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p role="status" className="text-sm text-muted-foreground">Add money and cash-out orders are unavailable.</p>
+            {retryOrders ? <LoadRetryButton onRetry={retryOrders}>Retry orders</LoadRetryButton> : null}
+          </div>
+        ) : null}
+        {plain && historyUnknown ? (
+          <ActivityUnavailable message="Some activity is unavailable" onReload={retryFailedSources} />
+        ) : null}
+        {!hasRows ? (exhausted && !historyUnknown ? <ActivityEmpty plain={plain} action={emptyAction} /> : null) : (
+          <div onPointerDown={() => void ActivityLedgerSheet.preload()}>
+            <ActivityLedger
+              items={entries}
+              layout={plain ? "feed" : "page"}
+              footer={footer}
+              exhausted={exhausted}
+              recentRef={recentRef}
+              onOpen={openDetail}
             />
-          ) : (
-            <OperationActivityRow
-              key={`action:${item.id}`}
-              operation={item.operation}
-              regionId={regionId}
-              withdraw={item.withdraw}
-              onActivate={() => {
-                rememberDetailOpener();
-                onDetailsChange?.();
-                setSelectedTransfer(null);
-                setSelection({ operation: item.operation, withdraw: item.withdraw });
-                setDetailsOpen(true);
-              }}
-            />
-          ))}
-        </ol>
-      )}
-
-      {activity.status === "ready" ? (
-        activity.page.nextCursor === null ? (
-          hasRows ? (
-            <p className="text-center text-xs text-muted-foreground" role="status">End of activity</p>
-          ) : null
-        ) : (
-          <ActivityContinuation
-            activity={activity}
-            inlineStatus={inlineStatus}
-            feedStatus={plain && !historyUnknown}
-          />
-        )
-      ) : null}
-
-      <TransactionDetailsSheet
+          </div>
+        )}
+        {!hasRows ? footer : null}
+      </ActivitySurface>
+      <ActivityLedgerSheet
         open={detailsOpen}
-        titleId="activity-transaction-details-title"
-        details={details}
-        footerAction={cashout?.cancellable && operation && onCancelCashout ? {
-          label: <>Cancel cash-out <MoneyTicker value={cashoutMoney(cashout.remaining, cashout.decimals, regionId)} /></>,
-          onClick: () => onCancelCashout(operation),
-          busy: cancelBusy,
-          error: cancelError,
-        } : undefined}
-        onClose={() => { setDetailsOpen(false); onDetailsChange?.(); }}
+        immediate={immediateClose}
+        item={selectedItem}
+        canOpenAsset={canOpenAsset}
+        onOpenAsset={(item) => {
+          const key = item.detailAsset?.assetKey;
+          if (!key || !onOpenAsset?.(key)) return;
+          setPendingReturn(true);
+          setImmediateClose(true);
+          setDetailsOpen(false);
+        }}
+        onDismiss={() => {
+          setPendingReturn(false);
+          setDetailsOpen(false);
+          onDetailsChange?.(false);
+        }}
         onClosed={() => {
-          setSelectedTransfer(null);
+          if (pendingReturn || detailsOpen) return;
           setSelection(null);
           const opener = detailOpenerRef.current;
-          if (opener?.isConnected) opener.focus({ preventScroll: true });
+          detailOpenerRef.current = null;
+          if (opener?.isConnected && sectionRef.current?.contains(opener)) {
+            opener.focus({ preventScroll: true });
+          } else if (!selection || !recentRef.current?.restore(selection.key)) {
+            sectionRef.current?.focus();
+          }
         }}
+        onAction={(item, kind) => {
+          const source = pairs.find((pair) => `${pair.item.family}:${pair.item.id}` === `${item.family}:${item.id}`)?.source;
+          if (source?.kind === "order" && (item.family === "funding-order" || item.family === "cash-out-order")) {
+            onOrderAction?.(source.order, kind);
+          } else if (kind === "cancel-cash-out" && item.family === "home-action" &&
+            source?.kind === "action" && source.operation.action.kind === "cash-out") onCancelCashout?.(source.operation);
+        }}
+        actionBusy={cancelBusy}
+        actionError={cancelError}
       />
-    </ActivitySurface>
+    </>
   );
 }
 
@@ -241,6 +326,8 @@ export function ActivitySurface({
   label,
   busy = false,
   plain = false,
+  rows = false,
+  sectionRef,
   children,
 }: {
   heading: ReactNode;
@@ -248,11 +335,15 @@ export function ActivitySurface({
   label?: string;
   busy?: boolean;
   plain?: boolean;
+  rows?: boolean;
+  sectionRef?: Ref<HTMLElement>;
   children: ReactNode;
 }) {
   if (plain) {
     return (
       <section
+        ref={sectionRef}
+        tabIndex={-1}
         aria-labelledby={labelledBy}
         aria-label={label}
         aria-busy={busy || undefined}
@@ -267,8 +358,16 @@ export function ActivitySurface({
       </section>
     );
   }
+  if (rows) {
+    return (
+      <section ref={sectionRef} tabIndex={-1} aria-labelledby={labelledBy} aria-label={label} aria-busy={busy || undefined}>
+        {heading ? <div className="mb-3">{heading}</div> : null}
+        <div className="space-y-3">{children}</div>
+      </section>
+    );
+  }
   return (
-    <section aria-labelledby={labelledBy} aria-label={label} aria-busy={busy || undefined}>
+    <section ref={sectionRef} tabIndex={-1} aria-labelledby={labelledBy} aria-label={label} aria-busy={busy || undefined}>
       <Card>
         {heading ? <CardHeader>{heading}</CardHeader> : null}
         <CardContent inset="list">
@@ -332,8 +431,7 @@ function ActivityContinuation({
   );
 }
 
-/** @public Reused by the Activity ledger exploration stories for per-source reload. */
-export function ActivityUnavailable({
+function ActivityUnavailable({
   message,
   onReload,
   reloadLabel = "Reload activity",
@@ -380,37 +478,4 @@ function ActivityEmpty({ plain, action }: { plain: boolean; action?: ReactNode }
 
 function DefaultActivityHeader() {
   return <h2 id="activity-title" className="text-lg font-semibold">Activity</h2>;
-}
-
-function TransferActivityRow({
-  transfer,
-  regionId,
-  onActivate,
-}: {
-  transfer: ActivityTransfer;
-  regionId: RegionId;
-  onActivate: () => void;
-}) {
-  const model = presentActivityTransferRow(transfer, { regionId });
-  const mark = presentPortfolioAssetMark({
-    assetKey: assetKeyForErc20(transfer.tokenAddress),
-    name: transfer.tokenSymbol ?? "Unknown token",
-    symbol: transfer.tokenSymbol ?? "?",
-    imageUrl: transfer.tokenImageUrl,
-  });
-  return (
-    <ActivityRow
-      icon={<CurrencyMark assetKey={mark.assetKey} src={mark.imageUrl} symbol={mark.symbol} size="sm" />}
-      iconTone="mark"
-      label={model.directionLabel}
-      context={<time dateTime={model.dateTime} aria-label={model.fullDate}>{model.shortDate}</time>}
-      contextTitle={model.fullDate}
-      value={<MoneyTicker value={model.value} />}
-      valueTone={model.valueTone}
-      valueContext={model.valueContext ?? undefined}
-      valueContextTitle={model.valueContext ?? undefined}
-      onActivate={onActivate}
-      activateLabel={`View ${model.directionLabel.toLowerCase()} ${transfer.tokenSymbol ?? "unknown token"} transaction details`}
-    />
-  );
 }

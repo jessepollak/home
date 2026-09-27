@@ -6,9 +6,7 @@ import {
   useEffect,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
-import { createPortal } from "react-dom";
 import {
   isServerVerified,
   useAccountWallet,
@@ -24,15 +22,13 @@ import {
 import { markHomePerformance } from "@/client/observability/perf-marks";
 import { useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 import { deferSheet, useIdlePreload } from "@/client/money-modal/deferred-sheet";
+import { moneySheetIntent, moneySheetLoading } from "@/client/money-modal";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import type { TransferAssetAvailability } from "@/shared/transfers/types";
 import type { RegionId } from "@/config/regions";
 
-const subscribeToMountedState = () => () => {};
-const mountedClientSnapshot = () => true;
-const mountedServerSnapshot = () => false;
-
-const SendSheet = deferSheet(() => import("./send-dialog").then((module) => module.SendDialog));
+const SendSheet = deferSheet(() => import("./send-dialog").then((module) => module.SendDialog),
+  (props) => moneySheetLoading({ title: "Send", titleId: "send-title", closeLabel: "Close send dialog", onCancel: props.onClose, onClosed: props.onClosed }));
 
 export type TransferActionsProps = {
   initialOpen?: boolean;
@@ -73,11 +69,6 @@ export function TransferActionsForWallet({
   const [sendOpen, setSendOpen] = useState(false);
   const [modalOwner, setModalOwner] = useState<string | null>(null);
   const openedInAppRef = useRef(false);
-  const mounted = useSyncExternalStore(
-    subscribeToMountedState,
-    mountedClientSnapshot,
-    mountedServerSnapshot,
-  );
   const boundary = uiBoundary(wallet);
   const verifiedAddress = isServerVerified(wallet)
     ? wallet.session.smartAccount?.address ?? null
@@ -141,38 +132,33 @@ export function TransferActionsForWallet({
         variant="outline"
         size="touch"
         disabled={!boundary}
-        onPointerDown={() => void SendSheet.preload()}
+        {...moneySheetIntent(SendSheet.preload)}
         onClick={openSend}
       >
         Send
       </Button>
 
-      {mounted
-        ? createPortal(
-            <SendSheet
-              key={regionId}
-              open={visibleSend}
-              address={verifiedAddress}
-              immediate={dropPrivate}
-              availableAssets={availableAssets}
-              assetMarkResolution={assetMarkResolution}
-              prepareMoneyAction={wallet.prepareMoneyAction}
-              fetchAccountResource={wallet.fetchAccountResource}
-              regionId={regionId}
-              regionReady={regionReady}
-              resumeMoneyAction={wallet.resumeMoneyAction}
-              executeMoneyAction={wallet.executeMoneyAction}
-              ownerBoundary={boundary}
-              resumeActionId={initialActionId}
-              onReview={showReview}
-              onInvalidResume={showFirstStep}
-              onSubmitted={showFirstStep}
-              onClose={close}
-              onClosed={finishClose}
-            />,
-            document.body,
-          )
-        : null}
+      <SendSheet
+        key={regionId}
+        open={visibleSend}
+        address={verifiedAddress}
+        immediate={dropPrivate}
+        availableAssets={availableAssets}
+        assetMarkResolution={assetMarkResolution}
+        prepareMoneyAction={wallet.prepareMoneyAction}
+        fetchAccountResource={wallet.fetchAccountResource}
+        regionId={regionId}
+        regionReady={regionReady}
+        resumeMoneyAction={wallet.resumeMoneyAction}
+        executeMoneyAction={wallet.executeMoneyAction}
+        ownerBoundary={boundary}
+        resumeActionId={initialActionId}
+        onReview={showReview}
+        onInvalidResume={showFirstStep}
+        onSubmitted={showFirstStep}
+        onClose={close}
+        onClosed={finishClose}
+      />
     </>
   );
 }

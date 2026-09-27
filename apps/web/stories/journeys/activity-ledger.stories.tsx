@@ -4,9 +4,9 @@ import { flushSync } from "react-dom";
 import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 import {
   ActivityLedger,
-  ActivityLedgerDetailSheet,
   type ActivityLedgerItem,
-} from "@/client/activity/explorations/activity-ledger";
+} from "@/client/activity/activity-ledger";
+import { ActivityLedgerDetailSheet } from "@/client/activity/activity-ledger-sheet";
 import { PORTFOLIO_USDC_ASSET_KEY } from "@/config/portfolio-assets";
 
 const funding: ActivityLedgerItem = {

@@ -16,6 +16,8 @@ const NBSP = "\u00A0";
 const anySpace = /[\s\u00A0\u2007\u2009\u202F]+/g;
 const numberFormatCache = new Map<string, Intl.NumberFormat>();
 const numberFormatCacheLimit = 256;
+const dateTimeFormatCache = new Map<string, Intl.DateTimeFormat>();
+const dateTimeFormatCacheLimit = 256;
 
 function cachedNumberFormat(
   locale: string,
@@ -39,6 +41,28 @@ function cachedNumberFormat(
   return formatter;
 }
 
+function cachedDateTimeFormat(
+  locale: string,
+  options: Intl.DateTimeFormatOptions,
+): Intl.DateTimeFormat {
+  const key = JSON.stringify([
+    locale,
+    Object.entries(options)
+      .filter(([, value]) => value !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right)),
+  ]);
+  const cached = dateTimeFormatCache.get(key);
+  if (cached) return cached;
+
+  const formatter = new Intl.DateTimeFormat(locale, options);
+  if (dateTimeFormatCache.size >= dateTimeFormatCacheLimit) {
+    const oldestKey = dateTimeFormatCache.keys().next().value;
+    if (oldestKey !== undefined) dateTimeFormatCache.delete(oldestKey);
+  }
+  dateTimeFormatCache.set(key, formatter);
+  return formatter;
+}
+
 function collapseSpaces(value: string, replacement: string): string {
   return value.replace(anySpace, replacement).trim();
 }
@@ -54,7 +78,7 @@ function joinCurrencySuffix(amount: string, symbol: string): string {
   return compact ? `${amount}${NBSP}${compact}` : amount;
 }
 
-function joinAmountAndSymbol(
+export function joinAmountAndSymbol(
   amount: string,
   symbol: string,
   useNoBreakSpace = false,
@@ -276,12 +300,12 @@ export function presentationAssetClass(
   return "meme";
 }
 
-export function formatPresentationTokenAmount(
+export function formatPresentationTokenAmountParts(
   balanceBaseUnits: AtomicAmount,
   decimals: number,
   symbol: string,
   options: PresentationTokenAmountOptions = {},
-): string {
+): { amount: string; symbol: string } {
   try {
     const parsedBaseUnits = parseAtomicAmount(balanceBaseUnits);
     const assetClass = presentationAssetClass({ ...options, symbol });
@@ -297,7 +321,53 @@ export function formatPresentationTokenAmount(
       minimumFractionDigits,
       options.regionId,
     );
-    return joinAmountAndSymbol(amount, symbol, options.useNoBreakSpace);
+    return {
+      amount,
+      symbol: collapseSpaces(symbol, options.useNoBreakSpace ? NBSP : " "),
+    };
+  } catch {
+    return { amount: "—", symbol: "" };
+  }
+}
+
+export function formatPresentationTokenAmount(
+  balanceBaseUnits: AtomicAmount,
+  decimals: number,
+  symbol: string,
+  options: PresentationTokenAmountOptions = {},
+): string {
+  const parts = formatPresentationTokenAmountParts(balanceBaseUnits, decimals, symbol, options);
+  return joinAmountAndSymbol(parts.amount, parts.symbol, options.useNoBreakSpace);
+}
+
+export function formatPresentationCashAmount(
+  baseUnits: AtomicAmount,
+  decimals: number,
+  currency: string,
+  options: { regionId?: RegionId } = {},
+): string {
+  try {
+    const atoms = parseAtomicAmount(baseUnits);
+    const { maximumFractionDigits } = presentationFractionDigits(
+      atoms,
+      decimals,
+      "stable",
+    );
+    const negative = atoms < BigInt(0);
+    const absolute = negative ? -atoms : atoms;
+    const visible = absolute / BigInt(10) ** BigInt(decimals - maximumFractionDigits);
+    const tiny = absolute > BigInt(0) && visible === BigInt(0);
+    const canonical = decimalFromScaledInteger(
+      tiny ? BigInt(1) : visible,
+      maximumFractionDigits,
+      maximumFractionDigits,
+    );
+    const amount = `${tiny ? "<" : ""}${formatCurrencyDecimal(
+      canonical,
+      currency,
+      options.regionId ?? "GLOBAL",
+    )}`;
+    return applySign(amount, negative, "auto");
   } catch {
     return "—";
   }
@@ -593,6 +663,22 @@ export function formatChartPrice(
   );
 }
 
+export function formatTrimmedChartPrice(
+  value: DecimalInput,
+  options: { regionId?: RegionId; currency?: string } = {},
+): string {
+  const formatted = formatChartPrice(value, options);
+  const decimal = parseDecimal(value);
+  if (!decimal || isLessThan({ ...decimal, negative: false }, "1000")) return formatted;
+  const separator = cachedNumberFormat(presentationLocale(options.regionId ?? "GLOBAL"))
+    .formatToParts(1.5).find((part) => part.type === "decimal")?.value ?? ".";
+  const escaped = separator.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return formatted.replace(
+    new RegExp(`(\\d)${escaped}(\\d*?)0+(?!\\d)`),
+    (_, digit: string, kept: string) => kept ? `${digit}${separator}${kept}` : digit,
+  );
+}
+
 export function formatPercentage(
   value: number | null | undefined,
   regionId: RegionId = "GLOBAL",
@@ -638,6 +724,7 @@ export function formatSignedPercentChange(
 export type PresentationDateStyle =
   | "activity-full"
   | "activity-short"
+  | "activity-date"
   | "date-time-zone"
   | "quote-time"
   | "chart-time"
@@ -652,15 +739,31 @@ export function formatPresentationDate(
     style: PresentationDateStyle;
   },
 ): string {
+  return formatPresentationDateRange(value, value, options);
+}
+
+export function formatPresentationDateRange(
+  start: string | number | Date,
+  end: string | number | Date,
+  options: {
+    regionId?: RegionId;
+    timeZone?: string;
+    style: PresentationDateStyle;
+  },
+): string {
   const locale = presentationLocale(options.regionId);
   const zone = options.timeZone ? { timeZone: options.timeZone } : {};
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return "—";
-  const part = (formatOptions: Intl.DateTimeFormatOptions) =>
-    collapseSpaces(new Intl.DateTimeFormat(locale, { ...formatOptions, ...zone }).format(date), " ");
+  const from = new Date(start);
+  const to = new Date(end);
+  if (!Number.isFinite(from.getTime()) || !Number.isFinite(to.getTime())) return "—";
+  const part = (formatOptions: Intl.DateTimeFormatOptions) => {
+    const format = cachedDateTimeFormat(locale, { ...formatOptions, ...zone });
+    return collapseSpaces(from.getTime() === to.getTime() ? format.format(from) : format.formatRange(from, to), " ");
+  };
   const dateParts: Record<PresentationDateStyle, Intl.DateTimeFormatOptions | null> = {
     "activity-full": { month: "short", day: "numeric", year: "numeric" },
     "activity-short": { month: "short", day: "numeric" },
+    "activity-date": { month: "short", day: "numeric" },
     "date-time-zone": { month: "short", day: "numeric", year: "numeric" },
     "quote-time": null,
     "chart-time": null,
@@ -670,6 +773,7 @@ export function formatPresentationDate(
   const timeParts: Record<PresentationDateStyle, Intl.DateTimeFormatOptions | null> = {
     "activity-full": { hour: "numeric", minute: "2-digit" },
     "activity-short": { hour: "numeric", minute: "2-digit" },
+    "activity-date": null,
     "date-time-zone": { hour: "numeric", minute: "2-digit", timeZoneName: "short" },
     "quote-time": { hour: "numeric", minute: "2-digit", second: "2-digit", timeZoneName: "short" },
     "chart-time": { hour: "numeric", minute: "2-digit" },
@@ -678,6 +782,10 @@ export function formatPresentationDate(
   };
   const dateOptions = dateParts[options.style];
   const timeOptions = timeParts[options.style];
+  if (from.getTime() !== to.getTime()) {
+    if (!timeOptions) return part(dateOptions ?? {});
+    return `${formatPresentationDate(from, options)} – ${formatPresentationDate(to, options)}`;
+  }
   const pieces = [dateOptions ? part(dateOptions) : null, timeOptions ? part(timeOptions) : null]
     .filter((piece): piece is string => Boolean(piece));
   return pieces.join(", ");
@@ -999,7 +1107,8 @@ function presentationFractionDigits(
   }
   if (assetClass === "meme") {
     if (amountMeetsThreshold(absolute, decimals, "1")) {
-      return { maximumFractionDigits: 0, minimumFractionDigits: 0 };
+      const digits = Math.min(2, decimals);
+      return { maximumFractionDigits: digits, minimumFractionDigits: digits };
     }
     return { maximumFractionDigits: Math.min(6, decimals), minimumFractionDigits: 0 };
   }

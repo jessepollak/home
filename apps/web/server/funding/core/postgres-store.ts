@@ -1,8 +1,9 @@
 import "server-only";
 
 import { getSqlExecutor, isUniqueViolation, type SqlExecutor } from "@/server/db/sql";
+import { recordCustomerIds } from "@/server/customers/record-ids";
 import type { Instruction, Quote } from "@/shared/funding/provider-contract";
-import type { FundingOrder, FundingOrderOwner, FundingOrderStore, FundingReservation } from "./store";
+import { assertHistoryLimit, type FundingOrder, type FundingOrderOwner, type FundingOrderStore, type FundingReservation } from "./store";
 
 type Row = Record<string, unknown>;
 const TERMINAL_SQL = "'dispatch-ambiguous','received','expired','cancelled','failed','refunded'";
@@ -13,17 +14,18 @@ export class PostgresFundingOrderStore implements FundingOrderStore {
   constructor(private readonly sql: SqlExecutor) {}
 
   async reserve(input: FundingReservation) {
+    const ids = await recordCustomerIds(this.sql, { ...input.owner, address: input.destination }, new Date(input.createdAt));
     return this.sql.transaction(async (transaction) => {
       const inserted = await transaction.query(
         `INSERT INTO funding_orders
          (id, owner_subject, account_provider, destination, provider_id, region, asset_id,
           payment_method, fiat_amount, intent_digest, quote, quote_token, customer_ref, sandbox, state,
-          creation_block, fees, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14,'reserving',$15,'[]'::jsonb,$16,$16)
+          creation_block, fees, created_at, updated_at, customer_id, credential_id, wallet_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14,'reserving',$15,'[]'::jsonb,$16,$16,$17,$18,$19)
          ON CONFLICT (account_provider, owner_subject, intent_digest) DO NOTHING RETURNING *`,
         [input.id, input.owner.subject, input.owner.accountProvider, input.destination.toLowerCase(), input.providerId,
           input.region, input.assetId, input.paymentMethod, input.fiatAmount, input.intentDigest, JSON.stringify(input.quote),
-          input.quoteToken, input.customerRef, input.sandbox, input.creationBlock, input.createdAt],
+          input.quoteToken, input.customerRef, input.sandbox, input.creationBlock, input.createdAt, ids.customerId, ids.credentialId, ids.walletId],
       );
       const result = inserted.rows[0] ?? (await transaction.query(
         "SELECT * FROM funding_orders WHERE account_provider=$1 AND owner_subject=$2 AND intent_digest=$3 FOR UPDATE",
@@ -35,6 +37,14 @@ export class PostgresFundingOrderStore implements FundingOrderStore {
   }
 
   async getOwned(id: string, owner: FundingOrderOwner) { return this.one("SELECT * FROM funding_orders WHERE id=$1 AND account_provider=$2 AND owner_subject=$3", [id, owner.accountProvider, owner.subject]); }
+  async listOwned(owner: FundingOrderOwner, limit: number): Promise<FundingOrder[]> {
+    assertHistoryLimit(limit);
+    const result = await this.sql.query(`SELECT * FROM (
+      SELECT * FROM funding_orders WHERE account_provider=$1 AND owner_subject=$2
+      ORDER BY CASE WHEN ${OPEN_SQL} THEN 0 ELSE 1 END, created_at DESC, id ASC LIMIT $3
+    ) history ORDER BY created_at DESC, id ASC`, [owner.accountProvider, owner.subject, limit]);
+    return result.rows.map((row) => fromRow(row as Row));
+  }
   async getByIntent(owner: FundingOrderOwner, intentDigest: string) { return this.one("SELECT * FROM funding_orders WHERE account_provider=$1 AND owner_subject=$2 AND intent_digest=$3", [owner.accountProvider, owner.subject, intentDigest]); }
   async getOpen(owner: FundingOrderOwner, region: string) { return this.one(`SELECT * FROM funding_orders WHERE account_provider=$1 AND owner_subject=$2 AND region=$3 AND ${OPEN_SQL} ORDER BY updated_at DESC LIMIT 1`, [owner.accountProvider, owner.subject, region]); }
   async getDispatchAmbiguous(owner: FundingOrderOwner, region: string, providerId: string) { return this.one("SELECT * FROM funding_orders WHERE account_provider=$1 AND owner_subject=$2 AND region=$3 AND provider_id=$4 AND state='dispatch-ambiguous' ORDER BY updated_at ASC LIMIT 1", [owner.accountProvider, owner.subject, region, providerId]); }

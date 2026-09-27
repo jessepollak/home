@@ -5,7 +5,7 @@ import { expect, userEvent, within } from "storybook/test";
 import { AccountSettings } from "@/client/account/account-settings";
 import type { AppearancePreference } from "@/shared/appearance/preference";
 
-function AccountAppearanceJourney() {
+function AccountAppearanceJourney({ inviteState = "loaded" }: { inviteState?: "loaded" | "loading" | "unavailable" | "error" }) {
   const [appearancePreference, setAppearancePreference] = useState<AppearancePreference>("light");
   return (
     <main className="mx-auto w-full max-w-160 p-4">
@@ -16,7 +16,13 @@ function AccountAppearanceJourney() {
         preferenceMessage=""
         isPreferenceReady
         accountAddress="0x1111111111111111111111111111111111111111"
-        accountOwnerKey="appearance-story"
+        accountOwnerKey={`appearance-story-${inviteState}`}
+        fetchAccountResource={async () => {
+          if (inviteState === "loading") return new Promise<unknown>(() => {});
+          if (inviteState === "unavailable") throw Object.assign(new Error("unavailable"), { status: 403 });
+          if (inviteState === "error") throw new Error("network");
+          return { version: 1, code: "abcdefghjk" };
+        }}
         showSmallBalances={false}
         onShowSmallBalancesChange={() => {}}
         appearancePreference={appearancePreference}
@@ -61,4 +67,16 @@ export const Light: Story = {
 export const Dark: Story = {
   globals: { theme: "dark" },
   play: async ({ canvasElement }) => selectAppearance(canvasElement),
+};
+
+export const InviteLoading: Story = {
+  args: { inviteState: "loading" },
+};
+
+export const InviteUnavailable: Story = {
+  args: { inviteState: "unavailable" },
+};
+
+export const InviteError: Story = {
+  args: { inviteState: "error" },
 };

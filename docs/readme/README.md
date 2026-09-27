@@ -6,12 +6,12 @@
 The capture set contains five full-size browser screenshots of the current Home implementation:
 
 - [`home.png`](home.png) — signed-in Home dashboard;
-- [`save.png`](save.png) — the current Save experience;
+- [`cash.png`](cash.png) — Cash, with stablecoin currencies and savings;
 - [`invest.png`](invest.png) — Invest discovery;
 - [`send.png`](send.png) — the Send amount sheet;
 - [`borrow.png`](borrow.png) — the currently supported Borrow market, linked from the root README's current-availability section.
 
-The root README's inline gallery features Home, Save, Invest, and Send. All captures use sample data; they are not live account records or evidence of production availability. They were rendered at a 390 × 844 CSS-pixel viewport with Chromium at 2× device scale, producing 780 × 1688 PNG files.
+The root README's inline gallery features Home, Cash, Invest, and Send. All captures use sample data; they are not live account records or evidence of production availability. They were rendered at a 390 × 844 CSS-pixel viewport with Chromium at 2× device scale, producing 780 × 1688 PNG files.
 
 ## Provenance and safety boundary
 
@@ -21,7 +21,7 @@ The browser fixture process does not require provider credentials and does not s
 
 Next.js development mode loads local `.env*` files when they exist. Regenerate only in a disposable clean worktree that contains no `.env*` files other than tracked `.env.example`, and launch both processes with a cleared environment so real secrets are not inherited. The capture script checks filenames in the repository root and `apps/web` and refuses to run when it finds another `.env*` file; it never reads environment-file contents. This filename check and browser routing do not inspect or make claims about an already-running server, so start the server exactly as shown below.
 
-The capture suppresses only the `nextjs-portal` development badge before taking each screenshot and moves the pointer outside the viewport. It does not hide or alter product UI; preserve current in-app labels, including **Save**.
+The capture suppresses only the `nextjs-portal` development badge before taking each screenshot and moves the pointer outside the viewport. It does not hide or alter product UI; preserve current in-app labels, including **Cash**.
 
 ## Regenerate
 

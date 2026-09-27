@@ -62,7 +62,7 @@ There are **six capability workstreams and two shared quality workstreams**. All
 
 **Operator business tools.** Operators need to earn revenue, grow, see how their business performs, and talk to their customers. MVP includes:
 
-- **Fees.** The operator sets a swap fee and a destination wallet. The fee is disclosed on review and collected in the same transaction as the swap, so it lands directly at the destination. Revenue appears in the dashboard. Fees on other money actions come later.
+- **Fees.** The operator sets a swap fee and a destination wallet. The fee is disclosed on review and collected in the same transaction as the swap, so it lands directly at the destination (#817). Revenue appears in the dashboard. Operator fees on cash-out (#1130) and an optional operator fee on send (#1131) are also in MVP (Jesse, September 27). An Add money fee is in MVP scope subject to research (#1132): the research is the MVP deliverable, and each funding route that can support a fee becomes an implementation slice after it (Jesse, September 27).
 - **Growth.** Customers invite others through a link; the operator sees attribution and runs one reward program. Product research selects the first reward mechanic. Revenue-share rewards come later.
 - **Analytics.** Operators get real visibility into their own business: acquisition, activation, product adoption, retention, balances, and revenue, plus a searchable customer list and customer detail. Data lives in the operator's own deployment; admin access to individual customers is authorized and audited.
 - **Support.** Customers chat with the operator inside Home; operators answer from an admin inbox beside the customer's account context. Delivery is in-app only. LLM assistance using operator-supplied model keys comes after MVP, and the v1 data model should anticipate it.
@@ -71,9 +71,11 @@ There are **six capability workstreams and two shared quality workstreams**. All
 
 **Savings.** Inventory yield products for every supported local currency. Include existing accessible products with complete deposit and withdrawal paths. A dollar product displayed in local currency is still dollar yield. Currencies without an available yield product should say so; creating new yield products is outside MVP.
 
-**Cards.** Start with one provider and a card that supports actual spending. Virtual issuance is sufficient only if it delivers the intended use; include mobile-wallet provisioning if required for everyday in-person spending. Specify the funding source, authorization/settlement behavior, freeze/unfreeze, and support/dispute handoff. Card issuance alone is not completion.
+**Cards.** Start with one card-provider seam routed by region, Bridge + Stripe first, and a card that supports actual spending. Virtual issuance is sufficient only if it delivers the intended use; include mobile-wallet provisioning if required for everyday in-person spending. Specify the funding source, authorization/settlement behavior, freeze/unfreeze, and support/dispute handoff. Card issuance alone is not completion.
 
 **Asset and market coverage.** Define authoritative catalogs and refresh behavior for stocks, memes/majors, and cb-asset markets. Validate exact identities and per-market parameters. The meme/major catalog needs an inclusion rule; it does not mean every token on Base. Missing execution paths remain explicit gaps against the agreed coverage. New protocols may require integrations even when the UI is shared.
+
+**USDC-paired token execution.** Any exact Base ERC-20 outside tokenized stocks may request a quote; the provider and verified on-chain identity decide each route at each amount, not catalog inclusion or a liquidity floor. No display price or quote is proof of a completed trade. Chain reads bind decimals and sell-all spend, the review binds the exact pair and minimum receive, and only finalized chain activity establishes traded status. Operator removal may block buying without blocking an attempted sale. Token risk screening is deferred to #964; this execution path does not certify a token as safe.
 
 **Identity.** One coherent Home flow does not guarantee that every provider accepts the same verification. Preserve actual provider requirements, prefer provider-held documents, and keep only necessary references/status in Home.
 
@@ -81,7 +83,7 @@ There are **six capability workstreams and two shared quality workstreams**. All
 
 ### After MVP
 
-Keep these outside the initial release: index products and deeper investment research; recurring investing; undercollateralized credit and non-cb collateral expansion; general AI/natural-language customization; additional hosting targets; a plugin marketplace; sophisticated staff permissions; fees beyond swaps, revenue-share referral rewards, and LLM-assisted support; offline (email/push) support replies; additional card/identity providers; and a separate personal-edition onboarding flow.
+Keep these outside the initial release: index products and deeper investment research; recurring investing; undercollateralized credit and non-cb collateral expansion; general AI/natural-language customization; additional hosting targets; a plugin marketplace; sophisticated staff permissions; revenue-share referral rewards and LLM-assisted support; offline (email/push) support replies; additional card/identity providers; and a separate personal-edition onboarding flow.
 
 These preserve the longer-term vision. They do not defer the agreed regional coverage, local yield where available, stock/meme/major coverage, cb-asset markets, languages, or design quality.
 
@@ -152,8 +154,8 @@ These questions refine delivery; they do not reopen the agreed MVP breadth.
 
 | Question | Next useful output |
 | --- | --- |
-| Which card providers? | **Bridge and Immersve** behind one [provider seam](cards.md#provider-seam) (Jesse, September 25). Immersve (chosen September 24, replacing the September 23 Rain choice because Rain's developer docs and sandbox are gated) publishes open docs and a public sandbox and covers most non-US regions, with the US listed as coming soon. Bridge (with Stripe Issuing) adds the practical US path. Both document cards that spend USDC directly from the customer's Base wallet through a capped allowance. Route each customer by region to an available program. Build order (Jesse, September 26): Bridge + Stripe first, for its self-serve test mode, US reach, and expected lower per-operator entry cost; Immersve for regions Bridge does not serve. Provider contacts, private sandboxes, and production approval come later. Record program eligibility, pricing, US availability, multi-operator structure, and KYC acceptance when confirmed (#821). |
-| Which identity provider? | **Sumsub** (Jesse, September 23), built against public docs and fixtures first; Persona is the fallback. Confirm whether Immersve accepts Sumsub-shared KYC before live verification (#640, #821). |
+| Which card provider? | **Bridge + Stripe first** (Jesse, September 26); Immersve serves regions Bridge does not (#821). Both sit behind one card-provider seam, routed by region (Jesse, September 25). This supersedes Rain (September 23) and the Immersve-only MVP switch (September 24). Open question: whether Bridge and Immersve accept Home's KYC. Record program country eligibility and KYC acceptance for each when confirmed. |
+| Which identity provider? | **Sumsub** (Jesse, September 23), built against public docs and fixtures first; Persona is the fallback. Confirm whether Bridge and Immersve accept Sumsub-shared KYC before live verification (#640). |
 | What needs Peer input? | Jesse is already in contact and can bring Peer in as needed. Consolidate specific unresolved integration and corridor questions before requesting an introduction. |
 | How does dashboard configuration work? | Propose a focused evolution of current typed configuration and deployment secrets, including validation, administrator authority, and upgrade behavior. |
 | What are the exact coverage inventories? | Specify language mappings, existing yield products, stock and meme/major catalog sources, cb-asset identities, market sources, and refresh rules. |

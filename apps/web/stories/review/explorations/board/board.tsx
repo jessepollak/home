@@ -64,14 +64,16 @@ export function ReviewBoardView({ board, build, frameSource = "story", narrow = 
     });
     return () => abort.abort();
   }, [frameSource]);
+  const focus = useMemo(() => typeof window === "undefined" ? undefined :
+    readBoardUrl(new URL(location.href)).focus, []);
   const resolved = useMemo(() => {
     if (index === undefined || index === "unavailable") return index;
     if (frameSource === "blank" && board !== "changes") return board;
-    if (board === "changes") return index ? changesBoard(build, index) : null;
+    if (board === "changes") return index ? changesBoard(build, index, focus) : null;
     if (!index) return board;
     const present = resolveBoard(board, index);
     return present && markBuildChanges(present, build, index);
-  }, [board, build, index, frameSource]);
+  }, [board, build, index, frameSource, focus]);
   const title = board === "changes" ? "Story changes" : board.title;
   if (resolved === undefined) return <BoardMessage title={title} build={build}>Loading board…</BoardMessage>;
   if (resolved === "unavailable") return <BoardMessage title={title} build={build}>
