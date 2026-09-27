@@ -1,6 +1,6 @@
 "use client";
 
-import { useAutoFitAmountText } from "@/client/money-modal/amount";
+import { useAutoFitAmountText } from "@/client/money-modal";
 import { MoneyTicker } from "@/components/money-ticker";
 import { Card, CardContent } from "@/components/ui/card";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";

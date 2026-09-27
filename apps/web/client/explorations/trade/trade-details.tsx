@@ -1,7 +1,6 @@
 "use client";
 
-import { moneyConfirmFromRow } from "@/client/money-modal";
-import type { MoneyConfirmRow } from "@/client/money-modal/confirm-summary";
+import { moneyConfirmFromRow, type MoneyConfirmRow } from "@/client/money-modal";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatExactPresentationTokenAmount, formatPresentationDate } from "@/shared/formatting";
 import { BASE_CHAIN_ID } from "@/shared/assets/base";

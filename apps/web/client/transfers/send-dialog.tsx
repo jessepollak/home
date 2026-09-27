@@ -2,7 +2,6 @@
 
 import { useMoneyActionOutcome } from "@/client/actions/money-action-outcome";
 import { openPanelAfterClose, useOptionalHomeShellRouting } from "@/client/home/panel-routing";
-import { MoneyResult, MoneyResultFooter } from "@/client/money-modal/money-result";
 import type { MoneyAssetPrice } from "@/client/money-modal";
 import type { TransferAssetAvailability } from "@/shared/transfers/types";
 import { MoneyTicker } from "@/components/money-ticker";
@@ -45,6 +44,10 @@ import {
   amountExceedsCeiling,
   isPositiveDecimalAmount,
   useMoneyAmountUnit,
+  MoneyResult,
+  MoneyResultFooter,
+  maxAmountAfterNetworkFee,
+  useNetworkFeeReserve,
 } from "@/client/money-modal";
 import {
   assertTransferRequest,
@@ -58,7 +61,6 @@ import {
 import { TransferExecutionError, type TransferRequest } from "@/shared/transfers/types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { networkFeeErrorMessage } from "@/shared/money-actions/network-fee";
-import { maxAmountAfterNetworkFee, useNetworkFeeReserve } from "@/client/money-modal/network-fee-policy";
 
 type SendStep = "amount" | "destination" | "payout" | "handle" | "preparing" | "confirm" | "pending" | "error" | "result";
 type CashoutRequest = {
