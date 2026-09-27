@@ -77,6 +77,10 @@ import { ShellHeader } from "./shell-chrome";
 import { HomeHeaderStatus, headerStatus, homeBalancesStatus, useReloadHomeBalances } from "./home-status";
 import { ActionToasts } from "./action-toasts";
 import { useBalancesRestore } from "./use-balances-restore";
+import { useHomeRefresh } from "./use-home-refresh";
+import { PullToRefreshAction, PullToRefreshIndicator, usePullToRefresh } from "@/components/ui/pull-to-refresh";
+import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 
 const AccountSignInSheet = deferSheet(() => import("@/client/account/account-screen").then((module) => module.AccountSignInSheet));
 
@@ -213,6 +217,7 @@ function DashboardShellBody({
   const [urlSendFlow, setUrlSendFlow] = useState(initialSendFlow);
   const [urlSendActionId, setUrlSendActionId] = useState<string | null>(initialSendActionId);
   const [urlIntent, setUrlIntent] = useState<HomeInboundPanelState>(initialUrlIntent);
+  const [homeDetailsOpen, setHomeDetailsOpen] = useState(false);
   const [popRevision, setPopRevision] = useState(0);
   const [rootRequest, setRootRequest] = useState<{ panel: ShellPanelId; revision: number } | null>(null);
   const [settingsOpenedInApp, setSettingsOpenedInApp] = useState(false);
@@ -230,6 +235,7 @@ function DashboardShellBody({
   const investChrome = useOptionalAppChrome();
   const [investmentsChrome, setInvestmentsChrome] = useState<NestedAppChrome | null>(null);
   const mainRef = useRef<HTMLElement>(null);
+  const contentFrameRef = useRef<HTMLDivElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
   const settingsRegionRef = useRef<HTMLElement>(null);
   const settingsOpenerRef = useRef<HTMLElement | null>(null);
@@ -676,6 +682,22 @@ function DashboardShellBody({
 
   const activitySession: VerifiedAccountSession | null =
     isVerified && account.session?.smartAccount ? account.session : null;
+  const homeRefreshEnabled = activitySession !== null && activeNavigation === "home" && !isAccountSettingsOpen;
+  const flowOpen = urlIntent.flow !== null || urlIntent.addMoney || urlAddMoney || urlSendFlow;
+  const { state: refreshState, refresh } = useHomeRefresh({
+    session: activitySession,
+    regionId,
+    fetchActivity: account.fetchActivity,
+    enabled: homeRefreshEnabled,
+  });
+  const gestureEnabled = homeRefreshEnabled && !flowOpen && !isAccountOpen && !homeDetailsOpen;
+  const { phase: pullPhase, indicatorRef } = usePullToRefresh({
+    scrollRef: mainRef,
+    contentRef: contentFrameRef,
+    enabled: gestureEnabled,
+    refreshing: refreshState.phase === "refreshing",
+    onRefresh: () => { void refresh(); },
+  });
   useEffect(() => {
     if (isSignedOut && !explicitLogoutRef.current) {
       router.replace("/?account=signin", { scroll: false });
@@ -939,9 +961,22 @@ function DashboardShellBody({
       <main
         ref={mainRef}
         data-app-main-authenticated
-        className={`order-1 min-h-0 flex-1 overscroll-contain overflow-x-hidden bg-muted pb-4 scroll-pb-4 sm:order-2 ${shellScrollContainerClassName}`}
+        className={`relative order-1 min-h-0 flex-1 overscroll-contain overflow-x-hidden bg-muted pb-4 scroll-pb-4 sm:order-2 ${shellScrollContainerClassName}`}
       >
-        <div className={`${shellContentFrameClassName} py-4 sm:py-6`}>
+        {homeRefreshEnabled ? <PullToRefreshIndicator phase={pullPhase} indicatorRef={indicatorRef} /> : null}
+        {gestureEnabled ? <PullToRefreshAction label="Refresh Home" refreshing={refreshState.phase === "refreshing"} onRefresh={() => { void refresh(); }} /> : null}
+        <div ref={contentFrameRef} className={`${shellContentFrameClassName} py-4 sm:py-6`}>
+        <span role="status" aria-live="polite" className="sr-only">{homeRefreshEnabled
+          ? refreshState.phase === "refreshing" ? "Refreshing Home" : refreshState.phase === "complete" ? "Home updated" : null
+          : null}</span>
+        {homeRefreshEnabled && (refreshState.phase === "failed" || refreshState.phase === "partial") ? (
+          <Alert className="mb-4" role="alert">
+            <AlertDescription>{refreshState.phase === "failed" ? "Couldn't refresh Home." : "Some of Home didn't refresh."}</AlertDescription>
+            <AlertAction>
+              <Button variant="outline" size="touch" onClick={() => { void refresh(); }}>Retry</Button>
+            </AlertAction>
+          </Alert>
+        ) : null}
         {isUnavailable ? (
           <div className="mb-4">
             <LoadErrorCard
@@ -1015,6 +1050,7 @@ function DashboardShellBody({
                       initialSendActionId={urlSendActionId}
                       regionId={regionId}
                       regionReady={regionReady}
+                      onDetailsOpenChange={setHomeDetailsOpen}
                     />
                   </MountedShellPanel>
                 ) : null}

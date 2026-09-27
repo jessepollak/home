@@ -397,13 +397,9 @@ function useBorrowOverview(session: VerifiedAccountSession | null, fetchAccountR
     retry: false,
     refetchOnWindowFocus: true,
     meta: key ? ownerQueryMeta(key, "owner") : undefined,
-    queryFn: ({ signal }) => {
-      if (!fetchAccountResource) throw new Error("Borrow is unavailable.");
-      return fetchAccountResource("/api/borrow", { signal });
-    },
-    select: (value): BorrowOverviewResponse => {
-      if (!owner) throw new Error("Borrow is unavailable.");
-      const parsed = parseBorrowOverview(value, owner);
+    queryFn: async ({ signal }): Promise<BorrowOverviewResponse> => {
+      if (!fetchAccountResource || !owner) throw new Error("Borrow is unavailable.");
+      const parsed = parseBorrowOverview(await fetchAccountResource("/api/borrow", { signal }), owner);
       if (!parsed || parsed.opportunities.some((entry) => entry.availability.status === "available" && (
         !parseTrustedSnapshot(entry.availability.snapshot, owner) ||
         entry.availability.snapshot.market.id !== entry.market.id ||

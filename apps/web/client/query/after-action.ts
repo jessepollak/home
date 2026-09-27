@@ -43,18 +43,21 @@ export async function invalidateIndexedScopes(
   ));
 }
 
+export function nextActivityWindowEnd(previous: string | undefined, now = Date.now()): string {
+  const previousTime = previous ? Date.parse(previous) : Number.NaN;
+  const nextTime = Number.isFinite(previousTime)
+    ? Math.max(now, previousTime + 1)
+    : Math.floor(now / activityWindowQuantumMs) * activityWindowQuantumMs;
+  return new Date(nextTime).toISOString();
+}
+
 export function advanceActivityWindowEnd(
   queryClient: Pick<QueryClient, "getQueryData" | "setQueryData">,
   dataOwnerKey: string,
   now = Date.now(),
 ): string {
   const key = ownerQueryKey(dataOwnerKey, activityWindowScope);
-  const previous = queryClient.getQueryData<string>(key);
-  const previousTime = previous ? Date.parse(previous) : Number.NaN;
-  const nextTime = Number.isFinite(previousTime)
-    ? Math.max(now, previousTime + 1)
-    : Math.floor(now / activityWindowQuantumMs) * activityWindowQuantumMs;
-  const next = new Date(nextTime).toISOString();
+  const next = nextActivityWindowEnd(queryClient.getQueryData<string>(key), now);
   queryClient.setQueryData(key, next);
   return next;
 }
