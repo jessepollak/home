@@ -22,7 +22,7 @@ const MoneyModalPendingContext = createContext({ pending: false, register: (_id:
 const MoneyModalStepContext = createContext<((report: StepReport) => void) | null>(null);
 const MoneyModalExitContext = createContext<() => void>(() => {});
 /** @public shared money-flow step contract (#1058) */
-export const MONEY_MODAL_STEP_DURATION_MS = 200;
+export const MONEY_MODAL_STEP_DURATION_MS = 180;
 /** @public shared money-flow step contract (#1058) */
 export const MONEY_MODAL_STEP_EASING = "cubic-bezier(0.22, 1, 0.36, 1)";
 const MONEY_MODAL_STEP_ENTER_OPACITY = 0.4;
