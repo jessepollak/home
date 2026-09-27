@@ -1,5 +1,5 @@
 import { useId, type HTMLAttributes, type ReactNode } from "react";
-import { ArrowDown, ArrowLeftRight, ArrowUp, ChevronRight, CircleAlert, RotateCw } from "lucide-react";
+import { ArrowDown, ArrowLeftRight, ArrowUp, ChevronDown, ChevronRight, CircleAlert, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Item,
@@ -26,8 +26,9 @@ type FinanceRowCommonProps = {
   kind: "activity" | "balance" | "asset";
   liProps?: HTMLAttributes<HTMLLIElement> & { ref?: (element: HTMLLIElement | null) => void };
   icon: ReactNode;
-  iconTone?: "neutral" | "incoming" | "outgoing" | "self" | "outlined" | "mark";
+  iconTone?: "neutral" | "incoming" | "outgoing" | "self" | "outlined" | "mark" | "stack";
   label: ReactNode;
+  labelSuffix?: ReactNode;
   context?: ReactNode;
   contextLines?: 1 | 2;
   contextTitle?: string;
@@ -45,6 +46,7 @@ type FinanceRowInteractionProps =
       attention?: never;
       chevron?: never;
       readRetry?: never;
+      disclosure?: never;
     }
   | {
       action?: never;
@@ -53,6 +55,7 @@ type FinanceRowInteractionProps =
       attention?: string;
       chevron?: boolean;
       readRetry?: { label: string; onRetry: () => void };
+      disclosure?: { expanded: boolean; controls?: string; content?: ReactNode };
     };
 
 type FinanceRowProps = FinanceRowCommonProps & FinanceRowInteractionProps;
@@ -86,6 +89,7 @@ function FinanceRow({
   icon,
   iconTone = "neutral",
   label,
+  labelSuffix,
   context,
   contextLines = 1,
   contextTitle,
@@ -99,6 +103,7 @@ function FinanceRow({
   attention,
   chevron = true,
   readRetry,
+  disclosure,
 }: FinanceRowProps) {
   const hintId = useId();
   const activation = action ? undefined : onActivate;
@@ -114,6 +119,7 @@ function FinanceRow({
             iconTone === "self" && "text-muted-foreground",
             iconTone === "outlined" && "text-destructive",
             iconTone === "mark" && "overflow-hidden bg-transparent text-inherit",
+            iconTone === "stack" && "bg-transparent text-inherit",
           )}
           data-tone={iconTone}
         >
@@ -122,9 +128,14 @@ function FinanceRow({
       </ItemMedia>
       <div className={cn("flex min-w-0 flex-1 items-start gap-3 @max-[14rem]/finance-row:flex-col @max-[14rem]/finance-row:gap-1", contextLines === 2 && "flex-wrap gap-y-1")} data-slot="finance-row-body">
         <ItemContent className={cn("min-w-0 gap-0.5 @max-[14rem]/finance-row:w-full @max-[14rem]/finance-row:self-stretch", contextLines === 2 && "min-w-min", (context === undefined || value === undefined || valueContext === undefined) && "self-center")}>
-          <ItemTitle className="w-full" truncate="stacked">{label}</ItemTitle>
+          <ItemTitle className="w-full min-w-0" truncate={labelSuffix === undefined ? "stacked" : true}>
+            {labelSuffix === undefined ? label : <span className="flex min-w-0 max-w-full items-baseline gap-1">
+              <span className="min-w-0 truncate">{label}{" "}</span>
+              <span className="shrink-0">{labelSuffix}</span>
+            </span>}
+          </ItemTitle>
           {context === undefined ? null : (
-            <ItemDescription lines={contextLines} className={contextLines === 2 ? "whitespace-normal" : undefined} title={contextTitle}>
+            <ItemDescription lines={contextLines} tone={disclosure ? "disclosure" : undefined} className={contextLines === 2 ? "whitespace-normal" : undefined} title={contextTitle}>
               {context}
             </ItemDescription>
           )}
@@ -150,6 +161,7 @@ function FinanceRow({
               <ItemDescription
                 lines={1}
                 className="w-full text-end"
+                tone={disclosure ? "disclosure" : undefined}
                 title={valueContextTitle}
               >
                 {valueContext}
@@ -173,12 +185,14 @@ function FinanceRow({
             {action.label}
           </Button>
         </ItemActions>
-      ) : readRetry || (activation && (attention || chevron)) ? (
+      ) : readRetry || (activation && (attention || chevron || disclosure)) ? (
         <ItemActions aria-hidden="true">
           {readRetry
             ? <span className="size-4" />
             : attention
             ? <CircleAlert className="size-4 text-foreground" />
+            : disclosure
+            ? <ChevronDown className={cn("size-4 text-muted-foreground transition-transform duration-150 motion-reduce:transition-none", disclosure.expanded && "rotate-180")} />
             : <ChevronRight className="size-4 text-muted-foreground" />}
         </ItemActions>
       ) : null}
@@ -198,6 +212,8 @@ function FinanceRow({
                   variant="ghost"
                   press="none"
                   aria-describedby={hintId}
+                  aria-expanded={disclosure?.expanded}
+                  aria-controls={disclosure?.expanded ? disclosure.controls : undefined}
                   onClick={(event) => activation(event.currentTarget)}
                 />
               ),
@@ -211,6 +227,7 @@ function FinanceRow({
           </span>
         ) : null}
       </Item>
+      {disclosure?.expanded ? disclosure.content : null}
       {readRetry ? (
         <Button
           type="button"

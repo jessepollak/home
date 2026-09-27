@@ -4,6 +4,7 @@ import { afterAll, afterEach, describe, expect, mock, spyOn, test } from "bun:te
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import type { ActivityPage, ActivityTransfer } from "@/shared/activity/types";
 import type { UseActivityResult } from "./use-activity";
+import { formatPresentationDate, formatPresentationDateRange } from "@/shared/formatting";
 
 const financeRows = await import("@/components/finance-rows");
 const rowSpy = spyOn(financeRows, "ActivityRow");
@@ -161,6 +162,7 @@ describe("combined Activity panel", () => {
     mockRowHeight();
     const rows = Array.from({ length: 300 }, (_, index) => ({
       ...transfer(`long-${index}`, index % 60),
+      direction: index % 2 ? "outgoing" as const : "incoming" as const,
       blockTimestamp: new Date(Date.parse("2026-09-15T12:59:00Z") - index * 60_000).toISOString(),
     }));
     const view = render(<ActivityPanelView activity={ready(rows, "next-page")} />);
@@ -171,10 +173,37 @@ describe("combined Activity panel", () => {
     expect(list.querySelector('li[aria-posinset="1"]')?.getAttribute("aria-setsize")).toBe("300");
   });
 
+  test("keeps a long expanded run windowed and removes its children on collapse", () => {
+    mockRowHeight();
+    const rows = Array.from({ length: 200 }, (_, index) => ({
+      ...transfer(`run-${index}`, index % 60),
+      blockTimestamp: new Date(Date.parse("2026-09-15T12:59:00Z") - index * 60_000).toISOString(),
+    }));
+    const view = render(<ActivityPanelView activity={ready(rows)} />);
+    const list = view.getByRole("list");
+    const summary = view.getByRole("button", { description: "200 Received USDC transfers" });
+    expect(list.querySelectorAll(":scope > li")).toHaveLength(1);
+    expect(view.queryByRole("button", { description: "View received USDC transaction details" })).toBeNull();
+    fireEvent.click(summary);
+    const controlledId = summary.getAttribute("aria-controls");
+    expect(controlledId).toBeTruthy();
+    expect(document.getElementById(controlledId!)).toBe(list);
+    expect(list.querySelectorAll(":scope > li").length).toBeLessThan(50);
+    expect(list.querySelector('li[aria-posinset="2"]')?.getAttribute("aria-setsize")).toBe("201");
+    expect(within(list).getAllByRole("button", { description: "View received USDC transaction details" }).length).toBeGreaterThan(0);
+    expect(document.activeElement === summary || document.activeElement === document.body).toBe(true);
+    fireEvent.click(summary);
+    expect(summary.hasAttribute("aria-controls")).toBe(false);
+    expect(document.getElementById(controlledId!)).toBe(list);
+    expect(list.querySelectorAll(":scope > li")).toHaveLength(1);
+    expect(view.queryByRole("button", { description: "View received USDC transaction details" })).toBeNull();
+  });
+
   test("keeps a focused row mounted offscreen, then focuses Activity when that row is removed", async () => {
     mockRowHeight();
     const rows = Array.from({ length: 160 }, (_, index) => ({
       ...transfer(`focus-${index}`, index % 60),
+      direction: index % 2 ? "outgoing" as const : "incoming" as const,
       blockTimestamp: new Date(Date.parse("2026-09-15T12:59:00Z") - index * 60_000).toISOString(),
     }));
     const view = render(<main data-app-main-authenticated=""><ActivityPanelView activity={ready(rows)} /></main>);
@@ -214,6 +243,154 @@ describe("combined Activity panel", () => {
       header={<h2 id="activity-title">History</h2>} />);
     expect(view.getByRole("button", { description: "View Updated send transaction details" })).toBeTruthy();
     expect(rowSpy.mock.calls.length).toBe(rendered + 1);
+  });
+
+  test("references the mounted recent list when transfer ids contain spaces", () => {
+    const spaced = (id: string, minute: number) => ({ ...transfer(id, minute), id: `8453:synthetic/log id'with+chars ${id}` });
+    const view = render(<ActivityPanelView activity={ready([spaced("a", 5), spaced("b", 4)])} />);
+    const summary = view.getByRole("button", { description: "2 Received USDC transfers" });
+    fireEvent.click(summary);
+    const controls = summary.getAttribute("aria-controls");
+    expect(controls).toBeTruthy();
+    expect(controls).not.toMatch(/\s/);
+    const list = document.getElementById(controls!);
+    expect(list).toBe(summary.closest("ul"));
+    expect(within(list!).getAllByRole("button", { description: "View received USDC transaction details" })).toHaveLength(2);
+  });
+
+  test("keeps controlled list ids unique between simultaneously mounted ledgers with the same run", () => {
+    const activity = ready([transfer("a", 5), transfer("b", 4)]);
+    const view = render(<>
+      <ActivityPanelView activity={activity} density="feed" />
+      <ActivityPanelView activity={activity} density="page" />
+    </>);
+    const summaries = view.getAllByRole("button", { description: "2 Received USDC transfers" });
+    expect(summaries).toHaveLength(2);
+    for (const summary of summaries) fireEvent.click(summary);
+    const allIds = summaries.map((summary) => summary.getAttribute("aria-controls")!);
+    expect(allIds).toHaveLength(2);
+    expect(new Set(allIds).size).toBe(allIds.length);
+    for (const [index, id] of allIds.entries()) {
+      expect(id).not.toMatch(/\s/);
+      expect(view.container.querySelectorAll(`[id="${id}"]`)).toHaveLength(1);
+      const list = document.getElementById(id)!;
+      expect(list).toBe(summaries[index]!.closest("ul")!);
+      expect(within(list).getAllByRole("button", { description: "View received USDC transaction details" })).toHaveLength(2);
+    }
+    fireEvent.click(summaries[0]!);
+    expect(summaries[0]!.hasAttribute("aria-controls")).toBe(false);
+    expect(summaries[1]!.getAttribute("aria-controls")).toBe(allIds[1]);
+    expect(within(document.getElementById(allIds[1]!)!).getAllByRole("button", { description: "View received USDC transaction details" })).toHaveLength(2);
+  });
+
+  test("summarizes the covered date range compactly and the full range for assistive technology", () => {
+    const newest = transfer("new", 5);
+    const oldest = { ...transfer("old", 4), blockTimestamp: "2026-09-14T12:04:00.000Z" };
+    const short = formatPresentationDateRange(oldest.blockTimestamp, newest.blockTimestamp, { style: "activity-date" });
+    const full = formatPresentationDateRange(oldest.blockTimestamp, newest.blockTimestamp, { style: "activity-full" });
+    const view = render(<ActivityPanelView activity={ready([newest, oldest])} />);
+    const summary = view.getByRole("button", { description: "2 Received USDC transfers" });
+    expect(summary.textContent).toContain(`Received ×2`);
+    expect(summary.textContent).toContain(short);
+    expect(summary.textContent).toContain(full);
+    expect(summary.querySelector("[title]")?.getAttribute("title")).toBe(full);
+
+    const sameDay = { ...oldest, blockTimestamp: "2026-09-15T12:05:01.000Z" };
+    view.rerender(<ActivityPanelView activity={ready([sameDay, newest])} />);
+    const sameDaySummary = view.getByRole("button", { description: "2 Received USDC transfers" });
+    const day = formatPresentationDate(newest.blockTimestamp, { style: "activity-date" });
+    expect(sameDaySummary.textContent).toContain(day);
+    expect(sameDaySummary.textContent).not.toContain(`${day} –`);
+  });
+
+  test("groups priced incoming runs in Home and Activity, reveals original details, and retains the continuation sentinel", async () => {
+    const priced = (id: string, minute: number) => ({ ...transfer(id, minute),
+      amountBaseUnits: "1000000",
+      valuation: { status: "priced" as const, currency: "USD" as const, amount: { atoms: "100", scale: 2 },
+        method: "peg" as const, peg: "USD" as const, close: null, fx: null },
+    });
+    for (const density of ["feed", "page"] as const) {
+      const view = render(<ActivityPanelView activity={ready([priced("new", 5), priced("old", 4)], "cursor-1")} density={density} />);
+      const summary = view.getByRole("button", { description: "2 Received USDC transfers" });
+      expect(summary.textContent).toContain("Received ×2");
+      expect(within(summary).getByRole("img", { name: "+$2.00" })).toBeTruthy();
+      expect(within(summary).getByText("+2.00 USDC")).toBeTruthy();
+      expect(view.queryByRole("button", { description: "View received USDC transaction details" })).toBeNull();
+      expect(view.container.querySelector("[data-activity-sentinel]")).not.toBeNull();
+      fireEvent.click(summary);
+      expect(summary.getAttribute("aria-expanded")).toBe("true");
+      const children = view.getAllByRole("button", { description: "View received USDC transaction details" });
+      expect(document.getElementById(summary.getAttribute("aria-controls")!)).toBe(summary.closest("ul"));
+      expect(children).toHaveLength(2);
+      for (const child of children) {
+        fireEvent.click(child);
+        const dialog = await view.findByRole("dialog", { name: "Received" });
+        expect(within(dialog).getByText("From")).toBeTruthy();
+        const animationFlag = globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean };
+        animationFlag.BASE_UI_ANIMATIONS_DISABLED = true;
+        try {
+          fireEvent.click(within(dialog).getByRole("button", { name: "Close Received details" }));
+          await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+          await waitFor(() => expect(document.activeElement).toBe(child));
+        } finally {
+          delete animationFlag.BASE_UI_ANIMATIONS_DISABLED;
+        }
+      }
+      fireEvent.click(summary);
+      expect(view.queryByRole("button", { description: "View received USDC transaction details" })).toBeNull();
+      view.unmount();
+    }
+  });
+
+  test("keeps expanded summary identity across newer arrivals and page extension, and splits without hiding rows", () => {
+    const current = [transfer("middle", 5), transfer("old", 4)];
+    const view = render(<ActivityPanelView activity={ready(current, "cursor-1")} />);
+    const summary = view.getByRole("button", { description: "2 Received USDC transfers" });
+    summary.focus();
+    fireEvent.click(summary);
+    view.rerender(<ActivityPanelView activity={ready([transfer("head", 6), ...current], "cursor-1")} />);
+    const newerSummary = view.getByRole("button", { description: "3 Received USDC transfers" });
+    expect(newerSummary).toBe(summary);
+    expect(document.activeElement).toBe(summary);
+    expect(newerSummary.getAttribute("aria-expanded")).toBe("true");
+    const controlledId = newerSummary.getAttribute("aria-controls");
+    expect(controlledId).toBeTruthy();
+    const list = document.getElementById(controlledId!);
+    expect(list).toBe(summary.closest("ul"));
+    expect(within(list!).getAllByRole("button", { description: "View received USDC transaction details" })).toHaveLength(3);
+    view.rerender(<ActivityPanelView activity={ready([transfer("head", 6), ...current, transfer("tail", 3)], "cursor-2")} />);
+    expect(view.getByRole("button", { description: "4 Received USDC transfers" })).toBe(summary);
+    expect(summary.getAttribute("aria-controls")).toBe(controlledId);
+    expect(document.getElementById(controlledId!)).toBe(list);
+    expect(within(list!).getAllByRole("button", { description: "View received USDC transaction details" })).toHaveLength(4);
+    const outgoing = { ...transfer("sent", 5), blockTimestamp: "2026-09-15T12:04:30.000Z" as const,
+      direction: "outgoing" as const, fromAddress: WALLET, toAddress: OTHER };
+    view.rerender(<ActivityPanelView activity={ready([transfer("head", 6), current[0]!, outgoing, current[1]!, transfer("tail", 3)], "cursor-2")} />);
+    const summaries = view.getAllByRole("button", { description: /2 Received USDC transfers/ });
+    expect(summaries).toHaveLength(2);
+    expect(summaries[0]).toBe(summary);
+    expect(summaries.every((button) => button.getAttribute("aria-expanded") === "true")).toBe(true);
+    expect(summaries.every((button) => button.getAttribute("aria-controls") === controlledId)).toBe(true);
+    expect(within(list!).getAllByRole("button", { description: "View received USDC transaction details" })).toHaveLength(4);
+    expect(view.getByRole("button", { description: "View sent USDC transaction details" })).toBeTruthy();
+    expect(view.container.querySelector("[data-activity-sentinel]")).not.toBeNull();
+  });
+
+  test("resets expanded runs when the account changes and keeps pending actions ungrouped", () => {
+    const pending = { ...operation("Pending send", 7), status: "pending" as const };
+    const view = render(<ActivityPanelView key={WALLET} activity={ready([transfer("a", 5), transfer("b", 4)])} operations={[pending]} />);
+    const summary = view.getByRole("button", { description: "2 Received USDC transfers" });
+    fireEvent.click(summary);
+    expect(view.getByRole("button", { description: "View Pending send transaction details" }).closest("ul")?.getAttribute("aria-labelledby")).toBeTruthy();
+    const changed = ready([transfer("a", 5), transfer("b", 4)]);
+    if (changed.status !== "ready") throw new Error("Expected a ready page");
+    changed.page.walletAddress = OTHER;
+    view.rerender(<ActivityPanelView key={changed.page.walletAddress} activity={changed} operations={[pending]} />);
+    const next = view.getByRole("button", { description: "2 Received USDC transfers" });
+    expect(next).not.toBe(summary);
+    expect(next.getAttribute("aria-expanded")).toBe("false");
+    expect(view.queryByRole("button", { description: "View received USDC transaction details" })).toBeNull();
+    expect(view.getByRole("button", { description: "View Pending send transaction details" })).toBeTruthy();
   });
   test("interleaves every loaded row into one feed list with a spinner continuation", () => {
     const view = render(
@@ -388,6 +565,7 @@ describe("combined Activity panel", () => {
     mockRowHeight();
     const rows = Array.from({ length: 160 }, (_, index) => ({
       ...transfer(`detail-${index}`, index % 60),
+      direction: index % 2 ? "outgoing" as const : "incoming" as const,
       blockTimestamp: new Date(Date.parse("2026-09-15T12:59:00Z") - index * 60_000).toISOString(),
     }));
     const view = render(<main data-app-main-authenticated=""><ActivityPanelView activity={ready(rows)} /></main>);

@@ -22,6 +22,10 @@ When anything is pending, Activity shows **Pending** and **Recent** in separate 
 - Within Pending, items that need the customer come first: a customer wait or reversal whose next action is allowed. Everything else keeps list order.
 - **Recent** holds confirmed, failed, expired, refunded and reversed items with no allowed action. Failed and expired items are finished records even though Try again or Start again exists in their sheet.
 
+## Consecutive transfers
+
+Adjacent confirmed incoming transfers of the same chain and token contract (with matching token decimals so units are never mixed) form a collapsible run. Any other activity, including an outgoing transfer or another token, breaks the run. The summary totals only transfers in loaded pages; it shows a priced fiat total only when every child has a recorded valuation, otherwise it shows the token total alone. Its ordinary-height row shows `Received ×4` on one line (the token remains in the icon, native amount, and assistive description), the compact date range alone beneath, fiat and summed native quantity in the value column, and two overlapping token marks inside one icon footprint. A disclosure chevron rotates on expansion. Recent is a flat virtual list: expansion inserts the original transfers as individual inset rows in order, each opening its normal detail sheet and retaining its own focus/restore key; collapsed children are absent from the DOM. The summary keeps its identity when a page extends the run or a new head arrives, and an interleaving movement splits the run.
+
 ## Taxonomy and context
 
 | Status | Row context | Sheet badge | Permitted action kinds before family restrictions |

@@ -6,6 +6,7 @@ import { cashoutFixtureAction, cashoutFixtureProgress } from "./feature-map/cash
 for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 }]) {
   test(`Activity anchors older rows at ${viewport.width}x${viewport.height}`, async ({ page }) => {
     await page.setViewportSize(viewport);
+    await page.emulateMedia({ reducedMotion: "reduce" });
     await seedSignedInSession(page);
     await installApiFixtures(page);
     const anchor = Date.now() - 60_000;
@@ -97,12 +98,30 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
 
     const container = page.locator("[data-app-main-authenticated]");
     const activitySection = container.locator('section[aria-label="Activity"]').last();
+    const recentList = activitySection.getByRole("list", { name: "Recent" });
+    const recentRows = recentList.locator(":scope > li");
+    const rowAt = (minute: number) => recentRows
+      .filter({ hasNot: page.locator("button[aria-expanded]") })
+      .filter({ has: page.locator(`time[datetime="${timestamp(minute)}"]`) });
+    const transferRun = (count: number) => recentList.getByRole("button").filter({ hasText: `×${count}` });
     const rows = activitySection.locator("ul > li");
-    const rowAt = (minute: number) => rows.filter({ has: page.locator(`time[datetime="${timestamp(minute)}"]`) });
     const pending = rows.filter({ hasText: "Pending send" });
     const cashout = rows.filter({ hasText: "Cash out to Zelle" });
     const retry = activitySection.getByRole("button", { name: "Try again", exact: true });
     await page.goto("/activity");
+    await expect(recentRows).toHaveCount(1);
+    await expect(transferRun(12)).toHaveCount(1);
+    await expect(transferRun(12)).toHaveAccessibleDescription("12 Received USDC transfers");
+    await expect(transferRun(12)).toHaveAttribute("aria-expanded", "false");
+    await expect(rowAt(12)).toHaveCount(0);
+    await transferRun(12).click();
+    await expect(transferRun(12)).toHaveAttribute("aria-expanded", "true");
+    await expect(transferRun(12)).toHaveAttribute("aria-controls", /.+/);
+    const controlledId = await transferRun(12).getAttribute("aria-controls");
+    expect(controlledId).toBeTruthy();
+    expect(controlledId).not.toMatch(/\s/);
+    await expect(recentList).toHaveAttribute("id", controlledId!);
+    await expect(rowAt(1)).toBeVisible();
     await expect(rowAt(12)).toHaveCount(1);
     await expect(pending).toHaveCount(1);
     await expect(activitySection.getByRole("heading", { name: "Pending" })).toBeVisible();
@@ -119,10 +138,15 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
     const before = await position();
     expect(before.scrollTop).toBeGreaterThan(0);
     releasePageTwo();
+    await expect(recentRows).toHaveCount(17);
+    await expect(transferRun(16)).toHaveCount(1);
+    await expect(transferRun(16)).toHaveAccessibleDescription("16 Received USDC transfers");
+    await expect(transferRun(16)).toHaveAttribute("aria-expanded", "true");
+    await expect(transferRun(16)).toHaveAttribute("aria-controls", controlledId!);
+    await expect(recentList).toHaveAttribute("id", controlledId!);
+    await expect(transferRun(12)).toHaveCount(0);
     await expect(rowAt(16)).toHaveCount(1);
-    const after = await position();
-    expect(Math.abs(after.top - before.top)).toBeLessThanOrEqual(1);
-    expect(Math.abs(after.scrollTop - before.scrollTop)).toBeLessThanOrEqual(1);
+    await expect.poll(async () => Math.abs((await position()).top - before.top)).toBeLessThanOrEqual(1);
 
     await container.evaluate((element) => { element.scrollTop = element.scrollHeight; });
     await sparsePageServed;
@@ -143,6 +167,18 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
       elements.map((element) => element.getAttribute("datetime")));
     expect(newerTimes.indexOf(timestamp(21))).toBe(0);
     expect(newerTimes.indexOf(timestamp(0))).toBeLessThan(newerTimes.indexOf(timestamp(1)));
+    await expect(recentRows.count()).resolves.toBeGreaterThan(1);
+    await expect(transferRun(19)).toHaveCount(1);
+    await expect(transferRun(19)).toHaveAttribute("aria-expanded", "true");
+    await expect(cashout).toHaveCount(1);
+    await expect(pending).toHaveCount(1);
+    await expect(retry).toHaveCount(0);
+    const pendingTimes = await activitySection.getByRole("list", { name: "Pending" }).locator("time[datetime]").evaluateAll((elements) =>
+      elements.map((element) => element.getAttribute("datetime")));
+    expect(pendingTimes).toEqual([timestamp(21), timestamp(0)]);
+    const visiblePositions = await recentRows.evaluateAll((elements) => elements.map((element) => Number((element as HTMLElement).dataset.index)));
+    expect(visiblePositions).toEqual([...visiblePositions].sort((a, b) => a - b));
+    await expect(recentRows.first()).toHaveAttribute("aria-setsize", "20");
     expect(Object.fromEntries(reads)).toEqual({ initial: 1, "page-2": 1, "page-3": 1, "page-4": 2, "page-5": 1 });
   });
 }
@@ -188,9 +224,9 @@ test("Activity preserves the visible row through an insertion, reorder, and size
         tokenDecimals: 6,
         tokenImageUrl: null,
         walletAddress: wallet,
-        fromAddress: "0x2222222222222222222222222222222222222222",
-        toAddress: wallet,
-        direction: "incoming",
+        fromAddress: (index % 2 || index === 12) ? wallet : "0x2222222222222222222222222222222222222222",
+        toAddress: (index % 2 || index === 12) ? "0x2222222222222222222222222222222222222222" : wallet,
+        direction: (index % 2 || index === 12) ? "outgoing" : "incoming",
         amountBaseUnits: "1000000",
         blockNumber: String(2000 - (promote && index === 12 ? 1 : index * 2)),
         blockHash: `0x${"ef".repeat(32)}`,
@@ -234,7 +270,7 @@ test("Activity preserves the visible row through an insertion, reorder, and size
   expect(afterInsert.time).toBe(before.time);
   expect(Math.abs(afterInsert.top - before.top)).toBeLessThanOrEqual(1);
   promote = true;
-  await page.clock.fastForward(11_000);
+  await page.clock.fastForward(16_000);
   await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
   await expect.poll(() => reads).toBeGreaterThan(2);
   await expect.poll(async () => (await snapshot()).rowIndex).toBe("7");
@@ -283,8 +319,9 @@ test("Activity keeps the visible Recent row fixed when a pending action settles"
           id: `8453:${token}:pending-anchor-${minute}`, logId: `pending-anchor-${minute}`,
           chainId: 8453, assetId: "usdc", tokenAddress: token, tokenSymbol: "USDC", tokenDecimals: 6,
           tokenImageUrl: null, walletAddress: wallet,
-          fromAddress: "0x2222222222222222222222222222222222222222", toAddress: wallet,
-          direction: "incoming", amountBaseUnits: "1000000", blockNumber: String(2000 - minute),
+          fromAddress: minute % 2 ? "0x2222222222222222222222222222222222222222" : wallet,
+          toAddress: minute % 2 ? wallet : "0x2222222222222222222222222222222222222222",
+          direction: minute % 2 ? "incoming" : "outgoing", amountBaseUnits: "1000000", blockNumber: String(2000 - minute),
           blockHash: `0x${"ef".repeat(32)}`, transactionHash: `0x${minute.toString(16).padStart(64, "0")}`,
           logIndex: "1", blockTimestamp: timestamp(minute),
           valuation: { status: "unpriced", currency: "USD", reason: "quote-unavailable" },
@@ -350,9 +387,9 @@ test("mobile Activity keeps 300 paginated rows bounded and restores keyboard foc
         tokenDecimals: 6,
         tokenImageUrl: null,
         walletAddress: wallet,
-        fromAddress: "0x2222222222222222222222222222222222222222",
-        toAddress: wallet,
-        direction: "incoming",
+        fromAddress: index % 2 ? wallet : "0x2222222222222222222222222222222222222222",
+        toAddress: index % 2 ? "0x2222222222222222222222222222222222222222" : wallet,
+        direction: index % 2 ? "outgoing" : "incoming",
         amountBaseUnits: "1000000",
         blockNumber: String(1000 - index),
         blockHash: `0x${"ef".repeat(32)}`,
@@ -444,3 +481,50 @@ test("mobile Activity keeps 300 paginated rows bounded and restores keyboard foc
   expect(visible.top).toBeLessThan(visible.height);
   expect(visible.bottom).toBeGreaterThan(0);
 });
+
+for (const width of [390, 1280]) {
+  test(`Activity summary matches a single transfer row at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await seedSignedInSession(page);
+    await installApiFixtures(page);
+    const wallet = sessionBody.smartAccount.address;
+    const token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
+    await page.route("**/api/actions*", (route) =>
+      new URL(route.request().url()).pathname === "/api/actions" ? json(route, { actions: [] }) : route.fallback());
+    await page.route("**/api/activity*", (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname !== "/api/activity") return route.fallback();
+      const to = url.searchParams.get("to")!;
+      return json(route, {
+        version: 1, walletAddress: wallet, chainId: 8453, currency: "USD",
+        window: { from: new Date(Date.parse(to) - 86400_000).toISOString(), to },
+        transfers: [0, 1, 2].map((index) => ({
+          id: `8453:${token}:geometry-${index}`, logId: `geometry-${index}`, chainId: 8453,
+          assetId: "usdc", tokenAddress: token, tokenSymbol: "USDC", tokenDecimals: 6,
+          tokenImageUrl: null, walletAddress: wallet,
+          fromAddress: index === 2 ? wallet : "0x2222222222222222222222222222222222222222",
+          toAddress: index === 2 ? "0x2222222222222222222222222222222222222222" : wallet,
+          direction: index === 2 ? "outgoing" : "incoming", amountBaseUnits: "1000000",
+          blockNumber: String(300 - index), blockHash: `0x${"ef".repeat(32)}`,
+          transactionHash: `0x${(index + 1).toString(16).padStart(64, "0")}`,
+          logIndex: "1", blockTimestamp: new Date(Date.parse(to) - (index + 1) * 60000).toISOString(),
+          valuation: { status: "priced", currency: "USD", amount: { atoms: "100", scale: 2 }, method: "peg", peg: "USD", close: null, fx: null },
+        })), nextCursor: null,
+        source: { provider: "cdp-sql", cached: false, stale: false, executionTimestamp: to, executionTimeMs: 1, fetchedAt: to },
+      });
+    });
+    await page.goto("/activity");
+    const list = page.locator('section[aria-label="Activity"]').last().getByRole("list");
+    const summary = list.getByRole("button").filter({ hasText: "×2" });
+    const single = list.getByRole("button", { name: /^Sent / });
+    await expect(summary).toHaveAccessibleDescription("2 Received USDC transfers");
+    await expect(summary).toContainText("Received ×2");
+    await expect(summary).toContainText("+2.00 USDC");
+    await expect(summary.locator('[data-slot="item-description"]').first()).not.toContainText("transfers");
+    const heights = await Promise.all([summary, single].map((row) => row.evaluate((node) => node.getBoundingClientRect().height)));
+    expect(Math.abs(heights[0]! - heights[1]!)).toBeLessThanOrEqual(1);
+    const mark = summary.locator("[data-mark-stack]");
+    await expect(mark).toHaveCount(1);
+    expect(await mark.evaluate((node) => node.getBoundingClientRect().width)).toBe(32);
+  });
+}

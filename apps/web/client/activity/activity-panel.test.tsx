@@ -520,9 +520,9 @@ describe("ConnectedActivityPanel", () => {
 
     const observer = await waitForSentinel();
     act(() => observer.intersect());
-    await waitFor(() =>
-      expect(view.getAllByRole("button", { description: /transaction details/ })).toHaveLength(2),
-    );
+    await waitFor(() => expect(view.getByRole("button", { description: /2 Received USDC transfers/ })).toBeTruthy());
+    fireEvent.click(view.getByRole("button", { description: /2 Received USDC transfers/ }));
+    expect(view.getAllByRole("button", { description: /transaction details/ })).toHaveLength(2);
     expect(view.getByText("End of activity")).toBeTruthy();
     expect(view.queryByText(/Data may be delayed/)).toBeNull();
     expect(view.queryByRole("button", { name: "Refresh" })).toBeNull();
@@ -719,6 +719,7 @@ describe("ConnectedActivityPanel", () => {
       await pendingFinal.promise;
     });
     await waitFor(() => expect(view.getByText("End of activity")).toBeTruthy(), waitedFor);
+    fireEvent.click(view.getByRole("button", { description: /2 Received USDC transfers/ }));
     expect(view.getAllByRole("button", { description: /transaction details/ })).toHaveLength(2);
     expect(view.queryByText("Continue loading activity")).toBeNull();
     expect(view.queryByText("Load more activity")).toBeNull();
@@ -775,8 +776,9 @@ describe("ConnectedActivityPanel", () => {
       waitedFor,
     );
     expect(requestedCursors(queries)).toEqual([null, "cursor-1", "cursor-1", "cursor-1", "cursor-1", "cursor-2"]);
+    fireEvent.click(view.getByRole("button", { description: /3 Received USDC transfers/ }));
     expect(view.getAllByRole("button", { description: /transaction details/ })).toHaveLength(3);
-    expect(view.getByRole("list")).toBe(list);
+    expect(view.getAllByRole("list")[0]).toBe(list);
     expect(view.queryByRole("button", { name: "Try again" })).toBeNull();
   });
 
@@ -819,9 +821,9 @@ describe("ConnectedActivityPanel", () => {
       }));
       await pendingSecond.promise;
     });
-    await waitFor(() =>
-      expect(view.getAllByRole("button", { description: /transaction details/ })).toHaveLength(2),
-    );
+    await waitFor(() => expect(view.getByRole("button", { description: /2 Received USDC transfers/ })).toBeTruthy());
+    fireEvent.click(view.getByRole("button", { description: /2 Received USDC transfers/ }));
+    expect(view.getAllByRole("button", { description: /transaction details/ })).toHaveLength(2);
     expect(requestedCursors(queries)).toEqual([null, "cursor-1"]);
     expect(view.queryByText("End of activity")).toBeNull();
 

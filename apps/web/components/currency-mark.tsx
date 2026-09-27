@@ -19,7 +19,7 @@ type CurrencyMarkProps = {
   symbol?: string | null;
   src?: string | null;
   pending?: boolean;
-  size?: "default" | "sm";
+  size?: "default" | "sm" | "xs";
   presentation?: "default" | "selector";
 };
 
@@ -71,6 +71,16 @@ export function CurrencyMark({
   );
 }
 
+export function CurrencyMarkStack(props: Omit<CurrencyMarkProps, "size" | "presentation">) {
+  const symbol = props.symbol?.slice(0, 2) ?? props.currency?.slice(0, 2);
+  return (
+    <span className={styles.stack} aria-hidden="true" data-mark-stack="">
+      <span className={styles.stackBack}><CurrencyMark {...props} symbol={symbol} size="xs" /></span>
+      <span className={styles.stackFront}><CurrencyMark {...props} symbol={symbol} size="xs" /></span>
+    </span>
+  );
+}
+
 export function GlyphMark({
   children,
   size = "default",
@@ -100,7 +110,7 @@ function CurrencyMarkSlot({
   pending: boolean;
   glyph: string;
   resolvedKind: ResolvedMarkKind;
-  size: "default" | "sm";
+  size: "default" | "sm" | "xs";
   presentation: "default" | "selector";
   onImageError?: () => void;
 }) {

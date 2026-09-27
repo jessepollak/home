@@ -1,7 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { useState } from "react";
 import { ArrowDown, HandCoins, PiggyBank } from "lucide-react";
-import { expect, within } from "storybook/test";
-import { GlyphMark } from "./currency-mark";
+import { expect, userEvent, within } from "storybook/test";
+import { CurrencyMarkStack, GlyphMark } from "./currency-mark";
 import { ActivityRow, BalanceRow } from "./finance-rows";
 
 function textEdge(element: HTMLElement, edge: "left" | "right") {
@@ -98,6 +99,31 @@ export const Activity: Story = {
     await expect(canvas.getByText("+425 USDC").getAttribute("data-value-tone")).toBe("success");
   },
 };
+
+export const Disclosure: Story = {
+  render: () => <DisclosureRows />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const summary = canvas.getByRole("button", { name: /Received/ });
+    await expect(summary).toHaveTextContent("Received ×2");
+    await expect(summary).toHaveAccessibleDescription("2 Received USDC transfers");
+    await expect(summary).toHaveAttribute("aria-expanded", "false");
+    await expect(canvas.queryByText("First transfer")).toBeNull();
+    await userEvent.click(summary);
+    await expect(summary).toHaveAttribute("aria-expanded", "true");
+    await expect(canvas.getByText("First transfer")).toBeVisible();
+  },
+};
+
+function DisclosureRows() {
+  const [expanded, setExpanded] = useState(false);
+  return <ul className="w-[30rem] max-w-full list-none p-0">
+    <ActivityRow icon={<CurrencyMarkStack symbol="USDC" />} iconTone="stack"
+      label="Received" labelSuffix={<span aria-hidden="true">×2</span>} context="Sep 21 – 24"
+      value="+$25.00" valueContext="+25.00 USDC" onActivate={() => setExpanded((value) => !value)} activateLabel="2 Received USDC transfers"
+      disclosure={{ expanded, controls: "finance-disclosure-example", content: <ul id="finance-disclosure-example"><li>First transfer</li><li>Second transfer</li></ul> }} />
+  </ul>;
+}
 
 export const Attention: Story = {
   args: { row: "attention" },

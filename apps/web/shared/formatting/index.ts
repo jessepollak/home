@@ -12,6 +12,7 @@ export {
   formatOracleUsd,
   formatPresentationCashAmount,
   formatPresentationDate,
+  formatPresentationDateRange,
   formatPresentationPercentage,
   formatPresentationPrice,
   formatPresentationTokenAmount,
