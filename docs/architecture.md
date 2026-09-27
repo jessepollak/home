@@ -120,6 +120,10 @@ Every money mutation is one of two flows; reads, authentication, and preferences
 
 Balances are a read pipeline, not a flow: enumerate (CDP) ∥ read (pinned registry multicall) → resolve (registry ∪ catalog ∪ wallet) → price → snapshot. Detail: [balances.md](balances.md).
 
+## State changes
+
+Before changing a lifecycle—an action, order, cash-out, identity review, receipt observation, held selection, or cached query—write a state table and include it under Evidence in the PR. List every state and transition. For each transition, state what happens when a read or write is unavailable, fails, times out, or returns partial data; when a second tab or request races it; and when the owner signs out or switches. Mark inapplicable cases explicitly. Name the test for each row and add a test for each changed behavior. Unavailable is not zero or empty.
+
 ## Client
 
 Two cache layers, one source. The device paints first from a persisted, owner-scoped TanStack cache (every row the server sent, stored whole; cleared on every owner-generation bump) — before `session:verified`; only after live SDK/native restore reports a provisional owner and server validation is in flight may owner-fenced balances or country preference be read, never from a render seed alone; the server independently authenticates each GET. Without a matching render seed or device country, the preference read settles the region before the provisional balances read; preference adoption and writes still require server verification. The owner cache and non-authoritative CDP render hint last seven days, aligned with the native Base session; the server answers from the snapshot row and global short-TTL price caches; the chain and providers are the source. The device revalidates after its own confirmed action, on focus, on mount past `staleTime`, with bounded 3 s stale-snapshot convergence, and every 30 foreground seconds (up to ten times) only during a confirmed interruption; the server re-observes on events and the backstop. No layer fabricates a quantity the layer behind it did not produce.
@@ -154,3 +158,7 @@ The enforced scope is non-test, non-story source under the five product layers: 
 
 Test Home's logic: calldata issuance (exact approvals and amounts), auth scope, amount parsing and formatting, derived status (table-driven), the owner fence, selectors and presenters, and UI behavior that would be a bug if broken. Never re-test CDP, Base Account, Next, motion, or happy-dom. No real sleeps; no assertions on source text or rendered CSS classes; expectations state a literal or an independently derived value instead of a constant imported from the module under test; integration fixtures load migrations only through `apps/web/tests/helpers/migrations.ts`; matrices are table-driven and bounded; one behavior per test. The test-only Oxlint overrides and temporary-mirror canaries enforce the mechanical rules. Heuristic: a PR's test code should not exceed its product code, except for status derivation and amount parsing.
 Computed-style reads belong in Playwright, not component tests or stories; `home/no-computed-style-in-component-tests` enforces this.
+
+### Choose the case, then the layer
+
+For each external read or write a change adds or touches, test a rejection, timeout, or malformed or partial result. Assert unavailable, pending, or retained state as appropriate, never a fabricated zero, empty, or success state. For each new or changed API route, pass the handler's real response through the shared contract parser used by the client. Test each behavior at the lowest layer that can observe it.
