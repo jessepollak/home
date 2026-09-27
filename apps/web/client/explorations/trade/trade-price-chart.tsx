@@ -13,9 +13,9 @@ import {
   formatPresentationDate,
 } from "@/shared/formatting";
 import type { RegionId } from "@/config/regions";
-import { usePresentationRegionId } from "./presentation-quote";
+import { usePresentationRegionId } from "@/client/invest/presentation-quote";
 import { useAppearance } from "@/client/appearance/use-appearance";
-import type { PriceHistoryState } from "./use-price-history";
+import type { PriceHistoryState } from "@/client/invest/use-price-history";
 
 const LINE_COLOR = "var(--primary)";
 const RANGE_SECONDS: Record<MarketPriceRange, number> = {

@@ -15,6 +15,7 @@ import {
   formatPresentationTokenAmountParts,
   formatSignedPercentChange,
   formatTokenAmount,
+  formatTrimmedChartPrice,
   formatUnsignedTokenAmount,
   formatUsdPrice,
   formatUsdStablecoinAmount,
@@ -399,5 +400,14 @@ describe("presentation money formatting", () => {
     expect(formatPresentationFiat({ atoms: "481240", scale: 2 }, "IDR", 2, "ID")).toBe(
       "Rp\u00A04.812,40",
     );
+  });
+});
+
+describe("formatTrimmedChartPrice", () => {
+  test("drops trailing compact zeros with the region's decimal separator", () => {
+    expect(formatTrimmedChartPrice("382000000")).toBe("$382M");
+    expect(formatTrimmedChartPrice("38200000", { regionId: "BR" })).toBe("$38,2\u00A0mi");
+    expect(formatTrimmedChartPrice("2410000000000", { regionId: "ID" })).toBe("$2,41T");
+    expect(formatTrimmedChartPrice("850")).toBe("$850.00");
   });
 });

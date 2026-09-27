@@ -5,7 +5,7 @@ import { getHomeQueryClient } from "@/client/query/query-client";
 import { afterEach, describe, expect, test } from "bun:test";
 import type { MarketPriceRange } from "@/shared/invest/contracts/market-price-history";
 
-const { cleanup, render, waitFor } = await import("@testing-library/react");
+const { cleanup, render, waitFor, within } = await import("@testing-library/react");
 const { usePriceHistory } = await import("./use-price-history");
 
 const originalFetch = window.fetch;
@@ -36,11 +36,13 @@ function historyPayload(
 function HookProbe({
   assetId,
   range,
+  speculative = false,
 }: {
   assetId: string;
   range: MarketPriceRange;
+  speculative?: boolean;
 }) {
-  const history = usePriceHistory(assetId, range);
+  const history = usePriceHistory(assetId, range, { speculative });
   return (
     <div>
       <output data-testid="status">{history.status}</output>
@@ -139,6 +141,94 @@ describe("usePriceHistory", () => {
       cleanup();
       getHomeQueryClient().clear();
     }
+  });
+
+  test("a rejected speculative overload is an error and an active observer refetches that key", async () => {
+    const headers: Array<Headers> = [];
+    window.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      headers.push(new Headers(init?.headers));
+      if (headers.length === 1) return Response.json({
+        ...historyPayload("cbbtc", "1W", []),
+        status: "unavailable",
+        unavailableReason: "overloaded",
+      }, { status: 503 });
+      return Response.json(historyPayload("cbbtc", "1W", [
+        { time: "2026-09-07T00:00:00.000Z", value: "62000" },
+      ]));
+    }) as typeof fetch;
+
+    const speculative = render(<HookProbe assetId="cbbtc" range="1W" speculative />);
+    await waitFor(() => expect(speculative.getByTestId("status").textContent).toBe("error"));
+    expect(speculative.getByTestId("count").textContent).toBe("0");
+    expect(headers).toHaveLength(1);
+    expect(headers[0]?.get("x-home-history-priority")).toBe("prefetch");
+
+    const active = render(<HookProbe assetId="cbbtc" range="1W" />);
+    await waitFor(() => expect(within(active.container).getByTestId("status").textContent).toBe("ready"));
+    expect(within(active.container).getByTestId("first").textContent).toBe("62000");
+    expect(headers).toHaveLength(2);
+    expect(headers[1]?.has("x-home-history-priority")).toBe(false);
+  });
+
+  test("selecting a range promotes its in-flight speculative request to active priority", async () => {
+    const headers: Array<Headers> = [];
+    const speculativeGate = deferred<void>();
+    window.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const requestHeaders = new Headers(init?.headers);
+      headers.push(requestHeaders);
+      if (requestHeaders.get("x-home-history-priority") === "prefetch") {
+        await speculativeGate.promise;
+        return Response.json({
+          ...historyPayload("cbbtc", "1W", []),
+          status: "unavailable",
+          unavailableReason: "overloaded",
+        }, { status: 503 });
+      }
+      return Response.json(historyPayload("cbbtc", "1W", [
+        { time: "2026-09-07T00:00:00.000Z", value: "62000" },
+      ]));
+    }) as typeof fetch;
+
+    render(<HookProbe assetId="cbbtc" range="1W" speculative />);
+    await waitFor(() => expect(headers).toHaveLength(1));
+    expect(headers[0]?.get("x-home-history-priority")).toBe("prefetch");
+
+    const active = render(<HookProbe assetId="cbbtc" range="1W" />);
+    await waitFor(() => expect(within(active.container).getByTestId("status").textContent).toBe("ready"));
+    speculativeGate.resolve();
+    expect(within(active.container).getByTestId("first").textContent).toBe("62000");
+    expect(headers).toHaveLength(2);
+    expect(headers[1]?.has("x-home-history-priority")).toBe(false);
+  });
+
+  test("a 502 provider error is not cached as fresh history", async () => {
+    let calls = 0;
+    window.fetch = (async () => {
+      calls++;
+      return calls === 1 ? Response.json({
+        ...historyPayload("cbbtc", "1W", []), status: "error",
+      }, { status: 502 }) : Response.json(historyPayload("cbbtc", "1W", [
+        { time: "2026-09-07T00:00:00.000Z", value: "62000" },
+      ]));
+    }) as unknown as typeof fetch;
+    const failed = render(<HookProbe assetId="cbbtc" range="1W" />);
+    await waitFor(() => expect(failed.getByTestId("status").textContent).toBe("error"));
+    expect(failed.getByTestId("count").textContent).toBe("0");
+    failed.unmount();
+    const active = render(<HookProbe assetId="cbbtc" range="1W" />);
+    await waitFor(() => expect(active.getByTestId("status").textContent).toBe("ready"));
+    expect(calls).toBe(2);
+  });
+
+  test("a successful-status overload is also an error rather than fresh empty data", async () => {
+    window.fetch = (async () => Response.json({
+      ...historyPayload("cbbtc", "1W", []),
+      status: "unavailable",
+      unavailableReason: "overloaded",
+    })) as unknown as typeof fetch;
+    const view = render(<HookProbe assetId="cbbtc" range="1W" />);
+    await waitFor(() => expect(view.getByTestId("status").textContent).toBe("error"));
+    expect(view.getByTestId("count").textContent).toBe("0");
   });
 
   test("does not keep another asset’s series while the next history loads", async () => {

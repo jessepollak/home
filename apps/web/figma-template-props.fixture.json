@@ -43,6 +43,5 @@
   "166:1776": {"Show helper#166:10":[true,false],"Show prefix#512:0":[true,false],"Prefix#512:4":"$","Show suffix#512:8":[false,true],"Suffix#512:12":" USDC","state":["empty","entered","error"]},
   "166:1787": {"chipSet":["quick-local","max"]},
   "166:1788": {},
-  "166:1803": {"Amount#166:20":"$25.00","Lead#166:21":"to Alex Rivera"},
-  "166:1959": {"tone":["gain","loss","loading","scrub","error"]}
+  "166:1803": {"Amount#166:20":"$25.00","Lead#166:21":"to Alex Rivera"}
 }

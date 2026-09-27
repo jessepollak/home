@@ -5,6 +5,7 @@ import { CODEX_GRAPHQL_ENDPOINT } from "./config";
 import {
   CODEX_BARS_QUERY,
   CODEX_HISTORY_MAX_IN_FLIGHT,
+  CODEX_HISTORY_SPECULATIVE_CAPACITY_FRACTION,
   createCodexMarketHistoryReader,
   MARKET_HISTORY_WINDOWS,
 } from "./history";
@@ -235,6 +236,43 @@ describe("Codex market history reader", () => {
     expect(firstResult).toEqual(sameKeyResult);
     expect(secondResult.status).toBe("ready");
     expect(calls).toBe(2);
+  });
+
+  test("reserves half of provider capacity for active reads while speculative reads reuse pending and cached work", async () => {
+    const releases: Array<(response: Response) => void> = [];
+    let calls = 0;
+    const reader = createCodexMarketHistoryReader({
+      apiKey: "fixture-key",
+      now,
+      maxInFlight: 4,
+      fetchImpl: async () => {
+        calls += 1;
+        return new Promise<Response>((resolve) => releases.push(resolve));
+      },
+    });
+    const first = reader("cbbtc", "1D", { speculative: true });
+    const sameKey = reader("cbbtc", "1D", { speculative: true });
+    const second = reader("cbbtc", "1W", { speculative: true });
+    const declined = await reader("cbbtc", "1M", { speculative: true });
+    expect(CODEX_HISTORY_SPECULATIVE_CAPACITY_FRACTION).toBe(0.5);
+    expect(calls).toBe(2);
+    expect(declined).toMatchObject({ status: "unavailable", unavailableReason: "overloaded" });
+
+    const activeThird = reader("cbbtc", "1M");
+    const activeFourth = reader("cbbtc", "3M");
+    expect(calls).toBe(4);
+    expect(await reader("cbbtc", "1Y")).toMatchObject({ status: "unavailable", unavailableReason: "overloaded" });
+    const pendingSameKey = reader("cbbtc", "1D", { speculative: true });
+    expect(calls).toBe(4);
+
+    for (const release of releases) release(barsResponse([{ t: 1757286400, c: "64210.5" }]));
+    const [firstResult, sameResult, , , , pendingResult] = await Promise.all([
+      first, sameKey, second, activeThird, activeFourth, pendingSameKey,
+    ]);
+    expect(sameResult).toEqual(firstResult);
+    expect(pendingResult).toEqual(firstResult);
+    expect((await reader("cbbtc", "1D", { speculative: true })).status).toBe("ready");
+    expect(calls).toBe(4);
   });
 
   test("rejects unknown assets and ranges without calling Codex", async () => {

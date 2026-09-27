@@ -14,6 +14,7 @@ const publicRoutes = new Set([
   "invest/discover/route.ts",
   "invest/search/route.ts",
   "market-prices/history/route.ts",
+  "market-prices/stats/route.ts",
   "market-prices/route.ts",
   "savings/vaults/route.ts",
   "webhooks/cdp/route.ts",

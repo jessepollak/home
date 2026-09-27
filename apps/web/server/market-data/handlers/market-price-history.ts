@@ -8,6 +8,7 @@ import { getInvestHistoryAdmission } from "@/server/market-data/codex/history-ad
 import {
   isDynamicMarketPriceAssetId,
   isMarketPriceRange,
+  MARKET_HISTORY_PRIORITY_HEADER,
   resolveMarketPriceAssetIdentity,
   type MarketPriceHistoryResponse,
   type MarketPriceRange,
@@ -16,6 +17,7 @@ import {
 type HistoryReader = (
   assetId: string,
   range: string,
+  options?: { speculative?: boolean },
 ) => Promise<MarketPriceHistoryResponse>;
 type DynamicAdmissionReader = (
   contractAddress: string,
@@ -82,7 +84,9 @@ export function createMarketPriceHistoryHandler(
     }
 
     try {
-      const payload = await readHistory(identity.assetId, range);
+      const payload = await readHistory(identity.assetId, range, {
+        speculative: request.headers.get(MARKET_HISTORY_PRIORITY_HEADER) === "prefetch",
+      });
       if (
         payload.assetId !== identity.assetId ||
         payload.range !== range ||

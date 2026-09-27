@@ -45,7 +45,7 @@ Proposed in [#694](https://github.com/jessepollak/home/issues/694). **Not accept
 - **Jesse's decision (2026-09-26, Figma comment on Option A, `427:5012`):** “Full bleed seems right.” Option A, the full-bleed chart whose header follows the scrub, is the direction. Options B (carded chart) and C (panel chart with a desktop rail) are not carried forward.
 - **Jesse's refinement requests on the same review:** use the standard finance row for the balance; pin Buy/Sell to the viewport bottom, hide it while scrolling down and bring it back when scrolling stops; make the details more useful; keep the data vendor off the page except for a footnote; drop elements that don't help; lighten the scrub line; make pre-data, first data and range changes smooth; and use a chart library rather than a custom build.
 - **Jesse's round-5 decisions (2026-09-26, PR comment):** keep Liveline as the chart library, accepting its hidden entry settle and the workarounds, which stay inside the chart wrapper; keep the Market cap, 24h volume and Liquidity tiles, with #939 adding the small market-stats contract at adoption; and #935's entry design adopts the pinned Buy/Sell bar, so #935 owns the trade buttons and the bar.
-- **Unreviewed:** the round-5 refinement itself (Figma section `422:4404`, Storybook `explorations-invest-asset-detail--*`) is still a proposal, not an approved revision.
+- **Selected (2026-09-26):** Jesse approved the round-5 refinement as merged in #982 (Figma section `422:4404`). #939 adopts it in production as `AssetDetailScreen` (Storybook `invest-asset-detail--*`, board `review-boards--invest-asset-detail`). Stock positions show their value as unavailable until #624's valuation lands.
 
 ## Motion
 
