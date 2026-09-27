@@ -193,7 +193,6 @@ export function TradeMoneyDialog({ open, direction, session, token, assetName, a
           amount={spentAmount} lead={`${direction === "buy" ? "Buy" : "Sell"} ${assetName}`}
           rows={[
             { label: "You get", value: `≈ ${tradeDisplayAmount(metadata.expectedToAmountBaseUnits, metadata.toAsset)}` },
-            tradeContractRow(metadata),
           ]}
           details={tradeDetailRows(prepared, metadata, actionExpired ? 0 : secondsLeft)} /> : null}
         {step === "pending" ? <Notice><span className="flex items-center gap-2"><LoaderCircle className="size-4 animate-spin" aria-hidden="true" />{prepared ? "Waiting for your wallet…" : "Getting a quote…"}</span></Notice> : null}
@@ -256,6 +255,7 @@ function tradeDetailRows(action: PreparedMoneyAction, metadata: TradeMoneyAction
     { label: "Quote expires in", value: secondsLeft > 0 ? `${secondsLeft}s` : "Expired" },
     { label: "Network", value: metadata.network.name },
     moneyConfirmFromRow(action.owner),
+    tradeContractRow(metadata),
   ];
 }
 function messageForTradeError(error: unknown, direction: TradeDirection): string {

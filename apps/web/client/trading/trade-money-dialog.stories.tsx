@@ -164,10 +164,9 @@ export const BuyReview: Story = {
   play: async ({ canvasElement }) => {
     const screen = await enterReview(canvasElement, "buy");
     await expect(await screen.findByText("Network fee")).toBeVisible();
-    await expect(await screen.findByText("DEGEN contract")).toBeVisible();
-    await expect(screen.getByRole("button", { name: /^Show full contract 0x/ })).toBeVisible();
     await expect(screen.getByRole("button", { name: "Details" })).toHaveAttribute("aria-expanded", "false");
     await expect(screen.queryByText("Minimum received")).not.toBeInTheDocument();
+    await expect(screen.queryByText("DEGEN contract")).not.toBeInTheDocument();
     await expect(await screen.findByRole("button", { name: "Buy $1.00" })).toBeEnabled();
   },
 };
@@ -179,6 +178,7 @@ export const ReviewDetailsOpen: Story = {
     await userEvent.click(toggle);
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
     await expect(screen.getAllByText("DEGEN contract")).toHaveLength(1);
+    await expect(screen.getAllByRole("button", { name: /^Show full contract 0x/ })).toHaveLength(1);
     await expect(await screen.findByText("Minimum received")).toBeVisible();
     await expect(await screen.findByText("Max slippage")).toBeVisible();
   },
@@ -203,10 +203,14 @@ export const SellPartialReview: Story = {
   args: { view: "review", direction: "sell" },
   play: async ({ canvasElement }) => {
     const screen = await enterReview(canvasElement, "sell");
-    await expect(await screen.findByText("DEGEN contract")).toBeVisible();
-    await expect(screen.getByRole("button", { name: /^Show full contract 0x/ })).toBeVisible();
-    await expect(screen.getByRole("button", { name: "Details" })).toHaveAttribute("aria-expanded", "false");
+    const toggle = await screen.findByRole("button", { name: "Details" });
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(screen.queryByText("DEGEN contract")).not.toBeInTheDocument();
     await expect(await screen.findByRole("button", { name: "Sell 0.5 DEGEN" })).toBeEnabled();
+    await userEvent.click(toggle);
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await expect(screen.getAllByText("DEGEN contract")).toHaveLength(1);
+    await expect(screen.getAllByRole("button", { name: /^Show full contract 0x/ })).toHaveLength(1);
   },
 };
 export const SellAllReview: Story = {

@@ -24,7 +24,7 @@ const MoneyModalExitContext = createContext<() => void>(() => {});
 let handoffReturnFocus: HTMLElement | null = null;
 const MoneyModalHandoffContext = createContext(false);
 /** @public shared money-flow step contract (#1058) */
-export const MONEY_MODAL_STEP_DURATION_MS = 200;
+export const MONEY_MODAL_STEP_DURATION_MS = 180;
 /** @public shared money-flow step contract (#1058) */
 export const MONEY_MODAL_STEP_EASING = "cubic-bezier(0.22, 1, 0.36, 1)";
 const MONEY_MODAL_STEP_ENTER_OPACITY = 0.4;

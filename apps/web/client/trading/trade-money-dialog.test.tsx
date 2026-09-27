@@ -157,19 +157,22 @@ describe("any-token trade review", () => {
     await submit(trade.view, "12");
     await waitFor(() => expect(trade.requests[0]?.amountBaseUnits).toBe("12000000000000000000"));
   });
-  test.each(["buy", "sell"] as const)("%s review shows the traded contract without opening Details", async (direction) => {
+  test.each(["buy", "sell"] as const)("%s review keeps the traded contract behind Details", async (direction) => {
     const trade = dialog(direction);
     await submit(trade.view, direction === "buy" ? "1" : "0.5");
     const toggle = await trade.view.findByRole("button", { name: "Details" });
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(trade.view.queryByText("DEGEN contract")).toBeNull();
+    expect(trade.view.queryByRole("button", { name: /^Show full contract 0x/ })).toBeNull();
+    click(trade.view, "Details");
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(trade.view.getAllByText("DEGEN contract")).toHaveLength(1);
     const reveal = trade.view.getByRole("button", { name: /^Show full contract 0x/ });
     expect(reveal.getAttribute("title")).toBe(token(18).address);
     expect(reveal.textContent).toContain("0x2222");
     click(trade.view, "Details");
-    expect(trade.view.getAllByText("DEGEN contract")).toHaveLength(1);
-    click(trade.view, "Details");
-    expect(trade.view.getByText("DEGEN contract")).toBeTruthy();
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(trade.view.queryByText("DEGEN contract")).toBeNull();
   });
   test("review shows expected receive and network fee until Details exposes quote facts", async () => {
     const trade = dialog("buy");
