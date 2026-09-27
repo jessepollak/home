@@ -128,15 +128,22 @@ function storyStem(path: string): string {
   return path.replace(/\.[^.\/]+$/, "").replace(/\.stories$/, "");
 }
 
-function buildChanges(build: ReviewBuild): ((entry: StoryIndexEntry) => "new" | "changed" | null) | null {
+type StoryChange = { kind: "new" | "changed"; priority: "primary" | "secondary" };
+
+function buildChanges(build: ReviewBuild): ((entry: StoryIndexEntry) => StoryChange | null) | null {
   if (!hasChangeData(build)) return null;
   const changed = new Set(build.changedFiles);
-  const stems = new Set(build.changedFiles.filter((path) => !/\.stories\.[^/]+$/.test(path)).map(storyStem));
+  const primaryStems = new Set(build.changedFiles.filter((path) =>
+    !/\.stories\.[^/]+$/.test(path) && !path.startsWith("apps/web/components/ui/")).map(storyStem));
+  const secondaryStems = new Set(build.changedFiles.filter((path) =>
+    !/\.stories\.[^/]+$/.test(path) && path.startsWith("apps/web/components/ui/")).map(storyStem));
   const added = new Set(build.addedFiles ?? []);
   return (entry) => {
     const path = storyPath(entry.importPath);
-    if (!/\.stories\.[^/]+$/.test(path) || !(changed.has(path) || stems.has(storyStem(path)))) return null;
-    return added.has(path) ? "new" : "changed";
+    if (!/\.stories\.[^/]+$/.test(path)) return null;
+    const primary = changed.has(path) || primaryStems.has(storyStem(path));
+    if (!primary && !secondaryStems.has(storyStem(path))) return null;
+    return { kind: added.has(path) ? "new" : "changed", priority: primary ? "primary" : "secondary" };
   };
 }
 
@@ -151,40 +158,52 @@ export function markBuildChanges(board: ReviewBoard, build: ReviewBuild, entries
         const entry = entries[frame.story];
         if (frame.change !== "unchanged") return frame;
         const derived = entry?.type === "story" && entry.importPath ? change(entry) : null;
-        return derived ? { ...frame, change: derived } : frame;
+        return derived ? { ...frame, change: derived.kind } : frame;
       }),
     })),
   };
 }
 
-export function changesBoard(build: ReviewBuild, entries: Record<string, StoryIndexEntry>): ReviewBoard | null {
+export function changesBoard(build: ReviewBuild, entries: Record<string, StoryIndexEntry>, focus?: string[]): ReviewBoard | null {
   const change = buildChanges(build);
-  if (!change) return null;
-  const groups = new Map<string, { story: StoryIndexEntry; change: "new" | "changed" }[]>();
+  const isStory = (entry: StoryIndexEntry | undefined): entry is StoryIndexEntry =>
+    entry?.type === "story" && !entry.id.startsWith("review-boards--");
+  const focused = [...new Set(focus ?? [])].map((id) => entries[id]).filter(isStory);
+  if (!change && !focused.length) return null;
+  const focusedIds = new Set(focused.map((entry) => entry.id));
+  const frame = (story: StoryIndexEntry, kind: "new" | "changed" | "unchanged") => ({
+    id: story.id,
+    story: story.id,
+    label: story.name,
+    viewport: viewports[storyViewport(story)],
+    change: kind,
+  });
+  const groups = new Map<string, { stories: { story: StoryIndexEntry; change: StoryChange }[]; primary: boolean }>();
   for (const entry of Object.values(entries)) {
-    if (entry.type !== "story" || /^review-boards--/.test(entry.id)) continue;
-    const kind = change(entry);
+    if (!isStory(entry) || focusedIds.has(entry.id)) continue;
+    const kind = change?.(entry);
     if (!kind) continue;
-    const group = groups.get(entry.title) ?? [];
-    group.push({ story: entry, change: kind });
+    const group = groups.get(entry.title) ?? { stories: [], primary: false };
+    group.stories.push({ story: entry, change: kind });
+    if (kind.priority === "primary") group.primary = true;
     groups.set(entry.title, group);
   }
-  if (groups.size === 0) return null;
+  if (groups.size === 0 && focused.length === 0) return null;
   return {
     id: "changes",
     title: build.pr ? `PR #${build.pr} changes` : "Changes in this PR",
-    summary: "Stories for files changed in this build.",
+    summary: focused.length ? "Stories selected for review, plus stories matched to changed files when available." :
+      "Stories for files changed in this build.",
     refs: build.pr ? { pr: build.pr } : undefined,
-    sections: Array.from(groups, ([title, stories], index) => ({
-      id: `stories-${index + 1}`,
-      title,
-      frames: stories.map(({ story, change }) => ({
-        id: story.id,
-        story: story.id,
-        label: story.name,
-        viewport: viewports[storyViewport(story)],
-        change,
-      })),
-    })),
+    sections: [
+      ...(focused.length ? [{ id: "review", title: "Review", frames: focused.map((story) =>
+        frame(story, change?.(story)?.kind ?? "unchanged")) }] : []),
+      ...Array.from(groups).sort(([, left], [, right]) => Number(right.primary) - Number(left.primary))
+        .map(([title, { stories }], index) => ({
+          id: `stories-${index + 1}`,
+          title,
+          frames: stories.map(({ story, change }) => frame(story, change.kind)),
+        })),
+    ],
   };
 }

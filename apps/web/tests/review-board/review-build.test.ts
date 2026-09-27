@@ -129,3 +129,47 @@ test("reports pending or no checks and respects an aborted signal", async () => 
   const controller = new AbortController(); controller.abort();
   expect(await fetchPrStatus(build, controller.signal)).toBeNull();
 });
+
+test("focus pins indexed stories in URL order, deduplicates, and keeps change tags", () => {
+  const changed = { ...build, changedFiles: ["apps/web/client/foo.tsx", "apps/web/client/other.stories.tsx"], addedFiles: ["apps/web/client/other.stories.tsx"] };
+  const board = changesBoard(changed, entries, ["missing--story", "other--narrow", "foo--normal", "other--narrow", "review-boards--changes", "foo--docs"]);
+  expect(board?.sections.map((section) => [section.id, section.title])).toEqual([
+    ["review", "Review"], ["stories-1", "UI/Foo"],
+  ]);
+  expect(board?.sections[0].frames.map((frame) => [frame.id, frame.change])).toEqual([
+    ["other--narrow", "new"], ["foo--normal", "changed"],
+  ]);
+  expect(board?.sections[1].frames.map((frame) => frame.story)).toEqual(["foo--desktop"]);
+  expect(board?.summary).toContain("selected for review");
+  expect(changesBoard(changed, entries, ["missing--story", "foo--docs"])?.sections.map((section) => section.title))
+    .toEqual(["UI/Foo", "UI/Other"]);
+});
+
+test("focus includes unchanged indexed stories without changed-file data", () => {
+  const focused = changesBoard({ ...build, changedFiles: null }, entries, ["other--narrow", "foo--normal"]);
+  expect(focused?.sections.map((section) => section.id)).toEqual(["review"]);
+  expect(focused?.sections[0].frames.map((frame) => [frame.id, frame.change])).toEqual([
+    ["other--narrow", "unchanged"], ["foo--normal", "unchanged"],
+  ]);
+  expect(changesBoard({ ...build, changedFiles: null }, entries, ["missing--story"])).toBeNull();
+  const withData = changesBoard({ ...build, changedFiles: ["apps/web/client/foo.tsx"] }, entries,
+    ["other--narrow"]);
+  expect(withData?.sections.map((section) => section.title)).toEqual(["Review", "UI/Foo"]);
+  expect(withData?.sections[0].frames[0].change).toBe("unchanged");
+});
+
+test("primary title groups precede groups matched only by shared UI sources", () => {
+  const stories: Record<string, StoryIndexEntry> = {
+    "button--default": { id: "button--default", title: "A/Button", name: "Default", importPath: "./components/ui/button.stories.tsx", type: "story" },
+    "card--default": { id: "card--default", title: "B/Card", name: "Default", importPath: "./components/ui/card.stories.tsx", type: "story" },
+    "main--default": { id: "main--default", title: "Z/Main", name: "Default", importPath: "./client/main.stories.tsx", type: "story" },
+    "extra--default": { id: "extra--default", title: "B/Card", name: "Extra", importPath: "./client/extra.stories.tsx", type: "story" },
+  };
+  const sourceChanges = { ...build, changedFiles: ["apps/web/components/ui/button.tsx", "apps/web/components/ui/card.tsx", "apps/web/client/main.tsx"] };
+  expect(changesBoard(sourceChanges, stories)?.sections.map((section) => section.title))
+    .toEqual(["Z/Main", "A/Button", "B/Card"]);
+  const withStoryFile = changesBoard({ ...sourceChanges, changedFiles: [...sourceChanges.changedFiles, "apps/web/components/ui/card.stories.tsx"] }, stories);
+  expect(withStoryFile?.sections.map((section) => section.title)).toEqual(["B/Card", "Z/Main", "A/Button"]);
+  expect(changesBoard({ ...sourceChanges, changedFiles: [...sourceChanges.changedFiles, "apps/web/client/extra.tsx"] }, stories)
+    ?.sections.map((section) => section.title)).toEqual(["B/Card", "Z/Main", "A/Button"]);
+});

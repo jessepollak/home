@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
 import { storyViewport, type StoryIndexEntry } from "../stories/review/explorations/board/review-build";
+import { readBoardUrl } from "../stories/review/explorations/board/url-state";
 
 export type ReviewManifest = {
   id: string;
@@ -50,7 +51,9 @@ export function parseReviewUrl(input: string) {
     if (!candidate.hostname) throw new Error("Malformed review URL: invalid deployment host");
     origin = candidate.origin;
   }
-  return { board, frame, side: side as Side, variant, rev: url.searchParams.get("rev") || null, origin };
+  const focus = board === "changes" ? readBoardUrl(url).focus : undefined;
+  return { board, frame, side: side as Side, variant, rev: url.searchParams.get("rev") || null, origin,
+    ...(focus ? { focus } : {}) };
 }
 
 export function resolveFrame(manifest: ReviewManifest, frameId: string, side: Side, variant?: "before") {
@@ -82,16 +85,24 @@ export function changesReviewManifest(
   parsed: ReturnType<typeof parseReviewUrl>, entries: Record<string, StoryIndexEntry>,
 ): ReviewManifest {
   if (parsed.board !== "changes") throw new Error(`Unknown automatic board "${parsed.board}"`);
+  const isStory = (story: StoryIndexEntry | undefined): story is StoryIndexEntry =>
+    story?.type === "story" && story.id === entries[story.id]?.id && !story.id.startsWith("review-boards--");
   const story = entries[parsed.frame];
-  if (story?.type !== "story" || story.id !== parsed.frame || /^review-boards--/.test(story.id))
+  if (!isStory(story) || story.id !== parsed.frame)
     throw new Error(`Unknown story frame "${parsed.frame}" in the story index`);
+  const focused = (parsed.focus ?? []).map((id) => entries[id]).filter(isStory);
+  const frame = (entry: StoryIndexEntry, change: "changed" | "unchanged") => ({
+    id: entry.id, story: entry.id, label: entry.name, viewport: storyViewport(entry), change,
+  });
+  const review = focused.length ? [{ id: "review", title: "Review", frames: focused.map((entry) =>
+    frame(entry, "unchanged")) }] : [];
   return {
-    id: "changes", title: "Changes in this PR", summary: "Stories for files changed in this build.",
-    sections: [{ id: "stories", title: "Changed stories", frames: [{
-      id: story.id, story: story.id, label: story.name,
-      viewport: storyViewport(story),
-      change: "changed",
-    }] }],
+    id: "changes", title: "Changes in this PR",
+    summary: review.length ? "Stories selected for review, plus stories matched to changed files when available." :
+      "Stories for files changed in this build.",
+    sections: [...review, ...(!focused.some((entry) => entry.id === story.id) ? [
+      { id: "stories", title: "Changed stories", frames: [frame(story, "changed")] },
+    ] : [])],
   };
 }
 
@@ -113,6 +124,7 @@ export function buildReviewContext(
   board.searchParams.set("frame", parsed.frame);
   board.searchParams.set("side", parsed.side);
   if (variant) board.searchParams.set("variant", variant);
+  if (parsed.focus?.length) board.searchParams.set("focus", parsed.focus.join(","));
   if (parsed.rev) board.searchParams.set("rev", parsed.rev);
   board.searchParams.set("deployment", new URL(parsed.origin).host);
   const outdated = manifestChanged === "yes" || sourceChanged === "yes" ? "yes" :
