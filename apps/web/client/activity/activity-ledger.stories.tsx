@@ -5,6 +5,7 @@ import { PORTFOLIO_USDC_ASSET_KEY, assetKeyForErc20 } from "@/config/portfolio-a
 import { Card, CardContent } from "@/components/ui/card";
 import {
   ActivityLedger,
+  type ActivityLedgerEntry,
   type ActivityLedgerItem,
 } from "./activity-ledger";
 import { ActivityLedgerDetailSheet } from "./activity-ledger-sheet";
@@ -236,7 +237,7 @@ function Surface({
   canOpenAsset,
   onOpenAsset,
 }: {
-  items?: ActivityLedgerItem[];
+  items?: ActivityLedgerEntry[];
   initial?: ActivityLedgerItem;
   pendingLabel?: string;
   recentLabel?: string;
@@ -286,7 +287,7 @@ const meta = {
 } satisfies Meta<typeof ActivityLedger>;
 export default meta;
 type Story = StoryObj<typeof meta>;
-const withItems = (items: ActivityLedgerItem[]): Story => ({
+const withItems = (items: ActivityLedgerEntry[]): Story => ({
   render: () => <Surface items={items} />,
 });
 const detail = (item: ActivityLedgerItem, options: {
@@ -530,3 +531,137 @@ export const Desktop: Story = {
   parameters: { viewport: { defaultViewport: "desktop" } },
 };
 export const ReducedMotionReference: Story = { render: () => <Surface items={[funding]} /> };
+
+function syntheticTransfer(id: string, title: string, amount: string, symbol: string): ActivityLedgerItem {
+  return {
+    id: `synthetic-${id}`,
+    family: "onchain-transfer",
+    status: "confirmed",
+    timestamp: "2026-09-24T12:00:00.000Z",
+    dateLabel: "Sep 24",
+    fullDateLabel: "Sep 24, 2026, 12:00 PM",
+    title,
+    amount,
+    direction: "in",
+    mark: { kind: "asset", symbol },
+    detail: {
+      family: "onchain-transfer",
+      counterpartyLabel: "From",
+      counterparty: "0x0000000000000000000000000000000000000001",
+      network: "Base",
+    },
+  };
+}
+
+const pricedChildren = [
+  syntheticTransfer("usdc-a", "Received", "+$4.00", "USDC"),
+  { ...syntheticTransfer("usdc-b", "Received", "+$6.00", "USDC"),
+    timestamp: "2026-09-22T12:00:00.000Z", dateLabel: "Sep 22", fullDateLabel: "Sep 22, 2026, 12:00 PM" },
+];
+const unpricedChildren = [
+  syntheticTransfer("mystery-a", "Received", "+2.00 TEST", "TEST"),
+  syntheticTransfer("mystery-b", "Received", "+3.00 TEST", "TEST"),
+];
+function syntheticGroup(children: readonly ActivityLedgerItem[], symbol: string, amount: string, amountContext?: string): ActivityLedgerEntry {
+  return {
+    kind: "group",
+    id: `transfer-run:${children[0]!.id}`,
+    title: "Received",
+    countLabel: `${children.length} transfers`,
+    count: children.length,
+    newestTimestamp: children[0]!.timestamp,
+    oldestTimestamp: children[children.length - 1]!.timestamp,
+    rangeLabel: children[0]!.dateLabel === children[children.length - 1]!.dateLabel
+      ? children[0]!.dateLabel : `${children[children.length - 1]!.dateLabel} – ${children[0]!.dateLabel}`,
+    fullRangeLabel: `${children[children.length - 1]!.fullDateLabel} – ${children[0]!.fullDateLabel}`,
+    amount,
+    amountContext,
+    direction: "in",
+    mark: { kind: "asset", symbol },
+    toggleLabel: `${children.length} Received ${symbol} transfers`,
+    children,
+  };
+}
+
+const groupedMix: ActivityLedgerEntry[] = [
+  syntheticGroup(pricedChildren, "USDC", "+$10.00", "+10.00 USDC"),
+  syntheticTransfer("btc", "Received", "+0.01 BTC", "BTC"),
+  syntheticTransfer("usdc-separated", "Received", "+$1.00", "USDC"),
+  syntheticGroup(unpricedChildren, "TEST", "+5.00 TEST"),
+];
+
+export const ConsecutiveTransfersMobile: Story = {
+  render: () => <Surface items={groupedMix} layout="feed" />,
+  parameters: { viewport: { defaultViewport: "mobile" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const screen = within(canvasElement.ownerDocument.body);
+    const summary = canvas.getByRole("button", { description: "2 Received USDC transfers" });
+    summary.focus();
+    await userEvent.keyboard("{Enter}");
+    await expect(summary).toHaveAttribute("aria-expanded", "true");
+    const listId = summary.getAttribute("aria-controls");
+    if (!listId) throw new Error("Expanded run did not identify its recent list");
+    const list = canvasElement.ownerDocument.getElementById(listId);
+    if (!list || list !== summary.closest("ul")) throw new Error("Expanded run did not control its mounted list");
+    const children = within(list).getAllByRole("button", { description: "View Received details" });
+    await expect(children).toHaveLength(4);
+    const child = children[0]!;
+    await waitFor(() => expect(child).toBeVisible());
+    await userEvent.click(child);
+    await expect(await screen.findByRole("dialog", { name: "Received" })).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Close Received details" }));
+    await waitFor(() => expect(child).toHaveFocus());
+    summary.focus();
+    await userEvent.keyboard(" ");
+    await expect(summary).toHaveAttribute("aria-expanded", "false");
+    await expect(summary).not.toHaveAttribute("aria-controls");
+    await expect(canvasElement.ownerDocument.getElementById(listId)).toBe(list);
+    await expect(child.isConnected).toBe(false);
+    await expect(within(list).getAllByRole("button", { description: "View Received details" })).toHaveLength(2);
+  },
+};
+
+export const ConsecutiveTransfersDesktop: Story = {
+  render: () => <Surface items={groupedMix} />,
+  parameters: { viewport: { defaultViewport: "desktop" } },
+};
+
+export const LongTransferRun: Story = {
+  render: () => <Surface items={[syntheticGroup(
+    Array.from({ length: 40 }, (_, index) => syntheticTransfer(`long-${index}`, "Received", "+$1.00", "USDC")),
+    "USDC", "+$40.00", "+40.00 USDC",
+  )]} />,
+  parameters: { viewport: { defaultViewport: "smallMobile" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const summary = canvas.getByRole("button", { description: "40 Received USDC transfers" });
+    await userEvent.click(summary);
+    await expect(canvas.getAllByRole("button", { description: "View Received details" }).length).toBeLessThan(40);
+    await expect(canvas.getAllByRole("button", { description: "View Received details" }).length).toBeGreaterThan(0);
+  },
+};
+
+export const LongSymbolTransferDescription: Story = {
+  render: () => <Surface items={[syntheticGroup(
+    [syntheticTransfer("long-symbol-a", "Received", "+$1.00", "ANEXCEPTIONALLYLONGTOKENNAME"),
+      syntheticTransfer("long-symbol-b", "Received", "+$1.00", "ANEXCEPTIONALLYLONGTOKENNAME")],
+    "ANEXCEPTIONALLYLONGTOKENNAME", "+$2.00", "+2.00 ANEXCEPTIONALLYLONGTOKENNAME",
+  )]} />,
+  parameters: { viewport: { defaultViewport: "mobile" } },
+  play: async ({ canvasElement }) => {
+    const summary = within(canvasElement).getByRole("button", {
+      description: "2 Received ANEXCEPTIONALLYLONGTOKENNAME transfers",
+    });
+    await expect(summary).toBeVisible();
+    await expect(summary).toHaveTextContent("Received ×2");
+    await expect(summary.querySelector('[data-slot="item-title"]')).not.toHaveTextContent("ANEXCEPTIONALLYLONGTOKENNAME");
+    const title = summary.querySelector<HTMLElement>('[data-slot="item-title"]');
+    const count = title?.querySelector<HTMLElement>('[aria-hidden="true"]');
+    if (!title || !count) throw new Error("Summary title or count is missing");
+    await expect(count.getBoundingClientRect().width).toBeGreaterThan(0);
+    await expect(count.getBoundingClientRect().right).toBeLessThanOrEqual(title.getBoundingClientRect().right + 1);
+    await expect(count.getBoundingClientRect().top).toBeGreaterThanOrEqual(title.getBoundingClientRect().top);
+    await expect(count.getBoundingClientRect().bottom).toBeLessThanOrEqual(title.getBoundingClientRect().bottom + 1);
+  },
+};

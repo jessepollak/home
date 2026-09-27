@@ -8,12 +8,12 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { ActivityLoader } from "@/components/activity-loader";
 import { deferSheet } from "@/client/money-modal/deferred-sheet";
-import { ActivityLedger, uniqueActivityLedgerItems, type ActivityLedgerItem } from "./activity-ledger";
+import { ActivityLedger, uniqueActivityLedgerItems, type ActivityLedgerEntry, type ActivityLedgerItem } from "./activity-ledger";
 import type { ActivityListHandle } from "./virtual-activity-list";
-import { presentActivityLedgerItems } from "./activity-ledger-items";
+import { presentActivityLedgerEntries, presentActivityLedgerItems } from "./activity-ledger-items";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import type { RegionId } from "@/config/regions";
-import { mergeActivityFeed } from "./activity-feed";
+import { mergeActivityFeed, type ActivityFeedItem } from "./activity-feed";
 import { type UseActivityResult } from "./use-activity";
 import { ShimmerRows } from "@/client/home/panel-shared";
 import type { ActivityPanelDensity, ActivityTransfer } from "./types";
@@ -119,10 +119,30 @@ export function ActivityPanelView({
       : activity.page.window.to
     : null;
   const feed = useMemo(() => mergeActivityFeed({ transfers, operations, loadedThrough }), [transfers, operations, loadedThrough]);
-  const pairs = useMemo(() => uniqueActivityLedgerItems(
-    presentActivityLedgerItems(feed, { regionId }).map((item, index) => ({ item, source: feed[index]! })),
-    (pair) => pair.item,
-  ), [feed, regionId]);
+  const [presented, setPresented] = useState<{
+    feed: readonly ActivityFeedItem[];
+    regionId: RegionId;
+    pairs: { source: ActivityFeedItem; item: ActivityLedgerItem }[];
+    entries: ActivityLedgerEntry[];
+    transfers: Map<string, { source: ActivityFeedItem; item: ActivityLedgerItem }>;
+  }>(() => ({ feed: [], regionId, pairs: [], entries: [], transfers: new Map() }));
+  let current = presented;
+  if (presented.feed !== feed || presented.regionId !== regionId) {
+    const transfers = new Map<string, { source: ActivityFeedItem; item: ActivityLedgerItem }>();
+    const pairs = uniqueActivityLedgerItems(feed.map((source) => {
+      const previous = source.kind === "transfer" ? presented.transfers.get(source.id) : undefined;
+      const item = previous && source.kind === "transfer" && previous.source.kind === "transfer" &&
+        previous.source.transfer === source.transfer && presented.regionId === regionId
+        ? previous.item : presentActivityLedgerItems([source], { regionId })[0]!;
+      if (source.kind === "transfer") transfers.set(source.id, { source, item });
+      return { item, source };
+    }), (pair) => pair.item);
+    current = { feed, regionId, pairs, transfers,
+      entries: presentActivityLedgerEntries(pairs, { regionId }, presented.regionId === regionId ? presented.entries : []),
+    };
+    setPresented(current);
+  }
+  const { pairs, entries } = current;
   const items = useMemo(() => pairs.map((pair) => pair.item), [pairs]);
   const hasRows = items.length > 0;
   const selectedItem = selection
@@ -214,7 +234,7 @@ export function ActivityPanelView({
         {!hasRows ? (exhausted && !historyUnknown ? <ActivityEmpty plain={plain} action={emptyAction} /> : null) : (
           <div onPointerDown={() => void ActivityLedgerSheet.preload()}>
             <ActivityLedger
-              items={items}
+              items={entries}
               layout={plain ? "feed" : "page"}
               footer={footer}
               exhausted={exhausted}

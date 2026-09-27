@@ -9,9 +9,10 @@ const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-libr
 const { VirtualActivityList } = await import("./virtual-activity-list");
 
 type RowProps = ComponentProps<typeof VirtualActivityList>["Row"] extends React.ComponentType<infer P> ? P : never;
-const Row = ({ item, onOpen, liProps }: RowProps) => (
-  <li {...liProps}><button type="button" onClick={(event) => onOpen(item, event.currentTarget)}>{item.title}</button></li>
-);
+const Row = ({ row, onOpen, liProps }: RowProps) => {
+  if (!("item" in row)) throw new Error("Expected item row");
+  return <li {...liProps}><button type="button" onClick={(event) => onOpen(row.item, event.currentTarget)}>{row.item.title}</button></li>;
+};
 const onOpen = () => {};
 const originalHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
 const originalRect = HTMLElement.prototype.getBoundingClientRect;
@@ -69,11 +70,11 @@ function item(id: string): ActivityLedgerItem {
   };
 }
 
-const props = { attentionLabel: "Action needed", onOpen, Row };
+const props = { attentionLabel: "Action needed", onOpen, onToggle: () => {}, Row };
 
 function list(items: ActivityLedgerItem[], exhausted = false) {
   return <main data-app-main-authenticated=""><section tabIndex={-1} aria-label="Activity">
-    <VirtualActivityList {...props} items={items} exhausted={exhausted} labelledBy="recent-title" />
+    <VirtualActivityList {...props} id="recent-list" items={items.map((entry) => ({ key: `${entry.family}:${entry.id}`, item: entry }))} exhausted={exhausted} labelledBy="recent-title" />
   </section></main>;
 }
 
@@ -220,6 +221,18 @@ test("pauses rows while hidden and restores measured positions on resume", async
   view.rerender(show(true));
   expect(Number.parseFloat(ul.style.height)).toBeGreaterThan(80 * 64);
   expect(firstVisible()).toEqual(visible);
+});
+
+test("keeps fractional row heights on initial measurement before a resize observation", () => {
+  mockHeights(() => 60);
+  HTMLElement.prototype.getBoundingClientRect = function () {
+    if (this.tagName === "LI") return { height: 60.25 } as DOMRect;
+    return originalRect.call(this);
+  };
+  const view = render(list(Array.from({ length: 14 }, (_, index) => item(`row-${index}`))));
+  const ul = view.container.querySelector("ul")!;
+  expect(ul.style.height).toBe("843.5px");
+  expect(ul.querySelector<HTMLElement>('li[data-index="13"]')?.style.transform).toBe("translateY(783.25px)");
 });
 
 test("scroll margin positions the rows without reducing the list's content height", () => {

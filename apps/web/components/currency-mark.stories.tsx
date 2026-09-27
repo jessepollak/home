@@ -7,7 +7,7 @@ import { PORTFOLIO_NATIVE_ASSET_KEY, PORTFOLIO_USDC_ASSET_KEY, assetKeyForErc20 
 import { presentationRegions } from "@/config/regions";
 import { BASE_BORROW_COLLATERAL_ASSETS } from "@/shared/assets/base";
 import { presentationCurrencyFlag } from "./currency-flag";
-import { CurrencyMark } from "./currency-mark";
+import { CurrencyMark, CurrencyMarkStack } from "./currency-mark";
 
 const currencies = [...new Set([
   ...Object.values(presentationRegions).map((region) => region.currency.code),
@@ -120,5 +120,30 @@ export const Header: Story = {
       await expect(within(list).getByRole("option", { name: /US dollar.*USDC|USDC.*US dollar/ })).toBeVisible();
     });
     await assertSelectorFlags(canvasElement.ownerDocument.body, 7);
+  },
+};
+
+export const StackedTransferMarks: Story = {
+  render: () => <div className="flex flex-col gap-4" aria-label="Stacked transfer marks">
+    <div className="flex gap-4 bg-background p-4" aria-label="Plain surface">
+      <CurrencyMarkStack assetKey={PORTFOLIO_USDC_ASSET_KEY} symbol="USDC" />
+      <CurrencyMarkStack symbol="MYSTERY" />
+    </div>
+    <div className="flex gap-4 bg-card p-4 [--mark-stack-surface:var(--card)]" aria-label="Card surface">
+      <CurrencyMarkStack assetKey={PORTFOLIO_USDC_ASSET_KEY} symbol="USDC" />
+      <CurrencyMarkStack symbol="MYSTERY" />
+    </div>
+  </div>,
+  play: async ({ canvasElement }) => {
+    const marks = canvasElement.querySelectorAll("[data-mark-stack]");
+    await expect(marks).toHaveLength(4);
+    for (const mark of marks) {
+      await expect(mark).toHaveAttribute("aria-hidden", "true");
+      const layers = mark.querySelectorAll<HTMLElement>("[data-mark]");
+      await expect(layers).toHaveLength(2);
+      await expect(mark.getBoundingClientRect().width).toBe(32);
+      for (const layer of layers) await expect(layer.getBoundingClientRect().width).toBe(24);
+    }
+    for (const layer of marks[1]!.querySelectorAll("[data-mark]")) await expect(layer).toHaveTextContent(/^MY$/);
   },
 };

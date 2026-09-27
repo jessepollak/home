@@ -724,6 +724,7 @@ export function formatSignedPercentChange(
 export type PresentationDateStyle =
   | "activity-full"
   | "activity-short"
+  | "activity-date"
   | "date-time-zone"
   | "quote-time"
   | "chart-time"
@@ -738,15 +739,31 @@ export function formatPresentationDate(
     style: PresentationDateStyle;
   },
 ): string {
+  return formatPresentationDateRange(value, value, options);
+}
+
+export function formatPresentationDateRange(
+  start: string | number | Date,
+  end: string | number | Date,
+  options: {
+    regionId?: RegionId;
+    timeZone?: string;
+    style: PresentationDateStyle;
+  },
+): string {
   const locale = presentationLocale(options.regionId);
   const zone = options.timeZone ? { timeZone: options.timeZone } : {};
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return "—";
-  const part = (formatOptions: Intl.DateTimeFormatOptions) =>
-    collapseSpaces(cachedDateTimeFormat(locale, { ...formatOptions, ...zone }).format(date), " ");
+  const from = new Date(start);
+  const to = new Date(end);
+  if (!Number.isFinite(from.getTime()) || !Number.isFinite(to.getTime())) return "—";
+  const part = (formatOptions: Intl.DateTimeFormatOptions) => {
+    const format = cachedDateTimeFormat(locale, { ...formatOptions, ...zone });
+    return collapseSpaces(from.getTime() === to.getTime() ? format.format(from) : format.formatRange(from, to), " ");
+  };
   const dateParts: Record<PresentationDateStyle, Intl.DateTimeFormatOptions | null> = {
     "activity-full": { month: "short", day: "numeric", year: "numeric" },
     "activity-short": { month: "short", day: "numeric" },
+    "activity-date": { month: "short", day: "numeric" },
     "date-time-zone": { month: "short", day: "numeric", year: "numeric" },
     "quote-time": null,
     "chart-time": null,
@@ -756,6 +773,7 @@ export function formatPresentationDate(
   const timeParts: Record<PresentationDateStyle, Intl.DateTimeFormatOptions | null> = {
     "activity-full": { hour: "numeric", minute: "2-digit" },
     "activity-short": { hour: "numeric", minute: "2-digit" },
+    "activity-date": null,
     "date-time-zone": { hour: "numeric", minute: "2-digit", timeZoneName: "short" },
     "quote-time": { hour: "numeric", minute: "2-digit", second: "2-digit", timeZoneName: "short" },
     "chart-time": { hour: "numeric", minute: "2-digit" },
@@ -764,6 +782,10 @@ export function formatPresentationDate(
   };
   const dateOptions = dateParts[options.style];
   const timeOptions = timeParts[options.style];
+  if (from.getTime() !== to.getTime()) {
+    if (!timeOptions) return part(dateOptions ?? {});
+    return `${formatPresentationDate(from, options)} – ${formatPresentationDate(to, options)}`;
+  }
   const pieces = [dateOptions ? part(dateOptions) : null, timeOptions ? part(timeOptions) : null]
     .filter((piece): piece is string => Boolean(piece));
   return pieces.join(", ");

@@ -4,16 +4,21 @@ import { defaultRangeExtractor, elementScroll, measureElement as measureVirtualE
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { forwardRef, memo, useCallback, useContext, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type HTMLAttributes } from "react";
 import { ShellPanelActiveContext } from "@/client/home/panel-shared";
-import type { ActivityLedgerItem } from "./activity-ledger";
+import type { ActivityLedgerGroup, ActivityLedgerItem } from "./activity-ledger";
 
-const keyFor = (item: ActivityLedgerItem) => `${item.family}:${item.id}`;
+export type ActivityVirtualRow =
+  | { key: string; item: ActivityLedgerItem; child?: boolean }
+  | { key: string; group: ActivityLedgerGroup; expanded: boolean; controls?: string };
+
+const keyFor = (row: ActivityVirtualRow) => row.key;
 const INACTIVE_ROWS: ReturnType<Virtualizer<HTMLElement, HTMLLIElement>["getVirtualItems"]> = [];
 
-type Anchor = { key: string; top: number; items: readonly ActivityLedgerItem[] };
+type Anchor = { key: string; top: number; items: readonly ActivityVirtualRow[] };
 type RowProps = {
-  item: ActivityLedgerItem;
+  row: ActivityVirtualRow;
   attentionLabel: string;
   onOpen: (item: ActivityLedgerItem, opener: HTMLElement) => void;
+  onToggle: (children: readonly ActivityLedgerItem[], expanded: boolean) => void;
   liProps?: HTMLAttributes<HTMLLIElement> & { ref?: (element: HTMLLIElement | null) => void; "data-index"?: number };
 };
 
@@ -44,16 +49,18 @@ function listMargin(list: HTMLUListElement, host: HTMLElement | Window): number 
 }
 
 type Props = {
-  items: readonly ActivityLedgerItem[];
+  id: string;
+  items: readonly ActivityVirtualRow[];
   exhausted: boolean;
   labelledBy?: string;
   attentionLabel: string;
   onOpen: (item: ActivityLedgerItem, opener: HTMLElement) => void;
   Row: ComponentType<RowProps>;
+  onToggle: RowProps["onToggle"];
 };
 
 export const VirtualActivityList = memo(forwardRef<ActivityListHandle, Props>(function VirtualActivityList({
-  items, exhausted, labelledBy, attentionLabel, onOpen, Row,
+  id, items, exhausted, labelledBy, attentionLabel, onOpen, onToggle, Row,
 }, ref) {
   const active = useContext(ShellPanelActiveContext);
   const [renderedItems, setRenderedItems] = useState(items);
@@ -96,7 +103,10 @@ export const VirtualActivityList = memo(forwardRef<ActivityListHandle, Props>(fu
         return instance.itemSizeCache.get(instance.options.getItemKey(index)) ?? instance.options.estimateSize(index);
       }
       const box = entry?.borderBoxSize?.[0];
-      return box ? (instance.options.horizontal ? box.inlineSize : box.blockSize) : measureVirtualElement(node, entry, instance);
+      if (box) return instance.options.horizontal ? box.inlineSize : box.blockSize;
+      const rect = node.getBoundingClientRect();
+      const size = instance.options.horizontal ? rect.width : rect.height;
+      return size || measureVirtualElement(node, entry, instance);
     },
     scrollToFn: (offset, options, instance) => {
       if (!active || !attached.current) return;
@@ -251,6 +261,7 @@ export const VirtualActivityList = memo(forwardRef<ActivityListHandle, Props>(fu
   return (
     <ul
       ref={attachList}
+      id={id}
       aria-labelledby={labelledBy}
       className="relative list-none p-0"
       style={{ height, overflowAnchor: "none" }}
@@ -266,12 +277,13 @@ export const VirtualActivityList = memo(forwardRef<ActivityListHandle, Props>(fu
         <WindowedRow
           key={virtualRow.key}
           Row={Row}
-          item={renderedItems[virtualRow.index]!}
+          row={renderedItems[virtualRow.index]!}
           index={virtualRow.index}
           offset={virtualRow.start - margin}
           setsize={exhausted ? renderedItems.length : -1}
           attentionLabel={attentionLabel}
           onOpen={onOpen}
+          onToggle={onToggle}
           measureElement={measureElement}
         />
       ))}
@@ -279,21 +291,23 @@ export const VirtualActivityList = memo(forwardRef<ActivityListHandle, Props>(fu
   );
 }));
 
-const WindowedRow = memo(function WindowedRow({ Row, item, index, offset, setsize, attentionLabel, onOpen, measureElement }: {
+const WindowedRow = memo(function WindowedRow({ Row, row, index, offset, setsize, attentionLabel, onOpen, onToggle, measureElement }: {
   Row: ComponentType<RowProps>;
-  item: ActivityLedgerItem;
+  row: ActivityVirtualRow;
   index: number;
   offset: number;
   setsize: number;
   attentionLabel: string;
   onOpen: RowProps["onOpen"];
+  onToggle: RowProps["onToggle"];
   measureElement: (node: HTMLLIElement | null) => void;
 }) {
   return (
     <Row
-      item={item}
+      row={row}
       attentionLabel={attentionLabel}
       onOpen={onOpen}
+      onToggle={onToggle}
       liProps={{
         ref: measureElement,
         "data-index": index,
@@ -303,4 +317,10 @@ const WindowedRow = memo(function WindowedRow({ Row, item, index, offset, setsiz
       }}
     />
   );
-});
+}, (previous, next) => previous.Row === next.Row && previous.index === next.index && previous.offset === next.offset &&
+  previous.setsize === next.setsize && previous.attentionLabel === next.attentionLabel &&
+  previous.onOpen === next.onOpen && previous.onToggle === next.onToggle && previous.measureElement === next.measureElement &&
+  ("item" in previous.row && "item" in next.row
+    ? previous.row.item === next.row.item && previous.row.child === next.row.child
+    : "group" in previous.row && "group" in next.row && previous.row.group === next.row.group &&
+      previous.row.expanded === next.row.expanded && previous.row.controls === next.row.controls));

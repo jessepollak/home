@@ -4,8 +4,10 @@ import type { RegionId } from "@/config/regions";
 import { condensedTransactionHash, transactionExplorerLink } from "@/components/transaction-explorer";
 import {
   formatExactPresentationTokenAmount,
+  formatFiatAmount,
   formatPresentationCashAmount,
   formatPresentationDate,
+  formatPresentationDateRange,
   formatPresentationTokenAmountParts,
   joinAmountAndSymbol,
 } from "@/shared/formatting";
@@ -15,7 +17,10 @@ import { addFractions, exactDecimalToFraction, roundFractionPreservingPositive }
 import type { ActionKind, MoneyActionAmount } from "@/shared/money-actions/types";
 import { formatValuationAmount, presentActivityTransferRow } from "./activity-presenter";
 import { activityOperationTime, matchesActivityAmountTransfer, type ActivityFeedItem } from "./activity-feed";
-import type { ActivityLedgerAsset, ActivityLedgerFact, ActivityLedgerItem, Transaction } from "./activity-ledger";
+import { groupActivityFeed, transferRunTotals } from "./activity-groups";
+import type {
+  ActivityLedgerAsset, ActivityLedgerEntry, ActivityLedgerFact, ActivityLedgerGroup, ActivityLedgerItem, Transaction,
+} from "./activity-ledger";
 import type { ActivityTransfer } from "./types";
 import { cashoutMoney, presentCashout, type CashoutStage } from "./cash-out-presenter";
 
@@ -51,20 +56,33 @@ function transactionFor(hash: string | undefined): Transaction | undefined {
   };
 }
 
-function transferItem(transfer: ActivityTransfer, options: Options): ActivityLedgerItem {
-  const row = presentActivityTransferRow(transfer, options);
-  const mark = presentPortfolioAssetMark({
+function transferAssetMark(transfer: ActivityTransfer) {
+  return presentPortfolioAssetMark({
     assetKey: assetKeyForErc20(transfer.tokenAddress),
     name: transfer.tokenSymbol ?? "Unknown token",
     symbol: transfer.tokenSymbol ?? "?",
     imageUrl: transfer.tokenImageUrl,
   });
-  const symbol = transfer.tokenSymbol ?? "unknown token";
-  const parts = transfer.tokenDecimals === null || transfer.tokenSymbol === null
-    ? { amount: transfer.amountBaseUnits, symbol: "base units" }
-    : formatPresentationTokenAmountParts(transfer.amountBaseUnits, transfer.tokenDecimals, transfer.tokenSymbol, {
+}
+
+function transferMark(transfer: ActivityTransfer): ActivityLedgerGroup["mark"] {
+  const mark = transferAssetMark(transfer);
+  return { kind: "asset", assetKey: mark.assetKey, symbol: mark.symbol, imageUrl: mark.imageUrl };
+}
+
+function transferAmountParts(transfer: ActivityTransfer, baseUnits: string, options: Options) {
+  return transfer.tokenDecimals === null || transfer.tokenSymbol === null
+    ? { amount: baseUnits, symbol: "base units" }
+    : formatPresentationTokenAmountParts(baseUnits, transfer.tokenDecimals, transfer.tokenSymbol, {
       cashCurrency: transfer.assetId === "usdc" ? "USD" : null, regionId: options.regionId,
     });
+}
+
+function transferItem(transfer: ActivityTransfer, options: Options): ActivityLedgerItem {
+  const row = presentActivityTransferRow(transfer, options);
+  const symbol = transfer.tokenSymbol ?? "unknown token";
+  const parts = transferAmountParts(transfer, transfer.amountBaseUnits, options);
+  const mark = transferAssetMark(transfer);
   return {
     family: "onchain-transfer",
     id: transfer.id,
@@ -333,6 +351,52 @@ function cashoutItem(
       facts,
     },
   };
+}
+
+export function presentActivityLedgerEntries(
+  pairs: readonly { item: ActivityLedgerItem; source: ActivityFeedItem }[],
+  options: Options,
+  previous: readonly ActivityLedgerEntry[] = [],
+): ActivityLedgerEntry[] {
+  const previousGroups = new Map(previous.filter((entry): entry is ActivityLedgerGroup => "kind" in entry && entry.kind === "group")
+    .map((entry) => [entry.children[0]?.id, entry]));
+  return groupActivityFeed(pairs, (pair) => pair.source).map((group) => {
+    if (group.kind === "single") return group.entry.item;
+    const reused = previousGroups.get(group.entries[0]?.item.id);
+    if (reused && reused.children.length === group.entries.length &&
+      group.entries.every(({ item }, index) => reused.children[index] === item)) return reused;
+    const transfers = group.entries.map(({ source }) => {
+      if (source.kind !== "transfer") throw new TypeError("Transfer run contains a non-transfer entry");
+      return source.transfer;
+    });
+    const newest = transfers[0]!;
+    const oldest = transfers[transfers.length - 1]!;
+    const title = "Received";
+    const countLabel = `${transfers.length} transfers`;
+    const totals = transferRunTotals(transfers);
+    const parts = transferAmountParts(newest, totals.baseUnits, options);
+    const quantity = joinAmountAndSymbol(`+${parts.amount}`, parts.symbol);
+    return {
+      kind: "group",
+      id: `transfer-run:${newest.id}`,
+      title,
+      countLabel,
+      count: transfers.length,
+      newestTimestamp: newest.blockTimestamp,
+      oldestTimestamp: oldest.blockTimestamp,
+      rangeLabel: formatPresentationDateRange(oldest.blockTimestamp, newest.blockTimestamp, { style: "activity-date", ...options }),
+      fullRangeLabel: formatPresentationDateRange(oldest.blockTimestamp, newest.blockTimestamp, { style: "activity-full", ...options }),
+      amount: totals.value.status === "priced"
+        ? `+${formatFiatAmount(BigInt(totals.value.amount.atoms), totals.value.amount.scale,
+          totals.value.currency, { fractionDigits: 2, markTiny: true, regionId: options.regionId })}`
+        : quantity,
+      ...(totals.value.status === "priced" ? { amountContext: quantity } : {}),
+      direction: "in",
+      mark: transferMark(newest),
+      toggleLabel: `${transfers.length} Received ${newest.tokenSymbol ?? "unknown token"} transfers`,
+      children: group.entries.map(({ item }) => item),
+    } satisfies ActivityLedgerGroup;
+  });
 }
 
 export function presentActivityLedgerItems(items: readonly ActivityFeedItem[], options: Options): ActivityLedgerItem[] {

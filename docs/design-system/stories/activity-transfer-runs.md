@@ -1,0 +1,3 @@
+# Activity transfer runs
+
+- Integrated Activity transfer runs (synthetic Base transfers and a pending Home send): `journeys-activity-transfer-runs--home-feed-mobile`, `journeys-activity-transfer-runs--activity-page-desktop`, `journeys-activity-transfer-runs--activity-page-mobile`, `journeys-activity-transfer-runs--long-run-scroll`. The feed shows ordinary-height summary rows (`Received ×4` above a one-line date range, with stacked marks), separate USDC runs across dates and interleaving assets, a cbBTC run without a fiat total when one quote is unavailable, and a 60-transfer scroll case. Expanding inserts independently virtualized, inset child rows; keyboard toggle and detail-sheet focus return are covered by the journey play function.

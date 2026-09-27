@@ -29,6 +29,49 @@ describe("ActivityRow attention", () => {
   });
 });
 
+describe("FinanceRow disclosure", () => {
+  test("keeps a generic suffix visible without duplicating its assistive description and scopes mark clipping", () => {
+    const view = render(<ul>
+      <ActivityRow icon="↓" iconTone="stack" label="Received" labelSuffix={<span aria-hidden="true">×4</span>}
+        activateLabel="4 Received USDC transfers" onActivate={() => undefined} disclosure={{ expanded: false }} />
+      <ActivityRow icon="↓" iconTone="mark" label="Sent" />
+    </ul>);
+    const summary = view.getByRole("button", { name: /Received/ });
+    expect(summary.textContent).toContain("Received ×4");
+    expect(view.queryByText("4 transfers")).toBeNull();
+    expect(summary.getAttribute("aria-describedby")).toBeTruthy();
+    expect(view.getByText("×4").getAttribute("aria-hidden")).toBe("true");
+    expect(view.container.querySelector('[data-tone="mark"]')).toBeTruthy();
+    expect(view.container.querySelector('[data-tone="stack"]')).toBeTruthy();
+  });
+
+  test("toggles native button semantics, preserves the hint and mounts children only when expanded", () => {
+    const onActivate = mock(() => undefined);
+    const row = (expanded: boolean) => <ul><ActivityRow icon="↓" label="Received USDC"
+      context="2 transfers" onActivate={onActivate} activateLabel="Toggle transfers"
+      disclosure={{ expanded, controls: "child-transfers", content: <ul id="child-transfers"><li>First transfer</li></ul> }}
+    /></ul>;
+    const view = render(row(false));
+    const button = view.getByRole("button", { name: /Received USDC/ });
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+    expect(button.hasAttribute("aria-controls")).toBe(false);
+    expect(button.getAttribute("aria-describedby")).toBeTruthy();
+    expect(view.queryByText("First transfer")).toBeNull();
+    button.focus();
+    fireEvent.click(button);
+    expect(onActivate).toHaveBeenCalledWith(button);
+    view.rerender(row(true));
+    expect(view.getByRole("button", { name: /Received USDC/ })).toBe(button);
+    expect(button.getAttribute("aria-expanded")).toBe("true");
+    expect(button.getAttribute("aria-controls")).toBe("child-transfers");
+    expect(view.getByText("First transfer")).toBeTruthy();
+    expect(document.activeElement).toBe(button);
+    view.rerender(row(false));
+    expect(view.queryByText("First transfer")).toBeNull();
+    expect(button.hasAttribute("aria-controls")).toBe(false);
+  });
+});
+
 describe("FinanceRow read retry", () => {
   test("is reachable after the row and invokes only the read callback by mouse and keyboard", () => {
     const onRetry = mock(() => undefined);

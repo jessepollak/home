@@ -1,7 +1,7 @@
 "use client";
 
-import { memo, useId, useMemo, type HTMLAttributes, type ReactNode, type Ref } from "react";
-import { VirtualActivityList, type ActivityListHandle } from "./virtual-activity-list";
+import { memo, useCallback, useId, useMemo, useState, type HTMLAttributes, type ReactNode, type Ref } from "react";
+import { VirtualActivityList, type ActivityListHandle, type ActivityVirtualRow } from "./virtual-activity-list";
 import {
   Banknote,
   Circle,
@@ -11,8 +11,9 @@ import {
   PiggyBank,
   X,
 } from "lucide-react";
-import { CurrencyMark, GlyphMark } from "@/components/currency-mark";
+import { CurrencyMark, CurrencyMarkStack, GlyphMark } from "@/components/currency-mark";
 import { ActivityRow } from "@/components/finance-rows";
+import { assignTransferRunKeys } from "./activity-groups";
 import { MoneyTicker } from "@/components/money-ticker";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -126,6 +127,28 @@ export type ActivityLedgerItem = {
   }
 }[ActivityLedgerFamily];
 
+export type ActivityLedgerGroup = {
+  kind: "group";
+  id: string;
+  title: string;
+  countLabel: string;
+  count: number;
+  newestTimestamp: string;
+  oldestTimestamp: string;
+  rangeLabel: string;
+  fullRangeLabel: string;
+  amount: string;
+  amountContext?: string;
+  direction: "in";
+  mark: Extract<ActivityLedgerItem["mark"], { kind: "asset" }>;
+  toggleLabel: string;
+  children: readonly ActivityLedgerItem[];
+};
+export type ActivityLedgerEntry = ActivityLedgerItem | ActivityLedgerGroup;
+export function isActivityLedgerGroup(entry: ActivityLedgerEntry): entry is ActivityLedgerGroup {
+  return "kind" in entry && entry.kind === "group";
+}
+
 const allowed: Record<ActivityLedgerStatus, readonly ActivityLedgerNextActionKind[]> = {
   "waiting-customer": ["resume", "resume-verification", "complete-payment"],
   "waiting-provider": ["cancel-cash-out"],
@@ -226,7 +249,7 @@ export function uniqueActivityLedgerItems<T>(
   return unique;
 }
 
-function markFor(item: ActivityLedgerItem) {
+function markFor(item: { status?: ActivityLedgerStatus; mark?: ActivityLedgerItem["mark"] }) {
   if (item.status === "failed") return <X className="size-4" />;
   if (item.status === "ambiguous") return <CircleQuestionMark className="size-4" />;
   if (item.mark?.kind === "asset") {
@@ -256,9 +279,10 @@ type LedgerItemRowProps = {
   attentionLabel: string;
   onOpen: (item: ActivityLedgerItem, opener: HTMLElement) => void;
   liProps?: HTMLAttributes<HTMLLIElement> & { ref?: (element: HTMLLIElement | null) => void };
+  child?: boolean;
 };
 
-const LedgerItemRow = memo(function LedgerItemRow({ item, attentionLabel, onOpen, liProps }: LedgerItemRowProps) {
+const LedgerItemRow = memo(function LedgerItemRow({ item, attentionLabel, onOpen, liProps, child }: LedgerItemRowProps) {
   const status = statusWords[item.status]
     ? item.statusLabel ?? (item.status === "failed" && item.family === "card"
       ? "Declined" : statusWords[item.status])
@@ -270,7 +294,7 @@ const LedgerItemRow = memo(function LedgerItemRow({ item, attentionLabel, onOpen
     : ["waiting-chain", "waiting-home"].includes(item.status) ? "default" : "muted";
   return (
     <ActivityRow
-      liProps={liProps}
+      liProps={child ? { ...liProps, className: "ps-4" } : liProps}
       icon={markFor(item)}
       iconTone={iconTone}
       label={item.title}
@@ -306,8 +330,38 @@ function LedgerRows({ items, labelledBy, attentionLabel, onOpen }: {
   );
 }
 
+const RecentRow = memo(function RecentRow({ row, attentionLabel, onOpen, onToggle, liProps }: {
+  row: ActivityVirtualRow;
+  attentionLabel: string;
+  onOpen: (item: ActivityLedgerItem, opener: HTMLElement) => void;
+  onToggle: (children: readonly ActivityLedgerItem[], expanded: boolean) => void;
+  liProps?: HTMLAttributes<HTMLLIElement> & { ref?: (element: HTMLLIElement | null) => void };
+}) {
+  if ("item" in row) return <LedgerItemRow item={row.item} child={row.child} liProps={liProps}
+    attentionLabel={attentionLabel} onOpen={onOpen} />;
+  const entry = row.group;
+  return (
+    <ActivityRow
+      liProps={liProps}
+      icon={<CurrencyMarkStack assetKey={entry.mark.assetKey} symbol={entry.mark.symbol} src={entry.mark.imageUrl} />}
+      iconTone="stack"
+      label={entry.title}
+      labelSuffix={<span aria-hidden="true">×{entry.count}</span>}
+      context={<><time dateTime={entry.oldestTimestamp} aria-hidden="true">{entry.rangeLabel}</time><span className="sr-only">{entry.fullRangeLabel}</span></>}
+      contextTitle={entry.fullRangeLabel}
+      value={<MoneyTicker value={entry.amount} staticUntilChange />}
+      valueContext={entry.amountContext}
+      valueContextTitle={entry.amountContext}
+      valueTone="success"
+      onActivate={() => onToggle(entry.children, row.expanded)}
+      activateLabel={entry.toggleLabel}
+      disclosure={{ expanded: row.expanded, controls: row.controls }}
+    />
+  );
+});
+
 export type ActivityLedgerProps = {
-  items: readonly ActivityLedgerItem[];
+  items: readonly ActivityLedgerEntry[];
   layout?: "page" | "feed";
   pendingLabel?: string;
   recentLabel?: string;
@@ -339,12 +393,52 @@ export function ActivityLedger({
 }: ActivityLedgerProps) {
   const pendingId = useId();
   const recentId = useId();
-  const unique = useMemo(() => uniqueActivityLedgerItems(items), [items]);
+  const recentListId = useId();
+  const [expandedChildren, setExpandedChildren] = useState<ReadonlySet<string>>(() => new Set());
+  const [previousRunKeys, setPreviousRunKeys] = useState<ReadonlyMap<string, string>>(() => new Map());
+  const assigned = useMemo(() => assignTransferRunKeys(
+    items.filter(isActivityLedgerGroup).map((run) => run.children.map((child) => child.id)), previousRunKeys,
+  ), [items, previousRunKeys]);
+  if (assigned.byChild.size !== previousRunKeys.size ||
+    [...assigned.byChild].some(([child, key]) => previousRunKeys.get(child) !== key)) {
+    setPreviousRunKeys(assigned.byChild);
+  }
+  const toggleRun = useCallback((children: readonly ActivityLedgerItem[], expanded: boolean) => {
+    setExpandedChildren((previous) => {
+      const next = new Set(previous);
+      for (const child of children) {
+        if (expanded) next.delete(child.id);
+        else next.add(child.id);
+      }
+      return next;
+    });
+  }, []);
+  const unique = useMemo(() => {
+    const singles = uniqueActivityLedgerItems(items.filter((entry): entry is ActivityLedgerItem => !isActivityLedgerGroup(entry)));
+    const latest = new Map(singles.map((item) => [recordKey(item), item]));
+    return items.flatMap((entry): ActivityLedgerEntry[] => {
+      if (isActivityLedgerGroup(entry)) return [entry];
+      const key = recordKey(entry);
+      const winner = latest.get(key);
+      if (!winner) return [];
+      latest.delete(key);
+      return [winner];
+    });
+  }, [items]);
   const pending = useMemo(() => [
-    ...unique.filter(needsCustomer),
-    ...unique.filter((item) => isPending(item) && !needsCustomer(item)),
+    ...unique.filter((entry): entry is ActivityLedgerItem => !isActivityLedgerGroup(entry) && needsCustomer(entry)),
+    ...unique.filter((entry): entry is ActivityLedgerItem => !isActivityLedgerGroup(entry) && isPending(entry) && !needsCustomer(entry)),
   ], [unique]);
-  const recent = useMemo(() => unique.filter((item) => !isPending(item)), [unique]);
+  const recent = useMemo(() => unique.filter((entry) => isActivityLedgerGroup(entry) || !isPending(entry)), [unique]);
+  const rows = useMemo(() => recent.flatMap((entry): ActivityVirtualRow[] => {
+    if (!isActivityLedgerGroup(entry)) return [{ key: recordKey(entry), item: entry }];
+    const key = assigned.byChild.get(entry.children[0]!.id) ?? entry.id;
+    const expanded = entry.children.some((child) => expandedChildren.has(child.id));
+    return [{ key, group: entry, expanded, controls: expanded ? recentListId : undefined },
+    ...(expanded ? entry.children.map((child) => ({
+      key: recordKey(child), item: child, child: true,
+    })) : [])];
+  }), [recent, assigned.byChild, expandedChildren, recentListId]);
   if (!unique.length) return footer ?? null;
   const footerSlot = footer ? <div className="pt-2 pb-3">{footer}</div> : null;
   if (layout === "feed") {
@@ -359,8 +453,8 @@ export function ActivityLedger({
         {recent.length ? (
           <div key="recent">
             {pending.length ? <GroupHeader id={recentId} label={recentLabel} /> : null}
-            <VirtualActivityList ref={recentRef} items={recent} labelledBy={pending.length ? recentId : undefined}
-              exhausted={exhausted} attentionLabel={attentionLabel} onOpen={onOpen} Row={LedgerItemRow} />
+            <VirtualActivityList ref={recentRef} id={recentListId} items={rows} labelledBy={pending.length ? recentId : undefined}
+              exhausted={exhausted} attentionLabel={attentionLabel} onOpen={onOpen} onToggle={toggleRun} Row={RecentRow} />
           </div>
         ) : null}
         {footerSlot}
@@ -368,7 +462,7 @@ export function ActivityLedger({
     );
   }
   return (
-    <div className="space-y-3" style={{ overflowAnchor: "none" }}>
+    <div className="space-y-3 [--mark-stack-surface:var(--card)]" style={{ overflowAnchor: "none" }}>
       {pending.length ? (
         <Card key="pending" variant="flush">
           <CardContent inset="list">
@@ -382,8 +476,8 @@ export function ActivityLedger({
         <Card key="recent" variant="flush">
           <CardContent inset="list">
             {pending.length ? <GroupHeader id={recentId} label={recentLabel} /> : null}
-            <VirtualActivityList ref={recentRef} items={recent} labelledBy={pending.length ? recentId : undefined}
-              exhausted={exhausted} attentionLabel={attentionLabel} onOpen={onOpen} Row={LedgerItemRow} />
+            <VirtualActivityList ref={recentRef} id={recentListId} items={rows} labelledBy={pending.length ? recentId : undefined}
+              exhausted={exhausted} attentionLabel={attentionLabel} onOpen={onOpen} onToggle={toggleRun} Row={RecentRow} />
             {footerSlot}
           </CardContent>
         </Card>

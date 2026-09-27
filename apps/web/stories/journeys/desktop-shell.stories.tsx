@@ -557,7 +557,8 @@ export const HomeDesktop: Story = {
     await expect(canvas.getByRole("region", { name: "Your money" })).toBeVisible();
     const activity = within(canvas.getByRole("region", { name: "Activity" }));
     await expect(canvas.getByRole("region", { name: "Activity" })).toBeVisible();
-    await expect(activity.getAllByRole("button", { description: /transaction details/ })).toHaveLength(15);
+    await expect(activity.getAllByRole("button", { description: /transaction details/ })).toHaveLength(13);
+    await expect(activity.getByRole("button", { description: "2 Received USDC transfers" })).toHaveAttribute("aria-expanded", "false");
     await expect(activity.getByText(/^Sep 22,/)).toBeVisible();
     await expect(activity.queryByText(/^22 Sep(?:t)?,/)).not.toBeInTheDocument();
     await expect(activity.getByRole("img", { name: "+$25.00" })).toBeVisible();
@@ -625,7 +626,8 @@ export const HomeDesktop: Story = {
     const updatedActivity = within(canvas.getByRole("region", { name: "Activity" }));
     await expect(updatedActivity.getByText(/^22 Sep(?:t)?,/)).toBeVisible();
     await expect(updatedActivity.queryByText(/^Sep 22,/)).not.toBeInTheDocument();
-    await expect(updatedActivity.getAllByRole("button", { description: /transaction details/ })).toHaveLength(14);
+    await expect(updatedActivity.getAllByRole("button", { description: /transaction details/ })).toHaveLength(12);
+    await expect(updatedActivity.getByRole("button", { description: "2 Received USDC transfers" })).toHaveAttribute("aria-expanded", "false");
     await expect(updatedActivity.queryByText("Borrowed")).not.toBeInTheDocument();
     await expect(updatedActivity.getByRole("img", { name: "+£19.75" })).toBeVisible();
     await expect(updatedActivity.queryByRole("img", { name: "+$25.00" })).not.toBeInTheDocument();
@@ -651,7 +653,8 @@ export const HomeDesktop: Story = {
     await userEvent.click(canvas.getByRole("button", { name: "Done" }));
     await userEvent.click(within(rail).getByRole("button", { name: "Home" }));
     const unratedActivity = within(canvas.getByRole("region", { name: "Activity" }));
-    await expect(unratedActivity.getAllByRole("button", { description: /transaction details/ })).toHaveLength(14);
+    await expect(unratedActivity.getAllByRole("button", { description: /transaction details/ })).toHaveLength(12);
+    await expect(unratedActivity.getByRole("button", { description: "2 Received USDC transfers" })).toHaveAttribute("aria-expanded", "false");
     await expect(unratedActivity.queryAllByRole("img", { name: /[€$£]/ })).toHaveLength(0);
     await expect(canvas.getByLabelText("Total balance")).not.toHaveTextContent(/[€$£]/);
     await expect(canvas.getByRole("region", { name: "Your money" })).not.toHaveTextContent("€");

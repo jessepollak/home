@@ -178,6 +178,10 @@ const itemDescriptionVariants = cva(
   "text-start text-sm leading-normal font-normal text-muted-foreground group-data-[size=xs]/item:text-xs [&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-primary",
   {
     variants: {
+      tone: {
+        default: "",
+        disclosure: "group-aria-expanded/item:text-foreground",
+      },
       lines: {
         1: "truncate",
         2: "line-clamp-2",
@@ -191,6 +195,7 @@ const itemDescriptionVariants = cva(
     defaultVariants: {
       lines: 2,
       size: "default",
+      tone: "default",
     },
   }
 )
@@ -199,12 +204,13 @@ function ItemDescription({
   className,
   lines = 2,
   size = "default",
+  tone = "default",
   ...props
 }: React.ComponentProps<"p"> & VariantProps<typeof itemDescriptionVariants>) {
   return (
     <p
       data-slot="item-description"
-      className={cn(itemDescriptionVariants({ lines, size, className }))}
+      className={cn(itemDescriptionVariants({ lines, size, tone, className }))}
       {...props}
     />
   )

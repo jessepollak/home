@@ -3,7 +3,8 @@ import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list
 import type { MoneyActionAmount } from "@/shared/money-actions/types";
 import type { ActivityTransfer } from "./types";
 import type { ActivityFeedItem } from "./activity-feed";
-import { presentActivityLedgerItems } from "./activity-ledger-items";
+import { presentActivityLedgerEntries, presentActivityLedgerItems } from "./activity-ledger-items";
+import { isActivityLedgerGroup } from "./activity-ledger";
 
 const WALLET = "0x1111111111111111111111111111111111111111" as const;
 const OTHER = "0x2222222222222222222222222222222222222222" as const;
@@ -43,6 +44,70 @@ function fromAction(value: RecentMoneyActionOperation): Extract<ActivityFeedItem
 }
 
 const present = (items: ActivityFeedItem[]) => presentActivityLedgerItems(items, { regionId: "US", timeZone: "UTC" });
+
+describe("presentActivityLedgerEntries", () => {
+  const options = { regionId: "US" as const, timeZone: "UTC" };
+  const onDay = (id: string, day: number, amountBaseUnits: string, priced = true) => fromTransfer({
+    ...transfer("incoming", priced), id,
+    blockTimestamp: `2026-09-${day}T12:00:00.000Z`, amountBaseUnits,
+  });
+  const pairsFor = (sources: ActivityFeedItem[]) => {
+    const items = presentActivityLedgerItems(sources, options);
+    return sources.map((source, index) => ({ source, item: items[index]! }));
+  };
+
+  test("presents ordered date ranges, group identity, a priced sum and original child objects", () => {
+    const pairs = pairsFor([onDay("newest", 24, "1000001"), onDay("middle", 23, "2000000"),
+      onDay("oldest", 22, "3000000")]);
+    const [entry] = presentActivityLedgerEntries(pairs, options);
+    expect(entry && isActivityLedgerGroup(entry)).toBe(true);
+    if (!entry || !isActivityLedgerGroup(entry)) return;
+    expect(entry).toMatchObject({
+      id: "transfer-run:newest", title: "Received", countLabel: "3 transfers",
+      newestTimestamp: "2026-09-24T12:00:00.000Z", oldestTimestamp: "2026-09-22T12:00:00.000Z",
+      rangeLabel: "Sep 22 – 24", fullRangeLabel: "Sep 22, 2026, 12:00 PM – Sep 24, 2026, 12:00 PM",
+      amount: "+$75.00", amountContext: "+6.00 USDC", direction: "in",
+      toggleLabel: "3 Received USDC transfers", mark: pairs[0]!.item.mark,
+    });
+    expect(entry.children.map(({ id }) => id)).toEqual(["newest", "middle", "oldest"]);
+    entry.children.forEach((item, index) => expect(item).toBe(pairs[index]!.item));
+  });
+
+  test("reuses an unchanged transfer-run summary across unrelated feed updates", () => {
+    const pairs = pairsFor([onDay("new", 24, "1000000"), onDay("old", 23, "1000000")]);
+    const first = presentActivityLedgerEntries(pairs, options);
+    const unrelated = pairsFor([fromTransfer({ ...transfer("outgoing"), id: "other",
+      blockTimestamp: "2026-09-22T12:00:00.000Z" })]);
+    expect(presentActivityLedgerEntries([...pairs, ...unrelated], options, first)[0]).toBe(first[0]);
+    const changed = [...pairs.slice(0, 1), { ...pairs[1]!, item: { ...pairs[1]!.item, amount: "+$10.00" } }];
+    expect(presentActivityLedgerEntries(changed, options, first)[0]).not.toBe(first[0]);
+  });
+
+  test("formats only after aggregation and omits fiat context when any price is unavailable", () => {
+    const first = onDay("a", 24, "500000");
+    const second = onDay("b", 24, "500000", false);
+    const [entry] = presentActivityLedgerEntries(pairsFor([first, second]), options);
+    expect(entry && isActivityLedgerGroup(entry)).toBe(true);
+    if (!entry || !isActivityLedgerGroup(entry)) return;
+    expect(entry).toMatchObject({ amount: "+1.00 USDC",
+      rangeLabel: "Sep 24", fullRangeLabel: "Sep 24, 2026, 12:00 PM" });
+    expect(entry.amountContext).toBeUndefined();
+    const unknown = { ...transfer(), assetId: null, tokenSymbol: null, tokenDecimals: null };
+    const [fallback] = presentActivityLedgerEntries(pairsFor([
+      fromTransfer({ ...unknown, id: "unknown-a", amountBaseUnits: "120" }),
+      fromTransfer({ ...unknown, id: "unknown-b", amountBaseUnits: "23" }),
+    ]), options);
+    expect(fallback).toMatchObject({ title: "Received", toggleLabel: "2 Received unknown token transfers", amount: "+143 base units" });
+  });
+
+  test("keeps tiny priced fiat totals marked as dust", () => {
+    const tiny = (id: string) => fromTransfer({ ...transfer(), id, amountBaseUnits: "1",
+      valuation: { status: "priced" as const, currency: "USD" as const, amount: { atoms: "1", scale: 5 },
+        method: "peg" as const, peg: "USD" as const, close: null, fx: null } });
+    const [entry] = presentActivityLedgerEntries(pairsFor([tiny("a"), tiny("b")]), options);
+    expect(entry).toMatchObject({ amount: "+<$0.01", amountContext: "+<0.01 USDC" });
+  });
+});
 
 describe("presentActivityLedgerItems", () => {
   test("retains source order, canonical identities, and maps all action statuses", () => {

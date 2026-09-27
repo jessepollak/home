@@ -10,6 +10,7 @@ import {
   formatPercentage,
   formatPresentationPercentage,
   formatPresentationDate,
+  formatPresentationDateRange,
   formatPresentationPrice,
   formatPresentationTokenAmount,
   formatPresentationTokenAmountParts,
@@ -407,6 +408,14 @@ describe("presentation money formatting", () => {
         expect(formatPresentationDate(instant, entry)).toBe(expected);
       }
     }
+  });
+
+  test("formats a date range compactly and collapses a single day", () => {
+    const options = { timeZone: "UTC", style: "activity-date" } as const;
+    expect(formatPresentationDateRange("2026-09-21T05:00:00.000Z", "2026-09-24T05:00:00.000Z", options)).toBe("Sep 21 – 24");
+    expect(formatPresentationDateRange("2026-08-30T05:00:00.000Z", "2026-09-02T05:00:00.000Z", options)).toBe("Aug 30 – Sep 2");
+    expect(formatPresentationDateRange("2026-09-24T05:00:00.000Z", "2026-09-24T09:00:00.000Z", options)).toBe("Sep 24");
+    expect(formatPresentationDateRange("2026-09-24T05:00:00.000Z", "not-a-date", options)).toBe("—");
   });
 
   test("returns a deterministic unavailable value for malformed dates", () => {
