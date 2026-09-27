@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type JSX, type Ref, type RefObject } from "react";
-import { ArrowDown, Check, LoaderCircle } from "lucide-react";
+import { ArrowDown, Check, LoaderCircle, RotateCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "./button";
 
@@ -31,8 +31,9 @@ function blockedTarget(target: EventTarget | null, owner: HTMLElement): boolean 
   return false;
 }
 
-export function usePullToRefresh({ scrollRef, contentRef, enabled, refreshing, onRefresh, threshold = 68, maxPull = 120 }: PullToRefreshOptions): { phase: PullToRefreshPhase; indicatorRef: RefObject<HTMLDivElement | null> } {
+export function usePullToRefresh({ scrollRef, contentRef, enabled, refreshing, onRefresh, threshold = 68, maxPull = 120 }: PullToRefreshOptions): { phase: PullToRefreshPhase; indicatorRef: RefObject<HTMLDivElement | null>; actionRef: RefObject<HTMLButtonElement | null> } {
   const indicatorRef = useRef<HTMLDivElement>(null);
+  const actionRef = useRef<HTMLButtonElement>(null);
   const [phase, setPhase] = useState<PullToRefreshPhase>("idle");
   const phaseRef = useRef<PullToRefreshPhase>("idle");
   const callbackRef = useRef(onRefresh);
@@ -53,7 +54,17 @@ export function usePullToRefresh({ scrollRef, contentRef, enabled, refreshing, o
     const scroll = scrollRef.current;
     const content = contentRef.current;
     const indicator = indicatorRef.current;
+    const action = actionRef.current;
     let gesture: Gesture | null = null;
+    const isRevealed = () => {
+      if (!action || document.activeElement !== action) return false;
+      try {
+        return action.matches(":focus-visible");
+      } catch {
+        return true;
+      }
+    };
+    let revealed = isRevealed();
     let frame: number | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let endListener: ((event: TransitionEvent) => void) | null = null;
@@ -67,22 +78,24 @@ export function usePullToRefresh({ scrollRef, contentRef, enabled, refreshing, o
       phaseRef.current = next;
       setPhase(next);
     };
-    const clearPending = () => {
+    const clearPending = (keepSettlement = false) => {
       if (frame !== null) window.cancelAnimationFrame(frame);
       frame = null;
-      if (timer !== null) clearTimeout(timer);
-      timer = null;
-      if (endListener && content) content.removeEventListener("transitionend", endListener);
-      endListener = null;
+      if (!keepSettlement) {
+        if (timer !== null) clearTimeout(timer);
+        timer = null;
+        if (endListener && content) content.removeEventListener("transitionend", endListener);
+        endListener = null;
+      }
     };
-    const paint = (offset: number, next: PullToRefreshPhase, animate: boolean) => {
-      clearPending();
+    const paint = (offset: number, next: PullToRefreshPhase, animate: boolean, keepSettlement = false) => {
+      clearPending(keepSettlement);
       const duration = animate && !reduced ? "220ms" : "0ms";
       if (content) content.style.transition = `transform ${duration} cubic-bezier(0.22, 1, 0.36, 1)`;
       if (indicator) indicator.style.transition = `opacity ${animate ? "220ms" : "0ms"} cubic-bezier(0.22, 1, 0.36, 1), scale ${duration} cubic-bezier(0.22, 1, 0.36, 1)`;
       frame = window.requestAnimationFrame(() => {
         frame = null;
-        if (content) content.style.transform = reduced ? "" : `translate3d(0, ${offset}px, 0)`;
+        if (content) content.style.transform = reduced && (next === "pulling" || next === "armed") ? "" : `translate3d(0, ${offset}px, 0)`;
         if (indicator) {
           indicator.style.opacity = next === "idle" || next === "settling" ? "0" : next === "pulling" ? String(Math.max(0.2, Math.min(1, offset / thresholdRef.current))) : "1";
           indicator.style.scale = reduced ? "" : next === "pulling" ? String(0.8 + Math.min(0.2, offset / thresholdRef.current * 0.2)) : "1";
@@ -90,16 +103,22 @@ export function usePullToRefresh({ scrollRef, contentRef, enabled, refreshing, o
         }
       });
     };
+    const holdOffset = () => {
+      const measuredOffset = indicator && content
+        ? indicator.offsetTop * 2 + indicator.offsetHeight - parseFloat(window.getComputedStyle(content).paddingTop || "0")
+        : 0;
+      return Math.round(Number.isFinite(measuredOffset) && measuredOffset > 0 ? measuredOffset : 52);
+    };
+    const finish = () => {
+      clearPending();
+      if (phaseRef.current !== "settling") return;
+      changePhase("idle");
+      paint(revealed ? holdOffset() : 0, "idle", false);
+    };
     const settle = () => {
       gesture = null;
       changePhase("settling");
-      paint(0, "settling", true);
-      const finish = () => {
-        clearPending();
-        if (phaseRef.current !== "settling") return;
-        changePhase("idle");
-        paint(0, "idle", false);
-      };
+      paint(revealed ? holdOffset() : 0, "settling", true);
       endListener = (event) => {
         if (event.target === content && event.propertyName === "transform") finish();
       };
@@ -110,7 +129,23 @@ export function usePullToRefresh({ scrollRef, contentRef, enabled, refreshing, o
       if (phaseRef.current === "refreshing") return;
       gesture = null;
       changePhase("refreshing");
-      paint(38, "refreshing", true);
+      paint(holdOffset(), "refreshing", true);
+    };
+    const focus = () => {
+      revealed = isRevealed();
+      if (revealed && (phaseRef.current === "idle" || phaseRef.current === "settling")) {
+        const settling = phaseRef.current === "settling";
+        paint(holdOffset(), "idle", true, settling);
+        if (settling) {
+          if (timer !== null) clearTimeout(timer);
+          timer = setTimeout(finish, reduced ? 0 : 260);
+        }
+      }
+    };
+    const blur = () => {
+      revealed = false;
+      if (phaseRef.current === "idle") paint(0, "idle", true);
+      else if (phaseRef.current === "settling") paint(0, "settling", true, true);
     };
     const reset = () => {
       clearPending();
@@ -170,12 +205,17 @@ export function usePullToRefresh({ scrollRef, contentRef, enabled, refreshing, o
       } else if (phaseRef.current === "pulling") settle();
     };
     if (enabled && scroll) {
+      action?.addEventListener("focus", focus);
+      action?.addEventListener("blur", blur);
+      if (revealed && phaseRef.current === "idle") paint(holdOffset(), "idle", false);
       scroll.addEventListener("touchstart", start, { passive: true });
       scroll.addEventListener("touchmove", move, { passive: false });
       scroll.addEventListener("touchend", end, { passive: true });
       scroll.addEventListener("touchcancel", end, { passive: true });
     }
     return () => {
+      action?.removeEventListener("focus", focus);
+      action?.removeEventListener("blur", blur);
       if (scroll) {
         scroll.removeEventListener("touchstart", start);
         scroll.removeEventListener("touchmove", move);
@@ -196,18 +236,23 @@ export function usePullToRefresh({ scrollRef, contentRef, enabled, refreshing, o
     wasRefreshingRef.current = refreshing;
   }, [enabled, refreshing]);
 
-  return { phase, indicatorRef };
+  return { phase, indicatorRef, actionRef };
 }
 
-export function PullToRefreshAction({ label, refreshing, onRefresh }: { label: string; refreshing: boolean; onRefresh: () => void }): JSX.Element {
+export function PullToRefreshAction({ label, refreshing, onRefresh, actionRef }: { label: string; refreshing: boolean; onRefresh: () => void; actionRef?: RefObject<HTMLButtonElement | null> }): JSX.Element {
   return <Button
+    ref={actionRef}
     type="button"
-    size="sm"
+    size="icon-lg"
     variant="outline"
-    className="pointer-events-none absolute top-1 left-1/2 z-20 -translate-x-1/2 opacity-0 focus-visible:pointer-events-auto focus-visible:opacity-100"
-    loading={refreshing}
+    aria-label={label}
+    data-slot="pull-to-refresh-action"
+    className="peer pointer-events-none absolute inset-x-0 top-4 z-20 mx-auto rounded-full border-border bg-card text-muted-foreground shadow-xs not-focus-visible:sr-only not-focus-visible:p-0! focus-visible:pointer-events-auto disabled:opacity-100 aria-busy:opacity-100 dark:border-border dark:bg-card"
+    disabled={refreshing}
+    focusableWhenDisabled={refreshing}
+    aria-busy={refreshing}
     onClick={onRefresh}
-  >{label}</Button>;
+  >{refreshing ? <LoaderCircle aria-hidden="true" className="size-4 animate-spin motion-reduce:animate-none" /> : <RotateCw aria-hidden="true" className="size-4" />}</Button>;
 }
 
 export function PullToRefreshIndicator({ phase, indicatorRef }: { phase: PullToRefreshPhase; indicatorRef?: Ref<HTMLDivElement> }): JSX.Element {
@@ -216,7 +261,7 @@ export function PullToRefreshIndicator({ phase, indicatorRef }: { phase: PullToR
       ref={indicatorRef}
       aria-hidden="true"
       data-slot="pull-to-refresh-indicator"
-      className={cn("pointer-events-none absolute inset-x-0 top-1 z-10 mx-auto flex size-9 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-xs motion-reduce:transition-opacity", phase === "idle" || phase === "settling" ? "opacity-0" : "opacity-100")}
+      className={cn("pointer-events-none absolute inset-x-0 top-4 z-10 mx-auto flex size-9 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-xs peer-focus-visible:invisible motion-reduce:transition-opacity", phase === "idle" || phase === "settling" ? "opacity-0" : "opacity-100")}
     >
       {phase === "refreshing" ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" /> :
         phase === "armed" ? <><ArrowDown className="size-4 motion-reduce:hidden" /><Check className="hidden size-4 motion-reduce:block" /></> :

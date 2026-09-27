@@ -37,9 +37,9 @@ function HomeRefreshJourney({ scenario }: { scenario: Scenario }) {
     <div className="flex h-svh flex-col bg-muted">
       <header className="shrink-0 border-b bg-background px-4 py-4 font-semibold">Home</header>
       <main className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain" aria-label="Home dashboard">
-        <PullToRefreshIndicator phase={phase} />
         <PullToRefreshAction label="Refresh Home" refreshing={current === "loading"} onRefresh={refresh} />
-        <div className="mx-auto w-full max-w-2xl space-y-4 px-4 py-4" style={{ transform: current === "pulling" ? "translateY(24px)" : current === "armed" ? "translateY(68px)" : undefined }}>
+        <PullToRefreshIndicator phase={phase} />
+        <div className="mx-auto w-full max-w-2xl space-y-4 px-4 py-4" style={{ transform: current === "pulling" ? "translateY(24px)" : current === "armed" ? "translateY(68px)" : current === "loading" ? "translateY(52px)" : undefined }}>
           <span role="status" aria-live="polite" className="sr-only">{current === "loading" ? "Refreshing Home" : current === "success" ? "Home updated" : null}</span>
           {current === "partial" || current === "failed" ? (
             <Alert role="alert">
@@ -74,7 +74,41 @@ type Story = StoryObj<typeof meta>;
 export const Idle: Story = {};
 export const Pulling: Story = { args: { scenario: "pulling" } };
 export const Armed: Story = { args: { scenario: "armed" } };
-export const Loading: Story = { args: { scenario: "loading" } };
+export const Loading: Story = {
+  args: { scenario: "loading" },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const action = canvas.getByRole("button", { name: "Refresh Home" });
+    await expect(action).toHaveAttribute("aria-busy", "true");
+    await expect(action.textContent).toBe("");
+    await expect(Math.max(action.getBoundingClientRect().width, action.getBoundingClientRect().height)).toBeLessThanOrEqual(1);
+    const indicator = canvasElement.querySelector<HTMLElement>("[data-slot='pull-to-refresh-indicator']")!;
+    await expect(indicator).toBeVisible();
+    const firstCard = canvas.getByLabelText("Total balance");
+    await expect(indicator.getBoundingClientRect().bottom).toBeLessThan(firstCard.getBoundingClientRect().top);
+  },
+};
+export const KeyboardFocus: Story = {
+  args: { scenario: "loading" },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const action = canvas.getByRole("button", { name: "Refresh Home" });
+    await userEvent.tab();
+    await expect(action).toHaveFocus();
+    await expect(action).toHaveAttribute("aria-busy", "true");
+    await expect(action).toHaveAttribute("aria-disabled", "true");
+    await expect(action.textContent).toBe("");
+    await expect(action.querySelectorAll("svg[aria-hidden='true']")).toHaveLength(1);
+    await expect(action).toBeVisible();
+    const indicator = canvasElement.querySelector<HTMLElement>("[data-slot='pull-to-refresh-indicator']")!;
+    await expect(indicator).not.toBeVisible();
+    await expect(action.getBoundingClientRect().toJSON()).toMatchObject({
+      x: indicator.getBoundingClientRect().x,
+      width: indicator.getBoundingClientRect().width,
+      height: indicator.getBoundingClientRect().height,
+    });
+  },
+};
 export const SuccessSettling: Story = { args: { scenario: "success" } };
 export const PartialFailure: Story = { args: { scenario: "partial" } };
 export const Failed: Story = { args: { scenario: "failed" } };
