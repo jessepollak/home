@@ -43,8 +43,8 @@ function AvailableTradeActions({ asset, layout }: { asset: InvestAsset; layout: 
   const balancesNote = ready && (trade.balances.status === "error" || (trade.balances.status === "ready" && !trade.usableBalances)) ? "Cash balance isn't available right now." : null;
   return <div className={layout === "sticky" ? "sticky bottom-[env(safe-area-inset-bottom)] z-2 mt-4 space-y-2 bg-background pt-3" : "space-y-2"}>
     <div className={layout === "sticky" ? "grid grid-cols-2 gap-2" : "flex justify-end gap-2"} aria-label={`Trade ${asset.displayName}`}>
-      <Button size="touch" disabled={!ready || availability.buy === "blocked" || trade.cash === null || trade.cash === "0"} onPointerDown={trade.preload} onClick={(event) => trade.open(asset.id, "buy", event.currentTarget)}>Buy</Button>
-      <Button size="touch" variant="secondary" disabled={!ready || holding === null || BigInt(holding) === BigInt(0)} onPointerDown={trade.preload} onClick={(event) => trade.open(asset.id, "sell", event.currentTarget)}>Sell</Button>
+      <Button size="touch" disabled={!ready || availability.buy === "blocked" || trade.cash === null || trade.cash === "0"} onPointerDown={() => trade.intent(asset.id, "buy")} onClick={(event) => trade.open(asset.id, "buy", event.currentTarget)}>Buy</Button>
+      <Button size="touch" variant="secondary" disabled={!ready || holding === null || BigInt(holding) === BigInt(0)} onPointerDown={() => trade.intent(asset.id, "sell")} onClick={(event) => trade.open(asset.id, "sell", event.currentTarget)}>Sell</Button>
     </div>
     {note || balancesNote || sellNote || buyNote ? <p className="text-end text-sm text-muted-foreground" role="note">{note ?? balancesNote ?? sellNote ?? buyNote}</p> : null}
     {trade.sheet}

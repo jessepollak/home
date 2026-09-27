@@ -9,7 +9,7 @@ import { BASE_USDC_PAYMASTER_ADDRESS } from "@/shared/money-actions/network-fee"
 import { TransferExecutionError } from "@/shared/transfers/types";
 import type { TradeActionParams, TradeDirection, TradeMoneyActionMetadata, TradeToken } from "@/shared/trading/contract";
 
-const { cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
+const { cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const { TradeMoneyDialog } = await import("./trade-money-dialog");
 
 const wallet = "0x1111111111111111111111111111111111111111" as const;
@@ -98,6 +98,20 @@ async function submit(view: ReturnType<typeof render>, value?: string) {
 afterEach(() => { cleanup(); getHomeQueryClient().clear(); });
 
 describe("any-token trade review", () => {
+  test.each([
+    ["buy", "USDC"], ["sell", "DEGEN"],
+  ] as const)("%s amount shows the locked %s asset in the header, then Back on confirm", async (direction, assetLabel) => {
+    const trade = dialog(direction);
+    const header = trade.view.getByRole("dialog", { name: `${direction === "buy" ? "Buy" : "Sell"} DEGEN` }).querySelector('[data-slot="drawer-header"]') as HTMLElement;
+    expect(within(header).getByRole("group", { name: assetLabel })).toBeTruthy();
+    expect(trade.view.queryByRole("combobox", { name: "Asset" })).toBeNull();
+    expect(trade.view.getByRole("textbox", { name: "Amount" })).toBeTruthy();
+    expect(trade.view.getByRole("dialog").querySelector('[data-slot="money-modal-body"] [role="group"][aria-label="' + assetLabel + '"]')).toBeNull();
+    await submit(trade.view, direction === "buy" ? "1" : "0.5");
+    await trade.view.findByRole("dialog", { name: "Confirm" });
+    expect(trade.view.queryByRole("group", { name: assetLabel })).toBeNull();
+    expect(within(trade.view.getByRole("dialog").querySelector('[data-slot="drawer-header"]') as HTMLElement).getByRole("button", { name: "Back" })).toBeTruthy();
+  });
   test("sell only offers the fiat toggle when priced, and confirms the native token amount", async () => {
     const priced = dialog("sell", { assetPrice: { currency: "USD", perUnit: { atoms: "5", scale: 1 } } });
     expect(priced.view.getByRole("button", { name: /as the primary amount/ })).toBeTruthy();

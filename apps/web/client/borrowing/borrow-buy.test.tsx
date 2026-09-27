@@ -8,7 +8,7 @@ import { borrowOverviewBody, sessionBody } from "@/tests/browser/fixtures/bodies
 import { VERIFIED_MORPHO_MARKETS } from "@/shared/morpho-markets/config";
 import { buyRouteForToken } from "@/shared/trading/assets";
 
-const { cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
+const { act, cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const { BorrowOverview } = await import("./borrow-overview");
 const bitcoin = VERIFIED_MORPHO_MARKETS[0]!.marketId;
 const xrp = VERIFIED_MORPHO_MARKETS[1]!.marketId;
@@ -56,6 +56,14 @@ function show({ cash = "12340000", availability = "available", balances = "ready
 afterEach(() => { cleanup(); getHomeQueryClient().clear(); });
 
 describe("Borrow collateral Buy entry", () => {
+  test("row pointer intent opens and focuses Amount within the click", async () => {
+    const view = show();
+    const buy = await view.findByRole("button", { name: "Buy Bitcoin" });
+    await waitFor(() => expect(buy.getAttribute("aria-disabled")).toBeNull());
+    await act(async () => { fireEvent.pointerDown(buy); await import("@/client/trading/trade-money-dialog"); });
+    fireEvent.click(buy);
+    expect(document.activeElement).toBe(within(document.body).getByRole("textbox", { name: "Amount" }));
+  });
   test.each([...VERIFIED_MORPHO_MARKETS])("opens exact $collateralToken.symbol Buy sheet", async (market) => {
     const view = show({ notHeldMarketIds: [market.marketId] });
     const name = market.collateralDisplay.name;
