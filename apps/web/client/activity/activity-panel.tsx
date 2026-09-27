@@ -33,6 +33,7 @@ export function ActivityPanelView({
   cancelBusy = false,
   cancelError = null,
   onDetailsChange,
+  onDetailsOpenChange,
 }: {
   activity: UseActivityResult;
   operations?: readonly RecentMoneyActionOperation[];
@@ -46,9 +47,14 @@ export function ActivityPanelView({
   cancelBusy?: boolean;
   cancelError?: string | null;
   onDetailsChange?: () => void;
+  onDetailsOpenChange?: (open: boolean) => void;
 }) {
   const [selection, setSelection] = useState<{ key: string; last: ActivityLedgerItem } | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  useEffect(() => {
+    onDetailsOpenChange?.(detailsOpen);
+    return () => { onDetailsOpenChange?.(false); };
+  }, [detailsOpen, onDetailsOpenChange]);
   const detailOpenerRef = useRef<HTMLElement | null>(null);
   const [detailsStatus, setDetailsStatus] = useState(activity.status);
   if (detailsStatus !== activity.status) {

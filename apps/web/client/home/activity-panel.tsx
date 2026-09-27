@@ -66,10 +66,12 @@ export function ConnectedActivityPanel({
   fetchOperations,
   regionId,
   emptyAction,
+  onDetailsOpenChange,
 }: {
   density: ActivityPanelDensity;
   header?: ReactNode | null;
   emptyAction?: ReactNode;
+  onDetailsOpenChange?: (open: boolean) => void;
   activitySession: VerifiedAccountSession | null;
   fetchActivity: FetchActivity;
   fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
@@ -160,6 +162,7 @@ export function ConnectedActivityPanel({
       onCancelCashout={(operation) => { void cancelCashout(operation); }}
       cancelBusy={cancelBusy}
       cancelError={cancelError}
+      onDetailsOpenChange={onDetailsOpenChange}
       onDetailsChange={() => {
         cancelAttempt.current += 1;
         setCancelBusy(false);

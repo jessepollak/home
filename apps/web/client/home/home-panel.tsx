@@ -39,6 +39,7 @@ export function HomePanel({
   initialSendActionId = null,
   regionId,
   regionReady = true,
+  onDetailsOpenChange,
 }: {
   assetBalances?: HomeAssetBalancesPresentation;
   activitySession: VerifiedAccountSession | null;
@@ -57,6 +58,7 @@ export function HomePanel({
   initialSendActionId?: string | null;
   regionId: RegionId;
   regionReady?: boolean;
+  onDetailsOpenChange?: (open: boolean) => void;
 }) {
   const isLoading = assetBalances?.status === "loading";
   const isRevalidating = assetBalances?.revalidating === true;
@@ -141,6 +143,7 @@ export function HomePanel({
           fetchOperations={fetchOperations}
           regionId={regionId}
           emptyAction={addMoneyPrompt}
+          onDetailsOpenChange={onDetailsOpenChange}
         />
       )}
     />

@@ -1,6 +1,6 @@
 import "@/client/account/dom-test-harness";
 
-import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
+import { getHomeQueryClient, ownerQueryKey, useHomeQuery } from "@/client/query/query-client";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { afterEach, describe, expect, jest, mock, test } from "bun:test";
 import { useState, type ComponentProps } from "react";
@@ -10,6 +10,7 @@ import type { SessionFetch, VerifiedAccountSession } from "@/client/account/sess
 import { DEFAULT_BORROW_MARKET } from "@/shared/borrowing/config";
 import { erc20AssetKey, nativeAssetKey } from "@/shared/balances/types";
 import type { InvestmentsContentProps } from "./home-types";
+import { BASE_USDC_ADDRESS } from "@/shared/savings/config";
 
 const BORROW_MARKET_ID = DEFAULT_BORROW_MARKET.marketId;
 import {
@@ -31,6 +32,7 @@ let historyEntries = ["/"];
 let historyStates: unknown[] = [{}];
 let historyCursor = 0;
 const nativeReplaceState = window.history.replaceState.bind(window.history);
+const nativeFetch = globalThis.fetch;
 
 function syncLocation(href: string, state: unknown = historyStates[historyCursor]) {
   nativeReplaceState(state, "", href);
@@ -342,6 +344,7 @@ function resetHistory() {
 
 afterEach(() => {
   jest.useRealTimers();
+  globalThis.fetch = nativeFetch;
   restoreAnimationFrames?.();
   cleanup();
   getHomeQueryClient().clear();
@@ -1596,6 +1599,164 @@ describe("Home shell routing and intents", () => {
 function expectSheetOpen(dialog: HTMLElement) {
   expect(dialog.hasAttribute("data-open")).toBe(true);
 }
+
+function RefreshBalancesProbe({ read }: { read: () => Promise<string> }) {
+  useHomeQuery({
+    queryKey: ownerQueryKey(dataOwnerKey(session()), "balances", "GLOBAL"),
+    queryFn: read,
+  });
+  return null;
+}
+
+function touchPull(target: HTMLElement) {
+  const fire = (name: string, y: number, end = false) => {
+    const event = new Event(name, { bubbles: true, cancelable: true });
+    const touch = { identifier: 1, clientX: 0, clientY: y, target };
+    Object.defineProperties(event, {
+      touches: { value: end ? [] : [touch] },
+      changedTouches: { value: [touch] },
+    });
+    target.dispatchEvent(event);
+  };
+  fire("touchstart", 0);
+  fire("touchmove", 350);
+  fire("touchend", 350, true);
+}
+
+function refreshFixture() {
+  const calls = { balances: 0, activity: 0, actions: 0 };
+  let fail = false;
+  let pending: ReturnType<typeof deferred<string>> | null = null;
+  const snapshot = buildBalancesSnapshotFixture({ region: "US" });
+  globalThis.fetch = Object.assign(async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input) === "/api/savings/vaults") {
+      return fail ? Response.json({}, { status: 503 }) : Response.json({
+        version: "v1", chainId: 8453, asset: { address: BASE_USDC_ADDRESS, symbol: "USDC", decimals: 6 },
+        candidates: [], source: { provider: "Morpho GraphQL", endpoint: "https://api.morpho.org/graphql", query: "vaults", fetchedAt: new Date().toISOString() }, stale: false,
+      });
+    }
+    return nativeFetch(input, init);
+  }, { preconnect: nativeFetch.preconnect });
+  const readBalances = async () => {
+    calls.balances += 1;
+    if (fail) throw new Error("Balance read unavailable");
+    return pending?.promise ?? "balances-ready";
+  };
+  const sessionFetch: SessionFetch = async (input) => {
+    const url = String(input);
+    if (url.startsWith("/api/session")) return Response.json(session());
+    if (url.startsWith("/api/activity?")) {
+      calls.activity += 1;
+      if (fail) throw new Error("Activity read unavailable");
+      const query = new URLSearchParams(url.split("?")[1]);
+      const to = query.get("to")!;
+      return Response.json({
+        version: 1, walletAddress: ADDRESS, chainId: 8453,
+        window: { from: new Date(Date.parse(to) - 31 * 24 * 60 * 60 * 1000).toISOString(), to },
+        currency: query.get("currency"), transfers: [], nextCursor: null,
+        source: { provider: "cdp-sql", cached: false, stale: false, executionTimestamp: to, executionTimeMs: 1, fetchedAt: to },
+      });
+    }
+    if (url === "/api/actions") {
+      calls.actions += 1;
+      if (fail) return Response.json({ invalid: true });
+      return Response.json({ version: "1", actions: [] });
+    }
+    if (url.startsWith("/api/balances?")) return fail ? Response.json({}, { status: 503 }) : Response.json(snapshot);
+    if (url === "/api/borrow") return fail ? Response.json({}, { status: 503 }) : Response.json({
+      version: "2", chainId: 8453, owner: { address: ADDRESS, accountProvider: "cdp-embedded" },
+      discovery: { status: "complete", sourceBlock: null, candidateCount: 0, verifiedCount: 0, reason: null, fetchedAt: new Date().toISOString() },
+      opportunities: [], positions: [],
+    });
+    throw new Error(`Unexpected read: ${url}`);
+  };
+  const renderShell = (props: DashboardHarnessProps = {}) => render(
+    <AccountWalletSessionOwner sdk={sdk({ isSignedIn: true, ownerKey: OWNER })} sessionFetch={sessionFetch}>
+      <RefreshBalancesProbe read={readBalances} />
+      <DashboardHarness {...props} />
+    </AccountWalletSessionOwner>,
+  );
+  return { calls, renderShell, failNext: () => { fail = true; }, recover: () => { fail = false; },
+    holdBalances: () => { pending = deferred<string>(); return pending; },
+    releaseBalances: () => { pending = null; },
+  };
+}
+
+describe("Home refresh wiring", () => {
+  test("Refresh Home re-requests balances, activity and actions and announces cycle boundaries", async () => {
+    const fixture = refreshFixture();
+    fixture.renderShell();
+    await waitForVerifiedShell();
+    await waitFor(() => expect(fixture.calls.activity).toBe(1));
+    await waitFor(() => expect(fixture.calls.actions).toBe(1));
+    await waitFor(() => expect(fixture.calls.balances).toBe(1));
+    const pending = fixture.holdBalances();
+    const action = page().getByRole("button", { name: "Refresh Home" });
+    fireEvent.click(action);
+    await waitFor(() => expect(within(page().getByRole("main")).getByRole("status").textContent).toBe("Refreshing Home"));
+    expect(action.getAttribute("aria-busy")).toBe("true");
+    expect(action.getAttribute("aria-disabled")).toBe("true");
+    expect(fixture.calls.balances).toBe(2);
+    expect(fixture.calls.actions).toBe(2);
+    expect(fixture.calls.activity).toBe(2);
+    fixture.releaseBalances();
+    await act(async () => { pending.resolve("balances-ready"); await pending.promise; });
+    await waitFor(() => expect(within(page().getByRole("main")).getByRole("status").textContent).toBe("Home updated"));
+    expect(action.getAttribute("aria-busy")).not.toBe("true");
+  });
+
+  test("a failed refresh preserves Home content, offers Retry, and clears on success or navigation", async () => {
+    const fixture = refreshFixture();
+    fixture.renderShell();
+    await waitForVerifiedShell();
+    await waitFor(() => expect(fixture.calls.activity).toBe(1));
+    await waitFor(() => expect(fixture.calls.actions).toBe(1));
+    await waitFor(() => expect(fixture.calls.balances).toBe(1));
+    fixture.failNext();
+    fireEvent.click(page().getByRole("button", { name: "Refresh Home" }));
+    const alert = await page().findByRole("alert");
+    await waitFor(() => expect(alert.textContent).toContain("Couldn't refresh Home."));
+    expect(page().getByRole("heading", { name: "Your money" })).toBeTruthy();
+    const before = { ...fixture.calls };
+    fixture.recover();
+    fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(fixture.calls.balances).toBe(before.balances + 1));
+    await waitFor(() => expect(fixture.calls.activity).toBe(before.activity + 1));
+    await waitFor(() => expect(fixture.calls.actions).toBe(before.actions + 1));
+    await waitFor(() => expect(page().queryByText("Couldn't refresh Home.")).toBeNull());
+    fixture.failNext();
+    fireEvent.click(page().getByRole("button", { name: "Refresh Home" }));
+    await page().findByText("Couldn't refresh Home.");
+    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Invest" }));
+    expect(page().queryByRole("button", { name: "Refresh Home" })).toBeNull();
+    expect(page().queryByText("Couldn't refresh Home.")).toBeNull();
+  });
+
+  test("other panels and settings omit Refresh Home; an open money flow blocks the pull gesture", async () => {
+    const fixture = refreshFixture();
+    fixture.renderShell();
+    await waitForVerifiedShell();
+    await waitFor(() => expect(fixture.calls.activity).toBe(1));
+    const target = page().getByRole("heading", { name: "Your money" });
+    expect(page().getByRole("button", { name: "Refresh Home" })).toBeTruthy();
+    fireEvent.click(page().getAllByRole("button", { name: "Add money" })[0]!);
+    const dialog = await page().findByRole("dialog", { name: "Add money" });
+    expectSheetOpen(dialog);
+    expect(page().queryByRole("button", { name: "Refresh Home" })).toBeNull();
+    const before = { ...fixture.calls };
+    touchPull(target);
+    expect(fixture.calls).toEqual(before);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close add money" }));
+    await waitFor(() => expect(page().getByRole("button", { name: "Refresh Home" })).toBeTruthy());
+    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Invest" }));
+    expect(page().queryByRole("button", { name: "Refresh Home" })).toBeNull();
+    touchPull(target);
+    expect(fixture.calls.balances).toBe(before.balances);
+    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Home" }));
+    fireEvent.click(page().getByRole("button", { name: "Account" }));
+    expect(page().queryByRole("button", { name: "Refresh Home" })).toBeNull();
+  });
+});
 
 describe("walletless country preference read", () => {
   const location = { panel: "home" as const, account: null, shelf: null, asset: null, group: null, market: null };

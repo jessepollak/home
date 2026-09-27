@@ -324,6 +324,22 @@ describe("Borrow overview and management", () => {
     expect(body.getByRole("button", { name: "Try again" })).toBeTruthy();
   });
 
+  test("an invalid refreshed overview rejects the refetch and keeps the verified rows", async () => {
+    let reads = 0;
+    render(<BorrowExperience session={session()} fetchAccountResource={async () => {
+      reads++;
+      return reads > 1 ? { version: "v1", malformed: true } : overview();
+    }} />);
+    const body = within(document.body);
+    expect(await body.findByRole("button", { description: "Manage Bitcoin loan" })).toBeTruthy();
+    const owner = dataOwnerKey(session());
+    await expect(getHomeQueryClient().refetchQueries(
+      { queryKey: ownerQueryKey(owner, "borrow", "overview"), exact: true, type: "active" },
+      { cancelRefetch: false, throwOnError: true },
+    )).rejects.toThrow("Borrow overview response is invalid.");
+    expect(await body.findByText("Borrow data could not be refreshed")).toBeTruthy();
+    expect(body.getByRole("button", { description: "Manage Bitcoin loan" })).toBeTruthy();
+  });
   test("row opens management with pinned actions and Details hides technical facts", async () => {
     render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(detail())} prepareMoneyAction={async () => prepared("repay")} executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />);
     const body = within(document.body);
