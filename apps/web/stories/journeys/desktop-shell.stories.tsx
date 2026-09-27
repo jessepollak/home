@@ -24,7 +24,7 @@ import {
 import { CashExperience } from "@/client/cash/cash-experience";
 import { HomeMark } from "@/components/home-mark";
 import { PrimaryNavigation } from "@/components/primary-navigation";
-import { shellContentFrameClassName, shellScrollContainerClassName } from "@/components/shell-layout";
+import { shellContentFrameClassName, shellNavigationClearanceClassName, shellScrollContainerClassName } from "@/components/shell-layout";
 import { Button } from "@/components/ui/button";
 import { cryptoAssets, stockAssets } from "@/config/invest-assets";
 import {
@@ -453,7 +453,7 @@ function DesktopShell({ initialPanel, initialRailCollapsed = false, extendedActi
                 onOpenSettings={openAccount} onCloseSettings={closeAccount} status={headerStatus}
               />
             </div>
-            <main ref={mainRef} id="navigation-panel" tabIndex={-1} className={`relative order-1 min-h-0 min-w-0 flex-1 overscroll-contain overflow-x-hidden pb-4 scroll-pb-4 outline-none lg:order-none lg:overflow-visible lg:pb-0 ${shellScrollContainerClassName}`}>
+            <main ref={mainRef} id="navigation-panel" tabIndex={-1} className={`relative order-1 min-h-0 min-w-0 flex-1 overscroll-contain overflow-x-hidden outline-none lg:order-none lg:overflow-visible lg:pb-0 lg:scroll-pb-0 ${shellNavigationClearanceClassName} ${shellScrollContainerClassName}`}>
               <div data-desktop-content-box="" className={`${shellContentFrameClassName} lg:px-0 ${panel === "home" && !accountOpen ? "lg:max-w-280" : "lg:max-w-160"}`}>
                 <header className="sticky top-0 z-10 hidden h-14 items-center justify-between gap-4 border-b bg-muted lg:flex">
                   <div className="flex min-w-0 items-center gap-2">
@@ -818,7 +818,7 @@ export const Mobile390: Story = {
     await expect(canvas.getByRole("heading", { level: 1, name: "Home" })).toBeVisible();
     await expectFixedShellWhileContentScrolls(canvasElement);
     const main = canvas.getByRole("main");
-    await expect(navigation.getBoundingClientRect().top).toBeGreaterThanOrEqual(main.getBoundingClientRect().bottom - 1);
+    await expect(navigation.getBoundingClientRect().top).toBeLessThan(main.getBoundingClientRect().bottom);
     main.scrollTop = main.scrollHeight;
     await waitFor(() => expect(main.scrollTop).toBeGreaterThan(0));
     await userEvent.click(within(navigation).getByRole("button", { name: "Invest" }));

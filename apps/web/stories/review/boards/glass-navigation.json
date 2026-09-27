@@ -1,0 +1,198 @@
+{
+  "id": "glass-navigation",
+  "title": "Glass navigation — adoption",
+  "summary": "CSS glass selected by the owner in PR review on 2026-09-26, resized to a 192 × 60px capsule and adopted in production PrimaryNavigation below 640px.",
+  "sections": [
+    {
+      "id": "adoption",
+      "title": "Adopted mobile",
+      "frames": [
+        {
+          "id": "home-light",
+          "story": "journeys-mobile-navigation--home-light",
+          "label": "Home · light",
+          "viewport": "mobile",
+          "change": "changed"
+        },
+        {
+          "id": "home-dark",
+          "story": "journeys-mobile-navigation--home-dark",
+          "label": "Home · dark",
+          "viewport": "mobile",
+          "change": "changed"
+        },
+        {
+          "id": "invest",
+          "story": "journeys-mobile-navigation--invest",
+          "label": "Invest",
+          "viewport": "mobile",
+          "change": "changed"
+        },
+        {
+          "id": "nested-cash",
+          "story": "journeys-mobile-navigation--nested-cash",
+          "label": "Nested Cash",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "nested-investments",
+          "story": "journeys-mobile-navigation--nested-investments",
+          "label": "Nested Investments",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "nested-your-money",
+          "story": "journeys-mobile-navigation--nested-your-money",
+          "label": "Nested Your money",
+          "viewport": "mobile",
+          "change": "new"
+        }
+      ]
+    },
+    {
+      "id": "scroll",
+      "title": "Scroll and safe area",
+      "frames": [
+        {
+          "id": "last-row",
+          "story": "journeys-mobile-navigation--last-row",
+          "label": "Your money · last row",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "home-indicator",
+          "story": "journeys-mobile-navigation--home-indicator",
+          "label": "34px home indicator · last row",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "activity-under-capsule",
+          "story": "journeys-mobile-navigation--activity-under-capsule",
+          "label": "Home scrolled · Activity rows under capsule",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "action-toast",
+          "story": "journeys-mobile-navigation--action-toast",
+          "label": "Action toast above capsule",
+          "viewport": "mobile",
+          "change": "new"
+        }
+      ]
+    },
+    {
+      "id": "states",
+      "title": "Balance states",
+      "frames": [
+        {
+          "id": "loading",
+          "story": "journeys-mobile-navigation--loading",
+          "label": "Loading",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "empty",
+          "story": "journeys-mobile-navigation--empty",
+          "label": "Empty",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "partial",
+          "story": "journeys-mobile-navigation--partial",
+          "label": "Partial",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "failed",
+          "story": "journeys-mobile-navigation--failed",
+          "label": "Failed",
+          "viewport": "mobile",
+          "change": "new"
+        }
+      ]
+    },
+    {
+      "id": "edges",
+      "title": "Interaction and accessibility",
+      "frames": [
+        {
+          "id": "rapid-taps",
+          "story": "journeys-mobile-navigation--rapid-taps",
+          "label": "Rapid taps · Home",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "reduced-motion",
+          "story": "journeys-mobile-navigation--reduced-motion",
+          "label": "Reduced motion",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "rtl",
+          "story": "journeys-mobile-navigation--rtl",
+          "label": "RTL",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "long-labels",
+          "story": "journeys-mobile-navigation--long-labels",
+          "label": "Long labels",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "opaque-fallback",
+          "story": "journeys-mobile-navigation--opaque-fallback",
+          "label": "Opaque fallback",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "deposit-sheet",
+          "story": "journeys-mobile-navigation--deposit-sheet",
+          "label": "Deposit sheet",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "account-keyboard",
+          "story": "journeys-mobile-navigation--account-keyboard",
+          "label": "Country focus · nav available",
+          "viewport": "mobile",
+          "change": "new"
+        },
+        {
+          "id": "narrow320",
+          "story": "journeys-mobile-navigation--narrow-320",
+          "label": "320px",
+          "viewport": "narrow",
+          "change": "new"
+        }
+      ]
+    },
+    {
+      "id": "desktop",
+      "title": "Desktop",
+      "frames": [
+        {
+          "id": "desktop1440",
+          "story": "journeys-mobile-navigation--desktop-1440",
+          "label": "Unchanged top strip",
+          "viewport": "desktop",
+          "change": "changed"
+        }
+      ]
+    }
+  ]
+}

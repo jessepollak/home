@@ -3,6 +3,7 @@
 import * as React from "react"
 import { Drawer as DrawerPrimitive } from "@base-ui/react/drawer"
 import { cn } from "cn"
+import { visualViewportKeyboardInset } from "@/components/visual-viewport"
 
 type DrawerContextProps = {
   hasSnapPoints: boolean
@@ -135,10 +136,7 @@ function DrawerContent({
     const viewport = window.visualViewport
     const updateInset = () => {
       if (closingRef.current || element.querySelector("[data-slot=drawer-popup][data-closed]")) return
-      const height = window.innerHeight
-      const inset = opensSoftKeyboard(document.activeElement) && viewport.scale === 1 && height - viewport.height > 60
-        ? Math.max(0, Math.ceil(height - Math.min(height, Math.max(0, viewport.offsetTop) + viewport.height)))
-        : 0
+      const inset = opensSoftKeyboard(document.activeElement) ? visualViewportKeyboardInset(window.innerHeight, viewport) : 0
       element.style.setProperty("--sheet-keyboard-inset", `${inset}px`)
     }
     updateInset()

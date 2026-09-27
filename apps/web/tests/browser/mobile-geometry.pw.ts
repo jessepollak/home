@@ -52,7 +52,7 @@ async function inputMetrics(locator: Locator) {
 }
 
 async function optionHeight(locator: Locator) {
-  return locator.evaluate((element) => element.getBoundingClientRect().height);
+  return locator.evaluate((element) => (element as HTMLElement).offsetHeight);
 }
 
 async function expectTouchHeight(option: Locator, label: string) {
@@ -252,7 +252,7 @@ test.describe("touch pickers", () => {
   });
 });
 
-test("mobile tab bar keeps browser-tab safe-area spacing", async ({ page, context }) => {
+test("mobile capsule floats above the browser-tab bottom while keeping content clear", async ({ page, context }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await seedSignedInSession(page);
   await installApiFixtures(page);
@@ -274,11 +274,15 @@ test("mobile tab bar keeps browser-tab safe-area spacing", async ({ page, contex
   });
   expect(emulatedInset).toBe(34);
 
-  const tabBar = navigation.locator("xpath=..");
-  await expect.poll(async () => tabBar.evaluate((wrapper) =>
-    Number.parseFloat(getComputedStyle(wrapper).paddingBottom))).toBe(0);
   await expect.poll(async () => navigation.evaluate((nav) =>
-    Math.round(window.innerHeight - nav.getBoundingClientRect().bottom))).toBe(0);
+    Math.round(window.innerHeight - nav.getBoundingClientRect().bottom))).toBe(12);
+  const main = page.locator("[data-app-main-authenticated]");
+  await main.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  await expect.poll(async () => main.evaluate((element) => {
+    const lastContent = element.lastElementChild;
+    const nav = document.querySelector<HTMLElement>('nav[aria-label="Main navigation"]');
+    return lastContent && nav ? lastContent.getBoundingClientRect().bottom <= nav.getBoundingClientRect().top : false;
+  })).toBe(true);
   const tabHeights = await navigation.getByRole("button").evaluateAll((buttons) =>
     buttons.map((button) => button.getBoundingClientRect().height));
   expect(tabHeights.length).toBeGreaterThan(0);
