@@ -193,7 +193,6 @@ export function MoneyAmountDisplay({
   amountError,
   onSubmit,
   disabled = false,
-  autoFocus = true,
   children,
   availableLabel,
   availableAmount,
@@ -216,7 +215,6 @@ export function MoneyAmountDisplay({
   amountError?: string;
   onSubmit?: () => void;
   disabled?: boolean;
-  autoFocus?: boolean;
   children?: ReactNode;
   availableLabel?: string;
   availableAmount?: string | null;
@@ -284,7 +282,6 @@ export function MoneyAmountDisplay({
         maxDecimals={mode === "fiat" ? 2 : maxDecimals}
         onSubmit={onSubmit}
         disabled={disabled}
-        autoFocus={autoFocus}
         focusKey={assetId}
         availableId={availableLine || amountError ? availableId : undefined}
         overAvailable={overAvailable || Boolean(amountError)}
@@ -333,7 +330,6 @@ export function MoneyPrimaryAmount({
   maxDecimals,
   onSubmit,
   disabled = false,
-  autoFocus = true,
   focusKey,
   availableId,
   overAvailable = false,
@@ -345,7 +341,6 @@ export function MoneyPrimaryAmount({
   maxDecimals: number;
   onSubmit?: () => void;
   disabled?: boolean;
-  autoFocus?: boolean;
   focusKey?: string;
   availableId?: string;
   overAvailable?: boolean;
@@ -365,17 +360,14 @@ export function MoneyPrimaryAmount({
   const previousSelection = useRef({ start: 0, end: 0 });
   const nextCaret = useRef<number | null>(null);
   const handledInputEvent = useRef<Event | null>(null);
-  const focusOnMount = useRef(autoFocus && Boolean(onAmountChange) && !disabled);
-
-  useEffect(() => {
-    if (focusOnMount.current) inputRef.current?.focus({ preventScroll: true });
-  }, []);
-
   const lastFocusKey = useRef(focusKey);
   useEffect(() => {
     if (lastFocusKey.current === focusKey) return;
     lastFocusKey.current = focusKey;
-    if (onAmountChange && !disabled) inputRef.current?.focus({ preventScroll: true });
+    const input = inputRef.current;
+    const active = document.activeElement;
+    const choosing = active instanceof HTMLElement && active !== input && Boolean(input?.closest("[data-money-sheet]")?.contains(active));
+    if (onAmountChange && !disabled && choosing) input?.focus({ preventScroll: true });
   }, [disabled, focusKey, onAmountChange]);
 
   useLayoutEffect(() => {

@@ -21,6 +21,7 @@ import {
   MoneyModalBody,
   MoneyModalFooter,
   MoneyModalHeader,
+  MoneyModalStep,
   decimalFromBaseUnits,
   isPositiveDecimalAmount,
   useMoneyAmountUnit,
@@ -155,7 +156,6 @@ function OwnerBoundSavingsMoneyDialog({
   }
 
   function close() {
-    reset();
     onClose();
   }
 
@@ -307,10 +307,10 @@ function OwnerBoundSavingsMoneyDialog({
         onCancel={onClose}
         onClose={() => {
           reset();
-          onClose();
           onClosed?.();
         }}
       >
+        <MoneyModalStep step={step === "pending" || step === "error" ? "confirm" : step} depth={step === "amount" ? 0 : step === "result" ? 2 : 1}>
         <MoneyModalHeader
           title={title}
           titleId="savings-action-title"
@@ -319,7 +319,6 @@ function OwnerBoundSavingsMoneyDialog({
             : step === "pending" || step === "result"
               ? {}
               : { onBack: goBack })}
-          onClose={close}
           closeLabel={`Close ${mode} dialog`}
         />
 
@@ -414,6 +413,7 @@ function OwnerBoundSavingsMoneyDialog({
             onPrimary={goBack}
           />
         ) : null}
+        </MoneyModalStep>
       </MoneyModal>
     </MoneyMotionProvider>
   );

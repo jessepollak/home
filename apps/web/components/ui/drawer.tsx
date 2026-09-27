@@ -8,6 +8,7 @@ type DrawerContextProps = {
   hasSnapPoints: boolean
   keyboardAware: boolean
   modal: DrawerPrimitive.Root.Props["modal"]
+  open: DrawerPrimitive.Root.Props["open"]
   showSwipeHandle: boolean
   swipeDirection: NonNullable<DrawerPrimitive.Root.Props["swipeDirection"]>
 }
@@ -38,8 +39,8 @@ function Drawer({
 }) {
   const hasSnapPoints = snapPoints != null && snapPoints.length > 0
   const contextValue = React.useMemo(
-    () => ({ hasSnapPoints, keyboardAware, modal, showSwipeHandle, swipeDirection }),
-    [hasSnapPoints, keyboardAware, modal, showSwipeHandle, swipeDirection]
+    () => ({ hasSnapPoints, keyboardAware, modal, open: props.open, showSwipeHandle, swipeDirection }),
+    [hasSnapPoints, keyboardAware, modal, props.open, showSwipeHandle, swipeDirection]
   )
   const resolvedChildren: DrawerPrimitive.Root.Props["children"] = keyboardAware
     ? typeof children === "function"
@@ -107,13 +108,25 @@ function DrawerSwipeHandle({
   )
 }
 
+const NON_TEXT_INPUT_TYPES = new Set(["button", "checkbox", "color", "file", "hidden", "image", "radio", "range", "reset", "submit"])
+
+function opensSoftKeyboard(element: EventTarget | null): boolean {
+  if (!(element instanceof HTMLElement) || element.matches(":disabled")) return false
+  if (element.isContentEditable || element instanceof HTMLTextAreaElement) return !element.matches("[readonly]")
+  return element instanceof HTMLInputElement && !element.readOnly && !NON_TEXT_INPUT_TYPES.has(element.type)
+}
+
 function DrawerContent({
   className,
   children,
   immediate = false,
   ...props
 }: DrawerPrimitive.Popup.Props & { immediate?: boolean }) {
-  const { hasSnapPoints, keyboardAware, modal, showSwipeHandle, swipeDirection } = useDrawer()
+  const { hasSnapPoints, keyboardAware, modal, open, showSwipeHandle, swipeDirection } = useDrawer()
+  const closingRef = React.useRef(open === false)
+  React.useLayoutEffect(() => {
+    closingRef.current = open === false
+  }, [open])
   const swipeAxis =
     swipeDirection === "down" || swipeDirection === "up" ? "y" : "x"
   const viewportRef = React.useCallback((element: HTMLDivElement | null) => {
@@ -121,19 +134,26 @@ function DrawerContent({
 
     const viewport = window.visualViewport
     const updateInset = () => {
-      if (element.querySelector("[data-slot=drawer-popup][data-closed]")) return
+      if (closingRef.current || element.querySelector("[data-slot=drawer-popup][data-closed]")) return
       const height = window.innerHeight
-      const inset = viewport.scale === 1 && height - viewport.height > 60
+      const inset = opensSoftKeyboard(document.activeElement) && viewport.scale === 1 && height - viewport.height > 60
         ? Math.max(0, Math.ceil(height - Math.min(height, Math.max(0, viewport.offsetTop) + viewport.height)))
         : 0
       element.style.setProperty("--sheet-keyboard-inset", `${inset}px`)
     }
     updateInset()
+    const updateAfterBlur = (event: FocusEvent) => {
+      if (event.relatedTarget === null) queueMicrotask(updateInset)
+    }
     viewport.addEventListener("resize", updateInset)
     viewport.addEventListener("scroll", updateInset)
+    document.addEventListener("focusin", updateInset)
+    document.addEventListener("focusout", updateAfterBlur)
     return () => {
       viewport.removeEventListener("resize", updateInset)
       viewport.removeEventListener("scroll", updateInset)
+      document.removeEventListener("focusin", updateInset)
+      document.removeEventListener("focusout", updateAfterBlur)
       element.style.removeProperty("--sheet-keyboard-inset")
     }
   }, [keyboardAware])
@@ -252,6 +272,7 @@ export {
   DrawerHeader,
   DrawerFooter,
   DrawerTitle,
+  opensSoftKeyboard,
 };
 
 /** @public rendered by Storybook story components/ui/drawer.stories.tsx */

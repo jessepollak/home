@@ -1,15 +1,16 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
+import { dataOwnerKey as ownerDataKey } from "@/client/account/owner-keys";
 import { ChevronDown, CircleDollarSign, Coins, ShieldCheck } from "lucide-react";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
-import { borrowRiskCopy, borrowRiskState } from "./borrow-ui";
+import { borrowOperationLabels, borrowRiskCopy, borrowRiskState } from "./borrow-ui";
 import { BorrowNotice, collateralDisplayName, formatCash, formatToken, LiquidationBufferMeter, presentBorrowAssetMark } from "./borrowing-experience";
 import { HomeSectionHeading } from "@/client/home/home-overview";
 import { ShimmerRows } from "@/client/home/panel-shared";
-import { AppDrawer, MoneyModalBody, MoneyModalHeader } from "@/client/money-modal";
-import { deferSheet } from "@/client/money-modal/deferred-sheet";
+import { MoneyModal, MoneyModalBody, MoneyModalHeader, MoneyModalStep, MoneyModalStepLoading, deferStep } from "@/client/money-modal";
+import { useIdlePreload } from "@/client/money-modal/deferred-sheet";
 import { CurrencyMark } from "@/components/currency-mark";
 import { AssetRow, type FinanceRowAction } from "@/components/finance-rows";
 import { buyRouteForToken } from "@/shared/trading/assets";
@@ -29,7 +30,7 @@ import type { BorrowOperation } from "@/shared/borrowing/types";
 import { formatHealthFactor, formatPresentationDate, formatPresentationFiat, formatWadPercent } from "@/shared/formatting";
 import { borrowableAssets, borrowDebtsMatchOverview, loanActions, openLoans, summarizeBorrowOverview, type BorrowableAsset, type OpenLoan } from "./borrow-overview-model";
 
-const BorrowMoneySheet = deferSheet(() => import("./borrow-money-dialog").then((module) => module.BorrowMoneyDialog));
+const BorrowMoneyStep = deferStep(() => import("./borrow-money-dialog").then((module) => module.BorrowMoneyFlow));
 
 type Props = {
   overview?: BorrowOverviewResponse | null;
@@ -159,7 +160,7 @@ function SheetFooter({ snapshot, name, debt, pledged, canDispatch, begin, focusO
   function action({ operation, enabled, label, variant, ariaLabel }: SheetAction) {
     return <Button key={operation} ref={focusOperation === operation ? actionFocusRef : undefined}
       className="h-auto min-h-11 w-full whitespace-normal" variant={variant} disabled={!enabled || !canDispatch} aria-label={ariaLabel}
-      onPointerDown={() => void BorrowMoneySheet.preload()} onClick={() => begin(operation)}>{label}</Button>;
+      onPointerDown={() => void BorrowMoneyStep.preload()} onClick={() => begin(operation)}>{label}</Button>;
   }
   return <>
     {reason}
@@ -177,12 +178,12 @@ function SheetFooter({ snapshot, name, debt, pledged, canDispatch, begin, focusO
   </>;
 }
 
-function ManagementSheet({ snapshot, name, regionId, openingAvailableRaw, titleId, detailsId, canDispatch, dismiss, begin, focusOperation, actionFocusRef, heroFocusRef }: {
+function ManagementSheet({ snapshot, name, regionId, openingAvailableRaw, titleId, detailsId, detailsOpen, setDetailsOpen, canDispatch, onBack, begin, focusOperation, actionFocusRef, heroFocusRef }: {
   snapshot: BorrowMarketSnapshot; name: string; regionId: RegionId; openingAvailableRaw: string; titleId: string; detailsId: string; canDispatch: boolean;
-  dismiss: () => void; begin: (operation: BorrowOperation) => void; focusOperation: BorrowOperation | null;
+  detailsOpen: boolean; setDetailsOpen: (open: boolean) => void;
+  onBack?: () => void; begin: (operation: BorrowOperation) => void; focusOperation: BorrowOperation | null;
   actionFocusRef: React.RefObject<HTMLButtonElement | null>; heroFocusRef: React.RefObject<HTMLParagraphElement | null>;
 }) {
-  const [detailsOpen, setDetailsOpen] = useState(false);
   const debt = BigInt(snapshot.position.debtAssetsRaw) > BigInt(0);
   const pledged = BigInt(snapshot.position.collateralRaw) > BigInt(0);
   const details: Array<[string, string]> = [
@@ -197,7 +198,8 @@ function ManagementSheet({ snapshot, name, regionId, openingAvailableRaw, titleI
     ...(BigInt(snapshot.wallet.collateralBalanceRaw) > BigInt(0) ? [["In wallet", formatToken(snapshot.wallet.collateralBalanceRaw, snapshot.market.collateralToken, regionId)] as [string, string]] : []),
   ];
   return <>
-    <MoneyModalHeader title={name} titleId={titleId} closeLabel={`Close ${name} details`} onClose={dismiss} />
+    {onBack ? <MoneyModalHeader title={name} titleId={titleId} closeLabel={`Close ${name} details`} onBack={onBack} />
+      : <MoneyModalHeader title={name} titleId={titleId} closeLabel={`Close ${name} details`} />}
     <MoneyModalBody hasFooter className="gap-4 pt-4">
       <div className="space-y-1">
         <p className="text-sm text-muted-foreground">{debt ? "Borrowed" : pledged ? "Collateral" : "Borrow up to"}</p>
@@ -224,20 +226,21 @@ export function BorrowOverview({ overview = null, borrowSummary, status = "ready
   const pickerTitleId = useId();
   const summaryRef = useRef<HTMLParagraphElement>(null);
   const introActionRef = useRef<HTMLButtonElement>(null);
-  const pickedMarket = useRef<BorrowMarketId | null>(null);
   const pendingBuy = useRef(false);
   const opener = useRef<HTMLElement | null>(null);
   const leavingForActivity = useRef(false);
+  const closeFocus = useRef<"row" | "summary" | "none">("row");
   const actionFocusRef = useRef<HTMLButtonElement>(null);
   const heroFocusRef = useRef<HTMLParagraphElement>(null);
   const [focusOperation, setFocusOperation] = useState<BorrowOperation | null>(null);
   const [marketId, setMarketId] = useState<BorrowMarketId | null>(initialMarketId ?? null);
-  const [managementOpen, setManagementOpen] = useState(Boolean(initialMarketId && overview?.opportunities.some((entry) => entry.market.id === initialMarketId && entry.availability.status === "available")));
-  const [pendingOperation, setPendingOperation] = useState<BorrowOperation | null>(null);
-  const [moneyOperation, setMoneyOperation] = useState<BorrowOperation | null>(null);
+  const [journeyOpen, setJourneyOpen] = useState(Boolean(initialMarketId && overview?.opportunities.some((entry) => entry.market.id === initialMarketId && entry.availability.status === "available")));
+  const [operation, setOperation] = useState<BorrowOperation | null>(null);
   const [moneySnapshot, setMoneySnapshot] = useState<BorrowMarketSnapshot | null>(null);
-  const [moneyOpen, setMoneyOpen] = useState(false);
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [fromPicker, setFromPicker] = useState(false);
+  const ownerKey = session?.smartAccount ? ownerDataKey(session) : null;
+  const [journeyOwner, setJourneyOwner] = useState(ownerKey);
   const opportunities = overview?.opportunities ?? [];
   const selected = opportunities.find((entry) => entry.market.id === marketId);
   const snapshot = selected?.availability.status === "available" ? selected.availability.snapshot : null;
@@ -259,68 +262,76 @@ export function BorrowOverview({ overview = null, borrowSummary, status = "ready
   function focusOverview() {
     (summaryRef.current ?? introActionRef.current)?.focus({ preventScroll: true });
   }
-  function openMarket(id: BorrowMarketId, element: HTMLElement) {
+  function startJourney(element: HTMLElement, picker: boolean) {
     opener.current = element;
+    setJourneyOwner(ownerKey);
+    closeFocus.current = "row";
+    leavingForActivity.current = false;
+    pendingBuy.current = false;
+    setFromPicker(picker);
+    setDetailsOpen(false);
+    setOperation(null);
+    setMoneySnapshot(null);
     setFocusOperation(null);
+    setJourneyOpen(true);
+  }
+  function openMarket(id: BorrowMarketId, element: HTMLElement) {
+    startJourney(element, false);
     setMarketId(id);
-    setManagementOpen(true);
+  }
+  function openPicker(element: HTMLElement) {
+    startJourney(element, true);
+    setMarketId(null);
   }
   function pickMarket(id: BorrowMarketId) {
+    setDetailsOpen(false);
+    setFocusOperation(null);
+    setMarketId(id);
+  }
+  function backToPicker() {
+    setFocusOperation(null);
+    setMarketId(null);
+  }
+  function pickBuy() {
+    pendingBuy.current = true;
+    exitJourney("none");
+  }
+  function exitJourney(focus: "row" | "summary" | "none" = "row") {
+    closeFocus.current = focus;
+    setJourneyOpen(false);
+  }
+  function onJourneyClosed() {
+    setJourneyOpen(false);
+    setFromPicker(false);
+    setMarketId(null);
+    setOperation(null);
+    setMoneySnapshot(null);
+    setFocusOperation(null);
+    const buyNext = pendingBuy.current && journeyOwner === ownerKey;
     pendingBuy.current = false;
-    pickedMarket.current = id;
-    setPickerOpen(false);
-  }
-  function onPickerClosed() {
-    if (pendingBuy.current) {
-      pendingBuy.current = false;
-      if (introActionRef.current?.isConnected) trade.open("buy", introActionRef.current);
-      return;
-    }
-    const id = pickedMarket.current;
-    pickedMarket.current = null;
-    if (id && introActionRef.current) openMarket(id, introActionRef.current);
-    else introActionRef.current?.focus({ preventScroll: true });
-  }
-  function onManagementClosed() {
-    if (pendingOperation) {
-      setPendingOperation(null);
-      setMoneyOpen(true);
-    } else {
-      setMarketId(null);
-      setFocusOperation(null);
+    if (journeyOwner !== ownerKey) closeFocus.current = "none";
+    if (buyNext && introActionRef.current?.isConnected) trade.open("buy", introActionRef.current);
+    else if (closeFocus.current === "summary") focusOverview();
+    else if (closeFocus.current === "row") {
       if (opener.current?.isConnected) opener.current.focus({ preventScroll: true });
       else focusOverview();
     }
+    closeFocus.current = "row";
   }
-  function begin(operation: BorrowOperation) {
-    void BorrowMoneySheet.preload();
-    setMoneyOperation(operation);
+  function begin(nextOperation: BorrowOperation) {
+    void BorrowMoneyStep.preload();
     leavingForActivity.current = false;
     setMoneySnapshot(snapshot);
-    setPendingOperation(operation);
-    setManagementOpen(false);
+    setFocusOperation(nextOperation);
+    setOperation(nextOperation);
   }
-  function onMoneyClose() {
-    if (moneyOpen) {
-      setMoneyOpen(false);
-      return;
-    }
-    setMoneyOperation(null);
+  function backToManagement() {
+    setOperation(null);
     setMoneySnapshot(null);
-    if (leavingForActivity.current) {
-      leavingForActivity.current = false;
-      setMarketId(null);
-      setFocusOperation(null);
-      return;
-    }
-    if (snapshot && (BigInt(snapshot.position.debtAssetsRaw) > BigInt(0) || BigInt(snapshot.position.collateralRaw) > BigInt(0) || moneyOperation === "supply-and-borrow")) {
-      setFocusOperation(moneyOperation);
-      setManagementOpen(true);
-    } else {
-      setMarketId(null);
-      setFocusOperation(null);
-      focusOverview();
-    }
+  }
+  function done() {
+    if (snapshot && (BigInt(snapshot.position.debtAssetsRaw) > BigInt(0) || BigInt(snapshot.position.collateralRaw) > BigInt(0) || operation === "supply-and-borrow")) backToManagement();
+    else exitJourney("summary");
   }
   const actions = snapshot ? loanActions(snapshot) : null;
   const debt = snapshot ? BigInt(snapshot.position.debtAssetsRaw) > BigInt(0) : false;
@@ -332,27 +343,13 @@ export function BorrowOverview({ overview = null, borrowSummary, status = "ready
           : focusOperation === "supply-collateral" ? pledged && actions.addCollateral
             : focusOperation === "withdraw-collateral" ? pledged && actions.withdraw : false
   ));
+  const managementDepth = fromPicker ? 1 : 0;
+  useIdlePreload(BorrowMoneyStep.preload, journeyOpen && operation === null);
   useEffect(() => {
-    if (!marketId || snapshot || (!moneyOperation && !managementOpen)) return;
-    const frame = requestAnimationFrame(() => {
-      setMoneyOpen(false);
-      setMoneyOperation(null);
-      setMoneySnapshot(null);
-      setPendingOperation(null);
-      setManagementOpen(false);
-      setMarketId(null);
-      setFocusOperation(null);
-      (summaryRef.current ?? introActionRef.current)?.focus({ preventScroll: true });
-    });
+    if (!journeyOpen || !marketId || snapshot) return;
+    const frame = requestAnimationFrame(() => exitJourney("summary"));
     return () => cancelAnimationFrame(frame);
-  }, [marketId, snapshot, moneyOperation, managementOpen]);
-  useEffect(() => {
-    if (!managementOpen || !focusOperation) return;
-    const frame = requestAnimationFrame(() => {
-      (actionEnabled ? actionFocusRef.current : heroFocusRef.current)?.focus({ preventScroll: true });
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [managementOpen, focusOperation, actionEnabled]);
+  }, [journeyOpen, marketId, snapshot]);
   return <section className="space-y-4" aria-labelledby="borrow-overview-title">
     <h2 className="sr-only" id="borrow-overview-title">Borrow</h2>
     {showIntro ? null : <Summary overview={overview} borrowSummary={borrowSummary} status={status} onRetry={onRetry} regionId={regionId} summaryRef={summaryRef} />}
@@ -369,7 +366,7 @@ export function BorrowOverview({ overview = null, borrowSummary, status = "ready
         ]}
         primary={{
           label: hasBorrowableAsset ? "Choose an asset" : "See supported assets",
-          onClick: () => { pendingBuy.current = false; setPickerOpen(true); },
+          onClick: () => { if (introActionRef.current) openPicker(introActionRef.current); },
           ref: introActionRef,
         }}
       /> : null}
@@ -382,23 +379,30 @@ export function BorrowOverview({ overview = null, borrowSummary, status = "ready
       </Card></section> : null}
     </> : null}
     {trade.sheet}
-    {showIntro ? <AppDrawer open={pickerOpen} labelledBy={pickerTitleId} onCancel={() => setPickerOpen(false)} onClose={onPickerClosed}>
-      <MoneyModalHeader title={hasBorrowableAsset ? "Choose an asset" : "Supported assets"} titleId={pickerTitleId} closeLabel="Close asset list" onClose={() => setPickerOpen(false)} />
-      <MoneyModalBody className="gap-3 pt-4">
-        {empty ? <p className="text-sm text-muted-foreground">Add a supported asset to your wallet to borrow USDC.</p> : null}
-        <Card variant="flush"><CardContent inset="list"><ul className="list-none p-0"><AssetRows assets={assets} regionId={regionId} resolution={assetMarkResolution} openMarket={pickMarket} buy={{ ...buy, open: () => { pendingBuy.current = true; setPickerOpen(false); } }} empty={empty} /></ul></CardContent></Card>
-      </MoneyModalBody>
-    </AppDrawer> : null}
-    {ready ? <AppDrawer open={managementOpen} labelledBy={titleId} initialFocusRef={focusOperation ? actionEnabled ? actionFocusRef : heroFocusRef : undefined}
-      onCancel={() => setManagementOpen(false)} onClose={onManagementClosed}>
-      {snapshot ? <ManagementSheet key={marketId} snapshot={snapshot} name={collateralDisplayName(snapshot.market.id)} regionId={regionId}
-        openingAvailableRaw={held?.openingAvailableRaw ?? "0"} titleId={titleId} detailsId={detailsId}
-        canDispatch={Boolean(prepareMoneyAction && executeMoneyAction)} dismiss={() => setManagementOpen(false)} begin={begin}
-        focusOperation={focusOperation} actionFocusRef={actionFocusRef} heroFocusRef={heroFocusRef} /> : null}
-    </AppDrawer> : null}
-    {snapshot && moneySnapshot && session && moneyOperation && prepareMoneyAction && executeMoneyAction ? <BorrowMoneySheet key={`${marketId}:${moneyOperation}`}
-      open={moneyOpen} session={session} snapshot={moneySnapshot} operation={moneyOperation} regionId={regionId}
-      prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeMoneyAction} fetchAccountResource={fetchAccountResource}
-      assetMarkResolution={assetMarkResolution} onClose={onMoneyClose} onLeave={() => { leavingForActivity.current = true; }} /> : null}
+    {ready ? <MoneyModal open={journeyOpen && (snapshot !== null || (fromPicker && marketId === null)) && journeyOwner === ownerKey}
+      labelledBy={operation ? "borrow-action-title" : marketId ? titleId : pickerTitleId}
+      onCancel={() => exitJourney(leavingForActivity.current ? "none" : "row")} onClose={onJourneyClosed}>
+      {operation && moneySnapshot && session && prepareMoneyAction && executeMoneyAction ? <BorrowMoneyStep key={`${ownerKey}:${marketId}:${operation}`}
+        depth={managementDepth + 1} session={session} snapshot={moneySnapshot} operation={operation} regionId={regionId}
+        prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeMoneyAction} fetchAccountResource={fetchAccountResource}
+        assetMarkResolution={assetMarkResolution} onBack={backToManagement} onDone={done}
+        onLeave={() => { leavingForActivity.current = true; closeFocus.current = "none"; }}
+        fallback={({ failed, retry }) => <MoneyModalStepLoading step="amount" depth={managementDepth + 1} title={borrowOperationLabels[operation]} titleId="borrow-action-title"
+          onBack={backToManagement} closeLabel="Close Borrow action" failed={failed} onRetry={retry} />} />
+        : snapshot ? <MoneyModalStep step="management" depth={managementDepth} initialFocusRef={focusOperation ? actionEnabled ? actionFocusRef : heroFocusRef : undefined}>
+          <ManagementSheet snapshot={snapshot} name={collateralDisplayName(snapshot.market.id)} regionId={regionId}
+            openingAvailableRaw={held?.openingAvailableRaw ?? "0"} titleId={titleId} detailsId={detailsId}
+            detailsOpen={detailsOpen} setDetailsOpen={setDetailsOpen} onBack={fromPicker ? backToPicker : undefined}
+            canDispatch={Boolean(prepareMoneyAction && executeMoneyAction)} begin={begin}
+            focusOperation={focusOperation} actionFocusRef={actionFocusRef} heroFocusRef={heroFocusRef} />
+        </MoneyModalStep>
+        : fromPicker ? <MoneyModalStep step="picker" depth={0}>
+          <MoneyModalHeader title={hasBorrowableAsset ? "Choose an asset" : "Supported assets"} titleId={pickerTitleId} closeLabel="Close asset list" />
+          <MoneyModalBody className="gap-3 pt-4">
+            {empty ? <p className="text-sm text-muted-foreground">Add a supported asset to your wallet to borrow USDC.</p> : null}
+            <Card variant="flush"><CardContent inset="list"><ul className="list-none p-0"><AssetRows assets={assets} regionId={regionId} resolution={assetMarkResolution} openMarket={pickMarket} buy={{ ...buy, open: pickBuy }} empty={empty} /></ul></CardContent></Card>
+          </MoneyModalBody>
+        </MoneyModalStep> : null}
+    </MoneyModal> : null}
   </section>;
 }

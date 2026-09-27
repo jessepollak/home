@@ -1,6 +1,7 @@
 import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
+import { useState } from "react";
 import { getHomeQueryClient } from "@/client/query/query-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
@@ -148,6 +149,45 @@ describe("Bitcoin trade review", () => {
     expect(trade.requests[1]?.amountBaseUnits).toBe("123456");
     expect(trade.executions()).toBe(0);
   });
+  test("Trade confirm X closes once and Back returns exactly to Buy amount", async () => {
+    let closes = 0;
+    function Journey() {
+      const [open, setOpen] = useState(true);
+      return <TradeMoneyDialog open={open} direction="buy" session={session} availableBaseUnits="10000000"
+        fetchAccountResource={async (path) => path === "/api/actions/trade-pending"
+          ? { version: 1, trade: null } : { version: 1, usdcReserveBaseUnits: "20000" }}
+        prepareMoneyAction={async (_kind, params) => action("buy", (params as TradeActionParams).amountBaseUnits)}
+        executeMoneyAction={async () => ({ id: "fixture", status: "rejected" })}
+        onClose={() => { closes++; setOpen(false); }} />;
+    }
+    const view = render(<Journey />);
+    typeAmount(view, "1");
+    await continueTrade(view);
+    await view.findByRole("dialog", { name: "Confirm" });
+    key(view, "Back");
+    expect((view.getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("1");
+    expect(view.getAllByRole("dialog")).toHaveLength(1);
+    await continueTrade(view);
+    await view.findByRole("dialog", { name: "Confirm" });
+    key(view, "Close trade dialog");
+    await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+    expect(closes).toBe(1);
+  });
+
+  test("Trade amount to confirm and Back keeps one dialog and refocuses amount", async () => {
+    const trade = dialog("buy");
+    typeAmount(trade.view, "1");
+    await continueTrade(trade.view);
+    await waitFor(() => expect(trade.view.getByRole("button", { name: "Buy $1.00" })).toBeTruthy());
+    const dialogElement = trade.view.getByRole("dialog", { name: "Confirm" });
+    expect(trade.view.getAllByRole("dialog")).toHaveLength(1);
+    expect(dialogElement.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).not.toBe(document.body);
+    key(trade.view, "Back");
+    expect(trade.view.getAllByRole("dialog")).toHaveLength(1);
+    expect(document.activeElement).toBe(trade.view.getByRole("textbox", { name: "Amount" }));
+  });
+
   test("wallet rejection keeps the same review, and Back retains the amount", async () => {
     const trade = dialog("buy");
     typeAmount(trade.view, "1");

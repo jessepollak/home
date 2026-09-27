@@ -30,7 +30,7 @@ import {
 } from "@/config/regions";
 import { formatAddress } from "@/shared/formatting";
 import type { FundingProviderCustomerSummary } from "@/shared/funding/contracts/provider-customers";
-import { MoneyModal, MoneyModalBody, MoneyModalHeader } from "@/client/money-modal";
+import { MoneyModal, MoneyModalBody, MoneyModalHeader, MoneyModalStep } from "@/client/money-modal";
 import { ReceiveQr } from "./receive-qr";
 import {
   FundingOrderFlow,
@@ -113,20 +113,16 @@ export function AddMoneyDialog({
       open={open}
       labelledBy="add-money-title"
       onCancel={onClose}
-      onClose={() => {
-        onClose();
-        onClosed?.();
-      }}
+      onClose={() => onClosed?.()}
     >
       {step !== "order" || signedOut ? (
+        <MoneyModalStep step={signedOut ? "signed-out" : step} depth={!signedOut && (step === "receive" || step === "open-order") ? 1 : 0}>
         <MoneyModalHeader
           title={title}
           titleId="add-money-title"
           onBack={step === "method" || step === "order" ? undefined : onBack}
-          onClose={onClose}
           closeLabel="Close add money"
         />
-      ) : null}
 
       {signedOut ? <SignedOutBody /> : null}
       {!signedOut && step === "method" ? (
@@ -154,20 +150,6 @@ export function AddMoneyDialog({
           onStartNew={onStartNewOrder}
         />
       ) : null}
-      {!signedOut && step === "order" && selectedBinding ? (
-        <FundingOrderFlow
-          binding={selectedBinding}
-          fetchAccountResource={fetchAccountResource}
-          queryOwnerKey={queryOwnerKey}
-          titleId="add-money-title"
-          onBack={onBack}
-          onClose={onClose}
-          onOpenRedirect={onOpenRedirect}
-          initialOrder={initialOrder}
-          initialCustomer={initialCustomer}
-        />
-      ) : null}
-
       {signedOut ? (
         <DrawerFooter>
           <Link
@@ -177,6 +159,20 @@ export function AddMoneyDialog({
             Sign in
           </Link>
         </DrawerFooter>
+      ) : null}
+        </MoneyModalStep>
+      ) : null}
+      {!signedOut && step === "order" && selectedBinding ? (
+        <FundingOrderFlow
+          binding={selectedBinding}
+          fetchAccountResource={fetchAccountResource}
+          queryOwnerKey={queryOwnerKey}
+          titleId="add-money-title"
+          onBack={onBack}
+          onOpenRedirect={onOpenRedirect}
+          initialOrder={initialOrder}
+          initialCustomer={initialCustomer}
+        />
       ) : null}
     </MoneyModal>
   );

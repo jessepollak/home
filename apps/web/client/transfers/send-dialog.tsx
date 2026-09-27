@@ -40,6 +40,7 @@ import {
   MoneyModalBody,
   MoneyModalFooter,
   MoneyModalHeader,
+  MoneyModalStep,
   amountExceedsCeiling,
   isPositiveDecimalAmount,
   useMoneyAmountUnit,
@@ -415,13 +416,13 @@ export function SendDialog({
   };
   return (
     <MoneyModal open={open} labelledBy="send-title" immediate={immediate} pending={busy} onCancel={onClose} onClose={() => { reset(); (onClosed ?? onClose)(); }}>
+      <MoneyModalStep step={step === "pending" || step === "error" || step === "preparing" ? "confirm" : step} depth={{ amount: 0, destination: 1, payout: 2, handle: 3, "handle-confirm": 4, preparing: 5, confirm: 5, pending: 5, error: 5, result: 6 }[step]}>
       <MoneyModalHeader
         title={modalTitle}
         titleId="send-title"
         {...(step === "amount"
           ? { assetControl: <MoneyAssetPicker {...amountAssetProps} /> }
           : busy || step === "result" ? {} : { onBack: back })}
-        onClose={onClose}
         closeLabel="Close send dialog"
       />
       {step !== "result" ? <MoneyModalBody hasFooter={["amount", "destination", "handle", "handle-confirm", "confirm", "error"].includes(step)} className="gap-4 pt-4">
@@ -516,13 +517,14 @@ export function SendDialog({
         {step === "preparing" ? <StatusMessage><span className="flex items-center gap-2"><LoaderCircle className="size-4 animate-spin" aria-hidden="true" />Preparing review…</span></StatusMessage> : null}
         {error ? <StatusMessage tone="error" role="alert">{error}</StatusMessage> : null}
       </MoneyModalBody> : null}
-      {step === "result" && action && submission ? <SendResult action={action} submission={submission} amount={confirmAmount} provider={cashout?.providerName} submittedAt={submittedAt} fetchAccountResource={fetchAccountResource} onDone={() => { reset(); onClose(); }} onTryAgain={() => { setAction(null); setSubmission(null); setStep("amount"); onInvalidResume?.(); }} onViewActivity={() => openPanelAfterClose(routing, "activity", () => { reset(); onClose(); })} /> : null}
+      {step === "result" && action && submission ? <SendResult action={action} submission={submission} amount={confirmAmount} provider={cashout?.providerName} submittedAt={submittedAt} fetchAccountResource={fetchAccountResource} onDone={onClose} onTryAgain={() => { setAction(null); setSubmission(null); setStep("amount"); onInvalidResume?.(); }} onViewActivity={() => openPanelAfterClose(routing, "activity", onClose)} /> : null}
       {step === "amount" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!canContinueAmount} onPrimary={continueFromAmount} /> : null}
       {step === "destination" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={effectiveRecipient === null || resolving} onPrimary={() => void prepareSend()} /> : null}
       {step === "handle" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!payoutHandle.trim()} onPrimary={() => { const normalized = canonicalizeCashPayee(selectedPlatform?.platform ?? "", payoutHandle); setCanonicalHandle(normalized); setHandleConfirmation(""); setStep("handle-confirm"); }} /> : null}
       {step === "handle-confirm" ? <MoneyModalFooter primaryLabel="Review" primaryDisabled={!canonicalHandle || handleConfirmation !== canonicalHandle} onPrimary={() => void prepareCashout()} /> : null}
       {(step === "confirm" || step === "pending") && action ? <MoneyConfirmFooter action={action} primaryLabel={cashout ? <>{cashout.operation === "withdraw" ? "Withdraw" : "Cash out"} <MoneyTicker value={confirmAmount} /></> : <>Send <MoneyTicker value={confirmAmount} /></>} submitting={step === "pending"} onPrimary={() => void confirm()} secondaryLabel="Back" onSecondary={back} /> : null}
       {step === "error" ? <MoneyModalFooter primaryLabel="Try again" onPrimary={() => { setError(null); setStep("confirm"); }} secondaryLabel="Back" onSecondary={back} /> : null}
+      </MoneyModalStep>
     </MoneyModal>
   );
 }

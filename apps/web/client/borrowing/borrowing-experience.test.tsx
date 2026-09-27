@@ -4,13 +4,13 @@ import { getHomeQueryClient } from "@/client/query/query-client";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { HomeShellRoutingProvider, type HomeShellRouting } from "@/client/home/panel-routing";
 import { ownerQueryKey } from "@/client/query/query-client";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, jest, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { MORPHO_BLUE_ADDRESS, VERIFIED_MORPHO_MARKETS } from "@/shared/morpho-markets/config";
 import type { BorrowMarketSnapshot, BorrowOverviewResponse } from "@/shared/borrowing/contract";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 
-const { cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
+const { act, cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const {
   BorrowExperience,
   borrowTeaserPositionDescription,
@@ -116,6 +116,7 @@ function accountFetch(snapshot: BorrowMarketSnapshot, response = overview({ posi
 afterEach(() => {
   cleanup();
   getHomeQueryClient().clear();
+  jest.useRealTimers();
 });
 
 describe("Borrow overview and management", () => {
@@ -265,6 +266,75 @@ describe("Borrow overview and management", () => {
     await waitFor(() => expect(document.activeElement).toBe(cta));
   });
 
+  test("picker to management to amount X exits once, restores intro focus, and Back returns to picker", async () => {
+    const { BorrowOverview } = await import("./borrow-overview");
+    const body = within(document.body);
+    render(<BorrowOverview session={session()} overview={overview({ position: false, snapshots: [noPosition()] })}
+      prepareMoneyAction={async () => prepared("supply-and-borrow")}
+      executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />);
+    const intro = body.getByRole("button", { name: "Choose an asset" });
+    fireEvent.click(intro);
+    expect(body.getAllByRole("dialog")).toHaveLength(1);
+    fireEvent.click(within(body.getByRole("dialog", { name: "Choose an asset" })).getByRole("button", { description: "Borrow against Bitcoin" }));
+    const management = within(body.getByRole("dialog", { name: "Bitcoin" }));
+    expect(body.getAllByRole("dialog")).toHaveLength(1);
+    fireEvent.click(management.getByRole("button", { name: "Back" }));
+    expect(body.getByRole("dialog", { name: "Choose an asset" })).toBeTruthy();
+    expect(body.getAllByRole("dialog")).toHaveLength(1);
+    fireEvent.click(within(body.getByRole("dialog", { name: "Choose an asset" })).getByRole("button", { description: "Borrow against Bitcoin" }));
+    fireEvent.click(within(body.getByRole("dialog", { name: "Bitcoin" })).getByRole("button", { name: "Borrow" }));
+    const money = within(await body.findByRole("dialog", { name: "Borrow" }));
+    expect(money.getByRole("textbox", { name: "Amount" })).toBeTruthy();
+    expect(body.getAllByRole("dialog")).toHaveLength(1);
+    fireEvent.click(money.getByRole("button", { name: "Close Borrow action" }));
+    await waitFor(() => expect(body.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement).toBe(intro);
+  });
+
+  test("X at confirm exits without execution; Back preserves amount; reopening the row starts at management", async () => {
+    const { BorrowOverview } = await import("./borrow-overview");
+    let executions = 0;
+    const body = within(document.body);
+    render(<BorrowOverview session={session()} overview={overview()} fetchAccountResource={accountFetch(detail())}
+      prepareMoneyAction={async () => prepared("repay")}
+      executeMoneyAction={async (action) => { executions++; return { id: action.id, status: "submitted" }; }} />);
+    const row = body.getByRole("button", { description: "Manage Bitcoin loan" });
+    fireEvent.click(row);
+    fireEvent.click(within(body.getByRole("dialog", { name: "Bitcoin" })).getByRole("button", { name: "Repay" }));
+    let money = within(await body.findByRole("dialog", { name: "Repay" }));
+    fireEvent.change(money.getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    fireEvent.click(money.getByRole("button", { name: "Continue" }));
+    await money.findByRole("button", { name: "Confirm action" });
+    expect(body.getAllByRole("dialog")).toHaveLength(1);
+    fireEvent.click(money.getAllByRole("button", { name: "Back" }).at(-1)!);
+    money = within(body.getByRole("dialog", { name: "Repay" }));
+    expect((money.getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("1");
+    fireEvent.click(money.getByRole("button", { name: "Continue" }));
+    await money.findByRole("button", { name: "Confirm action" });
+    fireEvent.click(money.getByRole("button", { name: "Close Borrow action" }));
+    await waitFor(() => expect(body.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement).toBe(row);
+    expect(executions).toBe(0);
+    fireEvent.click(row);
+    expect(body.getByRole("dialog", { name: "Bitcoin" })).toBeTruthy();
+    expect(body.queryByRole("textbox", { name: "Amount" })).toBeNull();
+  });
+
+  test("two rapid X clicks during the amount transition never reopen management", async () => {
+    const { BorrowOverview } = await import("./borrow-overview");
+    const body = within(document.body);
+    render(<BorrowOverview session={session()} overview={overview()}
+      prepareMoneyAction={async () => prepared("repay")}
+      executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />);
+    const row = body.getByRole("button", { description: "Manage Bitcoin loan" });
+    fireEvent.click(row);
+    fireEvent.click(within(body.getByRole("dialog", { name: "Bitcoin" })).getByRole("button", { name: "Repay" }));
+    const close = within(await body.findByRole("dialog", { name: "Repay" })).getByRole("button", { name: "Close Borrow action" });
+    act(() => { fireEvent.click(close); fireEvent.click(close); });
+    await waitFor(() => expect(body.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement).toBe(row);
+  });
+
   test("the intro lists supported assets when none are held, but leaves an existing position alone", async () => {
     const { BorrowOverview } = await import("./borrow-overview");
     const emptyWallet = noPosition({ wallet: { ...noPosition().wallet, collateralBalanceRaw: "0" } });
@@ -339,18 +409,134 @@ describe("Borrow overview and management", () => {
     await waitFor(() => expect(document.activeElement).toBe(row));
   }, 30_000);
 
-  test("repay transitions to money sheet then returns focus to its launching action", async () => {
+  test("forward and Back keep one dialog, preserve Details and focus the launching action", async () => {
     render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(detail())} prepareMoneyAction={async () => prepared("repay")} executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />);
     const body = within(document.body);
-    fireEvent.click(await body.findByRole("button", { description: "Manage Bitcoin loan" }));
+    const row = await body.findByRole("button", { description: "Manage Bitcoin loan" });
+    fireEvent.click(row);
     const management = within(await body.findByRole("dialog", { name: "Bitcoin" }));
+    fireEvent.click(management.getByRole("button", { name: "Details" }));
+    expect(management.getByRole("button", { name: "Details" }).getAttribute("aria-expanded")).toBe("true");
     fireEvent.click(management.getByRole("button", { name: "Repay" }));
     const money = within(await body.findByRole("dialog", { name: "Repay" }));
-    await waitFor(() => expect(body.queryByRole("dialog", { name: "Bitcoin" })).toBeNull());
-    fireEvent.click(money.getByRole("button", { name: "Close Borrow action" }));
-    const returned = within(await body.findByRole("dialog", { name: "Bitcoin" }));
+    expect(body.getAllByRole("dialog")).toHaveLength(1);
+    expect(body.queryByRole("dialog", { name: "Bitcoin" })).toBeNull();
+    fireEvent.click(money.getByRole("button", { name: "Back" }));
+    const returned = within(body.getByRole("dialog", { name: "Bitcoin" }));
+    expect(body.getAllByRole("dialog")).toHaveLength(1);
+    expect(returned.getByRole("button", { name: "Details" }).getAttribute("aria-expanded")).toBe("true");
     await waitFor(() => expect(document.activeElement).toBe(returned.getByRole("button", { name: "Repay" })));
+    fireEvent.click(returned.getByRole("button", { name: "Repay" }));
+    expect(body.getAllByRole("dialog")).toHaveLength(1);
+    fireEvent.click(within(body.getByRole("dialog", { name: "Repay" })).getByRole("button", { name: "Close Borrow action" }));
+    await waitFor(() => expect(body.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement).toBe(row);
   }, 30_000);
+
+  test("rapid Repay then Back then Borrow more yields one coherent Borrow amount screen", async () => {
+    const { BorrowOverview } = await import("./borrow-overview");
+    const body = within(document.body);
+    render(<BorrowOverview session={session()} overview={overview()} fetchAccountResource={accountFetch(detail())}
+      prepareMoneyAction={async () => prepared("borrow")} executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />);
+    fireEvent.click(body.getByRole("button", { description: "Manage Bitcoin loan" }));
+    fireEvent.click(within(body.getByRole("dialog", { name: "Bitcoin" })).getByRole("button", { name: "Repay" }));
+    const repay = within(await body.findByRole("dialog", { name: "Repay" }));
+    fireEvent.click(repay.getByRole("button", { name: "Back" }));
+    fireEvent.click(within(body.getByRole("dialog", { name: "Bitcoin" })).getByRole("button", { name: "Borrow more" }));
+    const borrow = within(await body.findByRole("dialog", { name: "Borrow" }));
+    expect(borrow.getByRole("textbox", { name: "Amount" })).toBeTruthy();
+    expect(borrow.queryByText("Repay")).toBeNull();
+    expect(body.getAllByRole("dialog")).toHaveLength(1);
+  });
+
+  test("Done returns to management with the latest snapshot", async () => {
+    const { BorrowOverview } = await import("./borrow-overview");
+    const props = { session: session(), fetchAccountResource: accountFetch(detail()),
+      prepareMoneyAction: async () => prepared("repay"), executeMoneyAction: async (action: PreparedMoneyAction) => ({ id: action.id, status: "submitted" as const }) };
+    const body = within(document.body);
+    const view = render(<BorrowOverview {...props} overview={overview()} />);
+    fireEvent.click(body.getByRole("button", { description: "Manage Bitcoin loan" }));
+    fireEvent.click(within(body.getByRole("dialog", { name: "Bitcoin" })).getByRole("button", { name: "Repay" }));
+    const money = within(await body.findByRole("dialog", { name: "Repay" }));
+    fireEvent.change(money.getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    fireEvent.click(money.getByRole("button", { name: "Continue" }));
+    fireEvent.click(await money.findByRole("button", { name: "Confirm action" }));
+    const updated = detail({ position: { ...detail().position, debtAssetsRaw: "99000000" } });
+    view.rerender(<BorrowOverview {...props} overview={overview({ snapshots: [updated] })} />);
+    fireEvent.click(await money.findByRole("button", { name: "Done" }));
+    const management = within(body.getByRole("dialog", { name: "Bitcoin" }));
+    expect(management.getByRole("img", { name: "$99.00" })).toBeTruthy();
+    expect(body.getAllByRole("dialog")).toHaveLength(1);
+    await waitFor(() => expect(document.activeElement).toBe(management.getByRole("button", { name: "Repay" })));
+  });
+
+  test("changing account owner closes a draft without refocusing the old row", async () => {
+    const { BorrowOverview } = await import("./borrow-overview");
+    const props = { overview: overview(), prepareMoneyAction: async () => prepared("repay"),
+      executeMoneyAction: async (action: PreparedMoneyAction) => ({ id: action.id, status: "submitted" as const }) };
+    const body = within(document.body);
+    const view = render(<BorrowOverview {...props} session={session()} />);
+    const row = body.getByRole("button", { description: "Manage Bitcoin loan" });
+    fireEvent.click(row);
+    fireEvent.click(within(body.getByRole("dialog", { name: "Bitcoin" })).getByRole("button", { name: "Repay" }));
+    await body.findByRole("dialog", { name: "Repay" });
+    view.rerender(<BorrowOverview {...props} session={session(OWNER, "other-owner")} />);
+    await waitFor(() => expect(body.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement).not.toBe(row);
+  });
+
+  test("pending confirmation blocks X and Escape and double click executes once", async () => {
+    const { BorrowOverview } = await import("./borrow-overview");
+    let finish!: (value: { id: string; status: "submitted" }) => void;
+    let calls = 0;
+    render(<BorrowOverview session={session()} overview={overview()} fetchAccountResource={accountFetch(detail())}
+      prepareMoneyAction={async () => prepared("repay")}
+      executeMoneyAction={async () => { calls++; return new Promise((resolve) => { finish = resolve; }); }} />);
+    const body = within(document.body);
+    fireEvent.click(body.getByRole("button", { description: "Manage Bitcoin loan" }));
+    fireEvent.click(within(body.getByRole("dialog", { name: "Bitcoin" })).getByRole("button", { name: "Repay" }));
+    const money = within(await body.findByRole("dialog", { name: "Repay" }));
+    fireEvent.change(money.getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    fireEvent.click(money.getByRole("button", { name: "Continue" }));
+    const confirm = await money.findByRole("button", { name: "Confirm action" });
+    fireEvent.click(confirm);
+    fireEvent.click(confirm);
+    expect(calls).toBe(1);
+    expect((money.getByRole("button", { name: "Close Borrow action" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(body.getAllByRole("dialog")).toHaveLength(1);
+    await act(async () => finish({ id: prepared("repay").id, status: "submitted" }));
+  });
+
+  test("a cold deferred amount step keeps its sheet through three failures and Retry", async () => {
+    const { deferStep, MoneyModal, MoneyModalStep, MoneyModalStepLoading, MoneyModalHeader, MoneyModalBody } = await import("@/client/money-modal");
+    jest.useFakeTimers();
+    let attempts = 0;
+    const Step = deferStep<{ operation: string }>(async () => {
+      if (++attempts <= 3) throw new Error("Borrow chunk unavailable");
+      return ({ operation }) => <MoneyModalStep step="amount" depth={1}>
+        <MoneyModalHeader title={operation} titleId="borrow-action-title" />
+        <MoneyModalBody>Repay amount</MoneyModalBody>
+      </MoneyModalStep>;
+    });
+    render(<MoneyModal open immediate labelledBy="borrow-action-title" onCancel={() => {}} onClose={() => {}}>
+      <Step operation="Repay" fallback={({ failed, retry }) => <MoneyModalStepLoading step="amount" depth={1} title="Repay"
+        titleId="borrow-action-title" closeLabel="Close Borrow action" failed={failed} onRetry={retry} />} />
+    </MoneyModal>);
+    const body = within(document.body);
+    expect(body.getAllByRole("dialog")).toHaveLength(1);
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { jest.advanceTimersByTime(1_000); await Promise.resolve(); });
+    await act(async () => { jest.advanceTimersByTime(2_000); await Promise.resolve(); });
+    expect(attempts).toBe(3);
+    const dialog = within(body.getByRole("dialog", { name: "Repay" }));
+    expect(dialog.getByText("Couldn't load this step")).toBeTruthy();
+    expect(body.getAllByRole("dialog")).toHaveLength(1);
+    fireEvent.click(dialog.getByRole("button", { name: "Try again" }));
+    await act(async () => { await Promise.resolve(); });
+    expect(dialog.getByText("Repay amount")).toBeTruthy();
+    expect(body.getAllByRole("dialog")).toHaveLength(1);
+  });
 
   test("View in Activity leaves the overview without reopening the management sheet or refocusing Borrow", async () => {
     const { BorrowOverview } = await import("./borrow-overview");

@@ -17,6 +17,9 @@ import {
   MoneyModalBody,
   MoneyModalFooter,
   MoneyModalHeader,
+  MoneyModalStep,
+  useMoneyModalExit,
+  useMoneyModalPending,
   MoneyResult,
   MoneyResultFooter,
   decimalFromBaseUnits,
@@ -44,7 +47,7 @@ import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { networkFeeErrorMessage } from "@/shared/money-actions/network-fee";
 import { TransferExecutionError } from "@/shared/transfers/types";
 import { maxAmountAfterNetworkFee, useNetworkFeeReserve } from "@/client/money-modal/network-fee-policy";
-import { buildBorrowPreparedIntent } from "./borrow-ui";
+import { borrowOperationLabels, buildBorrowPreparedIntent } from "./borrow-ui";
 import {
   BorrowNotice,
   LiquidationBufferMeter,
@@ -61,30 +64,7 @@ type ExecuteMoneyAction = AccountWalletClient["executeMoneyAction"];
 type FetchAccountResource = AccountWalletClient["fetchAccountResource"];
 type ResultSubmission = "submitted" | "ambiguous" | "failed";
 
-const operationLabels: Record<BorrowOperation, string> = {
-  "supply-collateral": "Add collateral",
-  borrow: "Borrow",
-  "supply-and-borrow": "Borrow",
-  repay: "Repay",
-  "repay-all": "Repay all",
-  "withdraw-collateral": "Withdraw collateral",
-  "close-position": "Close position",
-};
-
-export function BorrowMoneyDialog({
-  session,
-  snapshot,
-  operation,
-  fetchAccountResource,
-  prepareMoneyAction,
-  executeMoneyAction,
-  regionId,
-  onClose,
-  onClosed,
-  onLeave,
-  assetMarkResolution,
-  open = true,
-}: {
+type BorrowMoneyFlowProps = {
   session: VerifiedAccountSession;
   snapshot: BorrowMarketSnapshot;
   operation: BorrowOperation;
@@ -92,12 +72,36 @@ export function BorrowMoneyDialog({
   prepareMoneyAction: PrepareMoneyAction;
   executeMoneyAction: ExecuteMoneyAction;
   regionId: RegionId;
-  onClose: () => void;
-  onClosed?: () => void;
   onLeave?: () => void;
   assetMarkResolution?: AssetMarkResolution;
   open?: boolean;
-}) {
+  depth?: number;
+  onBack?: () => void;
+  onDone?: () => void;
+};
+
+export function BorrowMoneyDialog({ onClose, onClosed, ...props }: BorrowMoneyFlowProps & { onClose: () => void; onClosed?: () => void }) {
+  return <MoneyModal open={props.open ?? true} labelledBy="borrow-action-title" onCancel={onClose} onClose={onClosed ?? onClose}>
+    <BorrowMoneyFlow {...props} />
+  </MoneyModal>;
+}
+
+export function BorrowMoneyFlow({
+  session,
+  snapshot,
+  operation,
+  fetchAccountResource,
+  prepareMoneyAction,
+  executeMoneyAction,
+  regionId,
+  onLeave,
+  assetMarkResolution,
+  open = true,
+  depth = 0,
+  onBack,
+  onDone,
+}: BorrowMoneyFlowProps) {
+  const exit = useMoneyModalExit();
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
   const routing = useOptionalHomeShellRouting();
   const dataOwnerKey = ownerDataKey(session);
@@ -145,7 +149,8 @@ export function BorrowMoneyDialog({
   const confirming = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [attempted, setAttempted] = useState(false);
-  const title = step === "amount" || step === "result" ? operationLabels[operation] : "Confirm";
+  useMoneyModalPending(step === "pending");
+  const title = step === "amount" || step === "result" ? borrowOperationLabels[operation] : "Confirm";
   const requiresPrimaryAmount = !closesWithoutDebt;
   const openingCollateralBaseUnits = operation === "supply-and-borrow" && isPositiveDecimalAmount(amount)
     ? openingCollateralForDecimalAmount(snapshot, amount)
@@ -275,17 +280,16 @@ export function BorrowMoneyDialog({
   };
 
   return (
-    <MoneyModal open={open} labelledBy="borrow-action-title" pending={step === "pending"} onCancel={onClose} onClose={onClosed ?? onClose}>
+    <MoneyModalStep step={step === "amount" ? "amount" : step === "result" ? "result" : "review"} depth={depth + (step === "amount" ? 0 : step === "result" ? 2 : 1)}>
       <MoneyModalHeader
         title={title}
         titleId="borrow-action-title"
         {...(step === "amount"
-          ? closesWithoutDebt ? {} : { assetControl: <MoneyAssetPicker {...amountAssetProps} /> }
+          ? onBack ? { onBack } : closesWithoutDebt ? {} : { assetControl: <MoneyAssetPicker {...amountAssetProps} /> }
           : step === "pending" || step === "result" ? {} : { onBack: goBack })}
-        onClose={onClose}
         closeLabel="Close Borrow action"
       />
-      {step === "result" && preparedAction && submission ? <BorrowResult action={preparedAction} submission={submission} submittedAt={submittedAt} snapshot={snapshot} operation={operation} fetchAccountResource={fetchAccountResource} onClose={onClose} onTryAgain={goBack} onViewActivity={() => openPanelAfterClose(routing, "activity", () => { onLeave?.(); onClose(); })} /> : <MoneyModalBody hasFooter={step !== "pending" || Boolean(preparedAction)} className="gap-4 pt-4">
+      {step === "result" && preparedAction && submission ? <BorrowResult action={preparedAction} submission={submission} submittedAt={submittedAt} snapshot={snapshot} operation={operation} fetchAccountResource={fetchAccountResource} onClose={onDone ?? exit} onTryAgain={goBack} onViewActivity={() => openPanelAfterClose(routing, "activity", () => { onLeave?.(); exit(); })} /> : <MoneyModalBody hasFooter={step !== "pending" || Boolean(preparedAction)} className="gap-4 pt-4">
         {step === "amount" ? (
           <>
             {closesWithoutDebt ? (
@@ -304,7 +308,8 @@ export function BorrowMoneyDialog({
                   assetId={primaryAsset.id}
                   assetLabel={primaryAsset.symbol}
                   assetCurrency={primaryAssetMark.currency}
-                  assetControl="header"
+                  assetControl={onBack ? "body" : "header"}
+                  assetLocked={Boolean(onBack)}
                   chipSet={availableBaseUnits === null ? "none" : "max"}
                   unit={primaryUnit}
                   nativeSymbol={primaryAsset.symbol}
@@ -338,8 +343,8 @@ export function BorrowMoneyDialog({
         />
       ) : null}
       {(step === "confirm" || step === "pending") && preparedAction ? <MoneyConfirmFooter action={preparedAction} actionExpired={preparedExpired} submitting={step === "pending"} primaryLabel={attempted ? "Retry" : "Confirm action"} primaryDisabled={preparedExpired && !attempted} onPrimary={() => void confirm()} secondaryLabel="Back" onSecondary={goBack} /> : null}
-      {step === "error" ? <MoneyModalFooter primaryLabel="Back" onPrimary={goBack} secondaryLabel="Close" onSecondary={onClose} /> : null}
-    </MoneyModal>
+      {step === "error" ? <MoneyModalFooter primaryLabel="Back" onPrimary={goBack} secondaryLabel="Close" onSecondary={exit} /> : null}
+    </MoneyModalStep>
   );
 }
 
