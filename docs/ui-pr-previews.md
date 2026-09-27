@@ -58,12 +58,12 @@ Storybook proves only the fixture-backed component scenario it renders. It does 
 Every Preview link into Storybook is generated for the current head, so Jesse lands on what the PR asks him to review. The author declares only which stories matter:
 
 - Put `story:<story-id>` (inline code) in a row's **Board** cell when a Storybook story shows that state; use `—` when none does. Story IDs come from the MCP docs tools or the Storybook URL (`?path=/story/<story-id>`).
-- Keep the empty `<!-- review-links:start -->` / `<!-- review-links:end -->` block from the template at the top of Preview. The generator fills it with one **Review board** link.
+- Keep the empty `<!-- review-links:start -->` / `<!-- review-links:end -->` block from the template at the top of Preview. The generator fills it with one **Review board** link when a story is declared or the insertion rule applies.
 - For a curated board, put its frame link (`id=review-boards--<board>&frame=<frame>`, any link text) in the Board cell or the managed block's `[Review board](…)` line instead; the generator keeps the board, frame, and link text and refreshes only the deployment.
 
 The **Storybook review links** workflow runs when the Storybook preview deployment for the PR head succeeds and whenever the PR body is edited. It rewrites each `story:` token into a `[Board](…)` link that opens that story's frame on the **Changes** board, and points the top link at the first declared story. Every Changes-board link carries `focus=<story-id>,…`, so the board opens with a **Review** section holding the declared stories in row order, followed by the other stories the diff touched. Links are pinned to the commit-specific deployment and its `rev`, and are refreshed on every push; never hand-edit them. The workflow runs its script from the default branch, edits nothing outside Preview, and warns instead of failing. Preview the rewrite locally with `bun run --cwd apps/web review:links <pr>` (`--write` applies it).
 
-Without declared stories the top link still opens the Changes board, which lists stories whose own files changed first and stories matched only through shared `components/ui/**` primitives last. Declare stories whenever the PR has a specific state to review.
+Without declared stories, the top Changes-board link appears for design PRs or PRs changing `apps/web/components/**` or story files; an existing Storybook top link is also kept and refreshed. The Changes board lists stories whose own files changed first and stories matched only through shared `components/ui/**` primitives last. Declare stories whenever the PR has a specific state to review.
 
 ### Review findings
 

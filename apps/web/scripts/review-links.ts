@@ -5,7 +5,7 @@ const STORY_TOKEN = /`story:([a-z0-9-]+)`/g;
 const BLOCK_START = "<!-- review-links:start -->";
 const BLOCK_END = "<!-- review-links:end -->";
 
-type Options = { host: string; revision: string };
+type Options = { host: string; revision: string; insertBoard?: boolean };
 
 function reviewUrl(input: string): URL | null {
   try {
@@ -58,7 +58,7 @@ function firstContentLine(lines: string[]): string | undefined {
   return undefined;
 }
 
-export function rewriteReviewLinks(body: string, { host, revision }: Options): string {
+export function rewriteReviewLinks(body: string, { host, revision, insertBoard = true }: Options): string {
   if (!STORYBOOK_HOST.test(host) || !/^[0-9a-f]{40,64}$/i.test(revision)) throw new Error("Invalid Storybook host or revision");
   const heading = /^## Preview[ \t]*(?:\r\n|\n|$)/gm.exec(body);
   if (!heading) return body;
@@ -79,7 +79,7 @@ export function rewriteReviewLinks(body: string, { host, revision }: Options): s
     }
   }
 
-  let top: URL | null = null;
+  const existingLinks: URL[] = [];
   const hasBlock = lines.some((line) => line.trim() === BLOCK_START) && lines.some((line) => line.trim() === BLOCK_END);
   let usedStandalone = false;
   const retained: string[] = [];
@@ -89,14 +89,16 @@ export function rewriteReviewLinks(body: string, { host, revision }: Options): s
       const end = lines.findIndex((candidate, index) => index > i && candidate.trim() === BLOCK_END);
       if (end !== -1) {
         const existing = lines.slice(i + 1, end).join(eol).match(/\[Review board\]\((https?:\/\/[^\s)]+)\)/);
-        top ??= existing ? reviewUrl(existing[1]) : null;
+        const url = existing ? reviewUrl(existing[1]) : null;
+        if (url) existingLinks.push(url);
         i = end;
         continue;
       }
     }
     const standalone = line.trim().match(/^\[[^\]]+\]\((https?:\/\/[^\s)]+)\)$/);
-    if (!hasBlock && !usedStandalone && standalone && reviewUrl(standalone[1])) {
-      top = reviewUrl(standalone[1]);
+    const standaloneUrl = !usedStandalone && standalone ? reviewUrl(standalone[1]) : null;
+    if (standaloneUrl) {
+      existingLinks.push(standaloneUrl);
       usedStandalone = true;
       continue;
     }
@@ -113,14 +115,26 @@ export function rewriteReviewLinks(body: string, { host, revision }: Options): s
       retained.push(line);
     }
   }
+  const top = existingLinks.find((url) => url.searchParams.get("id") !== "review-boards--changes") ?? existingLinks[0];
   const topUrl = top && top.searchParams.get("id") !== "review-boards--changes"
-    ? refreshCurated(top, host, revision) : changesUrl(host, revision, focus, focus[0]);
-  const block = [BLOCK_START, `[Review board](${topUrl})`, BLOCK_END].join(eol);
+    ? refreshCurated(top, host, revision)
+    : focus.length ? changesUrl(host, revision, focus, focus[0])
+    : insertBoard ? changesUrl(host, revision, focus)
+    : top ? refreshCurated(top, host, revision) : null;
+  if (!topUrl && !hasBlock) {
+    return body.slice(0, start) + retained.join(eol) + rest.slice(section.length);
+  }
+  const block = [BLOCK_START, ...(topUrl ? [`[Review board](${topUrl})`] : []), BLOCK_END].join(eol);
   const content = retained.join(eol).replace(/^(?:[ \t]*(?:\r\n|\n))*/, "");
   return body.slice(0, heading.index) + heading[0] + eol + block + eol + (content ? eol + content : "") + rest.slice(section.length);
 }
 
-type PullRequest = { body: string | null; head: { sha: string } };
+export function needsPreviewBoard(title: string, files: string[]): boolean {
+  return /^design\(/i.test(title) || files.some((file) => file.startsWith("apps/web/components/") || /(?:^|\/)[^/]+\.stories\.[^/]+$/.test(file));
+}
+
+type PullRequest = { body: string | null; title: string; head: { sha: string } };
+type PullFile = { filename: string };
 type Deployment = { id: number };
 type Status = { state: string; environment_url: string | null };
 
@@ -182,7 +196,14 @@ function main() {
     console.log(`No successful Storybook preview deployment for ${revision}; skipping.`);
     return;
   }
-  const updated = rewriteReviewLinks(pull.body ?? "", { host, revision });
+  let insertBoard = true;
+  try {
+    const files = api<PullFile[][]>(`${path}/files`, ["--paginate", "--slurp"]);
+    insertBoard = needsPreviewBoard(pull.title, files.flat().map((file) => file.filename));
+  } catch {
+    console.warn("Could not read PR files; including the Changes board link by default.");
+  }
+  const updated = rewriteReviewLinks(pull.body ?? "", { host, revision, insertBoard });
   if (updated === (pull.body ?? "")) {
     console.log(`PR #${pr} review links already current.`);
     return;

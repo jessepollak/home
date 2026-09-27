@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { rewriteReviewLinks } from "./review-links";
+import { needsPreviewBoard, rewriteReviewLinks } from "./review-links";
 
 const oldHost = "home-storybook-old.vercel.app";
 const host = "home-storybook-new.vercel.app";
@@ -41,6 +41,38 @@ test("fills the exact template Preview fixture and ignores its placeholder", () 
   expect(rewriteReviewLinks(result, options)).toBe(result);
 });
 
+test("leaves an empty managed block empty without stories or the insertion rule", () => {
+  const body = preview("| State | — | image |\n", "<!-- review-links:start -->\n<!-- review-links:end -->\n\n");
+  const result = rewriteReviewLinks(body, { ...options, insertBoard: false });
+  expect(result).toContain("<!-- review-links:start -->\n<!-- review-links:end -->");
+  expect(getLinks(result, "Review board")).toHaveLength(0);
+  expect(rewriteReviewLinks(result, { ...options, insertBoard: false })).toBe(result);
+
+  const withoutBlock = preview("| State | — | image |\n");
+  expect(rewriteReviewLinks(withoutBlock, { ...options, insertBoard: false })).toBe(withoutBlock);
+});
+
+test("refreshes an existing legacy changes link when insertion is disabled", () => {
+  const body = preview("| State | — | image |\n", `${link("Review board", url("changes", "chosen--frame"))}\n\n`);
+  const result = rewriteReviewLinks(body, { ...options, insertBoard: false });
+  const [board] = getLinks(result, "Review board");
+  expect(getLinks(result, "Review board")).toHaveLength(1);
+  expect(board.host).toBe(host);
+  expect(board.searchParams.get("frame")).toBe("chosen--frame");
+  expect(board.searchParams.get("rev")).toBe(revision);
+  expect(board.searchParams.get("deployment")).toBe(host);
+  expect(rewriteReviewLinks(result, { ...options, insertBoard: false })).toBe(result);
+});
+
+test("declared stories write a focused changes link even when insertion is disabled", () => {
+  const body = preview("| State | `story:flow--first` | image |\n", "<!-- review-links:start -->\n<!-- review-links:end -->\n\n");
+  const result = rewriteReviewLinks(body, { ...options, insertBoard: false });
+  const [board] = getLinks(result, "Review board");
+  expect(board.searchParams.get("focus")).toBe("flow--first");
+  expect(board.searchParams.get("frame")).toBe("flow--first");
+  expect(rewriteReviewLinks(result, { ...options, insertBoard: false })).toBe(result);
+});
+
 test("replaces a legacy standalone Review board line", () => {
   const body = preview(`| State | \`story:flow--first\` | image |\n`, `${link("Review board", url("changes", "stale--frame"))}\n\n`);
   const result = rewriteReviewLinks(body, options);
@@ -65,6 +97,15 @@ test("retains a curated top board and row id/frame/side/variant while refreshing
   }
   expect(getLinks(result, "Board")[1].searchParams.get("focus")).toBe("flow--first");
   expect(rewriteReviewLinks(result, options)).toBe(result);
+});
+
+test("retains a curated legacy board when insertion is disabled", () => {
+  const body = preview("| State | — | image |\n", `${link("Review board", url("savings", "funded"))}\n\n`);
+  const result = rewriteReviewLinks(body, { ...options, insertBoard: false });
+  const [board] = getLinks(result, "Review board");
+  expect(board.searchParams.get("id")).toBe("review-boards--savings");
+  expect(board.host).toBe(host);
+  expect(rewriteReviewLinks(result, { ...options, insertBoard: false })).toBe(result);
 });
 
 test("keeps N/A previews untouched after comment lines and does not edit outside Preview", () => {
@@ -97,4 +138,13 @@ test("refreshes Storybook links with any text and leaves other links and images 
   expect(refreshed.searchParams.get("frame")).toBe("funded");
   expect(result).toContain(image);
   expect(rewriteReviewLinks(result, options)).toBe(result);
+});
+
+test("matches the board insertion rule against title and changed files", () => {
+  expect(needsPreviewBoard("design(buttons): explore", [])).toBe(true);
+  expect(needsPreviewBoard("DESIGN(buttons): explore", [])).toBe(true);
+  expect(needsPreviewBoard("fix(buttons): adjust", ["apps/web/components/ui/button.tsx"])).toBe(true);
+  expect(needsPreviewBoard("fix(buttons): adjust", ["apps/web/stories/journeys/flow.stories.tsx"])).toBe(true);
+  expect(needsPreviewBoard("fix(buttons): adjust", ["flow.stories.ts"])).toBe(true);
+  expect(needsPreviewBoard("fix(api): adjust", ["apps/web/client/hooks/use-api.ts", "apps/web/stories/journeys/flow.stories/metadata.tsx"])).toBe(false);
 });
