@@ -1,5 +1,6 @@
 import {
   parseClientPerformanceReport,
+  type ClientPerformanceReport,
   type HomeStartupCacheState,
   type HomeStartupOutcome,
   type HomeStartupReport,
@@ -117,7 +118,7 @@ function duration(value: number): number {
   return Math.min(60_000, Math.max(0, Math.round(value)));
 }
 
-export async function sendHomeStartupReport(report: HomeStartupReport): Promise<void> {
+export async function sendClientPerformanceReport(report: ClientPerformanceReport): Promise<void> {
   const parsedReport = parseClientPerformanceReport(report);
   if (!parsedReport) return;
   try {
@@ -138,7 +139,7 @@ const recorder = createHomeStartupRecorder({
   now: () => typeof performance === "undefined" ? 0 : performance.now(),
   scheduleTimeout: (run, delayMs) => setTimeout(run, delayMs),
   clearTimeout: (handle) => clearTimeout(handle),
-  send: sendHomeStartupReport,
+  send: sendClientPerformanceReport,
 });
 
 export function startHomePerformance(route: HomeStartupRoute): void {

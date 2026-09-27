@@ -37,6 +37,7 @@ const limiter = new FixedWindowLimiter();
 export function createClientPerformanceHandler(dependencies?: {
   log?: (event: ObservabilityEvent) => unknown;
   takePermit?: Permit;
+  deployment?: string;
 }) {
   const log = dependencies?.log ?? writeObservabilityEvent;
   const takePermit = dependencies?.takePermit ?? (() => limiter.take());
@@ -79,7 +80,11 @@ export function createClientPerformanceHandler(dependencies?: {
     if (!report) return emptyResponse(400);
 
     try {
-      log(report);
+      const deploymentId = dependencies?.deployment ?? process.env.VERCEL_DEPLOYMENT_ID;
+      log(report.kind === "home-navigation" || report.kind === "home-scroll"
+        ? { ...report, deployment: typeof deploymentId === "string" && deploymentId.length > 0
+            ? deploymentId : "local" }
+        : report);
     } catch {
     }
     return emptyResponse(204);

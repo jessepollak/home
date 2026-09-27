@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseClientPerformanceReport } from "@/shared/observability/client-performance.contract";
-import type { ObservabilityEvent } from "@/server/observability/schema";
+import { normalizeObservabilityEvent, type ObservabilityEvent } from "@/server/observability/schema";
 import {
   CLIENT_PERFORMANCE_MAX_BODY_BYTES,
   CLIENT_PERFORMANCE_MAX_REPORTS_PER_WINDOW,
@@ -220,6 +220,63 @@ describe("POST /api/client-performance", () => {
     }]);
     expect((await handler(request(JSON.stringify({ ...authReady, stalledStage: "unknown" })))).status).toBe(400);
     expect(events).toHaveLength(1);
+  });
+
+  test("stamps deployment on interaction reports only and rejects client deployment", async () => {
+    const events: ObservabilityEvent[] = [];
+    const handler = createClientPerformanceHandler({
+      deployment: "deploy-123", takePermit: () => true, log: (event) => events.push(event),
+    });
+    const navigation = { version: 1, kind: "home-navigation", route: "/cash", from: "/home",
+      cache: "retained", trigger: "in-app", device: "mobile-low", durationMs: 24 } as const;
+    const scroll = { version: 1, kind: "home-scroll", route: "/cash", cache: "retained",
+      device: "desktop-high", durationMs: 401, frameCount: 4, slowFrameCount: 1, maxFrameMs: 29 } as const;
+    expect((await handler(request(JSON.stringify(navigation)))).status).toBe(204);
+    expect((await handler(request(JSON.stringify(scroll)))).status).toBe(204);
+    expect(events).toEqual([
+      { ...navigation, durationMs: 20, deployment: "deploy-123" },
+      { ...scroll, durationMs: 400, maxFrameMs: 30, deployment: "deploy-123" },
+    ]);
+    expect((await handler(request(JSON.stringify({ ...navigation, deployment: "client" })))).status).toBe(400);
+    expect((await handler(request(JSON.stringify({ ...scroll, address: "private" })))).status).toBe(400);
+    expect(events).toHaveLength(2);
+    expect(normalizeObservabilityEvent({ ...events[0]!, deployment: "https://private.example/path" } as never))
+      .toMatchObject({ level: "info", code: "HOME_NAVIGATION", deployment: "unknown" });
+    expect(normalizeObservabilityEvent(events[1]!)).toMatchObject({ level: "info", code: "HOME_SCROLL" });
+  });
+
+  test("stamps the server deployment without a dependency override", async () => {
+    const previousDeploymentId = process.env.VERCEL_DEPLOYMENT_ID;
+    const previousNextDeploymentId = process.env.NEXT_DEPLOYMENT_ID;
+    const lines: ReturnType<typeof normalizeObservabilityEvent>[] = [];
+    const handler = createClientPerformanceHandler({
+      takePermit: () => true,
+      log: (event) => { lines.push(normalizeObservabilityEvent(event)); },
+    });
+    const navigation = {
+      version: 1, kind: "home-navigation", route: "/cash", from: "/home",
+      cache: "retained", trigger: "in-app", device: "mobile-low", durationMs: 24,
+    } as const;
+    try {
+      process.env.NEXT_DEPLOYMENT_ID = "dpl_stale";
+      delete process.env.VERCEL_DEPLOYMENT_ID;
+      expect((await handler(request(JSON.stringify(navigation)))).status).toBe(204);
+      expect(lines.at(-1)).toMatchObject({ kind: "home-navigation", deployment: "local" });
+
+      process.env.VERCEL_DEPLOYMENT_ID = "";
+      expect((await handler(request(JSON.stringify(navigation)))).status).toBe(204);
+      expect(lines.at(-1)).toMatchObject({ kind: "home-navigation", deployment: "local" });
+
+      process.env.VERCEL_DEPLOYMENT_ID = "dpl_abc";
+      expect((await handler(request(JSON.stringify(navigation)))).status).toBe(204);
+      expect(lines.at(-1)).toMatchObject({ kind: "home-navigation", deployment: "dpl_abc" });
+      expect(lines).toHaveLength(3);
+    } finally {
+      if (previousDeploymentId === undefined) delete process.env.VERCEL_DEPLOYMENT_ID;
+      else process.env.VERCEL_DEPLOYMENT_ID = previousDeploymentId;
+      if (previousNextDeploymentId === undefined) delete process.env.NEXT_DEPLOYMENT_ID;
+      else process.env.NEXT_DEPLOYMENT_ID = previousNextDeploymentId;
+    }
   });
 
   test("sink failures cannot change a successful ingestion response", async () => {

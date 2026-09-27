@@ -14,7 +14,7 @@ Home's first observability milestone is deliberately scrub-first. It provides a 
 | Server error owner | `apps/web/instrumentation.ts` → `onRequestError` | Uses the route template, method, route type, and sanitized error class only; it never reads the exception message, stack, digest, request URL, or headers |
 | Client reporter | `apps/web/instrumentation-client.ts` | Installs before hydration, sends at most five reports per page, omits credentials and referrer, and never affects application behavior |
 | Client ingestion | `POST /api/client-errors` | Requires exact same origin and JSON, limits the body to 2 KiB while streaming, rejects unknown fields, and applies a 30-report/minute per-instance shedding limit |
-| Startup ingestion | `POST /api/client-performance` | Accepts only the closed Home startup schema with fixed routes, outcomes, cache provenance, and bounded durations; it uses the same transport defenses and a separate limiter |
+| Startup ingestion | `POST /api/client-performance` | Accepts closed Home startup, auth-phase, navigation, and scroll kinds with fixed dimensions and bounded timings; it uses the same transport defenses and a separate limiter |
 
 Example log line:
 
