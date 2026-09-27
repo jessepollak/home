@@ -225,8 +225,11 @@ export const Deposit: Story = {
 
     await userEvent.click(await screen.findByRole("button", { name: /^US dollar/ }));
     await expect(screen.getByLabelText("Savings balance")).toBeVisible();
-    await userEvent.click(await screen.findByRole("button", { name: "Deposit" }));
-    const depositDialog = await screen.findByRole("dialog", { name: "Deposit" });
+    const deposit = await screen.findByRole("button", { name: "Deposit" });
+    await waitFor(() => expect(deposit).toBeEnabled());
+    await userEvent.click(deposit);
+    await screen.findByRole("textbox", { name: "Amount" });
+    const depositDialog = screen.getByRole("dialog", { name: "Deposit" });
     await userEvent.type(await within(depositDialog).findByRole("textbox", { name: "Amount" }), "25");
     await userEvent.click(
       await within(depositDialog).findByRole("button", { name: "Continue" }),

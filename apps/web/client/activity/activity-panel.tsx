@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { ActivityLoader } from "@/components/activity-loader";
 import { deferSheet } from "@/client/money-modal/deferred-sheet";
+import { moneySheetLoading } from "@/client/money-modal";
 import { ActivityLedger, uniqueActivityLedgerItems, type ActivityLedgerEntry, type ActivityLedgerItem } from "./activity-ledger";
 import type { ActivityListHandle } from "./virtual-activity-list";
 import { presentActivityLedgerEntries, presentActivityLedgerItems } from "./activity-ledger-items";
@@ -20,7 +21,8 @@ import { type UseActivityResult } from "./use-activity";
 import { ShimmerRows } from "@/client/home/panel-shared";
 import type { ActivityPanelDensity, ActivityTransfer } from "./types";
 
-const ActivityLedgerSheet = deferSheet(() => import("./activity-ledger-sheet").then((module) => module.ActivityLedgerDetailSheet));
+const ActivityLedgerSheet = deferSheet(() => import("./activity-ledger-sheet").then((module) => module.ActivityLedgerDetailSheet),
+  (props) => moneySheetLoading({ title: props.item?.title ?? "Activity", closeLabel: `Close ${props.item?.title ?? "activity"} details`, onCancel: props.onDismiss, onClosed: props.onClosed }));
 const EMPTY_TRANSFERS: readonly ActivityTransfer[] = [];
 const EMPTY_OPERATIONS: readonly RecentMoneyActionOperation[] = [];
 const EMPTY_ORDERS: readonly ActivityOrder[] = [];

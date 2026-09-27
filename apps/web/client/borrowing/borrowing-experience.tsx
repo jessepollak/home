@@ -14,6 +14,7 @@ import {
 } from "@/client/asset-mark/presentation";
 import { canonicalUsdcAsset } from "@/config/portfolio-assets";
 import { deferSheet } from "@/client/money-modal/deferred-sheet";
+import { moneySheetLoading } from "@/client/money-modal";
 import {
   isServerVerified,
   isSessionSettling,
@@ -87,7 +88,8 @@ type BorrowExperienceProps = {
   borrowSummary?: HomeMoneySummary["borrow"] | null;
 };
 
-const BorrowMoneySheet = deferSheet(() => import("./borrow-money-dialog").then((module) => module.BorrowMoneyDialog));
+const BorrowMoneySheet = deferSheet(() => import("./borrow-money-dialog").then((module) => module.BorrowMoneyDialog),
+  (props) => moneySheetLoading({ title: "Borrow", titleId: "borrow-action-title", closeLabel: "Close Borrow action", onCancel: props.onClose, onClosed: props.onClosed }));
 
 export function AuthenticatedBorrowExperience({
   selectedMarketId = null,

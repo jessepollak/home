@@ -16,6 +16,7 @@ import {
 } from "@/client/savings/use-estimated-growth";
 import { CurrencyMark, GlyphMark } from "@/components/currency-mark";
 import { BalanceRow } from "@/components/finance-rows";
+import { moneySheetIntent } from "@/client/money-modal";
 import { MoneyTicker } from "@/components/money-ticker";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -56,7 +57,7 @@ export type CashOverviewProps = {
   growthAuthority?: SavingsGrowthAuthority | null;
   onOpenSavings: () => void;
   onAddMoney: () => void;
-  onAddMoneyPointerDown?: () => void;
+  onAddMoneyIntent?: () => void;
   onRetryBalances?: () => void;
 };
 
@@ -64,6 +65,7 @@ export type SavingsDetailProps = Omit<
   CashOverviewProps,
   "onOpenSavings" | "onAddMoney" | "rateLabel"
 > & {
+  onSavingsIntent?: () => void;
   onDepositVault: (candidate: MorphoVaultCandidate) => void;
   onWithdrawVault: (candidate: MorphoVaultCandidate) => void;
   onRetryVaults: () => void;
@@ -340,6 +342,7 @@ function SavingsVaultRow({
   rateLoading,
   nowMs,
   onActivate,
+  onIntent,
   activateLabel,
 }: {
   vault: SavingsDisplayVault;
@@ -347,6 +350,7 @@ function SavingsVaultRow({
   rateLoading: boolean;
   nowMs: number;
   onActivate?: (opener: HTMLElement) => void;
+  onIntent?: () => void;
   activateLabel?: string;
 }) {
   const { held, partial, amount } = vaultHolding(vault);
@@ -378,6 +382,7 @@ function SavingsVaultRow({
       }
       valueTone={partial ? "muted" : "default"}
       onActivate={onActivate}
+      onIntent={onActivate ? onIntent : undefined}
       activateLabel={activateLabel}
       chevron={Boolean(onActivate)}
     />
@@ -395,7 +400,7 @@ export function CashOverview({
   growthAuthority = null,
   onOpenSavings,
   onAddMoney,
-  onAddMoneyPointerDown,
+  onAddMoneyIntent,
   onRetryBalances,
 }: CashOverviewProps) {
   const loading = balanceStatus === "loading";
@@ -557,7 +562,7 @@ export function CashOverview({
         <Button
           size="lg"
           className="h-11 w-full"
-          onPointerDown={onAddMoneyPointerDown}
+          {...(onAddMoneyIntent ? moneySheetIntent(onAddMoneyIntent) : {})}
           onClick={onAddMoney}
         >
           <Plus aria-hidden="true" />
@@ -700,6 +705,7 @@ export function SavingsDetail({
   vaultStatus = "ready",
   nowMs,
   now = Date.now,
+  onSavingsIntent,
   onDepositVault,
   onWithdrawVault,
   onRetryVaults,
@@ -903,6 +909,7 @@ export function SavingsDetail({
             size="lg"
             className="h-11"
             disabled={depositUnavailable || !best}
+            {...(onSavingsIntent ? moneySheetIntent(onSavingsIntent) : {})}
             onClick={() => best && onDepositVault(best)}
           >
             Deposit
@@ -918,6 +925,7 @@ export function SavingsDetail({
               aria-controls={
                 withdrawable.length > 1 ? "your-savings" : undefined
               }
+              {...(onSavingsIntent ? moneySheetIntent(onSavingsIntent) : {})}
               onClick={() =>
                 withdrawable.length === 1
                   ? choose(withdrawable[0].vault.action!)
@@ -950,6 +958,7 @@ export function SavingsDetail({
                     metadata={vaultStatus === "failed" ? null : metadata}
                     rateLoading={vaultStatus === "loading"}
                     nowMs={nowMs}
+                    onIntent={onSavingsIntent}
                     onActivate={
                       choosing &&
                       withdrawable.length > 1 &&
@@ -1011,6 +1020,7 @@ export function SavingsDetail({
                         metadata={metadata}
                         rateLoading={vaultStatus === "loading"}
                         nowMs={nowMs}
+                        onIntent={onSavingsIntent}
                         onActivate={
                           depositUnavailable
                             ? undefined

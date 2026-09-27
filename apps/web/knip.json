@@ -43,6 +43,7 @@
     "scripts/review-context.ts!",
     "scripts/review-links.ts!",
     "scripts/activity-scroll-profile.ts!",
+    "scripts/modal-open-profile.ts!",
     // Figma variables sync, run by package scripts and the main-only CI job.
     "scripts/figma-variables.mjs!"
   ],

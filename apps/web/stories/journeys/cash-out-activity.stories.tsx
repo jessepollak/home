@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, userEvent, within } from "storybook/test";
+import { expect, userEvent, waitFor, within } from "storybook/test";
 import { ActivityPanelView } from "@/client/activity";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import type { UseActivityResult } from "@/client/activity/use-activity";
@@ -47,7 +47,9 @@ export const CancelDetails: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(canvas.getByRole("button", { description: "View Cash out to Cash App details" }));
-    const dialog = await within(document.body).findByRole("dialog", { name: "Cash out to Cash App" });
+    const body = within(document.body);
+    await waitFor(() => expect(within(body.getByRole("dialog", { name: "Cash out to Cash App" })).getByText("Waiting for a buyer")).toBeVisible());
+    const dialog = body.getByRole("dialog", { name: "Cash out to Cash App" });
     await expect(within(dialog).getByText("Waiting for a buyer")).toBeVisible();
     await expect(within(dialog).getByRole("button", { name: "Cancel cash-out $50" })).toBeVisible();
     await expect(within(dialog).getByText("About 60 min")).toBeVisible();

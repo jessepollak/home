@@ -26,7 +26,7 @@ This map points to Home's current product, engineering, delivery, setup, and int
 - [Browser validation](browser-validation.md) and [UI PR previews](ui-pr-previews.md) — interactive iteration, regression ownership, and current-head visual proof.
 - [Activity ledger design](activity-ledger-design.md) — approved taxonomy, production component contract, and source gaps.
 - [UI direction](ui-direction.md), [design system](design-system.md), and [Figma workflow](design-explorations/figma-workflow.md) — product presentation rules, the canonical design source, owned components, tokens, and lint contracts; [Figma library](design-explorations/design-system.md) — gap matrix, finance pattern inventory, Code Connect plan, and publish checklist; [Mobbin references](design-explorations/mobbin.md) — real-world design references, access, and terms; [design explorations](design-explorations/README.md) — where design-lane non-production code lives.
-- [Observability](observability.md) and [performance observability](performance-observability.md) — privacy-safe events, performance marks, and verification.
+- [Observability](observability.md) and [performance observability](performance-observability.md) — privacy-safe events, performance marks, and verification; [modal open profile](modal-open-performance.md) for tap-to-sheet timing.
 - [Vercel deploy](vercel-deploy.md) — Bun monorepo deployment and database migration setup.
 
 ## Integrations and data

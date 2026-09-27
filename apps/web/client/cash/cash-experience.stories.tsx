@@ -293,7 +293,9 @@ const mixedCaseMetadata = { ...metadata, candidates: [metadata.candidates[1], { 
 export const ProviderAddressCasing: Story = { parameters: { msw: { handlers: [http.get("/api/savings/vaults", () => HttpResponse.json(mixedCaseMetadata))] } }, play: async ({ canvasElement }) => {
   const detailScreen = await openSavings(canvasElement);
   await userEvent.click(detailScreen.getByRole("button", { name: "Deposit" }));
-  const dialog = await within(canvasElement.ownerDocument.body).findByRole("dialog", { name: "Deposit" });
+  const body = within(canvasElement.ownerDocument.body);
+  await body.findByRole("textbox", { name: "Amount" });
+  const dialog = body.getByRole("dialog", { name: "Deposit" });
   await userEvent.type(await within(dialog).findByRole("textbox", { name: "Amount" }), "2");
   await userEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
   await expect(within(await within(canvasElement.ownerDocument.body).findByRole("dialog", { name: "Confirm" })).getByText("Gauntlet USDC Prime")).toBeVisible();

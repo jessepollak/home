@@ -16,11 +16,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { MONEY_ACTION_ID_ATTRIBUTE } from "@/shared/money-actions";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { ArrowLeft, X } from "lucide-react";
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 
 const MoneyModalPendingContext = createContext({ pending: false, register: (_id: symbol, _pending: boolean) => {} });
 const MoneyModalStepContext = createContext<((report: StepReport) => void) | null>(null);
 const MoneyModalExitContext = createContext<() => void>(() => {});
+let handoffReturnFocus: HTMLElement | null = null;
+const MoneyModalHandoffContext = createContext(false);
 /** @public shared money-flow step contract (#1058) */
 export const MONEY_MODAL_STEP_DURATION_MS = 200;
 /** @public shared money-flow step contract (#1058) */
@@ -183,6 +185,21 @@ export function AppDrawer({ open, labelledBy, describedBy, immediate = false, in
 }) {
   const popupRef = useRef<HTMLDivElement>(null);
   const lastOutsideFocusRef = useRef<HTMLElement | null>(null);
+  const openRef = useRef(open);
+  const handoff = useContext(MoneyModalHandoffContext);
+  const handoffOnMountRef = useRef(handoff);
+
+  useLayoutEffect(() => {
+    openRef.current = open;
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (handoffOnMountRef.current) lastOutsideFocusRef.current ??= handoffReturnFocus;
+    handoffReturnFocus = null;
+    return () => {
+      if (openRef.current) handoffReturnFocus = lastOutsideFocusRef.current;
+    };
+  }, []);
 
   useEffect(() => {
     if (open) return;
@@ -218,7 +235,7 @@ export function AppDrawer({ open, labelledBy, describedBy, immediate = false, in
         initialFocus={initialFocusRef ?? (() => popupRef.current?.querySelector<HTMLElement>("[data-money-amount-input]:not(:disabled)") ?? popupRef.current?.querySelector<HTMLElement>("[data-initial-focus]:not(:disabled)") ?? true)}
         finalFocus={() => {
           const target = lastOutsideFocusRef.current;
-          if (opensSoftKeyboard(target)) return false;
+          if (openRef.current || opensSoftKeyboard(target)) return false;
           return target?.isConnected && !target.matches(":disabled") ? target : true;
         }}
         data-money-sheet=""
@@ -248,7 +265,8 @@ export function MoneyModal({ open, labelledBy, describedBy, immediate = false, p
     });
   }, []);
   const effectivePending = pending || registrants.size > 0;
-  return <MoneyModalPendingContext value={{ pending: effectivePending, register }}><AppDrawer open={open} labelledBy={labelledBy} describedBy={describedBy} immediate={immediate} onCancel={() => effectivePending ? false : onCancel()} onClose={onClose}>{children}</AppDrawer></MoneyModalPendingContext>;
+  const handoff = useContext(MoneyModalHandoffContext);
+  return <MoneyModalPendingContext value={{ pending: effectivePending, register }}><AppDrawer open={open} labelledBy={labelledBy} describedBy={describedBy} immediate={immediate || handoff} onCancel={() => effectivePending ? false : onCancel()} onClose={onClose}>{children}</AppDrawer></MoneyModalPendingContext>;
 }
 
 /** @public shared money-flow step contract (#1058) */
@@ -306,14 +324,14 @@ export function MoneyModalBody({ children, className = "", hasFooter = false }: 
 }
 
 /** @public shared money-flow step contract (#1058) */
-export function MoneyModalStepLoading({ step, depth, title, titleId, onBack, closeLabel, failed, onRetry }: {
+export function MoneyModalStepLoading({ step, depth, title, titleId, onBack, closeLabel, failed, onRetry, placeholder }: {
   step: string; depth?: number; title: string; titleId: string; onBack?: () => void;
-  closeLabel: string; failed: boolean; onRetry: () => void;
+  closeLabel: string; failed: boolean; onRetry: () => void; placeholder?: ReactNode;
 }) {
   return <MoneyModalStep step={step} depth={depth}>
     {onBack ? <MoneyModalHeader title={title} titleId={titleId} onBack={onBack} closeLabel={closeLabel} /> : <MoneyModalHeader title={title} titleId={titleId} closeLabel={closeLabel} />}
     <MoneyModalBody className="gap-4 pt-4">
-      {failed ? <LoadErrorCard title="Couldn't load this step" onRetry={onRetry} /> : <div aria-busy="true" className="flex min-h-36 flex-col gap-4"><Skeleton className="h-5 w-32" /><Skeleton className="h-12 w-full" /><Skeleton className="h-12 w-full" /><span className="sr-only">Loading</span></div>}
+      {failed ? <LoadErrorCard title="Couldn't load this step" onRetry={onRetry} /> : placeholder ? <div aria-busy="true"><div aria-hidden="true">{placeholder}</div><span role="status" className="sr-only">Loading</span></div> : <div aria-busy="true" className="flex min-h-36 flex-col gap-4"><Skeleton className="h-5 w-32" /><Skeleton className="h-12 w-full" /><Skeleton className="h-12 w-full" /><span role="status" className="sr-only">Loading</span></div>}
     </MoneyModalBody>
   </MoneyModalStep>;
 }
@@ -344,4 +362,51 @@ function FooterButtons({ primaryLabel, onPrimary, primaryDisabled = false, prima
       {secondaryLabel && onSecondary ? <Button size="touch" variant="ghost" disabled={secondaryDisabled || submitting} onClick={onSecondary}>{secondaryLabel}</Button> : null}
     </MoneyModalActions>
   );
+}
+
+export function moneySheetLoading({ title, titleId, closeLabel, onCancel, onClosed, placeholder }: {
+  title: string; titleId?: string; closeLabel: string; onCancel: () => void; onClosed?: () => void; placeholder?: ReactNode;
+}) {
+  return {
+    onCancel,
+    onClosed,
+    renderLoaded: (sheet: ReactNode) => <MoneyModalHandoff>{sheet}</MoneyModalHandoff>,
+    render: ({ open, failed, retry, onCancel: cancel, onClosed: closed }: {
+      open: boolean; failed: boolean; retry: () => void; onCancel: () => void; onClosed: () => void;
+    }) => <MoneyModalLoadingSheet open={open} title={title} titleId={titleId} closeLabel={closeLabel} failed={failed} retry={retry} onCancel={cancel} onClosed={closed} placeholder={placeholder} />,
+  };
+}
+
+function MoneyModalHandoff({ children }: { children: ReactNode }) {
+  const [initial, setInitial] = useState(true);
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => setInitial(false));
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+  return <MoneyModalHandoffContext value={initial}>{children}</MoneyModalHandoffContext>;
+}
+
+function MoneyModalLoadingSheet({ open, title, titleId, closeLabel, failed, retry, onCancel, onClosed, placeholder }: {
+  open: boolean; title: string; titleId?: string; closeLabel: string; failed: boolean; retry: () => void;
+  onCancel: () => void; onClosed: () => void; placeholder?: ReactNode;
+}) {
+  const generatedId = useId();
+  const id = titleId ?? generatedId;
+  const [entered, setEntered] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const frame = window.requestAnimationFrame(() => setEntered(true));
+    return () => window.cancelAnimationFrame(frame);
+  }, [open]);
+  const closedBeforeEntering = !open && !entered;
+  const onClosedRef = useRef(onClosed);
+  useEffect(() => {
+    onClosedRef.current = onClosed;
+  });
+  useEffect(() => {
+    if (closedBeforeEntering) onClosedRef.current();
+  }, [closedBeforeEntering]);
+  return <MoneyModal open={open && entered} labelledBy={id} onCancel={onCancel} onClose={onClosed}>
+    <MoneyModalStepLoading step="loading" title={title} titleId={id} closeLabel={closeLabel} failed={failed} onRetry={retry} placeholder={placeholder} />
+  </MoneyModal>;
 }

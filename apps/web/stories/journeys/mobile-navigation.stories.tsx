@@ -204,8 +204,9 @@ async function openMoneySheet(canvasElement: HTMLElement) {
   await userEvent.click(await within(cash).findByRole("button", { name: /^US dollar/ }));
   await within(cash).findByRole("button", { name: "Deposit" });
   await userEvent.click(within(canvasElement).getByRole("button", { name: "Deposit" }));
-  const dialog = await within(canvasElement.ownerDocument.body).findByRole("dialog");
-  const input = within(dialog).getByRole("textbox", { name: "Amount" });
+  const body = within(canvasElement.ownerDocument.body);
+  const input = await body.findByRole("textbox", { name: "Amount" });
+  const dialog = body.getByRole("dialog", { name: "Deposit" });
   input.focus();
   await expect(dialog.contains(canvasElement.ownerDocument.activeElement)).toBe(true);
   const nav = canvasElement.querySelector<HTMLElement>('nav[aria-label="Main navigation"]')!;

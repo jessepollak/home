@@ -13,6 +13,8 @@ export { MONEY_MODAL_STEP_DURATION_MS, MONEY_MODAL_STEP_EASING } from "./money-m
 export { MoneyModalStep, MoneyModalStepLoading, useMoneyModalExit, useMoneyModalPending } from "./money-modal";
 /** @public shared money-flow step contract (#1058) */
 export { deferStep, type DeferredStep } from "./deferred-sheet";
+export { moneySheetLoading } from "./money-modal";
+export { moneySheetIntent } from "./intent-preload";
 export {
   MoneyAmountDisplay,
   MoneyAssetPicker,

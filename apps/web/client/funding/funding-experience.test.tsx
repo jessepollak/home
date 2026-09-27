@@ -9,10 +9,8 @@ import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 
 const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
-const { FundingExperienceForWallet, preloadAddMoneySheet } = await import("./funding-experience");
-await preloadAddMoneySheet();
+const { FundingExperienceForWallet } = await import("./funding-experience");
 const { shouldPollFundingOrder } = await import("./order-polling");
-const { MethodBody } = await import("./add-money-dialog");
 
 const ADDRESS_A = "0x1111111111111111111111111111111111111111" as const;
 const ADDRESS_B = "0x2222222222222222222222222222222222222222" as const;
@@ -106,7 +104,19 @@ afterEach(() => {
 });
 
 describe("FundingExperience", () => {
-  test("mounts an empty live region before announcing loading on cold open", () => {
+  test("opens Add money on a cold load and hands off to methods with one dialog", async () => {
+    const wallet = verifiedWallet();
+    const props = { wallet, navigateToRedirect: () => {}, regionId: "US" as const };
+    const view = render(<FundingExperienceForWallet {...props} open={false} />);
+    view.rerender(<FundingExperienceForWallet {...props} open />);
+    expect(await page().findByRole("dialog", { name: "Add money" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Close add money" })).toBeTruthy();
+    expect(await page().findByRole("button", { name: /Receive crypto/ })).toBeTruthy();
+    expect(page().getAllByRole("dialog")).toHaveLength(1);
+    expect(page().queryByText("Loading")).toBeNull();
+  });
+  test("mounts an empty live region before announcing loading on cold open", async () => {
+    const { MethodBody } = await import("./add-money-dialog");
     const html = renderToStaticMarkup(
       <MethodBody
         onSelectReceive={() => {}}
