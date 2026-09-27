@@ -56,7 +56,11 @@ import {
   markHomeStartupOutcome,
   startHomePerformance,
 } from "@/client/observability/perf-marks";
-import type { HomeStartupRoute } from "@/shared/observability/client-performance.contract";
+import type { HomePanelCacheState, HomeInteractionRoute } from "@/shared/observability/client-performance.contract";
+import {
+  beginHomeNavigation, commitHomeNavigation, discardHomeInteractionSamples,
+} from "@/client/observability/interaction-performance";
+import { useHomeScrollPerformance } from "@/client/observability/use-home-scroll-performance";
 import {
   balancesAnchorTopologyKey,
   BalancesPage,
@@ -117,7 +121,7 @@ const loadingAssetBalances: HomeAssetBalancesPresentation = {
   hiddenCount: 0,
 };
 
-const panelStartupRoutes: Record<ShellPanelId, Exclude<HomeStartupRoute, "/">> = {
+const panelStartupRoutes: Record<ShellPanelId, HomeInteractionRoute> = {
   home: "/home",
   balances: "/balances",
   activity: "/activity",
@@ -197,6 +201,9 @@ function DashboardShellBody({
     () => new Set<ShellPanelId>(["home", initialPanel]),
   );
   const [balancesMounted, setBalancesMounted] = useState(initialPanel === balancesPanelId);
+  const [visiblePanelCache, setVisiblePanelCache] = useState<HomePanelCacheState>("first-visit");
+  const activeNavigationRef = useRef(initialPanel);
+  const mountedPanelsRef = useRef(mountedPanels);
   const [revealSmallBalances, setRevealSmallBalances] = useState(false);
   const [forwardRequest, setForwardRequest] = useState(0);
   const pendingBalancesRestoreRef = useRef(false);
@@ -238,6 +245,18 @@ function DashboardShellBody({
   const investChrome = useOptionalAppChrome();
   const [investmentsChrome, setInvestmentsChrome] = useState<NestedAppChrome | null>(null);
   const mainRef = useRef<HTMLElement>(null);
+  useHomeScrollPerformance(mainRef, panelStartupRoutes[activeNavigation], visiblePanelCache);
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "visible") discardHomeInteractionSamples();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      discardHomeInteractionSamples();
+    };
+  }, []);
+  useEffect(() => { commitHomeNavigation(panelStartupRoutes[activeNavigation]); }, [activeNavigation]);
   const contentFrameRef = useRef<HTMLDivElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
   const settingsRegionRef = useRef<HTMLElement>(null);
@@ -306,6 +325,11 @@ function DashboardShellBody({
       new URLSearchParams(window.location.search),
     );
     if (legacyHref) commitClientUrl(legacyHref, "replace");
+    if (intent.panel !== activeNavigationRef.current) {
+      setVisiblePanelCache(mountedPanelsRef.current.has(intent.panel) ? "retained" : "first-visit");
+    }
+    activeNavigationRef.current = intent.panel;
+    mountedPanelsRef.current = new Set([...mountedPanelsRef.current, intent.panel]);
     setActiveNavigation(intent.panel);
     setMountedPanels((current) => current.has(intent.panel)
       ? current
@@ -384,6 +408,12 @@ function DashboardShellBody({
   useEffect(() => {
     const onPopState = () => {
       const intent = currentUrlIntent();
+      if (intent.panel !== activeNavigationRef.current) {
+        beginHomeNavigation({ from: panelStartupRoutes[activeNavigationRef.current],
+          to: panelStartupRoutes[intent.panel],
+          cache: mountedPanelsRef.current.has(intent.panel) ? "retained" : "first-visit",
+          trigger: "history" });
+      }
       coldGroupAnchorRef.current = null;
       pendingHistoryScrollRestoreRef.current = intent.panel === balancesPanelId
         ? null
@@ -702,6 +732,14 @@ function DashboardShellBody({
       (nextNavigation !== "cash" || urlIntent.location.cashView === cashView) &&
       (nextNavigation !== investmentsPanelId || urlIntent.location.holding === holding) &&
       (nextNavigation !== "invest" || window.location.pathname === shellHref({ panel: nextNavigation }));
+    if (nextNavigation !== activeNavigationRef.current) {
+      const cache = mountedPanelsRef.current.has(nextNavigation) ? "retained" : "first-visit";
+      beginHomeNavigation({ from: panelStartupRoutes[activeNavigationRef.current],
+        to: panelStartupRoutes[nextNavigation], cache, trigger: "in-app" });
+      setVisiblePanelCache(cache);
+    }
+    activeNavigationRef.current = nextNavigation;
+    mountedPanelsRef.current = new Set([...mountedPanelsRef.current, nextNavigation]);
     setRootRequest((request) => ({ panel: nextNavigation, revision: (request?.revision ?? 0) + 1 }));
     setIsAccountSettingsOpen(false);
     setSettingsOpenedInApp(false);
