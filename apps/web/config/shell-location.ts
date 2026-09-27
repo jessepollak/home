@@ -346,13 +346,23 @@ export function subscribeBeforeClientUrlCommit(listener: () => void): () => void
   return () => beforeClientUrlCommitListeners.delete(listener);
 }
 
+function flushBeforeClientUrlCommit(): void {
+  for (const listener of beforeClientUrlCommitListeners) listener();
+}
+
+export function backClientHistory(): void {
+  if (typeof window === "undefined") return;
+  flushBeforeClientUrlCommit();
+  window.history.back();
+}
+
 export function commitClientUrl(
   href: string,
   mode: "push" | "replace" = "push",
   extraState?: Record<string, unknown>,
 ): void {
   if (typeof window === "undefined") return;
-  for (const listener of beforeClientUrlCommitListeners) listener();
+  flushBeforeClientUrlCommit();
   if (mode === "replace") {
     window.history.replaceState(extraState
       ? { ...window.history.state, ...extraState }

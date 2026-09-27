@@ -27,6 +27,7 @@ import {
   type ShellPanelId,
 } from "@/config/navigation";
 import {
+  backClientHistory,
   commitClientUrl,
   commitFlowUrl,
   flowHref,
@@ -39,7 +40,6 @@ import {
   shellHref,
   withoutFlowHref,
   type MoneyGroupId,
-  subscribeBeforeClientUrlCommit,
   type ShellFlow,
 } from "@/config/shell-location";
 import { AppChromeProvider, useOptionalAppChrome, type NestedAppChrome } from "@/components/app-chrome";
@@ -75,6 +75,7 @@ import {
   type HomeInboundPanelState,
 } from "./panel-routing";
 import { ShellHeader } from "./shell-chrome";
+import { subscribeShellScrollPersistence } from "./shell-scroll-persistence";
 import { HomeHeaderStatus, headerStatus, homeBalancesStatus, useReloadHomeBalances } from "./home-status";
 import { ActionToasts } from "./action-toasts";
 import { useBalancesRestore } from "./use-balances-restore";
@@ -294,27 +295,8 @@ function DashboardShellBody({
   useEffect(() => {
     const main = mainRef.current;
     if (!main) return;
-    let persistFrame: number | null = null;
-    const persistScroll = () => {
-      if (persistFrame !== null) {
-        window.cancelAnimationFrame(persistFrame);
-        persistFrame = null;
-      }
-      replaceClientScrollTop(main.scrollTop);
-    };
-    const schedulePersist = () => {
-      if (persistFrame !== null) return;
-      persistFrame = window.requestAnimationFrame(persistScroll);
-    };
     if (readClientScrollTop() === null) replaceClientScrollTop(main.scrollTop);
-    const unsubscribe = subscribeBeforeClientUrlCommit(persistScroll);
-    main.addEventListener("scroll", schedulePersist, { passive: true });
-    return () => {
-      if (persistFrame !== null) window.cancelAnimationFrame(persistFrame);
-      persistScroll();
-      unsubscribe();
-      main.removeEventListener("scroll", schedulePersist);
-    };
+    return subscribeShellScrollPersistence(main);
   }, []);
 
   const applyUrlState = useCallback((intent: ReturnType<typeof readHomeInboundPanelState>) => {
@@ -379,7 +361,7 @@ function DashboardShellBody({
     if (!options.normalizeInbound && options.mode !== "push" && window.location.pathname === "/cash/savings" &&
       window.history.state?.__cashSavingsFlowPushed === true &&
       (urlIntent.flow === "save-deposit" || urlIntent.flow === "save-withdraw")) {
-      window.history.back();
+      backClientHistory();
       return;
     }
     if (options.fundingReturn) {
@@ -396,7 +378,7 @@ function DashboardShellBody({
       commitClientUrl("/", "replace");
       return;
     }
-    window.history.back();
+    backClientHistory();
   }, [initialAccountOpen]);
 
   useEffect(() => {
@@ -762,7 +744,7 @@ function DashboardShellBody({
   function leaveCashSavings() {
     if (cashSavingsOpenedInApp && isClientHistoryEntry()) {
       setCashSavingsOpenedInApp(false);
-      window.history.back();
+      backClientHistory();
       return;
     }
     commitClientUrl(shellHref({ panel: cashPanelId }), "replace");
@@ -781,7 +763,7 @@ function DashboardShellBody({
     holdingFocusReturnRef.current = { key: previousHolding, scrollIntoView: false };
     if (investmentsHoldingOpenedInApp && isClientHistoryEntry()) {
       setInvestmentsHoldingOpenedInApp(false);
-      window.history.back();
+      backClientHistory();
       return;
     }
     holdingFocusReturnRef.current.scrollIntoView = true;
@@ -800,7 +782,7 @@ function DashboardShellBody({
     }
     if (borrowMarketOpenedInApp) {
       setBorrowMarketOpenedInApp(false);
-      window.history.back();
+      backClientHistory();
       return;
     }
     commitClientUrl(shellHref({ panel: "borrow" }), "replace");
@@ -840,7 +822,7 @@ function DashboardShellBody({
 
   function closeAccountSettings() {
     if (settingsOpenedInApp) {
-      window.history.back();
+      backClientHistory();
       return;
     }
     setIsAccountSettingsOpen(false);
@@ -890,8 +872,7 @@ function DashboardShellBody({
       navigateTo("home");
       return;
     }
-    replaceClientScrollTop(mainRef.current?.scrollTop ?? 0);
-    window.history.back();
+    backClientHistory();
   }
 
   const onNestedChromeBack = isHomeNestedPanelId(activeNavigation)

@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useNestedAppChrome } from "@/components/app-chrome";
 import type { InvestAsset } from "@/config/invest-assets";
-import { commitClientUrl } from "@/config/shell-location";
+import { backClientHistory, commitClientUrl } from "@/config/shell-location";
 import { useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import {
@@ -246,7 +246,7 @@ export function InvestExperience({
   const leaveChild = useCallback((parent: InvestView) => {
     setView(parent);
     if (inAppChildDepth > 0) {
-      window.history.back();
+      backClientHistory();
       return;
     }
     commitClientUrl(investHref(parent), "replace", {
