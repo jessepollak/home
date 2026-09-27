@@ -80,6 +80,25 @@ test("a feed ticker shows static digits until its value changes, then animates s
   expect(view.getByRole("img", { name: "$252.00" }).getAttribute("data-animated")).toBe("false");
 });
 
+test("static digits retain the accessible amount and switch to animated digits when enabled", () => {
+  const value = "$12.34 USD";
+  const view = render(createElement(MoneyTicker, { value, animated: false }));
+  const ticker = view.getByRole("img", { name: value });
+  const track = ticker.querySelector('[data-slot="money-ticker-track"]');
+  expect(ticker.getAttribute("data-animated")).toBe("false");
+  expect(track?.textContent).toBe(value);
+  expect(ticker.querySelectorAll("number-flow-react")).toHaveLength(0);
+
+  view.rerender(createElement(MoneyTicker, { value, animated: true }));
+  expect(ticker.getAttribute("data-animated")).toBe("true");
+  expect(ticker.querySelectorAll("number-flow-react")).toHaveLength(4);
+
+  act(() => setReducedMotion(true));
+  expect(ticker.getAttribute("data-animated")).toBe("false");
+  expect(track?.textContent).toBe(value);
+  expect(ticker.querySelectorAll("number-flow-react")).toHaveLength(0);
+});
+
 test("a scoped review fixture can force reduced motion without changing the system preference", () => {
   const view = render(createElement(
     MoneyMotionProvider,

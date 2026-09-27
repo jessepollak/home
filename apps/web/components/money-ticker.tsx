@@ -13,6 +13,9 @@ import {
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 const MoneyMotionContext = createContext<boolean | undefined>(undefined);
+const staticDigitStyle = {
+  "--money-ticker-digit-padding": "calc(round(nearest, 0.125em, 1px) * 2)",
+} as CSSProperties;
 
 const asciiDigitValues = {
   "0": 0,
@@ -177,8 +180,17 @@ export function MoneyTicker({
 
           const positionFromRight = digitCount - digitIndex;
           digitIndex += 1;
-          if (staticDigits) {
-            return <span className="inline-block w-[1ch] flex-[0_0_1ch] text-center" key={`digit-${positionFromRight}`}>{character}</span>;
+          if (staticDigits || !animationsEnabled) {
+            return (
+              <span
+                aria-hidden="true"
+                className="inline-block w-[1ch] flex-[0_0_1ch] py-(--money-ticker-digit-padding) text-center leading-none"
+                key={`digit-${positionFromRight}`}
+                style={staticDigitStyle}
+              >
+                {character}
+              </span>
+            );
           }
           return (
             <NumberFlow

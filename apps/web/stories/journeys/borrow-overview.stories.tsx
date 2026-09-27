@@ -149,6 +149,7 @@ export const CollateralBorrowEntryBack: Story = {
     await userEvent.click(within(management).getByRole("button", { name: "Borrow" }));
     const money = await screen.findByRole("dialog", { name: "Borrow" });
     await expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    await expect(await within(money).findByRole("textbox", { name: "Amount" })).toBeVisible();
     await userEvent.click(within(money).getByRole("button", { name: "Back" }));
     const returned = await screen.findByRole("dialog", { name: "Cardano" });
     await expect(within(returned).getByRole("button", { name: "Borrow" })).toHaveFocus();

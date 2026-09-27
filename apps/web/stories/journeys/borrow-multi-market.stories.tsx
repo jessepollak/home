@@ -54,6 +54,7 @@ export const MultiMarketOverview: Story = {
     await userEvent.click(sheet.getByRole("button", { name: "Repay" }));
     const money = within(await screen.findByRole("dialog", { name: "Repay" }));
     await expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    await expect(await money.findByRole("textbox", { name: "Amount" })).toBeVisible();
     await userEvent.click(money.getByRole("button", { name: "Back" }));
     const returned = within(await screen.findByRole("dialog", { name: "Staked ETH" }));
     await expect(returned.getByRole("button", { name: "Repay" })).toHaveFocus();

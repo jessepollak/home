@@ -247,6 +247,13 @@ async function openSavings(canvasElement: HTMLElement) {
   await userEvent.click(row);
   return detail(canvasElement);
 }
+async function settledWithdraw(screen: ReturnType<typeof detail>) {
+  await screen.findByRole("button", { name: "Withdraw" });
+  await waitFor(() => expect(screen.queryAllByText("Loading rate")).toHaveLength(0));
+  const withdraw = screen.getByRole("button", { name: "Withdraw" });
+  await waitFor(() => expect(withdraw).toBeEnabled());
+  return withdraw;
+}
 async function assertFunded({ canvasElement }: { canvasElement: HTMLElement }) {
   const canvas = within(canvasElement);
   await expect(canvas.getByRole("heading", { name: "Cash", level: 1 })).toBeVisible();
@@ -395,7 +402,7 @@ export const LocalHoldingUnavailable: Story = { args: { snapshot: localHoldingUn
 } };
 export const UsdcUnavailable: Story = { args: { snapshot: usdcUnavailableSnapshot, initialView: "savings" }, play: async ({ canvasElement }) => {
   const screen = detail(canvasElement);
-  const withdraw = await screen.findByRole("button", { name: "Withdraw" });
+  const withdraw = await settledWithdraw(screen);
   await expect(screen.getByRole("button", { name: "Deposit" })).toBeDisabled();
   await waitFor(() => expect(withdraw).toBeEnabled());
   await userEvent.click(withdraw);
@@ -526,8 +533,7 @@ export const DepositJourney: Story = { play: async ({ canvasElement }) => {
 export const WithdrawPending: Story = { args: { pendingExecution: true, initialView: "savings" }, play: async ({ canvasElement }) => {
   const screen = detail(canvasElement);
   const body = within(canvasElement.ownerDocument.body);
-  const withdraw = await screen.findByRole("button", { name: "Withdraw" });
-  await waitFor(() => expect(withdraw).toBeEnabled());
+  const withdraw = await settledWithdraw(screen);
   await userEvent.click(withdraw);
   await waitFor(() => expect(withdraw).toHaveAttribute("aria-expanded", "true"));
   await userEvent.click(within(screen.getByRole("region", { name: "Withdraw from" })).getByRole("button", { name: /^Gauntlet USDC Prime/, description: "Withdraw from Gauntlet USDC Prime" }));
@@ -545,8 +551,7 @@ export const WithdrawPending: Story = { args: { pendingExecution: true, initialV
 export const WithdrawPendingSurvivesBalanceFailure: Story = { args: { pendingExecution: true, initialView: "savings", snapshotToggle: true }, play: async ({ canvasElement }) => {
   const screen = detail(canvasElement);
   const body = within(canvasElement.ownerDocument.body);
-  const withdraw = await screen.findByRole("button", { name: "Withdraw" });
-  await waitFor(() => expect(withdraw).toBeEnabled());
+  const withdraw = await settledWithdraw(screen);
   await userEvent.click(withdraw);
   await waitFor(() => expect(withdraw).toHaveAttribute("aria-expanded", "true"));
   await userEvent.click(within(screen.getByRole("region", { name: "Withdraw from" })).getByRole("button", { name: /^Gauntlet USDC Prime/, description: "Withdraw from Gauntlet USDC Prime" }));
@@ -632,8 +637,7 @@ export const SavingsDetail: Story = { args: { initialView: "savings" }, play: as
 export const SavingsDetailDesktop: Story = { args: { initialView: "savings" }, parameters: { viewport: { defaultViewport: "desktop" } }, play: SavingsDetail.play };
 export const SavingsDetailWithdrawChooser: Story = { args: { initialView: "savings" }, play: async ({ canvasElement }) => {
   const screen = detail(canvasElement);
-  const withdraw = await screen.findByRole("button", { name: "Withdraw" });
-  await waitFor(() => expect(withdraw).toBeEnabled());
+  const withdraw = await settledWithdraw(screen);
   const savings = screen.getByRole("region", { name: "Your savings" });
   const rowHeight = vaultRow(savings, "Gauntlet USDC Prime").getBoundingClientRect().height;
   await userEvent.click(withdraw);
@@ -670,7 +674,7 @@ export const SavingsDetailWithdrawChooser: Story = { args: { initialView: "savin
 } };
 export const SavingsDetailSingleHeld: Story = { args: { snapshot: savingsOnlySnapshot, initialView: "savings" }, play: async ({ canvasElement }) => {
   const screen = detail(canvasElement);
-  const withdraw = await screen.findByRole("button", { name: "Withdraw" });
+  const withdraw = await settledWithdraw(screen);
   await expect(withdraw).not.toHaveAttribute("aria-expanded");
   await expect(screen.getByRole("region", { name: "Your savings" })).toBeVisible();
   await waitFor(() => expect(withdraw).toBeEnabled());
@@ -763,8 +767,7 @@ export const SavingsDetailBackFocus: Story = { args: { initialView: "savings" },
 } };
 export const SavingsDetailChoiceReset: Story = { args: { initialView: "savings", snapshotToggle: true }, play: async ({ canvasElement }) => {
   const screen = detail(canvasElement);
-  const withdraw = await screen.findByRole("button", { name: "Withdraw" });
-  await waitFor(() => expect(withdraw).toBeEnabled());
+  const withdraw = await settledWithdraw(screen);
   await userEvent.click(withdraw);
   await expect(withdraw).toHaveAttribute("aria-expanded", "true");
   await expect(screen.getByRole("region", { name: "Withdraw from" })).toBeVisible();
@@ -807,8 +810,7 @@ export const SavingsDetailDepositClosesWhenBalancesFail: Story = { args: { initi
 export const SavingsDetailWithdrawClosesWhenBalancesFail: Story = { args: { snapshot: usdcUnavailableSnapshot, initialView: "savings", snapshotToggle: true }, play: async ({ canvasElement }) => {
   const screen = detail(canvasElement);
   const body = within(canvasElement.ownerDocument.body);
-  const withdraw = await screen.findByRole("button", { name: "Withdraw" });
-  await waitFor(() => expect(withdraw).toBeEnabled());
+  const withdraw = await settledWithdraw(screen);
   await userEvent.click(withdraw);
   await expect(await body.findByRole("dialog", { name: "Withdraw" })).toBeVisible();
   snapshotChanges.dispatchEvent(new Event("failed"));

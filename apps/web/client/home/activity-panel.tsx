@@ -20,6 +20,8 @@ import { announceActionFailure } from "./action-toast-events";
 import { useOptionalHomeShellRouting } from "./panel-routing";
 import { ShimmerRows } from "./panel-shared";
 
+const EMPTY_OPERATIONS: readonly RecentMoneyActionOperation[] = [];
+
 export function ActivityPage({
   activitySession,
   fetchActivity,
@@ -117,6 +119,9 @@ export function ConnectedActivityPanel({
   }, [routing?.rootRequest]);
   const cancelAttempt = useRef(0);
   const activity = useActivity(activitySession, fetchActivity, regionId);
+  const selectActions = useCallback((value: unknown) => activitySession?.smartAccount
+    ? parseRecentMoneyActions(value, activitySession)
+    : EMPTY_OPERATIONS, [activitySession]);
   const actions = useHomeQuery({
     queryKey: ownerKey
       ? ownerQueryKey(ownerKey, "actions")
@@ -132,9 +137,7 @@ export function ConnectedActivityPanel({
     },
     meta: ownerKey ? ownerQueryMeta(ownerKey, "owner") : undefined,
     queryFn: ({ signal }) => fetchRecentActions(fetchOperations, signal),
-    select: (value) => activitySession?.smartAccount
-      ? parseRecentMoneyActions(value, activitySession)
-      : [],
+    select: selectActions,
   });
   const actionStatus = useRecentActionsStatus({
     hasData: actions.data !== undefined,
@@ -149,7 +152,7 @@ export function ConnectedActivityPanel({
   const cancelCashout = async (operation: RecentMoneyActionOperation) => {
     const progress = operation.cashout;
     if (!wallet || !routing || !progress?.depositId || cancelBusy ||
-      !presentCashout(operation, linkedCashoutWithdraw(operation, actions.data ?? [])).cancellable) return;
+      !presentCashout(operation, linkedCashoutWithdraw(operation, actions.data ?? EMPTY_OPERATIONS)).cancellable) return;
     const attempt = ++cancelAttempt.current;
     setCancelBusy(true);
     setCancelError(null);
@@ -184,7 +187,7 @@ export function ConnectedActivityPanel({
     <ActivityPanelView
       key={`${ownerKey ?? "signed-out"}:${reviewOpened}`}
       activity={activity}
-      operations={actions.data ?? []}
+      operations={actions.data ?? EMPTY_OPERATIONS}
       actionsStatus={actionStatus}
       regionId={regionId}
       density={density}

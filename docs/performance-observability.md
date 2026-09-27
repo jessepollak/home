@@ -24,6 +24,16 @@ CDP enumeration starts pages only inside a 2.5-second soft budget. A page that s
 
 Valuation follows the same stale-while-revalidate boundary. A request serving any existing balance observation reads only global stored token/FX values; it records zero foreground `codex` and `coinbase` duration and retains needed refreshes with `after()`. Provider bootstrap is synchronous only for the `full` outcome that creates a missing balance observation. `durationMs.valuation-store`, `durationMs.codex`, and `durationMs.coinbase` separate valuation storage and provider time. A degraded visible valuation sets the snapshot stale flag only when its needed refresh was actually scheduled or is already in flight, allowing the client's bounded refetch to converge; refreshing a safe value is silent.
 
+## Retained shell panels
+
+The dashboard shell keeps visited panels mounted and hidden, so a navigation re-renders every retained panel and re-showing a panel re-lays out its whole subtree. Measured in production builds (#1089), long loaded Activity lists and per-digit animated amounts dominated Home ↔ Cash latency, and the hidden Cash growth ticker kept rendering while Home was active. Keep retained panels cheap:
+
+- Recent Activity is windowed ([Activity performance](activity-performance.md)); ledger rows are memoized and receive stable props, including a stable detail opener, so a navigation with unchanged activity does not re-render them.
+- Ledger row amounts render static digits until their value changes; `MoneyTicker` renders plain digits whenever it is not animating and uses one `NumberFlow` element per digit only when it animates.
+- Visual timers inside a panel read `useShellPanelActive()` and pause while the panel is hidden, as the savings growth estimate does.
+
+Profile navigation with a production build (`next build --profile` for React attribution), a synthetic owner with a few hundred loaded Activity rows, and both Chromium with CPU throttling and WebKit. Development-mode timings are not representative.
+
 ## Production verification
 
 After deployment, enable Speed Insights for your Home Vercel project. This hosted setting can affect usage and is not changed by source code.

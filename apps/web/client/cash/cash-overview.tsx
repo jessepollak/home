@@ -401,20 +401,20 @@ export function CashOverview({
   const loading = balanceStatus === "loading";
   const failed = balanceStatus === "failed";
   const activeSnapshot = failed ? null : snapshot;
-  const summary = activeSnapshot
+  const summary = useMemo(() => activeSnapshot
     ? presentBalances({
         status: "ready",
         snapshot: activeSnapshot,
         error: null,
       }).summary?.cash
-    : null;
-  const rows = activeSnapshot ? cashHoldings(activeSnapshot) : [];
-  const { holdings, total, partial, bestRate } = savingsData(
+    : null, [activeSnapshot]);
+  const rows = useMemo(() => activeSnapshot ? cashHoldings(activeSnapshot) : [], [activeSnapshot]);
+  const { holdings, total, partial, bestRate } = useMemo(() => savingsData(
     activeSnapshot,
     metadata,
     vaultStatus,
     nowMs
-  );
+  ), [activeSnapshot, metadata, vaultStatus, nowMs]);
   const { growth, earningApy } = useSavingsGrowth(
     activeSnapshot,
     vaultStatus === "ready" ? metadata : null,
@@ -422,10 +422,14 @@ export function CashOverview({
     now,
     growthAuthority
   );
+  const cashTotal = useMemo(
+    () => activeSnapshot ? selectBalanceTotals(activeSnapshot).cash : null,
+    [activeSnapshot]
+  );
   const empty =
     !loading &&
     summary?.status === "complete" &&
-    selectBalanceTotals(activeSnapshot!).cash.value?.atoms === "0" &&
+    cashTotal?.value?.atoms === "0" &&
     !holdings.some(({ held }) => held);
   const savingsValue =
     partial && total === BigInt(0)
@@ -439,9 +443,6 @@ export function CashOverview({
       : bestRate === null
       ? "Rate unavailable"
       : `Earn up to ${formatPresentationPercentage(bestRate)} APY`;
-  const cashTotal = activeSnapshot
-    ? selectBalanceTotals(activeSnapshot).cash
-    : null;
   const cashValue =
     summary?.status === "complete" &&
     cashTotal?.value &&
@@ -709,12 +710,12 @@ export function SavingsDetail({
 }: SavingsDetailProps) {
   const balanceFailed = balanceStatus === "failed";
   const activeSnapshot = balanceFailed ? null : snapshot;
-  const { candidates, holdings, withdrawTargets, total, partial, bestRate } = savingsData(
+  const { candidates, holdings, withdrawTargets, total, partial, bestRate } = useMemo(() => savingsData(
     activeSnapshot,
     metadata,
     vaultStatus,
     nowMs
-  );
+  ), [activeSnapshot, metadata, vaultStatus, nowMs]);
   const { growth, earningApy } = useSavingsGrowth(
     activeSnapshot,
     vaultStatus === "ready" ? metadata : null,
