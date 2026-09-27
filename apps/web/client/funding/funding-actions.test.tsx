@@ -9,7 +9,7 @@ import { getHomeQueryClient } from "@/client/query/query-client";
 
 const replaceCalls: string[] = [];
 const actualNavigation = await import("next/navigation");
-mock.module("next/navigation", () => ({
+await mock.module("next/navigation", () => ({
   ...actualNavigation,
   useRouter: () => ({
     replace: (href: string) => replaceCalls.push(href),

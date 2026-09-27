@@ -102,7 +102,7 @@ const router = {
   push: (href: string) => pushHistory(href),
   back: popHistory,
 };
-mock.module("next/navigation", () => ({
+await mock.module("next/navigation", () => ({
   ...actualNavigation,
   useRouter: () => router,
   usePathname: () => window.location.pathname,
