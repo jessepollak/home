@@ -52,7 +52,7 @@ for (const surfaceId of replaySurfaceIds) {
     if (surfaceId === "send" || surfaceId === "invest") {
       for (const [pattern, body] of fixtureRoutes()) {
         if ((surfaceId === "send" && pattern.startsWith("**/api/transfers/")) ||
-          (surfaceId === "invest" && pattern === "**/api/trades")) {
+          (surfaceId === "invest" && pattern.startsWith("**/api/trades?"))) {
           await page.route(pattern, (route) => json(route, body));
         }
       }

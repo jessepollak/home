@@ -15,7 +15,7 @@ import { addFractions, exactDecimalToFraction, roundFractionPreservingPositive }
 import type { ActionKind, MoneyActionAmount } from "@/shared/money-actions/types";
 import { formatValuationAmount, presentActivityTransferRow } from "./activity-presenter";
 import { activityOperationTime, matchesActivityAmountTransfer, type ActivityFeedItem } from "./activity-feed";
-import type { ActivityLedgerAsset, ActivityLedgerItem, Transaction } from "./activity-ledger";
+import type { ActivityLedgerAsset, ActivityLedgerFact, ActivityLedgerItem, Transaction } from "./activity-ledger";
 import type { ActivityTransfer } from "./types";
 import { cashoutMoney, presentCashout, type CashoutStage } from "./cash-out-presenter";
 
@@ -121,10 +121,10 @@ function operationTitle(operation: RecentMoneyActionOperation): string {
   if (operation.action.kind !== "trade" || metadata?.product !== "trade") return operation.action.title;
   const buy = metadata.direction === "buy";
   switch (operation.status) {
-    case "confirmed": return buy ? "Bought Bitcoin" : "Sold Bitcoin";
-    case "pending": return buy ? "Buying Bitcoin" : "Selling Bitcoin";
-    case "failed": return buy ? "Buy Bitcoin failed" : "Sell Bitcoin failed";
-    case "unknown": return buy ? "Buy Bitcoin" : "Sell Bitcoin";
+    case "confirmed": return `${buy ? "Bought" : "Sold"} ${metadata.assetName}`;
+    case "pending": return `${buy ? "Buying" : "Selling"} ${metadata.assetName}`;
+    case "failed": return `${buy ? "Buy" : "Sell"} ${metadata.assetName} failed`;
+    case "unknown": return `${buy ? "Buy" : "Sell"} ${metadata.assetName}`;
   }
 }
 
@@ -136,7 +136,7 @@ function amountLabel(operation: RecentMoneyActionOperation, amount: MoneyActionA
 function operationLabel(operation: RecentMoneyActionOperation): string {
   const metadata = operation.action.metadata;
   if (operation.action.kind === "trade" && metadata?.product === "trade") {
-    return metadata.direction === "buy" ? "Buy Bitcoin" : "Sell Bitcoin";
+    return `${metadata.direction === "buy" ? "Buy" : "Sell"} ${metadata.assetName}`;
   }
   const borrow = metadata?.product === "borrow" ? metadata.operation : null;
   switch (borrow) {
@@ -193,9 +193,12 @@ function actionItem(operation: RecentMoneyActionOperation, transfers: readonly A
   const primaryParts = primary ? actionAmountParts(primary, options) : undefined;
   const primaryPrefix = primary ? `${primary.direction === "spend" ? "−" : "+"}${primary.estimated ? "~" : ""}` : "";
   const metadata = operation.action.metadata;
-  const facts: { label: string; value: string }[] = [];
+  const facts: ActivityLedgerFact[] = [];
   const title = operationTitle(operation);
-  if (metadata?.product === "borrow") {
+  if (metadata?.product === "trade") {
+    const traded = metadata.direction === "buy" ? metadata.toAsset : metadata.fromAsset;
+    facts.push({ label: `${traded.symbol} contract`, value: traded.address, kind: "address" });
+  } else if (metadata?.product === "borrow") {
     facts.push({ label: "Market", value: `${metadata.collateralAsset.symbol} / ${metadata.loanAsset.symbol}` });
   } else if (metadata?.product === "cashout") {
     facts.push(

@@ -18,6 +18,7 @@ import {
   resolveMarketPriceAssetIdentity,
 } from "@/shared/invest/contracts/market-price-history";
 import { unavailableMarketData, type MarketDataState } from "@/shared/invest/invest-market";
+import { resolveTradeAsset } from "@/shared/trading/assets";
 import {
   getDiscoverAsset,
   getDiscoverShelf,
@@ -29,6 +30,7 @@ import {
 import {
   AssetDetailScreen,
   AssetDetailStatusScreen,
+  ExactAddressAssetScreen,
 } from "./asset-detail-screen";
 import { CategoryScreen } from "./category-screen";
 import { InvestHub } from "./invest-hub";
@@ -252,11 +254,14 @@ export function InvestExperience({
     });
   }, [inAppChildDepth]);
 
+  const detailAsset = view.screen === "detail" ? getDiscoverAsset(view.assetId, catalog) : null;
+  const exactAsset = view.screen === "detail" && !detailAsset ? resolveTradeAsset(view.assetId) : null;
   const chromeTitle =
     view.screen === "category"
       ? getDiscoverShelf(view.shelfId)?.title ?? null
       : view.screen === "detail"
-        ? getDiscoverAsset(view.assetId, catalog)?.displayName ?? "Asset details"
+        ? detailAsset?.displayName ?? (exactAsset?.status === "tradeable"
+          ? `${exactAsset.address.slice(0, 6)}…${exactAsset.address.slice(-4)}` : "Asset details")
         : null;
   const chromeBackLabel =
     view.screen === "category"
@@ -339,29 +344,27 @@ export function InvestExperience({
       view.from === "hub"
         ? ({ screen: "hub" } as const)
         : ({ screen: "category", shelfId: view.from } as const);
-    const asset = getDiscoverAsset(view.assetId, catalog);
-    if (!asset) {
-      screen = (
-        <AssetDetailStatusScreen
-          status={
-            (detailQuery && detailSearch.status === "loading") ||
-            (!detailQuery && memeStatus === "loading")
-              ? "loading"
-              : "unavailable"
-          }
-          onBack={() => leaveChild(parent)}
-        />
-      );
-    } else {
+    if (detailAsset) {
       screen = (
         <AssetDetailScreen
-          asset={asset}
+          asset={detailAsset}
           market={
             detailIdentity && isDynamicMarketPriceAssetId(detailIdentity.assetId)
               ? dynamicDetailMarket
-              : marketForAsset(asset, markets)
+              : marketForAsset(detailAsset, markets)
           }
           assetMarkResolution={assetMarkResolution}
+          onBack={() => leaveChild(parent)}
+        />
+      );
+    } else if (detailQuery && detailSearch.status === "loading") {
+      screen = <AssetDetailStatusScreen status="loading" onBack={() => leaveChild(parent)} />;
+    } else if (exactAsset?.status === "tradeable" && (!detailQuery || detailSearch.status === "error")) {
+      screen = <ExactAddressAssetScreen assetId={view.assetId} onBack={() => leaveChild(parent)} />;
+    } else {
+      screen = (
+        <AssetDetailStatusScreen
+          status={!detailQuery && memeStatus === "loading" ? "loading" : "unavailable"}
           onBack={() => leaveChild(parent)}
         />
       );

@@ -20,7 +20,7 @@ import { MORPHO_BLUE_ADDRESS, VERIFIED_MORPHO_MARKETS } from "@/shared/morpho-ma
 import { availableBorrowAssets, toSharesDown, toSharesUp } from "@/shared/morpho-markets/math";
 import type { MoneyActionAmount, PreparedMoneyAction } from "@/shared/money-actions/types";
 import { parseBorrowActionIntent, type BorrowActionIntent } from "@/shared/borrowing/types";
-import { borrowOverviewBody, sessionBody } from "@/tests/browser/fixtures/bodies";
+import { borrowOverviewBody, sessionBody, tradeAvailabilityBody } from "@/tests/browser/fixtures/bodies";
 import { formatFiatAmount } from "@/shared/formatting";
 
 const borrowStorySession = {
@@ -551,16 +551,18 @@ export const MultipleLoans: Story = {
   },
 };
 export const NotHeldBuy: Story = {
-  args: { fixture: borrowOverviewBody({ openMarketId: null, notHeldMarketIds: [btc, markets[1]!.marketId] }) },
+  args: { fixture: borrowOverviewBody({ openMarketId: null, notHeldMarketIds: markets.map((market) => market.marketId) }) },
   decorators: [(StoryComponent) => <AccountWalletClientProvider client={{
     ...createBlockedAccountWalletClient("provider-unavailable"), status: "verified", verification: "server", session: borrowStorySession,
     fetchBalances: async (region) => balancesSnapshot(region),
-    fetchAccountResource: async (path) => path === "/api/trades" ? { version: 1, status: "available" } : { version: 1, trade: null },
+    fetchAccountResource: async (path) => path.startsWith("/api/trades?assetId=") ? tradeAvailabilityBody(decodeURIComponent(path.slice("/api/trades?assetId=".length))) : { version: 1, usdcReserveBaseUnits: "20000" },
   }}><StoryComponent /></AccountWalletClientProvider>],
   play: async ({ canvasElement }) => {
-    const assets = within(await openAssetPicker(canvasElement, "Choose an asset"));
-    await waitFor(() => expect(assets.getByRole("button", { name: "Buy Bitcoin" })).toBeEnabled());
-    await expect(assets.queryByRole("button", { name: "Buy XRP" })).toBeNull();
+    const assets = within(await openAssetPicker(canvasElement, "See supported assets"));
+    for (const name of ["Bitcoin", "XRP", "Staked ETH", "Dogecoin", "Cardano"]) {
+      const buy = await assets.findByRole("button", { name: `Buy ${name}` });
+      await waitFor(() => expect(buy).toBeEnabled());
+    }
   },
 };
 export const OneLoan: Story = { args: { fixture: only(btc) } };

@@ -78,31 +78,100 @@ describe("balance presentation", () => {
   test.each([
     {
       name: "priced dust",
-      holding: catalogHolding(FIXTURE_CATALOG.priced, "1", priced("USD", "9", 3)),
-      hidden: true,
+      holding: catalogHolding(FIXTURE_CATALOG.priced, "1000000000000000000", priced("USD", "9", 3)),
+      group: null,
+      hiddenCount: 1,
     },
     {
       name: "unpriced wallet",
-      holding: walletHolding(FIXTURE_WALLET_TOKEN, "1", {
+      holding: walletHolding(FIXTURE_WALLET_TOKEN, "1000000000000000000", {
         status: "unpriced" as const,
         reason: "below-market-gate" as const,
       }),
-      hidden: true,
+      group: "unpriced",
+      hiddenCount: 0,
+    },
+    {
+      name: "unpriced catalog",
+      holding: catalogHolding(FIXTURE_CATALOG.priceMissing, "1000000", {
+        status: "unpriced" as const,
+        reason: "price-unavailable" as const,
+      }),
+      group: "investments",
+      hiddenCount: 0,
     },
     {
       name: "priced at one cent",
-      holding: catalogHolding(FIXTURE_CATALOG.priced, "1", priced("USD", "1", 2)),
-      hidden: false,
+      holding: catalogHolding(FIXTURE_CATALOG.priced, "1000000000000000000", priced("USD", "1", 2)),
+      group: "investments",
+      hiddenCount: 0,
     },
-  ])("partitions $name according to the dust rule", ({ holding, hidden }) => {
-    const presentation = presentBalances({
-      status: "ready",
-      snapshot: buildBalancesSnapshotFixture({ catalog: [holding] }),
-      error: null,
-    }, { showSmallBalances: false });
+  ])("partitions $name by price and source", ({ holding, group, hiddenCount }) => {
+    const snapshot = buildBalancesSnapshotFixture({ catalog: [holding] });
+    const presentation = presentBalances(
+      { status: "ready", snapshot, error: null },
+      { showSmallBalances: false },
+    );
 
-    expect(presentation.hiddenRows.some((row) => row.name === holding.name)).toBe(hidden);
-    expect(presentation.rows.some((row) => row.name === holding.name)).toBe(!hidden);
+    expect(presentation.hiddenCount).toBe(hiddenCount);
+    expect(presentation.hiddenRows.map((row) => row.name)).toEqual(hiddenCount ? [holding.name] : []);
+    if (group === "unpriced") {
+      expect(presentation.groups.map((entry) => entry.id)).toEqual(["cash", "unpriced"]);
+    }
+    if (group === null) {
+      expect(presentation.rows.some((row) => row.name === holding.name)).toBeFalse();
+    } else {
+      expect(presentation.groups.find((entry) => entry.id === group)?.rows).toContainEqual(
+        expect.objectContaining({ name: holding.name }),
+      );
+    }
+    if (holding.value.status !== "priced") {
+      if (group === "investments") {
+        expect(presentation.groups.find((entry) => entry.id === "investments")?.displaySubtotal).toBeNull();
+      }
+      expect(presentation.rows.find((row) => row.name === holding.name)).toMatchObject({
+        primary: holding.source === "wallet" ? "1.00 DISC" : "1.00 QUIET",
+        secondary: null,
+        tone: "muted",
+      });
+    }
+  });
+
+  test("keeps wallet-only unpriced rows below priced investments without valuing or counting them", () => {
+    const pricedHolding = catalogHolding(FIXTURE_CATALOG.priced, "1000000000000000000", priced("USD", "2500"));
+    const dust = catalogHolding(FIXTURE_CATALOG.belowGate, "1000000000000000000", priced("USD", "9", 3));
+    const walletTokens = [
+      walletHolding({ ...FIXTURE_WALLET_TOKEN, name: "Zebra Token" }, "1000000000000000000", { status: "unpriced", reason: "below-market-gate" }),
+      walletHolding({ ...FIXTURE_WALLET_TOKEN, address: "0x6666666666666666666666666666666666666666", name: "Alpha Token" }, "2000000000000000000", { status: "unpriced", reason: "price-unavailable" }),
+    ];
+    const base = buildBalancesSnapshotFixture({ catalog: [pricedHolding, dust] });
+    const snapshot = buildBalancesSnapshotFixture({ catalog: [pricedHolding, dust, ...walletTokens] });
+    const baseline = presentBalances({ status: "ready", snapshot: base, error: null });
+
+    for (const showSmallBalances of [false, true]) {
+      const presentation = presentBalances({ status: "ready", snapshot, error: null }, { showSmallBalances });
+      expect(presentation.groups.map((group) => [group.id, group.label, group.displaySubtotal])).toEqual([
+        ["cash", "Cash", "$0.00"],
+        ["investments", "Investments", "$25.01"],
+        ["unpriced", "Unpriced", null],
+      ]);
+      expect(presentation.groups[2]?.rows.map((row) => [row.name, row.primary, row.secondary, row.tone])).toEqual([
+        ["Alpha Token", "2.00 DISC", null, "muted"],
+        ["Zebra Token", "1.00 DISC", null, "muted"],
+      ]);
+      expect(presentation.hiddenCount).toBe(1);
+      expect(presentation.hiddenRows.map((row) => row.name)).toEqual(["Thin Market Token"]);
+      expect(presentation.groups[1]?.rows.map((row) => row.name)).toEqual(
+        showSmallBalances ? ["Aerodrome", "Thin Market Token"] : ["Aerodrome"],
+      );
+      expect(presentation.summary?.investments).toMatchObject({
+        value: baseline.summary?.investments.value,
+        assetCount: baseline.summary?.investments.assetCount,
+        status: "partial",
+      });
+    }
+    expect(presentMoneyGroups(snapshot).at(-1)?.id).toBe("unpriced");
+    expect(presentBalanceRows(snapshot).at(-1)?.name).toBe("Zebra Token");
   });
 
   test("never hides cash and restores dust at the end when the setting is on", () => {

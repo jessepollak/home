@@ -9,6 +9,7 @@ import { checkQuoteCompatibility, readSettlerRouter, rfqMakerAuthorizations, swa
 import { verifyRfqMakerAuthorizations } from "./rfq-maker";
 
 type FullQuote = Extract<SwapQuote, { liquidityAvailable: true }>;
+const TOKEN = "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf" as Address;
 const NOW = new Date("2026-09-24T12:00:00.000Z");
 const TARGET = "0x3333333333333333333333333333333333333333" as Address;
 const TAKER = "0x1111111111111111111111111111111111111111" as Address;
@@ -29,7 +30,7 @@ const v3Abi = parseAbiParameters("address recipient, uint256 ppm, bytes path, ui
 const maverickAbi = parseAbiParameters("address recipient, address sellToken, uint256 ppm, address pool, bool tokenAIn, int32 tickLimit, uint256 minBuyAmount");
 const rfqAbi = parseAbiParameters("address recipient, ((address token,uint256 amount) permitted,uint256 nonce,uint256 deadline) permit, address maker, bytes makerSig, address takerToken, uint256 maxTakerAmount");
 const slippageAbi = parseAbiParameters("address recipient, address token, uint256 expectedAmount, uint256 maxPpm");
-function transfer(input: SwapReviewRequest, recipient: Address = TARGET, token = swapTokens(input.direction).fromToken) {
+function transfer(input: SwapReviewRequest, recipient: Address = TARGET, token = swapTokens(input.direction, TOKEN).fromToken) {
   return `0xc1fb425e${addressWord(recipient)}${addressWord(token)}${word(input.fromAmount)}${word(4)}${word(Math.floor(NOW.getTime() / 1000) + 900)}${word(0xc0)}` as Hex;
 }
 function fee(token: Address, ppm: number, recipient: Address = FEE_TO) {
@@ -48,14 +49,14 @@ function path(...tokens: Address[]): Hex {
   return `${tokens[0]}${tokens.slice(1).map((token) => `00000000${"00".repeat(20)}${token.slice(2)}`).join("")}` as Hex;
 }
 function v3(input: SwapReviewRequest, recipient: Address = TARGET, route?: Hex) {
-  const { fromToken, toToken } = swapTokens(input.direction);
+  const { fromToken, toToken } = swapTokens(input.direction, TOKEN);
   return action("0x8d68a156", v3Abi, [recipient, BigInt(1_000_000), route ?? path(fromToken, toToken), BigInt(0)]);
 }
 function positive(input: SwapReviewRequest, expected = BigInt(1001), recipient: Address = FEE_TO) {
-  return action("0x34ee90ca", slippageAbi, [recipient, swapTokens(input.direction).toToken, expected, BigInt(1_000_000)]);
+  return action("0x34ee90ca", slippageAbi, [recipient, swapTokens(input.direction, TOKEN).toToken, expected, BigInt(1_000_000)]);
 }
 function defaultActions(input: SwapReviewRequest): Hex[] {
-  const { fromToken, toToken } = swapTokens(input.direction);
+  const { fromToken, toToken } = swapTokens(input.direction, TOKEN);
   return input.direction === "buy"
     ? [transfer(input), fee(fromToken, 7500), fee(fromToken, 1000), v3(input), positive(input)]
     : [transfer(input), poolSwap(fromToken), positive(input), fee(toToken, 500), fee(toToken, 1000)];
@@ -73,9 +74,9 @@ function settlerData(toToken: Address, options: { recipient?: Address; buyToken?
   const offsets = [offset, ...elements.map((item) => item.start)];
   return `0x1fff991f${addressWord(options.recipient ?? TAKER)}${addressWord(options.buyToken ?? toToken)}${word(options.minAmountOut ?? BigInt(990))}${word(0xa0)}${word(0)}${word(actions.length)}${offsets.map(word).join("")}${elements.map((item) => item.encoded).join("")}${word(0xffff)}${actions[0]?.slice(2) ?? ""}` as Hex;
 }
-const request: SwapReviewRequest = { direction: "buy", fromAmount: BigInt(1_000_000), taker: TAKER, slippageBps: 100 };
+const request: SwapReviewRequest = { token: TOKEN, direction: "buy", fromAmount: BigInt(1_000_000), taker: TAKER, slippageBps: 100 };
 function fixture(input: SwapReviewRequest = request, target: Address = TARGET) {
-  const { fromToken, toToken } = swapTokens(input.direction);
+  const { fromToken, toToken } = swapTokens(input.direction, TOKEN);
   const eip712 = {
     domain: { name: "Permit2", chainId: 8453, verifyingContract: PERMIT2_ADDRESS as Address },
     types: {
@@ -331,33 +332,33 @@ describe("swap quote review", () => {
     ["UNISWAPV2", (token: Address) => v2(TARGET, token, BigInt(1))],
     ["MAVERICKV2", (token: Address) => maverick(TARGET, token, BigInt(1))],
     ["V3 input", (token: Address) => v3(request, TARGET, path(token, INTERMEDIATE))],
-    ["V3 middle", (token: Address) => v3(request, TARGET, path(swapTokens("buy").fromToken, token, INTERMEDIATE))],
-    ["V3 output", (token: Address) => v3(request, TARGET, path(swapTokens("buy").fromToken, INTERMEDIATE, token))],
+    ["V3 middle", (token: Address) => v3(request, TARGET, path(swapTokens("buy", TOKEN).fromToken, token, INTERMEDIATE))],
+    ["V3 output", (token: Address) => v3(request, TARGET, path(swapTokens("buy", TOKEN).fromToken, INTERMEDIATE, token))],
   ] as const)("forbids special swap tokens in %s", (_label, make) => {
     for (const token of [ZERO, PERMIT2_ADDRESS, TAKER, MAKER, TARGET]) {
       const input = { ...request, signerAddress: MAKER };
-      verifyActions([v2(TARGET, swapTokens("buy").fromToken, BigInt(1), NEXT_POOL), make(token)], false, input);
+      verifyActions([v2(TARGET, swapTokens("buy", TOKEN).fromToken, BigInt(1), NEXT_POOL), make(token)], false, input);
     }
   });
   test.each([
     ["BASIC", poolSwap(INTERMEDIATE)],
     ["UNISWAPV2", v2(TARGET, INTERMEDIATE, BigInt(1))],
     ["MAVERICKV2", maverick(TARGET, INTERMEDIATE, BigInt(1))],
-    ["V3", v3(request, TARGET, path(INTERMEDIATE, swapTokens("buy").toToken))],
+    ["V3", v3(request, TARGET, path(INTERMEDIATE, swapTokens("buy", TOKEN).toToken))],
   ])("accepts intermediate %s sell tokens only with a from-token swap", (_label, swap) => {
-    verifyActions([v2(TARGET, swapTokens("buy").fromToken, BigInt(1), NEXT_POOL), swap], true, request, NEXT_POOL);
+    verifyActions([v2(TARGET, swapTokens("buy", TOKEN).fromToken, BigInt(1), NEXT_POOL), swap], true, request, NEXT_POOL);
     verifyActions([swap], false);
   });
   test.each(["BASIC", "UNISWAPV3"] as const)("rejects partial %s spending when the input is held by Settler", (kind) => {
-    const from = swapTokens("buy").fromToken;
+    const from = swapTokens("buy", TOKEN).fromToken;
     const swap = kind === "BASIC"
       ? action("0x38c9c147", basicAbi, [from, BigInt(999_999), POOL, BigInt(0), "0x12345678"])
-      : action("0x8d68a156", v3Abi, [TARGET, BigInt(999_999), path(from, swapTokens("buy").toToken), BigInt(0)]);
+      : action("0x8d68a156", v3Abi, [TARGET, BigInt(999_999), path(from, swapTokens("buy", TOKEN).toToken), BigInt(0)]);
     verifyActions([swap], false);
   });
   test.each(["UNISWAPV2", "MAVERICKV2"] as const)("validates %s prefunding and ppm edges", (kind) => {
     const make = kind === "UNISWAPV2" ? v2 : maverick;
-    const from = swapTokens("buy").fromToken;
+    const from = swapTokens("buy", TOKEN).fromToken;
     const zero = make(TARGET, from, BigInt(0));
     verifyActions([zero], false);
     verifyActions([make(TARGET, from, BigInt(1))], false);
@@ -375,8 +376,8 @@ describe("swap quote review", () => {
     verifyActions([make(TARGET, from, BigInt(1), from)], false);
   });
   test.each([
-    ["V2 to Maverick", v2(POOL, swapTokens("buy").fromToken, BigInt(1), NEXT_POOL), maverick(TARGET, INTERMEDIATE, BigInt(0), POOL)],
-    ["Maverick to V2", maverick(POOL, swapTokens("buy").fromToken, BigInt(1), NEXT_POOL), v2(TARGET, INTERMEDIATE, BigInt(0), POOL)],
+    ["V2 to Maverick", v2(POOL, swapTokens("buy", TOKEN).fromToken, BigInt(1), NEXT_POOL), maverick(TARGET, INTERMEDIATE, BigInt(0), POOL)],
+    ["Maverick to V2", maverick(POOL, swapTokens("buy", TOKEN).fromToken, BigInt(1), NEXT_POOL), v2(TARGET, INTERMEDIATE, BigInt(0), POOL)],
   ])("accepts forward recipient chains: %s", (_label, first, second) => {
     verifyActions([first, second], true, request, NEXT_POOL);
   });
@@ -384,8 +385,8 @@ describe("swap quote review", () => {
     const make = kind === "BASIC" ? (pool: Address) => poolSwap(INTERMEDIATE, pool)
       : kind === "UNISWAPV2" ? (pool: Address) => v2(TARGET, INTERMEDIATE, BigInt(1), pool)
         : (pool: Address) => maverick(TARGET, INTERMEDIATE, BigInt(1), pool);
-    for (const pool of [ZERO, TAKER, swapTokens("buy").fromToken, swapTokens("buy").toToken]) {
-      verifyActions([v2(TARGET, swapTokens("buy").fromToken, BigInt(1), NEXT_POOL), make(pool)], false);
+    for (const pool of [ZERO, TAKER, swapTokens("buy", TOKEN).fromToken, swapTokens("buy", TOKEN).toToken]) {
+      verifyActions([v2(TARGET, swapTokens("buy", TOKEN).fromToken, BigInt(1), NEXT_POOL), make(pool)], false);
     }
   });
   test("keeps unknown selectors outer-compatible but unverified", () => {
@@ -511,7 +512,7 @@ describe("swap quote review", () => {
     expect((caught as TradePreparationError).reason).toBe("unverified-actions");
   });
   test("accepts a BASIC pool call with a zero patch offset and a harmless selector", () => {
-    verifyActions([action("0x38c9c147", basicAbi, [swapTokens("buy").fromToken, BigInt(1_000_000), POOL, BigInt(0), "0x12345678"])], true);
+    verifyActions([action("0x38c9c147", basicAbi, [swapTokens("buy", TOKEN).fromToken, BigInt(1_000_000), POOL, BigInt(0), "0x12345678"])], true);
   });
   test("accepts transfer to a BASIC swap pool", () => {
     const quote = fixture();
@@ -544,7 +545,7 @@ describe("swap quote review", () => {
     ["wrong token", () => ({ ...fixture(), fromToken: TAKER }), "quote-rejected"],
     ["reversed tokens", () => ({ ...fixture(), fromToken: fixture().toToken, toToken: fixture().fromToken }), "quote-rejected"],
     ["wrong amount", () => ({ ...fixture(), fromAmount: BigInt(3) }), "quote-rejected"],
-    ["zero output", () => ({ ...fixture(), toAmount: BigInt(0) }), "quote-rejected"],
+    ["zero output", () => ({ ...fixture(), toAmount: BigInt(0) }), "below-minimum"],
     ["min exceeds output", () => ({ ...fixture(), minToAmount: BigInt(1001) }), "quote-rejected"],
     ["slippage floor", () => ({ ...fixture(), minToAmount: BigInt(989) }), "quote-rejected"],
     ["stale block", () => ({ ...fixture(), blockNumber: BigInt(969) }), "stale-quote"],
@@ -571,26 +572,26 @@ describe("swap quote review", () => {
     ["target differs from router with matching permit spender", () => fixture(request, "0x4444444444444444444444444444444444444444"), "quote-rejected"],
     ["wrong allowance spender", () => ({ ...fixture(), issues: { ...fixture().issues, allowance: { spender: TAKER, currentAllowance: BigInt(0) } } }), "quote-rejected"],
     ["nonzero value", () => ({ ...fixture(), transaction: { ...fixture().transaction, value: BigInt(1) } }), "quote-rejected"],
-    ...[PERMIT2_ADDRESS, BASE_USDC_ADDRESS.toLowerCase() as Address, swapTokens("buy").toToken, "0x0000000000000000000000000000000000000000" as Address].map((target): [string, () => SwapQuote, string] =>
+    ...[PERMIT2_ADDRESS, BASE_USDC_ADDRESS.toLowerCase() as Address, swapTokens("buy", TOKEN).toToken, "0x0000000000000000000000000000000000000000" as Address].map((target): [string, () => SwapQuote, string] =>
       [`forbidden target ${target}`, () => ({ ...fixture(), transaction: { ...fixture().transaction, to: target } }), "quote-rejected"]),
     ["empty data", () => ({ ...fixture(), transaction: { ...fixture().transaction, data: "0x" } }), "quote-rejected"],
     ["wrong selector", () => ({ ...fixture(), transaction: { ...fixture().transaction, data: `0xdeadbeef${fixture().transaction.data.slice(10)}` } }), "quote-rejected"],
     ["trailing bytes", () => ({ ...fixture(), transaction: { ...fixture().transaction, data: `${fixture().transaction.data}00` } }), "quote-rejected"],
     ["undecodable data", () => ({ ...fixture(), transaction: { ...fixture().transaction, data: "0x1fff991f" } }), "quote-rejected"],
-    ["wrong recipient", () => ({ ...fixture(), transaction: { ...fixture().transaction, data: settlerData(swapTokens("buy").toToken, { recipient: TARGET }) } }), "quote-rejected"],
-    ["wrong buy token", () => ({ ...fixture(), transaction: { ...fixture().transaction, data: settlerData(swapTokens("buy").toToken, { buyToken: swapTokens("buy").fromToken }) } }), "quote-rejected"],
-    ["low minimum output", () => ({ ...fixture(), transaction: { ...fixture().transaction, data: settlerData(swapTokens("buy").toToken, { minAmountOut: BigInt(989) }) } }), "quote-rejected"],
-    ["minimum above reviewed minimum", () => ({ ...fixture(), transaction: { ...fixture().transaction, data: settlerData(swapTokens("buy").toToken, { minAmountOut: BigInt(991) }) } }), "quote-rejected"],
-    ["minimum above quoted output", () => ({ ...fixture(), transaction: { ...fixture().transaction, data: settlerData(swapTokens("buy").toToken, { minAmountOut: BigInt(1001) }) } }), "quote-rejected"],
-    ["zero actions", () => ({ ...fixture(), transaction: { ...fixture().transaction, data: settlerData(swapTokens("buy").toToken, { actions: [] }) } }), "quote-rejected"],
-    ["short action", () => ({ ...fixture(), transaction: { ...fixture().transaction, data: settlerData(swapTokens("buy").toToken, { actions: ["0xaabb"] }) } }), "quote-rejected"],
+    ["wrong recipient", () => ({ ...fixture(), transaction: { ...fixture().transaction, data: settlerData(swapTokens("buy", TOKEN).toToken, { recipient: TARGET }) } }), "quote-rejected"],
+    ["wrong buy token", () => ({ ...fixture(), transaction: { ...fixture().transaction, data: settlerData(swapTokens("buy", TOKEN).toToken, { buyToken: swapTokens("buy", TOKEN).fromToken }) } }), "quote-rejected"],
+    ["low minimum output", () => ({ ...fixture(), transaction: { ...fixture().transaction, data: settlerData(swapTokens("buy", TOKEN).toToken, { minAmountOut: BigInt(989) }) } }), "quote-rejected"],
+    ["minimum above reviewed minimum", () => ({ ...fixture(), transaction: { ...fixture().transaction, data: settlerData(swapTokens("buy", TOKEN).toToken, { minAmountOut: BigInt(991) }) } }), "quote-rejected"],
+    ["minimum above quoted output", () => ({ ...fixture(), transaction: { ...fixture().transaction, data: settlerData(swapTokens("buy", TOKEN).toToken, { minAmountOut: BigInt(1001) }) } }), "quote-rejected"],
+    ["zero actions", () => ({ ...fixture(), transaction: { ...fixture().transaction, data: settlerData(swapTokens("buy", TOKEN).toToken, { actions: [] }) } }), "quote-rejected"],
+    ["short action", () => ({ ...fixture(), transaction: { ...fixture().transaction, data: settlerData(swapTokens("buy", TOKEN).toToken, { actions: ["0xaabb"] }) } }), "quote-rejected"],
     ["zero gas", () => ({ ...fixture(), transaction: { ...fixture().transaction, gas: BigInt(0) } }), "quote-rejected"],
     ["excess gas", () => ({ ...fixture(), transaction: { ...fixture().transaction, gas: BigInt(3_000_001) } }), "quote-rejected"],
   ];
   test.each(rejectCases)("rejects %s", (_label, make, reason) => {
     expect(() => validate(make())).toThrow(reason);
   });
-  test.each(["0x0000000000000000000000000000000000000000", PERMIT2_ADDRESS, swapTokens("buy").fromToken, swapTokens("buy").toToken, "0xabc"] as Address[])("rejects invalid swap router %s", (swapRouter) => {
+  test.each(["0x0000000000000000000000000000000000000000", PERMIT2_ADDRESS, swapTokens("buy", TOKEN).fromToken, swapTokens("buy", TOKEN).toToken, "0xabc"] as Address[])("rejects invalid swap router %s", (swapRouter) => {
     expect(() => validate(fixture(), request, swapRouter)).toThrow("quote-rejected");
     expect(() => checkQuoteCompatibility({ request, quote: fixture(), now: NOW, currentBlockNumber: BigInt(1000), swapRouter })).toThrow("quote-rejected");
   });
@@ -662,7 +663,7 @@ function makerRead(maker: Address, options: { code?: unknown; result?: unknown; 
       expect(call.data).toBe(`0x4fe02b44${addressWord(maker)}${word(1)}`);
       return options.bitmap ?? `0x${word(0)}`;
     }
-    if (call.to === swapTokens("buy").toToken) {
+    if (call.to === swapTokens("buy", TOKEN).toToken) {
       if (options.fail === call.data.slice(0, 10)) throw new Error("RPC error");
       if (call.data.slice(0, 10) === "0x70a08231") {
         expect(call.data).toBe(encodeFunctionData({ abi: parseAbi(["function balanceOf(address) view returns (uint256)"]), functionName: "balanceOf", args: [maker] }));
@@ -752,7 +753,7 @@ describe("RFQ maker authorization", () => {
     await expect(verifyRfqMakerAuthorizations(both, makerRead(makerAddress).read, "0x3e8")).rejects.toMatchObject({ reason: "stale-quote" });
     const funded = makerRead(makerAddress, { balance: `0x${word(2000)}`, allowance: `0x${word(2000)}` });
     await verifyRfqMakerAuthorizations(both, funded.read, "0x3e8");
-    expect(funded.calls.filter(([, params]) => (params[0] as { to?: string }).to === swapTokens("buy").toToken)).toHaveLength(2);
+    expect(funded.calls.filter(([, params]) => (params[0] as { to?: string }).to === swapTokens("buy", TOKEN).toToken)).toHaveLength(2);
   });
   test("rejects a used maker nonce", async () => {
     const quote = fixture();

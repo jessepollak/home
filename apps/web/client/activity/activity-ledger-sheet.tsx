@@ -14,7 +14,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { DrawerFooter } from "@/components/ui/drawer";
 import { StatusStep, StatusSteps } from "@/components/ui/status-step";
 import { formatAddress } from "@/shared/formatting";
-import { isActivityLedgerNextActionAllowed, needsCustomer, ownerDefaults, statusWords, type ActivityLedgerItem, type ActivityLedgerNextActionKind, type Transaction } from "./activity-ledger";
+import { isActivityLedgerNextActionAllowed, needsCustomer, ownerDefaults, statusWords, type ActivityLedgerFact, type ActivityLedgerItem, type ActivityLedgerNextActionKind, type Transaction } from "./activity-ledger";
 
 function statusBadge(item: ActivityLedgerItem) {
   const status = item.status;
@@ -67,6 +67,13 @@ function DetailHeadline({ item }: { item: ActivityLedgerItem }) {
         className="pointer-events-none absolute invisible whitespace-nowrap text-4xl font-semibold tabular-nums">{amount}</span>
     </>
   );
+}
+
+function factEntry(fact: ActivityLedgerFact, key: string): [string, ReactNode] {
+  return [fact.label, fact.kind === "address" ? (
+    <CopyableValue key={key} value={fact.value} display={formatAddress(fact.value)} presentation="compact"
+      className="justify-end text-end" valueKind="address" />
+  ) : fact.value];
 }
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
@@ -141,13 +148,13 @@ export function ActivityLedgerDetailSheet({
         )],
         ["Network", item.detail.network],
       );
-      facts.push(...(item.detail.facts ?? []).map((fact): [string, ReactNode] => [fact.label, fact.value]));
+      facts.push(...(item.detail.facts ?? []).map((fact) => factEntry(fact, `${item.id}-${fact.label}`)));
       transaction = item.detail.transaction;
     } else if (item.family === "home-action") {
       if (item.detail.operation !== item.title) facts.push(["Operation", item.detail.operation]);
       if (item.detail.from) facts.push(["From", item.detail.from]);
       facts.push(["Network", item.detail.network]);
-      facts.push(...(item.detail.facts ?? []).map((fact): [string, ReactNode] => [fact.label, fact.value]));
+      facts.push(...(item.detail.facts ?? []).map((fact) => factEntry(fact, `${item.id}-${fact.label}`)));
       transaction = item.detail.transaction;
     } else if (item.family === "funding-order" || item.family === "cash-out-order") {
       facts.push(

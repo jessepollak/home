@@ -1,25 +1,29 @@
 import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { cryptoAssets } from "@/config/invest-assets";
+import { cryptoAssets, type InvestAsset } from "@/config/invest-assets";
 import { AccountWalletClientProvider, createBlockedAccountWalletClient } from "@/client/account/cdp-client";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { getHomeQueryClient } from "@/client/query/query-client";
 import { balancesSnapshot } from "@/tests/browser/fixtures/balances";
 import { TransferExecutionError } from "@/shared/transfers/types";
 import type { ResourceFailureKind } from "@/client/account/resource-failure";
-import { retryTradeAvailability } from "./use-trade-availability";
+import { retryTradeAvailability, tradeAvailabilityRefetchInterval } from "./use-trade-availability";
+import { invalidateAfterAction, invalidateIndexedScopes } from "@/client/query/after-action";
+import { dataOwnerKey } from "@/client/account/owner-keys";
 
 const { cleanup, render, waitFor } = await import("@testing-library/react");
 const { TradeActions } = await import("./trade-actions");
 const bitcoin = cryptoAssets.find((asset) => asset.id === "cbbtc")!;
+const xrp = cryptoAssets.find((asset) => asset.id === "cbxrp")!;
 const owner = balancesSnapshot().owner.address;
 
 function show(
-  status: "available" | "provider-unconfigured" | "signer-unsupported" | "failed",
-  balance = "100000",
+  asset: InvestAsset = bitcoin,
+  status: "available" | "blocked" | "provider-unconfigured" | "signer-unsupported" | "token-unreadable" | "failed" = "available",
+  holding = "100000",
   refresh?: () => Promise<void>,
-  fetchAvailability?: (request: number) => Promise<unknown> | unknown,
+  fetchAvailability?: (request: number, response: () => unknown) => Promise<unknown> | unknown,
 ) {
   let balanceRequests = 0;
   let availabilityRequests = 0;
@@ -28,6 +32,7 @@ function show(
     smartAccount: { address: owner, chainId: 8453 as const },
     accountProvider: "cdp-embedded" as const,
   };
+  const paths: string[] = [];
   const client = {
     ...createBlockedAccountWalletClient("provider-unavailable"),
     status: "verified" as const,
@@ -35,24 +40,42 @@ function show(
     session,
     fetchBalances: async () => {
       if (balanceRequests++ > 0 && refresh) await refresh();
-      return { ...balancesSnapshot(), holdings: balancesSnapshot().holdings.map((holding) => holding.id === "cbbtc" ? { ...holding, balance: { status: "ready" as const, baseUnits: balance } } : holding) };
+      return balancesSnapshot();
     },
-    fetchAccountResource: async () => {
+    fetchAccountResource: async (path: string) => {
+      paths.push(path);
       availabilityRequests += 1;
-      if (fetchAvailability) return fetchAvailability(availabilityRequests);
-      if (status === "failed") throw new Error("synthetic network failure");
-      return status === "available" ? { version: 1, status } : { version: 1, status: "unavailable", reason: status };
+      if (fetchAvailability) return fetchAvailability(availabilityRequests, response);
+      return status === "failed" ? Promise.reject(new Error("synthetic failure")) : response();
     },
   };
-  const view = render(<AccountWalletClientProvider client={client}><PresentationRegionProvider regionId="US"><TradeActions asset={bitcoin} /></PresentationRegionProvider></AccountWalletClientProvider>);
-  return { ...view, availabilityRequests: () => availabilityRequests };
+  function response() {
+    return status === "available" || status === "blocked"
+      ? { version: 2, status: "available", token: { assetId: asset.id, address: asset.contractAddress.toLowerCase(), symbol: asset.representation.tokenSymbol, decimals: asset.id === "cbbtc" ? 8 : 6 }, buy: status === "blocked" ? "blocked" : "available", balanceBaseUnits: holding }
+      : { version: 2, status: "unavailable", reason: status };
+  }
+  const view = render(<AccountWalletClientProvider client={client}><PresentationRegionProvider regionId="US"><TradeActions asset={asset} /></PresentationRegionProvider></AccountWalletClientProvider>);
+  return { ...view, paths, availabilityRequests: () => availabilityRequests };
 }
 
 afterEach(() => { cleanup(); getHomeQueryClient().clear(); });
 
-describe("Bitcoin trading availability", () => {
+describe("per-asset trading availability", () => {
+  test.each([
+    ["signed-out", "Sign in to trade."],
+    ["restoring", "Checking trading availability…"],
+    ["validating", "Checking trading availability…"],
+    ["verified", "Trading isn't available for this account."],
+  ] as const)("%s without a verified smart account shows %s", (status, message) => {
+    const client = { ...createBlockedAccountWalletClient("provider-unavailable"), status,
+      ...(status === "verified" ? { verification: "server" as const, session: { user: { subject: "test" }, smartAccount: null, accountProvider: "cdp-embedded" as const } } : {}) };
+    const view = render(<AccountWalletClientProvider client={client}><TradeActions asset={bitcoin} /></AccountWalletClientProvider>);
+    expect(view.getByText(message)).toBeTruthy();
+    expect((view.getByRole("button", { name: "Buy" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((view.getByRole("button", { name: "Sell" }) as HTMLButtonElement).disabled).toBe(true);
+  });
   test("Buy and Sell enable only when the owner is available and balances loaded", async () => {
-    const view = show("available");
+    const view = show();
     expect((view.getByRole("button", { name: "Buy" }) as HTMLButtonElement).disabled).toBe(true);
     await waitFor(() => expect((view.getByRole("button", { name: "Buy" }) as HTMLButtonElement).disabled).toBe(false));
     expect((view.getByRole("button", { name: "Sell" }) as HTMLButtonElement).disabled).toBe(false);
@@ -60,7 +83,7 @@ describe("Bitcoin trading availability", () => {
   test("a background balances refresh keeps Buy and Sell usable", async () => {
     let refreshing = false;
     let finish: (() => void) | undefined;
-    const view = show("available", "100000", () => new Promise<void>((resolve) => { refreshing = true; finish = resolve; }));
+    const view = show(bitcoin, "available", "100000", () => new Promise<void>((resolve) => { refreshing = true; finish = resolve; }));
     await waitFor(() => expect((view.getByRole("button", { name: "Buy" }) as HTMLButtonElement).disabled).toBe(false));
     void getHomeQueryClient().invalidateQueries();
     await waitFor(() => expect(refreshing).toBe(true));
@@ -69,46 +92,68 @@ describe("Bitcoin trading availability", () => {
     finish?.();
     await waitFor(() => expect(getHomeQueryClient().isFetching()).toBe(0));
   });
-  test("unconfigured provider and unsupported signer expose distinct recovery copy", async () => {
-    const provider = show("provider-unconfigured");
-    await waitFor(() => expect(provider.getByText("Trading isn't available right now.")).toBeTruthy());
-    expect((provider.getByRole("button", { name: "Buy" }) as HTMLButtonElement).disabled).toBe(true);
-    cleanup();
-    getHomeQueryClient().clear();
-    const signer = show("signer-unsupported");
-    await waitFor(() => expect(signer.getByText("Trading isn't available for this account.")).toBeTruthy());
+  test("configured crypto besides Bitcoin trades, with sell determined by chain balance", async () => {
+    const view = show(xrp, "available", "2500000");
+    await waitFor(() => expect((view.getByRole("button", { name: "Sell" }) as HTMLButtonElement).disabled).toBe(false));
+    expect((view.getByRole("button", { name: "Buy" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(view.paths).toContain("/api/trades?assetId=cbxrp");
   });
-  test("zero Bitcoin holding disables Sell while preserving Buy", async () => {
-    const view = show("available", "0");
-    await waitFor(() => expect(view.getByText("No Bitcoin available to sell.")).toBeTruthy());
+  test("a submitted and a settled trade both refresh this token's chain balance", async () => {
+    let holding = "0";
+    const view = show(xrp, "available", "0", undefined, (_request, response) => ({ ...(response() as object), balanceBaseUnits: holding }));
+    await waitFor(() => expect(view.getByText("No cbXRP available to sell.")).toBeTruthy());
+    const owner = dataOwnerKey({ user: { subject: "playwright-smoke-subject" }, smartAccount: { address: balancesSnapshot().owner.address, chainId: 8453 }, accountProvider: "cdp-embedded" });
+    await invalidateAfterAction(getHomeQueryClient(), owner);
+    expect(view.availabilityRequests()).toBe(2);
+    holding = "2500000";
+    await invalidateIndexedScopes(getHomeQueryClient(), owner);
+    await waitFor(() => expect((view.getByRole("button", { name: "Sell" }) as HTMLButtonElement).disabled).toBe(false));
+    expect(view.availabilityRequests()).toBe(3);
+  });
+  test("blocked buy leaves sell enabled", async () => {
+    const view = show(xrp, "blocked");
+    await waitFor(() => expect(view.getByText("Buying is unavailable. You can still sell or send.")).toBeTruthy());
+    expect((view.getByRole("button", { name: "Buy" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((view.getByRole("button", { name: "Sell" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+  test("zero onchain balance disables sell while preserving buy", async () => {
+    const view = show(xrp, "available", "0");
+    await waitFor(() => expect(view.getByText("No cbXRP available to sell.")).toBeTruthy());
     expect((view.getByRole("button", { name: "Buy" }) as HTMLButtonElement).disabled).toBe(false);
     expect((view.getByRole("button", { name: "Sell" }) as HTMLButtonElement).disabled).toBe(true);
   });
   test("a transient trade availability failure keeps checking and then enables Buy", async () => {
-    const view = show("available", "100000", undefined, (request) => {
+    const view = show(bitcoin, "available", "100000", undefined, (request, response) => {
       if (request === 1) throw Object.assign(new TransferExecutionError("unavailable"), { kind: "http" satisfies ResourceFailureKind, status: 503 });
-      return { version: 1, status: "available" };
+      return response();
     });
     await waitFor(() => expect(getHomeQueryClient().getQueryCache().findAll().find((query) => query.queryKey[1] === "trade-availability")?.state.fetchFailureCount).toBe(1));
     expect(view.availabilityRequests()).toBe(1);
     expect(view.getByText("Checking trading availability…")).toBeTruthy();
-    expect(view.queryByText("Trading isn't available right now.")).toBeNull();
+    expect(view.queryByText("Trading isn't available right now. Try again later.")).toBeNull();
     await waitFor(() => expect((view.getByRole("button", { name: "Buy" }) as HTMLButtonElement).disabled).toBe(false));
-    expect(view.queryByText("Trading isn't available right now.")).toBeNull();
+    expect(view.queryByText("Trading isn't available right now. Try again later.")).toBeNull();
     expect(view.availabilityRequests()).toBe(2);
   });
   test("persistent transient failures show unavailable after two retries", async () => {
-    const view = show("available", "100000", undefined, () => {
+    const view = show(bitcoin, "available", "100000", undefined, () => {
       throw Object.assign(new TransferExecutionError("unavailable"), { kind: "http" satisfies ResourceFailureKind, status: 503 });
     });
-    await waitFor(() => expect(view.getByText("Trading isn't available right now.")).toBeTruthy(), { timeout: 2_000 });
+    await waitFor(() => expect(view.getByText("Trading isn't available right now. Try again later.")).toBeTruthy(), { timeout: 2_000 });
     expect(view.availabilityRequests()).toBe(3);
     expect(view.queryByText("Checking trading availability…")).toBeNull();
   });
   test("a definitive unavailable response is not retried", async () => {
-    const view = show("provider-unconfigured");
-    await waitFor(() => expect(view.getByText("Trading isn't available right now.")).toBeTruthy());
+    const view = show(bitcoin, "provider-unconfigured");
+    await waitFor(() => expect(view.getByText("Trading isn't available right now. Try again later.")).toBeTruthy());
     expect(view.availabilityRequests()).toBe(1);
+  });
+  test("keeps refreshing successful availability so balance and chain recovery reach a mounted page", () => {
+    const token = { assetId: "cbbtc", address: "0x2222222222222222222222222222222222222222" as const, symbol: "cbBTC", decimals: 8 };
+    expect(tradeAvailabilityRefetchInterval({ state: { status: "error" } })).toBe(30_000);
+    expect(tradeAvailabilityRefetchInterval({ state: { status: "success", data: { version: 2, status: "unavailable", reason: "chain-unavailable" } } })).toBe(30_000);
+    expect(tradeAvailabilityRefetchInterval({ state: { status: "success", data: { version: 2, status: "available", token, buy: "available", balanceBaseUnits: "1" } } })).toBe(60_000);
+    expect(tradeAvailabilityRefetchInterval({ state: { status: "success", data: { version: 2, status: "unavailable", reason: "asset-unsupported" } } })).toBe(false);
   });
   test("retries only transient transport errors and caps retries at two", () => {
     const transient = [
@@ -130,15 +175,24 @@ describe("Bitcoin trading availability", () => {
     expect(retryTradeAvailability(0, new TransferExecutionError("invalid-request"))).toBe(false);
     expect(retryTradeAvailability(0, new Error("Invalid trading availability response."))).toBe(false);
   });
-  test("failed availability shows unavailable instead of checking forever", async () => {
-    const view = show("failed");
-    await waitFor(() => expect(view.getByText("Trading isn't available right now.")).toBeTruthy());
-    expect(view.queryByText("Checking trading availability…")).toBeNull();
+  test.each([
+    ["provider-unconfigured", "Trading isn't available right now. Try again later."],
+    ["signer-unsupported", "Trading isn't available for this account."],
+    ["token-unreadable", "This token couldn't be read on Base. You can still send it."],
+    ["failed", "Trading isn't available right now. Try again later."],
+  ] as const)("%s has distinct recovery", async (status, message) => {
+    const view = show(xrp, status);
+    await waitFor(() => expect(view.getByText(message)).toBeTruthy());
     expect((view.getByRole("button", { name: "Buy" }) as HTMLButtonElement).disabled).toBe(true);
     expect((view.getByRole("button", { name: "Sell" }) as HTMLButtonElement).disabled).toBe(true);
+    if (status === "failed") expect(view.queryByText("Checking trading availability…")).toBeNull();
+  });
+  test("cached Bitcoin availability never enables a different asset", async () => {
+    const first = show(bitcoin);
+    await waitFor(() => expect((first.getByRole("button", { name: "Sell" }) as HTMLButtonElement).disabled).toBe(false));
     cleanup();
-    const other = cryptoAssets.find((asset) => asset.id !== "cbbtc")!;
-    const alternative = render(<TradeActions asset={other} />);
-    expect((alternative.getByRole("button", { name: "Buy" }) as HTMLButtonElement).disabled).toBe(true);
+    const second = show(xrp, "blocked");
+    await waitFor(() => expect(second.getByText("Buying is unavailable. You can still sell or send.")).toBeTruthy());
+    expect(second.paths).toContain("/api/trades?assetId=cbxrp");
   });
 });

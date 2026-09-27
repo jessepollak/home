@@ -1,22 +1,21 @@
 import { describe, expect, test } from "bun:test";
-import { investAssets } from "@/config/invest-assets";
+import { investAssets, stockAssets } from "@/config/invest-assets";
+import { BASE_USDC } from "@/shared/assets/base";
 import { VERIFIED_MORPHO_MARKETS } from "@/shared/morpho-markets/config";
 import { buyRouteForToken } from "./assets";
 
-const bitcoin = VERIFIED_MORPHO_MARKETS.find((market) => market.collateralToken.symbol === "cbBTC")!;
-const xrp = VERIFIED_MORPHO_MARKETS.find((market) => market.collateralToken.symbol === "cbXRP")!;
-const investBitcoin = investAssets.find((asset) => asset.id === "cbbtc")!;
-
 describe("Buy route by token identity", () => {
-  test("routes cbBTC with checksum and lowercase addresses", () => {
-    expect(buyRouteForToken({ chainId: 8453, address: bitcoin.collateralToken.address })).toBe("cbbtc");
-    expect(buyRouteForToken({ chainId: 8453, address: bitcoin.collateralToken.address.toLowerCase() })).toBe("cbbtc");
-    expect(buyRouteForToken({ chainId: 8453, address: bitcoin.collateralToken.address.toUpperCase() })).toBe("cbbtc");
+  test.each([...VERIFIED_MORPHO_MARKETS])("routes $collateralToken.symbol by exact Base contract", (market) => {
+    const address = market.collateralToken.address;
+    const route = investAssets.find((asset) => asset.contractAddress.toLowerCase() === address.toLowerCase())?.id ?? `base:${address.toLowerCase()}`;
+    for (const variant of [address, address.toLowerCase(), address.toUpperCase()]) {
+      expect(buyRouteForToken({ chainId: market.chainId, address: variant })).toBe(route);
+    }
   });
-  test("does not route unsupported, mislabeled, or wrong-chain tokens", () => {
-    expect(buyRouteForToken({ chainId: 8453, address: xrp.collateralToken.address })).toBeNull();
-    const mislabeled = { chainId: 8453, address: "0x0000000000000000000000000000000000000001", symbol: "cbBTC" };
-    expect(buyRouteForToken(mislabeled)).toBeNull();
-    expect(buyRouteForToken({ chainId: 1, address: investBitcoin.contractAddress })).toBeNull();
+  test("rejects other chains, USDC, stocks, and malformed addresses", () => {
+    expect(buyRouteForToken({ chainId: 1, address: VERIFIED_MORPHO_MARKETS[0]!.collateralToken.address })).toBeNull();
+    expect(buyRouteForToken({ chainId: 8453, address: BASE_USDC.address })).toBeNull();
+    expect(buyRouteForToken({ chainId: 8453, address: stockAssets[0]!.contractAddress })).toBeNull();
+    expect(buyRouteForToken({ chainId: 8453, address: "0xnot-a-contract" })).toBeNull();
   });
 });

@@ -11,14 +11,17 @@ import { ownerQueryKey, ownerQueryMeta } from "./query-client";
 import { parseBalancesSnapshot } from "@/shared/balances/contract";
 import { BALANCES_VERSION, type BalancesSnapshot } from "@/shared/balances/types";
 
+export const tradeAvailabilityScope = "trade-availability";
+
 export const afterActionScopes = [
   "balances",
   "activity",
   "borrow",
   "actions",
+  tradeAvailabilityScope,
 ] as const;
 
-export const indexedScopes = ["activity", "borrow", "actions"] as const;
+export const indexedScopes = ["activity", "borrow", "actions", tradeAvailabilityScope] as const;
 
 export const activityWindowScope = "activity-window";
 export const networkFeePolicyScope = "network-fee-policy";

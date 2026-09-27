@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { investAssets } from "@/config/invest-assets";
-import { BaseRpcError } from "@/server/chain/rpc";
-import { createCodexSearchReader, readsToken0 } from "./search";
+import { createCodexSearchReader } from "./search";
 
 const a = "0x1111111111111111111111111111111111111111";
 const b = "0x2222222222222222222222222222222222222222";
@@ -120,18 +119,6 @@ describe("Base Invest search", () => {
   test("malformed exact token rows do not count as a definitive miss", async () => {
     const search = createCodexSearchReader({ apiKey: "fixture", fetchImpl: async () => page([null]), isPair: async () => false, onchain: async () => ({ symbol: "RAW", decimals: 6 }) });
     expect(await search(request(a))).toMatchObject({ results: [], provider: "error", coverage: "partial" });
-  });
-
-  test("only a call revert or undecodable result proves an address is not a pair", async () => {
-    const rpcError = (message: string, rpcCode: number | null) => async () => { throw new BaseRpcError(message, { code: "rpc", rpcCode }); };
-    expect(await readsToken0(a, rpcError("Base RPC rejected the request: execution reverted", -32000))).toBe(false);
-    expect(await readsToken0(a, rpcError("Base RPC rejected the request.", 3))).toBe(false);
-    expect(await readsToken0(a, rpcError("Base RPC rejected the request: internal error", -32603))).toBeNull();
-    expect(await readsToken0(a, rpcError("Base RPC rejected the request: rate limited", -32005))).toBeNull();
-    expect(await readsToken0(a, async () => { throw new BaseRpcError("timed out", { code: "aborted" }); })).toBeNull();
-    expect(await readsToken0(a, async () => "0x")).toBe(false);
-    expect(await readsToken0(a, async () => `0x${"0".repeat(24)}${b.slice(2)}`)).toBe(true);
-    expect(await readsToken0(a, async () => 42)).toBeNull();
   });
 
   test("cached and concurrent case variants answer with each caller's query", async () => {

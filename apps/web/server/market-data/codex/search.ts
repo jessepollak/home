@@ -2,9 +2,9 @@ import "server-only";
 
 import { investAssets, initialsFromSymbol, trendingTokenId, type InvestAsset } from "@/config/invest-assets";
 import { normalizeInvestSearchQuery, isInvestSearchAddressQuery, investSearchRank, rankInvestSearchResults, INVEST_SEARCH_MAX_OFFSET, INVEST_SEARCH_PAGE_SIZE, INVEST_SEARCH_VERSION, type InvestSearchMatch, type InvestSearchRequest, type InvestSearchResponse, type InvestSearchWireResult } from "@/shared/invest/contracts/search";
-import { baseRpc, BaseRpcError } from "@/server/chain/rpc";
+import { baseRpc } from "@/server/chain/rpc";
+import { readsToken0 } from "@/server/chain/pair";
 import { createActivityTokenRpcResolver } from "@/server/activity/token-metadata-rpc";
-import { encodeFunctionData, decodeFunctionResult } from "viem";
 import { CODEX_REQUEST_TIMEOUT_MS } from "./config";
 import { executeCodexGraphql, readAddress, readInteger, readRecord, type FetchLike } from "./execute";
 import { normalizeTrendingMemes } from "./trending";
@@ -25,7 +25,6 @@ export const CODEX_SEARCH_EXACT_QUERY = `query SearchBaseTokenByAddress($tokens:
   }
 }`;
 
-const token0Abi = [{ type: "function", name: "token0", inputs: [], outputs: [{ name: "", type: "address" }], stateMutability: "view" }] as const;
 const configuredContracts = new Set(investAssets.map((asset) => asset.contractAddress.toLowerCase()));
 const resolveRpcMetadata = createActivityTokenRpcResolver();
 
@@ -43,25 +42,8 @@ type SearchOptions = {
 
 type Cached = { storedAt: number; value: InvestSearchResponse };
 
-function isCallRevert(error: unknown): boolean {
-  return error instanceof BaseRpcError && error.code === "rpc" &&
-    (error.rpcCode === 3 || /execution reverted/i.test(error.message));
-}
-
-export async function readsToken0(address: `0x${string}`, rpc: typeof baseRpc = baseRpc): Promise<boolean | null> {
-  let response: unknown;
-  try {
-    response = await rpc("eth_call", [{ to: address, data: encodeFunctionData({ abi: token0Abi, functionName: "token0" }) }, "latest"], { timeoutMs: 3_000 });
-  } catch (error) {
-    return isCallRevert(error) ? false : null;
-  }
-  if (typeof response !== "string" || !/^0x(?:[0-9a-f]{2})*$/i.test(response)) return null;
-  try {
-    decodeFunctionResult({ abi: token0Abi, functionName: "token0", data: response as `0x${string}` });
-    return true;
-  } catch {
-    return false;
-  }
+function searchReadsToken0(address: `0x${string}`): Promise<boolean | null> {
+  return readsToken0(address, (method, params) => baseRpc(method, params, { timeoutMs: 3_000 }));
 }
 
 export async function readOnchainSearchIdentity(address: `0x${string}`): Promise<{ symbol: string; decimals: number } | null> {
@@ -109,7 +91,7 @@ function response(query: string, offset: number, results: InvestSearchWireResult
   return { version: INVEST_SEARCH_VERSION, query, offset, results, snapshots, provider, coverage: provider === "error" || provider === "unavailable" ? "partial" : "complete", nextOffset };
 }
 
-export function createCodexSearchReader({ apiKey, fetchImpl = fetch, onchain = readOnchainSearchIdentity, isPair = readsToken0, now = () => new Date(), timeoutMs = CODEX_REQUEST_TIMEOUT_MS, cacheMaxEntries = CODEX_SEARCH_CACHE_MAX, maxInFlight = CODEX_SEARCH_MAX_IN_FLIGHT }: SearchOptions) {
+export function createCodexSearchReader({ apiKey, fetchImpl = fetch, onchain = readOnchainSearchIdentity, isPair = searchReadsToken0, now = () => new Date(), timeoutMs = CODEX_REQUEST_TIMEOUT_MS, cacheMaxEntries = CODEX_SEARCH_CACHE_MAX, maxInFlight = CODEX_SEARCH_MAX_IN_FLIGHT }: SearchOptions) {
   const cache = new Map<string, Cached>();
   const inFlight = new Map<string, Promise<InvestSearchResponse>>();
   return async function search({ query: raw, offset }: InvestSearchRequest): Promise<InvestSearchResponse> {

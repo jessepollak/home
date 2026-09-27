@@ -2,6 +2,7 @@ import "@/client/account/dom-test-harness";
 import { afterEach, expect, test } from "bun:test";
 import { page } from "@/tests/helpers/dom";
 import { getHomeQueryClient } from "@/client/query/query-client";
+import { AccountWalletClientProvider, createBlockedAccountWalletClient } from "@/client/account/cdp-client";
 import { nonTrendingAddress, searchFixture } from "@/tests/browser/feature-map/search-fixtures";
 const { cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const { InvestExperience } = await import("./invest-experience");
@@ -106,6 +107,27 @@ test("an unpriced onchain identity resolves on deep link without a fabricated qu
   }) as typeof fetch;
   render(<InvestExperience initialView={{ screen: "detail", assetId: id, from: "hub" }} />);
   await waitFor(() => expect(page().getByRole("heading", { name: "Orbit" })).toBeTruthy());
-  expect(page().getByText("No price supplied")).toBeTruthy();
+  expect(page().queryByRole("img", { name: /^\$/ })).toBeNull();
   expect(page().queryByText("$0.00")).toBeNull();
+});
+
+test.each(["ready", "error"] as const)("exact address with %s lookup only offers fallback when lookup failed", async (status) => {
+  const id = `base:${nonTrendingAddress}`;
+  window.history.replaceState(null, "", `/invest/${id}`);
+  globalThis.fetch = (async (input) => {
+    const url = new URL(String(input), "http://localhost");
+    if (url.pathname === "/api/invest/search") {
+      return Response.json({ ...searchFixture(nonTrendingAddress), provider: status === "ready" ? "ok" : "error",
+        coverage: status === "ready" ? "complete" : "partial", results: [], snapshots: [] });
+    }
+    return Response.json({ version: 1, provider: "codex", assetId: id, range: "1W", currency: "USD", fetchedAt: null, status: "empty", points: [] });
+  }) as typeof fetch;
+  render(<AccountWalletClientProvider client={createBlockedAccountWalletClient("provider-unavailable")}><InvestExperience initialView={{ screen: "detail", assetId: id, from: "hub" }} /></AccountWalletClientProvider>);
+  if (status === "ready") {
+    await waitFor(() => expect(page().getByText("Asset unavailable")).toBeTruthy());
+    expect(page().queryByRole("heading", { name: "0x1111…1111" })).toBeNull();
+  } else {
+    await waitFor(() => expect(page().getByRole("heading", { name: "0x1111…1111" })).toBeTruthy());
+    expect(page().queryByText("Asset unavailable")).toBeNull();
+  }
 });

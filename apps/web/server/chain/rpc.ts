@@ -52,6 +52,11 @@ export class BaseRpcError extends Error {
   }
 }
 
+export function isBaseRpcCallRevert(error: unknown): boolean {
+  return error instanceof BaseRpcError && error.code === "rpc" &&
+    (error.rpcCode === 3 || /execution reverted/i.test(error.message));
+}
+
 export type BaseRpcUrlSource = "configured" | "public-default";
 export type BaseRpcHostClass = "cdp-node" | "public-base" | "loopback" | "other";
 

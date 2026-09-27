@@ -13,8 +13,10 @@ import {
   MoneyModalStep,
   decimalFromBaseUnits, isPositiveDecimalAmount, moneyConfirmFromRow, useMoneyAmountUnit, type MoneyAssetPrice,
 } from "@/client/money-modal";
+import type { MoneyConfirmRow } from "@/client/money-modal/confirm-summary";
 import { Button } from "@/components/ui/button";
 import { canonicalUsdcAsset } from "@/config/portfolio-assets";
+import { CopyableValue } from "@/components/copyable-value";
 import { maxAmountAfterNetworkFee, useNetworkFeeReserveState } from "@/client/money-modal/network-fee-policy";
 import { reportClientError } from "@/client/observability/client-reporter";
 import { formatExactPresentationTokenAmount, formatUsdStablecoinAmount } from "@/shared/formatting";
@@ -22,15 +24,19 @@ import { networkFeeErrorMessage } from "@/shared/money-actions/network-fee";
 import type { PreparedMoneyAction, OperationResult } from "@/shared/money-actions/types";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { TransferExecutionError } from "@/shared/transfers/types";
+import { BASE_USDC } from "@/shared/assets/base";
 import {
-  TRADE_ACTION_CONTRACT_VERSION, TRADE_ASSET_ID, TRADE_SLIPPAGE_BPS,
-  isTradeErrorCode, type TradeActionParams, type TradeDirection, type TradeMoneyActionMetadata,
+  TRADE_ACTION_CONTRACT_VERSION, TRADE_SELL_ALL, TRADE_SLIPPAGE_BPS,
+  isTradeErrorCode, type TradeActionParams, type TradeDirection, type TradeMoneyActionMetadata, type TradeToken,
 } from "@/shared/trading/contract";
+import { tradeRateLabel } from "@/shared/trading/review";
 
 type Props = {
   open: boolean;
   direction: TradeDirection;
   session: VerifiedAccountSession;
+  token: TradeToken;
+  assetName: string;
   availableBaseUnits: string | null;
   assetPrice?: MoneyAssetPrice | null;
   fetchAccountResource: AccountWalletClient["fetchAccountResource"];
@@ -42,15 +48,16 @@ type Props = {
 };
 type Step = "amount" | "confirm" | "pending" | "failed" | "dispatch-unknown";
 
-export function TradeMoneyDialog({ open, direction, session, availableBaseUnits, assetPrice, fetchAccountResource, prepareMoneyAction, executeMoneyAction, onClose, onClosed, onConfirmed }: Props) {
+export function TradeMoneyDialog({ open, direction, session, token, assetName, availableBaseUnits, assetPrice, fetchAccountResource, prepareMoneyAction, executeMoneyAction, onClose, onClosed, onConfirmed }: Props) {
   const ownerKey = session.smartAccount ? dataOwnerKey(session) : null;
   const { reserve, failed: reserveFailed, retrying: reserveRetrying, retry: retryReserve } = useNetworkFeeReserveState(ownerKey, fetchAccountResource, open);
   const maxBaseUnits = direction === "buy" ? maxAmountAfterNetworkFee(availableBaseUnits, "USDC", reserve) : availableBaseUnits;
-  const decimals = direction === "buy" ? 6 : 8;
-  const symbol = direction === "buy" ? "USDC" : "BTC";
+  const decimals = direction === "buy" ? 6 : token.decimals;
+  const symbol = direction === "buy" ? "USDC" : token.symbol;
   const cashUnit = useMoneyAmountUnit(canonicalUsdcAsset.cashCurrency);
   const sellUnit = useMoneyAmountUnit(null, assetPrice);
   const [amount, setAmount] = useState("");
+  const [maxSelected, setMaxSelected] = useState(false);
   const [amountBaseUnits, setAmountBaseUnits] = useState<string | null>(null);
   const [prepared, setPrepared] = useState<PreparedMoneyAction | null>(null);
   const [step, setStep] = useState<Step>("amount");
@@ -71,16 +78,13 @@ export function TradeMoneyDialog({ open, direction, session, availableBaseUnits,
     return () => window.clearInterval(timer);
   }, [step, prepared, actionExpired]);
   useEffect(() => () => { preparation.current += 1; }, []);
-  function changeAmount(value: string) {
-    setAmount(value);
-  }
   function close() {
     preparation.current += 1;
     onClose();
   }
   function resetAfterClose() {
     if (!attempted || step === "dispatch-unknown") {
-      setAmount(""); setAmountBaseUnits(null); setPrepared(null);
+      setAmount(""); setMaxSelected(false); setAmountBaseUnits(null); setPrepared(null);
       setServerExpiredId(null); setStep("amount"); setError(null); setAttempted(false);
     }
     onClosed?.();
@@ -95,9 +99,14 @@ export function TradeMoneyDialog({ open, direction, session, availableBaseUnits,
     isPositiveDecimalAmount(amount) && enteredBaseUnits !== null && !exceedsAvailable;
 
   async function prepare(requote = false) {
-    const amountToPrepare = requote ? amountBaseUnits : enteredBaseUnits;
+    const amountToPrepare = requote ? amountBaseUnits : direction === "sell" && maxSelected && enteredBaseUnits === maxBaseUnits ? TRADE_SELL_ALL : enteredBaseUnits;
     if (!amountToPrepare || !session.smartAccount) return;
-    const request: TradeActionParams = { version: TRADE_ACTION_CONTRACT_VERSION, assetId: TRADE_ASSET_ID, direction, amountBaseUnits: amountToPrepare };
+    const request: TradeActionParams = {
+      version: TRADE_ACTION_CONTRACT_VERSION,
+      assetId: token.assetId,
+      direction,
+      amountBaseUnits: amountToPrepare,
+    };
     const generation = ++preparation.current;
     setError(null);
     setStep("pending");
@@ -105,11 +114,11 @@ export function TradeMoneyDialog({ open, direction, session, availableBaseUnits,
     try {
       const action = await prepareMoneyAction("trade", request);
       if (generation !== preparation.current) return;
-      if (!matchesPreparedTrade(action, session, request)) throw new Error("The quote did not match this account or trade. Get a new quote.");
+      if (!matchesPreparedTrade(action, session, request, token)) throw new Error("The quote did not match this account or trade. Get a new quote.");
       setPrepared(action); setServerExpiredId(null); setAttempted(false); setNow(Date.now()); setStep("confirm");
-    } catch (caught) { // oxlint-disable-line home/no-silent-catch -- superseded quote failures are fenced; current failures show recovery copy
+    } catch (caught) { // oxlint-disable-line home/no-silent-catch -- superseded quotes are fenced; current failures are shown as typed recovery states
       if (generation !== preparation.current) return;
-      setError(messageForTradeError(caught));
+      setError(messageForTradeError(caught, direction));
       setStep(requote ? "confirm" : "amount");
     }
   }
@@ -156,16 +165,18 @@ export function TradeMoneyDialog({ open, direction, session, availableBaseUnits,
     }
   }
 
+  const spentAmount = metadata ? tradeDisplayAmount(metadata.fromAmountBaseUnits, metadata.fromAsset) : "";
   return <MoneyMotionProvider>
     <MoneyModal open={open} labelledBy="trade-action-title" pending={step === "pending"} onCancel={close} onClose={resetAfterClose}>
       <MoneyModalStep step={step === "pending" || step === "failed" ? "confirm" : step} depth={step === "amount" ? 0 : step === "dispatch-unknown" ? 2 : 1}>
-      <MoneyModalHeader title={step === "amount" ? direction === "buy" ? "Buy Bitcoin" : "Sell Bitcoin" : step === "dispatch-unknown" ? "Check Activity" : "Confirm"} titleId="trade-action-title"
+      <MoneyModalHeader title={step === "amount" ? `${direction === "buy" ? "Buy" : "Sell"} ${assetName}` : step === "dispatch-unknown" ? "Check Activity" : "Confirm"} titleId="trade-action-title"
         {...(canGoBack ? { onBack: back } : {})} closeLabel="Close trade dialog" />
       <MoneyModalBody hasFooter={step !== "pending"} className="gap-4 pt-4">
         {step === "amount" ? <>
-          <MoneyAmountDisplay amount={amount} maxDecimals={decimals} onAmountChange={changeAmount}
+          <MoneyAmountDisplay amount={amount} maxDecimals={decimals} onAmountChange={(value) => { setAmount(value); setMaxSelected(false); }}
+            onMaxSelect={() => setMaxSelected(true)}
             overAvailable={exceedsAvailable} onSubmit={canContinue ? () => void prepare() : undefined}
-            assetId={direction === "buy" ? "usdc" : "cbbtc"} assetLabel={symbol} assetLocked
+            assetId={direction === "buy" ? "usdc" : token.assetId} assetLabel={symbol} assetLocked
             nativeSymbol={symbol} unit={direction === "buy" ? cashUnit : sellUnit}
             availableLabel={reservePending ? reserveFailed ? "Network fee unavailable" : "Checking network fee…" : maxBaseUnits !== null ? `${decimalFromBaseUnits(maxBaseUnits, decimals)} available` : "Balance unavailable"}
             availableAmount={!reservePending && maxBaseUnits !== null ? decimalFromBaseUnits(maxBaseUnits, decimals) : null} chipSet="max">
@@ -175,10 +186,13 @@ export function TradeMoneyDialog({ open, direction, session, availableBaseUnits,
             {maxBaseUnits === null ? <Notice>Balance unavailable. Try again shortly.</Notice> : null}
           </MoneyAmountDisplay>
         </> : null}
-        {prepared && metadata && step !== "amount" && step !== "dispatch-unknown" ? <MoneyConfirmSummary action={prepared}
-          amount={tradeDisplayAmount(metadata.direction, metadata.fromAmountBaseUnits)}
-          lead={direction === "buy" ? "Buy Bitcoin" : "Sell Bitcoin"}
-          rows={tradeReviewRows(prepared, metadata, actionExpired ? 0 : secondsLeft)} /> : null}
+        {prepared && metadata && step !== "amount" && step !== "dispatch-unknown" ? <MoneyConfirmSummary key={prepared.id} action={prepared}
+          amount={spentAmount} lead={`${direction === "buy" ? "Buy" : "Sell"} ${assetName}`}
+          rows={[
+            { label: "You get", value: `≈ ${tradeDisplayAmount(metadata.expectedToAmountBaseUnits, metadata.toAsset)}` },
+            tradeContractRow(metadata),
+          ]}
+          details={tradeDetailRows(prepared, metadata, actionExpired ? 0 : secondsLeft)} /> : null}
         {step === "pending" ? <Notice><span className="flex items-center gap-2"><LoaderCircle className="size-4 animate-spin" aria-hidden="true" />{prepared ? "Waiting for your wallet…" : "Getting a quote…"}</span></Notice> : null}
         {step === "dispatch-unknown" ? <Notice tone="error" role="alert">This trade may have been submitted. Check Activity for its result.</Notice> : null}
         {expiredUnresolved ? <Notice tone="error" role="alert">This quote expired before the outcome was recorded. Check Activity before trading again.</Notice>
@@ -186,7 +200,7 @@ export function TradeMoneyDialog({ open, direction, session, availableBaseUnits,
       </MoneyModalBody>
       {step === "amount" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!canContinue} onPrimary={() => void prepare()} /> : null}
       {step === "confirm" && prepared ? <MoneyConfirmFooter action={prepared} actionExpired={actionExpired}
-        primaryLabel={expiredUnresolved ? "Close" : actionExpired ? "Get new quote" : attempted ? "Retry" : `${direction === "buy" ? "Buy" : "Sell"} ${tradeDisplayAmount(direction, amountBaseUnits ?? "0")}`}
+        primaryLabel={expiredUnresolved ? "Close" : actionExpired ? "Get new quote" : attempted ? "Retry" : `${direction === "buy" ? "Buy" : "Sell"} ${spentAmount}`}
         primaryDisabled={!metadata} onPrimary={() => void (expiredUnresolved ? close() : actionExpired ? prepare(true) : confirm())}
         {...(canGoBack ? { secondaryLabel: "Back", onSecondary: back } : {})} /> : null}
       {step === "failed" ? <MoneyModalFooter primaryLabel="Back" onPrimary={back} secondaryLabel="Close" onSecondary={close} /> : null}
@@ -202,45 +216,46 @@ function parseTradeAmount(value: string, decimals: number): string | null {
   const atoms = BigInt(match[1] + (match[2] ?? "").padEnd(decimals, "0"));
   return atoms > BigInt(0) ? atoms.toString() : null;
 }
-function matchesPreparedTrade(action: PreparedMoneyAction, session: VerifiedAccountSession, request: TradeActionParams): boolean {
+function matchesPreparedTrade(action: PreparedMoneyAction, session: VerifiedAccountSession, request: TradeActionParams, token: TradeToken): boolean {
   const metadata = action.metadata;
+  const traded = metadata?.product === "trade" ? request.direction === "buy" ? metadata.toAsset : metadata.fromAsset : null;
+  const cash = metadata?.product === "trade" ? request.direction === "buy" ? metadata.fromAsset : metadata.toAsset : null;
+  const spend = metadata?.product === "trade" ? metadata.fromAmountBaseUnits : null;
   return action.kind === "trade" && !!session.smartAccount &&
     action.owner.subject === session.user.subject && action.owner.accountProvider === session.accountProvider &&
     action.owner.chainId === 8453 && action.owner.address.toLowerCase() === session.smartAccount.address.toLowerCase() &&
-    metadata?.product === "trade" && metadata.direction === request.direction &&
-    metadata.fromAsset.id === (request.direction === "buy" ? "usdc" : "cbbtc") &&
-    metadata.toAsset.id === (request.direction === "buy" ? "cbbtc" : "usdc") &&
-    metadata.fromAmountBaseUnits === request.amountBaseUnits &&
+    metadata?.product === "trade" && metadata.direction === request.direction && metadata.assetId === request.assetId &&
+    traded?.id === token.assetId && traded.address.toLowerCase() === token.address.toLowerCase() &&
+    traded.symbol === token.symbol && traded.decimals === token.decimals &&
+    cash?.id === "usdc" && cash.symbol === "USDC" && cash.decimals === 6 && cash.address.toLowerCase() === BASE_USDC.address.toLowerCase() &&
+    !!spend && /^\d+$/.test(spend) && BigInt(spend) > BigInt(0) &&
+    (request.amountBaseUnits === TRADE_SELL_ALL || spend === request.amountBaseUnits) &&
     metadata.slippageBps === TRADE_SLIPPAGE_BPS && metadata.network.name === "Base" && metadata.network.chainId === 8453 &&
     /^\d+$/.test(metadata.expectedToAmountBaseUnits) && BigInt(metadata.expectedToAmountBaseUnits) > BigInt(0) &&
     /^\d+$/.test(metadata.minimumToAmountBaseUnits) && BigInt(metadata.minimumToAmountBaseUnits) > BigInt(0) &&
-    action.amounts.some((amount) => amount.direction === "spend" && amount.amountBaseUnits === request.amountBaseUnits && amount.assetId === metadata.fromAsset.id) &&
+    action.amounts.some((amount) => amount.direction === "spend" && amount.amountBaseUnits === spend && amount.assetId === metadata.fromAsset.id) &&
     action.amounts.some((amount) => amount.direction === "receive" && amount.assetId === metadata.toAsset.id && amount.amountBaseUnits === metadata.expectedToAmountBaseUnits && amount.estimated) &&
     Number.isFinite(Date.parse(action.expiresAt)) && !!action.signing;
 }
-function tradeDisplayAmount(direction: TradeDirection, amount: string): string {
-  return direction === "buy" ? formatUsdStablecoinAmount(amount) : formatExactPresentationTokenAmount(amount, 8, "BTC");
+function tradeDisplayAmount(amount: string, asset: TradeMoneyActionMetadata["fromAsset"]): string {
+  return asset.id === "usdc" ? formatUsdStablecoinAmount(amount) : formatExactPresentationTokenAmount(amount, asset.decimals, asset.symbol);
 }
-function tradeReviewRows(action: PreparedMoneyAction, metadata: TradeMoneyActionMetadata, secondsLeft: number) {
-  const formatAsset = (amount: string, asset: TradeMoneyActionMetadata["fromAsset"]) => asset.id === "usdc"
-    ? formatUsdStablecoinAmount(amount)
-    : formatExactPresentationTokenAmount(amount, 8, "BTC");
-  const btcUnits = BigInt(metadata.direction === "buy" ? metadata.expectedToAmountBaseUnits : metadata.fromAmountBaseUnits);
-  const usdcUnits = BigInt(metadata.direction === "buy" ? metadata.fromAmountBaseUnits : metadata.expectedToAmountBaseUnits);
-  const priceCents = btcUnits > BigInt(0) ? usdcUnits * BigInt(10_000) / btcUnits : BigInt(0);
+function tradeContractRow(metadata: TradeMoneyActionMetadata): MoneyConfirmRow {
+  const traded = metadata.direction === "buy" ? metadata.toAsset : metadata.fromAsset;
+  return { label: `${traded.symbol} contract`, value: <CopyableValue value={traded.address} presentation="reveal" valueKind="contract" className="-my-3 justify-end" /> };
+}
+function tradeDetailRows(action: PreparedMoneyAction, metadata: TradeMoneyActionMetadata, secondsLeft: number): MoneyConfirmRow[] {
   return [
-    moneyConfirmFromRow(action.owner),
-    { label: "You pay", value: formatAsset(metadata.fromAmountBaseUnits, metadata.fromAsset) },
-    { label: "You receive (estimated)", value: formatAsset(metadata.expectedToAmountBaseUnits, metadata.toAsset) },
-    { label: "Minimum received", value: formatAsset(metadata.minimumToAmountBaseUnits, metadata.toAsset) },
-    { label: "Slippage", value: `${metadata.slippageBps / 100}%` },
-    { label: "Price", value: `1 BTC ≈ ${formatUsdStablecoinAmount(priceCents, 2)}` },
+    { label: "Minimum received", value: tradeDisplayAmount(metadata.minimumToAmountBaseUnits, metadata.toAsset) },
+    { label: "Rate", value: tradeRateLabel(metadata) },
+    { label: "Max slippage", value: `${metadata.slippageBps / 100}%` },
     ...metadata.fees.filter((fee) => fee.kind !== "gas").map((fee) => ({ label: "Protocol fee", value: formatExactPresentationTokenAmount(fee.amountBaseUnits, fee.decimals, fee.symbol) })),
-    { label: "Network", value: metadata.network.name },
     { label: "Quote expires in", value: secondsLeft > 0 ? `${secondsLeft}s` : "Expired" },
+    { label: "Network", value: metadata.network.name },
+    moneyConfirmFromRow(action.owner),
   ];
 }
-function messageForTradeError(error: unknown): string {
+function messageForTradeError(error: unknown, direction: TradeDirection): string {
   const networkFee = networkFeeErrorMessage(error);
   if (networkFee) return networkFee;
   if (error instanceof Error && error.message.startsWith("The quote did not match")) return error.message;
@@ -249,15 +264,19 @@ function messageForTradeError(error: unknown): string {
     switch (code) {
       case "TRADE_STOCK_RESTRICTED": return "Stock buys aren't available in your location.";
       case "TRADE_NOT_ROUTED": return "This asset can't be traded in Home yet.";
-      case "TRADE_NO_LIQUIDITY": return "No liquidity for this amount. Try a smaller trade.";
-      case "TRADE_INSUFFICIENT_BALANCE": return "Not enough balance for this trade. Try a smaller amount.";
-      case "TRADE_QUOTE_STALE": case "TRADE_QUOTE_REJECTED": return "This quote changed. Get a new quote.";
+      case "TRADE_ROUTE_UNAVAILABLE": return "No route for this amount. Try a different amount or try again later.";
+      case "TRADE_BELOW_MINIMUM": return "This amount is below the trade minimum. Enter a larger amount.";
+      case "TRADE_TOKEN_UNREADABLE": return "This token couldn't be read on Base. Try again later.";
+      case "TRADE_BUY_UNAVAILABLE": return "Buying is unavailable. You can still sell or send.";
+      case "TRADE_INSUFFICIENT_BALANCE": return direction === "sell" ? "Your token balance changed. Review the amount again." : "Your Cash balance changed. Review the amount again.";
+      case "TRADE_QUOTE_STALE":
+      case "TRADE_QUOTE_REJECTED": return "This quote changed. Get a new quote.";
       case "TRADE_SIGNER_UNSUPPORTED": return "Trading isn't available for this account.";
       case "TRADE_UNAVAILABLE": return "Trading isn't available right now. Try again later.";
       case "TRADE_INVALID": return "Enter a valid amount and try again.";
     }
   }
-  return "Couldn't get a quote. Try again shortly.";
+  return "Couldn't get a quote. Try again later.";
 }
 function Notice({ children, tone = "neutral", ...props }: Omit<ComponentProps<typeof Alert>, "children"> & { children: ReactNode; tone?: "neutral" | "error" }) {
   return <Alert ref={tone === "error" ? revealNotice : undefined} variant={tone === "error" ? "destructive" : "default"} role={tone === "error" ? "alert" : "status"} {...props}><AlertDescription>{children}</AlertDescription></Alert>;

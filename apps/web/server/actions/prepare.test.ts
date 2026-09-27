@@ -113,7 +113,7 @@ describe("prepare action handler", () => {
     });
     const response = await handler(request("trade"));
     expect(response.status).toBe(422);
-    expect((await response.json() as { error: { code: string } }).error.code).toBe("TRADE_NO_LIQUIDITY");
+    expect((await response.json() as { error: { code: string } }).error.code).toBe("TRADE_ROUTE_UNAVAILABLE");
     expect(quotes).toBe(1);
   });
 

@@ -6,6 +6,7 @@ import { getHomeQueryClient } from "@/client/query/query-client";
 import { balancesSnapshot } from "@/tests/browser/fixtures/balances";
 import { borrowOverviewBody, sessionBody } from "@/tests/browser/fixtures/bodies";
 import { VERIFIED_MORPHO_MARKETS } from "@/shared/morpho-markets/config";
+import { buyRouteForToken } from "@/shared/trading/assets";
 
 const { cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const { BorrowOverview } = await import("./borrow-overview");
@@ -17,13 +18,15 @@ const session = {
   accountProvider: "cdp-embedded" as const,
 };
 
-type Scenario = { cash?: string; availability?: "available" | "unavailable" | "checking"; balances?: "ready" | "loading" | "error" | "stale"; intro?: boolean; introHeld?: boolean; unavailableMarketId?: string };
-function show({ cash = "12340000", availability = "available", balances = "ready", intro = false, introHeld = false, unavailableMarketId }: Scenario = {}) {
-  const overview = borrowOverviewBody({ openMarketId: intro ? null : VERIFIED_MORPHO_MARKETS[2]!.marketId,
-    notHeldMarketIds: intro && !introHeld ? VERIFIED_MORPHO_MARKETS.map((market) => market.marketId) : [bitcoin, xrp], unavailableMarketId });
+type Scenario = { cash?: string; availability?: "available" | "blocked" | "unavailable" | "checking"; blockedAssetId?: string; balances?: "ready" | "loading" | "error" | "stale"; intro?: boolean; introHeld?: boolean; unavailableMarketId?: string; notHeldMarketIds?: string[]; verified?: boolean };
+function show({ cash = "12340000", availability = "available", balances = "ready", intro = false, introHeld = false, unavailableMarketId, notHeldMarketIds, verified = true, blockedAssetId }: Scenario = {}) {
+  const overview = borrowOverviewBody({ openMarketId: intro ? null : notHeldMarketIds?.includes(VERIFIED_MORPHO_MARKETS[2]!.marketId)
+    ? VERIFIED_MORPHO_MARKETS[0]!.marketId : VERIFIED_MORPHO_MARKETS[2]!.marketId,
+    notHeldMarketIds: notHeldMarketIds ?? (intro && !introHeld ? VERIFIED_MORPHO_MARKETS.map((market) => market.marketId) : [bitcoin, xrp]), unavailableMarketId });
+  const paths: string[] = [];
   const client = {
     ...createBlockedAccountWalletClient("provider-unavailable"),
-    status: "verified" as const, verification: "server" as const, session,
+    ...(verified ? { status: "verified" as const, verification: "server" as const, session } : {}),
     fetchBalances: async () => {
       if (balances === "loading") return new Promise<ReturnType<typeof balancesSnapshot>>(() => {});
       if (balances === "error") throw new Error("Balances unavailable");
@@ -32,28 +35,51 @@ function show({ cash = "12340000", availability = "available", balances = "ready
         ? { ...holding, balance: { status: "ready" as const, baseUnits: cash } } : holding) };
     },
     fetchAccountResource: async (path: string) => {
-      if (path === "/api/trades") {
+      paths.push(path);
+      if (path.startsWith("/api/trades?assetId=")) {
         if (availability === "checking") return new Promise<unknown>(() => {});
-        return availability === "available" ? { version: 1, status: "available" }
-          : { version: 1, status: "unavailable", reason: "provider-unconfigured" };
+        const assetId = decodeURIComponent(path.slice("/api/trades?assetId=".length));
+        const market = VERIFIED_MORPHO_MARKETS.find((entry) => buyRouteForToken({ chainId: entry.chainId, address: entry.collateralToken.address }) === assetId);
+        if (availability !== "unavailable" && market) return { version: 2, status: "available", token: {
+          assetId, address: market.collateralToken.address.toLowerCase(), symbol: market.collateralToken.symbol, decimals: market.collateralToken.decimals,
+        }, buy: availability === "blocked" || blockedAssetId === assetId ? "blocked" : "available", balanceBaseUnits: "0" };
+        return { version: 2, status: "unavailable", reason: "provider-unconfigured" };
       }
       if (path === "/api/actions/trade-pending") return { version: 1, trade: null };
       return { version: 1, usdcReserveBaseUnits: null };
     },
   };
   const view = render(<AccountWalletClientProvider client={client}><BorrowOverview session={session} overview={overview} /></AccountWalletClientProvider>);
-  return { ...view, client, overview };
+  return { ...view, client, overview, paths };
 }
 
 afterEach(() => { cleanup(); getHomeQueryClient().clear(); });
 
-describe("Borrow Bitcoin Buy entry", () => {
+describe("Borrow collateral Buy entry", () => {
+  test.each([...VERIFIED_MORPHO_MARKETS])("opens exact $collateralToken.symbol Buy sheet", async (market) => {
+    const view = show({ notHeldMarketIds: [market.marketId] });
+    const name = market.collateralDisplay.name;
+    const buy = await view.findByRole("button", { name: `Buy ${name}` });
+    await waitFor(() => expect(buy.getAttribute("aria-disabled")).toBeNull());
+    const assetId = buyRouteForToken({ chainId: market.chainId, address: market.collateralToken.address });
+    expect(view.paths).toContain(`/api/trades?assetId=${encodeURIComponent(assetId!)}`);
+    expect(getHomeQueryClient().getQueryCache().getAll().some((query) => query.queryKey[2] === assetId &&
+      (query.state.data as { token?: { address: string; decimals: number } })?.token?.address === market.collateralToken.address.toLowerCase() &&
+      (query.state.data as { token?: { decimals: number } })?.token?.decimals === market.collateralToken.decimals)).toBe(true);
+    fireEvent.click(buy);
+    expect(await within(document.body).findByRole("dialog", { name: `Buy ${name}` })).toBeTruthy();
+    if (market.collateralToken.symbol === "cbETH") {
+      expect(assetId).toBe(`base:${market.collateralToken.address.toLowerCase()}`);
+      expect(market.collateralToken.decimals).toBe(18);
+      expect(within(document.body).queryByRole("dialog", { name: "Buy Ethereum" })).toBeNull();
+    }
+  }, 45_000);
   test("one click opens one Buy sheet; closing restores focus and allows reopening, without opening Borrow management", async () => {
     const view = show();
     const buy = await view.findByRole("button", { name: "Buy Bitcoin" });
     await waitFor(() => expect(buy.getAttribute("aria-disabled")).toBeNull());
     expect(buy.textContent).toBe("Buy");
-    expect(view.queryByRole("button", { name: "Buy XRP" })).toBeNull();
+    expect(await view.findByRole("button", { name: "Buy XRP" })).toBeTruthy();
     fireEvent.click(buy);
     const body = within(document.body);
     expect(await body.findByRole("dialog", { name: "Buy Bitcoin" })).toBeTruthy();
@@ -88,6 +114,21 @@ describe("Borrow Bitcoin Buy entry", () => {
     expect(row.textContent).not.toContain("Not in wallet");
     expect(row.textContent).toContain("Couldn't load");
   });
+  test("a blocked asset is inert while another collateral remains buyable", async () => {
+    const blockedAssetId = buyRouteForToken({ chainId: VERIFIED_MORPHO_MARKETS[1]!.chainId, address: VERIFIED_MORPHO_MARKETS[1]!.collateralToken.address })!;
+    const view = show({ blockedAssetId });
+    await waitFor(() => expect(getHomeQueryClient().getQueryCache().getAll().filter((query) => query.queryKey[1] === "trade-availability" && query.state.status === "success")).toHaveLength(2));
+    expect(view.queryByRole("button", { name: "Buy XRP" })).toBeNull();
+    expect(view.getByRole("button", { name: "Buy Bitcoin" })).toBeTruthy();
+  });
+  test("missing session and blocked buying omit every Buy row", async () => {
+    const signedOut = show({ verified: false });
+    expect(signedOut.queryByRole("button", { name: /^Buy / })).toBeNull();
+    cleanup(); getHomeQueryClient().clear();
+    const blocked = show({ availability: "blocked" });
+    await waitFor(() => expect(getHomeQueryClient().getQueryCache().getAll().filter((query) => query.queryKey[1] === "trade-availability" && query.state.status === "success")).toHaveLength(2));
+    expect(blocked.queryByRole("button", { name: /^Buy / })).toBeNull();
+  });
   test("unavailable trading omits Buy; checking and loading disable it", async () => {
     const unavailable = show({ availability: "unavailable" });
     await waitFor(() => expect(getHomeQueryClient().getQueryCache().getAll().find((query) => query.queryKey[1] === "trade-availability")?.state.status).toBe("success"));
@@ -119,7 +160,7 @@ describe("Borrow Bitcoin Buy entry", () => {
     fireEvent.click(view.getByRole("button", { name: "See supported assets" }));
     const picker = within(await within(document.body).findByRole("dialog", { name: "Supported assets" }));
     const buy = await picker.findByRole("button", { name: "Buy Bitcoin" });
-    await waitFor(() => expect(picker.getByText(/No.Cash.to.buy/)).toBeTruthy());
+    await waitFor(() => expect(picker.getAllByText(/No.Cash.to.buy/)).toHaveLength(5));
     expect((buy as HTMLButtonElement).disabled).toBe(true);
   });
   test("picker Buy waits for picker closure and restores focus to the intro action", async () => {
@@ -130,11 +171,11 @@ describe("Borrow Bitcoin Buy entry", () => {
     const pickerDialog = await body.findByRole("dialog", { name: "Supported assets" });
     const picker = within(pickerDialog);
     expect(pickerDialog.hasAttribute("data-open")).toBe(true);
-    const buy = await picker.findByRole("button", { name: "Buy Bitcoin" });
+    const buy = await picker.findByRole("button", { name: "Buy Staked ETH" });
     await waitFor(() => expect(buy.getAttribute("aria-disabled")).toBeNull());
     fireEvent.click(buy);
     await waitFor(() => expect(pickerDialog.hasAttribute("data-open")).toBe(false));
-    expect(await body.findByRole("dialog", { name: "Buy Bitcoin" })).toBeTruthy();
+    expect(await body.findByRole("dialog", { name: "Buy Staked ETH" })).toBeTruthy();
     fireEvent.click(body.getByRole("button", { name: "Close trade dialog" }));
     await waitFor(() => expect(document.activeElement === intro).toBe(true));
   }, 45_000);

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { TradeActions } from "@/client/trading/trade-actions";
 import type { InvestAsset } from "@/config/invest-assets";
-import { getTradeAssetStatus } from "@/shared/trading/assets";
+import { resolveTradeAsset } from "@/shared/trading/assets";
 import { useReducedMotion } from "./asset-chart";
 
 export function PinnedTradeBar({ asset }: { asset: InvestAsset }) {
@@ -11,7 +11,7 @@ export function PinnedTradeBar({ asset }: { asset: InvestAsset }) {
   const [desktop, setDesktop] = useState(false);
   const [shown, setShown] = useState(true);
   const bar = useRef<HTMLDivElement>(null);
-  const status = getTradeAssetStatus(asset.id);
+  const status = resolveTradeAsset(asset.id);
   const tradeStatus = status?.status;
   useEffect(() => {
     if (!window.matchMedia) return;

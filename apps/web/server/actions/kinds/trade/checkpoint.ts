@@ -8,26 +8,30 @@ import { PERMIT2_ADDRESS, TradePreparationError, validatePermit2 } from "./permi
 import { checkQuoteCompatibility, rfqMakerAuthorizations, swapExecutionMatches, swapTokens, validateSwapQuote, type SwapDirection } from "./quote";
 import { verifyRfqMakerAuthorizations } from "./rfq-maker";
 
-const ACCEPTABLE_READINESS = new Set(["ready", "insufficient-balance", "unverified-actions"]);
+const DEFAULT_TOKEN = "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf" as Address;
+const ACCEPTABLE_READINESS = new Set(["ready", "insufficient-balance"]);
 
 export type CheckpointAmounts = { buy: bigint; sell: bigint };
 export function checkpointExitCode(report: Awaited<ReturnType<typeof runSwapsCheckpoint>>): 0 | 2 {
   return report.directions.every((row) =>
     row.priceLiquidityAvailable && row.quoteLiquidityAvailable && row.permit2Compatible && row.spenderMatchesTarget &&
-    row.targetMatchesRouter && row.calldataMatches && row.quoteCompatible && ACCEPTABLE_READINESS.has(row.executionReadiness),
+    row.targetMatchesRouter && row.calldataMatches && row.quoteCompatible && row.actionsVerified === true && ACCEPTABLE_READINESS.has(row.executionReadiness),
   ) ? 0 : 2;
 }
 
-export async function runSwapsCheckpoint({ client, taker, amounts, now, readBlockNumber, readSwapRouter, read }: {
+export async function runSwapsCheckpoint({ client, taker, amounts, now, readBlockNumber, readSwapRouter, read, token = DEFAULT_TOKEN, deriveSellFromBuy = false }: {
   client: CdpSwapsClient;
   taker: Address;
   amounts: CheckpointAmounts;
   now: Date;
   readBlockNumber: () => Promise<bigint>;
   readSwapRouter: () => Promise<Address>;
+  token?: Address;
+  deriveSellFromBuy?: boolean;
   read?: (method: string, params: readonly unknown[]) => Promise<unknown>;
 }) {
-  const swapRouter = await readSwapRouter();
+  let swapRouter: Address | null = null;
+  try { swapRouter = await readSwapRouter(); } catch { swapRouter = null; }
   const directions = [] as Array<{
     direction: SwapDirection;
     requestedAmount: string;
@@ -40,7 +44,8 @@ export async function runSwapsCheckpoint({ client, taker, amounts, now, readBloc
     targetMatchesRouter: boolean;
     calldataMatches: boolean;
     actionSelectors: string[] | null;
-    actionsVerified: boolean;
+    chain: "available" | "unavailable";
+    actionsVerified: boolean | null;
     quoteCompatible: boolean;
     compatibilityReason: string | null;
     allowanceSpenderIsPermit2: boolean | null;
@@ -48,20 +53,23 @@ export async function runSwapsCheckpoint({ client, taker, amounts, now, readBloc
     balanceIssue: boolean;
     executionReadiness: "ready" | string;
   }>;
+  let sellAmount = deriveSellFromBuy ? BigInt(0) : amounts.sell;
   for (const direction of ["buy", "sell"] as const) {
-    const request = { direction, fromAmount: amounts[direction], taker, slippageBps: 100 };
-    const providerRequest = { ...swapTokens(direction), fromAmount: request.fromAmount, taker, slippageBps: request.slippageBps };
+    const request = { direction, token, fromAmount: direction === "buy" ? amounts.buy : sellAmount, taker, slippageBps: 100 };
+    const providerRequest = { ...swapTokens(direction, token), fromAmount: request.fromAmount, taker, slippageBps: request.slippageBps };
     let priceLiquidityAvailable = false;
     let quote: SwapQuote = { liquidityAvailable: false };
     let failure: string | null = null;
     let block: bigint | null = null;
     try {
+      if (deriveSellFromBuy && direction === "sell" && sellAmount === BigInt(0)) throw new Error("no-reference-amount");
       const price = await client.getPrice(providerRequest);
       priceLiquidityAvailable = price.liquidityAvailable;
       quote = await client.createQuote(providerRequest);
-      if (quote.liquidityAvailable) block = await readBlockNumber();
+      if (deriveSellFromBuy && direction === "buy" && quote.liquidityAvailable && quote.toAmount > BigInt(0)) sellAmount = quote.toAmount;
+      if (quote.liquidityAvailable && swapRouter !== null) { try { block = await readBlockNumber(); } catch { block = null; } }
     } catch {
-      failure = "provider-unavailable";
+      failure = deriveSellFromBuy && direction === "sell" && sellAmount === BigInt(0) ? "no-reference-amount" : "provider-unavailable";
     }
     let permit2Compatible = false;
     let permit2Reason: string | null = null;
@@ -69,7 +77,7 @@ export async function runSwapsCheckpoint({ client, taker, amounts, now, readBloc
     let targetMatchesRouter = false;
     let calldataMatches = false;
     let actionSelectors: string[] | null = null;
-    let actionsVerified = false;
+    let actionsVerified = false as boolean | null;
     let quoteCompatible = false;
     let compatibilityReason: string | null = failure ?? "no-liquidity";
     let allowanceSpenderIsPermit2: boolean | null = null;
@@ -77,7 +85,8 @@ export async function runSwapsCheckpoint({ client, taker, amounts, now, readBloc
     let balanceIssue = false;
     let executionReadiness = failure ?? "no-liquidity";
     if (quote.liquidityAvailable) {
-      ({ targetMatchesRouter, calldataMatches, actionSelectors, actionsVerified } = swapExecutionMatches(request, quote, swapRouter));
+      ({ targetMatchesRouter, calldataMatches, actionSelectors, actionsVerified } = swapExecutionMatches(request, quote, swapRouter ?? "0x0000000000000000000000000000000000000000"));
+      if (swapRouter === null || block === null) { actionsVerified = null; compatibilityReason = "chain-unavailable"; executionReadiness = "chain-unavailable"; }
       allowanceSpenderIsPermit2 = quote.issues.allowance === null ? null : quote.issues.allowance.spender === PERMIT2_ADDRESS;
       simulationIncomplete = quote.issues.simulationIncomplete;
       balanceIssue = quote.issues.balance !== null;
@@ -95,7 +104,7 @@ export async function runSwapsCheckpoint({ client, taker, amounts, now, readBloc
       } else {
         permit2Reason = "quote-rejected";
       }
-      if (block !== null) {
+      if (block !== null && swapRouter !== null) {
         try {
           checkQuoteCompatibility({ request, quote, now, currentBlockNumber: block, swapRouter });
           quoteCompatible = true;
@@ -122,6 +131,7 @@ export async function runSwapsCheckpoint({ client, taker, amounts, now, readBloc
       }
     }
     directions.push({
+      chain: block === null || swapRouter === null ? "unavailable" : "available",
       direction, requestedAmount: request.fromAmount.toString(), priceLiquidityAvailable,
       quoteLiquidityAvailable: quote.liquidityAvailable,
       permit2Present: quote.liquidityAvailable && quote.permit2 !== null,

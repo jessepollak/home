@@ -188,6 +188,7 @@ export function useMoneyAmountUnit(assetCashCurrency: string | null | undefined,
 export function MoneyAmountDisplay({
   amount,
   onAmountChange,
+  onMaxSelect,
   maxDecimals,
   overAvailable = false,
   amountError,
@@ -210,6 +211,7 @@ export function MoneyAmountDisplay({
 }: {
   amount: string;
   onAmountChange?: (value: string) => void;
+  onMaxSelect?: () => void;
   maxDecimals: number;
   overAvailable?: boolean;
   amountError?: string;
@@ -316,6 +318,7 @@ export function MoneyAmountDisplay({
             onMax={(value) => {
               setEntryState({ assetId, unitKind: unit.kind, mode });
               onAmountChange(value);
+              onMaxSelect?.();
             }}
           />
         </div>

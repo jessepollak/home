@@ -2,49 +2,51 @@
 
 import { Button } from "@/components/ui/button";
 import type { InvestAsset } from "@/config/invest-assets";
-import { getTradeAssetStatus } from "@/shared/trading/assets";
-import { useBitcoinTrade } from "./use-bitcoin-trade";
+import { resolveTradeAsset } from "@/shared/trading/assets";
+import { useAssetTrade } from "./use-asset-trade";
 import { StockTradeActions } from "./stock-trade-actions";
 
 export function TradeActions({ asset, layout = "row" }: {
   asset: InvestAsset;
   layout?: "row" | "sticky";
 }) {
-  const status = getTradeAssetStatus(asset.id);
-  if (!status) return null;
-  if (status.status === "eligibility-required") {
+  const resolution = resolveTradeAsset(asset.id);
+  if (!resolution) return null;
+  if (resolution.status === "eligibility-required") {
     return <StockTradeActions asset={asset} layout={layout} />;
   }
-  if (asset.id !== "cbbtc") return <UnavailableActions asset={asset} layout={layout} />;
-  return <BitcoinTradeActions asset={asset} layout={layout} />;
+  return <AvailableTradeActions asset={asset} layout={layout} />;
 }
 
-function UnavailableActions({ asset, layout }: { asset: InvestAsset; layout: "row" | "sticky" }) {
+function AvailableTradeActions({ asset, layout }: { asset: InvestAsset; layout: "row" | "sticky" }) {
+  const trade = useAssetTrade([{ assetId: asset.id, assetName: asset.displayName }]);
+  const availability = trade.availability.get(asset.id);
+  const holding = availability?.status === "available" ? availability.balanceBaseUnits : null;
+  const ready = availability?.status === "available" && !!trade.session?.smartAccount;
+  const note = !trade.session?.smartAccount
+    ? trade.account?.status === "restoring" || trade.account?.status === "validating"
+      ? "Checking trading availability…"
+      : trade.account?.status === "verified" ? "Trading isn't available for this account." : "Sign in to trade."
+    : availability?.status === "unavailable"
+      ? availability.reason === "signer-unsupported"
+        ? "Trading isn't available for this account."
+        : availability.reason === "token-unreadable"
+          ? "This token couldn't be read on Base. You can still send it."
+          : availability.reason === "asset-unsupported"
+            ? "This asset can't be traded."
+            : "Trading isn't available right now. Try again later."
+      : availability === null
+        ? "Checking trading availability…"
+        : availability?.status === "available" && availability.buy === "blocked" ? "Buying is unavailable. You can still sell or send." : null;
+  const sellNote = ready && holding === "0" ? `No ${availability.token.symbol} available to sell.` : null;
+  const buyNote = ready && trade.cash === "0" ? `No Cash available to buy ${asset.displayName}.` : null;
+  const balancesNote = ready && (trade.balances.status === "error" || (trade.balances.status === "ready" && !trade.usableBalances)) ? "Cash balance isn't available right now." : null;
   return <div className={layout === "sticky" ? "sticky bottom-[env(safe-area-inset-bottom)] z-2 mt-4 space-y-2 bg-background pt-3" : "space-y-2"}>
     <div className={layout === "sticky" ? "grid grid-cols-2 gap-2" : "flex justify-end gap-2"} aria-label={`Trade ${asset.displayName}`}>
-      <Button size="touch" disabled>Buy</Button>
-      <Button size="touch" variant="secondary" disabled>Sell</Button>
-    </div>
-    <div className="text-end text-sm text-muted-foreground" role="note">Swaps aren&apos;t available right now.</div>
-  </div>;
-}
-
-function BitcoinTradeActions({ asset, layout }: { asset: InvestAsset; layout: "row" | "sticky" }) {
-  const { availability, balances, usableBalances, cash, holding, ready, open, preload, sheet } = useBitcoinTrade();
-  const note = availability?.status === "unavailable"
-    ? availability.reason === "signer-unsupported"
-      ? "Trading isn't available for this account."
-      : "Trading isn't available right now."
-    : availability === null ? "Checking trading availability…" : null;
-  const sellNote = ready && holding === "0" ? "No Bitcoin available to sell." : null;
-  const buyNote = ready && cash === "0" ? "No Cash available to buy Bitcoin." : null;
-  const balancesNote = ready && (balances.status === "error" || (balances.status === "ready" && !usableBalances)) ? "Balances aren't available right now." : null;
-  return <div className={layout === "sticky" ? "sticky bottom-[env(safe-area-inset-bottom)] z-2 mt-4 space-y-2 bg-background pt-3" : "space-y-2"}>
-    <div className={layout === "sticky" ? "grid grid-cols-2 gap-2" : "flex justify-end gap-2"} aria-label={`Trade ${asset.displayName}`}>
-      <Button size="touch" disabled={!ready || cash === null || cash === "0"} onPointerDown={preload} onClick={(event) => open("buy", event.currentTarget)}>Buy</Button>
-      <Button size="touch" variant="secondary" disabled={!ready || holding === null || holding === "0"} onPointerDown={preload} onClick={(event) => open("sell", event.currentTarget)}>Sell</Button>
+      <Button size="touch" disabled={!ready || availability.buy === "blocked" || trade.cash === null || trade.cash === "0"} onPointerDown={trade.preload} onClick={(event) => trade.open(asset.id, "buy", event.currentTarget)}>Buy</Button>
+      <Button size="touch" variant="secondary" disabled={!ready || holding === null || BigInt(holding) === BigInt(0)} onPointerDown={trade.preload} onClick={(event) => trade.open(asset.id, "sell", event.currentTarget)}>Sell</Button>
     </div>
     {note || balancesNote || sellNote || buyNote ? <p className="text-end text-sm text-muted-foreground" role="note">{note ?? balancesNote ?? sellNote ?? buyNote}</p> : null}
-    {sheet}
+    {trade.sheet}
   </div>;
 }
