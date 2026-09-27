@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, fn, userEvent, within } from "storybook/test";
+import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 import { AppErrorState } from "./app-error";
 
 const meta = {
@@ -17,7 +17,9 @@ export const RenderError: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
     await expect(canvas.getByRole("alert")).toHaveTextContent("This page couldn’t load.");
-    await userEvent.click(canvas.getByRole("button", { name: "Try again" }));
+    const tryAgain = canvas.getByRole("button", { name: "Try again" });
+    await waitFor(() => expect(tryAgain).toHaveFocus());
+    await userEvent.click(tryAgain);
     await expect(args.onRetry).toHaveBeenCalledTimes(1);
   },
 };

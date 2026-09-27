@@ -80,6 +80,32 @@ function safeThrownDescription(value: unknown): { name: string; message: string 
 declare global {
   interface Window {
     __homeClientErrorReportingInstalled?: boolean;
+    __homeClientErrorReport?: (report: ClientErrorReport) => void;
+  }
+}
+
+const reportedErrors = new WeakSet<object>();
+
+function claimFirstReport(value: unknown): boolean {
+  if ((typeof value !== "object" && typeof value !== "function") || value === null) return true;
+  if (reportedErrors.has(value)) return false;
+  reportedErrors.add(value);
+  return true;
+}
+
+function pageClientErrorReporter(send: ClientErrorTransport): (report: ClientErrorReport) => void {
+  window.__homeClientErrorReport ??= createBoundedClientErrorReporter(send);
+  return window.__homeClientErrorReport;
+}
+
+export function reportCaughtClientError(
+  error: unknown,
+  send: ClientErrorTransport = (url, init) => fetch(url, init),
+): void {
+  try {
+    if (!claimFirstReport(error)) return;
+    pageClientErrorReporter(send)({ ...safeThrownDescription(error), route: window.location.pathname });
+  } catch {
   }
 }
 
@@ -89,10 +115,11 @@ export function installClientErrorReporting(
   try {
     if (typeof window === "undefined" || window.__homeClientErrorReportingInstalled) return;
     window.__homeClientErrorReportingInstalled = true;
-    const report = createBoundedClientErrorReporter(send);
+    const report = pageClientErrorReporter(send);
 
     window.addEventListener("error", (event) => {
       try {
+        if (!claimFirstReport(event.error)) return;
         const description = safeThrownDescription(event.error);
         report({
           name: description.name,
@@ -105,6 +132,7 @@ export function installClientErrorReporting(
 
     window.addEventListener("unhandledrejection", (event) => {
       try {
+        if (!claimFirstReport(event.reason)) return;
         const description = safeThrownDescription(event.reason);
         report({ ...description, route: window.location.pathname });
       } catch {

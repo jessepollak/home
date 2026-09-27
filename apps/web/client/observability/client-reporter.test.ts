@@ -11,6 +11,7 @@ import {
 
 afterEach(() => {
   window.__homeClientErrorReportingInstalled = false;
+  window.__homeClientErrorReport = undefined;
 });
 
 describe("client error reporter", () => {
