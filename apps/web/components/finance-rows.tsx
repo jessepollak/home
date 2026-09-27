@@ -108,6 +108,47 @@ function FinanceRow({
   const hintId = useId();
   const activation = action ? undefined : onActivate;
   const hasValue = value !== undefined || valueContext !== undefined;
+  const rowContext = context === undefined ? null : (
+    <ItemDescription lines={contextLines} tone={disclosure ? "disclosure" : undefined} className={cn(contextLines === 2 && "whitespace-normal", labelSuffix !== undefined && "order-4 mt-0.5 max-w-full shrink-0")} title={contextTitle}>
+      {context}
+    </ItemDescription>
+  );
+  const labelAndContext = (
+    <>
+      <ItemTitle className={labelSuffix === undefined ? "w-full min-w-0" : "order-1 max-w-full shrink-0 whitespace-normal"} truncate={labelSuffix === undefined ? "stacked" : false}>
+        {labelSuffix === undefined ? label : <span className="flex min-w-0 max-w-full flex-wrap items-baseline gap-x-1 gap-y-0.5">
+          <span className="min-w-0 truncate">{label}{" "}</span>
+          <span className="shrink-0 whitespace-nowrap">{labelSuffix}</span>
+        </span>}
+      </ItemTitle>
+      {rowContext}
+    </>
+  );
+  const valuePieces = (
+    <>
+      {value === undefined ? null : (
+        <ItemTitle
+          className={labelSuffix === undefined ? "w-full min-w-0 justify-end text-end" : "order-2 -mb-0.5 ms-auto max-w-full shrink-0 justify-end text-end"}
+          numeric
+          truncate="wrap"
+          tone={valueTitleTone[valueTone]}
+          data-value-tone={valueTone}
+        >
+          {value}
+        </ItemTitle>
+      )}
+      {valueContext === undefined ? null : (
+        <ItemDescription
+          lines={labelSuffix === undefined ? 1 : "wrap"}
+          className={labelSuffix === undefined ? "w-full text-end" : "order-5 mt-0.5 ms-auto max-w-full shrink-0 text-end"}
+          tone={disclosure ? "disclosure" : undefined}
+          title={valueContextTitle}
+        >
+          {valueContext}
+        </ItemDescription>
+      )}
+    </>
+  );
   const content = (
     <>
       <ItemMedia variant="avatar" aria-hidden="true">
@@ -126,52 +167,25 @@ function FinanceRow({
           {typeof icon === "string" ? <DirectionIcon value={icon} /> : icon}
         </span>
       </ItemMedia>
-      <div className={cn("flex min-w-0 flex-1 items-start gap-3 @max-[14rem]/finance-row:flex-col @max-[14rem]/finance-row:gap-1", contextLines === 2 && "flex-wrap gap-y-1")} data-slot="finance-row-body">
-        <ItemContent className={cn("min-w-0 gap-0.5 @max-[14rem]/finance-row:w-full @max-[14rem]/finance-row:self-stretch", contextLines === 2 && "min-w-min", (context === undefined || value === undefined || valueContext === undefined) && "self-center")}>
-          <ItemTitle className="w-full min-w-0" truncate={labelSuffix === undefined ? "stacked" : true}>
-            {labelSuffix === undefined ? label : <span className="flex min-w-0 max-w-full items-baseline gap-1">
-              <span className="min-w-0 truncate">{label}{" "}</span>
-              <span className="shrink-0">{labelSuffix}</span>
-            </span>}
-          </ItemTitle>
-          {context === undefined ? null : (
-            <ItemDescription lines={contextLines} tone={disclosure ? "disclosure" : undefined} className={contextLines === 2 ? "whitespace-normal" : undefined} title={contextTitle}>
-              {context}
-            </ItemDescription>
-          )}
-        </ItemContent>
+      <div className={cn("flex min-w-0 flex-1 items-start", labelSuffix === undefined ? cn("gap-3 @max-[14rem]/finance-row:flex-col @max-[14rem]/finance-row:gap-1", contextLines === 2 && "flex-wrap gap-y-1") : "flex-wrap gap-x-2 gap-y-0 @max-[14rem]/finance-row:order-3 @max-[14rem]/finance-row:basis-full")} data-slot="finance-row-body">
+        {labelSuffix === undefined ? (
+          <ItemContent className={cn("min-w-0 gap-0.5 @max-[14rem]/finance-row:w-full @max-[14rem]/finance-row:self-stretch", contextLines === 2 && "min-w-min", (context === undefined || value === undefined || valueContext === undefined) && "self-center")}>
+            {labelAndContext}
+          </ItemContent>
+        ) : <div className="contents" data-slot="finance-row-label">{labelAndContext}</div>}
         {activation && attention ? <span className="sr-only">{attention}</span> : null}
-        {hasValue ? (
+        {labelSuffix !== undefined ? <span aria-hidden="true" className="order-3 h-0 basis-full" /> : null}
+        {hasValue ? labelSuffix === undefined ? (
           <ItemContent
             className={cn("max-w-2/3 min-w-0 !flex-none items-end gap-0.5 overflow-hidden text-end @max-[14rem]/finance-row:max-w-full", contextLines === 2 && "ms-auto max-w-full", (value === undefined || valueContext === undefined) && "self-center", "@max-[14rem]/finance-row:self-end")}
             data-slot="finance-row-value"
           >
-            {value === undefined ? null : (
-              <ItemTitle
-                className="w-full min-w-0 justify-end text-end"
-                numeric
-                truncate="wrap"
-                tone={valueTitleTone[valueTone]}
-                data-value-tone={valueTone}
-              >
-                {value}
-              </ItemTitle>
-            )}
-            {valueContext === undefined ? null : (
-              <ItemDescription
-                lines={1}
-                className="w-full text-end"
-                tone={disclosure ? "disclosure" : undefined}
-                title={valueContextTitle}
-              >
-                {valueContext}
-              </ItemDescription>
-            )}
+            {valuePieces}
           </ItemContent>
-        ) : null}
+        ) : <div className="contents" data-slot="finance-row-value">{valuePieces}</div> : null}
       </div>
       {action ? (
-        <ItemActions className="shrink-0">
+        <ItemActions className={cn("shrink-0", labelSuffix !== undefined && "@max-[14rem]/finance-row:order-2 @max-[14rem]/finance-row:ms-auto")}>
           <Button
             type="button"
             variant="secondary"
@@ -186,7 +200,7 @@ function FinanceRow({
           </Button>
         </ItemActions>
       ) : readRetry || (activation && (attention || chevron || disclosure)) ? (
-        <ItemActions aria-hidden="true">
+        <ItemActions aria-hidden="true" className={labelSuffix !== undefined ? "@max-[14rem]/finance-row:order-2 @max-[14rem]/finance-row:ms-auto" : undefined}>
           {readRetry
             ? <span className="size-4" />
             : attention
@@ -203,7 +217,7 @@ function FinanceRow({
     <li {...liProps} className={cn("@container/finance-row", readRetry && "relative", liProps?.className)}>
       <Item
         data-kind={kind}
-        className={cn("flex-nowrap items-center gap-3 py-2", activation && "h-auto cursor-pointer")}
+        className={cn("flex-nowrap items-center gap-3 py-2", labelSuffix !== undefined && "@max-[14rem]/finance-row:flex-wrap", activation && "h-auto cursor-pointer")}
         {...(activation
           ? {
               render: (

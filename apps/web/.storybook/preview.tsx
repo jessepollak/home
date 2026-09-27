@@ -87,6 +87,14 @@ const preview: Preview = {
           name: "Mobile (390px)",
           styles: { width: "390px", height: "844px" },
         },
+        label375: {
+          name: "Mobile (375px)",
+          styles: { width: "375px", height: "812px" },
+        },
+        label430: {
+          name: "Mobile (430px)",
+          styles: { width: "430px", height: "932px" },
+        },
         desktop: {
           name: "Desktop (1280px)",
           styles: { width: "1280px", height: "800px" },

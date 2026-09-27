@@ -521,8 +521,17 @@ for (const width of [390, 1280]) {
     await expect(summary).toContainText("Received ×2");
     await expect(summary).toContainText("+2.00 USDC");
     await expect(summary.locator('[data-slot="item-description"]').first()).not.toContainText("transfers");
-    const heights = await Promise.all([summary, single].map((row) => row.evaluate((node) => node.getBoundingClientRect().height)));
-    expect(Math.abs(heights[0]! - heights[1]!)).toBeLessThanOrEqual(1);
+    const geometry = await Promise.all([summary, single].map((row) => row.evaluate((node) => {
+      const title = node.querySelector('[data-slot="item-title"]');
+      const date = node.querySelector('[data-slot="item-description"]');
+      if (!title || !date) throw new Error("Missing transfer title or date");
+      return {
+        height: node.getBoundingClientRect().height,
+        titleDateGap: date.getBoundingClientRect().top - title.getBoundingClientRect().bottom,
+      };
+    })));
+    expect(Math.abs(geometry[0]!.height - geometry[1]!.height)).toBeLessThanOrEqual(1);
+    expect(Math.abs(geometry[0]!.titleDateGap - geometry[1]!.titleDateGap)).toBeLessThanOrEqual(1);
     const mark = summary.locator("[data-mark-stack]");
     await expect(mark).toHaveCount(1);
     expect(await mark.evaluate((node) => node.getBoundingClientRect().width)).toBe(32);
