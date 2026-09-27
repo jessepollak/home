@@ -41,6 +41,7 @@ import {
 } from "./invest-location";
 import { resetHostScroll } from "./reset-host-scroll";
 import { useInvestSearch } from "./use-invest-search";
+import { useResolvedAsset } from "./use-resolved-asset";
 
 export type { InvestView };
 
@@ -123,14 +124,12 @@ export function InvestExperience({
         ...search.results.map((result) => result.asset),
       ])
     : null;
-  const detailQuery = detailIdentity &&
+  const detailAssetId = detailIdentity &&
     isDynamicMarketPriceAssetId(detailIdentity.assetId) && !knownDetail
-    ? detailIdentity.contractAddress
-    : "";
-  const detailSearch = useInvestSearch(detailQuery);
-  const resolvedDetail = detailSearch.results.find(
-    (result) => result.asset.id === detailIdentity?.assetId,
-  )?.asset;
+    ? detailIdentity.assetId
+    : null;
+  const detail = useResolvedAsset(detailAssetId);
+  const resolvedDetail = detail.asset;
   const catalog = [
     ...memeAssets,
     ...search.results.map((result) => result.asset),
@@ -152,7 +151,7 @@ export function InvestExperience({
   const dynamicSnapshots = [
     ...(memeMarket.status === "ready" ? memeMarket.snapshots : []),
     ...search.snapshots,
-    ...detailSearch.snapshots,
+    ...(detail.snapshot ? [detail.snapshot] : []),
   ];
   const dynamicDetailMarket: MarketDataState =
     memeMarket.status === "loading" && dynamicSnapshots.length === 0
@@ -357,14 +356,14 @@ export function InvestExperience({
           onBack={() => leaveChild(parent)}
         />
       );
-    } else if (detailQuery && detailSearch.status === "loading") {
+    } else if (detailAssetId && detail.status === "loading") {
       screen = <AssetDetailStatusScreen status="loading" onBack={() => leaveChild(parent)} />;
-    } else if (exactAsset?.status === "tradeable" && (!detailQuery || detailSearch.status === "error")) {
+    } else if (exactAsset?.status === "tradeable" && (!detailAssetId || detail.status === "error")) {
       screen = <ExactAddressAssetScreen assetId={view.assetId} onBack={() => leaveChild(parent)} />;
     } else {
       screen = (
         <AssetDetailStatusScreen
-          status={!detailQuery && memeStatus === "loading" ? "loading" : "unavailable"}
+          status={!detailAssetId && memeStatus === "loading" ? "loading" : "unavailable"}
           onBack={() => leaveChild(parent)}
         />
       );

@@ -16,7 +16,7 @@ import {
 } from "../fixtures/bodies";
 import type { TradeDirection } from "../../../shared/trading/contract";
 import type { ActivityOrdersResponse } from "../../../shared/activity/contract-orders";
-import { nonTrendingAddress, searchFixture } from "./search-fixtures";
+import { assetResolutionFixture, nonTrendingAddress, searchFixture } from "./search-fixtures";
 import { BASE_USDC_PAYMASTER_ADDRESS } from "../../../shared/money-actions/network-fee";
 
 const recentRecipient = "0x2211d1d0020daea8039e46cf1367962070d77da9";
@@ -140,6 +140,7 @@ export function fixtureRoutes() {
       version: 1, recipients: [{ address: recentRecipient, name: "example.base.eth" }],
     }],
     ["**/api/basename-profile**", basenameProfileBody],
+    [`**/api/invest/asset?assetId=base%3A${nonTrendingAddress}`, assetResolutionFixture(`base:${nonTrendingAddress}`)],
     ...[...new Set(["BTC", "Bitcoin", "cbBTC", "AAPL", "Apple", "AAPLc", "ORB", "Orbit", nonTrendingAddress, "nothing-found", "partial"].flatMap((query) => [query, query.toLowerCase()]))].map((query) => [`**/api/invest/search?q=${query}`, searchFixture(query)] as const),
   ] as const;
 }

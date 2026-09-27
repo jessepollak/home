@@ -2,7 +2,7 @@ import "@/client/account/dom-test-harness";
 import { page } from "@/tests/helpers/dom";
 import { getHomeQueryClient } from "@/client/query/query-client";
 import { afterEach, describe, expect, test } from "bun:test";
-import { searchFixture, nonTrendingAddress } from "@/tests/browser/feature-map/search-fixtures";
+import { assetResolutionFixture, searchFixture, nonTrendingAddress } from "@/tests/browser/feature-map/search-fixtures";
 
 const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { renderToString } = await import("react-dom/server");
@@ -102,7 +102,7 @@ describe("Invest search", () => {
   test("restores results after detail Back and resolves non-trending deep link", async () => {
     globalThis.fetch = (async (input) => {
       const url = new URL(String(input), "http://localhost");
-      return url.pathname.includes("/search") ? Response.json(searchFixture(url.searchParams.get("q") ?? "")) : Response.json({ version: 1, provider: "codex", assetId: `base:${nonTrendingAddress}`, range: "1W", currency: "USD", fetchedAt: null, status: "empty", points: [] });
+      return url.pathname === "/api/invest/asset" ? Response.json(assetResolutionFixture(url.searchParams.get("assetId") ?? "")) : url.pathname.includes("/search") ? Response.json(searchFixture(url.searchParams.get("q") ?? "")) : Response.json({ version: 1, provider: "codex", assetId: `base:${nonTrendingAddress}`, range: "1W", currency: "USD", fetchedAt: null, status: "empty", points: [] });
     }) as typeof fetch;
     render(<InvestExperience />);
     fireEvent.change(page().getByRole("textbox", { name: "Search assets" }), { target: { value: "ORB" } });
