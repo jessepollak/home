@@ -52,6 +52,10 @@ The report has three parts. **Detectors** counts every scoped fix commit by its 
 
 The **caught-by report** CI job writes the pull-request-range report to the run summary, and the **Caught-by weekly** workflow posts the trailing 7-day report as a comment on the open `Caught-by weekly report` issue, creating one when no open issue exists and pinning it when possible. Both are informational; neither fails a build.
 
+## Storybook review links
+
+The **Storybook review links** workflow (`.github/workflows/storybook-review-links.yml`) rewrites the Storybook links in a PR's `## Preview` for the current head when the `home-storybook` preview deployment succeeds and when the PR body changes ([Storybook links](ui-pr-previews.md#storybook-links)). It never checks out pull-request code: the script always comes from the default branch. For `deployment_status`, GitHub reads the workflow file at the deployed commit, so a branch that predates the workflow is updated only on body edits until it is rebased. It is informational: problems are warnings, never a red check.
+
 ## Browser-smoke boundary
 
 The current **Chromium smoke** job runs the per-surface fixture-backed Playwright suite (`apps/web/tests/browser/*.pw.ts`, with shared responses under `fixtures/`) in GitHub Actions for every pull request and every push to `main`. It starts a CI-local fixture server; it does not exercise the hosted Vercel preview deployment.
