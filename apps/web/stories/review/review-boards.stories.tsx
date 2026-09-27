@@ -8,9 +8,11 @@ import borrowIllustrationJson from "./boards/borrow-illustration.json";
 import savingsJson from "./boards/savings.json";
 import investmentsJson from "./boards/investments.json";
 import glassNavigationJson from "./boards/glass-navigation.json";
+import investAssetDetailJson from "./boards/invest-asset-detail.json";
 
 const build = readReviewBuild(import.meta.env);
 const savings = parseBoard(savingsJson);
+const investAssetDetail = parseBoard(investAssetDetailJson);
 const borrowIllustration = parseBoard(borrowIllustrationJson);
 const investments = parseBoard(investmentsJson);
 const glassNavigation = parseBoard(glassNavigationJson);
@@ -31,6 +33,7 @@ type Story = StoryObj<typeof meta>;
 
 export const Changes: Story = { tags: ["!test", "review-board"], args: { board: "changes", build } };
 export const Savings: Story = { tags: ["!test", "review-board"], args: { board: savings, build } };
+export const InvestAssetDetail: Story = { tags: ["!test", "review-board"], args: { board: investAssetDetail, build } };
 export const BorrowIllustration: Story = { tags: ["!test", "review-board"], args: { board: borrowIllustration, build } };
 export const Investments: Story = { tags: ["!test", "review-board"], args: { board: investments, build } };
 export const GlassNavigation: Story = { tags: ["!test", "review-board"], args: { board: glassNavigation, build } };

@@ -1,9 +1,5 @@
-# Invest asset detail exploration
+# Invest asset detail
 
-- Exploration (#938, unreviewed; Jesse chose the full-bleed direction, Option A, and its round-5 refinement is not yet reviewed): `Explorations/Invest asset detail` (`explorations-invest-asset-detail--*`).
-  - Option A: `option-a-crypto`, `option-a-stock`, `option-a-meme`, `option-a-stock-held`, `option-a-desktop`, `option-a-narrow`, `option-a-local-currency`, `configured-meme-unheld`.
-  - Stats, including the proposed market-stats fixtures: `stats-proposed-contract`, `stats-meme-liquidity`, `stats-partial-history`.
-  - Interaction: `asset-interaction-option-a`, `range-switch-back`, `range-switch-rapid`, `range-refetch-replaces-plot`, `prefetch-after-early-switch`, `scrub-cursor`, `trade-bar-scroll`, `trade-bar-reduced-motion`, `motion-study`.
-  - Entry: `discover-entry` and `holding-entry`. They record entry and Back as actions; Home routing and browser history are verified at adoption under browser validation.
-  - Data states: `state-*`.
-- The component lives in `apps/web/client/invest/explorations/` and production never imports it. Its proposed market-stats prop is not a production contract.
+Jesse selected the full-bleed Option A direction in #938. `apps/web/client/invest/asset-detail-screen.tsx` adopts it on the real Invest route; the selected Figma frame is `422:4404`. The earlier PriceChart mapping at `166:1959` is superseded.
+
+The production `Invest/Asset detail` stories exercise crypto, stock, dynamic Base meme, held and unheld balances, localized quotes, market stats, empty/stale/slow/error history, chart scrub and range interactions, motion preferences, and the pinned trade bar. `Journeys/Invest asset detail` opens from Discover and a holding row, then returns focus to the opener. Review the grouped frames at `review-boards--invest-asset-detail` (manifest `apps/web/stories/review/boards/invest-asset-detail.json`). Stories use synthetic wallet and MSW market data; they do not replace verification on the real Invest route.

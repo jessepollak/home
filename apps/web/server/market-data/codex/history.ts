@@ -69,6 +69,7 @@ type CacheEntry = {
 
 export const CODEX_HISTORY_CACHE_MAX_ENTRIES = 64;
 export const CODEX_HISTORY_MAX_IN_FLIGHT = 8;
+export const CODEX_HISTORY_SPECULATIVE_CAPACITY_FRACTION = 0.5;
 
 export function createCodexMarketHistoryReader({
   apiKey,
@@ -85,6 +86,7 @@ export function createCodexMarketHistoryReader({
   return async function readCodexMarketHistory(
     assetId: string,
     range: string,
+    options: { speculative?: boolean } = {},
   ): Promise<MarketPriceHistoryResponse> {
     const identity = resolveMarketPriceAssetIdentity(assetId);
     if (!isMarketPriceRange(range)) {
@@ -123,7 +125,10 @@ export function createCodexMarketHistoryReader({
     }
     const pending = inFlight.get(cacheKey);
     if (pending) return pending;
-    if (inFlight.size >= maxInFlight) {
+    const capacity = options.speculative
+      ? Math.floor(maxInFlight * CODEX_HISTORY_SPECULATIVE_CAPACITY_FRACTION)
+      : maxInFlight;
+    if (inFlight.size >= capacity) {
       return createHistoryResponse({
         assetId: identity.assetId,
         range,
@@ -201,13 +206,14 @@ let sharedKey: string | undefined;
 export function getCodexMarketHistory(
   assetId: string,
   range: string,
+  options: { speculative?: boolean } = {},
 ): Promise<MarketPriceHistoryResponse> {
   const apiKey = process.env.CODEX_API_KEY;
   if (!sharedReader || sharedKey !== apiKey) {
     sharedKey = apiKey;
     sharedReader = createCodexMarketHistoryReader({ apiKey });
   }
-  return sharedReader(assetId, range);
+  return sharedReader(assetId, range, options);
 }
 
 async function fetchHistory({

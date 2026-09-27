@@ -17,6 +17,7 @@ export {
   formatPresentationTokenAmount,
   formatPresentationTokenAmountParts,
   formatSignedPercentChange,
+  formatTrimmedChartPrice,
   formatUnsignedTokenAmount,
   formatUsdStablecoinAmount,
   formatWadPercent,

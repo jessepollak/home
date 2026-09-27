@@ -113,7 +113,16 @@ The search field at the top of Invest discovery calls the public `GET /api/inves
 - **Detail deep links.** A `base:0x…` detail URL that is not in the trending catalog resolves on reload through the same endpoint, using the contract as the query. Chart history for that identity is admitted only by server reads (see [Codex prices](codex-prices.md#public-contracts)), never by client-supplied metadata.
 - **Read-only identity.** A search result, provider name, symbol, image, or decimals grants no trade eligibility, quote, or signing authority. Trade availability and stock eligibility still come from their existing server gates, and holdings exits are unchanged. Search applies no liquidity floor or curated admission gate. Operator discovery visibility (#923) does not exist yet, so search applies no extra visibility filter.
 
+## Asset detail market statistics
+
+Market price history reserves half of the Codex reader's in-flight capacity for active range reads; speculative chart and Stats reads reuse cached or pending history but cannot fill the reserved slots. When a range is selected while its speculative read is still pending, the client cancels that read and refetches at active priority, so the selected chart never inherits a speculative overload rejection.
+
+The read-only `GET /api/market-prices/stats?assetId=...` reads Codex market cap, 24-hour volume, and liquidity for Base tokens in USD. A dynamic `base:0x…` identity is admitted by the same server check as chart history ([Codex prices](codex-prices.md#public-contracts)), so a search-only token that shows a chart also shows its stats. Missing or invalid values are omitted. Tokenized stocks are unsupported because a DEX token market cap is not the company's market cap. The Past 24h and Past year ranges are drawn from the chart history's candle closes and are labelled as closing prices, not intraperiod highs and lows. These display statistics provide no trade authority; only a server-validated executable quote can authorize a trade.
+
+Asset detail shows a held position from the wallet balances read: the exact token quantity and, for crypto and memes, the priced value. A failed balances read shows the balance as unavailable, never zero. An asset absent from a snapshot counts as unheld only when the relevant inventory coverage is complete (the configured registry for listed assets, the wallet catalog for dynamic memes); otherwise the balance is unavailable. Opening an owned holding from Home Investments shows that holding's balance card in the same position slot below the chart. Tokenized-stock positions show their quantity with the value explicitly unavailable until the stock holding valuation lands; the Codex USD market chart is never used as a stock holding value. No return, profit or loss, or cost basis is shown.
+
 ## Caller-supplied market snapshots
+
 
 `InvestExperience` accepts separate stock, meme, and crypto `MarketDataState` values. A ready snapshot carries:
 

@@ -6,11 +6,10 @@ import { HomeSectionHeading } from "@/client/home/home-overview";
 import { presentPortfolioAssetMark } from "@/client/asset-mark/presentation";
 import { ShimmerRows } from "@/client/home/panel-shared";
 import { CurrencyMark, GlyphMark } from "@/components/currency-mark";
-import { PriceChart } from "@/client/invest/price-chart";
+import { AssetChart, useChartClock } from "@/client/invest/asset-chart";
 import { marketForAsset } from "@/client/invest/discover";
 import { useMarketDisplay } from "@/client/invest/use-market-display";
 import { useMarketPrices } from "@/client/invest/use-market-prices";
-import { usePriceHistory } from "@/client/invest/use-price-history";
 import { TradeActions } from "@/client/trading/trade-actions";
 import { BalanceRow } from "@/components/finance-rows";
 import { MoneyTicker } from "@/components/money-ticker";
@@ -197,13 +196,13 @@ function CatalogMarketDetail({ asset, row, snapshot, memeMarket, marketNow }: { 
   const [range, setRange] = useState<MarketPriceRange>("1W");
   const market = useMarketPrices({ now: marketNow });
   const price = useMarketDisplay(asset.id, marketForAsset(asset, { ...market, memeMarket: memeMarket ?? market.memeMarket }));
-  const history = usePriceHistory(asset.id, range);
+  const clock = useChartClock();
   const change = price.changeLabel ?? "—";
   const tone = moneyChangeTone(change);
   return <>
     <div className="@container space-y-1"><p className="text-sm text-muted-foreground">Price</p><strong className={price.tone === "ready" ? "block text-2xl @2xs:text-3xl @xs:text-4xl font-semibold tabular-nums" : "block text-lg font-semibold text-muted-foreground"}>{price.tone === "ready" ? <MoneyTicker align="start" reserveDigits={false} value={price.value} /> : price.detail}</strong>{change !== "—" ? <p className={`text-sm ${tone === "positive" ? "text-market-gain" : tone === "negative" ? "text-market-loss" : "text-muted-foreground"}`}>{change}</p> : null}<p className="text-sm text-muted-foreground">{asset.representation.tokenSymbol} · Base</p></div>
     <OwnedBalanceCard row={row} snapshot={snapshot} />
-    <PriceChart range={range} history={history} onRangeChange={setRange} />
+    <AssetChart key={asset.id} assetId={asset.id} range={range} onRangeChange={setRange} clock={clock} onReadout={() => {}} onResting={() => {}} />
     <TradeActions asset={asset} layout="sticky" />
   </>;
 }

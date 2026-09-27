@@ -663,6 +663,22 @@ export function formatChartPrice(
   );
 }
 
+export function formatTrimmedChartPrice(
+  value: DecimalInput,
+  options: { regionId?: RegionId; currency?: string } = {},
+): string {
+  const formatted = formatChartPrice(value, options);
+  const decimal = parseDecimal(value);
+  if (!decimal || isLessThan({ ...decimal, negative: false }, "1000")) return formatted;
+  const separator = cachedNumberFormat(presentationLocale(options.regionId ?? "GLOBAL"))
+    .formatToParts(1.5).find((part) => part.type === "decimal")?.value ?? ".";
+  const escaped = separator.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return formatted.replace(
+    new RegExp(`(\\d)${escaped}(\\d*?)0+(?!\\d)`),
+    (_, digit: string, kept: string) => kept ? `${digit}${separator}${kept}` : digit,
+  );
+}
+
 export function formatPercentage(
   value: number | null | undefined,
   regionId: RegionId = "GLOBAL",
