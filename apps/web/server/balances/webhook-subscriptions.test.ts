@@ -1,4 +1,7 @@
+import { randomBytes } from "node:crypto";
 import { describe, expect, test } from "bun:test";
+import { resolveSecretKeyring } from "@/server/secrets/at-rest";
+import { openWebhookSecret } from "./webhook-secret";
 import {
   MemoryWebhookSubscriptionStore,
   type WebhookSubscriptionStore,
@@ -7,22 +10,30 @@ import { CDP_WEBHOOK_SUBSCRIPTIONS_PATH, createCdpWebhookSubscriptions, deployme
 
 const ADDRESS = "0x1111111111111111111111111111111111111111" as const;
 const OTHER = "0x2222222222222222222222222222222222222222" as const;
-const env = { CDP_API_KEY_ID: "key", CDP_API_KEY_SECRET: "api-value", HOME_WEBHOOK_ORIGIN: "https://home.example" };
+const env = { CDP_API_KEY_ID: "key", CDP_API_KEY_SECRET: "api-value", HOME_WEBHOOK_ORIGIN: "https://home.example", HOME_SECRET_ENCRYPTION_KEY: randomBytes(32).toString("base64url"), HOME_SECRET_KEY_VERSION: "1" };
+const resolved = resolveSecretKeyring(env);
+if (!resolved.ok) throw new Error("invalid fixture key");
+const keyring = resolved.keyring;
 const jwt = async () => "fixture.jwt";
 
-function persistentStore(subscriptionIds: string[] = []): WebhookSubscriptionStore {
-  const memory = new MemoryWebhookSubscriptionStore();
+function persistentStore(subscriptionIds: string[] = [], legacy = false): WebhookSubscriptionStore {
+  const memory = new MemoryWebhookSubscriptionStore(keyring);
   const seeded = subscriptionIds.map((subscriptionId) => ({
     subscriptionId,
     secret: "fixture-secret",
     target: "https://home.example/api/webhooks/cdp",
     eventType: "wallet_activity",
   }));
-  const ready = Promise.all(seeded.map((record) => memory.insert(record)));
+  const ready = Promise.all(seeded.map((record) => legacy ? Promise.resolve(memory.seedLegacyForTests(record)) : memory.insert(record)));
   return {
     persistent: true,
+    sealing: memory.sealing,
     insert: async (record) => { await ready; await memory.insert(record); },
     list: async () => { await ready; return memory.list(); },
+    listForRotation: async (version, cursor, limit) => { await ready; return memory.listForRotation(version, cursor, limit); },
+    replaceCredentialIf: async (id, expected, replacement) => { await ready; return memory.replaceCredentialIf(id, expected, replacement); },
+    countStates: async (version) => { await ready; return memory.countStates(version); },
+    delete: async (id) => { await ready; return memory.delete(id); },
   };
 }
 
@@ -37,6 +48,76 @@ function subscription(addresses: string[] = [OTHER]) {
 }
 
 describe("CDP balance webhook subscriptions", () => {
+  test("unreadable local secret blocks creation without disclosing it", async () => {
+    const failures: string[] = [];
+    const requests: string[] = [];
+    const manager = createCdpWebhookSubscriptions({
+      env, store: persistentStore(["subscription-1"]), keyring: null,
+      generateJwtImpl: jwt as never, logFailure: (reason) => failures.push(reason),
+      fetchImpl: async (_input, init) => { requests.push(init?.method ?? "GET"); return Response.json({ subscriptions: [subscription()] }); },
+    });
+    await expect(manager.ensureAddressSubscribed(ADDRESS)).resolves.toBeUndefined();
+    await expect(manager.ensureAddressSubscribed(ADDRESS)).resolves.toBeUndefined();
+    expect(requests).toEqual(["GET"]);
+    expect(failures).toEqual(["subscription-unverifiable", "subscription-secret-unreadable"]);
+  });
+
+  test("deleting an unreadable local row after provider deletion allows a fresh sealed registration", async () => {
+    const store = persistentStore(["subscription-1"]);
+    const requests: string[] = [];
+    let providerDeleted = false;
+    const fetchImpl = async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      requests.push(method);
+      return method === "POST"
+        ? Response.json({ subscriptionId: "new-subscription", secret: "fresh-signing-secret" })
+        : Response.json({ subscriptions: providerDeleted ? [] : [subscription()] });
+    };
+    const unreadable = createCdpWebhookSubscriptions({ env, store, keyring: null, generateJwtImpl: jwt as never, fetchImpl });
+    await expect(unreadable.ensureAddressSubscribed(ADDRESS)).resolves.toBeUndefined();
+    expect(requests).toEqual(["GET"]);
+    providerDeleted = true;
+    expect(await store.delete("subscription-1")).toBe(1);
+    const reset = createCdpWebhookSubscriptions({ env, store, generateJwtImpl: jwt as never, fetchImpl });
+    await expect(reset.ensureAddressSubscribed(ADDRESS)).resolves.toBeUndefined();
+    expect(requests).toEqual(["GET", "GET", "POST"]);
+    const [created] = await store.list();
+    expect(created?.subscriptionId).toBe("new-subscription");
+    expect(created?.credential.kind).toBe("envelope");
+    expect(openWebhookSecret(keyring, created!)).toEqual({ ok: true, secret: "fresh-signing-secret" });
+    expect(JSON.stringify(created)).not.toContain("fresh-signing-secret");
+  });
+
+  test("no keyring blocks creation before the provider POST", async () => {
+    const failures: string[] = [];
+    const requests: string[] = [];
+    const store = { ...persistentStore(), sealing: false };
+    const manager = createCdpWebhookSubscriptions({
+      env, store, keyring: null, generateJwtImpl: jwt as never,
+      logFailure: (reason) => failures.push(reason),
+      fetchImpl: async (_input, init) => { requests.push(init?.method ?? "GET"); return Response.json({ subscriptions: [] }); },
+    });
+    await expect(manager.ensureAddressSubscribed(ADDRESS)).resolves.toBeUndefined();
+    await expect(manager.ensureAddressSubscribed(ADDRESS)).resolves.toBeUndefined();
+    expect(requests).toEqual(["GET"]);
+    expect(failures).toEqual(["subscription-encryption-unavailable"]);
+  });
+
+  test("legacy plaintext subscriptions still receive address updates without a keyring", async () => {
+    const requests: string[] = [];
+    let updated = false;
+    const manager = createCdpWebhookSubscriptions({
+      env, store: persistentStore(["subscription-1"], true), keyring: null, generateJwtImpl: jwt as never,
+      fetchImpl: async (_input, init) => {
+        const method = init?.method ?? "GET";
+        requests.push(method);
+        if (method === "PUT") updated = true;
+        return Response.json({ subscriptions: [subscription(updated ? [OTHER, ADDRESS] : [OTHER])] });
+      },
+    });
+    await manager.ensureAddressSubscribed(ADDRESS);
+    expect(requests).toEqual(["GET", "GET", "PUT", "GET"]);
+  });
   test("re-lists before PUT and confirms the address after a successful update", async () => {
     const requests: string[] = [];
     let updated = false;
@@ -55,7 +136,8 @@ describe("CDP balance webhook subscriptions", () => {
     expect(requests).toEqual(["GET", "GET", "PUT", "GET"]);
   });
 
-  test("creates a subscription and persists its one-time signing SECRET when no candidate has room", async () => {
+  test("creates a subscription and persists its one-time signing secret as an envelope when no candidate has room", async () => {
+    const plaintext = "one-time-value";
     const store = persistentStore();
     const requests: Array<{ method: string; body: unknown }> = [];
     const manager = createCdpWebhookSubscriptions({
@@ -66,7 +148,7 @@ describe("CDP balance webhook subscriptions", () => {
         const method = init?.method ?? "GET";
         requests.push({ method, body: init?.body ? JSON.parse(String(init.body)) : null });
         return method === "POST"
-          ? Response.json({ subscriptionId: "new-subscription", secret: "one-time-value" })
+          ? Response.json({ subscriptionId: "new-subscription", secret: plaintext })
           : Response.json({ subscriptions: [] });
       },
     });
@@ -80,8 +162,10 @@ describe("CDP balance webhook subscriptions", () => {
     });
     expect(await store.list()).toEqual([expect.objectContaining({
       subscriptionId: "new-subscription",
-      secret: "one-time-value",
+      credential: expect.objectContaining({ kind: "envelope" }),
     })]);
+    expect(openWebhookSecret(keyring, (await store.list())[0]!)).toEqual({ ok: true, secret: plaintext });
+    expect(JSON.stringify(await store.list())).not.toContain(plaintext);
   });
 
 
@@ -202,7 +286,7 @@ describe("CDP balance webhook subscriptions", () => {
     let calls = 0;
     const manager = createCdpWebhookSubscriptions({
       env,
-      store: new MemoryWebhookSubscriptionStore(),
+      store: new MemoryWebhookSubscriptionStore(null),
       fetchImpl: async () => { calls += 1; return Response.json({}); },
       logFailure: (reason) => failures.push(reason),
     });

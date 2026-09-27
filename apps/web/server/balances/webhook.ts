@@ -3,7 +3,9 @@ import "server-only";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { emitServerEvent } from "@/server/observability/log";
 import type { BalanceSnapshotStore } from "./snapshot-store";
-import type { WebhookSubscriptionRecord, WebhookSubscriptionStore } from "./webhook-subscription-store";
+import type { SecretKeyring } from "@/server/secrets/at-rest";
+import { openWebhookSecret } from "./webhook-secret";
+import type { WebhookSubscriptionStore } from "./webhook-subscription-store";
 
 const SIGNATURE_MAX_AGE_SECONDS = 5 * 60;
 const SUBSCRIPTION_CACHE_MS = 60_000;
@@ -14,16 +16,26 @@ const ACTIVITY_EVENTS = new Set(["wallet.activity.detected", "wallet.activity.mu
 export function createCdpWebhookHandler(dependencies: {
   store: Pick<BalanceSnapshotStore, "markStaleMany">;
   subscriptions: Pick<WebhookSubscriptionStore, "list">;
+  keyring: SecretKeyring | null;
   now?: () => Date;
 }) {
   const now = dependencies.now ?? (() => new Date());
-  let cached: { at: number; records: WebhookSubscriptionRecord[] } | null = null;
+  let cached: { at: number; records: Array<{ subscriptionId: string; secret: string }> } | null = null;
   let lastForcedListAt = Number.NEGATIVE_INFINITY;
 
-  async function subscriptions(force = false): Promise<WebhookSubscriptionRecord[]> {
+  async function subscriptions(force = false): Promise<Array<{ subscriptionId: string; secret: string }>> {
     const current = now().getTime();
     if (!force && cached && current - cached.at <= SUBSCRIPTION_CACHE_MS) return cached.records;
-    const records = await dependencies.subscriptions.list();
+    const rows = await dependencies.subscriptions.list();
+    let unreadable = false;
+    const records = rows.flatMap((row) => {
+      const opened = openWebhookSecret(dependencies.keyring, row);
+      if (!opened.ok) { unreadable = true; return []; }
+      return [{ subscriptionId: row.subscriptionId, secret: opened.secret }];
+    });
+    if (unreadable) emitServerEvent("balances-webhook", {
+      route: "/api/webhooks/cdp", code: "WEBHOOK_SECRET_UNREADABLE", outcome: "unavailable", durationMs: 0,
+    });
     cached = { at: current, records };
     return records;
   }

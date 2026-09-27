@@ -3,13 +3,16 @@ import { getBalanceSnapshotStore } from "@/server/balances/snapshot-store";
 import { getWebhookSubscriptionStore } from "@/server/balances/webhook-subscription-store";
 import { readBoundedWebhookBody } from "@/server/funding/core/webhook-body";
 import { emitServerEvent } from "@/server/observability/log";
+import { resolveSecretKeyring } from "@/server/secrets/at-rest";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const resolvedKeyring = resolveSecretKeyring(process.env);
 const handleWebhook = createCdpWebhookHandler({
   store: getBalanceSnapshotStore(),
   subscriptions: getWebhookSubscriptionStore(),
+  keyring: resolvedKeyring.ok ? resolvedKeyring.keyring : null,
 });
 
 export async function POST(request: Request): Promise<Response> {
