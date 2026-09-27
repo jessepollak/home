@@ -17,6 +17,7 @@ import { InputGroupAddon } from "@/components/ui/input-group";
 import { Input } from "@/components/ui/input";
 import type { AssetMarkPresentation } from "@/client/asset-mark/presentation";
 import { usePresentationRegionId } from "@/client/invest/presentation-quote";
+import type { RegionId } from "@/config/regions";
 import { decimalSeparatorForLocale, normalizeTypedAmount, parsePastedAmount } from "./amount-input";
 import {
   amountExceedsCeiling,
@@ -26,15 +27,15 @@ import {
   formatChipLabel,
   formatPrimaryAmount,
   formatPrimaryAmountUnit,
-  formatSecondaryAmount,
   isAvailablePositive,
-  isIdentityPricing,
-  moneyAssetPricing,
+  fiatToNative,
+  nativeToFiat,
+  moneyAmountUnit,
+  displayCurrencyForRegion,
   parseAvailableDecimal,
-  resolvePrimaryUnit,
-  type MoneyAssetPricing,
+  type MoneyAmountUnit,
+  type MoneyAssetPrice,
   type MoneyChipSet,
-  type MoneyPrimaryUnit,
 } from "./amount-units";
 
 const AMOUNT_MIN_FONT_PROPERTY = "--money-amount-min-size";
@@ -82,11 +83,26 @@ export function fitAmountFontSize(
   return Math.min(baseFontSize, Math.max(minFontSize, scaled));
 }
 
-export function useAutoFitAmountText(text: string) {
-  const containerRef = useRef<HTMLLabelElement>(null);
+export function fitAmountText(available: number, natural: number, base: number, min: number): { fontSize: number; overflows: boolean } {
+  const fitted = available * AMOUNT_FIT_SAFETY_FACTOR;
+  const rounded = Math.floor(fitAmountFontSize(fitted, natural, base, min) * 10) / 10;
+  return {
+    fontSize: rounded,
+    overflows: natural * min / base > available,
+  };
+}
+
+export function useAutoFitAmountText<T extends HTMLElement = HTMLLabelElement>(
+  text: string,
+  options: { minRem?: number } = {},
+) {
+  const { minRem } = options;
+  const containerRef = useRef<T>(null);
   const sizerRef = useRef<HTMLSpanElement>(null);
   const [fontSize, setFontSize] = useState<number | undefined>(undefined);
+  const [overflows, setOverflows] = useState(false);
   const lastWidthRef = useRef(-1);
+  const lastNaturalWidthRef = useRef(-1);
 
   const measure = useCallback(() => {
     const container = containerRef.current;
@@ -101,18 +117,24 @@ export function useAutoFitAmountText(text: string) {
     const available = container.clientWidth - horizontalPadding;
     const base = Number.parseFloat(window.getComputedStyle(sizer).fontSize);
     const natural = sizer.getBoundingClientRect().width;
+    lastNaturalWidthRef.current = natural;
     if (available <= 0 || natural <= 0 || !Number.isFinite(base) || base <= 0) return;
     const minRaw = computed.getPropertyValue(AMOUNT_MIN_FONT_PROPERTY);
-    const min = Number.parseFloat(minRaw) || AMOUNT_MIN_FONT_SIZE_FALLBACK;
-    const fitted = available * AMOUNT_FIT_SAFETY_FACTOR;
-    const target = Math.floor(fitAmountFontSize(fitted, natural, base, min) * 10) / 10;
+    const min = minRem === undefined
+      ? Number.parseFloat(minRaw) || AMOUNT_MIN_FONT_SIZE_FALLBACK
+      : minRem * Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize);
+    const fit = fitAmountText(available, natural, base, min);
+    const target = minRem === undefined ? fit.fontSize : Math.max(min, fit.fontSize);
 
+    setOverflows(fit.overflows);
     setFontSize((current) =>
-      current !== undefined && Math.abs(current - target) < AMOUNT_FIT_TOLERANCE_PX
+      current !== undefined
+        && Math.abs(current - target) < AMOUNT_FIT_TOLERANCE_PX
+        && (minRem === undefined || current >= min)
         ? current
         : target,
     );
-  }, []);
+  }, [minRem]);
 
   useLayoutEffect(() => {
     const container = containerRef.current;
@@ -122,9 +144,11 @@ export function useAutoFitAmountText(text: string) {
     let observer: ResizeObserver | undefined;
     if (typeof ResizeObserver !== "undefined") {
       observer = new ResizeObserver(() => {
-        if (container.clientWidth !== lastWidthRef.current) measure();
+        if (container.clientWidth !== lastWidthRef.current
+          || sizer.getBoundingClientRect().width !== lastNaturalWidthRef.current) measure();
       });
       observer.observe(container);
+      observer.observe(sizer);
     }
     const rootStyleObserver = typeof MutationObserver === "undefined"
       ? undefined
@@ -135,7 +159,8 @@ export function useAutoFitAmountText(text: string) {
     });
 
     let active = true;
-    const fonts = (document as Document & { fonts?: { ready?: Promise<unknown> } }).fonts;
+    const fonts = document.fonts;
+    fonts?.addEventListener?.("loadingdone", measure);
     fonts?.ready?.then(() => {
       if (active) measure();
     }).catch(() => {});
@@ -144,6 +169,7 @@ export function useAutoFitAmountText(text: string) {
       active = false;
       observer?.disconnect();
       rootStyleObserver?.disconnect();
+      fonts?.removeEventListener?.("loadingdone", measure);
     };
   }, [measure]);
 
@@ -151,21 +177,23 @@ export function useAutoFitAmountText(text: string) {
     measure();
   }, [measure, text]);
 
-  return { containerRef, sizerRef, fontSize };
+  return { containerRef, sizerRef, fontSize, overflows };
 }
 
-export function useMoneyAssetPricing(assetSymbol: string): MoneyAssetPricing {
-  return moneyAssetPricing(assetSymbol, usePresentationRegionId());
+export function useMoneyAmountUnit(assetCashCurrency: string | null | undefined, price?: MoneyAssetPrice | null, regionId?: RegionId): MoneyAmountUnit {
+  const contextRegionId = usePresentationRegionId();
+  return moneyAmountUnit(assetCashCurrency, displayCurrencyForRegion(regionId ?? contextRegionId), price);
 }
 
 export function MoneyAmountDisplay({
   amount,
   onAmountChange,
+  onMaxSelect,
   maxDecimals,
   overAvailable = false,
+  amountError,
   onSubmit,
   disabled = false,
-  autoFocus = true,
   children,
   availableLabel,
   availableAmount,
@@ -177,19 +205,18 @@ export function MoneyAmountDisplay({
   onAssetChange,
   assetLocked = false,
   chipSet = "none",
-  pricing,
+  unit,
   nativeSymbol,
-  fiatCurrency,
-  initialUnit = "local",
   assetControl = "body",
 }: {
   amount: string;
   onAmountChange?: (value: string) => void;
+  onMaxSelect?: () => void;
   maxDecimals: number;
   overAvailable?: boolean;
+  amountError?: string;
   onSubmit?: () => void;
   disabled?: boolean;
-  autoFocus?: boolean;
   children?: ReactNode;
   availableLabel?: string;
   availableAmount?: string | null;
@@ -201,31 +228,43 @@ export function MoneyAmountDisplay({
   onAssetChange?: (assetId: string) => void;
   assetLocked?: boolean;
   chipSet?: MoneyChipSet;
-  pricing: MoneyAssetPricing;
+  unit: MoneyAmountUnit;
   nativeSymbol: string;
-  fiatCurrency?: string;
-  initialUnit?: MoneyPrimaryUnit;
   assetControl?: "body" | "header";
 }) {
-  const [requestedUnit, setRequestedUnit] = useState<MoneyPrimaryUnit>(initialUnit);
-  const lastAssetId = useRef(assetId);
+  const [entryState, setEntryState] = useState<{
+    assetId?: string;
+    unitKind: MoneyAmountUnit["kind"];
+    mode: "native" | "fiat";
+    fiatEntry?: { entry: string; native: string; price: string };
+  }>({ assetId, unitKind: unit.kind, mode: "native" });
+  if (entryState.assetId !== assetId || entryState.unitKind !== unit.kind) {
+    setEntryState({ assetId, unitKind: unit.kind, mode: "native" });
+  }
+  const mode = unit.kind === "convertible" && entryState.assetId === assetId && entryState.unitKind === unit.kind
+    ? entryState.mode : "native";
+  const priceKey = unit.kind === "convertible" ? `${unit.currency}:${unit.perUnit.atoms}:${unit.perUnit.scale}` : "";
+  const primaryUnit: MoneyAmountUnit = unit.kind === "convertible" && mode === "native" ? { kind: "native" } : unit;
+  const fiatEntry = unit.kind === "convertible" && mode === "fiat" && entryState.fiatEntry?.native === amount && entryState.fiatEntry.price === priceKey
+    ? entryState.fiatEntry.entry
+    : unit.kind === "convertible" ? nativeToFiat(amount, unit.perUnit) : "";
+  const primaryAmount = unit.kind === "convertible" && mode === "fiat" ? fiatEntry : amount;
+  const setFiatAmount = (entry: string) => {
+    if (unit.kind !== "convertible") return;
+    const native = fiatToNative(entry, unit.perUnit, maxDecimals);
+    setEntryState({ assetId, unitKind: unit.kind, mode: "fiat", fiatEntry: { entry, native, price: priceKey } });
+    onAmountChange?.(native);
+  };
   const availableId = useId();
-  const primaryUnit = isIdentityPricing(pricing)
-    ? resolvePrimaryUnit(pricing, requestedUnit)
-    : "native";
   const maxAmount = availableAmount ?? parseAvailableDecimal(availableLabel ?? "");
-  const availableLine = formatAvailableLine(availableLabel, primaryUnit, pricing, nativeSymbol);
+  const availableLine = formatAvailableLine(availableLabel, unit, nativeSymbol);
   const labelAmount = parseAvailableDecimal(availableLabel ?? "");
   const ceilingDiffers = Boolean(maxAmount && labelAmount && (amountExceedsCeiling(labelAmount, maxAmount) || amountExceedsCeiling(maxAmount, labelAmount)));
-  const ceilingLine = ceilingDiffers && maxAmount ? formatAvailableDecimal(maxAmount, primaryUnit, pricing, nativeSymbol) : undefined;
-  const secondary = formatSecondaryAmount(amount, primaryUnit, pricing, nativeSymbol);
-
-  useEffect(() => {
-    if (lastAssetId.current === assetId) return;
-    lastAssetId.current = assetId;
-    setRequestedUnit("local");
-  }, [assetId]);
-
+  const ceilingLine = ceilingDiffers && maxAmount ? formatAvailableDecimal(maxAmount, unit, nativeSymbol) : undefined;
+  const secondaryNative = amount === "" ? "0" : amount;
+  const secondary = unit.kind === "convertible"
+    ? mode === "fiat" ? `${secondaryNative} ${nativeSymbol}` : `≈ ${formatPrimaryAmount(nativeToFiat(secondaryNative, unit.perUnit), { kind: "fiat", currency: unit.currency })}`
+    : "";
   return (
     <div className="flex min-h-full w-full flex-col items-center gap-3 py-3">
       {assetControl === "body" && assetLabel ? (
@@ -240,29 +279,26 @@ export function MoneyAmountDisplay({
         />
       ) : null}
       <MoneyPrimaryAmount
-        amount={amount}
-        onAmountChange={onAmountChange}
-        maxDecimals={maxDecimals}
+        amount={primaryAmount}
+        onAmountChange={onAmountChange ? mode === "fiat" && unit.kind === "convertible" ? setFiatAmount : onAmountChange : undefined}
+        maxDecimals={mode === "fiat" ? 2 : maxDecimals}
         onSubmit={onSubmit}
         disabled={disabled}
-        autoFocus={autoFocus}
         focusKey={assetId}
-        availableId={availableLine ? availableId : undefined}
-        overAvailable={overAvailable}
+        availableId={availableLine || amountError ? availableId : undefined}
+        overAvailable={overAvailable || Boolean(amountError)}
         unit={primaryUnit}
-        pricing={pricing}
-        fiatCurrency={fiatCurrency}
         nativeSymbol={nativeSymbol}
       />
-      {availableLine ? (
-        <p id={availableId} aria-live="polite" className={`text-center text-sm ${overAvailable ? "text-destructive" : "text-muted-foreground"}`}>
-          {overAvailable ? `Only ${ceilingLine ?? availableLine}` : availableLine}
+      {availableLine || amountError ? (
+        <p id={availableId} aria-live="polite" className={`text-center text-sm ${overAvailable || amountError ? "text-destructive" : "text-muted-foreground"}`}>
+          {amountError ?? (overAvailable ? `Only ${ceilingLine ?? availableLine}` : availableLine)}
         </p>
       ) : null}
-      {isIdentityPricing(pricing) ? (
+      {unit.kind === "convertible" ? (
         <MoneyUnitToggle
           secondaryLabel={secondary}
-          onToggle={() => setRequestedUnit((current) => (current === "local" ? "native" : "local"))}
+          onToggle={() => setEntryState({ ...entryState, assetId, unitKind: unit.kind, mode: mode === "native" ? "fiat" : "native" })}
         />
       ) : null}
       {children}
@@ -270,10 +306,20 @@ export function MoneyAmountDisplay({
         <div className="mt-auto">
           <MoneyQuickChips
             chipSet={chipSet}
-            localCurrency={pricing.status === "priced" ? pricing.localCurrency : "USD"}
-            primaryUnit={primaryUnit}
+            unit={primaryUnit}
             availableAmount={maxAmount}
-            onSelect={onAmountChange}
+            quickMaximum={mode === "fiat" && unit.kind === "convertible" && maxAmount ? nativeToFiat(maxAmount, unit.perUnit) : maxAmount}
+            onSelect={(value) => {
+              if (mode === "fiat" && unit.kind === "convertible") {
+                const maxFiat = maxAmount ? nativeToFiat(maxAmount, unit.perUnit) : null;
+                setFiatAmount(clampDecimal(value, maxFiat));
+              } else onAmountChange(value);
+            }}
+            onMax={(value) => {
+              setEntryState({ assetId, unitKind: unit.kind, mode });
+              onAmountChange(value);
+              onMaxSelect?.();
+            }}
           />
         </div>
       ) : null}
@@ -287,13 +333,10 @@ export function MoneyPrimaryAmount({
   maxDecimals,
   onSubmit,
   disabled = false,
-  autoFocus = true,
   focusKey,
   availableId,
   overAvailable = false,
   unit,
-  pricing,
-  fiatCurrency,
   nativeSymbol,
 }: {
   amount: string;
@@ -301,21 +344,18 @@ export function MoneyPrimaryAmount({
   maxDecimals: number;
   onSubmit?: () => void;
   disabled?: boolean;
-  autoFocus?: boolean;
   focusKey?: string;
   availableId?: string;
   overAvailable?: boolean;
-  unit: MoneyPrimaryUnit;
-  pricing: MoneyAssetPricing;
-  fiatCurrency?: string;
+  unit: MoneyAmountUnit;
   nativeSymbol: string;
 }) {
-  const text = formatPrimaryAmount(amount, unit, pricing, fiatCurrency, nativeSymbol);
+  const text = formatPrimaryAmount(amount, unit, nativeSymbol);
   const figure = amount === "" ? "0" : amount;
   const figureIndex = text.indexOf(figure);
   const prefix = text.slice(0, figureIndex);
   const suffix = text.slice(figureIndex + figure.length);
-  const unitName = formatPrimaryAmountUnit(unit, pricing, fiatCurrency, nativeSymbol);
+  const unitName = formatPrimaryAmountUnit(unit, nativeSymbol);
   const unitId = useId();
   const describedBy = [unitName ? unitId : undefined, availableId].filter(Boolean).join(" ") || undefined;
   const { containerRef, sizerRef, fontSize } = useAutoFitAmountText(text);
@@ -323,17 +363,14 @@ export function MoneyPrimaryAmount({
   const previousSelection = useRef({ start: 0, end: 0 });
   const nextCaret = useRef<number | null>(null);
   const handledInputEvent = useRef<Event | null>(null);
-  const focusOnMount = useRef(autoFocus && Boolean(onAmountChange) && !disabled);
-
-  useEffect(() => {
-    if (focusOnMount.current) inputRef.current?.focus({ preventScroll: true });
-  }, []);
-
   const lastFocusKey = useRef(focusKey);
   useEffect(() => {
     if (lastFocusKey.current === focusKey) return;
     lastFocusKey.current = focusKey;
-    if (onAmountChange && !disabled) inputRef.current?.focus({ preventScroll: true });
+    const input = inputRef.current;
+    const active = document.activeElement;
+    const choosing = active instanceof HTMLElement && active !== input && Boolean(input?.closest("[data-money-sheet]")?.contains(active));
+    if (onAmountChange && !disabled && choosing) input?.focus({ preventScroll: true });
   }, [disabled, focusKey, onAmountChange]);
 
   useLayoutEffect(() => {
@@ -555,20 +592,23 @@ export function MoneyAssetPicker({
 
 export function MoneyQuickChips({
   chipSet,
-  localCurrency,
-  primaryUnit,
+  unit,
   availableAmount,
+  quickMaximum = availableAmount,
   onSelect,
+  onMax = onSelect,
 }: {
   chipSet: MoneyChipSet;
-  localCurrency: string;
-  primaryUnit: MoneyPrimaryUnit;
+  unit: MoneyAmountUnit;
   availableAmount: string | null;
+  quickMaximum?: string | null;
   onSelect: (amount: string) => void;
+  onMax?: (amount: string) => void;
 }) {
   if (chipSet === "none") return null;
   const maxEnabled = isAvailablePositive(availableAmount);
-  const quickDisabled = primaryUnit === "native";
+  const quickDisabled = unit.kind === "native";
+  const localCurrency = unit.kind === "native" ? "USD" : unit.currency;
 
   return (
     <div className="flex flex-wrap justify-center gap-2" role="group" aria-label="Quick amounts">
@@ -579,7 +619,7 @@ export function MoneyQuickChips({
             size="sm"
             className="h-11 md:pointer-fine:h-7"
             disabled={quickDisabled}
-            onClick={() => onSelect(clampDecimal("10", availableAmount))}
+            onClick={() => onSelect(clampDecimal("10", quickMaximum))}
           >
             <MoneyTicker value={formatChipLabel(10, localCurrency)} />
           </Button>
@@ -588,7 +628,7 @@ export function MoneyQuickChips({
             size="sm"
             className="h-11 md:pointer-fine:h-7"
             disabled={quickDisabled}
-            onClick={() => onSelect(clampDecimal("25", availableAmount))}
+            onClick={() => onSelect(clampDecimal("25", quickMaximum))}
           >
             <MoneyTicker value={formatChipLabel(25, localCurrency)} />
           </Button>
@@ -600,7 +640,7 @@ export function MoneyQuickChips({
         className="h-11 md:pointer-fine:h-7"
         disabled={!maxEnabled}
         onClick={() => {
-          if (availableAmount) onSelect(availableAmount);
+          if (availableAmount) onMax(availableAmount);
         }}
       >
         Max

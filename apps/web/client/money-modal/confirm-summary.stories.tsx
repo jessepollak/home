@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, within } from "storybook/test";
+import { useEffect, type ComponentProps, type ReactNode } from "react";
+import { expect, userEvent, waitFor, within } from "storybook/test";
 import { CopyableValue } from "@/components/copyable-value";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { MoneyConfirmSummary, moneyConfirmFromRow } from "./confirm-summary";
@@ -54,6 +55,186 @@ export const SendReview: Story = {
       ["Network fee", "Up to 0.02 USDC · ≈ $0.02"],
     ]);
     await expect(within(canvasElement).getByRole("button", { name: `Copy ${RECIPIENT}` })).toBeVisible();
+  },
+};
+
+type SummaryArgs = ComponentProps<typeof MoneyConfirmSummary>;
+
+function frame(width: number, args: SummaryArgs) {
+  return <div data-slot="confirm-frame" style={{ width, maxWidth: "100%" }}><MoneyConfirmSummary {...args} /></div>;
+}
+
+const simpleRows = [{ label: "Network", value: "Base" }];
+
+function getFrame(canvasElement: HTMLElement): HTMLElement {
+  const element = canvasElement.querySelector('[data-slot="confirm-frame"]');
+  if (!(element instanceof HTMLElement)) throw new Error("Missing confirm frame");
+  return element;
+}
+
+function getHeadline(frameElement: HTMLElement): HTMLElement {
+  const headline = frameElement.querySelector('[data-slot="confirm-amount"]');
+  if (!(headline instanceof HTMLElement)) throw new Error("Missing confirm headline");
+  return headline;
+}
+
+function renderedWidth(headline: HTMLElement): number {
+  const text = headline.querySelector("bdi");
+  if (!text) throw new Error("Missing headline text");
+  return text.getBoundingClientRect().width;
+}
+
+function heroWidth(headline: HTMLElement): number {
+  const sizer = headline.parentElement?.querySelector('[aria-hidden="true"] > span');
+  if (!sizer) throw new Error("Missing hero sizer");
+  return sizer.getBoundingClientRect().width;
+}
+
+
+async function checkFit(canvasElement: HTMLElement, value: string) {
+  const frameElement = getFrame(canvasElement);
+  const headline = getHeadline(frameElement);
+  await expect(headline.textContent).toBe(value);
+  await waitFor(async () => {
+    await expect(headline.scrollWidth).toBeLessThanOrEqual(headline.clientWidth + 1);
+    await expect(frameElement.scrollWidth).toBeLessThanOrEqual(frameElement.clientWidth + 1);
+  });
+  return headline;
+}
+
+async function checkFallback(canvasElement: HTMLElement, value: string) {
+  const headline = await checkFit(canvasElement, value);
+  const number = headline.querySelector('[data-slot="confirm-amount-number"]');
+  const unit = headline.querySelector('[data-slot="confirm-amount-unit"]');
+  if (!(number instanceof HTMLElement) || !(unit instanceof HTMLElement)) throw new Error("Missing fallback lines");
+  await expect(unit.getBoundingClientRect().top).toBeGreaterThanOrEqual(number.getBoundingClientRect().bottom - 1);
+}
+
+function EnlargedText({ children }: { children: ReactNode }) {
+  useEffect(() => {
+    const previous = document.documentElement.style.fontSize;
+    document.documentElement.style.fontSize = "200%";
+    return () => { document.documentElement.style.fontSize = previous; };
+  }, []);
+  return children;
+}
+
+export const ShortMobile: Story = {
+  args: { amount: "$25.00", rows: simpleRows, action: null },
+  render: (args) => frame(320, args),
+  play: async ({ canvasElement }) => {
+    const headline = await checkFit(canvasElement, "$25.00");
+    await expect(Math.abs(renderedWidth(headline) - heroWidth(headline))).toBeLessThanOrEqual(1);
+  },
+};
+
+export const LargeWholeMobile: Story = {
+  args: { amount: "$12,345,678,901", rows: simpleRows, action: null },
+  render: (args) => frame(320, args),
+  play: async ({ canvasElement }) => {
+    const headline = await checkFit(canvasElement, "$12,345,678,901");
+    await expect(renderedWidth(headline)).toBeLessThan(heroWidth(headline) - 1);
+  },
+};
+
+export const LongDecimalMobile: Story = {
+  args: { amount: "12,345.678901234567 WETH", rows: simpleRows, action: null },
+  render: (args) => frame(320, args),
+  play: async ({ canvasElement }) => { await checkFit(canvasElement, "12,345.678901234567 WETH"); },
+};
+
+export const LongSymbolMobile: Story = {
+  args: { amount: "1,250.50 USDCBRIDGED", rows: simpleRows, action: null },
+  render: (args) => frame(320, args),
+  play: async ({ canvasElement }) => { await checkFit(canvasElement, "1,250.50 USDCBRIDGED"); },
+};
+
+export const LocalizedDotsMobile: Story = {
+  args: { amount: "1.234.567,89 €", rows: simpleRows, action: null },
+  render: (args) => frame(320, args),
+  play: async ({ canvasElement }) => { await checkFit(canvasElement, "1.234.567,89 €"); },
+};
+
+export const LocalizedSpacesMobile: Story = {
+  args: { amount: "12\u202f345\u202f678,90 €", rows: simpleRows, action: null },
+  render: (args) => frame(320, args),
+  play: async ({ canvasElement }) => { await checkFit(canvasElement, "12\u202f345\u202f678,90 €"); },
+};
+
+export const SignedMobile: Story = {
+  args: { amount: "-$1,234,567.89", rows: simpleRows, action: null },
+  render: (args) => frame(320, args),
+  play: async ({ canvasElement }) => { await checkFit(canvasElement, "-$1,234,567.89"); },
+};
+
+export const QualifiedMobile: Story = {
+  args: { amount: "Up to 1,234.567891 USDC", rows: simpleRows, action: null },
+  render: (args) => frame(320, args),
+  play: async ({ canvasElement }) => { await checkFit(canvasElement, "Up to 1,234.567891 USDC"); },
+};
+
+export const TinyMobile: Story = {
+  args: { amount: "0.000000000000000001 ETH", rows: simpleRows, action: null },
+  render: (args) => frame(320, args),
+  play: async ({ canvasElement }) => { await checkFit(canvasElement, "0.000000000000000001 ETH"); },
+};
+
+export const ExtremeFallbackMobile: Story = {
+  args: { amount: "Up to 123,456,789,012,345.123456789012345678 WETH", rows: simpleRows, action: null },
+  render: (args) => frame(320, args),
+  play: async ({ canvasElement }) => checkFallback(canvasElement, "Up to 123,456,789,012,345.123456789012345678 WETH"),
+};
+
+export const LargeWholeWideMobile: Story = {
+  args: { amount: "$12,345,678,901", rows: simpleRows, action: null },
+  render: (args) => frame(390, args),
+  play: async ({ canvasElement }) => { await checkFit(canvasElement, "$12,345,678,901"); },
+};
+
+export const LargeWholeDesktopSheet: Story = {
+  args: { amount: "$12,345,678,901", rows: simpleRows, action: null },
+  render: (args) => frame(448, args),
+  play: async ({ canvasElement }) => { await checkFit(canvasElement, "$12,345,678,901"); },
+};
+
+export const EnlargedTextMobile: Story = {
+  args: { amount: "12,345.678901234567 WETH", rows: simpleRows, action: null },
+  render: (args) => frame(320, args),
+  decorators: [(StoryComponent) => <EnlargedText><StoryComponent /></EnlargedText>],
+  play: async ({ canvasElement }) => {
+    await checkFallback(canvasElement, "12,345.678901234567 WETH");
+  },
+};
+
+export const ResizeRefit: Story = {
+  args: { amount: "$12,345,678,901", rows: simpleRows, action: null },
+  render: (args) => frame(448, args),
+  play: async ({ canvasElement }) => {
+    const frameElement = getFrame(canvasElement);
+    const headline = await checkFit(canvasElement, "$12,345,678,901");
+    const wideWidth = renderedWidth(headline);
+    frameElement.style.width = "320px";
+    await waitFor(async () => { await expect(renderedWidth(headline)).toBeLessThan(wideWidth - 1); });
+    await checkFit(canvasElement, "$12,345,678,901");
+    frameElement.style.width = "448px";
+    await waitFor(async () => { await expect(Math.abs(renderedWidth(headline) - wideWidth)).toBeLessThanOrEqual(1); });
+    await checkFit(canvasElement, "$12,345,678,901");
+  },
+};
+
+export const ReviewDetails: Story = {
+  args: {
+    rows: [{ label: "You get", value: "≈ 1 DEGEN" }],
+    details: [{ label: "Minimum received", value: "0.99 DEGEN" }, { label: "Max slippage", value: "1%" }],
+  },
+  play: async ({ canvasElement }) => {
+    const screen = within(canvasElement);
+    const toggle = screen.getByRole("button", { name: "Details" });
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(screen.queryByText("Minimum received")).not.toBeInTheDocument();
+    await userEvent.click(toggle);
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await expect(screen.getByText("Minimum received")).toBeVisible();
   },
 };
 

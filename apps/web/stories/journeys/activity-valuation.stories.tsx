@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, userEvent, within } from "storybook/test";
+import { expect, userEvent, waitFor, within } from "storybook/test";
 import { ConnectedActivityPanel } from "@/client/home/activity-panel";
 import { shellContentFrameClassName } from "@/components/shell-layout";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
@@ -247,7 +247,7 @@ export const Priced: Story = {
       description: /View received TEST transaction details/,
     });
     await expect(within(receivedRow).getByRole("img", { name: "+$12.34" })).toBeVisible();
-    await expect(within(receivedRow).getByText("+5,678 TEST")).toBeVisible();
+    await expect(within(receivedRow).getByText("+5,678.00 TEST")).toBeVisible();
 
     const sentRow = screen.getByRole("button", { description: /View sent USDC transaction details/ });
     await expect(within(sentRow).getByRole("img", { name: "−$25.00" })).toBeVisible();
@@ -261,16 +261,18 @@ export const Priced: Story = {
     await expect(within(dustRow).getByRole("img", { name: "+<$0.01" })).toBeVisible();
 
     const thinRow = screen.getByRole("button", { description: /View received THIN transaction details/ });
-    await expect(within(thinRow).getByRole("img", { name: "+420 THIN" })).toBeVisible();
+    await expect(within(thinRow).getByRole("img", { name: "+420.00 THIN" })).toBeVisible();
     await expect(within(thinRow).queryByText(/\$/)).toBeNull();
 
     await userEvent.click(receivedRow);
-    const dialog = await screen.findByRole("dialog", { name: "Received TEST" });
+    await waitFor(() => expect(within(screen.getByRole("dialog", { name: "Received" })).getByText("+$12.34")).toBeVisible());
+    const dialog = screen.getByRole("dialog", { name: "Received" });
     await expect(within(dialog).getByText("+$12.34")).toBeVisible();
-    await expect(within(dialog).getByText("+5,678 TEST")).toBeVisible();
+    await expect(dialog.querySelector('[data-slot="activity-amount-number"]')).toHaveTextContent("+5,678.00");
+    await expect(dialog.querySelector('[data-slot="activity-amount-unit"]')).toHaveTextContent("TEST");
     await expect(within(dialog).queryByText(/Historical close/)).toBeNull();
     await expect(within(dialog).queryByText("Quote time")).toBeNull();
-    await userEvent.click(within(dialog).getByRole("button", { name: "Close transaction details" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Close Received details" }));
   },
 };
 
@@ -282,7 +284,7 @@ export const PricedDesktop: Story = {
       description: /View received TEST transaction details/,
     });
     await expect(within(receivedRow).getByRole("img", { name: "+$12.34" })).toBeVisible();
-    await expect(within(receivedRow).getByText("+5,678 TEST")).toBeVisible();
+    await expect(within(receivedRow).getByText("+5,678.00 TEST")).toBeVisible();
   },
 };
 
@@ -293,13 +295,15 @@ export const MissingPrice: Story = {
     const receivedRow = await screen.findByRole("button", {
       description: /View received TEST transaction details/,
     });
-    await expect(within(receivedRow).getByRole("img", { name: "+5,678 TEST" })).toBeVisible();
+    await expect(within(receivedRow).getByRole("img", { name: "+5,678.00 TEST" })).toBeVisible();
     await expect(within(receivedRow).queryByText(/\$/)).toBeNull();
     await userEvent.click(receivedRow);
-    const dialog = await screen.findByRole("dialog", { name: "Received TEST" });
-    await expect(within(dialog).getByText("Unknown")).toBeVisible();
+    const dialog = await screen.findByRole("dialog", { name: "Received" });
+    await expect(dialog.querySelector('[data-slot="activity-amount-number"]')).toHaveTextContent("+5,678.00");
+    await expect(dialog.querySelector('[data-slot="activity-amount-unit"]')).toHaveTextContent("TEST");
+    await expect(within(dialog).queryByText("Value")).toBeNull();
     await expect(within(dialog).queryByText(/Not priced/)).toBeNull();
-    await userEvent.click(within(dialog).getByRole("button", { name: "Close transaction details" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Close Received details" }));
   },
 };
 

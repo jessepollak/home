@@ -85,7 +85,7 @@ describe("FundingActions hydration", () => {
       expect(fixture.hydrationErrors).toEqual([]);
       const drawer = await waitFor(() => {
         const popup = document.body.querySelector('[data-slot="drawer-popup"]');
-        expect(popup).not.toBeNull();
+        expect(popup?.textContent).toContain("Receive on Base");
         return popup;
       });
       expect(drawer?.textContent).toContain("Receive on Base");

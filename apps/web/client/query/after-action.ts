@@ -11,14 +11,18 @@ import { ownerQueryKey, ownerQueryMeta } from "./query-client";
 import { parseBalancesSnapshot } from "@/shared/balances/contract";
 import { BALANCES_VERSION, type BalancesSnapshot } from "@/shared/balances/types";
 
+export const tradeAvailabilityScope = "trade-availability";
+
 export const afterActionScopes = [
   "balances",
   "activity",
   "borrow",
   "actions",
+  tradeAvailabilityScope,
+  "activity-orders",
 ] as const;
 
-export const indexedScopes = ["activity", "borrow", "actions"] as const;
+export const indexedScopes = ["activity", "borrow", "actions", tradeAvailabilityScope] as const;
 
 export const activityWindowScope = "activity-window";
 export const networkFeePolicyScope = "network-fee-policy";
@@ -43,18 +47,21 @@ export async function invalidateIndexedScopes(
   ));
 }
 
+export function nextActivityWindowEnd(previous: string | undefined, now = Date.now()): string {
+  const previousTime = previous ? Date.parse(previous) : Number.NaN;
+  const nextTime = Number.isFinite(previousTime)
+    ? Math.max(now, previousTime + 1)
+    : Math.floor(now / activityWindowQuantumMs) * activityWindowQuantumMs;
+  return new Date(nextTime).toISOString();
+}
+
 export function advanceActivityWindowEnd(
   queryClient: Pick<QueryClient, "getQueryData" | "setQueryData">,
   dataOwnerKey: string,
   now = Date.now(),
 ): string {
   const key = ownerQueryKey(dataOwnerKey, activityWindowScope);
-  const previous = queryClient.getQueryData<string>(key);
-  const previousTime = previous ? Date.parse(previous) : Number.NaN;
-  const nextTime = Number.isFinite(previousTime)
-    ? Math.max(now, previousTime + 1)
-    : Math.floor(now / activityWindowQuantumMs) * activityWindowQuantumMs;
-  const next = new Date(nextTime).toISOString();
+  const next = nextActivityWindowEnd(queryClient.getQueryData<string>(key), now);
   queryClient.setQueryData(key, next);
   return next;
 }
@@ -214,9 +221,14 @@ export async function applyActionHandleEffects(input: {
     ]);
     return;
   }
-  await input.queryClient.invalidateQueries({
-    queryKey: ownerQueryKey(input.dataOwnerKey, "actions"),
-  });
+  await Promise.all([
+    input.queryClient.invalidateQueries({
+      queryKey: ownerQueryKey(input.dataOwnerKey, "actions"),
+    }),
+    input.queryClient.invalidateQueries({
+      queryKey: ownerQueryKey(input.dataOwnerKey, "activity-orders"),
+    }),
+  ]);
   if (typeof body.providerHandle === "string") void input.startBalanceFreshness(actionId);
 }
 

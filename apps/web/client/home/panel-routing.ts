@@ -26,6 +26,8 @@ export type HomeShellRouting = {
   popRevision: number;
   rootRequest: { panel: ShellPanelId; revision: number } | null;
   openPanel: (panel: ShellPanelId) => void;
+  canOpenAssetDetail: (assetKey: string) => boolean;
+  openAssetDetail: (assetKey: string) => boolean;
   setFlow: (
     flow: ShellFlow,
     options?: { actionId?: string | null; mode?: "push" | "replace" },
@@ -33,6 +35,7 @@ export type HomeShellRouting = {
   clearFlow: (options?: {
     mode?: "push" | "replace";
     fundingReturn?: boolean;
+    normalizeInbound?: boolean;
   }) => void;
 };
 

@@ -153,6 +153,67 @@ test("cold balances request and paint finish before delayed session verification
   }
 });
 
+test("cold Home balance value paints before delayed verification without a persisted query cache", async ({ page }) => {
+  await seedSignedInSession(page);
+  await page.addInitScript(() => {
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith("home.query.v1:")) localStorage.removeItem(key);
+    }
+    localStorage.removeItem("home.country.v2");
+    const witness = window as typeof window & { coldBalanceValueMs?: number };
+    const captureBalance = () => {
+      if (witness.coldBalanceValueMs !== undefined) return;
+      if (document.querySelector('[aria-label="Total balance"]')?.textContent?.includes("$91.55")) {
+        witness.coldBalanceValueMs = performance.now();
+      }
+    };
+    new MutationObserver(captureBalance).observe(document, { subtree: true, childList: true, characterData: true });
+  });
+  const fixtures = await installApiFixtures(page);
+  const sessionObserved = fixtures.delayNextSession();
+  let sessionResponded = false;
+  let balancesStartedBeforeSession = false;
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/balances" && !sessionResponded) {
+      balancesStartedBeforeSession = true;
+    }
+  });
+  page.on("response", (response) => {
+    if (new URL(response.url()).pathname === "/api/session") sessionResponded = true;
+  });
+
+  try {
+    const balanceResponse = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === "/api/balances");
+    await page.goto("/home");
+    await sessionObserved;
+    await balanceResponse;
+    expect(balancesStartedBeforeSession).toBe(true);
+    expect(sessionResponded).toBe(false);
+    await expect(page.getByLabel("Total balance")).toContainText("$91.55");
+    const valueMs = await page.evaluate(() =>
+      (window as typeof window & { coldBalanceValueMs?: number }).coldBalanceValueMs ?? Infinity,
+    );
+    expect(sessionResponded).toBe(false);
+    expect(await page.evaluate(() => performance.getEntriesByName("session:verified", "mark").length)).toBe(0);
+    fixtures.releaseSession();
+    await expect.poll(() => page.evaluate(() =>
+      performance.getEntriesByName("session:verified", "mark")[0]?.startTime ?? 0,
+    )).toBeGreaterThan(0);
+    expect(sessionResponded).toBe(true);
+    const verifiedMs = await page.evaluate(() =>
+      performance.getEntriesByName("session:verified", "mark")[0]!.startTime,
+    );
+    console.log(`cold Home balance value: ${valueMs.toFixed(0)}ms; verification: ${verifiedMs.toFixed(0)}ms`);
+    expect(valueMs).toBeLessThan(verifiedMs);
+    await expect(page.getByRole("region", { name: "Activity" }).getByRole("button", { name: /^Received / }).first()).toBeVisible();
+    await expect(page.getByLabel("Total balance")).toContainText("$91.55");
+    await expect(page.getByLabel("Total balance")).not.toHaveAttribute("aria-busy", "true");
+  } finally {
+    fixtures.releaseSession();
+  }
+});
+
 test("persisted balances paint before verification and settle without row shift", async ({ page }) => {
   await seedSignedInSession(page);
   const fixtures = await installApiFixtures(page);
@@ -193,6 +254,89 @@ test("persisted balances paint before verification and settle without row shift"
     .not.toHaveAttribute("aria-busy", "true");
   expect(await visibleBalanceRowLayout(page)).toEqual(provisionalLayout);
   expect(hydrationErrors).toEqual([]);
+});
+
+test("cached Home balances paint before delayed verification and revalidation, then survive Borrow navigation", async ({ page }) => {
+  await seedSignedInSession(page);
+  const fixtures = await installApiFixtures(page, { countryPreferenceRegion: "US" });
+  await page.goto("/home");
+  await expect(page.getByLabel("Total balance")).toContainText("$91.55");
+  await waitForSettledPersistedBalances(page);
+  await markPersistedQueriesStale(page);
+  await page.addInitScript(() => localStorage.removeItem("home.country.v2"));
+
+  const sessionObserved = fixtures.delayNextSession();
+  const balancesObserved = fixtures.delayNextBalances();
+  let sessionResponded = false;
+  let balancesResponded = false;
+  page.on("response", (response) => {
+    const path = new URL(response.url()).pathname;
+    if (path === "/api/session") sessionResponded = true;
+    if (path === "/api/balances") balancesResponded = true;
+  });
+  try {
+    await page.reload();
+    await sessionObserved;
+    await expect(page.getByLabel("Total balance")).toContainText("$91.55");
+    const warmPaint = await page.evaluate(() =>
+      performance.getEntriesByName("balances:painted", "mark")[0]?.startTime ?? Infinity,
+    );
+    expect(sessionResponded).toBe(false);
+    expect(balancesResponded).toBe(false);
+    await balancesObserved;
+    expect(sessionResponded).toBe(false);
+    expect(balancesResponded).toBe(false);
+    expect(await page.evaluate(() => performance.getEntriesByName("session:verified", "mark").length)).toBe(0);
+    const balanceResponse = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === "/api/balances");
+    fixtures.releaseBalances();
+    await balanceResponse;
+    expect(balancesResponded).toBe(true);
+    expect(sessionResponded).toBe(false);
+    const balanceResponseMs = await page.evaluate(() => performance.now());
+    fixtures.releaseSession();
+    await expect.poll(() => page.evaluate(() =>
+      performance.getEntriesByName("session:verified", "mark")[0]?.startTime ?? 0,
+    )).toBeGreaterThan(0);
+    expect(sessionResponded).toBe(true);
+    const verifiedMs = await page.evaluate(() =>
+      performance.getEntriesByName("session:verified", "mark")[0]!.startTime,
+    );
+    console.log(`warm Home balance paint: ${warmPaint.toFixed(0)}ms; verification: ${verifiedMs.toFixed(0)}ms; balance response: ${balanceResponseMs.toFixed(0)}ms`);
+    expect(warmPaint).toBeLessThan(verifiedMs);
+    await expect(page.getByRole("region", { name: "Activity" }).getByRole("button", { name: /^Received / }).first()).toBeVisible();
+    await expect(page.getByLabel("Total balance")).toContainText("$91.55");
+    await expect(page.getByLabel("Total balance")).not.toHaveAttribute("aria-busy", "true");
+
+    await page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /Borrow Cash/ }).click();
+    await expect(page).toHaveURL(/\/borrow$/);
+    const returnStart = await page.evaluate(() => {
+      const witness = window as typeof window & { balanceReturn?: { busy: boolean; observer: MutationObserver } };
+      const wasBusy = () => Boolean(document.querySelector(
+        '[data-shell-panel]:not([hidden]) [aria-label="Updating…"], [data-shell-panel]:not([hidden]) [aria-label="Your money"][aria-busy="true"]',
+      ));
+      const observer = new MutationObserver(() => {
+        if (witness.balanceReturn && wasBusy()) witness.balanceReturn.busy = true;
+      });
+      witness.balanceReturn = { busy: wasBusy(), observer };
+      observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["aria-busy", "aria-label", "hidden"] });
+      return performance.now();
+    });
+    await page.getByRole("button", { name: "Home", exact: true }).first().click();
+    await expect(page).toHaveURL(/\/home$/);
+    await expect(page.getByLabel("Total balance")).toContainText("$91.55");
+    await expect(page.getByLabel("Total balance")).not.toHaveAttribute("aria-busy", "true");
+    const { returnMs, busy } = await page.evaluate((started) => {
+      const witness = window as typeof window & { balanceReturn?: { busy: boolean; observer: MutationObserver } };
+      witness.balanceReturn?.observer.disconnect();
+      return { returnMs: performance.now() - started, busy: witness.balanceReturn?.busy };
+    }, returnStart);
+    expect(busy).toBe(false);
+    console.log(`Borrow → Home balance visible: ${returnMs.toFixed(0)}ms`);
+  } finally {
+    fixtures.releaseSession();
+    fixtures.releaseBalances();
+  }
 });
 
 test("browser Back restores the Balances reveal and scroll offset", async ({ page }) => {

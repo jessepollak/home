@@ -1,11 +1,16 @@
 "use client";
 
+import { useRef } from "react";
 import { Plus } from "lucide-react";
 import type { FetchActivity } from "@/client/activity";
 import { ActivitySurface } from "@/client/activity/activity-panel";
 import { Button } from "@/components/ui/button";
 import { FundingActions } from "@/client/funding/funding-actions";
 import { preloadAddMoneySheet } from "@/client/funding/funding-experience";
+import { prefetchAddMoneyMethods } from "@/client/funding/funding-prefetch";
+import { moneySheetIntent } from "@/client/money-modal";
+import { browserHomeQueryClient, useHomeQueryClient } from "@/client/query/query-client";
+import { useAccountWallet } from "@/client/account/cdp-client";
 import { useSavingsRateLabel } from "@/client/savings/use-savings-rate-label";
 import { useBorrowOfferRate } from "@/client/borrowing/borrowing-experience";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
@@ -38,6 +43,7 @@ export function HomePanel({
   initialSendActionId = null,
   regionId,
   regionReady = true,
+  onDetailsOpenChange,
 }: {
   assetBalances?: HomeAssetBalancesPresentation;
   activitySession: VerifiedAccountSession | null;
@@ -56,6 +62,7 @@ export function HomePanel({
   initialSendActionId?: string | null;
   regionId: RegionId;
   regionReady?: boolean;
+  onDetailsOpenChange?: (open: boolean) => void;
 }) {
   const isLoading = assetBalances?.status === "loading";
   const isRevalidating = assetBalances?.revalidating === true;
@@ -75,12 +82,19 @@ export function HomePanel({
   });
   const activityHeading = <HomeSectionHeading id="activity-title">Activity</HomeSectionHeading>;
   const routing = useOptionalHomeShellRouting();
+  const wallet = useAccountWallet();
+  const queryClient = useHomeQueryClient(browserHomeQueryClient());
+  const fundingPromptRef = useRef<HTMLButtonElement>(null);
+  const restoreFundingPromptRef = useRef(false);
   const addMoneyPrompt = routing ? (
     <Button
+      ref={fundingPromptRef}
       variant="outline"
       size="touch"
-      onPointerDown={() => void preloadAddMoneySheet()}
-      onClick={() => routing.setFlow("add-money", { mode: "push" })}
+      {...moneySheetIntent(preloadAddMoneySheet, () => prefetchAddMoneyMethods(wallet, regionId, regionReady, queryClient))}
+      onClick={() => {
+        restoreFundingPromptRef.current = routing.setFlow("add-money", { mode: "push" });
+      }}
     >
       <Plus className="size-4" aria-hidden="true" />
       Add money
@@ -98,6 +112,12 @@ export function HomePanel({
       actions={
         <>
           <FundingActions
+            onClosed={() => {
+              if (!restoreFundingPromptRef.current) return;
+              const prompt = fundingPromptRef.current;
+              if (prompt?.isConnected && !prompt.disabled) prompt.focus();
+              restoreFundingPromptRef.current = false;
+            }}
             initialOpen={initialAddMoney}
             returnedFromProvider={returnedFromProvider}
             regionId={regionId}
@@ -129,6 +149,7 @@ export function HomePanel({
           fetchOperations={fetchOperations}
           regionId={regionId}
           emptyAction={addMoneyPrompt}
+          onDetailsOpenChange={onDetailsOpenChange}
         />
       )}
     />

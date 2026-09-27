@@ -5,10 +5,19 @@ export const HOME_STARTUP_ROUTES = [
   "/home",
   "/balances",
   "/activity",
-  "/save",
+  "/cash",
   "/borrow",
+  "/investments",
   "/invest",
 ] as const;
+export const HOME_INTERACTION_ROUTES = [
+  "/home", "/balances", "/activity", "/cash", "/borrow", "/investments", "/invest",
+] as const;
+export const HOME_PANEL_CACHE_STATES = ["retained", "first-visit"] as const;
+export const HOME_DEVICE_CLASSES = [
+  "mobile-low", "mobile-high", "mobile-unknown", "desktop-low", "desktop-high", "desktop-unknown",
+] as const;
+export const HOME_NAVIGATION_TRIGGERS = ["in-app", "history"] as const;
 export const HOME_STARTUP_OUTCOMES = [
   "ready",
   "signed-out",
@@ -18,13 +27,19 @@ export const HOME_STARTUP_OUTCOMES = [
 export const HOME_STARTUP_CACHE_STATES = ["restored", "cold", "unknown"] as const;
 export const HOME_AUTH_HINTS = ["none", "cdp", "base"] as const;
 export const HOME_AUTH_OUTCOMES = ["signed-out", "verified", "unavailable", "timeout"] as const;
+export const HOME_AUTH_RESTORE_STAGES = ["token", "validation"] as const;
 export const HOME_AUTH_SIGNOUT_OUTCOMES = ["success", "error", "timeout"] as const;
 
 export type HomeStartupRoute = (typeof HOME_STARTUP_ROUTES)[number];
+export type HomeInteractionRoute = (typeof HOME_INTERACTION_ROUTES)[number];
+export type HomePanelCacheState = (typeof HOME_PANEL_CACHE_STATES)[number];
+export type HomeDeviceClass = (typeof HOME_DEVICE_CLASSES)[number];
+export type HomeNavigationTrigger = (typeof HOME_NAVIGATION_TRIGGERS)[number];
 export type HomeStartupOutcome = (typeof HOME_STARTUP_OUTCOMES)[number];
 export type HomeStartupCacheState = (typeof HOME_STARTUP_CACHE_STATES)[number];
 export type HomeAuthHint = (typeof HOME_AUTH_HINTS)[number];
 export type HomeAuthOutcome = (typeof HOME_AUTH_OUTCOMES)[number];
+export type HomeAuthRestoreStage = "token" | "validation";
 export type HomeAuthSignOutOutcome = (typeof HOME_AUTH_SIGNOUT_OUTCOMES)[number];
 
 export type HomeStartupReport = {
@@ -50,6 +65,9 @@ export type HomeAuthRestoreReport = {
   sdkActivateMs?: number;
   cdpInitializedMs?: number;
   nativeSettledMs?: number;
+  tokenMs?: number;
+  validationMs?: number;
+  stalledStage?: HomeAuthRestoreStage;
   sessionSettledMs: number;
   totalMs: number;
 };
@@ -70,7 +88,41 @@ export type HomeAuthSignOutReport = {
   totalMs: number;
 };
 
-export type ClientPerformanceReport = HomeStartupReport | HomeAuthRestoreReport | HomeAuthSignOutReport;
+export type HomeNavigationReport = {
+  version: 1;
+  kind: "home-navigation";
+  route: HomeInteractionRoute;
+  from: HomeInteractionRoute;
+  trigger: HomeNavigationTrigger;
+  cache: HomePanelCacheState;
+  device: HomeDeviceClass;
+  durationMs: number;
+};
+
+export type HomeScrollReport = {
+  version: 1;
+  kind: "home-scroll";
+  route: HomeInteractionRoute;
+  cache: HomePanelCacheState;
+  device: HomeDeviceClass;
+  durationMs: number;
+  frameCount: number;
+  slowFrameCount: number;
+  maxFrameMs: number;
+  longFrameCount?: number;
+  longFrameMs?: number;
+};
+
+export type ClientPerformanceReport = HomeStartupReport | HomeAuthRestoreReport | HomeAuthSignOutReport |
+  HomeNavigationReport | HomeScrollReport;
+
+const navigationRequiredKeys = new Set([
+  "version", "kind", "route", "from", "trigger", "cache", "device", "durationMs",
+]);
+const scrollRequiredKeys = new Set([
+  "version", "kind", "route", "cache", "device", "durationMs", "frameCount", "slowFrameCount", "maxFrameMs",
+]);
+const scrollAllowedKeys = new Set([...scrollRequiredKeys, "longFrameCount", "longFrameMs"]);
 
 const startupAllowedKeys = new Set([
   "version",
@@ -103,6 +155,9 @@ const authAllowedKeys = new Set([
   "sdkActivateMs",
   "cdpInitializedMs",
   "nativeSettledMs",
+  "tokenMs",
+  "validationMs",
+  "stalledStage",
   "sessionSettledMs",
   "totalMs",
 ]);
@@ -147,12 +202,51 @@ export function parseClientPerformanceReport(value: unknown): ClientPerformanceR
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   if (record.kind === "home-startup") return parseHomeStartupReport(record);
+  if (record.kind === "home-navigation") return parseHomeNavigationReport(record);
+  if (record.kind === "home-scroll") return parseHomeScrollReport(record);
   if (record.kind === "home-auth-phase") {
     return record.flow === "signout"
       ? parseHomeAuthSignOutReport(record)
       : parseHomeAuthRestoreReport(record);
   }
   return null;
+}
+
+function hasInteractionDimensions(record: Record<string, unknown>): record is Record<string, unknown> & {
+  route: HomeInteractionRoute; cache: HomePanelCacheState; device: HomeDeviceClass;
+} {
+  return record.version === HOME_STARTUP_VERSION &&
+    isAllowed(record.route, HOME_INTERACTION_ROUTES) &&
+    isAllowed(record.cache, HOME_PANEL_CACHE_STATES) &&
+    isAllowed(record.device, HOME_DEVICE_CLASSES);
+}
+
+function parseHomeNavigationReport(record: Record<string, unknown>): HomeNavigationReport | null {
+  if (!hasExactShape(record, navigationRequiredKeys, navigationRequiredKeys) ||
+    !hasInteractionDimensions(record) || !isAllowed(record.from, HOME_INTERACTION_ROUTES) ||
+    record.from === record.route || !isAllowed(record.trigger, HOME_NAVIGATION_TRIGGERS)) return null;
+  const durationMs = normalizeDuration(record.durationMs, 10, 10_000);
+  if (durationMs === null) return null;
+  return { version: 1, kind: "home-navigation", route: record.route, from: record.from,
+    trigger: record.trigger, cache: record.cache, device: record.device, durationMs };
+}
+
+function parseHomeScrollReport(record: Record<string, unknown>): HomeScrollReport | null {
+  const hasLongCount = Object.hasOwn(record, "longFrameCount");
+  const hasLongMs = Object.hasOwn(record, "longFrameMs");
+  if (!hasExactShape(record, scrollAllowedKeys, scrollRequiredKeys) ||
+    !hasInteractionDimensions(record) || hasLongCount !== hasLongMs) return null;
+  const durationMs = normalizeDuration(record.durationMs, 50, 30_000);
+  const frameCount = normalizeDuration(record.frameCount, 1, 10_000);
+  const slowFrameCount = normalizeDuration(record.slowFrameCount, 1, 10_000);
+  const maxFrameMs = normalizeDuration(record.maxFrameMs, 10, 5_000);
+  const longFrameCount = hasLongCount ? normalizeDuration(record.longFrameCount, 1, 1_000) : 0;
+  const longFrameMs = hasLongMs ? normalizeDuration(record.longFrameMs, 10, 30_000) : 0;
+  if (durationMs === null || frameCount === null || slowFrameCount === null || maxFrameMs === null ||
+    longFrameCount === null || longFrameMs === null) return null;
+  return { version: 1, kind: "home-scroll", route: record.route, cache: record.cache, device: record.device,
+    durationMs, frameCount, slowFrameCount: Math.min(slowFrameCount, frameCount), maxFrameMs,
+    ...(hasLongCount ? { longFrameCount, longFrameMs } : {}) };
 }
 
 function parseHomeStartupReport(record: Record<string, unknown>): HomeStartupReport | null {
@@ -198,7 +292,8 @@ function parseHomeAuthRestoreReport(record: Record<string, unknown>): HomeAuthRe
     record.flow !== "restore" ||
     !isAllowed(record.route, HOME_STARTUP_ROUTES) ||
     !isAllowed(record.hint, HOME_AUTH_HINTS) ||
-    !isAllowed(record.outcome, HOME_AUTH_OUTCOMES)
+    !isAllowed(record.outcome, HOME_AUTH_OUTCOMES) ||
+    (Object.hasOwn(record, "stalledStage") && !isAllowed(record.stalledStage, HOME_AUTH_RESTORE_STAGES))
   ) return null;
 
   const sessionSettledMs = normalizeDuration(record.sessionSettledMs, 50, 30_000);
@@ -207,9 +302,9 @@ function parseHomeAuthRestoreReport(record: Record<string, unknown>): HomeAuthRe
 
   const optionalDurations: Partial<Pick<
     HomeAuthRestoreReport,
-    "sdkActivateMs" | "cdpInitializedMs" | "nativeSettledMs"
+    "sdkActivateMs" | "cdpInitializedMs" | "nativeSettledMs" | "tokenMs" | "validationMs"
   >> = {};
-  for (const key of ["sdkActivateMs", "cdpInitializedMs", "nativeSettledMs"] as const) {
+  for (const key of ["sdkActivateMs", "cdpInitializedMs", "nativeSettledMs", "tokenMs", "validationMs"] as const) {
     if (!Object.hasOwn(record, key)) continue;
     const normalized = normalizeDuration(record[key], 50, 30_000);
     if (normalized === null) return null;
@@ -224,6 +319,7 @@ function parseHomeAuthRestoreReport(record: Record<string, unknown>): HomeAuthRe
     hint: record.hint,
     outcome: record.outcome,
     ...optionalDurations,
+    ...(Object.hasOwn(record, "stalledStage") ? { stalledStage: record.stalledStage as HomeAuthRestoreStage } : {}),
     sessionSettledMs,
     totalMs,
   };

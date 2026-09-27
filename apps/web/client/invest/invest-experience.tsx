@@ -1,12 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useNestedAppChrome } from "@/components/app-chrome";
 import type { InvestAsset } from "@/config/invest-assets";
-import { commitClientUrl } from "@/config/shell-location";
+import { backClientHistory, commitClientUrl } from "@/config/shell-location";
 import { useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
+import {
+  isDynamicMarketPriceAssetId,
+  resolveMarketPriceAssetIdentity,
+} from "@/shared/invest/contracts/market-price-history";
 import { unavailableMarketData, type MarketDataState } from "@/shared/invest/invest-market";
+import { resolveTradeAsset } from "@/shared/trading/assets";
 import {
   getDiscoverAsset,
   getDiscoverShelf,
@@ -18,6 +30,7 @@ import {
 import {
   AssetDetailScreen,
   AssetDetailStatusScreen,
+  ExactAddressAssetScreen,
 } from "./asset-detail-screen";
 import { CategoryScreen } from "./category-screen";
 import { InvestHub } from "./invest-hub";
@@ -27,10 +40,44 @@ import {
   type InvestView,
 } from "./invest-location";
 import { resetHostScroll } from "./reset-host-scroll";
+import { useInvestSearch } from "./use-invest-search";
+import { useResolvedAsset } from "./use-resolved-asset";
 
 export type { InvestView };
 
 const investDetailFromStateKey = "investDetailFrom";
+const searchQueryKey = "investSearchQuery";
+const searchScrollKey = "investSearchScrollTop";
+
+function historySearchState(): { query: string; scrollTop: number } {
+  if (typeof window === "undefined") return { query: "", scrollTop: 0 };
+  const state: unknown = window.history.state;
+  const record = state && typeof state === "object"
+    ? state as Record<string, unknown>
+    : {};
+  return {
+    query: typeof record[searchQueryKey] === "string" ? record[searchQueryKey] : "",
+    scrollTop: typeof record[searchScrollKey] === "number" ? record[searchScrollKey] : 0,
+  };
+}
+
+function subscribeToSavedQuery(): () => void {
+  return () => {};
+}
+
+function readSavedQuery(): string {
+  return historySearchState().query;
+}
+
+function readServerSavedQuery(): string {
+  return "";
+}
+
+function saveHistoryQuery(query: string): void {
+  if (typeof window === "undefined") return;
+  if (historySearchState().query === query) return;
+  window.history.replaceState({ ...window.history.state, [searchQueryKey]: query }, "");
+}
 
 export type InvestExperienceProps = {
   stockMarket?: MarketDataState;
@@ -63,23 +110,62 @@ export function InvestExperience({
       ? investViewFromLocation(routing.state.location)
       : initialView ?? { screen: "hub" },
   );
+  const savedQuery = useSyncExternalStore(subscribeToSavedQuery, readSavedQuery, readServerSavedQuery);
+  const [editedQuery, setQuery] = useState<string | null>(null);
+  const query = editedQuery ?? savedQuery;
+  const [composing, setComposing] = useState(false);
+  const search = useInvestSearch(query, composing);
+  const detailIdentity = view.screen === "detail"
+    ? resolveMarketPriceAssetIdentity(view.assetId)
+    : null;
+  const knownDetail = view.screen === "detail"
+    ? getDiscoverAsset(view.assetId, [
+        ...memeAssets,
+        ...search.results.map((result) => result.asset),
+      ])
+    : null;
+  const detailAssetId = detailIdentity &&
+    isDynamicMarketPriceAssetId(detailIdentity.assetId) && !knownDetail
+    ? detailIdentity.assetId
+    : null;
+  const detail = useResolvedAsset(detailAssetId);
+  const resolvedDetail = detail.asset;
+  const catalog = [
+    ...memeAssets,
+    ...search.results.map((result) => result.asset),
+    ...(resolvedDetail ? [resolvedDetail] : []),
+  ];
   const [inAppChildDepth, setInAppChildDepth] = useState(0);
   const [appliedRootRevision, setAppliedRootRevision] = useState(routing?.rootRequest?.revision ?? 0);
   if (routing?.rootRequest && appliedRootRevision !== routing.rootRequest.revision) {
     setAppliedRootRevision(routing.rootRequest.revision);
     if (routing.rootRequest.panel === "invest") {
       setView({ screen: "hub" });
+      setQuery("");
       setInAppChildDepth(0);
     }
   }
   const hostRef = useRef<HTMLDivElement>(null);
   const currentViewKey = viewKey(view);
   const markets = { stockMarket, memeMarket, cryptoMarket };
-  const catalog = memeAssets;
+  const dynamicSnapshots = [
+    ...(memeMarket.status === "ready" ? memeMarket.snapshots : []),
+    ...search.snapshots,
+    ...(detail.snapshot ? [detail.snapshot] : []),
+  ];
+  const dynamicDetailMarket: MarketDataState =
+    memeMarket.status === "loading" && dynamicSnapshots.length === 0
+      ? { status: "loading" }
+      : { status: "ready", snapshots: dynamicSnapshots };
 
   useLayoutEffect(() => {
-    resetHostScroll(hostRef.current);
-  }, [currentViewKey]);
+    if (view.screen === "hub") {
+      const scrollTop = historySearchState().scrollTop;
+      const host = hostRef.current?.closest("[data-app-main-authenticated]");
+      if (host instanceof HTMLElement) host.scrollTop = scrollTop;
+      else window.scrollTo(0, scrollTop);
+    } else resetHostScroll(hostRef.current);
+  }, [currentViewKey, view.screen]);
 
   const appliedPopRevisionRef = useRef(routing?.popRevision ?? 0);
   useEffect(() => {
@@ -89,6 +175,7 @@ export function InvestExperience({
     let active = true;
     queueMicrotask(() => {
       if (!active) return;
+      setQuery(historySearchState().query);
       setView((previous) => {
         const next = investViewFromLocation(routing.state.location);
         if (next.screen === "detail") {
@@ -128,18 +215,37 @@ export function InvestExperience({
     setInAppChildDepth(0);
   }, [routing]);
 
+  const onHubEntry = view.screen === "hub" && (!routing || routing.state.location.panel === "invest");
+  const changeQuery = useCallback((next: string) => {
+    setQuery(next);
+    if (onHubEntry) saveHistoryQuery(next);
+  }, [onHubEntry]);
+
+  const savedRootRevisionRef = useRef(appliedRootRevision);
+  const rootPanel = routing?.rootRequest?.panel ?? null;
+  useEffect(() => {
+    if (savedRootRevisionRef.current === appliedRootRevision) return;
+    savedRootRevisionRef.current = appliedRootRevision;
+    if (rootPanel === "invest") saveHistoryQuery("");
+  }, [appliedRootRevision, rootPanel]);
+
   const go = useCallback((next: InvestView) => {
+    const host = hostRef.current?.closest("[data-app-main-authenticated]");
+    const scrollTop = host instanceof HTMLElement ? host.scrollTop : window.scrollY;
+    window.history.replaceState({ ...window.history.state, [searchQueryKey]: query, [searchScrollKey]: scrollTop }, "");
     setView(next);
     setInAppChildDepth((depth) => depth + 1);
     commitClientUrl(investHref(next), "push", {
       [investDetailFromStateKey]: next.screen === "detail" ? next.from : null,
+      [searchQueryKey]: query,
+      [searchScrollKey]: scrollTop,
     });
-  }, []);
+  }, [query]);
 
   const leaveChild = useCallback((parent: InvestView) => {
     setView(parent);
     if (inAppChildDepth > 0) {
-      window.history.back();
+      backClientHistory();
       return;
     }
     commitClientUrl(investHref(parent), "replace", {
@@ -147,11 +253,14 @@ export function InvestExperience({
     });
   }, [inAppChildDepth]);
 
+  const detailAsset = view.screen === "detail" ? getDiscoverAsset(view.assetId, catalog) : null;
+  const exactAsset = view.screen === "detail" && !detailAsset ? resolveTradeAsset(view.assetId) : null;
   const chromeTitle =
     view.screen === "category"
       ? getDiscoverShelf(view.shelfId)?.title ?? null
       : view.screen === "detail"
-        ? getDiscoverAsset(view.assetId, catalog)?.displayName ?? "Asset details"
+        ? detailAsset?.displayName ?? (exactAsset?.status === "tradeable"
+          ? `${exactAsset.address.slice(0, 6)}…${exactAsset.address.slice(-4)}` : "Asset details")
         : null;
   const chromeBackLabel =
     view.screen === "category"
@@ -187,9 +296,14 @@ export function InvestExperience({
       stockMarket={stockMarket}
       memeMarket={memeMarket}
       cryptoMarket={cryptoMarket}
-      memeAssets={catalog}
+      memeAssets={memeAssets}
       memeStatus={memeStatus}
       assetMarkResolution={assetMarkResolution}
+      query={query}
+      onQueryChange={changeQuery}
+      composing={composing}
+      onComposingChange={setComposing}
+      search={search}
       onSeeAll={(shelfId) => go({ screen: "category", shelfId })}
       onOpenAsset={(asset: InvestAsset) =>
         go({ screen: "detail", assetId: asset.id, from: "hub" })
@@ -200,7 +314,7 @@ export function InvestExperience({
   if (view.screen === "category") {
     const shelf = getDiscoverShelf(view.shelfId);
     if (!shelf) return <div ref={hostRef} />;
-    const assets = getShelfAssets(shelf, catalog);
+    const assets = getShelfAssets(shelf, memeAssets);
     screen = (
       <CategoryScreen
         title={shelf.title}
@@ -229,20 +343,27 @@ export function InvestExperience({
       view.from === "hub"
         ? ({ screen: "hub" } as const)
         : ({ screen: "category", shelfId: view.from } as const);
-    const asset = getDiscoverAsset(view.assetId, catalog);
-    if (!asset) {
+    if (detailAsset) {
       screen = (
-        <AssetDetailStatusScreen
-          status={memeStatus === "loading" ? "loading" : "unavailable"}
+        <AssetDetailScreen
+          asset={detailAsset}
+          market={
+            detailIdentity && isDynamicMarketPriceAssetId(detailIdentity.assetId)
+              ? dynamicDetailMarket
+              : marketForAsset(detailAsset, markets)
+          }
+          assetMarkResolution={assetMarkResolution}
           onBack={() => leaveChild(parent)}
         />
       );
+    } else if (detailAssetId && detail.status === "loading") {
+      screen = <AssetDetailStatusScreen status="loading" onBack={() => leaveChild(parent)} />;
+    } else if (exactAsset?.status === "tradeable" && (!detailAssetId || detail.status === "error")) {
+      screen = <ExactAddressAssetScreen assetId={view.assetId} onBack={() => leaveChild(parent)} />;
     } else {
       screen = (
-        <AssetDetailScreen
-          asset={asset}
-          market={marketForAsset(asset, markets)}
-          assetMarkResolution={assetMarkResolution}
+        <AssetDetailStatusScreen
+          status={!detailAssetId && memeStatus === "loading" ? "loading" : "unavailable"}
           onBack={() => leaveChild(parent)}
         />
       );

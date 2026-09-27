@@ -14,6 +14,7 @@ import {
 } from "@/client/asset-mark/presentation";
 import { canonicalUsdcAsset } from "@/config/portfolio-assets";
 import { deferSheet } from "@/client/money-modal/deferred-sheet";
+import { moneySheetLoading } from "@/client/money-modal";
 import {
   isServerVerified,
   isSessionSettling,
@@ -63,6 +64,7 @@ import {
 } from "@/shared/borrowing/math";
 import {
   formatOracleUsd,
+  formatPresentationCashAmount,
   formatPresentationDate,
   formatPresentationTokenAmount,
   formatWadPercent,
@@ -86,7 +88,8 @@ type BorrowExperienceProps = {
   borrowSummary?: HomeMoneySummary["borrow"] | null;
 };
 
-const BorrowMoneySheet = deferSheet(() => import("./borrow-money-dialog").then((module) => module.BorrowMoneyDialog));
+const BorrowMoneySheet = deferSheet(() => import("./borrow-money-dialog").then((module) => module.BorrowMoneyDialog),
+  (props) => moneySheetLoading({ title: "Borrow", titleId: "borrow-action-title", closeLabel: "Close Borrow action", onCancel: props.onClose, onClosed: props.onClosed }));
 
 export function AuthenticatedBorrowExperience({
   selectedMarketId = null,
@@ -396,13 +399,9 @@ function useBorrowOverview(session: VerifiedAccountSession | null, fetchAccountR
     retry: false,
     refetchOnWindowFocus: true,
     meta: key ? ownerQueryMeta(key, "owner") : undefined,
-    queryFn: ({ signal }) => {
-      if (!fetchAccountResource) throw new Error("Borrow is unavailable.");
-      return fetchAccountResource("/api/borrow", { signal });
-    },
-    select: (value): BorrowOverviewResponse => {
-      if (!owner) throw new Error("Borrow is unavailable.");
-      const parsed = parseBorrowOverview(value, owner);
+    queryFn: async ({ signal }): Promise<BorrowOverviewResponse> => {
+      if (!fetchAccountResource || !owner) throw new Error("Borrow is unavailable.");
+      const parsed = parseBorrowOverview(await fetchAccountResource("/api/borrow", { signal }), owner);
       if (!parsed || parsed.opportunities.some((entry) => entry.availability.status === "available" && (
         !parseTrustedSnapshot(entry.availability.snapshot, owner) ||
         entry.availability.snapshot.market.id !== entry.market.id ||
@@ -454,6 +453,12 @@ export function formatToken(raw: string, asset: BorrowMarketIdentity["loanToken"
     regionId,
     useNoBreakSpace: true,
   });
+}
+
+export function formatCash(raw: string, asset: BorrowMarketIdentity["loanToken"], regionId: RegionId): string {
+  return asset.id === canonicalUsdcAsset.assetKey && canonicalUsdcAsset.cashCurrency
+    ? formatPresentationCashAmount(raw, asset.decimals, canonicalUsdcAsset.cashCurrency, { regionId })
+    : formatToken(raw, asset, regionId);
 }
 
 export function openingBorrowAvailableBaseUnits(snapshot: BorrowMarketSnapshot): string {
@@ -510,7 +515,7 @@ function bufferCopy(healthFactorWad: string | null, marketId: BorrowMarketId): s
 export function borrowTeaserPositionDescription(position: BorrowOverviewPosition, regionId: RegionId): string {
   return BigInt(position.debtAssetsRaw) === BigInt(0)
     ? `No debt · ${formatToken(position.collateralRaw, position.market.collateralToken, regionId)} locked`
-    : `${formatToken(position.debtAssetsRaw, position.market.loanToken, regionId)} borrowed · ${bufferCopy(position.healthFactorWad, position.market.id)}`;
+    : `${formatCash(position.debtAssetsRaw, position.market.loanToken, regionId)} borrowed · ${bufferCopy(position.healthFactorWad, position.market.id)}`;
 }
 
 export function recommendedRepayMaximumBaseUnits(debtBaseUnits: string, walletBaseUnits: string, ratePerSecondWad: string): string {

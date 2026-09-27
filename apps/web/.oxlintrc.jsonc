@@ -141,6 +141,34 @@
   },
   "overrides": [
     {
+      "files": ["{app,client,components}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
+      "excludeFiles": [
+        "components/ui/**", "client/money-modal/**",
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**", "**/testing/**", "**/explorations/**"
+      ],
+      "rules": { "home/no-sheet-primitives": "error" }
+    },
+    {
+      "files": ["{app,client,components,stories}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
+      "excludeFiles": ["components/ui/**"],
+      "rules": { "home/no-sheet-primitive-reexports": "error" }
+    },
+    {
+      "files": ["{app,client,components}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
+      "excludeFiles": [
+        "client/money-modal/**", "components/ui/**",
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**", "**/testing/**"
+      ],
+      "rules": {
+        "home/money-modal-public-api": "error",
+        "home/no-alternate-money-modal": "error"
+      }
+    },
+    {
       "files": [
         "app/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "client/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
@@ -424,9 +452,11 @@
           "error",
           {
             "safeHelpers": [
+              "beginHomeAuthRestoreStage",
               "createClientErrorHandler",
               "createClientPerformanceHandler",
               "emitServerEvent",
+              "endHomeAuthRestoreStage",
               "finishHomeAuthRestore",
               "installClientErrorReporting",
               "markHomeAuthRestore",

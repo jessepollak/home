@@ -8,7 +8,7 @@ test("keeps every non-manual surface's fixture Reach available to the replay", a
   const { surfaces } = await readFeatureMap(path);
   expect([...surfaces.keys()].sort()).toEqual([
     "access-gate", "account-settings", "activity", "add-money", "balances", "borrow", "cash-out",
-    "coverage", "dev-ui", "home-panel", "invest", "landing", "operator-console", "save",
+    "coverage", "dev-ui", "home-panel", "invest", "investments", "landing", "operator-console", "save",
     "send", "sign-in", "toasts",
   ]);
   expect([...surfaces.values()].filter((surface) => !surface.manual && !surface.reach.length)).toEqual([]);

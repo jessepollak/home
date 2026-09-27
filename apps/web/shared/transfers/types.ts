@@ -33,7 +33,8 @@ export type TransferFailureReason =
   | "failed"
   | "confirmation-timeout"
   | "submission-pending"
-  | "submission-unknown";
+  | "submission-unknown"
+  | "dispatch-unknown";
 
 export class TransferExecutionError extends Error {
   readonly reason: TransferFailureReason;

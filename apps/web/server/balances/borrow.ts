@@ -6,9 +6,10 @@ import {
 } from "@/server/morpho-markets/rpc";
 import { BORROW_MARKETS, getBorrowMarketRef, type BorrowMarketRef } from "@/shared/borrowing/config";
 import { erc20AssetKey, type BalancesBorrow, type BorrowMarketKey, type BorrowPosition, type Holding } from "@/shared/balances/types";
-import type { BorrowMarketRead, BorrowRead, ReadHolding } from "./types";
+import type { BalancesRead, BorrowMarketRead, BorrowRead, ReadHolding } from "./types";
 
 export const BALANCES_BORROW_DEADLINE_MS = 4_000;
+export const BORROW_CARRY_FORWARD_BLOCKS = BigInt(60);
 
 type Dependencies = {
   readSnapshots?: MorphoMarketRpcReader["readSnapshots"];
@@ -43,6 +44,29 @@ export function createBorrowPositionsReader(dependencies: Dependencies = {}) {
 }
 
 export const readBorrowPositions = createBorrowPositionsReader();
+
+export function carryForwardBorrow(
+  fresh: BorrowRead,
+  prior: BorrowRead | null | undefined,
+  atBlockNumber: string,
+): BorrowRead {
+  const previous = new Map(prior?.markets.map((market) => [market.marketId, market]));
+  const carry = (market: BorrowMarketRead | undefined): BorrowMarketRead | undefined => {
+    if (market?.status !== "ready") return undefined;
+    const distance = BigInt(atBlockNumber) - BigInt(market.blockNumber);
+    return distance >= BigInt(0) && distance <= BORROW_CARRY_FORWARD_BLOCKS ? market : undefined;
+  };
+  return {
+    markets: fresh.markets.map((market) => market.status === "ready"
+      ? market
+      : carry(previous.get(market.marketId)) ?? market),
+  };
+}
+
+export function borrowReadCurrent(read: Pick<BalancesRead, "borrow" | "block">): boolean {
+  return borrowReadComplete(read.borrow) && read.borrow!.markets.every((market) =>
+    market.status === "ready" && market.blockNumber === read.block.number);
+}
 
 export function borrowReadComplete(read: BorrowRead | null | undefined): boolean {
   return Boolean(read) && read!.markets.every((market) =>

@@ -9,7 +9,6 @@ import { useReactiveExpiry } from "@/client/actions/expiry";
 import { useMoneyActionOutcome } from "@/client/actions/money-action-outcome";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { openPanelAfterClose, useOptionalHomeShellRouting } from "@/client/home/panel-routing";
-import { MoneyResult, MoneyResultFooter } from "@/client/money-modal/money-result";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
   MoneyAmountDisplay,
@@ -21,9 +20,14 @@ import {
   MoneyModalBody,
   MoneyModalFooter,
   MoneyModalHeader,
+  MoneyModalStep,
   decimalFromBaseUnits,
   isPositiveDecimalAmount,
-  useMoneyAssetPricing,
+  useMoneyAmountUnit,
+  MoneyResult,
+  MoneyResultFooter,
+  maxAmountAfterNetworkFee,
+  useNetworkFeeReserve,
 } from "@/client/money-modal";
 import type {
   MoneyActionOwner,
@@ -32,7 +36,6 @@ import type {
 } from "@/shared/money-actions/types";
 import { parseUsdcAmount } from "@/client/savings/format";
 import { networkFeeErrorMessage } from "@/shared/money-actions/network-fee";
-import { maxAmountAfterNetworkFee, useNetworkFeeReserve } from "@/client/money-modal/network-fee-policy";
 import { reportClientError } from "@/client/observability/client-reporter";
 import { TransferExecutionError } from "@/shared/transfers/types";
 import {
@@ -46,6 +49,7 @@ import {
   type SavingsPreparedReview,
 } from "@/shared/savings/review";
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
+import { verifiedCashCurrency } from "@/config/portfolio-assets";
 import { useSavingsDialogFixture } from "./savings-dialog-fixture";
 
 export type SavingsActionMode = "deposit" | "withdraw";
@@ -133,7 +137,7 @@ function OwnerBoundSavingsMoneyDialog({
   const amountExceedsAvailable = amountExceedsKnownAvailable(amount, knownAvailable);
   const overAvailable = assetRouteConfigured && amountExceedsAvailable;
   const canContinue = assetRouteConfigured && isPositiveDecimalAmount(amount) && !amountExceedsAvailable;
-  const pricing = useMoneyAssetPricing(assetLabel);
+  const unit = useMoneyAmountUnit(assetRouteConfigured ? verifiedCashCurrency(candidate.asset.address) : null);
   const { reserve, failed: reserveFailed, retry: retryReserve } = useNetworkFeeReserve(session.smartAccount ? savingsDialogOwnerIdentity(session) : null, fetchAccountResource, open);
   const title = step === "amount" ? mode === "deposit" ? "Deposit" : "Withdraw" : step === "result" ? (mode === "deposit" ? "Deposit" : "Withdraw") : "Confirm";
 
@@ -154,7 +158,6 @@ function OwnerBoundSavingsMoneyDialog({
   }
 
   function close() {
-    reset();
     onClose();
   }
 
@@ -266,7 +269,7 @@ function OwnerBoundSavingsMoneyDialog({
       setSubmission("submitted");
       setStep("result");
     } catch (caught) {
-      if (caught instanceof TransferExecutionError && caught.reason === "submission-unknown") {
+      if (caught instanceof TransferExecutionError && (caught.reason === "submission-unknown" || caught.reason === "dispatch-unknown")) {
         setAttemptedAction(true);
         setSubmission("ambiguous");
         setStep("result");
@@ -306,10 +309,10 @@ function OwnerBoundSavingsMoneyDialog({
         onCancel={onClose}
         onClose={() => {
           reset();
-          onClose();
           onClosed?.();
         }}
       >
+        <MoneyModalStep step={step === "pending" || step === "error" ? "confirm" : step} depth={step === "amount" ? 0 : step === "result" ? 2 : 1}>
         <MoneyModalHeader
           title={title}
           titleId="savings-action-title"
@@ -318,7 +321,6 @@ function OwnerBoundSavingsMoneyDialog({
             : step === "pending" || step === "result"
               ? {}
               : { onBack: goBack })}
-          onClose={close}
           closeLabel={`Close ${mode} dialog`}
         />
 
@@ -337,7 +339,7 @@ function OwnerBoundSavingsMoneyDialog({
                 assetLabel={assetLabel}
                 assetControl="header"
                 chipSet="max"
-                pricing={pricing}
+                unit={unit}
                 nativeSymbol={assetLabel}
               >
                 {mode === "deposit" && assetRouteConfigured && candidate.asset.symbol.toUpperCase() === "USDC" && reserveFailed ? (
@@ -413,6 +415,7 @@ function OwnerBoundSavingsMoneyDialog({
             onPrimary={goBack}
           />
         ) : null}
+        </MoneyModalStep>
       </MoneyModal>
     </MoneyMotionProvider>
   );

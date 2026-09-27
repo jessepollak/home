@@ -10,13 +10,16 @@ import {
 import { dataOwnerKey, uiBoundary } from "@/client/account/owner-keys";
 import { deferSheet } from "@/client/money-modal/deferred-sheet";
 import type { AddMoneyStep, ProvidersStatus } from "./add-money-dialog";
+import { addMoneySheetLoading } from "./method-skeleton";
 import { shouldPollFundingOrder } from "./order-polling";
 import { readFundingOrder, type FundingOrderSummary } from "@/shared/funding/contracts/order";
 import { readProviderBindings, type FundingBinding } from "@/shared/funding/contracts/providers";
 import { readFundingProviderCustomers, type FundingProviderCustomerSummary } from "@/shared/funding/contracts/provider-customers";
 import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
+import { fundingProvidersOptions, fundingOpenOrderOptions } from "./funding-prefetch";
 
-const AddMoneySheet = deferSheet(() => import("./add-money-dialog").then((module) => module.AddMoneyDialog));
+const AddMoneySheet = deferSheet(() => import("./add-money-dialog").then((module) => module.AddMoneyDialog),
+  addMoneySheetLoading);
 
 export const preloadAddMoneySheet = AddMoneySheet.preload;
 
@@ -25,6 +28,7 @@ export type FundingExperienceProps = {
   returnedFromVerification?: boolean;
   open?: boolean;
   onClose?: () => void;
+  onClosed?: () => void;
   initialStep?: AddMoneyStep;
   onStepChange?: (step: AddMoneyStep) => void;
   regionId?: RegionId;
@@ -105,6 +109,7 @@ function FundingExperienceBoundary({
   returnedFromVerification = false,
   open = true,
   onClose,
+  onClosed,
   initialStep,
   onStepChange,
   regionId = "GLOBAL",
@@ -120,6 +125,7 @@ function FundingExperienceBoundary({
   const [step, setStep] = useState<AddMoneyStep>(startStep);
   const [selectedBinding, setSelectedBinding] = useState<FundingBinding | null>(null);
   const [initialOrder, setInitialOrder] = useState<FundingOrderSummary | null>(null);
+  const [promptOrder, setPromptOrder] = useState<FundingOrderSummary | null>(null);
   const [initialCustomer, setInitialCustomer] = useState<FundingProviderCustomerSummary | null>(null);
   const stepRef = useRef<AddMoneyStep>(startStep);
   const navigationEpochRef = useRef(0);
@@ -154,19 +160,8 @@ function FundingExperienceBoundary({
     open && regionReady && !signedOut && regionId !== "GLOBAL" && queryOwnerKey,
   );
   const providerQuery = useHomeQuery({
-    queryKey: queryOwnerKey
-      ? ownerQueryKey(queryOwnerKey, "funding-providers", regionId)
-      : ["unauthenticated", "funding-providers-disabled", regionId],
+    ...fundingProvidersOptions(queryOwnerKey, regionId, wallet.fetchAccountResource),
     enabled: queryEnabled,
-    staleTime: 15_000,
-    retry: false,
-    refetchOnWindowFocus: false,
-    meta: queryOwnerKey ? ownerQueryMeta(queryOwnerKey, "owner") : undefined,
-    queryFn: ({ signal }) =>
-      wallet.fetchAccountResource(
-        `/api/funding/providers?region=${encodeURIComponent(regionId)}&direction=onramp`,
-        { signal },
-      ),
   });
   const providersFailed = queryEnabled && providerQuery.isError;
   const providersStatus: ProvidersStatus = !regionReady
@@ -195,19 +190,8 @@ function FundingExperienceBoundary({
     queryFn: ({ signal }) => wallet.fetchAccountResource(`/api/funding/provider-customers?region=${encodeURIComponent(regionId)}`, { signal }),
   });
   const ordersQuery = useHomeQuery({
-    queryKey: queryOwnerKey
-      ? ownerQueryKey(queryOwnerKey, "funding-open-order", regionId)
-      : ["unauthenticated", "funding-open-order-disabled", regionId],
+    ...fundingOpenOrderOptions(queryOwnerKey, regionId, wallet.fetchAccountResource),
     enabled: queryEnabled,
-    staleTime: 15_000,
-    retry: false,
-    refetchOnWindowFocus: false,
-    meta: queryOwnerKey ? ownerQueryMeta(queryOwnerKey, "owner") : undefined,
-    queryFn: ({ signal }) =>
-      wallet.fetchAccountResource(
-        `/api/funding/orders?region=${encodeURIComponent(regionId)}`,
-        { signal },
-      ),
   });
 
   useEffect(() => {
@@ -218,6 +202,7 @@ function FundingExperienceBoundary({
     const wasOpen = wasOpenRef.current;
     wasOpenRef.current = open;
     if (!open) spendReturnResume();
+    if (!open && wasOpen) setPromptOrder(null);
     if (open && !wasOpen && stepRef.current !== startStep) {
       queueMicrotask(() => navigateTo(startStep, false));
     }
@@ -280,18 +265,19 @@ function FundingExperienceBoundary({
           }
         : null;
 
-  function close() {
+  function resetJourney() {
     navigateTo("method");
     setSelectedBinding(null);
     setInitialOrder(null);
+    setPromptOrder(null);
     setInitialCustomer(null);
-    onClose?.();
   }
 
   function goBack() {
     navigateTo("method");
     setSelectedBinding(null);
     setInitialOrder(null);
+    setPromptOrder(null);
     setInitialCustomer(null);
   }
 
@@ -302,7 +288,8 @@ function FundingExperienceBoundary({
       address={address}
       signedOut={signedOut}
       regionId={regionId}
-      onClose={close}
+      onClose={() => onClose?.()}
+      onClosed={() => { resetJourney(); onClosed?.(); }}
       onBack={goBack}
       onSelectReceive={() => navigateTo("receive")}
       providerBindings={providerBindings}
@@ -313,15 +300,29 @@ function FundingExperienceBoundary({
       fundingReadError={fundingReadError}
       selectedBinding={selectedBinding}
       initialOrder={initialOrder}
+      promptOrder={promptOrder}
+      onContinueOrder={() => {
+        setInitialOrder(promptOrder);
+        setPromptOrder(null);
+        navigateTo("order");
+      }}
+      onStartNewOrder={() => {
+        setInitialOrder(null);
+        setPromptOrder(null);
+        navigateTo("order");
+      }}
+      startNewAllowed={promptOrder?.state !== "dispatch-ambiguous" && (!selectedBinding?.customerSetup || customerSetupReady)}
       initialCustomer={initialCustomer}
       fetchAccountResource={wallet.fetchAccountResource}
       queryOwnerKey={queryOwnerKey}
       onSelectBinding={(binding) => {
         if (!regionReady) return;
         setSelectedBinding(binding);
-        setInitialOrder(isResumableBinding(openOrder, binding) ? openOrder : null);
+        const resumable = isResumableBinding(openOrder, binding) ? openOrder : null;
+        setPromptOrder(resumable);
+        setInitialOrder(null);
         setInitialCustomer(readFundingProviderCustomers(customersQuery.data).find((customer) => customer.providerId === binding.providerId) ?? null);
-        navigateTo("order");
+        navigateTo(resumable ? "open-order" : "order");
       }}
       onOpenRedirect={navigateToRedirect}
     />

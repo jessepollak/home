@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getSqlExecutor, type SqlExecutor } from "@/server/db/sql";
+import { recordCustomerIds } from "@/server/customers/record-ids";
 import { SECRET_ENVELOPE_PATTERN, envelopeKeyVersion } from "@/server/secrets/at-rest";
 import type { FundingOrderOwner } from "./store";
 
@@ -83,13 +84,15 @@ export class PostgresFundingProviderUserTokenStore implements FundingProviderUse
   async putIfEnvelope(key: FundingUserTokenKey, expectedEnvelope: string | null, row: Put) {
     if (expectedEnvelope !== null) validEnvelope(expectedEnvelope);
     const destination = validDestination(row.destination), version = validEnvelope(row.envelope);
-    const values = [...tuple(key),destination,row.envelope,version,row.returnedAt,row.updatedAt];
+    const ids = await recordCustomerIds(this.sql, { ...key.owner, address: destination }, new Date(row.returnedAt));
+    const values = [...tuple(key),destination,row.envelope,version,row.returnedAt,row.updatedAt,ids.customerId,ids.credentialId,ids.walletId];
     if (expectedEnvelope === null) {
-      return (await this.query(`INSERT INTO funding_provider_user_tokens (account_provider,owner_subject,provider_id,region,sandbox,destination,envelope,key_version,returned_at,updated_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (account_provider,owner_subject,provider_id,region,sandbox) DO NOTHING`, values)).rowCount > 0;
+      return (await this.query(`INSERT INTO funding_provider_user_tokens (account_provider,owner_subject,provider_id,region,sandbox,destination,envelope,key_version,returned_at,updated_at,customer_id,credential_id,wallet_id)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT (account_provider,owner_subject,provider_id,region,sandbox) DO NOTHING`, values)).rowCount > 0;
     }
-    return (await this.query(`UPDATE funding_provider_user_tokens SET destination=$6,envelope=$7,key_version=$8,returned_at=$9,updated_at=$10
-      WHERE account_provider=$1 AND owner_subject=$2 AND provider_id=$3 AND region=$4 AND sandbox=$5 AND envelope=$11`, [...values,expectedEnvelope])).rowCount > 0;
+    return (await this.query(`UPDATE funding_provider_user_tokens SET destination=$6,envelope=$7,key_version=$8,returned_at=$9,updated_at=$10,
+        customer_id=COALESCE(customer_id,$12),credential_id=COALESCE(credential_id,$13),wallet_id=COALESCE(wallet_id,$14)
+      WHERE account_provider=$1 AND owner_subject=$2 AND provider_id=$3 AND region=$4 AND sandbox=$5 AND envelope=$11`, [...tuple(key),destination,row.envelope,version,row.returnedAt,row.updatedAt,expectedEnvelope,ids.customerId,ids.credentialId,ids.walletId])).rowCount > 0;
   }
   async deleteIfEnvelope(key: FundingUserTokenKey, envelope: string) { validEnvelope(envelope); return (await this.query("DELETE FROM funding_provider_user_tokens WHERE account_provider=$1 AND owner_subject=$2 AND provider_id=$3 AND region=$4 AND sandbox=$5 AND envelope=$6", [...tuple(key),envelope])).rowCount > 0; }
   async delete(key: FundingUserTokenKey) { return (await this.query("DELETE FROM funding_provider_user_tokens WHERE account_provider=$1 AND owner_subject=$2 AND provider_id=$3 AND region=$4 AND sandbox=$5", tuple(key))).rowCount > 0; }

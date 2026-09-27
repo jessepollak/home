@@ -115,7 +115,7 @@ export function seedSignedInSession(page: Page, country = "US") {
 
 export async function installApiFixtures(
   page: Page,
-  options: { balances?: BalancesSnapshot } = {},
+  options: { balances?: BalancesSnapshot; countryPreferenceRegion?: RegionId } = {},
 ) {
   let status: ActionStatus = "unconfirmed";
   let balancesReads = 0;
@@ -286,14 +286,18 @@ export async function installApiFixtures(
         activityPageBody(url.searchParams.get("to"), url.searchParams.get("currency") ?? "USD"),
       );
     }
+    if (path === "/api/activity/orders") return json(route, {
+      version: 1, owner: { subject: sessionBody.user.subject, accountProvider: sessionBody.accountProvider }, orders: [],
+    });
     if (path === "/api/account/country-preference") {
       if (request.method() === "PUT") {
         const body = parseCountryPreferenceRequest(request.postDataJSON());
         if (!body) return route.fulfill({ status: 400, contentType: "application/json", body: "{}" });
         return json(route, { version: COUNTRY_PREFERENCE_VERSION, regionId: body.regionId });
       }
-      return json(route, { version: COUNTRY_PREFERENCE_VERSION, regionId: null });
+      return json(route, { version: COUNTRY_PREFERENCE_VERSION, regionId: options.countryPreferenceRegion ?? null });
     }
+    if (path === "/api/invites/link") return json(route, { version: 1, code: "abcdefghjk" });
     if (path === "/api/basename-profile") return json(route, basenameProfileBody);
     return json(route, {});
   });

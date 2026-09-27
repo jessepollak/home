@@ -21,10 +21,10 @@ import {
   presentationQuoteForRegion,
   type PresentationFxQuote,
 } from "@/client/invest/presentation-quote";
-import { SavingsExperience } from "@/client/savings/savings-experience";
+import { CashExperience } from "@/client/cash/cash-experience";
 import { HomeMark } from "@/components/home-mark";
 import { PrimaryNavigation } from "@/components/primary-navigation";
-import { shellContentFrameClassName, shellScrollContainerClassName } from "@/components/shell-layout";
+import { shellContentFrameClassName, shellNavigationClearanceClassName, shellScrollContainerClassName } from "@/components/shell-layout";
 import { Button } from "@/components/ui/button";
 import { cryptoAssets, stockAssets } from "@/config/invest-assets";
 import {
@@ -217,12 +217,14 @@ const vaultsFixture: MorphoVaultsResult = {
   source: { provider: "Morpho GraphQL", endpoint: "https://api.morpho.org/graphql", query: "vaults", fetchedAt: "2026-09-10T12:00:00.000Z" },
   stale: false,
 };
-const fundedPositions = MORPHO_V1_CANDIDATE_ADDRESSES.map((vaultAddress) => ({
-  vaultAddress, position: { assetsRaw: vaultAddress === SPARK ? "987654321" : vaultAddress === GAUNTLET ? "123456789" : "0" },
-}));
+const saveSnapshot = buildBalancesSnapshotFixture({ registry: {
+  usdc: { balance: ready("250000000"), value: priced("USD", "25000"), cashValue: pricedCash("USD", "25000") },
+  "morpho-steakhouse-usdc": { balance: ready("987654321000000000000"), underlyingBalance: ready("987654321"), value: priced("USD", "98765") },
+  "morpho-re7-usdc": { balance: ready("123456789000000000000"), underlyingBalance: ready("123456789"), value: priced("USD", "12345") },
+} });
 
 type ShellState = "funded" | "loading" | "empty" | "partial" | "balances-error" | "activity-error";
-type DesktopShellProps = { initialPanel: "home" | "invest" | "save"; initialRailCollapsed?: boolean; extendedActivity?: boolean; state: ShellState };
+type DesktopShellProps = { initialPanel: "home" | "invest" | "cash"; initialRailCollapsed?: boolean; extendedActivity?: boolean; state: ShellState };
 
 function DesktopRail({ active, collapsed, onToggle, navigate, openAccount, accountButtonRef }: {
   active: ShellPanelId;
@@ -306,6 +308,7 @@ function isVisibleFocusTarget(element: HTMLElement | null): element is HTMLEleme
 function DesktopShell({ initialPanel, initialRailCollapsed = false, extendedActivity = false, state }: DesktopShellProps) {
   const [railCollapsed, setRailCollapsed] = useState(initialRailCollapsed);
   const [panel, setPanel] = useState<ShellPanelId>(initialPanel);
+  const [cashView, setCashView] = useState<"cash" | "savings">("cash");
   const [navigationRequest, setNavigationRequest] = useState(0);
   const [accountOpen, setAccountOpen] = useState(false);
   const [showSmallBalances, setShowSmallBalances] = useState(false);
@@ -320,7 +323,7 @@ function DesktopShell({ initialPanel, initialRailCollapsed = false, extendedActi
   const focusHandoffRef = useRef(false);
   const wasAccountOpenRef = useRef(false);
   const active = panel;
-  const title = accountOpen ? "Account" : panel === "save" ? "Cash" : panel === "invest" ? "Invest" : "Home";
+  const title = accountOpen ? "Account" : panel === "cash" ? cashView === "cash" ? "Cash" : "Savings" : panel === "invest" ? "Invest" : "Home";
   const balances = state === "loading" ? loadingBalances : regionBalances(state, regionId);
   const activityCurrency = presentationMoneyMetadata(regionId).currency;
   const activity = state === "loading" ? loadingActivity : state === "empty" ? emptyActivity(activityCurrency) : state === "activity-error" ? failedActivity : readyActivity(activityCurrency, extendedActivity);
@@ -341,7 +344,7 @@ function DesktopShell({ initialPanel, initialRailCollapsed = false, extendedActi
     setAccountOpen(true);
   };
   const closeAccount = () => setAccountOpen(false);
-  const back = () => requestPanel("home");
+  const back = () => { if (panel === "cash" && cashView === "savings") setCashView("cash"); else requestPanel("home"); };
   useEffect(() => {
     if (navigationRequest === 0) return;
     if (mainRef.current) mainRef.current.scrollTop = 0;
@@ -388,6 +391,7 @@ function DesktopShell({ initialPanel, initialRailCollapsed = false, extendedActi
     <AccountSettings
       regionId={regionId} onRegionChange={setRegionId} resolutionSource="explicit"
       preferenceMessage="" isPreferenceReady accountAddress={WALLET} accountOwnerKey="jesse.base.eth"
+      fetchAccountResource={async () => ({ version: 1, code: "abcdefghjk" })}
       showSmallBalances={showSmallBalances} onShowSmallBalancesChange={setShowSmallBalances}
       appearancePreference={appearancePreference}
       onAppearancePreferenceChange={(value) => { setAppearancePreference(value); return true; }}
@@ -401,7 +405,7 @@ function DesktopShell({ initialPanel, initialRailCollapsed = false, extendedActi
           assetBalances={balances}
           cashRate={state === "empty" ? "Up to 4.20% APY" : "4.20% APY"}
           borrowOfferRate={state === "empty" ? "5.10% APR" : null}
-          destinations={{ onOpenCash: () => requestPanel("save"), onOpenInvestments: () => navigate("invest"), onOpenBorrow: noop }}
+          destinations={{ onOpenCash: () => requestPanel("cash"), onOpenInvestments: noop, onOpenBorrow: noop }}
           actions={
             <>
               <Button size="touch" className="w-full">
@@ -426,9 +430,9 @@ function DesktopShell({ initialPanel, initialRailCollapsed = false, extendedActi
   ) : panel === "invest" ? (
     <InvestHub stockMarket={stockMarket} cryptoMarket={cryptoMarket} memeMarket={memeMarket} onSeeAll={noop} onOpenAsset={noop} />
   ) : (
-    <SavingsExperience
-      session={session} now={() => FIXTURE_NOW} availableUsdcBaseUnits="250000000"
-      balancePositions={fundedPositions} balanceStatus="ready"
+    <CashExperience view={cashView} onOpenSavings={() => setCashView("savings")}
+      session={session} now={() => FIXTURE_NOW} snapshot={saveSnapshot} balanceStatus="ready"
+      onRetryBalances={noop} onAddMoney={noop}
       prepareMoneyAction={previewOnlyMoneyAction} executeMoneyAction={previewOnlyMoneyAction}
     />
   );
@@ -442,18 +446,18 @@ function DesktopShell({ initialPanel, initialRailCollapsed = false, extendedActi
           <div className="flex min-h-0 min-w-0 flex-1 flex-col lg:min-h-dvh lg:px-6 xl:px-10">
             <div className="contents lg:hidden">
               <ShellHeader
-                isAccountSettingsOpen={accountOpen} nestedChromeTitle={panel === "save" && !accountOpen ? "Cash" : null}
+                isAccountSettingsOpen={accountOpen} nestedChromeTitle={panel === "cash" && !accountOpen ? cashView === "cash" ? "Cash" : "Savings" : null}
                 nestedChromeBackLabel="Back" onNestedChromeBack={back} routeMode="dashboard"
                 activeNavigation={active} isVerified account={signedInAccount}
                 onHome={back} onDashboard={back} onSignIn={noop} onSignOut={noop}
                 onOpenSettings={openAccount} onCloseSettings={closeAccount} status={headerStatus}
               />
             </div>
-            <main ref={mainRef} id="navigation-panel" tabIndex={-1} className={`relative order-1 min-h-0 min-w-0 flex-1 overscroll-contain overflow-x-hidden pb-4 scroll-pb-4 outline-none lg:order-none lg:overflow-visible lg:pb-0 ${shellScrollContainerClassName}`}>
+            <main ref={mainRef} id="navigation-panel" tabIndex={-1} className={`relative order-1 min-h-0 min-w-0 flex-1 overscroll-contain overflow-x-hidden outline-none lg:order-none lg:overflow-visible lg:pb-0 lg:scroll-pb-0 ${shellNavigationClearanceClassName} ${shellScrollContainerClassName}`}>
               <div data-desktop-content-box="" className={`${shellContentFrameClassName} lg:px-0 ${panel === "home" && !accountOpen ? "lg:max-w-280" : "lg:max-w-160"}`}>
                 <header className="sticky top-0 z-10 hidden h-14 items-center justify-between gap-4 border-b bg-muted lg:flex">
                   <div className="flex min-w-0 items-center gap-2">
-                    {panel === "save" && !accountOpen ? (
+                    {panel === "cash" && !accountOpen ? (
                       <Button variant="ghost" size="icon" className="size-11" aria-label="Back" onClick={back}>
                         <ArrowLeft className="size-4" aria-hidden="true" />
                       </Button>
@@ -553,7 +557,8 @@ export const HomeDesktop: Story = {
     await expect(canvas.getByRole("region", { name: "Your money" })).toBeVisible();
     const activity = within(canvas.getByRole("region", { name: "Activity" }));
     await expect(canvas.getByRole("region", { name: "Activity" })).toBeVisible();
-    await expect(activity.getAllByRole("button", { description: /transaction details/ })).toHaveLength(15);
+    await expect(activity.getAllByRole("button", { description: /transaction details/ })).toHaveLength(13);
+    await expect(activity.getByRole("button", { description: "2 Received USDC transfers" })).toHaveAttribute("aria-expanded", "false");
     await expect(activity.getByText(/^Sep 22,/)).toBeVisible();
     await expect(activity.queryByText(/^22 Sep(?:t)?,/)).not.toBeInTheDocument();
     await expect(activity.getByRole("img", { name: "+$25.00" })).toBeVisible();
@@ -593,7 +598,7 @@ export const HomeDesktop: Story = {
     await userEvent.click(canvas.getByRole("button", { name: "Back" }));
     await waitFor(() => expect(view.scrollY).toBe(0));
     await expect(main).toHaveFocus();
-    await userEvent.click(canvas.getByRole("button", { description: "Open Invest" }));
+    await userEvent.click(within(rail).getByRole("button", { name: "Invest" }));
     await expect(within(rail).getByRole("button", { name: "Invest" })).toHaveAttribute("aria-current", "page");
     await userEvent.click(within(rail).getByRole("button", { name: "Home" }));
     const account = canvas.getByRole("button", { name: /Account jesse\.base\.eth/ });
@@ -621,7 +626,8 @@ export const HomeDesktop: Story = {
     const updatedActivity = within(canvas.getByRole("region", { name: "Activity" }));
     await expect(updatedActivity.getByText(/^22 Sep(?:t)?,/)).toBeVisible();
     await expect(updatedActivity.queryByText(/^Sep 22,/)).not.toBeInTheDocument();
-    await expect(updatedActivity.getAllByRole("button", { description: /transaction details/ })).toHaveLength(14);
+    await expect(updatedActivity.getAllByRole("button", { description: /transaction details/ })).toHaveLength(12);
+    await expect(updatedActivity.getByRole("button", { description: "2 Received USDC transfers" })).toHaveAttribute("aria-expanded", "false");
     await expect(updatedActivity.queryByText("Borrowed")).not.toBeInTheDocument();
     await expect(updatedActivity.getByRole("img", { name: "+£19.75" })).toBeVisible();
     await expect(updatedActivity.queryByRole("img", { name: "+$25.00" })).not.toBeInTheDocument();
@@ -647,7 +653,8 @@ export const HomeDesktop: Story = {
     await userEvent.click(canvas.getByRole("button", { name: "Done" }));
     await userEvent.click(within(rail).getByRole("button", { name: "Home" }));
     const unratedActivity = within(canvas.getByRole("region", { name: "Activity" }));
-    await expect(unratedActivity.getAllByRole("button", { description: /transaction details/ })).toHaveLength(14);
+    await expect(unratedActivity.getAllByRole("button", { description: /transaction details/ })).toHaveLength(12);
+    await expect(unratedActivity.getByRole("button", { description: "2 Received USDC transfers" })).toHaveAttribute("aria-expanded", "false");
     await expect(unratedActivity.queryAllByRole("img", { name: /[€$£]/ })).toHaveLength(0);
     await expect(canvas.getByLabelText("Total balance")).not.toHaveTextContent(/[€$£]/);
     await expect(canvas.getByRole("region", { name: "Your money" })).not.toHaveTextContent("€");
@@ -734,7 +741,7 @@ export const InvestDesktop: Story = {
   },
 };
 export const CashL2Desktop: Story = {
-  args: { initialPanel: "save" },
+  args: { initialPanel: "cash" },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await expect(canvas.getByRole("heading", { level: 1, name: "Cash" })).toBeVisible();
@@ -742,11 +749,12 @@ export const CashL2Desktop: Story = {
     const back = canvas.getByRole("button", { name: "Back" });
     await expect(back.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
     await expect(within(canvas.getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Home" })).toHaveAttribute("aria-current", "page");
-    const vault = await canvas.findByRole("radio", { name: /Spark USDC Vault/ });
-    await userEvent.click(vault);
-    await expect(vault).toHaveAttribute("aria-checked", "true");
-    await expect(canvas.getByRole("button", { name: "Deposit" })).toBeEnabled();
+    await userEvent.click(await canvas.findByRole("button", { name: /^US dollar/ }));
+    await expect(canvas.getByRole("heading", { level: 1, name: "Savings" })).toBeVisible();
+    await waitFor(() => expect(canvas.getByRole("button", { name: "Deposit" })).toBeEnabled());
     await expect(canvas.getByRole("button", { name: "Withdraw" })).toBeEnabled();
+    await userEvent.click(back);
+    await expect(canvas.getByRole("heading", { level: 1, name: "Cash" })).toBeVisible();
     await userEvent.click(back);
     await expect(canvas.getByRole("region", { name: "Your money" })).toBeVisible();
     await userEvent.click(canvas.getByRole("button", { description: "Open Cash" }));
@@ -813,7 +821,7 @@ export const Mobile390: Story = {
     await expect(canvas.getByRole("heading", { level: 1, name: "Home" })).toBeVisible();
     await expectFixedShellWhileContentScrolls(canvasElement);
     const main = canvas.getByRole("main");
-    await expect(navigation.getBoundingClientRect().top).toBeGreaterThanOrEqual(main.getBoundingClientRect().bottom - 1);
+    await expect(navigation.getBoundingClientRect().top).toBeLessThan(main.getBoundingClientRect().bottom);
     main.scrollTop = main.scrollHeight;
     await waitFor(() => expect(main.scrollTop).toBeGreaterThan(0));
     await userEvent.click(within(navigation).getByRole("button", { name: "Invest" }));

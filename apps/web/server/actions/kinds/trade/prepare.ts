@@ -3,6 +3,9 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { encodeFunctionData, erc20Abi } from "viem";
 import { BASE_USDC_ADDRESS } from "@/shared/money-actions/network-fee";
+import { resolveTradeAsset } from "@/shared/trading/assets";
+import { readErc20ExecutionIdentity, TokenUnreadable } from "@/server/chain/erc20-execution-identity";
+import { readsToken0 } from "@/server/chain/pair";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { MoneyActionDraft } from "@/shared/money-actions/types";
 import { parseTradeActionParams, TRADE_SLIPPAGE_BPS, type TradeAssetRef, type TradeFeeFact, type TradeSigningRequest } from "@/shared/trading/contract";
@@ -10,17 +13,12 @@ import type { Address, CoinbaseSmartWalletTypedData, Permit2TypedData, TradeSign
 import { baseRpc, parseRpcQuantity } from "@/server/chain/rpc";
 import { getCdpAccessTokenValidator } from "@/server/cdp/provider";
 import type { PendingTradeConfirmation } from "./finalize";
-import { CdpSwapsUnavailableError, createCdpSwapsClient } from "./cdp-swaps";
+import { CdpSwapsRefusalError, CdpSwapsUnavailableError, createCdpSwapsClient } from "./cdp-swaps";
 import { PERMIT2_ADDRESS, TradePreparationError } from "./permit2";
 import { readSettlerRouter, rfqMakerAuthorizations, swapTokens, validateSwapQuote } from "./quote";
 import { verifyRfqMakerAuthorizations } from "./rfq-maker";
 import { createTradeSignerResolver } from "./signer";
-
-const CBBTC = "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf" as Address;
-const asset = {
-  usdc: { id: "usdc", symbol: "USDC", decimals: 6, address: BASE_USDC_ADDRESS.toLowerCase() as Address },
-  cbbtc: { id: "cbbtc", symbol: "cbBTC", decimals: 8, address: CBBTC },
-} as const;
+import { tradeBuyBlocked } from "./buy-policy";
 
 type TradePreparationDependencies = {
   resolveSigner?: TradeSignerResolver;
@@ -28,6 +26,7 @@ type TradePreparationDependencies = {
   rpc?: typeof baseRpc;
   now?: () => Date;
   requestKey?: () => string;
+  buyBlocked?: typeof tradeBuyBlocked;
 };
 
 export async function prepareTradeAction(
@@ -40,23 +39,58 @@ export async function prepareTradeAction(
   const taker = session.smartAccount.address;
   const signer = await (deps.resolveSigner ?? createTradeSignerResolver({ getValidator: getCdpAccessTokenValidator }))(request, session, signal);
   if (signer.smartAccount.toLowerCase() !== taker.toLowerCase() || signer.ownerIndex !== 0) throw new TradePreparationError("signer-unsupported");
-  const reviewRequest = {
-    direction: parsed.direction, fromAmount: BigInt(parsed.amountBaseUnits), taker, signerAddress: signer.signerAddress, slippageBps: TRADE_SLIPPAGE_BPS,
-  };
-  const tokens = swapTokens(parsed.direction);
-  const key = (deps.requestKey ?? randomUUID)();
-  const quote = await (deps.createSwapsClient ?? createCdpSwapsClient)().createQuote({
-    ...tokens, fromAmount: reviewRequest.fromAmount, taker, slippageBps: TRADE_SLIPPAGE_BPS, requestKey: key,
-  });
+  const resolved = resolveTradeAsset(parsed.assetId);
+  if (!resolved || resolved.status !== "tradeable") throw new TradePreparationError("invalid-request");
+  if (parsed.direction === "buy" && (deps.buyBlocked ?? tradeBuyBlocked)(resolved.assetId)) throw new TradePreparationError("buy-unavailable");
   const rpc = deps.rpc ?? baseRpc;
   const read = (method: string, params: readonly unknown[]) => rpc(method, params, { signal });
+  let identity: Awaited<ReturnType<typeof readErc20ExecutionIdentity>>;
+  try {
+    if (!resolved.configured) {
+      const pair = await readsToken0(resolved.address, read);
+      if (pair === true) throw new TradePreparationError("invalid-request");
+      if (pair === null) throw new TradePreparationError("provider-unavailable");
+    }
+    identity = await readErc20ExecutionIdentity({ token: resolved.address, holder: parsed.amountBaseUnits === "all" ? taker : undefined,
+      configuredDecimals: resolved.configured?.representation.decimals, read });
+  } catch (error) {
+    if (error instanceof TradePreparationError) throw error;
+    if (error instanceof TokenUnreadable) throw new TradePreparationError("token-unreadable");
+    throw new TradePreparationError("provider-unavailable", error);
+  }
+  const tokenAsset: TradeAssetRef = {
+    id: resolved.assetId, address: resolved.address, decimals: identity.decimals,
+    symbol: resolved.configured?.representation.tokenSymbol ?? identity.symbol ?? `0x${resolved.address.slice(2, 6)}`,
+  };
+  const usdcAsset: TradeAssetRef = { id: "usdc", symbol: "USDC", decimals: 6, address: BASE_USDC_ADDRESS.toLowerCase() as Address };
+  const fromAmount = parsed.amountBaseUnits === "all" ? identity.balance! : BigInt(parsed.amountBaseUnits);
+  if (fromAmount === BigInt(0)) throw new TradePreparationError("insufficient-balance");
+  const reviewRequest = { direction: parsed.direction, token: resolved.address, fromAmount, taker,
+    signerAddress: signer.signerAddress, slippageBps: TRADE_SLIPPAGE_BPS };
+  const tokens = swapTokens(parsed.direction, resolved.address);
+  const client = (deps.createSwapsClient ?? createCdpSwapsClient)();
+  const key = (deps.requestKey ?? randomUUID)();
+  const quote = await client.createQuote({ ...tokens, fromAmount, taker, slippageBps: TRADE_SLIPPAGE_BPS, requestKey: key });
+  if (!quote.liquidityAvailable) {
+    const referenceBuy = { ...swapTokens("buy", resolved.address), fromAmount: BigInt(25_000_000), taker, slippageBps: TRADE_SLIPPAGE_BPS };
+    let below = false;
+    try {
+      const buyPrice = await client.getPrice(referenceBuy);
+      if (parsed.direction === "buy") below = fromAmount < referenceBuy.fromAmount && buyPrice.liquidityAvailable;
+      else if (buyPrice.liquidityAvailable && buyPrice.toAmount > BigInt(0) && fromAmount < buyPrice.toAmount) {
+        const sellPrice = await client.getPrice({ ...tokens, fromAmount: buyPrice.toAmount, taker, slippageBps: TRADE_SLIPPAGE_BPS });
+        below = sellPrice.liquidityAvailable;
+      }
+    } catch { below = false; }
+    throw new TradePreparationError(below ? "below-minimum" : "no-liquidity");
+  }
   let block: bigint;
   let router: Address;
   try {
     const chain = parseRpcQuantity(await read("eth_chainId", []), "chain ID");
     if (chain !== BigInt(8453)) throw new Error("Unexpected chain");
     block = parseRpcQuantity(await read("eth_blockNumber", []), "block number");
-    router = await readSettlerRouter(read);
+    router = await readSettlerRouter(read, resolved.address);
   } catch (error) {
     if (error instanceof TradePreparationError) throw error;
     throw new TradePreparationError("provider-unavailable", error);
@@ -89,12 +123,12 @@ export async function prepareTradeAction(
   }
   if (balance < reviewed.fromAmount) throw new TradePreparationError("insufficient-balance");
   const needsApproval = allowance < reviewed.fromAmount;
-  const fromAsset: TradeAssetRef = parsed.direction === "buy" ? asset.usdc : asset.cbbtc;
-  const toAsset: TradeAssetRef = parsed.direction === "buy" ? asset.cbbtc : asset.usdc;
+  const fromAsset: TradeAssetRef = parsed.direction === "buy" ? usdcAsset : tokenAsset;
+  const toAsset: TradeAssetRef = parsed.direction === "buy" ? tokenAsset : usdcAsset;
   const fees: TradeFeeFact[] = [];
   for (const [kind, fee] of [["gas", reviewed.fees.gasFee], ["protocol", reviewed.fees.protocolFee]] as const) {
     if (!fee) continue;
-    const ref = Object.values(asset).find((entry) => entry.address === fee.token);
+    const ref = [usdcAsset, tokenAsset].find((entry) => entry.address === fee.token);
     if (!ref) throw new TradePreparationError("quote-rejected");
     fees.push({ kind, assetId: ref.id, symbol: ref.symbol, decimals: ref.decimals, amountBaseUnits: fee.amount.toString() });
   }
@@ -116,6 +150,11 @@ export async function prepareTradeAction(
   const expiresAt = Math.min(Number(reviewed.executionDeadline) * 1000 - 30_000, now.getTime() + 120_000);
   if (expiresAt <= now.getTime()) throw new TradePreparationError("stale-quote");
   const calls: MoneyActionDraft["calls"] = [];
+  if (needsApproval && allowance > BigInt(0)) calls.push({
+    to: fromAsset.address,
+    data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [PERMIT2_ADDRESS, BigInt(0)] }),
+    value: "0", approval: { assetId: fromAsset.id, spender: PERMIT2_ADDRESS },
+  });
   if (needsApproval) calls.push({
     to: fromAsset.address,
     data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [PERMIT2_ADDRESS, reviewed.fromAmount] }),
@@ -125,13 +164,13 @@ export async function prepareTradeAction(
   return {
     callGasLimit: reviewed.swapCall.gas,
     draft: {
-      kind: "trade", title: parsed.direction === "buy" ? "Buy Bitcoin" : "Sell Bitcoin", calls,
+      kind: "trade", title: parsed.direction === "buy" ? `Buy ${resolved.configured?.displayName ?? tokenAsset.symbol}` : `Sell ${resolved.configured?.displayName ?? tokenAsset.symbol}`, calls,
       amounts: [
         { assetId: fromAsset.id, symbol: fromAsset.symbol, decimals: fromAsset.decimals, amountBaseUnits: reviewed.fromAmount.toString(), direction: "spend" },
         { assetId: toAsset.id, symbol: toAsset.symbol, decimals: toAsset.decimals, amountBaseUnits: reviewed.toAmount.toString(), direction: "receive", estimated: true },
       ], warnings: [], expiresAt: new Date(expiresAt).toISOString(), signing,
       metadata: {
-        product: "trade", provider: "cdp-swaps", direction: parsed.direction, network: { name: "Base", chainId: 8453 },
+        product: "trade", provider: "cdp-swaps", direction: parsed.direction, assetId: resolved.assetId, assetName: resolved.configured?.displayName ?? tokenAsset.symbol, network: { name: "Base", chainId: 8453 },
         fromAsset, toAsset, fromAmountBaseUnits: reviewed.fromAmount.toString(), expectedToAmountBaseUnits: reviewed.toAmount.toString(),
         minimumToAmountBaseUnits: reviewed.minToAmount.toString(), slippageBps: TRADE_SLIPPAGE_BPS, fees,
         approval: needsApproval ? "permit2-exact" : "existing-permit2-allowance",
@@ -147,14 +186,23 @@ export async function prepareTradeAction(
 }
 
 export function tradePreparationResponse(error: unknown): { code: string; message: string; status: number } | null {
+  if (error instanceof CdpSwapsRefusalError) return error.reason === "below-minimum"
+    ? { code: "TRADE_BELOW_MINIMUM", message: "The amount is below the available trade minimum.", status: 422 }
+    : { code: "TRADE_ROUTE_UNAVAILABLE", message: "No verified trade route is available.", status: 422 };
   if (error instanceof CdpSwapsUnavailableError) return { code: "TRADE_UNAVAILABLE", message: "Trading is temporarily unavailable.", status: 503 };
   if (!(error instanceof TradePreparationError)) return null;
   switch (error.reason) {
     case "invalid-request": return { code: "TRADE_INVALID", message: "Enter a valid trade amount and direction.", status: 400 };
+    case "stock-eligibility": return { code: "TRADE_STOCK_RESTRICTED", message: "Stock buys aren't available in this location.", status: 403 };
+    case "token-not-routed": return { code: "TRADE_NOT_ROUTED", message: "This asset can't be traded in Home yet.", status: 422 };
     case "signer-unsupported":
     case "smart-account-unavailable": return { code: "TRADE_SIGNER_UNSUPPORTED", message: "This account cannot sign this trade.", status: 422 };
     case "insufficient-balance": return { code: "TRADE_INSUFFICIENT_BALANCE", message: "The available balance is insufficient.", status: 409 };
-    case "no-liquidity": return { code: "TRADE_NO_LIQUIDITY", message: "No trade quote is available.", status: 422 };
+    case "no-liquidity": return { code: "TRADE_ROUTE_UNAVAILABLE", message: "No verified trade route is available.", status: 422 };
+    case "below-minimum": return { code: "TRADE_BELOW_MINIMUM", message: "The amount is below the available trade minimum.", status: 422 };
+    case "token-unreadable": return { code: "TRADE_TOKEN_UNREADABLE", message: "This token cannot be read for trading.", status: 422 };
+    case "buy-unavailable": return { code: "TRADE_BUY_UNAVAILABLE", message: "Buying this asset is unavailable.", status: 422 };
+    case "unverified-actions": return { code: "TRADE_ROUTE_UNAVAILABLE", message: "No verified trade route is available.", status: 422 };
     case "stale-quote": return { code: "TRADE_QUOTE_STALE", message: "The trade quote expired. Prepare it again.", status: 409 };
     case "permit-used": return { code: "TRADE_QUOTE_STALE", message: "This trade quote can no longer be used. Get a new quote.", status: 409 };
     case "provider-unavailable": return { code: "TRADE_UNAVAILABLE", message: "Trading is temporarily unavailable.", status: 503 };

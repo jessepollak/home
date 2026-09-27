@@ -1,11 +1,17 @@
 import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
+import { BORROW_MARKETS } from "@/shared/borrowing/config";
+import { recommendedOpeningCollateralBaseUnits } from "./borrowing-experience";
+import type { RegionId } from "@/config/regions";
 import { dataOwnerKey } from "@/client/account/owner-keys";
+import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { HomeShellRoutingProvider, type HomeShellRouting } from "@/client/home/panel-routing";
 import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import type { BorrowMarketSnapshot } from "@/shared/borrowing/contract";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
+import { formatExactPresentationTokenAmount } from "@/shared/formatting";
 import { TransferExecutionError } from "@/shared/transfers/types";
 import { borrowOverviewBody, sessionBody } from "@/tests/browser/fixtures/bodies";
 
@@ -27,15 +33,18 @@ const action: PreparedMoneyAction = {
 const key = ownerQueryKey(dataOwnerKey(session), "actions");
 const row = { id: action.id, owner: action.owner, status: "pending" };
 
-function mount({ prepare = async () => action, execute = async () => ({ id: action.id, status: "submitted" as const }), fetch = async () => ({ actions: [] }), close = () => {}, openPanel = () => {} }: {
-  prepare?: () => Promise<PreparedMoneyAction>;
+function mount({ prepare = async () => action, execute = async () => ({ id: action.id, status: "submitted" as const }), fetch = async () => ({ actions: [] }), close = () => {}, openPanel = () => {}, marketSnapshot = snapshot, operation = "borrow", regionId = "US" }: {
+  regionId?: RegionId;
+  operation?: "borrow" | "supply-and-borrow" | "withdraw-collateral" | "supply-collateral";
+  prepare?: AccountWalletClient["prepareMoneyAction"];
+  marketSnapshot?: BorrowMarketSnapshot;
   execute?: (prepared: PreparedMoneyAction) => Promise<{ id: string; status: "submitted" | "failed" | "rejected" }>;
   fetch?: (path: string) => Promise<unknown>;
   close?: () => void;
   openPanel?: (panel: string) => void;
 } = {}) {
   const routing = { openPanel } as HomeShellRouting;
-  render(<HomeShellRoutingProvider value={routing}><BorrowMoneyDialog session={session} snapshot={snapshot} operation="borrow" regionId="US" fetchAccountResource={async (path) => path === "/api/actions/network-fee" ? { version: 1, usdcReserveBaseUnits: null } : fetch(path)} prepareMoneyAction={prepare} executeMoneyAction={execute} onClose={close} /></HomeShellRoutingProvider>);
+  render(<HomeShellRoutingProvider value={routing}><BorrowMoneyDialog session={session} snapshot={marketSnapshot} operation={operation} regionId={regionId} fetchAccountResource={async (path) => path === "/api/actions/network-fee" ? { version: 1, usdcReserveBaseUnits: null } : fetch(path)} prepareMoneyAction={prepare} executeMoneyAction={execute} onClose={close} /></HomeShellRoutingProvider>);
   return within(document.body);
 }
 
@@ -48,7 +57,151 @@ async function review(body: ReturnType<typeof within>) {
 
 afterEach(() => { cleanup(); getHomeQueryClient().clear(); });
 
+function describedByText(input: HTMLElement): string {
+  return (input.getAttribute("aria-describedby") ?? "").split(" ").filter(Boolean)
+    .map((id) => document.getElementById(id)?.textContent ?? "").join(" ");
+}
+
+describe("Supply and borrow amount and review", () => {
+  for (const market of [BORROW_MARKETS[0]!, BORROW_MARKETS[2]!]) {
+    test(`${market.collateralToken.symbol} shows collateral only from the prepared action on review and re-prepares after Back`, async () => {
+      const opportunity = borrowOverviewBody({ openMarketId: null }).opportunities.find((item) => item.market.id === market.marketId);
+      if (opportunity?.availability.status !== "available") throw new Error("Borrow fixture unavailable");
+      const marketSnapshot = opportunity.availability.snapshot;
+      const collateral = market.collateralToken;
+      const preparedAmounts = collateral.decimals === 8 ? ["1234567", "2345678"] : ["123456789012345678", "234567890123456789"];
+      const intents: unknown[] = [];
+      const body = mount({ operation: "supply-and-borrow", marketSnapshot, prepare: async (_kind, params) => {
+        intents.push(params);
+        const index = intents.length - 1;
+        return {
+          ...action,
+          amounts: [
+            { assetId: collateral.id, symbol: collateral.symbol, decimals: collateral.decimals, amountBaseUnits: preparedAmounts[index]!, direction: "spend" },
+            { assetId: market.loanToken.id, symbol: market.loanToken.symbol, decimals: market.loanToken.decimals, amountBaseUnits: `${index + 1}000000`, direction: "receive" },
+          ],
+          metadata: { ...action.metadata!, operation: "supply-and-borrow", marketId: market.marketId, collateralAsset: { id: collateral.id, symbol: collateral.symbol } },
+        } as PreparedMoneyAction;
+      } });
+      const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
+      const continueButton = dialog.getByRole("button", { name: "Continue" }) as HTMLButtonElement;
+      expect(dialog.queryByText(/collateral|will lock|Enter an amount to preview/i)).toBeNull();
+      expect(continueButton.disabled).toBe(true);
+      const input = dialog.getByRole("textbox", { name: "Amount" });
+      fireEvent.change(input, { target: { value: "1" } });
+      expect(dialog.queryByText(/collateral|will lock|Enter an amount to preview/i)).toBeNull();
+      expect(continueButton.disabled).toBe(false);
+      fireEvent.click(continueButton);
+      expect(await dialog.findByRole("button", { name: "Confirm action" })).toBeTruthy();
+      expect(intents).toHaveLength(1);
+      expect(intents[0]).toMatchObject({ operation: "supply-and-borrow", amountBaseUnits: "1000000" });
+      const recommended = recommendedOpeningCollateralBaseUnits(marketSnapshot, "1000000");
+      expect(recommended).not.toBeNull();
+      expect((intents[0] as { collateralAmountBaseUnits: string }).collateralAmountBaseUnits).toBe(recommended!);
+      expect(preparedAmounts[0]).not.toBe(recommended);
+      const lockedLabel = `Locked as collateral (${collateral.symbol})`;
+      expect(dialog.getByText(lockedLabel).nextElementSibling?.textContent).toBe(formatExactPresentationTokenAmount(preparedAmounts[0]!, collateral.decimals, collateral.symbol));
+      expect(dialog.getByText("You receive (USDC)").nextElementSibling?.textContent).toBe("1 USDC");
+      expect(dialog.getByText("Variable rate")).toBeTruthy();
+      fireEvent.click(dialog.getAllByRole("button", { name: "Back" })[0]!);
+      expect(dialog.queryByText(/collateral|will lock|Enter an amount to preview/i)).toBeNull();
+      fireEvent.change(dialog.getByRole("textbox", { name: "Amount" }), { target: { value: "2" } });
+      fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
+      expect(await dialog.findByRole("button", { name: "Confirm action" })).toBeTruthy();
+      expect(intents).toHaveLength(2);
+      expect(intents[1]).toMatchObject({ operation: "supply-and-borrow", amountBaseUnits: "2000000" });
+      expect(dialog.getByText(lockedLabel).nextElementSibling?.textContent).toBe(formatExactPresentationTokenAmount(preparedAmounts[1]!, collateral.decimals, collateral.symbol));
+      expect(dialog.getByText("You receive (USDC)").nextElementSibling?.textContent).toBe("2 USDC");
+    });
+
+    test(`${market.collateralToken.symbol} insufficient collateral blocks prepare and describes the invalid amount`, async () => {
+      const opportunity = borrowOverviewBody({ openMarketId: null }).opportunities.find((item) => item.market.id === market.marketId);
+      if (opportunity?.availability.status !== "available") throw new Error("Borrow fixture unavailable");
+      const marketSnapshot = { ...opportunity.availability.snapshot, wallet: { ...opportunity.availability.snapshot.wallet, collateralBalanceRaw: "1" } };
+      let prepares = 0;
+      const body = mount({ operation: "supply-and-borrow", marketSnapshot, prepare: async () => { prepares++; return action; } });
+      const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
+      const input = dialog.getByRole("textbox", { name: "Amount" });
+      fireEvent.change(input, { target: { value: "1" } });
+      expect(input.getAttribute("aria-invalid")).toBe("true");
+      const collateralError = dialog.getByText(`That amount needs more ${market.collateralToken.symbol} than is available in this wallet.`);
+      expect(input.getAttribute("aria-describedby")?.split(" ")).toContain(collateralError.id);
+      expect(describedByText(input)).toContain(collateralError.textContent!);
+      expect(dialog.queryByText(/Only .* available/)).toBeNull();
+      const continueButton = dialog.getByRole("button", { name: "Continue" }) as HTMLButtonElement;
+      expect(continueButton.disabled).toBe(true);
+      fireEvent.click(continueButton);
+      expect(prepares).toBe(0);
+    });
+  }
+
+  test("an amount above liquidity with enough collateral keeps the standard available ceiling", async () => {
+    const opportunity = borrowOverviewBody({ openMarketId: null }).opportunities.find((item) => item.market.id === BORROW_MARKETS[0]!.marketId);
+    if (opportunity?.availability.status !== "available") throw new Error("Borrow fixture unavailable");
+    const body = mount({ operation: "supply-and-borrow", marketSnapshot: opportunity.availability.snapshot });
+    const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
+    const input = dialog.getByRole("textbox", { name: "Amount" });
+    fireEvent.change(input, { target: { value: "600" } });
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(describedByText(input)).toContain("Only $500.00 available");
+    expect(dialog.queryByText(/needs more/)).toBeNull();
+    expect((dialog.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
 describe("Borrow action result", () => {
+  test("USD entry for priced collateral prepares the exact floored native amount and reviews collateral units", async () => {
+    if (action.metadata?.product !== "borrow") throw new Error("missing Borrow metadata");
+    const expected = (BigInt(123) * BigInt(10) ** BigInt(18 + 24) /
+      (BigInt(snapshot.state.oraclePriceRaw) * BigInt(100))).toString();
+    const prepared: PreparedMoneyAction = {
+      ...action,
+      kind: "supply-collateral",
+      title: "Add collateral",
+      amounts: [{ assetId: snapshot.market.collateralToken.id, symbol: snapshot.market.collateralToken.symbol, decimals: snapshot.market.collateralToken.decimals, amountBaseUnits: expected, direction: "spend" }],
+      metadata: { ...action.metadata, operation: "supply-collateral" },
+    };
+    let requested: unknown;
+    const body = mount({ operation: "supply-collateral", prepare: async (_kind, params) => { requested = params; return prepared; } });
+    const dialog = within(await body.findByRole("dialog", { name: "Add collateral" }));
+    expect(dialog.getByRole("button", { name: /as the primary amount/ })).toBeTruthy();
+    fireEvent.click(dialog.getByRole("button", { name: /as the primary amount/ }));
+    fireEvent.input(dialog.getByRole("textbox", { name: "Amount" }), { target: { value: "1.23" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
+    expect(await dialog.findByRole("button", { name: "Confirm action" })).toBeTruthy();
+    expect(requested).toMatchObject({ operation: "supply-collateral", amountBaseUnits: expected });
+    expect(dialog.getByText(`Locked as collateral (${snapshot.market.collateralToken.symbol})`).parentElement?.textContent)
+      .toContain(formatExactPresentationTokenAmount(expected, snapshot.market.collateralToken.decimals, snapshot.market.collateralToken.symbol));
+  });
+  test("collateral in a non-USD display region stays in native units without a dollar toggle", async () => {
+    const body = mount({ operation: "supply-collateral", regionId: "DE" });
+    const dialog = within(await body.findByRole("dialog", { name: "Add collateral" }));
+    expect(dialog.queryByRole("button", { name: /as the primary amount/ })).toBeNull();
+    fireEvent.input(dialog.getByRole("textbox", { name: "Amount" }), { target: { value: "1.23" } });
+    expect((dialog.getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("1.23");
+  });
+  test("amount step shows dollar availability without changing the atomic Max submitted for review", async () => {
+    const raw = "123456780000";
+    const marketSnapshot = { ...snapshot, position: { ...snapshot.position, borrowCapacityAssetsRaw: raw } };
+    let submitted: unknown = null;
+    const body = mount({ marketSnapshot, prepare: async (_kind, params) => { submitted = params; return action; } });
+    const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
+    expect(dialog.getByText("$123,456.78 available")).toBeTruthy();
+    expect(dialog.queryByRole("button", { name: /as the primary amount/ })).toBeNull();
+    fireEvent.click(dialog.getByRole("button", { name: "Max" }));
+    fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
+    expect(await dialog.findByRole("button", { name: "Confirm action" })).toBeTruthy();
+    expect(submitted).toMatchObject({ amountBaseUnits: raw });
+    expect(dialog.getByText("You receive (USDC)")).toBeTruthy();
+    expect(dialog.queryByText(/Locked as collateral/)).toBeNull();
+  });
+  test("collateral availability stays in collateral units", async () => {
+    const marketSnapshot = { ...snapshot, position: { ...snapshot.position, collateralRaw: "50000000", withdrawableCollateralRaw: "50000000" } };
+    const body = mount({ marketSnapshot, operation: "withdraw-collateral" });
+    const label = await body.findByText(/ available$/);
+    expect(label.textContent).toContain(snapshot.market.collateralToken.symbol);
+    expect(label.textContent).not.toContain("$");
+  });
   test("submitting keeps the focused marked button busy and ignores a second press", async () => {
     let finish!: (value: { id: string; status: "submitted" }) => void;
     let calls = 0;
@@ -98,7 +251,7 @@ describe("Borrow action result", () => {
     expect(dialog.getByText("Your Borrow position didn't change.")).toBeTruthy();
     fireEvent.click(dialog.getByRole("button", { name: "Try again" }));
     expect(dialog.getByRole("button", { name: "Continue" })).toBeTruthy();
-    expect(dialog.getByRole("img", { name: /1\.00/ })).toBeTruthy();
+    expect((dialog.getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("1");
     expect(dialog.queryByRole("button", { name: "Confirm action" })).toBeNull();
     fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
     expect(await dialog.findByRole("button", { name: "Confirm action" })).toBeTruthy();
@@ -115,9 +268,9 @@ describe("Borrow action result", () => {
     expect(dialog.getByRole("button", { name: "Try again" })).toBeTruthy();
   });
 
-  test("submission-unknown is not retriable and routes to Activity after closing", async () => {
+  test.each(["submission-unknown", "dispatch-unknown"] as const)("%s is not retriable and routes to Activity after closing", async (reason) => {
     const events: string[] = [];
-    const body = mount({ execute: async () => { throw new TransferExecutionError("submission-unknown"); }, close: () => events.push("close"), openPanel: (panel) => events.push(panel) });
+    const body = mount({ execute: async () => { throw new TransferExecutionError(reason); }, close: () => events.push("close"), openPanel: (panel) => events.push(panel) });
     const { dialog, confirm } = await review(body);
     fireEvent.click(confirm);
     expect(await dialog.findByText("We can't confirm 1 USDC")).toBeTruthy();

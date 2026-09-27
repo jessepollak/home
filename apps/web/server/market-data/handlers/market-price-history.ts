@@ -4,18 +4,20 @@ import {
   createErrorMarketHistoryResponse,
   getCodexMarketHistory,
 } from "@/server/market-data/codex/history";
+import { getInvestHistoryAdmission } from "@/server/market-data/codex/history-admission";
 import {
   isDynamicMarketPriceAssetId,
   isMarketPriceRange,
+  MARKET_HISTORY_PRIORITY_HEADER,
   resolveMarketPriceAssetIdentity,
   type MarketPriceHistoryResponse,
   type MarketPriceRange,
 } from "@/shared/invest/contracts/market-price-history";
-import { getCodexTrendingMemeAdmission } from "@/server/market-data/codex/trending";
 
 type HistoryReader = (
   assetId: string,
   range: string,
+  options?: { speculative?: boolean },
 ) => Promise<MarketPriceHistoryResponse>;
 type DynamicAdmissionReader = (
   contractAddress: string,
@@ -24,7 +26,7 @@ type DynamicAdmissionReader = (
 
 export function createMarketPriceHistoryHandler(
   readHistory: HistoryReader = getCodexMarketHistory,
-  readDynamicAdmission: DynamicAdmissionReader = getCodexTrendingMemeAdmission,
+  readDynamicAdmission: DynamicAdmissionReader = getInvestHistoryAdmission,
 ) {
   return async function GET(request: Request) {
     const url = new URL(request.url);
@@ -82,7 +84,9 @@ export function createMarketPriceHistoryHandler(
     }
 
     try {
-      const payload = await readHistory(identity.assetId, range);
+      const payload = await readHistory(identity.assetId, range, {
+        speculative: request.headers.get(MARKET_HISTORY_PRIORITY_HEADER) === "prefetch",
+      });
       if (
         payload.assetId !== identity.assetId ||
         payload.range !== range ||

@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
+import { cashoutFixtureWithdraw } from "./feature-map/cashout-fixture";
 
 const PEER_OFFRAMP = {
   version: 2,
@@ -24,6 +25,26 @@ const IDRX_TWO_METHODS = {
   }],
 };
 
+const ID_LONG_METHODS = {
+  version: 3,
+  direction: "onramp",
+  providers: [
+    IDRX_TWO_METHODS.providers[0],
+    {
+      ...IDRX_TWO_METHODS.providers[0],
+      providerId: "island-pay",
+      assetId: "base:idrx-island-pay",
+      displayName: "Island Payment Network",
+      paymentMethods: [
+        { id: "bank", label: "Bank transfer with any Indonesian financial institution" },
+        { id: "wallet", label: "Mobile wallet payment at participating merchants" },
+        { id: "card", label: "Debit card" },
+        { id: "cash", label: "Cash deposit" },
+      ],
+    },
+  ],
+};
+
 async function inputMetrics(locator: Locator) {
   return locator.evaluate((element) => {
     const style = getComputedStyle(element);
@@ -32,7 +53,7 @@ async function inputMetrics(locator: Locator) {
 }
 
 async function optionHeight(locator: Locator) {
-  return locator.evaluate((element) => element.getBoundingClientRect().height);
+  return locator.evaluate((element) => (element as HTMLElement).offsetHeight);
 }
 
 async function expectTouchHeight(option: Locator, label: string) {
@@ -70,6 +91,88 @@ async function installPickerFixtures(page: Page) {
   });
 }
 
+test("add-money method rows contain their full descriptions and loading geometry matches", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedSignedInSession(page, "ID");
+  await installApiFixtures(page);
+  let releaseProviders = () => {};
+  const providersReleased = new Promise<void>((resolve) => { releaseProviders = resolve; });
+  await page.route("**/api/funding/providers**", async (route) => {
+    if (new URL(route.request().url()).searchParams.get("region") !== "ID") return route.fallback();
+    await providersReleased;
+    return json(route, ID_LONG_METHODS);
+  });
+  await page.goto("/home?flow=add-money");
+  const dialog = page.getByRole("dialog", { name: "Add money" });
+  const receive = dialog.getByRole("button", { name: /Receive crypto/ });
+  const deposits = dialog.getByRole("button", { name: /Deposit IDR/ });
+  const shimmer = dialog.locator('[aria-hidden="true"]:has([data-shimmer="deposit-method"])');
+  await expect(receive).toBeVisible();
+  await expect(shimmer).toBeVisible();
+  const loaded = await receive.evaluate((element) => {
+    const rowBox = element.getBoundingClientRect();
+    const content = element.querySelector('[data-slot="item-content"]')!.getBoundingClientRect();
+    const lines = [...element.querySelectorAll('[data-slot="item-content"] > :not([hidden])')];
+    const description = lines[1]!;
+    const lineHeight = parseFloat(getComputedStyle(description).lineHeight);
+    const extraLines = description.getBoundingClientRect().height - lineHeight;
+    return {
+      height: rowBox.height - extraLines,
+      top: content.top - rowBox.top,
+      bottom: rowBox.bottom - content.bottom,
+      title: lines[0]!.getBoundingClientRect().height,
+      description: lineHeight,
+    };
+  });
+  const loading = await shimmer.evaluate((element) => {
+    const rowBox = element.getBoundingClientRect();
+    const content = element.querySelector('[data-slot="item-content"]')!.getBoundingClientRect();
+    const [title, description] = element.querySelectorAll('[data-slot="item-content"] > [data-shimmer]');
+    return {
+      height: rowBox.height,
+      top: content.top - rowBox.top,
+      bottom: rowBox.bottom - content.bottom,
+      title: title!.getBoundingClientRect().height,
+      description: description!.getBoundingClientRect().height,
+    };
+  });
+  for (const key of Object.keys(loaded) as (keyof typeof loaded)[]) {
+    expect(Math.abs(loading[key] - loaded[key]), key).toBeLessThanOrEqual(1);
+  }
+
+  releaseProviders();
+  await expect(deposits).toHaveCount(2);
+  await expect(shimmer).toHaveCount(0);
+  await expect(deposits.nth(1).locator('[data-slot="item-description"]'))
+    .toContainText("Mobile wallet payment at participating merchants");
+
+  for (const rootFontSize of ["100%", "200%"]) {
+    await page.evaluate((size) => { document.documentElement.style.fontSize = size; }, rootFontSize);
+    for (const row of [receive, deposits.nth(0), deposits.nth(1)]) {
+      const metrics = await row.evaluate((element) => {
+        const rowBox = element.getBoundingClientRect();
+        const contentBox = element.querySelector('[data-slot="item-content"]')!.getBoundingClientRect();
+        const text = element.querySelector('[data-slot="item-description"]')!;
+        return {
+          height: rowBox.height,
+          top: contentBox.top - rowBox.top,
+          bottom: rowBox.bottom - contentBox.bottom,
+          description: {
+            scrollHeight: text.scrollHeight, clientHeight: text.clientHeight,
+            scrollWidth: text.scrollWidth, clientWidth: text.clientWidth,
+          },
+        };
+      });
+      expect(metrics.height).toBeGreaterThanOrEqual(44);
+      expect(metrics.top).toBeGreaterThanOrEqual(8);
+      expect(metrics.bottom).toBeGreaterThanOrEqual(8);
+      const { description } = metrics;
+      expect(description.scrollHeight).toBeLessThanOrEqual(description.clientHeight + 1);
+      expect(description.scrollWidth).toBeLessThanOrEqual(description.clientWidth + 1);
+    }
+  }
+});
+
 test("coverage native selects keep a mobile-zoom-safe font size", async ({ page }) => {
   for (const viewport of [{ width: 390, height: 844 }, { width: 844, height: 390 }]) {
     await page.setViewportSize(viewport);
@@ -93,33 +196,55 @@ async function openPeerCashOutHandle(page: Page) {
   await page.getByRole("button", { name: "Cash App" }).click();
 }
 
-test("mobile cash-out handle fields meet touch-target and zoom-safe metrics", async ({ page }) => {
+test("mobile cash-out destination review remains within the dialog", async ({ page }) => {
   await seedSignedInSession(page);
   await installApiFixtures(page);
   await page.route("**/api/funding/providers**", async (route) => {
     if (new URL(route.request().url()).searchParams.get("direction") !== "offramp") return route.fallback();
     return json(route, PEER_OFFRAMP);
   });
+  const canonical = "averyveryveryveryveryveryverylongcashappcashtag@example.com";
+  await page.route("**/api/actions/prepare", (route) => {
+    if (route.request().method() !== "POST" || route.request().postDataJSON()?.kind !== "cash-out") return route.fallback();
+    return json(route, {
+      ...cashoutFixtureWithdraw, kind: "cash-out", title: "Cash out with Peer",
+      amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1000000", direction: "spend" }],
+      metadata: { ...cashoutFixtureWithdraw.metadata, operation: "deposit", canonicalHandle: canonical,
+        approximateFiatAmount: "1", etaSeconds: 60 },
+    });
+  });
 
-  for (const [portraitPass, viewport] of [{ width: 390, height: 844 }, { width: 844, height: 390 }].entries()) {
+  for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 700 }, { width: 844, height: 390 }]) {
     await page.setViewportSize(viewport);
     await openPeerCashOutHandle(page);
-
-    const handle = page.getByRole("textbox", { name: "Cash App handle" });
+    const dialog = page.getByRole("dialog");
+    const sameDialog = await dialog.elementHandle();
+    const handle = dialog.getByRole("textbox", { name: "Cash App cashtag" });
     await expect(handle).toBeVisible();
     await expect.poll(async () => (await inputMetrics(handle)).fontSize).toBeGreaterThanOrEqual(16);
-    if (portraitPass === 0) {
-      await expect.poll(async () => (await inputMetrics(handle)).height).toBeGreaterThanOrEqual(44);
-    }
+    if (viewport.width < 400) await expect.poll(async () => (await inputMetrics(handle)).height).toBeGreaterThanOrEqual(44);
 
-    await handle.fill("$alice");
-    await page.getByRole("button", { name: "Continue" }).click();
-    const confirmation = page.getByRole("textbox", { name: "Re-enter handle" });
-    await expect(confirmation).toBeVisible();
-    await expect.poll(async () => (await inputMetrics(confirmation)).fontSize).toBeGreaterThanOrEqual(16);
-    if (portraitPass === 0) {
-      await expect.poll(async () => (await inputMetrics(confirmation)).height).toBeGreaterThanOrEqual(44);
-    }
+    await handle.fill(`$${canonical}`);
+    await dialog.getByRole("button", { name: "Review" }).click();
+    const callout = dialog.getByRole("group", { name: "Payout destination" });
+    await expect(callout).toContainText(canonical);
+    await expect(callout).toContainText("Cash App · Cashtag");
+    expect(await dialog.evaluate((element, original) => element === original, sameDialog)).toBe(true);
+    expect(await callout.evaluate((element) => {
+      const dialog = element.closest('[role="dialog"]')!;
+      const box = element.getBoundingClientRect();
+      const bounds = dialog.getBoundingClientRect();
+      return box.left >= bounds.left - 1 && box.right <= bounds.right + 1 &&
+        element.scrollWidth <= element.clientWidth + 1 && dialog.scrollWidth <= dialog.clientWidth + 1 &&
+        document.documentElement.scrollWidth <= innerWidth + 1;
+    })).toBe(true);
+    expect(await page.evaluate(() => document.activeElement instanceof HTMLInputElement && document.activeElement.type === "text")).toBe(false);
+    const edit = callout.getByRole("button", { name: "Edit Cash App cashtag" });
+    if (viewport.width < 400) expect(await optionHeight(edit)).toBeGreaterThanOrEqual(44);
+    await edit.click();
+    await expect(dialog.getByRole("textbox", { name: "Cash App cashtag" })).toHaveValue(`$${canonical}`);
+    await expect(dialog.getByRole("textbox", { name: "Cash App cashtag" })).toBeFocused();
+    expect(await dialog.evaluate((element, original) => element === original, sameDialog)).toBe(true);
   }
 });
 
@@ -150,7 +275,7 @@ test.describe("touch pickers", () => {
   });
 });
 
-test("mobile tab bar keeps browser-tab safe-area spacing", async ({ page, context }) => {
+test("mobile capsule floats above the browser-tab bottom while keeping content clear", async ({ page, context }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await seedSignedInSession(page);
   await installApiFixtures(page);
@@ -172,11 +297,15 @@ test("mobile tab bar keeps browser-tab safe-area spacing", async ({ page, contex
   });
   expect(emulatedInset).toBe(34);
 
-  const tabBar = navigation.locator("xpath=..");
-  await expect.poll(async () => tabBar.evaluate((wrapper) =>
-    Number.parseFloat(getComputedStyle(wrapper).paddingBottom))).toBe(0);
   await expect.poll(async () => navigation.evaluate((nav) =>
-    Math.round(window.innerHeight - nav.getBoundingClientRect().bottom))).toBe(0);
+    Math.round(window.innerHeight - nav.getBoundingClientRect().bottom))).toBe(12);
+  const main = page.locator("[data-app-main-authenticated]");
+  await main.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  await expect.poll(async () => main.evaluate((element) => {
+    const lastContent = element.lastElementChild;
+    const nav = document.querySelector<HTMLElement>('nav[aria-label="Main navigation"]');
+    return lastContent && nav ? lastContent.getBoundingClientRect().bottom <= nav.getBoundingClientRect().top : false;
+  })).toBe(true);
   const tabHeights = await navigation.getByRole("button").evaluateAll((buttons) =>
     buttons.map((button) => button.getBoundingClientRect().height));
   expect(tabHeights.length).toBeGreaterThan(0);

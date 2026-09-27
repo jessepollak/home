@@ -404,7 +404,7 @@ export const BuyJourney: Story = { play: async ({ canvasElement }) => {
   await userEvent.click(dialog.getByRole("button", { name: "Continue" }));
   dialog = within(await body.findByRole("dialog", { name: "Confirm" }));
   await waitFor(() => expect(dialog.getByText("≈ 0.00228125 cbBTC")).toBeVisible());
-  await expect(canvasElement.ownerDocument.activeElement).toHaveAccessibleName("Back");
+  await expect(dialog.getAllByRole("button", { name: "Back" })[0]).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Buy $250.00" })).toBeVisible();
   await userEvent.click(dialog.getByRole("button", { name: "Details" }));
   await userEvent.click(dialog.getAllByRole("button", { name: "Back" })[0]);

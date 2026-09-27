@@ -1,8 +1,8 @@
 ### `landing`
-- **Entry context**: home · `/` · anonymous (signed-in 307 → `/home`, app/page.tsx) · none (`SupportedGlobeDynamic`) · goto `/`.
+- **Entry context**: home · `/` · anonymous (signed-in 307 → `/home`, app/page.tsx) · none (`SupportedGlobeDynamic`) · goto `/` (or anonymous `/invite/[code]` → `/`; signed-in → `/home`).
 
 - **Live**: read-only
-- **Owned paths**: `apps/web/app/page.tsx`, `apps/web/client/landing/**`, `apps/web/client/home/shell-chrome.tsx`
+- **Owned paths**: `apps/web/app/page.tsx`, `apps/web/app/invite/[code]/route.ts`, `apps/web/client/landing/**`, `apps/web/client/home/shell-chrome.tsx`
 - **Reach**:
   1. `goto "/"`
   2. `expect "One home for your money."`

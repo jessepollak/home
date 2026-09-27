@@ -82,7 +82,7 @@ export function balancesSnapshot(region: RegionId = "US"): BalancesSnapshot {
   return {
     ...snapshot,
     holdings: snapshot.holdings.map((holding) => holding.id === "cbbtc"
-      ? { ...holding, imageUrl: CBBTC_IMAGE_URL }
+      ? { ...holding, imageUrl: CBBTC_IMAGE_URL, ...(currency ? { unitValue: { currency, amount: decimal("60000", 0) } } : {}) }
       : holding),
   };
 }
@@ -101,4 +101,32 @@ export function scrollableBalancesSnapshot(region: RegionId = "US"): BalancesSna
       { status: "unpriced", reason: "price-unavailable" },
     ));
   return { ...base, holdings: [...base.holdings, ...extras] };
+}
+
+export function manyOwnedInvestmentsSnapshot(): BalancesSnapshot {
+  const base = balancesSnapshot();
+  const extras = Array.from({ length: 48 }, (_, index) =>
+    catalogHolding(
+      {
+        address: `0x${(4096 + index).toString(16).padStart(40, "0")}`,
+        name: `Extra investment ${String(index + 1).padStart(2, "0")}`,
+        symbol: `X${index + 1}`,
+        decimals: 18,
+      },
+      "1000000000000000000",
+      priced("USD", "1"),
+    ));
+  const increaseValue = (amount: BalancesSnapshot["total"]) => amount.value
+    ? { ...amount.value, atoms: (BigInt(amount.value.atoms) + BigInt(48)).toString() }
+    : null;
+  return {
+    ...base,
+    holdings: [...base.holdings, ...extras],
+    total: { ...base.total, value: increaseValue(base.total) },
+    totals: {
+      ...base.totals,
+      investments: { ...base.totals.investments, value: increaseValue(base.totals.investments) },
+      net: { ...base.totals.net, value: increaseValue(base.totals.net) },
+    },
+  };
 }

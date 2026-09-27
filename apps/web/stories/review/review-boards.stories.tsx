@@ -4,10 +4,18 @@ import { expect, userEvent, waitFor, within } from "storybook/test";
 import { ReviewBoardView } from "./explorations/board/board";
 import { parseBoard } from "./explorations/board/manifest";
 import { readReviewBuild, type ReviewBuild } from "./explorations/board/review-build";
+import borrowIllustrationJson from "./boards/borrow-illustration.json";
 import savingsJson from "./boards/savings.json";
+import investmentsJson from "./boards/investments.json";
+import glassNavigationJson from "./boards/glass-navigation.json";
+import investAssetDetailJson from "./boards/invest-asset-detail.json";
 
 const build = readReviewBuild(import.meta.env);
 const savings = parseBoard(savingsJson);
+const investAssetDetail = parseBoard(investAssetDetailJson);
+const borrowIllustration = parseBoard(borrowIllustrationJson);
+const investments = parseBoard(investmentsJson);
+const glassNavigation = parseBoard(glassNavigationJson);
 const fixture = parseBoard({
   id: "chrome-fixture", title: "Board chrome test", summary: "Empty document controls", sections: [
     { id: "first", title: "First section", frames: [
@@ -25,6 +33,10 @@ type Story = StoryObj<typeof meta>;
 
 export const Changes: Story = { tags: ["!test", "review-board"], args: { board: "changes", build } };
 export const Savings: Story = { tags: ["!test", "review-board"], args: { board: savings, build } };
+export const InvestAssetDetail: Story = { tags: ["!test", "review-board"], args: { board: investAssetDetail, build } };
+export const BorrowIllustration: Story = { tags: ["!test", "review-board"], args: { board: borrowIllustration, build } };
+export const Investments: Story = { tags: ["!test", "review-board"], args: { board: investments, build } };
+export const GlassNavigation: Story = { tags: ["!test", "review-board"], args: { board: glassNavigation, build } };
 export const CommentsFollowCanvas: Story = {
   args: { board: fixture, build: fixtureBuild, frameSource: "blank" },
   render: (args) => <div style={{ height: "100dvh", width: 1400 }}><ReviewBoardView {...args} /></div>,

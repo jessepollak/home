@@ -1,47 +1,76 @@
 import { describe, expect, test } from "bun:test";
+import { canonicalUsdcAsset, verifiedCashCurrency, verifiedLocalCashAssets } from "@/config/portfolio-assets";
 import {
   amountExceedsCeiling,
   clampDecimal,
-  convertDisplayAmount,
   decimalFromBaseUnits,
+  displayCurrencyForRegion,
+  formatAvailableDecimal,
+  formatAvailableLine,
   formatChipLabel,
   formatPrimaryAmount,
-  formatSecondaryAmount,
+  formatPrimaryAmountUnit,
   isAvailablePositive,
-  moneyAssetPricing,
+  moneyAmountUnit,
+  fiatToNative,
+  nativeToFiat,
   parseAvailableDecimal,
-  resolvePrimaryUnit,
+  type MoneyAmountUnit,
 } from "./amount-units";
 
-const usdUsdc = moneyAssetPricing("USDC", "US");
+const fiatUsd: MoneyAmountUnit = { kind: "fiat", currency: "USD" };
+const native: MoneyAmountUnit = { kind: "native" };
 
-describe("moneyAssetPricing", () => {
-  test("prices USD stables 1:1 and leaves ETH unpriced", () => {
-    expect(moneyAssetPricing("USDC")).toEqual({
-      status: "priced",
-      localCurrency: "USD",
-      nativePerLocal: { atoms: "1", scale: 0 },
-    });
-    expect(moneyAssetPricing("ETH")).toEqual({ status: "unpriced" });
-    expect(moneyAssetPricing("USDC", "BR")).toEqual({ status: "unpriced" });
+describe("moneyAmountUnit", () => {
+  test.each([
+    ["USD", "USD", fiatUsd],
+    ["EUR", "EUR", { kind: "fiat", currency: "EUR" }],
+    ["IDR", "IDR", { kind: "fiat", currency: "IDR" }],
+    ["USD", "EUR", native],
+    ["EUR", "USD", native],
+    [null, "USD", native],
+    ["USD", "", native],
+    ["USD", "XYZ", native],
+    ["USD", null, native],
+    ["USD", undefined, native],
+    ["", "USD", native],
+    [" usd ", " UsD ", fiatUsd],
+  ] as const)("returns the semantic unit for cash %s and display %s", (cash, display, expected) => {
+    expect(moneyAmountUnit(cash, display)).toEqual(expected);
+  });
+
+  test("trusts only verified cash contracts, regardless of displayed token symbol", () => {
+    expect(verifiedCashCurrency("0x0000000000000000000000000000000000000001")).toBeNull();
+    expect(moneyAmountUnit(verifiedCashCurrency("0x0000000000000000000000000000000000000001"), "USD")).toEqual(native);
+    expect(verifiedCashCurrency(canonicalUsdcAsset.contractAddress.toUpperCase())).toBe("USD");
+    expect(verifiedCashCurrency(verifiedLocalCashAssets.EUR.contractAddress)).toBe("EUR");
+    expect(verifiedCashCurrency(verifiedLocalCashAssets.IDR.contractAddress)).toBe("IDR");
+    expect(verifiedCashCurrency(null)).toBeNull();
+  });
+
+  test("follows the selected display region without converting the asset", () => {
+    expect(displayCurrencyForRegion("US")).toBe("USD");
+    expect(displayCurrencyForRegion("DE")).toBe("EUR");
+    expect(displayCurrencyForRegion("GLOBAL")).toBe("USD");
+    expect(moneyAmountUnit("USD", displayCurrencyForRegion("US"))).toEqual(fiatUsd);
+    expect(moneyAmountUnit("USD", displayCurrencyForRegion("DE"))).toEqual(native);
   });
 });
 
 describe("primary unit and chips", () => {
-  test("defaults to local when priced and forces native when unpriced", () => {
-    expect(resolvePrimaryUnit(usdUsdc, "local")).toBe("local");
-    expect(resolvePrimaryUnit(usdUsdc, "native")).toBe("native");
-    expect(resolvePrimaryUnit({ status: "unpriced" }, "local")).toBe("native");
-  });
-
-  test("formats local/native primary and secondary without changing the native amount", () => {
-    expect(formatPrimaryAmount("25", "local", usdUsdc)).toBe("$25");
-    expect(formatPrimaryAmount("25", "native", usdUsdc, undefined, "USDC")).toBe("25 USDC");
-    expect(formatSecondaryAmount("25", "local", usdUsdc, "USDC")).toBe("25.00 USDC");
-    expect(formatSecondaryAmount("25", "native", usdUsdc, "USDC")).toBe("$25.00");
-    expect(convertDisplayAmount("25", "local", "native", usdUsdc)).toBe("25");
+  test("formats fiat and native amounts without changing the exact entry", () => {
+    expect(formatPrimaryAmount("25.123456", fiatUsd, "USDC")).toBe("$25.123456");
+    expect(formatPrimaryAmount("25.123456", native, "USDC")).toBe("25.123456 USDC");
+    expect(formatPrimaryAmount("", fiatUsd, "USDC")).toBe("$0");
+    expect(formatPrimaryAmountUnit(fiatUsd, "USDC")).toBe("US dollar");
+    expect(formatPrimaryAmountUnit(native, "USDC")).toBe("USDC");
+    expect(formatPrimaryAmount("25", { kind: "fiat", currency: "IDR" }, "IDRX")).toBe("Rp 25");
     expect(formatChipLabel(10, "USD")).toBe("$10");
     expect(formatChipLabel(25, "USD")).toBe("$25");
+    expect(formatAvailableLine("$1,240.00 available", fiatUsd, "USDC")).toBe("$1,240.00 available");
+    expect(formatAvailableDecimal("1234.56", fiatUsd, "USDC")).toBe("$1,234.56 available");
+    expect(formatAvailableDecimal("1234.5", native, "ETH")).toBe("1,234.5 ETH available");
+    expect(formatAvailableLine("Balance unavailable", native, "ETH")).toBe("Balance unavailable");
   });
 });
 
@@ -86,5 +115,54 @@ describe("amountExceedsCeiling", () => {
     expect(amountExceedsCeiling("2", undefined)).toBe(false);
     expect(amountExceedsCeiling("2", "1.")).toBe(false);
     expect(amountExceedsCeiling("2", "not a decimal")).toBe(false);
+  });
+});
+
+describe("priced asset units", () => {
+  const usdPrice = { currency: "USD", perUnit: { atoms: "6500000", scale: 2 } };
+  test.each([
+    ["USD", "USD", usdPrice, { kind: "fiat", currency: "USD" }],
+    ["EUR", "EUR", usdPrice, { kind: "fiat", currency: "EUR" }],
+    ["EUR", "USD", usdPrice, { kind: "convertible", currency: "USD", perUnit: { atoms: "65000", scale: 0 } }],
+    [null, "USD", usdPrice, { kind: "convertible", currency: "USD", perUnit: { atoms: "65000", scale: 0 } }],
+    [null, "USD", null, { kind: "native" }],
+    [null, "USD", { currency: "EUR", perUnit: { atoms: "65000", scale: 0 } }, { kind: "native" }],
+    [null, "USD", { currency: "USD", perUnit: { atoms: "0", scale: 0 } }, { kind: "native" }],
+    [null, "USD", { currency: "USD", perUnit: { atoms: "12.5", scale: 0 } }, { kind: "native" }],
+    [null, "USD", { currency: "USD", perUnit: { atoms: "100", scale: -1 } }, { kind: "native" }],
+    [null, "USD", { currency: "USD", perUnit: { atoms: "100", scale: 0.5 } }, { kind: "native" }],
+  ] as const)("classifies priced asset cash %s display %s and price %p", (cash, display, price, expected) => {
+    expect(moneyAmountUnit(cash, display, price)).toEqual(expected);
+  });
+
+  test("normalizes equivalent positive prices and ignores symbol-like cash claims", () => {
+    expect(moneyAmountUnit(null, " usd ", { currency: " usd ", perUnit: { atoms: "001000", scale: 3 } }))
+      .toEqual(moneyAmountUnit(null, "USD", { currency: "USD", perUnit: { atoms: "1", scale: 0 } }));
+    expect(moneyAmountUnit(null, "USD")).toEqual(native);
+    expect(formatAvailableDecimal("0.001", moneyAmountUnit(null, "USD", usdPrice), "cbBTC"))
+      .toBe("0.001 cbBTC available");
+  });
+});
+
+describe("exact price conversion", () => {
+  test.each([
+    ["", { atoms: "65000", scale: 0 }, 8, ""],
+    ["0", { atoms: "65000", scale: 0 }, 8, "0"],
+    ["100", { atoms: "65000", scale: 0 }, 8, "0.00153846"],
+    ["0.01", { atoms: "3", scale: 0 }, 8, "0.00333333"],
+    ["1", { atoms: "3", scale: 0 }, 18, "0.333333333333333333"],
+    ["1", { atoms: "2", scale: 0 }, 18, "0.5"],
+  ] as const)("floors fiat %s to native precision %s", (fiat, price, decimals, expected) => {
+    expect(fiatToNative(fiat, price, decimals)).toBe(expected);
+  });
+  test.each([
+    ["", { atoms: "65000", scale: 0 }, ""],
+    ["0", { atoms: "65000", scale: 0 }, "0.00"],
+    ["0.001", { atoms: "65000", scale: 0 }, "65.00"],
+    ["0.00153846", { atoms: "65000", scale: 0 }, "99.99"],
+    ["0.000000000000000001", { atoms: "10000000000000000", scale: 0 }, "0.01"],
+    ["1.000000000000000001", { atoms: "100", scale: 0 }, "100.00"],
+  ] as const)("floors native %s to cents", (nativeAmount, price, expected) => {
+    expect(nativeToFiat(nativeAmount, price)).toBe(expected);
   });
 });

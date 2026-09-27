@@ -37,10 +37,14 @@
     "server/db/migrate.ts!",
     "server/actions/kinds/trade/checkpoint-command.ts!",
     "server/operator-events/backfill-command.ts!",
+    "server/customers/record-ids-backfill-command.ts!",
     "server/funding/core/user-token-rotation.ts!",
     "live-login.ts!",
     // Review context CLI is run directly by its package script.
     "scripts/review-context.ts!",
+    "scripts/review-links.ts!",
+    "scripts/activity-scroll-profile.ts!",
+    "scripts/modal-open-profile.ts!",
     // Figma variables sync, run by package scripts and the main-only CI job.
     "scripts/figma-variables.mjs!",
     "scripts/immersve-probe.ts!"
@@ -49,6 +53,8 @@
     // Non-production design-lane code lives under explorations/ or inside a
     // story file; see docs/design-explorations/README.md.
     "**/explorations/**",
+    // Story-only fixture modules shared by a story and its journey.
+    "**/*.stories.fixture.ts",
     // Test-only harnesses are excluded rather than treated as production roots.
     "tests/**",
     "server/funding/core/testing/**",

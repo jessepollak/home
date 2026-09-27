@@ -24,7 +24,7 @@ const noop = () => undefined;
 const localCashRegions = new Set<RegionId>(["BR", "ID"]);
 const unavailableSummary: HomeMoneySummary = {
   cash: { status: "unavailable", value: null },
-  investments: { status: "unavailable", value: null, assetCount: 0 },
+  investments: { status: "unavailable", value: null, assetCount: 0, ownedCount: 0 },
   borrow: { kind: "unavailable" },
 };
 
@@ -49,7 +49,7 @@ function SummaryValue({ value }: { value: string | null }) {
 
 function MoneySummary({ regionId, balances, labels, cashContext }: { regionId: RegionId; balances: HomeAssetBalancesPresentation; labels: [string, string, string]; cashContext?: string }) {
   const summary = balances.summary ?? unavailableSummary;
-  const emptyInvestments = summary.investments.assetCount === 0 && summary.investments.status === "complete";
+  const emptyInvestments = summary.investments.ownedCount === 0 && summary.investments.status === "complete";
   const isLoading = balances.status === "loading";
   const local = localCashRegions.has(regionId) ? presentationRegions[regionId] : null;
   return (

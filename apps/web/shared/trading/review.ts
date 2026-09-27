@@ -1,17 +1,16 @@
 import { hashTypedData } from "viem";
 import { BASE_USDC_ADDRESS } from "@/shared/money-actions/network-fee";
-import { TRADE_SLIPPAGE_BPS, type TradeMoneyActionMetadata, type TradeSigningRequest } from "./contract";
+import { atomicToDecimal } from "@/shared/formatting/atomic";
+import { formatPresentationPrice } from "@/shared/formatting";
+import { formatDecimalAmount } from "@/shared/formatting/money";
+import { isTradeTokenSymbol, MAX_TRADE_TOKEN_DECIMALS, TRADE_SLIPPAGE_BPS, type TradeAssetRef, type TradeMoneyActionMetadata, type TradeSigningRequest } from "./contract";
 import type { Address, CoinbaseSmartWalletTypedData, Permit2TypedData } from "./server-types";
 
-const CBBTC = "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf";
 const PERMIT2 = "0x000000000022d473030f116ddee9f6b43ac78ba3";
 const address = /^0x[0-9a-fA-F]{40}$/;
 const integer = /^(?:0|[1-9][0-9]*)$/;
 const hash = /^0x[0-9a-fA-F]{64}$/;
-const assets = {
-  usdc: { id: "usdc", symbol: "USDC", decimals: 6, address: BASE_USDC_ADDRESS.toLowerCase() as Address },
-  cbbtc: { id: "cbbtc", symbol: "cbBTC", decimals: 8, address: CBBTC as Address },
-} as const;
+const usdc: TradeAssetRef = { id: "usdc", symbol: "USDC", decimals: 6, address: BASE_USDC_ADDRESS.toLowerCase() as Address };
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -19,44 +18,69 @@ function record(value: unknown): value is Record<string, unknown> {
 function uint(value: unknown, positive = false): value is string {
   return typeof value === "string" && integer.test(value) && BigInt(value) <= (BigInt(1) << BigInt(256)) - BigInt(1) && (!positive || BigInt(value) > BigInt(0));
 }
-function asset(value: unknown, expected: typeof assets.usdc | typeof assets.cbbtc): boolean {
-  return record(value) && value.id === expected.id && value.symbol === expected.symbol && value.decimals === expected.decimals &&
-    typeof value.address === "string" && value.address.toLowerCase() === expected.address;
+function parseAsset(value: unknown): TradeAssetRef | null {
+  if (!record(value) || typeof value.id !== "string" || !value.id || value.id === "usdc" ||
+    !isTradeTokenSymbol(value.symbol) || typeof value.decimals !== "number" || !Number.isInteger(value.decimals) ||
+    value.decimals < 0 || value.decimals > MAX_TRADE_TOKEN_DECIMALS ||
+    typeof value.address !== "string" || !address.test(value.address) ||
+    value.address.toLowerCase() === usdc.address || /^0x0{40}$/.test(value.address)) return null;
+  return { id: value.id, symbol: value.symbol, decimals: value.decimals, address: value.address.toLowerCase() as Address };
+}
+function usdcMatches(value: unknown): boolean {
+  return record(value) && value.id === usdc.id && value.symbol === usdc.symbol && value.decimals === usdc.decimals &&
+    typeof value.address === "string" && value.address.toLowerCase() === usdc.address;
+}
+
+export function tradeRateLabel(metadata: TradeMoneyActionMetadata): string {
+  const traded = metadata.direction === "buy" ? metadata.toAsset : metadata.fromAsset;
+  const tokenUnits = BigInt(metadata.direction === "buy" ? metadata.expectedToAmountBaseUnits : metadata.fromAmountBaseUnits);
+  const usdcUnits = BigInt(metadata.direction === "buy" ? metadata.fromAmountBaseUnits : metadata.expectedToAmountBaseUnits);
+  const ten = BigInt(10);
+  if (tokenUnits <= BigInt(0) || usdcUnits <= BigInt(0)) return `1 ${traded.symbol} ≈ —`;
+  let exponent = 0;
+  while (usdcUnits * ten ** BigInt(traded.decimals + exponent + 6) < tokenUnits * ten ** BigInt(usdc.decimals)) exponent += 3;
+  const precision = 30;
+  const scaled = usdcUnits * ten ** BigInt(traded.decimals + exponent + precision) / tokenUnits;
+  const price = formatPresentationPrice(atomicToDecimal(scaled, usdc.decimals + precision), "USD") ?? "—";
+  const quantity = formatDecimalAmount(ten ** BigInt(exponent), 0, { fractionDigits: 0 });
+  return `${quantity} ${traded.symbol} ≈ ${price}`;
 }
 
 export function parseTradeMetadata(value: unknown): TradeMoneyActionMetadata | null {
   if (!record(value) || value.product !== "trade" || value.provider !== "cdp-swaps" ||
     (value.direction !== "buy" && value.direction !== "sell") || !record(value.network) ||
     value.network.name !== "Base" || value.network.chainId !== 8453 ||
-    !asset(value.fromAsset, value.direction === "buy" ? assets.usdc : assets.cbbtc) ||
-    !asset(value.toAsset, value.direction === "buy" ? assets.cbbtc : assets.usdc) ||
+    !usdcMatches(value.direction === "buy" ? value.fromAsset : value.toAsset) ||
     !uint(value.fromAmountBaseUnits, true) || !uint(value.expectedToAmountBaseUnits, true) ||
     !uint(value.minimumToAmountBaseUnits, true) || BigInt(value.minimumToAmountBaseUnits) > BigInt(value.expectedToAmountBaseUnits) ||
     value.slippageBps !== TRADE_SLIPPAGE_BPS || !uint(value.quoteBlockNumber, true) || !uint(value.permitDeadline, true) ||
     !uint(value.executionDeadline, true) || BigInt(value.executionDeadline) > BigInt(value.permitDeadline) ||
-    !Number.isFinite(Date.parse(value.quotedAt as string)) || new Date(value.quotedAt as string).toISOString() !== value.quotedAt ||
+    typeof value.quotedAt !== "string" || !Number.isFinite(Date.parse(value.quotedAt)) || new Date(value.quotedAt).toISOString() !== value.quotedAt ||
     !Array.isArray(value.fees) || value.fees.length > 2 ||
     (value.approval !== "permit2-exact" && value.approval !== "existing-permit2-allowance")) return null;
+  const traded = parseAsset(value.direction === "buy" ? value.toAsset : value.fromAsset);
+  if (!traded || (value.assetId !== undefined && value.assetId !== traded.id) ||
+    (value.assetName !== undefined && (typeof value.assetName !== "string" || !value.assetName.trim() || value.assetName.length > 100)) ||
+    (value.assetId === undefined && (traded.id !== "cbbtc" || traded.address !== "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf" || traded.decimals !== 8 || traded.symbol !== "cbBTC")) ||
+    (value.assetId !== undefined && value.assetName === undefined)) return null;
   const fees: TradeMoneyActionMetadata["fees"] = [];
   for (const fee of value.fees) {
     if (!record(fee) || (fee.kind !== "protocol" && fee.kind !== "gas") || fees.some((existing) => existing.kind === fee.kind) ||
-      !uint(fee.amountBaseUnits) || (fee.assetId !== "usdc" && fee.assetId !== "cbbtc")) return null;
-    const ref = assets[fee.assetId];
-    if (fee.symbol !== ref.symbol || fee.decimals !== ref.decimals) return null;
+      !uint(fee.amountBaseUnits)) return null;
+    const ref = fee.assetId === usdc.id ? usdc : fee.assetId === traded.id ? traded : null;
+    if (!ref || fee.symbol !== ref.symbol || fee.decimals !== ref.decimals) return null;
     fees.push({ kind: fee.kind, assetId: ref.id, symbol: ref.symbol, decimals: ref.decimals, amountBaseUnits: fee.amountBaseUnits });
   }
-  const fromAsset = value.direction === "buy" ? assets.usdc : assets.cbbtc;
-  const toAsset = value.direction === "buy" ? assets.cbbtc : assets.usdc;
   return {
     product: "trade", provider: "cdp-swaps", direction: value.direction,
-    network: { name: "Base", chainId: 8453 }, fromAsset, toAsset,
+    network: { name: "Base", chainId: 8453 }, assetId: traded.id, assetName: value.assetName as string | undefined ?? "Bitcoin",
+    fromAsset: value.direction === "buy" ? usdc : traded, toAsset: value.direction === "buy" ? traded : usdc,
     fromAmountBaseUnits: value.fromAmountBaseUnits, expectedToAmountBaseUnits: value.expectedToAmountBaseUnits,
     minimumToAmountBaseUnits: value.minimumToAmountBaseUnits, slippageBps: TRADE_SLIPPAGE_BPS,
     fees, approval: value.approval, quoteBlockNumber: value.quoteBlockNumber,
-    quotedAt: value.quotedAt as string, permitDeadline: value.permitDeadline, executionDeadline: value.executionDeadline,
+    quotedAt: value.quotedAt, permitDeadline: value.permitDeadline, executionDeadline: value.executionDeadline,
   };
 }
-
 export function parseTradeSigning(value: unknown, metadata: TradeMoneyActionMetadata, owner: Address): TradeSigningRequest | null {
   if (!record(value) || (value.signer !== "base-account" && value.signer !== "cdp-embedded") || !record(value.typedData)) return null;
   const typed = value.typedData;

@@ -14,9 +14,16 @@ const otherOwner = { ...owner, subject: "another-customer" };
 let sql: SqlExecutor;
 let store: ActionsStore;
 
+const intent = { amountBaseUnits: "2000000", platform: "cashapp", currency: "USD", canonicalHandle: "Alice" };
+
 async function insertOrder(createdAt: string, depositId: string | null = null, state = "submitted", inputOwner = owner) {
   const id = randomUUID();
-  await store.insert({ id, owner: inputOwner, kind: "cash-out", summary: { title: "Cash out", amounts: [], warnings: [], expiresAt: "2099-01-01T00:00:00.000Z" }, pending: { calls: [] }, createdAt });
+  await store.insert({ id, owner: inputOwner, kind: "cash-out", summary: { title: "Cash out", amounts: [], warnings: [], expiresAt: "2099-01-01T00:00:00.000Z",
+    metadata: { product: "cashout", operation: "deposit", providerId: "peer", providerName: "Peer", environment: "production",
+      region: "US", platform: "cashapp", platformLabel: "Cash App", currency: "USD", canonicalHandle: "Alice",
+      approximateFiatAmount: "2", minConversionRate: "1", intentAmountRange: { min: "2000000", max: "2000000" },
+      estimateAsOf: createdAt, escrow: owner.address },
+  }, pending: { calls: [] }, createdAt });
   await sql.query("UPDATE actions SET confirmed_at = $2::timestamptz, pending = NULL WHERE id = $1", [id, createdAt]);
   await sql.query(
     `INSERT INTO cashout_orders (action_id, owner_key, provider_id, environment, region, platform, platform_label, amount_atomic, remaining_atomic, eta_seconds, deposit_id, state, created_at)
@@ -47,6 +54,9 @@ describePostgres("cash-out lockout eligibility", () => {
       await transaction.unsafe(await readMigrationSql("012_action_outcomes.sql"));
       await transaction.unsafe(await readMigrationSql("013_action_call_commitment.sql"));
       await transaction.unsafe(await readMigrationSql("014_cashout_orders.sql"));
+      for (const file of ["002_funding_provider_seam.sql", "007_funding_provider_customers.sql", "008_funding_provider_user_tokens.sql", "011_operator_registry.sql", "017_record_customer_ids.sql"]) {
+        await transaction.unsafe(await readMigrationSql(file));
+      }
     });
     sql = createPostgresSqlExecutor(connectionString!, { schema });
     store = new ActionsStore(sql);
@@ -117,53 +127,64 @@ describePostgres("cash-out lockout eligibility", () => {
     expect((await store.cashoutOrders(owner, [target]))[0]).toMatchObject({ deposit_id: null });
   });
 
+  test("only identical unsettled intents block another cash-out", async () => {
+    await insertOrder(new Date().toISOString(), "deposit_7");
+    expect(await store.hasUnsettledCashout(owner, intent)).toBe(true);
+    expect(await store.hasUnsettledCashout(owner, { ...intent, canonicalHandle: "alice" })).toBe(true);
+    expect(await store.hasUnsettledCashout(owner, { ...intent, amountBaseUnits: "3000000" })).toBe(false);
+    expect(await store.hasUnsettledCashout(owner, { ...intent, canonicalHandle: "Bob" })).toBe(false);
+    expect(await store.hasUnsettledCashout(owner, { ...intent, currency: "EUR" })).toBe(false);
+    expect(await store.hasUnsettledCashout(owner, { ...intent, platform: "venmo" })).toBe(false);
+    expect(await store.hasUnsettledCashout(otherOwner, intent)).toBe(false);
+  });
+
   test("stale unlinked submitted cash-out does not block a new deposit", async () => {
     await insertOrder(new Date(Date.now() - 16 * 60_000).toISOString());
-    expect(await store.hasUnsettledCashout(owner)).toBe(false);
+    expect(await store.hasUnsettledCashout(owner, intent)).toBe(false);
   });
 
   test("stale unlinked cash-out with a dispatch handle or hash still blocks", async () => {
     const handled = await insertOrder(new Date(Date.now() - 16 * 60_000).toISOString());
     await sql.query("UPDATE actions SET provider_handle = 'op-1', handle_recorded_at = now() WHERE id = $1", [handled]);
-    expect(await store.hasUnsettledCashout(owner)).toBe(true);
+    expect(await store.hasUnsettledCashout(owner, intent)).toBe(true);
     await sql.query("UPDATE actions SET provider_handle = NULL, handle_recorded_at = NULL, transaction_hash = '0xabc' WHERE id = $1", [handled]);
-    expect(await store.hasUnsettledCashout(owner)).toBe(true);
+    expect(await store.hasUnsettledCashout(owner, intent)).toBe(true);
   });
 
   test("fresh unlinked submitted cash-out still blocks", async () => {
     await insertOrder(new Date().toISOString());
-    expect(await store.hasUnsettledCashout(owner)).toBe(true);
+    expect(await store.hasUnsettledCashout(owner, intent)).toBe(true);
   });
 
   test("a fresh cash-out the wallet declined does not block until it is retried", async () => {
     const declined = await insertOrder(new Date().toISOString());
     await sql.query("UPDATE actions SET confirmed_at = now(), declined_reported_at = now() WHERE id = $1", [declined]);
-    expect(await store.hasUnsettledCashout(owner)).toBe(false);
+    expect(await store.hasUnsettledCashout(owner, intent)).toBe(false);
     await sql.query("UPDATE actions SET declined_reported_at = NULL, dispatch_attempt = 1 WHERE id = $1", [declined]);
-    expect(await store.hasUnsettledCashout(owner)).toBe(true);
+    expect(await store.hasUnsettledCashout(owner, intent)).toBe(true);
   });
 
   test("a fresh cash-out the wallet never submitted does not block unless its deposit is proven", async () => {
     const unsubmitted = await insertOrder(new Date().toISOString(), "deposit_8");
     await sql.query("UPDATE actions SET outcome = 'not_submitted', outcome_source = 'wallet', outcome_recorded_at = now() WHERE id = $1", [unsubmitted]);
-    expect(await store.hasUnsettledCashout(owner)).toBe(false);
+    expect(await store.hasUnsettledCashout(owner, intent)).toBe(false);
     await sql.query("UPDATE cashout_orders SET deposit_proven = true WHERE action_id = $1", [unsubmitted]);
-    expect(await store.hasUnsettledCashout(owner)).toBe(true);
+    expect(await store.hasUnsettledCashout(owner, intent)).toBe(true);
   });
 
   test("linked unsettled cash-out blocks regardless of age", async () => {
     await insertOrder(new Date(Date.now() - 60 * 60_000).toISOString(), "deposit_7");
-    expect(await store.hasUnsettledCashout(owner)).toBe(true);
+    expect(await store.hasUnsettledCashout(owner, intent)).toBe(true);
   });
 
   test("a provisionally failed linked cash-out blocks until its durable record settles", async () => {
     const provisional = await insertOrder(new Date().toISOString(), "deposit_7", "failed");
     await sql.query("UPDATE actions SET transaction_hash = $2 WHERE id = $1", [provisional, `0x${"a".repeat(64)}`]);
     expect((await store.cashoutOrders(owner, [provisional]))[0]).toMatchObject({ deposit_proven: false, settled_at: null });
-    expect(await store.hasUnsettledCashout(owner)).toBe(true);
+    expect(await store.hasUnsettledCashout(owner, intent)).toBe(true);
 
     await sql.query("UPDATE cashout_orders SET settled_at = now() WHERE action_id = $1", [provisional]);
-    expect(await store.hasUnsettledCashout(owner)).toBe(false);
+    expect(await store.hasUnsettledCashout(owner, intent)).toBe(false);
   });
 
   test("keeps an older unsettled cash-out despite 101 newer confirmed actions and sorts the result newest first", async () => {
@@ -237,10 +258,54 @@ describePostgres("cash-out lockout eligibility", () => {
     const backfilled = await store.ensureCashoutOrder(owner, listed.at(-1)!);
     expect(backfilled).toMatchObject({ action_id: old, state: "submitted" });
     expect(Date.now() - new Date(backfilled!.created_at).getTime()).toBeGreaterThan(59 * 86_400_000);
-    expect(await store.hasUnsettledCashout(owner)).toBe(false);
+    expect(await store.hasUnsettledCashout(owner, intent)).toBe(false);
     await insertOrder(new Date().toISOString(), "DePoSiT_8");
     expect(await store.linkedCashoutDepositIds(owner, "peer")).toEqual(["deposit_8"]);
     expect(await store.linkedCashoutDepositIds({ ...owner, subject: "other" }, "peer")).toEqual([]);
     expect(await store.linkedCashoutDepositIds(owner, "another-provider")).toEqual([]);
+  });
+  test("keeps an older unsettled or withdrawable cash-out ahead of newer settled history", async () => {
+    const old = await insertOrder("2026-09-10T00:00:00.000Z");
+    const withdrawable = await insertOrder("2026-09-11T00:00:00.000Z");
+    const recent = await insertOrder("2026-09-12T00:00:00.000Z");
+    await sql.query("UPDATE cashout_orders SET settled_at = now(), withdrawable = true WHERE action_id = $1", [withdrawable]);
+    await sql.query("UPDATE cashout_orders SET settled_at = now() WHERE action_id = $1", [recent]);
+    await sql.query("UPDATE cashout_orders SET withdrawable = false WHERE action_id = $1", [withdrawable]);
+    expect((await store.cashoutOrderHistory(owner, 1)).map((row) => row.action_id)).toEqual([old]);
+    await sql.query("UPDATE cashout_orders SET withdrawable = true WHERE action_id = $1", [withdrawable]);
+    expect((await store.cashoutOrderHistory(owner, 1)).map((row) => row.action_id)).toEqual([withdrawable]);
+    expect((await store.cashoutOrderHistory(owner, 2)).map((row) => row.action_id)).toEqual([withdrawable, old]);
+    expect((await store.cashoutOrderHistory(owner, 3)).map((row) => row.action_id)).toEqual([recent, withdrawable, old]);
+  });
+
+  test("history excludes a declined cash-out without dispatch or deposit evidence", async () => {
+    const declined = await insertOrder(new Date().toISOString());
+    expect((await store.recordDecline(owner, declined, 0)).changed).toBe(true);
+    expect((await store.cashoutOrderHistory(owner, 50)).map((row) => row.action_id)).not.toContain(declined);
+  });
+
+  test("history retains a declined cash-out with a proven deposit", async () => {
+    const declined = await insertOrder(new Date().toISOString());
+    expect((await store.recordDecline(owner, declined, 0)).changed).toBe(true);
+    expect(await store.linkCashoutDeposit(owner, declined, "deposit_proven", true)).toMatchObject({ deposit_proven: true });
+    expect((await store.cashoutOrderHistory(owner, 50)).map((row) => row.action_id)).toContain(declined);
+  });
+
+  test("history excludes a not-submitted cash-out without deposit proof", async () => {
+    const notSubmitted = await insertOrder(new Date().toISOString(), "deposit_unproven");
+    expect((await store.recordOutcome(owner, notSubmitted, { outcome: "not_submitted", source: "wallet", settledAt: null })).written).toBe(true);
+    expect((await store.cashoutOrderHistory(owner, 50)).map((row) => row.action_id)).not.toContain(notSubmitted);
+  });
+
+  test("history spans regions but excludes other owners and unconfirmed actions", async () => {
+    const old = await insertOrder("2026-09-10T00:00:00.000Z");
+    const recent = await insertOrder("2026-09-12T00:00:00.000Z");
+    await sql.query("UPDATE cashout_orders SET region = $2 WHERE action_id = $1", [recent, "GB"]);
+    await insertOrder("2026-09-13T00:00:00.000Z", null, "submitted", otherOwner);
+    const unconfirmed = await insertOrder("2026-09-14T00:00:00.000Z");
+    await sql.query("UPDATE actions SET confirmed_at = NULL WHERE id = $1", [unconfirmed]);
+    expect((await store.cashoutOrderHistory(owner, 50)).map((row) => [row.action_id, row.region])).toEqual([[recent, "GB"], [old, "US"]]);
+    expect((await store.cashoutOrderHistory(owner, 1)).map((row) => row.action_id)).toEqual([recent]);
+    for (const limit of [0, -1, 101, 1.5, Number.NaN]) await expect(store.cashoutOrderHistory(owner, limit)).rejects.toThrow();
   });
 });

@@ -1,6 +1,6 @@
 import "@/client/account/dom-test-harness";
 
-import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
+import { getHomeQueryClient, ownerQueryKey, useHomeQuery } from "@/client/query/query-client";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { afterEach, describe, expect, jest, mock, test } from "bun:test";
 import { useState, type ComponentProps } from "react";
@@ -8,6 +8,12 @@ import type { HomeRegionState } from "./use-home-region";
 import type { AccountWalletSdkBoundary } from "@/client/account/cdp-client";
 import type { SessionFetch, VerifiedAccountSession } from "@/client/account/session-client";
 import { DEFAULT_BORROW_MARKET } from "@/shared/borrowing/config";
+import { erc20AssetKey, nativeAssetKey, type AssetKey } from "@/shared/balances/types";
+import { selectOwnedInvestment } from "@/shared/balances/owned-investments";
+import { BASE_CBBTC, BASE_USDC } from "@/shared/assets/base";
+import { parseActivityPage } from "@/shared/activity/contract";
+import type { InvestmentsContentProps } from "./home-types";
+import { BASE_USDC_ADDRESS } from "@/shared/savings/config";
 
 const BORROW_MARKET_ID = DEFAULT_BORROW_MARKET.marketId;
 import {
@@ -29,6 +35,7 @@ let historyEntries = ["/"];
 let historyStates: unknown[] = [{}];
 let historyCursor = 0;
 const nativeReplaceState = window.history.replaceState.bind(window.history);
+const nativeFetch = globalThis.fetch;
 
 function syncLocation(href: string, state: unknown = historyStates[historyCursor]) {
   nativeReplaceState(state, "", href);
@@ -59,6 +66,14 @@ function popHistory() {
   window.dispatchEvent(new PopStateEvent("popstate", { state: historyStates[historyCursor] }));
 }
 
+function forwardHistory() {
+  if (historyCursor < historyEntries.length - 1) {
+    historyCursor += 1;
+    syncLocation(historyEntries[historyCursor]!, historyStates[historyCursor]);
+  }
+  window.dispatchEvent(new PopStateEvent("popstate", { state: historyStates[historyCursor] }));
+}
+
 Object.defineProperties(window.history, {
   pushState: {
     configurable: true,
@@ -78,6 +93,7 @@ Object.defineProperties(window.history, {
     },
   },
   back: { configurable: true, value: popHistory },
+  forward: { configurable: true, value: forwardHistory },
 });
 
 const actualNavigation = await import("next/navigation");
@@ -89,7 +105,7 @@ const router = {
 mock.module("next/navigation", () => ({
   ...actualNavigation,
   useRouter: () => router,
-  usePathname: () => "/",
+  usePathname: () => window.location.pathname,
   useSearchParams: () => new URLSearchParams(window.location.search),
 }));
 
@@ -101,7 +117,9 @@ const { AccountWalletSessionOwner } = await import("@/client/account/cdp-session
 const { BASE_CHAIN_ID } = await import("@/client/account/session-client");
 const { useNestedAppChrome } = await import("@/components/app-chrome");
 const { InvestExperience } = await import("@/client/invest/invest-experience");
+const { parseShellLocation } = await import("@/config/shell-location");
 const { DashboardShell } = await import("./shell");
+const { useOptionalHomeShellRouting } = await import("./panel-routing");
 const { PortfolioHomeExperience } = await import("./portfolio-home-experience");
 const { LandingShell } = await import("./landing-shell");
 const { useHomeRegion } = await import("./use-home-region");
@@ -132,6 +150,11 @@ function sdk(overrides: Partial<AccountWalletSdkBoundary> = {}): AccountWalletSd
     signOut: async () => {},
     ...overrides,
   };
+}
+
+function emptyOrders() {
+  const { user, accountProvider } = session();
+  return { version: 1, owner: { subject: user.subject, accountProvider }, orders: [] };
 }
 
 function session(
@@ -184,6 +207,7 @@ function DashboardHarness({
   onRegionObserved,
   assetBalances,
   investContent = <section aria-label="Invest module">Invest fixture</section>,
+  cashContent = ({ view, onOpenSavings }) => <section aria-label="Cash module">{view === "cash" ? <button onClick={onOpenSavings}>Savings fixture</button> : "Savings fixture detail"}</section>,
   ...props
 }: DashboardHarnessProps) {
   const region = useHomeRegion({ detectedCountry, accountPreference, signedIn: accountPreference !== null });
@@ -193,7 +217,7 @@ function DashboardHarness({
     <DashboardShell
       {...props}
       region={resolvedRegion}
-        savingsContent={<section aria-label="Savings module">Savings fixture</section>}
+        cashContent={cashContent}
         investContent={investContent}
         assetBalances={assetBalances ?? {
           status: "ready",
@@ -216,7 +240,7 @@ function DashboardHarness({
           breakdown: [{ id: "cash", label: "Cash", value: "$12.34", weight: 1_000 }],
           summary: {
             cash: { status: "complete", value: "$12.34" },
-            investments: { status: "complete", value: "$0.00", assetCount: 0 },
+            investments: { status: "complete", value: "$0.00", assetCount: 0, ownedCount: 0 },
             borrow: { kind: "none" },
           },
           rows: [{
@@ -263,6 +287,30 @@ function NestedInvestFixture({ balancesReturn = false }: { balancesReturn?: bool
   );
 }
 
+const INVESTMENT_HOLDING = erc20AssetKey("0xABABABABABABABABABABABABABABABABABABABAB");
+const INVESTMENT_PATH = "/investments/0xabababababababababababababababababababab";
+
+function InvestmentsFixture({ holding, onOpenHolding, onCloseHolding }: InvestmentsContentProps) {
+  useNestedAppChrome(holding ? { title: "Ethereum holding", backLabel: "Back", onBack: onCloseHolding } : null);
+  return holding
+    ? <section aria-label="Holding detail">Selected {holding}</section>
+    : <section aria-label="Holding list">
+        <button type="button" onClick={() => onOpenHolding(INVESTMENT_HOLDING)}>
+          <span data-holding-key={INVESTMENT_HOLDING}>Ethereum row</span>
+        </button>
+      </section>;
+}
+
+function ActivityHoldingFixture({ holding, onCloseHolding }: InvestmentsContentProps) {
+  useNestedAppChrome(holding ? { title: "Bitcoin", backLabel: "Back", onBack: onCloseHolding } : null);
+  return holding ? <section aria-label="Holding detail">Selected {holding}</section> : null;
+}
+
+function fundedInvestments() {
+  return presentBalances({ status: "ready", snapshot: buildBalancesSnapshotFixture({
+    registry: { eth: { balance: ready("1000000000000000000"), value: priced("USD", "10000") } },
+  }), error: null });
+}
 Object.defineProperty(window, "matchMedia", {
   configurable: true,
   value: () => ({
@@ -316,15 +364,95 @@ function resetHistory() {
   syncLocation("/");
 }
 
+const originalOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
+function mockActivityLayout() {
+  Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+    configurable: true,
+    get() { return this.tagName === "LI" ? 64 : this.tagName === "MAIN" ? 800 : 0; },
+  });
+}
+
 afterEach(() => {
   jest.useRealTimers();
+  globalThis.fetch = nativeFetch;
   restoreAnimationFrames?.();
   cleanup();
+  Object.defineProperty(HTMLElement.prototype, "offsetHeight", originalOffsetHeight);
   getHomeQueryClient().clear();
   window.localStorage.clear();
   window.sessionStorage.clear();
   document.body.style.overflow = "";
   resetHistory();
+});
+
+function CashFundingTrigger() {
+  const routing = useOptionalHomeShellRouting();
+  return <button onClick={() => routing?.setFlow("add-money", { mode: "push" })}>Add money in Cash</button>;
+}
+
+describe("pushed funding history", () => {
+  test("Home to Cash to Add money closes without a duplicate Cash history entry", async () => {
+    syncLocation("/home");
+    historyEntries = ["/home"];
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+      cashContent={() => <CashFundingTrigger />} />);
+    await waitForVerifiedShell();
+    fireEvent.click(within(page().getByRole("region", { name: "Your money" })).getByRole("button", { name: /^Cash/ }));
+    expect(window.location.pathname).toBe("/cash");
+    fireEvent.click(page().getByRole("button", { name: "Add money in Cash" }));
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/cash?flow=add-money");
+    expect(window.history.state?.__homeFundingFlowPushed).toBe(true);
+    fireEvent.click(await page().findByRole("button", { name: /Receive crypto/ }));
+    await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe("/cash?flow=receive"));
+    expect(window.history.state?.__homeFundingFlowPushed).toBe(true);
+    fireEvent.click(within(await page().findByRole("dialog", { name: "Receive" })).getByRole("button", { name: "Close add money" }));
+    await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe("/cash"));
+    expect(historyEntries).toEqual(["/home", "/cash", "/cash?flow=receive"]);
+    act(() => popHistory());
+    await waitFor(() => expect(window.location.pathname).toBe("/home"));
+  });
+
+  test("Home activity empty Add money closes by popping the overlay entry", async () => {
+    syncLocation("/home");
+    historyEntries = ["/home"];
+    const sessionFetch: SessionFetch = async (input) => {
+      const path = String(input);
+      if (path === "/api/session") return Response.json(session());
+      if (path === "/api/activity/orders") return Response.json(emptyOrders());
+      if (path === "/api/actions") return Response.json({ version: "1", actions: [] });
+      if (path.startsWith("/api/activity?")) {
+        const to = new URL(path, "https://home.invalid").searchParams.get("to") ?? new Date().toISOString();
+        return Response.json({ version: 1, walletAddress: ADDRESS.toLowerCase(), chainId: 8453,
+          window: { from: new Date(Date.parse(to) - 86_400_000).toISOString(), to }, currency: "USD", transfers: [], nextCursor: null,
+          source: { provider: "cdp-sql", cached: false, stale: false, executionTimestamp: to, executionTimeMs: 1, fetchedAt: to } });
+      }
+      throw new Error(`Unexpected read: ${path}`);
+    };
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} sessionFetch={sessionFetch} />);
+    const prompt = await page().findByRole("button", { name: "Add money" });
+    await page().findByText("No activity yet");
+    const activity = page().getByRole("region", { name: "Activity" });
+    const emptyPrompt = within(activity).getByRole("button", { name: "Add money" });
+    expect(emptyPrompt).not.toBe(prompt);
+    emptyPrompt.focus();
+    fireEvent.click(emptyPrompt);
+    expect(window.history.state?.__homeFundingFlowPushed).toBe(true);
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/home?flow=add-money");
+    fireEvent.click(within(await page().findByRole("dialog", { name: "Add money" })).getByRole("button", { name: "Close add money" }));
+    await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe("/home"));
+    expect(historyEntries).toEqual(["/home", "/home?flow=add-money"]);
+  });
+
+  test("closing a direct funding deep link replaces its entry", async () => {
+    syncLocation("/cash?flow=add-money");
+    historyEntries = ["/cash?flow=add-money"];
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} initialPanel="cash"
+      initialLocation={{ panel: "cash", account: null, shelf: null, asset: null, group: null, market: null }}
+      initialSearch="flow=add-money" initialAddMoney applyInboundUrlIntent />);
+    fireEvent.click(within(await page().findByRole("dialog", { name: "Add money" })).getByRole("button", { name: "Close add money" }));
+    await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe("/cash"));
+    expect(historyEntries).toEqual(["/cash"]);
+  });
 });
 
 describe("Home shell auth and privacy", () => {
@@ -364,25 +492,26 @@ describe("Home shell auth and privacy", () => {
     expect(page().queryByRole("navigation", { name: "Main navigation" })).toBeNull();
   });
 
-  test("redirects a signed-out Save route without exposing savings content", async () => {
-    syncLocation("/save");
-    historyEntries = ["/save"];
+  test("redirects a signed-out Cash route without exposing cash content", async () => {
+    syncLocation("/cash");
+    historyEntries = ["/cash"];
     render(
       <HomeHarness
         accountSdk={sdk()}
-        initialPanel="save"
+        initialPanel="cash"
         initialLocation={{
-          panel: "save",
+          panel: "cash",
           account: null,
           shelf: null,
           asset: null,
           group: null,
           market: null,
+          cashView: null,
         }}
       />,
     );
 
-    expect(page().queryByRole("region", { name: "Savings module" })).toBeNull();
+    expect(page().queryByRole("region", { name: "Cash module" })).toBeNull();
     await waitFor(() => expect(replaceCalls).toEqual(["/?account=signin"]));
     expect(page().queryByRole("navigation", { name: "Main navigation" })).toBeNull();
   });
@@ -470,6 +599,7 @@ describe("Home shell auth and privacy", () => {
             },
           });
         }
+        if (url === "/api/activity/orders") return Response.json(emptyOrders());
         if (url === "/api/actions") return Response.json({ version: "1", actions: [] });
         throw new Error(`Unexpected read: ${url}`);
       };
@@ -599,9 +729,9 @@ describe("Home shell auth and privacy", () => {
       />,
     );
 
-    expect(await page().findByRole("button", { name: "Retry account check" })).toBeTruthy();
+    expect(await page().findByRole("button", { name: "Try again" })).toBeTruthy();
     expect(page().queryByText("$12.34")).toBeNull();
-    fireEvent.click(page().getByRole("button", { name: "Retry account check" }));
+    fireEvent.click(page().getByRole("button", { name: "Try again" }));
     await waitForVerifiedShell();
     expect(page().getAllByText("$12.34").length).toBeGreaterThan(0);
   });
@@ -618,7 +748,7 @@ describe("Home shell routing and intents", () => {
       { title: "Invest", leading: "home", props: { initialPanel: "invest" } },
       { title: "Your money", leading: "back", props: { initialPanel: "balances" } },
       { title: "Activity", leading: "back", props: { initialPanel: "activity" } },
-      { title: "Save", leading: "back", props: { initialPanel: "save" } },
+      { title: "Cash", leading: "back", props: { initialPanel: "cash" } },
       { title: "Account", leading: "home", props: { initialAccountSettingsOpen: true } },
     ];
     for (const shellCase of cases) {
@@ -789,7 +919,7 @@ describe("Home shell routing and intents", () => {
           ],
           summary: {
             cash: { status: "complete", value: "$12.34" },
-            investments: { status: "complete", value: "$78.21", assetCount: 1 },
+            investments: { status: "complete", value: "$78.21", assetCount: 1, ownedCount: 1 },
             borrow: { kind: "position", status: "complete", value: "$30.01", rate: "5.10% APR", debts: [{ marketId: BORROW_MARKET_ID, baseUnits: "30010000" }] },
           },
           rows: [],
@@ -820,7 +950,7 @@ describe("Home shell routing and intents", () => {
     expect(borrowRow.textContent).toContain("$30.01");
     expect(borrowRow.textContent).not.toContain("−");
     expect(borrowRow.textContent).toContain("5.10% APR");
-    expect(summary.getByRole("button", { description: "Open Invest" }).textContent).toContain("Across 1 asset");
+    expect(summary.getByRole("button", { description: /^Open Invest(ments)?$/ }).textContent).toContain("Across 1 asset");
     expect(
       breakdown!.querySelector<HTMLElement>('[data-balance-segment="borrow"]')?.style.flexGrow,
     ).toBe("249");
@@ -1019,6 +1149,234 @@ describe("Home shell routing and intents", () => {
     expect(page().getByRole("region", { name: "Invest module" })).toBeTruthy();
   });
 
+  for (const back of ["header", "browser"] as const) {
+    test(`opens the owned cbBTC contract from Activity and restores details on ${back} Back`, async () => {
+      syncLocation("/activity");
+      mockActivityLayout();
+      historyEntries = ["/activity"];
+      const snapshot = buildBalancesSnapshotFixture({ registry: {
+        cbbtc: { balance: ready("10000000"), value: priced("USD", "10000") },
+        usdc: { balance: ready("1000000"), value: priced("USD", "100") },
+      } });
+      const btc = BASE_CBBTC.address.toLowerCase();
+      const usdc = BASE_USDC.address.toLowerCase();
+      const makeTransfer = (address: string, symbol: string, index: number, to: string) => ({
+        id: `8453:${address}:activity-${index}`, logId: `activity-${index}`, chainId: 8453,
+        assetId: address === btc ? "cbbtc" : address === usdc ? "usdc" : null,
+        tokenAddress: address, tokenSymbol: symbol,
+        tokenDecimals: symbol === "cbBTC" ? 8 : 6, tokenImageUrl: null,
+        walletAddress: ADDRESS, fromAddress: ADDRESS_B, toAddress: ADDRESS,
+        direction: "incoming", amountBaseUnits: symbol === "cbBTC" ? "10000000" : "1000000",
+        blockNumber: String(4 - index), blockHash: `0x${"c".repeat(64)}`,
+        transactionHash: `0x${String(index).padStart(64, "0")}`, logIndex: "1",
+        blockTimestamp: new Date(Date.parse(to) - index * 60_000).toISOString(),
+        valuation: { status: "unpriced", currency: "USD", reason: "quote-unavailable" },
+      });
+      const sessionFetch: SessionFetch = async (input) => {
+        const path = String(input);
+        if (path === "/api/session") return Response.json(session());
+        if (path === "/api/actions") return Response.json({ version: "1", actions: [] });
+        if (path.startsWith("/api/activity?")) {
+          const to = new URL(path, "https://home.invalid").searchParams.get("to") ?? new Date().toISOString();
+          const response = { version: 1, walletAddress: ADDRESS.toLowerCase(), chainId: 8453,
+            window: { from: new Date(Date.parse(to) - 86_400_000).toISOString(), to }, currency: "USD",
+            transfers: [makeTransfer(btc, "cbBTC", 1, to), makeTransfer(usdc, "USDC", 2, to),
+              makeTransfer("0x4444444444444444444444444444444444444444", "FAKE", 3, to)],
+            nextCursor: null,
+            source: { provider: "cdp-sql", cached: false, stale: false, executionTimestamp: to, executionTimeMs: 1, fetchedAt: to },
+          };
+          parseActivityPage(response, session(), to);
+          return Response.json(response);
+        }
+        throw new Error(`Unexpected read: ${path}`);
+      };
+      render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        sessionFetch={sessionFetch} initialPanel="activity" initialLocation={parseShellLocation("/activity")}
+        canOpenAssetDetail={(key) => selectOwnedInvestment(snapshot, key as AssetKey) !== null}
+        investmentsContent={ActivityHoldingFixture} />);
+      await waitForVerifiedShell();
+      const opener = (await page().findAllByRole("button", { description: "View received cbBTC transaction details" }))[0]!;
+      const main = page().getByRole("main");
+      main.scrollTop = 170;
+      fireEvent.scroll(main);
+      opener.focus();
+      fireEvent.click(opener);
+      await page().findByRole("dialog", { name: "Received" });
+      fireEvent.click(await page().findByRole("button", { name: "Bitcoin Asset" }));
+      expect(window.location.pathname).toBe(`/investments/${btc}`);
+      expect(window.history.state?.__investmentsHoldingOpenedInApp).toBe(true);
+      expect(page().getByRole("region", { name: "Holding detail" }).textContent).toContain(erc20AssetKey(BASE_CBBTC.address));
+      expect(await page().findByRole("heading", { level: 1, name: "Bitcoin" })).toBeTruthy();
+      await waitFor(() => expect(page().queryAllByRole("dialog")).toHaveLength(0));
+      if (back === "header") fireEvent.click(page().getByRole("button", { name: "Back" }));
+      else act(() => popHistory());
+      expect(window.location.pathname).toBe("/activity");
+      expect(main.scrollTop).toBe(170);
+      const restored = await page().findByRole("dialog", { name: "Received" });
+      expect(restored.textContent).toContain("+0.1000 cbBTC");
+      act(() => forwardHistory());
+      expect(window.location.pathname).toBe(`/investments/${btc}`);
+      await waitFor(() => expect(page().queryAllByRole("dialog")).toHaveLength(0));
+      act(() => popHistory());
+      expect(window.location.pathname).toBe("/activity");
+      const restoredAgain = await page().findByRole("dialog", { name: "Received" });
+      expect(restoredAgain.textContent).toContain("+0.1000 cbBTC");
+      fireEvent.click(within(restoredAgain).getByRole("button", { name: "Close Received details" }));
+      await waitFor(() => expect(page().queryAllByRole("dialog")).toHaveLength(0));
+      await waitFor(() => expect(page().getAllByRole("button", { description: "View received cbBTC transaction details" }).some((button) => button === document.activeElement)).toBe(true));
+      act(() => forwardHistory());
+      expect(window.location.pathname).toBe(`/investments/${btc}`);
+      await waitFor(() => expect(page().queryAllByRole("dialog")).toHaveLength(0));
+      act(() => popHistory());
+      expect(window.location.pathname).toBe("/activity");
+      expect(page().queryAllByRole("dialog")).toHaveLength(0);
+      fireEvent.click(page().getByRole("button", { description: "View received USDC transaction details" }));
+      expect(within(await page().findByRole("dialog", { name: "Received" })).queryByRole("button", { name: "US dollar Asset" })).toBeNull();
+      act(() => forwardHistory());
+      await waitFor(() => expect(page().queryAllByRole("dialog")).toHaveLength(0));
+      act(() => popHistory());
+      expect(window.location.pathname).toBe("/activity");
+      expect(await page().findByRole("dialog", { name: "Received" })).toBeTruthy();
+      fireEvent.click(page().getByRole("button", { name: "Close Received details" }));
+      await waitFor(() => expect(page().queryAllByRole("dialog")).toHaveLength(0));
+      fireEvent.click(page().getByRole("button", { description: "View received FAKE transaction details" }));
+      expect(within(await page().findByRole("dialog", { name: "Received" })).queryByRole("button", { name: "FAKE Asset" })).toBeNull();
+    });
+  }
+
+  test("opens funded Investments holdings separately from Invest discovery", async () => {
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+      assetBalances={fundedInvestments()} investmentsContent={InvestmentsFixture} />);
+    await waitForVerifiedShell();
+    fireEvent.click(page().getByRole("button", { description: /^Open Invest(ments)?$/ }));
+    expect(window.location.pathname).toBe("/investments");
+    expect(page().getByRole("heading", { level: 1, name: "Investments" })).toBeTruthy();
+    expect(within(page().getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Home" }).getAttribute("aria-current")).toBe("page");
+    expect(page().getByRole("region", { name: "Holding list" })).toBeTruthy();
+    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Invest" }));
+    expect(window.location.pathname).toBe("/invest");
+    expect(page().getByRole("region", { name: "Invest module" })).toBeTruthy();
+  });
+
+  test("opens Investments holdings when the only owned holding is below one cent", async () => {
+    const dust = presentBalances({ status: "ready", snapshot: buildBalancesSnapshotFixture({
+      registry: { eth: { balance: ready("1000000000000"), value: priced("USD", "5", 3) } },
+    }), error: null });
+    expect(dust.summary?.investments).toMatchObject({ status: "complete", assetCount: 0, ownedCount: 1 });
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+      assetBalances={dust} investmentsContent={InvestmentsFixture} />);
+    await waitForVerifiedShell();
+    const summary = within(page().getByRole("region", { name: "Your money" }));
+    expect(summary.queryByText("Start investing")).toBeNull();
+    fireEvent.click(summary.getByRole("button", { description: "Open Investments" }));
+    expect(window.location.pathname).toBe("/investments");
+    expect(page().getByRole("region", { name: "Holding list" })).toBeTruthy();
+  });
+
+  for (const back of ["header", "browser"] as const) {
+    test(`returns from a holding using ${back} history and focuses its list row`, async () => {
+      render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        assetBalances={fundedInvestments()} investmentsContent={InvestmentsFixture} />);
+      await waitForVerifiedShell();
+      fireEvent.click(page().getByRole("button", { description: /^Open Invest(ments)?$/ }));
+      const main = page().getByRole("main");
+      main.scrollTop = 180;
+      fireEvent.scroll(main);
+      fireEvent.click(page().getByRole("button", { name: "Ethereum row" }));
+      expect(window.location.pathname).toBe(INVESTMENT_PATH);
+      expect(window.history.state?.__investmentsHoldingOpenedInApp).toBe(true);
+      expect(page().getByRole("region", { name: "Holding detail" })).toBeTruthy();
+      expect(await page().findByRole("heading", { level: 1, name: "Ethereum holding" })).toBeTruthy();
+      expect(main.scrollTop).toBe(0);
+      if (back === "header") fireEvent.click(page().getByRole("button", { name: "Back" }));
+      else act(() => popHistory());
+      expect(window.location.pathname).toBe("/investments");
+      await waitFor(() => expect(document.activeElement).toBe(page().getByRole("button", { name: "Ethereum row" })));
+      expect(main.scrollTop).toBe(180);
+      expect(historyEntries).toContain(INVESTMENT_PATH);
+    });
+  }
+
+  test("cold holding detail replaces to the list, focuses and scrolls its row", async () => {
+    syncLocation(INVESTMENT_PATH);
+    historyEntries = [INVESTMENT_PATH];
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+      initialPanel="investments" initialLocation={parseShellLocation(INVESTMENT_PATH)}
+      investmentsContent={InvestmentsFixture} investContent={<NestedInvestFixture />} />);
+    await waitForVerifiedShell();
+    expect(page().getByRole("region", { name: "Holding detail" })).toBeTruthy();
+    expect(await page().findByRole("heading", { level: 1, name: "Ethereum holding" })).toBeTruthy();
+    const originalScroll = HTMLElement.prototype.scrollIntoView;
+    const rowScroll = mock((_options?: ScrollIntoViewOptions) => {});
+    HTMLElement.prototype.scrollIntoView = rowScroll;
+    try {
+      fireEvent.click(page().getByRole("button", { name: "Back" }));
+      expect(window.location.pathname).toBe("/investments");
+      expect(replaceCalls.at(-1)).toBe("/investments");
+      await waitFor(() => expect(document.activeElement).toBe(page().getByRole("button", { name: "Ethereum row" })));
+      expect(rowScroll).toHaveBeenCalledWith({ block: "center", behavior: "auto" });
+    } finally {
+      HTMLElement.prototype.scrollIntoView = originalScroll;
+    }
+  });
+
+  test("Invest nested chrome cannot replace the Investments detail header", async () => {
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+      assetBalances={fundedInvestments()} investContent={<NestedInvestFixture />}
+      investmentsContent={InvestmentsFixture} />);
+    await waitForVerifiedShell();
+    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" }))
+      .getByRole("button", { name: "Invest" }));
+    fireEvent.click(page().getByRole("button", { name: "Open asset details" }));
+    expect(page().getByRole("heading", { level: 1, name: "US dollar" })).toBeTruthy();
+    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" }))
+      .getByRole("button", { name: "Home" }));
+    fireEvent.click(page().getByRole("button", { description: /^Open Invest(ments)?$/ }));
+    expect(page().getByRole("heading", { level: 1, name: "Investments" })).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Ethereum row" }));
+    expect(await page().findByRole("heading", { level: 1, name: "Ethereum holding" })).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    expect(page().getByRole("heading", { level: 1, name: "Investments" })).toBeTruthy();
+  });
+
+  test("refresh keeps an in-app holding return in history", async () => {
+    syncLocation("/investments");
+    historyEntries = ["/investments"];
+    historyStates = [{}];
+    pushHistory(INVESTMENT_PATH, {
+      __homeShellClientEntry: true, __investmentsHoldingOpenedInApp: true,
+    });
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+      initialPanel="investments" initialLocation={parseShellLocation(INVESTMENT_PATH)}
+      investmentsContent={InvestmentsFixture} />);
+    await waitForVerifiedShell();
+    expect(page().getByRole("region", { name: "Holding detail" })).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    expect(window.location.pathname).toBe("/investments");
+    expect(replaceCalls).toEqual([]);
+    await waitFor(() => expect(document.activeElement).toBe(page().getByRole("button", { name: "Ethereum row" })));
+  });
+
+  test("cold Investments list returns Home and refresh state preserves a native holding detail", async () => {
+    syncLocation("/investments");
+    historyEntries = ["/investments"];
+    const view = render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+      initialPanel="investments" initialLocation={parseShellLocation("/investments")}
+      investmentsContent={InvestmentsFixture} />);
+    await waitForVerifiedShell();
+    expect(page().getByRole("heading", { level: 1, name: "Investments" })).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    expect(window.location.pathname).toBe("/home");
+    view.unmount();
+    syncLocation("/investments/native");
+    historyEntries = ["/investments/native"];
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+      initialPanel="investments" initialLocation={parseShellLocation("/investments/native")}
+      investmentsContent={InvestmentsFixture} />);
+    await waitForVerifiedShell();
+    expect(page().getByRole("region", { name: "Holding detail" }).textContent).toContain(nativeAssetKey());
+  });
+
   test("returns a kept-mounted Invest category to the hub on primary tab entry", async () => {
     render(
       <HomeHarness
@@ -1089,8 +1447,13 @@ describe("Home shell routing and intents", () => {
     await waitForVerifiedShell();
 
     fireEvent.click(page().getByRole("button", { description: "Open Cash" }));
-    expect(`${window.location.pathname}${window.location.search}`).toBe("/save");
-    expect(page().getByRole("region", { name: "Savings module" })).toBeTruthy();
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/cash");
+    expect(page().getByRole("region", { name: "Cash module" })).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Savings fixture" }));
+    expect(window.location.pathname).toBe("/cash/savings");
+    expect(page().getByRole("region", { name: "Savings" })).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    expect(window.location.pathname).toBe("/cash");
 
     fireEvent.click(page().getByRole("button", { name: "Back" }));
     fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Invest" }));
@@ -1099,6 +1462,17 @@ describe("Home shell routing and intents", () => {
 
     act(() => popHistory());
     expect(page().getByLabelText("Total balance")).toBeTruthy();
+  });
+
+  test("canonicalizes a retired Save entry on in-session history navigation", async () => {
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} />);
+    await waitForVerifiedShell();
+    act(() => {
+      pushHistory("/save?flow=save-deposit&token=untrusted");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/cash/savings?flow=save-deposit");
+    expect(page().getByRole("region", { name: "Savings" })).toBeTruthy();
   });
 
   test("keeps Balances Back as forward app navigation", async () => {
@@ -1354,11 +1728,169 @@ function expectSheetOpen(dialog: HTMLElement) {
   expect(dialog.hasAttribute("data-open")).toBe(true);
 }
 
+function RefreshBalancesProbe({ read }: { read: () => Promise<string> }) {
+  useHomeQuery({
+    queryKey: ownerQueryKey(dataOwnerKey(session()), "balances", "GLOBAL"),
+    queryFn: read,
+  });
+  return null;
+}
+
+function touchPull(target: HTMLElement) {
+  const fire = (name: string, y: number, end = false) => {
+    const event = new Event(name, { bubbles: true, cancelable: true });
+    const touch = { identifier: 1, clientX: 0, clientY: y, target };
+    Object.defineProperties(event, {
+      touches: { value: end ? [] : [touch] },
+      changedTouches: { value: [touch] },
+    });
+    target.dispatchEvent(event);
+  };
+  fire("touchstart", 0);
+  fire("touchmove", 350);
+  fire("touchend", 350, true);
+}
+
+function refreshFixture() {
+  const calls = { balances: 0, activity: 0, actions: 0 };
+  let fail = false;
+  let pending: ReturnType<typeof deferred<string>> | null = null;
+  const snapshot = buildBalancesSnapshotFixture({ region: "US" });
+  globalThis.fetch = Object.assign(async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input) === "/api/savings/vaults") {
+      return fail ? Response.json({}, { status: 503 }) : Response.json({
+        version: "v1", chainId: 8453, asset: { address: BASE_USDC_ADDRESS, symbol: "USDC", decimals: 6 },
+        candidates: [], source: { provider: "Morpho GraphQL", endpoint: "https://api.morpho.org/graphql", query: "vaults", fetchedAt: new Date().toISOString() }, stale: false,
+      });
+    }
+    return nativeFetch(input, init);
+  }, { preconnect: nativeFetch.preconnect });
+  const readBalances = async () => {
+    calls.balances += 1;
+    if (fail) throw new Error("Balance read unavailable");
+    return pending?.promise ?? "balances-ready";
+  };
+  const sessionFetch: SessionFetch = async (input) => {
+    const url = String(input);
+    if (url.startsWith("/api/session")) return Response.json(session());
+    if (url.startsWith("/api/activity?")) {
+      calls.activity += 1;
+      if (fail) throw new Error("Activity read unavailable");
+      const query = new URLSearchParams(url.split("?")[1]);
+      const to = query.get("to")!;
+      return Response.json({
+        version: 1, walletAddress: ADDRESS, chainId: 8453,
+        window: { from: new Date(Date.parse(to) - 31 * 24 * 60 * 60 * 1000).toISOString(), to },
+        currency: query.get("currency"), transfers: [], nextCursor: null,
+        source: { provider: "cdp-sql", cached: false, stale: false, executionTimestamp: to, executionTimeMs: 1, fetchedAt: to },
+      });
+    }
+    if (url === "/api/actions") {
+      calls.actions += 1;
+      if (fail) return Response.json({ invalid: true });
+      return Response.json({ version: "1", actions: [] });
+    }
+    if (url.startsWith("/api/balances?")) return fail ? Response.json({}, { status: 503 }) : Response.json(snapshot);
+    if (url === "/api/borrow") return fail ? Response.json({}, { status: 503 }) : Response.json({
+      version: "2", chainId: 8453, owner: { address: ADDRESS, accountProvider: "cdp-embedded" },
+      discovery: { status: "complete", sourceBlock: null, candidateCount: 0, verifiedCount: 0, reason: null, fetchedAt: new Date().toISOString() },
+      opportunities: [], positions: [],
+    });
+    throw new Error(`Unexpected read: ${url}`);
+  };
+  const renderShell = (props: DashboardHarnessProps = {}) => render(
+    <AccountWalletSessionOwner sdk={sdk({ isSignedIn: true, ownerKey: OWNER })} sessionFetch={sessionFetch}>
+      <RefreshBalancesProbe read={readBalances} />
+      <DashboardHarness {...props} />
+    </AccountWalletSessionOwner>,
+  );
+  return { calls, renderShell, failNext: () => { fail = true; }, recover: () => { fail = false; },
+    holdBalances: () => { pending = deferred<string>(); return pending; },
+    releaseBalances: () => { pending = null; },
+  };
+}
+
+describe("Home refresh wiring", () => {
+  test("Refresh Home re-requests balances, activity and actions and announces cycle boundaries", async () => {
+    const fixture = refreshFixture();
+    fixture.renderShell();
+    await waitForVerifiedShell();
+    await waitFor(() => expect(fixture.calls.activity).toBe(1));
+    await waitFor(() => expect(fixture.calls.actions).toBe(1));
+    await waitFor(() => expect(fixture.calls.balances).toBe(1));
+    const pending = fixture.holdBalances();
+    const action = page().getByRole("button", { name: "Refresh Home" });
+    fireEvent.click(action);
+    await waitFor(() => expect(within(page().getByRole("main")).getByRole("status").textContent).toBe("Refreshing Home"));
+    expect(action.getAttribute("aria-busy")).toBe("true");
+    expect(action.getAttribute("aria-disabled")).toBe("true");
+    expect(fixture.calls.balances).toBe(2);
+    expect(fixture.calls.actions).toBe(2);
+    expect(fixture.calls.activity).toBe(2);
+    fixture.releaseBalances();
+    await act(async () => { pending.resolve("balances-ready"); await pending.promise; });
+    await waitFor(() => expect(within(page().getByRole("main")).getByRole("status").textContent).toBe("Home updated"));
+    expect(action.getAttribute("aria-busy")).not.toBe("true");
+  });
+
+  test("a failed refresh preserves Home content, offers Retry, and clears on success or navigation", async () => {
+    const fixture = refreshFixture();
+    fixture.renderShell();
+    await waitForVerifiedShell();
+    await waitFor(() => expect(fixture.calls.activity).toBe(1));
+    await waitFor(() => expect(fixture.calls.actions).toBe(1));
+    await waitFor(() => expect(fixture.calls.balances).toBe(1));
+    fixture.failNext();
+    fireEvent.click(page().getByRole("button", { name: "Refresh Home" }));
+    const alert = await page().findByRole("alert");
+    await waitFor(() => expect(alert.textContent).toContain("Couldn't refresh Home."));
+    expect(page().getByRole("heading", { name: "Your money" })).toBeTruthy();
+    const before = { ...fixture.calls };
+    fixture.recover();
+    fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(fixture.calls.balances).toBe(before.balances + 1));
+    await waitFor(() => expect(fixture.calls.activity).toBe(before.activity + 1));
+    await waitFor(() => expect(fixture.calls.actions).toBe(before.actions + 1));
+    await waitFor(() => expect(page().queryByText("Couldn't refresh Home.")).toBeNull());
+    fixture.failNext();
+    fireEvent.click(page().getByRole("button", { name: "Refresh Home" }));
+    await page().findByText("Couldn't refresh Home.");
+    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Invest" }));
+    expect(page().queryByRole("button", { name: "Refresh Home" })).toBeNull();
+    expect(page().queryByText("Couldn't refresh Home.")).toBeNull();
+  });
+
+  test("other panels and settings omit Refresh Home; an open money flow blocks the pull gesture", async () => {
+    const fixture = refreshFixture();
+    fixture.renderShell();
+    await waitForVerifiedShell();
+    await waitFor(() => expect(fixture.calls.activity).toBe(1));
+    const target = page().getByRole("heading", { name: "Your money" });
+    expect(page().getByRole("button", { name: "Refresh Home" })).toBeTruthy();
+    fireEvent.click(page().getAllByRole("button", { name: "Add money" })[0]!);
+    const dialog = await page().findByRole("dialog", { name: "Add money" });
+    expectSheetOpen(dialog);
+    expect(page().queryByRole("button", { name: "Refresh Home" })).toBeNull();
+    const before = { ...fixture.calls };
+    touchPull(target);
+    expect(fixture.calls).toEqual(before);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close add money" }));
+    await waitFor(() => expect(page().getByRole("button", { name: "Refresh Home" })).toBeTruthy());
+    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Invest" }));
+    expect(page().queryByRole("button", { name: "Refresh Home" })).toBeNull();
+    touchPull(target);
+    expect(fixture.calls.balances).toBe(before.balances);
+    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Home" }));
+    fireEvent.click(page().getByRole("button", { name: "Account" }));
+    expect(page().queryByRole("button", { name: "Refresh Home" })).toBeNull();
+  });
+});
+
 describe("walletless country preference read", () => {
   const location = { panel: "home" as const, account: null, shelf: null, asset: null, group: null, market: null };
 
   for (const accountPreference of [null, { accountProvider: "cdp-embedded" as const, subject: "previous-account", regionId: "BR" as const }]) {
-    test(`holds provisional balances without a matching account country seed (${accountPreference ? "switched account" : "timed-out seed"})`, async () => {
+    test(`starts the account country read and resolved-region balances before verification without a matching seed (${accountPreference ? "switched account" : "timed-out seed"})`, async () => {
       const pendingSession = deferred<Response>();
       const pendingPreference = deferred<Response>();
       const cached = buildBalancesSnapshotFixture({
@@ -1382,18 +1914,150 @@ describe("walletless country preference read", () => {
       render(<AccountWalletSessionOwner sdk={sdk({ isSignedIn: true, ownerKey: OWNER, provisionalSession: session() })} sessionFetch={sessionFetch}>
         <PortfolioHomeExperience detectedCountry="BR" accountPreference={accountPreference} initialLocation={location} />
       </AccountWalletSessionOwner>);
-      expect(document.body.textContent).not.toContain("1.234,56");
-      expect(requests.filter((path) => path.startsWith("/api/balances?"))).toEqual([]);
-      await act(async () => { pendingSession.resolve(Response.json(session())); await pendingSession.promise; });
       await waitFor(() => expect(requests).toContain("/api/account/country-preference"));
-      expect(document.body.textContent).not.toContain("1.234,56");
+      expect(requests).toContain("/api/session");
       expect(requests.filter((path) => path.startsWith("/api/balances?"))).toEqual([]);
+      expect(document.body.textContent).not.toContain("1.234,56");
       await act(async () => { pendingPreference.resolve(Response.json({ version: 1, regionId: "DE" })); await pendingPreference.promise; });
       await waitFor(() => expect(requests).toContain("/api/balances?region=DE"));
+      expect(requests.filter((path) => path === "/api/account/country-preference")).toHaveLength(1);
+      await act(async () => { pendingSession.resolve(Response.json(session())); await pendingSession.promise; });
       await waitFor(() => expect(document.body.textContent).toContain("78,90"));
       expect(document.body.textContent).not.toContain("1.234,56");
+      expect(requests.filter((path) => path === "/api/account/country-preference")).toHaveLength(1);
     });
   }
+
+  test("a seeded region keeps its cached balance visible through pending verification and refresh", async () => {
+    const verification = deferred<Response>();
+    const freshRead = deferred<Response>();
+    const cached = buildBalancesSnapshotFixture({
+      region: "DE",
+      registry: { usdc: { balance: ready("1000000"), value: priced("EUR", "123456"), cashValue: pricedCash("USD", "100") } },
+    });
+    const fresh = buildBalancesSnapshotFixture({
+      region: "DE",
+      registry: { usdc: { balance: ready("1000000"), value: priced("EUR", "7890"), cashValue: pricedCash("USD", "100") } },
+    });
+    getHomeQueryClient().setQueryData(ownerQueryKey(dataOwnerKey(session()), "balances", "DE"), cached, {
+      updatedAt: Date.now() - 60_000,
+    });
+    const requests: string[] = [];
+    const sessionFetch: SessionFetch = async (input) => {
+      const path = String(input);
+      requests.push(path);
+      if (path === "/api/session") return verification.promise;
+      if (path === "/api/balances?region=DE") return freshRead.promise;
+      throw new Error(`Unexpected read: ${path}`);
+    };
+    render(<AccountWalletSessionOwner sdk={sdk({ isSignedIn: true, ownerKey: OWNER, provisionalSession: session() })} sessionFetch={sessionFetch}>
+      <PortfolioHomeExperience detectedCountry="BR" accountPreference={{ accountProvider: "cdp-embedded", subject: "subject-home", regionId: "DE" }} initialLocation={location} />
+    </AccountWalletSessionOwner>);
+    await waitFor(() => expect(requests).toContain("/api/balances?region=DE"));
+    const total = page().getByLabelText("Total balance");
+    expect(total.textContent).toContain("1.234,56");
+    expect(requests).toContain("/api/session");
+    const painted: string[] = [];
+    const observer = new MutationObserver(() => painted.push(total.textContent ?? ""));
+    observer.observe(total, { subtree: true, childList: true, characterData: true });
+    try {
+      await act(async () => { verification.resolve(Response.json(session())); await verification.promise; });
+      await waitForVerifiedShell();
+      expect(total.textContent).toContain("1.234,56");
+      await act(async () => { freshRead.resolve(Response.json(fresh)); await freshRead.promise; });
+      await waitFor(() => expect(total.textContent).toContain("78,90"));
+      expect(painted.every((text) => text.includes("1.234,56") || text.includes("78,90"))).toBe(true);
+      expect(requests.filter((path) => path === "/api/balances?region=DE")).toHaveLength(1);
+      expect(requests).not.toContain("/api/balances?region=BR");
+    } finally {
+      observer.disconnect();
+    }
+  });
+
+  test("discards a provisional country response after the owner changes", async () => {
+    const verificationA = deferred<Response>();
+    const verificationB = deferred<Response>();
+    const preferenceA = deferred<Response>();
+    const preferenceB = deferred<void>();
+    let verificationCount = 0;
+    let preferenceCount = 0;
+    const requests: string[] = [];
+    const sessionFetch: SessionFetch = async (input) => {
+      const path = String(input);
+      requests.push(path);
+      if (path === "/api/session") return ++verificationCount === 1 ? verificationA.promise : verificationB.promise;
+      if (path === "/api/account/country-preference") {
+        return ++preferenceCount === 1 ? preferenceA.promise : preferenceB.promise.then(() => Response.json({ version: 1, regionId: "DE" }));
+      }
+      if (path === "/api/balances?region=DE") return Response.json({});
+      return Response.json({ error: { code: "UNAVAILABLE" } }, { status: 503 });
+    };
+    const shell = (ownerKey: string, provisionalSession: VerifiedAccountSession) => (
+      <AccountWalletSessionOwner sdk={sdk({ isSignedIn: true, ownerKey, provisionalSession })} sessionFetch={sessionFetch}>
+        <PortfolioHomeExperience detectedCountry="BR" accountPreference={null} initialLocation={location} />
+      </AccountWalletSessionOwner>
+    );
+    const view = render(shell(OWNER, session()));
+    await waitFor(() => expect(preferenceCount).toBe(1));
+    view.rerender(shell(OWNER_B, session(ADDRESS_B, "subject-home-b")));
+    await waitFor(() => expect(preferenceCount).toBeGreaterThanOrEqual(2));
+    await act(async () => { preferenceA.resolve(Response.json({ version: 1, regionId: "GB" })); await preferenceA.promise; });
+    expect(requests.filter((path) => path.startsWith("/api/balances?"))).toEqual([]);
+    await act(async () => { preferenceB.resolve(); await preferenceB.promise; });
+    await waitFor(() => expect(requests).toContain("/api/balances?region=DE"));
+    expect(requests).not.toContain("/api/balances?region=GB");
+    const provisionalReadCount = preferenceCount;
+    await act(async () => { verificationB.resolve(Response.json(session(ADDRESS_B, "subject-home-b"))); await verificationB.promise; });
+    expect(preferenceCount).toBe(provisionalReadCount);
+  });
+
+  test("re-reads the country preference if verification returns a different identity", async () => {
+    const verification = deferred<Response>();
+    const requests: string[] = [];
+    const sessionFetch: SessionFetch = async (input) => {
+      const path = String(input);
+      requests.push(path);
+      if (path === "/api/session") return verification.promise;
+      if (path === "/api/account/country-preference") {
+        return Response.json({ version: 1, regionId: requests.filter((request) => request === path).length === 1 ? "GB" : "DE" });
+      }
+      return Response.json({ error: { code: "UNAVAILABLE", message: "Unavailable." } }, { status: 503 });
+    };
+    render(<AccountWalletSessionOwner sdk={sdk({ isSignedIn: true, ownerKey: OWNER, provisionalSession: session() })} sessionFetch={sessionFetch}>
+      <PortfolioHomeExperience detectedCountry="BR" accountPreference={null} initialLocation={location} />
+    </AccountWalletSessionOwner>);
+    await waitFor(() => expect(requests).toContain("/api/account/country-preference"));
+    await act(async () => { verification.resolve(Response.json(session(ADDRESS_B, "subject-home-b"))); await verification.promise; });
+    await waitFor(() => expect(requests.filter((path) => path === "/api/account/country-preference")).toHaveLength(2));
+    fireEvent.click(await waitForVerifiedShell());
+    expect((await page().findByRole("combobox", { name: "Country" })).getAttribute("value")).toContain("Germany");
+  });
+
+  test("retries a failed provisional preference read only after verification", async () => {
+    const verification = deferred<Response>();
+    const requests: string[] = [];
+    const sessionFetch: SessionFetch = async (input) => {
+      const path = String(input);
+      requests.push(path);
+      if (path === "/api/session") return verification.promise;
+      if (path === "/api/account/country-preference") {
+        return requests.filter((request) => request === path).length === 1
+          ? Response.json({ error: { code: "UNAVAILABLE" } }, { status: 503 })
+          : Response.json({ version: 1, regionId: "DE" });
+      }
+      if (path === "/api/balances?region=DE") return Response.json({});
+      throw new Error(`Unexpected read: ${path}`);
+    };
+    render(<AccountWalletSessionOwner sdk={sdk({ isSignedIn: true, ownerKey: OWNER, provisionalSession: session() })} sessionFetch={sessionFetch}>
+      <PortfolioHomeExperience detectedCountry="BR" accountPreference={null} initialLocation={location} />
+    </AccountWalletSessionOwner>);
+    await waitFor(() => expect(requests).toContain("/api/account/country-preference"));
+    expect(requests.filter((path) => path === "/api/account/country-preference")).toHaveLength(1);
+    expect(requests.filter((path) => path.startsWith("/api/balances?"))).toEqual([]);
+    await act(async () => { verification.resolve(Response.json(session())); await verification.promise; });
+    await waitFor(() => expect(requests.filter((path) => path === "/api/account/country-preference")).toHaveLength(2));
+    await waitFor(() => expect(requests).toContain("/api/balances?region=DE"));
+  });
 
   test("holds balances and funding methods until the account country read resolves", async () => {
     window.localStorage.setItem("home.country.v2", "MX");
@@ -1457,6 +2121,7 @@ describe("walletless country preference read", () => {
     </AccountWalletSessionOwner>);
     await waitFor(() => expect(requests).toContain("/api/account/country-preference"));
     await waitForVerifiedShell();
+    expect(requests.filter((path) => path === "/api/account/country-preference")).toHaveLength(1);
     expect(document.body.textContent).not.toContain("1.234,56");
     expect(document.body.textContent).not.toContain("78,90");
     expect(requests).not.toContain("/api/balances?region=BR");
@@ -1492,6 +2157,7 @@ describe("walletless country preference read", () => {
             source: { provider: "cdp-sql", cached: false, stale: false, executionTimestamp: to, executionTimeMs: 1, fetchedAt: to },
           });
         }
+        if (path === "/api/activity/orders") return Response.json(emptyOrders());
         if (path === "/api/actions") return Response.json({ version: "1", actions: [] });
         return Response.json({ error: { code: "UNAVAILABLE", message: "Unavailable." } }, { status: 503 });
       };

@@ -1,0 +1,295 @@
+{
+  "imports": [
+    "@import \"shadcn/tailwind.css\"",
+    "@import \"tailwindcss\"",
+    "@import \"tw-animate-css\""
+  ],
+  "customVariants": [
+    "@custom-variant dark (&:is(.dark *))"
+  ],
+  "topLevel": [
+    ".dark",
+    ":root",
+    "@layer base",
+    "@layer utilities",
+    "@media (display-mode: standalone)",
+    "@supports (height: 100dvh)",
+    "@theme inline"
+  ],
+  "themeInline": {
+    "properties": [
+      "--color-accent",
+      "--color-accent-foreground",
+      "--color-background",
+      "--color-border",
+      "--color-card",
+      "--color-card-foreground",
+      "--color-destructive",
+      "--color-foreground",
+      "--color-input",
+      "--color-market-gain",
+      "--color-market-loss",
+      "--color-muted",
+      "--color-muted-foreground",
+      "--color-overlay",
+      "--color-payout-cashapp",
+      "--color-payout-cashapp-foreground",
+      "--color-payout-monzo",
+      "--color-payout-monzo-foreground",
+      "--color-payout-revolut",
+      "--color-payout-revolut-foreground",
+      "--color-payout-zelle",
+      "--color-payout-zelle-foreground",
+      "--color-popover",
+      "--color-popover-foreground",
+      "--color-primary",
+      "--color-primary-foreground",
+      "--color-ring",
+      "--color-secondary",
+      "--color-secondary-foreground",
+      "--color-status-caution",
+      "--color-status-negative",
+      "--color-status-positive",
+      "--color-warning",
+      "--font-mono",
+      "--font-sans",
+      "--radius-2xl",
+      "--radius-3xl",
+      "--radius-4xl",
+      "--radius-lg",
+      "--radius-md",
+      "--radius-sm",
+      "--radius-xl",
+      "--spacing-hairline",
+      "--spacing-shell-mobile-navigation"
+    ],
+    "other": []
+  },
+  "root": {
+    "properties": [
+      "--accent",
+      "--accent-foreground",
+      "--background",
+      "--balance-bar-cash",
+      "--balance-bar-investments",
+      "--balance-cash",
+      "--balance-investments",
+      "--balance-savings",
+      "--border",
+      "--card",
+      "--card-foreground",
+      "--destructive",
+      "--foreground",
+      "--globe-land",
+      "--globe-sphere-light",
+      "--globe-sphere-shade",
+      "--input",
+      "--market-gain",
+      "--market-loss",
+      "--muted",
+      "--muted-foreground",
+      "--overlay",
+      "--payout-cashapp",
+      "--payout-cashapp-foreground",
+      "--payout-monzo",
+      "--payout-monzo-foreground",
+      "--payout-revolut",
+      "--payout-revolut-foreground",
+      "--payout-zelle",
+      "--payout-zelle-foreground",
+      "--popover",
+      "--popover-foreground",
+      "--primary",
+      "--primary-foreground",
+      "--radius",
+      "--ring",
+      "--secondary",
+      "--secondary-foreground",
+      "--shell-navigation-clearance",
+      "--shell-navigation-offset",
+      "--shell-safe-area-bottom",
+      "--shell-viewport-overhang",
+      "--status-caution",
+      "--status-negative",
+      "--status-positive",
+      "--warning"
+    ],
+    "other": [
+      "color-scheme: light"
+    ]
+  },
+  "dark": {
+    "properties": [
+      "--accent",
+      "--accent-foreground",
+      "--background",
+      "--balance-bar-cash",
+      "--balance-bar-investments",
+      "--balance-cash",
+      "--balance-investments",
+      "--balance-savings",
+      "--border",
+      "--card",
+      "--card-foreground",
+      "--destructive",
+      "--foreground",
+      "--globe-land",
+      "--globe-sphere-light",
+      "--globe-sphere-shade",
+      "--input",
+      "--market-gain",
+      "--market-loss",
+      "--muted",
+      "--muted-foreground",
+      "--overlay",
+      "--popover",
+      "--popover-foreground",
+      "--primary",
+      "--primary-foreground",
+      "--ring",
+      "--secondary",
+      "--secondary-foreground",
+      "--status-caution",
+      "--status-negative",
+      "--status-positive",
+      "--warning"
+    ],
+    "other": [
+      "color-scheme: dark"
+    ]
+  },
+  "supports": {
+    ":root": {
+      "properties": [
+        "--shell-viewport-overhang"
+      ],
+      "other": []
+    }
+  },
+  "media": {
+    ":root": {
+      "properties": [
+        "--shell-safe-area-bottom"
+      ],
+      "other": []
+    }
+  },
+  "baseLayer": {
+    "*": [
+      "@apply border-border outline-ring/50"
+    ],
+    "body": [
+      "@apply bg-background text-foreground"
+    ],
+    "html": [
+      "@apply font-sans"
+    ],
+    "a[href], button:not(:disabled), [role=\"button\"]:not([aria-disabled=\"true\"]), [role=\"option\"]:not([aria-disabled=\"true\"]), [role=\"radio\"]:not([aria-disabled=\"true\"]), summary": [
+      "cursor: pointer"
+    ]
+  },
+  "utilitiesLayer": {
+    ".shell-scroll-container": [
+      "scrollbar-gutter: stable",
+      "scrollbar-width: none"
+    ],
+    ".shell-scroll-container::-webkit-scrollbar": [
+      "display: none",
+      "height: 0",
+      "width: 0"
+    ],
+    ".shell-scrollbar-compensated": [
+      "padding-inline-end: var(--shell-scrollbar-width, 0px)"
+    ]
+  },
+  "deferred": [
+    {
+      "entry": "@theme inline/--spacing-shell-mobile-navigation",
+      "owner": [
+        "#1075",
+        "#1137"
+      ],
+      "reason": "Shell navigation height remains owned by shell work."
+    },
+    {
+      "entry": ":root/--shell-safe-area-bottom",
+      "owner": [
+        "#1075",
+        "#1137"
+      ],
+      "reason": "Shell layout variable remains owned by shell work."
+    },
+    {
+      "entry": ":root/--shell-navigation-offset",
+      "owner": [
+        "#1075",
+        "#1137"
+      ],
+      "reason": "Shell layout variable remains owned by shell work."
+    },
+    {
+      "entry": ":root/--shell-navigation-clearance",
+      "owner": [
+        "#1075",
+        "#1137"
+      ],
+      "reason": "Shell layout variable remains owned by shell work."
+    },
+    {
+      "entry": ":root/--shell-viewport-overhang",
+      "owner": [
+        "#1075",
+        "#1137"
+      ],
+      "reason": "Shell layout variable remains owned by shell work."
+    },
+    {
+      "entry": "@supports (height: 100dvh)",
+      "owner": [
+        "#1075",
+        "#1137"
+      ],
+      "reason": "Shell viewport overhang fallback remains owned by shell work."
+    },
+    {
+      "entry": "@media (display-mode: standalone)",
+      "owner": [
+        "#1075",
+        "#1137"
+      ],
+      "reason": "Standalone safe-area handling remains owned by shell work."
+    },
+    {
+      "entry": "@layer utilities/.shell-scroll-container",
+      "owner": [
+        "#1075",
+        "#1137"
+      ],
+      "reason": "Shell scrollbar remains owned by shell work."
+    },
+    {
+      "entry": "@layer utilities/.shell-scroll-container::-webkit-scrollbar",
+      "owner": [
+        "#1075",
+        "#1137"
+      ],
+      "reason": "Shell scrollbar remains owned by shell work."
+    },
+    {
+      "entry": "@layer utilities/.shell-scrollbar-compensated",
+      "owner": [
+        "#1075",
+        "#1137"
+      ],
+      "reason": "Shell scrollbar compensation remains owned by shell work."
+    },
+    {
+      "entry": "apps/web/client/home/shell.tsx",
+      "owner": [
+        "#1075",
+        "#1137"
+      ],
+      "reason": "Shell JavaScript scrollbar sync is outside this CSS allowlist."
+    }
+  ]
+}

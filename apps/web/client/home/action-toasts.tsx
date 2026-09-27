@@ -10,7 +10,9 @@ import { activityOwnerKey } from "@/client/activity/use-activity";
 import { cashoutMoney, outranksCashoutWithdraw, presentCashout } from "@/client/activity/cash-out-presenter";
 import { readCashoutProgress, type CashoutProgress } from "@/shared/funding/contracts/cash-out-progress";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
+import { parseTradeMetadata } from "@/shared/trading/review";
 import { actionFailureEvent } from "./action-toast-events";
+import { fetchRecentActions, recentActionsQueryOptions } from "@/client/actions/recent-actions-query";
 
 const defaultDismissAfterMs = homeToastDurationMs;
 type ToastAction = {
@@ -20,7 +22,7 @@ type ToastAction = {
   cashout?: CashoutProgress;
   depositId?: string;
   summary: {
-    metadata?: { product: "borrow"; operation: string } | { product: "trade"; direction: "buy" | "sell" };
+    metadata?: { product: "borrow"; operation: string } | { product: "trade"; direction: "buy" | "sell"; assetName: string };
     amounts: Array<{
       symbol: string;
       decimals: number;
@@ -85,14 +87,12 @@ export function ActionToasts({
   const actions = useHomeQuery({
     queryKey: ownerKey ? ownerQueryKey(ownerKey, "actions") : ["unauthenticated", "action-toasts-disabled"],
     enabled: ownerKey !== null,
-    staleTime: 10_000,
-    retry: false,
-    refetchOnWindowFocus: false,
+    ...recentActionsQueryOptions,
     refetchInterval: (query) => typeof document !== "undefined" && document.visibilityState === "visible" &&
       parseToastActions(query.state.data).some((action, _index, all) => action.kind === "cash-out" &&
         presentCashout(asOperation(action), linkedWithdraw(action, all)).refreshing) ? 15_000 : false,
     meta: ownerKey ? ownerQueryMeta(ownerKey, "owner") : undefined,
-    queryFn: ({ signal }) => fetchOperations(signal),
+    queryFn: ({ signal }) => fetchRecentActions(fetchOperations, signal),
     select: parseToastActions,
   });
   const addToast = useCallback((message: string, tone: HomeToastTone = "neutral", role: HomeToastRole = "status") => {
@@ -165,6 +165,7 @@ function parseToastActions(value: unknown): ToastAction[] {
       }];
     });
     const metadata = isRecord(item.summary.metadata) ? item.summary.metadata : null;
+    const trade = metadata?.product === "trade" ? parseTradeMetadata(metadata) : null;
     const cashout = item.kind === "cash-out" ? readCashoutProgress(item.cashout) : null;
     return [{
       id: item.id,
@@ -176,8 +177,8 @@ function parseToastActions(value: unknown): ToastAction[] {
       summary: {
         ...(metadata?.product === "borrow" && typeof metadata.operation === "string"
           ? { metadata: { product: "borrow" as const, operation: metadata.operation } }
-          : metadata?.product === "trade" && (metadata.direction === "buy" || metadata.direction === "sell")
-            ? { metadata: { product: "trade" as const, direction: metadata.direction } }
+          : trade
+            ? { metadata: { product: "trade" as const, direction: trade.direction, assetName: trade.assetName } }
             : {}),
         amounts,
         warnings: item.summary.warnings.filter((warning): warning is string => typeof warning === "string"),
@@ -188,16 +189,16 @@ function parseToastActions(value: unknown): ToastAction[] {
 
 function actionToastMessage(action: ToastAction, status: "pending" | "confirmed"): string | null {
   const metadata = action.summary.metadata;
-  const tradeDirection = action.kind === "trade" && metadata?.product === "trade" ? metadata.direction : null;
-  if (tradeDirection) {
+  const trade = action.kind === "trade" && metadata?.product === "trade" ? metadata : null;
+  if (trade) {
     const spend = action.summary.amounts.find((amount) => amount.direction === "spend" && !amount.estimated && !amount.maximum);
     if (!spend) return null;
-    const formatted = tradeDirection === "buy"
+    const formatted = trade.direction === "buy"
       ? formatFiatAmount(BigInt(spend.amountBaseUnits), spend.decimals, "USD")
-      : formatPresentationTokenAmount(spend.amountBaseUnits, spend.decimals, "BTC");
-    return tradeDirection === "buy"
-      ? `${status === "pending" ? "Buying" : "Bought"} Bitcoin for ${formatted}`
-      : `${status === "pending" ? "Selling" : "Sold"} ${formatted} of Bitcoin`;
+      : formatPresentationTokenAmount(spend.amountBaseUnits, spend.decimals, spend.symbol);
+    return trade.direction === "buy"
+      ? `${status === "pending" ? "Buying" : "Bought"} ${trade.assetName} for ${formatted}`
+      : `${status === "pending" ? "Selling" : "Sold"} ${formatted} of ${trade.assetName}`;
   }
   const borrowOperation = metadata?.product === "borrow" ? metadata.operation : undefined;
   const operation = operationKind(action.kind, borrowOperation);

@@ -35,6 +35,7 @@ import { noLiteralJsxColors } from "./rules/jsx-colors.mjs";
 import { isolateInstrumentationCalls, noSilentCatch } from "./rules/observability.mjs";
 import { noAmountFallback } from "./rules/amounts.mjs";
 import { noComments } from "./rules/no-comments.mjs";
+import { moneyModalPublicApi, noAlternateMoneyModal, noSheetPrimitiveReexports, noSheetPrimitives } from "./rules/money-modal.mjs";
 
 const homePlugin = {
   meta: { name: "home" },
@@ -72,6 +73,10 @@ const homePlugin = {
     "isolate-instrumentation-calls": isolateInstrumentationCalls,
     "no-amount-fallback": noAmountFallback,
     "no-comments": noComments,
+    "no-sheet-primitives": noSheetPrimitives,
+    "no-sheet-primitive-reexports": noSheetPrimitiveReexports,
+    "money-modal-public-api": moneyModalPublicApi,
+    "no-alternate-money-modal": noAlternateMoneyModal,
   },
 };
 

@@ -24,6 +24,7 @@ import {
   MoneyModalBody,
   MoneyModalFooter,
   MoneyModalHeader,
+  MoneyModalStep,
 } from "@/client/money-modal";
 import {
   browserHomeQueryClient,
@@ -64,7 +65,6 @@ export function FundingOrderFlow({
   queryOwnerKey,
   titleId,
   onBack,
-  onClose,
   onOpenRedirect,
   initialOrder,
   initialCustomer,
@@ -74,7 +74,6 @@ export function FundingOrderFlow({
   queryOwnerKey?: string | null;
   titleId: string;
   onBack: () => void;
-  onClose: () => void;
   onOpenRedirect: (url: string) => void;
   initialOrder?: FundingOrderSummary | null;
   initialCustomer?: FundingProviderCustomerSummary | null;
@@ -134,6 +133,20 @@ export function FundingOrderFlow({
     },
   });
   const currentOrder = orderQuery.data ?? order;
+  const observedOrderStateRef = useRef<{ id: string; state: string } | null>(null);
+  const polledOrderId = orderQuery.data?.id;
+  const polledOrderState = orderQuery.data?.state;
+
+  useEffect(() => {
+    if (!polledOrderId || !polledOrderState) return;
+    const previous = observedOrderStateRef.current;
+    observedOrderStateRef.current = { id: polledOrderId, state: polledOrderState };
+    if (queryOwnerKey && previous?.id === polledOrderId && previous.state !== polledOrderState) {
+      void queryClient.invalidateQueries({
+        queryKey: ownerQueryKey(queryOwnerKey, "activity-orders"),
+      });
+    }
+  }, [polledOrderId, polledOrderState, queryOwnerKey, queryClient]);
 
   useEffect(() => {
     if (
@@ -206,6 +219,9 @@ export function FundingOrderFlow({
           queryKey: ownerQueryKey(queryOwnerKey, "funding-open-order", binding.region),
           refetchType: "all",
         });
+        void queryClient.invalidateQueries({
+          queryKey: ownerQueryKey(queryOwnerKey, "activity-orders"),
+        });
       }
     } catch (resolveFailure) {
       setResolutionError(resolveAmbiguousErrorCopy(resolveFailure));
@@ -227,6 +243,11 @@ export function FundingOrderFlow({
       const next = readFundingOrder(value);
       if (!next) throw new Error("order");
       setOrder(next);
+      if (queryOwnerKey) {
+        void queryClient.invalidateQueries({
+          queryKey: ownerQueryKey(queryOwnerKey, "activity-orders"),
+        });
+      }
       if (
         queryOwnerKey &&
         (next.state === "dispatch-ambiguous" || !terminal(next.state, next.sandbox))
@@ -244,7 +265,7 @@ export function FundingOrderFlow({
   }
 
   if (currentOrder?.instructions?.kind === "redirect") {
-    return <><MoneyModalHeader title={`Deposit ${binding.currency}`} titleId={titleId} onBack={onBack} onClose={onClose} closeLabel="Close add money" /><OrderStatus binding={binding} order={currentOrder} /></>;
+    return <MoneyModalStep step="order:status" depth={5}><MoneyModalHeader title={`Deposit ${binding.currency}`} titleId={titleId} onBack={onBack} closeLabel="Close add money" /><OrderStatus binding={binding} order={currentOrder} /></MoneyModalStep>;
   }
   if (
     currentOrder?.instructions &&
@@ -253,20 +274,19 @@ export function FundingOrderFlow({
     !terminal(currentOrder.state, currentOrder.sandbox)
   ) {
     return (
-      <>
-        <MoneyModalHeader title={`Deposit ${binding.currency}`} titleId={titleId} onBack={onBack} onClose={onClose} closeLabel="Close add money" />
+      <MoneyModalStep step="order:economics" depth={4}>
+        <MoneyModalHeader title={`Deposit ${binding.currency}`} titleId={titleId} onBack={onBack} closeLabel="Close add money" />
         <ProviderEconomicsReview binding={binding} order={currentOrder} onContinue={() => setShowInstructions(true)} />
-      </>
+      </MoneyModalStep>
     );
   }
   if (currentOrder) {
     return (
-      <>
+      <MoneyModalStep step="order:status" depth={5}>
         <MoneyModalHeader
           title={`Deposit ${binding.currency}`}
           titleId={titleId}
           onBack={onBack}
-          onClose={onClose}
           closeLabel="Close add money"
         />
         <OrderStatus
@@ -282,7 +302,7 @@ export function FundingOrderFlow({
               }
             : {})}
         />
-      </>
+      </MoneyModalStep>
     );
   }
   if (binding.customerSetup && customer?.state !== "verified") {
@@ -291,8 +311,8 @@ export function FundingOrderFlow({
     const ambiguous = customer?.state === "dispatch-ambiguous";
     const rejected = customer?.state === "rejected";
     const blocked = reserving || ambiguous || rejected;
-    return <>
-      <MoneyModalHeader title={`Set up ${binding.displayName}`} titleId={titleId} onBack={onBack} onClose={onClose} closeLabel="Close add money" />
+    return <MoneyModalStep step="order:setup" depth={1}>
+      <MoneyModalHeader title={`Set up ${binding.displayName}`} titleId={titleId} onBack={onBack} closeLabel="Close add money" />
       <MoneyModalBody hasFooter={!pendingStarted && !blocked} className="gap-4 pt-4">
         {pendingStarted ? <FundingNotice tone="neutral">Verification is pending. Return here after Ripio completes its review. Home will not issue another hosted link automatically.</FundingNotice> : null}
         {reserving ? <FundingNotice tone="neutral">Provider setup is still being created. Home will not start another request.</FundingNotice> : null}
@@ -311,14 +331,14 @@ export function FundingOrderFlow({
         {error ? <FundingNotice tone="error" role="alert">{error}</FundingNotice> : null}
       </MoneyModalBody>
       {!pendingStarted && !blocked ? <MoneyModalFooter primaryLabel={busy ? "Working…" : "Continue to Ripio verification"} primaryDisabled={busy || !email.trim()} onPrimary={() => void startVerification()} secondaryLabel="Back" onSecondary={onBack} /> : null}
-    </>;
+    </MoneyModalStep>;
   }
   if (draft) {
     return (
-      <>
-        <MoneyModalHeader title={`Deposit ${binding.currency}`} titleId={titleId} onBack={() => setDraft(null)} backDisabled={confirmationAttempted} onClose={onClose} closeLabel="Close add money" />
+      <MoneyModalStep step="order:review" depth={3}>
+        <MoneyModalHeader title={`Deposit ${binding.currency}`} titleId={titleId} onBack={() => setDraft(null)} backDisabled={confirmationAttempted} closeLabel="Close add money" />
         <QuoteReview binding={binding} draft={draft} busy={busy} error={error} onConfirm={() => void confirmOrder()} />
-      </>
+      </MoneyModalStep>
     );
   }
 
@@ -330,8 +350,8 @@ export function FundingOrderFlow({
     locked: true,
   };
   return (
-    <>
-      <MoneyModalHeader title={`Deposit ${binding.currency}`} titleId={titleId} onClose={onClose} assetControl={<MoneyAssetPicker {...amountAssetProps} />} closeLabel="Close add money" />
+    <MoneyModalStep step="order:amount" depth={2}>
+      <MoneyModalHeader title={`Deposit ${binding.currency}`} titleId={titleId} assetControl={<MoneyAssetPicker {...amountAssetProps} />} closeLabel="Close add money" />
       <MoneyModalBody hasFooter className="gap-4 pt-4">
         {binding.paymentMethods.length > 1 ? (
           <div className="grid gap-3">
@@ -352,9 +372,8 @@ export function FundingOrderFlow({
           assetId={binding.currency.toLocaleLowerCase()}
           assetLabel={binding.currency}
           assetControl="header"
-          pricing={{ status: "unpriced" }}
+          unit={{ kind: "fiat", currency: binding.currency }}
           nativeSymbol={binding.currency}
-          fiatCurrency={binding.currency}
         >
           {error ? (
             <FundingNotice tone="error" role="alert">
@@ -370,7 +389,7 @@ export function FundingOrderFlow({
         secondaryLabel="Back"
         onSecondary={onBack}
       />
-    </>
+    </MoneyModalStep>
   );
 }
 
@@ -513,14 +532,62 @@ function ProviderEconomicsReview({
   );
 }
 
-function DefinitionRow({ label, value }: { label: string; value: string }) {
+function DefinitionRow({ label, value, ticker = true }: { label: string; value: string; ticker?: boolean }) {
   return (
     <div className="flex items-start justify-between gap-4 border-b py-3 last:border-b-0">
       <dt className="text-sm text-muted-foreground">{label}</dt>
-      <dd className="text-right text-sm font-medium tabular-nums">
-        <MoneyTicker value={value} />
+      <dd className="text-end text-sm font-medium tabular-nums">
+        {ticker ? <MoneyTicker value={value} /> : value}
       </dd>
     </div>
+  );
+}
+
+export function OpenOrderPrompt({
+  binding,
+  order,
+  startNewAllowed,
+  onContinue,
+  onStartNew,
+}: {
+  binding: FundingBinding;
+  order: FundingOrderSummary;
+  startNewAllowed: boolean;
+  onContinue: () => void;
+  onStartNew: () => void;
+}) {
+  return (
+    <>
+      <MoneyModalBody hasFooter className="gap-4 pt-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              <h3>You have an open deposit</h3>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <dl className="space-y-3">
+              <DefinitionRow label="You pay" value={formatFiatAmount(order.fiatAmount, binding.currency)} />
+              {order.createdAt ? (
+                <DefinitionRow
+                  label="Started"
+                  value={formatPresentationDate(order.createdAt, { style: "date-time-zone" })}
+                  ticker={false}
+                />
+              ) : null}
+            </dl>
+          </CardContent>
+        </Card>
+        {order.state === "dispatch-ambiguous" ? (
+          <FundingNotice>Home can&apos;t confirm this deposit yet. Continue to check it before starting another.</FundingNotice>
+        ) : null}
+      </MoneyModalBody>
+      <MoneyModalFooter
+        primaryLabel="Continue deposit"
+        onPrimary={onContinue}
+        {...(startNewAllowed ? { secondaryLabel: "Start new deposit", onSecondary: onStartNew } : {})}
+      />
+    </>
   );
 }
 function OrderStatus({
@@ -889,7 +956,7 @@ function confirmOrderErrorCopy(error: unknown): string {
     ? error.code
     : null;
   if (code === "AMBIGUOUS_ORDER_OPEN") {
-    return "Home is still waiting on an earlier deposit. Close and reopen Add money to resume it; no new provider request was created.";
+    return "Home is still waiting on an earlier deposit. Close and reopen Add money, then continue it; no new provider request was created.";
   }
   if (code === "ORDER_STATE_CHANGED") {
     return "This deposit changed while Home was confirming it. Close and reopen Add money to check the existing order before trying again.";

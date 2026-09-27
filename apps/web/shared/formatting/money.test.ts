@@ -10,10 +10,13 @@ import {
   formatPercentage,
   formatPresentationPercentage,
   formatPresentationDate,
+  formatPresentationDateRange,
   formatPresentationPrice,
   formatPresentationTokenAmount,
+  formatPresentationTokenAmountParts,
   formatSignedPercentChange,
   formatTokenAmount,
+  formatTrimmedChartPrice,
   formatUnsignedTokenAmount,
   formatUsdPrice,
   formatUsdStablecoinAmount,
@@ -26,6 +29,7 @@ import {
 } from "./money";
 import {
   formatPresentationFiat,
+  formatPresentationCashAmount,
   presentationCurrencyName,
 } from "@/shared/formatting";
 
@@ -77,10 +81,76 @@ const localeCases = [
 ];
 
 describe("presentation money formatting", () => {
+  test("presents atomic stablecoin amounts as fiat without rounding or changing the input", () => {
+    const raw = "123456789999";
+    const cases: Array<[AtomicAmount, number, string]> = [
+      [raw, 6, "$123,456.78"],
+      [BigInt(0), 6, "$0.00"],
+      ["9999", 6, "<$0.01"],
+      ["10000", 6, "$0.01"],
+      [BigInt("123456789999000000000000"), 18, "$123,456.78"],
+      ["-123456789999", 6, "−$123,456.78"],
+      ["-9999", 6, "−<$0.01"],
+    ];
+    for (const [amount, decimals, expected] of cases) {
+      expect(formatPresentationCashAmount(amount, decimals, "USD", { regionId: "US" }))
+        .toBe(expected);
+    }
+    expect(raw).toBe("123456789999");
+    expect(formatPresentationCashAmount(raw, 6, "USD", { regionId: "US" }))
+      .toBe("$123,456.78");
+    expect(formatPresentationCashAmount("01", 6, "USD")).toBe("—");
+    expect(formatPresentationCashAmount("1", -1, "USD")).toBe("—");
+  });
+
+  test("uses the region currency formatter without converting currencies", () => {
+    const formatted = formatPresentationCashAmount("1234567890", 6, "USD", { regionId: "BR" });
+    expect(formatted).toBe(formatFiatAmount(BigInt(123456), 2, "USD", { regionId: "BR" }));
+    expect(formatted).toContain("1.234,56");
+    expect(formatPresentationCashAmount("1234567890", 6, "BRL", { regionId: "BR" }))
+      .toBe(formatFiatAmount(BigInt(123456), 2, "BRL", { regionId: "BR" }));
+  });
+
+  test("keeps stable token digits and tiny thresholds when switching presentation", () => {
+    const cases: Array<[AtomicAmount, number, "US" | "BR"]> = [
+      ["123456789999", 6, "US"],
+      ["0", 6, "US"],
+      ["9999", 6, "US"],
+      ["10000", 6, "US"],
+      ["-9999", 6, "US"],
+      [BigInt("123456789999000000000000"), 18, "US"],
+      ["1", 0, "US"],
+      ["15", 1, "BR"],
+      ["123456789999", 6, "BR"],
+    ];
+    for (const [amount, decimals, regionId] of cases) {
+      const token = formatPresentationTokenAmount(amount, decimals, "USDC", {
+        cashCurrency: "USD", regionId,
+      });
+      const cash = formatPresentationCashAmount(amount, decimals, "USD", { regionId });
+      expect(cash.startsWith("−")).toBe(token.startsWith("−"));
+      expect(cash.includes("<")).toBe(token.includes("<"));
+      expect(cash.replace(/\D/g, "")).toBe(token.replace(/\D/g, ""));
+    }
+  });
+
   test("keeps internal spaces in multi-word token labels", () => {
     expect(formatPresentationTokenAmount("999999", 18, "vault shares")).toBe("<0.000001 vault shares");
     expect(formatPresentationTokenAmount("1500000000000000000", 18, "vault shares", { useNoBreakSpace: true }))
       .toMatch(/^\S+\u00a0vault\u00a0shares$/);
+  });
+
+  test("returns localized quantity and digit-bearing symbol as separate parts", () => {
+    expect(formatPresentationTokenAmountParts("5678", 0, "TOKEN1"))
+      .toEqual({ amount: "5,678", symbol: "TOKEN1" });
+    expect(formatPresentationTokenAmountParts("5678", 0, " 1INCH  "))
+      .toEqual({ amount: "5,678", symbol: "1INCH" });
+    expect(formatPresentationTokenAmountParts("1234567", 0, "TOKEN1", { regionId: "FR" }))
+      .toEqual({ amount: "1\u202f234\u202f567", symbol: "TOKEN1" });
+    expect(formatPresentationTokenAmountParts("1500000000000000000", 18, "vault  shares", { useNoBreakSpace: true }))
+      .toEqual({ amount: "1.50", symbol: "vault\u00a0shares" });
+    expect(formatPresentationTokenAmountParts("bad", 6, "USDC"))
+      .toEqual({ amount: "—", symbol: "" });
   });
 
   test("multi-character currency symbols take one no-break space", () => {
@@ -202,7 +272,40 @@ describe("presentation money formatting", () => {
         "JESSE",
         { category: "meme" },
       ),
-    ).toBe("45,690,152 JESSE");
+    ).toBe("45,690,152.00 JESSE");
+  });
+
+  test("bounds token display by class, decimals, threshold, sign, and locale while exact review keeps precision", () => {
+    const cases: Array<[string, number, string, string, "GLOBAL" | "DE" | "FR"]> = [
+      ["1234567", 0, "ZORA", "1,234,567 ZORA", "GLOBAL"],
+      ["999999", 6, "DEGEN", "0.999999 DEGEN", "GLOBAL"],
+      ["1999999999999999999", 18, "ZORA", "1.99 ZORA", "GLOBAL"],
+      ["-56780000000000000000", 18, "ZORA", "−56.78 ZORA", "GLOBAL"],
+      ["5000000000000000000", 18, "ZORA", "5.00 ZORA", "GLOBAL"],
+      ["420000000000000000", 18, "DEGEN", "0.42 DEGEN", "GLOBAL"],
+      ["1000000", 6, "DEGEN", "1.00 DEGEN", "GLOBAL"],
+      ["42", 8, "DEGEN", "<0.000001 DEGEN", "GLOBAL"],
+      ["1234567890123456789012", 18, "ZORA", "1,234.56 ZORA", "GLOBAL"],
+      ["123456789012345678901234567890", 18, "ZORA", "123,456,789,012.34 ZORA", "GLOBAL"],
+      ["1500000000000000000", 18, "ETH", "1.5000 ETH", "GLOBAL"],
+      ["999999", 8, "cbBTC", "0.009999 cbBTC", "GLOBAL"],
+      ["1000000", 8, "cbBTC", "0.0100 cbBTC", "GLOBAL"],
+      ["25000000", 6, "USDC", "25.00 USDC", "GLOBAL"],
+      ["1", 6, "USDC", "<0.01 USDC", "GLOBAL"],
+      ["0", 18, "ETH", "0 ETH", "GLOBAL"],
+      ["0", 6, "USDC", "0.00 USDC", "GLOBAL"],
+      ["0", 18, "ZORA", "0 ZORA", "GLOBAL"],
+      ["-1500000000000000000", 18, "ETH", "−1,5000 ETH", "FR"],
+      ["1500000000000000000", 18, "ETH", "1,5000 ETH", "DE"],
+      ["1234567890123456789012", 18, "ZORA", "1.234,56 ZORA", "DE"],
+    ];
+    for (const [atoms, decimals, symbol, expected, regionId] of cases) {
+      expect(formatPresentationTokenAmount(atoms, decimals, symbol, { regionId })).toBe(expected);
+    }
+    expect(formatExactPresentationTokenAmount("1234567890123456789012", 18, "ZORA"))
+      .toBe("1,234.567890123456789012 ZORA");
+    expect(formatExactPresentationTokenAmount("42", 8, "DEGEN"))
+      .toBe("0.00000042 DEGEN");
   });
 
   test("centralizes exact token, fiat, WAD, basis-point, health, and oracle formatting", () => {
@@ -285,6 +388,36 @@ describe("presentation money formatting", () => {
     })).toBe("—");
   });
 
+  test("keeps repeated date formatting identical across locales, styles, instants, and zones", () => {
+    const cases = [
+      { regionId: "US", locale: "en-US", timeZone: "UTC", style: "activity-full", date: { month: "short", day: "numeric", year: "numeric" }, time: { hour: "numeric", minute: "2-digit" } },
+      { regionId: "US", locale: "en-US", timeZone: "America/Los_Angeles", style: "activity-full", date: { month: "short", day: "numeric", year: "numeric" }, time: { hour: "numeric", minute: "2-digit" } },
+      { regionId: "DE", locale: "de-DE", timeZone: "UTC", style: "activity-short", date: { month: "short", day: "numeric" }, time: { hour: "numeric", minute: "2-digit" } },
+      { regionId: "US", locale: "en-US", timeZone: "UTC", style: "date-time-zone", date: { month: "short", day: "numeric", year: "numeric" }, time: { hour: "numeric", minute: "2-digit", timeZoneName: "short" } },
+      { regionId: "US", locale: "en-US", timeZone: "UTC", style: "quote-time", date: null, time: { hour: "numeric", minute: "2-digit", second: "2-digit", timeZoneName: "short" } },
+      { regionId: "DE", locale: "de-DE", timeZone: "America/Los_Angeles", style: "chart-weekday", date: { weekday: "short" }, time: null },
+    ] as const;
+    for (const instant of ["2026-09-10T12:04:30.000Z", "2026-12-10T00:01:20.000Z"]) {
+      for (const entry of cases) {
+        const expected = [entry.date, entry.time]
+          .filter((part): part is NonNullable<typeof part> => part !== null)
+          .map((part) => new Intl.DateTimeFormat(entry.locale, { ...part, timeZone: entry.timeZone })
+            .format(new Date(instant)).replace(/[\s\u00A0\u2007\u2009\u202F]+/g, " ").trim())
+          .join(", ");
+        expect(formatPresentationDate(instant, entry)).toBe(expected);
+        expect(formatPresentationDate(instant, entry)).toBe(expected);
+      }
+    }
+  });
+
+  test("formats a date range compactly and collapses a single day", () => {
+    const options = { timeZone: "UTC", style: "activity-date" } as const;
+    expect(formatPresentationDateRange("2026-09-21T05:00:00.000Z", "2026-09-24T05:00:00.000Z", options)).toBe("Sep 21 – 24");
+    expect(formatPresentationDateRange("2026-08-30T05:00:00.000Z", "2026-09-02T05:00:00.000Z", options)).toBe("Aug 30 – Sep 2");
+    expect(formatPresentationDateRange("2026-09-24T05:00:00.000Z", "2026-09-24T09:00:00.000Z", options)).toBe("Sep 24");
+    expect(formatPresentationDateRange("2026-09-24T05:00:00.000Z", "not-a-date", options)).toBe("—");
+  });
+
   test("returns a deterministic unavailable value for malformed dates", () => {
     expect(formatPresentationDate("not-a-date", {
       timeZone: "UTC",
@@ -298,5 +431,14 @@ describe("presentation money formatting", () => {
     expect(formatPresentationFiat({ atoms: "481240", scale: 2 }, "IDR", 2, "ID")).toBe(
       "Rp\u00A04.812,40",
     );
+  });
+});
+
+describe("formatTrimmedChartPrice", () => {
+  test("drops trailing compact zeros with the region's decimal separator", () => {
+    expect(formatTrimmedChartPrice("382000000")).toBe("$382M");
+    expect(formatTrimmedChartPrice("38200000", { regionId: "BR" })).toBe("$38,2\u00A0mi");
+    expect(formatTrimmedChartPrice("2410000000000", { regionId: "ID" })).toBe("$2,41T");
+    expect(formatTrimmedChartPrice("850")).toBe("$850.00");
   });
 });

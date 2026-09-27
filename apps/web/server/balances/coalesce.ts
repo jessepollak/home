@@ -13,7 +13,7 @@ import {
   type PriceBalancesResult,
   type ValuationMode,
 } from "./price";
-import { borrowReadComplete, readBorrowPositions as defaultReadBorrow } from "./borrow";
+import { borrowReadCurrent, carryForwardBorrow, readBorrowPositions as defaultReadBorrow } from "./borrow";
 import { readBalances as defaultReadBalances } from "./read";
 import { resolveBalances as defaultResolveBalances } from "./resolve";
 import { assembleBalancesSnapshot } from "./snapshot";
@@ -129,7 +129,7 @@ export function createBalancesService(dependencies: Dependencies = {}) {
       Date.parse(row.staleAt!) > Date.parse(row.observedAt);
     const expired = row !== null &&
       current.getTime() - Date.parse(row.observedAt) > backstopMs;
-    const degraded = row !== null && needsFullObservation(row, current, borrowRetryMs);
+    const degraded = row !== null && needsFullObservation(readFromRow(row), current, borrowRetryMs);
     const required = signaled || expired || degraded;
 
     if (row && !hot) {
@@ -254,7 +254,7 @@ export function createBalancesService(dependencies: Dependencies = {}) {
       : resolved;
     return {
       ...resumed,
-      borrow,
+      borrow: carryForwardBorrow(borrow, row?.borrow, registryRead.block.number),
       observedAt: row && enumeration.status === "unavailable"
         ? row.observedAt
         : resumed.observedAt,
@@ -280,7 +280,7 @@ export function createBalancesService(dependencies: Dependencies = {}) {
       resolveBalances(registryRead, unavailableEnumeration()));
     return {
       ...withEnrichment,
-      borrow,
+      borrow: carryForwardBorrow(borrow, row.borrow, registryRead.block.number),
       observedAt: row.observedAt,
       holdings: [
         ...withEnrichment.holdings.filter((holding) => holding.source === "registry"),
@@ -347,12 +347,12 @@ export function createBalancesService(dependencies: Dependencies = {}) {
 }
 
 function needsFullObservation(
-  read: Pick<BalancesRead, "coverage" | "borrow" | "observedAt">,
+  read: Pick<BalancesRead, "coverage" | "borrow" | "block" | "observedAt">,
   current: Date,
   borrowRetryMs: number,
 ): boolean {
   if (read.coverage.catalog === "unavailable" || read.coverage.registry === "partial") return true;
-  return !borrowReadComplete(read.borrow) &&
+  return !borrowReadCurrent(read) &&
     current.getTime() - Date.parse(read.observedAt) >= borrowRetryMs;
 }
 

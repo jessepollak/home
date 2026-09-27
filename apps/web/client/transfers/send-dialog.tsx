@@ -2,8 +2,8 @@
 
 import { useMoneyActionOutcome } from "@/client/actions/money-action-outcome";
 import { openPanelAfterClose, useOptionalHomeShellRouting } from "@/client/home/panel-routing";
-import { MoneyResult, MoneyResultFooter } from "@/client/money-modal/money-result";
-import { type SendAvailability } from "@/client/home/send-availability";
+import type { MoneyAssetPrice } from "@/client/money-modal";
+import type { TransferAssetAvailability } from "@/shared/transfers/types";
 import { MoneyTicker } from "@/components/money-ticker";
 import { Alert, AlertIcon, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -17,12 +17,13 @@ import { FieldSeparator } from "@/components/ui/field";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from "@/components/ui/item";
 import { CopyableValue } from "@/components/copyable-value";
 import { PayoutMethodMarks } from "@/components/payout-method-marks";
+import { PayoutDestination } from "@/components/payout-destination";
 import { atomicToDecimal } from "@/shared/formatting/atomic";
 import { formatAddress, formatUsdStablecoinAmount } from "@/shared/formatting";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { presentationRegions, type RegionId } from "@/config/regions";
 import { readProviderBindings, type FundingOfframpBinding } from "@/shared/funding/contracts/providers";
-import { canonicalizeCashPayee } from "@/shared/funding/cash-payee";
+import { canonicalizeCashPayee, cashPayeeLabels } from "@/shared/funding/cash-payee";
 import {
   readRecentTransferRecipientsResponse,
   readTransferRecipientNameResponse,
@@ -39,25 +40,28 @@ import {
   MoneyModalBody,
   MoneyModalFooter,
   MoneyModalHeader,
+  MoneyModalStep,
   amountExceedsCeiling,
   isPositiveDecimalAmount,
-  useMoneyAssetPricing,
+  useMoneyAmountUnit,
+  MoneyResult,
+  MoneyResultFooter,
+  maxAmountAfterNetworkFee,
+  useNetworkFeeReserve,
 } from "@/client/money-modal";
 import {
-  assertTransferRequest,
   formatSendConfirmAmount,
   getTransferAsset,
   isTransferRecipient,
   normalizeTransferRecipient,
   parseTransferAmount,
-  transferRequestFromAction,
 } from "@/shared/transfers/transfer-helpers";
+import { assertTransferRequest, transferRequestFromAction } from "@/shared/transfers/transfer-request";
 import { TransferExecutionError, type TransferRequest } from "@/shared/transfers/types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { networkFeeErrorMessage } from "@/shared/money-actions/network-fee";
-import { maxAmountAfterNetworkFee, useNetworkFeeReserve } from "@/client/money-modal/network-fee-policy";
 
-type SendStep = "amount" | "destination" | "payout" | "handle" | "handle-confirm" | "preparing" | "confirm" | "pending" | "error" | "result";
+type SendStep = "amount" | "destination" | "payout" | "handle" | "preparing" | "confirm" | "pending" | "error" | "result";
 type CashoutRequest = {
   operation: "deposit" | "withdraw";
   providerId: string;
@@ -97,7 +101,7 @@ export function SendDialog({
 }: {
   open: boolean;
   address: `0x${string}` | null;
-  availableAssets?: SendAvailability;
+  availableAssets?: readonly (TransferAssetAvailability & { price?: MoneyAssetPrice | null })[];
   assetMarkResolution?: AssetMarkResolution;
   prepareMoneyAction: AccountWalletClient["prepareMoneyAction"];
   fetchAccountResource?: AccountWalletClient["fetchAccountResource"];
@@ -130,13 +134,14 @@ export function SendDialog({
   const [selectedOfframp, setSelectedOfframp] = useState<FundingOfframpBinding | null>(null);
   const [selectedPlatform, setSelectedPlatform] = useState<FundingOfframpBinding["paymentMethods"][number] | null>(null);
   const [payoutHandle, setPayoutHandle] = useState("");
-  const [canonicalHandle, setCanonicalHandle] = useState("");
-  const [handleConfirmation, setHandleConfirmation] = useState("");
   const [action, setAction] = useState<PreparedMoneyAction | null>(null);
   const [step, setStep] = useState<SendStep>("amount");
   const [submission, setSubmission] = useState<"submitted" | "ambiguous" | "failed" | null>(null);
   const [submittedAt, setSubmittedAt] = useState<string | undefined>();
   const submittingRef = useRef(false);
+  const prepareTokenRef = useRef(0);
+  const handleInputRef = useRef<HTMLInputElement>(null);
+  const focusHandleRef = useRef(false);
   const routing = useOptionalHomeShellRouting();
   const [error, setError] = useState<string | null>(null);
   const resumedActionRef = useRef<string | null>(null);
@@ -166,9 +171,9 @@ export function SendDialog({
     ? null
     : "Enter a 0x address or a name like example.base.eth.";
   const selectedAsset = activeAssetId ? getTransferAsset(activeAssetId) : null;
-  const pricing = useMoneyAssetPricing(selectedAsset?.symbol ?? "");
-  const { reserve, failed: reserveFailed, retry: retryReserve } = useNetworkFeeReserve(ownerBoundary, fetchAccountResource, open);
   const selectedAvailability = availableAssets?.find((asset) => asset.id === activeAssetId);
+  const unit = useMoneyAmountUnit(selectedAsset?.cashCurrency, selectedAvailability?.price ?? null);
+  const { reserve, failed: reserveFailed, retry: retryReserve } = useNetworkFeeReserve(ownerBoundary, fetchAccountResource, open);
   const sendCeiling = selectedAvailability ? atomicToDecimal(maxAmountAfterNetworkFee(selectedAvailability.balanceBaseUnits, selectedAsset?.symbol ?? "", reserve) ?? "0", selectedAvailability.decimals) : null;
   const ceilingSettled = selectedAsset?.symbol.toUpperCase() !== "USDC" || reserve !== undefined;
   const overAvailable = ceilingSettled && amountExceedsCeiling(amount, sendCeiling);
@@ -251,12 +256,14 @@ export function SendDialog({
         if (!nextRequest) throw new TransferExecutionError("unavailable");
         setAssetId(nextRequest.assetId); changeAmount(atomicToDecimal(nextRequest.amountBaseUnits, getTransferAsset(nextRequest.assetId)?.decimals ?? 6)); setRecipient(nextRequest.recipient); setRequest(nextRequest); setCashout(null);
       } else if (resumed.kind === "cash-out" && resumed.metadata?.product === "cashout" && resumed.metadata.operation === "deposit") {
+        if (!resumed.metadata.canonicalHandle) throw new TransferExecutionError("unavailable");
         const spent = resumed.amounts.find((item) => item.direction === "spend");
         if (!spent) throw new TransferExecutionError("unavailable");
         const metadata = resumed.metadata;
         changeAmount(atomicToDecimal(spent.amountBaseUnits, spent.decimals));
         setAssetId(spent.assetId);
         setRequest(null);
+        setPayoutHandle(metadata.canonicalHandle);
         setCashout({
           operation: "deposit", providerId: metadata.providerId, providerName: metadata.providerName, assetId: spent.assetId,
           symbol: spent.symbol, decimals: spent.decimals, amountBaseUnits: spent.amountBaseUnits,
@@ -291,24 +298,45 @@ export function SendDialog({
   }, [onInvalidResume, open, ownerBoundary, regionReady, resumeActionId, resumeMoneyAction]);
 
   function reset() {
+    prepareTokenRef.current += 1;
     setAssetId(availableAssets?.[0]?.id ?? null); setRecipient(""); changeAmount("");
     setResolution(null);
     setSubmission(null); setSubmittedAt(undefined); submittingRef.current = false; setRequest(null); setCashout(null); setSelectedOfframp(null); setSelectedPlatform(null); setPayoutHandle("");
-    setCanonicalHandle(""); setHandleConfirmation(""); setAction(null); setStep("amount"); setError(null);
+    setAction(null); setStep("amount"); setError(null);
   }
+  function discardPreparedReview() {
+    setAction(null); onInvalidResume?.();
+  }
+  function returnToCashoutHandle(focus: boolean) {
+    prepareTokenRef.current += 1;
+    discardPreparedReview();
+    const binding = selectedOfframp?.providerId === cashout?.providerId && selectedOfframp?.region === regionId && selectedOfframp?.assetId === "base:usdc" && selectedOfframp?.currency === cashout?.currency &&
+      selectedPlatform?.platform === cashout?.platform ? selectedOfframp :
+      (providersLoaded ? offramps : null)?.find((item) => item.providerId === cashout?.providerId && item.region === regionId && item.assetId === "base:usdc" && item.currency === cashout?.currency &&
+        item.paymentMethods.some((method) => method.platform === cashout?.platform));
+    const method = binding?.paymentMethods.find((item) => item.platform === cashout?.platform);
+    setCashout(null);
+    if (!binding || !method) { setStep("destination"); return; }
+    setSelectedOfframp(binding); setSelectedPlatform(method);
+    focusHandleRef.current = focus;
+    setStep("handle");
+  }
+  useEffect(() => {
+    if (step === "handle" && focusHandleRef.current) {
+      handleInputRef.current?.focus();
+      focusHandleRef.current = false;
+    }
+  }, [step, selectedPlatform]);
   function back() {
+    prepareTokenRef.current += 1;
     setError(null);
     if (step === "destination") setStep("amount");
     else if (step === "payout") setStep("destination");
     else if (step === "handle") setStep("payout");
-    else if (step === "handle-confirm") setStep("handle");
     else if (step === "confirm" || step === "error") {
-      if (cashout?.operation === "withdraw") {
-        onClose();
-        return;
-      }
-      setAction(null);
-      setStep(cashout ? "handle-confirm" : "destination");
+      if (cashout?.operation === "withdraw") { onClose(); return; }
+      if (cashout) returnToCashoutHandle(false);
+      else { discardPreparedReview(); setStep("destination"); }
     }
   }
 
@@ -336,16 +364,21 @@ export function SendDialog({
 
   async function prepareCashout() {
     if (!regionReady) return;
+    const token = ++prepareTokenRef.current;
     try {
-      if (!selectedAsset || !selectedOfframp || !selectedPlatform || !canonicalHandle || handleConfirmation !== canonicalHandle) throw new Error("invalid");
+      if (!selectedAsset || !selectedOfframp || !selectedPlatform) throw new Error("invalid");
+      const canonicalHandle = canonicalizeCashPayee(selectedPlatform.platform, payoutHandle);
+      if (!canonicalHandle) throw new Error("invalid");
       const amountBaseUnits = parseTransferAmount(amount.replace(/\.$/, ""), selectedAsset.decimals);
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
       setStep("preparing"); setError(null);
       const prepared = await prepareMoneyAction("cash-out", {
         providerId: selectedOfframp.providerId, region: regionId, assetId: selectedOfframp.assetId,
-        amountBaseUnits, platform: selectedPlatform.platform, currency: selectedOfframp.currency,
-        payoutHandle, canonicalHandleConfirmation: handleConfirmation,
+        amountBaseUnits, platform: selectedPlatform.platform, currency: selectedOfframp.currency, payoutHandle,
       });
-      if (prepared.kind !== "cash-out" || prepared.metadata?.product !== "cashout" || prepared.metadata.operation !== "deposit") throw new Error("invalid");
+      if (token !== prepareTokenRef.current) return;
+      if (prepared.kind !== "cash-out" || prepared.metadata?.product !== "cashout" || prepared.metadata.operation !== "deposit" ||
+        prepared.metadata.canonicalHandle !== canonicalHandle) throw new Error("invalid");
       const metadata = prepared.metadata;
       const spent = prepared.amounts.find((item) => item.direction === "spend");
       if (!spent) throw new Error("invalid");
@@ -356,8 +389,10 @@ export function SendDialog({
         payoutHandle, canonicalHandle: metadata.canonicalHandle, approximateFiatAmount: metadata.approximateFiatAmount, etaSeconds: metadata.etaSeconds ?? null,
       });
       setRequest(null); showPreparedReview(prepared);
-    } catch (caught) {
-      setError(networkFeeErrorMessage(caught) ?? serverCashoutMessage(caught)); setStep("handle-confirm");
+    } catch (caught) { // oxlint-disable-line home/no-silent-catch -- superseded cash-out preparations cannot overwrite the edited destination
+      if (token === prepareTokenRef.current) {
+        setError(networkFeeErrorMessage(caught) ?? serverCashoutMessage(caught)); setStep("handle");
+      }
     }
   }
 
@@ -383,7 +418,7 @@ export function SendDialog({
       setSubmittedAt(new Date().toISOString());
       setSubmission("submitted"); setStep("result");
     } catch (caught) {
-      if (caught instanceof TransferExecutionError && caught.reason === "submission-unknown") {
+      if (caught instanceof TransferExecutionError && (caught.reason === "submission-unknown" || caught.reason === "dispatch-unknown")) {
         onSubmitted?.();
         setSubmission("ambiguous"); setStep("result");
         return;
@@ -404,7 +439,7 @@ export function SendDialog({
   const requestAsset = request ? getTransferAsset(request.assetId) : selectedAsset;
   const offrampName = cashout?.providerName ?? selectedOfframp?.displayName;
   const busy = step === "pending" || step === "preparing";
-  const modalTitle = step === "confirm" || busy || step === "error" ? "Confirm" : cashout || ["payout", "handle", "handle-confirm"].includes(step) ? `Cash out${offrampName ? ` with ${offrampName}` : ""}` : "Send";
+  const modalTitle = step === "confirm" || busy || step === "error" ? "Confirm" : cashout || ["payout", "handle"].includes(step) ? `Cash out${offrampName ? ` with ${offrampName}` : ""}` : "Send";
   const amountAssetProps = {
     assetId: activeAssetId ?? undefined,
     assetLabel: selectedAsset?.symbol,
@@ -413,19 +448,19 @@ export function SendDialog({
     onAssetChange: (next: string) => { setAssetId(next); changeAmount(""); },
   };
   return (
-    <MoneyModal open={open} labelledBy="send-title" immediate={immediate} pending={busy} onCancel={onClose} onClose={() => { reset(); (onClosed ?? onClose)(); }}>
+    <MoneyModal open={open} labelledBy="send-title" immediate={immediate} pending={busy} onCancel={() => { prepareTokenRef.current += 1; onClose(); }} onClose={() => { reset(); (onClosed ?? onClose)(); }}>
+      <MoneyModalStep step={step === "pending" || step === "error" || step === "preparing" ? "confirm" : step} depth={{ amount: 0, destination: 1, payout: 2, handle: 3, preparing: 4, confirm: 4, pending: 4, error: 4, result: 5 }[step]}>
       <MoneyModalHeader
         title={modalTitle}
         titleId="send-title"
         {...(step === "amount"
           ? { assetControl: <MoneyAssetPicker {...amountAssetProps} /> }
           : busy || step === "result" ? {} : { onBack: back })}
-        onClose={onClose}
         closeLabel="Close send dialog"
       />
-      {step !== "result" ? <MoneyModalBody hasFooter={["amount", "destination", "handle", "handle-confirm", "confirm", "error"].includes(step)} className="gap-4 pt-4">
+      {step !== "result" ? <MoneyModalBody hasFooter={["amount", "destination", "handle", "confirm", "error"].includes(step)} className="gap-4 pt-4">
         {step === "amount" ? <>
-          <MoneyAmountDisplay amount={amount} maxDecimals={selectedAsset?.decimals ?? 6} onAmountChange={changeAmount} overAvailable={overAvailable} onSubmit={canContinueAmount ? continueFromAmount : undefined} availableLabel={selectedAvailability ? `${selectedAvailability.balanceLabel} available` : undefined} availableAmount={sendCeiling} assetId={activeAssetId ?? undefined} assetLabel={selectedAsset?.symbol} assetControl="header" chipSet={pricing.status === "priced" ? "quick-local" : "none"} pricing={pricing} nativeSymbol={selectedAsset?.symbol ?? ""}>
+          <MoneyAmountDisplay amount={amount} maxDecimals={selectedAsset?.decimals ?? 6} onAmountChange={changeAmount} overAvailable={overAvailable} onSubmit={canContinueAmount ? continueFromAmount : undefined} availableLabel={selectedAvailability ? `${selectedAvailability.balanceLabel} available` : undefined} availableAmount={sendCeiling} assetId={activeAssetId ?? undefined} assetLabel={selectedAsset?.symbol} assetControl="header" chipSet={unit.kind === "fiat" || unit.kind === "convertible" ? "quick-local" : "none"} unit={unit} nativeSymbol={selectedAsset?.symbol ?? ""}>
             {selectedAsset?.symbol.toUpperCase() === "USDC" && reserveFailed ? (
               <StatusMessage tone="error" role="alert">
                 Couldn&apos;t check the network fee. <Button variant="ghost" size="sm" onClick={retryReserve}>Retry</Button>
@@ -463,9 +498,10 @@ export function SendDialog({
           {selectedOfframp.paymentMethods.map((method) => <Button key={method.id} variant="outline" onClick={() => { setSelectedPlatform(method); setStep("handle"); }}>{method.label}</Button>)}
         </div> : null}
         {step === "handle" && selectedPlatform ? <div className="grid gap-2">
-          <Label htmlFor="peer-payout-handle">{selectedPlatform.label} handle</Label>
+          <Label htmlFor="peer-payout-handle">{cashPayeeLabels(selectedPlatform.platform, selectedPlatform.label).field}</Label>
           <Input
             id="peer-payout-handle"
+            ref={handleInputRef}
             className="h-11"
             variant="touch"
             value={payoutHandle}
@@ -475,31 +511,15 @@ export function SendDialog({
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}
-            enterKeyHint="next"
-          />
-        </div> : null}
-        {step === "handle-confirm" && selectedPlatform ? <div className="grid gap-2">
-          <StatusMessage>Confirm the payout handle exactly: <strong>{canonicalHandle}</strong></StatusMessage>
-          <Label htmlFor="peer-payout-confirmation">Re-enter handle</Label>
-          <Input
-            id="peer-payout-confirmation"
-            className="h-11"
-            variant="touch"
-            value={handleConfirmation}
-            onInput={(event) => setHandleConfirmation(event.currentTarget.value)}
-            autoComplete="off"
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck={false}
-            enterKeyHint="done"
+            enterKeyHint="go"
+            onKeyDown={(event) => { if (event.key === "Enter" && canonicalizeCashPayee(selectedPlatform.platform, payoutHandle)) { event.preventDefault(); void prepareCashout(); } }}
           />
         </div> : null}
         {(request || cashout) && (!request || requestAsset) && (step === "confirm" || busy || step === "error") ? <>
-          <MoneyConfirmSummary action={action} amount={confirmAmount} lead={cashout ? (cashout.operation === "withdraw" ? `You're withdrawing from ${cashout.providerName}` : `You're cashing out with ${cashout.providerName}`) : `You're sending ${requestAsset?.symbol ?? ""}`} rows={cashout ? [
+          <MoneyConfirmSummary action={action} amount={confirmAmount} lead={cashout ? (cashout.operation === "withdraw" ? `You're withdrawing from ${cashout.providerName}` : `You're cashing out with ${cashout.providerName}`) : `You're sending ${requestAsset?.symbol ?? ""}`} destination={cashout?.operation === "deposit" && cashout.canonicalHandle ? <PayoutDestination platform={cashout.platform} label={cashout.platformLabel} destination={cashout.canonicalHandle} onEdit={() => returnToCashoutHandle(true)} /> : undefined} rows={cashout ? [
             ...(action ? [moneyConfirmFromRow(action.owner)] : []),
             { label: "Provider", value: cashout.providerName },
-            { label: "Payout app", value: cashout.platformLabel },
-            ...(cashout.canonicalHandle ? [{ label: "Payout handle", value: cashout.canonicalHandle }] : []),
+            ...(cashout.operation === "withdraw" ? [{ label: "Payout app", value: cashout.platformLabel }] : []),
             ...(cashout.operation === "deposit" ? [
               { label: "Approximate receive", value: `≈ ${cashout.approximateFiatAmount} ${cashout.currency}` },
               { label: "Estimated delivery", value: cashout.etaSeconds === null ? "Historical estimate unavailable" : `About ${formatEta(cashout.etaSeconds)}` },
@@ -515,13 +535,13 @@ export function SendDialog({
         {step === "preparing" ? <StatusMessage><span className="flex items-center gap-2"><LoaderCircle className="size-4 animate-spin" aria-hidden="true" />Preparing review…</span></StatusMessage> : null}
         {error ? <StatusMessage tone="error" role="alert">{error}</StatusMessage> : null}
       </MoneyModalBody> : null}
-      {step === "result" && action && submission ? <SendResult action={action} submission={submission} amount={confirmAmount} provider={cashout?.providerName} submittedAt={submittedAt} fetchAccountResource={fetchAccountResource} onDone={() => { reset(); onClose(); }} onTryAgain={() => { setAction(null); setSubmission(null); setStep("amount"); onInvalidResume?.(); }} onViewActivity={() => openPanelAfterClose(routing, "activity", () => { reset(); onClose(); })} /> : null}
+      {step === "result" && action && submission ? <SendResult action={action} submission={submission} amount={confirmAmount} provider={cashout?.providerName} submittedAt={submittedAt} fetchAccountResource={fetchAccountResource} onDone={onClose} onTryAgain={() => { setAction(null); setSubmission(null); setStep("amount"); onInvalidResume?.(); }} onViewActivity={() => openPanelAfterClose(routing, "activity", onClose)} /> : null}
       {step === "amount" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!canContinueAmount} onPrimary={continueFromAmount} /> : null}
       {step === "destination" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={effectiveRecipient === null || resolving} onPrimary={() => void prepareSend()} /> : null}
-      {step === "handle" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!payoutHandle.trim()} onPrimary={() => { const normalized = canonicalizeCashPayee(selectedPlatform?.platform ?? "", payoutHandle); setCanonicalHandle(normalized); setHandleConfirmation(""); setStep("handle-confirm"); }} /> : null}
-      {step === "handle-confirm" ? <MoneyModalFooter primaryLabel="Review" primaryDisabled={!canonicalHandle || handleConfirmation !== canonicalHandle} onPrimary={() => void prepareCashout()} /> : null}
+      {step === "handle" ? <MoneyModalFooter primaryLabel="Review" primaryDisabled={!canonicalizeCashPayee(selectedPlatform?.platform ?? "", payoutHandle)} onPrimary={() => void prepareCashout()} /> : null}
       {(step === "confirm" || step === "pending") && action ? <MoneyConfirmFooter action={action} primaryLabel={cashout ? <>{cashout.operation === "withdraw" ? "Withdraw" : "Cash out"} <MoneyTicker value={confirmAmount} /></> : <>Send <MoneyTicker value={confirmAmount} /></>} submitting={step === "pending"} onPrimary={() => void confirm()} secondaryLabel="Back" onSecondary={back} /> : null}
       {step === "error" ? <MoneyModalFooter primaryLabel="Try again" onPrimary={() => { setError(null); setStep("confirm"); }} secondaryLabel="Back" onSecondary={back} /> : null}
+      </MoneyModalStep>
     </MoneyModal>
   );
 }
@@ -609,5 +629,5 @@ function messageForError(error: unknown, cashout: boolean): string {
 function serverCashoutMessage(error: unknown): string {
   const value = error as { code?: unknown; serverMessage?: unknown };
   if (typeof value.serverMessage === "string" && typeof value.code === "string" && value.code.startsWith("CASHOUT_")) return value.serverMessage;
-  return "Peer could not prepare this cash-out safely. Check the handle and try again.";
+  return "Check the payout details and try again.";
 }

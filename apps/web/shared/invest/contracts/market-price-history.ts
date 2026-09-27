@@ -6,6 +6,7 @@ import {
 } from "@/config/invest-assets";
 
 export const MARKET_PRICE_HISTORY_VERSION = 1 as const;
+export const MARKET_HISTORY_PRIORITY_HEADER = "x-home-history-priority";
 export const MARKET_PRICE_RANGES = ["1D", "1W", "1M", "3M", "1Y"] as const;
 
 export type MarketPriceRange = (typeof MARKET_PRICE_RANGES)[number];
@@ -122,6 +123,7 @@ export function parseHistoryResponse(value: unknown): MarketPriceHistoryResponse
     fetchedAt: typeof record.fetchedAt === "string" ? record.fetchedAt : null,
     status: record.status,
     points,
+    ...(record.unavailableReason === "overloaded" ? { unavailableReason: "overloaded" as const } : {}),
   };
 }
 

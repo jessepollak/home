@@ -10,3 +10,5 @@ dist/
 *.log
 
 .factory/
+
+!apps/web/server/db/migrations/*.sql

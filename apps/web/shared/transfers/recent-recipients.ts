@@ -1,5 +1,5 @@
 import { RECENT_TRANSFER_RECIPIENT_LIMIT } from "./contracts/recipients";
-import { normalizeResolvedRecipientAddress } from "./recipient-name";
+import { normalizeResolvedRecipientAddress } from "./recipient-address";
 
 const recipientWarningPattern = /^recipient:\s*(0x[0-9a-fA-F]{40})$/i;
 

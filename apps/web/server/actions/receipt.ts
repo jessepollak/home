@@ -22,11 +22,12 @@ type FetchLike = (
 ) => Promise<Response>;
 
 export type TransferReceiptStatus =
-  | { status: "pending"; transactionHash: `0x${string}` }
+  | { status: "pending"; transactionHash: `0x${string}`; finalizedBlockNumber: string }
   | {
       status: "confirmed";
       transactionHash: `0x${string}`;
       blockNumber: string;
+      blockHash: string;
       blockTimestamp: string;
       finalized: boolean;
       userOperations: Array<{ userOpHash: string; sender: string; success: boolean }>;
@@ -93,7 +94,7 @@ export function createTransferReceiptReader(
         throw new TransferReceiptRpcError("The configured RPC is not Base mainnet.");
       }
       if (receiptResponse === null) {
-        return { status: "pending", transactionHash: normalizedHash };
+        return { status: "pending", transactionHash: normalizedHash, finalizedBlockNumber: finalizedNumber.toString(10) };
       }
       if (!isRecord(receiptResponse)) {
         throw new TransferReceiptRpcError(
@@ -136,6 +137,7 @@ export function createTransferReceiptReader(
         status: "confirmed",
         transactionHash: normalizedHash,
         blockNumber: blockNumber.toString(10),
+        blockHash: normalizedReceiptBlockHash,
         blockTimestamp: new Date(timestampMs).toISOString(),
         finalized: blockNumber <= finalizedNumber,
         userOperations: readUserOperations(receiptResponse.logs),

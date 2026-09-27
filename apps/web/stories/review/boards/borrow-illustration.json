@@ -1,0 +1,17 @@
+{
+  "id": "borrow-illustration",
+  "title": "Borrow — first-loan illustration motion",
+  "summary": "Counterweight (option B) adopted as the first-loan intro illustration on Borrow. It plays once when the intro is at least half in view; reduced motion shows the final frame.",
+  "refs": { "issue": 1034 },
+  "sections": [
+    { "id": "intro", "title": "Intro", "note": "The shared FeatureIntro at the compact size Borrow uses.", "frames": [
+      { "id": "intro-mobile", "story": "ui-feature-intro--borrow-not-started", "label": "Light · mobile", "viewport": "mobile", "change": "changed" },
+      { "id": "intro-dark", "story": "ui-feature-intro--borrow-not-started-dark", "label": "Dark · mobile", "viewport": "mobile", "change": "changed" },
+      { "id": "intro-desktop", "story": "ui-feature-intro--borrow-not-started-desktop", "label": "Desktop", "viewport": "desktop", "change": "changed" },
+      { "id": "reduced-motion", "story": "ui-feature-intro--borrow-reduced-motion", "label": "Reduced motion", "viewport": "mobile", "change": "changed" }
+    ] },
+    { "id": "borrow", "title": "On Borrow", "note": "Zero-position overview with a held eligible asset.", "frames": [
+      { "id": "first-loan-intro", "story": "borrowing-borrow-overview--first-loan-intro", "label": "First-loan intro · mobile", "viewport": "mobile", "change": "changed" }
+    ] }
+  ]
+}

@@ -2,7 +2,7 @@ import "server-only";
 
 import { keccak256 } from "viem";
 
-import type { ConfirmActionResponse } from "@/shared/actions/contracts/confirm";
+import { supportsBaseBatchGasHint, type ConfirmActionResponse } from "@/shared/actions/contracts/confirm";
 import type { GetActionPendingResponse, GetActionResponse } from "@/shared/actions/contracts/get";
 import type { HandleActionResponse } from "@/shared/actions/contracts/handle";
 import { DECLINE_ACTION_CONTRACT_VERSION, parseDeclineActionRequest, type DeclineActionResponse } from "@/shared/actions/contracts/decline";
@@ -16,9 +16,11 @@ import { deferCustomerRecord } from "@/server/customers/resolve";
 import { createTransferReceiptReader, type TransferReceiptStatus } from "./receipt";
 import { moneyActionOwner } from "@/server/money-actions/session";
 import { privateError, privateJson } from "@/server/http/private-response";
-import { getActionsStore, type ActionRow, type ActionsStore, type CashoutOrderRow, type PendingAction, type ActionOutcome } from "./store";
+import type { PendingTradeResponse } from "@/shared/actions/contracts/trade-pending";
+import { getActionsStore, type ActionRow, type ActionsStore, type CashoutOrderRow, type PendingAction, type ActionOutcome, type ObservedReceiptOutcome } from "./store";
 import { deriveActionStatus, type ActionReceiptState } from "./status";
 import { finalizeTradeCalls, type PendingTradeConfirmation } from "./kinds/trade/finalize";
+import { assertStockTradeConfirmAllowed } from "./kinds/trade/stock-eligibility";
 import type { TradeConfirmRequest } from "@/shared/trading/contract";
 import { createSmartAccountSignatureVerifier } from "./kinds/trade/signer";
 import type { SmartAccountSignatureVerifier } from "@/shared/trading/server-types";
@@ -63,7 +65,7 @@ async function authorizeOwner(request: Request, authorize: ActionAuthorizer): Pr
 
 export function createGetActionHandler(dependencies: {
   authorize: ActionAuthorizer;
-  store?: Pick<ActionsStore, "get" | "recordHandle" | "recordOutcome">;
+  store?: Pick<ActionsStore, "get" | "recordHandle" | "recordOutcome"> & Partial<Pick<ActionsStore, "recordReceiptObservation" | "clearReceiptObservation">>;
   readReceipt?: (hash: `0x${string}`, signal?: AbortSignal) => Promise<TransferReceiptStatus>;
   resolveHandle?: ActionHandleResolver;
   now?: () => Date;
@@ -73,7 +75,16 @@ export function createGetActionHandler(dependencies: {
     if (owner instanceof Response) return owner;
     const { id } = await context.params;
     if (!uuidPattern.test(id)) return privateError("ACTION_NOT_FOUND", "The action was not found.", 404);
-    const row = await (dependencies.store ?? getActionsStore()).get(owner, id);
+    let row: ActionRow | null;
+    try {
+      row = await (dependencies.store ?? getActionsStore()).get(owner, id);
+    } catch {
+      emitServerEvent("action-read", {
+        route: "/api/actions/:id", code: "ACTIONS_STORE_UNAVAILABLE", outcome: "unavailable",
+        provider: owner.accountProvider, owner,
+      });
+      return privateError("ACTIONS_UNAVAILABLE", "Recorded actions are temporarily unavailable.", 503);
+    }
     if (!row) return privateError("ACTION_NOT_FOUND", "The action was not found.", 404);
     if (!row.confirmed_at) {
       return privateJson({
@@ -153,6 +164,9 @@ export function createConfirmActionHandler(dependencies: {
     if (!draftCalls?.length) {
       return fail("ACTION_NOT_FOUND", "The action is unavailable or already confirmed.", 404);
     }
+    if (draft.kind === "trade" && !assertStockTradeConfirmAllowed({ metadata: draft.summary.metadata, request })) {
+      return fail("TRADE_STOCK_RESTRICTED", "Stock buys aren't available in this location.", 403);
+    }
     if (!replay && Date.parse(draft.summary.expiresAt) <= (dependencies.now?.() ?? new Date()).getTime()) {
       return fail("ACTION_EXPIRED", "The action review expired. Prepare it again.", 410);
     }
@@ -181,18 +195,22 @@ export function createConfirmActionHandler(dependencies: {
     }
 
     let batchGasLimit: string | undefined;
-    let gasHintCode: "BASE_BATCH_GAS_HINT_APPLIED" | "BASE_BATCH_GAS_HINT_UNAVAILABLE" | undefined;
+    let gasHintCode: "BASE_BATCH_GAS_HINT_APPLIED" | "BASE_BATCH_GAS_HINT_UNAVAILABLE" | "BASE_BATCH_GAS_HINT_SKIPPED" | undefined;
     if (owner.accountProvider === "base-account") {
-      try {
-        const raw = await (dependencies.estimateBaseBatch ??
-          getBaseCoinbaseSmartAccountBatchEstimator.estimateBatch)(calls, owner.address, request.signal);
-        const padded = applyCoinbaseBatchGasHeadroom(raw);
-        if (padded !== null) batchGasLimit = padded.toString();
-        gasHintCode = batchGasLimit
-          ? "BASE_BATCH_GAS_HINT_APPLIED"
-          : "BASE_BATCH_GAS_HINT_UNAVAILABLE";
-      } catch {
-        gasHintCode = "BASE_BATCH_GAS_HINT_UNAVAILABLE";
+      if (!supportsBaseBatchGasHint(calls)) {
+        gasHintCode = "BASE_BATCH_GAS_HINT_SKIPPED";
+      } else {
+        try {
+          const raw = await (dependencies.estimateBaseBatch ??
+            getBaseCoinbaseSmartAccountBatchEstimator.estimateBatch)(calls, owner.address, request.signal);
+          const padded = applyCoinbaseBatchGasHeadroom(raw);
+          if (padded !== null) batchGasLimit = padded.toString();
+          gasHintCode = batchGasLimit
+            ? "BASE_BATCH_GAS_HINT_APPLIED"
+            : "BASE_BATCH_GAS_HINT_UNAVAILABLE";
+        } catch {
+          gasHintCode = "BASE_BATCH_GAS_HINT_UNAVAILABLE";
+        }
       }
     }
 
@@ -203,7 +221,7 @@ export function createConfirmActionHandler(dependencies: {
       emitServerEvent("action-confirm", {
         route: "/api/actions/:id/confirm",
         code: gasHintCode,
-        outcome: batchGasLimit ? "ok" : "unavailable",
+        outcome: gasHintCode === "BASE_BATCH_GAS_HINT_SKIPPED" ? "skipped" : batchGasLimit ? "ok" : "unavailable",
         provider: owner.accountProvider,
         owner,
         durationMs: Date.now() - startedAt,
@@ -292,6 +310,14 @@ export function createDeclineActionHandler(dependencies: {
   };
 }
 
+export function createGetPendingTradeHandler(dependencies: { authorize: ActionAuthorizer }) {
+  return async function GET(request: Request): Promise<Response> {
+    const owner = await authorizeOwner(request, dependencies.authorize);
+    if (owner instanceof Response) return owner;
+    return privateJson({ version: 1, trade: null } satisfies PendingTradeResponse, 200);
+  };
+}
+
 export function createRetryActionHandler(dependencies: {
   authorize: ActionAuthorizer;
   store?: Pick<ActionsStore, "get" | "beginRetry">;
@@ -318,7 +344,7 @@ export function createRetryActionHandler(dependencies: {
 
 export function createListActionsHandler(dependencies: {
   authorize: ActionAuthorizer;
-  store?: Pick<ActionsStore, "list" | "recordHandle" | "recordOutcome"> & Partial<Pick<ActionsStore, "ensureCashoutOrder" | "cashoutOrders" | "linkedCashoutDepositIds" | "linkCashoutDeposit" | "updateCashoutProgress">>;
+  store?: Pick<ActionsStore, "list" | "recordHandle" | "recordOutcome"> & Partial<Pick<ActionsStore, "recordReceiptObservation" | "clearReceiptObservation" | "ensureCashoutOrder" | "cashoutOrders" | "linkedCashoutDepositIds" | "linkCashoutDeposit" | "updateCashoutProgress">>;
   readReceipt?: (hash: `0x${string}`, signal?: AbortSignal) => Promise<TransferReceiptStatus>;
   resolveHandle?: ActionHandleResolver;
   refreshCashouts?: typeof refreshCashoutProgress;
@@ -327,8 +353,18 @@ export function createListActionsHandler(dependencies: {
   return async function GET(request: Request): Promise<Response> {
     const owner = await authorizeOwner(request, dependencies.authorize);
     if (owner instanceof Response) return owner;
-    const store = dependencies.store ?? getActionsStore();
-    const rows = await store.list(owner);
+    let store: Pick<ActionsStore, "list" | "recordHandle" | "recordOutcome"> & Partial<Pick<ActionsStore, "recordReceiptObservation" | "clearReceiptObservation">>;
+    let rows: ActionRow[];
+    try {
+      store = dependencies.store ?? getActionsStore();
+      rows = await store.list(owner);
+    } catch {
+      emitServerEvent("action-read", {
+        route: "/api/actions", code: "ACTIONS_STORE_UNAVAILABLE", outcome: "unavailable",
+        provider: owner.accountProvider, owner,
+      });
+      return privateError("ACTIONS_UNAVAILABLE", "Recorded actions are temporarily unavailable.", 503);
+    }
     const now = dependencies.now?.() ?? new Date();
     const candidateIds = new Set(rotatingWindow(
       rows
@@ -410,6 +446,7 @@ export async function presentAction(
     summary: row.summary,
     status: deriveActionStatus({
       confirmedAt,
+      submittedAt: iso(row.handle_recorded_at),
       transactionHash: row.transaction_hash,
       receipt,
       outcome: row.outcome,
@@ -510,8 +547,18 @@ function attributeReceipt(row: ActionRow, owner: MoneyActionOwner, receipt: Extr
   return candidates[0]!.success ? "succeeded" : "reverted";
 }
 
+function observedReceiptStatus(row: ActionRow): ActionReceiptState | null {
+  if (!row.transaction_hash || !row.observed_receipt_transaction_hash ||
+    row.observed_receipt_transaction_hash.toLowerCase() !== row.transaction_hash.toLowerCase() ||
+    !row.observed_receipt_block_hash || row.observed_receipt_block_number == null) return null;
+  if (row.observed_receipt_outcome === "succeeded") return "confirmed";
+  if (row.observed_receipt_outcome === "reverted") return "failed";
+  return null;
+}
+
 async function settleRow(
-  row: ActionRow, owner: MoneyActionOwner, store: Pick<ActionsStore, "recordOutcome">,
+  row: ActionRow, owner: MoneyActionOwner,
+  store: Pick<ActionsStore, "recordOutcome"> & Partial<Pick<ActionsStore, "recordReceiptObservation" | "clearReceiptObservation">>,
   readReceipt: ((hash: `0x${string}`, signal?: AbortSignal) => Promise<TransferReceiptStatus>) | undefined,
   signal: AbortSignal, route: string,
 ): Promise<{ row: ActionRow; receipt: ActionReceiptState | null }> {
@@ -521,17 +568,45 @@ async function settleRow(
     const reader = readReceipt ?? ((hash: `0x${string}`, nextSignal?: AbortSignal) =>
       createTransferReceiptReader()(hash, nextSignal));
     const receipt = await reader(row.transaction_hash.toLowerCase() as `0x${string}`, signal);
-    if (receipt.status === "pending") return { row, receipt: "pending" };
+    if (receipt.status === "pending") {
+      const observed = observedReceiptStatus(row);
+      if (!observed) return { row, receipt: "pending" };
+      if (BigInt(receipt.finalizedBlockNumber) < BigInt(row.observed_receipt_block_number!)) return { row, receipt: observed };
+      let cleared: ActionRow | null | undefined;
+      try {
+        cleared = await store.clearReceiptObservation?.(owner, row.id, row.observed_receipt_block_hash!);
+      } catch {
+        emitOutcomeEvent(route, row, owner, "OBSERVATION_UNAVAILABLE", "unavailable", startedAt);
+      }
+      return {
+        row: cleared ?? { ...row, observed_receipt_transaction_hash: null, observed_receipt_block_number: null,
+          observed_receipt_block_hash: null, observed_receipt_outcome: null, observed_at: null },
+        receipt: "pending",
+      };
+    }
     const outcome = attributeReceipt(row, owner, receipt);
     if (!outcome) {
       emitOutcomeEvent(route, row, owner, "OUTCOME_UNATTRIBUTED", "conflict", startedAt);
-      return { row, receipt: "unavailable" };
+      return { row, receipt: "unattributed" };
     }
-    if (!receipt.finalized) return { row, receipt: outcome === "succeeded" ? "confirmed" : "failed" };
+    const observedOutcome = outcome as ObservedReceiptOutcome;
+    const freshStatus = outcome === "succeeded" ? "confirmed" : "failed";
+    if (row.observed_receipt_block_hash?.toLowerCase() !== receipt.blockHash.toLowerCase() || row.observed_receipt_outcome !== observedOutcome ||
+      row.observed_receipt_transaction_hash?.toLowerCase() !== receipt.transactionHash.toLowerCase()) {
+      try {
+        row = await store.recordReceiptObservation?.(owner, row.id, {
+          transactionHash: receipt.transactionHash, blockNumber: receipt.blockNumber,
+          blockHash: receipt.blockHash, outcome: observedOutcome,
+        }) ?? row;
+      } catch {
+        emitOutcomeEvent(route, row, owner, "OBSERVATION_UNAVAILABLE", "unavailable", startedAt);
+      }
+    }
+    if (!receipt.finalized) return { row, receipt: freshStatus };
     const updated = await recordRowOutcome(store, row, owner, outcome, "chain", new Date(receipt.blockTimestamp), route, startedAt);
-    return { row: updated, receipt: "unavailable" };
+    return { row: updated, receipt: freshStatus };
   } catch {
-    return { row, receipt: "unavailable" };
+    return { row, receipt: observedReceiptStatus(row) ?? "unavailable" };
   }
 }
 

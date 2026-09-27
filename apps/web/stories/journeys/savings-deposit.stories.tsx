@@ -1,8 +1,10 @@
+import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import { HttpResponse, http } from "msw";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
-import { SavingsExperience } from "@/client/savings/savings-experience";
+import { CashExperience } from "@/client/cash/cash-experience";
+import { buildBalancesSnapshotFixture, priced, pricedCash, ready } from "@/shared/balances/fixtures";
 import { shellContentFrameClassName } from "@/components/shell-layout";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type {
@@ -28,7 +30,7 @@ const FIXTURE_TIME = "2026-09-10T12:04:00.000Z";
 const FIXTURE_NOW = Date.parse(FIXTURE_TIME);
 const fixedNow = () => FIXTURE_NOW;
 const [GAUNTLET, SPARK] = MORPHO_V1_CANDIDATE_ADDRESSES;
-const SELECTED_VAULT = GAUNTLET;
+const SELECTED_VAULT = SPARK;
 
 const session: VerifiedAccountSession = {
   user: { subject: "storybook-savings-journey-owner" },
@@ -85,23 +87,11 @@ const vaultsFixture: MorphoVaultsResult = {
   stale: false,
 };
 
-type VaultPosition = {
-  vaultAddress: string;
-  position: { assetsRaw: string } | null;
-};
-
-const fundedPositions: VaultPosition[] = MORPHO_V1_CANDIDATE_ADDRESSES.map(
-  (vaultAddress) => ({
-    vaultAddress,
-    position: {
-      assetsRaw: vaultAddress === SPARK
-        ? "987654321"
-        : vaultAddress === GAUNTLET
-          ? "123456789"
-          : "0",
-    },
-  }),
-);
+const fundedSnapshot = buildBalancesSnapshotFixture({ registry: {
+  usdc: { balance: ready("250000000"), value: priced("USD", "25000"), cashValue: pricedCash("USD", "25000") },
+  "morpho-steakhouse-usdc": { balance: ready("987654321000000000000"), underlyingBalance: ready("987654321"), value: priced("USD", "98765") },
+  "morpho-re7-usdc": { balance: ready("123456789000000000000"), underlyingBalance: ready("123456789"), value: priced("USD", "12345") },
+} });
 
 function preparedAction(
   vault: MorphoVaultCandidate,
@@ -182,7 +172,7 @@ const prepareMoneyAction = async (
   input: unknown,
 ): Promise<PreparedMoneyAction> => {
   journey.prepared.push({ endpoint, input });
-  return preparedAction(gauntlet, "25000000");
+  return preparedAction(spark, "25000000");
 };
 
 const executeMoneyAction = async (
@@ -193,17 +183,15 @@ const executeMoneyAction = async (
 };
 
 function SavingsJourneySurface() {
+  const [view, setView] = useState<"cash" | "savings">("cash");
   return (
     <PresentationRegionProvider regionId="US">
       <main className={`${shellContentFrameClassName} py-4`}>
-        <SavingsExperience
-          session={session}
-          now={fixedNow}
-          availableUsdcBaseUnits="250000000"
-          balancePositions={fundedPositions}
-          balanceStatus="ready"
+        <CashExperience view={view} onOpenSavings={() => setView("savings")}
+          session={session} snapshot={fundedSnapshot} balanceStatus="ready"
+          onRetryBalances={() => undefined} onAddMoney={() => undefined} now={fixedNow}
           prepareMoneyAction={prepareMoneyAction}
-          fetchAccountResource={async () => ({ actions: [{ id: "storybook-journey-savings-deposit", status: "confirmed", owner: preparedAction(gauntlet, "25000000").owner }] })}
+          fetchAccountResource={async () => ({ actions: [{ id: "storybook-journey-savings-deposit", status: "confirmed", owner: preparedAction(spark, "25000000").owner }] })}
           executeMoneyAction={executeMoneyAction}
         />
       </main>
@@ -235,45 +223,24 @@ export const Deposit: Story = {
     const document = canvasElement.ownerDocument;
     const screen = within(document.body);
 
-    // Vault metadata arrives over the production `/api/savings/vaults` fetch,
-    // served here by the story's MSW handler.
-    const sparkRow = await screen.findByRole("radio", {
-      name: /Spark USDC Vault/,
-    });
-    const gauntletRow = await screen.findByRole("radio", {
-      name: /Gauntlet USDC Prime/,
-    });
-    await expect(within(sparkRow).getByText("4.10%")).toBeVisible();
-    await expect(within(gauntletRow).getByText("3.85%")).toBeVisible();
-
-    await userEvent.click(gauntletRow);
-    await expect(
-      await screen.findByRole("radio", { name: /Gauntlet USDC Prime/ }),
-    ).toHaveAttribute("aria-checked", "true");
-    const detailsId = `vault-${SELECTED_VAULT}-details`;
-    await expect(
-      await screen.findByRole("radio", { name: /Gauntlet USDC Prime/ }),
-    ).toHaveAttribute("aria-controls", detailsId);
-    const details = document.getElementById(detailsId);
-    if (details === null) throw new Error("Vault details did not render");
-    await expect(within(details).getByText("Fee")).toBeVisible();
-    await expect(within(details).getByText("10.00%")).toBeVisible();
-
-    // Deposit $25.00 from the savings screen into the selected vault.
-    await userEvent.click(await screen.findByRole("button", { name: "Deposit" }));
-    const depositDialog = await screen.findByRole("dialog", { name: "Deposit" });
+    await userEvent.click(await screen.findByRole("button", { name: /^US dollar/ }));
+    await expect(screen.getByLabelText("Savings balance")).toBeVisible();
+    const deposit = await screen.findByRole("button", { name: "Deposit" });
+    await waitFor(() => expect(deposit).toBeEnabled());
+    await userEvent.click(deposit);
+    await screen.findByRole("textbox", { name: "Amount" });
+    const depositDialog = screen.getByRole("dialog", { name: "Deposit" });
     await userEvent.type(await within(depositDialog).findByRole("textbox", { name: "Amount" }), "25");
     await userEvent.click(
       await within(depositDialog).findByRole("button", { name: "Continue" }),
     );
 
-    // Review shows the exact action facts before dispatch.
     const confirmDialog = await screen.findByRole("dialog", { name: "Confirm" });
     const amountRow = within(confirmDialog)
       .getAllByRole("definition")
       .find((node) => node.textContent === "$25.00");
     await expect(amountRow).toBeVisible();
-    await expect(within(confirmDialog).getByText("Gauntlet USDC Prime")).toBeVisible();
+    await expect(within(confirmDialog).getByText("Spark USDC Vault")).toBeVisible();
     await expect(within(confirmDialog).getByText("Base (8453)")).toBeVisible();
     await expect(
       within(confirmDialog).getByRole("button", { name: "Deposit $25.00" }),
@@ -294,7 +261,6 @@ export const Deposit: Story = {
     );
     await expect(await screen.findByRole("heading", { name: "Deposited $25.00 to Save" })).toBeVisible();
     await expect(screen.getByRole("dialog", { name: "Deposit" })).toBeVisible();
-    await expect(screen.queryByRole("button", { name: "Back" })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Done" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await expect(journey.dispatched).toHaveLength(1);

@@ -4,7 +4,7 @@ import {
   HOME_STARTUP_TIMEOUT_MS,
   createHomeStartupRecorder,
   markHomePerformance,
-  sendHomeStartupReport,
+  sendClientPerformanceReport,
 } from "./perf-marks";
 
 function fixture() {
@@ -195,7 +195,7 @@ describe("Home startup recorder", () => {
     ) as typeof fetch;
 
     try {
-      await sendHomeStartupReport({
+      await sendClientPerformanceReport({
         version: 1,
         kind: "home-startup",
         route: "/",
@@ -204,7 +204,7 @@ describe("Home startup recorder", () => {
         shellMs: 1,
         totalMs: 2,
       });
-      await sendHomeStartupReport({
+      await sendClientPerformanceReport({
         version: 1,
         kind: "home-startup",
         route: "/",
@@ -242,7 +242,7 @@ describe("Home startup recorder", () => {
     ) as typeof fetch;
 
     try {
-      await sendHomeStartupReport({
+      await sendClientPerformanceReport({
         version: 1,
         kind: "home-startup",
         route: "/home",

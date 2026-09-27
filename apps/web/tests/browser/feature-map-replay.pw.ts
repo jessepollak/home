@@ -7,7 +7,7 @@ import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 
 const mapPromise = readFeatureMap(resolve(__dirname, "../../../../.agents/skills/browser-iteration/surfaces"));
 const replaySurfaceIds = [
-  "landing", "sign-in", "home-panel", "balances", "activity", "save", "invest",
+  "landing", "sign-in", "home-panel", "balances", "activity", "save", "invest", "investments",
   "send", "account-settings", "coverage",
 ];
 const fixtureSkips: Record<string, string> = {
@@ -52,7 +52,7 @@ for (const surfaceId of replaySurfaceIds) {
     if (surfaceId === "send" || surfaceId === "invest") {
       for (const [pattern, body] of fixtureRoutes()) {
         if ((surfaceId === "send" && pattern.startsWith("**/api/transfers/")) ||
-          (surfaceId === "invest" && pattern === "**/api/trades")) {
+          (surfaceId === "invest" && pattern.startsWith("**/api/trades?"))) {
           await page.route(pattern, (route) => json(route, body));
         }
       }

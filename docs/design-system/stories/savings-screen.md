@@ -1,3 +1,4 @@
-# Savings screen
+# Cash and Savings screens
 
-- Savings screen: `pilot-savings-experience--funded`, `pilot-savings-experience--verified-empty`, `pilot-savings-experience--loading`, `pilot-savings-experience--unavailable-partial`, `pilot-savings-experience--long-localized-content`
+- Cash overview: `cash-cash-l2--funded`, `cash-cash-l2--empty-nux`, `cash-cash-l2--loading`, `cash-cash-l2--partial-holding`.
+- Savings detail: `cash-cash-l2--savings-detail`, `cash-cash-l2--savings-detail-stale-rates`, `cash-cash-l2--savings-detail-withdraw-chooser`.

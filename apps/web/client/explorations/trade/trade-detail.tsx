@@ -1,7 +1,7 @@
 import { useState, type RefObject } from "react";
 import { ArrowLeft } from "lucide-react";
 import { AssetIcon } from "@/client/invest/asset-icon";
-import { PriceChart } from "@/client/invest/price-chart";
+import { PriceChart } from "./trade-price-chart";
 import type { MarketPriceRange } from "@/shared/invest/contracts/market-price-history";
 import { Button } from "@/components/ui/button";
 import { shellContentFrameClassName } from "@/components/shell-layout";

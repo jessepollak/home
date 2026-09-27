@@ -1,14 +1,12 @@
 import "server-only";
 
 import { decodeAbiParameters, encodeAbiParameters, hashTypedData, parseAbiParameters } from "viem";
-import { cryptoAssets } from "@/config/invest-assets";
 import { BASE_USDC_ADDRESS } from "@/shared/money-actions/network-fee";
 import type { Address, Hex } from "@/shared/trading/server-types";
 import type { SwapQuote } from "./cdp-swaps";
 import { PERMIT2_ADDRESS, TradePreparationError, validatePermit2 } from "./permit2";
 
 const USDC = BASE_USDC_ADDRESS.toLowerCase() as Address;
-const CBBTC = cryptoAssets.find((asset) => asset.id === "cbbtc")!.contractAddress.toLowerCase() as Address;
 const ZERO = "0x0000000000000000000000000000000000000000";
 const EXECUTE_SELECTOR = "0x1fff991f";
 const TRANSFER_FROM = "0xc1fb425e";
@@ -37,25 +35,26 @@ const SETTLER_ACTION_VALIDATORS: ReadonlyMap<Hex, (action: Hex, context: ActionC
   [MAVERICKV2, validateMaverick], [UNISWAPV3, validateV3], [RFQ, validateRfq], [POSITIVE_SLIPPAGE, validateSlippage],
 ]);
 
-export async function readSettlerRouter(ethCall: (method: string, params: readonly unknown[]) => Promise<unknown>): Promise<Address> {
+export async function readSettlerRouter(ethCall: (method: string, params: readonly unknown[]) => Promise<unknown>, token?: Address): Promise<Address> {
   const result = await ethCall("eth_call", [{ to: DEPLOYER, data: OWNER_OF_TWO }, "latest"]);
   if (typeof result !== "string" || !/^0x0{24}[0-9a-fA-F]{40}$/.test(result)) reject();
   const router = `0x${result.slice(-40).toLowerCase()}` as Address;
-  if (router === ZERO || router === PERMIT2_ADDRESS || router === USDC || router === CBBTC) reject();
+  if (router === ZERO || router === PERMIT2_ADDRESS || router === USDC || router === token?.toLowerCase()) reject();
   return router;
 }
 
 export type SwapDirection = "buy" | "sell";
 export type SwapReviewRequest = {
+  token: Address;
   direction: SwapDirection;
   fromAmount: bigint;
   taker: Address;
   signerAddress?: Address;
   slippageBps: number;
 };
-export function swapTokens(direction: SwapDirection): { fromToken: Address; toToken: Address } {
-  if (direction === "buy") return { fromToken: USDC, toToken: CBBTC };
-  if (direction === "sell") return { fromToken: CBBTC, toToken: USDC };
+export function swapTokens(direction: SwapDirection, token: Address): { fromToken: Address; toToken: Address } {
+  if (direction === "buy") return { fromToken: USDC, toToken: token.toLowerCase() as Address };
+  if (direction === "sell") return { fromToken: token.toLowerCase() as Address, toToken: USDC };
   throw new TradePreparationError("invalid-request");
 }
 
@@ -63,14 +62,15 @@ type QuoteCheck = { request: SwapReviewRequest; quote: SwapQuote; now: Date; cur
 type LiquidQuote = Extract<SwapQuote, { liquidityAvailable: true }>;
 
 function checkQuoteIdentity({ request, quote, currentBlockNumber }: QuoteCheck): LiquidQuote {
-  const { fromToken, toToken } = swapTokens(request.direction);
+  const { fromToken, toToken } = swapTokens(request.direction, request.token);
   if (request.fromAmount <= BigInt(0) || !Number.isInteger(request.slippageBps) || request.slippageBps < 1 || request.slippageBps > 300) {
     throw new TradePreparationError("invalid-request");
   }
   if (!quote.liquidityAvailable) throw new TradePreparationError("no-liquidity");
+  if (quote.toAmount === BigInt(0) || quote.minToAmount === BigInt(0)) throw new TradePreparationError("below-minimum");
   if (
     quote.fromToken !== fromToken || quote.toToken !== toToken || quote.fromAmount !== request.fromAmount ||
-    quote.toAmount <= BigInt(0) || quote.minToAmount <= BigInt(0) || quote.minToAmount > quote.toAmount ||
+    quote.minToAmount > quote.toAmount ||
     quote.minToAmount < quote.toAmount * BigInt(10_000 - request.slippageBps) / BigInt(10_000)
   ) reject();
   if (quote.blockNumber < currentBlockNumber - BigInt(30) || quote.blockNumber > currentBlockNumber + BigInt(2)) {
@@ -140,7 +140,7 @@ function decodeAction<T extends typeof BASIC_ABI | typeof V2_ABI | typeof MAVERI
 }
 
 function special(address: string, context: ActionContext): boolean {
-  return [ZERO, PERMIT2_ADDRESS, context.request.taker, context.request.signerAddress, USDC, CBBTC, context.router]
+  return [ZERO, PERMIT2_ADDRESS, context.request.taker, context.request.signerAddress, USDC, context.request.token, context.router]
     .some((value) => value?.toLowerCase() === address.toLowerCase());
 }
 
@@ -379,7 +379,7 @@ export function rfqMakerAuthorizations(request: SwapReviewRequest, quote: Liquid
 }
 
 export function swapExecutionMatches(request: SwapReviewRequest, quote: LiquidQuote, swapRouter: Address) {
-  const { fromToken, toToken } = swapTokens(request.direction);
+  const { fromToken, toToken } = swapTokens(request.direction, request.token);
   const targetMatchesRouter = /^0x[0-9a-f]{40}$/.test(swapRouter) &&
     swapRouter !== ZERO && swapRouter !== PERMIT2_ADDRESS && swapRouter !== fromToken && swapRouter !== toToken &&
     quote.transaction.to === swapRouter;
@@ -428,7 +428,7 @@ function executableCalldata(data: Hex, takerDeadline: bigint): { data: Hex; exec
 }
 
 function checkQuoteExecutionShape(request: SwapReviewRequest, quote: LiquidQuote, now: Date, swapRouter: Address) {
-  const { fromToken } = swapTokens(request.direction);
+  const { fromToken } = swapTokens(request.direction, request.token);
   if (!quote.permit2) reject();
   const permit = validatePermit2({
     eip712: quote.permit2.eip712, providerHash: quote.permit2.hash, token: fromToken,
@@ -447,7 +447,7 @@ export function checkQuoteCompatibility(input: QuoteCheck): void {
 
 export function validateSwapQuote(input: QuoteCheck) {
   const { request, now } = input;
-  const { fromToken, toToken } = swapTokens(request.direction);
+  const { fromToken, toToken } = swapTokens(request.direction, request.token);
   const quote = checkQuoteIdentity(input);
   if (quote.issues.balance !== null) throw new TradePreparationError("insufficient-balance");
   if (quote.issues.simulationIncomplete !== false) reject();

@@ -64,6 +64,7 @@ export type AccountWalletClient = {
   ) => Promise<unknown>;
   fetchActivity: (query: string, signal?: AbortSignal) => Promise<unknown>;
   fetchAccountResource: (path: string, options?: AccountResourceOptions) => Promise<unknown>;
+  fetchCountryPreference: (signal?: AbortSignal) => Promise<unknown>;
   prepareMoneyAction: (kind: string, params: unknown) => Promise<PreparedMoneyAction>;
   resumeMoneyAction: (id: string) => Promise<PreparedMoneyAction>;
   executeMoneyAction: (action: PreparedMoneyAction) => Promise<OperationResult>;
@@ -126,6 +127,7 @@ export function createBlockedAccountWalletClient(
     fetchBalances: async () => { throw new Error("Balances are unavailable."); },
     fetchActivity: async () => { throw new Error("Activity is unavailable."); },
     fetchAccountResource: async () => { throw new Error("Authenticated resource is unavailable."); },
+    fetchCountryPreference: async () => { throw new Error("Country preference is unavailable."); },
     prepareMoneyAction: async () => { throw new TransferExecutionError("unavailable"); },
     resumeMoneyAction: async () => { throw new TransferExecutionError("unavailable"); },
     executeMoneyAction: async () => { throw new TransferExecutionError("unavailable"); },
@@ -279,8 +281,12 @@ export function CdpAccountProvider({
   return <AccountWalletClientProvider client={unconfiguredClient}>{children}</AccountWalletClientProvider>;
 }
 
+export function useOptionalAccountWallet(): AccountWalletClient | null {
+  return useContext(AccountWalletContext);
+}
+
 export function useAccountWallet(): AccountWalletClient {
-  const client = useContext(AccountWalletContext);
+  const client = useOptionalAccountWallet();
   if (!client) throw new Error("Account wallet client is unavailable outside its provider.");
   return client;
 }

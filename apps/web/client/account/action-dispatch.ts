@@ -1,4 +1,3 @@
-import { MfaError } from "@coinbase/cdp-core";
 import { BaseAccountConnectorError } from "./base-account-connector";
 import type { OwnerGenerationFence } from "./cdp-session-lifecycle";
 import { TransferExecutionError } from "@/shared/transfers/types";
@@ -14,7 +13,8 @@ export function isUserRejectedWalletError(error: unknown): boolean {
   return (
     error instanceof BaseAccountConnectorError && error.reason === "cancelled"
   ) || (
-    error instanceof MfaError && error.code === "CANCELLED"
+    error instanceof Error && error.name === "MfaError" &&
+    "code" in error && error.code === "CANCELLED"
   );
 }
 
@@ -68,7 +68,8 @@ export async function executeActionOnce(input: {
   try {
     providerHandle = await dispatch;
   } catch (error) {
-    if (isUserRejectedWalletError(error)) {
+    const notSubmitted = error instanceof TransferExecutionError && error.reason === "not-submitted";
+    if (isUserRejectedWalletError(error) || notSubmitted) {
       if (input.providerDispatches.get(input.id) === dispatch) {
         input.providerDispatches.delete(input.id);
         const attempt = input.dispatchAttempts.get(input.id) ?? 0;
@@ -78,11 +79,13 @@ export async function executeActionOnce(input: {
           if (input.pendingDeclines.get(input.id) === report) input.pendingDeclines.delete(input.id);
         });
       }
-      throw new TransferExecutionError("rejected", error);
+      throw notSubmitted ? error : new TransferExecutionError("rejected", error);
     }
     if (retryGateFailed && input.providerDispatches.get(input.id) === dispatch) {
       input.providerDispatches.delete(input.id);
     }
+    if (error instanceof TransferExecutionError && error.reason === "stale-session") throw error;
+    if (!retryGateFailed) throw new TransferExecutionError("dispatch-unknown", error);
     throw error;
   }
   input.fence.assertCurrent(input.generation);

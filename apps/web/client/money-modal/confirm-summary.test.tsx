@@ -6,7 +6,7 @@ import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { afterEach, expect, test } from "bun:test";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 
-const { cleanup, render, within } = await import("@testing-library/react");
+const { cleanup, fireEvent, render, within } = await import("@testing-library/react");
 const { MoneyConfirmSummary } = await import("./confirm-summary");
 
 const action: PreparedMoneyAction = {
@@ -37,10 +37,32 @@ test("review rows remain terms and definitions in one list block, including full
   ];
   expect(list.children).toHaveLength(pairs.length);
   for (const [index, [label, value]] of pairs.entries()) {
-    const row = within(list.children[index] as HTMLElement);
-    expect(row.getByRole("term").textContent).toBe(label);
-    expect(row.getByRole("definition").textContent).toBe(value);
+    const row = list.children[index] as HTMLElement;
+    expect(row.querySelector("dt")?.textContent).toBe(label);
+    expect(row.querySelector("dd")?.textContent).toBe(value);
   }
+});
+
+test("Details is controlled by a labelled toggle and starts collapsed for each keyed action", () => {
+  const props = { amount: "$1.00", lead: "Buy DEGEN", rows: [{ label: "You get", value: "≈ 1 DEGEN" }], details: [{ label: "Minimum received", value: "0.99 DEGEN" }], action };
+  const view = render(<MoneyConfirmSummary key={action.id} {...props} />);
+  const toggle = view.getByRole("button", { name: "Details" });
+  expect(toggle.getAttribute("aria-controls")).toBeNull();
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  expect(view.queryByText("Minimum received")).toBeNull();
+  fireEvent.click(toggle);
+  expect(toggle.getAttribute("aria-expanded")).toBe("true");
+  const id = toggle.getAttribute("aria-controls");
+  const list = document.getElementById(id!);
+  expect(list?.tagName).toBe("DL");
+  expect(within(list!).getByRole("definition").textContent).toBe("0.99 DEGEN");
+  fireEvent.click(toggle);
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  expect(document.getElementById(id!)).toBeNull();
+  fireEvent.click(toggle);
+  view.rerender(<MoneyConfirmSummary key="next-quote" {...props} action={{ ...action, id: "next-quote" }} />);
+  expect(view.getByRole("button", { name: "Details" }).getAttribute("aria-expanded")).toBe("false");
+  expect(view.queryByText("Minimum received")).toBeNull();
 });
 
 test("review shows the maximum network fee in USDC and USD", () => {
