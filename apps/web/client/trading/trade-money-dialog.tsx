@@ -5,17 +5,18 @@ import { LoaderCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { MoneyMotionProvider } from "@/components/money-ticker";
 import { useReactiveExpiry } from "@/client/actions/expiry";
+import { presentPortfolioAssetMark } from "@/client/asset-mark/presentation";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import {
-  MoneyAmountDisplay, MoneyConfirmFooter, MoneyConfirmSummary, MoneyModal,
+  MoneyAmountDisplay, MoneyAssetPicker, MoneyConfirmFooter, MoneyConfirmSummary, MoneyModal,
   MoneyModalBody, MoneyModalFooter, MoneyModalHeader,
   MoneyModalStep,
   decimalFromBaseUnits, isPositiveDecimalAmount, moneyConfirmFromRow, useMoneyAmountUnit, type MoneyAssetPrice,
 } from "@/client/money-modal";
 import type { MoneyConfirmRow } from "@/client/money-modal/confirm-summary";
 import { Button } from "@/components/ui/button";
-import { canonicalUsdcAsset } from "@/config/portfolio-assets";
+import { assetKeyForErc20, canonicalUsdcAsset } from "@/config/portfolio-assets";
 import { CopyableValue } from "@/components/copyable-value";
 import { maxAmountAfterNetworkFee, useNetworkFeeReserveState } from "@/client/money-modal/network-fee-policy";
 import { reportClientError } from "@/client/observability/client-reporter";
@@ -165,18 +166,21 @@ export function TradeMoneyDialog({ open, direction, session, token, assetName, a
     }
   }
 
+  const amountAssetProps = direction === "buy"
+    ? { assetId: "usdc", assetLabel: "USDC", assetCurrency: canonicalUsdcAsset.cashCurrency }
+    : { assetId: token.assetId, assetLabel: token.symbol, assetMark: presentPortfolioAssetMark({ assetKey: assetKeyForErc20(token.address), name: assetName, symbol: token.symbol, currency: null }) };
   const spentAmount = metadata ? tradeDisplayAmount(metadata.fromAmountBaseUnits, metadata.fromAsset) : "";
   return <MoneyMotionProvider>
     <MoneyModal open={open} labelledBy="trade-action-title" pending={step === "pending"} onCancel={close} onClose={resetAfterClose}>
       <MoneyModalStep step={step === "pending" || step === "failed" ? "confirm" : step} depth={step === "amount" ? 0 : step === "dispatch-unknown" ? 2 : 1}>
       <MoneyModalHeader title={step === "amount" ? `${direction === "buy" ? "Buy" : "Sell"} ${assetName}` : step === "dispatch-unknown" ? "Check Activity" : "Confirm"} titleId="trade-action-title"
-        {...(canGoBack ? { onBack: back } : {})} closeLabel="Close trade dialog" />
+        {...(step === "amount" ? { assetControl: <MoneyAssetPicker {...amountAssetProps} locked /> } : canGoBack ? { onBack: back } : {})} closeLabel="Close trade dialog" />
       <MoneyModalBody hasFooter={step !== "pending"} className="gap-4 pt-4">
         {step === "amount" ? <>
           <MoneyAmountDisplay amount={amount} maxDecimals={decimals} onAmountChange={(value) => { setAmount(value); setMaxSelected(false); }}
             onMaxSelect={() => setMaxSelected(true)}
             overAvailable={exceedsAvailable} onSubmit={canContinue ? () => void prepare() : undefined}
-            assetId={direction === "buy" ? "usdc" : token.assetId} assetLabel={symbol} assetLocked
+            {...amountAssetProps} assetControl="header" assetLocked
             nativeSymbol={symbol} unit={direction === "buy" ? cashUnit : sellUnit}
             availableLabel={reservePending ? reserveFailed ? "Network fee unavailable" : "Checking network fee…" : maxBaseUnits !== null ? `${decimalFromBaseUnits(maxBaseUnits, decimals)} available` : "Balance unavailable"}
             availableAmount={!reservePending && maxBaseUnits !== null ? decimalFromBaseUnits(maxBaseUnits, decimals) : null} chipSet="max">

@@ -285,12 +285,12 @@ export function MoneyModalHeader(props: MoneyModalHeaderProps) {
   const backDisabled = "backDisabled" in props ? props.backDisabled ?? false : false;
   const assetControl = "assetControl" in props ? props.assetControl : undefined;
   return (
-    <DrawerHeader className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center text-left">
-      <div className="flex min-w-0 justify-start overflow-hidden">
+    <DrawerHeader className="grid shrink-0 grid-cols-[minmax(max-content,1fr)_minmax(0,auto)_minmax(max-content,1fr)] items-center text-left">
+      <div className="flex min-w-0 justify-start">
         {onBack ? <Button data-initial-focus={!backDisabled ? "" : undefined} variant="ghost" size="icon-lg" className="size-11" aria-label="Back" disabled={backDisabled} onClick={onBack}><ArrowLeft className="size-4" aria-hidden="true" /></Button> : assetControl ?? <span />}
       </div>
       <DrawerTitle id={titleId} variant="money">{title}</DrawerTitle>
-      <div className="flex min-w-0 justify-end overflow-hidden">
+      <div className="flex min-w-0 justify-end">
         <Button data-initial-focus={!isCloseDisabled && (!onBack || backDisabled) ? "" : undefined} variant="ghost" size="icon-lg" className="size-11 shrink-0" aria-label={closeLabel} disabled={isCloseDisabled} onClick={exit}><X className="size-4" aria-hidden="true" /></Button>
       </div>
     </DrawerHeader>

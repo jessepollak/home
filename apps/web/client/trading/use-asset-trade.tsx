@@ -5,7 +5,7 @@ import { useQueries } from "@tanstack/react-query";
 import { isServerVerified, useOptionalAccountWallet, type AccountWalletClient } from "@/client/account/cdp-client";
 import { useBalances } from "@/client/balances";
 import { usePresentationRegionId } from "@/client/invest/presentation-quote";
-import { deferSheet } from "@/client/money-modal/deferred-sheet";
+import { deferSheet, useIdlePreload } from "@/client/money-modal/deferred-sheet";
 import { browserHomeQueryClient } from "@/client/query/query-client";
 import { selectBalanceBaseUnits } from "@/shared/balances/select";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
@@ -52,13 +52,26 @@ export function useAssetTrade(candidates: readonly TradeCandidate[], { session: 
   }));
   const [direction, setDirection] = useState<TradeDirection | null>(null);
   const opener = useRef<HTMLButtonElement | null>(null);
-  function open(assetId: string, mode: TradeDirection, button: HTMLButtonElement) {
+  const closing = useRef(false);
+  useIdlePreload(TradeMoneySheet.preload, candidates.some(({ assetId }) => eligible(assetId, "buy") !== null || eligible(assetId, "sell") !== null));
+  function eligible(assetId: string, mode: TradeDirection) {
     const candidate = candidates.find((entry) => entry.assetId === assetId);
     const available = availability.get(assetId);
     if (!owner || !candidate || available?.status !== "available" || !session?.smartAccount ||
-      (mode === "buy" ? states.get(assetId) !== "ready" : available.balanceBaseUnits === "0")) return;
+      (mode === "buy" ? states.get(assetId) !== "ready" : available.balanceBaseUnits === "0")) return null;
+    return { owner, assetId, assetName: candidate.assetName, token: available.token, direction: mode };
+  }
+  function intent(assetId: string, mode: TradeDirection) {
+    void TradeMoneySheet.preload();
+    const next = eligible(assetId, mode);
+    if (next && direction === null && !closing.current) setMounted(next);
+  }
+  function open(assetId: string, mode: TradeDirection, button: HTMLButtonElement) {
+    const next = eligible(assetId, mode);
+    if (!next) return;
     opener.current = button;
-    setMounted({ owner, assetId, assetName: candidate.assetName, token: available.token, direction: mode });
+    closing.current = false;
+    setMounted(next);
     setDirection(mode);
   }
   const mountedAvailability = mounted ? availability.get(mounted.assetId) : null;
@@ -72,12 +85,12 @@ export function useAssetTrade(candidates: readonly TradeCandidate[], { session: 
     key={`${owner}:${mounted.assetId}:${mounted.direction}`} open={direction !== null} direction={mounted.direction} session={session}
     assetName={mounted.assetName} token={mounted.token} availableBaseUnits={mounted.direction === "buy" ? cash : holding} assetPrice={assetPrice}
     fetchAccountResource={account.fetchAccountResource} prepareMoneyAction={account.prepareMoneyAction}
-    executeMoneyAction={account.executeMoneyAction} onClose={() => setDirection(null)}
+    executeMoneyAction={account.executeMoneyAction} onClose={() => { closing.current = true; setDirection(null); }}
     onClosed={() => {
+      closing.current = false;
       setMounted(null);
       if (opener.current?.isConnected) opener.current.focus();
       else onFallbackFocus?.();
     }} /> : null;
-  return { availability, balances, usableBalances, cash, states, session, account, sheet, open,
-    preload: () => void TradeMoneySheet.preload() };
+  return { availability, balances, usableBalances, cash, states, session, account, sheet, open, intent };
 }

@@ -58,8 +58,9 @@ type StoryProps = {
   errorCode?: string;
   networkFee?: "available" | "failed";
   tinyPrice?: boolean;
+  assetName?: string;
 };
-function TradeStory({ direction = "buy", view = "amount", availability = "available", errorCode, networkFee = "available", tinyPrice = false }: StoryProps) {
+function TradeStory({ direction = "buy", view = "amount", availability = "available", errorCode, networkFee = "available", tinyPrice = false, assetName = "DEGEN" }: StoryProps) {
   const [client] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: false } } }));
   const [preparations, setPreparations] = useState(0);
   const fetchAccountResource = async (path: string) => path.startsWith("/api/trades?")
@@ -86,7 +87,7 @@ function TradeStory({ direction = "buy", view = "amount", availability = "availa
         status: "verified", verification: "server", session,
         fetchBalances: async () => balancesSnapshot("US"), fetchAccountResource,
       }}><TradeActions asset={degen} /></AccountWalletClientProvider> :
-        <TradeMoneyDialog open direction={direction} session={session} token={token} assetName="DEGEN"
+        <TradeMoneyDialog open direction={direction} session={session} token={token} assetName={assetName}
           availableBaseUnits={direction === "buy" ? "10000000" : "100000000000000000000"}
           assetPrice={direction === "sell" ? { currency: "USD", perUnit: { atoms: "5", scale: 3 } } : null}
           fetchAccountResource={fetchAccountResource}
@@ -154,8 +155,10 @@ export const BuyAmount: Story = {
     const screen = within(canvasElement.ownerDocument.body);
     await expect(await screen.findByRole("dialog", { name: "Buy DEGEN" })).toBeVisible();
     await expect(await screen.findByRole("button", { name: "Max" })).toBeEnabled();
+    await expect(await within(screen.getByRole("dialog", { name: "Buy DEGEN" }).querySelector('[data-slot="drawer-header"]') as HTMLElement).findByRole("group", { name: "USDC" })).toBeVisible();
   },
 };
+export const LongNameAmount: Story = { args: { assetName: "An Exceptionally Long Token Name for Narrow Screens" } };
 export const BuyReview: Story = {
   args: { view: "review" },
   play: async ({ canvasElement }) => {
@@ -185,6 +188,7 @@ export const SellAmount: Story = {
   play: async ({ canvasElement }) => {
     const screen = within(canvasElement.ownerDocument.body);
     await expect(await screen.findByRole("button", { name: /as the primary amount/ })).toBeVisible();
+    await expect(await within(screen.getByRole("dialog", { name: "Sell DEGEN" }).querySelector('[data-slot="drawer-header"]') as HTMLElement).findByRole("group", { name: "DEGEN" })).toBeVisible();
   },
 };
 export const SubCentPriceReview: Story = {

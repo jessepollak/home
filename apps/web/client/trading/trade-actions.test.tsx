@@ -12,7 +12,7 @@ import { retryTradeAvailability, tradeAvailabilityRefetchInterval } from "./use-
 import { invalidateAfterAction, invalidateIndexedScopes } from "@/client/query/after-action";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 
-const { cleanup, render, waitFor } = await import("@testing-library/react");
+const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { TradeActions } = await import("./trade-actions");
 const bitcoin = cryptoAssets.find((asset) => asset.id === "cbbtc")!;
 const xrp = cryptoAssets.find((asset) => asset.id === "cbxrp")!;
@@ -61,6 +61,21 @@ function show(
 afterEach(() => { cleanup(); getHomeQueryClient().clear(); });
 
 describe("per-asset trading availability", () => {
+  test.each(["Buy", "Sell"] as const)("%s pointer intent mounts a closed sheet so click focuses Amount in the tap", async (label) => {
+    const view = show();
+    const button = view.getByRole("button", { name: label }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+    await act(async () => { fireEvent.pointerDown(button); await import("./trade-money-dialog"); });
+    fireEvent.click(button);
+    expect(document.activeElement).toBe(view.getByRole("textbox", { name: "Amount" }));
+  });
+  test.each(["Buy", "Sell"] as const)("%s without pointer intent still focuses Amount after loading", async (label) => {
+    const view = show();
+    const button = view.getByRole("button", { name: label }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+    fireEvent.click(button);
+    await waitFor(() => expect(document.activeElement).toBe(view.getByRole("textbox", { name: "Amount" })));
+  });
   test.each([
     ["signed-out", "Sign in to trade."],
     ["restoring", "Checking trading availability…"],
