@@ -8,7 +8,8 @@
   box-shadow: inset 0 1px 0 var(--glass-pill-highlight), inset 0 0 0 1px var(--glass-pill-rim);
   backdrop-filter: var(--glass-lens-occlusion);
   -webkit-backdrop-filter: var(--glass-lens-occlusion);
-  transform: translateX(calc(var(--lens-p) * 100%));
+  transform: translateX(calc(var(--lens-p) * 100%)) scale(var(--lens-sx), var(--lens-sy));
+  transform-origin: center;
   transition: opacity 160ms ease-out;
 }
 

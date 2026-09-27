@@ -226,7 +226,7 @@ export function PrimaryNavigation({
         data-keyboard-hidden={keyboardOpen ? "true" : undefined}
         data-lens={NavLens ? lensStatus ?? undefined : undefined}
         className={`${shellWidthClassName} ${styles.navigation} ${motionReady && !prefersReducedMotion ? styles.motionReady : ""} fixed inset-x-0 z-30 grid grid-cols-2 rounded-full p-1 opacity-100`}
-        style={{ "--lens-p": lensTarget } as CSSProperties}
+        style={{ "--lens-p": lensTarget, "--lens-dir": direction === "rtl" ? -1 : 1 } as CSSProperties}
       >
         <span aria-hidden="true" data-navigation-floor="" className={`${styles.floor} pointer-events-none absolute inset-0 rounded-full`} />
         <span

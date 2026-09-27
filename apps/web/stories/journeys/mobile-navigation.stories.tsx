@@ -194,6 +194,15 @@ async function verifyLens(canvasElement: HTMLElement) {
   const brands = (navigator as Navigator & { userAgentData?: { brands?: readonly EngineBrand[] } }).userAgentData?.brands;
   if (isChromiumEngine(brands)) await expect(nav).toHaveAttribute("data-glass-rim");
   else await expect(nav).not.toHaveAttribute("data-glass-rim");
+  const home = within(nav).getByRole("button", { name: "Home" });
+  const pointer = { bubbles: true, isPrimary: true, pointerId: 1, pointerType: "touch", button: 0 };
+  home.dispatchEvent(new PointerEvent("pointerdown", pointer));
+  await expect(nav).toHaveAttribute("data-lens-pressed");
+  home.dispatchEvent(new PointerEvent("pointerup", pointer));
+  await waitFor(() => expect(nav).not.toHaveAttribute("data-lens-pressed"));
+  await userEvent.click(home);
+  await expect(home).toHaveAttribute("aria-current", "page");
+  await waitFor(() => expect(nav).toHaveAttribute("data-lens", "resting"));
 }
 async function verifyNoLens(canvasElement: HTMLElement) {
   const nav = await verifyNav(canvasElement, "Home");

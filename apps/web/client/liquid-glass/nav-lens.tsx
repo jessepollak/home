@@ -24,6 +24,7 @@ const RIM_SOFTEN = 0.5;
 const RIM_FROST = 24;
 const RIM_CORE_INSET = 19;
 const RIM_CORE_FEATHER = 5;
+const MIN_PRESS_MS = 120;
 const cache = createRecentCache<LensImages>(4);
 const rimCache = createRecentCache<RimImages>(4);
 
@@ -161,6 +162,37 @@ export function NavLens({ items, target, reducedMotion, onStatusChange }: NavLen
     nav.addEventListener("transitionend", settle);
     return () => nav.removeEventListener("transitionend", settle);
   }, []);
+
+  useLayoutEffect(() => {
+    const nav = windowRef.current?.parentElement;
+    if (!nav || reducedMotion || !animated) return;
+    let pointer: number | null = null;
+    let pressedAt = 0;
+    let release = 0;
+    const press = (event: PointerEvent) => {
+      if (!event.isPrimary || event.button !== 0 || !(event.target instanceof Element)) return;
+      if (event.target.closest("button")?.parentElement !== nav) return;
+      window.clearTimeout(release);
+      pointer = event.pointerId;
+      pressedAt = event.timeStamp;
+      nav.setAttribute("data-lens-pressed", "");
+    };
+    const lift = (event: PointerEvent) => {
+      if (event.pointerId !== pointer) return;
+      pointer = null;
+      release = window.setTimeout(() => nav.removeAttribute("data-lens-pressed"), Math.max(0, MIN_PRESS_MS - (event.timeStamp - pressedAt)));
+    };
+    nav.addEventListener("pointerdown", press, { passive: true });
+    window.addEventListener("pointerup", lift, { passive: true });
+    window.addEventListener("pointercancel", lift, { passive: true });
+    return () => {
+      nav.removeEventListener("pointerdown", press);
+      window.removeEventListener("pointerup", lift);
+      window.removeEventListener("pointercancel", lift);
+      window.clearTimeout(release);
+      nav.removeAttribute("data-lens-pressed");
+    };
+  }, [reducedMotion, animated]);
 
   useLayoutEffect(() => {
     const nav = windowRef.current?.parentElement;

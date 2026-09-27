@@ -4,6 +4,12 @@
   initial-value: 0;
 }
 
+@property --lens-lift {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+
 @media (max-width: 63.9375rem) {
   .navigation {
     --glass-tint-top: color-mix(in oklch, var(--background) 68%, transparent);
@@ -29,10 +35,20 @@
     bottom: calc(var(--shell-navigation-offset) + var(--shell-viewport-overhang));
     box-shadow: var(--glass-shadow);
     transition: opacity 150ms cubic-bezier(.4, 0, .2, 1), transform 150ms cubic-bezier(.4, 0, .2, 1);
+    --lens-lift: 0;
+    --lens-stretch: calc(4 * var(--lens-p) * var(--lens-dir, 1) * (1 - var(--lens-p) * var(--lens-dir, 1)));
+    --lens-sx: calc(1 + var(--lens-lift) * .15 + var(--lens-stretch) * .1);
+    --lens-sy: calc(1 + var(--lens-lift) * .18 - var(--lens-stretch) * .04);
   }
 
+  .navigation[data-lens-pressed] { --lens-lift: 1; }
+
   .motionReady {
-    transition: opacity 150ms cubic-bezier(.4, 0, .2, 1), transform 150ms cubic-bezier(.4, 0, .2, 1), --lens-p 180ms cubic-bezier(.25, 1.15, .35, 1);
+    transition: opacity 150ms cubic-bezier(.4, 0, .2, 1), transform 150ms cubic-bezier(.4, 0, .2, 1), --lens-p 180ms cubic-bezier(.25, 1.15, .35, 1), --lens-lift 420ms cubic-bezier(.3, 0, .2, 1.5);
+  }
+
+  .motionReady[data-lens-pressed] {
+    transition: opacity 150ms cubic-bezier(.4, 0, .2, 1), transform 150ms cubic-bezier(.4, 0, .2, 1), --lens-p 180ms cubic-bezier(.25, 1.15, .35, 1), --lens-lift 160ms cubic-bezier(.2, 0, 0, 1);
   }
 
   :global(.dark) .navigation {
@@ -75,17 +91,19 @@
   .navigation[data-lens="resting"] [aria-current="page"] > .content { opacity: 0; }
 
   .navigation[data-lens="moving"] > button > .content,
+  .navigation[data-lens][data-lens-pressed] > button > .content,
   .navigation[data-lens] > [aria-current="page"] > .content {
-    --lens-hole-height: calc(var(--nav-lens-height) + 2px);
-    --lens-hole-left: calc(var(--lens-p) * var(--nav-lens-width) - var(--nav-lens-origin) - 1px);
-    --lens-hole-span: calc(var(--nav-lens-width) + 2px - var(--lens-hole-height));
+    --lens-hole-height: calc(var(--nav-lens-height) * var(--lens-sy) + 2px);
+    --lens-hole-cap-width: calc(var(--nav-lens-height) * var(--lens-sx) + 2px);
+    --lens-hole-left: calc(var(--lens-p) * var(--nav-lens-width) - var(--nav-lens-origin) - var(--nav-lens-width) * (var(--lens-sx) - 1) / 2 - 1px);
+    --lens-hole-span: calc((var(--nav-lens-width) - var(--nav-lens-height)) * var(--lens-sx));
     --lens-hole-cap: radial-gradient(closest-side, #000 calc(100% - .5px), transparent);
     -webkit-mask-image: linear-gradient(#000 0 0), var(--lens-hole-cap), linear-gradient(#000 0 0), var(--lens-hole-cap);
     mask-image: linear-gradient(#000 0 0), var(--lens-hole-cap), linear-gradient(#000 0 0), var(--lens-hole-cap);
-    -webkit-mask-size: 100% 100%, var(--lens-hole-height) var(--lens-hole-height), var(--lens-hole-span) var(--lens-hole-height), var(--lens-hole-height) var(--lens-hole-height);
-    mask-size: 100% 100%, var(--lens-hole-height) var(--lens-hole-height), var(--lens-hole-span) var(--lens-hole-height), var(--lens-hole-height) var(--lens-hole-height);
-    -webkit-mask-position: 0 0, var(--lens-hole-left) 50%, calc(var(--lens-hole-left) + var(--lens-hole-height) / 2) 50%, calc(var(--lens-hole-left) + var(--lens-hole-span)) 50%;
-    mask-position: 0 0, var(--lens-hole-left) 50%, calc(var(--lens-hole-left) + var(--lens-hole-height) / 2) 50%, calc(var(--lens-hole-left) + var(--lens-hole-span)) 50%;
+    -webkit-mask-size: 100% 100%, var(--lens-hole-cap-width) var(--lens-hole-height), var(--lens-hole-span) var(--lens-hole-height), var(--lens-hole-cap-width) var(--lens-hole-height);
+    mask-size: 100% 100%, var(--lens-hole-cap-width) var(--lens-hole-height), var(--lens-hole-span) var(--lens-hole-height), var(--lens-hole-cap-width) var(--lens-hole-height);
+    -webkit-mask-position: 0 0, var(--lens-hole-left) 50%, calc(var(--lens-hole-left) + var(--lens-hole-cap-width) / 2) 50%, calc(var(--lens-hole-left) + var(--lens-hole-span)) 50%;
+    mask-position: 0 0, var(--lens-hole-left) 50%, calc(var(--lens-hole-left) + var(--lens-hole-cap-width) / 2) 50%, calc(var(--lens-hole-left) + var(--lens-hole-span)) 50%;
     -webkit-mask-repeat: no-repeat;
     mask-repeat: no-repeat;
     -webkit-mask-composite: xor, source-over, source-over, source-over;
@@ -126,7 +144,8 @@
 }
 
 @media (max-width: 63.9375rem) and (prefers-reduced-motion: reduce) {
-  .navigation, .motionReady, .content, .pill { transition: none; }
+  .navigation, .motionReady, .motionReady[data-lens-pressed], .content, .pill { transition: none; }
+  .navigation[data-lens-pressed] { --lens-lift: 0; }
   .navigation :active > .content { scale: 1; }
   .navigation[data-keyboard-hidden="true"] { transform: none; }
 }
