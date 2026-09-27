@@ -21,6 +21,9 @@ describePostgres("Postgres funding provider user token store", () => {
     await admin.unsafe(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE`);
     await admin.unsafe(`CREATE SCHEMA ${SCHEMA}`);
     await inSchema(await readMigrationSql("008_funding_provider_user_tokens.sql"));
+    for (const file of ["001_actions.sql", "002_funding_provider_seam.sql", "007_funding_provider_customers.sql", "011_operator_registry.sql", "017_record_customer_ids.sql"]) {
+      await inSchema(await readMigrationSql(file));
+    }
     sql = createPostgresSqlExecutor(connectionString!, { schema: SCHEMA });
     store = new PostgresFundingProviderUserTokenStore(sql);
   });

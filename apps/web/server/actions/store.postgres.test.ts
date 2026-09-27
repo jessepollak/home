@@ -50,6 +50,9 @@ describePostgres("actions schema and store", () => {
       await transaction.unsafe(cashoutMigration);
       await transaction.unsafe(observationsMigration);
       await transaction.unsafe(observationsMigration);
+      for (const file of ["002_funding_provider_seam.sql", "007_funding_provider_customers.sql", "008_funding_provider_user_tokens.sql", "011_operator_registry.sql", "017_record_customer_ids.sql"]) {
+        await transaction.unsafe(await readMigrationSql(file));
+      }
       await transaction.unsafe("INSERT INTO schema_migrations (name) VALUES ($1), ($2), ($3), ($4), ($5)", ["db/001_actions.sql", "db/012_action_outcomes.sql", "db/013_action_call_commitment.sql", "db/014_cashout_orders.sql", "db/016_action_receipt_observations.sql"]);
     });
     sql = createPostgresSqlExecutor(connectionString!, { schema: TEST_SCHEMA });
@@ -77,6 +80,7 @@ describePostgres("actions schema and store", () => {
       "confirmed_at", "provider_handle", "transaction_hash", "handle_recorded_at",
       "account_address", "declined_reported_at", "dispatch_attempt", "outcome", "outcome_source", "settled_at", "outcome_recorded_at", "confirmed_call_data_hash",
       "observed_receipt_transaction_hash", "observed_receipt_block_number", "observed_receipt_block_hash", "observed_receipt_outcome", "observed_at",
+      "customer_id", "credential_id", "wallet_id",
     ]);
   });
 

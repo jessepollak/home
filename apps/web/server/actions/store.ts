@@ -3,6 +3,7 @@ import "server-only";
 import { keccak256 } from "viem";
 import { encodeCoinbaseExecuteBatch } from "@/server/chain/coinbase-smart-account";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
+import { recordCustomerIds } from "@/server/customers/record-ids";
 import { getFundingProvider } from "@/server/funding/providers";
 import { UNKNOWN_WINDOW_MS } from "@/server/funding/cash-out-window";
 import {
@@ -168,11 +169,12 @@ export class ActionsStore {
     pending: PendingAction;
     createdAt: string;
   }): Promise<void> {
+    const ids = await recordCustomerIds(this.sql, input.owner, new Date(input.createdAt));
     await this.sql.query(
-      `INSERT INTO actions (id, owner_key, account_address, provider, kind, summary, pending, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::timestamptz)`,
+      `INSERT INTO actions (id, owner_key, account_address, provider, kind, summary, pending, created_at, customer_id, credential_id, wallet_id)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::timestamptz, $9, $10, $11)`,
       [input.id, actionOwnerKey(input.owner), input.owner.address.toLowerCase(), input.owner.accountProvider, input.kind,
-        JSON.stringify(input.summary), JSON.stringify(input.pending), input.createdAt],
+        JSON.stringify(input.summary), JSON.stringify(input.pending), input.createdAt, ids.customerId, ids.credentialId, ids.walletId],
     );
   }
 
