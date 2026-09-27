@@ -35,7 +35,7 @@ function validCall(amount = BigInt(2_000_000)) {
   const canonical = encodeFunctionData({ abi: PEER_CREATE_DEPOSIT_ABI, functionName: "createDeposit", args: [params] });
   return { to: ctx.deployment.contracts.escrow, data: `${canonical}${suffix().slice(2)}` as Hex, value: "0" };
 }
-function installClients(withOrder = false, payeeHashes: readonly string[] = [PAYEE_HASH], preparedAmount = BigInt(2_000_000)) {
+function installClients(withOrder = false, payeeHashes: readonly string[] = [PAYEE_HASH], preparedAmount = BigInt(2_000_000), registeredPayees?: string[]) {
   const amount = BigInt(2_000_000);
   const orders = payeeHashes.map((payeeHash, index) => ({
     depositId: `${PEER_PRODUCTION_CONTRACTS.escrow.toLowerCase()}_${7 + index}`,
@@ -54,13 +54,13 @@ function installClients(withOrder = false, payeeHashes: readonly string[] = [PAY
   };
   const sdk = {
     chainId: 8453, runtimeEnv: "production", escrowV2Address: PEER_PRODUCTION_CONTRACTS.escrow, intentGuardianAddress: PEER_PRODUCTION_CONTRACTS.intentGuardian,
-    registerPayeeDetails: async () => ({ hashedOnchainIds: [PAYEE_HASH] }),
+    registerPayeeDetails: async (value: { payeeData: { offchainId: string }[] }) => { registeredPayees?.push(value.payeeData[0]!.offchainId); return { hashedOnchainIds: [PAYEE_HASH] }; },
     prepareCreateDeposit: async () => ({ prepared: { ...validCall(preparedAmount), value: BigInt(0), chainId: 8453 } }),
   };
   setPeerClientFactoryForTests(() => ({ environment: "production", cash: cash as never, sdk: sdk as never }));
 }
 function input() {
-  return { providerId: "peer", region: "US", assetId: "base:usdc", amountBaseUnits: "2000000", platform: "cashapp", currency: "USD", payoutHandle: "$Alice", canonicalHandleConfirmation: "Alice" };
+  return { providerId: "peer", region: "US", assetId: "base:usdc", amountBaseUnits: "2000000", platform: "cashapp", currency: "USD", payoutHandle: "$Alice" };
 }
 function row(overrides: Partial<ActionRow> = {}): ActionRow {
   return {
@@ -134,11 +134,27 @@ describe("Peer cash-out action preparation", () => {
     expect(draft.calls[0]?.to).toBe(PEER_PRODUCTION_CONTRACTS.escrow);
   });
 
-  test("rejects non-verbatim canonical confirmation before curator registration", async () => {
+  test.each(["   ", "$"])("rejects an empty canonical cash app destination", async (payoutHandle) => {
     installClients();
-    await expect(prepareCashoutAction(session, { ...input(), canonicalHandleConfirmation: "$Alice" }, undefined, {
+    await expect(prepareCashoutAction(session, { ...input(), payoutHandle }, undefined, {
       env: { PEER_OFFRAMP_ENABLED: "1" }, store: clearStore, readAllowance: async () => BigInt(0),
-    })).rejects.toMatchObject({ code: "identity-mismatch" });
+    })).rejects.toMatchObject({ code: "invalid-input", message: "Enter a valid payout destination." });
+  });
+
+  test("rejects the legacy confirmation key", async () => {
+    await expect(prepareCashoutAction(session, { ...input(), canonicalHandleConfirmation: "Alice" }, undefined, {
+      env: { PEER_OFFRAMP_ENABLED: "1" },
+    })).rejects.toMatchObject({ code: "invalid-input" });
+  });
+
+  test("passes a canonical Cash App payee to Peer and metadata", async () => {
+    const registeredPayees: string[] = [];
+    installClients(false, [PAYEE_HASH], BigInt(2_000_000), registeredPayees);
+    const draft = await prepareCashoutAction(session, input(), undefined, {
+      env: { PEER_OFFRAMP_ENABLED: "1" }, store: clearStore, readAllowance: async () => BigInt(0),
+    });
+    expect(registeredPayees).toEqual(["Alice"]);
+    expect(draft.metadata).toMatchObject({ canonicalHandle: "Alice" });
   });
 
   test("rejects a euro-area cash-out aimed at another market's platform or currency", async () => {
@@ -201,7 +217,7 @@ describe("Peer cash-out action preparation", () => {
 
   test("refuses the same payee in different letter case while another cash-out is hashless", async () => {
     installClients();
-    await expect(prepareCashoutAction(session, { ...input(), payoutHandle: "$alice", canonicalHandleConfirmation: "alice" }, undefined, {
+    await expect(prepareCashoutAction(session, { ...input(), payoutHandle: "$alice" }, undefined, {
       env: { PEER_OFFRAMP_ENABLED: "1" }, store: { ...clearStore, list: async () => [row()] }, readAllowance: async () => BigInt(0),
     })).rejects.toMatchObject({ code: "duplicate-unknown" });
   });
@@ -216,7 +232,7 @@ describe("Peer cash-out action preparation", () => {
 
   test("prepares for a different payee while another cash-out is hashless", async () => {
     installClients();
-    const draft = await prepareCashoutAction(session, { ...input(), payoutHandle: "$Bob", canonicalHandleConfirmation: "Bob" }, undefined, {
+    const draft = await prepareCashoutAction(session, { ...input(), payoutHandle: "$Bob" }, undefined, {
       env: { PEER_OFFRAMP_ENABLED: "1" }, store: { ...clearStore, list: async () => [row()] }, readAllowance: async () => BigInt(2_000_000),
     });
     expect(draft.metadata).toMatchObject({ canonicalHandle: "Bob" });
@@ -224,7 +240,7 @@ describe("Peer cash-out action preparation", () => {
 
   test("prepares for a different payee while another cash-out has an unsettled local order", async () => {
     installClients();
-    const draft = await prepareCashoutAction(session, { ...input(), payoutHandle: "$Bob", canonicalHandleConfirmation: "Bob" }, undefined, {
+    const draft = await prepareCashoutAction(session, { ...input(), payoutHandle: "$Bob" }, undefined, {
       env: { PEER_OFFRAMP_ENABLED: "1" }, store: {
         ...clearStore, hasUnsettledCashout: async (_owner, intent) => intent.canonicalHandle === "Alice",
       }, readAllowance: async () => BigInt(2_000_000),

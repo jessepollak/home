@@ -93,6 +93,34 @@ const withdrawAction: PreparedMoneyAction = {
   },
 };
 
+const depositAction: PreparedMoneyAction = {
+  ...action, id: "33333333-3333-4333-8333-333333333333", kind: "cash-out", title: "Cash out with Peer",
+  owner: { ...action.owner, subject: "deposit-story" },
+  calls: [{ to: "0x777777779d229cdF3110e9de47943791c26300Ef", data: "0x1234", value: "0" }],
+  metadata: {
+    product: "cashout", operation: "deposit", providerId: "peer", providerName: "Peer", environment: "production",
+    platform: "cashapp", platformLabel: "Cash App", currency: "USD", canonicalHandle: "alice",
+    approximateFiatAmount: "1", etaSeconds: 60, minConversionRate: "1",
+    intentAmountRange: { min: "1000000", max: "1000000" }, estimateAsOf: "2026-09-23T10:35:00.000Z",
+    escrow: "0x777777779d229cdF3110e9de47943791c26300Ef",
+  },
+};
+
+export const DepositReview: Story = {
+  args: {
+    ownerBoundary: "deposit-story", resumeActionId: depositAction.id,
+    prepareMoneyAction: async () => depositAction, resumeMoneyAction: async () => depositAction,
+  },
+  play: async ({ canvasElement }) => {
+    const screen = canvas(canvasElement);
+    const destination = await screen.findByRole("group", { name: "Payout destination" });
+    await expect(within(destination).getByRole("button", { name: "Edit Cash App cashtag" })).toBeVisible();
+    await expect(within(destination).getByText("alice")).toBeVisible();
+    await expect(screen.queryByText("Payout handle")).toBeNull();
+    await expect(screen.getByRole("button", { name: "Cash out $1.00" })).toBeVisible();
+  },
+};
+
 export const WithdrawalPending: Story = {
   args: {
     ownerBoundary: "withdraw-story", resumeActionId: withdrawAction.id,

@@ -87,7 +87,7 @@ export function createPrepareActionHandler(dependencies: {
       }
       if (error instanceof CashoutPreparationError) {
         const status = error.code === "duplicate-unknown" || error.code === "order-in-flight" ? 409
-          : error.code === "identity-mismatch" || error.code === "invalid-input" ? 400
+          : error.code === "invalid-input" ? 400
           : error.code === "not-withdrawable" ? 422 : 502;
         return fail(`CASHOUT_${error.code.toUpperCase().replaceAll("-", "_")}`, error.message, status);
       }

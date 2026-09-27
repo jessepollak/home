@@ -29,7 +29,6 @@ type CashoutInput = {
   platform: string;
   currency: FiatCurrencyCode;
   payoutHandle: string;
-  canonicalHandleConfirmation: string;
 };
 
 type WithdrawInput = {
@@ -52,7 +51,6 @@ export class CashoutPreparationError extends Error {
       | "unavailable"
       | "duplicate-unknown"
       | "order-in-flight"
-      | "identity-mismatch"
       | "not-withdrawable",
     message: string,
   ) {
@@ -83,9 +81,7 @@ export async function prepareCashoutAction(
   if (!provider?.offramp || !binding || !direction || !environmentAvailable(direction.env, env)) unavailable();
   const sandbox = resolveFundingMode(provider.manifest, "offramp", env) === "sandbox";
   const canonicalHandle = canonicalizeCashPayee(input.platform, input.payoutHandle);
-  if (!canonicalHandle || input.canonicalHandleConfirmation !== canonicalHandle) {
-    throw new CashoutPreparationError("identity-mismatch", "Confirm the canonical payout handle exactly as shown.");
-  }
+  if (!canonicalHandle) throw new CashoutPreparationError("invalid-input", "Enter a valid payout destination.");
   const owner = moneyActionOwner(session);
   if (!owner) unavailable();
   const now = dependencies.now?.() ?? new Date();
@@ -278,7 +274,7 @@ async function readAllowance(owner: `0x${string}`, spender: `0x${string}`, signa
 }
 
 function parseCashoutInput(value: Record<string, unknown>): CashoutInput | null {
-  const keys = ["providerId", "region", "assetId", "amountBaseUnits", "platform", "currency", "payoutHandle", "canonicalHandleConfirmation"];
+  const keys = ["providerId", "region", "assetId", "amountBaseUnits", "platform", "currency", "payoutHandle"];
   if (Object.keys(value).some((key) => !keys.includes(key)) || !keys.every((key) => typeof value[key] === "string")) return null;
   if (!/^(?:[1-9]\d*)$/.test(value.amountBaseUnits as string) || !/^[A-Z]{3}$/.test(value.currency as string)) return null;
   return value as CashoutInput;
