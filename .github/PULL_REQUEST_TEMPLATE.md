@@ -11,11 +11,14 @@
 
 ## Preview
 
-<!-- User-visible work: Vercel preview link and EVERY retained screenshot/clip as GitHub user-attachments in one compact table. Label state and CSS-pixel viewport; pair Before/After at matching state, data, and viewport when useful. No screenshot cap. Only labels and media here; put browser observations, limitations, cleanup, and review findings in Evidence. Otherwise write N/A: docs-only / CI-only / pure server. -->
+<!-- User-visible work: Vercel preview link and EVERY retained screenshot/clip as GitHub user-attachments in one compact table. Label state and CSS-pixel viewport; pair Before/After at matching state, data, and viewport when useful. No screenshot cap. Only labels and media here; put browser observations, limitations, cleanup, and review findings in Evidence. Put `story:<story-id>` in each row's Board cell when a story shows that state; CI turns it into a direct link on the current Storybook deployment and keeps the Review board link below pointed at those stories. Otherwise write N/A: docs-only / CI-only / pure server. -->
 
-| State + viewport | Evidence |
-| --- | --- |
-| Changed state — 390×844 CSS px | GitHub attachment |
+<!-- review-links:start -->
+<!-- review-links:end -->
+
+| State + viewport | Board | Evidence |
+| --- | --- | --- |
+| Changed state — 390×844 CSS px | `story:<story-id>` | GitHub attachment |
 
 <details><summary>Evidence</summary>
 

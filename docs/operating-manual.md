@@ -115,11 +115,11 @@ The bot-dedicated Home account is configured by `HOME_VERIFY_ACCOUNT_EMAIL`, not
 
 Lead the PR body with `## Review` (at most 150 words): 1–3 **Changes for the user** bullets, **Your call** for choices made without Jesse, issue deviations, or risky logic (otherwise "none"), and one **Not verified / risk** line (otherwise "none"). Do not narrate implementation visible in the diff or enumerate tests; give counts and commands. Put durable rationale in commits, docs, or the issue. Rewrite the body for the current head on every push; never append history such as rebases, earlier-head runs, or thread IDs.
 
-Keep `## Preview` visible. For design work lead with the direct [Storybook board](design-system.md#review-boards) link on the PR's Storybook preview; keep the current Home Vercel preview link and every retained screenshot or clip directly in the PR description. There is no screenshot cap. Use a compact Markdown table with state and CSS-pixel viewport labels; pair Before/After at matching state, data, and viewport when useful:
+Keep `## Preview` visible. It leads with the managed [Storybook board](design-system.md#review-boards) link; declare the stories under review with `story:<story-id>` in each row's Board cell and CI generates the top link and per-row frame links on the current Storybook deployment ([Storybook links](ui-pr-previews.md#storybook-links)). Keep the current Home Vercel preview link and every retained screenshot or clip directly in the PR description. There is no screenshot cap. Use a compact Markdown table with state and CSS-pixel viewport labels; pair Before/After at matching state, data, and viewport when useful:
 
-| State + viewport | Evidence |
-|---|---|
-| Save review — 390×844 CSS px | GitHub screenshot attachment |
+| State + viewport | Board | Evidence |
+|---|---|---|
+| Save review — 390×844 CSS px | `story:journeys-savings-deposit--deposit` | GitHub screenshot attachment |
 
 Only preview links, labels, and media belong in Preview. Put `## Verification` (table and `Verified:` / `Not verified:` lines), `## Test plan` (including optional `Playwright-rung:` / `Test-weight:` lines), `## Real money`, and `## Operator action required` inside `<details><summary>Evidence</summary>` with a blank line after the summary; close `</details>`. There summarize browser mode, route, viewport, exercised path including recovery/Back, final state, browser console/errors, exact fixture-server cleanup, observed facts, limitations, and review findings. End with exactly one `Closes #<issue>` or `Refs #<issue>` line. Refresh affected media after implementation changes. Docs-only, CI-only, and pure server PRs put `N/A: docs-only / CI-only / pure server` in Preview. [UI PR previews](ui-pr-previews.md) is the detailed workflow.
 
