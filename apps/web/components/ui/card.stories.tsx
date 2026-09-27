@@ -6,7 +6,7 @@ const meta = {
   id: "ui-card",
   title: "UI/Card",
   component: Card,
-  parameters: { layout: "centered", a11y: { test: "error" }, design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=269-5270" } },
+  parameters: { layout: "centered", a11y: { test: "error" }, design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=269-5270" }, docs: { description: { component: "Unlike upstream shadcn, footer padding uses child `:has(> …)` rather than descendant `:has()`: descendant matching on a virtualized feed ancestor makes every row mount or unmount invalidate styles." } } },
 } satisfies Meta<typeof Card>;
 
 export default meta;
@@ -28,6 +28,25 @@ export const Default: Story = {
       <CardFooter>
         <Button className="w-full">Deposit</Button>
       </CardFooter>
+    </Card>
+  ),
+};
+
+export const WithoutFooter: Story = {
+  render: () => (
+    <Card className="w-80">
+      <CardHeader><CardTitle>Save</CardTitle></CardHeader>
+      <CardContent><p>Base USDC vault</p></CardContent>
+    </Card>
+  ),
+};
+
+export const SmallWithFooter: Story = {
+  render: () => (
+    <Card className="w-80" size="sm">
+      <CardHeader><CardTitle>Save</CardTitle></CardHeader>
+      <CardContent><p>Base USDC vault</p></CardContent>
+      <CardFooter><Button className="w-full">Deposit</Button></CardFooter>
     </Card>
   ),
 };

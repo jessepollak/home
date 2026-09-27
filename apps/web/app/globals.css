@@ -108,7 +108,7 @@
 }
 
 @supports (height: 100dvh) {
-  :root:has([data-app-main-authenticated]) {
+  :root {
     --shell-viewport-overhang: calc(100dvh - 100svh);
   }
 }
