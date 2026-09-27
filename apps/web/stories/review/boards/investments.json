@@ -1,0 +1,301 @@
+{
+  "id": "investments",
+  "title": "Investments L2 — proposal",
+  "summary": "Unreviewed holdings and owned-asset detail proposal for #1038; production adoption #1040.",
+  "refs": {
+    "issue": 1038
+  },
+  "sections": [
+    {
+      "id": "cash-and-investments",
+      "title": "Cash and Investments",
+      "note": "Same balances snapshot on Cash and Investments.",
+      "frames": [
+        {
+          "id": "shared-portfolio",
+          "story": "cash-cash-l2--shared-portfolio",
+          "label": "Cash · shared portfolio",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Cash on the same combined balances snapshot."
+        },
+        {
+          "id": "matching-cash",
+          "story": "explorations-investments-l2--matching-cash",
+          "label": "Investments · shared portfolio",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Investments total on the shared portfolio."
+        }
+      ]
+    },
+    {
+      "id": "holdings",
+      "title": "Holdings states",
+      "note": "Owned assets, empty and recovery states.",
+      "frames": [
+        {
+          "id": "funded",
+          "story": "explorations-investments-l2--funded",
+          "label": "Funded",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "All owned assets, including tiny and collateral."
+        },
+        {
+          "id": "single",
+          "story": "explorations-investments-l2--single",
+          "label": "Single",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "One investment."
+        },
+        {
+          "id": "many-holdings",
+          "story": "explorations-investments-l2--many-holdings",
+          "label": "Many Holdings",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "60 holdings load progressively as the list scrolls."
+        },
+        {
+          "id": "empty",
+          "story": "explorations-investments-l2--empty",
+          "label": "Empty",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Zero balance hero only; no exploration action."
+        },
+        {
+          "id": "loading",
+          "story": "explorations-investments-l2--loading",
+          "label": "Loading",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Balance and holdings skeletons without a reserved action."
+        },
+        {
+          "id": "partial-inventory",
+          "story": "explorations-investments-l2--partial-inventory",
+          "label": "Partial Inventory",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Known holdings remain visible with an incomplete-coverage caveat and retry."
+        },
+        {
+          "id": "registry-outage",
+          "story": "explorations-investments-l2--registry-outage",
+          "label": "Registry Outage",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "No inferred owned rows; unavailable hero total has an outage caveat and retry."
+        },
+        {
+          "id": "unpriced",
+          "story": "explorations-investments-l2--unpriced",
+          "label": "Unpriced",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Unpriced wallet token remains visible."
+        },
+        {
+          "id": "metadata-fallback",
+          "story": "explorations-investments-l2--metadata-fallback",
+          "label": "Metadata Fallback",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Symbol-only name and mark without an image."
+        },
+        {
+          "id": "duplicate-names-focus-return",
+          "story": "explorations-investments-l2--duplicate-names-focus-return",
+          "label": "Duplicate Names Focus Return",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Return focus to the selected holding when names match."
+        },
+        {
+          "id": "many-holdings-focus-return",
+          "story": "explorations-investments-l2--many-holdings-focus-return",
+          "label": "Many Holdings Focus Return",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Return focus to a holding revealed below the initial batch."
+        },
+        {
+          "id": "refresh-failed",
+          "story": "explorations-investments-l2--refresh-failed",
+          "label": "Refresh Failed",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Cached holdings with retry."
+        },
+        {
+          "id": "balances-failed",
+          "story": "explorations-investments-l2--balances-failed",
+          "label": "Balances Failed",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "No snapshot; recovery only."
+        },
+        {
+          "id": "collateral",
+          "story": "explorations-investments-l2--collateral",
+          "label": "Collateral",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Merged and collateral-only holdings."
+        },
+        {
+          "id": "collateral-without-available-entry",
+          "story": "explorations-investments-l2--collateral-without-available-entry",
+          "label": "Collateral · no wallet record",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Collateral-only asset while inventory is incomplete."
+        },
+        {
+          "id": "partial-borrow-coverage",
+          "story": "explorations-investments-l2--partial-borrow-coverage",
+          "label": "Borrow read failed",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "One borrow market couldn't be read."
+        },
+        {
+          "id": "collateral-catalog-complete-registry-partial",
+          "story": "explorations-investments-l2--collateral-catalog-complete-registry-partial",
+          "label": "Collateral · catalog complete, registry partial",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Complete catalog establishes zero available cbETH despite an unrelated registry read failure."
+        },
+        {
+          "id": "partial-borrow-no-holdings",
+          "story": "explorations-investments-l2--partial-borrow-no-holdings",
+          "label": "Borrow read failed · no holdings",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "No known holdings while borrow coverage is partial."
+        }
+      ]
+    },
+    {
+      "id": "stress",
+      "title": "Stress",
+      "note": "Mobile containment and desktop composition.",
+      "frames": [
+        {
+          "id": "narrow",
+          "story": "explorations-investments-l2--narrow",
+          "label": "Narrow",
+          "viewport": "narrow",
+          "change": "new",
+          "note": "Long names and large values at 320 px."
+        },
+        {
+          "id": "funded-desktop",
+          "story": "explorations-investments-l2--funded-desktop",
+          "label": "Desktop",
+          "viewport": "desktop",
+          "change": "new",
+          "note": "Full holdings list at desktop width."
+        }
+      ]
+    },
+    {
+      "id": "detail",
+      "title": "Owned asset detail",
+      "note": "Owned catalog and non-catalog assets.",
+      "frames": [
+        {
+          "id": "detail",
+          "story": "explorations-investments-l2--detail",
+          "label": "Detail",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Catalog asset price, chart and balance."
+        },
+        {
+          "id": "detail-discovered",
+          "story": "explorations-investments-l2--detail-discovered",
+          "label": "Detail Discovered",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Discovered asset market data without catalog trading."
+        },
+        {
+          "id": "detail-collateral",
+          "story": "explorations-investments-l2--detail-collateral",
+          "label": "Detail Collateral",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Available wallet versus collateral."
+        },
+        {
+          "id": "detail-collateral-partial-inventory",
+          "story": "explorations-investments-l2--detail-collateral-partial-inventory",
+          "label": "Detail Collateral Partial Inventory",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Unknown cbXRP wallet balance makes the total unavailable while $5 collateral remains visible."
+        },
+        {
+          "id": "detail-collateral-known-zero",
+          "story": "explorations-investments-l2--detail-collateral-known-zero",
+          "label": "Detail Collateral Known Zero",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Known-zero wallet available beside collateral despite incomplete catalog coverage."
+        },
+        {
+          "id": "detail-collateral-unavailable",
+          "story": "explorations-investments-l2--detail-collateral-unavailable",
+          "label": "Detail Collateral Unavailable",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Unknown cbBTC wallet balance makes the total unavailable while $35,000 collateral remains visible."
+        },
+        {
+          "id": "detail-stock",
+          "story": "explorations-investments-l2--detail-stock",
+          "label": "Detail Stock",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Stock trade eligibility unchanged."
+        },
+        {
+          "id": "detail-not-listed",
+          "story": "explorations-investments-l2--detail-not-listed",
+          "label": "Detail Not Listed",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Unlisted ownership without trade actions."
+        }
+      ]
+    },
+    {
+      "id": "journey",
+      "title": "Journey",
+      "note": "Home, holdings, detail and focus return.",
+      "frames": [
+        {
+          "id": "home-to-holdings",
+          "story": "journeys-investments-holdings--home-to-holdings",
+          "label": "Home to Holdings · mobile",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Home to holdings to detail, then Back restores focus to Home's Investments row."
+        },
+        {
+          "id": "home-to-holdings-desktop",
+          "story": "journeys-investments-holdings--home-to-holdings-desktop",
+          "label": "Home to Holdings · desktop",
+          "viewport": "desktop",
+          "change": "new",
+          "note": "The same focus-return journey ends at Home's Investments row."
+        }
+      ]
+    }
+  ]
+}
