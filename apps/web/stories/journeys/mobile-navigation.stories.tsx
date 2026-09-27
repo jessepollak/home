@@ -161,6 +161,16 @@ function PreviewShell({ initialPanel, homeIndicator, fallback, longLabels, balan
   </MoneyMotionProvider></PresentationRegionProvider></AppChromeProvider>;
 }
 
+function MotionSwitchShell(props: Props) {
+  const [reducedMotion, setReducedMotion] = useState(false);
+  return (
+    <>
+      <PreviewShell {...props} reducedMotion={reducedMotion} />
+      <button type="button" aria-label="Toggle reduced motion" onClick={() => setReducedMotion(!reducedMotion)} className="fixed right-4 top-4 z-50">Motion</button>
+    </>
+  );
+}
+
 const meta = {
   id: "journeys-mobile-navigation", title: "Journeys/Mobile navigation", component: PreviewShell,
   args: { initialPanel: "home", homeIndicator: false, fallback: false, longLabels: false,
@@ -328,6 +338,21 @@ export const ActionToast: Story = { args: { actionToast: true }, play: async ({ 
   await waitFor(() => expect(toastBox.getBoundingClientRect().bottom).toBeLessThanOrEqual(nav.getBoundingClientRect().top));
 } };
 export const RapidTaps: Story = { play: async ({ canvasElement }) => { await verifyRapidTabs(canvasElement); } };
+export const InterruptedMotion: Story = { render: (args) => <MotionSwitchShell {...args} />, play: async ({ canvasElement }) => {
+  const nav = await verifyNav(canvasElement, "Home");
+  await waitFor(() => expect(nav.querySelector('[data-navigation-lens="ready"]')).toBeInTheDocument());
+  await waitFor(() => expect(nav).toHaveAttribute("data-lens", "resting"));
+  const invest = within(nav).getByRole("button", { name: "Invest" });
+  const toggle = within(canvasElement).getByRole("button", { name: "Toggle reduced motion" });
+  const transitioning = () => nav.getAnimations().some((animation) => animation instanceof CSSTransition && animation.transitionProperty === "--lens-p" && animation.playState === "running");
+  invest.click();
+  await waitFor(() => expect(transitioning()).toBe(true));
+  toggle.click();
+  await waitFor(() => expect(transitioning()).toBe(false));
+  toggle.click();
+  await expect(invest).toHaveAttribute("aria-current", "page");
+  await waitFor(() => expect(nav).toHaveAttribute("data-lens", "resting"));
+} };
 export const DepositSheet: Story = { args: { initialPanel: "cash" }, play: async ({ canvasElement }) => { await openMoneySheet(canvasElement); } };
 export const AccountKeyboard: Story = { args: { initialPanel: "account" }, play: async ({ canvasElement }) => {
   const field = within(canvasElement).getByRole("combobox", { name: "Country" });

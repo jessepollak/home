@@ -97,6 +97,12 @@ function supportsTypedProperties() {
   return typeof CSS !== "undefined" && "registerProperty" in CSS;
 }
 
+function hasLensTransition(nav: HTMLElement) {
+  return typeof CSSTransition !== "undefined" && nav.getAnimations().some((animation) =>
+    animation instanceof CSSTransition && animation.transitionProperty === "--lens-p" &&
+    (animation.playState === "running" || animation.pending));
+}
+
 function readRimEnabled() {
   const brands = (navigator as Navigator & { userAgentData?: { brands?: readonly EngineBrand[] } }).userAgentData?.brands;
   return shouldRefractNavRim({ ...readNavLensEnvironment(), brands });
@@ -161,12 +167,41 @@ export function NavLens({ items, target, reducedMotion, onStatusChange }: NavLen
   useLayoutEffect(() => {
     const nav = windowRef.current?.parentElement;
     if (!nav) return;
+    let frame = 0;
     const settle = (event: TransitionEvent) => {
-      if (event.target === nav && event.propertyName === "--lens-p") setRestingTarget(targetRef.current);
+      if (event.target !== nav || event.propertyName !== "--lens-p") return;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (!hasLensTransition(nav)) setRestingTarget(targetRef.current);
+      });
+    };
+    const hide = () => {
+      if (document.visibilityState === "hidden") setRestingTarget(targetRef.current);
     };
     nav.addEventListener("transitionend", settle);
-    return () => nav.removeEventListener("transitionend", settle);
+    nav.addEventListener("transitioncancel", settle);
+    document.addEventListener("visibilitychange", hide);
+    return () => {
+      nav.removeEventListener("transitionend", settle);
+      nav.removeEventListener("transitioncancel", settle);
+      document.removeEventListener("visibilitychange", hide);
+      cancelAnimationFrame(frame);
+    };
   }, []);
+
+  useLayoutEffect(() => {
+    const nav = windowRef.current?.parentElement;
+    if (!nav) return;
+    if (reducedMotion || !animated || document.visibilityState === "hidden" || nav.getClientRects().length === 0) {
+      setRestingTarget(target);
+      return;
+    }
+    if (restingTarget === target) return;
+    const frame = requestAnimationFrame(() => {
+      if (!hasLensTransition(nav)) setRestingTarget(targetRef.current);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [target, reducedMotion, animated, restingTarget]);
 
   useLayoutEffect(() => {
     const nav = windowRef.current?.parentElement;
