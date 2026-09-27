@@ -118,3 +118,21 @@ test("ambiguous result clears the route and opens Activity after closing, withou
   window.dispatchEvent(new PopStateEvent("popstate"));
   expect(events).toEqual(["clear-id", "close", "panel:activity"]);
 });
+
+test("double activation of Send confirm dispatches one execute", async () => {
+  let finish!: (value: { id: string; status: "submitted" }) => void;
+  const executions: string[] = [];
+  render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="double-send" resumeActionId={ID}
+    prepareMoneyAction={async () => action} resumeMoneyAction={async () => action}
+    executeMoneyAction={(prepared) => {
+      executions.push(prepared.id);
+      return new Promise((resolve) => { finish = resolve; });
+    }} onClose={() => {}} />);
+  const confirm = await page().findByRole("button", { name: "Send $1.00" });
+  fireEvent.click(confirm);
+  fireEvent.click(confirm);
+  expect(executions).toEqual([ID]);
+  expect(confirm.getAttribute("aria-busy")).toBe("true");
+  await act(async () => finish({ id: ID, status: "submitted" }));
+  expect(await page().findByRole("heading", { name: "$1.00 on its way" })).toBeTruthy();
+});

@@ -6,7 +6,6 @@ import { Alert, AlertAction, AlertIcon, AlertDescription } from "@/components/ui
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { DrawerFooter } from "@/components/ui/drawer";
 import {
   Item,
   ItemActions,
@@ -30,7 +29,7 @@ import {
 } from "@/config/regions";
 import { formatAddress } from "@/shared/formatting";
 import type { FundingProviderCustomerSummary } from "@/shared/funding/contracts/provider-customers";
-import { MoneyModal, MoneyModalBody, MoneyModalHeader, MoneyModalStep } from "@/client/money-modal";
+import { MoneyModal, MoneyModalActions, MoneyModalBody, MoneyModalHeader, MoneyModalStep } from "@/client/money-modal";
 import { ReceiveQr } from "./receive-qr";
 import {
   FundingOrderFlow,
@@ -151,14 +150,14 @@ export function AddMoneyDialog({
         />
       ) : null}
       {signedOut ? (
-        <DrawerFooter>
+        <MoneyModalActions>
           <Link
             className={buttonVariants({ size: "touch" })}
             href="/?account=signin"
           >
             Sign in
           </Link>
-        </DrawerFooter>
+        </MoneyModalActions>
       ) : null}
         </MoneyModalStep>
       ) : null}

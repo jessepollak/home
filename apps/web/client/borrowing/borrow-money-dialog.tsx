@@ -26,6 +26,8 @@ import {
   amountExceedsCeiling,
   isPositiveDecimalAmount,
   useMoneyAmountUnit,
+  maxAmountAfterNetworkFee,
+  useNetworkFeeReserve,
   type MoneyAssetPrice,
 } from "@/client/money-modal";
 import {
@@ -46,7 +48,6 @@ import {
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { networkFeeErrorMessage } from "@/shared/money-actions/network-fee";
 import { TransferExecutionError } from "@/shared/transfers/types";
-import { maxAmountAfterNetworkFee, useNetworkFeeReserve } from "@/client/money-modal/network-fee-policy";
 import { borrowOperationLabels, buildBorrowPreparedIntent } from "./borrow-ui";
 import {
   BorrowNotice,

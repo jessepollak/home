@@ -2,8 +2,7 @@
 
 import { useId, useState, type ReactNode } from "react";
 import { ArrowDownLeft, CircleAlert, CircleCheck, CircleQuestionMark, CircleX, Clock, LoaderCircle } from "lucide-react";
-import { MoneyModal, MoneyModalBody, MoneyModalFooter, MoneyModalHeader } from "@/client/money-modal";
-import { useAutoFitAmountText } from "@/client/money-modal/amount";
+import { MoneyModal, MoneyModalActions, MoneyModalBody, MoneyModalFooter, MoneyModalHeader, useAutoFitAmountText } from "@/client/money-modal";
 import { CopyableValue } from "@/components/copyable-value";
 import { CurrencyMark } from "@/components/currency-mark";
 import { AssetRow } from "@/components/finance-rows";
@@ -11,7 +10,6 @@ import { Alert, AlertIcon, AlertDescription, AlertTitle } from "@/components/ui/
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { DrawerFooter } from "@/components/ui/drawer";
 import { StatusStep, StatusSteps } from "@/components/ui/status-step";
 import { formatAddress } from "@/shared/formatting";
 import { isActivityLedgerNextActionAllowed, needsCustomer, ownerDefaults, statusWords, type ActivityLedgerFact, type ActivityLedgerItem, type ActivityLedgerNextActionKind, type Transaction } from "./activity-ledger";
@@ -268,7 +266,7 @@ export function ActivityLedgerDetailSheet({
         {action && actionError ? <p role="alert" className="text-sm text-destructive">{actionError}</p> : null}
       </MoneyModalBody>
       {item && action ? action.kind === "clear-order" ? (
-        <DrawerFooter>
+        <MoneyModalActions>
           <Button
             size="lg"
             variant="outline"
@@ -278,7 +276,7 @@ export function ActivityLedgerDetailSheet({
           >
             {action.label}
           </Button>
-        </DrawerFooter>
+        </MoneyModalActions>
       ) : (
         <MoneyModalFooter
           primaryLabel={action.label}

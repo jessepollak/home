@@ -2,6 +2,7 @@ export {
   AppDrawer,
   MoneyConfirmFooter,
   MoneyModal,
+  MoneyModalActions,
   MoneyModalBody,
   MoneyModalFooter,
   MoneyModalHeader,
@@ -15,6 +16,7 @@ export { deferStep, type DeferredStep } from "./deferred-sheet";
 export {
   MoneyAmountDisplay,
   MoneyAssetPicker,
+  useAutoFitAmountText,
   useMoneyAmountUnit,
   type MoneyAssetOption,
 } from "./amount";
@@ -25,6 +27,13 @@ export {
   MoneyConfirmSummary,
   moneyConfirmFromRow,
 } from "./confirm-summary";
+export type { MoneyConfirmRow } from "./confirm-summary";
+
+export {
+  maxAmountAfterNetworkFee,
+  useNetworkFeeReserve,
+  useNetworkFeeReserveState,
+} from "./network-fee-policy";
 
 export {
   isPositiveDecimalAmount,

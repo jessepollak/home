@@ -9,3 +9,23 @@
   - Two intents only. The header X, Escape, backdrop and swipe all call the host's exit (`onCancel`, blocked while an action is pending); it closes the whole journey from any step and never returns to a parent step. `onBack` moves one step inside the same host. Flows reset transient step state when the close finishes, so reopening starts at the entry step.
   - The header's leading track holds Back or the step's asset selector, and the trailing track holds X; both keep their intrinsic width, and the centered title truncates between them rather than overlapping either control. Amount steps put their selector (locked when the flow's asset is fixed, as in Buy and Sell) in that leading track, never in the body.
   - The step host is the single focus owner. Deferred trade entry points mount their sheet closed on pointer intent so the tap itself opens it and focuses the amount input; entering a step, including the first, focuses its amount input, else its marked primary control, else Back/X, inside the same commit as the tap that caused it, so a software keyboard can open without a second tap on a warm step. Amount fields do not self-focus; they refocus on an asset change only when the user is choosing inside the sheet. The host restores focus only when it was parked on the step or lost to a removed control, never after a deliberate dismissal. A cold lazy step shows its loading state in the open sheet and focuses the amount when it arrives, outside the tap, so its keyboard may need a tap.
+
+## Composition API
+
+Import money-flow pieces from `@/client/money-modal`; import `deferSheet` and `deferStep` from `@/client/money-modal/deferred-sheet` for lazy loading. Use `MoneyModal` as the host for money journeys; `AppDrawer` is only for non-money app sheets. Compose each screen with `MoneyModalStep` (or `MoneyModalStepLoading`), `MoneyModalHeader` and `MoneyModalBody`. The header accepts either `assetControl` for the amount step's top-left selector (locked when the flow's asset is fixed) or `onBack` for a nested step, never both. Use `MoneyModalFooter` for a primary/secondary pair, `MoneyConfirmFooter` for a required prepared-action confirm, and `MoneyModalActions` for custom footer content. Results use `MoneyResult` and `MoneyResultFooter`; amount entry uses `MoneyAmountDisplay` and `MoneyAssetPicker`.
+
+## Approved variants
+
+- Entry step with a header asset selector.
+- Nested step with Back in the leading track.
+- Detail or management tray without amount entry (such as activity detail or Borrow overview), using `MoneyModal`, header, body, and `MoneyModalActions`.
+- Loading step via `MoneyModalStepLoading`.
+- Result step via `MoneyResult` and `MoneyResultFooter`.
+
+## Add a new money flow
+
+- Use one `MoneyModal` per journey and one `MoneyModalStep` per screen, keyed by step; lazy-load the entry with `deferSheet` and nested steps with `deferStep`.
+- Confirm with `MoneyConfirmFooter` and its prepared action.
+- X exits through the host's `onCancel`; Back moves within the journey through `onBack`.
+- Register in-flight work with `pending` or `useMoneyModalPending`.
+- Never import Drawer, Dialog, or `createPortal` into a money flow; lint enforces this boundary (see [repository gates](../../gates.md)).

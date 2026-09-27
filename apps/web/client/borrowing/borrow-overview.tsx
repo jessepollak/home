@@ -9,7 +9,7 @@ import { borrowOperationLabels, borrowRiskCopy, borrowRiskState } from "./borrow
 import { BorrowNotice, collateralDisplayName, formatCash, formatToken, LiquidationBufferMeter, presentBorrowAssetMark } from "./borrowing-experience";
 import { HomeSectionHeading } from "@/client/home/home-overview";
 import { ShimmerRows } from "@/client/home/panel-shared";
-import { MoneyModal, MoneyModalBody, MoneyModalHeader, MoneyModalStep, MoneyModalStepLoading, deferStep } from "@/client/money-modal";
+import { MoneyModal, MoneyModalActions, MoneyModalBody, MoneyModalHeader, MoneyModalStep, MoneyModalStepLoading, deferStep } from "@/client/money-modal";
 import { useIdlePreload } from "@/client/money-modal/deferred-sheet";
 import { CurrencyMark } from "@/components/currency-mark";
 import { AssetRow, type FinanceRowAction } from "@/components/finance-rows";
@@ -19,7 +19,6 @@ import { FeatureIntro } from "@/components/ui/feature-intro";
 import { MoneyTicker } from "@/components/money-ticker";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { DrawerFooter } from "@/components/ui/drawer";
 import { Skeleton } from "@/components/ui/skeleton";
 import { presentationRegions, type RegionId } from "@/config/regions";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
@@ -216,7 +215,7 @@ function ManagementSheet({ snapshot, name, regionId, openingAvailableRaw, titleI
         Details<ChevronDown className={`size-4 transition-transform duration-150 motion-reduce:transition-none ${detailsOpen ? "rotate-180" : ""}`} />
       </Button><div id={detailsId} hidden={!detailsOpen}><Facts rows={details} /></div></div> : null}
     </MoneyModalBody>
-    <DrawerFooter><SheetFooter snapshot={snapshot} name={name} debt={debt} pledged={pledged} canDispatch={canDispatch} begin={begin} focusOperation={focusOperation} actionFocusRef={actionFocusRef} /></DrawerFooter>
+    <MoneyModalActions><SheetFooter snapshot={snapshot} name={name} debt={debt} pledged={pledged} canDispatch={canDispatch} begin={begin} focusOperation={focusOperation} actionFocusRef={actionFocusRef} /></MoneyModalActions>
   </>;
 }
 

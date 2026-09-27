@@ -9,7 +9,6 @@ import { useReactiveExpiry } from "@/client/actions/expiry";
 import { useMoneyActionOutcome } from "@/client/actions/money-action-outcome";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { openPanelAfterClose, useOptionalHomeShellRouting } from "@/client/home/panel-routing";
-import { MoneyResult, MoneyResultFooter } from "@/client/money-modal/money-result";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
   MoneyAmountDisplay,
@@ -25,6 +24,10 @@ import {
   decimalFromBaseUnits,
   isPositiveDecimalAmount,
   useMoneyAmountUnit,
+  MoneyResult,
+  MoneyResultFooter,
+  maxAmountAfterNetworkFee,
+  useNetworkFeeReserve,
 } from "@/client/money-modal";
 import type {
   MoneyActionOwner,
@@ -33,7 +36,6 @@ import type {
 } from "@/shared/money-actions/types";
 import { parseUsdcAmount } from "@/client/savings/format";
 import { networkFeeErrorMessage } from "@/shared/money-actions/network-fee";
-import { maxAmountAfterNetworkFee, useNetworkFeeReserve } from "@/client/money-modal/network-fee-policy";
 import { reportClientError } from "@/client/observability/client-reporter";
 import { TransferExecutionError } from "@/shared/transfers/types";
 import {

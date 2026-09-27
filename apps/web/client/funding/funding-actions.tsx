@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { createPortal } from "react-dom";
 import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
@@ -146,7 +145,7 @@ export function FundingActionsForWallet({
         <Plus className="size-4" aria-hidden="true" />
         Add money
       </Button>
-      {mounted ? createPortal(modal, document.body) : null}
+      {mounted ? modal : null}
     </>
   );
 }

@@ -12,13 +12,12 @@ import {
   MoneyAmountDisplay, MoneyAssetPicker, MoneyConfirmFooter, MoneyConfirmSummary, MoneyModal,
   MoneyModalBody, MoneyModalFooter, MoneyModalHeader,
   MoneyModalStep,
-  decimalFromBaseUnits, isPositiveDecimalAmount, moneyConfirmFromRow, useMoneyAmountUnit, type MoneyAssetPrice,
+  decimalFromBaseUnits, isPositiveDecimalAmount, maxAmountAfterNetworkFee, moneyConfirmFromRow, useMoneyAmountUnit,
+  useNetworkFeeReserveState, type MoneyAssetPrice, type MoneyConfirmRow,
 } from "@/client/money-modal";
-import type { MoneyConfirmRow } from "@/client/money-modal/confirm-summary";
 import { Button } from "@/components/ui/button";
 import { assetKeyForErc20, canonicalUsdcAsset } from "@/config/portfolio-assets";
 import { CopyableValue } from "@/components/copyable-value";
-import { maxAmountAfterNetworkFee, useNetworkFeeReserveState } from "@/client/money-modal/network-fee-policy";
 import { reportClientError } from "@/client/observability/client-reporter";
 import { formatExactPresentationTokenAmount, formatUsdStablecoinAmount } from "@/shared/formatting";
 import { networkFeeErrorMessage } from "@/shared/money-actions/network-fee";
