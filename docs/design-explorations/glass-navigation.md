@@ -1,6 +1,6 @@
 # Glass navigation exploration
 
-Status: **Selected: CSS glass (owner, PR review 2026-09-26), resized and adopted in PrimaryNavigation mobile layout** for [#1036](https://github.com/jessepollak/home/issues/1036). The liquid candidate was not adopted. Review the production journey on `review-boards--glass-navigation`.
+Status: **Adopted in the PrimaryNavigation mobile layout** for [#1036](https://github.com/jessepollak/home/issues/1036): the CSS glass capsule, plus a lazy-loaded liquid lens for the selection pill in every engine and backdrop refraction at the capsule rim in Chromium. See [Liquid material](#liquid-material). The owner first selected CSS glass on 2026-09-26 and reopened liquid glass on 2026-09-27 with a no-DOM-capture approach. Review the production journey on `review-boards--glass-navigation`.
 
 ## Scope
 
@@ -18,7 +18,7 @@ The prototype compared current, CSS glass and liquid glass using a fixture-backe
 - **Selection:** a single persistent pill translates between tabs with a spring (`visualDuration` 0.16s, bounce 0.1), so rapid taps retarget from the current position. It follows inline direction in RTL. The selected tab uses a primary icon and a foreground label; unselected tabs use foreground at 70%.
 - **Press:** the tab content compresses to 95% immediately and releases over 140ms.
 - **Reduced motion:** the pill jumps, and press and hide transforms are removed.
-- **Material fallbacks:** without `backdrop-filter` (prefixed or unprefixed), with `prefers-reduced-transparency: reduce`, or in the journey's forced fallback, the capsule is opaque `--popover` with a `--border` rim. Forced colours use system colours. No liquid layer ships.
+- **Material fallbacks:** without `backdrop-filter` (prefixed or unprefixed), with `prefers-reduced-transparency: reduce`, or in the journey's forced fallback, the capsule is opaque `--popover` with a `--border` rim, and the liquid layer never loads. Forced colours use system colours and also skip the liquid layer.
 - **Layering:** the capsule sits below sheets and dialogs. The money sheet covers it, and the sheet's modal focus removes it from the accessibility tree.
 - **Keyboard:** the capsule fades out and becomes inert only while an editable field inside the content has focus and the visual viewport shows the keyboard covering the bottom. With a hardware keyboard or a dismissed keyboard, the nav stays available. Money inputs live in sheets, which cover the capsule.
 
@@ -71,10 +71,22 @@ Headless Chromium throttles animation frames (p95 about 133ms even for the uncha
 
 In the original comparison, opaque fallback, blur-only liquid fallback, forced colours and reduced transparency kept labels legible. The liquid cases were not adopted; the current board covers only CSS glass.
 
+## Liquid material
+
+Adopted 2026-09-27 on the owner's direction to reopen liquid glass. Nothing captures the DOM and nothing uses WebGL. The technique follows Aave's [Building glass for the web](https://aave.com/design/building-glass-for-the-web): an SVG `feDisplacementMap` bends the element's own painted content.
+
+- **Capsule (all engines, CSS only):** a masked gradient rim lit from the top, an inner glow and shade for thickness, a three-layer floating shadow, and a tint that deepens toward the labels. The capsule keeps a single `backdrop-filter`.
+- **Selection lens (all engines):** once the page is idle after hydration, `import()` loads `apps/web/client/liquid-glass/nav-lens.tsx`. It renders an `aria-hidden`, inert copy of the tabs in selected styling inside a pill-sized window, filtered with `filter: url(#…)`. The window and a counter-translated track follow one Motion value, so the displacement map stays fixed while the pill travels. While the lens is mounted, the real tab content is masked with a pill-shaped hole under the window, so no double image shows in any engine.
+- **Rim refraction (Chromium only):** when `navigator.userAgentData.brands` includes `Chromium`, the lens module also puts a capsule-sized displacement filter into the capsule's single `backdrop-filter`. Page content bends at the rim, and the capsule tint drops so the effect is visible. WebKit and Firefox parse `url()` in `backdrop-filter` but do not render displacement, so they keep the frosted capsule. So does Chromium in an insecure context, which has no `userAgentData`.
+- **Maps:** `lens-map.ts` generates the displacement and specular maps from a convex bezel profile and Snell refraction. It computes one quadrant and mirrors it. Maps are regenerated only when size or DPR changes, each regeneration gets a fresh filter id because WebKit caches filter output by id, and a four-entry cache bounds the stored data URLs. `feImage` receives an explicit region, and the filtered element carries a transform for WebKit.
+- **Gating:** `lens-gate.ts` mounts the lens only in the capsule layout below 1024px, with `backdrop-filter` support, and without reduced transparency or forced colours. It reacts to media changes. With reduced motion, the lens snaps into place.
+- **Cost:** the lazy chunk is about 4.4 KB gzip and is absent from the shell route's initial JS. The gate adds about 50 B to the initial JS. Scrolling runs no JS for the effect.
+- **Evidence and limits:** Playwright Chromium, WebKit and Firefox screenshots at rest and mid-travel, plus pixel diffs showing WebKit and Firefox unchanged by rim refraction. A physical iPhone, the installed PWA, and Android Chrome GPU cost were not measured.
+
 ## Owner selection and adoption
 
 The owner selected CSS glass and requested standard iOS tab-bar proportions in PR review on 2026-09-26. The candidate now ships in the single production `PrimaryNavigation`; the liquid dependency and exploration components were removed. Below 1024px the nav is fixed and centred with 192px width, 60px height, 52px tab targets, 22px icons, 10px labels, 4px padding, and the safe-area-aware clearance described above. At 1024px and wider the desktop rail replaces it; the former top strip was removed. A physical iPhone check and Safari-tab safe-area support remain deferred.
 
 ## Follow-ups
 
-Coverage lives in [glass-navigation/follow-ups](glass-navigation/follow-ups/), one file per follow-up. Follow-up 1 is implemented; 2 and 5 are deferred to Jesse; 3 is rejected by owner selection; 4 is covered by PR #1075; 6 tracks scroll-boundary validation with #1088.
+Coverage lives in [glass-navigation/follow-ups](glass-navigation/follow-ups/), one file per follow-up. Follow-up 1 is implemented; 2 and 5 are deferred to Jesse; 3 is implemented with the owned lens described in [Liquid material](#liquid-material) instead of the rejected package; 4 is covered by PR #1075; 6 tracks scroll-boundary validation with #1088.
