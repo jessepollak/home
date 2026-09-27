@@ -1,7 +1,6 @@
 "use client";
 
 import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { motion, useMotionValue, useTransform } from "motion/react";
 import { shouldRefractNavRim, type EngineBrand } from "./lens-gate";
 import { generateLensMaps } from "./lens-map";
 import { createRecentCache } from "./recent-cache";
@@ -88,6 +87,10 @@ function readRatio() {
   return Math.max(1, Math.min(2, window.devicePixelRatio || 1));
 }
 
+function supportsTypedProperties() {
+  return typeof CSS !== "undefined" && "registerProperty" in CSS;
+}
+
 function readRimEnabled() {
   const brands = (navigator as Navigator & { userAgentData?: { brands?: readonly EngineBrand[] } }).userAgentData?.brands;
   return shouldRefractNavRim({ ...readNavLensEnvironment(), brands });
@@ -124,7 +127,7 @@ function useLensSize(element: React.RefObject<HTMLElement | null>) {
   return size;
 }
 
-export function NavLens({ items, activeIndex, direction, reducedMotion, onStatusChange }: NavLensProps) {
+export function NavLens({ items, target, reducedMotion, onStatusChange }: NavLensProps) {
   const windowRef = useRef<HTMLSpanElement>(null);
   const floorRef = useRef<HTMLElement | null>(null);
   const baseId = `nav-lens-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
@@ -142,10 +145,22 @@ export function NavLens({ items, activeIndex, direction, reducedMotion, onStatus
     const images = floorSize ? buildRim(floorSize) : null;
     return floorSize && images ? { ...images, ...floorSize, id: `${baseId}-rim-${sizeKey(floorSize)}` } : null;
   }, [floorSize, baseId]);
-  const target = activeIndex > 0 ? (direction === "rtl" ? -1 : 1) : 0;
-  const windowX = useMotionValue(`${target * 100}%`);
-  const trackX = useTransform(windowX, (value) => `${Number.parseFloat(value) * -0.5}%`);
+  const [animated] = useState(supportsTypedProperties);
   const [restingTarget, setRestingTarget] = useState(target);
+  const targetRef = useRef(target);
+  useLayoutEffect(() => {
+    targetRef.current = target;
+  }, [target]);
+
+  useLayoutEffect(() => {
+    const nav = windowRef.current?.parentElement;
+    if (!nav) return;
+    const settle = (event: TransitionEvent) => {
+      if (event.target === nav && event.propertyName === "--lens-p") setRestingTarget(targetRef.current);
+    };
+    nav.addEventListener("transitionend", settle);
+    return () => nav.removeEventListener("transitionend", settle);
+  }, []);
 
   useLayoutEffect(() => {
     const nav = windowRef.current?.parentElement;
@@ -162,45 +177,36 @@ export function NavLens({ items, activeIndex, direction, reducedMotion, onStatus
     const node = windowRef.current;
     const nav = node?.parentElement;
     if (!node || !nav || !size) return;
-    const { width, height } = node.getBoundingClientRect();
-    const holes = Array.from(nav.querySelectorAll<HTMLElement>(":scope > button > span"), (content) => {
+    const { width, height } = getComputedStyle(node);
+    const contents = Array.from(nav.querySelectorAll<HTMLElement>(":scope > button > span"));
+    nav.style.setProperty("--nav-lens-width", width);
+    nav.style.setProperty("--nav-lens-height", height);
+    for (const content of contents) {
       const tab = content.parentElement;
-      return { content, origin: (tab ? tab.offsetLeft + tab.clientLeft : 0) + content.offsetLeft - node.offsetLeft };
-    });
-    const place = (value: string) => {
-      const x = Number.parseFloat(value) / 100 * width;
-      for (const { content, origin } of holes) content.style.setProperty("--nav-lens-x", `${x - origin}px`);
-    };
-    nav.style.setProperty("--nav-lens-width", `${width}px`);
-    nav.style.setProperty("--nav-lens-height", `${height}px`);
-    place(windowX.get());
-    const stop = windowX.on("change", place);
+      const origin = (tab ? tab.offsetLeft + tab.clientLeft : 0) + content.offsetLeft - node.offsetLeft;
+      content.style.setProperty("--nav-lens-origin", `${origin}px`);
+    }
     return () => {
-      stop();
       nav.style.removeProperty("--nav-lens-width");
       nav.style.removeProperty("--nav-lens-height");
-      for (const { content } of holes) content.style.removeProperty("--nav-lens-x");
+      for (const content of contents) content.style.removeProperty("--nav-lens-origin");
     };
-  }, [size, windowX]);
+  }, [size]);
 
   const ready = filter !== null;
-  const status = !ready ? null : reducedMotion || restingTarget === target ? "resting" : "moving";
+  const status = !ready ? null : reducedMotion || !animated || restingTarget === target ? "resting" : "moving";
   useLayoutEffect(() => {
     onStatusChange(status);
   }, [status, onStatusChange]);
   useLayoutEffect(() => () => onStatusChange(null), [onStatusChange]);
 
   return (
-    <motion.span
+    <span
       ref={windowRef}
       aria-hidden="true"
       inert
       data-navigation-lens={ready ? "ready" : "pending"}
       className={`${styles.window} pointer-events-none absolute inset-y-1 start-1 z-20 select-none`}
-      style={{ x: windowX }}
-      animate={{ x: `${target * 100}%` }}
-      transition={reducedMotion ? { duration: 0 } : { type: "spring", visualDuration: 0.16, bounce: 0.1 }}
-      onAnimationComplete={() => setRestingTarget(target)}
     >
       {filter || rim ? (
         <svg className="absolute size-0 overflow-hidden" focusable="false">
@@ -257,7 +263,7 @@ export function NavLens({ items, activeIndex, direction, reducedMotion, onStatus
         </svg>
       ) : null}
       <span className={`${styles.refraction} absolute inset-0`} style={filter ? { filter: `url(#${filter.id})` } : undefined}>
-        <motion.span className="absolute inset-y-0 start-0 grid w-[200%] grid-cols-2" style={{ x: trackX }}>
+        <span className={`${styles.track} absolute inset-y-0 start-0 grid w-[200%] grid-cols-2`}>
           {items.map(({ id, label, Icon }) => (
             <span key={id} className={`${styles.tab} flex min-w-0 items-center justify-center px-2`}>
               <span className={`${styles.content} flex min-w-0 w-full flex-col items-center justify-center gap-0.5`}>
@@ -266,7 +272,7 @@ export function NavLens({ items, activeIndex, direction, reducedMotion, onStatus
               </span>
             </span>
           ))}
-        </motion.span>
+        </span>
       </span>
       {filter ? (
         <span
@@ -274,6 +280,6 @@ export function NavLens({ items, activeIndex, direction, reducedMotion, onStatus
           style={{ maskImage: `url(${filter.specular})`, WebkitMaskImage: `url(${filter.specular})` }}
         />
       ) : null}
-    </motion.span>
+    </span>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { createElement, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { createElement, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { ChartNoAxesCombined, House, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { profileGlyph } from "@/client/account/basename-profile";
 import { useBasenameProfile } from "@/client/account/use-basename-profile";
@@ -98,7 +98,7 @@ export function PrimaryNavigation({
   const [animated, setAnimated] = useState(false);
   const navRef = useRef<HTMLElement>(null);
   const [direction, setDirection] = useState("ltr");
-  const [pillReady, setPillReady] = useState(false);
+  const [motionReady, setMotionReady] = useState(false);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const NavLens = useNavLens();
   const [lensStatus, setLensStatus] = useState<NavLensStatus | null>(null);
@@ -108,7 +108,7 @@ export function PrimaryNavigation({
   }, [activeNavigation]);
 
   useEffect(() => {
-    const frame = requestAnimationFrame(() => setPillReady(true));
+    const frame = requestAnimationFrame(() => setMotionReady(true));
     return () => cancelAnimationFrame(frame);
   }, []);
 
@@ -148,6 +148,7 @@ export function PrimaryNavigation({
   const activeIndex = isAccountSettingsOpen && layout === "rail" ? -1 : navigationItems.findIndex((item) =>
     activeNavigation === item.id ||
     (item.id === "home" && isHomeNestedPanelId(activeNavigation)));
+  const lensTarget = activeIndex > 0 ? (direction === "rtl" ? -1 : 1) : 0;
   const lensItems = useMemo(() => navigationItems.map((item) => ({
     id: item.id,
     label: labels?.[item.id] ?? item.label,
@@ -224,14 +225,14 @@ export function PrimaryNavigation({
         inert={keyboardOpen}
         data-keyboard-hidden={keyboardOpen ? "true" : undefined}
         data-lens={NavLens ? lensStatus ?? undefined : undefined}
-        className={`${shellWidthClassName} ${styles.navigation} fixed inset-x-0 z-30 grid grid-cols-2 rounded-full p-1 opacity-100 transition-[opacity,transform] duration-150 motion-reduce:transition-none`}
+        className={`${shellWidthClassName} ${styles.navigation} ${motionReady && !prefersReducedMotion ? styles.motionReady : ""} fixed inset-x-0 z-30 grid grid-cols-2 rounded-full p-1 opacity-100`}
+        style={{ "--lens-p": lensTarget } as CSSProperties}
       >
         <span aria-hidden="true" data-navigation-floor="" className={`${styles.floor} pointer-events-none absolute inset-0 rounded-full`} />
         <span
           aria-hidden="true"
           data-navigation-pill=""
-          className={`${styles.pill} ${pillReady && !prefersReducedMotion ? styles.pillReady : ""} pointer-events-none absolute inset-y-1 start-1 rounded-full bg-foreground/10 dark:bg-foreground/15`}
-          style={{ transform: `translateX(${activeIndex > 0 ? (direction === "rtl" ? -100 : 100) : 0}%)` }}
+          className={`${styles.pill} pointer-events-none absolute inset-y-1 start-1 rounded-full bg-foreground/10 dark:bg-foreground/15`}
         />
         {navigationItems.map((item, index) => {
           const Icon = navigationIcons[item.id];
@@ -256,7 +257,7 @@ export function PrimaryNavigation({
           );
         })}
         {NavLens && activeIndex >= 0 ? (
-          createElement(NavLens, { items: lensItems, activeIndex, direction, reducedMotion: prefersReducedMotion, onStatusChange: setLensStatus })
+          createElement(NavLens, { items: lensItems, target: lensTarget, reducedMotion: prefersReducedMotion, onStatusChange: setLensStatus })
         ) : null}
       </nav>
     </div>

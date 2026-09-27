@@ -112,27 +112,28 @@ describe("PrimaryNavigation", () => {
     expect(view.container.querySelector("nav > span:first-child")?.getAttribute("aria-hidden")).toBe("true");
   });
 
-  for (const [direction, investTransform] of [["ltr", "translateX(100%)"], ["rtl", "translateX(-100%)"]] as const) {
-    test(`positions the active pill in ${direction}`, () => {
+  for (const [direction, investPosition] of [["ltr", "1"], ["rtl", "-1"]] as const) {
+    test(`positions the active selection in ${direction}`, () => {
       const view = render(
         <div style={{ direction }}>
           <PrimaryNavigation activeNavigation="home" onNavigate={() => undefined} />
         </div>,
       );
-      const pill = view.container.querySelector<HTMLElement>("[data-navigation-pill]");
-      expect(pill?.style.transform).toBe("translateX(0%)");
+      const nav = view.getByRole("navigation", { name: "Main navigation" });
+      const position = () => nav.style.getPropertyValue("--lens-p");
+      expect(position()).toBe("0");
       view.rerender(
         <div style={{ direction }}>
           <PrimaryNavigation activeNavigation="invest" onNavigate={() => undefined} />
         </div>,
       );
-      expect(pill?.style.transform).toBe(investTransform);
+      expect(position()).toBe(investPosition);
       view.rerender(
         <div style={{ direction }}>
           <PrimaryNavigation activeNavigation="home" onNavigate={() => undefined} />
         </div>,
       );
-      expect(pill?.style.transform).toBe("translateX(0%)");
+      expect(position()).toBe("0");
     });
   }
 });

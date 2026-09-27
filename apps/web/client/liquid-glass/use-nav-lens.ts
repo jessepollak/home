@@ -14,8 +14,7 @@ export type NavLensStatus = "moving" | "resting";
 
 export type NavLensProps = {
   items: readonly NavLensItem[];
-  activeIndex: number;
-  direction: string;
+  target: number;
   reducedMotion: boolean;
   onStatusChange: (status: NavLensStatus | null) => void;
 };

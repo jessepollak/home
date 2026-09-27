@@ -8,6 +8,7 @@
   box-shadow: inset 0 1px 0 var(--glass-pill-highlight), inset 0 0 0 1px var(--glass-pill-rim);
   backdrop-filter: var(--glass-lens-occlusion);
   -webkit-backdrop-filter: var(--glass-lens-occlusion);
+  transform: translateX(calc(var(--lens-p) * 100%));
   transition: opacity 160ms ease-out;
 }
 
@@ -17,6 +18,8 @@
   overflow: visible;
   transform: translateZ(0);
 }
+
+.track { transform: translateX(calc(var(--lens-p) * -50%)); }
 
 .tab { border: 1px solid transparent; }
 
