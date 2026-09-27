@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { TradeActions } from "@/client/trading/trade-actions";
 import type { InvestAsset } from "@/config/invest-assets";
 import { resolveTradeAsset } from "@/shared/trading/assets";
-import { useReducedMotion } from "./asset-chart";
+import { useReducedMotion } from "./asset-chart-support";
 
 export function PinnedTradeBar({ asset }: { asset: InvestAsset }) {
   const reduced = useReducedMotion();

@@ -2,7 +2,6 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ChartNoAxesCombined, House } from "lucide-react";
-import { motion } from "motion/react";
 import { useReducedMotion } from "@/components/money-ticker";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,11 +36,17 @@ export function PrimaryNavigation({
   const prefersReducedMotion = useReducedMotion();
   const navRef = useRef<HTMLElement>(null);
   const [direction, setDirection] = useState("ltr");
+  const [pillReady, setPillReady] = useState(false);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
 
   useLayoutEffect(() => {
     if (navRef.current) setDirection(getComputedStyle(navRef.current).direction);
   }, [activeNavigation]);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setPillReady(true));
+    return () => cancelAnimationFrame(frame);
+  }, []);
 
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -83,12 +88,11 @@ export function PrimaryNavigation({
         className={`${shellWidthClassName} ${styles.navigation} fixed inset-x-0 z-30 grid grid-cols-2 rounded-full p-1 opacity-100 transition-[opacity,transform] duration-150 motion-reduce:transition-none sm:relative sm:z-auto sm:min-h-14 sm:rounded-none sm:border-x sm:border-y sm:p-0 sm:transition-none`}
       >
         <span aria-hidden="true" className={`${styles.floor} pointer-events-none absolute inset-0 rounded-full sm:hidden`} />
-        <motion.span
+        <span
           aria-hidden="true"
           data-navigation-pill=""
-          className={`${styles.pill} pointer-events-none absolute inset-y-1 start-1 rounded-full bg-foreground/10 dark:bg-foreground/15 sm:hidden`}
-          animate={{ x: activeIndex > 0 ? (direction === "rtl" ? "-100%" : "100%") : "0%" }}
-          transition={prefersReducedMotion ? { duration: 0 } : { type: "spring", visualDuration: 0.16, bounce: 0.1 }}
+          className={`${styles.pill} ${pillReady && !prefersReducedMotion ? styles.pillReady : ""} pointer-events-none absolute inset-y-1 start-1 rounded-full bg-foreground/10 dark:bg-foreground/15 sm:hidden`}
+          style={{ transform: `translateX(${activeIndex > 0 ? (direction === "rtl" ? -100 : 100) : 0}%)` }}
         />
         {navigationItems.map((item, index) => {
           const Icon = navigationIcons[item.id];

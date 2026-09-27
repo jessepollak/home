@@ -1,4 +1,3 @@
-import { MfaError } from "@coinbase/cdp-core";
 import { BaseAccountConnectorError } from "./base-account-connector";
 import type { OwnerGenerationFence } from "./cdp-session-lifecycle";
 import { TransferExecutionError } from "@/shared/transfers/types";
@@ -14,7 +13,8 @@ export function isUserRejectedWalletError(error: unknown): boolean {
   return (
     error instanceof BaseAccountConnectorError && error.reason === "cancelled"
   ) || (
-    error instanceof MfaError && error.code === "CANCELLED"
+    error instanceof Error && error.name === "MfaError" &&
+    "code" in error && error.code === "CANCELLED"
   );
 }
 

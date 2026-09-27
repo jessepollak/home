@@ -50,14 +50,13 @@ import {
   useNetworkFeeReserve,
 } from "@/client/money-modal";
 import {
-  assertTransferRequest,
   formatSendConfirmAmount,
   getTransferAsset,
   isTransferRecipient,
   normalizeTransferRecipient,
   parseTransferAmount,
-  transferRequestFromAction,
 } from "@/shared/transfers/transfer-helpers";
+import { assertTransferRequest, transferRequestFromAction } from "@/shared/transfers/transfer-request";
 import { TransferExecutionError, type TransferRequest } from "@/shared/transfers/types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { networkFeeErrorMessage } from "@/shared/money-actions/network-fee";

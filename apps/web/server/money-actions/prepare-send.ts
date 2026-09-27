@@ -4,11 +4,11 @@ import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { MoneyActionDraft, PreparedMoneyAction } from "@/shared/money-actions/types";
 import { normalizeTransferRecipientName } from "@/shared/transfers/recipient-name";
 import {
-  assertTransferRequest,
   encodeErc20Transfer,
   getTransferAsset,
   normalizeTransferRecipient,
 } from "@/shared/transfers/transfer-helpers";
+import { assertTransferRequest } from "@/shared/transfers/transfer-request";
 import { TransferExecutionError, type TransferRequest } from "@/shared/transfers/types";
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
 import { issueMoneyAction } from "./issue";

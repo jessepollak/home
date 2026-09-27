@@ -2,7 +2,7 @@
 
 import {
   useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState,
-  useSyncExternalStore, type KeyboardEvent, type PointerEvent, type ReactNode,
+  type KeyboardEvent, type PointerEvent, type ReactNode,
 } from "react";
 import { Liveline, type LivelinePoint } from "liveline";
 import { useAppearance } from "@/client/appearance/use-appearance";
@@ -11,57 +11,21 @@ import { Button } from "@/components/ui/button";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { MARKET_PRICE_RANGES, type MarketPriceHistoryPoint, type MarketPriceRange } from "@/shared/invest/contracts/market-price-history";
-import { formatChartPrice, formatPresentationDate, formatPresentationPrice, formatSignedPercentChange } from "@/shared/formatting";
+import { formatChartPrice, formatPresentationPrice, formatSignedPercentChange } from "@/shared/formatting";
+import { endsEarly, rangeSeconds, scrubTime, useReducedMotion, type ChartClock, type ChartReadout } from "./asset-chart-support";
 import { usePresentationRegionId } from "./presentation-quote";
 import { usePriceHistory, type PriceHistoryState } from "./use-price-history";
 
-export type ChartReadout = { value: string; time: string; index: number };
 type Plot = { id: number; range: MarketPriceRange; points: LivelinePoint[]; value: number; windowSecs: number };
-const rangeSeconds: Record<MarketPriceRange, number> = {
-  "1D": 86400, "1W": 604800, "1M": 2592000, "3M": 7776000, "1Y": 31536000,
-};
 const rangeLabels: Record<MarketPriceRange, string> = {
   "1D": "past day", "1W": "past week", "1M": "past month", "3M": "past 3 months", "1Y": "past year",
 };
 const plotPadding = { top: 20, right: 18, bottom: 20, left: 16 };
-const motionQuery = "(prefers-reduced-motion: reduce)";
 let plotId = 0;
 
 function samePlot(a: Plot | undefined, b: Plot) {
   return a?.range === b.range && a.points.length === b.points.length
     && a.points.every((point, index) => point.time === b.points[index]?.time && point.value === b.points[index]?.value);
-}
-function subscribeMotion(notify: () => void) {
-  if (typeof window === "undefined" || !window.matchMedia) return () => {};
-  const media = window.matchMedia(motionQuery);
-  media.addEventListener("change", notify);
-  return () => media.removeEventListener("change", notify);
-}
-function motionSnapshot() {
-  return typeof window !== "undefined" && !!window.matchMedia?.(motionQuery).matches;
-}
-export function useReducedMotion() {
-  return useSyncExternalStore(subscribeMotion, motionSnapshot, () => false);
-}
-export function useChartClock() {
-  const [start] = useState(() => Date.now());
-  const anchor = useRef<{ start: number; wall: number } | null>(null);
-  const [value, setValue] = useState(start);
-  const read = useCallback(() => {
-    const current = anchor.current;
-    return current ? current.start + Date.now() - current.wall : start;
-  }, [start]);
-  const refresh = useCallback(() => setValue(read()), [read]);
-  useLayoutEffect(() => {
-    anchor.current = { start, wall: Date.now() };
-    const interval = window.setInterval(refresh, 30000);
-    return () => window.clearInterval(interval);
-  }, [start, refresh]);
-  return { value, read, refresh };
-}
-export type ChartClock = ReturnType<typeof useChartClock>;
-export function scrubTime(time: number, range: MarketPriceRange, regionId: ReturnType<typeof usePresentationRegionId>) {
-  return formatPresentationDate(time * 1000, { regionId, style: range === "1D" || range === "1W" ? "activity-short" : "chart-date" });
 }
 function pointX(time: number, plot: Plot, width: number, now: number) {
   const chartWidth = width - plotPadding.left - plotPadding.right;
@@ -81,9 +45,6 @@ function pointY(value: number, plot: Plot, height: number, now: number) {
   const lower = span < minRange ? (minimum + maximum - minRange) / 2 : minimum - span * 0.12;
   const upper = span < minRange ? lower + minRange : maximum + span * 0.12;
   return plotPadding.top + (1 - (value - lower) / (upper - lower)) * (height - plotPadding.top - plotPadding.bottom);
-}
-export function endsEarly(lastTime: number, range: MarketPriceRange, now: number) {
-  return lastTime < now / 1000 - rangeSeconds[range] * 0.04;
 }
 function plotChange(plot: Plot, regionId: ReturnType<typeof usePresentationRegionId>, now: number) {
   const first = plot.points[0];
