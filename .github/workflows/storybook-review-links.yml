@@ -6,7 +6,7 @@ on:
     types: [opened, edited, reopened, synchronize, ready_for_review]
 
 concurrency:
-  group: storybook-review-links-${{ github.event.pull_request.number || github.event.deployment.sha }}
+  group: storybook-review-links-${{ github.event.pull_request.number || format('{0}-{1}', github.event.deployment.environment, github.event.deployment.sha) }}
   cancel-in-progress: true
 
 permissions: {}

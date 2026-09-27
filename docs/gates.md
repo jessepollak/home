@@ -54,7 +54,7 @@ The **caught-by report** CI job writes the pull-request-range report to the run 
 
 ## Storybook review links
 
-The **Storybook review links** workflow (`.github/workflows/storybook-review-links.yml`) rewrites the Storybook links in a PR's `## Preview` for the current head when the `home-storybook` preview deployment succeeds and when the PR body changes ([Storybook links](ui-pr-previews.md#storybook-links)). It runs default-branch code only and is informational: problems are warnings, never a red check.
+The **Storybook review links** workflow (`.github/workflows/storybook-review-links.yml`) rewrites the Storybook links in a PR's `## Preview` for the current head when the `home-storybook` preview deployment succeeds and when the PR body changes ([Storybook links](ui-pr-previews.md#storybook-links)). It never checks out pull-request code: the script always comes from the default branch. For `deployment_status`, GitHub reads the workflow file at the deployed commit, so a branch that predates the workflow is updated only on body edits until it is rebased. It is informational: problems are warnings, never a red check.
 
 ## Browser-smoke boundary
 

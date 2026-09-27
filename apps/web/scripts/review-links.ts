@@ -1,6 +1,6 @@
 const STORYBOOK_HOST = /^home-storybook-[a-z0-9-]+\.vercel\.app$/i;
 const STORY_ID = /^[a-z0-9][a-z0-9-]*--[a-z0-9][a-z0-9-]*$/;
-const BOARD_LINK = /\[Board\]\((https?:\/\/[^\s)]+)\)/g;
+const STORYBOOK_LINK = /\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g;
 const STORY_TOKEN = /`story:([a-z0-9-]+)`/g;
 const BLOCK_START = "<!-- review-links:start -->";
 const BLOCK_END = "<!-- review-links:end -->";
@@ -72,7 +72,7 @@ export function rewriteReviewLinks(body: string, { host, revision }: Options): s
   const focus: string[] = [];
   for (const line of lines) {
     if (!tableRow(line)) continue;
-    for (const match of line.matchAll(/`story:([a-z0-9-]+)`|\[Board\]\((https?:\/\/[^\s)]+)\)/g)) {
+    for (const match of line.matchAll(/`story:([a-z0-9-]+)`|\[[^\]]*\]\((https?:\/\/[^\s)]+)\)/g)) {
       const url = match[2] ? reviewUrl(match[2]) : null;
       const id = match[1] ?? (url?.searchParams.get("id") === "review-boards--changes" ? url.searchParams.get("frame") : null);
       if (id && STORY_ID.test(id) && !focus.includes(id)) focus.push(id);
@@ -102,10 +102,10 @@ export function rewriteReviewLinks(body: string, { host, revision }: Options): s
     }
     if (tableRow(line)) {
       retained.push(line.replace(STORY_TOKEN, (token, id: string) => STORY_ID.test(id)
-        ? `[Board](${changesUrl(host, revision, focus, id)})` : token).replace(BOARD_LINK, (link, input: string) => {
+        ? `[Board](${changesUrl(host, revision, focus, id)})` : token).replace(STORYBOOK_LINK, (link, text: string, input: string) => {
         const url = reviewUrl(input);
         if (!url) return link;
-        return `[Board](${url.searchParams.get("id") === "review-boards--changes"
+        return `[${text}](${url.searchParams.get("id") === "review-boards--changes"
           ? changesUrl(host, revision, focus, url.searchParams.get("frame") ?? undefined)
           : refreshCurated(url, host, revision)})`;
       }));
@@ -132,7 +132,7 @@ function api<T>(path: string, args: string[] = [], input?: string): T {
 
 function parseArgs(args: string[]) {
   let pr: string | undefined;
-  let repo = process.env.GITHUB_REPOSITORY || "jessepollak/home";
+  let repo = "jessepollak/home";
   let sha: string | undefined;
   let write = false;
   for (let i = 0; i < args.length; i++) {

@@ -86,3 +86,15 @@ test("preserves CRLF and moves a managed block from later in Preview", () => {
   expect(result.match(/<!-- review-links:start -->/g)).toHaveLength(1);
   expect(rewriteReviewLinks(result, options)).toBe(result);
 });
+
+test("refreshes Storybook links with any text and leaves other links and images alone", () => {
+  const image = "![After](https://github.com/user-attachments/assets/abc)";
+  const body = preview(`| Funded | ${link("Savings board", url("savings", "funded"))} | ${image} |\n`);
+  const result = rewriteReviewLinks(body, options);
+  const [refreshed] = getLinks(result, "Savings board");
+  expect(refreshed.host).toBe(host);
+  expect(refreshed.searchParams.get("id")).toBe("review-boards--savings");
+  expect(refreshed.searchParams.get("frame")).toBe("funded");
+  expect(result).toContain(image);
+  expect(rewriteReviewLinks(result, options)).toBe(result);
+});
