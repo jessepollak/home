@@ -117,7 +117,7 @@ export function rewriteReviewLinks(body: string, { host, revision }: Options): s
     ? refreshCurated(top, host, revision) : changesUrl(host, revision, focus, focus[0]);
   const block = [BLOCK_START, `[Review board](${topUrl})`, BLOCK_END].join(eol);
   const content = retained.join(eol).replace(/^(?:[ \t]*(?:\r\n|\n))*/, "");
-  return body.slice(0, heading.index) + heading[0] + block + eol + (content ? eol + content : "") + rest.slice(section.length);
+  return body.slice(0, heading.index) + heading[0] + eol + block + eol + (content ? eol + content : "") + rest.slice(section.length);
 }
 
 type PullRequest = { body: string | null; head: { sha: string } };

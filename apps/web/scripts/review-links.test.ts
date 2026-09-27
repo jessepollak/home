@@ -35,7 +35,7 @@ test("replaces ordered unique story tokens and existing changes links, refreshin
 test("fills the exact template Preview fixture and ignores its placeholder", () => {
   const body = `## Preview\n\n<!-- User-visible work: ... Put \`story:<story-id>\` in each row's Board cell ... -->\n\n<!-- review-links:start -->\n<!-- review-links:end -->\n\n| State + viewport | Board | Evidence |\n| --- | --- | --- |\n| Changed state — 390×844 CSS px | \`story:<story-id>\` | GitHub attachment |\n\n<details><summary>Evidence</summary>\n`;
   const result = rewriteReviewLinks(body, options);
-  expect(result).toContain(`## Preview\n<!-- review-links:start -->\n[Review board](https://${host}/iframe.html?id=review-boards--changes&viewMode=story&rev=${revision}&deployment=${host})\n<!-- review-links:end -->`);
+  expect(result).toContain(`## Preview\n\n<!-- review-links:start -->\n[Review board](https://${host}/iframe.html?id=review-boards--changes&viewMode=story&rev=${revision}&deployment=${host})\n<!-- review-links:end -->`);
   expect(result).toContain("| Changed state — 390×844 CSS px | `story:<story-id>` | GitHub attachment |");
   expect(result.match(/<!-- review-links:start -->/g)).toHaveLength(1);
   expect(rewriteReviewLinks(result, options)).toBe(result);
@@ -82,7 +82,7 @@ test("preserves CRLF and moves a managed block from later in Preview", () => {
   const body = preview(`| State | \`story:flow--first\` | image |\n<!-- review-links:start -->\n<!-- review-links:end -->\n`).replaceAll("\n", "\r\n");
   const result = rewriteReviewLinks(body, options);
   expect(result).not.toMatch(/(?<!\r)\n/);
-  expect(result).toContain("## Preview\r\n<!-- review-links:start -->");
+  expect(result).toContain("## Preview\r\n\r\n<!-- review-links:start -->");
   expect(result.match(/<!-- review-links:start -->/g)).toHaveLength(1);
   expect(rewriteReviewLinks(result, options)).toBe(result);
 });
