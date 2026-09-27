@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { createElement, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChartNoAxesCombined, House, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { profileGlyph } from "@/client/account/basename-profile";
 import { useBasenameProfile } from "@/client/account/use-basename-profile";
 import { HomeMark } from "@/components/home-mark";
 import { useReducedMotion } from "@/components/money-ticker";
 import { Button } from "@/components/ui/button";
+import { useNavLens, type NavLensStatus } from "@/client/liquid-glass/use-nav-lens";
 import {
   shellChromeCompensationClassName,
   shellWidthClassName,
@@ -99,6 +100,8 @@ export function PrimaryNavigation({
   const [direction, setDirection] = useState("ltr");
   const [pillReady, setPillReady] = useState(false);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
+  const NavLens = useNavLens();
+  const [lensStatus, setLensStatus] = useState<NavLensStatus | null>(null);
 
   useLayoutEffect(() => {
     if (navRef.current) setDirection(getComputedStyle(navRef.current).direction);
@@ -145,6 +148,11 @@ export function PrimaryNavigation({
   const activeIndex = isAccountSettingsOpen && layout === "rail" ? -1 : navigationItems.findIndex((item) =>
     activeNavigation === item.id ||
     (item.id === "home" && isHomeNestedPanelId(activeNavigation)));
+  const lensItems = useMemo(() => navigationItems.map((item) => ({
+    id: item.id,
+    label: labels?.[item.id] ?? item.label,
+    Icon: navigationIcons[item.id],
+  })), [labels]);
 
   if (layout === "rail") {
     const ToggleIcon = collapsed ? PanelLeftOpen : PanelLeftClose;
@@ -215,9 +223,10 @@ export function PrimaryNavigation({
         aria-hidden={keyboardOpen ? true : undefined}
         inert={keyboardOpen}
         data-keyboard-hidden={keyboardOpen ? "true" : undefined}
+        data-lens={NavLens ? lensStatus ?? undefined : undefined}
         className={`${shellWidthClassName} ${styles.navigation} fixed inset-x-0 z-30 grid grid-cols-2 rounded-full p-1 opacity-100 transition-[opacity,transform] duration-150 motion-reduce:transition-none`}
       >
-        <span aria-hidden="true" className={`${styles.floor} pointer-events-none absolute inset-0 rounded-full`} />
+        <span aria-hidden="true" data-navigation-floor="" className={`${styles.floor} pointer-events-none absolute inset-0 rounded-full`} />
         <span
           aria-hidden="true"
           data-navigation-pill=""
@@ -246,6 +255,9 @@ export function PrimaryNavigation({
             </Button>
           );
         })}
+        {NavLens && activeIndex >= 0 ? (
+          createElement(NavLens, { items: lensItems, activeIndex, direction, reducedMotion: prefersReducedMotion, onStatusChange: setLensStatus })
+        ) : null}
       </nav>
     </div>
   );

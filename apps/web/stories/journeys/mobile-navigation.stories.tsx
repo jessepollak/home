@@ -4,6 +4,7 @@ import { expect, userEvent, waitFor, within } from "storybook/test";
 import { AppChromeProvider } from "@/components/app-chrome";
 import { MoneyMotionProvider } from "@/components/money-ticker";
 import { PrimaryNavigation } from "@/components/primary-navigation";
+import { isChromiumEngine, type EngineBrand } from "@/client/liquid-glass/lens-gate";
 import { ShellHeader } from "@/client/home/shell-chrome";
 import { HomeOverview, HomeSectionHeading } from "@/client/home/home-overview";
 import { BalancesPage } from "@/client/home/balances-panel";
@@ -178,6 +179,37 @@ async function verifyNav(canvasElement: HTMLElement, selected: "Home" | "Invest"
   await expect(within(nav).getByRole("button", { name: selected })).toHaveAttribute("aria-current", "page");
   return nav;
 }
+async function verifyLens(canvasElement: HTMLElement) {
+  const nav = await verifyNav(canvasElement, "Home");
+  await new Promise<void>((resolve) => { requestIdleCallback(() => resolve(), { timeout: 2_000 }); });
+  const lens = await waitFor(() => {
+    const element = nav.querySelector<HTMLElement>('[data-navigation-lens="ready"]');
+    if (!element) throw new Error("The navigation lens has not mounted");
+    return element;
+  }, { timeout: 2_000 });
+  await expect(lens).toHaveAttribute("aria-hidden", "true");
+  await expect(lens).toHaveAttribute("inert");
+  await expect(within(nav).getAllByRole("button")).toHaveLength(2);
+  await expect(nav).toHaveAttribute("data-lens", "resting");
+  const brands = (navigator as Navigator & { userAgentData?: { brands?: readonly EngineBrand[] } }).userAgentData?.brands;
+  if (isChromiumEngine(brands)) await expect(nav).toHaveAttribute("data-glass-rim");
+  else await expect(nav).not.toHaveAttribute("data-glass-rim");
+}
+async function verifyNoLens(canvasElement: HTMLElement) {
+  const nav = await verifyNav(canvasElement, "Home");
+  await new Promise<void>((resolve) => { requestIdleCallback(() => resolve(), { timeout: 2_000 }); });
+  await new Promise<void>((resolve) => { requestAnimationFrame(() => resolve()); });
+  await expect(nav.querySelector("[data-navigation-lens]")).toBeNull();
+  await expect(nav).not.toHaveAttribute("data-lens");
+  await expect(nav).not.toHaveAttribute("data-glass-rim");
+  await expect(nav.querySelector("[data-navigation-pill]")).toBeVisible();
+}
+function withoutBackdropFilter() {
+  const supports = CSS.supports;
+  CSS.supports = ((property: string, value?: string) => property.includes("backdrop-filter") ? false
+    : value === undefined ? supports(property) : supports(property, value)) as typeof CSS.supports;
+  return () => { CSS.supports = supports; };
+}
 async function verifyClearance(canvasElement: HTMLElement) {
   const main = within(canvasElement).getByRole("main");
   const nav = within(canvasElement).getByRole("navigation", { name: "Main navigation" });
@@ -243,7 +275,7 @@ async function showBusyContent(canvasElement: HTMLElement) {
     await expect(amountRect.bottom).toBeGreaterThan(labelRect.top);
   });
 }
-export const HomeLight: Story = { play: async ({ canvasElement }) => { await verifyNav(canvasElement, "Home"); } };
+export const HomeLight: Story = { play: async ({ canvasElement }) => { await verifyLens(canvasElement); } };
 export const HomeDark: Story = { globals: { theme: "dark" }, play: async ({ canvasElement }) => { await verifyNav(canvasElement, "Home"); } };
 export const Invest: Story = { args: { initialPanel: "invest" }, play: async ({ canvasElement }) => { await verifyNav(canvasElement, "Invest"); } };
 export const NestedCash: Story = { args: { initialPanel: "cash" }, play: async ({ canvasElement }) => {
@@ -335,7 +367,7 @@ async function verifyReducedMotion(canvasElement: HTMLElement) {
 }
 export const ReducedMotion: Story = { args: { reducedMotion: true }, play: async ({ canvasElement }) => { await verifyReducedMotion(canvasElement); } };
 export const LongLabels: Story = { args: { longLabels: true }, play: async ({ canvasElement }) => { await verifyLabels(canvasElement); } };
-export const OpaqueFallback: Story = { args: { fallback: true } };
+export const OpaqueFallback: Story = { args: { fallback: true }, beforeEach: withoutBackdropFilter, play: async ({ canvasElement }) => { await verifyNoLens(canvasElement); } };
 export const Loading: Story = { args: { balances: "loading" } };
 export const Empty: Story = { args: { balances: "empty" } };
 export const Partial: Story = { args: { balances: "partial" } };
