@@ -1,7 +1,19 @@
-import { createHmac } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
+import { resolveSecretKeyring } from "@/server/secrets/at-rest";
+import { setObservabilityLogWriterForTests } from "@/server/observability/log";
+import { sealSecret } from "@/server/secrets/at-rest";
+import { webhookSecretAad } from "./webhook-secret";
 import { describe, expect, test } from "bun:test";
 import { MemoryBalanceSnapshotStore } from "./memory-snapshot-store";
-import { createCdpWebhookHandler, extractCdpActivityAddresses } from "./webhook";
+import { createCdpWebhookHandler as handler, extractCdpActivityAddresses } from "./webhook";
+
+type Dependencies = Parameters<typeof handler>[0];
+function createCdpWebhookHandler(deps: Omit<Dependencies, "keyring"> & { keyring?: Dependencies["keyring"] }) {
+  return handler({ ...deps, keyring: deps.keyring ?? null });
+}
+const key = resolveSecretKeyring({ HOME_SECRET_ENCRYPTION_KEY: randomBytes(32).toString("base64url"), HOME_SECRET_KEY_VERSION: "1" });
+if (!key.ok) throw new Error("invalid fixture key");
+const keyring = key.keyring;
 
 const SECRET = "fixture-webhook-secret";
 const NOW = new Date("2026-09-13T12:00:00.000Z");
@@ -30,7 +42,7 @@ function subscriptionStore() {
   return {
     list: async () => [{
       subscriptionId: "subscription-1",
-      secret: SECRET,
+      credential: { kind: "legacy-plaintext" as const, secret: SECRET },
       target: "https://home.example/api/webhooks/cdp",
       eventType: "wallet_activity",
       createdAt: NOW.toISOString(),
@@ -58,6 +70,35 @@ async function seededStore() {
 }
 
 describe("CDP balance activity webhook", () => {
+  test.each(["v0", "v1"] as const)("verifies sealed %s deliveries", async (version) => {
+    const store = await seededStore();
+    const record = { subscriptionId: "subscription-1", target: "https://home.example/api/webhooks/cdp", eventType: "wallet_activity", createdAt: NOW.toISOString() };
+    const sealed = { ...record, credential: { kind: "envelope" as const, envelope: sealSecret(keyring, SECRET, webhookSecretAad(record)), keyVersion: 1 } };
+    const raw = body({ eventType: "wallet.activity.multi", data: { address: ADDRESS } });
+    const headers = new Headers({ "content-type": "application/json" });
+    const handle = createCdpWebhookHandler({ store, subscriptions: { list: async () => [sealed] }, keyring, now: () => NOW });
+    expect((await handle(raw, signed(raw, undefined, version, headers), headers)).status).toBe(200);
+    expect((await store.get(8453, ADDRESS))?.staleAt).toBe(NOW.toISOString());
+  });
+
+  test("unreadable envelopes fail closed and report without leaking credentials", async () => {
+    const store = await seededStore();
+    const record = { subscriptionId: "subscription-1", target: "https://home.example/api/webhooks/cdp", eventType: "wallet_activity", createdAt: NOW.toISOString() };
+    const sealed = { ...record, credential: { kind: "envelope" as const, envelope: sealSecret(keyring, SECRET, webhookSecretAad(record)), keyVersion: 1 } };
+    const raw = body({ eventType: "wallet.activity.multi", data: { address: ADDRESS } });
+    const lines: string[] = [];
+    setObservabilityLogWriterForTests((line) => { lines.push(line); });
+    try {
+      const handle = createCdpWebhookHandler({ store, subscriptions: { list: async () => [sealed] }, keyring: null, now: () => NOW });
+      expect((await handle(raw, signed(raw))).status).toBe(401);
+      expect((await store.get(8453, ADDRESS))?.staleAt).toBeNull();
+      const logs = JSON.stringify(lines);
+      expect(logs).toContain("WEBHOOK_SECRET_UNREADABLE");
+      expect(logs).not.toContain(SECRET);
+      expect(logs).not.toContain(sealed.credential.envelope);
+      expect(logs).not.toContain(record.subscriptionId);
+    } finally { setObservabilityLogWriterForTests(); }
+  });
   test.each(["v0", "v1"] as const)("accepts a valid %s signature", async (version) => {
     const store = await seededStore();
     const raw = body({
@@ -113,7 +154,7 @@ describe("CDP balance activity webhook", () => {
           reads += 1;
           return reads === 1 ? [] : [{
             subscriptionId: "subscription-2",
-            secret: SECRET,
+            credential: { kind: "legacy-plaintext" as const, secret: SECRET },
             target: "https://home.example/api/webhooks/cdp",
             eventType: "wallet_activity",
             createdAt: NOW.toISOString(),

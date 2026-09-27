@@ -2,6 +2,8 @@ import "server-only";
 
 import { generateJwt } from "@coinbase/cdp-sdk/auth";
 import { emitServerEvent } from "@/server/observability/log";
+import { resolveSecretKeyring, type SecretKeyring } from "@/server/secrets/at-rest";
+import { canOpenWebhookSecret } from "./webhook-secret";
 import {
   getWebhookSubscriptionStore,
   type WebhookSubscriptionStore,
@@ -34,6 +36,7 @@ type Subscription = {
 export function createCdpWebhookSubscriptions(options: {
   env?: Environment;
   store?: WebhookSubscriptionStore;
+  keyring?: SecretKeyring | null;
   fetchImpl?: FetchLike;
   generateJwtImpl?: JwtGenerator;
   now?: () => number;
@@ -41,6 +44,8 @@ export function createCdpWebhookSubscriptions(options: {
 } = {}): BalanceWebhookSubscriptions {
   const env = options.env ?? process.env;
   const store = options.store ?? getWebhookSubscriptionStore(env);
+  const resolved = resolveSecretKeyring(env);
+  const keyring = options.keyring === undefined ? (resolved.ok ? resolved.keyring : null) : options.keyring;
   const fetchImpl = options.fetchImpl ?? fetch;
   const generateJwtImpl = options.generateJwtImpl ?? generateJwt;
   const now = options.now ?? Date.now;
@@ -53,6 +58,8 @@ export function createCdpWebhookSubscriptions(options: {
   let listMismatch = false;
   let memoryDisabledLogged = false;
   let unverifiableLogged = false;
+  let unreadableLogged = false;
+  let encryptionUnavailableLogged = false;
 
   async function list(force = false): Promise<Subscription[]> {
     const current = now();
@@ -174,7 +181,8 @@ export function createCdpWebhookSubscriptions(options: {
 
   async function ensure(address: `0x${string}`): Promise<void> {
     const records = await store.list();
-    const known = new Set(records.map((record) => record.subscriptionId));
+    const readable = records.filter((record) => canOpenWebhookSecret(keyring, record));
+    const known = new Set(readable.map((record) => record.subscriptionId));
     const subscriptions = await list();
     observeUnverifiable(subscriptions, known);
     const matching = subscriptions.filter((subscription) =>
@@ -186,6 +194,11 @@ export function createCdpWebhookSubscriptions(options: {
     if (candidates(subscriptions, known).length > 0 && await updateCandidate(address, known)) return;
 
     const originRecords = records.filter((record) => targetOrigin(record.target) === origin);
+    if (originRecords.some((record) => !known.has(record.subscriptionId))) {
+      if (!unreadableLogged) logFailure("subscription-secret-unreadable");
+      unreadableLogged = true;
+      return;
+    }
     if (originRecords.length > 0 && !subscriptions.some((subscription) =>
       originRecords.some((record) => record.subscriptionId === subscription.id)
     )) {
@@ -194,6 +207,11 @@ export function createCdpWebhookSubscriptions(options: {
       return;
     }
     if (listMismatch || createDisabled) return;
+    if (!store.sealing) {
+      if (!encryptionUnavailableLogged) logFailure("subscription-encryption-unavailable");
+      encryptionUnavailableLogged = true;
+      return;
+    }
     await createSubscription(address);
   }
 
@@ -391,7 +409,11 @@ function observeSubscriptionFailure(reason: string): void {
         ? "SUBSCRIPTION_UNVERIFIABLE"
         : reason === "subscription-list-mismatch"
           ? "SUBSCRIPTION_LIST_MISMATCH"
-          : "SUBSCRIPTION_FAILED",
+          : reason === "subscription-secret-unreadable"
+            ? "SUBSCRIPTION_SECRET_UNREADABLE"
+            : reason === "subscription-encryption-unavailable"
+              ? "SUBSCRIPTION_ENCRYPTION_UNAVAILABLE"
+              : "SUBSCRIPTION_FAILED",
     outcome: "unavailable",
     provider: reason,
     durationMs: 0,

@@ -90,7 +90,7 @@ Funding already has the full plugin shape: one provider directory, one registrat
 | `balance_snapshots` | observation | the last observed holdings and Borrow positions per `(chain_id, address)`, keeping registry block provenance separate from enumeration time; invalidated by Home's own actions and CDP activity webhooks; TTL only as backstop; served as observed, with its age, when a refresh fails ([balances.md](balances.md) §8) |
 | `price_observations` | observation | the newest Codex unit price per asset, shared across owners and used within the display freshness bound when a new instance or failed batch has no fresh quote |
 | `valuation_attempts` | observation | the newest valuation attempt per asset and its outcome, so a missing, invalid, stale, or unavailable attempt never erases the last-good price observation ([balances.md](balances.md) §3) |
-| `webhook_subscriptions` | record | each app-created CDP subscription and the signing secret returned only at creation, required to authenticate later deliveries |
+| `webhook_subscriptions` | record | each app-created CDP subscription and its one-time signing secret, stored only as an authenticated envelope bound to the subscription ID, target, and event type ([secrets at rest](secrets-at-rest.md)) |
 | `operator_settings` | record | versioned per-domain administrator values with optimistic revisions and the last operator update |
 | `admin_audit_log` | record | append-only administrator settings changes and individual customer reads, with actor, target, and purpose where required |
 | `schema_migrations` | — | makes `bun run db:migrate` idempotent |

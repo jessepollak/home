@@ -1,9 +1,11 @@
-import { MemoryWebhookSubscriptionStore } from "./webhook-subscription-store";
+import { MemoryWebhookSubscriptionStore, type WebhookSubscriptionRecord } from "./webhook-subscription-store";
 import { webhookSubscriptionStoreContract } from "./webhook-subscription-store.contract";
 
-const store = new MemoryWebhookSubscriptionStore();
+const rows = new Map<string, WebhookSubscriptionRecord>();
+const seed = new MemoryWebhookSubscriptionStore(null, rows);
 webhookSubscriptionStoreContract({
   name: "Memory",
-  createStore: () => store,
-  reset: () => store.clearForTests(),
+  createStore: (keyring) => new MemoryWebhookSubscriptionStore(keyring, rows),
+  reset: () => seed.clearForTests(),
+  seedLegacy: (record) => seed.seedLegacyForTests(record),
 });
