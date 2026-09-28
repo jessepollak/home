@@ -62,6 +62,26 @@ rm -f "$HOME_FIXTURE_SERVER_LOG"
 
 Apply this cleanup also on interruptions/failures. Never `pkill`, `killall`, or kill by port/name. State in PR evidence whether the exact PID was terminated or already exited and waited for.
 
+### Real Android device
+
+On a runner that exposes a real Android device, supplement the required rungs with a fixture-only Android Chrome check for mobile-web behavior: safe areas, software keyboard, touch/gestures, fixed bottom UI, viewport units, and sheets. Use the credential-free fixture server above; the runner must provide exclusive access to the device (one agent at a time) and its Chrome CDP port. The fixture-session helper seeds a separate browser, not this CDP session; report flows requiring that state as unverified rather than falling back to live services. Do not use live login, money controls, or other apps on the device.
+
+```sh
+: "${CDP_PORT:?Set the runner-provided Android Chrome CDP port}"
+unset AGENT_BROWSER_ALLOWED_DOMAINS
+adb forward "tcp:${CDP_PORT}" localabstract:chrome_devtools_remote
+adb reverse "tcp:${HOME_FIXTURE_PORT}" "tcp:${HOME_FIXTURE_PORT}"
+bun run ab -- --session home-android-fixture --cdp "$CDP_PORT" open "http://localhost:${HOME_FIXTURE_PORT}/..."
+bun run ab -- --session home-android-fixture --cdp "$CDP_PORT" snapshot
+bun run ab -- --session home-android-fixture --cdp "$CDP_PORT" eval '({ width: innerWidth, height: innerHeight })'
+bun run ab -- --session home-android-fixture --cdp "$CDP_PORT" screenshot
+bun run ab -- --session home-android-fixture --cdp "$CDP_PORT" close
+adb reverse --remove "tcp:${HOME_FIXTURE_PORT}"
+adb forward --remove "tcp:${CDP_PORT}"
+```
+
+The reverse makes the phone's `http://localhost:${HOME_FIXTURE_PORT}` reach the fixture server. In v0.38.1, `--allowed-domains` (including `AGENT_BROWSER_ALLOWED_DOMAINS`) rejects CDP, so leave it unset and keep navigation to localhost yourself. `--cdp` targets only the explicitly provided device endpoint; it is not the forbidden `--auto-connect`. Capture evidence with `agent-browser screenshot` (page viewport only), never a full-device screencap that could expose notifications; label it with device model, browser, and CSS viewport size. `close` only detaches; remove the reverse on completion, including failure. This proves Android Chrome only; iOS/Safari remains unverified and this check never replaces any required rung.
+
 ### Live session
 
 Any runner with the bot-account credentials may use live login: an operator, a provisioned runner, or a future agent canary. There is no role gate. Configure `HOME_VERIFY_ACCOUNT_EMAIL`, a private mode-0600 Gmail readonly credential file (`HOME_VERIFY_GMAIL_CREDENTIALS`, default `~/.home-verify/gmail.json`), optional `HOME_VERIFY_OTP_SENDER` (default `no-reply@info.coinbase.com`), and `HOME_ACCESS_PASSWORD` only if the deployment uses the access gate. Unset or empty environment values can instead come from `~/.home-verify/live.env` (or `HOME_VERIFY_ENV_FILE`; an empty override selects the default file): a current-user-owned, non-symlink, mode-0600 file of literal `KEY=VALUE` lines. Only the four named settings plus `HOME_VERIFY_CASHOUT_HANDLE`, `HOME_VERIFY_ACCOUNT_ADDRESS`, and `HOME_VERIFY_PRODUCTION_URL` are accepted; nonempty exported environment values take precedence. `--base-url` is optional when `HOME_VERIFY_PRODUCTION_URL` is provisioned: the explicit flag overrides that setting, and either source must be an HTTPS origin. Keep these out of the repository and do not print them. To bootstrap the Gmail file once, supply the installed-app `client_id` and `client_secret` from the approved credential store in that file, then run `bun run --cwd apps/web live-login --gmail-auth` and authorize **the configured bot mailbox**, not a personal account. On a remote runner use `--no-open --port 58531` and forward loopback `58531` over SSH to open the printed consent URL locally. OAuth grants only `gmail.readonly`, checks the mailbox, and saves the refresh token privately. Inspect the OTP message sender without copying its code; set `HOME_VERIFY_OTP_SENDER` only if it differs.
