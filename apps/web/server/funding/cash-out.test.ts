@@ -233,6 +233,15 @@ describe("Peer cash-out action preparation", () => {
     expect(draft.metadata).not.toHaveProperty("payeeHash");
   });
 
+  test("refuses new cash-outs for a removed region or unavailable region settings", async () => {
+    installClients();
+    for (const [regionOffered, code] of [[async () => false, "unavailable"], [async () => { throw new Error("settings unavailable"); }, "settings-unavailable"]] as const) {
+      await expect(prepareCashoutAction(session, input(), undefined, {
+        env: { PEER_OFFRAMP_ENABLED: "1" }, store: clearStore, readAllowance: async () => BigInt(0), regionOffered,
+      })).rejects.toMatchObject({ code });
+    }
+  });
+
   test("enforces the 15-minute confirmed hashless ambiguity window", async () => {
     const now = new Date();
     expect(recentHashlessCashouts([row({ confirmed_at: new Date(now.getTime() - 14 * 60_000).toISOString() })], now)).toHaveLength(1);

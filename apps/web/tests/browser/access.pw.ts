@@ -1,6 +1,10 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Response } from "@playwright/test";
 
 const credentialKey = `HOME_ACCESS_${"PASS"}${"WORD"}`;
+
+function isAccessPost(response: Response): boolean {
+  return response.url().endsWith("/api/access") && response.request().method() === "POST";
+}
 
 test("deployment access composes independently before Home authentication", async ({ page, context }) => {
   const credential = process.env[credentialKey];
@@ -18,17 +22,18 @@ test("deployment access composes independently before Home authentication", asyn
   await expect.poll(() => page.getByRole("button", { name: "Continue" }).evaluate((button) => button.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
 
   await page.getByRole("textbox", { name: "Access password" }).fill("wrong credential");
+  const deniedResponse = page.waitForResponse(isAccessPost);
   await page.getByRole("button", { name: "Continue" }).click();
+  expect((await deniedResponse).status()).toBe(401);
   await expect(page.getByText("Access denied. Try again.", { exact: true })).toBeVisible();
   expect((await context.cookies()).some((cookie) => cookie.name === "home-access")).toBe(false);
 
   await page.getByRole("textbox", { name: "Access password" }).fill(credential ?? "");
-  const loginResponse = page.waitForResponse((response) => (
-    response.url().endsWith("/api/access") && response.request().method() === "POST"
-  ));
+  const loginResponse = page.waitForResponse(isAccessPost);
   await page.getByRole("button", { name: "Continue" }).click();
   const accepted = await loginResponse;
   expect(accepted.status()).toBe(200);
+  await page.waitForURL(/(?:\/home|\/\?account=signin)$/);
   await expect(page).toHaveURL(/(?:\/home|\/\?account=signin)$/);
   await expect(page.getByRole("button", { name: "Sign in" }).first()).toBeVisible();
   await page.reload();
@@ -48,6 +53,7 @@ test("deployment access composes independently before Home authentication", asyn
     path: "/",
   }]);
   await page.getByRole("button", { name: "Leave this deployment" }).click();
+  await page.waitForURL(/\/access$/);
   await expect(page).toHaveURL(/\/access$/);
   await expect(page.getByRole("heading", { name: "Enter access password" })).toBeVisible();
   const cookies = await context.cookies();
@@ -71,9 +77,7 @@ test("the native access form posts and redirects without JavaScript", async ({ b
     await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled();
 
     await page.getByRole("textbox", { name: "Access password" }).fill(credential ?? "");
-    const nativeResponse = page.waitForResponse((response) => (
-      response.url().endsWith("/api/access") && response.request().method() === "POST"
-    ));
+    const nativeResponse = page.waitForResponse(isAccessPost);
     const nativeRequest = page.waitForRequest((request) => (
       request.url().endsWith("/api/access") && request.method() === "POST"
     ));
@@ -81,6 +85,7 @@ test("the native access form posts and redirects without JavaScript", async ({ b
 
     expect((await nativeRequest).headers()["origin"]).toBe(new URL(baseURL ?? "").origin);
     expect((await nativeResponse).status()).toBe(303);
+    await page.waitForURL(/\/home$/);
     await expect(page).toHaveURL(/\/home$/);
   } finally {
     await context.close();

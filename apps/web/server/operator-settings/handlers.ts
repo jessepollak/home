@@ -10,6 +10,8 @@ import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { OPERATOR_SETTINGS_CONTRACT_VERSION, parsePutSettingsRequest, validCursor, type OperatorSettingsErrorCode } from "@/shared/operator-settings/contract";
 import { AdminAuditLog } from "./audit";
 import { OperatorSettingsConflictError, OperatorSettingsStore, OperatorSettingsValidationError } from "./store";
+import { invalidateRegionPolicy } from "./regions";
+import { REGIONS_SETTINGS_DOMAIN } from "@/shared/operator-settings/regions";
 
 type Dependencies = {
   authorize?: (request: Request) => Promise<VerifiedAccountSession | Response>;
@@ -94,9 +96,11 @@ export function createSettingsDomainHandlers(deps: Dependencies = {}) {
       let body: unknown;
       try { body = JSON.parse(text); } catch { return error("INVALID_REQUEST", 400); }
       const parsed = parsePutSettingsRequest(body);
-      if (!parsed || settingsStore.registry[domain]?.parse(parsed.value) === null) return error("INVALID_REQUEST", 400);
+      const definition = settingsStore.registry[domain];
+      if (!parsed || !definition || (definition.parseWrite ?? definition.parse)(parsed.value) === null) return error("INVALID_REQUEST", 400);
       try {
         const written = await settingsStore.write({ domain, value: parsed.value, expectedRevision: parsed.expectedRevision, actor: decision.address });
+        if (domain === REGIONS_SETTINGS_DOMAIN) invalidateRegionPolicy();
         return privateJson({ version: OPERATOR_SETTINGS_CONTRACT_VERSION, ...written }, 200);
       } catch (cause) {
         if (cause instanceof OperatorSettingsConflictError) {

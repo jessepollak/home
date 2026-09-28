@@ -52,4 +52,25 @@ describe("CoverageStatusPreview", () => {
 
     await waitFor(() => expect(view.getByRole("dialog")).toBeTruthy());
   });
+
+  test("reports open-state changes so a container can mark its row", async () => {
+    const changes: boolean[] = [];
+    const view = render(<CoverageStatusPreview {...props} onOpenChange={(open) => changes.push(open)} />);
+
+    fireEvent.click(view.getByRole("button", { name: props.accessibleName }));
+    await view.findByRole("dialog");
+
+    expect(changes).toEqual([true]);
+  });
+
+  test("reports close when an open preview unmounts", async () => {
+    const changes: boolean[] = [];
+    const view = render(<CoverageStatusPreview {...props} onOpenChange={(open) => changes.push(open)} />);
+
+    fireEvent.click(view.getByRole("button", { name: props.accessibleName }));
+    await view.findByRole("dialog");
+    view.unmount();
+
+    expect(changes).toEqual([true, false]);
+  });
 });

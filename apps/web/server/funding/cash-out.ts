@@ -16,6 +16,8 @@ import { cashoutArrivalSeconds, parseCashoutQuote } from "@/shared/funding/cash-
 import { getFundingProvider } from "@/server/funding/providers";
 import { assertPeerDepositCall } from "@/server/funding/providers/peer/offramp";
 import { UNKNOWN_WINDOW_MS } from "@/server/funding/cash-out-window";
+import { isRegionOffered } from "@/server/operator-settings/regions";
+import type { CashoutPrepareErrorReason } from "@/shared/actions/contracts/prepare";
 
 const APPROVE_ABI = parseAbi(["function approve(address spender,uint256 amount) returns (bool)"]);
 const ALLOWANCE_ABI = parseAbi(["function allowance(address owner,address spender) view returns (uint256)"]);
@@ -43,16 +45,12 @@ export type CashoutPreparationDependencies = {
   store?: Pick<ActionsStore, "list" | "hasUnsettledCashout" | "cashoutOrders">;
   now?: () => Date;
   readAllowance?: (owner: `0x${string}`, spender: `0x${string}`, signal?: AbortSignal) => Promise<bigint>;
+  regionOffered?: (region: string) => Promise<boolean>;
 };
 
 export class CashoutPreparationError extends Error {
   constructor(
-    readonly code:
-      | "invalid-input"
-      | "unavailable"
-      | "duplicate-unknown"
-      | "order-in-flight"
-      | "not-withdrawable",
+    readonly code: CashoutPrepareErrorReason,
     message: string,
   ) {
     super(message);
@@ -80,6 +78,9 @@ export async function prepareCashoutAction(
   const direction = binding?.directions.offramp;
   const env = dependencies.env ?? process.env;
   if (!provider?.offramp || !binding || !direction || !environmentAvailable(direction.env, env)) unavailable();
+  const regionOffered = await (dependencies.regionOffered ?? isRegionOffered)(binding.region).catch(() => null);
+  if (regionOffered === null) throw new CashoutPreparationError("settings-unavailable", "Cash out is unavailable right now. Try again shortly.");
+  if (!regionOffered) unavailable();
   const sandbox = resolveFundingMode(provider.manifest, "offramp", env) === "sandbox";
   const canonicalHandle = canonicalizeCashPayee(input.platform, input.payoutHandle);
   if (!canonicalHandle) throw new CashoutPreparationError("invalid-input", "Enter a valid payout destination.");

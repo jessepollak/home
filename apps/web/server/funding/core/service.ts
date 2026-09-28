@@ -15,6 +15,7 @@ import { isTerminalFundingState, type FundingOrder, type FundingOrderOwner, type
 import { MemoryFundingProviderCustomerStore, type FundingProviderCustomer, type FundingProviderCustomerStore } from "./customer-store";
 import { awaitBalanceSignal } from "@/server/balances/signal";
 import type { FundingUserTokenVault, ProviderUserTokenCreateOrder, FundingUserTokenBinding } from "./provider-user-token";
+import { isRegionOffered } from "@/server/operator-settings/regions";
 
 export const AMBIGUOUS_ORDER_RECOVERY_DELAY_MS = 24 * 60 * 60 * 1_000;
 const REFRESH_COOLDOWN_MS = 3_000;
@@ -34,6 +35,7 @@ export type FundingOrderTransitionEvent = {
 type Environment = Readonly<Record<string, string | undefined>>;
 export type FundingCoreDependencies = {
   providers: ReadonlyArray<FundingProvider>;
+  regionOffered?: (region: string) => Promise<boolean>;
   store: FundingOrderStore;
   customerStore?: FundingProviderCustomerStore;
   userTokenVault?: FundingUserTokenVault;
@@ -59,6 +61,17 @@ export class FundingCore {
     this.env = deps.env ?? process.env;
     this.now = deps.now ?? (() => new Date());
     this.customerStore = deps.customerStore ?? new MemoryFundingProviderCustomerStore();
+    this.regionOffered = deps.regionOffered ?? isRegionOffered;
+  }
+
+  private readonly regionOffered: (region: string) => Promise<boolean>;
+
+  private async offered(region: string, unavailableCode: string): Promise<boolean> {
+    try {
+      return await this.regionOffered(region);
+    } catch {
+      throw new FundingCoreError(unavailableCode, 503);
+    }
   }
 
   async listProviders(
@@ -66,6 +79,7 @@ export class FundingCore {
     session: VerifiedAccountSession,
     direction: FundingDirection = "onramp",
   ) {
+    if (!await this.offered(region, "PROVIDERS_UNAVAILABLE")) return [];
     let corridorDiscoveryFailed = false;
     const listed = this.deps.providers.flatMap((provider) => {
       let sandbox: boolean;
@@ -196,6 +210,7 @@ export class FundingCore {
     const parsed = parseVerificationRequest(body);
     const resolved = parsed ? this.customerCapability(parsed.providerId, parsed.region) : null;
     if (!parsed || !resolved) throw new FundingCoreError("INVALID_VERIFICATION_REQUEST", 400);
+    if (!await this.offered(parsed.region, "VERIFICATION_UNAVAILABLE")) throw new FundingCoreError("INVALID_VERIFICATION_REQUEST", 400);
     const { provider, binding, capability, sandbox } = resolved;
     const timestamp = this.now().toISOString();
     const reserved = await this.customerStore.reserve({ id: randomUUID(), owner: ownerFor(session), providerId: provider.manifest.id, region: binding.region, createdAt: timestamp });
@@ -313,6 +328,7 @@ export class FundingCore {
     if (!parsed || !provider || !binding || !directional || !asset || !onramp || !onrampManifest || !session.smartAccount || !directionAvailable(provider, "onramp", sandbox) || !environmentAvailable(directional.env, this.env) || (!onramp.createQuote && binding.currency !== asset.fiatCurrency)) {
       throw new FundingCoreError("INVALID_QUOTE_REQUEST", 400);
     }
+    if (!await this.offered(binding.region, "QUOTE_UNAVAILABLE")) throw new FundingCoreError("PROVIDER_UNAVAILABLE", 424);
     const minimum = directional.minimumFiatAmount;
     if (minimum !== undefined) {
       const decimals = Math.max(parsed.fiatAmount.split(".")[1]?.length ?? 0, minimum.split(".")[1]?.length ?? 0);
@@ -392,6 +408,7 @@ export class FundingCore {
     if (isFundingQuoteExpired(claims, this.now().getTime())) throw new FundingCoreError("INVALID_QUOTE_TOKEN", 400);
     const directional = binding.directions.onramp;
     if (!directional || !environmentAvailable(directional.env, this.env)) throw new FundingCoreError("PROVIDER_UNAVAILABLE", 424);
+    if (!await this.offered(binding.region, "ORDER_UNAVAILABLE")) throw new FundingCoreError("PROVIDER_UNAVAILABLE", 424);
     const id = randomUUID();
     const timestamp = this.now().toISOString();
     const reserved = await this.deps.store.reserve({

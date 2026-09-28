@@ -10,14 +10,15 @@ import {
   ComboboxList,
 } from "@/components/ui/combobox";
 import {
-  isRegionId,
   presentationRegions,
   countryRegionIds,
+  type CountryCode,
   type RegionId,
 } from "@/config/regions";
 
 type CountrySelectProps = {
   value: RegionId;
+  offered?: readonly CountryCode[];
   onValueChange: (regionId: RegionId) => void;
   describedBy: string;
   variant?: "default" | "settings";
@@ -28,21 +29,19 @@ type CountryOption = {
   label: string;
 };
 
-const countryOptions: CountryOption[] = countryRegionIds.map((regionId) => ({
-  value: regionId,
-  label: presentationRegions[regionId].selectorLabel,
-}));
-
 export function CountrySelect({
   value,
+  offered = countryRegionIds,
   onValueChange,
   describedBy,
   variant = "default",
 }: CountrySelectProps) {
   const [open, setOpen] = useState(false);
-  const selectedValue = value === "GLOBAL" ? "US" : value;
-  const selected =
-    countryOptions.find((option) => option.value === selectedValue) ?? countryOptions[0] ?? null;
+  const countryOptions: CountryOption[] = countryRegionIds.filter((regionId) => offered.includes(regionId)).map((regionId) => ({
+    value: regionId,
+    label: presentationRegions[regionId].selectorLabel,
+  }));
+  const selected = countryOptions.find((option) => option.value === value) ?? null;
 
   return (
     <Combobox
@@ -51,7 +50,7 @@ export function CountrySelect({
       open={open}
       onOpenChange={setOpen}
       onValueChange={(nextValue) => {
-        if (nextValue && isRegionId(nextValue.value)) {
+        if (nextValue && countryOptions.some((option) => option.value === nextValue.value)) {
           onValueChange(nextValue.value);
           setOpen(false);
         }
@@ -68,7 +67,7 @@ export function CountrySelect({
         }
       />
       <ComboboxContent>
-        <ComboboxEmpty>No countries found.</ComboboxEmpty>
+        <ComboboxEmpty>{offered.length === 0 ? "No countries available." : "No countries found."}</ComboboxEmpty>
         <ComboboxList>
           {(option: CountryOption) => (
             <ComboboxItem key={option.value} value={option}>

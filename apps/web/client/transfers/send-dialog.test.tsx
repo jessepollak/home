@@ -943,7 +943,7 @@ describe("SendDialog resume", () => {
     render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-server-refusal" regionId="US"
       availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
       fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers") ? offrampResponse : { version: 1, recipients: [] }}
-      prepareMoneyAction={async () => { throw { code: "CASHOUT_IN_PROGRESS", serverMessage: "A cash-out for this amount to this payee is still in progress. Check Activity." }; }}
+      prepareMoneyAction={async () => { throw { code: "CASHOUT_ORDER_IN_FLIGHT", serverMessage: "A cash-out for this amount to this payee is still in progress. Check Activity." }; }}
       resumeMoneyAction={async () => cashoutAction()}
       executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />);
     fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
@@ -1044,19 +1044,25 @@ describe("SendDialog resume", () => {
   });
 
   test("returns to the first step when confirm reports an unavailable review", async () => {
-    for (const status of [404, 410]) {
+    const failures = [
+      { key: "404", details: { status: 404 } },
+      { key: "410", details: { status: 410 } },
+      { key: "cashout-removed", details: { code: "CASHOUT_UNAVAILABLE" } },
+      { key: "cashout-settings", details: { code: "CASHOUT_SETTINGS_UNAVAILABLE" } },
+    ];
+    for (const { key, details } of failures) {
       let invalidResumes = 0;
       render(
         <SendDialog
           open
           immediate
           address={ACCOUNT}
-          ownerBoundary={`owner-${status}`}
+          ownerBoundary={`owner-${key}`}
           resumeActionId={ACTION_ID}
           prepareMoneyAction={async () => resumedAction()}
           resumeMoneyAction={async () => resumedAction()}
           executeMoneyAction={async () => {
-            throw Object.assign(new TransferExecutionError("unavailable"), { status });
+            throw Object.assign(new TransferExecutionError("unavailable"), details);
           }}
           onInvalidResume={() => { invalidResumes += 1; }}
           onClose={() => {}}

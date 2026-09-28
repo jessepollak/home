@@ -59,6 +59,11 @@ test("test and story sources stay outside the comment policy", () => {
   ]);
 
   assert.deepEqual(forbidden, []);
+
+  assert.deepEqual(
+    collectForbiddenComments([{ path: "client/landing/fixture.stories.fake.css", content: "/* narrated */\n" }]).map(({ path }) => path),
+    ["client/landing/fixture.stories.fake.css"],
+  );
 });
 
 test("the gate scans only the five product layers and ignores sources outside them", () => {

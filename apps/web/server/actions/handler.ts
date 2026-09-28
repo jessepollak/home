@@ -2,7 +2,7 @@ import "server-only";
 
 import { keccak256 } from "viem";
 
-import { supportsBaseBatchGasHint, type ConfirmActionResponse } from "@/shared/actions/contracts/confirm";
+import { CONFIRM_CASHOUT_ERRORS, supportsBaseBatchGasHint, type ConfirmActionResponse } from "@/shared/actions/contracts/confirm";
 import type { GetActionPendingResponse, GetActionResponse } from "@/shared/actions/contracts/get";
 import type { HandleActionResponse } from "@/shared/actions/contracts/handle";
 import { DECLINE_ACTION_CONTRACT_VERSION, parseDeclineActionRequest, type DeclineActionResponse } from "@/shared/actions/contracts/decline";
@@ -17,7 +17,8 @@ import type { TransferReceiptStatus } from "./receipt";
 import { moneyActionOwner } from "@/server/money-actions/session";
 import { privateError, privateJson } from "@/server/http/private-response";
 import type { PendingTradeResponse } from "@/shared/actions/contracts/trade-pending";
-import { getActionsStore, type ActionRow, type ActionsStore, type CashoutOrderRow, type PendingAction } from "./store";
+import { cashoutMetadataRegion, getActionsStore, type ActionRow, type ActionsStore, type CashoutOrderRow, type PendingAction } from "./store";
+import { isRegionOffered } from "@/server/operator-settings/regions";
 import { deriveActionStatus, type ActionReceiptState } from "./status";
 import { finalizeTradeCalls, type PendingTradeConfirmation } from "./kinds/trade/finalize";
 import { assertStockTradeConfirmAllowed } from "./kinds/trade/stock-eligibility";
@@ -128,6 +129,7 @@ export function createConfirmActionHandler(dependencies: {
   markHot?: (address: `0x${string}`, until: Date) => Promise<void>;
   estimateBaseBatch?: CoinbaseSmartAccountBatchEstimator["estimateBatch"];
   now?: () => Date;
+  regionOffered?: (region: string) => Promise<boolean>;
 }) {
   return async function POST(request: Request, context: { params: Promise<{ id: string }> }): Promise<Response> {
     const startedAt = Date.now();
@@ -162,6 +164,14 @@ export function createConfirmActionHandler(dependencies: {
     }
     if (!replay && Date.parse(draft.summary.expiresAt) <= (dependencies.now?.() ?? new Date()).getTime()) {
       return fail("ACTION_EXPIRED", "The action review expired. Prepare it again.", 410);
+    }
+
+    if (!draft.confirmed_at && draft.kind === "cash-out") {
+      const metadata = draft.summary.metadata;
+      const region = metadata?.product === "cashout" && metadata.operation === "deposit" ? cashoutMetadataRegion(metadata) : null;
+      const offered = region === null ? null : await (dependencies.regionOffered ?? isRegionOffered)(region).catch(() => null);
+      if (offered === null) return fail(CONFIRM_CASHOUT_ERRORS["settings-unavailable"].code, "Cash out is unavailable right now. Try again shortly.", CONFIRM_CASHOUT_ERRORS["settings-unavailable"].status);
+      if (!offered) return fail(CONFIRM_CASHOUT_ERRORS.unavailable.code, "Cash out isn't available in your region.", CONFIRM_CASHOUT_ERRORS.unavailable.status);
     }
 
     let calls = draftCalls;
