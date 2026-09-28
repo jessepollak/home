@@ -30,7 +30,7 @@ export type AssetResolverOptions = {
   maxInFlight?: number;
 };
 
-function assetReadsToken0(address: `0x${string}`): Promise<boolean | null> {
+export function assetReadsToken0(address: `0x${string}`): Promise<boolean | null> {
   return readsToken0(address, (method, params) => baseRpc(method, params, { timeoutMs: 3_000 }));
 }
 
