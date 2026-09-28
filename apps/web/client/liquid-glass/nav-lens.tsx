@@ -31,15 +31,18 @@ const RIM_SOFTEN = 0.5;
 const RIM_FROST = 4;
 const RIM_CORE_INSET = 19;
 const RIM_CORE_FEATHER = 5;
-const MIN_PRESS_MS = 120;
-const TRAVEL_MS = 400;
-const STRETCH_X = 1.08;
-const STRETCH_Y = .97;
-const HOLE_PAD = 8;
+const RELEASE_MS = 200;
+const HOLD_MS = 600;
+const SUPPRESS_MS = 400;
+const SLOP = 8;
+const REACH = 24;
+const LIFT_X = 1.25;
+const LIFT_Y = 1.3;
+const HOLE_PAD = 12;
 const HOLE_MARGIN = 1.5;
 const cache = createRecentCache<LensImages>(4);
 const rimCache = createRecentCache<RimImages>(4);
-const holeCache = createRecentCache<string>(4);
+const holeCache = createRecentCache<string>(8);
 
 function sizeKey({ width, height, ratio }: LensSize) {
   return `${width}x${height}x${Math.round(ratio * 100)}`;
@@ -52,7 +55,7 @@ function buildImages(size: LensSize): LensImages | null {
   if (cached) return cached;
   const maps = generateLensMaps({ width, height, radius: height / 2 }, { pixelRatio: ratio, bezel: BEZEL, thickness: THICKNESS });
   if (maps.width === 0 || maps.height === 0) return null;
-  const margin = Math.ceil(maps.scale / 2) + 2;
+  const margin = Math.ceil(maps.scale / 2) + 2 + Math.ceil(width * (LIFT_X - 1) / 2 + HOLE_MARGIN);
   const pad = Math.round(margin * ratio);
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d");
@@ -97,19 +100,19 @@ function buildRim(size: LensSize): RimImages | null {
   return rimCache.set(key, { displacement, core, scale: maps.scale });
 }
 
-function buildHole(size: LensSize) {
-  const key = sizeKey(size);
+function buildHole(size: LensSize, scaleX: number, scaleY: number, cut: boolean) {
+  const key = `${sizeKey(size)}x${scaleX}x${scaleY}x${cut}`;
   const cached = holeCache.get(key);
   if (cached) return cached;
   const width = size.width * 3;
   const height = size.height + HOLE_PAD * 2;
-  const holeWidth = size.width + HOLE_MARGIN * 2;
-  const holeHeight = size.height + HOLE_MARGIN * 2;
+  const holeWidth = size.width * scaleX + HOLE_MARGIN * 2;
+  const holeHeight = Math.min(height, size.height * scaleY + HOLE_MARGIN * 2);
   const radius = holeHeight / 2;
   const left = (width - holeWidth) / 2;
   const top = (height - holeHeight) / 2;
   const n = (value: number) => Math.round(value * 100) / 100;
-  const path = `M0 0H${width}V${height}H0Z M${n(left + radius)} ${n(top)}H${n(left + holeWidth - radius)}A${n(radius)} ${n(radius)} 0 0 1 ${n(left + holeWidth - radius)} ${n(top + holeHeight)}H${n(left + radius)}A${n(radius)} ${n(radius)} 0 0 1 ${n(left + radius)} ${n(top)}Z`;
+  const path = `${cut ? `M0 0H${width}V${height}H0Z ` : ""}M${n(left + radius)} ${n(top)}H${n(left + holeWidth - radius)}A${n(radius)} ${n(radius)} 0 0 1 ${n(left + holeWidth - radius)} ${n(top + holeHeight)}H${n(left + radius)}A${n(radius)} ${n(radius)} 0 0 1 ${n(left + radius)} ${n(top)}Z`;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><path fill-rule="evenodd" d="${path}"/></svg>`;
   return holeCache.set(key, `url("data:image/svg+xml,${encodeURIComponent(svg)}")`);
 }
@@ -172,10 +175,8 @@ function useLensSize(element: React.RefObject<HTMLElement | null>) {
 
 export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLensProps) {
   const windowRef = useRef<HTMLSpanElement>(null);
-  const stretchRef = useRef<HTMLSpanElement>(null);
-  const holeRef = useRef<HTMLSpanElement>(null);
-  const unstretchRef = useRef<HTMLSpanElement>(null);
-  const shownTarget = useRef(target);
+  const targetRef = useRef(target);
+  const [override, setOverride] = useState<{ base: number; place: number } | null>(null);
   const floorRef = useRef<HTMLElement | null>(null);
   const baseId = `nav-lens-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const [rimEnabled] = useState(readRimEnabled);
@@ -192,74 +193,129 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
     const images = floorSize ? buildRim(floorSize) : null;
     return floorSize && images ? { ...images, ...floorSize, id: `${baseId}-rim-${sizeKey(floorSize)}` } : null;
   }, [floorSize, baseId]);
-  const hole = useMemo(() => size ? buildHole(size) : null, [size]);
+  const masks = useMemo(() => size ? {
+    "--lens-hole": buildHole(size, 1, 1, true),
+    "--lens-hole-lifted": buildHole(size, LIFT_X, LIFT_Y, true),
+    "--lens-clip": buildHole(size, 1, 1, false),
+    "--lens-clip-lifted": buildHole(size, LIFT_X, LIFT_Y, false),
+  } as CSSProperties : null, [size]);
 
   useLayoutEffect(() => {
-    const layers = [[stretchRef.current, STRETCH_X, STRETCH_Y], [holeRef.current, STRETCH_X, STRETCH_Y], [unstretchRef.current, 1 / STRETCH_X, 1 / STRETCH_Y]] as const;
-    const moved = shownTarget.current !== target;
-    shownTarget.current = target;
-    const node = stretchRef.current;
-    if (!node) return;
-    if (reducedMotion) {
-      for (const [layer] of layers) for (const animation of layer?.getAnimations() ?? []) animation.cancel();
-      return;
-    }
-    if (!moved || document.visibilityState === "hidden" || node.getClientRects().length === 0) return;
-    const starts = layers.map(([layer]) => layer ? getComputedStyle(layer).transform : "none");
-    layers.forEach(([layer, x, y], index) => {
-      if (!layer) return;
-      for (const animation of layer.getAnimations()) animation.cancel();
-      layer.animate([
-        { transform: starts[index] === "none" ? "scale(1)" : starts[index], easing: "cubic-bezier(.2, 0, .4, 1)" },
-        { transform: `scale(${x}, ${y})`, offset: .15, easing: "cubic-bezier(.4, 0, .4, 1)" },
-        { transform: "scale(1)", offset: .6 },
-        { transform: "scale(1)" },
-      ], { duration: TRAVEL_MS });
-    });
-  }, [target, reducedMotion]);
+    targetRef.current = target;
+  }, [target]);
 
   useLayoutEffect(() => {
     const nav = windowRef.current?.parentElement;
     if (!nav || reducedMotion) return;
-    let pointer: number | null = null;
-    let pressedAt = 0;
-    let release = 0;
+    let gesture: { id: number; x: number; y: number; index: number; dragged: boolean } | null = null;
+    let narrow = 0;
+    let hold = 0;
+    let suppressUntil = -Infinity;
+    const tabs = () => Array.from(nav.querySelectorAll<HTMLButtonElement>(":scope > button"));
+    const show = (index: number | null) => {
+      window.clearTimeout(hold);
+      if (index === null) setOverride(null);
+      else setOverride({ base: targetRef.current, place: getComputedStyle(nav).direction === "rtl" ? -index : index });
+    };
+    const keep = () => {
+      window.clearTimeout(hold);
+      hold = window.setTimeout(() => setOverride(null), HOLD_MS);
+    };
+    const tabAt = (x: number, y: number) => {
+      const bounds = nav.getBoundingClientRect();
+      if (y < bounds.top - REACH || y > bounds.bottom + REACH) return -1;
+      return tabs().findIndex((tab) => {
+        const rect = tab.getBoundingClientRect();
+        return x >= rect.left && x < rect.right;
+      });
+    };
+    const lower = () => {
+      window.clearTimeout(narrow);
+      nav.removeAttribute("data-lens-pressed");
+      narrow = window.setTimeout(() => nav.removeAttribute("data-lens-wide"), RELEASE_MS);
+    };
     const press = (event: PointerEvent) => {
       if (!event.isPrimary || event.button !== 0 || !(event.target instanceof Element)) return;
-      if (event.target.closest("button")?.parentElement !== nav) return;
-      window.clearTimeout(release);
-      pointer = event.pointerId;
-      pressedAt = event.timeStamp;
+      const tab = event.target.closest("button");
+      if (!tab || tab.parentElement !== nav) return;
+      gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, index: tabs().indexOf(tab), dragged: false };
+      window.clearTimeout(narrow);
+      nav.setAttribute("data-lens-wide", "");
       nav.setAttribute("data-lens-pressed", "");
+      show(gesture.index);
     };
-    const lift = (event: PointerEvent) => {
-      if (event.pointerId !== pointer) return;
-      pointer = null;
-      release = window.setTimeout(() => nav.removeAttribute("data-lens-pressed"), Math.max(0, MIN_PRESS_MS - (event.timeStamp - pressedAt)));
+    const cancel = () => {
+      if (!gesture) return;
+      gesture = null;
+      lower();
+      show(null);
     };
-    const drop = () => {
-      pointer = null;
-      window.clearTimeout(release);
-      nav.removeAttribute("data-lens-pressed");
+    const move = (event: PointerEvent) => {
+      if (!gesture || event.pointerId !== gesture.id) return;
+      const dx = event.clientX - gesture.x;
+      const dy = event.clientY - gesture.y;
+      if (!gesture.dragged) {
+        if (Math.abs(dy) > SLOP && Math.abs(dy) > Math.abs(dx)) {
+          cancel();
+          return;
+        }
+        if (Math.abs(dx) <= SLOP) return;
+        gesture.dragged = true;
+      }
+      const index = tabAt(event.clientX, event.clientY);
+      if (index < 0 || index === gesture.index) return;
+      gesture.index = index;
+      show(index);
     };
-    const hide = () => { if (document.visibilityState === "hidden") drop(); };
+    const end = (event: PointerEvent) => {
+      if (!gesture || event.pointerId !== gesture.id) return;
+      const { dragged } = gesture;
+      gesture = null;
+      lower();
+      if (!dragged) {
+        keep();
+        return;
+      }
+      suppressUntil = event.timeStamp + SUPPRESS_MS;
+      const index = tabAt(event.clientX, event.clientY);
+      if (index < 0) {
+        show(null);
+        return;
+      }
+      show(index);
+      keep();
+      tabs()[index]?.click();
+    };
+    const drop = (event: PointerEvent) => { if (gesture && event.pointerId === gesture.id) cancel(); };
+    const swallow = (event: MouseEvent) => {
+      if (!event.isTrusted || event.detail === 0 || event.timeStamp > suppressUntil) return;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    const hide = () => { if (document.visibilityState === "hidden") cancel(); };
+    const listen = { capture: true, passive: true };
     nav.addEventListener("pointerdown", press, { passive: true });
-    window.addEventListener("pointerup", lift, { passive: true });
-    window.addEventListener("pointercancel", lift, { passive: true });
-    document.addEventListener("pointerup", lift, { capture: true, passive: true });
-    document.addEventListener("pointercancel", lift, { capture: true, passive: true });
-    window.addEventListener("blur", drop);
+    nav.addEventListener("click", swallow, { capture: true });
+    document.addEventListener("pointermove", move, listen);
+    document.addEventListener("pointerup", end, listen);
+    document.addEventListener("pointercancel", drop, listen);
+    document.addEventListener("scroll", cancel, listen);
+    window.addEventListener("blur", cancel);
     document.addEventListener("visibilitychange", hide);
     return () => {
       nav.removeEventListener("pointerdown", press);
-      window.removeEventListener("pointerup", lift);
-      window.removeEventListener("pointercancel", lift);
-      document.removeEventListener("pointerup", lift, { capture: true });
-      document.removeEventListener("pointercancel", lift, { capture: true });
-      window.removeEventListener("blur", drop);
+      nav.removeEventListener("click", swallow, { capture: true });
+      document.removeEventListener("pointermove", move, { capture: true });
+      document.removeEventListener("pointerup", end, { capture: true });
+      document.removeEventListener("pointercancel", drop, { capture: true });
+      document.removeEventListener("scroll", cancel, { capture: true });
+      window.removeEventListener("blur", cancel);
       document.removeEventListener("visibilitychange", hide);
-      window.clearTimeout(release);
+      window.clearTimeout(narrow);
+      window.clearTimeout(hold);
       nav.removeAttribute("data-lens-pressed");
+      nav.removeAttribute("data-lens-wide");
+      setOverride(null);
     };
   }, [reducedMotion]);
 
@@ -274,16 +330,14 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
     };
   }, [rim]);
 
-  const ready = filter !== null && hole !== null;
+  const ready = filter !== null && masks !== null;
   useLayoutEffect(() => {
     onReadyChange(ready);
   }, [ready, onReadyChange]);
   useLayoutEffect(() => () => onReadyChange(false), [onReadyChange]);
 
-  const slide = {
-    transform: `translateX(${target * 100}%)`,
-    "--lens-travel": `${TRAVEL_MS}ms`,
-  } as CSSProperties;
+  const place = override && override.base === target ? override.place : target;
+  const slide = { transform: `translateX(${place * 100}%)`, "--lens-lift-x": LIFT_X, "--lens-lift-y": LIFT_Y } as CSSProperties;
   const motion = reducedMotion ? styles.still : "";
 
   return (
@@ -296,13 +350,9 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
         style={slide}
       >
         {ready ? (
-          <span className={`${styles.cutout} ${styles.lift} absolute`}>
-            <span ref={holeRef} className={`${styles.hole} absolute inset-0`} style={{ maskImage: hole, WebkitMaskImage: hole }}>
-              <span ref={unstretchRef} className="absolute inset-0">
-                <span className={`${styles.unlift} absolute inset-0`}>
-                  <LensTrack items={items} target={target} className={`${styles.cutoutTrack} absolute`} tone="unselected" />
-                </span>
-              </span>
+          <span className={`${styles.cutout} absolute`}>
+            <span className={`${styles.hole} absolute inset-0`} style={masks ?? undefined}>
+              <LensTrack items={items} target={place} className={`${styles.cutoutTrack} absolute`} tone="unselected" />
             </span>
           </span>
         ) : null}
@@ -315,72 +365,78 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
         className={`${styles.slide} ${styles.window} ${motion} pointer-events-none absolute inset-y-1 start-1 z-20 select-none`}
         style={slide}
       >
-        <span ref={stretchRef} className="absolute inset-0">
-          <span className={`${styles.glass} ${styles.lift} absolute inset-0`}>
-            {filter || rim ? (
-              <svg className="absolute size-0 overflow-hidden" focusable="false">
-                {filter ? (
-                  <filter
-                    id={filter.id}
-                    x={-filter.margin / filter.width}
-                    y={-filter.margin / filter.height}
-                    width={1 + filter.margin * 2 / filter.width}
-                    height={1 + filter.margin * 2 / filter.height}
-                    colorInterpolationFilters="sRGB"
-                  >
-                    <feImage
-                      href={filter.displacement}
-                      x={-filter.margin}
-                      y={-filter.margin}
-                      width={filter.width + filter.margin * 2}
-                      height={filter.height + filter.margin * 2}
-                      preserveAspectRatio="none"
-                      result="map"
-                    />
-                    <feDisplacementMap in="SourceGraphic" in2="map" scale={filter.scale} xChannelSelector="R" yChannelSelector="G" />
-                  </filter>
-                ) : null}
-                {rim ? (
-                  <filter
-                    id={rim.id}
-                    filterUnits="userSpaceOnUse"
-                    primitiveUnits="userSpaceOnUse"
-                    x={0}
-                    y={0}
-                    width={rim.width}
-                    height={rim.height}
-                    colorInterpolationFilters="sRGB"
-                  >
-                    <feImage href={rim.displacement} x={0} y={0} width={rim.width} height={rim.height} preserveAspectRatio="none" result="map" />
-                    <feGaussianBlur in="SourceGraphic" stdDeviation={RIM_SOFTEN} result="softEdge" />
-                    <feComponentTransfer in="softEdge" result="soft">
-                      <feFuncA type="linear" slope={0} intercept={1} />
-                    </feComponentTransfer>
-                    <feDisplacementMap in="soft" in2="map" scale={-rim.scale} xChannelSelector="R" yChannelSelector="G" result="bent" />
-                    <feGaussianBlur in="SourceGraphic" stdDeviation={RIM_FROST} result="frostEdge" />
-                    <feComponentTransfer in="frostEdge" result="frost">
-                      <feFuncA type="linear" slope={0} intercept={1} />
-                    </feComponentTransfer>
-                    <feImage href={rim.core} x={0} y={0} width={rim.width} height={rim.height} preserveAspectRatio="none" result="core" />
-                    <feComposite in="frost" in2="core" operator="in" result="center" />
-                    <feMerge>
-                      <feMergeNode in="bent" />
-                      <feMergeNode in="center" />
-                    </feMerge>
-                  </filter>
-                ) : null}
-              </svg>
-            ) : null}
-            <span className={`${styles.refraction} absolute inset-0`} style={filter ? { filter: `url(#${filter.id})` } : undefined}>
-              <LensTrack items={items} target={target} className="absolute inset-y-0 start-0 w-[200%]" tone="selected" />
-            </span>
+        {filter || rim ? (
+          <svg className="absolute size-0 overflow-hidden" focusable="false">
             {filter ? (
-              <span
-                className={`${styles.specular} absolute inset-0`}
-                style={{ maskImage: `url(${filter.specular})`, WebkitMaskImage: `url(${filter.specular})` }}
-              />
+              <filter
+                id={filter.id}
+                x={-filter.margin / filter.width}
+                y={-filter.margin / filter.height}
+                width={1 + filter.margin * 2 / filter.width}
+                height={1 + filter.margin * 2 / filter.height}
+                colorInterpolationFilters="sRGB"
+              >
+                <feImage
+                  href={filter.displacement}
+                  x={-filter.margin}
+                  y={-filter.margin}
+                  width={filter.width + filter.margin * 2}
+                  height={filter.height + filter.margin * 2}
+                  preserveAspectRatio="none"
+                  result="map"
+                />
+                <feDisplacementMap in="SourceGraphic" in2="map" scale={filter.scale} xChannelSelector="R" yChannelSelector="G" />
+              </filter>
             ) : null}
+            {rim ? (
+              <filter
+                id={rim.id}
+                filterUnits="userSpaceOnUse"
+                primitiveUnits="userSpaceOnUse"
+                x={0}
+                y={0}
+                width={rim.width}
+                height={rim.height}
+                colorInterpolationFilters="sRGB"
+              >
+                <feImage href={rim.displacement} x={0} y={0} width={rim.width} height={rim.height} preserveAspectRatio="none" result="map" />
+                <feGaussianBlur in="SourceGraphic" stdDeviation={RIM_SOFTEN} result="softEdge" />
+                <feComponentTransfer in="softEdge" result="soft">
+                  <feFuncA type="linear" slope={0} intercept={1} />
+                </feComponentTransfer>
+                <feDisplacementMap in="soft" in2="map" scale={-rim.scale} xChannelSelector="R" yChannelSelector="G" result="bent" />
+                <feGaussianBlur in="SourceGraphic" stdDeviation={RIM_FROST} result="frostEdge" />
+                <feComponentTransfer in="frostEdge" result="frost">
+                  <feFuncA type="linear" slope={0} intercept={1} />
+                </feComponentTransfer>
+                <feImage href={rim.core} x={0} y={0} width={rim.width} height={rim.height} preserveAspectRatio="none" result="core" />
+                <feComposite in="frost" in2="core" operator="in" result="center" />
+                <feMerge>
+                  <feMergeNode in="bent" />
+                  <feMergeNode in="center" />
+                </feMerge>
+              </filter>
+            ) : null}
+          </svg>
+        ) : null}
+        <span data-navigation-lens-body="" className={`${styles.body} absolute inset-0`}>
+          <span className={`${styles.tint} absolute inset-0`} />
+        </span>
+        <span className={`${styles.cutout} ${styles.clip} absolute`} style={masks ?? undefined}>
+          <span className={`${styles.magnifier} absolute`}>
+            <span className={`${styles.refraction} absolute inset-0`} style={filter ? { filter: `url(#${filter.id})` } : undefined}>
+              <LensTrack items={items} target={place} className="absolute inset-y-0 start-0 w-[200%]" tone="selected" />
+            </span>
           </span>
+        </span>
+        <span className={`${styles.body} absolute inset-0`}>
+          {filter ? (
+            <span
+              className={`${styles.specular} absolute inset-0`}
+              style={{ maskImage: `url(${filter.specular})`, WebkitMaskImage: `url(${filter.specular})` }}
+            />
+          ) : null}
+          <span className={`${styles.shine} absolute inset-0`} />
         </span>
       </span>
     </>

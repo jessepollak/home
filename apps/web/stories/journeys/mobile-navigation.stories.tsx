@@ -367,6 +367,70 @@ export const ActionToast: Story = { args: { actionToast: true }, play: async ({ 
   await waitFor(() => expect(toastBox.getBoundingClientRect().bottom).toBeLessThanOrEqual(nav.getBoundingClientRect().top));
 } };
 export const RapidTaps: Story = { play: async ({ canvasElement }) => { await verifyRapidTabs(canvasElement); } };
+function centerOf(element: Element) {
+  const rect = element.getBoundingClientRect();
+  return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+}
+function touch(type: string, target: Element, point: { x: number; y: number }) {
+  target.dispatchEvent(new PointerEvent(type, { bubbles: true, isPrimary: true, pointerId: 7, pointerType: "touch", button: 0, clientX: point.x, clientY: point.y }));
+}
+async function verifyLensOver(lens: HTMLElement, tab: HTMLElement, lifted: boolean) {
+  const body = lens.querySelector<HTMLElement>("[data-navigation-lens-body]")!;
+  await waitFor(async () => {
+    await expect(Math.abs(centerOf(lens).x - centerOf(tab).x)).toBeLessThanOrEqual(1);
+    const size = body.getBoundingClientRect();
+    const rest = tab.getBoundingClientRect();
+    if (lifted) {
+      await expect(size.width).toBeGreaterThanOrEqual(rest.width * 1.2);
+      await expect(size.height).toBeGreaterThanOrEqual(rest.height * 1.25);
+    } else {
+      await expect(Math.abs(size.width - rest.width)).toBeLessThanOrEqual(2);
+      await expect(Math.abs(size.height - rest.height)).toBeLessThanOrEqual(2);
+    }
+  });
+}
+export const PressAndDrag: Story = { play: async ({ canvasElement }) => {
+  const nav = await verifyNav(canvasElement, "Home");
+  await verifySelectionGeometry(nav, "Home");
+  const home = within(nav).getByRole("button", { name: "Home" });
+  const invest = within(nav).getByRole("button", { name: "Invest" });
+  const lens = nav.querySelector<HTMLElement>('[data-navigation-lens="ready"]')!;
+
+  touch("pointerdown", invest, centerOf(invest));
+  await expect(nav).toHaveAttribute("data-lens-pressed");
+  await verifyLensOver(lens, invest, true);
+  await expect(home).toHaveAttribute("aria-current", "page");
+  touch("pointercancel", invest, centerOf(invest));
+  await expect(nav).not.toHaveAttribute("data-lens-pressed");
+  await verifyLensOver(lens, home, false);
+  await expect(home).toHaveAttribute("aria-current", "page");
+
+  touch("pointerdown", home, centerOf(home));
+  touch("pointermove", home, centerOf(invest));
+  await verifyLensOver(lens, invest, true);
+  await expect(home).toHaveAttribute("aria-current", "page");
+  touch("pointerup", home, centerOf(invest));
+  await waitFor(() => expect(invest).toHaveAttribute("aria-current", "page"));
+  await verifyLensOver(lens, invest, false);
+
+  touch("pointerdown", invest, centerOf(invest));
+  touch("pointermove", invest, centerOf(home));
+  await verifyLensOver(lens, home, true);
+  const outside = centerOf(invest);
+  touch("pointerup", invest, { x: outside.x, y: outside.y - 200 });
+  await verifyLensOver(lens, invest, false);
+  await expect(invest).toHaveAttribute("aria-current", "page");
+
+  const start = centerOf(invest);
+  touch("pointerdown", invest, start);
+  touch("pointermove", invest, { x: start.x, y: start.y - 30 });
+  await expect(nav).not.toHaveAttribute("data-lens-pressed");
+  await verifyLensOver(lens, invest, false);
+  home.focus();
+  await userEvent.keyboard("{Enter}");
+  await expect(home).toHaveAttribute("aria-current", "page");
+  await verifySelectionGeometry(nav, "Home");
+} };
 export const InterruptedMotion: Story = { render: (args) => <MotionSwitchShell {...args} />, play: async ({ canvasElement }) => {
   const nav = await verifyNav(canvasElement, "Home");
   await waitFor(() => expect(nav.querySelector('[data-navigation-lens="ready"]')).toBeInTheDocument());

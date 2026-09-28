@@ -17,6 +17,8 @@
     --glass-lens-tint: var(--glass-pill);
     --glass-lens-occlusion: blur(4px);
     --glass-lens-specular: oklch(1 0 0 / 85%);
+    --glass-lens-shine: oklch(1 0 0 / 90%);
+    --glass-lens-lift-shadow: 0 0 0 .5px color-mix(in oklch, var(--foreground) 12%, transparent), 0 1px 2px oklch(0 0 0 / 8%), 0 6px 14px -4px oklch(0 0 0 / 18%);
     width: 12rem;
     max-width: calc(100% - 2rem);
     height: var(--spacing-shell-mobile-navigation);
@@ -40,6 +42,8 @@
     --glass-pill-highlight: oklch(1 0 0 / 10%);
     --glass-pill-rim: oklch(1 0 0 / 4%);
     --glass-lens-specular: oklch(1 0 0 / 24%);
+    --glass-lens-shine: oklch(1 0 0 / 32%);
+    --glass-lens-lift-shadow: 0 0 0 .5px oklch(0 0 0 / 40%), 0 6px 14px -4px oklch(0 0 0 / 45%);
   }
 
   .navigation[data-glass-rim] { --glass-filter: var(--glass-rim-lens) var(--glass-tone); }
@@ -52,6 +56,8 @@
   }
 
   .motionReady > .pill { transition: opacity 160ms ease-out, transform 180ms cubic-bezier(.25, 1.15, .35, 1); }
+
+  .navigation[data-lens] { touch-action: pan-y; -webkit-touch-callout: none; }
 
   .navigation[data-lens] > .pill,
   .navigation[data-lens] > button > .content { opacity: 0; }
