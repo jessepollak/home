@@ -257,10 +257,30 @@ describe("Home startup recorder", () => {
     }
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.input).toBe("/api/client-performance");
+    expect(calls[0]?.input).toBe("/api/client-performance?kind=home-startup");
     expect(calls[0]?.init?.credentials).toBe("same-origin");
     expect(calls[0]?.init?.method).toBe("POST");
     expect(calls[0]?.init?.keepalive).toBe(true);
+  });
+
+  test("interaction beacons include the validated report kind in the endpoint URL", async () => {
+    const originalFetch = globalThis.fetch;
+    const inputs: string[] = [];
+    globalThis.fetch = Object.assign(
+      async (input: URL | RequestInfo) => {
+        inputs.push(String(input));
+        return new Response(null, { status: 204 });
+      },
+      { preconnect: () => undefined },
+    ) as typeof fetch;
+    try {
+      await sendClientPerformanceReport({ version: 1, kind: "home-navigation", route: "/cash",
+        from: "/home", trigger: "in-app", cache: "retained", device: "mobile-low", engine: "webkit",
+        durationMs: 20 });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    expect(inputs).toEqual(["/api/client-performance?kind=home-navigation"]);
   });
 
   test("reporting failures are isolated", () => {

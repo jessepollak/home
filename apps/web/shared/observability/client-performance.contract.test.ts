@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseClientPerformanceReport } from "./client-performance.contract";
+import { CLIENT_PERFORMANCE_KINDS, clientPerformanceBucket, parseClientPerformanceReport } from "./client-performance.contract";
 
 const navigation = { version: 1, kind: "home-navigation", route: "/home", from: "/cash",
   trigger: "in-app", cache: "first-visit", device: "mobile-low", durationMs: 12.8 } as const;
@@ -23,6 +23,18 @@ describe("closed interaction reports", () => {
     expect(parseClientPerformanceReport({ ...scroll, longFrameCount: 1.6, longFrameMs: 34 }))
       .toMatchObject({ longFrameCount: 2, longFrameMs: 30 });
   });
+  test("accepts an optional closed engine without changing reports from older builds", () => {
+    for (const report of [navigation, scroll]) {
+      expect(parseClientPerformanceReport(report)).not.toHaveProperty("engine");
+      for (const engine of ["chromium", "webkit", "gecko", "other"] as const) {
+        expect(parseClientPerformanceReport({ ...report, engine }))
+          .toMatchObject({ kind: report.kind, engine });
+      }
+      for (const engine of ["safari", "private", "", null, undefined]) {
+        expect(parseClientPerformanceReport({ ...report, engine })).toBeNull();
+      }
+    }
+  });
   test("rejects private/unknown dimensions, missing keys and invalid numerics", () => {
     for (const invalid of [
       { ...navigation, address: "private" }, { ...navigation, deployment: "private" },
@@ -33,6 +45,7 @@ describe("closed interaction reports", () => {
       { ...scroll, longFrameMs: 12 }, { ...scroll, frameCount: "3" },
       { ...scroll, maxFrameMs: Infinity }, { ...navigation, durationMs: NaN },
       { ...navigation, durationMs: "12" },
+      { ...navigation, engine: "private" }, { ...scroll, engine: "safari" },
       Object.fromEntries(Object.entries(navigation).filter(([key]) => key !== "cache")),
       Object.fromEntries(Object.entries(scroll).filter(([key]) => key !== "frameCount")),
     ]) expect(parseClientPerformanceReport(invalid)).toBeNull();
@@ -41,5 +54,13 @@ describe("closed interaction reports", () => {
     const startup = { version: 1, kind: "home-startup", route: "/", outcome: "ready",
       cache: "unknown", shellMs: 1, totalMs: 3 } as const;
     expect(parseClientPerformanceReport(startup)).toEqual(startup);
+  });
+  test("routes closed kinds into independent budgets", () => {
+    expect(CLIENT_PERFORMANCE_KINDS).toEqual([
+      "home-startup", "home-auth-phase", "home-navigation", "home-scroll",
+    ]);
+    expect(CLIENT_PERFORMANCE_KINDS.map(clientPerformanceBucket)).toEqual([
+      "reporting", "reporting", "interaction", "interaction",
+    ]);
   });
 });

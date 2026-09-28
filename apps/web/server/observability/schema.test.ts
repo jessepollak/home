@@ -146,6 +146,24 @@ describe("observability schema", () => {
     });
   });
 
+  test("keeps only the closed engine dimension on interaction logs", () => {
+    const navigation = { version: 1, kind: "home-navigation", route: "/home", from: "/cash",
+      trigger: "history", cache: "retained", device: "mobile-low", durationMs: 20,
+      deployment: "local" } as const;
+    const scroll = { version: 1, kind: "home-scroll", route: "/cash", cache: "retained",
+      device: "desktop-high", durationMs: 400, frameCount: 4, slowFrameCount: 1,
+      maxFrameMs: 30, deployment: "local" } as const;
+    for (const event of [navigation, scroll]) {
+      expect(normalizeObservabilityEvent(event)).not.toHaveProperty("engine");
+      for (const engine of ["chromium", "webkit", "gecko", "other"] as const) {
+        expect(normalizeObservabilityEvent({ ...event, engine } as never)).toHaveProperty("engine", engine);
+      }
+      for (const engine of ["private", "", null, undefined]) {
+        expect(normalizeObservabilityEvent({ ...event, engine } as never)).not.toHaveProperty("engine");
+      }
+    }
+  });
+
   test("normalizes non-string deployment on both interaction event kinds", () => {
     const events = [
       {

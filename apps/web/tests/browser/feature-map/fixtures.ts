@@ -133,7 +133,7 @@ export function fixtureRoutes() {
     ...borrowOverview.opportunities.flatMap((entry) => entry.availability.status === "available"
       ? [[`**/api/borrow/markets/${entry.market.id}`, entry.availability.snapshot] as const]
       : []),
-    ["**/api/client-performance", { ok: true }],
+    ["**/api/client-performance**", { ok: true }],
     ["**/api/funding/providers**", fundingProvidersBody],
     ["**/api/transfers/recipient-name**", { version: 1, name: "example.base.eth", address: recentRecipient }],
     ["**/api/transfers/recent-recipients**", {
