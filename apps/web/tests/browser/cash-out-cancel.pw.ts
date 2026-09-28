@@ -19,7 +19,7 @@ for (const start of ["/home", "/activity"] as const) {
     await item.click();
     const details = page.getByRole("dialog", { name: "Cash out to Cash App" });
     await expect(details.getByText("Waiting for a buyer")).toBeVisible();
-    await expect(details.getByText("About 60 min")).toBeVisible();
+    await expect(details.getByText("Usually within 1 hour")).toBeVisible();
     await details.getByRole("button", { name: "Cancel cash-out $50" }).click();
 
     const review = page.getByRole("dialog", { name: "Confirm withdrawal" });

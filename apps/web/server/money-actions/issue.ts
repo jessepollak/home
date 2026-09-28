@@ -5,7 +5,7 @@ import { hashTypedData } from "viem";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { decodeMoneyActionApproval } from "@/shared/money-actions/approval";
 import { BASE_USDC_ADDRESS, BASE_USDC_PAYMASTER_ADDRESS, parseMoneyActionNetworkFee } from "@/shared/money-actions/network-fee";
-import type { MoneyActionNetworkFee } from "@/shared/money-actions/types";
+import type { CashoutMoneyActionMetadata, MoneyActionNetworkFee } from "@/shared/money-actions/types";
 import {
   isActionKind,
   type MoneyActionAmount,
@@ -18,6 +18,7 @@ import { getDirectPortfolioAssets } from "@/config/portfolio-assets";
 import { getActionsStore } from "@/server/actions/store";
 import { isSavingsMetadata } from "@/shared/savings/review";
 import { parseTradeMetadata, parseTradeSigning } from "@/shared/trading/review";
+import { cashoutArrivalSeconds, parseCashoutQuote } from "@/shared/funding/cash-out-quote";
 import { validatePermit2 } from "@/server/actions/kinds/trade/permit2";
 import type { PendingAction } from "@/server/actions/store";
 import { moneyActionOwner } from "./session";
@@ -163,6 +164,13 @@ function normalizeDraft(draft: MoneyActionDraft, owner: `0x${string}`): MoneyAct
   };
 }
 
+function reviewedCashoutQuote(value: CashoutMoneyActionMetadata): boolean {
+  const quote = parseCashoutQuote(value.quote);
+  return value.operation === "deposit" && quote !== null && quote.fees.operator === null &&
+    quote.receive.amount === value.approximateFiatAmount && quote.receive.currency === value.currency &&
+    cashoutArrivalSeconds(quote.arrival) === (value.etaSeconds ?? null);
+}
+
 function normalizeMetadata(
   value: MoneyActionMetadata,
   kind: MoneyActionDraft["kind"],
@@ -190,8 +198,10 @@ function normalizeMetadata(
       !addressPattern.test(value.escrow) ||
       /^0x0{40}$/i.test(value.escrow) ||
       (value.operation === "withdraw" ? !validShortText(value.depositId, 200) : value.depositId !== undefined)
+      || (value.quote !== undefined && !reviewedCashoutQuote(value))
     ) throw new MoneyActionIssueError("invalid-draft");
-    const { payeeHash, ...rest } = value;
+    const { payeeHash, quote, ...rest } = value;
+    const parsedQuote = quote === undefined ? null : parseCashoutQuote(quote);
     const normalized = {
       ...rest,
       providerId: value.providerId.trim(),
@@ -208,7 +218,8 @@ function normalizeMetadata(
     };
     return value.operation === "deposit"
       ? { ...normalized, operation: "deposit", canonicalHandle: value.canonicalHandle.trim(),
-          ...(payeeHash ? { payeeHash: payeeHash.toLowerCase() as `0x${string}` } : {}), depositId: undefined }
+          ...(payeeHash ? { payeeHash: payeeHash.toLowerCase() as `0x${string}` } : {}),
+          ...(parsedQuote ? { quote: parsedQuote } : {}), depositId: undefined }
       : { ...normalized, operation: "withdraw", canonicalHandle: undefined, depositId: value.depositId.trim() };
   }
   if (value?.product === "trade") {

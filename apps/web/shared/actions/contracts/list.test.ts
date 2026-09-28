@@ -75,6 +75,14 @@ describe("recent Home action activity", () => {
     expect(parseRecentMoneyActions({ actions: [withPayee] }, session)[0]?.action.metadata).toMatchObject({
       payeeHash: `0x${"ab".repeat(32)}`,
     });
+    const quote = {
+      fees: { provider: { amount: "0", currency: "USD" }, network: null, operator: null }, rate: null,
+      receive: { amount: "10.00", currency: "USD", approximate: true }, arrival: { source: "unknown" },
+    };
+    const withQuote = { ...cashout, summary: { ...cashout.summary, metadata: { ...cashout.summary.metadata, quote } } };
+    expect(parseRecentMoneyActions({ actions: [withQuote] }, session)[0]?.action.metadata).toMatchObject({ quote });
+    const badQuote = { ...cashout, summary: { ...cashout.summary, metadata: { ...cashout.summary.metadata, quote: { ...quote, rate: { from: "USDC", to: "USD", value: "0" } } } } };
+    expect(parseRecentMoneyActions({ actions: [badQuote] }, session)[0]?.action.metadata).toBeUndefined();
   });
 
   test("preserves validated savings metadata for confirmed Activity rows", () => {

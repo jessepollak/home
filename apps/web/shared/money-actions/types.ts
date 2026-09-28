@@ -1,5 +1,6 @@
 import type { AccountProvider } from "@/shared/account/session-types";
 import type { TradeMoneyActionMetadata, TradeSigningRequest } from "@/shared/trading/contract";
+import type { CashoutQuote } from "@/shared/funding/cash-out-quote";
 
 export const ACTION_KINDS = [
   "send",
@@ -75,8 +76,8 @@ type CashoutMoneyActionMetadataBase = {
   escrow: `0x${string}`;
 };
 export type CashoutMoneyActionMetadata = CashoutMoneyActionMetadataBase & (
-  | { operation: "deposit"; canonicalHandle: string; payeeHash?: `0x${string}`; depositId?: never }
-  | { operation: "withdraw"; canonicalHandle?: never; payeeHash?: never; depositId: string }
+  | { operation: "deposit"; canonicalHandle: string; payeeHash?: `0x${string}`; quote?: CashoutQuote; depositId?: never }
+  | { operation: "withdraw"; canonicalHandle?: never; payeeHash?: never; quote?: never; depositId: string }
 );
 
 export type SavingsMoneyActionMetadata = {

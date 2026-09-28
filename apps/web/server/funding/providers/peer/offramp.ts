@@ -4,6 +4,7 @@ import {
   BASE_USDC_ADDRESS,
   CASH_ATTRIBUTION_CODE,
   MIN_CASHOUT_AMOUNT,
+  MARKET_SPREAD_BPS,
   buildIntentAmountRange,
   createCashClient,
   normalizeCashPayee,
@@ -37,6 +38,7 @@ import { base, mainnet, polygon } from "viem/chains";
 import { resolveBaseRpcUrl } from "@/server/chain/rpc";
 import { emitServerEvent } from "@/server/observability/log";
 import { canonicalizeCashPayee } from "@/shared/funding/cash-payee";
+import type { CashoutArrival } from "@/shared/funding/cash-out-quote";
 import type {
   FundingOfframpProvider,
   OfframpContext,
@@ -119,10 +121,14 @@ export const peerOfframp: FundingOfframpProvider = {
     return {
       amountAtomic: input.amountAtomic.toString(10),
       currency: input.currency,
-      approximateFiatAmount: decimalString(result.receiveAmount),
+      quote: {
+        fees: { provider: MARKET_SPREAD_BPS === 0 ? { amount: "0", currency: input.currency } : null, network: null, operator: null },
+        rate: input.currency === "USD" ? null : { from: "USDC", to: input.currency, value: rateString(result.rate) },
+        receive: { amount: decimalString(result.receiveAmount), currency: input.currency, approximate: true },
+        arrival: arrivalFromEta(result.eta?.seconds),
+      },
       minConversionRate: "1",
       intentAmountRange: { min: range.min.toString(10), max: range.max.toString(10) },
-      etaSeconds: result.eta?.seconds ?? null,
       asOf: new Date(result.asOf * 1000).toISOString(),
     };
   },
@@ -469,6 +475,18 @@ function attributionSuffix(codes: readonly string[]): Hex {
 function decimalString(value: number): string {
   if (!Number.isFinite(value) || value < 0) fail();
   return value.toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
+}
+
+function rateString(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) fail();
+  const fixed = value.toFixed(8).replace(/0+$/, "").replace(/\.$/, "");
+  if (!/[1-9]/.test(fixed)) fail();
+  return fixed;
+}
+
+function arrivalFromEta(seconds: number | undefined): CashoutArrival {
+  if (seconds === undefined || !Number.isFinite(seconds) || seconds <= 0) return { source: "unknown" };
+  return { source: "observed", kind: "within", seconds: Math.ceil(seconds) };
 }
 
 function fail(message?: string): never {

@@ -23,6 +23,7 @@ import { BASE_USDC_ADDRESS, CASH_ATTRIBUTION_CODE, buildIntentAmountRange, deriv
 import { canonicalizeCashPayee } from "@/shared/funding/cash-payee";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 import { createProviderContext } from "../../core/provider-context";
+import { describeFundingOfframpAdapter } from "../../core/testing/describeFundingOfframpAdapter";
 import { peerProvider } from "./adapter";
 import { PEER_CREATE_DEPOSIT_ABI, PEER_ESCROW_ABI, PEER_WITHDRAW_ABI } from "./abi";
 import {
@@ -37,10 +38,10 @@ const OWNER = "0x1111111111111111111111111111111111111111" as const;
 const PAYEE_HASH = `0x${"ab".repeat(32)}` as Hex;
 const NOW_SECONDS = Math.floor(Date.now() / 1000);
 
-function context(paymentMethodId = "cashapp") {
+function context(paymentMethodId = "cashapp", region: "US" | "GB" = "US") {
   return createProviderContext({
     manifest: peerProvider.manifest,
-    region: "US",
+    region,
     direction: "offramp",
     paymentMethodId,
     env: { PEER_OFFRAMP_ENABLED: "1" },
@@ -120,6 +121,55 @@ function installFakeClients(payeeHash: string = PAYEE_HASH, orders = [cashOrder(
   setPeerClientFactoryForTests(() => ({ environment: "production", cash: cash as never, sdk: sdk as never }));
 }
 
+function installEstimate(estimate: Record<string, unknown>) {
+  setPeerClientFactoryForTests(() => ({ environment: "production", cash: { estimate: async () => estimate } as never, sdk: {} as never }));
+}
+
+for (const binding of [
+  { region: "US", paymentMethodId: "cashapp", currency: "USD", rate: 1 },
+  { region: "GB", paymentMethodId: "monzo", currency: "GBP", rate: 0.7412 },
+] as const) {
+  describeFundingOfframpAdapter({
+    provider: peerProvider,
+    region: binding.region,
+    paymentMethodId: binding.paymentMethodId,
+    currency: binding.currency,
+    env: { PEER_OFFRAMP_ENABLED: "1" },
+    owner: OWNER,
+    quote: {
+      amountAtomic: BigInt(2_000_000),
+      install: (timing) => installEstimate({
+        amount: BigInt(2_000_000), currency: binding.currency, rate: binding.rate, receiveAmount: 2 * binding.rate, asOf: NOW_SECONDS,
+        ...(timing === "sampled" ? { eta: { seconds: 3_000, label: "About 50 min" } } : { eta: { label: "No recent fills" } }),
+      }),
+    },
+  });
+}
+
+describe("Peer normalized cash-out quote", () => {
+  test("reports the exchange rate only when a conversion happens", async () => {
+    installEstimate({ amount: BigInt(2_000_000), currency: "GBP", rate: 0.74123456789, receiveAmount: 1.4824, asOf: NOW_SECONDS });
+    const { quote } = await peerProvider.offramp!.estimate({ amountAtomic: BigInt(2_000_000), platform: "monzo", currency: "GBP" }, context("monzo", "GB"));
+    expect(quote.rate).toEqual({ from: "USDC", to: "GBP", value: "0.74123457" });
+    expect(quote.receive).toEqual({ amount: "1.48", currency: "GBP", approximate: true });
+    expect(quote.arrival).toEqual({ source: "unknown" });
+  });
+
+  test("fails closed on a rate that is not a finite positive number", async () => {
+    for (const rate of [Number.NaN, 0, -1, Number.POSITIVE_INFINITY]) {
+      installEstimate({ amount: BigInt(2_000_000), currency: "GBP", rate, receiveAmount: 1, asOf: NOW_SECONDS });
+      await expect(peerProvider.offramp!.estimate({ amountAtomic: BigInt(2_000_000), platform: "monzo", currency: "GBP" }, context("monzo", "GB")))
+        .rejects.toBeInstanceOf(PeerOfframpSafetyError);
+    }
+  });
+
+  test("rounds a fractional observed timing up rather than down", async () => {
+    installEstimate({ amount: BigInt(2_000_000), currency: "USD", rate: 1, receiveAmount: 2, asOf: NOW_SECONDS, eta: { seconds: 59.2, label: "1 min" } });
+    const { quote } = await peerProvider.offramp!.estimate({ amountAtomic: BigInt(2_000_000), platform: "cashapp", currency: "USD" }, context());
+    expect(quote.arrival).toEqual({ source: "observed", kind: "within", seconds: 60 });
+  });
+});
+
 function withdrawCall(name: "pruneExpiredIntents" | "withdrawDeposit") {
   const canonical = encodeFunctionData({ abi: PEER_WITHDRAW_ABI, functionName: name, args: [BigInt(7)] });
   return { to: PEER_PRODUCTION_CONTRACTS.escrow, data: `${canonical}${suffix().slice(2)}` as Hex, value: BigInt(0), chainId: 8453 };
@@ -165,7 +215,14 @@ describe("Peer funding provider", () => {
     installFakeClients();
     const ctx = context();
     await expect(peerProvider.offramp!.capabilities(ctx)).resolves.toMatchObject({ platforms: [{ id: "cashapp", currencies: ["USD"] }] });
-    await expect(peerProvider.offramp!.estimate({ amountAtomic: BigInt(2_000_000), platform: "cashapp", currency: "USD" }, ctx)).resolves.toMatchObject({ approximateFiatAmount: "2", etaSeconds: 60 });
+    await expect(peerProvider.offramp!.estimate({ amountAtomic: BigInt(2_000_000), platform: "cashapp", currency: "USD" }, ctx)).resolves.toMatchObject({
+      quote: {
+        fees: { provider: { amount: "0", currency: "USD" }, network: null, operator: null },
+        rate: null,
+        receive: { amount: "2", currency: "USD", approximate: true },
+        arrival: { source: "observed", kind: "within", seconds: 60 },
+      },
+    });
     await expect(peerProvider.offramp!.prepareDeposit({ owner: OWNER, amountAtomic: BigInt(2_000_000), platform: "cashapp", currency: "USD", payoutHandle: "$Alice" }, ctx)).resolves.toMatchObject({ payee: { canonicalHandle: "Alice", hash: PAYEE_HASH } });
     await expect(peerProvider.offramp!.listOrders({ owner: OWNER, inFlight: true, onMalformedPayee: "throw" }, ctx)).resolves.toMatchObject([{ state: "awaiting-buyer", canonicalHandle: null, payeeHash: PAYEE_HASH }]);
     await expect(peerProvider.offramp!.readOrder({ owner: OWNER, depositId: cashOrder().depositId }, ctx)).resolves.toMatchObject({ nextActions: ["withdraw"] });

@@ -3,6 +3,7 @@ import "server-only";
 import { describe, expect, test } from "bun:test";
 import type { CountryCode, FiatCurrencyCode } from "@/config/regions";
 import type { FundingProvider } from "@/shared/funding/provider-contract";
+import { parseCashoutQuote } from "@/shared/funding/cash-out-quote";
 import { FundingProviderConfigurationError, createProviderContext } from "../provider-context";
 
 export function describeFundingOfframpAdapter(options: {
@@ -13,6 +14,10 @@ export function describeFundingOfframpAdapter(options: {
   env: Readonly<Record<string, string>>;
   owner: `0x${string}`;
   disabled?: boolean;
+  quote?: {
+    amountAtomic: bigint;
+    install(timing: "sampled" | "unsampled"): void;
+  };
 }): void {
   describe(`funding offramp adapter conformance · ${options.provider.manifest.id}:${options.paymentMethodId}`, () => {
     test("requires the exact directional binding environment before adapter code runs", () => {
@@ -43,6 +48,34 @@ export function describeFundingOfframpAdapter(options: {
       expect(ctx.deployment).toEqual(production);
       expect(ctx.env).not.toHaveProperty("UNDECLARED_SECRET");
     });
+
+    const quoteFixture = options.quote;
+    if (quoteFixture) {
+      const estimate = () => {
+        const adapter = options.provider.offramp;
+        if (!adapter) throw new Error("Missing offramp adapter.");
+        const ctx = createProviderContext({ manifest: options.provider.manifest, region: options.region, direction: "offramp", paymentMethodId: options.paymentMethodId, env: options.env });
+        return adapter.estimate({ amountAtomic: quoteFixture.amountAtomic, platform: options.paymentMethodId, currency: options.currency }, ctx);
+      };
+
+      test("returns a normalized quote with fee components, rate, net receive, and a sourced arrival", async () => {
+        quoteFixture.install("sampled");
+        const { quote } = await estimate();
+        const parsed = parseCashoutQuote(JSON.parse(JSON.stringify(quote)));
+        expect(parsed).toEqual(quote);
+        expect(quote.fees.operator).toBeNull();
+        expect(quote.receive.currency).toBe(options.currency);
+        if (quote.rate) expect(quote.rate.to).toBe(options.currency);
+        expect(quote.arrival.source).not.toBe("unknown");
+      });
+
+      test("reports an unknown arrival instead of inventing one when the provider has no timing", async () => {
+        quoteFixture.install("unsampled");
+        const { quote } = await estimate();
+        expect(quote.arrival).toEqual({ source: "unknown" });
+        expect(parseCashoutQuote(quote)).toEqual(quote);
+      });
+    }
 
     if (options.disabled) {
       test("fails closed across every money-relevant lifecycle method", async () => {
