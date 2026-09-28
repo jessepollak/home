@@ -18,7 +18,7 @@ type LensImages = { displacement: string; specular: string; scale: number; margi
 type LensFilter = LensImages & LensSize & { id: string };
 type RimImages = { displacement: string; core: string; scale: number };
 type RimFilter = RimImages & LensSize & { id: string };
-type LensTrackProps = Pick<NavLensProps, "items" | "target"> & { className: string; tone: keyof typeof navigationTabTone };
+type LensTrackProps = Pick<NavLensProps, "items" | "target"> & { className: string; tone: keyof typeof navigationTabTone; hovered?: number | null };
 
 const BEZEL = 10;
 const THICKNESS = 10;
@@ -124,12 +124,13 @@ function readRatio() {
   return Math.max(1, Math.min(2, window.devicePixelRatio || 1));
 }
 
-function LensTrack({ items, target, className, tone }: LensTrackProps) {
+function LensTrack({ items, target, className, tone, hovered = null }: LensTrackProps) {
   const colors = navigationTabTone[tone];
   return (
     <span className={`${styles.track} ${className} grid`} style={{ transform: `translateX(${target * -100 / items.length}%)` }}>
-      {items.map(({ id, label, Icon }) => (
-        <span key={id} className={`${styles.tab} ${tone === "unselected" ? styles.unselected : ""} ${navigationTabContentClassName} px-2`}>
+      {items.map(({ id, label, Icon }, index) => (
+        <span key={id} data-hovered={index === hovered ? "" : undefined}
+          className={`${styles.tab} ${tone === "unselected" ? styles.unselected : ""} ${navigationTabContentClassName} px-2`}>
           <Icon className={`${styles.icon} ${navigationTabIconClassName} ${colors.icon}`} aria-hidden="true" />
           <span className={`${styles.label} ${navigationTabLabelClassName} ${colors.label}`}>{label}</span>
         </span>
@@ -187,6 +188,7 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
   const placed = useRef(target);
   const retarget = useRef<(next: number) => void>(null);
   const [override, setOverride] = useState<number | null>(null);
+  const [hovered, setHovered] = useState<number | null>(null);
   const floorRef = useRef<HTMLElement | null>(null);
   const baseId = `nav-lens-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const [rimEnabled] = useState(readRimEnabled);
@@ -214,6 +216,20 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
   useLayoutEffect(() => {
     retarget.current?.(target);
   }, [target]);
+
+  useLayoutEffect(() => {
+    const nav = windowRef.current?.parentElement;
+    if (!nav) return;
+    const over = (event: PointerEvent) => {
+      const tab = event.target instanceof Element ? event.target.closest("button") : null;
+      setHovered(tab && tab.parentElement === nav ? Array.from(nav.querySelectorAll(":scope > button")).indexOf(tab) : null);
+    };
+    const leave = () => setHovered(null);
+    const off = new AbortController();
+    nav.addEventListener("pointerover", over, { passive: true, signal: off.signal });
+    nav.addEventListener("pointerleave", leave, { passive: true, signal: off.signal });
+    return () => off.abort();
+  }, []);
 
   useLayoutEffect(() => {
     const nav = windowRef.current?.parentElement;
@@ -414,7 +430,8 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
         {ready ? (
           <span className={`${styles.cutout} ${styles.hole} ${styles.stretch} absolute`} style={masks ?? undefined}>
             <span ref={counterRef} className={`${styles.counter} absolute inset-0`}>
-              <LensTrack items={items} target={place} className={`${styles.cutoutTrack} absolute`} tone="unselected" />
+              <LensTrack items={items} target={place} className={`${styles.cutoutTrack} absolute`} tone="unselected"
+                hovered={hovered === Math.abs(target) ? null : hovered} />
             </span>
           </span>
         ) : null}

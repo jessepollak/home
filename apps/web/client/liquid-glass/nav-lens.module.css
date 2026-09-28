@@ -153,8 +153,7 @@
 .still :is(.stretch, .counter) { animation: none; }
 
 @media (hover: hover) {
-  :global(nav):has(> button:nth-of-type(1):not([aria-current="page"]):hover) .unselected:nth-child(1) :is(.icon, .label),
-  :global(nav):has(> button:nth-of-type(2):not([aria-current="page"]):hover) .unselected:nth-child(2) :is(.icon, .label) { color: var(--foreground); }
+  .unselected[data-hovered] :is(.icon, .label) { color: var(--foreground); }
 }
 
 @media (prefers-reduced-motion: reduce) {
