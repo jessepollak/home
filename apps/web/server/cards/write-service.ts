@@ -106,7 +106,7 @@ export function createCardWriteService({ sql, config, bridge, stripe }: Dependen
         if (state.state === "unavailable") throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
         const found = state.cards.find((card) => card.id === id);
         if (!found) throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
-        if (state.state === "restricted" || found.status === "restricted" || found.status === "canceled") throw new CardWriteFailure("CARD_NOT_READY", 409);
+        if ((!freeze && state.state === "restricted") || found.status === "restricted" || found.status === "canceled") throw new CardWriteFailure("CARD_NOT_READY", 409);
         if (found.status === (freeze ? "frozen" : "active")) return id;
         if (found.status !== (freeze ? "active" : "frozen")) throw new CardWriteFailure("CARD_NOT_READY", 409);
         const card = await stripe.setCardFreeze(id, freeze, crypto.randomUUID());

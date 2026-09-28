@@ -21,12 +21,13 @@ let service: ReturnType<typeof createCardWriteService>;
 let writes = 0;
 const issueKeys: string[] = [];
 let ephemeralCalls = 0;
+let holderStatus = "active";
 const card = { id: "ic_123", cardholder: fixtureCustomer.stripe_cardholder_id, status: "active", last4: "1234", metadata: {} as Record<string, string> };
 const replacement = { ...card, id: "ic_456", status: "active", metadata: {} as Record<string, string> };
 const stripe = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = new URL(String(input));
   if (url.pathname === "/v1/ephemeral_keys") { ephemeralCalls++; return Response.json({ secret: "ek_test_synthetic123456", other: "must_not_escape" }); }
-  if (url.pathname.endsWith("/cardholders/" + fixtureCustomer.stripe_cardholder_id)) return Response.json({ id: fixtureCustomer.stripe_cardholder_id, status: "active" });
+  if (url.pathname.endsWith("/cardholders/" + fixtureCustomer.stripe_cardholder_id)) return Response.json({ id: fixtureCustomer.stripe_cardholder_id, status: holderStatus });
   if (url.pathname.endsWith("/cards/ic_456")) return Response.json(replacement);
   if (url.pathname.endsWith("/cards/ic_other")) return Response.json({ ...card, id: "ic_other", cardholder: "ich_other", status: "active" });
   if (init?.method === "POST") {
@@ -95,6 +96,17 @@ const stripe = (async (input: RequestInfo | URL, init?: RequestInit) => {
     expect(await service.freeze(owner, "ic_123", false)).toBe("ic_123");
     expect(card.metadata).toEqual({});
     expect(writes).toBe(3);
+  });
+  test("lets the owner freeze an active card while the cardholder is restricted, but not unfreeze", async () => {
+    holderStatus = "inactive";
+    try {
+      expect(await service.freeze(owner, "ic_123", true)).toBe("ic_123");
+      expect(card.metadata).toEqual({ home_freeze: "customer" });
+      await expect(service.freeze(owner, "ic_123", false)).rejects.toThrow("CARD_NOT_READY");
+    } finally {
+      holderStatus = "active";
+    }
+    expect(await service.freeze(owner, "ic_123", false)).toBe("ic_123");
   });
   test("reveals a key only for the owner and fresh active or customer-frozen card", async () => {
     await expect(service.ephemeralKey(other, "ic_123", "nonce_synthetic123")).rejects.toThrow("CARD_NOT_FOUND");
