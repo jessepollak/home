@@ -26,7 +26,6 @@ The full check suite also covers:
 - unit-test runtime budgets (per-test and summed per-file JUnit timings, with a checked-in outlier allowlist)
 - performance budgets (production fixture, structural gates, and report-only timings)
 
-
 ## Unit-test runtime
 
 The **Unit-test runtime** CI step reads the JUnit report produced by `bun test` during `bun check`. A test over 5 seconds or a file over 30 seconds fails unless its exact identity is listed in `scripts/gates/test-runtime-allowlist.json` with a higher ceiling; exceeding that ceiling still fails. The test identity is its nested describe names and test name joined with ` > ` (or just the test name without a describe), which is why an entry can be copied from the slow test's console line. Bun emits describes as nested `testsuite` elements; its `classname` attribute joins the same describes in the opposite order and is not used. File time is the sum of testcase times, including repeated testcases; hooks and module load are not included. Repeated test identities in one file use their maximum time for the per-test check.
