@@ -45,6 +45,8 @@
     "scripts/review-links.ts!",
     "scripts/activity-scroll-profile.ts!",
     "scripts/modal-open-profile.ts!",
+    "scripts/performance/budget.ts!",
+    "scripts/performance/seeds-check.ts!",
     // Figma variables sync, run by package scripts and the main-only CI job.
     "scripts/figma-variables.mjs!",
     "scripts/immersve-probe.ts!"

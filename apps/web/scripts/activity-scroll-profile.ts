@@ -17,6 +17,7 @@ const integer = (key: string, fallback: number) => {
   return value;
 };
 const rows = integer("rows", 300);
+const flingDistance = integer("fling-distance", 0);
 const repeat = integer("repeat", 1);
 const throttle = integer("cpu-throttle", 1);
 const networkDelay = integer("network-delay", 0);
@@ -249,8 +250,9 @@ async function runOnce(index: number, video: boolean) {
     if (!mainRect) throw new Error("Missing scroll container");
     const position = { x: mainRect.x + mainRect.width / 2, y: mainRect.y + mainRect.height / 2, gestureSourceType: viewport === "mobile" ? "touch" as const : "mouse" as const, speed: 4000 };
     const scrollHeight = await page.locator("main[data-app-main-authenticated]").evaluate((element) => element.scrollHeight);
-    await cdp.send("Input.synthesizeScrollGesture", { ...position, yDistance: -scrollHeight });
-    await cdp.send("Input.synthesizeScrollGesture", { ...position, yDistance: scrollHeight });
+    const distance = Math.min(flingDistance || scrollHeight, scrollHeight);
+    await cdp.send("Input.synthesizeScrollGesture", { ...position, yDistance: -distance });
+    await cdp.send("Input.synthesizeScrollGesture", { ...position, yDistance: distance });
     await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
     if (cpuProfilePath && !video) {
       const { profile } = await cdp.send("Profiler.stop");
