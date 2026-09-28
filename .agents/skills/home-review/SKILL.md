@@ -51,7 +51,6 @@ Count added plus deleted non-generated diff lines. If the total is **over 400**,
 - [ ] Webhooks verify signatures before parsing, bound bodies, deduplicate provider event ids, and distinguish retryable from terminal results. Recovery rereads current state inside its transaction/claim, conditions writes on prior state, and is safe under duplicate, reordered and concurrent delivery or retry after partial success.
 - [ ] Hex identity, addresses, and decimal-to-atomic conversions use the existing boundary conventions rather than new inline case comparisons or parsers. Check new config reads and timeout/retry logic against existing primitives; flag unnecessary growth of large handlers without requiring nonexistent modules.
 - [ ] Scripts invoking network/`gh`/git mutation constrain reachable credentials and target repo/branch, and handle partial failure without silent duplicate effects.
-- [ ] New shared lists, tables and registries follow the root `AGENTS.md` rule: they grow by one file per entry, not by appending to a shared object or table.
 
 ### Money, security and tests
 
