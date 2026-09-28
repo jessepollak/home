@@ -77,7 +77,7 @@ Built on this branch today. Provider integrations still need live, funded confir
 **Invest**
 
 - Discover tokenized stocks and major crypto with market prices, 1D–1Y charts, market stats, and holdings.
-- Search Base tokens, then buy and sell through one shared, server-prepared swap path; stock buying follows server-side eligibility.
+- Search Base tokens, then buy and sell them for USDC through one shared, server-prepared swap path. Tokenized stocks are discovery-only for now; server-side eligibility checks are in place ahead of stock trading.
 
 **Borrow**
 
@@ -104,7 +104,7 @@ Built on this branch today. Provider integrations still need live, funded confir
 - Sign in with email (CDP embedded wallet) or Base Account; network fees can be paid in USDC through a paymaster.
 - Layer boundaries, dead code, and design-system rules are enforced in lint and CI, with Playwright and Storybook coverage.
 
-In progress: card programs (provider foundations only), operator fees, applying saved brand settings to customer pages, and the operator support inbox.
+In progress: tokenized stock trading, card programs (provider foundations only), operator fees, applying saved brand settings to customer pages, and the operator support inbox.
 
 ## Get started
 
