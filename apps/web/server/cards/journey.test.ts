@@ -3,6 +3,7 @@ import { readCardState } from "./journey";
 import type { CardAccountLink } from "./account-store";
 import type { BridgeCustomer } from "./bridge/client";
 import type { StripeCard } from "./stripe/client";
+import type { CardState } from "@/shared/cards/contract";
 
 const account: CardAccountLink = { bridgeCustomerId: "bridge-id", stripeCardholderId: "ich_123",
   cards: [{ id: "local", stripeCardId: "ic_123", walletAddress: "0x1111111111111111111111111111111111111111" }] };
@@ -43,15 +44,30 @@ describe("card state precedence and availability", () => {
     expect((await state({ account: null })).state).toBe("not-enrolled");
     expect((await state({ account: { ...account, bridgeCustomerId: null, cards: [] } })).state).toBe("verification-required");
   });
-  test("verification outcomes before card issuance", async () => {
-    const noCards = { ...account, cards: [] };
-    expect((await state({ account: noCards })).state).toBe("ready-to-issue");
-    expect((await state({ account: noCards, bridge: { ...bridge, cardsEndorsement: { status: "revoked", missing: false, pending: false, issues: false } } })).state).toBe("verification-required");
-    expect((await state({ account: noCards, bridge: { ...bridge, cardsEndorsement: { status: "pending", missing: false, pending: true, issues: false } } })).state).toBe("verification-pending");
-    expect((await state({ account: noCards, bridge: { ...bridge, cardsEndorsement: { status: "rejected", missing: true, pending: false, issues: true } } })).state).toBe("ineligible");
+  test("every documented Bridge customer status before and after issue", async () => {
+    const cases: Array<[BridgeCustomer["status"], CardState, CardState]> = [
+      ["not_started", "verification-required", "restricted"],
+      ["incomplete", "verification-required", "restricted"],
+      ["awaiting_questionnaire", "verification-required", "restricted"],
+      ["awaiting_ubo", "verification-required", "restricted"],
+      ["under_review", "verification-pending", "restricted"],
+      ["active", "ready-to-issue", "active"],
+      ["rejected", "ineligible", "restricted"],
+      ["paused", "restricted", "restricted"],
+      ["offboarded", "ineligible", "restricted"],
+      ["deposits_restricted", "restricted", "restricted"],
+    ];
+    for (const [status, before, after] of cases) {
+      expect((await state({ account: { ...account, cards: [] }, bridge: { ...bridge, status } })).state).toBe(before);
+      expect((await state({ bridge: { ...bridge, status } })).state).toBe(after);
+    }
   });
-  test("Bridge/cardholder restriction wins over canceled and customer-frozen metadata", async () => {
-    expect((await state({ bridge: { ...bridge, status: "inactive" }, card: { ...card, status: "canceled" } })).state).toBe("restricted");
+  test("endorsement requirements and cardholder restrictions win over issued-card state", async () => {
+    const noCards = { ...account, cards: [] };
+    expect((await state({ account: noCards, bridge: { ...bridge, cardsEndorsement: { status: "revoked", missing: false, pending: false, issues: false } } })).state).toBe("verification-required");
+    expect((await state({ account: noCards, bridge: { ...bridge, cardsEndorsement: { status: "incomplete", missing: false, pending: true, issues: false } } })).state).toBe("verification-pending");
+    expect((await state({ account: noCards, bridge: { ...bridge, cardsEndorsement: { status: "incomplete", missing: true, pending: false, issues: true } } })).state).toBe("verification-required");
+    expect((await state({ bridge: { ...bridge, status: "paused" }, card: { ...card, status: "canceled" } })).state).toBe("restricted");
     expect((await state({ holder: "inactive", card: { ...card, status: "inactive", customerFrozen: true } })).state).toBe("restricted");
     expect((await state({ bridge: { ...bridge, cardsEndorsement: { status: "revoked", missing: true, pending: false, issues: false } } })).state).toBe("restricted");
   });

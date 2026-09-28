@@ -26,6 +26,12 @@ describe("Stripe Issuing read client", () => {
     await expect(createStripeClient(config, (async () => Response.json({ ...card, id: "ic_999" })) as unknown as typeof fetch).readCard("ic_123")).rejects.toThrow("mismatch");
     await expect(createStripeClient(config, (async () => new Response(null, { status: 500 })) as unknown as typeof fetch).readCard("ic_123")).rejects.toThrow("500");
   });
+  test("rejects oversized responses for card and cardholder reads", async () => {
+    const fetcher = (async () => Response.json({ ...card, padding: "x".repeat(64 * 1024) })) as unknown as typeof fetch;
+    const client = createStripeClient(config, fetcher);
+    await expect(client.readCard("ic_123")).rejects.toThrow("response too large");
+    await expect(client.readCardholder("ich_123")).rejects.toThrow("response too large");
+  });
 });
 
 const runLive = process.env.CARDS_STRIPE_LIVE_TEST === "1" && process.env.BRIDGE_STRIPE_SECRET_KEY?.startsWith("sk_test_");

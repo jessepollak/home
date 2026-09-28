@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { CardJourneyConfig } from "../bridge/journey-config";
+import { readProviderJson } from "../read-provider-json";
 
 export type StripeCard = Readonly<{
   id: string;
@@ -44,8 +45,7 @@ export function createStripeClient(config: CardJourneyConfig, fetcher: typeof fe
         headers: { [["Author", "ization"].join("")]: ["Bearer", config.stripeSecretKey].join(" "), "Stripe-Version": config.stripeApiVersion },
       });
       if (!response.ok) throw new Error(`Stripe request failed (${response.status})`);
-      let payload: unknown;
-      try { payload = await response.json(); } catch { throw new Error("Invalid Stripe JSON"); }
+      const payload = await readProviderJson(response, "Stripe");
       const cardholder = parseStripeCardholder(payload);
       if (cardholder.id !== id) throw new Error("Stripe cardholder ID mismatch");
       return cardholder;
@@ -57,8 +57,7 @@ export function createStripeClient(config: CardJourneyConfig, fetcher: typeof fe
         headers: { [["Author", "ization"].join("")]: ["Bearer", config.stripeSecretKey].join(" "), "Stripe-Version": config.stripeApiVersion },
       });
       if (!response.ok) throw new Error(`Stripe request failed (${response.status})`);
-      let payload: unknown;
-      try { payload = await response.json(); } catch { throw new Error("Invalid Stripe JSON"); }
+      const payload = await readProviderJson(response, "Stripe");
       const card = parseStripeCard(payload);
       if (card.id !== id) throw new Error("Stripe card ID mismatch");
       return card;

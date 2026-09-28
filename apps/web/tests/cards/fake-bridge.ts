@@ -6,7 +6,7 @@ export const fixtureCustomer = {
   status: "active",
   type: "individual",
   stripe_cardholder_id: "ich_1SVf3CG6FooBAru7mB2MSrDY",
-  endorsements: [{ name: "cards", status: "approved", requirements: { complete: [], pending: [], missing: null, issues: [] } }],
+  endorsements: [{ name: "cards", status: "approved", requirements: { complete: ["terms_of_service_v1"], pending: [], missing: null, issues: [] } }],
 };
 
 export function startFakeBridge(apiKey: string, response: unknown = fixtureCustomer) {

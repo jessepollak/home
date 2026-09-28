@@ -45,10 +45,12 @@ export async function readCardState(customerId: string, mode: CardMode, dependen
     status: card.status === "inactive" ? card.customerFrozen ? "frozen" as const : "restricted" as const : card.status }));
   if (!customer || stripe === "unavailable") return reply("unavailable", bridge, stripe, cards);
   const endorsement = customer.cardsEndorsement;
-  if (customer.status === "inactive" || holder?.status !== undefined && holder.status !== "active" ||
-      account.cards.length > 0 && (customer.status === "pending" || endorsement?.status !== "approved" || endorsement.missing || endorsement.issues || endorsement.pending))
+  if (!account.cards.length && (customer.status === "rejected" || customer.status === "offboarded"))
+    return reply("ineligible", bridge, stripe, cards);
+  if (holder?.status !== undefined && holder.status !== "active" ||
+      account.cards.length > 0 && (customer.status !== "active" || endorsement?.status !== "approved" || endorsement.missing || endorsement.issues || endorsement.pending) ||
+      customer.status === "paused" || customer.status === "deposits_restricted")
     return reply("restricted", bridge, stripe, cards);
-  if (customer.status === "rejected" || endorsement?.status === "rejected") return reply("ineligible", bridge, stripe, cards);
   if (account.cards.length) {
     const live = cards.filter((card) => card.status !== "canceled");
     if (!live.length) return reply("canceled", bridge, stripe, cards);
@@ -56,8 +58,10 @@ export async function readCardState(customerId: string, mode: CardMode, dependen
     if (live.some((card) => card.status === "frozen")) return reply("frozen", bridge, stripe, cards);
     return reply("active", bridge, stripe, cards);
   }
-  if (customer.status === "pending" || endorsement?.status === "pending" || endorsement?.pending ||
-      endorsement?.status === "approved" && !customer.stripeCardholderId) return reply("verification-pending", bridge, stripe);
+  if (customer.status === "under_review" ||
+      customer.status === "active" && (endorsement?.pending || endorsement?.status === "approved" && !customer.stripeCardholderId))
+    return reply("verification-pending", bridge, stripe);
+  if (customer.status !== "active") return reply("verification-required", bridge, stripe);
   if (endorsement?.status !== "approved" || endorsement.missing || endorsement.issues) return reply("verification-required", bridge, stripe);
   return reply("ready-to-issue", bridge, stripe);
 }

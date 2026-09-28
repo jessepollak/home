@@ -18,13 +18,33 @@ describe("Bridge client", () => {
       await expect(createBridgeClient({ ...config!, bridgeApiKey: "incorrect" }, fetchFakeBridge).readCustomer(fixtureCustomer.id)).rejects.toThrow("404");
     } finally { await fake.stop(); }
   });
-  test("fails closed when Bridge changes the endorsement schema or ID", async () => {
+  test("parses documented customer and endorsement statuses, rejecting unknowns and malformed requirements", () => {
+    for (const status of ["not_started", "incomplete", "awaiting_questionnaire", "awaiting_ubo", "under_review", "active", "rejected", "paused", "offboarded", "deposits_restricted"] as const) {
+      expect(parseBridgeCustomer({ ...fixtureCustomer, status }).status).toBe(status);
+    }
+    for (const status of ["approved", "incomplete", "revoked"] as const) {
+      expect(parseBridgeCustomer({ ...fixtureCustomer, endorsements: [{ ...fixtureCustomer.endorsements[0], status }] }).cardsEndorsement?.status).toBe(status);
+    }
+    for (const status of ["pending", "inactive", "unknown"]) expect(() => parseBridgeCustomer({ ...fixtureCustomer, status })).toThrow();
+    for (const status of ["pending", "rejected", "unknown"])
+      expect(() => parseBridgeCustomer({ ...fixtureCustomer, endorsements: [{ ...fixtureCustomer.endorsements[0], status }] })).toThrow();
+    expect(parseBridgeCustomer({ ...fixtureCustomer, endorsements: [{ ...fixtureCustomer.endorsements[0], requirements: { complete: [], pending: [], missing: { all_of: ["terms_of_service_v1"] }, issues: [{ id_front_photo: "id_expired" }] } }] }).cardsEndorsement)
+      .toEqual({ status: "approved", missing: true, pending: false, issues: true });
     expect(() => parseBridgeCustomer({ ...fixtureCustomer, endorsements: [{ name: "cards", status: "approved" }] })).toThrow();
-    expect(() => parseBridgeCustomer({ ...fixtureCustomer, endorsements: [{ name: "cards", status: "unknown", requirements: { pending: [], missing: null, issues: [] } }] })).toThrow();
+    expect(() => parseBridgeCustomer({ ...fixtureCustomer, endorsements: [{ ...fixtureCustomer.endorsements[0], requirements: { pending: [], missing: [], issues: [] } }] })).toThrow();
+  });
+  test("rejects mismatched Bridge customer ID", async () => {
     const fake = startFakeBridge("fake-key", { ...fixtureCustomer, id: "ffffffff-ffff-ffff-ffff-ffffffffffff" });
     try {
       const config = readCardJourneyConfig({ ...env, BRIDGE_API_BASE_URL: fake.origin });
       await expect(createBridgeClient(config!, fetchFakeBridge).readCustomer(fixtureCustomer.id)).rejects.toThrow("mismatch");
+    } finally { await fake.stop(); }
+  });
+  test("rejects an oversized Bridge HTTP response", async () => {
+    const fake = startFakeBridge("fake-key", { ...fixtureCustomer, padding: "x".repeat(64 * 1024) });
+    try {
+      const config = readCardJourneyConfig({ ...env, BRIDGE_API_BASE_URL: fake.origin });
+      await expect(createBridgeClient(config!, fetchFakeBridge).readCustomer(fixtureCustomer.id)).rejects.toThrow("response too large");
     } finally { await fake.stop(); }
   });
 });
