@@ -157,6 +157,8 @@ The review source is `dmmulroy/anti-slop` commit `c44ef22ca116d0ba62a3ff663a0bd1
 
 The Effect group is also exhaustive: `no-service-constructor-imports`, `no-manual-tag-comparison`, `no-manual-effect-error-tag`, `no-manual-tagged-construction`, and `prefer-effect-match` are all not applicable because Home has no Effect dependency or Effect-owned architecture. Native `oxc/no-accumulating-spread` measured zero hits and remains deferred: enabling it beside Home's reducer rule would duplicate reducer ownership and silently add loop policy. Reconsider it only as an explicit replacement with fixture parity and a separate decision on loops.
 
+The syntactic ratchet in `scripts/gates/type-assertions.mjs` backs the unsafe-rule burn-down by blocking per-file increases in unchecked assertions and suppressions without a reviewed, reasoned exception.
+
 The two accepted rules are production-only zero-hit guards owned in `oxlint/rules/anti-slop.mjs`, registered in `home-plugin.mjs`, enabled in the existing production override, isolated in `oxlint/tests/anti-slop.test.mjs`, and represented by failing and clean delivery-mirror canaries. All other generic rules, the Effect group, and native accumulating-spread are rejected or deferred as recorded above.
 
 ## Checked-in implementation layout
