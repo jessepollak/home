@@ -1,3 +1,4 @@
+import { readJson } from "@/tests/helpers/read-json";
 import { describe, expect, test } from "bun:test";
 import { BASE_CHAIN_ID, type VerifiedAccountSession } from "@/shared/account/session-types";
 import { BRAND_DEFAULTS, brandSettingsPutRequest, parseBrandSettingsResponse } from "@/shared/operator-branding/contract";
@@ -26,7 +27,7 @@ async function check(response: Response, status: number) {
   expect(response.status).toBe(status);
   expect(response.headers.get("cache-control")).toContain("private");
   expect(response.headers.get("cache-control")).toContain("no-store");
-  return response.json();
+  return readJson(response);
 }
 async function brandResponse(response: Response) {
   const parsed = parseBrandSettingsResponse(await check(response, 200));

@@ -1,3 +1,5 @@
+import { readJson } from "@/tests/helpers/read-json";
+import { parseConfirmActionResponse } from "@/shared/actions/contracts/confirm";
 import { describe, expect, test } from "bun:test";
 import { privateKeyToAccount } from "viem/accounts";
 import { encodeCoinbaseExecuteBatch } from "@/server/chain/coinbase-smart-account";
@@ -67,7 +69,7 @@ describe("trade confirmation", () => {
     });
     const result = await handler(new Request("https://home.test/api/actions/trade-pending", { headers: { "X-Home-Account-Provider": "cdp-embedded" } }));
     expect(result.status).toBe(200);
-    expect(await result.json()).toEqual({ version: 1, trade: null });
+    expect(await readJson(result)).toEqual({ version: 1, trade: null });
     const signedOut = createGetPendingTradeHandler({ authorize: async () => Response.json({ error: "unauthorized" }, { status: 401 }) });
     expect((await signedOut(new Request("https://home.test/api/actions/trade-pending"))).status).toBe(401);
   });
@@ -86,7 +88,7 @@ describe("trade confirmation", () => {
     });
     const response = await handler(restrictedRequest, context);
     expect(response.status).toBe(403);
-    expect(await response.json()).toMatchObject({ error: { code: "TRADE_STOCK_RESTRICTED" } });
+    expect(await readJson(response)).toMatchObject({ error: { code: "TRADE_STOCK_RESTRICTED" } });
   });
   test("allows stock to USDC past the guard in a US request", async () => {
     const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
@@ -98,7 +100,7 @@ describe("trade confirmation", () => {
     });
     const response = await handler(request("0x1234", "cdp-embedded"), context);
     expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: { code: "INVALID_TRADE_SIGNATURE" } });
+    expect(await readJson(response)).toMatchObject({ error: { code: "INVALID_TRADE_SIGNATURE" } });
   });
   test.each(["base-account", "cdp-embedded"] as const)("finalizes a fee-prepended %s trade with an exact call commitment", async (provider) => {
     const row = tradeRow(provider, "2026-09-25T12:03:00.000Z");
@@ -116,7 +118,8 @@ describe("trade confirmation", () => {
     });
     const response = await handler(request(signature, provider), context);
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = parseConfirmActionResponse(await readJson(response));
+    if (!body) throw new Error("Invalid trade confirmation");
     expect(body.calls).toHaveLength(3);
     expect(body.calls[0]).toEqual(feeCall);
     expect(body.calls[1]).toEqual(approval);
@@ -143,7 +146,7 @@ describe("trade confirmation", () => {
     const signature = await SIGNER.signTypedData({ ...typed, domain: { ...typed.domain, chainId: BigInt(8453) } });
     const result = await handler(request(signature, "cdp-embedded"), context);
     expect(result.status).toBe(200);
-    expect((await result.json()).id).toBe(row.id);
+    expect(await readJson(result)).toMatchObject({ id: row.id });
     expect(confirmedIds).toEqual([row.id]);
     expect(rows.get(previous.id)?.outcome).toBeNull();
   });
@@ -156,7 +159,7 @@ describe("trade confirmation", () => {
     });
     const result = await handler(new Request(`https://home.test/api/actions/${ID}`, { headers: { "X-Home-Account-Provider": "cdp-embedded" } }), context);
     expect(result.status).toBe(200);
-    expect(await result.json()).toMatchObject({ kind: "trade", signing: { signer: "cdp-embedded", typedData: typed } });
+    expect(await readJson(result)).toMatchObject({ kind: "trade", signing: { signer: "cdp-embedded", typedData: typed } });
   });
   test("rejects an unauthorized embedded signer", async () => {
     const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
@@ -167,7 +170,7 @@ describe("trade confirmation", () => {
     });
     const response = await handler(request(await other.signTypedData({ ...typed, domain: { ...typed.domain, chainId: BigInt(8453) } }), "cdp-embedded"), context);
     expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: { code: "INVALID_TRADE_SIGNATURE" } });
+    expect(await readJson(response)).toMatchObject({ error: { code: "INVALID_TRADE_SIGNATURE" } });
   });
   test("returns ACTION_EXPIRED before verifying a stale signature", async () => {
     const row = tradeRow("base-account", "2026-09-25T12:00:00.000Z");
@@ -177,7 +180,7 @@ describe("trade confirmation", () => {
     });
     const response = await handler(request("0x1234", "base-account"), context);
     expect(response.status).toBe(410);
-    expect(await response.json()).toMatchObject({ error: { code: "ACTION_EXPIRED" } });
+    expect(await readJson(response)).toMatchObject({ error: { code: "ACTION_EXPIRED" } });
   });
 });
 
@@ -212,7 +215,7 @@ describe("confirmed trade replay", () => {
     const { effects, confirm } = replayHandler(row);
     const response = await confirm("cdp-embedded");
     expect(response.status).toBe(403);
-    expect(await response.json()).toMatchObject({ error: { code: "TRADE_STOCK_RESTRICTED" } });
+    expect(await readJson(response)).toMatchObject({ error: { code: "TRADE_STOCK_RESTRICTED" } });
     expect(effects).toEqual({ confirms: 0, verifications: 0, recorded: 0, estimates: 0 });
   });
 
@@ -221,7 +224,8 @@ describe("confirmed trade replay", () => {
     const { effects, confirm } = replayHandler(row, provider);
     const response = await confirm(provider);
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = parseConfirmActionResponse(await readJson(response));
+    if (!body) throw new Error("Invalid trade confirmation");
     expect(body.calls).toEqual(finalized);
     expect(Boolean(body.batchGasLimit)).toBe(provider === "base-account");
     expect(effects).toEqual({ confirms: 0, verifications: 0, recorded: 0, estimates: provider === "base-account" ? 1 : 0 });
@@ -240,7 +244,7 @@ describe("confirmed trade replay", () => {
     const { effects, confirm } = replayHandler(confirmedRow(change));
     const response = await confirm("cdp-embedded");
     expect(response.status).toBe(404);
-    expect(await response.json()).toMatchObject({ error: { code: "ACTION_NOT_FOUND" } });
+    expect(await readJson(response)).toMatchObject({ error: { code: "ACTION_NOT_FOUND" } });
     expect(effects.confirms).toBe(0);
   });
 
@@ -251,7 +255,7 @@ describe("confirmed trade replay", () => {
     const { effects, confirm } = replayHandler(row);
     const response = await confirm("cdp-embedded");
     expect(response.status).toBe(410);
-    expect(await response.json()).toMatchObject({ error: { code: "ACTION_EXPIRED" } });
+    expect(await readJson(response)).toMatchObject({ error: { code: "ACTION_EXPIRED" } });
     expect(effects).toEqual({ confirms: 0, verifications: 0, recorded: 0, estimates: 0 });
   });
   test.each([undefined, "invalid", String(Date.parse("2026-09-25T12:04:00.000Z") / 1000)])("refuses replay with an invalid execution deadline %s", async (deadline) => {
@@ -260,7 +264,7 @@ describe("confirmed trade replay", () => {
     });
     const response = await replayHandler(row).confirm("cdp-embedded");
     expect(response.status).toBe(410);
-    expect(await response.json()).toMatchObject({ error: { code: "ACTION_EXPIRED" } });
+    expect(await readJson(response)).toMatchObject({ error: { code: "ACTION_EXPIRED" } });
   });
   test("refuses replay within 30 seconds of the permit deadline", async () => {
     const row = confirmedRow((value) => {
@@ -268,7 +272,7 @@ describe("confirmed trade replay", () => {
     });
     const response = await replayHandler(row).confirm("cdp-embedded");
     expect(response.status).toBe(410);
-    expect(await response.json()).toMatchObject({ error: { code: "ACTION_EXPIRED" } });
+    expect(await readJson(response)).toMatchObject({ error: { code: "ACTION_EXPIRED" } });
   });
 });
 
@@ -287,7 +291,7 @@ describe("trade retry deadline", () => {
     });
     const response = await handler(retryRequest(), context);
     expect(response.status).toBe(409);
-    expect(await response.json()).toEqual({ error: { code: "ACTION_EXPIRED", message: "The trade quote expired. Get a new quote." } });
+    expect(await readJson(response)).toEqual({ error: { code: "ACTION_EXPIRED", message: "The trade quote expired. Get a new quote." } });
     expect(retries).toBe(0);
   });
   test("refuses retry after the maker deadline even when the taker permit remains valid", async () => {
@@ -300,7 +304,7 @@ describe("trade retry deadline", () => {
     });
     const response = await handler(retryRequest(), context);
     expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({ error: { code: "ACTION_EXPIRED" } });
+    expect(await readJson(response)).toMatchObject({ error: { code: "ACTION_EXPIRED" } });
     expect(retries).toBe(0);
   });
   test.each([undefined, "invalid", String(Date.parse("2026-09-25T12:04:00.000Z") / 1000)])("refuses retry with an invalid execution deadline %s", async (deadline) => {
@@ -314,7 +318,7 @@ describe("trade retry deadline", () => {
     });
     const response = await handler(retryRequest(), context);
     expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({ error: { code: "ACTION_EXPIRED" } });
+    expect(await readJson(response)).toMatchObject({ error: { code: "ACTION_EXPIRED" } });
     expect(retries).toBe(0);
   });
   test.each(["trade", "send"] as const)("allows an unexpired %s retry", async (kind) => {
@@ -328,7 +332,7 @@ describe("trade retry deadline", () => {
     });
     const response = await handler(retryRequest(), context);
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ action: { id: ID } });
+    expect(await readJson(response)).toMatchObject({ action: { id: ID } });
     expect(retries).toBe(1);
   });
 });

@@ -23,6 +23,20 @@ describe("access response navigation", () => {
     assign.mockRestore();
   });
 
+  test("does not redirect for malformed or wrong-shape access denials", async () => {
+    const destinations: string[] = [];
+    const navigate = (value: string) => destinations.push(value);
+    for (const response of [
+      new Response("not-json", { status: 401 }),
+      json({ code: 1 }, 401),
+      json([], 401),
+      json("x", 401),
+    ]) {
+      expect(await redirectOnAccessRequired(response, { currentPath: "/borrow", navigate })).toBe(false);
+    }
+    expect(destinations).toEqual([]);
+  });
+
   test("deduplicates concurrent versioned access denials without swallowing later expiry", async () => {
     const destinations: string[] = [];
     const navigate = (value: string) => destinations.push(value);

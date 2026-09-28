@@ -1,3 +1,5 @@
+import { readJson } from "@/tests/helpers/read-json";
+import { isRecord } from "@/shared/guards";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { parseActivityOrders } from "@/shared/activity/contract-orders";
@@ -60,11 +62,11 @@ test("echoes verified owner, fences source queries and merges newest updates", a
     now: () => new Date("2026-09-12T12:00:00.000Z"),
   });
   const response = await get(request());
-  const body = await response.json();
+  const body = await readJson(response);
   expect(response.status).toBe(200);
   expect(response.headers.get("Cache-Control")).toContain("private, no-store");
   expect({ fundingOwner, cashoutOwner, openOwner }).toEqual({ fundingOwner: "owner", cashoutOwner: "owner", openOwner: "owner" });
-  expect(body.owner).toEqual({ subject: "owner", accountProvider: "base-account" });
+  expect(isRecord(body) ? body.owner : body).toEqual({ subject: "owner", accountProvider: "base-account" });
   expect(parseActivityOrders(body, session).map((order) => order.id)).toEqual(["cashout", "owned"]);
   expect(() => parseActivityOrders(body, { ...session, user: { subject: "other" } })).toThrow();
   expect(JSON.stringify(body)).not.toContain("provider-1");
@@ -95,7 +97,7 @@ test("only the latest updated open order per region is resumable, fenced to the 
     getOpenFundingOrder: (current, region) => store.getOpen({ subject: current.user.subject, accountProvider: current.accountProvider }, region),
     listCashoutOrders: async () => [], now: () => new Date("2026-09-12T04:00:00.000Z"),
   });
-  const parsed = parseActivityOrders(await (await get(request())).json(), session);
+  const parsed = parseActivityOrders(await readJson((await get(request()))), session);
   expect(parsed.map(({ id }) => id)).toEqual(["older", "newer"]);
   expect(parsed.map((order) => order.kind === "funding" ? [order.id, order.resumable] : [])).toEqual([["older", true], ["newer", false]]);
   expect(await store.getOpen(otherOwner, "US")).toMatchObject({ id: "other" });
@@ -143,7 +145,7 @@ test("returns private 503 and a scrubbed event when either source fails", async 
     const response = await get(request());
     expect(response.status).toBe(503);
     expect(response.headers.get("Cache-Control")).toContain("private, no-store");
-    expect(await response.json()).toEqual({ code: "ORDERS_UNAVAILABLE" });
+    expect(await readJson(response)).toEqual({ code: "ORDERS_UNAVAILABLE" });
   }
   expect(events).toHaveLength(3);
   expect(events.join(" ")).not.toContain("secret failure");
