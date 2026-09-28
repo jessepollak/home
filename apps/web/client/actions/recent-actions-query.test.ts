@@ -73,5 +73,11 @@ describe("recent actions recovery", () => {
     expect(recentActionsStatus({
       ...base, hasData: true, isError: true, dataUpdatedAt: 1_000, errorUpdatedAt: 121_001,
     })).toBe("error");
+    expect(recentActionsStatus({
+      ...base, hasData: true, isError: true, dataUpdatedAt: 1_000, errorUpdatedAt: 1_000,
+    }, { tolerateStaleError: false })).toBe("error");
+    expect(recentActionsStatus(
+      { ...base, hasData: true, dataUpdatedAt: 1_000 }, { tolerateStaleError: false },
+    )).toBe("ready");
   });
 });

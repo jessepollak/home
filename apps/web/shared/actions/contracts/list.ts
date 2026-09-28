@@ -22,6 +22,7 @@ export type ActionListItem = {
   createdAt: string;
   confirmedAt: string;
   submittedAt?: string;
+  settledAt?: string;
   providerHandle?: string;
   transactionHash?: string;
   owner: MoneyActionOwner;
@@ -48,6 +49,7 @@ export type RecentMoneyActionOperation = {
   createdAt: string;
   updatedAt: string;
   submittedAt?: string;
+  settledAt?: string;
 };
 
 class RecentActionsContractError extends Error {
@@ -95,6 +97,7 @@ export function parseRecentMoneyActions(value: unknown, session: VerifiedAccount
       createdAt: item.createdAt,
       updatedAt: item.confirmedAt,
       ...(typeof item.submittedAt === "string" && Number.isFinite(Date.parse(item.submittedAt)) ? { submittedAt: item.submittedAt } : {}),
+      ...(typeof item.settledAt === "string" && Number.isFinite(Date.parse(item.settledAt)) ? { settledAt: item.settledAt } : {}),
       ...(cashout ? { cashout } : {}),
       ...(typeof item.transactionHash === "string" && /^0x[0-9a-fA-F]{64}$/.test(item.transactionHash) ? { transactionHash: item.transactionHash.toLowerCase() as `0x${string}` } : {}),
       ...(typeof item.providerHandle === "string" && /^0x[0-9a-fA-F]{64}$/.test(item.providerHandle) ? { userOperationHash: item.providerHandle.toLowerCase() as `0x${string}` } : {}),

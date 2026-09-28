@@ -168,12 +168,16 @@ describe("SavingsJourney amount entry", () => {
     render(
       <AmountJourney
         open mode="deposit" session={session} candidate={candidate}
-        availableLabel="$50.00 available" availableBaseUnits="50000000"
+        availableLabel="$50.00 available" availableBaseUnits="50000000" destinationLabel="Gauntlet USDC Prime · 4.10% APY"
         prepareMoneyAction={async (kind, input) => { requests.push({ kind, input }); return prepared("savings-deposit", "1234567"); }}
         executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
         onClose={() => {}}
       />,
     );
+    const amount = page().getByRole("textbox", { name: "Amount" });
+    const destination = page().getByText("Gauntlet USDC Prime · 4.10% APY");
+    expect(destination.compareDocumentPosition(amount) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(destination.closest('[data-slot="alert"]')).toBeNull();
     typeAmount("1.234567");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     expect(await page().findByRole("button", { name: "Deposit $1.234567" })).toBeTruthy();
@@ -182,10 +186,10 @@ describe("SavingsJourney amount entry", () => {
     expect(page().getByText("From").closest("dl")?.querySelector("dt")?.textContent).toBe("From");
     expect(page().getByRole("button", { name: `Copy ${formatAddress(prepared().owner.address)}` })).toBeTruthy();
     expect(document.body.textContent).toContain("Base (8453)");
-    expect(document.body.textContent).toContain("3.50% · stale");
-    expect(document.body.textContent).toContain("10% (current)");
-    expect(document.body.textContent).toContain("Minimum shares");
-    expect(document.body.textContent).toContain("Minimum shares0.1234567 vault shares");
+    expect(document.body.textContent).toContain("Rate3.50% APY at last update");
+    expect(document.body.textContent).toContain("Vault fee10%");
+    expect(document.body.textContent).not.toContain("Share preview");
+    expect(document.body.textContent).not.toContain("Minimum shares");
     expect(document.body.textContent).not.toContain("no minimum-shares protection");
     expect(requests).toEqual([{ kind: "savings-deposit", input: { kind: "deposit", vaultAddress: VAULT, amountBaseUnits: "1234567" } }]);
   });

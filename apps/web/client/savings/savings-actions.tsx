@@ -2,7 +2,9 @@
 
 import { useId, useLayoutEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { SavingsManagementSheet, formatWadPercent, type SavingsManagement } from "@/client/cash/savings-management";
-import { CircleAlertIcon } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { AssetRow } from "@/components/finance-rows";
+import { CircleAlertIcon, PiggyBank } from "lucide-react";
 import { Alert, AlertIcon, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { MoneyMotionProvider } from "@/components/money-ticker";
@@ -40,7 +42,6 @@ import { networkFeeErrorMessage } from "@/shared/money-actions/network-fee";
 import { reportClientError } from "@/client/observability/client-reporter";
 import { TransferExecutionError } from "@/shared/transfers/types";
 import {
-  formatExactPresentationTokenAmount,
   formatPresentationDate,
   formatPresentationPercentage,
   formatUsdStablecoinAmount,
@@ -65,7 +66,18 @@ export type SavingsJourneyProps = {
   mode: SavingsActionMode | null;
   session: VerifiedAccountSession;
   candidate: MorphoVaultCandidate | null;
+  picker?: {
+    options: { candidate: MorphoVaultCandidate; name: string; rateLabel: string; disabled: boolean }[];
+    cash: "ready" | "empty" | "unavailable";
+    onPick: (candidate: MorphoVaultCandidate) => void;
+    onBack: () => void;
+    onAddMoney: () => void;
+    onRetryBalances?: () => void;
+    onRetryVaults?: () => void;
+  };
   availableLabel?: string;
+  destinationLabel?: string;
+  historyBlocked?: boolean;
   availableBaseUnits?: string | null;
   availableStale?: boolean;
   fetchAccountResource?: AccountWalletClient["fetchAccountResource"];
@@ -82,7 +94,8 @@ type DialogStep = "amount" | "confirm" | "pending" | "error" | "result";
 type Submission = "submitted" | "ambiguous" | "failed";
 
 export function SavingsJourney(props: SavingsJourneyProps) {
-  return <OwnerBoundSavingsJourney key={savingsDialogOwnerIdentity(props.session)} {...props} />;
+  const candidate = props.candidate ?? props.picker?.options[0]?.candidate ?? null;
+  return <OwnerBoundSavingsJourney key={savingsDialogOwnerIdentity(props.session)} {...props} candidate={candidate} pickerOpen={props.candidate === null} />;
 }
 
 function OwnerBoundSavingsJourney({
@@ -93,7 +106,11 @@ function OwnerBoundSavingsJourney({
   mode,
   session,
   candidate,
+  picker,
+  pickerOpen,
   availableLabel,
+  destinationLabel,
+  historyBlocked = false,
   availableBaseUnits,
   availableStale = false,
   fetchAccountResource,
@@ -104,7 +121,7 @@ function OwnerBoundSavingsJourney({
   onClose,
   onClosed,
   onConfirmed,
-}: SavingsJourneyProps) {
+}: SavingsJourneyProps & { candidate: MorphoVaultCandidate | null; pickerOpen: boolean }) {
   const {
     motion = "system",
     assetId: selectedAssetId,
@@ -173,7 +190,8 @@ function OwnerBoundSavingsJourney({
   const canContinue = assetRouteConfigured && isPositiveDecimalAmount(amount) && !amountExceedsAvailable;
   const unit = useMoneyAmountUnit(assetRouteConfigured && activeCandidate ? verifiedCashCurrency(activeCandidate.asset.address) : null);
   const { reserve, failed: reserveFailed, retry: retryReserve } = useNetworkFeeReserve(session.smartAccount ? savingsDialogOwnerIdentity(session) : null, fetchAccountResource, open && mode !== null);
-  const title = step === "amount" ? mode === "deposit" ? "Deposit" : "Withdraw" : step === "result" ? (mode === "deposit" ? "Deposit" : "Withdraw") : "Confirm";
+  const inPicker = Boolean(picker && pickerOpen);
+  const title = inPicker ? "Choose where to save" : step === "amount" ? mode === "deposit" ? "Deposit" : "Withdraw" : step === "result" ? (mode === "deposit" ? "Deposit" : "Withdraw") : "Confirm";
 
   function changeAmount(value: string) {
     setAmount(value);
@@ -202,7 +220,10 @@ function OwnerBoundSavingsJourney({
   }
 
   function goBack() {
-    if (step === "confirm" || step === "error") {
+    if (step === "amount" && picker) {
+      reset();
+      picker.onBack();
+    } else if (step === "confirm" || step === "error") {
       setPreparedAction(null);
       setServerExpiredActionId(null);
       setError(null);
@@ -228,6 +249,7 @@ function OwnerBoundSavingsJourney({
     if (!mode || !candidate) return;
     const generation = ++preparation.current;
     try {
+      if (historyBlocked) return;
       if (!assetRouteConfigured) {
         throw new SavingsActionClientError(
           `${assetLabel} is available for presentation review only. Savings actions remain ${candidate.asset.symbol}-only.`,
@@ -281,6 +303,7 @@ function OwnerBoundSavingsJourney({
   async function confirm() {
     if (!mode || !candidate || !preparedAction || !preparedReview || step !== "confirm") return;
     if (confirmingGeneration.current === preparation.current) return;
+    if (historyBlocked) return;
     if (preparedReview.operation !== mode || preparedReview.vaultAddress.toLowerCase() !== candidate.vaultAddress.toLowerCase()) return;
     if (recheckExpired()) {
       setError(`This ${mode} expired. Go back and continue again.`);
@@ -368,12 +391,13 @@ function OwnerBoundSavingsJourney({
             restoreAction={focusAction}
             onDeposit={() => { if (management.depositCandidate) { setFocusAction("deposit"); onSelectMode("deposit", management.depositCandidate); } }}
             onWithdraw={() => { if (management.withdrawCandidate) { setFocusAction("withdraw"); onSelectMode("withdraw", management.withdrawCandidate); } }} />
-        </MoneyModalStep> : mode !== null && candidate ? <MoneyModalStep step={step === "pending" || step === "error" ? "confirm" : step} depth={step === "amount" ? 1 : step === "result" ? 3 : 2}>
+        </MoneyModalStep> : mode !== null && (candidate || inPicker) ? <MoneyModalStep step={inPicker ? "picker" : step === "pending" || step === "error" ? "confirm" : step} depth={inPicker ? 0 : step === "amount" ? 1 : step === "result" ? 3 : 2}>
         <MoneyModalHeader
           title={title}
           titleId={titleId}
-          {...(step === "amount"
-            ? entry === "management" ? { onBack: backToManagement } : { assetControl: <MoneyAssetPicker {...amountAssetProps} /> }
+          {...(inPicker ? {}
+            : step === "amount"
+              ? entry === "management" ? { onBack: backToManagement } : picker ? { onBack: goBack } : { assetControl: <MoneyAssetPicker {...amountAssetProps} /> }
             : step === "pending" || step === "result"
               ? {}
               : { onBack: goBack })}
@@ -381,7 +405,29 @@ function OwnerBoundSavingsJourney({
         />
 
         <MoneyModalBody hasFooter={step !== "pending"} className="gap-4 pt-4">
-          {step === "amount" ? (
+          {inPicker && picker ? (
+            <>
+              {picker.options.length === 0 ? (
+                <StatusMessage tone="error" role="alert">
+                  Savings options aren&apos;t available right now. <Button variant="ghost" size="sm" onClick={picker.onRetryVaults} disabled={!picker.onRetryVaults}>Try again</Button>
+                </StatusMessage>
+              ) : (
+                <Card variant="flush"><CardContent inset="list"><ul className="list-none p-0">
+                  {picker.options.map((option) => <AssetRow key={option.candidate.vaultAddress} icon={<PiggyBank aria-hidden="true" />}
+                    label={option.name} value={option.rateLabel}
+                    onActivate={option.disabled ? undefined : () => picker.onPick(option.candidate)}
+                    activateLabel={`Deposit to ${option.name}`} />)}
+                </ul></CardContent></Card>
+              )}
+              {picker.cash === "empty" ? <StatusMessage>Add cash to start saving.</StatusMessage> : null}
+              {picker.cash === "unavailable" ? (
+                <StatusMessage tone="error" role="alert">
+                  Couldn&apos;t check your cash balance. <Button variant="ghost" size="sm" onClick={picker.onRetryBalances} disabled={!picker.onRetryBalances}>Retry</Button>
+                </StatusMessage>
+              ) : null}
+            </>
+          ) : null}
+          {!inPicker && step === "amount" && candidate ? (
             <>
               <MoneyAmountDisplay
                 amount={amount}
@@ -390,6 +436,7 @@ function OwnerBoundSavingsJourney({
                 overAvailable={overAvailable}
                 onSubmit={canContinue ? () => void continueFromAmount() : undefined}
                 availableLabel={availableLabel}
+                topLine={mode === "deposit" ? destinationLabel : undefined}
                 availableAmount={decimalFromBaseUnits(maxAmountAfterNetworkFee(availableBaseUnits, mode === "deposit" ? candidate.asset.symbol : "vault shares", reserve) ?? "", assetDecimals)}
                 assetId={assetId}
                 assetLabel={assetLabel}
@@ -440,32 +487,35 @@ function OwnerBoundSavingsJourney({
           ) : null}
         </MoneyModalBody>
 
-        {step === "amount" ? (
+        {inPicker && picker && picker.cash === "empty" ? (
+          <MoneyModalFooter primaryLabel="Add money" onPrimary={picker.onAddMoney} />
+        ) : null}
+        {!inPicker && step === "amount" ? (
           <MoneyModalFooter
             primaryLabel="Continue"
-            primaryDisabled={!canContinue}
+            primaryDisabled={!canContinue || historyBlocked}
             onPrimary={() => void continueFromAmount()}
           />
         ) : null}
 
-        {(step === "confirm" || step === "pending") && preparedAction ? (
+        {!inPicker && (step === "confirm" || step === "pending") && preparedAction ? (
           <MoneyConfirmFooter action={preparedAction}
             actionExpired={actionExpired}
             submitting={step === "pending"}
             primaryLabel={attemptedAction ? "Retry" : `${mode === "deposit" ? "Deposit" : "Withdraw"} ${confirmAmount}`}
-            primaryDisabled={!preparedReview || (actionExpired && !attemptedAction)}
+            primaryDisabled={!preparedReview || historyBlocked || (actionExpired && !attemptedAction)}
             onPrimary={() => void confirm()}
             secondaryLabel="Back"
             onSecondary={goBack}
           />
         ) : null}
 
-        {step === "result" && preparedAction && submission ? (
+        {!inPicker && step === "result" && preparedAction && submission ? (
           <SavingsResultActions action={preparedAction} submission={submission} fetchAccountResource={fetchAccountResource}
             onDone={close} onTryAgain={tryAgain} onViewActivity={viewActivity} />
         ) : null}
 
-        {step === "error" ? (
+        {!inPicker && step === "error" ? (
           <MoneyModalFooter
             primaryLabel="Back"
             onPrimary={goBack}
@@ -523,26 +573,16 @@ function savingsDialogOwnerIdentity(session: VerifiedAccountSession): string {
 function savingsReviewRows(review: SavingsPreparedReview, owner: MoneyActionOwner) {
   const apy = review.discoveryRate.status === "unavailable"
     ? "Unavailable"
-    : `${formatPresentationPercentage(Number(review.discoveryRate.netApy))} · ${review.discoveryRate.status}`;
-  const fee = `${formatWadPercent(review.feeWad)} (current)`;
-  const preview = formatExactPresentationTokenAmount(
-    review.previewSharesBaseUnits,
-    review.shareDecimals,
-    "vault shares",
-  );
+    : `${formatPresentationPercentage(Number(review.discoveryRate.netApy))} APY${review.discoveryRate.status === "stale" ? " at last update" : ""}`;
+  const fee = formatWadPercent(review.feeWad);
   return [
     moneyConfirmFromRow(owner),
     { label: "Vault", value: review.vaultName },
     { label: "Network", value: `${review.network.name} (${review.network.chainId})` },
-    { label: "Discovery APY", value: apy },
-    { label: "Current vault fee", value: fee },
+    { label: "Rate", value: apy },
+    { label: "Vault fee", value: fee },
     { label: "Amount", value: formatUsdStablecoinAmount(review.exactUsdcBaseUnits) },
-    { label: "Share preview", value: preview },
-    ...(review.operation === "deposit" && review.minimumSharesBaseUnits !== null
-      ? [{ label: "Minimum shares", value: formatExactPresentationTokenAmount(
-          review.minimumSharesBaseUnits, review.shareDecimals, "vault shares",
-        ) }]
-      : [{ label: "Exchange constraint", value: "Exact USDC; reverts if shares are insufficient" }]),
+    ...(review.operation === "withdraw" ? [{ label: "Exchange constraint", value: "Exact USDC; reverts if shares are insufficient" }] : []),
     { label: "Valid until", value: formatPresentationDate(review.expiresAt, { style: "date-time-zone" }) },
   ];
 }

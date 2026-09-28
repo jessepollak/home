@@ -46,6 +46,7 @@ export type GetActionResponse = GetActionPendingResponse | {
   createdAt: string;
   confirmedAt: string;
   submittedAt?: string;
+  settledAt?: string;
   providerHandle?: string;
   transactionHash?: string;
   owner: MoneyActionOwner;

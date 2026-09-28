@@ -9,6 +9,7 @@
       { "id": "loading", "story": "cash-cash-l2--loading", "label": "Cash loading", "viewport": "mobile", "change": "unchanged" },
       { "id": "stale-rates", "story": "cash-cash-l2--savings-detail-stale-rates", "label": "Savings stale rates", "viewport": "mobile", "change": "unchanged" },
       { "id": "unavailable-partial", "story": "cash-cash-l2--partial-holding", "label": "Cash partially unavailable", "viewport": "mobile", "change": "unchanged" },
+      { "id": "first-use-picker-cash-unavailable", "story": "cash-cash-l2--savings-first-use-picker-cash-unavailable", "label": "Picker · cash unreadable", "viewport": "mobile", "change": "new" },
       { "id": "savings-detail", "story": "cash-cash-l2--savings-detail", "label": "Savings detail", "viewport": "mobile", "change": "unchanged" }
     ] },
     { "id": "deposit", "title": "Deposit dialog", "note": "Amount, review and recovery states.", "frames": [
