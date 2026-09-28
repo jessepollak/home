@@ -23,6 +23,7 @@ This map points to Home's current product, engineering, delivery, setup, and int
 
 - [Operating manual](operating-manual.md) — Jesse/factory roles, product framing, run triggers, delivery loop, live-money validation, PR evidence, and completion authority.
 - [Home review skill](../.agents/skills/home-review/SKILL.md) — context packet, failure-state and contract passes, review findings, and verdict for the complete current diff.
+- [Unreplied P1 review findings](qa/review-triage-1166.md) — #1166 dispositions for 48 priority-one findings on merged PRs, with current-code references and follow-ups.
 - [PRD template](prd-template.md) and [repository gates](gates.md) — shaping and repository checks.
 - [Browser validation](browser-validation.md) and [UI PR previews](ui-pr-previews.md) — interactive iteration, regression ownership, and current-head visual proof.
 - [Activity ledger design](activity-ledger-design.md) — approved taxonomy, production component contract, and source gaps.

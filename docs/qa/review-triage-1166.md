@@ -1,0 +1,84 @@
+# Unreplied priority-one review findings on merged PRs (#1166)
+
+Triage of the 48 priority-one (P1) automated review findings on merged pull requests that had no maintainer reply and a non-outdated anchor. Each finding was rechecked against `main` at `e3e10e77`. Anchors quoted by the original threads are historical; the references below are current. A missing reply was never treated as proof of a shipped defect.
+
+## Selection
+
+The rows are the merged-PR review threads whose first comment carries the P1 badge, whose anchor is not outdated, and which have no reply (47 threads). The 48th row is the #80 thread whose only reply came from an automated coding agent rather than a maintainer.
+
+## Dispositions
+
+| Disposition | Meaning | Count |
+| --- | --- | --- |
+| fixed-later | The requested behavior holds on current `main`. | 20 |
+| vanished | The code or document no longer exists, or its replacement cannot reach the reported state. | 11 |
+| not-a-defect | The premise did not hold, the behavior is a recorded product decision, or the finding is a process or copy preference. | 4 |
+| live | The reported behavior still exists; each row has a reproduction or current code trace and a tracking issue or follow-up. | 13 |
+
+## Ledger
+
+Line references are to `main` at `e3e10e77`. Paths are relative to `apps/web/` unless they start at the repository root.
+
+| ID | PR | Finding | Disposition | Current reference | Evidence |
+| --- | --- | --- | --- | --- | --- |
+| F01 | #12 | CDP email-code outage leaves sign-in "ready" | live | `client/account/cdp-session-lifecycle.tsx:362-368,588-600`; `client/account/account-screen.tsx:188-205` | A rejected `signInWithEmail` propagates without changing availability, which is hard-coded `"ready"`; the sheet tells the user to check their address. Follow-up A. |
+| F02 | #17 | Restore asset-risk disclosures on Invest details | not-a-defect | `AGENTS.md` UI direction; `client/account/account-settings.tsx:301-329`; `client/trading/trade-money-dialog.tsx:192-207` | Product policy keeps disclosures in Account → Disclosures / Terms; trade confirmation keeps the actionable contract, quote, fee, slippage and network facts. |
+| F03 | #22 | Point Vercel at the nested Next.js app | fixed-later | `docs/vercel-deploy.md:7-15` | Root Directory is `apps/web` with the Next.js preset (#418). |
+| F04 | #25 | Persist sensitive call overlays across hosted requests | fixed-later | `server/actions/store.ts:177-181,203-232` | Pending and finalized trade calls persist in Postgres; the process-local overlay was removed with the old routes. |
+| F05 | #46 | Apply the transfer cursor before the 10,000-row cap | fixed-later | `server/chain-data/base-erc20-transfers.ts:99-124` | The inner cap was removed in #73; the cursor filters grouped rows before the only page limit. Regression at `server/chain-data/base-erc20-transfers.test.ts:86-88`. |
+| F06 | #46 | Operator diagnostics shown in the Activity UI | live | `server/activity/handler.ts:308-313`; `client/activity/activity-panel.tsx:225-235` | A `not-configured` read returns "Check ACTIVITY_HISTORY_SOURCE and its required server credentials", and the error card renders that message as its description. Follow-up A. |
+| F07 | #65 | Budget preview pruning on total branch usage | live | `.github/workflows/neon-preview-prune.yml:111-126,143-159` | The workflow logs the project's total branches but the deletion plan budgets only against `preview/*` count and a fixed keep-below of six. With five retained non-preview branches plus five previews the project is at the ten-branch cap, and when none of the previews is stale the plan yields no deletions and the run exits at the "no stale previews" branch; a stale preview is still deleted at any count. The workflow runs alongside the push's deploy (lines 12-14), so a full project fails that preview. Only `main` is non-preview today, which makes the failure latent rather than absent. Follow-up F. |
+| F08 | #78 | Reject cross-origin client error reports | fixed-later | `server/observability/client-errors.ts:65-85,175-183` | Missing or foreign `Origin` and cross-site Fetch Metadata are rejected before parsing; non-JSON returns 415 (#237). Tests at `app/api/client-errors/route.test.ts:74-109`. |
+| F09 | #78 | Redact opaque token and secret assignments | live | `shared/observability/scrub.ts:10-42` | `token=`, `secret=`, `api_key=` and `CDP_API_KEY_SECRET=` are now redacted, but `CDP_API_KEY_ID=placeholder-canary` is returned unchanged: the sensitive-key list has no key-ID spelling. A scratch test failed with the value intact. Follow-up A. |
+| F10 | #80 | Reject truncated Token Balances pagination | fixed-later | `server/balances/enumerate-cdp.ts:145-190`; `server/balances/snapshot.ts:49-70` | A remaining cursor leaves coverage incomplete; configured balances come from the pinned read, and failures are unavailable, never zero. Regression at `server/balances/enumerate-cdp.test.ts:256-275`. |
+| F11 | #98 | Preserve pagination on truncated SQL pages | live | `server/chain-data/cdp-sql-client.ts:293-314`; `server/chain-data/base-erc20-transfers.ts:154-175` | A short page with a larger declared `rowCount` passes the envelope check, and the adapter returns `nextCursor: null`. Tracked by #1348. |
+| F12 | #99 | Observe the vault promise before awaiting directs | fixed-later | `server/balances/coalesce.ts:239-249`; `server/balances/read.ts:159-172` | The early unobserved promise was removed; concurrent reads join one `Promise.all`. |
+| F13 | #100 | Clear the success toast on owner change | vanished | `client/transfers/transfer-actions.tsx:68-78,140-159` | The timed toast was replaced by the owner-fenced send sheet, which drops private content on an owner change. Tests at `client/transfers/send-dialog-result.test.tsx:29-68`. |
+| F14 | #101 | Include every configured vault in the balance view | fixed-later | `client/cash/cash-overview.tsx:92-123,228-242` | Every candidate and every held vault is mapped and summed (#1076). |
+| F15 | #101 | Restore prepared facts on Save confirmation | fixed-later | `client/savings/savings-actions.tsx:420-427,523-547` | Network, vault fee, network fee, expiry, share preview and minimum shares are on the confirm step (#607). The exact approval inside the same batch and the source block are not separate user decisions; confirmation-fact enforcement is #1226. |
+| F16 | #105 | Include every configured vault in the balance model | fixed-later | `client/cash/cash-overview.tsx:92-123,228-242` | There is no two-vault slice; held vaults absent from metadata are still added (#1076). |
+| F17 | #105 | Do not label indexed assets as withdrawable | live | `client/savings/savings-actions.tsx:167-173,392-394`; `server/savings/prepare.ts:276-281` | The limit is now read onchain with `convertToAssets` instead of an index, but it is still shown as available and offered as Max. When vault liquidity caps `maxWithdraw` below it, prepare rejects the amount (fail-closed). Follow-up B. |
+| F18 | #105 | Withhold the total when a vault balance is unknown | fixed-later | `client/cash/cash-overview.tsx:764-801` | An unreadable holding marks the total "Partial" and the detail says some savings are unavailable (#1076). |
+| F19 | #105 | Restore network and fee on Save confirmation | fixed-later | `client/savings/savings-actions.tsx:523-546`; `client/money-modal/confirm-summary.tsx:24-26` | Both operations show network and vault fee; a USDC-paid network fee is added by the shared review (#607). |
+| F20 | #121 | Give the deferred vault read a fresh timeout | fixed-later | `server/balances/read.ts:81-93`; `server/balances/coalesce.ts:239-249` | The vault read runs concurrently with its own deadline, not after the CDP scan's exhausted signal. |
+| F21 | #144 | Provide the selected region to every money modal | fixed-later | `client/home/feature-panels.tsx:7-19`; `client/home/home-panel.tsx:126-135` | Send and Save both render inside the selected-region provider. |
+| F22 | #144 | Replace the pill radius on quick-amount buttons | fixed-later | `client/money-modal/amount.tsx:593-649` | Quick amounts use the shared outline `Button`, not the old pill class. |
+| F23 | #155 | Preserve fractional balances for every stock token | live | `shared/balances/present.ts:489-505`; `shared/formatting/money.ts:283-301` | Holdings pass no stock category, and only four stock symbols are in the major list. A scratch test showed 1.2345 MSFTc as `1.23 MSFTc` where listed stocks show four decimals. Follow-up C. |
+| F24 | #156 | Move the long architecture spike to the issue | vanished | `docs/actions.md:1-5` | The attempt-aware plan was withdrawn and its document deleted; the single-row action contract replaced it. |
+| F25 | #158 | Honor dismissal guards before hiding the sheet | vanished | `client/money-modal/money-modal.tsx:232-257` | The drag-to-dismiss dialog was replaced by the controlled drawer, which cancels a vetoed close before closing. Tests at `client/money-modal/money-modal.test.tsx:161-218`. |
+| F26 | #182 | Reject statuses for a conflicting provider handle | vanished | `server/actions/store.ts:371-389` | Attempt evidence slots were removed (#313); one immutable handle per action must match the status result. |
+| F27 | #226 | Clear balances invalidated by a confirmed action | live | `client/query/after-action.ts:68-76,147-185`; `client/balances/use-balances.ts:175-187`; `client/cash/cash-overview.tsx:228-242` | When every post-action refresh fails, the pre-action snapshot stays `ready` with only a `stale` flag, and Savings renders the old total without a qualifier. Follow-up B. |
+| F28 | #226 | Announce vault loading only once | fixed-later | `client/cash/cash-overview.tsx:869-887` | The replacement detail has one loading status (#1076). |
+| F29 | #262 | Revalidate checkpointed pages before completion | fixed-later | `server/balances/coalesce.ts:377-405` | A resumed incomplete cursor keeps catalog coverage incomplete until a fresh complete first-page scan. Test at `server/balances/coalesce.test.ts:729-819`. |
+| F30 | #262 | Align the page budget with the inventory deadline | fixed-later | `server/balances/coalesce.ts:239-249`; `server/balances/read.ts:93-123` | CDP enumeration and the pinned vault read run concurrently with independent deadlines. |
+| F31 | #272 | Retry readiness after transient migration contention | fixed-later | `server/actions/store.ts:163-181`; `server/db/sql.ts:79-88` | The actions store has no cached readiness promise or per-request migration. |
+| F32 | #284 | Preserve fee-bearing Ripio quotes | live | `server/funding/providers/ripio/adapter.ts:88`; `server/funding/core/service.ts:367-371` | A quote for 2100 with `finalFromAmount` 2110 (the fixture shape at `server/funding/providers/ripio/client.test.ts:90-100`) returns `fiatAmount` 2110, and core rejects it as `INVALID_PROVIDER_QUOTE`. Fails closed. Follow-up D. |
+| F33 | #284 | Recover reservations left in `reserving` | live | `server/funding/core/service.ts:400-406,414-461,470,579` | If `completeDispatch` fails after a successful provider order, the row stays `reserving` forever: refresh skips it, and a new quote token is only blocked by `dispatch-ambiguous`, so it can create a second provider order. Follow-up E. |
+| F34 | #284 | Move provider terms out of Add money | fixed-later | `client/funding/order-flow.tsx:310-390`; `client/account/account-settings.tsx:301-315` | Terms moved to Account → Disclosures & terms. |
+| F35 | #300 | Bound the secondary read during pool acquisition | vanished | `app/api/activity/route.ts:13-18` | The activity route no longer performs the secondary action read. |
+| F36 | #329 | Install the RAF hook before Motion is cached | vanished | `client/money-modal/money-modal.test.tsx:1-18` | The test has no animation-frame stub, and the modal no longer uses Motion's scheduler. |
+| F37 | #343 | Ship product docs with the authentication feature | not-a-defect | `docs/base-account.md:1-7`; `docs/operating-manual.md:144-146` | This was a past sequencing lapse; the current guide documents the current contract. |
+| F38 | #388 | Parse the balances snapshot before returning it | live | `server/balances/handler.ts:32-52`; `shared/balances/contract.ts:109-129` | The handler serializes the service result without the shared parser. A scratch test injecting another owner's or region's snapshot got 200 instead of 502. No real reader was shown to produce such a snapshot. Tracked by #1223. |
+| F39 | #388 | Bound catalog pricing within the route deadline | live | `server/balances/coalesce.ts:302`; `server/balances/price.ts:497-498` | `getBalancesSnapshot` discards its incoming signal, and pricing sends batches of 25 with concurrency 4 in unbounded waves, each batch bounded only by the 8-second provider timeout (`server/market-data/codex/config.ts:20`). Four concurrent batches are one wave covering 100 price inputs, so a later wave can run when more than 100 distinct inputs need fetching, and nothing bounds the phase as a whole: the read deadline covers only the RPC read (`server/balances/read.ts:81-93`), and an aborted request does not stop pricing. `server/balances/price.test.ts:164-189` proves concurrency only. Follow-up G. |
+| F40 | #445 | Refill pages after filtering non-token events | fixed-later | `client/activity/activity-panel.tsx:239-245,274-286`; `client/activity/use-activity.ts:372-433` | An empty filtered page that still has a cursor renders the continuation sentinel, which fetches further (#748, #1017). Test at `client/activity/activity-panel.test.tsx:673-730`. |
+| F41 | #497 | Persist retrospective findings on the issue board | not-a-defect | `.agents/skills/retro/SKILL.md:13-25` | The retro skill is review-only by design; issue intake follows the operating manual. |
+| F42 | #508 | Check every ignored environment-file variant | vanished | `scripts/delivery/factory-preflight.mjs` (removed) | The preflight script and its tests were removed in `3660e179` (#658). |
+| F43 | #508 | Isolate credential stores outside the environment | vanished | `scripts/delivery/factory-preflight.mjs` (removed) | Removed with the same preflight in `3660e179` (#658). |
+| F44 | #508 | Reject unverified GitHub tokens | vanished | `scripts/delivery/factory-preflight.mjs` (removed) | Removed with the same preflight in `3660e179` (#658). |
+| F45 | #744 | Enforce the daily cap for operator confirmations | vanished | `docs/operating-manual.md` verification ladder | The verify CLI and its ledger were removed (#815); live confirmations follow the ladder's per-session bound. |
+| F46 | #755 | Match the role click's accessible name | vanished | `verify/live.ts` (removed) | The live verify CLI was deleted in `6b27e006` (#815); live checks follow `.agents/skills/browser-iteration/SKILL.md`. |
+| F47 | #873 | Define quote errors in the shared route contract | live | `shared/funding/contracts/quotes.ts:3-31`; `app/api/funding/quotes/route.ts:14-31`; `client/funding/order-flow.tsx:971-979` | The route sends error codes that the shared contract does not define, and the client matches its own literals. This is a contract gap with no wrong output today. Tracked by #1181, whose quote contract should include the error codes. |
+| F48 | #956 | Preserve unresolved trades when closing the dialog | not-a-defect | `client/trading/trade-money-dialog.test.tsx:325-353` | #1065 deliberately allowed a new trade while another is unresolved. An ambiguous dispatch offers no Retry and points to Activity. |
+
+## Follow-ups for live rows
+
+Each live row has an existing tracking issue or one of these follow-ups, filed alongside this record under the exact titles below:
+
+- **A** — #1384 `fix(errors): keep provider failures user-safe in copy and logs` (F01, F06, F09).
+- **B** — #1386 `fix(savings): stop presenting stale or unwithdrawable Save balances as current` (F17, F27).
+- **C** — #1387 `fix(balances): format every configured stock token at stock precision` (F23).
+- **D** — #1385 `fix(funding): accept Ripio quotes whose final debit includes fees` (F32).
+- **E** — #1383 `fix(funding): recover orders left reserving after provider dispatch` (F33).
+- **F** — filed with this record under `ops(ci): budget Neon branch pruning on total project usage` (F07).
+- **G** — filed with this record under `fix(balances): bound balances pricing within the route deadline` (F39).
+- Existing: #1348 (F11) and #1223 (F38), whose acceptance requires handler output to pass the shared parser. #1181 converts the quote contract (F47); its scope does not yet name the quote error codes, so F47 stays open until that scope includes them.
