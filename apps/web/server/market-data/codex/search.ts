@@ -1,6 +1,6 @@
 import "server-only";
 
-import { investAssets } from "@/config/invest-assets";
+import { investAssets, isDiscoverableAsset, type InvestAsset } from "@/config/invest-assets";
 import { normalizeInvestSearchQuery, isInvestSearchAddressQuery, investSearchRank, rankInvestSearchResults, INVEST_SEARCH_MAX_OFFSET, INVEST_SEARCH_PAGE_SIZE, INVEST_SEARCH_VERSION, type InvestSearchMatch, type InvestSearchRequest, type InvestSearchResponse, type InvestSearchWireResult } from "@/shared/invest/contracts/search";
 import { CODEX_REQUEST_TIMEOUT_MS } from "./config";
 import { executeCodexGraphql, readRecord } from "./execute";
@@ -21,7 +21,6 @@ export const CODEX_SEARCH_QUERY = `query SearchBaseTokens($phrase: String, $filt
   }
 }`;
 
-const configuredContracts = new Set(investAssets.map((asset) => asset.contractAddress.toLowerCase()));
 type SearchOptions = AssetResolverOptions & { resolve?: typeof resolveAsset };
 type Cached = { storedAt: number; value: InvestSearchResponse };
 
@@ -32,9 +31,9 @@ function matchAliases(query: string, aliases: readonly string[]): InvestSearchMa
   return needle.length >= 2 && aliases.some((alias) => alias.toLowerCase().includes(needle)) ? "partial" : null;
 }
 
-function configuredMatches(query: string): InvestSearchWireResult[] {
+function configuredMatches(query: string, assets: readonly InvestAsset[]): InvestSearchWireResult[] {
   const address = isInvestSearchAddressQuery(query);
-  return investAssets.flatMap((asset) => {
+  return assets.filter((asset) => isDiscoverableAsset(asset)).flatMap((asset) => {
     const match = address && asset.contractAddress.toLowerCase() === query.toLowerCase()
       ? "contract" as const
       : address ? null : matchAliases(query, [asset.id, asset.displayName, asset.displaySymbol, asset.representation.tokenSymbol, asset.contractAddress]);
@@ -52,7 +51,8 @@ function response(query: string, offset: number, results: InvestSearchWireResult
   return { version: INVEST_SEARCH_VERSION, query, offset, results, snapshots, provider, coverage: provider === "error" || provider === "unavailable" ? "partial" : "complete", nextOffset };
 }
 
-export function createCodexSearchReader({ apiKey, fetchImpl = fetch, onchain, isPair, resolve, now = () => new Date(), timeoutMs = CODEX_REQUEST_TIMEOUT_MS, cacheMaxEntries = CODEX_SEARCH_CACHE_MAX, maxInFlight = CODEX_SEARCH_MAX_IN_FLIGHT }: SearchOptions) {
+export function createCodexSearchReader({ apiKey, fetchImpl = fetch, onchain, isPair, resolve, now = () => new Date(), timeoutMs = CODEX_REQUEST_TIMEOUT_MS, cacheMaxEntries = CODEX_SEARCH_CACHE_MAX, maxInFlight = CODEX_SEARCH_MAX_IN_FLIGHT, assets = investAssets }: SearchOptions & { assets?: readonly InvestAsset[] }) {
+  const configuredContracts = new Set(assets.map((asset) => asset.contractAddress.toLowerCase()));
   const readAsset = resolve ?? createAssetResolver({ apiKey, fetchImpl, onchain, isPair, now, timeoutMs, cacheMaxEntries, maxInFlight });
   const checkPair = createPairCheck({ read: isPair ?? assetReadsToken0, maxConcurrent: CODEX_SEARCH_MAX_PAIR_CHECKS, cacheMaxEntries: CODEX_SEARCH_PAIR_CACHE_MAX, ttlMs: CODEX_SEARCH_PAIR_CACHE_TTL_MS });
   const cache = new Map<string, Cached>();
@@ -63,7 +63,7 @@ export function createCodexSearchReader({ apiKey, fetchImpl = fetch, onchain, is
     if (isInvestSearchAddressQuery(normalized)) {
       if (offset !== 0) return response(normalized, offset, [], [], "skipped", null);
       const resolved = await readAsset(normalized);
-      const results: InvestSearchWireResult[] = resolved.asset && resolved.source
+      const results: InvestSearchWireResult[] = resolved.asset && resolved.source && (resolved.source !== "configured" || isDiscoverableAsset(resolved.asset))
         ? [resolved.source === "configured"
           ? { kind: "configured", assetId: resolved.asset.id, match: "contract" }
           : { kind: "dynamic", asset: resolved.asset, source: resolved.source, match: "contract" }]
@@ -71,7 +71,7 @@ export function createCodexSearchReader({ apiKey, fetchImpl = fetch, onchain, is
       return response(normalized, offset, results, resolved.snapshot ? [resolved.snapshot] : [], resolved.provider, null);
     }
     const query = normalized.toLowerCase();
-    const configured = offset === 0 ? configuredMatches(normalized) : [];
+    const configured = offset === 0 ? configuredMatches(normalized, assets) : [];
     const key = `${query}:${offset}`;
     const timestamp = now().getTime();
     for (const [candidate, entry] of cache) if (timestamp - entry.storedAt > CODEX_SEARCH_TTL_MS) cache.delete(candidate);

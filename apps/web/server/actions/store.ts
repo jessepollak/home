@@ -461,6 +461,43 @@ export class ActionsStore {
     )) };
   }
 
+  async listOpenByAccounts(addresses: readonly string[], since: Date, limit: number, perAccountLimit = limit): Promise<ActionRow[]> {
+    if (!addresses.length) return [];
+    return this.openForFollowUp(since, limit, `AND account_address = ANY($3::text[])`,
+      [addresses.map((address) => address.toLowerCase())], perAccountLimit);
+  }
+
+  async listOpenForFollowUp(since: Date, limit: number): Promise<ActionRow[]> {
+    return this.openForFollowUp(since, limit, "", []);
+  }
+
+  private async openForFollowUp(since: Date, limit: number, accountCondition: string, args: unknown[], perAccountLimit?: number): Promise<ActionRow[]> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200) throw new Error("The follow-up limit must be between 1 and 200.");
+    if (perAccountLimit !== undefined && (!Number.isSafeInteger(perAccountLimit) || perAccountLimit < 1 || perAccountLimit > 200)) {
+      throw new Error("The per-account follow-up limit must be between 1 and 200.");
+    }
+    const result = await this.sql.query<RawActionRow>(
+      perAccountLimit === undefined
+        ? `SELECT * FROM actions WHERE confirmed_at >= $1 AND outcome IS NULL
+         AND (provider_handle IS NOT NULL OR transaction_hash IS NOT NULL) ${accountCondition}
+       ORDER BY confirmed_at DESC, id DESC LIMIT $2`
+        : `WITH ranked AS (
+         SELECT id, row_number() OVER (PARTITION BY account_address ORDER BY confirmed_at DESC, id DESC) AS follow_up_rank
+         FROM actions WHERE confirmed_at >= $1 AND outcome IS NULL
+           AND (provider_handle IS NOT NULL OR transaction_hash IS NOT NULL) ${accountCondition}
+       )
+       SELECT actions.* FROM actions JOIN ranked ON actions.id = ranked.id
+       WHERE ranked.follow_up_rank <= $4
+       ORDER BY ranked.follow_up_rank ASC, actions.confirmed_at DESC, actions.id DESC
+       LIMIT $2`,
+      perAccountLimit === undefined ? [since, limit, ...args] : [since, limit, ...args, perAccountLimit], { timeoutMs: 5_000 },
+    );
+    return result.rows.flatMap((row) => {
+      const normalized = normalizeActionRowOrNull(row);
+      return normalized ? [normalized] : [];
+    });
+  }
+
   async listDispatchedSends(owner: MoneyActionOwner, limit: number): Promise<ActionRow[]> {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
       throw new Error("The dispatched send limit must be between 1 and 100.");
@@ -533,6 +570,20 @@ export function actionOwnerKey(owner: MoneyActionOwner): string {
     8453,
     owner.accountProvider,
   ]);
+}
+
+export function ownerFromActionKey(key: string): MoneyActionOwner | null {
+  try {
+    const parsed: unknown = JSON.parse(key);
+    if (!Array.isArray(parsed) || parsed.length !== 4) return null;
+    const [subject, address, chainId, accountProvider] = parsed;
+    if (typeof subject !== "string" || !subject.trim() || typeof address !== "string" ||
+      !/^0x[0-9a-f]{40}$/.test(address) || chainId !== 8453 ||
+      (accountProvider !== "base-account" && accountProvider !== "cdp-embedded")) return null;
+    return { subject, address: address as `0x${string}`, chainId, accountProvider };
+  } catch {
+    return null;
+  }
 }
 
 export function getActionsStore(): ActionsStore {

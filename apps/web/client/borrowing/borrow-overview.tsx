@@ -17,6 +17,7 @@ import { buyRouteForToken } from "@/shared/trading/assets";
 import { useAssetTrade } from "@/client/trading/use-asset-trade";
 import { FeatureIntro } from "@/components/ui/feature-intro";
 import { MoneyTicker } from "@/components/money-ticker";
+import { ManagementFacts } from "@/components/management-facts";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -50,15 +51,6 @@ type SheetAction = { operation: BorrowOperation; enabled: boolean; label: string
 function RowMark({ asset, resolution }: { asset: BorrowAssetRef; resolution?: AssetMarkResolution }) {
   const mark = presentBorrowAssetMark(asset, resolution);
   return <CurrencyMark assetKey={mark.assetKey} currency={mark.currency} symbol={mark.symbol} src={mark.imageUrl} pending={mark.pending} size="sm" />;
-}
-
-function Facts({ rows }: { rows: Array<[string, string]> }) {
-  return <dl>{rows.map(([label, value]) => (
-    <div key={label} className="grid min-h-11 grid-cols-[auto_1fr] items-center gap-3 text-sm">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="min-w-0 text-end tabular-nums wrap-anywhere">{value}</dd>
-    </div>
-  ))}</dl>;
 }
 
 function Summary({ overview, borrowSummary, status, onRetry, regionId, summaryRef }: Pick<Props, "overview" | "borrowSummary" | "status" | "onRetry"> & { regionId: RegionId; summaryRef: React.RefObject<HTMLParagraphElement | null> }) {
@@ -210,10 +202,10 @@ function ManagementSheet({ snapshot, name, regionId, openingAvailableRaw, titleI
         <p className="text-sm text-muted-foreground">{pledged && !debt ? "No debt" : `${formatWadPercent(snapshot.state.borrowAprWad, regionId)} APR · variable`}</p>
       </div>
       {debt ? <LiquidationBufferMeter healthFactorWad={snapshot.position.healthFactorWad} liquidationPriceRaw={snapshot.position.liquidationPriceRaw} market={snapshot.market} regionId={regionId} /> : null}
-      <Facts rows={primary} />
+      <ManagementFacts rows={primary} />
       {debt ? <div><Button variant="ghost" className="min-h-11 justify-start ps-0" aria-expanded={detailsOpen} aria-controls={detailsId} onClick={() => setDetailsOpen(!detailsOpen)}>
         Details<ChevronDown className={`size-4 transition-transform duration-150 motion-reduce:transition-none ${detailsOpen ? "rotate-180" : ""}`} />
-      </Button><div id={detailsId} hidden={!detailsOpen}><Facts rows={details} /></div></div> : null}
+      </Button><div id={detailsId} hidden={!detailsOpen}><ManagementFacts rows={details} /></div></div> : null}
     </MoneyModalBody>
     <MoneyModalActions><SheetFooter snapshot={snapshot} name={name} debt={debt} pledged={pledged} canDispatch={canDispatch} begin={begin} focusOperation={focusOperation} actionFocusRef={actionFocusRef} /></MoneyModalActions>
   </>;
@@ -387,6 +379,7 @@ export function BorrowOverview({ overview = null, borrowSummary, status = "ready
         prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeMoneyAction} fetchAccountResource={fetchAccountResource}
         assetMarkResolution={assetMarkResolution} onBack={backToManagement} onDone={done}
         onLeave={() => { leavingForActivity.current = true; closeFocus.current = "none"; }}
+        // oxlint-disable-next-line react/no-unstable-nested-components -- Deferred-sheet fallback is invoked as a render callback, not mounted.
         fallback={({ failed, retry }) => <MoneyModalStepLoading step="amount" depth={managementDepth + 1} title={borrowOperationLabels[operation]} titleId="borrow-action-title"
           onBack={backToManagement} closeLabel="Close Borrow action" failed={failed} onRetry={retry} />} />
         : snapshot ? <MoneyModalStep step="management" depth={managementDepth} initialFocusRef={focusOperation ? actionEnabled ? actionFocusRef : heroFocusRef : undefined}>

@@ -12,7 +12,13 @@ export type MarketSnapshot = {
   sourceLabel: string;
   sourceUrl?: string;
   changeLabel?: string;
+  session?: MarketSession;
+  checkedAt?: string;
 };
+
+export const MARKET_SESSION_RECHECK_MS = 5 * 60_000;
+
+export type MarketSession = "open" | "closed" | "paused" | "stale";
 
 export type MarketDataState =
   | { status: "unavailable" }
@@ -25,6 +31,7 @@ export type MarketDisplay = {
   detail: string;
   sourceUrl?: string;
   changeLabel?: string;
+  context?: "Last close" | "Paused" | "Price delayed";
   tone: "muted" | "error" | "ready";
 };
 
@@ -75,11 +82,23 @@ export function getMarketDisplay(
       };
     }
 
+    if (snapshot.session === "paused" || snapshot.session === "stale") {
+      const context = snapshot.session === "paused" ? "Paused" : "Price delayed";
+      return {
+        value: "—",
+        detail: context,
+        context,
+        sourceUrl: snapshot.sourceUrl,
+        tone: "muted",
+      };
+    }
+
     const formattedPrice = formatSnapshotDisplayPrice(snapshot.displayPrice, quote);
 
     return {
       value: formattedPrice ?? snapshot.displayPrice,
       detail: `${snapshot.sourceLabel} · ${snapshot.asOf}`,
+      ...(snapshot.session === "closed" ? { context: "Last close" as const } : {}),
       sourceUrl: snapshot.sourceUrl,
       changeLabel: snapshot.changeLabel
         ? formatSignedPercentChange(snapshot.changeLabel, quote.regionId) ?? snapshot.changeLabel

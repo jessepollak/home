@@ -12,8 +12,8 @@ import { prefetchAddMoneyMethods } from "@/client/funding/funding-prefetch";
 import { browserHomeQueryClient, useHomeQueryClient } from "@/client/query/query-client";
 import { useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 import { usePresentationRegionId } from "@/client/invest/presentation-quote";
-import { deferSheet } from "@/client/money-modal/deferred-sheet";
-import { moneySheetIntent, moneySheetLoading } from "@/client/money-modal";
+import { moneySheetIntent } from "@/client/money-modal";
+import { SavingsJourney, type SavingsActionMode, type SavingsJourneyEntry } from "@/client/savings/savings-actions";
 import {
   nextSavingsRateExpiryAt,
   summarizeSavingsPortfolio,
@@ -38,12 +38,11 @@ import {
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
 import { CashOverview, SavingsDetail } from "./cash-overview";
 import { savingsWithdrawTargets } from "./savings-withdraw-targets";
+import { savingsManagement, type SavingsManagement } from "./savings-management";
 
-const SavingsMoneySheet = deferSheet(() =>
-  import("@/client/savings/savings-actions").then((module) => module.SavingsMoneyDialog),
-  (props) => moneySheetLoading({ title: props.mode === "deposit" ? "Deposit" : "Withdraw", titleId: "savings-action-title", closeLabel: `Close ${props.mode} dialog`, onCancel: props.onClose, onClosed: props.onClosed }));
+const SAVINGS_JOURNEY_TITLE_ID = "savings-journey-title";
 type View = "cash" | "savings";
-type Mode = "deposit" | "withdraw";
+type Mode = SavingsActionMode;
 
 export type CashExperienceProps = {
   view: View;
@@ -82,6 +81,7 @@ export function CashExperience({
   fetchAccountResource,
 }: CashExperienceProps) {
   const routing = useOptionalHomeShellRouting();
+  const ownerIdentity = session ? `${session.user.subject}:${session.smartAccount?.address.toLowerCase() ?? ""}:${session.accountProvider}` : "signed-out";
   const [rateNowMs, setRateNowMs] = useState(() => now());
   const query = useSavingsVaults({ fetchVaults });
   const metadata = query.data ?? null;
@@ -155,10 +155,14 @@ export function CashExperience({
   }, [metadata, now, rateNowMs]);
 
   const [localMode, setLocalMode] = useState<Mode | null>(null);
-  const [target, setTarget] = useState<MorphoVaultCandidate | null>(null);
-  const [lastMode, setLastMode] = useState<Mode>("deposit");
+  const [targetSelection, setTargetSelection] = useState<{ owner: string; candidate: MorphoVaultCandidate } | null>(null);
   const [confirmed, setConfirmed] = useState(false);
-  const [choiceRequest, setChoiceRequest] = useState(0);
+  const [managementSelection, setManagementSelection] = useState<{ owner: string; address: string } | null>(null);
+  const [entry, setEntry] = useState<SavingsJourneyEntry>("amount");
+  const [closingManagement, setClosingManagement] = useState<SavingsManagement | null>(null);
+  const [journeyGeneration, setJourneyGeneration] = useState(0);
+  const latestJourneyGeneration = useRef(0);
+  const previousOwner = useRef(ownerIdentity);
   const opener = useRef<HTMLElement | null>(null);
   const autoClosed = useRef<{ mode: Mode; target: MorphoVaultCandidate } | null>(null);
   const initialRoute = useRef(
@@ -172,6 +176,8 @@ export function CashExperience({
   const normalized = useRef(false);
   const previousView = useRef(view);
   const restoreSavingsFocus = useRef(false);
+  const target = targetSelection?.owner === ownerIdentity ? targetSelection.candidate : null;
+  const managementAddress = managementSelection?.owner === ownerIdentity ? managementSelection.address : null;
   const routeMode =
     routing?.state.flow === "save-deposit"
       ? "deposit"
@@ -179,6 +185,17 @@ export function CashExperience({
       ? "withdraw"
       : null;
   const mode = routing ? routeMode : localMode;
+  const usdc = liveSnapshot?.holdings.find((holding) => holding.id === "usdc")?.balance;
+  const management = useMemo(() => managementAddress ? savingsManagement({
+    address: managementAddress,
+    snapshot: liveSnapshot,
+    metadata,
+    nowMs: rateNowMs,
+    actionsAvailable: Boolean(session?.smartAccount),
+    usdcBaseUnits: usdc?.status === "ready" ? usdc.baseUnits : null,
+    usdcUnavailable: usdc?.status !== "ready" || balanceStatus === "failed",
+  }) : null, [managementAddress, liveSnapshot, metadata, rateNowMs, session?.smartAccount, usdc, balanceStatus]);
+  const activeManagement = management ?? closingManagement;
 
   useEffect(() => {
     if (!routing || !initialRoute.current || normalized.current) return;
@@ -187,6 +204,22 @@ export function CashExperience({
     routing.clearFlow({ mode: "replace", normalizeInbound: true });
     routing.setFlow(initialRoute.current);
   }, [routing]);
+  useEffect(() => {
+    const previous = previousOwner.current;
+    if (previous === ownerIdentity) return;
+    previousOwner.current = ownerIdentity;
+    if (previous === "signed-out") return;
+    latestJourneyGeneration.current += 1;
+    setJourneyGeneration(latestJourneyGeneration.current);
+    setTargetSelection(null);
+    setManagementSelection(null);
+    setClosingManagement(null);
+    setConfirmed(false);
+    setLocalMode(null);
+    autoClosed.current = null;
+    opener.current = null;
+    if (routing) routing.clearFlow({ mode: "replace" });
+  }, [ownerIdentity, routing]);
   useEffect(() => {
     if (previousView.current === "savings" && view === "cash")
       restoreSavingsFocus.current = true;
@@ -255,21 +288,19 @@ export function CashExperience({
       )?.balance;
       if (best && usdc?.status === "ready")
         queueMicrotask(() => {
-          setTarget(best);
-          setLastMode("deposit");
+          setTargetSelection({ owner: ownerIdentity, candidate: best });
+          setEntry("amount");
         });
       else routing.clearFlow({ mode: "replace" });
       return;
     }
     if (withdrawable.length === 1) {
       queueMicrotask(() => {
-        setTarget(withdrawable[0]!.candidate);
-        setLastMode("withdraw");
+        setTargetSelection({ owner: ownerIdentity, candidate: withdrawable[0]!.candidate });
+        setEntry("amount");
       });
     } else {
       routing.clearFlow({ mode: "replace" });
-      if (withdrawable.length > 1)
-        queueMicrotask(() => setChoiceRequest((value) => value + 1));
     }
   }, [
     routing,
@@ -281,11 +312,14 @@ export function CashExperience({
     liveSnapshot,
     metadata,
     session,
+    ownerIdentity,
     best,
     withdrawable,
   ]);
 
   function close() {
+    setClosingManagement(management);
+    setManagementSelection(null);
     setConfirmed(false);
     if (routing) {
       if (mode && autoClosed.current?.mode === mode) return;
@@ -294,24 +328,41 @@ export function CashExperience({
   }
   function open(nextMode: Mode, candidate: MorphoVaultCandidate) {
     autoClosed.current = null;
-    void SavingsMoneySheet.preload();
-    opener.current =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
-    setTarget(candidate);
+    if (managementAddress === null) {
+      latestJourneyGeneration.current += 1;
+      setJourneyGeneration(latestJourneyGeneration.current);
+      opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      setEntry("amount");
+    }
+    setTargetSelection({ owner: ownerIdentity, candidate });
     setConfirmed(false);
-    setLastMode(nextMode);
     if (routing)
       routing.setFlow(
         nextMode === "deposit" ? "save-deposit" : "save-withdraw"
       );
     else setLocalMode(nextMode);
   }
+  function openManagement(address: string) {
+    latestJourneyGeneration.current += 1;
+    setJourneyGeneration(latestJourneyGeneration.current);
+    setClosingManagement(null);
+    setManagementSelection({ owner: ownerIdentity, address });
+    setEntry("management");
+    setTargetSelection(null);
+    setLocalMode(null);
+    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setConfirmed(false);
+  }
+  function backToManagement() {
+    setLocalMode(null);
+    routing?.clearFlow();
+  }
   function restoreFocus() {
+    setClosingManagement(null);
+    setManagementSelection(null);
     const element = opener.current;
     opener.current = null;
-    setTarget(null);
+    setTargetSelection(null);
     if (element?.isConnected && !element.matches(":disabled")) element.focus();
     else
       document
@@ -333,19 +384,18 @@ export function CashExperience({
     queueMicrotask(() => {
       if (!active) return;
       autoClosed.current = { mode, target };
+      if (entry === "management") {
+        setClosingManagement(management);
+        setManagementSelection(null);
+      }
       if (routing) routing.clearFlow({ mode: "replace" });
       else setLocalMode(null);
     });
     return () => { active = false; };
-  }, [mode, target, balanceStatus, availableBaseUnits, confirmed, routing]);
-  const sheetOpen =
-    (view === "savings" &&
-      mode !== null &&
-      target !== null &&
-      (availableBaseUnits !== null || confirmed) &&
-      balanceStatus !== "failed") ||
-    (view === "savings" && mode !== null && target !== null && confirmed);
-  const effectiveMode = mode ?? lastMode;
+  }, [mode, target, balanceStatus, availableBaseUnits, confirmed, routing, entry, management]);
+  const closedJourney = () => { if (latestJourneyGeneration.current === journeyGeneration) restoreFocus(); };
+  const sheetOpen = view === "savings" && session !== null && (management !== null ||
+    (mode !== null && target !== null && ((availableBaseUnits !== null && balanceStatus !== "failed") || confirmed)));
   const centsLabel =
     availableBaseUnits !== null
       ? `${formatUsdStablecoinAmount(
@@ -382,19 +432,21 @@ export function CashExperience({
           nowMs={rateNowMs}
           now={now}
           growthAuthority={growthAuthority}
-          requestWithdrawChoice={choiceRequest}
           actionsAvailable={Boolean(session?.smartAccount)}
-          onSavingsIntent={moneySheetIntent(SavingsMoneySheet.preload).onFocus}
           onDepositVault={(candidate) => open("deposit", candidate)}
-          onWithdrawVault={(candidate) => open("withdraw", candidate)}
+          onManageVault={openManagement}
           onRetryVaults={() => void query.refetch()}
           onRetryBalances={onRetryBalances}
         />
       )}
-      {session && target ? (
-        <SavingsMoneySheet
+      {session && (activeManagement !== null || target !== null) ? (
+        <SavingsJourney
+          titleId={SAVINGS_JOURNEY_TITLE_ID}
+          key={`${session.user.subject}:${session.smartAccount?.address ?? ""}:${activeManagement?.address ?? target?.vaultAddress ?? ""}:${entry}`}
           open={sheetOpen}
-          mode={effectiveMode}
+          entry={entry}
+          management={activeManagement}
+          mode={mode}
           session={session}
           candidate={target}
           availableLabel={centsLabel}
@@ -408,8 +460,10 @@ export function CashExperience({
             setConfirmed(true);
             return executeMoneyAction(action);
           }}
+          onSelectMode={open}
+          onBackToManagement={backToManagement}
           onClose={close}
-          onClosed={restoreFocus}
+          onClosed={closedJourney}
         />
       ) : null}
     </>

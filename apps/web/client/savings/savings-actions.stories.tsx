@@ -16,7 +16,7 @@ import {
   MORPHO_V1_CANDIDATE_ADDRESSES,
 } from "@/shared/savings/config";
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
-import { SavingsMoneyDialog, type SavingsActionMode } from "./savings-actions";
+import { SavingsJourney, type SavingsActionMode } from "./savings-actions";
 import {
   SavingsDialogFixtureProvider,
   type SavingsDialogMotion,
@@ -188,8 +188,10 @@ function DialogStorySurface({
         assetOptions: currencyOptions,
         onAssetChange: setSelectedAssetId,
       }}>
-        <SavingsMoneyDialog
+        <SavingsJourney
           open={open}
+          entry="amount"
+          management={null}
           mode={mode}
           session={session}
           candidate={storyCandidate}
@@ -198,6 +200,8 @@ function DialogStorySurface({
           prepareMoneyAction={prepareStoryAction}
           fetchAccountResource={fetchAccountResource}
           executeMoneyAction={executeMoneyAction}
+          onSelectMode={() => {}}
+          onBackToManagement={() => {}}
           onClose={() => setOpen(false)}
         />
       </SavingsDialogFixtureProvider>

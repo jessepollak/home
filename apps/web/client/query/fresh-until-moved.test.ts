@@ -12,6 +12,7 @@ import {
   type FreshUntilMovedClock,
 } from "./fresh-until-moved";
 import { createHomeQueryClient, ownerQueryKey } from "./query-client";
+import { BALANCES_VERSION } from "@/shared/balances/types";
 
 const settledInvalidations = indexedScopes.length + 1;
 
@@ -60,7 +61,7 @@ const session: VerifiedAccountSession = {
 
 function balancesSnapshot(balance: string | null) {
   return {
-    version: 4,
+    version: BALANCES_VERSION,
     holdings: balance === null
       ? []
       : [{

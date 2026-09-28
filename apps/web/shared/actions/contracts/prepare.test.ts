@@ -17,6 +17,15 @@ describe("prepared network fee validation", () => {
     expect(validPrepared({ ...prepared, networkFee: undefined, calls: [] }, session)).toBe(true);
   });
 
+  test("rejects malformed arrays and non-record leading ERC20 approvals", () => {
+    for (const field of ["calls", "amounts", "warnings"]) {
+      for (const malformed of [{}, "not-an-array"]) {
+        expect(validPrepared({ ...prepared, [field]: malformed }, session)).toBe(false);
+      }
+    }
+    expect(validPrepared({ ...prepared, calls: ["not-a-call"] }, session)).toBe(false);
+  });
+
   test("rejects invalid fee payload and a missing or mismatched leading approval", () => {
     expect(validPrepared({ ...prepared, networkFee: { ...fee, maxFeeBaseUnits: "0" } }, session)).toBe(false);
     expect(validPrepared({ ...prepared, calls: [] }, session)).toBe(false);

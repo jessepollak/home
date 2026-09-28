@@ -31,6 +31,7 @@ import {
   type HoldingBalance,
   type HoldingCashValue,
   type HoldingValue,
+  type HoldingValueReference,
 } from "./types";
 
 export type { BalancesSnapshot } from "./types";
@@ -45,6 +46,8 @@ const valueUnpricedReasons = new Set([
   "fx-unavailable",
   "below-market-gate",
   "no-quote-currency",
+  "price-paused",
+  "asset-removed",
 ]);
 const cashValueUnpricedReasons = new Set([
   "price-unavailable",
@@ -499,7 +502,8 @@ function validateValue(
       quoteCurrency === null ||
       raw.currency !== quoteCurrency ||
       !validateDecimal(raw.amount) ||
-      !readIso(raw.asOf)
+      !readIso(raw.asOf) ||
+      !(raw.reference === undefined || isValueReference(raw.reference))
     ) {
       fail("priced value");
     }
@@ -508,6 +512,7 @@ function validateValue(
       currency: quoteCurrency,
       amount: raw.amount as ExactDecimal,
       asOf: raw.asOf,
+      ...(isValueReference(raw.reference) ? { reference: { kind: "tokenized-equity" as const, session: raw.reference.session } } : {}),
     };
   }
   if (raw.status === "unpriced") {
@@ -516,6 +521,11 @@ function validateValue(
     return { status: "unpriced", reason: raw.reason as Extract<HoldingValue, { status: "unpriced" }>["reason"] };
   }
   fail("value status");
+}
+
+function isValueReference(value: unknown): value is HoldingValueReference {
+  return isRecord(value) && value.kind === "tokenized-equity" &&
+    (value.session === "open" || value.session === "closed");
 }
 
 function validateCashValue(

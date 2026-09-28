@@ -1,6 +1,6 @@
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import { afterEach } from "bun:test";
 import { getHomeQueryClient } from "@/client/query/query-client";
+import { registerDomTestCleanup } from "@/tests/helpers/dom-test-cleanup";
 
 if (typeof window === "undefined") {
   const serverFetchDescriptors = Object.fromEntries(
@@ -34,7 +34,10 @@ const testingLibrary = await import("@testing-library/react");
 const cleanupDomTests = testingLibrary.cleanup;
 export const within = testingLibrary.within;
 
-afterEach(() => {
+registerDomTestCleanup(() => {
   cleanupDomTests();
+  document.body.innerHTML = "";
+  window.localStorage.clear();
+  window.sessionStorage.clear();
   getHomeQueryClient().clear();
 });

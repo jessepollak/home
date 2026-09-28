@@ -64,6 +64,7 @@ function isSameOriginPost(request: Request): boolean {
 function json(body: unknown, status: number, cookies: string[] = []): Response {
   const headers: Array<[string, string]> = [
     ["Cache-Control", "private, no-store, max-age=0"],
+    ["Referrer-Policy", "no-referrer"],
     ["Pragma", "no-cache"],
     ["Vary", "Cookie, Authorization, X-Home-Account-Provider"],
     ...cookies.map((value): [string, string] => ["Set-Cookie", value]),

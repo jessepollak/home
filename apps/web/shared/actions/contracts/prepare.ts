@@ -1,6 +1,7 @@
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { parseMoneyActionNetworkFee } from "@/shared/money-actions/network-fee";
+import { isRecord, isUnknownArray } from "@/shared/guards";
 
 export type PrepareActionResponse = PreparedMoneyAction;
 
@@ -14,7 +15,7 @@ export function validPrepared(
     typeof value.owner.address !== "string" ||
     value.owner.address.toLowerCase() !== session.smartAccount.address.toLowerCase() ||
     value.owner.accountProvider !== session.accountProvider ||
-    !Array.isArray(value.calls) || !Array.isArray(value.amounts) || !Array.isArray(value.warnings)
+    !isUnknownArray(value.calls) || !isUnknownArray(value.amounts) || !isUnknownArray(value.warnings)
   ) return false;
   if (value.networkFee === undefined) return true;
   const fee = parseMoneyActionNetworkFee(value.networkFee);
@@ -28,8 +29,4 @@ export function validPrepared(
     first.data.slice(10, 34) === "0".repeat(24) &&
     first.data.slice(34, 74).toLowerCase() === fee.paymaster.slice(2).toLowerCase() &&
     BigInt(`0x${first.data.slice(74)}`).toString(10) === fee.maxFeeBaseUnits;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }

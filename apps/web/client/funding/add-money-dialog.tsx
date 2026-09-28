@@ -258,6 +258,7 @@ export function MethodBody({
         </CardContent>
       </Card>
       {providersStatus === "loaded" && !fundingReadError && providerBindings.length === 0 ? (
+        // oxlint-disable-next-line jsx-a11y/aria-role -- Removes Alert's live role from an aria-hidden visual duplicate of the status message.
         <Alert role={undefined} aria-hidden="true">
           <AlertDescription>No local deposit method in {countryName} yet.</AlertDescription>
         </Alert>
@@ -412,6 +413,7 @@ function ReceiveAddress({ address }: { address: `0x${string}` }) {
           <code
             className="block w-full select-text rounded-lg border bg-muted p-3 font-mono text-xs [overflow-wrap:anywhere]"
             aria-label={`Full Base address ${address}`}
+            // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Focusable full address supports keyboard selection.
             tabIndex={0}
           >
             {address}

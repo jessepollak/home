@@ -409,6 +409,22 @@ describe("parseCdpSqlResponseEnvelope", () => {
     });
   });
 
+  test("rejects a non-array result and omits a non-array schema.columns", () => {
+    expect(parseCdpSqlResponseEnvelope({ result: { row: 1 } }, receivedAt)).toBeNull();
+    expect(parseCdpSqlResponseEnvelope({
+      result: [{ row: 1 }],
+      schema: { columns: "not-an-array" },
+    }, receivedAt)).toEqual({
+      result: [{ row: 1 }],
+      metadata: {
+        cached: false,
+        executionTimestamp: receivedAt.toISOString(),
+        executionTimeMs: 0,
+        rowCount: 1,
+      },
+    });
+  });
+
   test("does not invent an empty page when result is missing", () => {
     expect(parseCdpSqlResponseEnvelope({ metadata: { rowCount: 0 } })).toBeNull();
     expect(

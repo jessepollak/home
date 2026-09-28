@@ -109,7 +109,7 @@ export function RegionalHomeProposal({ regionId, assetBalances, activity, operat
           <div className="@container" aria-label="Money actions">
             <div className="grid grid-cols-1 gap-2 @xs:grid-cols-3">
               {actionLabels.map((label, index) => (
-                <Button key={index} variant={index === 0 ? "default" : "outline"} size="lg" className="min-h-11 min-w-0 whitespace-normal @xs:whitespace-nowrap" >
+                <Button key={label} variant={index === 0 ? "default" : "outline"} size="lg" className="min-h-11 min-w-0 whitespace-normal @xs:whitespace-nowrap" >
                   {index === 0 ? <Plus className="size-4 shrink-0 @xs:hidden" aria-hidden="true" /> : null}{label}
                 </Button>
               ))}

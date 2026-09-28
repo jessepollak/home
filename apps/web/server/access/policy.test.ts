@@ -65,6 +65,7 @@ describe("deployment access policy", () => {
       expect(response?.status).toBe(307);
       expect(response?.headers.get("location")).toBe("https://home.test/access?next=%2Fborrow%3Fasset%3Dusdc");
       expect(response?.headers.get("cache-control")).toContain("private");
+      expect(response?.headers.get("referrer-policy")).toBe("no-referrer");
       expect(response?.headers.get("vary")).toContain("Cookie");
     }
   });
@@ -73,6 +74,7 @@ describe("deployment access policy", () => {
     for (const [path, method] of [["/api/session", "GET"], ["/borrow", "POST"]] as const) {
       const response = enforceAccess(request(path, { method }), enabled, now)!;
       expect(response.status).toBe(401);
+      expect(response.headers.get("referrer-policy")).toBe("no-referrer");
       expect(await response.json()).toEqual({ version: 1, error: { code: "ACCESS_REQUIRED" } });
     }
   });
@@ -82,6 +84,7 @@ describe("deployment access policy", () => {
     expect(enforceAccess(request("/api/webhooks/cdp"), { kind: "misconfigured" }, now)).toBeNull();
     const response = enforceAccess(request("/api/session"), { kind: "misconfigured" }, now)!;
     expect(response.status).toBe(503);
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
     expect(await response.json()).toEqual({ version: 1, error: { code: "ACCESS_UNAVAILABLE" } });
   });
 
@@ -91,6 +94,7 @@ describe("deployment access policy", () => {
     expect(response?.status).toBe(200);
     expect(response?.headers.get("x-middleware-next")).toBe("1");
     expect(response?.headers.get("cache-control")).toContain("private");
+    expect(response?.headers.get("referrer-policy")).toBeNull();
     expect(response?.headers.get("vary")).toContain("Cookie");
   });
 

@@ -52,6 +52,7 @@ export function createInviteLandingHandler(deps: LandingDependencies = {
     }
     const headers: Array<[string, string]> = [
       ["Location", destination], ["Cache-Control", "private, no-store, max-age=0"],
+      ["Referrer-Policy", "no-referrer"],
     ];
     if (inviteCookie) headers.push(["Set-Cookie", inviteCookie]);
     return new Response(null, { status: 303, headers });

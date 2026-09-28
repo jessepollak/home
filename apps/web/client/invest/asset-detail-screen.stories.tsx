@@ -10,7 +10,7 @@ import { BASE_CHAIN_ID, investAssets, type InvestAsset } from "@/config/invest-a
 import { balancesSnapshot } from "@/tests/browser/fixtures/balances";
 import type { Holding } from "@/shared/balances/types";
 import type { MarketPriceRange } from "@/shared/invest/contracts/market-price-history";
-import type { MarketDataState } from "@/shared/invest/invest-market";
+import type { MarketDataState, MarketSession } from "@/shared/invest/invest-market";
 import { formatPresentationDate, formatPresentationPrice, formatSignedPercentChange } from "@/shared/formatting";
 import { AssetDetailScreen } from "./asset-detail-screen";
 
@@ -38,7 +38,14 @@ const priceById: Record<string, number> = {
   cbbtc: 122391.18, nvdac: 179.60, degen: 0.003812,
   [dynamicMeme.id]: 0.000004812,
 };
-function market(asset: InvestAsset, stale = false): MarketDataState {
+function market(asset: InvestAsset, stale = false, stockSession: MarketSession = "open"): MarketDataState {
+  if (!stale && asset.category === "stock") return { status: "ready", snapshots: [{
+    assetId: asset.id,
+    displayPrice: stockSession === "paused" || stockSession === "stale" ? "—" : `$${priceById[asset.id]}`,
+    asOf: new Date(clock - 60000).toISOString(),
+    sourceLabel: "Chainlink",
+    session: stockSession,
+  }] };
   return stale ? { status: "error", message: "Price snapshot is stale." } : {
     status: "ready",
     snapshots: [{
@@ -149,7 +156,7 @@ function historyHandler(mode: "ready" | "empty" | "stale" | "slow" | "hold-year"
 
 type AssetKey = "cbbtc" | "nvdac" | "degen" | "dynamic";
 type Position = "unheld" | "bitcoin" | "stock" | "error" | "blocked";
-type StoryProps = { assetId: AssetKey; position: Position; localCurrency: boolean; staleMarket: boolean; reducedMotion: boolean };
+type StoryProps = { assetId: AssetKey; position: Position; localCurrency: boolean; staleMarket: boolean; reducedMotion: boolean; stockSession?: MarketSession };
 const assets: Record<AssetKey, InvestAsset> = { cbbtc: crypto, nvdac: stock, degen: configuredMeme, dynamic: dynamicMeme };
 const session = {
   user: { subject: "synthetic-asset-detail-owner" },
@@ -166,7 +173,13 @@ function forceReducedMotion() {
   window.matchMedia = forced;
   return () => { window.matchMedia = original; };
 }
-function positionSnapshot(position: Position) {
+function stockValue(session: MarketSession): Holding["value"] {
+  if (session === "paused") return { status: "unpriced", reason: "price-paused" };
+  if (session === "stale") return { status: "unpriced", reason: "price-stale" };
+  return { status: "priced", currency: "USD", amount: { atoms: "22450", scale: 2 }, asOf: new Date(clock).toISOString(),
+    reference: { kind: "tokenized-equity", session } };
+}
+function positionSnapshot(position: Position, stockSession: MarketSession = "open") {
   const snapshot = balancesSnapshot("US");
   return { ...snapshot, holdings: snapshot.holdings.map((holding): Holding => {
     if (holding.id === "cbbtc") return position === "bitcoin" ? {
@@ -174,7 +187,7 @@ function positionSnapshot(position: Position) {
       value: { status: "priced", currency: "USD", amount: { atoms: "151030", scale: 2 }, asOf: new Date(clock).toISOString() },
     } : { ...holding, balance: { status: "ready", baseUnits: "0" } };
     if (holding.id === "nvdac") return position === "stock" ? {
-      ...holding, balance: { status: "ready", baseUnits: "125000000" },
+      ...holding, balance: { status: "ready", baseUnits: "125000000" }, value: stockValue(stockSession),
     } : { ...holding, balance: { status: "ready", baseUnits: "0" } };
     return holding;
   }) };
@@ -195,7 +208,7 @@ function statsHandler(mode: "ready" | "error" = "ready") {
     });
   });
 }
-function StoryHarness({ assetId, position, localCurrency, staleMarket, reducedMotion }: StoryProps) {
+function StoryHarness({ assetId, position, localCurrency, staleMarket, reducedMotion, stockSession = "open" }: StoryProps) {
   useLayoutEffect(() => reducedMotion ? forceReducedMotion() : undefined, [reducedMotion]);
   const asset = assets[assetId];
   const blocked = createBlockedAccountWalletClient("unconfigured");
@@ -203,7 +216,7 @@ function StoryHarness({ assetId, position, localCurrency, staleMarket, reducedMo
     verification: "server" as const, session,
     fetchBalances: async () => {
       if (position === "error") throw new globalThis.Error("Balances unavailable");
-      return positionSnapshot(position);
+      return positionSnapshot(position, stockSession);
     },
   };
   return <AccountWalletClientProvider client={client}>
@@ -212,7 +225,7 @@ function StoryHarness({ assetId, position, localCurrency, staleMarket, reducedMo
       quoteUnitsPerUsd: localCurrency ? { atoms: "92", scale: 2 } : { atoms: "1", scale: 0 },
     }}><MoneyMotionProvider reducedMotion={reducedMotion}>
       <main className="min-h-screen bg-background"><AssetDetailScreen asset={asset}
-        market={market(asset, staleMarket)} onBack={fn()} /></main>
+        market={market(asset, staleMarket, stockSession)} onBack={fn()} /></main>
     </MoneyMotionProvider></PresentationQuoteProvider></PresentationRegionProvider>
   </AccountWalletClientProvider>;
 }
@@ -267,8 +280,26 @@ export const Meme: Story = { args: { assetId: "dynamic" }, play: async ({ canvas
 export const StockHeld: Story = { args: { assetId: "nvdac", position: "stock" }, play: async ({ canvasElement }) => {
   const canvas = within(canvasElement);
   await expect(await canvas.findByText("1.25 NVDAc", undefined, chartWait)).toBeVisible();
-  await expect(canvas.getByText("Value unavailable")).toBeVisible();
-  await expect(within(canvas.getByText("Your balance").closest("li")!).getByText("—")).toBeVisible();
+  const balance = within(canvas.getByText("Your balance").closest("li")!);
+  await expect(balance.getByText("$224.50")).toBeVisible();
+  await expect(canvas.getByText("DEX market price")).toBeVisible();
+  await expect(canvas.queryByText("Last close")).not.toBeInTheDocument();
+} };
+export const StockLastClose: Story = { args: { assetId: "nvdac", position: "stock", stockSession: "closed" }, play: async ({ canvasElement }) => {
+  const canvas = within(canvasElement);
+  await expect(await canvas.findByText("1.25 NVDAc", undefined, chartWait)).toBeVisible();
+  const balance = within(canvas.getByText("Your balance").closest("li")!);
+  await expect(balance.getByText("$224.50")).toBeVisible();
+  await expect(balance.getByText("Last close")).toBeVisible();
+  await expect(canvas.getAllByText("Last close")).toHaveLength(2);
+} };
+export const StockPaused: Story = { args: { assetId: "nvdac", position: "stock", stockSession: "paused" }, play: async ({ canvasElement }) => {
+  const canvas = within(canvasElement);
+  await expect(await canvas.findByText("1.25 NVDAc", undefined, chartWait)).toBeVisible();
+  const balance = within(canvas.getByText("Your balance").closest("li")!);
+  await expect(balance.getByText("—")).toBeVisible();
+  await expect(balance.getByText("Paused")).toBeVisible();
+  await expect(canvas.getAllByText("Paused")).toHaveLength(2);
 } };
 export const Desktop: Story = { parameters: { viewport: { defaultViewport: "wide" } } };
 export const Narrow: Story = { parameters: { viewport: { defaultViewport: "narrow" } }, play: async ({ canvasElement }) => {

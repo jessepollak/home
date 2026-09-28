@@ -1,6 +1,7 @@
 import {
   noBaseUiImports,
   noBrowserSdkImports,
+  noClassicZodImports,
   noClientServerImports,
   noRelativeLocationAssignment,
   noServerClientImports,
@@ -47,6 +48,7 @@ const homePlugin = {
     "no-shared-runtime-imports": noSharedRuntimeImports,
     "no-browser-sdk-imports": noBrowserSdkImports,
     "no-base-ui-imports": noBaseUiImports,
+    "no-classic-zod-imports": noClassicZodImports,
     "no-relative-location-assignment": noRelativeLocationAssignment,
     "require-server-only": requireServerOnly,
     "no-literal-utility-styles": noLiteralUtilityStyles,

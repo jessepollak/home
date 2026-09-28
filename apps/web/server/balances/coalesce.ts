@@ -498,7 +498,9 @@ function incompleteValueKey(value: HoldingValue): keyof Omit<BalancesReadIncompl
   if (value.status === "unavailable") return "valueUnavailable";
   if (value.status === "priced") return null;
   switch (value.reason) {
-    case "price-unavailable": return "priceUnavailable";
+    case "price-unavailable":
+    case "price-paused":
+    case "asset-removed": return "priceUnavailable";
     case "price-stale": return "priceStale";
     case "fx-unavailable": return "fxUnavailable";
     case "below-market-gate": return "belowMarketGate";

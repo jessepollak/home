@@ -592,6 +592,25 @@ describe("actions HTTP handlers", () => {
     expect(await response.json()).toEqual({ error: { code: "ACTION_NOT_FOUND", message: "The action was not found." } });
   });
 
+  test("first confirmation subscribes its owner once without awaiting a rejected subscription", async () => {
+    const subscribed: string[] = [];
+    let draft: ActionRow = row;
+    const handler = createConfirmActionHandler({ authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      store: { get: async () => draft, confirm: async () => {
+        draft = { ...row, confirmed_at: "2026-09-12T12:05:00.000Z" };
+        return draft;
+      } },
+      recordConfirmed: async () => {},
+      ensureAddressSubscribed: async (address) => { subscribed.push(address); throw new Error("subscription rejected"); },
+    });
+    const post = () => handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect((await post()).status).toBe(200);
+    expect(subscribed).toEqual([ADDRESS]);
+    expect((await post()).status).toBe(404);
+    expect(subscribed).toEqual([ADDRESS]);
+  });
+
   test("confirm returns only the reviewed calls after the store clears pending", async () => {
     let confirmedCalls: unknown;
     const handler = createConfirmActionHandler({
@@ -768,6 +787,70 @@ describe("actions HTTP handlers", () => {
     });
     expect((await failed(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context())).status).toBe(404);
     expect(failedSignals).toEqual([]);
+  });
+
+  test("a new handle schedules follow-through, a duplicate waits for the throttle, and an unresolved row retries after it", async () => {
+    const tasks: Array<() => Promise<unknown>> = [];
+    let clock = new Date("2026-09-12T12:05:00.000Z");
+    const confirmed = { ...row, pending: null, confirmed_at: "2026-09-12T12:05:00.000Z", provider_handle: HANDLE };
+    const handler = createHandleActionHandler({
+      authorize: authorize(),
+      now: () => clock,
+      markHot: async () => {},
+      schedule: (task) => { tasks.push(task); },
+      store: { recordHandle: async () => confirmed },
+    });
+    const post = () => handler(request(`/api/actions/${ID}/handle`, { method: "POST", body: JSON.stringify({ providerHandle: HANDLE }) }), context());
+
+    expect((await post()).status).toBe(200);
+    expect(tasks).toHaveLength(1);
+    expect((await post()).status).toBe(200);
+    expect(tasks).toHaveLength(1);
+
+    clock = new Date("2026-09-12T12:05:16.000Z");
+    expect((await post()).status).toBe(200);
+    expect(tasks).toHaveLength(2);
+  });
+
+  test("a settled action never schedules follow-through, including a late duplicate post", async () => {
+    const tasks: Array<() => Promise<unknown>> = [];
+    const settled = { ...row, confirmed_at: "2026-09-12T12:05:00.000Z", provider_handle: HANDLE, outcome: "succeeded" as const, outcome_source: "chain" as const,
+      settled_at: "2026-09-12T12:05:00.000Z", outcome_recorded_at: "2026-09-12T12:05:00.000Z" };
+    const handler = createHandleActionHandler({
+      authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      markHot: async () => {},
+      schedule: (task) => { tasks.push(task); },
+      store: { recordHandle: async () => settled },
+    });
+    expect((await handler(request(`/api/actions/${ID}/handle`, { method: "POST", body: JSON.stringify({ providerHandle: HANDLE }) }), context())).status).toBe(200);
+    expect(tasks).toHaveLength(0);
+  });
+
+  test("an unavailable scheduler is reported and a later duplicate post can try again", async () => {
+    const lines: string[] = [];
+    setObservabilityLogWriterForTests((line) => { lines.push(line); });
+    let clock = new Date("2026-09-12T12:05:00.000Z");
+    const confirmed = { ...row, pending: null, confirmed_at: "2026-09-12T12:05:00.000Z", provider_handle: HANDLE };
+    const attempts: string[] = [];
+    const handler = createHandleActionHandler({
+      authorize: authorize(),
+      now: () => clock,
+      markHot: async () => {},
+      schedule: () => { attempts.push("schedule"); throw new Error("scheduler unavailable"); },
+      store: { recordHandle: async () => confirmed },
+    });
+    const post = () => handler(request(`/api/actions/${ID}/handle`, { method: "POST", body: JSON.stringify({ providerHandle: HANDLE }) }), context());
+
+    expect((await post()).status).toBe(200);
+    expect(attempts).toHaveLength(1);
+    expect(lines.map((line) => JSON.parse(line))).toContainEqual(expect.objectContaining({
+      kind: "action-reconcile", code: "FOLLOW_SCHEDULE_UNAVAILABLE", outcome: "unavailable",
+    }));
+
+    clock = new Date("2026-09-12T12:05:01.000Z");
+    expect((await post()).status).toBe(200);
+    expect(attempts).toHaveLength(2);
   });
 
   test("handle awaits the owner balance hot signal exactly once only after success", async () => {
@@ -1136,7 +1219,7 @@ describe("actions HTTP handlers", () => {
     expect([...covered].sort()).toEqual(candidates.map(({ id }) => id).sort());
   });
 
-  test("list reconciles only eligible Base rows while reading existing receipts", async () => {
+  test("list reconciles eligible rows for both providers while reading existing receipts", async () => {
     const cdpRow = confirmedBaseRow({
       id: "22222222-2222-4222-8222-222222222222",
       provider: "cdp-embedded",
@@ -1173,7 +1256,7 @@ describe("actions HTTP handlers", () => {
     const response = await handler(baseRequest("/api/actions"));
 
     expect(response.status).toBe(200);
-    expect(resolvedIds).toEqual([candidate.id]);
+    expect(resolvedIds).toEqual([cdpRow.id, candidate.id]);
     expect(receiptHashes).toEqual([HASH]);
   });
 

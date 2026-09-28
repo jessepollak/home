@@ -84,6 +84,8 @@ export function DiscoverAssetRow({
                 >
                   {change}
                 </span>
+              ) : price.context ? (
+                <span className="text-sm text-muted-foreground">{price.context}</span>
               ) : null}
             </>
           )}

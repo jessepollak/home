@@ -160,6 +160,7 @@ export type SessionHandlerDependencies = {
 const privateResponseHeaders = {
   "Cache-Control": "private, no-store, max-age=0",
   Pragma: "no-cache",
+  "Referrer-Policy": "no-referrer",
   Vary: `Cookie, Authorization, ${ACCOUNT_PROVIDER_HEADER}`,
 } as const;
 

@@ -508,11 +508,11 @@ function CardActivity({ loading, low, openDetail }: {
       <div className="px-4"><HomeSectionHeading id="card-activity-title">Activity</HomeSectionHeading></div>
       {loading ? <ShimmerRows count={3} /> : (
         <ul className="list-none p-0">
-          {events.map((event, index) => {
+          {events.map((event) => {
             const insufficient = low && event.id === "settled";
             return (
               <ActivityRow
-                key={`${event.id}-${index}`} icon={<CreditCard className="size-4" />}
+                key={event.id} icon={<CreditCard className="size-4" />}
                 label={event.merchant}
                 context={insufficient ? "Declined · Today" : event.context}
                 value={insufficient ? "$64.10" : event.amount}

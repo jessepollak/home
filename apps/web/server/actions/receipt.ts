@@ -10,12 +10,13 @@ export const TRANSFER_RECEIPT_TIMEOUT_MS = 6_000;
 
 const transactionHashPattern = /^0x[0-9a-fA-F]{64}$/;
 const wordPattern = /^0x[0-9a-fA-F]{64}$/;
-const eventTopic = "0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f";
-const entryPoints = new Set([
-  "0x5ff137d4b0fdcd49dca30c7cf57e578a026d2789",
-  "0x0000000071727de22e5e9d8baf0edac6f37da032",
-  "0x4337084d9e255ff0702461cf8895ce9e3b5ff108",
-]);
+export const USER_OPERATION_EVENT_TOPIC = "0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f";
+export const USER_OPERATION_ENTRY_POINTS = {
+  V06: "0x5ff137d4b0fdcd49dca30c7cf57e578a026d2789",
+  V07: "0x0000000071727de22e5e9d8baf0edac6f37da032",
+  V08: "0x4337084d9e255ff0702461cf8895ce9e3b5ff108",
+} as const;
+const entryPoints = new Set<string>(Object.values(USER_OPERATION_ENTRY_POINTS));
 type FetchLike = (
   input: RequestInfo | URL,
   init?: RequestInit,
@@ -162,7 +163,7 @@ function readUserOperations(value: unknown): Array<{ userOpHash: string; sender:
   return value.flatMap((log) => {
     if (!isRecord(log) || typeof log.address !== "string" || !entryPoints.has(log.address.toLowerCase()) ||
       !Array.isArray(log.topics) ||
-      typeof log.topics[0] !== "string" || log.topics[0].toLowerCase() !== eventTopic ||
+      typeof log.topics[0] !== "string" || log.topics[0].toLowerCase() !== USER_OPERATION_EVENT_TOPIC ||
       typeof log.topics[1] !== "string" || !wordPattern.test(log.topics[1]) ||
       typeof log.topics[2] !== "string" || !wordPattern.test(log.topics[2]) ||
       typeof log.data !== "string" || !/^0x(?:[0-9a-fA-F]{64}){4}$/.test(log.data)) return [];

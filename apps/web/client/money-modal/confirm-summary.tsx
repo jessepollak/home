@@ -39,6 +39,7 @@ export function MoneyConfirmSummary({ amount, lead, rows, details, action, desti
                 <>
                   <span data-slot="confirm-amount-number" className="block min-w-0 wrap-anywhere">
                     {prefix}{Array.from(numeric).map((character, index) => (
+                      // oxlint-disable-next-line react/no-array-index-key -- Character position is the identity of each amount segment.
                       <span key={index}>{character}{/[.,'\u00a0\u2019\u202f]/u.test(character) ? <wbr /> : null}</span>
                     ))}
                   </span>
