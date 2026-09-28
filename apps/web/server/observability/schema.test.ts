@@ -396,6 +396,24 @@ describe("observability schema", () => {
     expect(normalizeObservabilityEvent({ kind: "funding-order", route: "/api/funding/orders", code: "USER_TOKEN_PRIVATE", outcome: "unavailable", durationMs: 0 }).code).toBe("ORDER_UNAVAILABLE");
   });
 
+  test.each([
+    ["UPSTREAM_ABORTED", "skipped", "info"],
+    ["UPSTREAM_TIMEOUT", "unavailable", "error"],
+    ["UPSTREAM_TRANSPORT", "unavailable", "error"],
+    ["UPSTREAM_HTTP_3XX", "unavailable", "error"],
+    ["UPSTREAM_HTTP_4XX", "unavailable", "error"],
+    ["UPSTREAM_HTTP_5XX", "unavailable", "error"],
+    ["UPSTREAM_OVERSIZED", "unavailable", "error"],
+    ["UPSTREAM_INVALID_RESPONSE", "invalid", "error"],
+  ] as const)("preserves upstream code %s with the expected outcome and level", (code, outcome, level) => {
+    expect(normalizeObservabilityEvent({
+      kind: "funding-order", route: "/api/funding/orders", code, outcome, durationMs: 2,
+    })).toEqual({
+      schema: "home.observability.v2", kind: "funding-order", route: "/api/funding/orders",
+      code, outcome, level, durationMs: 2,
+    });
+  });
+
   test("normalizes out-of-enum funding-order codes to ORDER_UNAVAILABLE", () => {
     expect(normalizeObservabilityEvent({
       kind: "funding-order",

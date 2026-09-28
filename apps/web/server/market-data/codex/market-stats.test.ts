@@ -129,6 +129,7 @@ describe("Codex market stats reader", () => {
     });
     const first = reader("cbbtc");
     const coalesced = reader("cbbtc");
+    await Promise.resolve();
     expect(calls).toBe(1);
     release(payload([result()]));
     expect(await first).toEqual(await coalesced);
@@ -160,5 +161,21 @@ describe("Codex market stats reader", () => {
     expect(calls).toBe(1);
     release(payload([result()]));
     await first;
+  });
+  test("keeps ready stats through the TTL boundary and refetches once afterward", async () => {
+    let time = 0;
+    let calls = 0;
+    const reader = createCodexMarketStatsReader({
+      apiKey: "fixture-key", cacheTtlMs: 10, now: () => new Date(time),
+      fetchImpl: async () => { calls++; return payload([result()]); },
+    });
+    await reader("cbbtc");
+    time = 10;
+    await reader("cbbtc");
+    expect(calls).toBe(1);
+    time = 11;
+    const [first, joined] = await Promise.all([reader("cbbtc"), reader("cbbtc")]);
+    expect(first).toEqual(joined);
+    expect(calls).toBe(2);
   });
 });

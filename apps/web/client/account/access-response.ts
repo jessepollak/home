@@ -1,4 +1,5 @@
 import { accessErrorCode, parseSafeAccessDestination } from "@/shared/access/contract";
+import { readJson } from "@/shared/http/read-json";
 
 export type AccessNavigation = {
   currentPath?: string;
@@ -56,7 +57,7 @@ export async function redirectOnAccessRequired(
   navigation: AccessNavigation = {},
 ): Promise<boolean> {
   if (response.status !== 401) return false;
-  const payload = await response.clone().json().catch(() => null);
+  const payload = await readJson(response.clone()).catch(() => null);
   if (accessErrorCode(payload) !== "ACCESS_REQUIRED") return false;
 
   const browserCurrent = navigation.currentPath ?? browserPath();

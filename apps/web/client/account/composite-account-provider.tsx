@@ -159,7 +159,7 @@ export default function CompositeAccountProvider({
       const cdpHint = hint === "cdp";
       startHomeAuthRestore(hint);
       setRestorePlan({ captured: true, cdpHint, baseHint: hint === "base" });
-      if (cdpHint) void activate().catch(() => {});
+      if (cdpHint) void activate().catch(() => {}); // oxlint-disable-line home/no-silent-catch -- onCdpError and activation onTimeout both record rejection as failed activation state
     });
     return () => { current = false; };
   }, [activate]);
@@ -280,7 +280,7 @@ export default function CompositeAccountProvider({
     ) return;
     cdpCleanupInFlightRef.current = true;
     void boundedCdpSignOut(cdpSignOut, undefined, signOutTimeout)
-      .catch(() => { writeCdpRestoreMarker(); })
+      .catch(() => { writeCdpRestoreMarker(); }) // oxlint-disable-line home/no-silent-catch -- a failed CDP sign-out writes the restore marker so the next restore retries cleanup
       .finally(() => { cdpCleanupInFlightRef.current = false; });
   }, [cdpBoundary?.isSignedIn, cdpSignOut, native.identity, signOutTimeout]);
 

@@ -28,6 +28,14 @@ describe("Base Invest search", () => {
     expect(removed.contractAddress).toBe(investAssets[0]!.contractAddress);
   });
 
+  test("returns every matching configured asset so the caller can filter before capping", async () => {
+    const search = createCodexSearchReader({ apiKey: undefined, isPair: async () => false });
+    const result = await search(request("0xb200"));
+    const configuredIds = result.results.flatMap((value) => value.kind === "configured" ? [value.assetId] : []);
+    expect(configuredIds).toHaveLength(12);
+    expect(configuredIds).toEqual(expect.arrayContaining(["cbhype", "cbzec"]));
+  });
+
   test("sends Base-only phrase search, retains distinct symbols, ranks relevance and drops wrong-chain/configured/duplicate contracts", async () => {
     const checked: string[] = [];
     const search = createCodexSearchReader({ apiKey: "fixture", now, isPair: async (address) => { checked.push(address); return false; }, fetchImpl: async (_, init) => {
@@ -303,6 +311,30 @@ describe("Base Invest search", () => {
     await Promise.all([first, same]);
     expect(calls).toBe(1);
     await search(request("Apple"));
+    await search(request("BTC"));
+    expect(calls).toBe(3);
+  });
+  test("does not retain errors, shares case variants, saturates without a provider call, and expires after TTL", async () => {
+    let time = 0;
+    let calls = 0;
+    let release!: (value: Response) => void;
+    const held = new Promise<Response>((resolve) => { release = resolve; });
+    const search = createCodexSearchReader({ apiKey: "fixture", now: () => new Date(time), maxInFlight: 1, isPair: async () => false, fetchImpl: async () => {
+      calls++;
+      return calls === 1 ? new Response("unavailable", { status: 503 }) : calls === 2 ? held : page([]);
+    } });
+    expect((await search(request("BTC"))).provider).toBe("error");
+    const first = search(request("BTC"));
+    const joined = search(request("btc"));
+    expect(await search(request("Apple"))).toMatchObject({ provider: "unavailable", results: [{ assetId: "aaplc" }] });
+    expect(calls).toBe(2);
+    release(page([]));
+    expect((await first).query).toBe("BTC");
+    expect((await joined).query).toBe("btc");
+    time = 45_000;
+    expect((await search(request("Btc"))).query).toBe("Btc");
+    expect(calls).toBe(2);
+    time = 45_001;
     await search(request("BTC"));
     expect(calls).toBe(3);
   });

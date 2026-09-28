@@ -73,13 +73,13 @@ function MoneyModalStepHost({ children }: { children: ReactNode }) {
     if (animations.step) {
       animations.step.onfinish = null;
       animations.step.oncancel = null;
-      void animations.step.finished.catch(() => {});
+      void animations.step.finished.catch(() => {}); // oxlint-disable-line home/no-silent-catch -- cancelling the step animation rejects finished; focus recovery is handled separately
       animations.step.cancel();
     }
     if (animations.height) {
       animations.height.onfinish = null;
       animations.height.oncancel = null;
-      void animations.height.finished.catch(() => {});
+      void animations.height.finished.catch(() => {}); // oxlint-disable-line home/no-silent-catch -- cancelling the height animation rejects finished; layout cleanup continues independently
       animations.height.cancel();
     }
     hostRef.current?.style.removeProperty("overflow");

@@ -18,5 +18,6 @@ export const CODEX_TOKEN_PRICES_QUERY = `query GetTokenPrices($inputs: [GetPrice
 export const CODEX_MAX_TOKENS_PER_REQUEST = 25;
 export const CODEX_MAX_BATCHES = 4;
 export const CODEX_REQUEST_TIMEOUT_MS = 8_000;
+export const CODEX_MAX_RESPONSE_BYTES = 4_000_000;
 export const CODEX_CACHE_TTL_MS = 45_000;
 export const CODEX_MAX_FUTURE_SKEW_MS = 60_000;

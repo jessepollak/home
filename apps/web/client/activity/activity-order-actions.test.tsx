@@ -112,12 +112,16 @@ for (const [completePayment, label] of [[false, "Continue with Coinbase"], [true
 }
 
 test("a failed clear shows the server message without starting another order", async () => {
+  const client = getHomeQueryClient();
+  const openOrderKey = ownerQueryKey(activityOwnerKey(session), "funding-open-order", "US");
+  client.setQueryData(openOrderKey, { order: { id: "fixture-funding-ambiguous" } });
   const { view, requests } = setup({ failResolve: true });
   await openOrder(view, "30");
   fireEvent.click(await view.findByRole("button", { name: "Clear order" }));
   await waitFor(() => expect(view.getByText("Clear failed. Try again.")).toBeTruthy());
   expect(requests.filter(({ method }) => method === "POST").map(({ path }) => path))
     .toEqual(["/api/funding/orders/fixture-funding-ambiguous/resolve"]);
+  expect(client.getQueryState(openOrderKey)?.isInvalidated).toBe(false);
 });
 
 test("returned funds review the withdrawal against the order deposit ID in the same sheet", async () => {

@@ -1,3 +1,4 @@
+import { readJson } from "@/tests/helpers/read-json";
 import { describe, expect, test } from "bun:test";
 import { BASE_CHAIN_ID, type VerifiedAccountSession } from "@/shared/account/session-types";
 import { parseAllSettingsResponse, parseAuditListResponse, parseOperatorSettingsErrorResponse, parsePutSettingsRequest, parseSettingsResponse, parseSupportSettings, OPERATOR_SETTINGS_DOMAINS } from "@/shared/operator-settings/contract";
@@ -18,7 +19,7 @@ const response = async (result: Response, status: number) => {
   expect(result.status).toBe(status);
   expect(result.headers.get("cache-control")).toContain("private");
   expect(result.headers.get("cache-control")).toContain("no-store");
-  return result.json();
+  return readJson(result);
 };
 const request = (method = "GET", path = "settings/support", init: RequestInit = {}) => new Request(`https://home.test/api/admin/${path}`, { ...init, method });
 const put = (body: unknown, headers: Record<string, string> = {}) => request("PUT", "settings/support", { headers: { origin: "https://home.test", "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
@@ -82,8 +83,8 @@ test("each endpoint authorizes before accessing stores", async () => {
 
 test("domain auth precedes 404, and unknown domains return 404", async () => {
   const unknown = { params: Promise.resolve({ domain: "other" }) };
-  expect((await response(await createSettingsDomainHandlers(deps()).GET(request(), unknown), 404)).error.code).toBe("NOT_FOUND");
-  expect((await response(await createSettingsDomainHandlers(deps()).PUT(put({ version: 1, expectedRevision: 0, value }), unknown), 404)).error.code).toBe("NOT_FOUND");
+  expect(await response(await createSettingsDomainHandlers(deps()).GET(request(), unknown), 404)).toMatchObject({ error: { code: "NOT_FOUND" } });
+  expect(await response(await createSettingsDomainHandlers(deps()).PUT(put({ version: 1, expectedRevision: 0, value }), unknown), 404)).toMatchObject({ error: { code: "NOT_FOUND" } });
 });
 
 test("PUT rejects cross-origin and malformed bodies before writing", async () => {
@@ -94,7 +95,7 @@ test("PUT rejects cross-origin and malformed bodies before writing", async () =>
     put({ version: 1, expectedRevision: 0, value }, { origin: "https://other.test" }),
     put({ version: 1, expectedRevision: 0, value }, { "sec-fetch-site": "cross-site" }),
     request("PUT", "settings/support", { headers: { "content-type": "application/json" }, body: "{}" }),
-  ]) expect((await response(await handler(req, context), 403)).error.code).toBe("CROSS_ORIGIN");
+  ]) expect(await response(await handler(req, context), 403)).toMatchObject({ error: { code: "CROSS_ORIGIN" } });
   for (const req of [
     put({ version: 1, expectedRevision: 0, value }, { "content-type": "text/plain" }),
     request("PUT", "settings/support", { headers: { origin: "https://home.test", "content-type": "application/json" }, body: "{" }),
@@ -102,7 +103,7 @@ test("PUT rejects cross-origin and malformed bodies before writing", async () =>
     put({ version: 1, expectedRevision: 0, value: { email: "bad", url: null } }),
     put({ version: 1, expectedRevision: 0, value }, { "content-length": "16385" }),
     put({ version: 1, expectedRevision: 0, value: { email: null, url: `https://example.com/${"x".repeat(16400)}` } }),
-  ]) expect((await response(await handler(req, context), 400)).error.code).toBe("INVALID_REQUEST");
+  ]) expect(await response(await handler(req, context), 400)).toMatchObject({ error: { code: "INVALID_REQUEST" } });
   expect(writes).toBe(0);
 });
 
@@ -111,9 +112,26 @@ test("conflicts include current revision; unavailable DB and corrupt values fail
   const unavailable = { ...fakeStore, readAll: async () => { throw new Error("database unavailable"); } } as unknown as OperatorSettingsStore;
   const invalid = { ...fakeStore, write: async () => { throw new OperatorSettingsValidationError(); } } as unknown as OperatorSettingsStore;
   const body = await response(await createSettingsDomainHandlers({ ...deps(), store: () => conflict }).PUT(put({ version: 1, expectedRevision: 0, value }), context), 409);
-  expect(body.current.settings.revision).toBe(0);
-  expect(body.error.code).toBe("SETTINGS_CONFLICT");
-  expect((await response(await createSettingsListHandler({ ...deps(), store: () => unavailable })(request()), 503)).error.code).toBe("SETTINGS_UNAVAILABLE");
-  expect((await response(await createSettingsDomainHandlers({ ...deps(), store: () => invalid }).PUT(put({ version: 1, expectedRevision: 0, value }), context), 400)).error.code).toBe("INVALID_REQUEST");
-  expect((await response(await createAuditListHandler(deps())(request("GET", "audit?limit=0")), 400)).error.code).toBe("INVALID_REQUEST");
+  expect(parseOperatorSettingsErrorResponse(body)?.current?.settings.revision).toBe(0);
+  expect(parseOperatorSettingsErrorResponse(body)?.error.code).toBe("SETTINGS_CONFLICT");
+  expect(parseOperatorSettingsErrorResponse(await response(await createSettingsListHandler({ ...deps(), store: () => unavailable })(request()), 503))?.error.code).toBe("SETTINGS_UNAVAILABLE");
+  expect(await response(await createSettingsDomainHandlers({ ...deps(), store: () => invalid }).PUT(put({ version: 1, expectedRevision: 0, value }), context), 400)).toMatchObject({ error: { code: "INVALID_REQUEST" } });
+  expect(await response(await createAuditListHandler(deps())(request("GET", "audit?limit=0")), 400)).toMatchObject({ error: { code: "INVALID_REQUEST" } });
+});
+
+test("successful Invest writes invalidate visibility, but support writes and conflicts do not", async () => {
+  let invalidations = 0;
+  const investContext = { params: Promise.resolve({ domain: "invest" }) };
+  const investValue = { hiddenCategories: ["stock"], hiddenAssets: ["cbbtc"] };
+  const investEntry = { domain: "invest", settings: { value: investValue, revision: 1, source: "stored" as const, updatedAt: "2026-09-25T12:00:00.000Z", updatedBy: X } };
+  const store = { ...fakeStore, hasDomain: (domain: string) => domain === "support" || domain === "invest", write: async ({ domain }: { domain: string }) => domain === "invest" ? investEntry : entry } as unknown as OperatorSettingsStore;
+  const handler = createSettingsDomainHandlers({ ...deps(), store: () => store, invalidateInvest: () => { invalidations++; } }).PUT;
+  const investPut = () => request("PUT", "settings/invest", { headers: { origin: "https://home.test", "content-type": "application/json" }, body: JSON.stringify({ version: 1, expectedRevision: 0, value: investValue }) });
+  expect(parseSettingsResponse(await response(await handler(investPut(), investContext), 200))?.settings.value).toEqual(investValue);
+  expect(invalidations).toBe(1);
+  await response(await handler(put({ version: 1, expectedRevision: 0, value }), context), 200);
+  expect(invalidations).toBe(1);
+  const conflict = { ...store, write: async () => { throw new OperatorSettingsConflictError(); }, read: async () => investEntry } as unknown as OperatorSettingsStore;
+  await response(await createSettingsDomainHandlers({ ...deps(), store: () => conflict, invalidateInvest: () => { invalidations++; } }).PUT(investPut(), investContext), 409);
+  expect(invalidations).toBe(1);
 });

@@ -2,6 +2,7 @@ import "server-only";
 
 import type { PortfolioAddress } from "@/config/portfolio-assets";
 import { sanitizeImageUrl } from "@/server/market-data/asset-icons/image-url";
+import { createBoundedCache } from "@/server/cache/bounded";
 import { parseExactDecimal } from "@/shared/balances/math";
 import type { ExactDecimal } from "@/shared/balances/types";
 import { parseAddress } from "@/shared/chain/hex";
@@ -17,6 +18,7 @@ import {
 export const CODEX_TOKEN_LOOKUP_TTL_MS = 60_000;
 export const CODEX_TOKEN_LOOKUP_BATCH_MAX = 100;
 export const CODEX_TOKEN_LOOKUP_CACHE_MAX = 2_048;
+const CODEX_TOKEN_LOOKUP_MAX_IN_FLIGHT = 2_048;
 
 export const CODEX_TOKEN_LOOKUP_QUERY = `query BaseTokensByAddress(
   $tokens: [String!]
@@ -50,10 +52,7 @@ export type CodexTokenLookupEntry = {
   liquidityUsd?: ExactDecimal;
 };
 
-type CacheEntry = {
-  storedAt: number;
-  value: CodexTokenLookupEntry | null;
-};
+type CacheEntry = { value: CodexTokenLookupEntry | null };
 
 type TokenLookupOptions = {
   apiKey: string | undefined;
@@ -62,6 +61,7 @@ type TokenLookupOptions = {
   timeoutMs?: number;
   cacheTtlMs?: number;
   cacheMaxEntries?: number;
+  maxInFlight?: number;
 };
 
 export function createCodexTokenLookup({
@@ -71,9 +71,14 @@ export function createCodexTokenLookup({
   timeoutMs = CODEX_REQUEST_TIMEOUT_MS,
   cacheTtlMs = CODEX_TOKEN_LOOKUP_TTL_MS,
   cacheMaxEntries = CODEX_TOKEN_LOOKUP_CACHE_MAX,
+  maxInFlight = CODEX_TOKEN_LOOKUP_MAX_IN_FLIGHT,
 }: TokenLookupOptions) {
-  const cache = new Map<string, CacheEntry>();
-  const inFlight = new Map<string, Promise<CodexTokenLookupEntry | null>>();
+  const cache = createBoundedCache<CacheEntry>({
+    ttlMs: cacheTtlMs,
+    maxEntries: cacheMaxEntries,
+    maxInFlight,
+    now: () => now().getTime(),
+  });
 
   return async function lookupCodexTokens(
     addresses: readonly `0x${string}`[],
@@ -83,59 +88,36 @@ export function createCodexTokenLookup({
 
     const currentTime = now().getTime();
     if (!Number.isFinite(currentTime)) return new Map();
-    const pending = new Map<string, Promise<CodexTokenLookupEntry | null>>();
-    const uncached: PortfolioAddress[] = [];
+    const pending = new Map<string, Promise<CacheEntry | null>>();
+    const enqueued: Array<{ address: PortfolioAddress; resolve: (entry: CacheEntry) => void; reject: (error: unknown) => void }> = [];
 
     for (const address of unique) {
-      const cached = cache.get(address);
-      if (cached && currentTime - cached.storedAt <= cacheTtlMs) {
-        cache.delete(address);
-        cache.set(address, cached);
-        pending.set(address, Promise.resolve(cached.value));
-        continue;
-      }
-      if (cached) cache.delete(address);
-      const existing = inFlight.get(address);
-      if (existing) pending.set(address, existing);
-      else uncached.push(address);
+      pending.set(address, cache.fetch(address, () => new Promise<CacheEntry>((resolve, reject) => {
+        enqueued.push({ address, resolve, reject });
+      })).then((result) => result.status === "saturated" ? null : result.value));
     }
 
-    for (
-      let index = 0;
-      index < uncached.length;
-      index += CODEX_TOKEN_LOOKUP_BATCH_MAX
-    ) {
-      const batch = uncached.slice(index, index + CODEX_TOKEN_LOOKUP_BATCH_MAX);
-      const batchRequest = fetchTokenBatch({
+    for (let index = 0; index < enqueued.length; index += CODEX_TOKEN_LOOKUP_BATCH_MAX) {
+      const batch = enqueued.slice(index, index + CODEX_TOKEN_LOOKUP_BATCH_MAX);
+      void fetchTokenBatch({
         apiKey: apiKey.trim(),
-        addresses: batch,
+        addresses: batch.map(({ address }) => address),
         fetchImpl,
         timeoutMs,
-      });
-      for (const address of batch) {
-        const request = batchRequest
-          .then((entries) => {
-            const value = entries.get(address) ?? null;
-            setCacheEntry(
-              cache,
-              address,
-              { storedAt: now().getTime(), value },
-              cacheMaxEntries,
-            );
-            return value;
-          })
-          .finally(() => {
-            if (inFlight.get(address) === request) inFlight.delete(address);
-          });
-        inFlight.set(address, request);
-        pending.set(address, request);
-      }
+      }).then(
+        (entries) => {
+          for (const item of batch) item.resolve({ value: entries.get(item.address) ?? null });
+        },
+        (error: unknown) => {
+          for (const item of batch) item.reject(error);
+        },
+      );
     }
 
     const settled = await Promise.all(
       [...pending].map(async ([address, request]) => {
         try {
-          return [address, await request] as const;
+          return [address, (await request)?.value ?? null] as const;
         } catch {
           return [address, null] as const;
         }
@@ -259,21 +241,6 @@ function readNonNegativeExactDecimal(value: unknown): ExactDecimal | null {
     return null;
   }
   return parseExactDecimal(raw);
-}
-
-function setCacheEntry(
-  cache: Map<string, CacheEntry>,
-  key: string,
-  entry: CacheEntry,
-  maximum: number,
-): void {
-  cache.delete(key);
-  cache.set(key, entry);
-  while (cache.size > maximum) {
-    const oldest = cache.keys().next().value;
-    if (oldest === undefined) return;
-    cache.delete(oldest);
-  }
 }
 
 function isPresent<T>(value: T | null): value is T {

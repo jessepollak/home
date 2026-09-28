@@ -53,6 +53,8 @@ The existing warning rules remain build-failing through deny-warnings. The type-
 
 Pilot outcome: `no-floating-promises` is enabled tree-wide; twelve intentional synchronous React test `act()` calls now use explicit `void`. `no-misused-promises` and `switch-exhaustiveness-check` were classified and enabled in issue #677 (see "Focused follow-up coverage" below). The earlier unsafe-family pilot counts were dominated by missing Bun ambient types: the type-aware linter's TypeScript 7 checker defaults `types` to `[]`. `apps/web/tsconfig.json` now explicitly loads `bun` and `node`, exposing nine previously hidden `no-floating-promises` findings, all handled before enabling any new rules. The unsafe family and unnecessary-assertion rules remain outside tree-wide enforcement pending separate work. Phase 1 nevertheless enables `no-unsafe-member-access` for production `server/cdp/**` modules, excluding tests whose Bun matcher types create unrelated noise. Its three real-tree findings in `server/cdp/session.ts` were repaired by treating SDK array entries as `unknown` until their fields are parsed. Failing SDK-`any`, legal typed, and boundary-parsing fixtures keep this override non-vacuous without banning `unknown` or broad type assertions. The other unsafe rules remain classified rather than silently suppressed, and the targeted override does not weaken the migrated 96-rule baseline.
 
+JSON reads at application boundaries use `readJson` from `apps/web/shared/http/read-json.ts` (tests import it from `apps/web/tests/helpers/read-json.ts`). It returns `Promise<unknown>` rather than `response.json()`'s `any`, so callers narrow through an existing parser, a type guard or an `unknown`-accepting matcher. It deliberately has no type parameter: `readJson<T>` would reintroduce an unchecked cast.
+
 ### Focused follow-up coverage (issue #677)
 
 A post-migration audit closed four shadcn/type-aware gaps without restoring ESLint or `@shadcn/lint`. Every new rule is a Home-owned Oxlint visitor with real-Oxlint fixtures and a delivery-contract canary.
@@ -156,6 +158,8 @@ The review source is `dmmulroy/anti-slop` commit `c44ef22ca116d0ba62a3ff663a0bd1
 | `require-safety-comment-for-type-assertion` | 896 | Reject: boilerplate comments are not executable evidence. |
 
 The Effect group is also exhaustive: `no-service-constructor-imports`, `no-manual-tag-comparison`, `no-manual-effect-error-tag`, `no-manual-tagged-construction`, and `prefer-effect-match` are all not applicable because Home has no Effect dependency or Effect-owned architecture. Native `oxc/no-accumulating-spread` measured zero hits and remains deferred: enabling it beside Home's reducer rule would duplicate reducer ownership and silently add loop policy. Reconsider it only as an explicit replacement with fixture parity and a separate decision on loops.
+
+The syntactic ratchet in `scripts/gates/type-assertions.mjs` backs the unsafe-rule burn-down by blocking per-file increases in unchecked assertions and suppressions without a reviewed, reasoned exception.
 
 The two accepted rules are production-only zero-hit guards owned in `oxlint/rules/anti-slop.mjs`, registered in `home-plugin.mjs`, enabled in the existing production override, isolated in `oxlint/tests/anti-slop.test.mjs`, and represented by failing and clean delivery-mirror canaries. All other generic rules, the Effect group, and native accumulating-spread are rejected or deferred as recorded above.
 

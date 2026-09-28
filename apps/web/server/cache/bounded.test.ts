@@ -28,6 +28,20 @@ describe("bounded server cache", () => {
     expect(cache.size).toBe(2);
   });
 
+  test("peek observes values and TTL without changing eviction order", () => {
+    let time = 0;
+    const cache = createBoundedCache<string>({ ...options, now: () => time });
+    cache.set("a", "A");
+    cache.set("b", "B");
+    expect(cache.peek("a")).toBe("A");
+    cache.set("c", "C");
+    expect(cache.peek("a")).toBeUndefined();
+    expect(cache.peek("b")).toBe("B");
+    time = 11;
+    expect(cache.peek("b")).toBeUndefined();
+    expect(cache.peek("c")).toBeUndefined();
+  });
+
   test("expires only after the TTL boundary, without extending age on hits, and reloads", async () => {
     let time = 0;
     let calls = 0;
@@ -213,6 +227,26 @@ describe("bounded server cache", () => {
     expect(await outer).toEqual({ status: "loaded", value: "A" });
     expect(calls).toBe(1);
     expect(cache.inFlight).toBe(0);
+  });
+
+  test("a value the retain predicate rejects reaches every joiner without being stored or evicting live entries", async () => {
+    const cache = createBoundedCache<string>({ ...options, maxEntries: 1, retain: (value) => value !== "error" });
+    cache.set("live", "LIVE");
+    const task = deferred<string>();
+    let calls = 0;
+    const first = cache.fetch("a", () => { calls++; return task.promise; });
+    const joined = cache.fetch("a", () => { calls++; return Promise.resolve("unexpected"); });
+    task.resolve("error");
+    expect(await Promise.all([first, joined])).toEqual([
+      { status: "loaded", value: "error" },
+      { status: "loaded", value: "error" },
+    ]);
+    expect(calls).toBe(1);
+    expect(cache.get("a")).toBeUndefined();
+    expect(cache.get("live")).toBe("LIVE");
+    expect(cache.inFlight).toBe(0);
+    expect(await cache.fetch("a", async () => "ok")).toEqual({ status: "loaded", value: "ok" });
+    expect(cache.get("a")).toBe("ok");
   });
 
   test("invalid options fail fast", () => {

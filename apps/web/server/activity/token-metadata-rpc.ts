@@ -12,6 +12,7 @@ import {
   encodeAggregate3,
   MULTICALL3_ADDRESS,
 } from "@/server/balances/abi";
+import { createBoundedCache } from "@/server/cache/bounded";
 
 export const ACTIVITY_TOKEN_RPC_BATCH_MAX = 25;
 export const ACTIVITY_TOKEN_RPC_CACHE_MAX = 512;
@@ -55,11 +56,6 @@ type Rpc = {
   assertBaseChain(signal?: AbortSignal): Promise<void>;
 };
 
-type CacheEntry = {
-  storedAt: number;
-  value: ActivityOnchainTokenResult;
-};
-
 export function createActivityTokenRpcResolver(options: {
   rpc?: Rpc;
   now?: () => Date;
@@ -74,7 +70,10 @@ export function createActivityTokenRpcResolver(options: {
   const cacheTtlMs = options.cacheTtlMs ?? ACTIVITY_TOKEN_RPC_CACHE_TTL_MS;
   const cacheMaxEntries = options.cacheMaxEntries ?? ACTIVITY_TOKEN_RPC_CACHE_MAX;
   const timeoutMs = options.timeoutMs ?? ACTIVITY_TOKEN_RPC_TIMEOUT_MS;
-  const cache = new Map<string, CacheEntry>();
+  const cache = createBoundedCache<ActivityOnchainTokenResult>({
+    maxEntries: cacheMaxEntries, ttlMs: cacheTtlMs, maxInFlight: 1,
+    now: () => now().getTime(),
+  });
   let chainAssertion: Promise<void> | null = null;
 
   return async function resolveActivityTokenRpcMetadata(
@@ -85,22 +84,14 @@ export function createActivityTokenRpcResolver(options: {
       const normalized = address.toLowerCase();
       return addressPattern.test(normalized) ? [normalized as `0x${string}`] : [];
     }))].slice(0, ACTIVITY_TOKEN_RPC_BATCH_MAX);
-    const currentTime = now().getTime();
     const result = new Map<string, ActivityOnchainTokenResult>();
     const missing: `0x${string}`[] = [];
 
     for (const address of unique) {
       const cached = cache.get(address);
-      if (
-        cached &&
-        Number.isFinite(currentTime) &&
-        currentTime - cached.storedAt <= cacheTtlMs
-      ) {
-        cache.delete(address);
-        cache.set(address, cached);
-        result.set(address, cached.value);
+      if (cached !== undefined) {
+        result.set(address, cached);
       } else {
-        if (cached) cache.delete(address);
         missing.push(address);
       }
     }
@@ -122,11 +113,10 @@ export function createActivityTokenRpcResolver(options: {
         );
         return decodeActivityTokenMetadataMulticall(response, missing);
       });
-      const storedAt = now().getTime();
       for (const address of missing) {
         const value = resolved.get(address) ?? { kind: "unknown" as const };
         result.set(address, value);
-        setCacheEntry(cache, address, { storedAt, value }, cacheMaxEntries);
+        cache.set(address, value);
       }
     }
 
@@ -238,20 +228,5 @@ async function withRpcDeadline<T>(
   } finally {
     clearTimeout(timeout);
     signal?.removeEventListener("abort", abort);
-  }
-}
-
-function setCacheEntry(
-  cache: Map<string, CacheEntry>,
-  key: string,
-  entry: CacheEntry,
-  maximum: number,
-): void {
-  cache.delete(key);
-  cache.set(key, entry);
-  while (cache.size > maximum) {
-    const oldest = cache.keys().next().value;
-    if (oldest === undefined) return;
-    cache.delete(oldest);
   }
 }

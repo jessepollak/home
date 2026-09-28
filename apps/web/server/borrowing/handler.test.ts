@@ -1,3 +1,4 @@
+import { readJson } from "@/tests/helpers/read-json";
 import { describe, expect, test } from "bun:test";
 import { ACCOUNT_PROVIDER_HEADER, type VerifiedAccountSession } from "@/shared/account/session-types";
 import { BORROW_MARKETS, type BorrowMarketRef } from "@/shared/borrowing/config";
@@ -36,14 +37,15 @@ function rpc(options: { fail?: number; blockFailure?: boolean } = {}): BorrowRpc
 describe("borrow API handlers", () => {
   test("reads all five in one operation and emits parseable v2 snapshots from one block", async () => {
     const response = await createBorrowHandler({ authorize: async () => Response.json(session()), rpc: rpc(), now: () => new Date("2026-09-24T12:00:00.000Z") })(request());
-    const value = await response.json();
+    const value = await readJson(response);
+    const parsed = parseBorrowOverview(value, OWNER);
+    if (!parsed) throw new Error("Invalid borrowing overview");
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toContain("private");
     expect(value).toMatchObject({ version: "2", owner: { address: OWNER }, discovery: { status: "complete", candidateCount: 5, verifiedCount: 5, sourceBlock: { blockNumber: "100", blockHash: BLOCK_HASH } } });
-    expect(value.opportunities).toHaveLength(5);
-    expect(value.positions).toHaveLength(5);
-    expect(value.opportunities.map((entry: { availability: { snapshot: BorrowMarketSnapshot } }) => entry.availability.snapshot.market.id)).toEqual(BORROW_MARKETS.map((market) => market.marketId));
-    expect(parseBorrowOverview(value, OWNER)).not.toBeNull();
+    expect(parsed.opportunities).toHaveLength(5);
+    expect(parsed.positions).toHaveLength(5);
+    expect(parsed.opportunities.map((entry) => entry.availability.status === "available" ? entry.availability.snapshot.market.id : null)).toEqual(BORROW_MARKETS.map((market) => market.marketId));
   });
 
   test("isolates a failed market and emits redacted observability", async () => {
@@ -51,23 +53,25 @@ describe("borrow API handlers", () => {
     setObservabilityLogWriterForTests((line) => { lines.push(line); });
     try {
       const response = await createBorrowHandler({ authorize: async () => Response.json(session()), rpc: rpc({ fail: 2 }) })(request());
-      const value = await response.json();
-      expect(value.discovery).toMatchObject({ status: "partial", verifiedCount: 4, sourceBlock: { blockNumber: "100" } });
-      expect(value.opportunities[2].availability).toMatchObject({ status: "unavailable", source: null });
-      expect(value.opportunities[2].availability.snapshot).toBeUndefined();
-      expect(value.positions).toHaveLength(4);
-      expect(parseBorrowOverview(value, OWNER)).not.toBeNull();
-      expect(lines).toHaveLength(1);
+      const value = await readJson(response);
+      const parsed = parseBorrowOverview(value, OWNER);
+      if (!parsed) throw new Error("Invalid borrowing overview");
+      expect(parsed.discovery).toMatchObject({ status: "partial", verifiedCount: 4, sourceBlock: { blockNumber: "100" } });
+      expect(parsed.opportunities[2].availability).toMatchObject({ status: "unavailable", source: null });
+      expect(parsed.opportunities[2].availability).not.toHaveProperty("snapshot");
+      expect(parsed.positions).toHaveLength(4);
+        expect(lines).toHaveLength(1);
       expect(JSON.parse(lines[0])).toMatchObject({ kind: "borrow-overview", code: "BORROW_MARKET_READ_UNAVAILABLE", provider: "base-rpc" });
       expect(lines[0]).not.toContain(OWNER);
     } finally { setObservabilityLogWriterForTests(); }
   });
 
   test("makes every market unavailable on block failure without inventing a common source", async () => {
-    const value = await (await createBorrowHandler({ authorize: async () => Response.json(session()), rpc: rpc({ blockFailure: true }) })(request())).json();
-    expect(value.discovery).toMatchObject({ status: "partial", verifiedCount: 0, sourceBlock: null });
-    expect(value.positions).toEqual([]);
-    expect(parseBorrowOverview(value, OWNER)).not.toBeNull();
+    const value = await readJson((await createBorrowHandler({ authorize: async () => Response.json(session()), rpc: rpc({ blockFailure: true }) })(request())));
+    const parsed = parseBorrowOverview(value, OWNER);
+    if (!parsed) throw new Error("Invalid borrowing overview");
+    expect(parsed.discovery).toMatchObject({ status: "partial", verifiedCount: 0, sourceBlock: null });
+    expect(parsed.positions).toEqual([]);
   });
 
   test("returns detail only for a configured market and never reads without authentication", async () => {
@@ -75,7 +79,7 @@ describe("borrow API handlers", () => {
     const market = BORROW_MARKETS[3];
     const ok = await handler(request(`/api/borrow/markets/${market.marketId}`), { params: Promise.resolve({ marketId: market.marketId }) });
     expect(ok.status).toBe(200);
-    expect(await ok.json()).toEqual(snapshot(market));
+    expect(await readJson(ok)).toEqual(snapshot(market));
     const missing = await handler(request("/api/borrow/markets/0xdead"), { params: Promise.resolve({ marketId: "0xdead" }) });
     expect(missing.status).toBe(404);
     let reads = 0;

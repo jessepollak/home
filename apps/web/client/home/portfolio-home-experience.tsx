@@ -15,6 +15,7 @@ import { investViewFromLocation } from "@/client/invest/invest-location";
 import { useInvestDiscover } from "@/client/invest/use-invest-discover";
 import { AuthenticatedCashExperience } from "@/client/cash/cash-experience";
 import type { ShellLocation } from "@/config/shell-location";
+import type { InvestSettings } from "@/shared/operator-settings/invest";
 import { DashboardShell } from "./shell";
 import { deriveAssetMarkResolution, deriveSendAvailability } from "./send-availability";
 import { useShowSmallBalances } from "./use-show-small-balances";
@@ -28,12 +29,14 @@ export function PortfolioHomeExperience({
   initialSearch,
   accountPreference,
   regionOffer = ALL_REGIONS_OFFER,
+  investVisibility,
 }: {
   detectedCountry: CountryCode | null;
   regionOffer?: RegionOffer;
   initialLocation: ShellLocation;
   initialSearch?: string;
   accountPreference: CountryPreferenceSeed | null;
+  investVisibility?: InvestSettings;
 }) {
   const account = useAccountWallet();
   const discover = useInvestDiscover();
@@ -88,7 +91,7 @@ export function PortfolioHomeExperience({
           if (!response) throw new Error("Invalid country preference response");
           if (active) setPreferenceState({ owner: readOwner, identity: livePreferenceIdentity, regionId: response.regionId, status: "settled" });
         })
-        .catch(() => {
+        .catch(() => { // oxlint-disable-line home/no-silent-catch -- invalidated reads are ignored; active failures mark provisional-failed, retry within the bounded schedule, or settle with no region once retries are exhausted
           if (!active) return;
           if (provisionalRead) {
             setPreferenceState({ owner: readOwner, identity: livePreferenceIdentity, regionId: null, status: "provisional-failed" });
@@ -191,6 +194,7 @@ export function PortfolioHomeExperience({
         <PricedInvestExperienceWithDiscover
           discover={discover}
           initialView={initialInvestView}
+          investVisibility={investVisibility}
         />
       }
       // oxlint-disable-next-line react/no-unstable-nested-components -- Shell invokes this render callback as a function, not a component.

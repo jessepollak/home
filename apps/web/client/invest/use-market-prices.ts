@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { publicQueryKey, useHomeQuery } from "@/client/query/query-client";
-import { deploymentHeaders } from "@/client/query/deployment-headers";
+import { publicResource, PublicResourceError } from "@/client/query/public-resource";
 import { investAssets } from "@/config/invest-assets";
 import {
   MARKET_PRICE_DISPLAY_FRESHNESS_MS,
@@ -57,12 +57,17 @@ export function useMarketPrices({
     retry: false,
     refetchOnWindowFocus: false,
     queryFn: async ({ signal }) => {
-      const response = await fetchImpl(endpoint, {
-        headers: { ...deploymentHeaders(), accept: "application/json" },
-        cache: "no-store",
-        signal,
-      });
-      const payload = parseMarketPricesResponse(await response.json());
+      let value: unknown;
+      try {
+        value = await publicResource(endpoint, { signal, fetchImpl });
+      } catch (error) {
+        if (error instanceof PublicResourceError && error.kind === "http" && error.status === 502) {
+          const partial = parseMarketPricesResponse(error.body);
+          if (partial) return partial;
+        }
+        throw error;
+      }
+      const payload = parseMarketPricesResponse(value);
       if (!payload) throw new Error("Invalid market price response");
       return payload;
     },

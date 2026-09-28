@@ -1,16 +1,25 @@
 import "server-only";
 
-export type PairCheck = (address: `0x${string}`) => Promise<boolean | null>;
+import { createBoundedCache } from "@/server/cache/bounded";
 
-export function createPairCheck({ read, maxConcurrent, cacheMaxEntries, ttlMs, now = Date.now }: {
+export type PairCheck = (address: `0x${string}`) => Promise<boolean | null>;
+const CODEX_PAIR_CHECK_MAX_IN_FLIGHT = 512;
+
+export function createPairCheck({ read, maxConcurrent, maxInFlight = CODEX_PAIR_CHECK_MAX_IN_FLIGHT, cacheMaxEntries, ttlMs, now = Date.now }: {
   read: PairCheck;
   maxConcurrent: number;
+  maxInFlight?: number;
   cacheMaxEntries: number;
   ttlMs: number;
   now?: () => number;
 }): PairCheck {
-  const cache = new Map<string, { value: boolean; expiresAt: number }>();
-  const inFlight = new Map<string, Promise<boolean | null>>();
+  const cache = createBoundedCache<{ value: boolean | null }>({
+    maxEntries: cacheMaxEntries,
+    ttlMs,
+    maxInFlight,
+    now,
+    retain: ({ value }) => value !== null,
+  });
   const waiting: (() => void)[] = [];
   let running = 0;
 
@@ -26,27 +35,8 @@ export function createPairCheck({ read, maxConcurrent, cacheMaxEntries, ttlMs, n
     }
   }
 
-  return function checkPair(address) {
-    const key = address.toLowerCase();
-    const cached = cache.get(key);
-    if (cached) {
-      cache.delete(key);
-      if (now() < cached.expiresAt) {
-        cache.set(key, cached);
-        return Promise.resolve(cached.value);
-      }
-    }
-    const pending = inFlight.get(key);
-    if (pending) return pending;
-    const request = limitedRead(address).then((result) => {
-      if (result !== null) {
-        cache.delete(key);
-        cache.set(key, { value: result, expiresAt: now() + ttlMs });
-        while (cache.size > cacheMaxEntries) cache.delete(cache.keys().next().value!);
-      }
-      return result;
-    }).finally(() => { inFlight.delete(key); });
-    inFlight.set(key, request);
-    return request;
+  return async function checkPair(address) {
+    const result = await cache.fetch(address.toLowerCase(), async () => ({ value: await limitedRead(address) }));
+    return result.status === "saturated" ? null : result.value.value;
   };
 }

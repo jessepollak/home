@@ -1,5 +1,7 @@
 import "server-only";
 
+import { createBoundedCache } from "@/server/cache/bounded";
+
 import { investAssets } from "@/config/invest-assets";
 import { parseExactDecimal } from "@/shared/balances/math";
 import {
@@ -49,8 +51,6 @@ type StatsOptions = {
   maxInFlight?: number;
 };
 
-type CachedStats = { storedAt: number; response: MarketStatsResponse };
-
 const stockIds = new Set<string>(investAssets.filter((asset) => asset.category === "stock").map((asset) => asset.id));
 
 export function createErrorMarketStatsResponse(
@@ -68,8 +68,13 @@ export function createCodexMarketStatsReader({
   cacheMaxEntries = CODEX_STATS_CACHE_MAX,
   maxInFlight = CODEX_STATS_MAX_IN_FLIGHT,
 }: StatsOptions) {
-  const cache = new Map<string, CachedStats>();
-  const inFlight = new Map<string, Promise<MarketStatsResponse>>();
+  const cache = createBoundedCache<MarketStatsResponse>({
+    maxEntries: cacheMaxEntries,
+    ttlMs: cacheTtlMs,
+    maxInFlight,
+    now: () => now().getTime(),
+    retain: (value) => value.status === "ready",
+  });
 
   return async function readCodexMarketStats(assetId: string): Promise<MarketStatsResponse> {
     const identity = resolveMarketPriceAssetIdentity(assetId);
@@ -81,39 +86,14 @@ export function createCodexMarketStatsReader({
       return createResponse(identity.assetId, "unavailable", "not-configured");
     }
 
-    const key = identity.assetId;
-    const currentTime = now().getTime();
-    for (const [cachedKey, entry] of cache) {
-      if (currentTime - entry.storedAt > cacheTtlMs) cache.delete(cachedKey);
-    }
-    const cached = cache.get(key);
-    if (cached) {
-      cache.delete(key);
-      cache.set(key, cached);
-      return cached.response;
-    }
-    const pending = inFlight.get(key);
-    if (pending) return pending;
-    if (inFlight.size >= maxInFlight) return createErrorMarketStatsResponse(identity.assetId);
-
-    const request = fetchStats(identity, apiKey.trim(), fetchImpl, now, timeoutMs)
-      .catch(() => createErrorMarketStatsResponse(identity.assetId));
-    inFlight.set(key, request);
-    try {
-      const response = await request;
-      if (response.status === "ready" && cacheMaxEntries > 0) {
-        cache.delete(key);
-        while (cache.size >= cacheMaxEntries) {
-          const oldest = cache.keys().next().value;
-          if (oldest === undefined) break;
-          cache.delete(oldest);
-        }
-        cache.set(key, { storedAt: now().getTime(), response });
-      }
-      return response;
-    } finally {
-      inFlight.delete(key);
-    }
+    const result = await cache.fetch(
+      identity.assetId,
+      () => fetchStats(identity, apiKey.trim(), fetchImpl, now, timeoutMs)
+        .catch(() => createErrorMarketStatsResponse(identity.assetId)),
+    );
+    return result.status === "saturated"
+      ? createErrorMarketStatsResponse(identity.assetId)
+      : result.value;
   };
 }
 

@@ -247,7 +247,7 @@ function emitActivityObservation(
 ): void {
   try {
     const result = observe(event);
-    void Promise.resolve(result).catch(() => {
+    void Promise.resolve(result).catch(() => { // oxlint-disable-line home/no-silent-catch -- activity observation failures must not change the read response
     });
   } catch { // oxlint-disable-line home/no-silent-catch -- the activity observation sink is isolated so reporting cannot change the read response
   }

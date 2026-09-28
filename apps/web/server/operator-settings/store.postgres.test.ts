@@ -1,3 +1,4 @@
+import { readJson } from "@/tests/helpers/read-json";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
 import { readMigrationSql } from "@/tests/helpers/migrations";
@@ -42,7 +43,7 @@ describePostgres("operator settings and audit against PostgreSQL", () => {
 
   test("defaults, writes, restart reads, revisions, no-ops, and audited before/after", async () => {
     expect(await store.read("support")).toEqual({ domain: "support", settings: { value: { email: null, url: null }, revision: 0, source: "default", updatedAt: null, updatedBy: null } });
-    expect((await store.readAll()).map((entry) => entry.domain)).toEqual(["support", "brand", "regions"]);
+    expect((await store.readAll()).map((entry) => [entry.domain, entry.settings.source])).toEqual([["support", "default"], ["brand", "default"], ["regions", "default"], ["invest", "default"]]);
     await expect(store.write({ domain: "support", expectedRevision: 0, value: { email: "bad", url: null }, actor })).rejects.toBeInstanceOf(OperatorSettingsValidationError);
     expect((await audit.list()).entries).toHaveLength(0);
     const first = await store.write({ domain: "support", expectedRevision: 0, value, actor });
@@ -116,7 +117,7 @@ describePostgres("operator settings and audit against PostgreSQL", () => {
     expect((await store.read("support")).settings.revision).toBe(2);
     const result = await handler(actor)(makeRequest(), context);
     expect(result.status).toBe(200);
-    expect((await result.json()).settings.revision).toBe(3);
+    expect(await readJson(result)).toMatchObject({ settings: { revision: 3 } });
     expect((await audit.list()).entries).toHaveLength(count + 1);
   });
 

@@ -896,7 +896,7 @@ function DashboardShellBody({
       onNavigationSafe: () => {
         router.replace("/", { scroll: false });
       },
-    }).catch(() => {});
+    }).catch(() => {}); // oxlint-disable-line home/no-silent-catch -- account sign-out owns its signout-error state; navigation is only called when safe
   }
 
   const nestedChromeTitle = isAccountSettingsOpen

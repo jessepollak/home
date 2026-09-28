@@ -301,4 +301,13 @@ describe("Codex market price reader", () => {
     });
     await expect(graphError()).rejects.toThrow("returned an error");
   });
+
+  test("rejects a 206 partial price response instead of returning prices", async () => {
+    const partial = createCodexMarketPricesReader({
+      apiKey: "fixture-key",
+      fetchImpl: (async () => new Response('{"data":{"getTokenPrices":[]}}', { status: 206 })),
+      now,
+    });
+    await expect(partial()).rejects.toBeInstanceOf(CodexMarketDataError);
+  });
 });

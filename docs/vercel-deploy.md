@@ -28,7 +28,7 @@ After the setting change, the operator runs unauthenticated live probes for the 
 
 ### Administrator access
 
-Set server-only `HOME_OPERATOR_ADDRESSES` to comma-separated `0x` + 40-hex-character Base smart-account addresses and redeploy. Blank, malformed, or duplicate entries deny every administrator; surrounding ASCII whitespace is accepted. Rotation or recovery means editing the list and redeploying: new addresses are admitted, removed addresses are denied, and customer sessions and data remain untouched. The deployment access gate, when enabled, runs first; a valid Home session and separate operator decision follow. `/admin` pages require a server-reverified native session, not a CDP render hint; the admin API also accepts verified CDP bearer authentication. The operator console at `/admin` provides navigation and empty-state sections; Account entry and operational data views are not yet available.
+Set server-only `HOME_OPERATOR_ADDRESSES` to comma-separated `0x` + 40-hex-character Base smart-account addresses and redeploy. Blank, malformed, or duplicate entries deny every administrator; surrounding ASCII whitespace is accepted. Rotation or recovery means editing the list and redeploying: new addresses are admitted, removed addresses are denied, and customer sessions and data remain untouched. The deployment access gate, when enabled, runs first; a valid Home session and separate operator decision follow. `/admin` pages require a server-reverified native session, not a CDP render hint; the admin API also accepts verified CDP bearer authentication. The Settings section at `/admin` includes an Invest pane for discovery visibility; without a database it shows a full-catalog notice, and when the database read is unavailable it shows a retry-later notice. Other sections remain empty states; Account entry and operational data views are not yet available.
 
 On an authorized protected deployment, supply deployment access separately, then probe `curl -i https://<host>/api/admin/session`: without Home authentication expect 401, with a non-admin session expect 403, and with an administrator session expect 200 and the address. Check `Cache-Control` includes `private` and `no-store` for each; do not record access cookies, bearer tokens, or personal data. These are manual protected-deployment checks, not proof from local CI.
 
@@ -39,6 +39,8 @@ Brand settings use the `brand` domain in `operator_settings`; administrator GET/
 For your Home Vercel project, enable **Project Settings → Advanced → Skew Protection** with a 12-hour max age.
 
 Next exposes the serving deployment ID to client code, and Home adds it as the `x-deployment-id` header on client requests to `/api/*`. No environment variable is required. We use the explicit header rather than the alternative experimental `experimental.useSkewCookie` option.
+
+Public reads use the shared public-resource helper: a pinned 404 without a JSON body means the deployment expired and reloads the page once per expired deployment ID. All other failures surface as failed reads, never empty results.
 
 Verify against a preview after an older deployment passes the configured max age:
 
