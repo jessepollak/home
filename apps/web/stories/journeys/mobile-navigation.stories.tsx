@@ -460,12 +460,16 @@ export const InterruptedMotion: Story = { render: (args) => <MotionSwitchShell {
   const invest = within(nav).getByRole("button", { name: "Invest" });
   const toggle = within(canvasElement).getByRole("button", { name: "Toggle reduced motion" });
   const lens = nav.querySelector<HTMLElement>('[data-navigation-lens="ready"]')!;
-  const transitioning = () => lens.getAnimations().some((animation) => animation instanceof CSSTransition && animation.transitionProperty === "transform" && animation.playState === "running");
   invest.click();
-  await waitFor(() => expect(transitioning()).toBe(true));
+  await waitFor(() => expect(invest).toHaveAttribute("aria-current", "page"));
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
   toggle.click();
-  await waitFor(() => expect(transitioning()).toBe(false));
-  await verifySelectionGeometry(nav, "Invest");
+  await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  const target = invest.getBoundingClientRect();
+  const actual = lens.getBoundingClientRect();
+  for (const edge of ["left", "right", "top", "bottom"] as const) {
+    await expect(Math.abs(actual[edge] - target[edge])).toBeLessThanOrEqual(2);
+  }
   toggle.click();
   await expect(invest).toHaveAttribute("aria-current", "page");
   await verifySelectionGeometry(nav, "Invest");
@@ -516,12 +520,19 @@ async function verifyReducedMotion(canvasElement: HTMLElement) {
   const invest = within(nav).getByRole("button", { name: "Invest" });
   invest.click();
   await waitFor(() => expect(invest).toHaveAttribute("aria-current", "page"));
-  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-  const pill = nav.querySelector<HTMLElement>("[data-navigation-pill]")!;
-  const target = invest.getBoundingClientRect();
-  const actual = pill.getBoundingClientRect();
-  await expect(Math.abs(actual.left - target.left)).toBeLessThanOrEqual(2);
-  await expect(Math.abs(actual.right - target.right)).toBeLessThanOrEqual(2);
+  await verifySelectionGeometry(nav, "Invest");
+  const lens = nav.querySelector<HTMLElement>('[data-navigation-lens="ready"]')!;
+  const body = lens.querySelector<HTMLElement>("[data-navigation-lens-body]")!;
+  touch("pointerdown", invest, centerOf(invest));
+  try {
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    const rest = invest.getBoundingClientRect();
+    const actual = body.getBoundingClientRect();
+    await expect(Math.abs(actual.width - rest.width)).toBeLessThanOrEqual(2);
+    await expect(Math.abs(actual.height - rest.height)).toBeLessThanOrEqual(2);
+  } finally {
+    touch("pointerup", invest, centerOf(invest));
+  }
 }
 export const ReducedMotion: Story = { args: { reducedMotion: true }, play: async ({ canvasElement }) => { await verifyReducedMotion(canvasElement); } };
 export const LongLabels: Story = { args: { longLabels: true }, play: async ({ canvasElement }) => { await verifyLabels(canvasElement); } };
