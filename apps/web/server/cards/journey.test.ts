@@ -21,6 +21,24 @@ function deps(options: { account?: CardAccountLink | null; bridge?: BridgeCustom
 const state = (options?: Parameters<typeof deps>[0]) => readCardState("owner", "sandbox", deps(options));
 
 describe("card state precedence and availability", () => {
+  test("no account makes no provider reads", async () => {
+    let calls = 0;
+    const counted = deps({ account: null });
+    const result = await readCardState("owner", "sandbox", { ...counted,
+      bridge: { readCustomer: async (id: string) => { calls += 1; return counted.bridge.readCustomer(id); } },
+      stripe: { readCardholder: async (id: string) => { calls += 1; return counted.stripe.readCardholder(id); },
+        readCard: async (id: string) => { calls += 1; return counted.stripe.readCard(id); } } });
+    expect(result.state).toBe("not-enrolled");
+    expect(calls).toBe(0);
+  });
+  test("a replacement card is active while its canceled predecessor is ignored", async () => {
+    const replaced = { ...account, cards: [{ id: "old", stripeCardId: "ic_old", walletAddress: account.cards[0]!.walletAddress }, account.cards[0]!] };
+    const both = deps({ account: replaced });
+    const readCard = async (id: string): Promise<StripeCard> => id === "ic_old" ? { ...card, id, status: "canceled" } : card;
+    expect((await readCardState("owner", "sandbox", { ...both, stripe: { ...both.stripe, readCard } })).state).toBe("active");
+    const allCanceled = async (id: string): Promise<StripeCard> => ({ ...card, id, status: "canceled" });
+    expect((await readCardState("owner", "sandbox", { ...both, stripe: { ...both.stripe, readCard: allCanceled } })).state).toBe("canceled");
+  });
   test("no account does not call providers; reserved account requires verification", async () => {
     expect((await state({ account: null })).state).toBe("not-enrolled");
     expect((await state({ account: { ...account, bridgeCustomerId: null, cards: [] } })).state).toBe("verification-required");

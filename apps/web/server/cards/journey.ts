@@ -50,9 +50,10 @@ export async function readCardState(customerId: string, mode: CardMode, dependen
     return reply("restricted", bridge, stripe, cards);
   if (customer.status === "rejected" || endorsement?.status === "rejected") return reply("ineligible", bridge, stripe, cards);
   if (account.cards.length) {
-    if (cards.some((card) => card.status === "restricted")) return reply("restricted", bridge, stripe, cards);
-    if (cards.some((card) => card.status === "canceled")) return reply("canceled", bridge, stripe, cards);
-    if (cards.some((card) => card.status === "frozen")) return reply("frozen", bridge, stripe, cards);
+    const live = cards.filter((card) => card.status !== "canceled");
+    if (!live.length) return reply("canceled", bridge, stripe, cards);
+    if (live.some((card) => card.status === "restricted")) return reply("restricted", bridge, stripe, cards);
+    if (live.some((card) => card.status === "frozen")) return reply("frozen", bridge, stripe, cards);
     return reply("active", bridge, stripe, cards);
   }
   if (customer.status === "pending" || endorsement?.status === "pending" || endorsement?.pending ||

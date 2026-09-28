@@ -17,5 +17,5 @@ CREATE TABLE cards (
   created_at timestamptz NOT NULL DEFAULT now(),
   FOREIGN KEY (customer_id, mode) REFERENCES card_accounts(customer_id, mode) ON DELETE CASCADE
 );
-CREATE UNIQUE INDEX cards_mode_wallet_idx ON cards(mode, wallet_address);
+CREATE INDEX cards_mode_wallet_idx ON cards(mode, wallet_address);
 CREATE INDEX cards_customer_mode_idx ON cards(customer_id, mode);

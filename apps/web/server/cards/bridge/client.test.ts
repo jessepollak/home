@@ -3,7 +3,7 @@ import { createBridgeClient, parseBridgeCustomer } from "./client";
 import { readCardJourneyConfig } from "./journey-config";
 import { fetchFakeBridge, fixtureCustomer, startFakeBridge } from "@/tests/cards/fake-bridge";
 
-const env = { BRIDGE_ENABLED: "1", BRIDGE_MODE: "sandbox", [["BRIDGE", "API_KEY"].join("_")]: "fake-key",
+const env = { BRIDGE_CARDS_ENABLED: "1", BRIDGE_MODE: "sandbox", [["BRIDGE", "API_KEY"].join("_")]: "fake-key",
   BRIDGE_STRIPE_SECRET_KEY: "sk_test_fake", BRIDGE_STRIPE_API_VERSION: "2026-08-26.dahlia", BRIDGE_STRIPE_CARD_FUNDING: "crypto_wallet" };
 
 describe("Bridge client", () => {

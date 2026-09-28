@@ -12,7 +12,7 @@ export type CardJourneyConfig = Readonly<{
 }>;
 
 export function readCardJourneyConfig(env: Readonly<Record<string, string | undefined>> = process.env): CardJourneyConfig | null {
-  if (env.BRIDGE_ENABLED !== "1") return null;
+  if (env.BRIDGE_CARDS_ENABLED !== "1") return null;
   const mode = env.BRIDGE_MODE?.trim();
   if (mode !== "sandbox" && mode !== "production") throw new Error("Invalid Bridge mode");
   const bridgeApiKey = env.BRIDGE_API_KEY?.trim();
