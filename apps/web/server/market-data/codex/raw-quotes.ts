@@ -1,5 +1,7 @@
 import "server-only";
 
+import { LRUCache } from "lru-cache";
+
 import type { PortfolioAddress } from "@/config/portfolio-assets";
 import { parseExactDecimal } from "@/shared/balances/math";
 import type { PriceQuote, ValuationSource } from "@/shared/balances/quotes";
@@ -90,7 +92,7 @@ export function createCodexRawQuotesReader(options: {
 
 export const CODEX_SHARED_READER_MAX = 256;
 let sharedApiKey: string | undefined;
-const sharedReaders = new Map<string, ReturnType<typeof createCodexRawQuotesReader>>();
+const sharedReaders = new LRUCache<string, ReturnType<typeof createCodexRawQuotesReader>>({ max: CODEX_SHARED_READER_MAX });
 
 export function getCodexRawQuotes(
   inputs: readonly CodexRawQuoteInput[],
@@ -107,17 +109,9 @@ export function getCodexRawQuotes(
     .sort()
     .join("|");
   let reader = sharedReaders.get(key);
-  if (reader) {
-    sharedReaders.delete(key);
-    sharedReaders.set(key, reader);
-  } else {
+  if (!reader) {
     reader = createCodexRawQuotesReader({ apiKey, inputs, freshnessMs });
     sharedReaders.set(key, reader);
-    while (sharedReaders.size > CODEX_SHARED_READER_MAX) {
-      const oldest = sharedReaders.keys().next().value;
-      if (oldest === undefined) break;
-      sharedReaders.delete(oldest);
-    }
   }
   return reader();
 }

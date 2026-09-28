@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, jest, spyOn, test } from "bun:test";
 import { createPostgresSqlExecutor } from "./sql";
 
 type QueryCall = { text: string; values: unknown[] };
@@ -464,5 +464,255 @@ describe("PostgreSQL executor", () => {
     controller.abort(new Error("deadline"));
     await expect(sql.query("SELECT 1", [], { signal: controller.signal })).rejects.toThrow("deadline");
     expect(connects).toBe(0);
+  });
+});
+
+describe("PostgreSQL executor deadlines", () => {
+  test("a deadline during a stalled BEGIN destroys the client and runs no statement", async () => {
+    const calls: QueryCall[] = [];
+    const releases: (boolean | undefined)[] = [];
+    let markBegin: (() => void) | undefined;
+    const beginning = new Promise<void>((resolve) => { markBegin = resolve; });
+    const client = {
+      query(text: string, values: unknown[] = []) {
+        calls.push({ text, values });
+        if (text === "BEGIN") {
+          markBegin?.();
+          return new Promise<{ rows: unknown[]; rowCount: number }>(() => {});
+        }
+        return Promise.resolve({ rows: [], rowCount: 0 });
+      },
+      release(destroy?: boolean) {
+        releases.push(destroy);
+      },
+    };
+    const pool = {
+      async query() { return { rows: [], rowCount: 0 }; },
+      async connect() { return client; },
+      async end() {},
+      on() { return this; },
+    };
+    const sql = createPostgresSqlExecutor("postgresql://example.test/home", { poolFactory: () => pool as never });
+    const pending = sql.query("SELECT 1", [], { timeoutMs: 20 });
+    await beginning;
+    await expect(pending).rejects.toHaveProperty("name", "TimeoutError");
+    expect(calls.map(({ text }) => text)).toEqual(["BEGIN"]);
+    expect(releases).toEqual([true]);
+  });
+
+  test("a deadline during a saturated pool releases the late client instead of destroying it", async () => {
+    const calls: QueryCall[] = [];
+    const releases: (boolean | undefined)[] = [];
+    let arrive: ((client: unknown) => void) | undefined;
+    const client = {
+      async query(text: string, values: unknown[] = []) {
+        calls.push({ text, values });
+        return { rows: [], rowCount: 0 };
+      },
+      release(destroy?: boolean) {
+        releases.push(destroy);
+      },
+    };
+    const pool = {
+      async query() { return { rows: [], rowCount: 0 }; },
+      connect: () => new Promise((resolve) => { arrive = resolve; }),
+      async end() {},
+      on() { return this; },
+    };
+    const sql = createPostgresSqlExecutor("postgresql://example.test/home", { poolFactory: () => pool as never });
+    await expect(sql.query("SELECT 1", [], { timeoutMs: 20 })).rejects.toHaveProperty("name", "TimeoutError");
+    arrive?.(client);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(releases).toEqual([undefined]);
+    expect(calls).toEqual([]);
+  });
+
+  test("a timed-out read frees its pool slot for the next read", async () => {
+    const calls: QueryCall[] = [];
+    let free = false;
+    let serve: (() => void) | undefined;
+    const client = {
+      async query(text: string, values: unknown[] = []) {
+        calls.push({ text, values });
+        return { rows: [], rowCount: 0 };
+      },
+      release(destroy?: boolean) {
+        if (destroy === true) return;
+        free = true;
+        serve?.();
+        serve = undefined;
+      },
+    };
+    let connects = 0;
+    const pool = {
+      async query() { return { rows: [], rowCount: 0 }; },
+      async connect() {
+        connects += 1;
+        if (!free) await new Promise<void>((resolve) => { serve = resolve; });
+        free = false;
+        return client;
+      },
+      async end() {},
+      on() { return this; },
+    };
+    const sql = createPostgresSqlExecutor("postgresql://example.test/home", { poolFactory: () => pool as never });
+    await expect(sql.query("SELECT 1", [], { timeoutMs: 20 })).rejects.toHaveProperty("name", "TimeoutError");
+    expect(connects).toBe(1);
+    free = true;
+    serve?.();
+    serve = undefined;
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(free).toBe(true);
+    await expect(sql.query("SELECT 1")).resolves.toEqual({ rows: [], rowCount: 0 });
+    expect(connects).toBe(2);
+    expect(calls.map(({ text }) => text)).toEqual(["BEGIN", "SELECT 1", "COMMIT"]);
+  });
+
+  test("a deadline during a statement destroys the client without waiting for the driver", async () => {
+    const calls: QueryCall[] = [];
+    const releases: (boolean | undefined)[] = [];
+    let markSelected: (() => void) | undefined;
+    const selected = new Promise<void>((resolve) => { markSelected = resolve; });
+    const client = {
+      query(text: string, values: unknown[] = []) {
+        calls.push({ text, values });
+        if (text === "SELECT 1") {
+          markSelected?.();
+          return new Promise<{ rows: unknown[]; rowCount: number }>(() => {});
+        }
+        return Promise.resolve({ rows: [], rowCount: 0 });
+      },
+      release(destroy?: boolean) {
+        releases.push(destroy);
+      },
+    };
+    const pool = {
+      async query() { return { rows: [], rowCount: 0 }; },
+      async connect() { return client; },
+      async end() {},
+      on() { return this; },
+    };
+    const sql = createPostgresSqlExecutor("postgresql://example.test/home", { poolFactory: () => pool as never });
+    const pending = sql.query("SELECT 1", [], { timeoutMs: 20 });
+    await selected;
+    await expect(pending).rejects.toHaveProperty("name", "TimeoutError");
+    expect(calls.map(({ text }) => text)).toEqual([
+      "BEGIN",
+      "SELECT set_config('statement_timeout', $1, true)",
+      "SELECT 1",
+    ]);
+    expect(releases).toEqual([true]);
+  });
+
+  test("an abort that lands after BEGIN settled destroys the client instead of returning an open transaction", async () => {
+    const calls: QueryCall[] = [];
+    const releases: (boolean | undefined)[] = [];
+    const controller = new AbortController();
+    const client = {
+      query(text: string, values: unknown[] = []) {
+        calls.push({ text, values });
+        if (text === "BEGIN") {
+          return {
+            then(onFulfilled: (value: unknown) => unknown) {
+              onFulfilled({ rows: [], rowCount: 0 });
+              controller.abort(new Error("deadline"));
+              return { then() {} };
+            },
+          };
+        }
+        return Promise.resolve({ rows: [], rowCount: 0 });
+      },
+      release(destroy?: boolean) {
+        releases.push(destroy);
+      },
+    };
+    const pool = {
+      async query() { return { rows: [], rowCount: 0 }; },
+      async connect() { return client; },
+      async end() {},
+      on() { return this; },
+    };
+    const sql = createPostgresSqlExecutor("postgresql://example.test/home", { poolFactory: () => pool as never });
+    await expect(sql.query("SELECT 1", [], { signal: controller.signal })).rejects.toThrow("deadline");
+    expect(calls.map(({ text }) => text)).toEqual(["BEGIN"]);
+    expect(releases).toEqual([true]);
+  });
+
+  test("keeps the caller abort reason when a deadline is also set", async () => {
+    const releases: (boolean | undefined)[] = [];
+    let markBegin: (() => void) | undefined;
+    const beginning = new Promise<void>((resolve) => { markBegin = resolve; });
+    const client = {
+      query(text: string) {
+        if (text === "BEGIN") {
+          markBegin?.();
+          return new Promise<{ rows: unknown[]; rowCount: number }>(() => {});
+        }
+        return Promise.resolve({ rows: [], rowCount: 0 });
+      },
+      release(destroy?: boolean) {
+        releases.push(destroy);
+      },
+    };
+    const pool = {
+      async query() { return { rows: [], rowCount: 0 }; },
+      async connect() { return client; },
+      async end() {},
+      on() { return this; },
+    };
+    const sql = createPostgresSqlExecutor("postgresql://example.test/home", { poolFactory: () => pool as never });
+    const controller = new AbortController();
+    const reason = new Error("caller stopped");
+    const pending = sql.query("SELECT 1", [], { timeoutMs: 5_000, signal: controller.signal });
+    await beginning;
+    controller.abort(reason);
+    await expect(pending).rejects.toBe(reason);
+    expect(releases).toEqual([true]);
+  });
+
+  test("an invalid timeout rejects before acquiring a client", async () => {
+    let connects = 0;
+    const pool = {
+      async query() { return { rows: [], rowCount: 0 }; },
+      async connect() { connects += 1; return { async query() { return { rows: [], rowCount: 0 }; }, release() {} }; },
+      async end() {},
+      on() { return this; },
+    };
+    const sql = createPostgresSqlExecutor("postgresql://example.test/home", { poolFactory: () => pool as never });
+    await expect(sql.query("SELECT 1", [], { timeoutMs: 0 })).rejects.toThrow(
+      "PostgreSQL query timeout must be between 1 and 5000 milliseconds",
+    );
+    expect(connects).toBe(0);
+  });
+
+  test("clears the deadline timer after a successful query", async () => {
+    jest.useFakeTimers();
+    const cleared = spyOn(globalThis, "clearTimeout");
+    try {
+      const releases: (boolean | undefined)[] = [];
+      const client = {
+        async query() { return { rows: [], rowCount: 0 }; },
+        release(destroy?: boolean) {
+          releases.push(destroy);
+        },
+      };
+      const pool = {
+        async query() { return { rows: [], rowCount: 0 }; },
+        async connect() { return client; },
+        async end() {},
+        on() { return this; },
+      };
+      const sql = createPostgresSqlExecutor("postgresql://example.test/home", { poolFactory: () => pool as never });
+      await expect(sql.query("SELECT 1", [], { timeoutMs: 20 })).resolves.toEqual({ rows: [], rowCount: 0 });
+      expect(cleared).toHaveBeenCalledTimes(1);
+      jest.advanceTimersByTime(20);
+      expect(releases).toEqual([undefined]);
+    } finally {
+      cleared.mockRestore();
+      jest.useRealTimers();
+    }
   });
 });

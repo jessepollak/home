@@ -89,6 +89,9 @@ describe("pair checks", () => {
     expect(await check(a)).toBe(false);
     time = 150;
     expect(await check(a)).toBe(false);
+    expect(reads).toBe(1);
+    time = 151;
+    expect(await check(a)).toBe(false);
     expect(reads).toBe(2);
   });
 
@@ -125,5 +128,25 @@ describe("pair checks", () => {
     expect(await second).toBe(false);
     expect(await check(a)).toBe(false);
     expect(reads).toBe(3);
+  });
+  test("saturates new checks without reading while a joined check still waits for the shared read", async () => {
+    let release!: (value: boolean | null) => void;
+    const waiting = new Promise<boolean | null>((resolve) => { release = resolve; });
+    let reads = 0;
+    const check = createPairCheck({ maxConcurrent: 1, maxInFlight: 4, cacheMaxEntries: 1, ttlMs: 10, now: () => 0, read: async () => { reads++; return waiting; } });
+    const addresses = Array.from({ length: 4 }, (_, index) => `0x${index.toString(16).padStart(40, "0")}` as `0x${string}`);
+    const pending = addresses.map(check);
+    expect(reads).toBe(1);
+    const joined = check(addresses[0]!);
+    const extra = "0xffffffffffffffffffffffffffffffffffffffff";
+    expect(await check(extra)).toBeNull();
+    expect(reads).toBe(1);
+    release(false);
+    const responses = await Promise.all([...pending, joined]);
+    expect(responses).toHaveLength(5);
+    expect(responses.every((value) => value === false)).toBe(true);
+    expect(reads).toBe(4);
+    expect(await check(extra)).toBe(false);
+    expect(reads).toBe(5);
   });
 });

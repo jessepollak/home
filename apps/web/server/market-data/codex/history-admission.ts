@@ -1,5 +1,7 @@
 import "server-only";
 
+import { createBoundedCache } from "@/server/cache/bounded";
+
 import { getCodexTokenLookup, type CodexTokenLookupEntry } from "./token-lookup";
 import { getCodexTrendingMemeAdmission } from "./trending";
 
@@ -13,19 +15,16 @@ export function createInvestHistoryAdmission({ trending = getCodexTrendingMemeAd
   lookup?: Lookup;
   now?: () => number;
 } = {}) {
-  const cache = new Map<string, { value: boolean; storedAt: number }>();
-  const inFlight = new Map<string, Promise<boolean>>();
+  const cache = createBoundedCache<boolean>({
+    ttlMs: CACHE_TTL_MS,
+    maxEntries: CACHE_MAX,
+    maxInFlight: MAX_IN_FLIGHT,
+    now,
+  });
   return async (address: string, chainId: number): Promise<boolean> => {
     if (chainId !== 8453 || !/^0x[0-9a-fA-F]{40}$/.test(address)) return false;
     const key = address.toLowerCase();
-    const current = now();
-    for (const [candidate, entry] of cache) if (current - entry.storedAt > CACHE_TTL_MS) cache.delete(candidate);
-    const hit = cache.get(key);
-    if (hit) { cache.delete(key); cache.set(key, hit); return hit.value; }
-    const pending = inFlight.get(key);
-    if (pending) return pending;
-    if (inFlight.size >= MAX_IN_FLIGHT) return false;
-    const request = (async () => {
+    const result = await cache.fetch(key, async () => {
       try {
         if (await trending(key, chainId)) return true;
       } catch {
@@ -34,14 +33,8 @@ export function createInvestHistoryAdmission({ trending = getCodexTrendingMemeAd
       try {
         return (await lookup([key as `0x${string}`])).get(key)?.address === key;
       } catch { return false; }
-    })();
-    inFlight.set(key, request);
-    try {
-      const value = await request;
-      cache.set(key, { value, storedAt: now() });
-      while (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value!);
-      return value;
-    } finally { inFlight.delete(key); }
+    });
+    return result.status === "saturated" ? false : result.value;
   };
 }
 

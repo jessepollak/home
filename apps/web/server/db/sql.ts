@@ -148,6 +148,7 @@ export function createPostgresSqlExecutor(
       await runDriverQuery(client.query("COMMIT"));
       return result;
     } catch (error) {
+      if (started && signal?.aborted) poisoned = true;
       if (!poisoned && started) {
         try {
           await runDriverQuery(client.query("ROLLBACK"));
@@ -161,25 +162,33 @@ export function createPostgresSqlExecutor(
   };
 
   return {
-    query<T = Record<string, unknown>>(
+    async query<T = Record<string, unknown>>(
       text: string,
       values: unknown[] = [],
       options: SqlQueryOptions = {},
     ) {
-      return beginTransaction(
+      const timeoutMs = boundedSqlTimeoutMs(options.timeoutMs);
+      const deadline = timeoutMs === null ? null : new AbortController();
+      const timer = timeoutMs === null ? null : setTimeout(() => {
+        deadline?.abort(new DOMException(`PostgreSQL query exceeded its ${timeoutMs}ms deadline.`, "TimeoutError"));
+      }, timeoutMs);
+      const signal = deadline === null
+        ? options.signal
+        : options.signal ? AbortSignal.any([options.signal, deadline.signal]) : deadline.signal;
+      const operation = beginTransaction(
         async (tx) => {
-          const timeoutMs = boundedSqlTimeoutMs(options.timeoutMs);
           if (timeoutMs !== null) {
             await tx.query(
               "SELECT set_config('statement_timeout', $1, true)",
               [`${timeoutMs}ms`],
-              { signal: options.signal },
+              { signal },
             );
           }
-          return tx.query<T>(text, values, options);
+          return tx.query<T>(text, values, { signal });
         },
-        options.signal,
+        signal,
       );
+      return timer === null ? operation : operation.finally(() => clearTimeout(timer));
     },
     transaction: (fn) => beginTransaction(fn),
     async dispose() {

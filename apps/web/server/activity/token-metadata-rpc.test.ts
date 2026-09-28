@@ -70,6 +70,13 @@ function bytes32Symbol(value: string): Hex {
   });
 }
 
+function metadataResponse(): Hex {
+  return aggregate([
+    { success: true, returnData: decimals(18) },
+    { success: true, returnData: stringSymbol("TOK") },
+  ]);
+}
+
 describe("Activity token metadata RPC fallback", () => {
   test("uses the bounded Activity RPC timeout contract", () => {
     expect(ACTIVITY_TOKEN_RPC_TIMEOUT_MS).toBe(3_000);
@@ -136,37 +143,136 @@ describe("Activity token metadata RPC fallback", () => {
     expect(assertionSignal).toBeInstanceOf(AbortSignal);
   });
 
-  test("keeps infrastructure failure distinguishable and uses a bounded LRU cache", async () => {
-    const failing = createActivityTokenRpcResolver({
-      rpc: {
-        async assertBaseChain() {},
-        async request() { throw new Error("whole RPC failed"); },
-      },
-    });
-    await expect(failing([A])).rejects.toThrow("whole RPC failed");
-
+  test("caches and replays an nft-like onchain result without another RPC", async () => {
     let calls = 0;
-    const bounded = createActivityTokenRpcResolver({
-      cacheMaxEntries: 1,
+    const resolver = createActivityTokenRpcResolver({
       rpc: {
         async assertBaseChain() {},
-        async request(_method, params) {
+        async request(method) {
+          expect(method).toBe("eth_call");
           calls += 1;
-          const decoded = decodeFunctionData({
-            abi: multicallAbi,
-            data: (params[0] as { data: Hex }).data,
-          });
-          return aggregate(decoded.args[0].map((_, index) => ({
-            success: true,
-            returnData: index % 2 === 0 ? decimals(18) : stringSymbol("TOK"),
-          })));
+          return aggregate([
+            { success: false, returnData: "0x" },
+            { success: true, returnData: stringSymbol("NFT") },
+            { success: true, returnData: decimals(18) },
+            { success: false, returnData: "0x" },
+          ]);
         },
       },
     });
-    await bounded([A]);
-    await bounded([B]);
-    await bounded([A]);
+
+    expect((await resolver([A, B])).get(A)).toEqual({ kind: "nft-like" });
+    expect((await resolver([A, B])).get(B)).toEqual({ kind: "unknown" });
+    expect((await resolver([A, B])).get(A)).toEqual({ kind: "nft-like" });
+    expect((await resolver([A, B])).get(B)).toEqual({ kind: "unknown" });
+    expect(calls).toBe(1);
+  });
+
+  test("does not cache transient RPC failures and retries the next call", async () => {
+    let calls = 0;
+    const resolver = createActivityTokenRpcResolver({
+      rpc: {
+        async assertBaseChain() {},
+        async request() {
+          calls += 1;
+          if (calls === 1) throw new Error("whole RPC failed");
+          return metadataResponse();
+        },
+      },
+    });
+    await expect(resolver([A])).rejects.toThrow("whole RPC failed");
+    expect((await resolver([A])).get(A)).toEqual({ kind: "metadata", decimals: 18, symbol: "TOK" });
+    await resolver([A]);
+    expect(calls).toBe(2);
+  });
+
+  test("never serves an expired cached entry after a failed refetch", async () => {
+    let nowMs = 0;
+    let calls = 0;
+    const resolver = createActivityTokenRpcResolver({
+      cacheTtlMs: 100, now: () => new Date(nowMs),
+      rpc: {
+        async assertBaseChain() {},
+        async request() {
+          calls += 1;
+          if (calls === 2) throw new Error("refetch failed");
+          return metadataResponse();
+        },
+      },
+    });
+    expect((await resolver([A])).get(A)).toEqual({ kind: "metadata", decimals: 18, symbol: "TOK" });
+    expect(calls).toBe(1);
+    nowMs = 101;
+    await expect(resolver([A])).rejects.toThrow("refetch failed");
+    expect(calls).toBe(2);
+    expect((await resolver([A])).get(A)).toEqual({ kind: "metadata", decimals: 18, symbol: "TOK" });
     expect(calls).toBe(3);
+  });
+
+  test("propagates a caller abort to the RPC request", async () => {
+    const controller = new AbortController();
+    let requestStarted!: () => void;
+    const started = new Promise<void>((resolve) => { requestStarted = resolve; });
+    let observedAborted = false;
+    const resolver = createActivityTokenRpcResolver({
+      rpc: {
+        async assertBaseChain() {},
+        request(_method, _params, signal) {
+          return new Promise<unknown>((_resolve, reject) => {
+            const onAbort = () => {
+              observedAborted = signal?.aborted ?? false;
+              reject(new Error("aborted"));
+            };
+            signal?.addEventListener("abort", onAbort, { once: true });
+            requestStarted();
+            if (signal?.aborted) onAbort();
+          });
+        },
+      },
+    });
+    const pending = resolver([A], controller.signal);
+    await started;
+    controller.abort();
+    await expect(pending).rejects.toThrow("aborted");
+    expect(observedAborted).toBe(true);
+  });
+
+  test("hits exactly at TTL and refetches one millisecond later", async () => {
+    let nowMs = 0;
+    let calls = 0;
+    const resolver = createActivityTokenRpcResolver({
+      cacheTtlMs: 100, now: () => new Date(nowMs),
+      rpc: {
+        async assertBaseChain() {},
+        async request() { calls += 1; return metadataResponse(); },
+      },
+    });
+    await resolver([A]);
+    nowMs = 100;
+    await resolver([A]);
+    expect(calls).toBe(1);
+    nowMs = 101;
+    await resolver([A]);
+    expect(calls).toBe(2);
+  });
+
+  test("evicts the least recently used token after a cache hit", async () => {
+    let calls = 0;
+    const resolver = createActivityTokenRpcResolver({
+      cacheMaxEntries: 2,
+      rpc: {
+        async assertBaseChain() {},
+        async request() { calls += 1; return metadataResponse(); },
+      },
+    });
+    await resolver([A]);
+    await resolver([B]);
+    await resolver([A]);
+    await resolver([C]);
+    await resolver([A]);
+    expect(calls).toBe(3);
+    await resolver([B]);
+    expect(calls).toBe(4);
   });
 
   test("asserts Base before eth_call and resets a failed assertion", async () => {

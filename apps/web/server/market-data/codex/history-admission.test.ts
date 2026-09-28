@@ -38,4 +38,26 @@ describe("Invest history identity admission", () => {
     expect(await admit(address, 8453)).toBe(true);
     expect(calls).toBe(2);
   });
+  test("retains false through the TTL boundary, refetches once afterward, and saturates at eight flights", async () => {
+    let time = 0;
+    let calls = 0;
+    let release!: (value: boolean) => void;
+    const held = new Promise<boolean>((resolve) => { release = resolve; });
+    const admit = createInvestHistoryAdmission({ now: () => time, trending: async () => { calls++; return calls <= 8 ? held : false; }, lookup: async () => new Map() });
+    const keys = Array.from({ length: 8 }, (_, index) => `0x${index.toString(16).padStart(40, "0")}`);
+    const pending = keys.map((key) => admit(key, 8453));
+    const joined = admit(keys[0]!, 8453);
+    expect(await admit("0xffffffffffffffffffffffffffffffffffffffff", 8453)).toBe(false);
+    expect(calls).toBe(8);
+    release(false);
+    const responses = await Promise.all([...pending, joined]);
+    expect(responses).toHaveLength(9);
+    expect(responses.every((value) => value === false)).toBe(true);
+    time = 45_000;
+    expect(await admit(keys[0]!, 8453)).toBe(false);
+    expect(calls).toBe(8);
+    time = 45_001;
+    expect(await admit(keys[0]!, 8453)).toBe(false);
+    expect(calls).toBe(9);
+  });
 });

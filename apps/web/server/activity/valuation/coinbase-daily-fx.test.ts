@@ -31,6 +31,91 @@ describe("Coinbase daily FX reader", () => {
     }
   });
 
+  test("evicts the least recently used settled day at capacity", async () => {
+    const dates = ["2026-09-01", "2026-09-02", "2026-09-03"] as const;
+    const urls: string[] = [];
+    const reader = createCoinbaseDailyFxReader({
+      cacheMaxEntries: 2, now: () => new Date("2026-09-10T12:00:00.000Z"),
+      fetchImpl: async (url) => {
+        urls.push(String(url));
+        return rateResponse("EUR", "USD", "1.1");
+      },
+    });
+    const read = (date: string) => reader([{ base: "EUR", quote: "USD", date }]);
+    await read(dates[0]);
+    await read(dates[1]);
+    await read(dates[0]);
+    await read(dates[2]);
+    await read(dates[0]);
+    expect(urls).toHaveLength(3);
+    await read(dates[1]);
+    expect(urls).toHaveLength(4);
+    expect(urls[3]).toContain("date=2026-09-02");
+  });
+
+  test("an expired provisional rate on failed refetch does not evict a settled rate", async () => {
+    let nowMs = Date.parse("2026-09-10T12:00:00.000Z");
+    let calls = 0;
+    const reader = createCoinbaseDailyFxReader({
+      cacheMaxEntries: 2, now: () => new Date(nowMs),
+      fetchImpl: async () => {
+        calls += 1;
+        return calls === 3 || calls === 5
+          ? new Response("", { status: 502 }) : rateResponse("EUR", "USD", String(calls));
+      },
+    });
+    const read = async (date: string) => {
+      const request = { base: "EUR", quote: "USD", date } as const;
+      return (await reader([request])).get(dailyFxKey(request));
+    };
+    expect(await read("2026-09-10")).toMatchObject({ provisional: true });
+    expect(await read("2026-09-09")).toMatchObject({ provisional: false });
+    nowMs += 60_001;
+    expect(await read("2026-09-10")).toBeNull();
+    expect(await read("2026-09-08")).toMatchObject({ provisional: false });
+    expect(await read("2026-09-09")).toMatchObject({ provisional: false, rate: { atoms: "2" } });
+    expect(calls).toBe(4);
+  });
+
+  test("refetches a settled day after its 24-hour TTL", async () => {
+    let nowMs = Date.parse("2026-09-10T12:00:00.000Z");
+    let calls = 0;
+    const reader = createCoinbaseDailyFxReader({
+      now: () => new Date(nowMs),
+      fetchImpl: async () => { calls += 1; return rateResponse("EUR", "USD", "1.1"); },
+    });
+    const request = { base: "EUR", quote: "USD", date: "2026-09-01" } as const;
+    await reader([request]);
+    nowMs += 24 * 60 * 60 * 1_000;
+    await reader([request]);
+    expect(calls).toBe(1);
+    nowMs += 1;
+    await reader([request]);
+    expect(calls).toBe(2);
+  });
+
+  test("never serves an expired settled rate after a failed refetch and retries later", async () => {
+    let nowMs = Date.parse("2026-09-10T12:00:00.000Z");
+    let calls = 0;
+    const reader = createCoinbaseDailyFxReader({
+      now: () => new Date(nowMs),
+      fetchImpl: async () => {
+        calls += 1;
+        return calls === 2
+          ? new Response("", { status: 503 })
+          : rateResponse("EUR", "USD", calls === 1 ? "1.1" : "1.2");
+      },
+    });
+    const request = { base: "EUR", quote: "USD", date: "2026-09-01" } as const;
+    const read = async () => (await reader([request])).get(dailyFxKey(request));
+
+    expect(await read()).toEqual({ rate: { atoms: "11", scale: 1 }, provisional: false });
+    nowMs += 24 * 60 * 60 * 1_000 + 1;
+    expect(await read()).toBeNull();
+    expect(await read()).toEqual({ rate: { atoms: "12", scale: 1 }, provisional: false });
+    expect(calls).toBe(3);
+  });
+
   test("starts no further dated requests once the caller aborts", async () => {
     const controller = new AbortController();
     const urls: string[] = [];
@@ -124,5 +209,23 @@ describe("Coinbase daily FX reader", () => {
     expect(results.get(dailyFxKey(mismatched))).toBeNull();
     expect(results.get(dailyFxKey(failed))).toBeNull();
     expect(results.get(dailyFxKey(future))).toBeNull();
+  });
+
+  test("does not cache a non-ok response or a zero rate", async () => {
+    let calls = 0;
+    const reader = createCoinbaseDailyFxReader({
+      now: () => new Date("2026-09-10T12:00:00.000Z"),
+      fetchImpl: async () => {
+        calls += 1;
+        if (calls === 1) return new Response("", { status: 503 });
+        return rateResponse("EUR", "USD", calls === 2 ? "0" : "1.1");
+      },
+    });
+    const request = { base: "EUR", quote: "USD", date: "2026-09-01" } as const;
+    expect((await reader([request])).get(dailyFxKey(request))).toBeNull();
+    expect((await reader([request])).get(dailyFxKey(request))).toBeNull();
+    expect((await reader([request])).get(dailyFxKey(request))?.rate).toEqual({ atoms: "11", scale: 1 });
+    await reader([request]);
+    expect(calls).toBe(3);
   });
 });
