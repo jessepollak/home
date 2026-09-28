@@ -246,6 +246,7 @@ export async function installApiFixtures(
     }
     if (path === "/api/funding/quotes") {
       return json(route, {
+        version: 1,
         quoteToken: "fixture-signed-quote",
         quote: { fiatAmount: "20000", tokenAmountAtomic: "2000000", fees: [], expiresAt: EXPIRES_AT },
       });

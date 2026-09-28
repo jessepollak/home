@@ -7,6 +7,7 @@ import { useState } from "react";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import { dataOwnerKey } from "@/client/account/owner-keys";
+import { FUNDING_QUOTE_VERSION } from "@/shared/funding/contracts/quotes";
 
 const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { FundingExperienceForWallet } = await import("./funding-experience");
@@ -496,6 +497,7 @@ describe("FundingExperience", () => {
 
     await act(async () => {
       resolveQuote({
+        version: FUNDING_QUOTE_VERSION,
         quoteToken: "signed-token",
         quote: { fiatAmount: "20000", tokenAmountAtomic: "2000000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" },
       });
@@ -509,7 +511,7 @@ describe("FundingExperience", () => {
     const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
       if (path.startsWith("/api/funding/providers")) return { providers: [redirectBinding()] };
       if (path.startsWith("/api/funding/orders?")) return { order: null };
-      if (path === "/api/funding/quotes") return { quoteToken: "signed-token", quote: {
+      if (path === "/api/funding/quotes") return { version: FUNDING_QUOTE_VERSION, quoteToken: "signed-token", quote: {
         fiatAmount: "20000", tokenAmountAtomic: "2000000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z",
       } };
       throw new Error("unexpected request");
@@ -542,7 +544,7 @@ describe("FundingExperience", () => {
       requests.push({ path, body: options?.body });
       if (path.startsWith("/api/funding/providers")) return { providers: path.includes("region=AR") ? [fundingBinding()] : [redirectBinding()] };
       if (path.startsWith("/api/funding/orders?")) return { order: null };
-      if (path === "/api/funding/quotes") return { quoteToken: "id-token", quote: { fiatAmount: "20000", tokenAmountAtomic: "2000000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" } };
+      if (path === "/api/funding/quotes") return { version: FUNDING_QUOTE_VERSION, quoteToken: "id-token", quote: { fiatAmount: "20000", tokenAmountAtomic: "2000000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" } };
       if (path === "/api/funding/orders") return { order: { id: "11111111-1111-4111-8111-111111111111", providerId: "idrx", state: "awaiting-payment", fiatAmount: "20000", expectedTokenAmountAtomic: "2000000", fees: [], providerStatus: null, instructions: { kind: "redirect", url: REDIRECT_URL } } };
       throw new Error("unexpected request");
     } };
@@ -569,7 +571,7 @@ describe("FundingExperience", () => {
         requests.push({ path, body: options?.body });
         if (path.startsWith("/api/funding/providers")) return { providers: [fundingBinding()] };
         if (path.startsWith("/api/funding/orders?")) return { order: null };
-        if (path === "/api/funding/quotes") return { quoteToken: "signed-token", quote: { fiatAmount: "1000", tokenAmountAtomic: "1000000000000000000000", fees: [{ label: "Rail", amount: "10", currency: "ARS" }], expiresAt: "2099-01-01T00:00:00.000Z" } };
+        if (path === "/api/funding/quotes") return { version: FUNDING_QUOTE_VERSION, quoteToken: "signed-token", quote: { fiatAmount: "1000", tokenAmountAtomic: "1000000000000000000000", fees: [{ label: "Rail", amount: "10", currency: "ARS" }], expiresAt: "2099-01-01T00:00:00.000Z" } };
         if (path === "/api/funding/orders") return { order: { id: "11111111-1111-4111-8111-111111111111", providerId: "ripio", state: "awaiting-payment", fiatAmount: "1000", expectedTokenAmountAtomic: "1000000000000000000000", fees: [{ label: "Provider", amount: "12", currency: "ARS" }], providerStatus: null, instructions: { kind: "bank-transfer", rail: "CVU", accountNumber: "1234567890", amount: "1012", currency: "ARS" } } };
         throw new Error("unexpected request");
       },
@@ -602,7 +604,7 @@ describe("FundingExperience", () => {
       fetchAccountResource: async (path: string) => {
         if (path.startsWith("/api/funding/providers")) return { providers: [fundingBinding()] };
         if (path.startsWith("/api/funding/orders?")) return { order: null };
-        if (path === "/api/funding/quotes") return { sandbox: true, quoteToken: "sandbox-token", quote: { fiatAmount: "1000", tokenAmountAtomic: "1000000000000000000000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" } };
+        if (path === "/api/funding/quotes") return { version: FUNDING_QUOTE_VERSION, sandbox: true, quoteToken: "sandbox-token", quote: { fiatAmount: "1000", tokenAmountAtomic: "1000000000000000000000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" } };
         if (path === "/api/funding/orders") return { order: { id: "11111111-1111-4111-8111-111111111111", providerId: "ripio", sandbox: true, state: "awaiting-payment", fiatAmount: "1000", expectedTokenAmountAtomic: "1000000000000000000000", fees: [], providerStatus: null, instructions: { kind: "bank-transfer", rail: "CVU", accountNumber: "1234567890", amount: "1000", currency: "ARS" } } };
         throw new Error("unexpected request");
       },
@@ -675,7 +677,7 @@ describe("FundingExperience", () => {
     const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string, options?: { body?: unknown }) => {
       if (path.startsWith("/api/funding/providers")) return { providers: [fundingBinding()] };
       if (path.startsWith("/api/funding/orders?")) return { order: null };
-      if (path === "/api/funding/quotes") { quoteCalls += 1; return { quoteToken: "original-signed-token", quote: { fiatAmount: "1000", tokenAmountAtomic: "1000000000000000000000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" } }; }
+      if (path === "/api/funding/quotes") { quoteCalls += 1; return { version: FUNDING_QUOTE_VERSION, quoteToken: "original-signed-token", quote: { fiatAmount: "1000", tokenAmountAtomic: "1000000000000000000000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" } }; }
       if (path === "/api/funding/orders") { orderBodies.push(options?.body); if (orderBodies.length === 1) throw new Error("lost response"); return { order: { id: "11111111-1111-4111-8111-111111111111", providerId: "ripio", state: "dispatch-ambiguous", fiatAmount: "1000", providerStatus: null, instructions: null } }; }
       throw new Error("unexpected request");
     } };
@@ -716,7 +718,7 @@ describe("FundingExperience", () => {
         fetchAccountResource: async (path: string) => {
           if (path.startsWith("/api/funding/providers")) return { providers: [fundingBinding()] };
           if (path.startsWith("/api/funding/orders?")) return { order: null };
-          if (path === "/api/funding/quotes") return { quoteToken: "signed-token", quote: { fiatAmount: "1000", tokenAmountAtomic: "1000000000000000000000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" } };
+          if (path === "/api/funding/quotes") return { version: FUNDING_QUOTE_VERSION, quoteToken: "signed-token", quote: { fiatAmount: "1000", tokenAmountAtomic: "1000000000000000000000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" } };
           if (path === "/api/funding/orders") throw Object.assign(new Error(code), { code });
           throw new Error("unexpected request");
         },
@@ -1374,7 +1376,7 @@ describe("FundingExperience", () => {
       fetchAccountResource: async (path: string) => {
         if (path.startsWith("/api/funding/providers")) return { providers: [redirectBinding()] };
         if (path.startsWith("/api/funding/orders?")) return { order: null };
-        if (path === "/api/funding/quotes") return { quoteToken: "signed-token", quote: { fiatAmount: "25000", tokenAmountAtomic: "2500000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" } };
+        if (path === "/api/funding/quotes") return { version: FUNDING_QUOTE_VERSION, quoteToken: "signed-token", quote: { fiatAmount: "25000", tokenAmountAtomic: "2500000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" } };
         if (path === "/api/funding/orders") return { order: { id: "11111111-1111-4111-8111-111111111111", providerId: "idrx", state: "awaiting-payment", fiatAmount: "25000", expectedTokenAmountAtomic: "2500000", fees: [], providerStatus: null, instructions: { kind: "redirect", url: REDIRECT_URL } } };
         throw new Error("unexpected request");
       },
@@ -1491,7 +1493,7 @@ describe("FundingExperience", () => {
         requests.push({ path, method: options?.method });
         if (path.startsWith("/api/funding/providers")) return { providers: [applePayBinding()] };
         if (path.startsWith("/api/funding/orders?")) return { order: null };
-        if (path === "/api/funding/quotes") return { quoteToken: "signed-token", quote: { fiatAmount: "25", tokenAmountAtomic: "24500000", fees: [{ label: "Coinbase fee", amount: "0.50", currency: "USD" }], expiresAt: "2099-01-01T00:00:00.000Z" } };
+        if (path === "/api/funding/quotes") return { version: FUNDING_QUOTE_VERSION, quoteToken: "signed-token", quote: { fiatAmount: "25", tokenAmountAtomic: "24500000", fees: [{ label: "Coinbase fee", amount: "0.50", currency: "USD" }], expiresAt: "2099-01-01T00:00:00.000Z" } };
         if (path === "/api/funding/orders") return { order: applePayOrder() };
         if (path === "/api/funding/orders/11111111-1111-4111-8111-111111111111") {
           statusCalls += 1;

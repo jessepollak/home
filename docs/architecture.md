@@ -47,6 +47,9 @@ An optional, replaceable pre-release deployment-access gate runs before these bo
 
 The API validates the session, resolves the one smart account the caller may act for, and invokes a seam. Scope is the verified subject, its smart account, chain 8453, and the declared provider; nothing in a request body or query widens it. It never receives keys or unrestricted signing authority; the user signs in the browser. Private responses are `Cache-Control: private, no-store` with `Referrer-Policy: no-referrer`; document responses keep the browser default referrer policy because a document-wide `no-referrer` sends a null `Origin` on same-origin form posts. Route ownership is expressed by `shared/<feature>/contract*.ts` naming and the handler import, not by file headers.
 
+Shared, client, and components contracts parse with `zod/mini` only (`home/no-classic-zod-imports` enforces this); server modules may use classic `zod`.
+The funding quote contract pilots a schema with a derived type, version literal, and parser shared across the route boundary; the quote route validates provider output through that parser before signing it, so the handler cannot emit a body outside the contract.
+
 ## Core model
 
 | Type | Meaning |

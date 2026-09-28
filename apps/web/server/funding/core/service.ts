@@ -4,6 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { getFundingAsset } from "@/shared/funding/assets";
 import type { FundingDirection, FundingProvider, Instruction, Observation, Quote } from "@/shared/funding/provider-contract";
+import { FUNDING_QUOTE_VERSION, readFundingQuote, type QuoteDraft } from "@/shared/funding/contracts/quotes";
 import { decimalToAtomic } from "@/shared/formatting/atomic";
 import { FUNDING_BINDING_ENVIRONMENT_CODE, FUNDING_CONFIGURATION_CODE, FundingProviderConfigurationError, createProviderContext, environmentAvailable, resolveFundingMode, type FundingConfigurationCode } from "./provider-context";
 import { authenticateFundingQuote, isFundingQuoteExpired, signFundingQuote } from "./quote-token";
@@ -298,7 +299,7 @@ export class FundingCore {
     session: VerifiedAccountSession,
     body: unknown,
     returnOrigin: string,
-  ) {
+  ): Promise<QuoteDraft> {
     const quoteSecret = this.quoteSecret();
     if (quoteSecret.length < 32) throw new FundingCoreError("FUNDING_NOT_CONFIGURED", 424);
     const parsed = parseQuoteRequest(body);
@@ -347,7 +348,10 @@ export class FundingCore {
       throw new FundingCoreError("QUOTE_DECLINED", 422, undefined,
         `${provider.manifest.displayName} couldn't quote this amount. Try a different amount.`);
     }
-    if (quote.fiatAmount !== parsed.fiatAmount || !validAtomic(quote.tokenAmountAtomic) || Date.parse(quote.expiresAt) <= this.now().getTime()) {
+    const validated = readFundingQuote(quote);
+    if (!validated) throw new FundingCoreError("INVALID_PROVIDER_QUOTE", 502);
+    quote = validated;
+    if (quote.fiatAmount !== parsed.fiatAmount || !validAtomic(quote.tokenAmountAtomic) || !(Date.parse(quote.expiresAt) > this.now().getTime())) {
       throw new FundingCoreError("INVALID_PROVIDER_QUOTE", 502);
     }
     const claims = {
@@ -356,7 +360,7 @@ export class FundingCore {
       destination: session.smartAccount.address, assetId: asset.id, fiatAmount: parsed.fiatAmount,
       quote, customerRef, sandbox,
     } as const;
-    return { quote, quoteToken: signFundingQuote(claims, quoteSecret), sandbox };
+    return { version: FUNDING_QUOTE_VERSION, quote, quoteToken: signFundingQuote(claims, quoteSecret), sandbox };
   }
 
   async createOrder(
