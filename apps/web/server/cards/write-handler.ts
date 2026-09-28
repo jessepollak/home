@@ -54,7 +54,7 @@ export function createCardWriteHandlers(deps: {
   }
   return {
     enrollment: (request: Request) => respond(request, async (id) => ({ kycUrl: await deps.service().enroll(id) }), true),
-    issue: (request: Request) => respond(request, async (id, session) => ({ card: { id: await deps.service().issue(id, session), status: "active" as const } })),
+    issue: (request: Request) => respond(request, async (id, session) => ({ card: await deps.service().issue(id, session) })),
     freeze: (request: Request, id: string, freeze: boolean) => respond(request, async (customerId) => {
       if (!/^ic_[A-Za-z0-9]+$/.test(id)) throw new CardWriteFailure("CARD_NOT_FOUND", 404);
       return { card: { id: await deps.service().freeze(customerId, id, freeze), status: freeze ? "frozen" as const : "active" as const } };

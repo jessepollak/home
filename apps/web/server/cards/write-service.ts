@@ -10,6 +10,8 @@ import type { createBridgeClient } from "./bridge/client";
 import { readCardState } from "./journey";
 import type { createStripeClient } from "./stripe/client";
 
+type IssuedCard = Readonly<{ id: string; status: "active" | "frozen" }>;
+
 type Bridge = ReturnType<typeof createBridgeClient>;
 type Stripe = ReturnType<typeof createStripeClient>;
 type Dependencies = { sql: SqlExecutor; config: CardJourneyConfig; bridge: Bridge; stripe: Stripe };
@@ -53,7 +55,7 @@ export function createCardWriteService({ sql, config, bridge, stripe }: Dependen
       }
       return bridge.cardsKycLink(bridgeId);
     },
-    async issue(customerId: string, session: VerifiedAccountSession): Promise<string> {
+    async issue(customerId: string, session: VerifiedAccountSession): Promise<IssuedCard> {
       if (!session.smartAccount) throw new CardWriteFailure("CARD_NOT_READY", 409);
       const wallet = session.smartAccount.address.toLowerCase();
       return sql.transaction(async (tx) => {
@@ -73,8 +75,11 @@ export function createCardWriteService({ sql, config, bridge, stripe }: Dependen
         for (const otherCard of otherCards.rows) {
           if ((await stripe.readCard(otherCard.stripe_card_id)).status !== "canceled") throw new CardWriteFailure("CARD_CONFLICT", 409);
         }
-        const existing = sameWallet.find((card) => state.cards.some((item) => item.id === card.stripeCardId && item.status !== "canceled"));
-        if (existing) return existing.stripeCardId;
+        const existing = state.cards.find((item) => item.status !== "canceled" && sameWallet.some((card) => card.stripeCardId === item.id));
+        if (existing) {
+          if (existing.status !== "active" && existing.status !== "frozen") throw new CardWriteFailure("CARD_NOT_READY", 409);
+          return { id: existing.id, status: existing.status };
+        }
         if (!["ready-to-issue", "active", "frozen", "canceled"].includes(state.state)) throw new CardWriteFailure("CARD_NOT_READY", 409);
         const customer = await bridge.readCustomer(account.bridge_customer_id);
         if (!customer.stripeCardholderId || customer.cardsEndorsement?.status !== "approved" || customer.cardsEndorsement.missing || customer.cardsEndorsement.pending || customer.cardsEndorsement.issues || customer.status !== "active")
@@ -88,7 +93,7 @@ export function createCardWriteService({ sql, config, bridge, stripe }: Dependen
         await tx.query("INSERT INTO cards(id,customer_id,mode,stripe_card_id,wallet_address) VALUES (gen_random_uuid(),$1,$2,$3,$4) ON CONFLICT (stripe_card_id) DO NOTHING", [customerId, mode, card.id, wallet]);
         const linked = await tx.query("SELECT 1 FROM cards WHERE customer_id=$1 AND mode=$2 AND stripe_card_id=$3 AND wallet_address=$4", [customerId, mode, card.id, wallet]);
         if (!linked.rowCount) throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
-        return card.id;
+        return { id: card.id, status: "active" as const };
       });
     },
     async freeze(customerId: string, id: string, freeze: boolean): Promise<string> {

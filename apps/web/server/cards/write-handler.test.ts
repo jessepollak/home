@@ -14,7 +14,7 @@ describe("card POST route contracts and owner fence", () => {
     const seen: string[] = [];
     const handlers = createCardWriteHandlers({ authorize: async () => session, customer: async () => ({ id: "owner-id" }),
       service: () => ({ enroll: async (id) => { seen.push(id); return "https://bridge.withpersona.com/inquiry?inquiry-id=inq_test"; },
-        issue: async (id) => { seen.push(id); return "ic_123"; }, freeze: async (id) => { seen.push(id); return "ic_123"; } }) });
+        issue: async (id) => { seen.push(id); return { id: "ic_123", status: "active" as const }; }, freeze: async (id) => { seen.push(id); return "ic_123"; } }) });
     const enroll = await handlers.enrollment(request());
     expect(parseCardEnrollmentResponse(await enroll.json())?.kycUrl).toContain("bridge.withpersona.com");
     expect(enroll.headers.get("cache-control")).toContain("no-store");
@@ -25,7 +25,7 @@ describe("card POST route contracts and owner fence", () => {
   test("no provider calls without auth, owner, same-origin JSON, or valid card ID", async () => {
     let writes = 0;
     const deps = { customer: async () => ({ id: "owner-id" }), service: () => ({ enroll: async () => { writes++; return "https://bridge.withpersona.com/inquiry"; },
-      issue: async () => { writes++; return "ic_123"; }, freeze: async () => { writes++; return "ic_123"; } }) };
+      issue: async () => { writes++; return { id: "ic_123", status: "active" as const }; }, freeze: async () => { writes++; return "ic_123"; } }) };
     const unauthorized = createCardWriteHandlers({ ...deps, authorize: async () => Response.json({}, { status: 401 }) });
     expect((await unauthorized.enrollment(request())).status).toBe(401);
     const missing = createCardWriteHandlers({ ...deps, authorize: async () => session, customer: async () => null });

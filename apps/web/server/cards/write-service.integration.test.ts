@@ -77,17 +77,19 @@ const stripe = (async (input: RequestInfo | URL, init?: RequestInit) => {
     expect(writes).toBe(0);
   });
   test("retries a successful issue without a second Stripe POST", async () => {
-    expect(await service.issue(owner, session)).toBe("ic_123");
+    expect(await service.issue(owner, session)).toEqual({ id: "ic_123", status: "active" });
     expect((await sql.query("SELECT 1 FROM cards WHERE customer_id=$1 AND mode='sandbox' AND wallet_address=$2", [owner, wallet])).rowCount).toBe(1);
     const before = writes;
-    expect(await service.issue(owner, session)).toBe("ic_123");
+    expect(await service.issue(owner, session)).toEqual({ id: "ic_123", status: "active" });
     await expect(service.freeze(other, "ic_123", true)).rejects.toThrow("CARD_NOT_FOUND");
     expect(writes).toBe(before);
     expect(issueKeys).toHaveLength(1);
   });
   test("freezes, refuses provider-restricted unfreeze, unfreezes customer-marked card", async () => {
     expect(await service.freeze(owner, "ic_123", true)).toBe("ic_123");
+    expect(await service.issue(owner, session)).toEqual({ id: "ic_123", status: "frozen" });
     card.metadata = {};
+    await expect(service.issue(owner, session)).rejects.toThrow("CARD_NOT_READY");
     await expect(service.freeze(owner, "ic_123", false)).rejects.toThrow("CARD_NOT_READY");
     card.metadata = { home_freeze: "customer" };
     expect(await service.freeze(owner, "ic_123", false)).toBe("ic_123");
@@ -110,12 +112,12 @@ const stripe = (async (input: RequestInfo | URL, init?: RequestInit) => {
   test("issues a replacement after cancellation with a new Stripe idempotency key", async () => {
     card.status = "canceled";
     const before = writes;
-    expect(await service.issue(owner, session)).toBe("ic_456");
+    expect(await service.issue(owner, session)).toEqual({ id: "ic_456", status: "active" });
     expect(writes).toBe(before + 1);
     expect(issueKeys).toHaveLength(2);
     expect(issueKeys[1]).not.toBe(issueKeys[0]);
     expect((await sql.query<{ stripe_card_id: string }>("SELECT stripe_card_id FROM cards WHERE customer_id=$1 AND mode='sandbox' AND wallet_address=$2 ORDER BY created_at, id", [owner, wallet])).rows.map((row) => row.stripe_card_id).sort()).toEqual(["ic_123", "ic_456"]);
-    expect(await service.issue(owner, session)).toBe("ic_456");
+    expect(await service.issue(owner, session)).toEqual({ id: "ic_456", status: "active" });
     expect(writes).toBe(before + 1);
   });
   test("rejects a non-canceled card on the wallet owned by another customer", async () => {
