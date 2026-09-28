@@ -1,11 +1,11 @@
 "use client";
 
-import { queryOptions } from "@tanstack/react-query";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { isTransientAccountResourceFailure } from "@/client/account/resource-failure";
 import { tradeAvailabilityScope } from "@/client/query/after-action";
-import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
+import { useHomeQuery } from "@/client/query/query-client";
+import { ownerQuery } from "@/client/query/query-options";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { TRADE_AVAILABILITY_CONTRACT_VERSION, parseTradeAvailabilityResponse, type TradeAvailabilityResponse } from "@/shared/trading/contract";
 
@@ -19,11 +19,8 @@ export function tradeAvailabilityOptions(
   fetchAccountResource: AccountWalletClient["fetchAccountResource"],
 ) {
   const owner = session?.smartAccount ? dataOwnerKey(session) : null;
-  return queryOptions({
-    queryKey: owner ? ownerQueryKey(owner, tradeAvailabilityScope, assetId) : ["unauthenticated", "trade-availability-disabled", assetId],
-    meta: owner ? ownerQueryMeta(owner, "owner") : undefined,
-    enabled: owner !== null,
-    staleTime: 30_000,
+  return ownerQuery({
+    owner, scope: tradeAvailabilityScope, key: [assetId],
     retry: retryTradeAvailability,
     retryDelay: (attempt: number) => Math.min(250 * 2 ** attempt, 1_000),
     refetchOnWindowFocus: true,

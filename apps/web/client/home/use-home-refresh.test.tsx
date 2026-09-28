@@ -13,7 +13,7 @@ import type { RegionId } from "@/config/regions";
 import { computeActivityValuationAmount } from "@/shared/activity/valuation";
 
 const { act, cleanup, render, waitFor } = await import("@testing-library/react");
-const { useHomeRefresh } = await import("./use-home-refresh");
+const { homeRefreshScopes, useHomeRefresh } = await import("./use-home-refresh");
 const walletA = "0x1111111111111111111111111111111111111111" as const;
 const walletB = "0x2222222222222222222222222222222222222222" as const;
 const other = "0x3333333333333333333333333333333333333333" as const;
@@ -157,6 +157,22 @@ afterEach(() => {
 });
 
 describe("useHomeRefresh", () => {
+  test("refresh fetches every advertised scope", async () => {
+    const f = fixture();
+    const view = render(<Harness owner={f.owner} reads={f.reads} fetchActivity={f.fetchActivity} capture={f.capture} />);
+    await ready(view);
+    const fetchedScopes = new Set<unknown>();
+    const unsubscribe = getHomeQueryClient().getQueryCache().subscribe((event) => {
+      if (event.type === "updated" && event.action.type === "fetch") fetchedScopes.add(event.query.queryKey[1]);
+    });
+    try {
+      await act(async () => { expect(await f.current().refresh()).toEqual({ phase: "complete" }); });
+    } finally {
+      unsubscribe();
+    }
+    expect(fetchedScopes).toEqual(new Set(homeRefreshScopes));
+  });
+
   test("issues every active read, coalesces a cycle, and preserves two pages without a loading transition", async () => {
     const f = fixture();
     const view = render(<Harness owner={f.owner} reads={f.reads} fetchActivity={f.fetchActivity} capture={f.capture} />);

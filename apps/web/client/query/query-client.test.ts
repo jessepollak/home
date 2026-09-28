@@ -131,7 +131,7 @@ describe("owner query cache boundary", () => {
     const storage = memoryStorage();
     const now = Date.now();
     const client = createHomeQueryClient();
-    for (const scope of ["balances", "activity"]) {
+    for (const scope of ["balances", "activity"] as const) {
       client.setQueryDefaults(ownerQueryKey(ownerKey, scope, "US"), {
         meta: ownerQueryMeta(ownerKey, "owner"),
       });

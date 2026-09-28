@@ -16,6 +16,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { recordHomeStartupCache } from "@/client/observability/perf-marks";
 import type { HomeStartupCacheState } from "@/shared/observability/client-performance.contract";
 import { OWNER_SESSION_RETENTION_MS } from "@/shared/account/session-types";
+import type { OwnerQueryScope, PublicQueryScope, QueryScope } from "./query-scopes";
 
 export const ownerQueryCachePrefix = "home.query.v1:";
 export const ownerQueryCacheTtlMs = OWNER_SESSION_RETENTION_MS;
@@ -39,12 +40,16 @@ export function isSafeQueryIdentity(value: unknown): value is string {
     !value.includes("\n") && !value.includes("\r") && !forbiddenIdentityPattern.test(value);
 }
 
-export function ownerQueryKey(ownerKey: string, scope: string, ...parts: readonly unknown[]): QueryKey {
+export function ownerQueryKey(ownerKey: string, scope: OwnerQueryScope, ...parts: readonly unknown[]): QueryKey {
   return [ownerKey, scope, ...parts];
 }
 
-export function publicQueryKey(scope: string, ...parts: readonly unknown[]): QueryKey {
+export function publicQueryKey(scope: PublicQueryScope, ...parts: readonly unknown[]): QueryKey {
   return ["unauthenticated", scope, ...parts];
+}
+
+export function disabledQueryKey(scope: QueryScope, ...parts: readonly unknown[]): QueryKey {
+  return ["unauthenticated", `${scope}-disabled`, ...parts];
 }
 
 export function ownerQueryMeta(ownerKey: string, persistence: "memory" | "owner" = "owner"): HomeQueryMeta {
