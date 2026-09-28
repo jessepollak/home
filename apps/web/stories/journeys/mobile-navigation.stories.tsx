@@ -120,7 +120,7 @@ function PreviewShell({ initialPanel, homeIndicator, fallback, longLabels, balan
         onNestedChromeBack={() => { if (panel === "cash" && cashView === "savings") setCashView("cash"); else setPanel("home"); }} routeMode="dashboard" activeNavigation={panel} isVerified account={signedIn}
         onHome={() => setPanel("home")} onDashboard={() => setPanel("home")} onSignIn={noop} onSignOut={noop}
         onOpenSettings={() => setAccountOpen(true)} onCloseSettings={() => setAccountOpen(false)} />
-      <main ref={mainRef} id="navigation-panel" data-app-main-authenticated="" tabIndex={-1} className={`min-h-0 min-w-0 flex-1 overscroll-contain overflow-x-hidden outline-none sm:order-2 ${shellScrollContainerClassName} ${shellNavigationClearanceClassName}`}>
+      <main ref={mainRef} id="navigation-panel" data-app-main-authenticated="" tabIndex={-1} className={`min-h-0 min-w-0 flex-1 overscroll-contain overflow-x-hidden outline-none ${shellScrollContainerClassName} ${shellNavigationClearanceClassName}`}>
         <div className={`${shellContentFrameClassName} py-4 sm:py-6`}>
           {accountOpen ? <AccountSettings regionId={country} onRegionChange={(value) => setCountry(value === "FR" ? "FR" : "US")}
             resolutionSource="explicit" preferenceMessage="" isPreferenceReady accountAddress={WALLET} accountOwnerKey="jesse.base.eth"
@@ -166,7 +166,7 @@ const meta = {
     balances: "funded", rtl: false, reducedMotion: false, actionToast: false },
   parameters: { layout: "fullscreen", a11y: { test: "todo" }, viewport: { viewports: {
     mobile390: { name: "Mobile (390 × 844)", styles: { width: "390px", height: "844px" } },
-    desktop1440: { name: "Desktop (1440 × 900)", styles: { width: "1440px", height: "900px" } },
+    tablet1023: { name: "Tablet (1023 × 768)", styles: { width: "1023px", height: "768px" } },
     mobile320: { name: "Mobile (320 × 700)", styles: { width: "320px", height: "700px" } },
   }, defaultViewport: "mobile390" } },
 } satisfies Meta<typeof PreviewShell>;
@@ -345,8 +345,8 @@ export const Narrow320: Story = { parameters: { viewport: { defaultViewport: "mo
   await expect(nav.getBoundingClientRect().width).toBeLessThanOrEqual(192);
   await expect(canvasElement.ownerDocument.documentElement.scrollWidth).toBeLessThanOrEqual(320);
 } };
-export const Desktop1440: Story = { parameters: { viewport: { defaultViewport: "desktop1440" } }, play: async ({ canvasElement }) => {
+export const Tablet1023: Story = { parameters: { viewport: { defaultViewport: "tablet1023" } }, play: async ({ canvasElement }) => {
   const nav = await verifyNav(canvasElement, "Home");
   await expect(nav).toBeVisible();
-  await expect(nav.getBoundingClientRect().top).toBeLessThan(100);
+  await expect(nav.getBoundingClientRect().width).toBeLessThanOrEqual(192);
 } };

@@ -6,7 +6,7 @@ Status: **Selected: CSS glass (owner, PR review 2026-09-26), resized and adopted
 
 The exploration asked whether Home's mobile bottom navigation should become a floating translucent capsule, and which rendering approach should carry it. Home / Invest destinations, nested-panel selection (Cash, Your money, Borrow and Activity keep Home selected) and the desktop top bar are unchanged.
 
-The prototype compared current, CSS glass and liquid glass using a fixture-backed shell. Production now renders one `PrimaryNavigation` and one set of Home/Invest buttons, with a CSS glass mobile capsule and the unchanged desktop top strip. Journey inventory: [mobile navigation stories](../design-system/stories/glass-navigation.md).
+The prototype compared current, CSS glass and liquid glass using a fixture-backed shell. Production now renders one `PrimaryNavigation` and one set of Home/Invest buttons, with a CSS glass capsule below 1024px and the desktop rail from 1024px. Journey inventory: [mobile navigation stories](../design-system/stories/glass-navigation.md).
 
 ## Shared design
 
@@ -73,7 +73,7 @@ In the original comparison, opaque fallback, blur-only liquid fallback, forced c
 
 ## Owner selection and adoption
 
-The owner selected CSS glass and requested standard iOS tab-bar proportions in PR review on 2026-09-26. The candidate now ships in the single production `PrimaryNavigation`; the liquid dependency and exploration components were removed. Below 640px the nav is fixed and centred with 192px width, 60px height, 52px tab targets, 22px icons, 10px labels, 4px padding, and the safe-area-aware clearance described above. At 640px and wider the top strip remains. A physical iPhone check and Safari-tab safe-area support remain deferred.
+The owner selected CSS glass and requested standard iOS tab-bar proportions in PR review on 2026-09-26. The candidate now ships in the single production `PrimaryNavigation`; the liquid dependency and exploration components were removed. Below 1024px the nav is fixed and centred with 192px width, 60px height, 52px tab targets, 22px icons, 10px labels, 4px padding, and the safe-area-aware clearance described above. At 1024px and wider the desktop rail replaces it; the former top strip was removed. A physical iPhone check and Safari-tab safe-area support remain deferred.
 
 ## Follow-ups
 

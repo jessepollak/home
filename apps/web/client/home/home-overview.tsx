@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Banknote, ChartLine, HandCoins } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -42,21 +42,40 @@ export function HomeOverview({
   onRetryBalances?: () => void;
 }) {
   const isLoading = assetBalances?.status === "loading";
+  const moneyRef = useRef<HTMLDivElement>(null);
+  const [stickyFits, setStickyFits] = useState(false);
+  useEffect(() => {
+    const money = moneyRef.current;
+    const main = money?.closest<HTMLElement>("[data-app-main-authenticated]");
+    if (!money || !main) return;
+    const updateFit = () => setStickyFits(money.scrollHeight + 48 <= main.clientHeight);
+    updateFit();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateFit);
+    observer?.observe(money);
+    observer?.observe(main);
+    window.addEventListener("resize", updateFit);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", updateFit);
+    };
+  }, []);
   return (
-    <div className="space-y-4">
-      <HomeTotalBalance assetBalances={assetBalances} accountKey={accountKey} />
-      <div className="grid grid-cols-2 gap-2" aria-label="Money actions">
-        {actions}
+    <div className="space-y-4 lg:grid lg:grid-cols-[minmax(320px,3fr)_minmax(340px,2fr)] lg:items-start lg:gap-6 lg:space-y-0 xl:gap-8">
+      <div ref={moneyRef} data-sticky-fit={stickyFits} className={`space-y-4 self-start ${stickyFits ? "lg:[@media(min-height:640px)]:sticky lg:top-6" : ""}`}>
+        <HomeTotalBalance assetBalances={assetBalances} accountKey={accountKey} />
+        <div className="grid grid-cols-2 gap-2" aria-label="Money actions">
+          {actions}
+        </div>
+        <HomeMoneySummary
+          summary={assetBalances?.summary ?? null}
+          isLoading={isLoading}
+          cashRate={cashRate}
+          borrowOfferRate={borrowOfferRate}
+          destinations={destinations}
+          onRetryBalances={assetBalances?.needsCountry ? undefined : onRetryBalances}
+        />
       </div>
-      <HomeMoneySummary
-        summary={assetBalances?.summary ?? null}
-        isLoading={isLoading}
-        cashRate={cashRate}
-        borrowOfferRate={borrowOfferRate}
-        destinations={destinations}
-        onRetryBalances={assetBalances?.needsCountry ? undefined : onRetryBalances}
-      />
-      {activity}
+      <div>{activity}</div>
     </div>
   );
 }

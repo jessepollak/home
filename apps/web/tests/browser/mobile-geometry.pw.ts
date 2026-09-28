@@ -303,7 +303,7 @@ test("mobile capsule floats above the browser-tab bottom while keeping content c
   await main.evaluate((element) => { element.scrollTop = element.scrollHeight; });
   await expect.poll(async () => main.evaluate((element) => {
     const lastContent = element.lastElementChild;
-    const nav = document.querySelector<HTMLElement>('nav[aria-label="Main navigation"]');
+    const nav = document.querySelector<HTMLElement>('nav[aria-label="Main navigation"]:not(#desktop-rail nav)');
     return lastContent && nav ? lastContent.getBoundingClientRect().bottom <= nav.getBoundingClientRect().top : false;
   })).toBe(true);
   const tabHeights = await navigation.getByRole("button").evaluateAll((buttons) =>
@@ -312,7 +312,7 @@ test("mobile capsule floats above the browser-tab bottom while keeping content c
   for (const height of tabHeights) expect(height).toBeGreaterThanOrEqual(44);
 });
 
-test("wide touch targets stay large while fine-pointer targets stay compact", async ({ browser, page }) => {
+test("header targets stay large while content controls keep fine-pointer density", async ({ browser, page }) => {
   async function openRepresentativeControls(targetPage: Page) {
     await installApiFixtures(targetPage);
     await targetPage.goto("/");
@@ -378,5 +378,5 @@ test("wide touch targets stay large while fine-pointer targets stay compact", as
 
   await page.setViewportSize({ width: 900, height: 844 });
   expect(await page.evaluate(() => matchMedia("(pointer: fine)").matches)).toBe(true);
-  expect(await openRepresentativeControls(page)).toEqual({ signInHeight: 32, quickAmountHeight: 28 });
+  expect(await openRepresentativeControls(page)).toEqual({ signInHeight: 44, quickAmountHeight: 28 });
 });

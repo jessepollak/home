@@ -1,7 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import { RegionalPreferencesProposal } from "./regional-preferences";
-import { RegionalShell } from "@/client/home/explorations/regional-shell";
 
 const meta = {
   id: "explorations-regional-preferences",
@@ -178,9 +177,11 @@ export const Rtl: Story = {
     await expect(indicator.getBoundingClientRect().left).toBeLessThan(option.getBoundingClientRect().left + option.getBoundingClientRect().width / 2);
   },
 };
-export const Desktop: Story = { render: (args) => <RegionalShell active={null} title="Account"><RegionalPreferencesProposal {...args} showTitle={false} /></RegionalShell>,
+export const Desktop: Story = {
   parameters: { viewport: { defaultViewport: "desktop" } },
   play: async ({ canvasElement }) => {
-    await expect(within(canvasElement).getAllByRole("heading", { level: 1, name: "Account" })).toHaveLength(1);
-    await expect(within(canvasElement.querySelector("aside")!).getByRole("button", { name: "Account" })).toHaveAttribute("aria-current", "page");
-  } };
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole("heading", { level: 1, name: "Account" })).toBeVisible();
+    await expect(canvas.getByRole("combobox", { name: "Display currency" })).toBeVisible();
+  },
+};

@@ -44,10 +44,12 @@ import {
 } from "@/config/shell-location";
 import { AppChromeProvider, useOptionalAppChrome, type NestedAppChrome } from "@/components/app-chrome";
 import { LoadErrorCard } from "@/components/load-error";
+import { useBreakpointFocusHandoff } from "@/components/breakpoint-focus";
 import { PrimaryNavigation } from "@/components/primary-navigation";
 import { AuthenticatedBorrowExperience } from "@/client/borrowing/borrowing-experience";
 import {
-  shellContentFrameClassName,
+  shellDesktopContentClassName,
+  shellFrameClassName,
   shellNavigationClearanceClassName,
   shellScrollContainerClassName,
 } from "@/components/shell-layout";
@@ -171,6 +173,7 @@ function DashboardShellBody({
 }: DashboardShellProps) {
   const router = useRouter();
   const account = useAccountWallet();
+  useBreakpointFocusHandoff();
   const {
     disarmBalancesRestore,
     awaitBalancesAssetDetail,
@@ -450,6 +453,9 @@ function DashboardShellBody({
   }, [forwardRequest]);
 
   const isChecking = account.status === "restoring" || account.status === "validating";
+  const isAccountRailBusy = isChecking || account.status === "signing-out";
+  const isSignedInAccount = account.status === "verified" ||
+    (account.status === "unavailable" && account.isSignedIn);
   const sessionSettling = isSessionSettling(account);
   const isVerified = account.status === "verified" && account.verification === "server";
   const mayPaintBalances = account.verification !== null;
@@ -681,17 +687,17 @@ function DashboardShellBody({
     if (previousState !== "open" || focusHandedOff) return;
     const opener = settingsOpenerRef.current;
     settingsOpenerRef.current = null;
-    if (opener?.isConnected && !(opener instanceof HTMLButtonElement && opener.disabled)) {
-      opener.focus({ preventScroll: true });
-      return;
-    }
-    const accountTrigger = shellRef.current
-      ?.querySelector<HTMLButtonElement>("[data-shell-account-action] button");
-    if (accountTrigger && !accountTrigger.disabled) {
-      accountTrigger.focus({ preventScroll: true });
-      return;
-    }
-    panelStageRef.current?.focus({ preventScroll: true });
+    const headerAccount = shellRef.current
+      ?.querySelector<HTMLButtonElement>("[data-shell-account-action] button") ?? null;
+    const isVisible = (target: HTMLElement | null): target is HTMLElement =>
+      !!target && target.isConnected && target.getClientRects().length > 0 &&
+      !(target instanceof HTMLButtonElement && target.disabled);
+    const railAccount = shellRef.current
+      ?.querySelector<HTMLButtonElement>("[data-rail-account-action]") ?? null;
+    const accountTrigger = isVisible(railAccount) ? railAccount : headerAccount;
+    const target = isVisible(opener) ? opener : isVisible(accountTrigger) ? accountTrigger :
+      isVisible(headerAccount) ? headerAccount : panelStageRef.current;
+    target?.focus({ preventScroll: true });
   }, [isAccountSettingsOpen]);
 
   const activitySession: VerifiedAccountSession | null =
@@ -965,12 +971,29 @@ function DashboardShellBody({
     <HomeShellRoutingProvider value={routingValue}>
       <div
         ref={shellRef}
-        className="fixed inset-x-0 top-0 flex h-svh max-h-svh flex-col overflow-hidden bg-muted [--shell-scrollbar-width:0px]"
+        className="fixed inset-x-0 top-0 flex h-svh max-h-svh flex-col overflow-hidden bg-muted [--shell-scrollbar-width:0px] lg:flex-row"
       >
+        {!isSignedOut ? (
+          <PrimaryNavigation
+            layout="rail"
+            activeNavigation={activeNavigation}
+            onNavigate={navigateTo}
+            isAccountSettingsOpen={isAccountSettingsOpen}
+            account={isAccountRailBusy || isSignedInAccount ? {
+              status: isAccountRailBusy ? "loading" : "ready",
+              ownerKey: account.ownerKey,
+              address: account.session?.smartAccount?.address ?? null,
+              disabled: isAccountRailBusy,
+            } : undefined}
+            onOpenAccount={openAccountSettings}
+          />
+        ) : null}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <span role="status" className="sr-only">{isVerified && interruption && interruptionAnnouncement
           ? headerStatus({ interruption: { kind: interruptionAnnouncement }, coverage: null })?.message
           : null}</span>
       <ShellHeader
+        hasDesktopRail={!isSignedOut}
         isAccountSettingsOpen={isAccountSettingsOpen}
         nestedChromeTitle={nestedChromeTitle}
         nestedChromeBackLabel={nestedChromeBackLabel}
@@ -996,11 +1019,11 @@ function DashboardShellBody({
       <main
         ref={mainRef}
         data-app-main-authenticated
-        className={`relative order-1 min-h-0 flex-1 overscroll-contain overflow-x-hidden bg-muted sm:order-2 ${shellNavigationClearanceClassName} ${shellScrollContainerClassName}`}
+        className={`relative min-h-0 min-w-0 flex-1 overscroll-contain overflow-x-hidden bg-muted ${shellNavigationClearanceClassName} ${shellScrollContainerClassName}`}
       >
         {gestureEnabled ? <PullToRefreshAction label="Refresh Home" refreshing={refreshState.phase === "refreshing"} onRefresh={() => { void refresh(); }} actionRef={actionRef} /> : null}
         {homeRefreshEnabled ? <PullToRefreshIndicator phase={pullPhase} indicatorRef={indicatorRef} /> : null}
-        <div ref={contentFrameRef} className={`${shellContentFrameClassName} py-4 sm:py-6`}>
+        <div ref={contentFrameRef} className={`${shellFrameClassName} py-4 sm:py-6`}>
         <span role="status" aria-live="polite" className="sr-only">{homeRefreshEnabled
           ? refreshState.phase === "refreshing" ? "Refreshing Home" : refreshState.phase === "complete" ? "Home updated" : null
           : null}</span>
@@ -1031,6 +1054,7 @@ function DashboardShellBody({
             className="outline-none"
             id="navigation-panel"
             tabIndex={-1}
+            data-breakpoint-peer={isAccountSettingsOpen ? "account-settings" : undefined}
             aria-labelledby={
               isAccountSettingsOpen || isHomeNestedPanelId(activeNavigation) || nestedChromeTitle
                 ? undefined
@@ -1044,6 +1068,7 @@ function DashboardShellBody({
             aria-busy={isAccountSettingsOpen ? undefined : isChecking}
           >
             {isAccountSettingsOpen ? (
+              <div className={shellDesktopContentClassName}>
               <AccountSettings
                 regionId={regionId}
                 onRegionChange={selectRegion}
@@ -1059,6 +1084,7 @@ function DashboardShellBody({
                 onAppearancePreferenceChange={setAppearancePreference}
                 onSignOut={signOut}
               />
+              </div>
             ) : (
               <div>
                 {mountedPanels.has("home") ? (
@@ -1090,7 +1116,7 @@ function DashboardShellBody({
                   </MountedShellPanel>
                 ) : null}
                 {balancesMounted ? (
-                  <MountedShellPanel active={activeNavigation === balancesPanelId}>
+                  <MountedShellPanel active={activeNavigation === balancesPanelId} className={shellDesktopContentClassName}>
                     <BalancesPage
                       active={activeNavigation === balancesPanelId}
                       assetBalances={paintedAssetBalances}
@@ -1104,7 +1130,7 @@ function DashboardShellBody({
                   </MountedShellPanel>
                 ) : null}
                 {mountedPanels.has(activityPanelId) ? (
-                  <MountedShellPanel active={activeNavigation === activityPanelId}>
+                  <MountedShellPanel active={activeNavigation === activityPanelId} className={shellDesktopContentClassName}>
                     <ActivityPage
                       activitySession={activitySession}
                       fetchActivity={account.fetchActivity}
@@ -1119,7 +1145,7 @@ function DashboardShellBody({
                   </MountedShellPanel>
                 ) : null}
                 {mountedPanels.has(cashPanelId) ? (
-                  <MountedShellPanel active={activeNavigation === cashPanelId}>
+                  <MountedShellPanel active={activeNavigation === cashPanelId} className={shellDesktopContentClassName}>
                     <CashPanel
                       regionId={regionId}
                       isVerified={isVerified}
@@ -1129,7 +1155,7 @@ function DashboardShellBody({
                   </MountedShellPanel>
                 ) : null}
                 {mountedPanels.has(borrowPanelId) ? (
-                  <MountedShellPanel active={activeNavigation === borrowPanelId}>
+                  <MountedShellPanel active={activeNavigation === borrowPanelId} className={shellDesktopContentClassName}>
                     <AuthenticatedBorrowExperience
                       selectedMarketId={urlIntent.location.market}
                       onSelectMarket={selectBorrowMarket}
@@ -1140,7 +1166,7 @@ function DashboardShellBody({
                   </MountedShellPanel>
                 ) : null}
                 {mountedPanels.has(investmentsPanelId) ? (
-                  <MountedShellPanel active={activeNavigation === investmentsPanelId}>
+                  <MountedShellPanel active={activeNavigation === investmentsPanelId} className={shellDesktopContentClassName}>
                     <AppChromeProvider>
                       <PanelChromeSync onChrome={setInvestmentsChrome} />
                       <InvestmentsPanel regionId={regionId} content={investmentsContent ? (
@@ -1153,7 +1179,7 @@ function DashboardShellBody({
                   </MountedShellPanel>
                 ) : null}
                 {mountedPanels.has("invest") ? (
-                  <MountedShellPanel active={activeNavigation === "invest"}>
+                  <MountedShellPanel active={activeNavigation === "invest"} className={shellDesktopContentClassName}>
                     <InvestPanel regionId={regionId} content={investContent} />
                   </MountedShellPanel>
                 ) : null}
@@ -1174,6 +1200,7 @@ function DashboardShellBody({
           onClose={closeAccount}
           onVerified={() => router.replace("/home")}
         />
+        </div>
       </div>
     </HomeShellRoutingProvider>
   );

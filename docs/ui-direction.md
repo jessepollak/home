@@ -20,25 +20,15 @@ Preserve financial meaning, readable amounts and identity, actionable recovery, 
 - Do not put legal disclosures, eligibility essays, contract lists, source roster walls, "not an endorsement," or similar compliance copy on product screens (Home, Save, Invest, Borrow, Fund, etc.). Registry and docs may record contracts and eligibility for builders. Product list and discovery UI must not surface them. Present disclosures only under Account → Disclosures / Terms (or an equivalent settings section). Account should gain that destination if it is missing.
 - Review and confirm screens may show the **actionable** facts needed to complete an action (amount, fee, slippage, network). Do not turn those into catalog footnotes on list surfaces.
 
-## Desktop proposal (unaccepted)
+## Desktop
 
-Proposed in [#694](https://github.com/jessepollak/home/issues/694). **Not accepted until Jesse decides.** Nothing here changes production yet.
+Accepted by Jesse on [#1005](https://github.com/jessepollak/home/issues/1005) and implemented in [#1044](https://github.com/jessepollak/home/issues/1044), refining the [#694](https://github.com/jessepollak/home/issues/694) proposal.
 
-- **Breakpoint:** at 1024px and wider, a side nav, `PrimaryNavigation layout="rail"`, replaces the bottom tab bar. Below 1024px the mobile layout applies unchanged: a fixed viewport shell whose header and bottom tab bar stay in place while only the content scrolls. The 640–1023px top tab strip is removed, so Home has two layouts, not three.
-- **Rail:** 240px expanded, 64px collapsed. The Homemark is at the top, Home and Invest are 44px items, and the account action sits at the foot. The active item has a 2px `primary` bar on its inline-start edge: the tab-bar underline turned 90°.
-- **Collapse:** a 44px `Sidebar` toggle above the account action, with `aria-expanded`, switches the rail between expanded and an icon rail. The width animates over 180ms ease-out; labels fade out in 80ms and fade back in over 100ms after an 80ms delay. Reduced motion snaps both. Collapsed items keep their accessible names, 44px targets and the active bar, and focus stays on the toggle.
-- **Why a variant, not a sibling:** the rail is a variant of `PrimaryNavigation`. Both layouts share `navigationItems`, the `aria-current` rules (nested Home panels keep Home active) and `onNavigate`, and a sibling component would drift.
-- **Home content:** two columns in a centred box of at most 1120px: money on the left (about 3fr: the total card, Add money · Send, Your money) and Activity on the right (about 2fr). The segmented bar spans the total card's full inner width. The page is the only scroll region; the 56px header is sticky, and the money column is sticky 80px from the top when the viewport is at least 640px tall, so Add money · Send stay on screen while Activity scrolls.
-- **Other destinations:** Cash (L2) and Invest keep one 640px column, with no split pane. `ShellHeader` keeps the title, a 44px Back and the status in the content column.
-- **Adopting it would require:**
-  - removing the `sm:` top-strip classes from `PrimaryNavigation`
-  - giving `ShellHeader` a way to omit the Homemark and avatar on desktop
-  - adding the `lg` shell width and the two-column Home grid
-  - adding the rail collapse state to `PrimaryNavigation`
-  - bounding the sticky money column: it is about 560px tall today, so a taller column needs a higher height gate than 640px or a bottom-anchored sticky
-  - giving `HomeMark` an owned 44px hit area instead of the story's local overrides
-  - reconciling the fine-pointer size reductions in `ShellHeader` and the header status with the 44px desktop targets
-- **References:** Figma section [`322:11819`](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=322-11819) on the Shell / desktop page (`333:13092`), and Storybook `journeys-desktop-shell`.
+- **Navigation:** at ≥1024px, `PrimaryNavigation layout="rail"` replaces the floating tab capsule. The rail starts expanded at 240px, collapses to a 64px icon rail, and remembers the choice per device. Home · Invest sit above Account at the foot; Card joins when [#636](https://github.com/jessepollak/home/issues/636) is selected. The HomeMark owns a 44px hit area. Below 1024px, the mobile header and floating glass capsule remain; the 640–1023px top strip is gone.
+- **Scroll and controls:** the rail and header stay pinned; `<main>` is the only scroll region at every width. The Home money column sticks inside it when the window is ≥640px tall and the column fits. Nav and header controls have 44px targets at every width; content controls keep their fine-pointer sizes.
+- **Content:** the header has a max-width 1120px frame on every destination. Home uses a centred max-width 1120px grid: money about 3fr on the left, Activity about 2fr on the right. Other destinations use a 640px column aligned beneath the title.
+- **Money dialogs:** a centred 480px dialog at ≥1024px, a bottom sheet below.
+- **Reference:** Figma section [`322:11819`](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=322-11819) on the Shell / desktop page (`333:13092`).
 
 ## Invest asset detail direction (#938)
 

@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
-import { installApiFixtures, seedSignedInSession } from "./fixtures/api";
+import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
+import { sessionBody } from "./fixtures/bodies";
 
 for (const width of [390, 320]) {
   test(`mobile navigation clears the final Home content at ${width}px`, async ({ page }) => {
@@ -9,7 +10,7 @@ for (const width of [390, 320]) {
     await page.goto("/home");
     await expect(page.getByRole("button", { name: "Send", exact: true })).toBeVisible();
     const geometry = await page.evaluate(() => {
-      const nav = document.querySelector<HTMLElement>('nav[aria-label="Main navigation"]')!;
+      const nav = document.querySelector<HTMLElement>('nav[aria-label="Main navigation"]:not(#desktop-rail nav)')!;
       const main = document.querySelector<HTMLElement>("[data-app-main-authenticated]")!;
       main.scrollTop = main.scrollHeight;
       const lastContent = main.lastElementChild as HTMLElement;
@@ -40,7 +41,7 @@ for (const width of [390, 320]) {
     await expect(page.getByRole("button", { name: "Send", exact: true })).toBeVisible();
     await expect(page.getByText("Loading recent activity…")).toHaveCount(0);
     const boundary = async () => page.evaluate(() => {
-      const nav = document.querySelector<HTMLElement>('nav[aria-label="Main navigation"]')!;
+      const nav = document.querySelector<HTMLElement>('nav[aria-label="Main navigation"]:not(#desktop-rail nav)')!;
       const main = document.querySelector<HTMLElement>("[data-app-main-authenticated]")!;
       main.scrollTop = main.scrollHeight;
       window.scrollTo(0, document.documentElement.scrollHeight);
@@ -63,12 +64,76 @@ for (const width of [390, 320]) {
   });
 }
 
-test("desktop navigation remains in the top strip", async ({ page }) => {
-  await page.setViewportSize({ width: 640, height: 844 });
+for (const viewport of [{ width: 1280, height: 800 }, { width: 1024, height: 600 }]) {
+  test(`Home money and Activity scroll geometry at ${viewport.width}x${viewport.height}`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await seedSignedInSession(page);
+    await installApiFixtures(page);
+    await page.route("**/api/activity*", (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname !== "/api/activity") return route.fallback();
+      const to = url.searchParams.get("to") ?? new Date().toISOString();
+      const wallet = sessionBody.smartAccount.address.toLowerCase();
+      const token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
+      return json(route, {
+        version: 1, walletAddress: wallet, chainId: 8453,
+        currency: url.searchParams.get("currency") ?? "USD",
+        window: { from: new Date(Date.parse(to) - 86_400_000).toISOString(), to },
+        transfers: Array.from({ length: 16 }, (_, index) => ({
+          id: `8453:${token}:home-grid-${index}`, logId: `home-grid-${index}`, chainId: 8453,
+          assetId: "usdc", tokenAddress: token, tokenSymbol: "USDC", tokenDecimals: 6,
+          tokenImageUrl: null, walletAddress: wallet,
+          fromAddress: index % 2 ? wallet : "0x2222222222222222222222222222222222222222",
+          toAddress: index % 2 ? "0x2222222222222222222222222222222222222222" : wallet,
+          direction: index % 2 ? "outgoing" : "incoming", amountBaseUnits: "25000000",
+          blockNumber: String(1000 - index), blockHash: `0x${"ef".repeat(32)}`,
+          transactionHash: `0x${(index + 1).toString(16).padStart(64, "0")}`, logIndex: "1",
+          blockTimestamp: new Date(Date.parse(to) - (index + 1) * 60 * 60_000).toISOString(),
+          valuation: { status: "unpriced", currency: url.searchParams.get("currency") ?? "USD", reason: "quote-unavailable" },
+        })),
+        nextCursor: null,
+        source: { provider: "cdp-sql", cached: false, stale: false, executionTimestamp: to, executionTimeMs: 1, fetchedAt: to },
+      });
+    });
+    await page.goto("/home");
+    const money = page.getByRole("region", { name: "Your money" }).locator("..");
+    const activity = page.getByRole("region", { name: "Activity" }).locator("..");
+    const main = page.locator("main[data-app-main-authenticated]");
+    await expect(page.getByRole("region", { name: "Activity" })).not.toHaveAttribute("aria-busy", "true");
+    await expect(page.getByRole("region", { name: "Activity" }).getByRole("button", { name: /Received/ }).first()).toBeVisible();
+    await expect.poll(() => main.evaluate((node) => node.scrollHeight - node.clientHeight)).toBeGreaterThan(300);
+    const beforeMoney = await money.boundingBox();
+    const beforeActivity = await activity.boundingBox();
+    expect(beforeMoney).not.toBeNull();
+    expect(beforeActivity).not.toBeNull();
+    expect(beforeActivity!.x).toBeGreaterThan(beforeMoney!.x + beforeMoney!.width);
+    if (viewport.height >= 640) {
+      expect(beforeMoney!.width / beforeActivity!.width).toBeGreaterThan(1.4);
+      expect(beforeMoney!.width / beforeActivity!.width).toBeLessThan(1.6);
+      expect(beforeMoney!.height + 48).toBeLessThanOrEqual(await main.evaluate((node) => node.clientHeight));
+    }
+    await main.evaluate((node) => { node.scrollTop = 200; });
+    await expect.poll(() => main.evaluate((node) => node.scrollTop)).toBeGreaterThanOrEqual(190);
+    if (viewport.height >= 640) {
+      await expect.poll(async () => Math.abs((await money.boundingBox())!.y - beforeMoney!.y)).toBeLessThanOrEqual(2);
+    } else {
+      await expect.poll(async () => beforeMoney!.y - (await money.boundingBox())!.y).toBeGreaterThan(150);
+    }
+  });
+}
+
+test("the capsule covers widths through 1023px and the rail takes over at 1024px", async ({ page }) => {
+  await page.setViewportSize({ width: 1023, height: 768 });
   await seedSignedInSession(page);
   await installApiFixtures(page);
   await page.goto("/home");
   const nav = page.getByRole("navigation", { name: "Main navigation" });
   await expect(nav).toBeVisible();
-  expect(await nav.evaluate((element) => getComputedStyle(element).position)).not.toBe("fixed");
+  expect(await nav.evaluate((element) => getComputedStyle(element).position)).toBe("fixed");
+  expect(await nav.evaluate((element) => Math.round(element.getBoundingClientRect().width))).toBe(192);
+  await expect(page.locator("#desktop-rail")).toBeHidden();
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await expect(page.locator("#desktop-rail")).toBeVisible();
+  await expect(nav).toHaveCount(1);
+  expect(await nav.evaluate((element) => element.closest("#desktop-rail") !== null)).toBe(true);
 });

@@ -13,14 +13,17 @@ export function useShellPanelActive() {
 export function MountedShellPanel({
   active,
   children,
+  className,
 }: {
   active: boolean;
   children: ReactNode;
+  className?: string;
 }) {
   return (
     <ShellPanelActiveContext value={active}>
       <div
         data-shell-panel=""
+        className={className}
         hidden={!active}
         inert={active ? undefined : true}
         aria-hidden={active ? undefined : true}

@@ -4,7 +4,7 @@ import { getHomeQueryClient } from "@/client/query/query-client";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { HomeShellRoutingProvider, type HomeShellRouting } from "@/client/home/panel-routing";
 import { ownerQueryKey } from "@/client/query/query-client";
-import { afterEach, describe, expect, jest, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { MORPHO_BLUE_ADDRESS, VERIFIED_MORPHO_MARKETS } from "@/shared/morpho-markets/config";
 import type { BorrowMarketSnapshot, BorrowOverviewResponse } from "@/shared/borrowing/contract";
@@ -113,10 +113,15 @@ function accountFetch(snapshot: BorrowMarketSnapshot, response = overview({ posi
   return async (path: string) => path === "/api/actions/network-fee" ? { version: 1, usdcReserveBaseUnits: null } : path === "/api/borrow" ? response : snapshot;
 }
 
+const animationFlag = globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean };
+beforeEach(() => {
+  animationFlag.BASE_UI_ANIMATIONS_DISABLED = true;
+});
 afterEach(() => {
   cleanup();
   getHomeQueryClient().clear();
   jest.useRealTimers();
+  delete animationFlag.BASE_UI_ANIMATIONS_DISABLED;
 });
 
 describe("Borrow overview and management", () => {

@@ -21,17 +21,24 @@
   height: 28px;
   flex-shrink: 0;
   vertical-align: middle;
+  direction: ltr;
 }
 
 .compact {
-  width: 30.333333px;
-  min-width: 30.333333px;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
 }
 
-@media (width >= 768px) {
-  .compact .control:hover {
-    width: 30.333333px;
-  }
+.compact .control,
+.compact .control:hover {
+  width: 44px;
+  height: 44px;
+}
+
+.compact .artwork {
+  inset-inline-start: 8px;
+  inset-block-end: 8px;
 }
 
 @supports (color: color(display-p3 0 0 1)) {
@@ -43,10 +50,10 @@
 .control {
   position: absolute;
   top: 0;
-  left: 0;
+  inset-inline-start: 0;
   display: block;
-  width: 30.333333px;
-  height: 28px;
+  width: 44px;
+  height: 44px;
   min-width: 0;
   min-height: 0;
   padding: 0;
@@ -64,6 +71,14 @@
   transform: none;
 }
 
+.root:not(.compact) .control {
+  top: -8px;
+}
+
+.root:not(.compact) .artwork {
+  inset-block-end: 8px;
+}
+
 .control:hover {
   width: 82px;
 }
@@ -75,8 +90,8 @@
 
 .artwork {
   position: absolute;
-  left: 0;
-  bottom: 0;
+  inset-inline-start: 0;
+  inset-block-end: 0;
   display: flex;
   align-items: center;
   width: 123.16px;
@@ -183,6 +198,10 @@
     height: 44px;
   }
 
+  .root:not(.compact) .control {
+    top: 0;
+  }
+
   .control,
   .control:hover {
     width: 44px;
@@ -196,7 +215,7 @@
   .mobileSquare {
     position: absolute;
     top: 10px;
-    left: 10px;
+    inset-inline-start: 10px;
     display: block;
     width: 24px;
     height: 24px;

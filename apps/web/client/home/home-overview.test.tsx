@@ -1,7 +1,8 @@
 import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { cleanup, fireEvent, render, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
+import type { ReactNode } from "react";
 import type { MoneyBreakdownItem } from "@/shared/balances/present";
 import { HomeOverview } from "./home-overview";
 
@@ -10,7 +11,7 @@ const initial: MoneyBreakdownItem[] = [
   { id: "investments", label: "Investments", value: "$9.00", weight: 900 },
 ];
 
-function overview(items: MoneyBreakdownItem[], accountKey: string | null) {
+function overview(items: MoneyBreakdownItem[], accountKey: string | null, activity: ReactNode = null) {
   return (
     <HomeOverview
       assetBalances={{
@@ -26,7 +27,7 @@ function overview(items: MoneyBreakdownItem[], accountKey: string | null) {
       }}
       accountKey={accountKey}
       actions={null}
-      activity={null}
+      activity={activity}
       cashRate={null}
       borrowOfferRate={null}
       destinations={{ onOpenCash: () => {}, onOpenInvestments: () => {}, onOpenBorrow: () => {} }}
@@ -75,5 +76,37 @@ describe("Home balance allocation", () => {
     view.rerender(overview(initial, "account-b"));
     expect(legendButton("investments").getAttribute("aria-pressed")).toBe("false");
     expect(document.querySelector("[data-selected]")).toBeNull();
+  });
+
+  test("keeps money and Activity mounted while tall money scrolls instead of sticking", () => {
+    const OriginalObserver = globalThis.ResizeObserver;
+    let measure = () => {};
+    globalThis.ResizeObserver = class {
+      constructor(callback: ResizeObserverCallback) { measure = () => callback([], this); }
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+    };
+    try {
+      const view = render(<main data-app-main-authenticated>{overview(initial, "account-a", <section aria-label="Activity">Transactions</section>)}</main>);
+      const activity = view.getByRole("region", { name: "Activity" });
+      const main = view.container.querySelector("main")!;
+      const money = view.container.querySelector<HTMLElement>("[data-sticky-fit]")!;
+      let contentHeight = 520;
+      Object.defineProperty(main, "clientHeight", { get: () => 600 });
+      Object.defineProperty(money, "scrollHeight", { get: () => contentHeight });
+      act(measure);
+      expect(money.dataset.stickyFit).toBe("true");
+      fireEvent.click(legendButton("cash"));
+      contentHeight = 580;
+      act(measure);
+      expect(money.dataset.stickyFit).toBe("false");
+      selected("cash");
+      expect(view.getByRole("region", { name: "Activity" })).toBe(activity);
+      expect(money.compareDocumentPosition(activity) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(within(view.container).getByRole("heading", { name: "Your money" })).toBeTruthy();
+    } finally {
+      globalThis.ResizeObserver = OriginalObserver;
+    }
   });
 });

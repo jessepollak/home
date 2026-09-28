@@ -22,7 +22,7 @@ function ToastViewport({ className, ...props }: ToastPrimitive.Viewport.Props) {
     <ToastPrimitive.Viewport
       data-slot="toast-viewport"
       className={cn(
-        "pointer-events-none fixed inset-x-4 bottom-[calc(var(--shell-navigation-clearance)+var(--shell-viewport-overhang))] z-50 mx-auto w-auto max-w-sm outline-none sm:right-4 sm:bottom-4 sm:left-auto sm:mx-0 sm:w-full",
+        "pointer-events-none fixed inset-x-4 bottom-[calc(var(--shell-navigation-clearance)+var(--shell-viewport-overhang))] z-50 mx-auto w-auto max-w-sm outline-none lg:right-4 lg:bottom-4 lg:left-auto lg:mx-0 lg:w-full",
         className
       )}
       {...props}

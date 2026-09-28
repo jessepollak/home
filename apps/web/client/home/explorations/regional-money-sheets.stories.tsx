@@ -74,7 +74,7 @@ const reviewOwner = { subject: "fixture-subject", address: "0x111111111111111111
 function ReviewDesktop() {
   return (
     <>
-      <RegionalHomeProposal regionId="US" assetBalances={reviewBalances} activity={reviewActivity} onOpenAccount={noop} onReload={noop} />
+      <RegionalHomeProposal regionId="US" assetBalances={reviewBalances} activity={reviewActivity} />
       <Drawer defaultOpen showSwipeHandle>
         <DrawerContent data-placement="centered" className={proposedCenteredPlacement}>
           <DrawerHeader><DrawerTitle>Review cash out</DrawerTitle></DrawerHeader>

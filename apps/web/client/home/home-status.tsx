@@ -72,7 +72,7 @@ export function HomeHeaderStatus({
           <Button
             variant="ghost"
             size="icon"
-            className="size-11 md:pointer-fine:size-8"
+            className="size-11"
             aria-label={status.message}
             data-home-status=""
           />
@@ -87,14 +87,14 @@ export function HomeHeaderStatus({
             <Button
               variant="ghost"
               size="icon"
-              className="size-11 md:pointer-fine:size-8"
+              className="size-11"
               aria-label="Retry"
               onClick={onRetry}
             >
               <RotateCw aria-hidden="true" />
             </Button>
           ) : status.recovery === "choose-country" ? (
-            <Button variant="secondary" size="lg" className="h-11 md:pointer-fine:h-8" onClick={onOpenAccount}>
+            <Button variant="secondary" size="lg" className="h-11" onClick={onOpenAccount}>
               Open Account
             </Button>
           ) : null}

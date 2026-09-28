@@ -5,7 +5,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { useState } from "react";
 
 const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
-const { MoneyModal, MoneyModalHeader } = await import("./money-modal");
+const { AppDrawer, MoneyModal, MoneyModalHeader } = await import("./money-modal");
 
 afterEach(async () => {
   cleanup();
@@ -96,6 +96,44 @@ describe("MoneyModal layout contract", () => {
     const amount = await page().findByRole("textbox", { name: "Amount" });
     await waitFor(() => expect(document.activeElement === amount).toBe(true));
   });
+
+  test("keeps the entered amount and the same input when the viewport crosses the desktop breakpoint", async () => {
+    render(
+      <MoneyModal open labelledBy="resize-title" immediate onCancel={() => {}} onClose={() => {}}>
+        <h2 id="resize-title">Send</h2>
+        <input aria-label="Amount" data-money-amount-input />
+      </MoneyModal>,
+    );
+    const amount = page().getByRole("textbox", { name: "Amount" });
+    fireEvent.change(amount, { target: { value: "25.50" } });
+    await act(async () => window.dispatchEvent(new Event("resize")));
+    expect(page().getByRole("textbox", { name: "Amount" })).toBe(amount);
+    expect((amount as HTMLInputElement).value).toBe("25.50");
+  });
+
+  test("only money dialogs ignore swipe dismissal at the lg breakpoint", () => {
+    const originalMatchMedia = window.matchMedia;
+    let desktop = true;
+    window.matchMedia = ((query: string) => ({ matches: query === "(min-width: 64rem)" && desktop, media: query })) as typeof window.matchMedia;
+    try {
+      const money = render(<MoneyModal open labelledBy="money-title" immediate onCancel={() => {}} onClose={() => {}}><h2 id="money-title">Send</h2></MoneyModal>);
+      const moneyDialog = page().getByRole("dialog", { name: "Send" });
+      fireEvent.pointerDown(moneyDialog);
+      expect(moneyDialog.hasAttribute("data-base-ui-swipe-ignore")).toBe(true);
+      desktop = false;
+      fireEvent.pointerDown(moneyDialog);
+      expect(moneyDialog.hasAttribute("data-base-ui-swipe-ignore")).toBe(false);
+      money.unmount();
+
+      desktop = true;
+      render(<AppDrawer open labelledBy="sheet-title" immediate onCancel={() => {}}><h2 id="sheet-title">Sign in</h2></AppDrawer>);
+      const sheetDialog = page().getByRole("dialog", { name: "Sign in" });
+      fireEvent.pointerDown(sheetDialog);
+      expect(sheetDialog.hasAttribute("data-base-ui-swipe-ignore")).toBe(false);
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
 });
 
 describe("MoneyModal dismissal contract", () => {
@@ -143,7 +181,7 @@ describe("MoneyModal dismissal contract", () => {
     expect(page().getByRole("dialog", { name: "Blocked" })).toBeTruthy();
   });
 
-  test("vetoes dismissal while pending", async () => {
+  test("vetoes Escape and overlay while pending and disables Close", async () => {
     const events: string[] = [];
     render(
       <MoneyModal open labelledBy="pending-title" immediate pending onCancel={() => { events.push("cancel"); }} onClose={() => events.push("close")}>
@@ -153,6 +191,7 @@ describe("MoneyModal dismissal contract", () => {
 
     const close = page().getByRole("button", { name: "Close" });
     expect(close.hasAttribute("disabled")).toBe(true);
+    await act(async () => fireEvent.click(close));
     await act(async () => fireEvent.keyDown(document, { key: "Escape" }));
     await act(async () => fireEvent.click(document.querySelector("[data-slot=drawer-overlay]")!));
     expect(page().getByRole("dialog", { name: "Pending request" })).toBeTruthy();
@@ -176,39 +215,76 @@ describe("MoneyModal dismissal contract", () => {
     expect(events).toEqual(["cancel", "cancel"]);
   });
 
-  test("moves focus into the drawer, locks scroll, then restores both on close", async () => {
-    function Harness() {
-      const [open, setOpen] = useState(false);
-      return (
-        <>
-          <button type="button" onClick={() => setOpen(true)}>Open drawer</button>
-          <MoneyModal
-            open={open}
-            labelledBy="focus-title"
-            immediate
-            onCancel={() => setOpen(false)}
-            onClose={() => {}}
-          >
-            <h2 id="focus-title">Focus drawer</h2>
-            <button type="button" data-initial-focus>Inside drawer</button>
-          </MoneyModal>
-        </>
-      );
-    }
+  for (const triggerName of ["Add money", "Send"]) {
+    test(`returns focus to the ${triggerName} button after closing`, async () => {
+      function Harness() {
+        const [open, setOpen] = useState(false);
+        return (
+          <>
+            <button type="button" onClick={() => setOpen(true)}>{triggerName}</button>
+            <MoneyModal
+              open={open}
+              labelledBy="focus-title"
+              immediate
+              onCancel={() => setOpen(false)}
+              onClose={() => {}}
+            >
+              <h2 id="focus-title">Focus drawer</h2>
+              <button type="button" data-initial-focus>Inside drawer</button>
+            </MoneyModal>
+          </>
+        );
+      }
 
-    render(<Harness />);
-    const trigger = page().getByRole("button", { name: "Open drawer" });
-    trigger.focus();
-    await act(async () => fireEvent.click(trigger));
-    const dialog = await page().findByRole("dialog", { name: "Focus drawer" });
-    expect(dialog.contains(document.activeElement)).toBe(true);
-    await waitFor(() => expect(document.body.style.overflowY).toBe("hidden"));
+      render(<Harness />);
+      const trigger = page().getByRole("button", { name: triggerName });
+      trigger.focus();
+      await act(async () => fireEvent.click(trigger));
+      const dialog = await page().findByRole("dialog", { name: "Focus drawer" });
+      expect(dialog.contains(document.activeElement)).toBe(true);
+      await waitFor(() => expect(document.body.style.overflowY).toBe("hidden"));
 
-    await act(async () => fireEvent.keyDown(document, { key: "Escape" }));
-    await waitFor(() => expect(page().queryByRole("dialog", { name: "Focus drawer" })).toBeNull());
-    await waitFor(() => expect(document.activeElement).toBe(trigger));
-    await waitFor(() => expect(document.body.style.overflowY).toBe(""));
-  });
+      await act(async () => fireEvent.keyDown(document, { key: "Escape" }));
+      await waitFor(() => expect(page().queryByRole("dialog", { name: "Focus drawer" })).toBeNull());
+      await waitFor(() => expect(document.activeElement).toBe(trigger));
+      await waitFor(() => expect(document.body.style.overflowY).toBe(""));
+    });
+  }
+
+  for (const dismissal of ["Escape", "Close"] as const) {
+    test(`restores the opener after ${dismissal} while a route focuses the shell`, async () => {
+      function Harness() {
+        const [open, setOpen] = useState(false);
+        const dismiss = () => {
+          setOpen(false);
+          document.querySelector<HTMLElement>("main")?.focus();
+        };
+        return (
+          <>
+            <button type="button" onClick={() => setOpen(true)}>Send</button>
+            <main tabIndex={-1} />
+            <MoneyModal open={open} labelledBy="route-title" immediate onCancel={dismiss} onClose={() => {}}>
+              <MoneyModalHeader title="Send" titleId="route-title" />
+            </MoneyModal>
+          </>
+        );
+      }
+
+      render(<Harness />);
+      const trigger = page().getByRole("button", { name: "Send" });
+      const rects = [new DOMRect(0, 0, 100, 44)];
+      trigger.getClientRects = () => Object.assign(rects, { item: (index: number) => rects[index] ?? null });
+      trigger.focus();
+      await act(async () => fireEvent.click(trigger));
+      await page().findByRole("dialog", { name: "Send" });
+      await act(async () => {
+        if (dismissal === "Escape") fireEvent.keyDown(document, { key: "Escape" });
+        else fireEvent.click(page().getByRole("button", { name: "Close" }));
+      });
+      await waitFor(() => expect(page().queryByRole("dialog", { name: "Send" })).toBeNull());
+      await waitFor(() => expect(document.activeElement).toBe(trigger));
+    });
+  }
 
   test("calls onClose only after an accepted close completes", async () => {
     const events: string[] = [];
