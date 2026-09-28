@@ -127,11 +127,9 @@ function LensTrack({ items, target, className, tone }: LensTrackProps) {
   return (
     <span className={`${styles.track} ${className} grid grid-cols-2`} style={{ transform: `translateX(${target * -50}%)` }}>
       {items.map(({ id, label, Icon }) => (
-        <span key={id} className={`${styles.tab} ${tone === "unselected" ? styles.unselected : ""} flex min-w-0 items-center justify-center px-2`}>
-          <span className={navigationTabContentClassName}>
-            <Icon className={`${styles.icon} ${navigationTabIconClassName} ${colors.icon}`} aria-hidden="true" />
-            <span className={`${styles.label} ${navigationTabLabelClassName} ${colors.label}`}>{label}</span>
-          </span>
+        <span key={id} className={`${styles.tab} ${tone === "unselected" ? styles.unselected : ""} ${navigationTabContentClassName} px-2`}>
+          <Icon className={`${styles.icon} ${navigationTabIconClassName} ${colors.icon}`} aria-hidden="true" />
+          <span className={`${styles.label} ${navigationTabLabelClassName} ${colors.label}`}>{label}</span>
         </span>
       ))}
     </span>
@@ -361,10 +359,8 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
         style={slide}
       >
         {ready ? (
-          <span className={`${styles.cutout} absolute`}>
-            <span className={`${styles.hole} absolute inset-0`} style={masks ?? undefined}>
-              <LensTrack items={items} target={place} className={`${styles.cutoutTrack} absolute`} tone="unselected" />
-            </span>
+          <span className={`${styles.cutout} ${styles.hole} absolute`} style={masks ?? undefined}>
+            <LensTrack items={items} target={place} className={`${styles.cutoutTrack} absolute`} tone="unselected" />
           </span>
         ) : null}
       </span>
