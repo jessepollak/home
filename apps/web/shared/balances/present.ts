@@ -1,3 +1,4 @@
+import { findInvestAssetByAddress } from "@/config/invest-assets";
 import type { FiatCurrencyCode, RegionId } from "@/config/regions";
 import { weightedAprWad } from "@/shared/borrowing/math";
 import {
@@ -498,7 +499,11 @@ function tokenQuantity(
     symbol,
     {
       cashCurrency: holding.cashCurrency,
-      category: holding.kind === "native" ? "crypto" : undefined,
+      category: holding.kind === "native"
+        ? "crypto"
+        : holding.contractAddress
+          ? findInvestAssetByAddress(holding.contractAddress)?.category
+          : undefined,
       regionId: snapshot.region,
     },
   );

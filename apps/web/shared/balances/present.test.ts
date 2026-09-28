@@ -1,4 +1,7 @@
+import { cryptoAssets, stockAssets } from "@/config/invest-assets";
+import { formatPresentationTokenAmount, presentationAssetClass } from "@/shared/formatting/money";
 import { describe, expect, test } from "bun:test";
+import { parseBalancesSnapshot } from "./contract";
 import {
   FIXTURE_BORROW_MARKET_ID,
   FIXTURE_CATALOG,
@@ -13,11 +16,91 @@ import {
   unavailableBalance,
   walletHolding,
 } from "./fixtures";
+import type { BalancesFixtureOptions } from "./fixtures";
+import type { BalancesSnapshot } from "./types";
 import {
   presentBalanceRows,
   presentBalances,
   presentMoneyGroups,
 } from "./present";
+
+const unpriced = { status: "unpriced" as const, reason: "price-unavailable" as const };
+
+function validatedPresentationSnapshot(options: BalancesFixtureOptions): BalancesSnapshot {
+  const snapshot = buildBalancesSnapshotFixture(options);
+  expect(parseBalancesSnapshot(snapshot, {
+    subject: "cdp:test",
+    smartAccountAddress: snapshot.owner.address,
+    chainId: snapshot.owner.chainId,
+  }, snapshot.region)).toEqual(snapshot);
+  return snapshot;
+}
+
+describe("balance presentation precision", () => {
+  test("renders MSFTc at stock precision in priced and unpriced balance rows", () => {
+    const asset = stockAssets.find((stock) => stock.id === "msftc");
+    if (!asset) throw new Error("Microsoft asset missing");
+    const baseUnits = (BigInt(12345) * BigInt(10) ** BigInt(asset.representation.decimals - 4)).toString();
+    const pricedRow = presentBalanceRows(validatedPresentationSnapshot({
+      registry: { msftc: { balance: ready(baseUnits), value: priced("USD", "200") } },
+    })).find((row) => row.name === asset.displayName);
+    const unpricedRow = presentBalanceRows(validatedPresentationSnapshot({
+      registry: { msftc: { balance: ready(baseUnits), value: unpriced } },
+    })).find((row) => row.name === asset.displayName);
+    expect(pricedRow?.secondary).toBe("1.2345 MSFTc");
+    expect(unpricedRow).toMatchObject({ primary: "1.2345 MSFTc", secondary: null });
+  });
+
+  test("formats every configured stock balance and symbol-only quantity at four digits", () => {
+    for (const asset of stockAssets) {
+      const { tokenSymbol, decimals } = asset.representation;
+      const baseUnits = (BigInt(12345) * BigInt(10) ** BigInt(decimals - 4)).toString();
+      const row = presentBalanceRows(validatedPresentationSnapshot({
+        registry: { [asset.id]: { balance: ready(baseUnits), value: priced("USD", "200") } },
+      })).find((entry) => entry.name === asset.displayName);
+      expect(row?.secondary).toBe(`1.2345 ${tokenSymbol}`);
+      expect(presentationAssetClass({ symbol: tokenSymbol.toLowerCase() })).toBe("major");
+      expect(formatPresentationTokenAmount(baseUnits, decimals, tokenSymbol)).toBe(`1.2345 ${tokenSymbol}`);
+    }
+  });
+
+  test("formats an unconfigured wallet stock contract by its configured symbol", () => {
+    const asset = stockAssets.find((stock) => stock.id === "msftc");
+    if (!asset) throw new Error("Microsoft asset missing");
+    const baseUnits = (BigInt(12345) * BigInt(10) ** BigInt(asset.representation.decimals - 4)).toString();
+    const holding = walletHolding({
+      address: "0x4444444444444444444444444444444444444444",
+      name: asset.displayName,
+      symbol: asset.representation.tokenSymbol,
+      decimals: asset.representation.decimals,
+    }, baseUnits, unpriced);
+    const snapshot = validatedPresentationSnapshot({ catalog: [holding] });
+    expect(presentBalanceRows(snapshot).find((row) => row.key === holding.key)?.primary)
+      .toBe("1.2345 MSFTc");
+  });
+
+  test("formats configured crypto via registry and leaves unknown wallet tokens on symbol fallback", () => {
+    const assets = cryptoAssets.filter((asset) => ["cbhype", "cbzec", "cbmega"].includes(asset.id));
+    expect(assets).toHaveLength(3);
+    const registry = Object.fromEntries(assets.map((asset) => [
+      asset.id,
+      {
+        balance: ready((BigInt(12345) * BigInt(10) ** BigInt(asset.representation.decimals - 4)).toString()),
+        value: unpriced,
+      },
+    ]));
+    const unknown = walletHolding({ ...FIXTURE_WALLET_TOKEN, symbol: "UNKNOWN" },
+      "1234500000000000000", unpriced);
+    const rows = presentBalanceRows(validatedPresentationSnapshot({ registry, catalog: [unknown] }));
+    for (const asset of assets) {
+      expect(rows.find((row) => row.name === asset.displayName)?.primary)
+        .toBe(`1.2345 ${asset.representation.tokenSymbol}`);
+      expect(presentationAssetClass({ symbol: asset.representation.tokenSymbol })).toBe("major");
+      expect(formatPresentationTokenAmount((BigInt(12345) * BigInt(10) ** BigInt(asset.representation.decimals - 4)).toString(), asset.representation.decimals, asset.representation.tokenSymbol)).toBe(`1.2345 ${asset.representation.tokenSymbol}`);
+    }
+    expect(rows.find((row) => row.key === unknown.key)?.primary).toBe("1.23 UNKNOWN");
+  });
+});
 
 describe("balance presentation", () => {
   test("a successful post-action refetch keeps Borrow visible while a genuine empty failure is unavailable", () => {
