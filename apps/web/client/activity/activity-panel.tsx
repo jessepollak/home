@@ -138,7 +138,8 @@ export function ActivityPanelView({
       transfers[0]!.blockTimestamp)
       : activity.page.window.to
     : null;
-  const feed = useMemo(() => mergeActivityFeed({ transfers, operations, orders, loadedThrough }), [transfers, operations, orders, loadedThrough]);
+  const cards = activity.status === "ready" ? activity.page.cards?.rows : undefined;
+  const feed = useMemo(() => mergeActivityFeed({ transfers, operations, orders, cards, loadedThrough }), [transfers, operations, orders, cards, loadedThrough]);
   const [clock, setClock] = useState(0);
   useEffect(() => {
     const now = Date.now();
@@ -184,18 +185,19 @@ export function ActivityPanelView({
   if (selection && selectedItem && selectedItem !== selection.last) {
     setSelection({ key: selection.key, last: selectedItem });
   }
-  const exhausted = activity.status !== "ready" || activity.page.nextCursor === null;
+  const exhausted = activity.status !== "ready" || activity.page.nextCursor === null && activity.page.onchainStatus !== "unavailable";
   const plain = density === "feed";
+  const onchainUnavailable = activity.status === "ready" && activity.page.onchainStatus === "unavailable";
   const sourcesPending = activity.status === "loading" || actionsStatus === "loading";
   const retryFailedSources = () => {
-    if (activity.status === "error") activity.retry();
+    if (activity.status === "error" || onchainUnavailable) activity.retry();
     if (actionsStatus === "error") retryActions?.();
     if (ordersStatus === "error") retryOrders?.();
     if (activity.status === "ready" && activity.loadMoreError) activity.retryLoadMore();
   };
   const inlineStatus = !plain;
 
-  const historyUnknown = activity.status === "error" || actionsStatus === "error" || ordersStatus === "error";
+  const historyUnknown = activity.status === "error" || onchainUnavailable || actionsStatus === "error" || ordersStatus === "error";
 
   if (activity.status === "unavailable" && !hasRows && actionsStatus !== "error" && ordersStatus !== "error") {
     return (
@@ -236,7 +238,8 @@ export function ActivityPanelView({
     );
   }
 
-  const footer = activity.status === "ready" ? (
+  const cardUnavailable = activity.status === "ready" && activity.page.cards?.status === "unavailable";
+  const footer = activity.status === "ready" && !onchainUnavailable ? (
     activity.page.nextCursor === null ? hasRows ? (
       <p className="text-center text-xs text-muted-foreground" role="status">End of activity</p>
     ) : null : (
@@ -246,10 +249,11 @@ export function ActivityPanelView({
   return (
     <>
       <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} rows={hasRows} sectionRef={sectionRef}>
-        {inlineStatus && activity.status === "error" ? (
+        {cardUnavailable ? <p role="status" className="text-sm text-muted-foreground">Card purchases may be out of date.</p> : null}
+        {inlineStatus && (activity.status === "error" || onchainUnavailable) ? (
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p role="status" className="text-sm text-muted-foreground">
-              Onchain transfers are unavailable. Recorded Home actions are still shown.
+              Onchain transfers are unavailable. Other available activity is still shown.
             </p>
             <LoadRetryButton onRetry={activity.retry}>Retry onchain transfers</LoadRetryButton>
           </div>

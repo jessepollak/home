@@ -2,11 +2,13 @@ import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list
 import type { ActivityOrder } from "@/shared/activity/contract-orders";
 import { compareActivityTransferKeys } from "@/shared/activity/contract";
 import { activityAssets, type ActivityTransfer } from "@/shared/activity/types";
+import type { CardPurchase } from "@/shared/cards/transactions-contract";
 import type { MoneyActionAmount } from "@/shared/money-actions/types";
 import { cashoutWithdrawForDeposit, outranksCashoutWithdraw, presentCashout } from "./cash-out-presenter";
 
 export type ActivityFeedItem =
   | { kind: "order"; id: string; timestamp: string; order: ActivityOrder; withdraw?: RecentMoneyActionOperation; reviewed?: RecentMoneyActionOperation }
+  | { kind: "card"; id: string; timestamp: string; purchase: CardPurchase }
   | {
       kind: "transfer";
       id: string;
@@ -40,6 +42,7 @@ export function mergeActivityFeed(input: {
   transfers: readonly ActivityTransfer[];
   operations: readonly RecentMoneyActionOperation[];
   orders?: readonly ActivityOrder[];
+  cards?: readonly CardPurchase[];
   loadedThrough: string | null;
 }): ActivityFeedItem[] {
   const loadedThroughTime = input.loadedThrough === null ? null : Date.parse(input.loadedThrough);
@@ -89,6 +92,9 @@ export function mergeActivityFeed(input: {
   }
 
   return [
+    ...(input.cards ?? []).map((purchase): ActivityFeedItem => ({
+      kind: "card", id: purchase.id, timestamp: purchase.createdAt, purchase,
+    })),
     ...input.transfers.filter((transfer) => !actionIdsByHash.has(transfer.transactionHash.toLowerCase()) &&
       !fundingReceiptLogs.has(`${transfer.transactionHash.toLowerCase()}:${transfer.logIndex}`))
       .map((transfer): ActivityFeedItem => ({

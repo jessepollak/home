@@ -491,18 +491,22 @@ describe("ConnectedActivityPanel", () => {
         initialExecutionTimestamp = new Date(
           new Date(first.window.to).getTime() - 60 * 60 * 1000,
         ).toISOString();
-        first.source.stale = true;
-        first.source.executionTimestamp = initialExecutionTimestamp;
+        if (first.source) {
+          first.source.stale = true;
+          first.source.executionTimestamp = initialExecutionTimestamp;
+        }
         return first;
       }
       const second = pageFor(query, WALLET_A, {
         id: "event-2",
         blockNumber: "19",
       });
-      second.source.stale = false;
-      second.source.executionTimestamp = new Date(
-        new Date(second.window.to).getTime() - 1_000,
-      ).toISOString();
+      if (second.source) {
+        second.source.stale = false;
+        second.source.executionTimestamp = new Date(
+          new Date(second.window.to).getTime() - 1_000,
+        ).toISOString();
+      }
       second.transfers.unshift({
         ...pageFor(query, WALLET_A, {
           id: "event-1",
