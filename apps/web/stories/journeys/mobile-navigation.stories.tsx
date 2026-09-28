@@ -498,6 +498,22 @@ export const UnconfirmedRelease: Story = { play: async ({ canvasElement }) => {
   await waitFor(() => expect(Math.abs(centerOf(lens).x - centerOf(within(nav).getByRole("button", { name: "Home" })).x)).toBeLessThanOrEqual(2), { timeout: 1_500 });
   await expect(within(nav).getByRole("button", { name: "Home" })).toHaveAttribute("aria-current", "page");
 } };
+export const NavigationDuringPress: Story = { args: { initialPanel: "invest" }, play: async ({ canvasElement }) => {
+  const nav = await verifyNav(canvasElement, "Invest");
+  await verifySelectionGeometry(nav, "Invest");
+  const home = within(nav).getByRole("button", { name: "Home" });
+  const invest = within(nav).getByRole("button", { name: "Invest" });
+  const lens = nav.querySelector<HTMLElement>('[data-navigation-lens="ready"]')!;
+  touch("pointerdown", invest, centerOf(invest));
+  await verifyLensOver(lens, invest, true);
+  home.focus();
+  await userEvent.keyboard("{Enter}");
+  await expect(home).toHaveAttribute("aria-current", "page");
+  await expect(nav).not.toHaveAttribute("data-lens-pressed");
+  await verifyLensOver(lens, home, false);
+  touch("pointerup", invest, centerOf(invest));
+  await verifySelectionGeometry(nav, "Home");
+} };
 export const InterruptedMotion: Story = { render: (args) => <MotionSwitchShell {...args} />, play: async ({ canvasElement }) => {
   const nav = await verifyNav(canvasElement, "Home");
   await waitFor(() => expect(nav.querySelector('[data-navigation-lens="ready"]')).toBeInTheDocument());

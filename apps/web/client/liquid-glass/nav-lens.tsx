@@ -175,8 +175,8 @@ function useLensSize(element: React.RefObject<HTMLElement | null>) {
 
 export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLensProps) {
   const windowRef = useRef<HTMLSpanElement>(null);
-  const targetRef = useRef(target);
-  const [override, setOverride] = useState<{ base: number | null; place: number } | null>(null);
+  const retarget = useRef<(next: number) => void>(null);
+  const [override, setOverride] = useState<number | null>(null);
   const floorRef = useRef<HTMLElement | null>(null);
   const baseId = `nav-lens-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const [rimEnabled] = useState(readRimEnabled);
@@ -201,13 +201,14 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
   } as CSSProperties : null, [size]);
 
   useLayoutEffect(() => {
-    targetRef.current = target;
+    retarget.current?.(target);
   }, [target]);
 
   useLayoutEffect(() => {
     const nav = windowRef.current?.parentElement;
     if (!nav || reducedMotion) return;
     let gesture: { id: number; x: number; y: number; index: number; dragged: boolean } | null = null;
+    let want: number | null = null;
     let narrow = 0;
     let hold = 0;
     let glide = 0;
@@ -218,8 +219,8 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
     const show = (index: number | null) => {
       clearTimeout(hold);
       clearTimeout(glide);
-      if (index === null) setOverride(null);
-      else setOverride({ base: null, place: getComputedStyle(nav).direction === "rtl" ? -index : index });
+      want = index === null ? index : getComputedStyle(nav).direction === "rtl" ? -index : index;
+      setOverride(want);
     };
     const tabAt = (x: number, y: number) => {
       const bounds = nav.getBoundingClientRect();
@@ -239,7 +240,6 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
       settle = window.setTimeout(() => {
         settle = 0;
         lower();
-        setOverride((current) => current && { ...current, base: targetRef.current });
         hold = window.setTimeout(() => show(null), HOLD_MS);
       }, busyUntil - performance.now());
     };
@@ -269,6 +269,7 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
       lower();
       show(null);
     };
+    retarget.current = (next) => { if (want !== null && want !== next) reset(); };
     const startPointer = (event: PointerEvent) => {
       suppressUntil = 0;
       if (gesture && event.pointerId !== gesture.id) reset();
@@ -321,12 +322,10 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
     return () => {
       off.abort();
       clearTimeout(narrow);
-      clearTimeout(hold);
-      clearTimeout(glide);
       clearTimeout(settle);
       nav.removeAttribute("data-lens-pressed");
       nav.removeAttribute("data-lens-wide");
-      setOverride(null);
+      show(null);
     };
   }, [reducedMotion]);
 
@@ -347,7 +346,7 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
   }, [ready, onReadyChange]);
   useLayoutEffect(() => () => onReadyChange(false), [onReadyChange]);
 
-  const place = override && (override.base ?? target) === target ? override.place : target;
+  const place = override ?? target;
   const slide = { transform: `translateX(${place * 100}%)`, "--lens-lift-x": LIFT_X, "--lens-lift-y": LIFT_Y } as CSSProperties;
   const motion = reducedMotion ? styles.still : "";
 
