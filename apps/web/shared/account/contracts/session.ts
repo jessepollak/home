@@ -4,14 +4,11 @@ import {
 
   type VerifiedAccountSession,
 } from "@/shared/account/session-types";
+import { parseAddress } from "@/shared/chain/hex";
 
 export type SessionResponse = VerifiedAccountSession;
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
-}
-
-function normalizeAddress(value: string): `0x${string}` {
-  return value.toLowerCase() as `0x${string}`;
 }
 
 export function parseSession(value: unknown): SessionResponse | null {
@@ -48,18 +45,15 @@ export function parseSession(value: unknown): SessionResponse | null {
   }
 
   const { address, chainId } = value.smartAccount;
-  if (
-    typeof address !== "string" ||
-    !/^0x[0-9a-fA-F]{40}$/.test(address) ||
-    chainId !== BASE_CHAIN_ID
-  ) {
+  const parsedAddress = parseAddress(address);
+  if (!parsedAddress || chainId !== BASE_CHAIN_ID) {
     return null;
   }
 
   return {
     user: { subject },
     smartAccount: {
-      address: normalizeAddress(address),
+      address: parsedAddress,
       chainId: BASE_CHAIN_ID,
     },
     accountProvider,

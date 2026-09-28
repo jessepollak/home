@@ -7,6 +7,7 @@ import {
   type Hex as ViemHex,
 } from "viem";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import { parseAddress } from "@/shared/chain/hex";
 import type { AccessTokenValidator } from "@/server/cdp/session";
 import {
   BASE_RPC_TIMEOUT_MS,
@@ -25,7 +26,6 @@ import type {
 export const COINBASE_SMART_WALLET_FACTORY_ADDRESS = "0xba5ed110efdba3d005bfc882d75358acbbb85842" as const;
 const ERC1271_MAGIC = "0x1626ba7e";
 const compactJwtPattern = /^[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$/;
-const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const hexPattern = /^0x(?:[0-9a-fA-F]{2})*$/;
 
 const smartWalletAbi = [
@@ -169,15 +169,15 @@ function parseFreshIdentity(value: unknown, session: VerifiedAccountSession): Fr
   const controlled = new Set<Address>();
   for (const account of value.evmAccountObjects) {
     if (!isRecord(account)) unsupported();
-    controlled.add(normalizeAddress(account.address));
+    controlled.add(parseAddress(account.address) ?? unsupported());
   }
   const matches = value.evmSmartAccountObjects.filter((account) =>
-    isRecord(account) && normalizeAddress(account.address) === session.smartAccount!.address,
+    isRecord(account) && (parseAddress(account.address) ?? unsupported()) === session.smartAccount!.address,
   );
   if (matches.length !== 1) unsupported();
   const match = matches[0];
   if (!Array.isArray(match.ownerAddresses) || match.ownerAddresses.length < 1) unsupported();
-  const ownerAddresses: Address[] = match.ownerAddresses.map((address: unknown) => normalizeAddress(address));
+  const ownerAddresses: Address[] = match.ownerAddresses.map((address: unknown) => parseAddress(address) ?? unsupported());
   if (new Set(ownerAddresses).size !== ownerAddresses.length) unsupported();
   const controlledOwners = ownerAddresses.filter((address) => controlled.has(address));
   if (controlledOwners.length < 1) unsupported();
@@ -214,11 +214,6 @@ function readBearerToken(request: Request): string | null {
   const authorization = request.headers.get("authorization");
   const token = authorization ? /^Bearer[\t ]+([^\s,]+)$/i.exec(authorization)?.[1] : null;
   return token && token.length <= 8192 && compactJwtPattern.test(token) ? token : null;
-}
-
-function normalizeAddress(value: unknown): Address {
-  if (typeof value !== "string" || !addressPattern.test(value)) unsupported();
-  return value.toLowerCase() as Address;
 }
 
 function unsupported(): never { throw new TradePreparationError("signer-unsupported"); }
