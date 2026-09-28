@@ -47,4 +47,38 @@ describe("Bridge client", () => {
       await expect(createBridgeClient(config!, fetchFakeBridge).readCustomer(fixtureCustomer.id)).rejects.toThrow("response too large");
     } finally { await fake.stop(); }
   });
+  test("creates a customer idempotently then obtains a hosted cards KYC link", async () => {
+    const fake = startFakeBridge("fake-key", { ...fixtureCustomer, status: "not_started", stripe_cardholder_id: null, endorsements: [] });
+    try {
+      const config = readCardJourneyConfig({ ...env, BRIDGE_API_BASE_URL: fake.origin })!;
+      const client = createBridgeClient(config, fetchFakeBridge);
+      const created = await client.createCustomer("11111111-1111-4111-8111-111111111111");
+      expect(created.id).toBe(fixtureCustomer.id);
+      expect(created.stripeCardholderId).toBeNull();
+      expect(await client.cardsKycLink(created.id)).toBe("https://bridge.withpersona.com/inquiry?inquiry-id=inq_test");
+      expect(await client.readCustomer(created.id)).toEqual(created);
+    } finally { await fake.stop(); }
+  });
+  test("every Bridge write read rejects failures, timeouts and partial results", async () => {
+    const config = readCardJourneyConfig(env)!;
+    const key = "11111111-1111-4111-8111-111111111111";
+    for (const call of ["create", "link"] as const) {
+      const invoke = (fetcher: typeof fetch) => call === "create" ? createBridgeClient(config, fetcher).createCustomer(key) : createBridgeClient(config, fetcher).cardsKycLink(fixtureCustomer.id);
+      await expect(invoke((async () => new Response(null, { status: 503 })) as unknown as typeof fetch)).rejects.toThrow("503");
+      await expect(invoke((async () => { throw new DOMException("timed out", "TimeoutError"); }) as unknown as typeof fetch)).rejects.toThrow("timed out");
+      await expect(invoke((async () => Response.json(call === "create" ? { id: fixtureCustomer.id } : { url: "https://wrong.example.test/" })) as unknown as typeof fetch)).rejects.toThrow();
+    }
+  });
+  test("fake endorsement approval permits only Stripe TEST cardholder creation", async () => {
+    const fake = startFakeBridge("fake-key");
+    let calls = 0;
+    try {
+      await expect(fake.approveCards("sk_live_wrong", (async () => { calls++; return Response.json({ id: "ich_123" }); }) as unknown as typeof fetch)).rejects.toThrow("TEST key");
+      expect(calls).toBe(0);
+      await fake.approveCards("sk_test_synthetic", (async () => { calls++; return Response.json({ id: "ich_123" }); }) as unknown as typeof fetch);
+      expect(calls).toBe(1);
+      const config = readCardJourneyConfig({ ...env, BRIDGE_API_BASE_URL: fake.origin })!;
+      expect((await createBridgeClient(config, fetchFakeBridge).readCustomer(fixtureCustomer.id)).stripeCardholderId).toBe("ich_123");
+    } finally { await fake.stop(); }
+  });
 });

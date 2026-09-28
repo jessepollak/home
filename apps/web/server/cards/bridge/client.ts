@@ -48,10 +48,11 @@ export function parseBridgeCustomer(value: unknown): BridgeCustomer {
 }
 
 export function createBridgeClient(config: CardJourneyConfig, fetcher: typeof fetch = fetch) {
-  async function request(path: string): Promise<unknown> {
+  async function request(path: string, init?: { body: string; key: string }): Promise<unknown> {
     const response = await fetcher(`${config.bridgeOrigin}${path}`, {
-      method: "GET", redirect: "manual", signal: AbortSignal.timeout(5000),
-      headers: { "Api-Key": config.bridgeApiKey },
+      method: init ? "POST" : "GET", redirect: "manual", cache: "no-store", signal: AbortSignal.timeout(5000),
+      headers: { "Api-Key": config.bridgeApiKey, ...(init ? { "Content-Type": "application/json", "Idempotency-Key": init.key } : {}) },
+      ...(init ? { body: init.body } : {}),
     });
     if (!response.ok) throw new Error(`Bridge request failed (${response.status})`);
     return readProviderJson(response, "Bridge");
@@ -62,6 +63,19 @@ export function createBridgeClient(config: CardJourneyConfig, fetcher: typeof fe
       const customer = parseBridgeCustomer(await request(`/v0/customers/${encodeURIComponent(id)}`));
       if (customer.id !== id) throw new Error("Bridge customer ID mismatch");
       return customer;
+    },
+    async createCustomer(key: string): Promise<BridgeCustomer> {
+      return parseBridgeCustomer(await request("/v0/customers", { body: JSON.stringify({ type: "individual", endorsements: ["cards"] }), key }));
+    },
+    async cardsKycLink(id: string): Promise<string> {
+      if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(id)) throw new Error("Invalid Bridge customer ID");
+      const value = await request(`/v0/customers/${encodeURIComponent(id)}/kyc_link?endorsement=cards`);
+      if (typeof value !== "object" || !value || Array.isArray(value)) throw new Error("Invalid Bridge KYC link");
+      const url = (value as Record<string, unknown>).url;
+      if (typeof url !== "string") throw new Error("Invalid Bridge KYC link");
+      const parsed = new URL(url);
+      if (parsed.protocol !== "https:" || parsed.hostname !== "bridge.withpersona.com" || parsed.username || parsed.password || parsed.hash) throw new Error("Invalid Bridge KYC link");
+      return url;
     },
   };
 }
