@@ -228,11 +228,15 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
     };
     const tabAt = (x: number, y: number) => {
       const bounds = nav.getBoundingClientRect();
-      if (y < bounds.top - REACH || y > bounds.bottom + REACH) return -1;
-      return tabs().findIndex((tab) => {
+      if (y < bounds.top - REACH || y > bounds.bottom + REACH || x < bounds.left - REACH || x > bounds.right + REACH) return -1;
+      let nearest = -1;
+      let gap = Infinity;
+      tabs().forEach((tab, index) => {
         const rect = tab.getBoundingClientRect();
-        return x >= rect.left && x < rect.right;
+        const distance = Math.max(rect.left - x, x - rect.right, 0);
+        if (distance < gap) [nearest, gap] = [index, distance];
       });
+      return nearest;
     };
     const lower = () => {
       clearTimeout(narrow);
@@ -258,6 +262,7 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
       const index = tabs().indexOf(tab);
       const lifted = nav.hasAttribute("data-lens-pressed");
       gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, index, dragged: false };
+      want = aim(index);
       confirmed = false;
       clearTimeout(narrow);
       clearTimeout(settle);

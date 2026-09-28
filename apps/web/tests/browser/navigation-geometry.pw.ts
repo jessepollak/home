@@ -216,6 +216,35 @@ for (const { name, lift, selected } of [
   });
 }
 
+for (const { name, beside, selected } of [
+  { name: "a drag released just beside the capsule selects the nearest tab", beside: 16, selected: "Invest" },
+  { name: "a drag released well beside the capsule cancels back", beside: 60, selected: "Home" },
+]) {
+  test(name, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await seedSignedInSession(page);
+    await installApiFixtures(page);
+    await page.goto("/home");
+    const nav = page.getByRole("navigation", { name: "Main navigation" });
+    await expect(nav.locator('[data-navigation-lens="ready"]')).toBeVisible();
+    const navBox = (await nav.boundingBox())!;
+    const homeBox = (await nav.getByRole("button", { name: "Home" }).boundingBox())!;
+    const startX = homeBox.x + homeBox.width / 2;
+    const y = homeBox.y + homeBox.height / 2;
+    const endX = navBox.x + navBox.width + beside;
+    const cdp = await page.context().newCDPSession(page);
+    const touch = (type: "touchStart" | "touchMove" | "touchEnd", x: number) =>
+      cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
+    await touch("touchStart", startX);
+    await expect(nav).toHaveAttribute("data-lens-pressed", "");
+    for (let step = 1; step <= 6; step += 1) await touch("touchMove", startX + ((endX - startX) * step) / 6);
+    await touch("touchEnd", endX);
+    await expect(nav.getByRole("button", { name: selected })).toHaveAttribute("aria-current", "page");
+    await expect(nav).not.toHaveAttribute("data-lens-pressed");
+    await expect(nav).not.toHaveAttribute("data-lens-wide");
+  });
+}
+
 test("a tap released just past its tab edge keeps the lens on the tab the click selects", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await seedSignedInSession(page);
