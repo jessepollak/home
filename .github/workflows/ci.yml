@@ -346,6 +346,19 @@ jobs:
           fi
           exit "$seed_status"
 
+      - name: Verify CPU throttle restoration
+        shell: bash
+        run: |
+          set +e
+          bun run --cwd apps/web perf:cpu-check --base-url http://localhost:3199 --out-dir performance-results/cpu-check
+          cpu_status=$?
+          if [[ -f apps/web/performance-results/cpu-check/cpu-check.md ]]; then
+            cat apps/web/performance-results/cpu-check/cpu-check.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "CPU throttle self-check produced no summary (exit $cpu_status)." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$cpu_status"
+
       - name: Report performance trend
         if: always()
         continue-on-error: true

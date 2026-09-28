@@ -102,6 +102,7 @@ The three generic ESLint IDs are replaced by stable, specific Home rule IDs rath
 | Raw JSX colors | app/client/components production | `var()`/`url()`/paint keywords and reviewed brand-asset file+literal pairs | hex, named, and functional paint values on JSX color attributes |
 | Test source reads | tests/helpers except migration subtree; two exact source-read exceptions | migration helper/subtree and Apple Pay asset test; other test rules remain active | fs imports/exports/dynamic/require/templates and `Bun.file` |
 | Deterministic test timing | tests/helpers except migration subtree | 50ms timer and 2000ms wait boundaries | `setTimeout`, `setInterval`, `Bun.sleep`, and Testing Library waits above limits |
+| Playwright browser smoke | `*.pw.ts` and `*.pw.tsx` | `page`, `context`, or `browser` fixtures; hooks and suites | `home/no-request-only-playwright` rejects tests destructuring `request` alone or with non-browser fixtures |
 | Behavioral assertions | tests/helpers except migration subtree | class writes/mutations | className/classList/getAttribute("class") reads |
 | Next relative location assignment | Next production scope | absolute and safe assignments | relative `location.assign`/equivalent cases matching the former rule |
 

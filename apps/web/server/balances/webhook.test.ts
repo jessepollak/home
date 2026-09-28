@@ -8,8 +8,8 @@ import { MemoryBalanceSnapshotStore } from "./memory-snapshot-store";
 import { createCdpWebhookHandler as handler, extractCdpActivityAddresses } from "./webhook";
 
 type Dependencies = Parameters<typeof handler>[0];
-function createCdpWebhookHandler(deps: Omit<Dependencies, "keyring"> & { keyring?: Dependencies["keyring"] }) {
-  return handler({ ...deps, keyring: deps.keyring ?? null });
+function createCdpWebhookHandler(deps: Omit<Dependencies, "keyring" | "history"> & Partial<Pick<Dependencies, "keyring" | "history">>) {
+  return handler({ ...deps, keyring: deps.keyring ?? null, history: deps.history ?? null });
 }
 const key = resolveSecretKeyring({ HOME_SECRET_ENCRYPTION_KEY: randomBytes(32).toString("base64url"), HOME_SECRET_KEY_VERSION: "1" });
 if (!key.ok) throw new Error("invalid fixture key");
@@ -18,6 +18,7 @@ const keyring = key.keyring;
 const SECRET = "fixture-webhook-secret";
 const NOW = new Date("2026-09-13T12:00:00.000Z");
 const ADDRESS = "0x1111111111111111111111111111111111111111" as const;
+const OTHER_ADDRESS = "0x2222222222222222222222222222222222222222" as const;
 
 function signed(
   raw: Uint8Array,
@@ -109,6 +110,58 @@ describe("CDP balance activity webhook", () => {
     const response = await createCdpWebhookHandler({ store, subscriptions: subscriptionStore(), now: () => NOW })(raw, signed(raw, undefined, version, headers), headers);
     expect(response.status).toBe(200);
     expect((await store.get(8453, ADDRESS))?.staleAt).toBe(NOW.toISOString());
+  });
+  test("marks snapshot stale and enrolled history dirty with the same addresses and time", async () => {
+    const store = await seededStore();
+    const staleCalls: Array<[number, readonly `0x${string}`[], Date]> = [];
+    const dirtyCalls: Array<[number, readonly `0x${string}`[], Date]> = [];
+    const raw = body({ eventType: "wallet.activity.multi", data: {
+      matchedAddress: ADDRESS.toUpperCase().replace("0X", "0x"),
+      from: OTHER_ADDRESS,
+      to: ADDRESS,
+    } });
+    const response = await createCdpWebhookHandler({
+      store: { markStaleMany: async (chainId, addresses, at) => {
+        staleCalls.push([chainId, addresses, at]);
+        return store.markStaleMany(chainId, addresses, at);
+      } },
+      history: { markDirty: async (chainId, addresses, at) => {
+        dirtyCalls.push([chainId, addresses, at]);
+        return 1;
+      } },
+      subscriptions: subscriptionStore(), now: () => NOW,
+    })(raw, signed(raw));
+    expect(response.status).toBe(200);
+    expect(staleCalls).toEqual([[8453, [ADDRESS, OTHER_ADDRESS], NOW]]);
+    expect(dirtyCalls).toEqual(staleCalls);
+    expect((await store.get(8453, ADDRESS))?.staleAt).toBe(NOW.toISOString());
+  });
+  test("accepts activity when history storage is unavailable", async () => {
+    const store = await seededStore();
+    const raw = body({ eventType: "wallet.activity.detected", data: { address: ADDRESS } });
+    const response = await createCdpWebhookHandler({ store, history: null, subscriptions: subscriptionStore(), now: () => NOW })(raw, signed(raw));
+    expect(response.status).toBe(200);
+    expect((await store.get(8453, ADDRESS))?.staleAt).toBe(NOW.toISOString());
+  });
+  test("history dirty failure preserves acceptance and stale marking and reports without addresses", async () => {
+    const store = await seededStore();
+    const raw = body({ eventType: "wallet.activity.detected", data: { address: ADDRESS } });
+    const lines: string[] = [];
+    setObservabilityLogWriterForTests((line) => { lines.push(line); });
+    try {
+      const response = await createCdpWebhookHandler({
+        store, history: { markDirty: async () => { throw new Error(`failed ${ADDRESS}`); } },
+        subscriptions: subscriptionStore(), now: () => NOW,
+      })(raw, signed(raw));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ accepted: true });
+      expect((await store.get(8453, ADDRESS))?.staleAt).toBe(NOW.toISOString());
+      const failureEvents = lines.map((line) => JSON.parse(line) as Record<string, unknown>)
+        .filter((line) => line.code === "WEBHOOK_HISTORY_DIRTY_FAILED");
+      expect(failureEvents).toHaveLength(1);
+      expect(failureEvents[0]).toMatchObject({ kind: "balances-webhook", route: "/api/webhooks/cdp", outcome: "failed" });
+      expect(lines.join("\n")).not.toContain(ADDRESS);
+    } finally { setObservabilityLogWriterForTests(); }
   });
 
   test("accepts any valid v1 value and uppercase signed header names", async () => {
@@ -207,11 +260,13 @@ describe("CDP balance activity webhook", () => {
   test("rejects invalid signatures and timestamps outside the replay window", async () => {
     const store = await seededStore();
     const raw = body({ eventType: "wallet.activity.detected", data: { address: ADDRESS } });
-    const handler = createCdpWebhookHandler({ store, subscriptions: subscriptionStore(), now: () => NOW });
+    const dirtyCalls: number[] = [];
+    const handler = createCdpWebhookHandler({ store, history: { markDirty: async () => { dirtyCalls.push(1); return 0; } }, subscriptions: subscriptionStore(), now: () => NOW });
     expect((await handler(raw, "t=1,v1=bad")).status).toBe(401);
     const old = Math.floor(NOW.getTime() / 1000) - 301;
     expect((await handler(raw, signed(raw, old))).status).toBe(401);
     expect((await store.get(8453, ADDRESS))?.staleAt).toBeNull();
+    expect(dirtyCalls).toEqual([]);
   });
 
   test("duplicate delivery is harmless", async () => {
@@ -226,10 +281,12 @@ describe("CDP balance activity webhook", () => {
   test("unknown event types are accepted and ignored", async () => {
     const store = await seededStore();
     const raw = body({ eventType: "other.event", data: { address: ADDRESS } });
-    const response = await createCdpWebhookHandler({ store, subscriptions: subscriptionStore(), now: () => NOW })(raw, signed(raw));
+    const dirtyCalls: number[] = [];
+    const response = await createCdpWebhookHandler({ store, history: { markDirty: async () => { dirtyCalls.push(1); return 0; } }, subscriptions: subscriptionStore(), now: () => NOW })(raw, signed(raw));
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ accepted: true });
     expect((await store.get(8453, ADDRESS))?.staleAt).toBeNull();
+    expect(dirtyCalls).toEqual([]);
   });
 
   test("a signed malformed body is rejected after signature verification", async () => {

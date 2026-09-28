@@ -32,6 +32,7 @@ const walletFreeAccountResourcePrefixes = ["/api/account/country-preference"] as
 
 const accountResourcePrefixes = [
   ...walletFreeAccountResourcePrefixes,
+  "/api/account/email-request",
   "/api/invites/link",
   "/api/actions",
   "/api/activity/orders",

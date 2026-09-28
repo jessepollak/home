@@ -109,9 +109,13 @@ export function PrimaryNavigation({
   const NavLens = useNavLens();
   const [lensReady, setLensReady] = useState(false);
 
+  const activeIndex = isAccountSettingsOpen && layout === "rail" ? -1 : navigationItems.findIndex((item) =>
+    activeNavigation === item.id ||
+    (item.id === "home" && isHomeNestedPanelId(activeNavigation)));
+  const pillOffStart = activeIndex > 0;
   useLayoutEffect(() => {
-    if (navRef.current) setDirection(getComputedStyle(navRef.current).direction);
-  }, [activeNavigation]);
+    if (pillOffStart && navRef.current) setDirection(getComputedStyle(navRef.current).direction);
+  }, [pillOffStart]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => setMotionReady(true));
@@ -151,9 +155,6 @@ export function PrimaryNavigation({
     persistCollapsed(next);
     for (const listener of railListeners) listener();
   };
-  const activeIndex = isAccountSettingsOpen && layout === "rail" ? -1 : navigationItems.findIndex((item) =>
-    activeNavigation === item.id ||
-    (item.id === "home" && isHomeNestedPanelId(activeNavigation)));
   const lensTarget = activeIndex > 0 ? (direction === "rtl" ? -1 : 1) : 0;
   const lensItems = useMemo(() => navigationItems.map((item) => ({
     id: item.id,
