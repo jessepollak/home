@@ -2,7 +2,7 @@ import { generateKeyPairSync, sign } from "node:crypto";
 import { describe, expect, test } from "bun:test";
 import { readImmersveConfig } from "./config";
 import { createImmersveWebhookHandler, isImmersveWebhookTopic } from "./webhook";
-import type { CardEvent } from "./store";
+import type { CardObservation } from "../provider";
 
 const NOW = Date.parse("2026-09-24T12:00:00.000Z");
 const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -28,14 +28,14 @@ function delivery(body: string, messageId = "event-1", kid = "first") {
   return { raw, headers: new Headers({ "x-delivery-id": deliveryId, "x-key-id": kid, "x-signature": signature }) };
 }
 function fixture() {
-  const events: CardEvent[] = [];
+  const events: CardObservation[] = [];
   let calls = 0;
   const handle = createImmersveWebhookHandler({
     config,
     now: () => NOW,
     client: { getJwks: async () => { calls++; return { keys: [key] }; } },
     store: { insert: async (event) => {
-      if (events.some((existing) => existing.mode === event.mode && existing.messageId === event.messageId)) return false;
+      if (events.some((existing) => existing.provider === event.provider && existing.mode === event.mode && existing.eventId === event.eventId)) return false;
       events.push(event);
       return true;
     } },
@@ -50,7 +50,7 @@ describe("Immersve webhook", () => {
     expect(await ctx.handle(first.raw, first.headers, "payment-updated")).toBe("accepted");
     expect(await ctx.handle(first.raw, first.headers, "payment-updated")).toBe("accepted");
     expect(ctx.calls()).toBe(1);
-    expect(ctx.events).toEqual([{ mode: "sandbox", messageId: "event-1", topic: "payment-updated", cardholderAccountId: "owner-1", cardId: "card-1", paymentId: "payment-1" }]);
+    expect(ctx.events).toEqual([{ provider: "immersve", mode: "sandbox", eventId: "event-1", kind: "payment-updated", occurredAt: envelope.createdAt, externalIds: { cardholder: "owner-1", card: "card-1", transaction: "payment-1", customer: null } }]);
     expect(JSON.stringify(ctx.events)).not.toContain("private-data");
   });
   test("rejects unknown route topic early and signed topic/segment mismatch", async () => {
@@ -79,7 +79,7 @@ describe("Immersve webhook", () => {
   test("unknown kid is retryable until it can be refetched and then accepted", async () => {
     let calls = 0;
     let time = NOW;
-    const events: CardEvent[] = [];
+    const events: CardObservation[] = [];
     const handle = createImmersveWebhookHandler({
       config,
       now: () => time,
@@ -147,7 +147,7 @@ describe("Immersve webhook", () => {
     const ctx = fixture();
     const kyc = delivery(JSON.stringify({ ...envelope, messageId: "event-2", topic: "kyc-succeeded", payload: { accountId: "owner-1", name: "synthetic-private" } }), "event-2");
     expect(await ctx.handle(kyc.raw, kyc.headers, "kyc-succeeded")).toBe("accepted");
-    expect(ctx.events).toEqual([{ mode: "sandbox", messageId: "event-2", topic: "kyc-succeeded", cardholderAccountId: "owner-1", cardId: null, paymentId: null }]);
+    expect(ctx.events).toEqual([{ provider: "immersve", mode: "sandbox", eventId: "event-2", kind: "kyc-succeeded", occurredAt: envelope.createdAt, externalIds: { cardholder: "owner-1", card: null, transaction: null, customer: null } }]);
   });
   test("JWKS fetch failure, malformed keys and weak RSA keys are retryable", async () => {
     const weak = generateKeyPairSync("rsa", { modulusLength: 1024 }).publicKey.export({ format: "jwk" });
