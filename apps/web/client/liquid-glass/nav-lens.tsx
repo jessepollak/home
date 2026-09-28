@@ -177,6 +177,7 @@ function useLensSize(element: React.RefObject<HTMLElement | null>) {
 export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLensProps) {
   const windowRef = useRef<HTMLSpanElement>(null);
   const stretchRef = useRef<HTMLSpanElement>(null);
+  const counterRef = useRef<HTMLSpanElement>(null);
   const placed = useRef(target);
   const retarget = useRef<(next: number) => void>(null);
   const [override, setOverride] = useState<number | null>(null);
@@ -355,6 +356,8 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
       nav.removeAttribute("data-lens-pressed");
       nav.removeAttribute("data-lens-wide");
       nav.removeAttribute("data-lens-glide");
+      nav.style.removeProperty("--lens-stretch-from");
+      nav.style.removeProperty("--lens-counter-from");
       show(null);
     };
   }, [reducedMotion]);
@@ -382,7 +385,11 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
     const from = placed.current;
     placed.current = place;
     if (!nav || from === place || reducedMotion || !nav.hasAttribute("data-lens-pressed")) return;
-    nav.setAttribute("data-lens-glide", nav.getAttribute("data-lens-glide") === "a" ? "b" : "a");
+    const glide = nav.getAttribute("data-lens-glide");
+    const sample = (element: HTMLElement | null) => glide && element ? getComputedStyle(element).transform : "none";
+    nav.style.setProperty("--lens-stretch-from", sample(stretchRef.current));
+    nav.style.setProperty("--lens-counter-from", sample(counterRef.current));
+    nav.setAttribute("data-lens-glide", glide === "a" ? "b" : "a");
   }, [place, reducedMotion]);
   const slide = { transform: `translateX(${place * 100}%)`, "--lens-lift-x": LIFT_X, "--lens-lift-y": LIFT_Y } as CSSProperties;
   const motion = reducedMotion ? styles.still : "";
@@ -398,7 +405,7 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
       >
         {ready ? (
           <span className={`${styles.cutout} ${styles.hole} ${styles.stretch} absolute`} style={masks ?? undefined}>
-            <span className={`${styles.counter} absolute inset-0`}>
+            <span ref={counterRef} className={`${styles.counter} absolute inset-0`}>
               <LensTrack items={items} target={place} className={`${styles.cutoutTrack} absolute`} tone="unselected" />
             </span>
           </span>

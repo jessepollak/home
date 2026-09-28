@@ -102,28 +102,28 @@
 :global(nav)[data-lens-glide="b"] .counter { animation: lens-counter-b 300ms ease-in-out; }
 
 @keyframes lens-stretch-a {
-  0% { transform: none; animation-timing-function: ease-out; }
+  0% { transform: var(--lens-stretch-from, none); animation-timing-function: ease-out; }
   15% { transform: scale(1.14, .93); }
   48% { transform: scale(1.01, .995); }
   70% { transform: scale(.985, 1.012); }
 }
 
 @keyframes lens-stretch-b {
-  0% { transform: none; animation-timing-function: ease-out; }
+  0% { transform: var(--lens-stretch-from, none); animation-timing-function: ease-out; }
   15% { transform: scale(1.14, .93); }
   48% { transform: scale(1.01, .995); }
   70% { transform: scale(.985, 1.012); }
 }
 
 @keyframes lens-counter-a {
-  0% { transform: none; animation-timing-function: ease-out; }
+  0% { transform: var(--lens-counter-from, none); animation-timing-function: ease-out; }
   15% { transform: scale(.877, 1.075); }
   48% { transform: scale(.99, 1.005); }
   70% { transform: scale(1.015, .988); }
 }
 
 @keyframes lens-counter-b {
-  0% { transform: none; animation-timing-function: ease-out; }
+  0% { transform: var(--lens-counter-from, none); animation-timing-function: ease-out; }
   15% { transform: scale(.877, 1.075); }
   48% { transform: scale(.99, 1.005); }
   70% { transform: scale(1.015, .988); }
