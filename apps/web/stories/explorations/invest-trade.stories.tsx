@@ -81,6 +81,7 @@ function RtlDocument({ children }: { children: ReactNode }) {
 
 const meta = {
   id: "explorations-invest-trade",
+  tags: ["exploration"],
   title: "Explorations/Invest Trade",
   component: TradeStory,
   args: { scene: "entry" },

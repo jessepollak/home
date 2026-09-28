@@ -52,6 +52,10 @@ const fixtures = {
   "shared/comment-clean.ts": ["/** @public Shared contract for external consumers. */", "export const value = 1;"].join(String.fromCharCode(10)),
   "client/comment-clean.test.ts": ["// test code is excluded", "export const value = 1;"].join(String.fromCharCode(10)),
   "client/comment-clean.stories.tsx": ["// story code is excluded", "export const value = 1;"].join(String.fromCharCode(10)),
+  "stories/explorations/untagged.stories.tsx": 'const meta = { id: "missing-tag" }; export default meta;',
+  "client/explorations/untagged.stories.tsx": 'export default { id: "missing-tag" };',
+  "components/explorations/tagged.stories.tsx": 'const meta = { id: "tagged", tags: ["exploration"] }; export default meta;',
+  "stories/journeys/ordinary.stories.tsx": 'const meta = { id: "ordinary" }; export default meta;',
   "client/storybook.tsx": 'import x from "@storybook/test"; export { x }; export * from "msw"; const a = import(`storybook`); const b = require("msw/browser"); export { a, b };',
   "config/storybook.ts": 'export { setupWorker } from "msw/browser";',
   "types/storybook.d.ts": 'import type { Meta } from "@storybook/nextjs-vite"; export type M = Meta;',
@@ -201,6 +205,7 @@ const contracts = [
   ["product comments are rejected in all five layers while documented exceptions and tests stay clean", () => { for (const file of ["app/comment.mjs", "client/comment.ts", "components/comment.jsx", "server/comment.ts", "shared/comment.tsx"]) assertHits(file, "home(no-comments)"); assertClean("shared/comment-clean.ts"); assertClean("client/comment-clean.test.ts"); assertClean("client/comment-clean.stories.tsx"); }],
   ["silent catches fail while typed recovery values pass in every covered layer", () => { assertHits("app/silent-catch.ts", "home(no-silent-catch)"); assertHits("client/silent-catch.ts", "home(no-silent-catch)"); assertHits("server/silent-catch.ts", "home(no-silent-catch)"); assertClean("app/handled-catch.ts"); assertClean("client/handled-catch.ts"); }],
   ["self-referential expectations fail while independent assertions pass", () => { assertHits("client/policy.test.ts", "home(no-self-referential-expectation)"); assertClean("client/policy-clean.test.ts"); }],
+  ["exploration stories require a default-meta tag only in exploration paths", () => { assertHits("stories/explorations/untagged.stories.tsx", "home(exploration-story-tag)"); assertHits("client/explorations/untagged.stories.tsx", "home(exploration-story-tag)"); assertClean("components/explorations/tagged.stories.tsx"); assertClean("stories/journeys/ordinary.stories.tsx"); }],
 
   ["instrumentation helpers are isolated unless their boundary is intrinsically safe", () => { assertHits("server/instrumentation-unsafe.ts", "home(isolate-instrumentation-calls)"); assertClean("server/instrumentation-safe.ts"); }],
   ["raw fields have no allowlist in every product layer", () => { assertHits("app/raw.tsx", "home(no-raw-fields)", 2); assertHits("client/raw.tsx", "home(no-raw-fields)", 2); assertHits("components/raw.tsx", "home(no-raw-fields)", 2); }],

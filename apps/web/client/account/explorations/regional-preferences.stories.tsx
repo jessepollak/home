@@ -5,6 +5,7 @@ import { RegionalShell } from "@/client/home/explorations/regional-shell";
 
 const meta = {
   id: "explorations-regional-preferences",
+  tags: ["exploration"],
   title: "Explorations/Regional preferences",
   component: RegionalPreferencesProposal,
   args: { initialCountry: "BR" },
