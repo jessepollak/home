@@ -1788,7 +1788,7 @@ function refreshFixture() {
     if (url.startsWith("/api/session")) return Response.json(session());
     if (url.startsWith("/api/activity?")) {
       calls.activity += 1;
-      if (fail) throw new Error("Activity read unavailable");
+      if (fail) return Response.json({ invalid: true });
       const query = new URLSearchParams(url.split("?")[1]);
       const to = query.get("to")!;
       return Response.json({
