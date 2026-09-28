@@ -31,9 +31,9 @@ const RIM_FROST = 24;
 const RIM_CORE_INSET = 19;
 const RIM_CORE_FEATHER = 5;
 const MIN_PRESS_MS = 120;
-const TRAVEL_MS = 180;
-const STRETCH_X = 1.1;
-const STRETCH_Y = .96;
+const TRAVEL_MS = 400;
+const STRETCH_X = 1.08;
+const STRETCH_Y = .97;
 const HOLE_PAD = 8;
 const HOLE_MARGIN = 1.5;
 const cache = createRecentCache<LensImages>(4);
@@ -208,8 +208,9 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
       if (!layer) return;
       for (const animation of layer.getAnimations()) animation.cancel();
       layer.animate([
-        { transform: starts[index] === "none" ? "scale(1)" : starts[index], easing: "cubic-bezier(.3, 0, .4, 1)" },
-        { transform: `scale(${x}, ${y})`, offset: .45, easing: "cubic-bezier(.4, 0, .5, 1)" },
+        { transform: starts[index] === "none" ? "scale(1)" : starts[index], easing: "cubic-bezier(.2, 0, .4, 1)" },
+        { transform: `scale(${x}, ${y})`, offset: .15, easing: "cubic-bezier(.4, 0, .4, 1)" },
+        { transform: "scale(1)", offset: .6 },
         { transform: "scale(1)" },
       ], { duration: TRAVEL_MS });
     });

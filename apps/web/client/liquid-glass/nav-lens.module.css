@@ -1,11 +1,13 @@
 .slide {
   width: calc((100% - .5rem) / 2);
-  transition: transform var(--lens-travel) cubic-bezier(.25, 1.15, .35, 1);
+  --lens-travel-ease: cubic-bezier(.25, .25, .15, 1.2);
+  --lens-release-ease: cubic-bezier(.35, .75, 0, 1.25);
+  transition: transform var(--lens-travel) var(--lens-travel-ease);
 }
 
 .window {
   opacity: 0;
-  transition: opacity 160ms ease-out, transform var(--lens-travel) cubic-bezier(.25, 1.15, .35, 1);
+  transition: opacity 160ms ease-out, transform var(--lens-travel) var(--lens-travel-ease);
 }
 
 .window[data-navigation-lens="ready"] { opacity: 1; }
@@ -28,7 +30,7 @@
   width: calc(200% / 3);
 }
 
-.track { transition: transform var(--lens-travel) cubic-bezier(.25, 1.15, .35, 1); }
+.track { transition: transform var(--lens-travel) var(--lens-travel-ease); }
 
 .glass {
   overflow: hidden;
@@ -40,13 +42,13 @@
   -webkit-backdrop-filter: var(--glass-lens-occlusion);
 }
 
-.lift, .unlift { transition: transform 420ms cubic-bezier(.3, 0, .2, 1.5); }
+.lift, .unlift { transition: transform 450ms var(--lens-release-ease); }
 
-:global(nav)[data-lens-pressed] :is(.lift, .unlift) { transition: transform 160ms cubic-bezier(.2, 0, 0, 1); }
+:global(nav)[data-lens-pressed] :is(.lift, .unlift) { transition: transform 180ms cubic-bezier(.2, 0, 0, 1); }
 
-:global(nav)[data-lens-pressed] .lift { transform: scale(1.15, 1.18); }
+:global(nav)[data-lens-pressed] .lift { transform: scale(1.14); }
 
-:global(nav)[data-lens-pressed] .unlift { transform: scale(calc(1 / 1.15), calc(1 / 1.18)); }
+:global(nav)[data-lens-pressed] .unlift { transform: scale(calc(1 / 1.14)); }
 
 .refraction {
   overflow: visible;
