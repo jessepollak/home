@@ -1,39 +1,18 @@
-import {
-  cryptoAssets,
-  investAssets,
-  stockAssets,
-  type InvestAsset,
-
-} from "@/config/invest-assets";
+import { investAssets, isDiscoverableAsset, type InvestAsset } from "@/config/invest-assets";
 import { matchesMarketPriceAssetIdentity } from "@/shared/invest/contracts/market-price-history";
 import { unavailableMarketData, type MarketDataState } from "@/shared/invest/invest-market";
 
 export const STOCK_PREVIEW_COUNT = 6;
 export const MEME_PREVIEW_COUNT = 4;
 
-export const discoverShelves = [
-  {
-    id: "stocks",
-    title: "Stocks",
-    category: "stock" as const,
-    assets: stockAssets,
-    previewCount: STOCK_PREVIEW_COUNT,
-  },
-  {
-    id: "crypto",
-    title: "Crypto",
-    category: "crypto" as const,
-    assets: cryptoAssets,
-    previewAssetIds: ["cbbtc", "cbxrp", "cbdoge", "cbltc"],
-  },
-  {
-    id: "memes",
-    title: "Memes",
-    category: "meme" as const,
-    assets: [] as readonly InvestAsset[],
-    previewAssetIds: [] as readonly string[],
-  },
-] as const;
+export function createDiscoverShelves(assets: readonly InvestAsset[]) {
+  return [
+    { id: "stocks" as const, title: "Stocks", category: "stock" as const, assets: assets.filter((asset) => asset.category === "stock" && isDiscoverableAsset(asset)), previewCount: STOCK_PREVIEW_COUNT },
+    { id: "crypto" as const, title: "Crypto", category: "crypto" as const, assets: assets.filter((asset) => asset.category === "crypto" && isDiscoverableAsset(asset)), previewAssetIds: ["cbbtc", "cbxrp", "cbdoge", "cbltc"] },
+    { id: "memes" as const, title: "Memes", category: "meme" as const, assets: [] as readonly InvestAsset[], previewAssetIds: [] as readonly string[] },
+  ] as const;
+}
+export const discoverShelves = createDiscoverShelves(investAssets);
 
 export type DiscoverShelfId = (typeof discoverShelves)[number]["id"];
 export type MemeShelfStatus = "ready" | "empty" | "error" | "unavailable" | "loading";
@@ -73,7 +52,7 @@ export function getShelfAssets(
   shelf: (typeof discoverShelves)[number],
   memeAssets: readonly InvestAsset[] = [],
 ): readonly InvestAsset[] {
-  return shelf.id === "memes" ? memeAssets : shelf.assets;
+  return (shelf.id === "memes" ? memeAssets : shelf.assets).filter((asset) => isDiscoverableAsset(asset));
 }
 
 export function getShelfPreviewAssets(
@@ -88,7 +67,7 @@ export function getShelfPreviewAssets(
     return assets.slice(0, shelf.previewCount);
   }
   return shelf.previewAssetIds.flatMap((assetId) => {
-    const asset = assetById.get(assetId);
+    const asset = assets.find((item) => item.id === assetId);
     return asset ? [asset] : [];
   });
 }

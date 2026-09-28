@@ -3,6 +3,7 @@ import "@/client/account/dom-test-harness";
 import { afterEach, expect, test } from "bun:test";
 import { investAssets } from "@/config/invest-assets";
 import { getHomeQueryClient } from "@/client/query/query-client";
+import { AccountWalletClientProvider, createBlockedAccountWalletClient } from "@/client/account/cdp-client";
 
 const { cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { AssetDetailScreen } = await import("./asset-detail-screen");
@@ -22,6 +23,36 @@ test("asset details show an accessible chart loading state before the chart reso
   await waitFor(() => expect(view.getByRole("status", { name: "No price history for this range." })).toBeTruthy());
   expect(view.queryByRole("status", { name: "Loading price history" })).toBeNull();
   expect(view.getByRole("group", { name: "Price range" })).toBeTruthy();
+});
+
+test("a stock header keeps the reference price while the DEX chart change stays in the chart caption", async () => {
+  const stock = investAssets.find((item) => item.id === "nvdac")!;
+  const now = Date.now();
+  window.fetch = (async (input: RequestInfo | URL) => {
+    const range = new URL(String(input), "http://localhost").searchParams.get("range") ?? "1W";
+    return Response.json({ version: 1, provider: "codex", assetId: stock.id, range, currency: "USD",
+      fetchedAt: new Date(now).toISOString(), status: "ready", points: [
+        { time: new Date(now - 5 * 86400000).toISOString(), value: "100" },
+        { time: new Date(now - 60000).toISOString(), value: "120" },
+      ] });
+  }) as unknown as typeof fetch;
+  const view = render(<AccountWalletClientProvider client={createBlockedAccountWalletClient("provider-unavailable")}><AssetDetailScreen asset={stock} ownership={<div>Position</div>} onBack={() => {}} market={{
+    status: "ready", snapshots: [{ assetId: stock.id, displayPrice: "$225.125", asOf: new Date(now - 3600000).toISOString(),
+      sourceLabel: "Chainlink", session: "closed" }],
+  }} /></AccountWalletClientProvider>);
+  await waitFor(() => expect(view.getByText(/^DEX market price · .*20/)).toBeTruthy());
+  expect(view.getByText("Last close")).toBeTruthy();
+  expect(view.container.querySelector("[data-money-change]")).toBeNull();
+});
+
+test("a removed stock detail says it is no longer listed instead of inventing a price", () => {
+  const stock = { ...investAssets.find((item) => item.id === "nvdac")!, listing: "removed" as const };
+  window.fetch = (async () => Response.json({ version: 1, provider: "codex", assetId: stock.id, range: "1W",
+    currency: "USD", fetchedAt: null, status: "empty", points: [] })) as unknown as typeof fetch;
+  const view = render(<AccountWalletClientProvider client={createBlockedAccountWalletClient("provider-unavailable")}><AssetDetailScreen
+    asset={stock} ownership={<div>Position</div>} onBack={() => {}} market={{ status: "ready", snapshots: [] }} /></AccountWalletClientProvider>);
+  expect(view.getByText("No longer listed")).toBeTruthy();
+  expect(view.queryByText("No price supplied")).toBeNull();
 });
 
 test("failed chart loading preserves the chart region and offers retry", () => {

@@ -37,6 +37,21 @@ Primary sources:
 - Official Base stock roster: https://www.base.org/stocks
 - Base announcement and restriction summary: https://blog.base.org/tokenized-stocks
 - Canonical contract identity: the Base explorer link attached to each instrument on the official roster; those links are preserved in `apps/web/config/invest-assets.ts`.
+- Dated source snapshots: `apps/web/config/invest-sources/base-stocks.json` (roster, integration doc, Chainlink feed directory, oracle registry; verified September 28, 2026 at Base block 51886274), `coinbase-wrapped.json`, and `us-equity-holidays.json`. A deterministic test proves the runtime registry equals them. `bun run --cwd apps/web invest-catalog:refresh` compares the live sources with those snapshots (add `--onchain` for the chain reads); it never edits product config. See [gates](gates.md).
+
+### Stock valuation
+
+Stock prices and stock holding values come from the Chainlink Coinbase tokenized-equity feed for each listed stock (8 decimals, 24-hour heartbeat), read at one Base block together with the onchain oracle registry. The feed answer already includes the registry multiplier; Home never multiplies it again. Codex never prices a stock for display or holdings.
+
+| Reference state | Rule | Invest price | Holding value |
+| --- | --- | --- | --- |
+| Open | Valid answer during the US-equity 24/5 session | Price | Value |
+| Closed | Valid answer while the session is closed (weekends, NYSE full-day holidays) | Price, “Last close” | Value, “Last close” |
+| Paused | Registry paused for a corporate action | —, “Paused” | —, “Paused” |
+| Stale | Open-market time since the last update exceeds heartbeat + 1 hour | —, “Price delayed” | —, “Price delayed” |
+| Unavailable | Read failed, invalid or future answer, decimals mismatch, invalid registry | — | —, “Value unavailable” |
+
+A stock with `listing: "removed"` stays identifiable for existing holdings and shows “No longer listed” instead of a value. The session model opens Sunday 20:00 and closes Friday 20:00 America/New_York, minus the vendored NYSE holidays (`us-equity-holidays.json`, verified September 28, 2026 against the NYSE hours calendar, covering through 2028-12-31). A date past that coverage is never treated as open, so the state falls to the frozen “Last close” rather than a live price; `invest-catalog:refresh` reports the remaining coverage and fails the drift check when the calendar has expired or is within 120 days of expiry, which is when the vendored list must be extended. The stock detail chart remains the Codex DEX market history and is captioned “DEX market price”, so it is never read as the reference or holding value.
 
 A familiar company ticker is only a display label. Coinbase’s token symbol and exact Base contract stay in the registry and builder docs, not on the Invest list. Corporate actions can alter a token-to-share relationship, and Home does not infer or execute par exchange.
 
@@ -104,12 +119,17 @@ The bounded roster includes only Coinbase-wrapped assets for which the current C
 | Dogecoin | DOGE | cbDOGE | 8 | `0xcbD06E5A2B0C65597161de254AA074E489dEb510` |
 | Litecoin | LTC | cbLTC | 8 | `0xcb17C9Db87B595717C857a08468793f5bAb6445F` |
 | Cardano | ADA | cbADA | 6 | `0xcbADA732173e39521CDBE8bf59a6Dc85A9fc7b8c` |
+| Hyperliquid | HYPE | cbHYPE | 18 | `0xB200000000000000000000451d033a5000cb479e` |
+| Zcash | ZEC | cbZEC | 8 | `0xB2000000000000000000008501b13360000cb2EC` |
+| MegaETH | MEGA | cbMEGA | 18 | `0xcb111E6A2a3bde90856D299d61341ac302167D23` |
 
 Verification sources and method:
 
-- Coinbase issuer roster, Base network availability, contract addresses, and backing semantics: https://www.coinbase.com/campaigns/cbbtc
+- Coinbase issuer roster, Base network availability, contract addresses, and backing semantics: https://www.coinbase.com/cbbtc (snapshot: `apps/web/config/invest-sources/coinbase-wrapped.json`)
 - Contract explorer links: the BaseScan token page for each Coinbase-published address, preserved in `apps/web/config/invest-assets.ts`.
 - ERC-20 token names, symbols, and decimals were read from those exact contracts on Base chain 8453 with `eth_call` (`name()`, `symbol()`, and `decimals()`) on September 7, 2026. The returned names were Coinbase Wrapped BTC/DOGE/XRP/LTC/ADA and the returned token symbols and decimals match the table.
+- cbHYPE, cbZEC, and cbMEGA were read the same way at Base block 51886274 (September 28, 2026): Coinbase Wrapped Hyperliquid (18), Coinbase Wrapped ZEC (8), and Coinbase Wrapped MEGA (18). The issuer page labels cbZEC “Wrapped ZEC”. cbETH (no Base row in that table) and cbSOL are excluded.
+- cbHYPE and cbZEC use B20-style `0xB200…` addresses but are Coinbase 1:1 wrapped assets: they are `crypto` registry entries priced like the other wrapped assets and never take the tokenized-stock feed, multiplier or pause semantics. Stock semantics come only from a `stock` registry entry, never from an address prefix.
 
 These are Base ERC-20 representations, not native BTC, XRP Ledger, Dogecoin, Litecoin, or Cardano deposits. The registry records the `cb…` token symbol, Base 8453, decimals, and contract for builders. Product list and discovery UI must not surface those as contract lists, backing essays, or source roster walls. List rows may keep a short asset identity so a familiar ticker is not mistaken for a native-network deposit; legal and eligibility copy stays under Account → Disclosures / Terms.
 
@@ -149,7 +169,7 @@ Market price history reserves half of the Codex reader's in-flight capacity for 
 
 The read-only `GET /api/market-prices/stats?assetId=...` reads Codex market cap, 24-hour volume, and liquidity for Base tokens in USD. A dynamic `base:0x…` identity is admitted by the same server check as chart history ([Codex prices](codex-prices.md#public-contracts)), so a search-only token that shows a chart also shows its stats. Missing or invalid values are omitted. Tokenized stocks are unsupported because a DEX token market cap is not the company's market cap. The Past 24h and Past year ranges are drawn from the chart history's candle closes and are labelled as closing prices, not intraperiod highs and lows. These display statistics provide no trade authority; only a server-validated executable quote can authorize a trade.
 
-Asset detail shows a held position from the wallet balances read: the exact token quantity and, for crypto and memes, the priced value. A failed balances read shows the balance as unavailable, never zero. An asset absent from a snapshot counts as unheld only when the relevant inventory coverage is complete (the configured registry for listed assets, the wallet catalog for dynamic memes); otherwise the balance is unavailable. Opening an owned holding from Home Investments shows that holding's balance card in the same position slot below the chart. Tokenized-stock positions show their quantity with the value explicitly unavailable until the stock holding valuation lands; the Codex USD market chart is never used as a stock holding value. No return, profit or loss, or cost basis is shown.
+Asset detail shows a held position from the wallet balances read: the exact token quantity and the priced value, with the value state labels in [Stock valuation](#stock-valuation) (“Last close”, “Paused”, “Price delayed”, “Value unavailable”, “No longer listed”). A failed balances read shows the balance as unavailable, never zero. An asset absent from a snapshot counts as unheld only when the relevant inventory coverage is complete (the configured registry for listed assets, the wallet catalog for dynamic memes); otherwise the balance is unavailable. Opening an owned holding from Home Investments shows that holding's balance card in the same position slot below the chart. Tokenized-stock positions are valued from the Chainlink reference price; the Codex USD market chart is never used as a stock holding value. No return, profit or loss, or cost basis is shown.
 
 ## Caller-supplied market snapshots
 

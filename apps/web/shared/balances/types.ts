@@ -1,7 +1,7 @@
 
 import type { FiatCurrencyCode, RegionId } from "@/config/regions";
 
-export const BALANCES_VERSION = 4 as const;
+export const BALANCES_VERSION = 5 as const;
 export const BALANCES_CHAIN_ID = 8453 as const;
 export const BALANCES_PRICE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
@@ -25,16 +25,20 @@ export type HoldingValueUnpricedReason =
   | "price-stale"
   | "fx-unavailable"
   | "below-market-gate"
-  | "no-quote-currency";
+  | "no-quote-currency"
+  | "price-paused"
+  | "asset-removed";
+
+export type HoldingValueReference = { kind: "tokenized-equity"; session: "open" | "closed" };
 
 export type HoldingValue =
-  | { status: "priced"; currency: FiatCurrencyCode; amount: ExactDecimal; asOf: string }
+  | { status: "priced"; currency: FiatCurrencyCode; amount: ExactDecimal; asOf: string; reference?: HoldingValueReference }
   | { status: "unpriced"; reason: HoldingValueUnpricedReason }
   | { status: "unavailable" };
 
 export type HoldingCashValue =
   | { status: "priced"; currency: FiatCurrencyCode; amount: ExactDecimal }
-  | { status: "unpriced"; reason: Exclude<HoldingValueUnpricedReason, "below-market-gate" | "no-quote-currency"> }
+  | { status: "unpriced"; reason: Exclude<HoldingValueUnpricedReason, "below-market-gate" | "no-quote-currency" | "price-paused" | "asset-removed"> }
   | { status: "unavailable" };
 
 export type Holding = {

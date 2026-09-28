@@ -310,6 +310,19 @@ export function AccountSettings({
                 Morpho terms
               </a>
             </p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Stock prices are{" "}
+              <a className="font-medium text-primary" href="https://docs.chain.link/data-feeds/tokenized-equity-feeds/coinbase" target="_blank" rel="noreferrer">
+                Chainlink reference prices
+              </a>.{" "}
+              <a className="font-medium text-primary" href="https://www.base.org/stocks" target="_blank" rel="noreferrer">
+                Tokenized stock roster
+              </a>{" "}
+              ·{" "}
+              <a className="font-medium text-primary" href="https://www.coinbase.com/cbbtc" target="_blank" rel="noreferrer">
+                Coinbase wrapped assets
+              </a>
+            </p>
           </CardContent>
         </Card>
       </section>

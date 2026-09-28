@@ -20,6 +20,13 @@ describe("Base Invest search", () => {
     expect((await search(request("a"))).results.some((result) => result.kind === "configured" && result.assetId === "aaplc")).toBe(true);
     expect((await search(request(investAssets[0]!.contractAddress.toUpperCase().replace(/^0X/, "0x")))).results).toEqual([{ kind: "configured", assetId: "nvdac", match: "contract" }]);
   });
+  test("removed configured assets remain resolvable but never appear in search discovery", async () => {
+    const removed = { ...investAssets[0]!, listing: "removed" as const };
+    const search = createCodexSearchReader({ apiKey: undefined, assets: [removed], resolve: async () => ({ version: 1 as const, assetId: removed.id, asset: removed, source: "configured" as const, provider: "ok" as const, snapshot: null }) });
+    expect((await search(request(removed.displaySymbol))).results).toEqual([]);
+    expect((await search(request(removed.contractAddress))).results).toEqual([]);
+    expect(removed.contractAddress).toBe(investAssets[0]!.contractAddress);
+  });
 
   test("sends Base-only phrase search, retains distinct symbols, ranks relevance and drops wrong-chain/configured/duplicate contracts", async () => {
     const checked: string[] = [];

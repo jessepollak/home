@@ -28,26 +28,6 @@ export type DirectPortfolioAsset = {
   cashCurrency: FiatCurrencyCode | null;
 };
 
-const verifiedInvestDecimals: Readonly<Record<string, number>> = {
-  nvdac: 8,
-  metac: 8,
-  aaplc: 8,
-  googlc: 8,
-  amznc: 8,
-  msftc: 8,
-  mstrc: 8,
-  sndkc: 8,
-  spcxc: 8,
-  tslac: 8,
-  cbbtc: 8,
-  cbxrp: 6,
-  cbdoge: 8,
-  cbltc: 8,
-  cbada: 6,
-  degen: 18,
-  toshi: 18,
-};
-
 export const canonicalUsdcAsset = {
   id: "usdc",
   assetKey: PORTFOLIO_USDC_ASSET_KEY,
@@ -71,10 +51,7 @@ export const nativeEthAsset = {
 } as const satisfies DirectPortfolioAsset;
 
 export const investPortfolioAssets = investAssets.map((asset) => {
-  const decimals = verifiedInvestDecimals[asset.id];
-  if (decimals === undefined) {
-    throw new Error(`Missing verified decimals for ${asset.id}.`);
-  }
+  const decimals = asset.representation.decimals;
   return {
     id: asset.id,
     assetKey: `eip155:8453/erc20:${asset.contractAddress.toLowerCase()}`,

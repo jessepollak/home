@@ -11,6 +11,7 @@ import {
   type MarketPricesResponse,
 } from "@/shared/invest/contracts/market-prices";
 import {
+  MARKET_SESSION_RECHECK_MS,
   unavailableMarketData,
   type MarketDataState,
   type PresentationFxQuote,
@@ -38,6 +39,7 @@ export type UseMarketPricesOptions = {
   now?: () => number;
   freshnessMs?: number;
   refreshCooldownMs?: number;
+  sessionRecheckMs?: number;
 };
 
 export function useMarketPrices({
@@ -45,6 +47,7 @@ export function useMarketPrices({
   fetchImpl = fetch,
   now = Date.now,
   freshnessMs = MARKET_PRICE_DISPLAY_FRESHNESS_MS,
+  sessionRecheckMs = MARKET_SESSION_RECHECK_MS,
   refreshCooldownMs = VISIBILITY_REFRESH_COOLDOWN_MS,
 }: UseMarketPricesOptions = {}): PricedInvestMarketProps {
   const [ageRevision, setAgeRevision] = useState(0);
@@ -64,20 +67,25 @@ export function useMarketPrices({
       return payload;
     },
   });
+  const refetchMarketPrices = marketQuery.refetch;
   const marketResponse = marketQuery.data
-    ? ageMarketPricesResponse(marketQuery.data, now(), freshnessMs)
+    ? ageMarketPricesResponse(marketQuery.data, now(), freshnessMs, sessionRecheckMs)
     : createClientMarketResponse({
         status: marketQuery.isError ? "error" : "loading",
         ...(marketQuery.isError ? { message: "Current market prices are unavailable." } : {}),
       });
 
   useEffect(() => {
-    const nextExpiry = findNextExpiry(marketResponse, freshnessMs);
-    if (nextExpiry === null) return;
-    const delay = Math.max(0, nextExpiry - now() + 1);
-    const timeout = window.setTimeout(() => setAgeRevision((value) => value + 1), delay);
+    const nextExpiry = findNextExpiry(marketResponse, freshnessMs, sessionRecheckMs);
+    const recoverStocks = marketQuery.data !== undefined && !hasStockSnapshot(marketResponse);
+    if (nextExpiry === null && !recoverStocks) return;
+    const expiryDelay = nextExpiry === null ? sessionRecheckMs : Math.max(0, nextExpiry - now() + 1);
+    const timeout = window.setTimeout(() => {
+      setAgeRevision((value) => value + 1);
+      if (recoverStocks || hasSessionSnapshot(marketResponse)) void refetchMarketPrices();
+    }, recoverStocks ? Math.min(expiryDelay, sessionRecheckMs) : expiryDelay);
     return () => window.clearTimeout(timeout);
-  }, [ageRevision, freshnessMs, marketResponse, now]);
+  }, [ageRevision, freshnessMs, marketQuery.data, marketResponse, now, refetchMarketPrices, sessionRecheckMs]);
 
   return useMemo(() => {
     const marketProps: PricedInvestMarketProps = {
@@ -97,6 +105,7 @@ export function ageMarketPricesResponse(
   response: MarketPricesResponse,
   currentTimeMs: number,
   freshnessMs = MARKET_PRICE_DISPLAY_FRESHNESS_MS,
+  sessionRecheckMs = MARKET_SESSION_RECHECK_MS,
 ): MarketPricesResponse {
   let changed = false;
   const markets: Record<string, MarketDataState> = {};
@@ -108,6 +117,11 @@ export function ageMarketPricesResponse(
     }
 
     const freshSnapshots = market.snapshots.filter((snapshot) => {
+      if (snapshot.session) {
+        const checkedTime = Date.parse(snapshot.checkedAt ?? "");
+        return Number.isFinite(checkedTime) && checkedTime <= currentTimeMs + 60_000 &&
+          currentTimeMs - checkedTime <= sessionRecheckMs;
+      }
       const sourceTime = Date.parse(snapshot.asOf);
       return (
         Number.isFinite(sourceTime) &&
@@ -134,18 +148,29 @@ export function ageMarketPricesResponse(
 function findNextExpiry(
   response: MarketPricesResponse,
   freshnessMs: number,
+  sessionRecheckMs: number,
 ): number | null {
   let nextExpiry: number | null = null;
   for (const market of Object.values(response.markets)) {
     if (market.status !== "ready") continue;
     for (const snapshot of market.snapshots) {
-      const sourceTime = Date.parse(snapshot.asOf);
+      const sourceTime = Date.parse(snapshot.session ? snapshot.checkedAt ?? "" : snapshot.asOf);
       if (!Number.isFinite(sourceTime)) continue;
-      const expiry = sourceTime + freshnessMs;
+      const expiry = sourceTime + (snapshot.session ? sessionRecheckMs : freshnessMs);
       if (nextExpiry === null || expiry < nextExpiry) nextExpiry = expiry;
     }
   }
   return nextExpiry;
+}
+
+function hasStockSnapshot(response: MarketPricesResponse): boolean {
+  const stock = response.markets.stock;
+  return stock?.status === "ready" && stock.snapshots.length > 0;
+}
+
+function hasSessionSnapshot(response: MarketPricesResponse): boolean {
+  return Object.values(response.markets).some((market) =>
+    market.status === "ready" && market.snapshots.some((snapshot) => snapshot.session !== undefined));
 }
 
 function createClientMarketResponse(

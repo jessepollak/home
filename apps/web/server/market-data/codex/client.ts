@@ -70,13 +70,15 @@ export class CodexMarketDataError extends Error {
   }
 }
 
+const codexPricedAssets = investAssets.filter((asset) => asset.category !== "stock");
+
 export function createCodexMarketPricesReader({
   apiKey,
   fetchImpl = fetch,
   now = () => new Date(),
   timeoutMs = CODEX_REQUEST_TIMEOUT_MS,
 }: CodexReaderOptions) {
-  const assets = readConfiguredAssets(investAssets);
+  const assets = readConfiguredAssets(codexPricedAssets);
   let cache: CachedMarketPrices | null = null;
   let inFlight: Promise<MarketPricesResponse> | null = null;
 
@@ -108,7 +110,7 @@ export function createCodexMarketPricesReader({
 }
 
 export function createUnavailableMarketPricesResponse(
-  assets: readonly AllowedAsset[] = readConfiguredAssets(investAssets),
+  assets: readonly AllowedAsset[] = readConfiguredAssets(codexPricedAssets),
 ): MarketPricesResponse {
   return {
     version: MARKET_PRICES_VERSION,
