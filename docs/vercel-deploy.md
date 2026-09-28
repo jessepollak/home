@@ -24,7 +24,18 @@ Keep Vercel Authentication enabled while deploying and verifying the gate. After
 
 Before that setting change, an operator must configure cross-instance Vercel Firewall rate-limit rules for failed access submissions and unauthenticated cost-bearing endpoints, including `POST /api/access`, `POST /api/auth/base/nonce`, `POST /api/auth/base/verify`, `POST /api/actions/*/paymaster` (the unauthenticated wallet callback that forwards to a credential-bearing upstream), and `/api/market-prices/history`. Home intentionally has no in-memory or database rate limiter for this deployment boundary. Firewall configuration, protected-deployment checks, and WAF inspection are privileged operator actions, not CI proof.
 
-After the setting change, the operator runs unauthenticated live probes for the exact Apple file, protected pages and APIs, and rejected CDP/funding webhook deliveries, then separately verifies deployment access, Home sign-in, Home sign-out, and access logout. These live probes must record the deployment and commit without recording the shared credential. Local tests and preview evidence do not establish that production, Deployment Protection, Firewall, or webhook delivery was verified.
+After the setting change, the operator runs unauthenticated live probes for the exact Apple file, protected pages and APIs, rejected CDP/funding/Sumsub webhook deliveries, and a rejected identity-reconcile request, then separately verifies deployment access, Home sign-in, Home sign-out, and access logout. Each rejected probe must reach its handler and receive the handler's own rejection — `401` for a bad Sumsub digest, and `401` for a missing or wrong reconcile bearer (or `503` before `IDENTITY_RECONCILE_SECRET` is configured) — proving Deployment Protection and Firewall do not block the identity machine routes. These live probes must record the deployment and commit without recording the shared credential. Local tests and preview evidence do not establish that production, Deployment Protection, Firewall, or webhook delivery was verified.
+
+### Identity machine routes
+
+`POST /api/identity/webhooks/sumsub` and `POST /api/identity/reconcile` are deployment-access exemptions. Probe both unauthenticated and confirm the handler, not the protection layer, answers; a `403` or an HTML Deployment Protection page means the route never reached Home and the protection or Firewall configuration must be fixed.
+
+```sh
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://<host>/api/identity/webhooks/sumsub -H 'x-payload-digest: 00' -H 'x-payload-digest-alg: HMAC_SHA256_HEX' --data '{}'  # 401 (bad digest)
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://<host>/api/identity/reconcile  # 401 (missing bearer), or 503 before IDENTITY_RECONCILE_SECRET is set
+```
+
+Then confirm the scheduler's bearer returns `{ version: 1, processed, failed }` and that a real signed Sumsub delivery is accepted. Record the deployment and commit, never the digest, signing key or bearer.
 
 ### Administrator access
 

@@ -98,6 +98,10 @@ export function fixtureRoutes() {
     ["**/api/session", sessionBody],
     ["**/api/account/country-preference", { version: COUNTRY_PREFERENCE_VERSION, regionId: null }],
     ["**/api/invites/link", { version: 1, code: "abcdefghjk" }],
+    ["**/api/identity/verification", { version: 1, status: {
+      state: "not-started", category: "verification-required", action: "start",
+      verifiedAt: null, retryReason: null, supportUrl: null, consentRequired: true,
+    } }],
     ["**/api/balances**", {
       ...balances,
       holdings: balances.holdings.map((holding) => ({ ...holding, imageUrl: undefined })),

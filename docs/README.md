@@ -17,6 +17,7 @@ This map points to Home's current product, engineering, delivery, setup, and int
 - [Balances](balances.md) — enumeration, pinned reads, resolution, pricing, snapshots, and cache behavior.
 - [Borrow](borrow.md) and [Morpho markets](morpho-markets.md) — isolated-market product and protocol boundaries.
 - [Funding provider seam](funding-provider-seam.md) — adapter contract, order lifecycle, receipt rules, and provider rollout evidence.
+- [Identity verification](identity-verification.md) — Sumsub configuration, consent, signed webhook reconciliation, and sandbox evidence.
 - [Regional money](regional-money.md) and [currency defaults](currency-defaults.md) — presentation, asset mapping, and default selection.
 
 ## Delivery and design
