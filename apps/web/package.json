@@ -11,6 +11,7 @@
     "review:context": "bun run scripts/review-context.ts",
     "review:links": "bun run scripts/review-links.ts",
     "profile:activity": "bun run scripts/activity-scroll-profile.ts",
+    "profile:navigation": "bun run scripts/navigation-profile.ts",
     "perf:budget": "bun run scripts/performance/budget.ts",
     "perf:seeds": "bun run scripts/performance/seeds-check.ts",
     "lint": "oxlint -c .oxlintrc.jsonc --deny-warnings --report-unused-disable-directives --disable-nested-config .",
