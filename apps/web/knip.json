@@ -51,8 +51,6 @@
     "scripts/performance/seeds-check.ts!",
     "scripts/performance/cpu-check.ts!",
     "scripts/invest-catalog/refresh.ts!",
-    // Figma variables sync, run by package scripts and the main-only CI job.
-    "scripts/figma-variables.mjs!",
     "scripts/immersve-probe.ts!",
     "scripts/bridge-allowance-fork.ts!"
   ],

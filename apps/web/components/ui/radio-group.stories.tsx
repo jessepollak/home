@@ -8,7 +8,7 @@ const meta = {
   id: "ui-radio-group",
   title: "UI/RadioGroup",
   component: RadioGroup,
-  parameters: { layout: "centered", a11y: { test: "error" }, design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=160-1801" } },
+  parameters: { layout: "centered", a11y: { test: "error" } },
 } satisfies Meta<typeof RadioGroup>;
 
 export default meta;

@@ -1,6 +1,6 @@
 # Activity ledger — approved design (#855)
 
-The Activity ledger design approved in #855 is the contract for production Activity and Home's feed adoption in #967, initially for onchain transfers and Home actions. The production components and Activity-panel wiring live under `apps/web/client/activity/`. The [Figma design](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=308-5918) is section `308:5918` on the [Activity page](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13088) (`333:13088`); F1 Home `308:5919` (including `Card / Pending` `403:15340`), F2 Activity `308:6253` (`Card / Pending` and `Card / Recent`), detail S1–S7 `309:6495`, `309:6635`, `309:6721`, `309:6806`, `309:6870`, `309:7025`, `309:7100`; desktop D1 `309:7515` (`Card / Pending` and `Card / Recent`), label `309:7500`. Every frame is built from instances of the reconciled Components-page library.
+The Activity ledger design approved in #855 is the contract for production Activity and Home's feed adoption in #967, initially for onchain transfers and Home actions. The production components and Activity-panel wiring live under `apps/web/client/activity/`. Review the current shipped component alongside its Storybook stories and [review boards](design-system/component-workshop.md#review-boards).
 
 ## Source inventory and gaps
 
@@ -16,7 +16,7 @@ The Activity ledger design approved in #855 is the contract for production Activ
 
 ## Pending and Recent
 
-When anything is pending, Activity shows **Pending** and **Recent** in separate cards (Recent appears only when it has rows); with nothing pending it is one card with no group header. Figma F1 drew Home's embedded feed with Pending in its own card above an uncarded Recent header and rows. Since #1023 Home renders its whole Activity section in one standard section card, so Home's feed shows the Pending header and rows above the Recent header and rows inside that card, without a nested card; without Pending, Home shows its rows without a group header. The group headers use the balances page's treatment. Callers may localize both labels and the accessible attention announcement. Adapters deliver items newest first; each group keeps that order. Jesse's review comments on 2026-09-24 removed the row labels "Needs you" and "Check status".
+When anything is pending, Activity shows **Pending** and **Recent** in separate cards (Recent appears only when it has rows); with nothing pending it is one card with no group header. Since #1023 Home renders its whole Activity section in one standard section card, so Home's feed shows the Pending header and rows above the Recent header and rows inside that card, without a nested card; without Pending, Home shows its rows without a group header. The group headers use the balances page's treatment. Callers may localize both labels and the accessible attention announcement. Adapters deliver items newest first; each group keeps that order. Jesse's review comments on 2026-09-24 removed the row labels "Needs you" and "Check status".
 
 - **Pending** holds customer, provider, chain and Home waits, ambiguous items, and reversed items whose returned-funds withdrawal is allowed.
 - Within Pending, items that need the customer come first: a customer wait or reversal whose next action is allowed. Everything else keeps list order.

@@ -16,7 +16,7 @@ const meta = {
   id: "home-shell-header",
   title: "Home/Shell Header",
   component: ShellHeader,
-  parameters: { layout: "fullscreen", design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=11-773" } },
+  parameters: { layout: "fullscreen" },
   args: {
     isAccountSettingsOpen: false,
     nestedChromeTitle: null,

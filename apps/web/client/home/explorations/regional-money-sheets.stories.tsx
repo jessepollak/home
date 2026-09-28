@@ -104,7 +104,7 @@ const meta = {
   tags: ["exploration"],
   parameters: { layout: "fullscreen", viewport: { defaultViewport: "mobile" }, a11y: { test: "error" },
     docs: { description: { component: "Unreviewed #638 method and review proposal. Routes, amounts and fees are illustrative fixed fixtures; controls do not start money actions. Desktop review composes the existing MoneyConfirmSummary over Regional Home in a proposed centered placement that exists only in this story file, passed to the unchanged shared DrawerContent through className, without a MoneyModal state machine or action id. It moves into the shared Drawer only if Jesse selects it." } },
-    design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=311-12034" } },
+  },
 } satisfies Meta<typeof MethodSheet>;
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -161,7 +161,7 @@ export const CashOutReviewDesktop: Story = { args: { title: "Cash out", methods:
     await expect(handle).not.toBeNull();
     await expect(handle).not.toBeVisible();
   },
-  parameters: { viewport: { defaultViewport: "desktop" }, docs: { description: { story: "Storybook renders the proposed story-local centered 480px placement at desktop width, matching Figma frame `313:12047`." } } } };
+  parameters: { viewport: { defaultViewport: "desktop" }, docs: { description: { story: "Storybook renders the proposed story-local centered 480px placement at desktop width." } } } };
 export const CashOutReviewDesktopShort: Story = {
   ...CashOutReviewDesktop,
   play: async (context) => {

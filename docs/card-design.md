@@ -76,7 +76,7 @@ One card presents the static illustration slot “Illustration (#896)”, “Spe
 | Rows inside a block | flush list card, no dividers, minimum 44px | `CardContent inset="list"`; row `min-h-11 px-3 py-3` |
 | Content → footer | `space/4` from footer top padding; `space/1` scroll bleed clearance keeps the final border visible | content `pb-1` |
 | Footer | `space/4` sides and top; `space/2` between 44px buttons | `DrawerFooter` default `p-4 gap-2` |
-| Bottom safe inset | `space/4` + safe area (Figma frames draw it as `space/8`) | DrawerFooter default safe-area padding |
+| Bottom safe inset | `space/4` + safe area | DrawerFooter default safe-area padding |
 | No-footer Get help | content `space/4` + safe area | content bottom padding |
 
 Purchase sheets put the amount and badge before any reason alert and then the detail rows. Declines use a destructive reason alert; Pending uses a neutral one. Card details puts large masked art before Name on card and Type; the provider-hosted secure view owns full card data.
@@ -109,6 +109,6 @@ The failed verification stage and the state after Cancel depend on the provider;
 
 ## Frames and stories
 
-The Figma Card frames cover the landing and states, settings, confirmations, purchase detail variants, and Get help. There is no separate “Get help (outage)” frame and no settled-purchase frame in Figma; `OutageGetHelp` and `SettledPurchase` are Storybook-only states.
+Review the landing and states, settings, confirmations, purchase detail variants, Get help, `OutageGetHelp` and `SettledPurchase` in Storybook stories.
 
 Storybook (`explorations-card--*`, an unwired exploration rather than a production journey) includes: `Active`, `ActiveDesktop`, `Locked`, `LowAvailable`, `Outage`, `Loading`, `NotIssued`, `VerificationRequired`, `VerificationInReview`, `RegionUnavailable`, `WalletEligible`, `WalletAdded`, `CardSettings`, `ReplaceCard`, `CancelCard`, `OutageCardSettings`, `CardDetails`, `DeclinedLocked`, `DeclinedInsufficient`, `PendingPurchase`, `SettledPurchase`, `Refund`, `Reversal`, `GetHelp`, and `OutageGetHelp`. Outage is an orthogonal story arg, so `OutageCardSettings` renders a wallet-eligible customer during an outage with Add to phone wallet, Replace card and Cancel card unavailable.

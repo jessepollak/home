@@ -23,7 +23,6 @@ const meta = {
   args: { onRetry: fn(), onActivate: fn(), width: 480 },
   parameters: {
     layout: "centered",
-    design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=96-1147" },
   },
 } satisfies Meta<typeof FinanceRowAlignment>;
 

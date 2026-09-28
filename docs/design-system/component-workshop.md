@@ -26,7 +26,7 @@ The generated `apps/web/storybook-static/` directory is ignored and must not be 
 3. Declare the stories to review in the PR's `## Preview` ([Storybook links](../ui-pr-previews.md#storybook-links)); CI keeps the top **Review board** link and each row's frame link on the current Storybook deployment. Jesse can pin Vercel Comments on the preview for context, but only his own GitHub comments and reviews start a factory follow-up run, so feedback the factory should act on goes in a GitHub comment on the PR, with the board frame URL pasted or linked.
 4. Record Jesse's selection and reviewed revision on the issue or PR; implement in the same components and verify in Home.
 
-The board is the default surface for design proposals, review, and selection, not approval by itself. Figma remains optional for references and early sketches; existing mappings, Code Connect, and Figma comment handling continue to work. The [issue scope](../../.agents/skills/design-engineering/SKILL.md#follow-the-issue-scope) and Jesse's approval authority still govern adoption.
+The board is the design surface for proposals, review, and selection, not approval by itself. The [issue scope](../../.agents/skills/design-engineering/SKILL.md#follow-the-issue-scope) and Jesse's approval authority still govern adoption.
 
 A review board is a Storybook story arranging live story canvases; it is not part of the production application. The automatic **Changes in this PR** board shows indexed stories this build changed (changed story files or stories matching changed source files, using the PR number when known), plus any stories a `focus` link declares. Curated manifests in `apps/web/stories/review/boards/` hold story IDs, viewports, sections and review metadata; register their stories in `review-boards.stories.tsx`. Missing stories (and empty sections) are hidden, and a missing before story is omitted without hiding its after frame. Build Storybook to check the current index. Storybook injects `STORYBOOK_REVIEW_REPO`, `STORYBOOK_REVIEW_PR`, `STORYBOOK_REVIEW_CHANGED_FILES`, and `STORYBOOK_REVIEW_ADDED_FILES` alongside revision/deployment/branch; unavailable change data sends the manager's Review board link to Savings and displays an unavailable-data message on Changes.
 
@@ -41,19 +41,6 @@ On a desktop board opened on its own page (the toolbar's **Review board** link),
 `apps/web/.storybook/main.ts` registers `@storybook/addon-a11y`, `@storybook/addon-vitest`, and `@storybook/addon-mcp`, and sets `features.componentsManifest: true` — the Storybook 10.6 feature key, kept explicit rather than inferred from the addon's preset — alongside the `features.experimentalComponentsManifest: true` alias that issue #660 names. While the workshop runs, the MCP server answers at `http://127.0.0.1:$STORYBOOK_PORT/mcp` and exposes `docs-list`, `docs-show`, `docs-show-story`, `stories-find-by-component`, `stories-preview`, and `test-run`. The repository-root `.mcp.json` registers that endpoint as `storybook` with the literal `${STORYBOOK_PORT}` placeholder, so export the port in an interactive shell before starting the workshop (`export STORYBOOK_PORT=6006`; the factory sets it per slot) and start Storybook before relying on the tools.
 
 Discover before composing: `docs-list` lists every component the manifest knows, which includes every owned `apps/web/components/ui` module (each has a minimal workshop story beside it) and the pilot and journey surfaces. `docs-show <id>` returns documented props and story usage, and `stories-find-by-component` maps any source file to the story IDs that render it. Do not restate component props from memory or invent a parallel component.
-
-## Figma link
-
-Storybook and the [Home Figma file](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home) share one mapping: [`apps/web/figma-components.json`](../../apps/web/figma-components.json) identifies the library, frames and unmapped nodes, while each mapped component has its own [`apps/web/figma/components/<Name>.json`](../../apps/web/figma/components/) file. `@storybook/addon-designs` shows the mapped Figma node in each listed story's Design panel. Code Connect template files (`*.figma.ts` under `client/explorations/code-connect/` and `components/explorations/code-connect/`) show the real component in Figma Dev Mode. `apps/web/scripts/figma-variables.mjs` pushes the `globals.css` tokens into the `Home tokens` variables. Run these from `apps/web`:
-
-```sh
-bun run figma:connect:parse          # offline template check (CI step)
-bun run figma:variables:dry-run      # print the token plan; writes nothing
-bun run figma:connect:publish        # needs FIGMA_ACCESS_TOKEN (code_connect:write)
-bun run figma:variables              # needs FIGMA_ACCESS_TOKEN (file_variables:read/write)
-```
-
-CI publishes both on pushes to `main` when the `FIGMA_ACCESS_TOKEN` secret is set. Source-of-truth rules and the scopes live in [Figma workflow](../design-explorations/figma-workflow.md#source-of-truth).
 
 ## Journey stories
 
