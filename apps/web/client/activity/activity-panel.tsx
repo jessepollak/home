@@ -15,6 +15,7 @@ import { presentActivityLedgerEntries, presentActivityLedgerItems } from "./acti
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import type { ActivityOrder } from "@/shared/activity/contract-orders";
 import type { ActivityLedgerNextActionKind } from "./activity-ledger";
+import type { CashOutWithdrawJourney } from "./cash-out-withdraw-journey";
 import type { RegionId } from "@/config/regions";
 import { mergeActivityFeed, type ActivityFeedItem } from "./activity-feed";
 import { type UseActivityResult } from "./use-activity";
@@ -43,6 +44,9 @@ export function ActivityPanelView({
   onOrderAction,
   cancelBusy = false,
   cancelError = null,
+  withdrawJourney,
+  fetchOperations,
+  onViewActivity,
   onDetailsChange,
   onDetailsOpenChange,
   canOpenAsset,
@@ -65,6 +69,9 @@ export function ActivityPanelView({
   onOrderAction?: (order: ActivityOrder, kind: ActivityLedgerNextActionKind) => void;
   cancelBusy?: boolean;
   cancelError?: string | null;
+  withdrawJourney?: CashOutWithdrawJourney;
+  fetchOperations?: (signal?: AbortSignal) => Promise<unknown>;
+  onViewActivity?: (close: () => void) => void;
   onDetailsChange?: (open: boolean) => void;
   onDetailsOpenChange?: (open: boolean) => void;
   canOpenAsset?: (assetKey: string) => boolean;
@@ -315,6 +322,9 @@ export function ActivityPanelView({
         }}
         actionBusy={cancelBusy}
         actionError={cancelError}
+        withdrawJourney={withdrawJourney}
+        fetchOperations={fetchOperations}
+        onViewActivity={onViewActivity}
       />
     </>
   );

@@ -337,7 +337,7 @@ export function MoneyModalStepLoading({ step, depth, title, titleId, onBack, clo
 }
 
 type MoneyModalFooterProps = {
-  primaryLabel: ReactNode; onPrimary?: () => void; primaryDisabled?: boolean; primaryType?: "button" | "submit"; primaryAutoFocus?: boolean;
+  primaryLabel: ReactNode; onPrimary?: () => void; primaryDisabled?: boolean; primaryLoading?: boolean; primaryType?: "button" | "submit"; primaryAutoFocus?: boolean;
   secondaryLabel?: ReactNode; onSecondary?: () => void; secondaryDisabled?: boolean;
 };
 
@@ -353,12 +353,12 @@ export function MoneyModalActions({ children }: { children: ReactNode }) {
   return <DrawerFooter>{children}</DrawerFooter>;
 }
 
-function FooterButtons({ primaryLabel, onPrimary, primaryDisabled = false, primaryType = "button", primaryAutoFocus = false, secondaryLabel, onSecondary, secondaryDisabled = false, action, actionExpired = false, submitting = false }: MoneyModalFooterProps & { action?: PreparedMoneyAction; actionExpired?: boolean; submitting?: boolean }) {
+function FooterButtons({ primaryLabel, onPrimary, primaryDisabled = false, primaryLoading = false, primaryType = "button", primaryAutoFocus = false, secondaryLabel, onSecondary, secondaryDisabled = false, action, actionExpired = false, submitting = false }: MoneyModalFooterProps & { action?: PreparedMoneyAction; actionExpired?: boolean; submitting?: boolean }) {
   const { expired } = useReactiveExpiry(action?.expiresAt ?? null);
   const active = action && !actionExpired && !expired && Number.isFinite(Date.parse(action.expiresAt));
   return (
     <MoneyModalActions>
-      <Button size="touch" type={primaryType} data-money-step-focus={primaryAutoFocus ? "" : undefined} disabled={primaryDisabled} loading={submitting} onClick={onPrimary} {...(active ? { [MONEY_ACTION_ID_ATTRIBUTE]: action.id } : {})}>{primaryLabel}</Button>
+      <Button size="touch" type={primaryType} data-money-step-focus={primaryAutoFocus ? "" : undefined} disabled={primaryDisabled} loading={primaryLoading || submitting} onClick={onPrimary} {...(active ? { [MONEY_ACTION_ID_ATTRIBUTE]: action.id } : {})}>{primaryLabel}</Button>
       {secondaryLabel && onSecondary ? <Button size="touch" variant="ghost" disabled={secondaryDisabled || submitting} onClick={onSecondary}>{secondaryLabel}</Button> : null}
     </MoneyModalActions>
   );
