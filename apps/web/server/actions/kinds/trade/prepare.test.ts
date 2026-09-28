@@ -1,3 +1,5 @@
+import { readJson } from "@/tests/helpers/read-json";
+import { validPrepared } from "@/shared/actions/contracts/prepare";
 import { afterEach, describe, expect, test } from "bun:test";
 import { encodeAbiParameters, encodeFunctionData, erc20Abi, hashTypedData, parseAbiParameters } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -399,7 +401,8 @@ describe("trade preparation", () => {
       body: JSON.stringify({ kind: "trade", params: { version: 2, assetId: "cbbtc", direction: "buy", amountBaseUnits: "1000000" } }),
     }));
     expect(response.status).toBe(201);
-    const result = await response.json();
+    const result = await readJson(response);
+    if (!validPrepared(result, sessions())) throw new Error("Invalid prepared trade");
     expect(trade.key).not.toBe(result.id);
     expect(inserts[0]?.pending.swapCallIndex).toBe(fee ? 2 : 1);
     expect(inserts[0]?.pending.calls[inserts[0]!.pending.swapCallIndex!]?.to).toBe(ROUTER);

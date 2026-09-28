@@ -1,3 +1,4 @@
+import { readJson } from "@/tests/helpers/read-json";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
 import { readMigrationSql } from "@/tests/helpers/migrations";
@@ -116,7 +117,7 @@ describePostgres("operator settings and audit against PostgreSQL", () => {
     expect((await store.read("support")).settings.revision).toBe(2);
     const result = await handler(actor)(makeRequest(), context);
     expect(result.status).toBe(200);
-    expect((await result.json()).settings.revision).toBe(3);
+    expect(await readJson(result)).toMatchObject({ settings: { revision: 3 } });
     expect((await audit.list()).entries).toHaveLength(count + 1);
   });
 

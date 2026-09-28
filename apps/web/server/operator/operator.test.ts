@@ -1,3 +1,4 @@
+import { readJson } from "@/tests/helpers/read-json";
 import { describe, expect, test } from "bun:test";
 import { BASE_CHAIN_ID, type VerifiedAccountSession } from "@/shared/account/session-types";
 import { signedValue } from "@/server/auth/native-base-session";
@@ -86,7 +87,7 @@ test("admin API accepts an unambiguous native session cookie without a provider 
     }));
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toContain("no-store");
-    expect(await response.json()).toEqual({ version: 1, operator: { address: X } });
+    expect(await readJson(response)).toEqual({ version: 1, operator: { address: X } });
   } finally {
     if (priorSecret === undefined) delete process.env.HOME_SESSION_SECRET;
     else process.env.HOME_SESSION_SECRET = priorSecret;
@@ -113,7 +114,7 @@ test("admin API status, contract and private headers across both endpoints", asy
     expect(response.status).toBe(item.status);
     expect(response.headers.get("cache-control")).toContain("private");
     expect(response.headers.get("cache-control")).toContain("no-store");
-    const body = await response.json();
+    const body = await readJson(response);
     expect(body).toEqual(item.body);
     if (item.status === 200) expect(parseOperatorSessionResponse(body)?.operator.address).toBe(X);
     if (item.status === 401 || item.status === 403 || item.status === 404) {

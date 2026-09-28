@@ -1,8 +1,16 @@
 import "server-only";
+import { readJson } from "@/tests/helpers/read-json";
+import { isRecord } from "@/shared/guards";
 
 import { afterEach, describe, expect, jest, test } from "bun:test";
 import { createListActionsHandler } from "./handler";
 import { actionOwnerKey, type ActionRow, type CashoutOrderRow } from "./store";
+
+async function readActions(response: Response): Promise<Record<string, unknown>[]> {
+  const body = await readJson(response);
+  if (!isRecord(body) || !Array.isArray(body.actions) || !body.actions.every(isRecord)) throw new Error("Invalid action list");
+  return body.actions;
+}
 
 const owner = { subject: "owner", address: "0x1111111111111111111111111111111111111111" as const, chainId: 8453 as const, accountProvider: "cdp-embedded" as const };
 const timestamp = "2026-09-12T12:00:00.000Z";
@@ -77,8 +85,9 @@ describe("cash-out Activity projection", () => {
     const withdrawing = async (now: string, depositId?: string | null) => {
       const response = await handler(now, depositId)(request());
       expect(response.status).toBe(200);
-      const body = await response.json() as { actions: Array<{ cashout?: { withdrawing: boolean } }> };
-      return body.actions.find((action) => action.cashout)?.cashout?.withdrawing;
+      const actions = await readActions(response);
+      const cashout = actions.find((action) => action.cashout)?.cashout;
+      return isRecord(cashout) ? cashout.withdrawing : undefined;
     };
     expect(await withdrawing("2026-09-12T12:01:00.000Z")).toBe(true);
     rows = [row, { ...withdrawal, provider_handle: "wallet-handle", handle_recorded_at: timestamp }];
@@ -128,7 +137,7 @@ describe("cash-out Activity projection", () => {
     const read = async () => {
       const response = await handler(new Request("https://home.test/api/actions", { headers: { "X-Home-Account-Provider": "cdp-embedded" } }));
       expect(response.status).toBe(200);
-      return (await response.json()).actions as Array<{ kind: string; status: string; cashout?: { state: string; withdrawing: boolean } }>;
+      return readActions(response);
     };
     const included = await read();
     first = false;
@@ -156,8 +165,8 @@ describe("cash-out Activity projection", () => {
     const response = await handler(new Request("https://home.test/api/actions", { headers: { "X-Home-Account-Provider": "cdp-embedded" } }));
     expect(response.status).toBe(200);
     expect(order).toEqual(["receipt", "refresh"]);
-    const body = await response.json() as { actions: Array<{ cashout: unknown }> };
-    expect(body.actions[0]?.cashout).toEqual({ version: 1, providerId: "peer", region: "US", depositId: "deposit_7", state: "awaiting-buyer",
+    const actions = await readActions(response);
+    expect(actions[0]?.cashout).toEqual({ version: 1, providerId: "peer", region: "US", depositId: "deposit_7", state: "awaiting-buyer",
       platform: "cashapp", platformLabel: "Cash App", amountAtomic: "2000000", filledAtomic: "500000", returnedAtomic: "0",
       remainingAtomic: "1500000", withdrawable: true, withdrawing: false, etaSeconds: 100, settledAt: null, updatedAt: timestamp });
   });

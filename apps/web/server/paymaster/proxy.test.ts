@@ -1,3 +1,5 @@
+import { readJson } from "@/tests/helpers/read-json";
+import { isRecord } from "@/shared/guards";
 import { describe, expect, test } from "bun:test";
 import { encodeFunctionData, erc20Abi, keccak256 } from "viem";
 import { encodeCoinbaseExecuteBatch } from "@/server/chain/coinbase-smart-account";
@@ -38,7 +40,8 @@ describe("paymaster proxy", () => {
     const { response, forwarded } = call({ method });
     const res = await response;
     expect(res.status).toBe(200);
-    expect((await res.json()).result).toEqual(result);
+    const body = await readJson(res);
+    expect(isRecord(body) ? body.result : body).toEqual(result);
     expect(forwarded()).toBe(1);
   });
   test("accepts only the confirmed fee-prepended trade batch", async () => {
@@ -61,7 +64,7 @@ describe("paymaster proxy", () => {
     const accepted = { acceptedTokens: [{ name: "USDC", address: usdc }, { tokenAddress: usdc }], paymasterAddress: summary.networkFee.paymaster.toLowerCase() };
     const response = await call({ method: "pm_getAcceptedPaymentTokens", result: accepted }).response;
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ result: accepted });
+    expect(await readJson(response)).toMatchObject({ result: accepted });
   });
   test.each([
     { acceptedTokens: [] },
@@ -70,12 +73,12 @@ describe("paymaster proxy", () => {
     [{ address: usdc }],
   ])("refuses invalid accepted-token results %j", async (accepted) => {
     const response = await call({ method: "pm_getAcceptedPaymentTokens", result: accepted }).response;
-    expect(await response.json()).toMatchObject({ error: { message: "USDC payment is required." } });
+    expect(await readJson(response)).toMatchObject({ error: { message: "USDC payment is required." } });
   });
   test("wallet stub placeholders below the approval pass through", async () => {
     const stub = { ...result, tokenPayment: { ...result.tokenPayment, maxFee: "0x1" } };
     const response = await call({ result: stub }).response;
-    expect(await response.json()).toMatchObject({ result: stub });
+    expect(await readJson(response)).toMatchObject({ result: stub });
   });
 
   test.each([
@@ -88,7 +91,7 @@ describe("paymaster proxy", () => {
     const { response, forwarded } = call(options);
     const res = await response;
     expect(res.status).toBe(409);
-    expect(await res.json()).toMatchObject({ error: { code: "ACTION_NOT_CONFIRMED", message: "The action is not confirmed." } });
+    expect(await readJson(res)).toMatchObject({ error: { code: "ACTION_NOT_CONFIRMED", message: "The action is not confirmed." } });
     expect(forwarded()).toBe(0);
   });
   test.each([
@@ -100,7 +103,7 @@ describe("paymaster proxy", () => {
     const { response, forwarded } = call({ callData: invalidCallData });
     const res = await response;
     expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({ error: { code: "INVALID_RPC", message: "The operation does not match the action." } });
+    expect(await readJson(res)).toMatchObject({ error: { code: "INVALID_RPC", message: "The operation does not match the action." } });
     expect(forwarded()).toBe(0);
   });
   test.each([
@@ -126,6 +129,6 @@ describe("paymaster proxy", () => {
   ] as const)("refuses a fee outside the action approval", async (upstream, message) => {
     const response = await call({ result: upstream }).response;
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ jsonrpc: "2.0", id: 2, error: { code: -32002, message } });
+    expect(await readJson(response)).toMatchObject({ jsonrpc: "2.0", id: 2, error: { code: -32002, message } });
   });
 });
