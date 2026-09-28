@@ -81,10 +81,12 @@ function stripeObservation(data: Record<string, unknown>, mode: BridgeConfig["mo
   const isAuthorization = kind === "issuing_authorization.created" || kind === "issuing_authorization.updated";
   const isTransaction = kind === "issuing_transaction.created" || kind === "issuing_transaction.updated";
   const isCardholder = kind === "issuing_cardholder.created";
-  if (!isAuthorization && !isTransaction && !isCardholder) return null;
-  if (resource.object !== (isAuthorization ? "issuing.authorization" : isTransaction ? "issuing.transaction" : "issuing.cardholder") || !id(resource.id)) return null;
+  const isCard = kind === "issuing_card.created" || kind === "issuing_card.updated";
+  if (!isAuthorization && !isTransaction && !isCardholder && !isCard) return null;
+  const expected = isAuthorization ? "issuing.authorization" : isTransaction ? "issuing.transaction" : isCard ? "issuing.card" : "issuing.cardholder";
+  if (resource.object !== expected || !id(resource.id)) return null;
   const cardholder = isCardholder ? resource.id : linkedId(resource.cardholder, "issuing.cardholder");
-  const card = isCardholder ? null : linkedId(resource.card, "issuing.card");
+  const card = isCardholder ? null : isCard ? resource.id as string : linkedId(resource.card, "issuing.card");
   if (!isCardholder && !card) return null;
   return {
     provider: "bridge", mode, eventId: `stripe:${data.id}`, kind,

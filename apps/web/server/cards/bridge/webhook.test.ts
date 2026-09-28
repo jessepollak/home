@@ -86,6 +86,19 @@ describe("Stripe Issuing events https://apidocs.bridge.xyz/platform/cards/overvi
     } } });
     expect(JSON.stringify(result)).not.toContain("PRIVATE");
   });
+  test("normalizes card creation, freeze and unfreeze as card invalidations", async () => {
+    for (const type of ["issuing_card.created", "issuing_card.updated"] as const) {
+      const delivery = stripe(type, { object: "issuing.card", id: "ic_fixture", status: "inactive", last4: "0039",
+        cardholder: { object: "issuing.cardholder", id: "ich_fixture", name: "PRIVATE" } });
+      const result = await provider.verifyAndNormalize(delivery.raw, delivery.headers);
+      expect(result).toMatchObject({ outcome: "accepted", observation: { kind: type, externalIds: {
+        cardholder: "ich_fixture", card: "ic_fixture", transaction: null, customer: null,
+      } } });
+      expect(JSON.stringify(result)).not.toContain("PRIVATE");
+    }
+    const mismatched = stripe("issuing_card.updated", { object: "issuing.authorization", id: "ic_fixture" });
+    expect((await provider.verifyAndNormalize(mismatched.raw, mismatched.headers)).outcome).toBe("rejected");
+  });
   test("rejects live-mode event with sandbox secret even when correctly signed", async () => {
     const timestamp = Math.floor(now / 1000);
     const raw = new TextEncoder().encode(JSON.stringify({ id: "evt_live_fixture", type: "issuing_authorization.created", livemode: true, created: timestamp,
