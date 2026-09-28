@@ -114,6 +114,7 @@ Activity's first page includes card rows within the same 31-day window alongside
 | Approved authorization without linked transaction | `pending`, or `declined`/`reversed` when Stripe explicitly reports it |
 | Linked transaction | Supersedes only the authorization; a posted capture stays `completed` at its original amount |
 | Posted refund, including a partial refund | Separate `refunded` row at the refund amount; never hides or rewrites the capture |
+| Amount shown | Refund as money returned (`+`); pending and completed as money spent (`−`); declined and reversed unsigned with "Your balance didn't change." |
 
 ## Decisions before Slice 2
 
