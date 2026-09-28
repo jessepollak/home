@@ -32,10 +32,13 @@ import {
   disabledQueryKey,
   ownerQueryMeta,
   publicQueryKey,
+  useHomeMutation,
   useHomeQuery,
   useHomeQueryClient,
 } from "@/client/query/query-client";
 import type { FundingBinding } from "@/shared/funding/contracts/providers";
+import { mutationOptions } from "@tanstack/react-query";
+import { ownerMutation } from "@/client/query/mutation-options";
 import {
   readQuoteDraft,
   type QuoteDraft,
@@ -104,6 +107,49 @@ export function FundingOrderFlow({
   }
 
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
+  const quoteMutation = useHomeMutation(mutationOptions({
+    mutationFn: async ({ paymentMethod, fiatAmount }: { paymentMethod: string; fiatAmount: string }) => {
+      const value = await fetchAccountResource("/api/funding/quotes", {
+        method: "POST", body: { providerId: binding.providerId, region: binding.region, paymentMethod, fiatAmount },
+      });
+      const parsed = readQuoteDraft(value);
+      if (!parsed) throw new Error("quote");
+      return parsed;
+    },
+  }));
+  const verificationMutation = useHomeMutation(mutationOptions({
+    mutationFn: async (email: string) => {
+      const value = await fetchAccountResource("/api/funding/provider-customers/verification", {
+        method: "POST", body: { providerId: binding.providerId, region: binding.region, email },
+      });
+      return { customer: readFundingProviderCustomer(value), handoff: readVerificationHandoff(value) };
+    },
+  }));
+  const resolveMutation = useHomeMutation(ownerMutation({
+    owner: queryOwnerKey ?? null,
+    invalidates: [
+      { scope: "funding-open-order", key: [binding.region], refetchType: "all" },
+      { scope: "activity-orders" },
+    ],
+    mutationFn: async (id: string) => {
+      const value = await fetchAccountResource(`/api/funding/orders/${id}/resolve`, {
+        method: "POST", body: { version: FUNDING_ORDER_RESOLUTION_VERSION },
+      });
+      const resolved = readResolveFundingOrderResponse(value);
+      if (!resolved) throw new Error("resolution");
+      return resolved;
+    },
+  }));
+  const orderMutation = useHomeMutation(ownerMutation({
+    owner: queryOwnerKey ?? null,
+    invalidates: [{ scope: "activity-orders" }],
+    mutationFn: async (quoteToken: string) => {
+      const value = await fetchAccountResource("/api/funding/orders", { method: "POST", body: { quoteToken } });
+      const next = readFundingOrder(value);
+      if (!next) throw new Error("order");
+      return next;
+    },
+  }));
   const orderQueryKey = order
     ? queryOwnerKey
       ? ownerQueryKey(queryOwnerKey, "funding-order", order.id)
@@ -165,18 +211,7 @@ export function FundingOrderFlow({
     setBusy(true);
     setError(null);
     try {
-      const value = await fetchAccountResource("/api/funding/quotes", {
-        method: "POST",
-        body: {
-          providerId: binding.providerId,
-          region: binding.region,
-          paymentMethod: method,
-          fiatAmount: amount,
-        },
-      });
-      const parsed = readQuoteDraft(value);
-      if (!parsed) throw new Error("quote");
-      setDraft(parsed);
+      setDraft(await quoteMutation.mutateAsync({ paymentMethod: method, fiatAmount: amount }));
     } catch (error) {
       setError(quoteErrorCopy(error));
     } finally {
@@ -188,12 +223,10 @@ export function FundingOrderFlow({
     if (busy || !binding.customerSetup) return;
     setBusy(true); setError(null);
     try {
-      const value = await fetchAccountResource("/api/funding/provider-customers/verification", { method: "POST", body: { providerId: binding.providerId, region: binding.region, email } });
-      const next = readFundingProviderCustomer(value);
-      if (next) setCustomer(next);
-      const handoff = readVerificationHandoff(value);
-      if (!handoff) throw new Error("handoff");
-      onOpenRedirect(handoff);
+      const result = await verificationMutation.mutateAsync(email);
+      if (result.customer) setCustomer(result.customer);
+      if (!result.handoff) throw new Error("handoff");
+      onOpenRedirect(result.handoff);
     } catch { setError("Verification could not be started. Home will not repeat an uncertain provider request."); }
     finally { setBusy(false); }
   }
@@ -203,27 +236,10 @@ export function FundingOrderFlow({
     setResolvingAmbiguous(true);
     setResolutionError(null);
     try {
-      const value = await fetchAccountResource(
-        `/api/funding/orders/${currentOrder.id}/resolve`,
-        {
-          method: "POST",
-          body: { version: FUNDING_ORDER_RESOLUTION_VERSION },
-        },
-      );
-      const resolved = readResolveFundingOrderResponse(value);
-      if (!resolved) throw new Error("resolution");
+      const resolved = await resolveMutation.mutateAsync(currentOrder.id);
       setClearedOrderId(resolved.order.id);
       setOrder(resolved.order);
       queryClient.setQueryData(orderQueryKey, resolved.order);
-      if (queryOwnerKey) {
-        void queryClient.invalidateQueries({
-          queryKey: ownerQueryKey(queryOwnerKey, "funding-open-order", binding.region),
-          refetchType: "all",
-        });
-        void queryClient.invalidateQueries({
-          queryKey: ownerQueryKey(queryOwnerKey, "activity-orders"),
-        });
-      }
     } catch (resolveFailure) {
       setResolutionError(resolveAmbiguousErrorCopy(resolveFailure));
     } finally {
@@ -237,18 +253,8 @@ export function FundingOrderFlow({
     setConfirmationAttempted(true);
     setError(null);
     try {
-      const value = await fetchAccountResource("/api/funding/orders", {
-        method: "POST",
-        body: { quoteToken: draft.quoteToken },
-      });
-      const next = readFundingOrder(value);
-      if (!next) throw new Error("order");
+      const next = await orderMutation.mutateAsync(draft.quoteToken);
       setOrder(next);
-      if (queryOwnerKey) {
-        void queryClient.invalidateQueries({
-          queryKey: ownerQueryKey(queryOwnerKey, "activity-orders"),
-        });
-      }
       if (
         queryOwnerKey &&
         (next.state === "dispatch-ambiguous" || !terminal(next.state, next.sandbox))

@@ -100,6 +100,26 @@ test("confirming a funding order invalidates the owner's activity orders", async
   await waitFor(() => expect(client.getQueryState(activityKey)?.isInvalidated).toBe(true));
 });
 
+test("a failed confirm does not invalidate activity orders", async () => {
+  const client = getHomeQueryClient();
+  client.setQueryData(activityKey, { orders: [] });
+  renderFlow(async (path) => {
+    if (path === "/api/funding/quotes") return {
+      version: FUNDING_QUOTE_VERSION,
+      quoteToken: "signed-token",
+      quote: { fiatAmount: "100", tokenAmountAtomic: "100000000000000000000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" },
+    };
+    if (path === "/api/funding/orders") throw new Error("unavailable");
+    throw new Error(`Unexpected request: ${path}`);
+  });
+  fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "100" } });
+  fireEvent.click(page().getByRole("button", { name: "Review quote" }));
+  await page().findByRole("heading", { name: "Review quote" });
+  fireEvent.click(page().getByRole("button", { name: "Confirm deposit" }));
+  await page().findByRole("alert");
+  expect(client.getQueryState(activityKey)?.isInvalidated).toBe(false);
+});
+
 test("a changed funding order state invalidates activity orders", async () => {
   const client = getHomeQueryClient();
   client.setQueryData(activityKey, { orders: [] });
@@ -125,4 +145,44 @@ test("resolving an ambiguous funding order invalidates activity orders", async (
   fireEvent.click(page().getByRole("button", { name: "Clear old order" }));
   await page().findByText("Order cleared");
   await waitFor(() => expect(client.getQueryState(activityKey)?.isInvalidated).toBe(true));
+});
+
+test("a failed resolve does not invalidate activity orders", async () => {
+  const client = getHomeQueryClient();
+  const ambiguous = { ...order, state: "dispatch-ambiguous" };
+  client.setQueryData(activityKey, { orders: [] });
+  renderFlow(async (path) => {
+    if (path === `/api/funding/orders/${order.id}/resolve`) throw new Error("unavailable");
+    if (path === `/api/funding/orders/${order.id}`) return { order: ambiguous };
+    throw new Error(`Unexpected request: ${path}`);
+  }, ambiguous);
+  fireEvent.click(page().getByRole("button", { name: "Clear old order" }));
+  await page().findByRole("alert");
+  expect(client.getQueryState(activityKey)?.isInvalidated).toBe(false);
+});
+
+test("a verification response without a hand-off still shows the returned blocked setup state", async () => {
+  const opened: string[] = [];
+  render(
+    <MoneyModal open labelledBy="deposit-title" onCancel={() => {}} onClose={() => {}}>
+      <FundingOrderFlow
+        binding={{ ...binding, customerSetup: { hosted: true } }}
+        fetchAccountResource={async (path) => {
+          if (path === "/api/funding/provider-customers/verification") return {
+            customer: { providerId: "ripio", region: "CO", state: "rejected", verificationStartedAt: null, updatedAt: "2026-09-28T00:00:00.000Z" },
+          };
+          throw new Error(`Unexpected request: ${path}`);
+        }}
+        queryOwnerKey={ownerKey}
+        titleId="deposit-title"
+        onBack={() => {}}
+        onOpenRedirect={(url) => { opened.push(url); }}
+      />
+    </MoneyModal>,
+  );
+  fireEvent.input(page().getByRole("textbox", { name: "Email" }), { target: { value: "customer@example.com" } });
+  fireEvent.click(page().getByRole("button", { name: "Continue to Ripio verification" }));
+  await page().findByText(/The provider rejected this setup/);
+  expect(page().queryByRole("button", { name: "Continue to Ripio verification" })).toBeNull();
+  expect(opened).toEqual([]);
 });
