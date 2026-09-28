@@ -555,6 +555,23 @@ describe("Base Account connector boundary", () => {
     });
   });
 
+  test("treats an unparseable changed account as an account change", async () => {
+    for (const accounts of [["0xAbcdef0123456789abcdef0123456789abcdef01"], ["not-an-address"]]) {
+      const provider = new ProviderFixture();
+      const invalidations: string[] = [];
+      const connection = await connectWithBaseProvider(
+        asProvider(provider),
+        CHALLENGE,
+        (reason) => { invalidations.push(reason); },
+      );
+      provider.emit("accountsChanged", accounts);
+      expect(invalidations).toEqual(["account-changed"]);
+      await expect(connection.assertUnchanged()).rejects.toMatchObject({
+        reason: "account-changed",
+      });
+    }
+  });
+
   test("rejects malformed signatures instead of forwarding them to CDP", async () => {
     const provider = new ProviderFixture();
     provider.signature = "not-hex";

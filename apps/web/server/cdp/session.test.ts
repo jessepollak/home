@@ -16,7 +16,7 @@ import {
 } from "./session";
 
 const requestUrl = "http://127.0.0.1:3103/api/session";
-const smartAccountAddress = "0xAbCdEf0123456789aBCdef0123456789abCDef01";
+const smartAccountAddress = "0xabcdef0123456789abcdef0123456789abcdef01";
 const baseAddress = "0x1111111111111111111111111111111111111111" as const;
 const SECRET = "test-home-session-secret-value-at-least-32-bytes";
 

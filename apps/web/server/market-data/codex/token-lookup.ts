@@ -4,6 +4,7 @@ import type { PortfolioAddress } from "@/config/portfolio-assets";
 import { sanitizeImageUrl } from "@/server/market-data/asset-icons/image-url";
 import { parseExactDecimal } from "@/shared/balances/math";
 import type { ExactDecimal } from "@/shared/balances/types";
+import { parseAddress } from "@/shared/chain/hex";
 import { CODEX_REQUEST_TIMEOUT_MS } from "./config";
 import {
   executeCodexGraphql,
@@ -77,7 +78,7 @@ export function createCodexTokenLookup({
   return async function lookupCodexTokens(
     addresses: readonly `0x${string}`[],
   ): Promise<Map<string, CodexTokenLookupEntry>> {
-    const unique = [...new Set(addresses.map(normalizeAddress).filter(isPresent))];
+    const unique = [...new Set(addresses.map(parseAddress).filter(isPresent))];
     if (unique.length === 0 || !apiKey?.trim()) return new Map();
 
     const currentTime = now().getTime();
@@ -240,12 +241,6 @@ export function normalizeTokenLookupEntry(
     ...(imageUrl ? { imageUrl } : {}),
     ...(liquidityUsd ? { liquidityUsd } : {}),
   };
-}
-
-function normalizeAddress(value: string): PortfolioAddress | null {
-  return /^0x[0-9a-fA-F]{40}$/.test(value)
-    ? value.toLowerCase() as PortfolioAddress
-    : null;
 }
 
 function readBoundedText(value: unknown): string | null {

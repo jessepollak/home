@@ -121,6 +121,16 @@ describe("CDP render session", () => {
         expected: null,
       },
       {
+        name: "invalid mixed-case checksum",
+        read: () => readCdpRenderSession(payloadCookies({
+          session: {
+            ...SESSION,
+            smartAccount: { address: "0xAbcdef0123456789abcdef0123456789abcdef01", chainId: 8453 },
+          },
+        }), KEY, NOW),
+        expected: null,
+      },
+      {
         name: "duplicate cookie",
         read: () => readCdpRenderSession(
           cookieStore([...validEntries, [HOME_CDP_SESSION_COOKIE, signed]]),

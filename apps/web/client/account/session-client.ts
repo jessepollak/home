@@ -2,6 +2,7 @@ import { recordAuthDiagnostic } from "./auth-diagnostics";
 import { redirectOnAccessRequired, type AccessNavigation } from "./access-response";
 import { deploymentHeaders } from "@/client/query/deployment-headers";
 import { parseSession } from "@/shared/account/contracts/session";
+import { parseAddress } from "@/shared/chain/hex";
 import {
   ACCOUNT_PROVIDER_HEADER,
   type AccountProviderRequest,
@@ -32,10 +33,6 @@ export class SessionValidationError extends Error {
     this.name = "SessionValidationError";
     this.reason = reason;
   }
-}
-
-function normalizeAddress(value: string): `0x${string}` {
-  return value.toLowerCase() as `0x${string}`;
 }
 
 export function normalizeProjectId(value: string | undefined): string | null {
@@ -154,11 +151,11 @@ export async function validateAccountSession(
     throw new SessionValidationError("invalid-response");
   }
 
-  if (
-    options.expectedAddress &&
-    session.smartAccount?.address !== normalizeAddress(options.expectedAddress)
-  ) {
-    throw new SessionValidationError("address-mismatch");
+  if (options.expectedAddress) {
+    const expectedAddress = parseAddress(options.expectedAddress);
+    if (!expectedAddress || session.smartAccount?.address !== expectedAddress) {
+      throw new SessionValidationError("address-mismatch");
+    }
   }
 
   return session;

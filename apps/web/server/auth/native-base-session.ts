@@ -1,10 +1,11 @@
 import "server-only";
 
 import { createHash, randomBytes } from "node:crypto";
-import { createPublicClient, getAddress, http } from "viem";
+import { createPublicClient, http } from "viem";
 import { base } from "viem/chains";
 import { createSiweMessage, parseSiweMessage } from "viem/siwe";
 import { BASE_CHAIN_ID, OWNER_SESSION_RETENTION_MS, type VerifiedAccountSession } from "@/shared/account/session-types";
+import { parseAddress } from "@/shared/chain/hex";
 import {
   NATIVE_BASE_CHALLENGE_TTL_MS,
   NATIVE_BASE_STATEMENT,
@@ -33,7 +34,6 @@ export const HOME_CHALLENGE_COOKIE = "home-auth-challenge";
 export const NATIVE_BASE_NONCE_TTL_MS = NATIVE_BASE_CHALLENGE_TTL_MS;
 export const NATIVE_BASE_SESSION_TTL_MS = OWNER_SESSION_RETENTION_MS;
 const MAX_BODY_BYTES = 96 * 1024;
-const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const signaturePattern = /^0x(?:[0-9a-fA-F]{2})+$/;
 
 function normalizeSecret(secret: string | undefined | null): Buffer | null {
@@ -91,15 +91,6 @@ async function readBody(request: Request): Promise<Record<string, unknown> | nul
   }
 }
 
-function normalizeAddress(value: unknown): `0x${string}` | null {
-  if (typeof value !== "string" || !addressPattern.test(value)) return null;
-  try {
-    return getAddress(value).toLowerCase() as `0x${string}`;
-  } catch {
-    return null;
-  }
-}
-
 function sessionForAddress(address: `0x${string}`): VerifiedAccountSession {
   const digest = createHash("sha256").update(address).digest("hex").slice(0, 32);
   return {
@@ -147,7 +138,7 @@ export function readNativeBaseSessionToken(
   if (!raw) return { kind: "invalid" };
   try {
     const payload = JSON.parse(raw) as SessionTokenPayload;
-    const address = normalizeAddress(payload?.session?.smartAccount?.address);
+    const address = parseAddress(payload?.session?.smartAccount?.address);
     if (
       payload.version !== 1 ||
       payload.session.accountProvider !== "base-account" ||
@@ -279,7 +270,7 @@ export function createNativeBaseVerifyHandler(input: NativeBaseAuthDependencies 
     const clearChallenge = clearCookie(HOME_CHALLENGE_COOKIE, request);
     const origin = requestOrigin(request);
     const body = await readBody(request);
-    const address = normalizeAddress(body?.address);
+    const address = parseAddress(body?.address);
     const message = typeof body?.message === "string" && body.message.length <= 16_384
       ? body.message
       : null;
@@ -301,7 +292,7 @@ export function createNativeBaseVerifyHandler(input: NativeBaseAuthDependencies 
     if (!challenge) return json({ error: { code: "INVALID_AUTH_PROOF" } }, 401, [clearChallenge]);
 
     const parsed = parseSiweMessage(message);
-    const parsedAddress = normalizeAddress(parsed.address);
+    const parsedAddress = parseAddress(parsed.address);
     if (
       parsedAddress !== address ||
       parsed.chainId !== challenge.chainId ||

@@ -6,11 +6,11 @@ import { base } from "viem/chains";
 import { connect } from "viem/experimental/erc7846";
 import type { NativeBaseChallenge } from "@/shared/account/contracts/base-nonce";
 import { BASE_CHAIN_ID } from "@/shared/account/session-types";
+import { parseAddress } from "@/shared/chain/hex";
 import { supportsBaseBatchGasHint } from "@/shared/actions/contracts/confirm";
 import { TransferExecutionError } from "@/shared/transfers/types";
 
 const BASE_CHAIN_HEX = "0x2105";
-const evmAddressPattern = /^0x[0-9a-fA-F]{40}$/;
 const hexPattern = /^0x(?:[0-9a-fA-F]{2})+$/;
 const transactionHashPattern = /^0x[0-9a-fA-F]{64}$/;
 
@@ -101,14 +101,8 @@ function providerErrorCode(error: unknown): number | null {
   return error.code;
 }
 
-function normalizeAddress(value: unknown): `0x${string}` | null {
-  return typeof value === "string" && evmAddressPattern.test(value)
-    ? (value.toLowerCase() as `0x${string}`)
-    : null;
-}
-
 function firstAddress(value: unknown): `0x${string}` | null {
-  return Array.isArray(value) ? normalizeAddress(value[0]) : null;
+  return Array.isArray(value) ? parseAddress(value[0]) : null;
 }
 
 function chainIdFromProvider(value: unknown): number | null {
@@ -147,11 +141,7 @@ async function openBaseProvider(
     if (!connectedAddress || !Array.isArray(accounts)) {
       return;
     }
-    const nextAddress = firstAddress(accounts);
-    if (accounts.length > 0 && !nextAddress) {
-      return;
-    }
-    if (nextAddress !== connectedAddress) {
+    if (firstAddress(accounts) !== connectedAddress) {
       invalidate("account-changed");
     }
   };
@@ -223,7 +213,7 @@ async function openBaseProvider(
           throw new BaseAccountConnectorError("invalid-provider-response");
         }
         const account = accounts[0];
-        connectedAddress = normalizeAddress(account?.address);
+        connectedAddress = parseAddress(account?.address);
         if (!connectedAddress) throw new BaseAccountConnectorError("invalid-provider-response");
         const signIn = account.capabilities?.unstable_signInWithEthereum;
         const capabilityCode = providerErrorCode(signIn);
