@@ -103,11 +103,11 @@ function buildRim(size: LensSize): RimImages | null {
   return rimCache.set(key, { displacement, core, scale: maps.scale });
 }
 
-function buildHole(size: LensSize, scaleX: number, scaleY: number, cut: boolean) {
-  const key = `${sizeKey(size)}x${scaleX}x${scaleY}x${cut}`;
+function buildHole(size: LensSize, span: number, scaleX: number, scaleY: number, cut: boolean) {
+  const key = `${sizeKey(size)}x${span}x${scaleX}x${scaleY}x${cut}`;
   const cached = holeCache.get(key);
   if (cached) return cached;
-  const width = size.width * 3;
+  const width = size.width * span;
   const height = size.height + HOLE_PAD * 2;
   const holeWidth = size.width * scaleX + HOLE_MARGIN * 2;
   const holeHeight = Math.min(height, size.height * scaleY + HOLE_MARGIN * 2);
@@ -203,12 +203,13 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
     const images = floorSize ? buildRim(floorSize) : null;
     return floorSize && images ? { ...images, ...floorSize, id: `${baseId}-rim-${sizeKey(floorSize)}` } : null;
   }, [floorSize, baseId]);
+  const span = items.length * 2 - 1;
   const masks = useMemo<LensStyle | null>(() => size ? {
-    "--lens-hole": buildHole(size, 1, 1, true),
-    "--lens-hole-lifted": buildHole(size, LIFT_X, LIFT_Y, true),
-    "--lens-clip": buildHole(size, 1, 1, false),
-    "--lens-clip-lifted": buildHole(size, LIFT_X, LIFT_Y, false),
-  } : null, [size]);
+    "--lens-hole": buildHole(size, span, 1, 1, true),
+    "--lens-hole-lifted": buildHole(size, span, LIFT_X, LIFT_Y, true),
+    "--lens-clip": buildHole(size, span, 1, 1, false),
+    "--lens-clip-lifted": buildHole(size, span, LIFT_X, LIFT_Y, false),
+  } : null, [size, span]);
 
   useLayoutEffect(() => {
     retarget.current?.(target);

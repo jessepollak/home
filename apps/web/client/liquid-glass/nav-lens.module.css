@@ -24,7 +24,7 @@
 
 .cutout {
   inset-block: -12px;
-  inset-inline: -100%;
+  inset-inline: calc(-100% * (var(--navigation-items, 2) - 1));
 }
 
 .hole, .clip {
@@ -56,12 +56,12 @@
 
 .cutoutTrack, .magnifier {
   inset-block: 12px;
-  inset-inline-start: calc(100% / 3);
+  inset-inline-start: calc(100% * (var(--navigation-items, 2) - 1) / (2 * var(--navigation-items, 2) - 1));
 }
 
-.cutoutTrack { width: calc(var(--navigation-items, 2) * 100% / 3); }
+.cutoutTrack { width: calc(100% * var(--navigation-items, 2) / (2 * var(--navigation-items, 2) - 1)); }
 
-.magnifier { width: calc(100% / 3); }
+.magnifier { width: calc(100% / (2 * var(--navigation-items, 2) - 1)); }
 
 .body, .magnifier {
   border-radius: 9999px;
