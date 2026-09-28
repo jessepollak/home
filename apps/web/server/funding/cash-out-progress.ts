@@ -288,7 +288,7 @@ function matchesPayee(order: OfframpOrder, payeeHash: `0x${string}`): boolean {
 
 async function untilAborted<T>(read: Promise<T>, signal: AbortSignal): Promise<T> {
   if (signal.aborted) {
-    read.catch(() => {});
+    read.catch(() => {}); // oxlint-disable-line home/no-silent-catch -- the already-aborted refresh throws the deadline reason; the detached read must not reject unhandled
     throw signal.reason ?? new Error("Cash-out refresh deadline passed.");
   }
   let onAbort = () => {};

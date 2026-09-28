@@ -218,7 +218,7 @@ function raceAbort<T>(work: Promise<T>, signal: AbortSignal | undefined, handler
         }
         handlers.settleLate?.(value);
       },
-      (error) => {
+      (error) => { // oxlint-disable-line home/no-silent-catch -- after abort rejects the outer promise, a late connection failure has no pending state to settle
         if (settled) return;
         settled = true;
         signal.removeEventListener("abort", onAbort);

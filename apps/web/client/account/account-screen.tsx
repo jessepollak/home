@@ -305,7 +305,7 @@ export function AccountSignInSheet({
               checking={isChecking}
               signOutError={status === "signout-error"}
               unavailable={status === "unavailable"}
-              onRetrySignOut={() => void signOut().catch(() => {})}
+              onRetrySignOut={() => void signOut().catch(() => {})} // oxlint-disable-line home/no-silent-catch -- session sign-out displays its own signout-error state and retry message
               onRetryValidation={() => void retrySessionValidation()}
             />
             {hasStatus ? null : !projectConfigured ? (
