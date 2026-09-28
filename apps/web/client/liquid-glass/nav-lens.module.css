@@ -7,8 +7,8 @@
 .slide { width: calc((100% - .5rem) / 2); }
 
 :global(nav)[data-lens-pressed] :is(.slide, .track) {
-  --lens-travel: 120ms;
-  --lens-travel-ease: cubic-bezier(0, 0, .2, 1);
+  --lens-travel: 150ms;
+  --lens-travel-ease: cubic-bezier(.2, .4, .5, 1);
 }
 
 .window {

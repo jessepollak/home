@@ -33,8 +33,9 @@ const RIM_CORE_INSET = 19;
 const RIM_CORE_FEATHER = 5;
 const RELEASE_MS = 200;
 const HOLD_MS = 600;
-const TAP_HOLD_MS = 180;
 const SUPPRESS_MS = 400;
+const LIFT_MS = 34;
+const GLIDE_MS = 150;
 const SLOP = 8;
 const REACH = 24;
 const LIFT_X = 1.25;
@@ -175,7 +176,7 @@ function useLensSize(element: React.RefObject<HTMLElement | null>) {
 export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLensProps) {
   const windowRef = useRef<HTMLSpanElement>(null);
   const targetRef = useRef(target);
-  const [override, setOverride] = useState<{ base: number; place: number } | null>(null);
+  const [override, setOverride] = useState<{ base: number | null; place: number } | null>(null);
   const floorRef = useRef<HTMLElement | null>(null);
   const baseId = `nav-lens-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const [rimEnabled] = useState(readRimEnabled);
@@ -209,16 +210,16 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
     let gesture: { id: number; x: number; y: number; index: number; dragged: boolean } | null = null;
     let narrow = 0;
     let hold = 0;
-    let suppressUntil = -Infinity;
+    let glide = 0;
+    let settle = 0;
+    let busyUntil = 0;
+    let suppressUntil = 0;
     const tabs = () => Array.from(nav.querySelectorAll<HTMLButtonElement>(":scope > button"));
     const show = (index: number | null) => {
-      window.clearTimeout(hold);
+      clearTimeout(hold);
+      clearTimeout(glide);
       if (index === null) setOverride(null);
-      else setOverride({ base: targetRef.current, place: getComputedStyle(nav).direction === "rtl" ? -index : index });
-    };
-    const keep = (duration = HOLD_MS) => {
-      window.clearTimeout(hold);
-      hold = window.setTimeout(() => setOverride(null), duration);
+      else setOverride({ base: null, place: getComputedStyle(nav).direction === "rtl" ? -index : index });
     };
     const tabAt = (x: number, y: number) => {
       const bounds = nav.getBoundingClientRect();
@@ -229,40 +230,53 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
       });
     };
     const lower = () => {
-      window.clearTimeout(narrow);
+      clearTimeout(narrow);
       nav.removeAttribute("data-lens-pressed");
       narrow = window.setTimeout(() => nav.removeAttribute("data-lens-wide"), RELEASE_MS);
+    };
+    const finish = () => {
+      clearTimeout(settle);
+      settle = window.setTimeout(() => {
+        settle = 0;
+        lower();
+        setOverride((current) => current && { ...current, base: targetRef.current });
+        hold = window.setTimeout(() => show(null), HOLD_MS);
+      }, busyUntil - performance.now());
     };
     const press = (event: PointerEvent) => {
       if (!event.isPrimary || event.button !== 0 || !(event.target instanceof Element)) return;
       const tab = event.target.closest("button");
       if (!tab || tab.parentElement !== nav) return;
-      gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, index: tabs().indexOf(tab), dragged: false };
-      window.clearTimeout(narrow);
+      const index = tabs().indexOf(tab);
+      const lifted = nav.hasAttribute("data-lens-pressed");
+      gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, index, dragged: false };
+      clearTimeout(narrow);
+      clearTimeout(settle);
+      settle = 0;
       nav.setAttribute("data-lens-wide", "");
       nav.setAttribute("data-lens-pressed", "");
-      show(gesture.index);
+      busyUntil = performance.now() + (lifted ? 0 : LIFT_MS) + GLIDE_MS;
+      if (lifted) show(index);
+      else {
+        clearTimeout(hold);
+        glide = window.setTimeout(() => show(index), LIFT_MS);
+      }
     };
-    const cancel = () => {
-      if (!gesture) return;
+    const reset = () => {
       gesture = null;
+      clearTimeout(settle);
+      settle = 0;
       lower();
       show(null);
     };
     const startPointer = (event: PointerEvent) => {
-      suppressUntil = -Infinity;
-      if (gesture && event.pointerId !== gesture.id) cancel();
+      suppressUntil = 0;
+      if (gesture && event.pointerId !== gesture.id) reset();
     };
     const move = (event: PointerEvent) => {
       if (!gesture || event.pointerId !== gesture.id) return;
-      const dx = event.clientX - gesture.x;
-      const dy = event.clientY - gesture.y;
       if (!gesture.dragged) {
-        if (Math.abs(dy) > SLOP && Math.abs(dy) > Math.abs(dx)) {
-          cancel();
-          return;
-        }
-        if (Math.abs(dx) <= SLOP) return;
+        if (Math.abs(event.clientX - gesture.x) <= SLOP && Math.abs(event.clientY - gesture.y) <= SLOP) return;
         gesture.dragged = true;
       }
       const index = tabAt(event.clientX, event.clientY);
@@ -274,54 +288,42 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
       if (!gesture || event.pointerId !== gesture.id) return;
       const { dragged, index: gestureIndex } = gesture;
       gesture = null;
-      lower();
-      if (!dragged) {
-        const rect = tabs()[gestureIndex]?.getBoundingClientRect();
-        if (rect && event.clientX >= rect.left && event.clientX < rect.right && event.clientY >= rect.top && event.clientY < rect.bottom) keep(TAP_HOLD_MS);
-        else show(null);
-        return;
-      }
+      if (!dragged) return tabs()[gestureIndex].contains(document.elementFromPoint(event.clientX, event.clientY)) ? finish() : reset();
       suppressUntil = event.timeStamp + SUPPRESS_MS;
       const index = tabAt(event.clientX, event.clientY);
-      if (index < 0) {
-        show(null);
-        return;
-      }
+      if (index < 0) return reset();
       show(index);
-      keep();
+      finish();
       tabs()[index]?.click();
     };
-    const drop = (event: PointerEvent) => { if (gesture && event.pointerId === gesture.id) cancel(); };
+    const drop = (event: PointerEvent) => { if (gesture && event.pointerId === gesture.id) reset(); };
     const swallow = (event: MouseEvent) => {
       if (!event.isTrusted || event.detail === 0 || event.timeStamp > suppressUntil) return;
-      suppressUntil = -Infinity;
+      suppressUntil = 0;
       event.preventDefault();
       event.stopPropagation();
     };
-    const hide = () => { if (document.visibilityState === "hidden") cancel(); };
-    const confirmed = () => show(null);
-    const listen = { capture: true, passive: true };
-    nav.addEventListener("pointerdown", press, { passive: true });
-    nav.addEventListener("click", swallow, { capture: true });
-    nav.addEventListener("click", confirmed);
+    const hide = () => { if (document.visibilityState === "hidden") reset(); };
+    const confirmed = () => { if (!gesture && !settle) show(null); };
+    const off = new AbortController();
+    const signal = off.signal;
+    const listen = { capture: true, passive: true, signal };
+    nav.addEventListener("pointerdown", press, { passive: true, signal });
+    nav.addEventListener("click", swallow, { capture: true, signal });
+    nav.addEventListener("click", confirmed, { signal });
     document.addEventListener("pointerdown", startPointer, listen);
     document.addEventListener("pointermove", move, listen);
     document.addEventListener("pointerup", end, listen);
     document.addEventListener("pointercancel", drop, listen);
-    window.addEventListener("blur", cancel);
-    document.addEventListener("visibilitychange", hide);
+    document.addEventListener("lostpointercapture", drop, listen);
+    window.addEventListener("blur", reset, { signal });
+    document.addEventListener("visibilitychange", hide, { signal });
     return () => {
-      nav.removeEventListener("pointerdown", press);
-      nav.removeEventListener("click", swallow, { capture: true });
-      nav.removeEventListener("click", confirmed);
-      document.removeEventListener("pointerdown", startPointer, { capture: true });
-      document.removeEventListener("pointermove", move, { capture: true });
-      document.removeEventListener("pointerup", end, { capture: true });
-      document.removeEventListener("pointercancel", drop, { capture: true });
-      window.removeEventListener("blur", cancel);
-      document.removeEventListener("visibilitychange", hide);
-      window.clearTimeout(narrow);
-      window.clearTimeout(hold);
+      off.abort();
+      clearTimeout(narrow);
+      clearTimeout(hold);
+      clearTimeout(glide);
+      clearTimeout(settle);
       nav.removeAttribute("data-lens-pressed");
       nav.removeAttribute("data-lens-wide");
       setOverride(null);
@@ -345,7 +347,7 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
   }, [ready, onReadyChange]);
   useLayoutEffect(() => () => onReadyChange(false), [onReadyChange]);
 
-  const place = override && override.base === target ? override.place : target;
+  const place = override && (override.base ?? target) === target ? override.place : target;
   const slide = { transform: `translateX(${place * 100}%)`, "--lens-lift-x": LIFT_X, "--lens-lift-y": LIFT_Y } as CSSProperties;
   const motion = reducedMotion ? styles.still : "";
 

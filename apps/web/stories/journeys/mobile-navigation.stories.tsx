@@ -452,6 +452,9 @@ export const PressAndDrag: Story = { play: async ({ canvasElement }) => {
   const start = centerOf(invest);
   touch("pointerdown", invest, start);
   touch("pointermove", invest, { x: start.x, y: start.y - 30 });
+  await expect(nav).toHaveAttribute("data-lens-pressed");
+  await verifyLensOver(lens, invest, true);
+  touch("pointerup", invest, { x: start.x, y: start.y - 200 });
   await expect(nav).not.toHaveAttribute("data-lens-pressed");
   await verifyLensOver(lens, invest, false);
   home.focus();

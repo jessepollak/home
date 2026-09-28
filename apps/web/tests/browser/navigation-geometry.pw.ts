@@ -176,3 +176,42 @@ test("a drag does not swallow two immediate real taps", async ({ page }) => {
   await expect(nav).toHaveAttribute("data-accepted-taps", "home-nav,invest-nav,");
   await expect(invest).toHaveAttribute("aria-current", "page");
 });
+
+for (const { name, lift, selected } of [
+  { name: "a hold that wanders vertically within reach selects the tab under the finger", lift: 40, selected: "Invest" },
+  { name: "a hold released far outside the bar cancels back", lift: 160, selected: "Home" },
+]) {
+  test(name, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await seedSignedInSession(page);
+    await installApiFixtures(page);
+    await page.goto("/home");
+    const nav = page.getByRole("navigation", { name: "Main navigation" });
+    await expect(nav.locator('[data-navigation-lens="ready"]')).toBeVisible();
+    const main = page.locator("main[data-app-main-authenticated]");
+    await main.evaluate((node) => { node.scrollTop = 120; });
+    const scrolled = await main.evaluate((node) => node.scrollTop);
+    const windowScroll = await page.evaluate(() => window.scrollY);
+    const homeBox = (await nav.getByRole("button", { name: "Home" }).boundingBox())!;
+    const investBox = (await nav.getByRole("button", { name: "Invest" }).boundingBox())!;
+    const startX = homeBox.x + homeBox.width / 2;
+    const startY = homeBox.y + homeBox.height / 2;
+    const endX = investBox.x + investBox.width / 2;
+    const cdp = await page.context().newCDPSession(page);
+    const touch = (type: "touchStart" | "touchMove" | "touchEnd", x: number, y: number) =>
+      cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
+    await touch("touchStart", startX, startY);
+    await expect(nav).toHaveAttribute("data-lens-pressed", "");
+    for (let step = 1; step <= 6; step += 1) await touch("touchMove", startX, startY - (160 * step) / 6);
+    await expect(nav).toHaveAttribute("data-lens-pressed", "");
+    for (let step = 1; step <= 6; step += 1) await touch("touchMove", startX + ((endX - startX) * step) / 6, startY - 160 + ((160 - lift) * step) / 6);
+    await expect(nav).toHaveAttribute("data-lens-pressed", "");
+    expect(await main.evaluate((node) => node.scrollTop)).toBe(scrolled);
+    expect(await page.evaluate(() => window.scrollY)).toBe(windowScroll);
+    await touch("touchEnd", endX, startY - lift);
+    await expect(nav.getByRole("button", { name: selected })).toHaveAttribute("aria-current", "page");
+    await expect(nav).not.toHaveAttribute("data-lens-pressed");
+    await expect(nav).not.toHaveAttribute("data-lens-wide");
+    await expect(nav.locator('[data-navigation-lens="ready"]')).toBeVisible();
+  });
+}

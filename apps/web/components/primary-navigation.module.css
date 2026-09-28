@@ -56,7 +56,7 @@
 
   .motionReady > .pill { transition: transform 180ms cubic-bezier(.25, 1.15, .35, 1); }
 
-  .navigation[data-lens] { touch-action: pan-y; -webkit-touch-callout: none; }
+  .navigation[data-lens] { touch-action: none; -webkit-touch-callout: none; }
 
   .navigation[data-lens] > .pill { opacity: 0; transition: opacity 160ms ease-out; }
   .navigation[data-lens] > button > .content { opacity: 0; transition: scale 140ms ease-out, opacity 120ms ease-out; }
