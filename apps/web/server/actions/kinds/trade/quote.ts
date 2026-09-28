@@ -279,17 +279,15 @@ function rfqBoundsValid(context: ActionContext): boolean {
   const swaps = context.actions.slice(1).filter(isSwapAction);
   const permits = swaps.filter((action) => action.slice(0, 10) === RFQ).map((action) => decodeAction(RFQ_ABI, action));
   if (!permits.length) return true;
-  if (permits.length !== swaps.length) return false;
   const seen = new Set<string>();
   let capacity = BigInt(0);
-  let spend = BigInt(0);
-  for (const [, permit, maker, , , maxTakerAmount] of permits) {
+  for (const [, permit, maker] of permits) {
     const nonce = `${maker.toLowerCase()}:${permit.nonce}`;
     if (seen.has(nonce)) return false;
     seen.add(nonce);
     capacity += permit.permitted.amount;
-    spend += maxTakerAmount;
   }
+  if (permits.length !== swaps.length) return true;
   const fee = context.quote.fees.protocolFee;
   const quotedOutputFee = fee?.token.toLowerCase() === context.toToken ? fee.amount : BigInt(0);
   const outputFeePpm = context.actions.filter((action) => action.slice(0, 10) === BASIC)
@@ -297,24 +295,46 @@ function rfqBoundsValid(context: ActionContext): boolean {
     .filter(([token, , pool]) => token.toLowerCase() === context.toToken && token.toLowerCase() === pool.toLowerCase())
     .reduce((sum, [, ppm]) => sum + ppm, BigInt(0));
   const maximumOutputFee = capacity * outputFeePpm / BigInt(1_000_000);
-  return capacity >= context.quote.minToAmount + (maximumOutputFee > quotedOutputFee ? maximumOutputFee : quotedOutputFee) &&
-    spend >= context.request.fromAmount;
+  return capacity >= context.quote.minToAmount + (maximumOutputFee > quotedOutputFee ? maximumOutputFee : quotedOutputFee);
 }
 
-function settlerInputFullySpent(context: ActionContext): boolean {
-  if (addressWord(context.actions[0], 4) !== context.router.toLowerCase()) return true;
+export type InputSpend = "exact" | "underfill" | "overfill" | "unmodeled";
+
+function settlerInputSpend(context: ActionContext): InputSpend {
   const swaps = context.actions.slice(1).filter(isSwapAction);
-  if (swaps.every((action) => action.slice(0, 10) === RFQ)) return true;
-  if (swaps.length !== 1 || !sellsFromToken(swaps[0]!, context)) return false;
-  const action = swaps[0]!;
-  const selector = action.slice(0, 10);
-  if (selector === UNISWAPV3) {
-    const [, ppm, path] = decodeAction(V3_ABI, action);
-    return ppm === BigInt(1_000_000) && `0x${path.slice(-40)}`.toLowerCase() === context.toToken;
+  if (addressWord(context.actions[0], 4) !== context.router.toLowerCase()) {
+    return swaps.some((action) => action.slice(0, 10) === RFQ) ? "unmodeled" : "exact";
   }
-  const ppm = selector === BASIC ? decodeAction(BASIC_ABI, action)[1] :
-    selector === UNISWAPV2 ? decodeAction(V2_ABI, action)[2] : decodeAction(MAVERICK_ABI, action)[2];
-  return ppm === BigInt(1_000_000);
+  if (swaps.some((action) => !sellsFromToken(action, context))) return "unmodeled";
+  if (swaps.length > 1 && swaps.some((action) => action.slice(0, 10) !== RFQ && action.slice(0, 10) !== UNISWAPV3)) return "unmodeled";
+  if (swaps.some((action) => action.slice(0, 10) === UNISWAPV3 &&
+    `0x${decodeAction(V3_ABI, action)[2].slice(-40)}`.toLowerCase() !== context.toToken)) return "unmodeled";
+
+  let balance = context.request.fromAmount;
+  let remainingSwaps = swaps.length;
+  for (const action of context.actions.slice(1)) {
+    const selector = action.slice(0, 10);
+    if (selector === BASIC && !isSwapAction(action)) {
+      const [sellToken, ppm] = decodeAction(BASIC_ABI, action);
+      if (sellToken.toLowerCase() === context.fromToken) balance -= balance * ppm / BigInt(1_000_000);
+    }
+    if (!isSwapAction(action)) continue;
+    remainingSwaps--;
+    if (balance === BigInt(0)) return "overfill";
+    if (selector === RFQ) {
+      const maxTakerAmount = decodeAction(RFQ_ABI, action)[5];
+      if (maxTakerAmount > balance && remainingSwaps > 0) return "overfill";
+      balance -= maxTakerAmount < balance ? maxTakerAmount : balance;
+      continue;
+    }
+    const ppm = selector === BASIC ? decodeAction(BASIC_ABI, action)[1] :
+      selector === UNISWAPV2 ? decodeAction(V2_ABI, action)[2] :
+        selector === MAVERICKV2 ? decodeAction(MAVERICK_ABI, action)[2] : decodeAction(V3_ABI, action)[1];
+    const spend = balance * ppm / BigInt(1_000_000);
+    if (spend === BigInt(0)) return "underfill";
+    balance -= spend;
+  }
+  return balance === BigInt(0) ? "exact" : "underfill";
 }
 
 function feesMatch(context: ActionContext): boolean {
@@ -386,6 +406,7 @@ export function swapExecutionMatches(request: SwapReviewRequest, quote: LiquidQu
   let calldataMatches = false;
   let actionSelectors: Hex[] | null = null;
   let actionsVerified = false;
+  let inputSpend: InputSpend | null = null;
   try {
     const { recipient, buyToken, minAmountOut, actions } = parseExecution(quote.transaction.data);
     actionSelectors = actions.map((action) => action.slice(0, 10) as Hex);
@@ -393,18 +414,22 @@ export function swapExecutionMatches(request: SwapReviewRequest, quote: LiquidQu
       minAmountOut > BigInt(0) && minAmountOut === quote.minToAmount;
     const context = { actions, request, quote, router: swapRouter, fromToken, toToken };
     try {
-      actionsVerified = actions.some((action) => sellsFromToken(action, context)) &&
+      const structurallyValid = actions.some((action) => sellsFromToken(action, context)) &&
         actions.every((action, index) => SETTLER_ACTION_VALIDATORS.get(action.slice(0, 10) as Hex)?.(action, context, index) === true) &&
-        feesMatch(context) && rfqBoundsValid(context) && settlerInputFullySpent(context);
+        feesMatch(context) && rfqBoundsValid(context);
+      if (targetMatchesRouter && calldataMatches && structurallyValid) inputSpend = settlerInputSpend(context);
+      actionsVerified = structurallyValid && inputSpend === "exact";
     } catch {
       actionsVerified = false;
+      inputSpend = null;
     }
   } catch {
     calldataMatches = false;
     actionSelectors = null;
     actionsVerified = false;
+    inputSpend = null;
   }
-  return { targetMatchesRouter, calldataMatches, actionSelectors, actionsVerified };
+  return { targetMatchesRouter, calldataMatches, actionSelectors, actionsVerified, inputSpend };
 }
 
 function executableCalldata(data: Hex, takerDeadline: bigint): { data: Hex; executionDeadline: bigint } {
@@ -452,7 +477,8 @@ export function validateSwapQuote(input: QuoteCheck) {
   if (quote.issues.balance !== null) throw new TradePreparationError("insufficient-balance");
   if (quote.issues.simulationIncomplete !== false) reject();
   const permit = checkQuoteExecutionShape(request, quote, now, input.swapRouter);
-  if (!swapExecutionMatches(request, quote, input.swapRouter).actionsVerified) throw new TradePreparationError("unverified-actions");
+  const { actionsVerified, inputSpend } = swapExecutionMatches(request, quote, input.swapRouter);
+  if (!actionsVerified) throw new TradePreparationError(inputSpend !== null && inputSpend !== "exact" ? "stale-quote" : "unverified-actions");
   const executable = executableCalldata(quote.transaction.data, permit.deadline);
   if (executable.executionDeadline * BigInt(1000) <= BigInt(now.getTime())) throw new TradePreparationError("stale-quote");
   const target = quote.transaction.to;

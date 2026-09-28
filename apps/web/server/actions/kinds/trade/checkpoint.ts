@@ -5,7 +5,7 @@ import type { Address } from "@/shared/trading/server-types";
 import type { CdpSwapsClient, SwapQuote } from "./cdp-swaps";
 import { PRICE_PATH, SWAPS_PATH } from "./cdp-swaps";
 import { PERMIT2_ADDRESS, TradePreparationError, validatePermit2 } from "./permit2";
-import { checkQuoteCompatibility, rfqMakerAuthorizations, swapExecutionMatches, swapTokens, validateSwapQuote, type SwapDirection } from "./quote";
+import { checkQuoteCompatibility, rfqMakerAuthorizations, swapExecutionMatches, swapTokens, validateSwapQuote, type InputSpend, type SwapDirection } from "./quote";
 import { verifyRfqMakerAuthorizations } from "./rfq-maker";
 
 const DEFAULT_TOKEN = "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf" as Address;
@@ -46,6 +46,7 @@ export async function runSwapsCheckpoint({ client, taker, amounts, now, readBloc
     actionSelectors: string[] | null;
     chain: "available" | "unavailable";
     actionsVerified: boolean | null;
+    inputSpend: InputSpend | null;
     quoteCompatible: boolean;
     compatibilityReason: string | null;
     allowanceSpenderIsPermit2: boolean | null;
@@ -78,6 +79,7 @@ export async function runSwapsCheckpoint({ client, taker, amounts, now, readBloc
     let calldataMatches = false;
     let actionSelectors: string[] | null = null;
     let actionsVerified = false as boolean | null;
+    let inputSpend: InputSpend | null = null;
     let quoteCompatible = false;
     let compatibilityReason: string | null = failure ?? "no-liquidity";
     let allowanceSpenderIsPermit2: boolean | null = null;
@@ -85,8 +87,8 @@ export async function runSwapsCheckpoint({ client, taker, amounts, now, readBloc
     let balanceIssue = false;
     let executionReadiness = failure ?? "no-liquidity";
     if (quote.liquidityAvailable) {
-      ({ targetMatchesRouter, calldataMatches, actionSelectors, actionsVerified } = swapExecutionMatches(request, quote, swapRouter ?? "0x0000000000000000000000000000000000000000"));
-      if (swapRouter === null || block === null) { actionsVerified = null; compatibilityReason = "chain-unavailable"; executionReadiness = "chain-unavailable"; }
+      ({ targetMatchesRouter, calldataMatches, actionSelectors, actionsVerified, inputSpend } = swapExecutionMatches(request, quote, swapRouter ?? "0x0000000000000000000000000000000000000000"));
+      if (swapRouter === null || block === null) { actionsVerified = null; inputSpend = null; compatibilityReason = "chain-unavailable"; executionReadiness = "chain-unavailable"; }
       allowanceSpenderIsPermit2 = quote.issues.allowance === null ? null : quote.issues.allowance.spender === PERMIT2_ADDRESS;
       simulationIncomplete = quote.issues.simulationIncomplete;
       balanceIssue = quote.issues.balance !== null;
@@ -136,7 +138,7 @@ export async function runSwapsCheckpoint({ client, taker, amounts, now, readBloc
       quoteLiquidityAvailable: quote.liquidityAvailable,
       permit2Present: quote.liquidityAvailable && quote.permit2 !== null,
       permit2Compatible, permit2Reason, spenderMatchesTarget, targetMatchesRouter, calldataMatches,
-      actionSelectors, actionsVerified, quoteCompatible, compatibilityReason, allowanceSpenderIsPermit2,
+      actionSelectors, actionsVerified, inputSpend, quoteCompatible, compatibilityReason, allowanceSpenderIsPermit2,
       simulationIncomplete, balanceIssue, executionReadiness,
     });
   }

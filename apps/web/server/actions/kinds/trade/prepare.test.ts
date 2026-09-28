@@ -27,7 +27,7 @@ const input = (direction: "buy" | "sell", token: Address = TOKEN, fromAmount = B
 const sessions = (provider: "base-account" | "cdp-embedded" = "cdp-embedded"): VerifiedAccountSession => ({
   user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: provider,
 });
-async function quoteFor(request: SwapReviewRequest, nonce = BigInt(4), makerDeadline?: bigint, invalidMakerSig = false): Promise<Extract<SwapQuote, { liquidityAvailable: true }>> {
+async function quoteFor(request: SwapReviewRequest, nonce = BigInt(4), makerDeadline?: bigint, invalidMakerSig = false, v3Ppm = BigInt(1_000_000)): Promise<Extract<SwapQuote, { liquidityAvailable: true }>> {
   const { fromToken, toToken } = swapTokens(request.direction, request.token);
   const deadline = Math.floor(NOW.getTime() / 1000) + 90;
   const eip712 = {
@@ -43,7 +43,7 @@ async function quoteFor(request: SwapReviewRequest, nonce = BigInt(4), makerDead
   };
   const transfer = `0xc1fb425e${addr(ROUTER)}${addr(fromToken)}${word(request.fromAmount)}${word(nonce)}${word(deadline)}${word(0xc0)}`;
   const path = `${fromToken}00000000${"00".repeat(20)}${toToken.slice(2)}` as Hex;
-  const v3 = `0x8d68a156${encodeAbiParameters(parseAbiParameters("address recipient, uint256 ppm, bytes path, uint256 amountOutMin"), [ROUTER, BigInt(1_000_000), path, BigInt(0)]).slice(2)}`;
+  const v3 = `0x8d68a156${encodeAbiParameters(parseAbiParameters("address recipient, uint256 ppm, bytes path, uint256 amountOutMin"), [ROUTER, v3Ppm, path, BigInt(0)]).slice(2)}`;
   const makerSignature = makerDeadline === undefined ? undefined : invalidMakerSig ? "0x1234" : await makerAccount.signTypedData({
     domain: { name: "Permit2", chainId: 8453, verifyingContract: PERMIT2_ADDRESS },
     primaryType: "PermitWitnessTransferFrom",
@@ -112,6 +112,7 @@ async function prepared(direction: "buy" | "sell", provider: "base-account" | "c
   onPairCall?: (params: readonly unknown[]) => void;
   onIdentityRead?: () => void;
   onQuote?: () => void;
+  v3Ppm?: bigint;
 } = {}) {
   const request = new Request("https://home.test/api/actions/prepare");
   const assetId = options.assetId ?? "cbbtc";
@@ -135,7 +136,7 @@ async function prepared(direction: "buy" | "sell", provider: "base-account" | "c
       expect(swapRequest.signerAddress).toBeUndefined();
       key = swapRequest.requestKey ?? "";
       if (options.illiquid) return { liquidityAvailable: false };
-      const quote = await quoteFor(input(direction, token, fromAmount), options.nonce, options.makerDeadline, options.invalidMakerSig);
+      const quote = await quoteFor(input(direction, token, fromAmount), options.nonce, options.makerDeadline, options.invalidMakerSig, options.v3Ppm);
       if (allowance || options.quoteAllowanceIssue === false) quote.issues.allowance = null;
       if (options.quoteBalanceIssue) quote.issues.balance = { token: quote.fromToken, currentBalance: BigInt(0), requiredBalance: quote.fromAmount };
       if (deadline) (quote.permit2!.eip712 as { message: { deadline: string } }).message.deadline = String(deadline);
@@ -339,6 +340,13 @@ describe("trade preparation", () => {
   ] as const)("maps %s to %s", (reason, code, status) => {
     expect(tradePreparationResponse(new TradePreparationError(reason))).toMatchObject({ code, status });
     expect(tradePreparationResponse(new TradePreparationError(reason))?.message).not.toContain("CDP");
+  });
+  test("maps an input-underfilling quote to TRADE_QUOTE_STALE", async () => {
+    let caught: unknown;
+    try { await prepared("buy", "cdp-embedded", false, undefined, { v3Ppm: BigInt(999_999) }); } catch (error) { caught = error; }
+    expect(caught).toBeInstanceOf(TradePreparationError);
+    expect((caught as TradePreparationError).reason).toBe("stale-quote");
+    expect(tradePreparationResponse(caught)).toEqual({ code: "TRADE_QUOTE_STALE", message: "The trade quote changed. Prepare it again.", status: 409 });
   });
   test("passes when the Permit2 bitmap is unset and reads the owner word at the pinned block", async () => {
     let read = false;
