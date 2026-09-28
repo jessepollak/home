@@ -66,7 +66,7 @@ query GetTokenPrices($inputs: [GetPriceInput!]!) {
 }
 ```
 
-Codex documents a 25-token maximum per `getTokenPrices` request. Home uses one batch for the current roster, splits only when the authoritative registry exceeds 25, and rejects a registry larger than four batches (100 assets). There are no retries. Each request has an eight-second timeout; successful per-process results are cached for 45 seconds and concurrent reads are coalesced.
+Codex documents a 25-token maximum per `getTokenPrices` request. Home uses one batch for the current roster, splits only when the authoritative registry exceeds 25, and rejects a registry larger than four batches (100 assets). There are no retries. Each request has an eight-second timeout and a 4 MB response bound, and a `206` partial response is rejected rather than served; successful per-process results are cached for 45 seconds and concurrent reads are coalesced.
 
 The per-process cache is not a project-wide production rate limiter. Multiple instances can each call Codex, and every GraphQL query can count against provider quotas. Production rollout must monitor the Codex plan/request budget and add shared coordination only if actual deployment scale requires it; this change intentionally adds no Redis, framework, or SDK.
 
