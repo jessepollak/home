@@ -89,29 +89,23 @@ export function createCodexTokenLookup({
     const currentTime = now().getTime();
     if (!Number.isFinite(currentTime)) return new Map();
     const pending = new Map<string, Promise<CacheEntry | null>>();
-    const enqueued: Array<{ address: PortfolioAddress; resolve: (entry: CacheEntry) => void; reject: (error: unknown) => void }> = [];
+    const enqueued: Array<{ address: PortfolioAddress; resolve: (entry: CacheEntry | PromiseLike<CacheEntry>) => void }> = [];
 
     for (const address of unique) {
-      pending.set(address, cache.fetch(address, () => new Promise<CacheEntry>((resolve, reject) => {
-        enqueued.push({ address, resolve, reject });
+      pending.set(address, cache.fetch(address, () => new Promise<CacheEntry>((resolve) => {
+        enqueued.push({ address, resolve });
       })).then((result) => result.status === "saturated" ? null : result.value));
     }
 
     for (let index = 0; index < enqueued.length; index += CODEX_TOKEN_LOOKUP_BATCH_MAX) {
       const batch = enqueued.slice(index, index + CODEX_TOKEN_LOOKUP_BATCH_MAX);
-      void fetchTokenBatch({
+      const entries = fetchTokenBatch({
         apiKey: apiKey.trim(),
         addresses: batch.map(({ address }) => address),
         fetchImpl,
         timeoutMs,
-      }).then(
-        (entries) => {
-          for (const item of batch) item.resolve({ value: entries.get(item.address) ?? null });
-        },
-        (error: unknown) => {
-          for (const item of batch) item.reject(error);
-        },
-      );
+      });
+      for (const item of batch) item.resolve(entries.then((found) => ({ value: found.get(item.address) ?? null })));
     }
 
     const settled = await Promise.all(
