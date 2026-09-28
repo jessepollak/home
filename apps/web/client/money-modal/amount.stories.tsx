@@ -58,7 +58,6 @@ const meta = {
     layout: "fullscreen",
     viewport: { defaultViewport: "mobile" },
     a11y: { test: "error" },
-    design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=166-1776" },
   },
 } satisfies Meta<typeof AmountStory>;
 export default meta;

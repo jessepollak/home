@@ -25,9 +25,6 @@ The full check suite also covers:
 - disposable PostgreSQL contracts discovered from tracked `apps/web/**/*postgres*.test.ts` files (including country preferences), run against CI's PostgreSQL 14 service
 - unit-test runtime budgets (per-test and summed per-file JUnit timings, with a checked-in outlier allowlist)
 - performance budgets (production fixture, structural gates, and report-only timings)
-- the **Code Connect templates** step in the `bun check` job (`bun run --cwd apps/web figma:connect:parse`), which parses every `*.figma.ts` template offline
-
-On pushes to `main`, the `publish Code Connect` and `sync Figma variables` jobs publish templates and tokens to Figma. They run only when the `FIGMA_ACCESS_TOKEN` secret is set and otherwise skip without failing ([Figma workflow](design-explorations/figma-workflow.md#source-of-truth)).
 
 ## Unit-test runtime
 

@@ -227,7 +227,7 @@ function CashStorySurface({ snapshot, balanceStatus: initialBalanceStatus = "rea
 const meta = {
   id: "cash-cash-l2", title: "Cash/Cash L2", component: CashStorySurface,
   args: { snapshot: fundedSnapshot },
-  parameters: { design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=341-13555" }, layout: "fullscreen", viewport: { defaultViewport: "mobile" }, a11y: { test: "error" }, msw: { handlers: [http.get("/api/savings/vaults", () => HttpResponse.json(metadata))] } },
+  parameters: { layout: "fullscreen", viewport: { defaultViewport: "mobile" }, a11y: { test: "error" }, msw: { handlers: [http.get("/api/savings/vaults", () => HttpResponse.json(metadata))] } },
   beforeEach() { getHomeQueryClient().clear(); journey.prepared.length = 0; journey.executed.length = 0; addMoney.mockClear(); back.mockClear(); retryBalances.mockClear(); },
 } satisfies Meta<typeof CashStorySurface>;
 export default meta;

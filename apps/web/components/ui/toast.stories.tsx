@@ -7,7 +7,7 @@ const meta = {
   id: "ui-toast",
   title: "UI/Toast",
   component: Toaster,
-  parameters: { layout: "centered", a11y: { test: "error" }, design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=161-1885" } },
+  parameters: { layout: "centered", a11y: { test: "error" } },
 } satisfies Meta<typeof Toaster>;
 
 export default meta;
