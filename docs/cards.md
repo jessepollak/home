@@ -70,6 +70,16 @@ Immersve endpoints for the planned journey: `POST /auth/login-init`, `POST /auth
 
 The `card_events` record holds only verified notification identity, kind, occurrence time and allowlisted cardholder/card/transaction/customer IDs, never the raw body. Migration `019_card_events_provider.sql` retains existing Immersve records (provider defaults to `immersve`), renames `topic` to `kind`, and changes the key to `(provider, mode, event_id)`. Messages from unknown owners are expected in a shared environment. All rows, including unknown owners, become eligible for bounded lazy deletion after 30 days on later deliveries; inactive environments have no background purge or strict deletion deadline. Because a valid Immersve signature does not expire, a verified delivery is accepted only when its signed `createdAt` is a valid ISO timestamp newer than 30 days ago and no more than 5 minutes in the future. That replay window matches the dedupe retention even after old rows are pruned. Do not use these events as transaction or balance state: at request time, read the provider transaction or Funding Source afresh, with stale/unavailable provenance. Bridge's delivery timestamp is capped at 10 minutes and Stripe's at 5 minutes; validly signed stale deliveries receive retryable 400 responses because retries generate fresh timestamps and signatures, while stored event IDs retain the 30-day pruning rule. Bad signatures, malformed headers or bodies, and mismatched Stripe API versions remain deliberate 202 rejections; stale deliveries never enter the store.
 
+**What Stripe test mode does and does not rehearse for Bridge** ([Bridge + Stripe Issuing](https://apidocs.bridge.xyz/platform/cards/overview/stripe-issuing), [funding strategies](https://apidocs.bridge.xyz/platform/cards/overview/funding-strategies)). Same: card operations after issuance use the Stripe API on Home's own Stripe account (`POST /v1/issuing/cards`, freeze via card status, spending controls, authorization and transaction objects, `issuing_*` webhooks, and Issuing Elements for card detail). Different:
+
+- **Cardholder.** Bridge creates the Stripe cardholder after the Bridge customer's `cards` endorsement is approved and returns `stripe_cardholder_id`; the cardholder is read-only in Stripe and its status is Bridge-managed. The test proof created cardholders directly.
+- **Card creation.** The card is created within 24 hours of the endorsement (otherwise the endorsement lapses and must be re-requested) and names its funding with `crypto_wallet` (`type=standard` for a noncustodial wallet), not `financial_account_v2`.
+- **Funding and declines.** Bridge pulls Base USDC under the customer's allowance at authorization; the test program is a commercial program funded by a Stripe financial account, so balance and decline behavior differ.
+- **Account linking.** Bridge connects to a Stripe account through a Bridge-supplied Stripe App install link and activates Issuing for the program; whether that is this test account or a new one is confirmed with Bridge.
+- **Network.** Bridge documents Visa acceptance; the test program issued Mastercard.
+
+Home therefore keeps a Bridge client for customers, endorsements, and wallet linkage, and a Stripe client for card operations; only the Stripe half is exercisable before Bridge sandbox access.
+
 ## Bridge Slice 2a: card account reads (no enrollment, issue, UI or funds movement)
 
 `020_card_accounts.sql` stores only Home-customer/mode → Bridge customer and Stripe cardholder IDs, plus N Stripe card IDs and their distinct Base wallet addresses per mode. The Bridge ↔ Stripe cardholder link is 1:1; a wallet may appear on several card rows, such as a canceled card and its replacement; canceled cards are ignored once a replacement exists, and 2b enforces at most one non-canceled card per wallet at issue. `GET /api/cards` authenticates the session, resolves the existing Home customer without creating one, scopes all DB reads to that ID and mode, and returns version 1 card state and source provenance with private no-store headers. `/api/cards` is **not** an access-policy public path. No PAN/CVV, KYC bodies, provider status or last4 persist locally. Stripe cardholder remains read-only; Bridge creates it after endorsement approval.
@@ -95,7 +105,7 @@ The journey config is enabled by `BRIDGE_CARDS_ENABLED=1`, separately from webho
 
 ## Decisions before Slice 2
 
-**Recommendations pending Jesse's decision; none is implemented by the event seam:**
+**Approved by Jesse, September 28, 2026; none is implemented by the event seam yet:**
 
 1. Keep a durable `card_transactions` projection keyed by `(provider, mode, provider_transaction_id)`, written only from fresh provider reads, not webhook payloads. It survives the 30-day `card_events` prune and serves Activity, accounting, and dispute evidence.
 2. Obtain each provider's program terms in writing from Bridge and Immersve before production to determine liability for an approved authorization whose wallet pull later fails; Stripe approval alone does not settle this liability.
