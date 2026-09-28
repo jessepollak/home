@@ -1,7 +1,7 @@
 "use client";
 
 import { publicQueryKey, useHomeQuery } from "@/client/query/query-client";
-import { deploymentHeaders } from "@/client/query/deployment-headers";
+import { publicResource } from "@/client/query/public-resource";
 import { parseAssetResolutionResponse } from "@/shared/invest/contracts/asset-resolution";
 
 export function useResolvedAsset(assetId: string | null) {
@@ -14,13 +14,7 @@ export function useResolvedAsset(assetId: string | null) {
     refetchOnWindowFocus: false,
     queryFn: async ({ signal }) => {
       const params = new URLSearchParams({ assetId: assetId! });
-      const response = await fetch(`/api/invest/asset?${params}`, {
-        headers: { ...deploymentHeaders(), accept: "application/json" },
-        cache: "no-store",
-        signal,
-      });
-      if (!response.ok) throw new Error("Asset request failed");
-      const result = parseAssetResolutionResponse(await response.json());
+      const result = parseAssetResolutionResponse(await publicResource(`/api/invest/asset?${params}`, { signal }));
       if (!result || result.assetId !== assetId) throw new Error("Invalid asset response");
       return result;
     },
