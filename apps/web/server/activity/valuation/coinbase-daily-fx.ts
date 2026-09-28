@@ -4,6 +4,7 @@ import type { FiatCurrencyCode } from "@/config/regions";
 import { parseExactDecimal } from "@/shared/balances/math";
 import type { ExactDecimal } from "@/shared/balances/types";
 import type { FetchLike } from "@/server/market-data/codex/execute";
+import { createBoundedCache } from "@/server/cache/bounded";
 
 export const COINBASE_DAILY_FX_ORIGIN = "https://api.coinbase.com" as const;
 export const ACTIVITY_FX_TIMEOUT_MS = 3_000;
@@ -25,12 +26,6 @@ export type DailyFxReader = (
   signal?: AbortSignal,
 ) => Promise<Map<string, DailyFxResult>>;
 
-type CacheEntry = {
-  storedAt: number;
-  ttlMs: number;
-  value: NonNullable<DailyFxResult>;
-};
-
 export function dailyFxKey(request: DailyFxRequest): string {
   return `${request.base}:${request.quote}:${request.date}`;
 }
@@ -49,7 +44,10 @@ export function createCoinbaseDailyFxReader(options: {
   const now = options.now ?? (() => new Date());
   const timeoutMs = options.timeoutMs ?? ACTIVITY_FX_TIMEOUT_MS;
   const cacheMaxEntries = options.cacheMaxEntries ?? ACTIVITY_FX_CACHE_MAX_ENTRIES;
-  const cache = new Map<string, CacheEntry>();
+  const cache = createBoundedCache<{ storedAt: number; value: NonNullable<DailyFxResult> }>({
+    maxEntries: cacheMaxEntries, ttlMs: ACTIVITY_FX_SETTLED_TTL_MS, maxInFlight: 1,
+    now: () => now().getTime(),
+  });
 
   return async function readDailyFx(requests, signal) {
     const unique = new Map<string, DailyFxRequest>();
@@ -63,12 +61,15 @@ export function createCoinbaseDailyFxReader(options: {
     const currentMs = now().getTime();
     const currentDate = new Date(currentMs).toISOString().slice(0, 10);
     for (const [key, request] of unique) {
-      const cached = cache.get(key);
+      const cached = cache.peek(key);
       if (
         cached &&
-        currentMs - cached.storedAt <= cached.ttlMs &&
-        !(cached.value.provisional && request.date < currentDate)
+        (!cached.value.provisional || (
+          currentMs - cached.storedAt <= ACTIVITY_FX_PROVISIONAL_TTL_MS &&
+          !(request.date < currentDate)
+        ))
       ) {
+        cache.get(key);
         results.set(key, cached.value);
       } else {
         missing.push([key, request]);
@@ -97,11 +98,7 @@ export function createCoinbaseDailyFxReader(options: {
           const provisional = request.date === today;
           const value = { rate, provisional };
           results.set(key, value);
-          setBounded(cache, key, {
-            storedAt: now().getTime(),
-            ttlMs: provisional ? ACTIVITY_FX_PROVISIONAL_TTL_MS : ACTIVITY_FX_SETTLED_TTL_MS,
-            value,
-          }, cacheMaxEntries);
+          cache.set(key, { storedAt: now().getTime(), value });
         }
       },
     );
@@ -152,22 +149,6 @@ export function readRate(payload: unknown, request: DailyFxRequest): ExactDecima
   }
   const rate = parseExactDecimal(amount);
   return rate && rate.atoms !== "0" ? rate : null;
-}
-
-function setBounded(
-  cache: Map<string, CacheEntry>,
-  key: string,
-  entry: CacheEntry,
-  maxEntries: number,
-) {
-  if (maxEntries <= 0) return;
-  cache.delete(key);
-  while (cache.size >= maxEntries) {
-    const oldest = cache.keys().next().value;
-    if (oldest === undefined) break;
-    cache.delete(oldest);
-  }
-  cache.set(key, entry);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -7,6 +7,7 @@ import {
   readRecord,
   type FetchLike,
 } from "@/server/market-data/codex/execute";
+import { createBoundedCache } from "@/server/cache/bounded";
 import { parseExactDecimal } from "@/shared/balances/math";
 import { ACTIVITY_BASE_CHAIN_ID } from "@/shared/activity/types";
 import {
@@ -22,6 +23,7 @@ export const ACTIVITY_CLOSE_MAX_BUCKETS_PER_REQUEST = 25;
 export const ACTIVITY_CLOSE_COUNTBACK_BARS = 8;
 export const ACTIVITY_CLOSE_CACHE_MAX_ENTRIES = 2_048;
 export const ACTIVITY_CLOSE_SETTLED_TTL_MS = 24 * 60 * 60 * 1_000;
+export const ACTIVITY_CLOSE_STALE_RETENTION_MS = 7 * ACTIVITY_CLOSE_SETTLED_TTL_MS;
 export const ACTIVITY_CLOSE_RECENT_TTL_MS = 60_000;
 const SETTLE_MARGIN_SECONDS = 15 * 60;
 
@@ -69,7 +71,10 @@ export function createCodexHistoricalCloseReader(options: {
   const now = options.now ?? (() => new Date());
   const timeoutMs = options.timeoutMs ?? ACTIVITY_CLOSE_TIMEOUT_MS;
   const cacheMaxEntries = options.cacheMaxEntries ?? ACTIVITY_CLOSE_CACHE_MAX_ENTRIES;
-  const cache = new Map<string, CacheEntry>();
+  const cache = createBoundedCache<CacheEntry>({
+    maxEntries: cacheMaxEntries, ttlMs: ACTIVITY_CLOSE_STALE_RETENTION_MS, maxInFlight: 1,
+    now: () => now().getTime(),
+  });
   const inFlight = new Map<string, InFlight>();
 
   return async function readHistoricalCloses(requests) {
@@ -87,10 +92,9 @@ export function createCodexHistoricalCloseReader(options: {
     const expired = new Map<string, CacheEntry>();
     const missing: [string, Bucket][] = [];
     for (const [key, bucket] of buckets) {
-      const cached = cache.get(key);
+      const cached = cache.peek(key);
       if (cached && currentMs - cached.storedAt <= cached.ttlMs) {
-        cache.delete(key);
-        cache.set(key, cached);
+        cache.get(key);
         bars.set(key, cached.bars);
       } else if (!apiKey) {
         bars.set(key, null);
@@ -147,7 +151,7 @@ export function createCodexHistoricalCloseReader(options: {
             ? ACTIVITY_CLOSE_SETTLED_TTL_MS
             : recentTtlMs(fetchedAtSeconds, storedAt);
           if (ttlMs > 0) {
-            setBounded(cache, key, { storedAt, ttlMs, fetchedAtSeconds, bars: value }, cacheMaxEntries);
+            cache.set(key, { storedAt, ttlMs, fetchedAtSeconds, bars: value });
           }
         }
       }
@@ -289,20 +293,4 @@ export function normalizeBars(value: unknown): readonly Bar[] | null {
     result.push({ startSeconds, close });
   }
   return result;
-}
-
-function setBounded(
-  cache: Map<string, CacheEntry>,
-  key: string,
-  entry: CacheEntry,
-  maxEntries: number,
-) {
-  if (maxEntries <= 0) return;
-  cache.delete(key);
-  while (cache.size >= maxEntries) {
-    const oldest = cache.keys().next().value;
-    if (oldest === undefined) break;
-    cache.delete(oldest);
-  }
-  cache.set(key, entry);
 }

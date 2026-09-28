@@ -100,6 +100,7 @@ export function createBoundedCache<V extends NonNullable<unknown>>({
 
   return {
     get: (key: string): V | undefined => store?.get(key),
+    peek: (key: string): V | undefined => store?.peek(key),
     set: (key: string, value: V): void => {
       invalidate(key);
       remember(key, value);

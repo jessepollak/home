@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { CODEX_GRAPHQL_ENDPOINT } from "@/server/market-data/codex/config";
 import {
   bucketWindow,
+  ACTIVITY_CLOSE_STALE_RETENTION_MS,
   createCodexHistoricalCloseReader,
   historicalCloseKey,
   selectClose,
@@ -52,6 +53,10 @@ describe("historical close selection", () => {
     expect(selectClose(bars, TRANSFER_AT - 5 * 60 + 1)).toEqual({ status: "none" });
     expect(selectClose(bars, TRANSFER_AT + 21 * 86_400)).toEqual({ status: "none" });
     expect(selectClose([], TRANSFER_AT)).toEqual({ status: "none" });
+  });
+
+  test("treats a zero close as none rather than a found zero price", () => {
+    expect(selectClose([{ startSeconds: epoch("2026-09-07T10:45:00.000Z"), close: "0" }], TRANSFER_AT)).toEqual({ status: "none" });
   });
 
   test("covers the sparse preceding day while ending at the hour boundary", () => {
@@ -115,6 +120,49 @@ describe("Codex historical close reader", () => {
     expect(await resultFor(reader, TOKEN_A, epoch("2026-09-07T11:00:00.000Z"))).toMatchObject({
       status: "found", close: { closedAt: "2026-09-07T11:00:00.000Z", priceUsd: { atoms: "1" } },
     });
+  });
+
+  test("evicts the least recently used bucket at capacity", async () => {
+    let calls = 0;
+    const reader = createCodexHistoricalCloseReader({
+      apiKey: "fixture-key", now: NOW, cacheMaxEntries: 2,
+      fetchImpl: async () => {
+        calls += 1;
+        return Response.json({ data: { b0: barsAt(["2026-09-07T10:45:00.000Z", "1"]) } });
+      },
+    });
+    await resultFor(reader, TOKEN_A, TRANSFER_AT);
+    await resultFor(reader, TOKEN_B, TRANSFER_AT);
+    await resultFor(reader, TOKEN_A, TRANSFER_AT);
+    await resultFor(reader, TOKEN_A, TRANSFER_AT + 3_600);
+    await resultFor(reader, TOKEN_A, TRANSFER_AT);
+    expect(calls).toBe(3);
+    await resultFor(reader, TOKEN_B, TRANSFER_AT);
+    expect(calls).toBe(4);
+  });
+
+  test("an expired close on failed refetch does not evict a fresh close", async () => {
+    let nowMs = Date.parse("2026-09-07T11:20:00.000Z");
+    let calls = 0;
+    const reader = createCodexHistoricalCloseReader({
+      apiKey: "fixture-key", now: () => new Date(nowMs), cacheMaxEntries: 2,
+      fetchImpl: async () => {
+        calls += 1;
+        if (calls === 3 || calls === 5) return new Response("", { status: 502 });
+        const bar = calls === 1 ? "2026-09-07T11:00:00.000Z"
+          : calls === 2 ? "2026-09-07T09:45:00.000Z" : "2026-09-07T08:45:00.000Z";
+        return Response.json({ data: { b0: barsAt([bar, String(calls)]) } });
+      },
+    });
+    const recent = epoch("2026-09-07T11:16:00.000Z");
+    const settled = epoch("2026-09-07T10:05:00.000Z");
+    expect(await resultFor(reader, TOKEN_A, recent)).toMatchObject({ status: "found" });
+    expect(await resultFor(reader, TOKEN_B, settled)).toMatchObject({ status: "found" });
+    nowMs += 60_001;
+    expect(await resultFor(reader, TOKEN_A, recent)).toMatchObject({ status: "found" });
+    expect(await resultFor(reader, TOKEN_A, epoch("2026-09-07T09:05:00.000Z"))).toMatchObject({ status: "found" });
+    expect(await resultFor(reader, TOKEN_B, settled)).toMatchObject({ status: "found", close: { priceUsd: { atoms: "2" } } });
+    expect(calls).toBe(4);
   });
 
   test("isolates a failed alias and never caches provider failure", async () => {
@@ -260,6 +308,26 @@ describe("Codex historical close reader", () => {
     expect(await resultFor(reader, TOKEN_A, early)).toMatchObject({ status: "found" });
     expect(await resultFor(reader, TOKEN_A, late)).toEqual({ status: "unavailable" });
     expect(calls).toBe(4);
+  });
+
+  test("uses an expired settled close on failure only within stale retention", async () => {
+    let nowMs = Date.parse("2026-09-10T00:00:00.000Z");
+    let calls = 0;
+    const reader = createCodexHistoricalCloseReader({
+      apiKey: "fixture-key", now: () => new Date(nowMs),
+      fetchImpl: async () => {
+        calls += 1;
+        return calls === 1
+          ? Response.json({ data: { b0: barsAt(["2026-09-07T10:45:00.000Z", "1"]) } })
+          : new Response("", { status: 502 });
+      },
+    });
+    expect(await resultFor(reader, TOKEN_A, TRANSFER_AT)).toMatchObject({ status: "found" });
+    nowMs += 24 * 60 * 60 * 1_000 + 1;
+    expect(await resultFor(reader, TOKEN_A, TRANSFER_AT)).toMatchObject({ status: "found", close: { priceUsd: { atoms: "1" } } });
+    nowMs += ACTIVITY_CLOSE_STALE_RETENTION_MS - 24 * 60 * 60 * 1_000;
+    expect(await resultFor(reader, TOKEN_A, TRANSFER_AT)).toEqual({ status: "unavailable" });
+    expect(calls).toBe(3);
   });
 
   test("expired empty entry remains none only when fetched after the requested bar began", async () => {
