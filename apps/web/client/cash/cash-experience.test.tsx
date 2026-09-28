@@ -48,6 +48,9 @@ const preparedInputs: unknown[] = [];
 const routeCalls: string[] = [];
 const prepareMoneyAction = async (_endpoint: string, input: unknown): Promise<PreparedMoneyAction> => { preparedInputs.push(input); throw new Error("Preparation intentionally unavailable"); };
 const executeMoneyAction = async (): Promise<never> => { throw new Error("Not part of this test"); };
+const walletWithoutAccount = { status: "verified", verification: "server", session: { ...session, smartAccount: null },
+  fetchBalances: async () => { throw new Error("Not part of this test"); }, fetchAccountResource: async () => metadata,
+  prepareMoneyAction, executeMoneyAction } as unknown as AccountWalletClient;
 
 function Surface({ view = "savings", snapshot = held, status = "ready", onOpenSavings = noop, nowFn = now, onPrepare = prepareMoneyAction, onExecute = executeMoneyAction, fetchVaults }: { view?: "cash" | "savings"; snapshot?: BalancesSnapshot | null; status?: "ready" | "loading" | "failed"; onOpenSavings?: () => void; nowFn?: () => number; onPrepare?: CashExperienceProps["prepareMoneyAction"]; onExecute?: CashExperienceProps["executeMoneyAction"]; fetchVaults?: CashExperienceProps["fetchVaults"] }) {
   return <main><CashExperience view={view} snapshot={snapshot} balanceStatus={status} session={session} now={nowFn} fetchVaults={fetchVaults} onOpenSavings={onOpenSavings} onAddMoney={noop} onRetryBalances={noop} prepareMoneyAction={onPrepare} executeMoneyAction={onExecute} /></main>;
@@ -227,10 +230,7 @@ describe("Cash L2", () => {
     expect(within(hero).getByText("Unavailable")).toBeTruthy();
   });
   test("a verified session without a wallet shows unavailable balances without an ineffective retry", async () => {
-    const wallet = { status: "verified", verification: "server", session: { ...session, smartAccount: null },
-      fetchBalances: async () => { throw new Error("Not part of this test"); }, fetchAccountResource: async () => metadata,
-      prepareMoneyAction, executeMoneyAction } as unknown as AccountWalletClient;
-    const view = render(<AccountWalletContext.Provider value={wallet}><main><AuthenticatedCashExperience view="cash" onOpenSavings={noop} /></main></AccountWalletContext.Provider>);
+    const view = render(<AccountWalletContext.Provider value={walletWithoutAccount}><main><AuthenticatedCashExperience view="cash" onOpenSavings={noop} /></main></AccountWalletContext.Provider>);
     expect(await view.findByLabelText("Balance unavailable")).toBeTruthy();
     expect(view.queryByRole("button", { name: "Try again" })).toBeNull();
     expect(view.queryByRole("button", { name: "Add money" })).toBeNull();

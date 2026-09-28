@@ -387,6 +387,7 @@ export function BorrowOverview({ overview = null, borrowSummary, status = "ready
         prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeMoneyAction} fetchAccountResource={fetchAccountResource}
         assetMarkResolution={assetMarkResolution} onBack={backToManagement} onDone={done}
         onLeave={() => { leavingForActivity.current = true; closeFocus.current = "none"; }}
+        // oxlint-disable-next-line react/no-unstable-nested-components -- Deferred-sheet fallback is invoked as a render callback, not mounted.
         fallback={({ failed, retry }) => <MoneyModalStepLoading step="amount" depth={managementDepth + 1} title={borrowOperationLabels[operation]} titleId="borrow-action-title"
           onBack={backToManagement} closeLabel="Close Borrow action" failed={failed} onRetry={retry} />} />
         : snapshot ? <MoneyModalStep step="management" depth={managementDepth} initialFocusRef={focusOperation ? actionEnabled ? actionFocusRef : heroFocusRef : undefined}>
