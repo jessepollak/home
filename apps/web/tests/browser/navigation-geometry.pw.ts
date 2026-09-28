@@ -215,3 +215,33 @@ for (const { name, lift, selected } of [
     await expect(nav.locator('[data-navigation-lens="ready"]')).toBeVisible();
   });
 }
+
+test("a tap released just past its tab edge keeps the lens on the tab the click selects", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  await page.goto("/home");
+  const nav = page.getByRole("navigation", { name: "Main navigation" });
+  const lens = nav.locator('[data-navigation-lens="ready"]');
+  await expect(lens).toBeVisible();
+  const investBox = (await nav.getByRole("button", { name: "Invest" }).boundingBox())!;
+  const startX = investBox.x + investBox.width - 3;
+  const y = investBox.y + investBox.height / 2;
+  const cdp = await page.context().newCDPSession(page);
+  const touch = (type: "touchStart" | "touchMove" | "touchEnd", x: number) =>
+    cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
+  await touch("touchStart", startX);
+  await expect.poll(() => lens.evaluate((element) => element.style.transform)).toBe("translateX(100%)");
+  await lens.evaluate((element) => {
+    const seen: string[] = [];
+    new MutationObserver(() => seen.push(element.style.transform)).observe(element, { attributeFilter: ["style"] });
+    Object.assign(window, { lensPlaces: seen });
+  });
+  await touch("touchMove", startX + 5);
+  await touch("touchEnd", startX + 5);
+  await expect(nav.getByRole("button", { name: "Invest" })).toHaveAttribute("aria-current", "page");
+  await expect(nav).not.toHaveAttribute("data-lens-pressed");
+  await expect(nav).not.toHaveAttribute("data-lens-wide");
+  await expect.poll(() => lens.evaluate((element) => element.style.transform)).toBe("translateX(100%)");
+  expect(await page.evaluate(() => (window as unknown as { lensPlaces: string[] }).lensPlaces)).not.toContain("translateX(0%)");
+});

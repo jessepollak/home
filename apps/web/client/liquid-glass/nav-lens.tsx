@@ -286,9 +286,9 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
     };
     const end = (event: PointerEvent) => {
       if (!gesture || event.pointerId !== gesture.id) return;
-      const { dragged, index: gestureIndex } = gesture;
+      const { dragged } = gesture;
       gesture = null;
-      if (!dragged) return tabs()[gestureIndex].contains(document.elementFromPoint(event.clientX, event.clientY)) ? finish() : reset();
+      if (!dragged) return finish();
       suppressUntil = event.timeStamp + SUPPRESS_MS;
       const index = tabAt(event.clientX, event.clientY);
       if (index < 0) return reset();

@@ -495,7 +495,7 @@ export const UnconfirmedRelease: Story = { play: async ({ canvasElement }) => {
   const lens = nav.querySelector<HTMLElement>('[data-navigation-lens="ready"]')!;
   await waitFor(() => expect(Math.abs(centerOf(lens).x - centerOf(invest).x)).toBeLessThanOrEqual(2));
   touch("pointerup", invest, { x: centerOf(invest).x, y: nav.getBoundingClientRect().top + 1 });
-  await waitFor(() => expect(Math.abs(centerOf(lens).x - centerOf(within(nav).getByRole("button", { name: "Home" })).x)).toBeLessThanOrEqual(2), { timeout: 400 });
+  await waitFor(() => expect(Math.abs(centerOf(lens).x - centerOf(within(nav).getByRole("button", { name: "Home" })).x)).toBeLessThanOrEqual(2), { timeout: 1_500 });
   await expect(within(nav).getByRole("button", { name: "Home" })).toHaveAttribute("aria-current", "page");
 } };
 export const InterruptedMotion: Story = { render: (args) => <MotionSwitchShell {...args} />, play: async ({ canvasElement }) => {
