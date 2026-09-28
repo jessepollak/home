@@ -1,6 +1,6 @@
 ---
 name: design-engineering
-description: Apply Home's design-engineering craft to any user-visible implementation or review — trained taste, cohesive defaults, hierarchy, interaction edges, and purposeful motion. Use with browser-iteration for implementation or interactive review of a rendered surface; animate, review-animations, and mobile-native stay focused lenses.
+description: Use for every Home user-visible implementation or review, including small copy or alignment fixes; apply Home's design-engineering craft — trained taste, cohesive defaults, hierarchy, interaction edges, and purposeful motion. Use with browser-iteration for implementation or interactive review of a rendered surface; animate, review-animations, and mobile-native stay focused lenses.
 license: MIT
 metadata:
   source: https://github.com/emilkowalski/skills/tree/85e8e2363b713506e1d5b6e07a0eb2da66be1bc3/skills/emil-design-eng
