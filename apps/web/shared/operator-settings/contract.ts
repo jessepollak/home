@@ -1,4 +1,9 @@
-export const OPERATOR_SETTINGS_CONTRACT_VERSION = 1 as const;
+import { BRAND_DEFAULTS, BRAND_SETTINGS_DOMAIN, OPERATOR_BRANDING_SCHEMA_VERSION, parseBrandSettings } from "@/shared/operator-branding/contract";
+import { OPERATOR_SETTINGS_CONTRACT_VERSION, parseSettingsResponse } from "./envelope";
+
+export { OPERATOR_SETTINGS_CONTRACT_VERSION } from "./envelope";
+/** @public parses settings responses for future administrator clients */
+export { parseSettingsResponse } from "./envelope";
 
 export type DomainDefinition<T> = {
   schemaVersion: number;
@@ -29,6 +34,7 @@ export function parseSupportSettings(value: unknown): SupportSettings | null {
 
 export const OPERATOR_SETTINGS_DOMAINS = {
   support: { schemaVersion: 1, defaults: { email: null, url: null }, parse: parseSupportSettings },
+  [BRAND_SETTINGS_DOMAIN]: { schemaVersion: OPERATOR_BRANDING_SCHEMA_VERSION, defaults: BRAND_DEFAULTS, parse: parseBrandSettings },
 } satisfies DomainRegistry;
 
 export type SettingsEntry<T = unknown> = {
@@ -52,12 +58,6 @@ export function parsePutSettingsRequest(value: unknown): PutSettingsRequest | nu
   if (!isObject(value) || !exactKeys(value, ["version", "expectedRevision", "value"])) return null;
   if (value.version !== OPERATOR_SETTINGS_CONTRACT_VERSION || !Number.isSafeInteger(value.expectedRevision) || (value.expectedRevision as number) < 0) return null;
   return { version: OPERATOR_SETTINGS_CONTRACT_VERSION, expectedRevision: value.expectedRevision as number, value: value.value };
-}
-
-/** @public parses settings responses for future administrator clients */
-export function parseSettingsResponse(value: unknown): SettingsResponse | null {
-  if (!isObject(value) || value.version !== OPERATOR_SETTINGS_CONTRACT_VERSION || typeof value.domain !== "string" || !isSettings(value.settings)) return null;
-  return value as SettingsResponse;
 }
 
 /** @public parses settings list responses for future administrator clients */
@@ -102,7 +102,4 @@ function exactKeys(value: Record<string, unknown>, keys: string[]): boolean {
 }
 function isAddress(value: unknown): value is `0x${string}` {
   return typeof value === "string" && /^0x[0-9a-f]{40}$/.test(value);
-}
-function isSettings(value: unknown): value is SettingsEntry["settings"] {
-  return isObject(value) && "value" in value && Number.isSafeInteger(value.revision) && (value.revision as number) >= 0 && (value.source === "default" || value.source === "stored") && (value.updatedAt === null || typeof value.updatedAt === "string") && (value.updatedBy === null || typeof value.updatedBy === "string");
 }
