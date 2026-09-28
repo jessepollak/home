@@ -2,11 +2,12 @@ import "server-only";
 
 import { LRUCache } from "lru-cache";
 
-export type BoundedCacheOptions = {
+export type BoundedCacheOptions<V> = {
   maxEntries: number;
   ttlMs: number;
   maxInFlight: number;
   now?: () => number;
+  retain?: (value: V) => boolean;
 };
 
 export type BoundedFetchResult<V> =
@@ -21,7 +22,8 @@ export function createBoundedCache<V extends NonNullable<unknown>>({
   ttlMs,
   maxInFlight,
   now = Date.now,
-}: BoundedCacheOptions) {
+  retain = () => true,
+}: BoundedCacheOptions<V>) {
   if (!Number.isInteger(maxEntries) || maxEntries < 0) {
     throw new RangeError("maxEntries must be a nonnegative integer");
   }
@@ -80,7 +82,7 @@ export function createBoundedCache<V extends NonNullable<unknown>>({
       current: true,
       promise: request
         .then((value): BoundedFetchResult<V> => {
-          if (flight.current) remember(key, value);
+          if (flight.current && retain(value)) remember(key, value);
           return { status: "loaded", value };
         })
         .finally(() => {

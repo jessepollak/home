@@ -215,6 +215,26 @@ describe("bounded server cache", () => {
     expect(cache.inFlight).toBe(0);
   });
 
+  test("a value the retain predicate rejects reaches every joiner without being stored or evicting live entries", async () => {
+    const cache = createBoundedCache<string>({ ...options, maxEntries: 1, retain: (value) => value !== "error" });
+    cache.set("live", "LIVE");
+    const task = deferred<string>();
+    let calls = 0;
+    const first = cache.fetch("a", () => { calls++; return task.promise; });
+    const joined = cache.fetch("a", () => { calls++; return Promise.resolve("unexpected"); });
+    task.resolve("error");
+    expect(await Promise.all([first, joined])).toEqual([
+      { status: "loaded", value: "error" },
+      { status: "loaded", value: "error" },
+    ]);
+    expect(calls).toBe(1);
+    expect(cache.get("a")).toBeUndefined();
+    expect(cache.get("live")).toBe("LIVE");
+    expect(cache.inFlight).toBe(0);
+    expect(await cache.fetch("a", async () => "ok")).toEqual({ status: "loaded", value: "ok" });
+    expect(cache.get("a")).toBe("ok");
+  });
+
   test("invalid options fail fast", () => {
     for (const maxEntries of [-1, 1.5, NaN, Infinity]) {
       expect(() => createBoundedCache({ ...options, maxEntries })).toThrow();

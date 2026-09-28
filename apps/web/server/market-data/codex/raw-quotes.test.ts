@@ -40,6 +40,41 @@ describe("Codex raw quotes", () => {
     }
   });
 
+  test("shared reader hits refresh recency and an API key change clears readers", async () => {
+    const previousKey = process.env.CODEX_API_KEY;
+    const previousFetch = globalThis.fetch;
+    process.env.CODEX_API_KEY = "fixture-key";
+    let calls = 0;
+    globalThis.fetch = Object.assign(async () => {
+      calls++;
+      return Response.json({ data: { getTokenPrices: [] } });
+    }, { preconnect: previousFetch.preconnect });
+    resetCodexSharedReadersForTests();
+    const read = (index: number) => {
+      const address = `0x${index.toString(16).padStart(40, "0")}` as const;
+      return getCodexRawQuotes([{ assetKey: `eip155:8453/erc20:${address}`, address, networkId: 8453 }]);
+    };
+    try {
+      for (let index = 1; index <= CODEX_SHARED_READER_MAX; index++) await read(index);
+      await read(1);
+      expect(calls).toBe(256);
+      await read(CODEX_SHARED_READER_MAX + 1);
+      await read(1);
+      expect(calls).toBe(257);
+      await read(2);
+      expect(calls).toBe(258);
+      process.env.CODEX_API_KEY = "another-fixture-key";
+      await read(1);
+      expect(calls).toBe(259);
+      expect(codexSharedReaderCountForTests()).toBe(1);
+    } finally {
+      globalThis.fetch = previousFetch;
+      if (previousKey === undefined) delete process.env.CODEX_API_KEY;
+      else process.env.CODEX_API_KEY = previousKey;
+      resetCodexSharedReadersForTests();
+    }
+  });
+
   test("retains the exact raw decimal and exact contract/time provenance", async () => {
     const reader = createCodexRawQuotesReader({
       apiKey: "fixture-key",

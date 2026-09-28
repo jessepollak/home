@@ -3,6 +3,7 @@ import "server-only";
 import { decodeFunctionResult, encodeFunctionData, parseAbi } from "viem";
 import { TOKENIZED_EQUITY_ORACLE_REGISTRY, type InvestAsset } from "@/config/invest-assets";
 import { createBaseRpcClient, parseRpcQuantity } from "@/server/chain/rpc";
+import { createBoundedCache } from "@/server/cache/bounded";
 import { classifyTokenizedEquityRound, type EquityBlock, type TokenizedEquityFeed, type TokenizedEquityReference } from "./classify";
 
 export type { TokenizedEquityFeed, TokenizedEquityReference } from "./classify";
@@ -81,6 +82,9 @@ export async function readTokenizedEquityReferences(
   });
 }
 
+/** @public exercised by server/market-data/tokenized-equity/reader.test.ts */
+export const TOKENIZED_EQUITY_MAX_IN_FLIGHT = 16;
+
 export function createTokenizedEquityReader({
   read = readTokenizedEquityReferences,
   ttlMs = 30_000,
@@ -94,15 +98,17 @@ export function createTokenizedEquityReader({
   now?: () => number;
   rpc?: Rpc;
 } = {}): (feeds: readonly TokenizedEquityFeed[]) => Promise<TokenizedEquityReference[]> {
-  let cached: { key: string; at: number; references: TokenizedEquityReference[] } | null = null;
-  const inFlight = new Map<string, Promise<TokenizedEquityReference[]>>();
+  const cache = createBoundedCache<TokenizedEquityReference[]>({
+    ttlMs,
+    maxEntries: 1,
+    maxInFlight: TOKENIZED_EQUITY_MAX_IN_FLIGHT,
+    now,
+    retain: (references) => references.some((reference) => reference.status !== "unavailable"),
+  });
   return (feeds) => {
     if (feeds.length === 0) return Promise.resolve([]);
     const key = JSON.stringify(feeds);
-    if (cached?.key === key && now() - cached.at < ttlMs) return Promise.resolve(cached.references);
-    const existing = inFlight.get(key);
-    if (existing) return existing;
-    const pending = (async () => {
+    return cache.fetch(key, async () => {
       let references: TokenizedEquityReference[];
       try {
         const signal = AbortSignal.timeout(timeoutMs);
@@ -111,11 +117,8 @@ export function createTokenizedEquityReader({
       } catch {
         references = failed(feeds, null);
       }
-      if (references.some((reference) => reference.status !== "unavailable")) cached = { key, at: now(), references };
       return references;
-    })().finally(() => { inFlight.delete(key); });
-    inFlight.set(key, pending);
-    return pending;
+    }).then((result) => result.status === "saturated" ? failed(feeds, null) : result.value);
   };
 }
 

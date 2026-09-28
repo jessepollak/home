@@ -1,5 +1,7 @@
 import "server-only";
 
+import { createBoundedCache } from "@/server/cache/bounded";
+
 import { investAssets, isDiscoverableAsset, type InvestAsset } from "@/config/invest-assets";
 import { normalizeInvestSearchQuery, isInvestSearchAddressQuery, investSearchRank, rankInvestSearchResults, INVEST_SEARCH_MAX_OFFSET, INVEST_SEARCH_PAGE_SIZE, INVEST_SEARCH_VERSION, type InvestSearchMatch, type InvestSearchRequest, type InvestSearchResponse, type InvestSearchWireResult } from "@/shared/invest/contracts/search";
 import { CODEX_REQUEST_TIMEOUT_MS } from "./config";
@@ -22,7 +24,6 @@ export const CODEX_SEARCH_QUERY = `query SearchBaseTokens($phrase: String, $filt
 }`;
 
 type SearchOptions = AssetResolverOptions & { resolve?: typeof resolveAsset };
-type Cached = { storedAt: number; value: InvestSearchResponse };
 
 function matchAliases(query: string, aliases: readonly string[]): InvestSearchMatch | null {
   const needle = query.toLowerCase();
@@ -55,8 +56,13 @@ export function createCodexSearchReader({ apiKey, fetchImpl = fetch, onchain, is
   const configuredContracts = new Set(assets.map((asset) => asset.contractAddress.toLowerCase()));
   const readAsset = resolve ?? createAssetResolver({ apiKey, fetchImpl, onchain, isPair, now, timeoutMs, cacheMaxEntries, maxInFlight });
   const checkPair = createPairCheck({ read: isPair ?? assetReadsToken0, maxConcurrent: CODEX_SEARCH_MAX_PAIR_CHECKS, cacheMaxEntries: CODEX_SEARCH_PAIR_CACHE_MAX, ttlMs: CODEX_SEARCH_PAIR_CACHE_TTL_MS });
-  const cache = new Map<string, Cached>();
-  const inFlight = new Map<string, Promise<InvestSearchResponse>>();
+  const cache = createBoundedCache<InvestSearchResponse>({
+    ttlMs: CODEX_SEARCH_TTL_MS,
+    maxEntries: cacheMaxEntries,
+    maxInFlight,
+    now: () => now().getTime(),
+    retain: (value) => value.provider === "ok",
+  });
   return async function search({ query: raw, offset }: InvestSearchRequest): Promise<InvestSearchResponse> {
     const normalized = normalizeInvestSearchQuery(raw);
     if (!normalized || !Number.isSafeInteger(offset) || offset < 0 || offset > INVEST_SEARCH_MAX_OFFSET || offset % INVEST_SEARCH_PAGE_SIZE !== 0) throw new Error("Invalid search request");
@@ -73,19 +79,11 @@ export function createCodexSearchReader({ apiKey, fetchImpl = fetch, onchain, is
     const query = normalized.toLowerCase();
     const configured = offset === 0 ? configuredMatches(normalized, assets) : [];
     const key = `${query}:${offset}`;
-    const timestamp = now().getTime();
-    for (const [candidate, entry] of cache) if (timestamp - entry.storedAt > CODEX_SEARCH_TTL_MS) cache.delete(candidate);
-    const hit = cache.get(key);
     const forRequest = (value: InvestSearchResponse): InvestSearchResponse =>
       value.query === normalized ? value : { ...value, query: normalized };
-    if (hit) { cache.delete(key); cache.set(key, hit); return forRequest(hit.value); }
-    const pending = inFlight.get(key);
-    if (pending) return pending.then(forRequest);
     if (/^0x[0-9a-f]*$/i.test(normalized) && !isInvestSearchAddressQuery(normalized)) return response(normalized, offset, configured, [], "skipped", null);
     if (!apiKey?.trim()) return response(normalized, offset, configured, [], "unavailable", null);
-    if (inFlight.size >= maxInFlight) return response(normalized, offset, configured, [], "unavailable", null);
-
-    const request = (async () => {
+    const result = await cache.fetch(key, async () => {
       try {
         const payload = await executeCodexGraphql({ apiKey: apiKey.trim(), fetchImpl, timeoutMs, query: CODEX_SEARCH_QUERY, variables: { phrase: normalized, filters: { network: [8453] }, rankings: [{ attribute: "trendingScore24", direction: "DESC" }], limit: INVEST_SEARCH_PAGE_SIZE, offset } });
         const connection = readRecord(readRecord(payload)?.filterTokens);
@@ -116,17 +114,10 @@ export function createCodexSearchReader({ apiKey, fetchImpl = fetch, onchain, is
       } catch {
         return response(normalized, offset, configured, [], "error", null);
       }
-    })();
-    inFlight.set(key, request);
-    try {
-      const result = await request;
-      if (result.provider === "ok") {
-        cache.delete(key);
-        cache.set(key, { storedAt: now().getTime(), value: result });
-        while (cache.size > cacheMaxEntries) cache.delete(cache.keys().next().value!);
-      }
-      return forRequest(result);
-    } finally { inFlight.delete(key); }
+    });
+    return result.status === "saturated"
+      ? response(normalized, offset, configured, [], "unavailable", null)
+      : forRequest(result.value);
   };
 }
 
