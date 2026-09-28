@@ -3,20 +3,38 @@ import { createPostgresSqlExecutor } from "./sql";
 
 type QueryCall = { text: string; values: unknown[] };
 
-function fakePool(multiStatementText?: string) {
+function fakePool(multiStatementText?: string, deferredConnect = false, hangText?: string) {
   const calls: QueryCall[] = [];
   let ended = false;
+  let destroys = 0;
   let releases = 0;
+  let resolveConnect: (() => void) | undefined;
+  const pending: ((error: Error) => void)[] = [];
+  let settleRelease: () => void = () => {};
+  const released = new Promise<void>((resolve) => { settleRelease = resolve; });
+  let startHang: () => void = () => {};
+  const hangStarted = new Promise<void>((resolve) => { startHang = resolve; });
   const client = {
     async query(text: string, values: unknown[] = []) {
       calls.push({ text, values });
+      if (text === hangText) {
+        startHang();
+        return new Promise<{ rows: unknown[]; rowCount: number | null }>((_resolve, reject) => { pending.push(reject); });
+      }
       if (text === multiStatementText) {
         return [{ rows: [], rowCount: null }, { rows: [], rowCount: null }];
       }
       return { rows: [], rowCount: 0 };
     },
-    release() {
+    release(err?: Error | boolean) {
+      if (err === true) {
+        destroys += 1;
+        for (const reject of pending.splice(0)) reject(new Error("client destroyed"));
+        settleRelease();
+        return;
+      }
       releases += 1;
+      settleRelease();
     },
   };
   return {
@@ -27,10 +45,23 @@ function fakePool(multiStatementText?: string) {
     get releases() {
       return releases;
     },
+    get destroys() {
+      return destroys;
+    },
+    get released() {
+      return released;
+    },
+    get hangStarted() {
+      return hangStarted;
+    },
+    resolveConnect() {
+      resolveConnect?.();
+    },
     async query(text: string, values: unknown[] = []) {
       return client.query(text, values);
     },
     async connect() {
+      if (deferredConnect) await new Promise<void>((resolve) => { resolveConnect = resolve; });
       return client;
     },
     async end() {
@@ -105,5 +136,32 @@ describe("PostgreSQL executor", () => {
       { text: "COMMIT", values: [] },
     ]);
     expect(pool.ended).toBe(true);
+  });
+
+  test("destroys an acquisition that resolves after its signal aborted", async () => {
+    const pool = fakePool(undefined, true);
+    const sql = createPostgresSqlExecutor("postgresql://example.test/home", { poolFactory: () => pool });
+    const controller = new AbortController();
+    const pending = sql.query("SELECT 1", [], { signal: controller.signal });
+    controller.abort();
+    await expect(pending).rejects.toBeDefined();
+    pool.resolveConnect();
+    await pool.released;
+    expect(pool.calls).toEqual([]);
+    expect(pool.destroys).toBe(1);
+    expect(pool.releases).toBe(0);
+  });
+
+  test("destroys the client and skips rollback when a query is aborted", async () => {
+    const pool = fakePool(undefined, false, "SELECT stalled");
+    const sql = createPostgresSqlExecutor("postgresql://example.test/home", { poolFactory: () => pool });
+    const controller = new AbortController();
+    const pending = sql.query("SELECT stalled", [], { signal: controller.signal });
+    await pool.hangStarted;
+    controller.abort();
+    await expect(pending).rejects.toBeDefined();
+    expect(pool.calls.map(({ text }) => text)).toEqual(["BEGIN", "SELECT stalled"]);
+    expect(pool.destroys).toBe(1);
+    expect(pool.releases).toBe(0);
   });
 });

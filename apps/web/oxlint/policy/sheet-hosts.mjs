@@ -6,6 +6,12 @@ export const sheetHostExceptions = [
     reason: "non-money operator navigation drawer",
   },
   {
+    file: "client/admin/regions-pane.tsx",
+    imports: ["Drawer", "DrawerContent", "DrawerDescription", "DrawerFooter", "DrawerHeader", "DrawerTitle"],
+    owner: "operator settings",
+    reason: "non-money region-settings review drawer before an audited settings update",
+  },
+  {
     file: "client/account/account-screen.tsx",
     imports: ["DrawerHeader", "DrawerTitle"],
     owner: "account sign-in",

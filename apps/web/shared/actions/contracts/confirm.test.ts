@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { parseConfirmActionResponse, supportsBaseBatchGasHint } from "./confirm";
+import { CONFIRM_CASHOUT_ERRORS, parseConfirmActionErrorResponse, parseConfirmActionResponse, supportsBaseBatchGasHint } from "./confirm";
+import { CASHOUT_PREPARE_ERRORS } from "./prepare";
 
 const calls = [{
   to: "0x1111111111111111111111111111111111111111" as const,
@@ -37,5 +38,23 @@ describe("confirm action response parser", () => {
     for (const batchGasLimit of ["0", "01", "0x10", "1.5", "2000001", 100000]) {
       expect(parseConfirmActionResponse({ calls, batchGasLimit })).toBeNull();
     }
+  });
+});
+
+describe("confirm action error contract", () => {
+  test("declares the cash-out region failures shared with prepare", () => {
+    expect(CONFIRM_CASHOUT_ERRORS).toEqual({
+      unavailable: CASHOUT_PREPARE_ERRORS.unavailable,
+      "settings-unavailable": CASHOUT_PREPARE_ERRORS["settings-unavailable"],
+    });
+    expect(parseConfirmActionErrorResponse({ error: { code: "CASHOUT_UNAVAILABLE", message: "x" } })).toEqual({ error: { code: "CASHOUT_UNAVAILABLE", message: "x" } });
+    expect(parseConfirmActionErrorResponse({ error: { code: "CASHOUT_SETTINGS_UNAVAILABLE", message: "y" } })?.error.code).toBe("CASHOUT_SETTINGS_UNAVAILABLE");
+  });
+
+  test("rejects codes confirm never returns and malformed bodies", () => {
+    expect(parseConfirmActionErrorResponse({ error: { code: "CASHOUT_ORDER_IN_FLIGHT", message: "x" } })).toBeNull();
+    expect(parseConfirmActionErrorResponse({ error: { code: "CASHOUT_UNAVAILABLE" } })).toBeNull();
+    expect(parseConfirmActionErrorResponse({ code: "CASHOUT_UNAVAILABLE", message: "x" })).toBeNull();
+    expect(parseConfirmActionErrorResponse({ calls })).toBeNull();
   });
 });

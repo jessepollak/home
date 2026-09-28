@@ -3,7 +3,7 @@ import "@/client/account/dom-test-harness";
 import { afterEach, describe, expect, test } from "bun:test";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { anonymousCountryPreferenceKey, legacyCountryPreferenceKey } from "@/config/country-preference";
-import type { CountryCode, RegionId } from "@/config/regions";
+import type { CountryCode, RegionId, RegionOffer } from "@/config/regions";
 import { isRegionAccountSignedIn, useHomeRegion } from "./use-home-region";
 
 afterEach(() => {
@@ -11,7 +11,8 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
-function Region({ detectedCountry = null, accountPreference = null, accountIdentity = null, accountOwner = null, accountPreferencePending = false, signedIn = false, accountReady = false, accountSettling, accountStatus, writeAccountPreference }: {
+function Region({ detectedCountry = null, accountPreference = null, accountIdentity = null, accountOwner = null, accountPreferencePending = false, signedIn = false, accountReady = false, accountSettling, accountStatus, writeAccountPreference, offer }: {
+  offer?: RegionOffer;
   detectedCountry?: string | null;
   accountPreference?: CountryCode | null;
   signedIn?: boolean;
@@ -27,6 +28,7 @@ function Region({ detectedCountry = null, accountPreference = null, accountIdent
     detectedCountry, accountPreference, accountIdentity, accountOwner, accountPreferencePending, signedIn: accountStatus ? isRegionAccountSignedIn(accountStatus) : signedIn,
     accountReady, accountSettling: accountSettling ?? (accountStatus?.status === "restoring" || accountStatus?.status === "validating"),
     writeAccountPreference,
+    offer,
   });
   return <>
     <output>{isPreferenceReady ? `${regionId}:${resolutionSource}` : `pending:${regionId}`}</output>
@@ -43,6 +45,53 @@ async function renderResolved(props: Parameters<typeof Region>[0]) {
 }
 
 describe("useHomeRegion", () => {
+  const offer: RegionOffer = { offered: ["BR", "GB"], defaultRegion: "BR" };
+
+  test("presents a removed account country as Global without rewriting it", async () => {
+    const calls: unknown[] = [];
+    const view = await renderResolved({ detectedCountry: "BR", accountPreference: "MX", accountIdentity: "account-a", signedIn: true, accountReady: true, offer,
+      writeAccountPreference: async (id, adopt) => { calls.push([id, adopt]); return id; } });
+    expect(view.getByRole("status").textContent).toBe("GLOBAL:fallback");
+    expect(calls).toEqual([]);
+  });
+
+  test("ignores a removed browser country and does not adopt it", async () => {
+    window.localStorage.setItem(anonymousCountryPreferenceKey, "MX");
+    const calls: unknown[] = [];
+    const view = await renderResolved({ detectedCountry: "US", accountIdentity: "account-a", signedIn: true, accountReady: true, offer,
+      writeAccountPreference: async (id, adopt) => { calls.push([id, adopt]); return id; } });
+    expect(view.getByRole("status").textContent).toBe("GLOBAL:fallback");
+    expect(calls).toEqual([]);
+  });
+
+  test("uses the operator default when the detected country is not offered", async () => {
+    const view = await renderResolved({ detectedCountry: "US", offer });
+    expect(view.getByRole("status").textContent).toBe("BR:fallback");
+  });
+
+  test("ignores a selection of a country that is not offered", async () => {
+    const view = await renderResolved({ detectedCountry: "BR", offer });
+    fireEvent.click(view.getByRole("button", { name: "Choose MX" }));
+    expect(view.getByRole("status").textContent).toBe("BR:detected");
+    fireEvent.click(view.getByRole("button", { name: "Choose GB" }));
+    expect(view.getByRole("status").textContent).toBe("GB:explicit");
+  });
+
+  test("presents Global when a newer offer removes the selected country", async () => {
+    const view = await renderResolved({ detectedCountry: "BR", offer });
+    fireEvent.click(view.getByRole("button", { name: "Choose GB" }));
+    expect(view.getByRole("status").textContent).toBe("GB:explicit");
+    view.rerender(<Region detectedCountry="BR" offer={{ offered: ["BR"], defaultRegion: "BR" }} />);
+    expect(view.getByRole("status").textContent).toBe("GLOBAL:fallback");
+  });
+
+  test("maps a removed stored country returned by adoption to Global", async () => {
+    window.localStorage.setItem(anonymousCountryPreferenceKey, "GB");
+    const view = await renderResolved({ detectedCountry: "BR", accountIdentity: "account-a", signedIn: true, accountReady: true, offer,
+      writeAccountPreference: async () => "MX" });
+    await waitFor(() => expect(view.getByRole("status").textContent).toBe("GLOBAL:persisted"));
+  });
+
   test("holds browser hydration and adoption until an account read settles with no preference", async () => {
     window.localStorage.setItem(anonymousCountryPreferenceKey, "MX");
     const calls: Array<[CountryCode, boolean]> = [];

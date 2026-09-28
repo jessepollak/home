@@ -4,6 +4,7 @@ import { useMoneyActionOutcome } from "@/client/actions/money-action-outcome";
 import { openPanelAfterClose, useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 import type { MoneyAssetPrice } from "@/client/money-modal";
 import type { TransferAssetAvailability } from "@/shared/transfers/types";
+import { CASHOUT_PREPARE_ERRORS, isCashoutPrepareErrorCode } from "@/shared/actions/contracts/prepare";
 import { MoneyTicker } from "@/components/money-ticker";
 import { Alert, AlertIcon, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -657,8 +658,10 @@ function StatusMessage({ children, tone = "neutral", role, ...props }: Omit<Comp
 }
 function isUnavailableReview(error: unknown): boolean {
   if (!(error instanceof TransferExecutionError) || error.reason !== "unavailable") return false;
-  const status = (error as TransferExecutionError & { status?: unknown }).status;
-  return status === 404 || status === 410;
+  const details = error as TransferExecutionError & { status?: unknown; code?: unknown };
+  return details.status === 404 || details.status === 410 ||
+    details.code === CASHOUT_PREPARE_ERRORS.unavailable.code ||
+    details.code === CASHOUT_PREPARE_ERRORS["settings-unavailable"].code;
 }
 function messageForError(error: unknown, cashout: boolean): string {
   if (error instanceof TransferExecutionError && error.reason === "stale-session") return "Your account changed before submission. Sign in and try again.";
@@ -669,6 +672,6 @@ function messageForError(error: unknown, cashout: boolean): string {
 }
 function serverCashoutMessage(error: unknown): string {
   const value = error as { code?: unknown; serverMessage?: unknown };
-  if (typeof value.serverMessage === "string" && typeof value.code === "string" && value.code.startsWith("CASHOUT_")) return value.serverMessage;
+  if (typeof value.serverMessage === "string" && isCashoutPrepareErrorCode(value.code)) return value.serverMessage;
   return "Check the payout details and try again.";
 }

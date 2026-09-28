@@ -1987,6 +1987,29 @@ describe("walletless country preference read", () => {
     }
   });
 
+  test("shows balances in the global presentation when the saved country is no longer offered", async () => {
+    const fresh = buildBalancesSnapshotFixture({
+      region: "GLOBAL",
+      registry: { usdc: { balance: ready("1000000") } },
+    });
+    const requests: string[] = [];
+    const sessionFetch: SessionFetch = async (input) => {
+      const path = String(input);
+      requests.push(path);
+      if (path === "/api/session") return Response.json(session());
+      if (path === "/api/balances?region=GLOBAL") return Response.json(fresh);
+      throw new Error(`Unexpected read: ${path}`);
+    };
+    render(<AccountWalletSessionOwner sdk={sdk({ isSignedIn: true, ownerKey: OWNER, provisionalSession: session() })} sessionFetch={sessionFetch}>
+      <PortfolioHomeExperience detectedCountry="BR" accountPreference={{ accountProvider: "cdp-embedded", subject: "subject-home", regionId: "DE" }}
+        regionOffer={{ offered: ["BR"], defaultRegion: "BR" }} initialLocation={location} />
+    </AccountWalletSessionOwner>);
+    await waitForVerifiedShell();
+    await waitFor(() => expect(requests).toContain("/api/balances?region=GLOBAL"));
+    await waitFor(() => expect(page().getByRole("button", { name: "Choose a country in Account to set how money is shown" })).toBeTruthy());
+    expect(requests).not.toContain("/api/balances?region=BR");
+  });
+
   test("discards a provisional country response after the owner changes", async () => {
     const verificationA = deferred<Response>();
     const verificationB = deferred<Response>();
