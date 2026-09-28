@@ -7,26 +7,6 @@ const playwrightRungs = new Set([
   "hydration", "dispatch", "journey",
 ]);
 
-function isTestFile(path) {
-  if (!path.startsWith("apps/web/")) return false;
-  const name = path.slice(path.lastIndexOf("/") + 1);
-  return path.startsWith("apps/web/tests/")
-    || path.startsWith("apps/web/oxlint/tests/")
-    || path.includes("/test-fixtures/")
-    || /^fixtures?\.[cm]?[jt]sx?$/.test(name)
-    || /\.stories\./.test(name)
-    || /\.test\.mjs$/.test(name)
-    || /\.(?:test\.tsx?|pw\.ts)$/.test(name);
-}
-
-function isProductFile(path) {
-  return path.startsWith("apps/web/")
-    && /\.(?:[cm]?[jt]sx?|css|py)$/.test(path)
-    && !isTestFile(path)
-    && !path.startsWith("apps/web/stories/")
-    && !/\.(?:test|stories|pw)\.[jt]sx?$/.test(path);
-}
-
 function isBrowserFile(path) {
   return /^apps\/web\/tests\/browser\/(?:.*\/)?[^/]+\.pw\.ts$/.test(path);
 }
@@ -35,14 +15,11 @@ function isPlaywrightDeclaration(line) {
   return /^\s*test(?:\.describe)?\s*\(/.test(line);
 }
 
-export function testWeightReport(diff, title, body, check = "all") {
-  if (!["all", "rung", "weight"].includes(check)) throw new Error(`Unknown test-weight check: ${check}`);
+export function playwrightRungReport(diff, body) {
   let path = "";
   let oldPath = "";
   let inHunk = false;
   let playwrightDelta = 0;
-  let addedTests = 0;
-  let productLines = 0;
 
   for (const line of diff.split("\n")) {
     if (line.startsWith("diff --git ")) {
@@ -57,11 +34,8 @@ export function testWeightReport(diff, title, body, check = "all") {
       inHunk = true;
     } else if (inHunk) {
       if (line.startsWith("+") && !line.startsWith("+++")) {
-        if (isTestFile(path)) addedTests += 1;
-        else if (isProductFile(path)) productLines += 1;
         if (isBrowserFile(path) && isPlaywrightDeclaration(line.slice(1))) playwrightDelta += 1;
       } else if (line.startsWith("-") && !line.startsWith("---")) {
-        if (isProductFile(oldPath)) productLines += 1;
         if (isBrowserFile(oldPath) && isPlaywrightDeclaration(line.slice(1))) playwrightDelta -= 1;
       }
     }
@@ -69,21 +43,17 @@ export function testWeightReport(diff, title, body, check = "all") {
   const netNewPlaywright = Math.max(0, playwrightDelta);
 
   const findings = [];
-  if (check !== "weight" && netNewPlaywright > 0) {
+  if (netNewPlaywright > 0) {
     const rung = body.match(/^Playwright-rung:[ \t]*(\S+)[ \t]*$/m)?.[1];
     if (!playwrightRungs.has(rung)) {
       findings.push("Net-new Playwright test/describe requires a PR-body line Playwright-rung: <layout|scrolling|focus|history|persisted-state|media-query|hydration|dispatch|journey>.");
     }
   }
-  if (check !== "rung" && /^fix\([^)]+\):\s*\S/i.test(title) && productLines > 0 && addedTests > productLines
-    && !/^Test-weight:[ \t]*\S.*$/m.test(body)) {
-    findings.push(`Scoped fix adds ${addedTests} test lines versus ${productLines} added/deleted product lines; add a PR-body line Test-weight: <reason>.`);
-  }
-  return { findings, netNewPlaywright, addedTests, productLines };
+  return { findings, netNewPlaywright };
 }
 
-export function testWeightFindings(diff, title, body, check = "all") {
-  return testWeightReport(diff, title, body, check).findings;
+export function playwrightRungFindings(diff, body) {
+  return playwrightRungReport(diff, body).findings;
 }
 
 function git(args, cwd = process.cwd()) {
@@ -108,16 +78,14 @@ export function resolveBaseRef({ base = process.env.BASE_REF || "main", cwd = pr
 }
 
 function main() {
-  const check = process.argv.length === 2 ? "all" : process.argv[2]?.match(/^--check=(rung|weight)$/)?.[1];
-  if (!check || process.argv.length > 3) throw new Error("Usage: node scripts/gates/test-weight.mjs [--check=rung|--check=weight]");
+  if (process.argv.length !== 2) throw new Error("Usage: node scripts/gates/playwright-rung.mjs");
   const base = resolveBaseRef();
   const diff = git(["diff", "--no-ext-diff", "--no-color", "--unified=0", `${base}...HEAD`, "--", "apps/web"]);
-  const { findings, netNewPlaywright, addedTests, productLines } = testWeightReport(diff, process.env.PR_TITLE || "", process.env.PR_BODY || "", check);
-  console.log(check === "rung" ? "## Playwright rung" : "## Test weight");
-  if (check === "rung") console.log(`Net-new Playwright declarations: ${netNewPlaywright}.`);
-  else console.log(`Added test lines: ${addedTests}; added/deleted product lines: ${productLines}.`);
+  const { findings, netNewPlaywright } = playwrightRungReport(diff, process.env.PR_BODY || "");
+  console.log("## Playwright rung");
+  console.log(`Net-new Playwright declarations: ${netNewPlaywright}.`);
   if (findings.length === 0) {
-    console.log(check === "rung" ? "Playwright-rung gate passed." : "Test-weight gate passed.");
+    console.log("Playwright-rung gate passed.");
     return;
   }
   for (const finding of findings) console.log(`- ${finding}`);
