@@ -16,11 +16,11 @@ describe("GET /api/invest/search", () => {
     expect(calls).toBe(0);
   });
 
-  test("returns public successful pages and no-store partial failures without leaking upstream responses", async () => {
+  test("returns no-store successful and partial pages without leaking upstream responses", async () => {
     const success = createInvestSearchHandler(createCodexSearchReader({ apiKey: "fixture", fetchImpl: async () => Response.json({ data: { filterTokens: { results: [], count: 0, page: 0 } } }) }));
     const ok = await success(url("?q=BTC"));
     expect(ok.status).toBe(200);
-    expect(ok.headers.get("cache-control")).toBe("public, max-age=30, stale-while-revalidate=30");
+    expect(ok.headers.get("cache-control")).toBe("no-store");
     expect(await ok.json()).toMatchObject({ version: 1, provider: "ok", coverage: "complete", results: [{ assetId: "cbbtc" }] });
     const failure = createInvestSearchHandler(createCodexSearchReader({ apiKey: "fixture", fetchImpl: async () => new Response("private upstream body", { status: 429 }) }));
     const error = await failure(url("?q=BTC"));

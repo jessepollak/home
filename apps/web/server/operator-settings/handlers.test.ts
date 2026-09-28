@@ -117,3 +117,20 @@ test("conflicts include current revision; unavailable DB and corrupt values fail
   expect((await response(await createSettingsDomainHandlers({ ...deps(), store: () => invalid }).PUT(put({ version: 1, expectedRevision: 0, value }), context), 400)).error.code).toBe("INVALID_REQUEST");
   expect((await response(await createAuditListHandler(deps())(request("GET", "audit?limit=0")), 400)).error.code).toBe("INVALID_REQUEST");
 });
+
+test("successful Invest writes invalidate visibility, but support writes and conflicts do not", async () => {
+  let invalidations = 0;
+  const investContext = { params: Promise.resolve({ domain: "invest" }) };
+  const investValue = { hiddenCategories: ["stock"], hiddenAssets: ["cbbtc"] };
+  const investEntry = { domain: "invest", settings: { value: investValue, revision: 1, source: "stored" as const, updatedAt: "2026-09-25T12:00:00.000Z", updatedBy: X } };
+  const store = { ...fakeStore, hasDomain: (domain: string) => domain === "support" || domain === "invest", write: async ({ domain }: { domain: string }) => domain === "invest" ? investEntry : entry } as unknown as OperatorSettingsStore;
+  const handler = createSettingsDomainHandlers({ ...deps(), store: () => store, invalidateInvest: () => { invalidations++; } }).PUT;
+  const investPut = () => request("PUT", "settings/invest", { headers: { origin: "https://home.test", "content-type": "application/json" }, body: JSON.stringify({ version: 1, expectedRevision: 0, value: investValue }) });
+  expect((await response(await handler(investPut(), investContext), 200)).settings.value).toEqual(investValue);
+  expect(invalidations).toBe(1);
+  await response(await handler(put({ version: 1, expectedRevision: 0, value }), context), 200);
+  expect(invalidations).toBe(1);
+  const conflict = { ...store, write: async () => { throw new OperatorSettingsConflictError(); }, read: async () => investEntry } as unknown as OperatorSettingsStore;
+  await response(await createSettingsDomainHandlers({ ...deps(), store: () => conflict, invalidateInvest: () => { invalidations++; } }).PUT(investPut(), investContext), 409);
+  expect(invalidations).toBe(1);
+});

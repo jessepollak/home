@@ -41,7 +41,7 @@ export class OperatorSettingsStore {
     return { domain, settings: { value: parsed, revision, source: "stored", updatedAt: row.updated_at.toISOString(), updatedBy: row.updated_by } };
   }
 
-  async read(domain: string, options?: SqlQueryOptions): Promise<SettingsEntry> {
+  async read(domain: string, options: SqlQueryOptions = {}): Promise<SettingsEntry> {
     this.definition(domain);
     const result = await this.sql.query<SettingsRow>("SELECT * FROM operator_settings WHERE domain = $1", [domain], options);
     return this.effective(domain, result.rows[0]);
