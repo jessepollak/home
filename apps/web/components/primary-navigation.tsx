@@ -100,9 +100,13 @@ export function PrimaryNavigation({
   const [pillReady, setPillReady] = useState(false);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
 
+  const activeIndex = isAccountSettingsOpen && layout === "rail" ? -1 : navigationItems.findIndex((item) =>
+    activeNavigation === item.id ||
+    (item.id === "home" && isHomeNestedPanelId(activeNavigation)));
+  const pillOffStart = activeIndex > 0;
   useLayoutEffect(() => {
-    if (navRef.current) setDirection(getComputedStyle(navRef.current).direction);
-  }, [activeNavigation]);
+    if (pillOffStart && navRef.current) setDirection(getComputedStyle(navRef.current).direction);
+  }, [pillOffStart]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => setPillReady(true));
@@ -142,9 +146,6 @@ export function PrimaryNavigation({
     persistCollapsed(next);
     for (const listener of railListeners) listener();
   };
-  const activeIndex = isAccountSettingsOpen && layout === "rail" ? -1 : navigationItems.findIndex((item) =>
-    activeNavigation === item.id ||
-    (item.id === "home" && isHomeNestedPanelId(activeNavigation)));
 
   if (layout === "rail") {
     const ToggleIcon = collapsed ? PanelLeftOpen : PanelLeftClose;
