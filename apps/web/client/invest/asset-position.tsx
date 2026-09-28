@@ -9,6 +9,7 @@ import type { InvestAsset } from "@/config/invest-assets";
 import { investAssets } from "@/config/invest-assets";
 import { formatExactPresentationTokenAmount, formatFiatAmount } from "@/shared/formatting";
 import type { Holding } from "@/shared/balances/types";
+import { holdingValueContext } from "@/shared/balances/value-label";
 import { AssetIcon } from "./asset-icon";
 import { usePresentationRegionId } from "./presentation-quote";
 
@@ -48,11 +49,10 @@ export function AssetPosition({ asset, assetMarkResolution }: {
   if (!holding || holding.balance.status === "ready" && holding.balance.baseUnits === "0") return null;
   if (holding.balance.status !== "ready") return <ul><BalanceRow icon={mark} iconTone="mark"
     label="Your balance" context="Balance unavailable" value="—" chevron={false} /></ul>;
-  const value = asset.category !== "stock" && holding.value.status === "priced"
+  const value = holding.value.status === "priced"
     ? formatFiatAmount(BigInt(holding.value.amount.atoms), holding.value.amount.scale, holding.value.currency, { regionId })
     : "—";
   return <ul><BalanceRow icon={mark} iconTone="mark" label="Your balance"
     context={formatExactPresentationTokenAmount(holding.balance.baseUnits, holding.decimals, holding.symbol)}
-    value={value} valueContext={asset.category === "stock" ? "Value unavailable"
-      : holding.value.status === "priced" ? undefined : "Price delayed"} chevron={false} /></ul>;
+    value={value} valueContext={holdingValueContext(holding.value)} chevron={false} /></ul>;
 }

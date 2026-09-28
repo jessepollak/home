@@ -112,6 +112,10 @@ export function AssetDetailScreen({ asset, market, assetMarkResolution = {}, onB
   }, []);
   const change = resting.pending ? null : resting.change
     ? quote.valueCurrency === "USD" ? resting.change : resting.change.replace(" · ", " in USD · ") : null;
+  const referenceHeader = asset.category === "stock";
+  const headerScrub = referenceHeader ? null : scrub;
+  const headerChange = referenceHeader ? null : change;
+  const marketReadout = scrub && !resting.pending ? `${scrub.value}${quote.valueCurrency !== "USD" ? " USD" : ""} · ${scrub.time}` : change;
   return <section aria-label={hosted ? asset.displayName : undefined}
     aria-labelledby={hosted ? undefined : "invest-asset-title"}
     style={hosted ? { "--asset-surface": "var(--color-muted)" } as CSSProperties : undefined}
@@ -128,25 +132,31 @@ export function AssetDetailScreen({ asset, market, assetMarkResolution = {}, onB
     <div className="min-w-0 space-y-1">
       <strong className={`block min-h-12 truncate text-3xl font-semibold tabular-nums sm:min-h-14 sm:text-4xl ${price.tone === "ready" ? "" : "text-muted-foreground"}`}
         data-tone={price.tone}>
-        {scrub && !resting.pending ? `${scrub.value}${quote.valueCurrency !== "USD" ? " USD" : ""}`
+        {headerScrub && !resting.pending ? `${headerScrub.value}${quote.valueCurrency !== "USD" ? " USD" : ""}`
           : price.tone === "ready" ? <MoneyTicker value={price.value} align="start" />
             : market.status === "loading" ? <Skeleton className="h-9 w-36" /> : "—"}
       </strong>
-      {price.tone !== "ready" && market.status !== "loading" ? <p className="text-sm text-muted-foreground">{price.detail}</p> : null}
-      {scrub && !resting.pending ? <p className="min-h-5 text-sm" data-scrub-readout>{scrub.time}</p>
-        : <p aria-busy={resting.pending || undefined} data-money-change={change ? moneyChangeTone(change) : undefined}
-          className={`min-h-5 text-sm ${resting.pending || !change ? "text-muted-foreground"
-            : moneyChangeTone(change) === "positive" ? "text-market-gain"
-              : moneyChangeTone(change) === "negative" ? "text-market-loss" : "text-muted-foreground"}`}>
-          {change}
+      {asset.listing === "removed" ? <p className="text-sm text-muted-foreground">No longer listed</p>
+        : market.status !== "loading" && (price.tone !== "ready" || price.context) ? <p className="text-sm text-muted-foreground">{price.context ?? price.detail}</p> : null}
+      {referenceHeader ? null : headerScrub && !resting.pending ? <p className="min-h-5 text-sm" data-scrub-readout>{headerScrub.time}</p>
+        : <p aria-busy={resting.pending || undefined} data-money-change={headerChange ? moneyChangeTone(headerChange) : undefined}
+          className={`min-h-5 text-sm ${resting.pending || !headerChange ? "text-muted-foreground"
+            : moneyChangeTone(headerChange) === "positive" ? "text-market-gain"
+              : moneyChangeTone(headerChange) === "negative" ? "text-market-loss" : "text-muted-foreground"}`}>
+          {headerChange}
         </p>}
     </div>
+    {referenceHeader ? <p className="-mb-2 text-xs text-muted-foreground">
+      DEX market price{marketReadout ? ` · ${marketReadout}` : ""}
+    </p> : null}
     <AssetChart key={asset.id} assetId={asset.id} range={range} onRangeChange={onRangeChange}
       clock={clock} onReadout={setScrub} onResting={onResting} fallback={ChartLoadFallback} />
     {ownership ?? <AssetPosition asset={asset} assetMarkResolution={assetMarkResolution} />}
     <AssetStats asset={asset} market={market} clock={clock} />
     {asset.category === "stock" ? <TradeActions asset={asset} layout="sticky" /> : null}
-    <p className="text-xs text-muted-foreground">Market prices in USD from Codex.</p>
+    <p className="text-xs text-muted-foreground">{asset.category === "stock"
+      ? "Reference price in USD from Chainlink. DEX market price from Codex."
+      : "Market prices in USD from Codex."}</p>
     {asset.category !== "stock" ? <PinnedTradeBar asset={asset} /> : null}
   </section>;
 }

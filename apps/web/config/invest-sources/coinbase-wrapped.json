@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "chainId": 8453,
+  "verifiedAt": "2026-09-28",
+  "verificationBlock": { "number": 51886274, "timestamp": "2026-09-28T02:18:15Z" },
+  "source": "https://www.coinbase.com/cbbtc",
+  "assets": [
+    { "sourceLabel": "cbBTC", "tokenSymbol": "cbBTC", "onchainName": "Coinbase Wrapped BTC", "contract": "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf", "decimals": 8 },
+    { "sourceLabel": "cbXRP", "tokenSymbol": "cbXRP", "onchainName": "Coinbase Wrapped XRP", "contract": "0xcb585250f852C6c6bf90434AB21A00f02833a4af", "decimals": 6 },
+    { "sourceLabel": "cbDOGE", "tokenSymbol": "cbDOGE", "onchainName": "Coinbase Wrapped DOGE", "contract": "0xcbD06E5A2B0C65597161de254AA074E489dEb510", "decimals": 8 },
+    { "sourceLabel": "cbLTC", "tokenSymbol": "cbLTC", "onchainName": "Coinbase Wrapped LTC", "contract": "0xcb17C9Db87B595717C857a08468793f5bAb6445F", "decimals": 8 },
+    { "sourceLabel": "cbADA", "tokenSymbol": "cbADA", "onchainName": "Coinbase Wrapped ADA", "contract": "0xcbADA732173e39521CDBE8bf59a6Dc85A9fc7b8c", "decimals": 6 },
+    { "sourceLabel": "cbHYPE", "tokenSymbol": "cbHYPE", "onchainName": "Coinbase Wrapped Hyperliquid", "contract": "0xB200000000000000000000451d033a5000cb479e", "decimals": 18 },
+    { "sourceLabel": "Wrapped ZEC", "tokenSymbol": "cbZEC", "onchainName": "Coinbase Wrapped ZEC", "contract": "0xB2000000000000000000008501b13360000cb2EC", "decimals": 8 },
+    { "sourceLabel": "cbMEGA", "tokenSymbol": "cbMEGA", "onchainName": "Coinbase Wrapped MEGA", "contract": "0xcb111E6A2a3bde90856D299d61341ac302167D23", "decimals": 18 }
+  ],
+  "excluded": [
+    { "tokenSymbol": "cbETH", "reason": "variable-representation" },
+    { "tokenSymbol": "cbSOL", "reason": "no-base-contract" }
+  ]
+}
