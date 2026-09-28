@@ -1,0 +1,10 @@
+ALTER TABLE card_events ADD COLUMN provider text NOT NULL DEFAULT 'immersve' CHECK (provider IN ('immersve', 'bridge'));
+ALTER TABLE card_events RENAME COLUMN message_id TO event_id;
+ALTER TABLE card_events RENAME COLUMN payment_id TO transaction_id;
+ALTER TABLE card_events RENAME COLUMN topic TO kind;
+ALTER TABLE card_events ADD COLUMN customer_id text;
+ALTER TABLE card_events ADD COLUMN occurred_at timestamptz;
+UPDATE card_events SET occurred_at = received_at;
+ALTER TABLE card_events ALTER COLUMN occurred_at SET NOT NULL;
+ALTER TABLE card_events DROP CONSTRAINT card_events_pkey;
+ALTER TABLE card_events ADD PRIMARY KEY (provider, mode, event_id);

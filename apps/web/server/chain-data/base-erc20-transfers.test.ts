@@ -131,6 +131,23 @@ describe("Base ERC20 transfer query", () => {
     ).toThrow("Requested asset is not allowlisted");
   });
 
+  test("rejects invalid-checksum wallet addresses and malformed response hashes", async () => {
+    expect(() => buildBaseErc20TransferQuery(
+      input({ verifiedWalletAddress: "0xAbcdef0123456789abcdef0123456789abcdef01" }),
+      assets,
+      NOW,
+    )).toThrow(ChainDataError);
+
+    const history = createBaseErc20TransferHistory({
+      assets,
+      transport: transportFor([row({ transaction_hash: `0x${"g".repeat(64)}` })]),
+      now: () => NOW,
+    });
+    await expect(history.listTransfers(input())).rejects.toMatchObject({
+      code: "invalid-response",
+    });
+  });
+
   test("enforces page, time, future, and cache bounds", () => {
     expect(() =>
       buildBaseErc20TransferQuery(input({ limit: 201 }), assets, NOW),

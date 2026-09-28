@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { BASE_CHAIN_ID, type VerifiedAccountSession } from "@/shared/account/session-types";
-import { parseAllSettingsResponse, parseAuditListResponse, parseOperatorSettingsErrorResponse, parsePutSettingsRequest, parseSettingsResponse, parseSupportSettings } from "@/shared/operator-settings/contract";
+import { parseAllSettingsResponse, parseAuditListResponse, parseOperatorSettingsErrorResponse, parsePutSettingsRequest, parseSettingsResponse, parseSupportSettings, OPERATOR_SETTINGS_DOMAINS } from "@/shared/operator-settings/contract";
 import { createAuditListHandler, createSettingsDomainHandlers, createSettingsListHandler } from "./handlers";
 import { AdminAuditLog } from "./audit";
 import { OperatorSettingsConflictError, OperatorSettingsStore, OperatorSettingsValidationError } from "./store";
@@ -25,6 +25,7 @@ const put = (body: unknown, headers: Record<string, string> = {}) => request("PU
 const value = { email: "support@example.com", url: "https://example.com/support" };
 
 const fakeStore = {
+  registry: OPERATOR_SETTINGS_DOMAINS,
   hasDomain: (domain: string) => domain === "support",
   read: async () => entry,
   readAll: async () => [entry],
@@ -66,14 +67,15 @@ test("each endpoint authorizes before accessing stores", async () => {
   for (const variant of variants) {
     const dependencies = { ...deps(variant.authorize), config: variant.config };
     const endpoints = [
-      createSettingsListHandler(dependencies)(request("GET", "settings")),
-      createSettingsDomainHandlers(dependencies).GET(request(), context),
-      createSettingsDomainHandlers(dependencies).PUT(put({ version: 1, expectedRevision: 0, value }), context),
-      createAuditListHandler(dependencies)(request("GET", "audit")),
+      { result: createSettingsListHandler(dependencies)(request("GET", "settings")), parse: parseAllSettingsResponse },
+      { result: createSettingsDomainHandlers(dependencies).GET(request(), context), parse: parseSettingsResponse },
+      { result: createSettingsDomainHandlers(dependencies).PUT(put({ version: 1, expectedRevision: 0, value }), context), parse: parseSettingsResponse },
+      { result: createAuditListHandler(dependencies)(request("GET", "audit")), parse: parseAuditListResponse },
     ];
     for (const endpoint of endpoints) {
-      const body = await response(await endpoint, variant.status);
-      if (variant.code) expect(body.error.code).toBe(variant.code);
+      const body = await response(await endpoint.result, variant.status);
+      if (variant.code) expect(parseOperatorSettingsErrorResponse(body)?.error.code as string | undefined).toBe(variant.code);
+      else expect(endpoint.parse(body)).not.toBeNull();
     }
   }
 });

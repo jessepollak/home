@@ -62,12 +62,14 @@ function sdk(
   };
 }
 
+const persistedScope = "stock-trade-eligibility" as const;
+
 function persistValuation(ownerKey: string, amount: string): void {
   const client = createHomeQueryClient();
-  client.setQueryDefaults(ownerQueryKey(ownerKey, "valuation", "US"), {
+  client.setQueryDefaults(ownerQueryKey(ownerKey, persistedScope, "US"), {
     meta: ownerQueryMeta(ownerKey, "owner"),
   });
-  client.setQueryData(ownerQueryKey(ownerKey, "valuation", "US"), { amount });
+  client.setQueryData(ownerQueryKey(ownerKey, persistedScope, "US"), { amount });
   const persister = createOwnerQueryPersister(window.localStorage, ownerKey);
   persister?.persistClient({
     timestamp: Date.now(),
@@ -105,7 +107,7 @@ function HydrationProbe({ fetchValuation }: { fetchValuation: () => Promise<unkn
     : null;
   const valuation = useHomeQuery({
     queryKey: ownerKey
-      ? ownerQueryKey(ownerKey, "valuation", "US")
+      ? ownerQueryKey(ownerKey, persistedScope, "US")
       : ["unauthenticated", "valuation-disabled"],
     enabled: ownerKey !== null && account.verification === "server",
     staleTime: 0,
@@ -254,14 +256,14 @@ describe("owner query hydration lifecycle", () => {
     await act(async () => { view.rerender(owner(sdk("subject-b", liveSession))); });
     await waitFor(() => expect(observedClient?.verification).toBe("provisional"));
     expect(view.getByTestId("valuation").textContent).toBe("none");
-    expect(getHomeQueryClient().getQueryData(ownerQueryKey(seededOwnerKey, "valuation", "US"))).toBeUndefined();
+    expect(getHomeQueryClient().getQueryData(ownerQueryKey(seededOwnerKey, persistedScope, "US"))).toBeUndefined();
     expect(window.localStorage.getItem(ownerQueryStorageKey(seededOwnerKey)!)).toBeNull();
 
     resolveSession(Response.json(liveSession));
     await waitFor(() => expect(observedClient?.verification).toBe("server"));
     await waitFor(() => expect(view.getByTestId("valuation").textContent).toBe("20000000"));
     expect(view.getByTestId("valuation").textContent).not.toBe("12340000");
-    expect(getHomeQueryClient().getQueryData(ownerQueryKey(seededOwnerKey, "valuation", "US"))).toBeUndefined();
+    expect(getHomeQueryClient().getQueryData(ownerQueryKey(seededOwnerKey, persistedScope, "US"))).toBeUndefined();
     expect(window.localStorage.getItem(ownerQueryStorageKey(seededOwnerKey)!)).toBeNull();
   });
 
@@ -352,7 +354,7 @@ describe("owner query hydration lifecycle", () => {
       expect(valuationFetches).toBe(0);
       await expect(observedClient!.fetchAccountResource("/api/actions")).rejects.toMatchObject({ reason: "stale-session" });
       await expect(observedClient!.prepareMoneyAction("send", { amountBaseUnits: "1" })).rejects.toMatchObject({ reason: "stale-session" });
-      expect(getHomeQueryClient().getQueryData(ownerQueryKey(cachedOwnerKey, "valuation", "US")))
+      expect(getHomeQueryClient().getQueryData(ownerQueryKey(cachedOwnerKey, persistedScope, "US")))
         [row.name === "matching" ? "toBeDefined" : "toBeUndefined"]();
 
       cleanup();
@@ -459,7 +461,7 @@ describe("owner query hydration lifecycle", () => {
       expect(view.getByTestId("valuation").textContent).toBe("12340000");
       resolveSession(Response.json(row.server));
       await waitFor(() => expect(observedClient?.verification).toBe("server"));
-      expect(queryClient.getQueryData(ownerQueryKey(provisionalOwnerKey, "valuation", "US")))
+      expect(queryClient.getQueryData(ownerQueryKey(provisionalOwnerKey, persistedScope, "US")))
         [row.survives ? "toBeDefined" : "toBeUndefined"]();
       if (row.survives) expect(window.localStorage.getItem(storageKey)).not.toBeNull();
       else expect(window.localStorage.getItem(storageKey)).toBeNull();

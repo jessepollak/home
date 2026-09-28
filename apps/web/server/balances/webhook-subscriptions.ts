@@ -1,5 +1,6 @@
 import "server-only";
 
+import { parseAddress } from "@/shared/chain/hex";
 import { generateJwt } from "@coinbase/cdp-sdk/auth";
 import { emitServerEvent } from "@/server/observability/log";
 import { resolveSecretKeyring, type SecretKeyring } from "@/server/secrets/at-rest";
@@ -226,7 +227,7 @@ export function createCdpWebhookSubscriptions(options: {
         return;
       }
       try {
-        await ensure(normalizeAddress(address));
+        await ensure(parseAddress(address) ?? invalidSubscriptionAddress());
       } catch (error) { // oxlint-disable-line home/no-silent-catch -- the injected subscription-failure logger reports the failure; subscription setup never fails the webhook response
         logFailure(error instanceof Error ? error.message : "subscription-failed");
       }
@@ -376,9 +377,8 @@ function isBaseActivitySubscription(subscription: Subscription): boolean {
     subscription.labels.network === CDP_ACTIVITY_NETWORK;
 }
 
-function normalizeAddress(address: string): `0x${string}` {
-  if (!/^0x[0-9a-fA-F]{40}$/.test(address)) throw new Error("invalid-subscription-address");
-  return address.toLowerCase() as `0x${string}`;
+function invalidSubscriptionAddress(): never {
+  throw new Error("invalid-subscription-address");
 }
 
 function validOrigin(value: string): string | null {

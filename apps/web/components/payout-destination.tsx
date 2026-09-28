@@ -14,7 +14,7 @@ export function PayoutDestination({ platform, label, destination, onEdit }: {
   const mark = payoutMark(platform, label);
   return <Item variant="muted" role="group" aria-label="Payout destination" className="min-w-0">
     <ItemMedia><PayoutMark variant={mark.variant}>{mark.text}</PayoutMark></ItemMedia>
-    <ItemContent className="min-w-0">
+    <ItemContent className="min-w-[min(10rem,100%)]">
       <ItemDescription lines="wrap">{label} · {labels.noun}</ItemDescription>
       <ItemTitle truncate="wrap" className="min-w-0"><bdi dir="ltr">{destination}</bdi></ItemTitle>
     </ItemContent>

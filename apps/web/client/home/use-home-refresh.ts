@@ -13,8 +13,18 @@ import {
   publicQueryKey,
   useHomeQueryClient,
 } from "@/client/query/query-client";
+import type { QueryScope } from "@/client/query/query-scopes";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { RegionId } from "@/config/regions";
+
+const homeRefreshScope = {
+  balances: "balances",
+  activity: "activity",
+  actions: "actions",
+  vaults: "savings-vaults",
+  borrow: "borrow",
+} as const satisfies Record<string, QueryScope>;
+export const homeRefreshScopes: readonly QueryScope[] = Object.values(homeRefreshScope);
 
 export type HomeRefreshSource = "balances" | "activity" | "actions" | "rates";
 export type HomeRefreshState = { phase: "idle" } | { phase: "refreshing" } | { phase: "complete" } |
@@ -64,12 +74,12 @@ export function useHomeRefresh(input: {
     const active = (key: QueryKey, exact = false) => queryClient.getQueryCache().findAll({
       queryKey: key, exact, type: "active",
     }).length > 0;
-    const balancesKey = ownerQueryKey(ownerKey, "balances");
-    const actionsKey = ownerQueryKey(ownerKey, "actions");
-    const vaultsKey = publicQueryKey("savings-vaults");
-    const borrowKey = ownerQueryKey(ownerKey, "borrow", "overview");
+    const balancesKey = ownerQueryKey(ownerKey, homeRefreshScope.balances);
+    const actionsKey = ownerQueryKey(ownerKey, homeRefreshScope.actions);
+    const vaultsKey = publicQueryKey(homeRefreshScope.vaults);
+    const borrowKey = ownerQueryKey(ownerKey, homeRefreshScope.borrow, "overview");
     const windowEnd = queryClient.getQueryData<string>(ownerQueryKey(ownerKey, activityWindowScope)) ?? initialActivityWindowEnd();
-    const activityKey = ownerQueryKey(ownerKey, "activity", windowEnd);
+    const activityKey = ownerQueryKey(ownerKey, homeRefreshScope.activity, windowEnd);
     const attempted = [
       active(balancesKey),
       active(activityKey) || queryClient.getQueryCache().findAll({ queryKey: activityKey }).some((q) => q.state.data !== undefined),

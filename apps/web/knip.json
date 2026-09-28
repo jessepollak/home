@@ -45,8 +45,13 @@
     "scripts/review-links.ts!",
     "scripts/activity-scroll-profile.ts!",
     "scripts/modal-open-profile.ts!",
+    "scripts/navigation-profile.ts!",
+    "scripts/performance/budget.ts!",
+    "scripts/performance/seeds-check.ts!",
     // Figma variables sync, run by package scripts and the main-only CI job.
-    "scripts/figma-variables.mjs!"
+    "scripts/figma-variables.mjs!",
+    "scripts/immersve-probe.ts!",
+    "scripts/bridge-allowance-fork.ts!"
   ],
   "ignore": [
     // Non-production design-lane code lives under explorations/ or inside a
@@ -59,6 +64,8 @@
     "server/funding/core/testing/**",
     "client/account/dom-test-harness.ts",
     "shared/balances/fixtures.ts",
+    // Deferred to #594: root layout will consume the brand resolver.
+    "server/operator-settings/brand.ts",
     // Deferred to #686: home and activity surfaces still carry exports that
     // only their own tests exercise; clean up once #686 lands.
     "client/home/**",

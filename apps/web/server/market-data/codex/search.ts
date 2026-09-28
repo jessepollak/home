@@ -4,12 +4,16 @@ import { investAssets } from "@/config/invest-assets";
 import { normalizeInvestSearchQuery, isInvestSearchAddressQuery, investSearchRank, rankInvestSearchResults, INVEST_SEARCH_MAX_OFFSET, INVEST_SEARCH_PAGE_SIZE, INVEST_SEARCH_VERSION, type InvestSearchMatch, type InvestSearchRequest, type InvestSearchResponse, type InvestSearchWireResult } from "@/shared/invest/contracts/search";
 import { CODEX_REQUEST_TIMEOUT_MS } from "./config";
 import { executeCodexGraphql, readRecord } from "./execute";
-import { createAssetResolver, resolveAsset, type AssetResolverOptions } from "../resolve-asset";
+import { assetReadsToken0, createAssetResolver, resolveAsset, type AssetResolverOptions } from "../resolve-asset";
 import { normalizeTrendingMemes } from "./trending";
+import { createPairCheck } from "./pair-check";
 
 export const CODEX_SEARCH_TTL_MS = 45_000;
 export const CODEX_SEARCH_CACHE_MAX = 256;
 export const CODEX_SEARCH_MAX_IN_FLIGHT = 8;
+export const CODEX_SEARCH_PAIR_CACHE_MAX = 512;
+export const CODEX_SEARCH_PAIR_CACHE_TTL_MS = 300_000;
+export const CODEX_SEARCH_MAX_PAIR_CHECKS = 8;
 export const CODEX_SEARCH_QUERY = `query SearchBaseTokens($phrase: String, $filters: TokenFilters, $rankings: [TokenRanking!], $limit: Int, $offset: Int) {
   filterTokens(phrase: $phrase, filters: $filters, rankings: $rankings, limit: $limit, offset: $offset) {
     results { priceUSD change24 lastTransaction token { address name symbol decimals networkId info { imageThumbUrl imageSmallUrl imageLargeUrl } } }
@@ -50,6 +54,7 @@ function response(query: string, offset: number, results: InvestSearchWireResult
 
 export function createCodexSearchReader({ apiKey, fetchImpl = fetch, onchain, isPair, resolve, now = () => new Date(), timeoutMs = CODEX_REQUEST_TIMEOUT_MS, cacheMaxEntries = CODEX_SEARCH_CACHE_MAX, maxInFlight = CODEX_SEARCH_MAX_IN_FLIGHT }: SearchOptions) {
   const readAsset = resolve ?? createAssetResolver({ apiKey, fetchImpl, onchain, isPair, now, timeoutMs, cacheMaxEntries, maxInFlight });
+  const checkPair = createPairCheck({ read: isPair ?? assetReadsToken0, maxConcurrent: CODEX_SEARCH_MAX_PAIR_CHECKS, cacheMaxEntries: CODEX_SEARCH_PAIR_CACHE_MAX, ttlMs: CODEX_SEARCH_PAIR_CACHE_TTL_MS });
   const cache = new Map<string, Cached>();
   const inFlight = new Map<string, Promise<InvestSearchResponse>>();
   return async function search({ query: raw, offset }: InvestSearchRequest): Promise<InvestSearchResponse> {
@@ -86,7 +91,7 @@ export function createCodexSearchReader({ apiKey, fetchImpl = fetch, onchain, is
         const connection = readRecord(readRecord(payload)?.filterTokens);
         if (!connection || !Array.isArray(connection.results) || connection.results.length > INVEST_SEARCH_PAGE_SIZE || readPageInteger(connection.count) !== connection.results.length || readPageInteger(connection.page) !== offset) throw new Error("Invalid search page");
         const seen = new Set<string>();
-        const rows: { result: InvestSearchWireResult; snapshot?: InvestSearchResponse["snapshots"][number] }[] = [];
+        const rows: { result: Extract<InvestSearchWireResult, { kind: "dynamic" }>; snapshot?: InvestSearchResponse["snapshots"][number] }[] = [];
         for (const row of connection.results) {
           const normalizedRow = normalizeTrendingMemes({ filterTokens: { results: [row] } }, now());
           const asset = normalizedRow.assets[0];
@@ -94,15 +99,20 @@ export function createCodexSearchReader({ apiKey, fetchImpl = fetch, onchain, is
           seen.add(asset.contractAddress.toLowerCase());
           const match = matchAliases(normalized, [asset.displayName, asset.displaySymbol, asset.contractAddress]);
           if (!match) continue;
-          const result: InvestSearchWireResult = { kind: "dynamic", asset: { ...asset, descriptor: "Base token" }, source: "indexed", match };
+          const result: Extract<InvestSearchWireResult, { kind: "dynamic" }> = { kind: "dynamic", asset: { ...asset, descriptor: "Base token" }, source: "indexed", match };
           rows.push({ result, snapshot: normalizedRow.snapshots[0] });
         }
-        const ranked = rankInvestSearchResults([...configured, ...rows.map(({ result }) => result)].map((result) => ({
+        const checks = await Promise.all(rows.map(async ({ result }) => {
+          try { return await checkPair(result.asset.contractAddress); } catch { return null; }
+        }));
+        const kept = rows.filter((_, index) => checks[index] === false);
+        const ranked = rankInvestSearchResults([...configured, ...kept.map(({ result }) => result)].map((result) => ({
           result,
           match: result.match,
           source: result.kind === "configured" ? "configured" : result.source,
         }))).map(({ result }) => result);
-        return response(normalized, offset, ranked, rows.flatMap(({ snapshot }) => snapshot ? [snapshot] : []), "ok", connection.results.length === INVEST_SEARCH_PAGE_SIZE && offset < INVEST_SEARCH_MAX_OFFSET ? offset + INVEST_SEARCH_PAGE_SIZE : null);
+        const nextOffset = connection.results.length === INVEST_SEARCH_PAGE_SIZE && offset < INVEST_SEARCH_MAX_OFFSET ? offset + INVEST_SEARCH_PAGE_SIZE : null;
+        return response(normalized, offset, ranked, kept.flatMap(({ snapshot }) => snapshot ? [snapshot] : []), checks.includes(null) ? "error" : "ok", nextOffset);
       } catch {
         return response(normalized, offset, configured, [], "error", null);
       }

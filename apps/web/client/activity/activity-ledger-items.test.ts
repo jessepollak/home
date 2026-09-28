@@ -193,13 +193,34 @@ describe("presentActivityLedgerItems", () => {
     expect(item).toMatchObject({ title: "Cash out to Cash App", status: "waiting-provider" });
     expect(item?.detail).toMatchObject({ family: "home-action", operation: "Cash out to Cash App", facts: [
       { label: "Provider", value: "Peer" }, { label: "Payout app", value: "Cash App" },
-      { label: "Payout handle", value: "alice" }, { label: "Approximate receive", value: "≈ 1.50 USD" },
-      { label: "Estimated delivery", value: "About 2 min" },
+      { label: "Payout handle", value: "alice" }, { label: "You receive", value: "≈ $1.50 to Cash App" },
+      { label: "Arrives", value: "Usually within 2 minutes" },
       { label: "You receive", value: "0.50 USDC" },
     ] });
     expect(item?.detailAsset).toBeUndefined();
     expect(item?.detailValue).toBeUndefined();
     expect(JSON.stringify(item?.detail)).not.toContain("escrow");
+  });
+
+  test("shows the receive amount and arrival exactly as the reviewed quote stated them", () => {
+    const cashout = action("pending");
+    cashout.action.kind = "cash-out";
+    cashout.action.metadata = {
+      product: "cashout", operation: "deposit", providerId: "peer", providerName: "Peer",
+      environment: "production", platform: "monzo", platformLabel: "Monzo", currency: "GBP",
+      canonicalHandle: "alice", approximateFiatAmount: "37.06", minConversionRate: "1",
+      intentAmountRange: { min: "1000000", max: "2000000" }, estimateAsOf: TIME,
+      escrow: "0x777777779d229cdF3110e9de47943791c26300Ef", etaSeconds: null,
+      quote: {
+        fees: { provider: { amount: "0", currency: "GBP" }, network: null, operator: null },
+        rate: { from: "USDC", to: "GBP", value: "0.7412" },
+        receive: { amount: "37.06", currency: "GBP", approximate: true }, arrival: { source: "unknown" },
+      },
+    };
+    const [item] = present([fromAction(cashout)]);
+    const facts = item?.detail.family === "home-action" ? item.detail.facts ?? [] : [];
+    expect(facts).toContainEqual({ label: "You receive", value: "≈ £37.06 to Monzo" });
+    expect(facts).toContainEqual({ label: "Arrives", value: "Arrival time varies" });
   });
 
   test("formats primary and secondary action amounts without leaking source internals", () => {

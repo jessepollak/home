@@ -16,6 +16,16 @@ function settlerData(toToken: Address, direction: "buy" | "sell") {
   const word = (value: bigint | number) => BigInt(value).toString(16).padStart(64, "0");
   return `0x1fff991f${word(BigInt(TAKER))}${word(BigInt(toToken))}${word(990)}${word(0xa0)}${word(0)}${word(2)}${word(128)}${word(64)}${word(4)}aabbccdd${"0".repeat(56)}${word(0xffff)}c1fb425e${word(BigInt(TARGET))}${word(BigInt(fromToken))}${word(direction === "buy" ? 1_000_000 : 1000)}${word(4)}${word(Math.floor(NOW.getTime() / 1000) + 900)}${word(0xc0)}` as `0x${string}`;
 }
+function v3SettlerData(toToken: Address, direction: "buy" | "sell", ppm: bigint) {
+  const fromToken = swapTokens(direction, TOKEN).fromToken;
+  const word = (value: bigint | number) => BigInt(value).toString(16).padStart(64, "0");
+  const path = `${fromToken}00000000${"00".repeat(20)}${toToken.slice(2)}` as `0x${string}`;
+  const v3 = `8d68a156${encodeAbiParameters(parseAbiParameters("address recipient, uint256 ppm, bytes path, uint256 amountOutMin"), [TARGET, ppm, path, BigInt(0)]).slice(2)}`;
+  const bytes = v3.length / 2;
+  const padded = `${word(bytes)}${v3}${"0".repeat((32 - bytes % 32) % 32 * 2)}`;
+  const transfer = settlerData(toToken, direction).split(word(0xffff))[1];
+  return `0x1fff991f${word(BigInt(TAKER))}${word(BigInt(toToken))}${word(990)}${word(0xa0)}${word(0)}${word(2)}${word(64 + padded.length / 2)}${word(64)}${padded}${word(0xffff)}${transfer}` as `0x${string}`;
+}
 afterEach(() => jest.useRealTimers());
 const request = { ...swapTokens("buy", TOKEN), fromAmount: BigInt(1_000_000), taker: TAKER, slippageBps: 100 };
 function rawQuote(direction: "buy" | "sell" = "buy", balance = false) {
@@ -162,7 +172,7 @@ describe("sanitized operator checkpoint", () => {
         return "0x";
       },
     });
-    expect(report.directions[0]).toMatchObject({ actionSelectors: ["0xc1fb425e", "0xd92aadfb"], actionsVerified: false,
+    expect(report.directions[0]).toMatchObject({ actionSelectors: ["0xc1fb425e", "0xd92aadfb"], inputSpend: "exact", actionsVerified: false,
       quoteCompatible: true, executionReadiness: "unverified-actions" });
   });
   test("reports both directions without execution secrets; unfunded does not mask permit compatibility", async () => {
@@ -205,6 +215,28 @@ describe("sanitized operator checkpoint", () => {
     expect(report.directions.map((row) => [row.targetMatchesRouter, row.calldataMatches])).toEqual([[true, true], [true, true]]);
     expect(report.directions.map((row) => [row.actionSelectors, row.actionsVerified])).toEqual([[["0xc1fb425e", "0xaabbccdd"], false], [["0xc1fb425e", "0xaabbccdd"], false]]);
     expect(checkpointExitCode(report)).toBe(2);
+  });
+  test.each([
+    [BigInt(1_000_000), "exact", true, "ready", 0],
+    [BigInt(999_999), "underfill", false, "stale-quote", 2],
+  ] as const)("reports %s input spend for a funded V3 route", async (ppm, spend, verified, readiness, exitCode) => {
+    const client = createCdpSwapsClient({ env, generateJwtImpl: jwt,
+      fetchImpl: (async (url: RequestInfo | URL, init?: RequestInit) => {
+        const fromToken = init?.method === "GET" ? new URL(String(url)).searchParams.get("fromToken") : (JSON.parse(String(init?.body)) as { fromToken: string }).fromToken;
+        const direction = fromToken === swapTokens("sell", TOKEN).fromToken ? "sell" : "buy";
+        const row = rawQuote(direction);
+        row.transaction.data = v3SettlerData(row.toToken, direction, direction === "buy" ? ppm : BigInt(1_000_000));
+        return Response.json(init?.method === "GET" ? { ...row, gas: null, gasPrice: "2" } : row);
+      }) as unknown as typeof fetch,
+    });
+    const report = await runSwapsCheckpoint({ client, taker: TAKER, amounts: { buy: BigInt(1_000_000), sell: BigInt(1000) }, now: NOW,
+      readBlockNumber: async () => BigInt(1000), readSwapRouter: async () => TARGET,
+    });
+    expect(report.directions[0]).toMatchObject({ chain: "available", actionSelectors: ["0xc1fb425e", "0x8d68a156"],
+      inputSpend: spend, actionsVerified: verified, executionReadiness: readiness });
+    expect(report.directions[1]).toMatchObject({ inputSpend: "exact", actionsVerified: true, executionReadiness: "ready" });
+    expect(JSON.parse(JSON.stringify(report)).directions[0].inputSpend).toBe(spend);
+    expect(checkpointExitCode(report)).toBe(exitCode);
   });
   test("checks each liquid quote against the block read after that direction's quote", async () => {
     const client = createCdpSwapsClient({ env, generateJwtImpl: jwt,
@@ -252,25 +284,25 @@ describe("sanitized operator checkpoint", () => {
     let blockReads = 0;
     const report = await runSwapsCheckpoint({ client, taker: TAKER, amounts: { buy: BigInt(1_000_000), sell: BigInt(1000) }, now: NOW, readBlockNumber: async () => { blockReads++; return BigInt(1000); }, readSwapRouter: async () => TARGET });
     expect(blockReads).toBe(0);
-    expect(report.directions.map((row) => [row.actionSelectors, row.actionsVerified])).toEqual([[null, false], [null, false]]);
+    expect(report.directions.map((row) => [row.actionSelectors, row.actionsVerified, row.inputSpend])).toEqual([[null, false, null], [null, false, null]]);
     expect(checkpointExitCode(report)).toBe(2);
   });
   type RawQuote = ReturnType<typeof rawQuote>;
-  const defects: Array<[string, (row: RawQuote) => unknown, boolean]> = [
-    ["wrong allowance spender", (row) => ({ ...row, issues: { ...row.issues, allowance: { spender: TAKER, currentAllowance: "0" } } }), true],
-    ["nonzero value", (row) => ({ ...row, transaction: { ...row.transaction, value: "1" } }), true],
-    ["forbidden target", (row) => ({ ...row, transaction: { ...row.transaction, to: PERMIT2_ADDRESS } }), true],
-    ["empty calldata", (row) => ({ ...row, transaction: { ...row.transaction, data: "0x" } }), true],
+  const defects: Array<[string, (row: RawQuote) => unknown, boolean, null | undefined]> = [
+    ["wrong allowance spender", (row) => ({ ...row, issues: { ...row.issues, allowance: { spender: TAKER, currentAllowance: "0" } } }), true, undefined],
+    ["nonzero value", (row) => ({ ...row, transaction: { ...row.transaction, value: "1" } }), true, undefined],
+    ["forbidden target", (row) => ({ ...row, transaction: { ...row.transaction, to: PERMIT2_ADDRESS } }), true, null],
+    ["empty calldata", (row) => ({ ...row, transaction: { ...row.transaction, data: "0x" } }), true, null],
     ["short action", (row) => ({ ...row, transaction: { ...row.transaction, data: encodeFunctionData({ abi: SETTLER_ABI, args: [
       { recipient: TAKER, buyToken: row.toToken, minAmountOut: BigInt(990) }, ["0xaabb"], `0x${"00".repeat(32)}`,
-    ] }) } }), true],
-    ["trailing calldata", (row) => ({ ...row, transaction: { ...row.transaction, data: `${row.transaction.data}00` } }), true],
-    ["gas ceiling", (row) => ({ ...row, transaction: { ...row.transaction, gas: "3000001" } }), true],
-    ["stale block", (row) => ({ ...row, blockNumber: "900" }), true],
-    ["slippage floor", (row) => ({ ...row, minToAmount: "1" }), true],
-    ["funded simulation incomplete", (row) => ({ ...row, issues: { ...row.issues, simulationIncomplete: true } }), false],
+    ] }) } }), true, null],
+    ["trailing calldata", (row) => ({ ...row, transaction: { ...row.transaction, data: `${row.transaction.data}00` } }), true, null],
+    ["gas ceiling", (row) => ({ ...row, transaction: { ...row.transaction, gas: "3000001" } }), true, undefined],
+    ["stale block", (row) => ({ ...row, blockNumber: "900" }), true, undefined],
+    ["slippage floor", (row) => ({ ...row, minToAmount: "1" }), true, undefined],
+    ["funded simulation incomplete", (row) => ({ ...row, issues: { ...row.issues, simulationIncomplete: true } }), false, undefined],
   ];
-  test.each(defects)("exits non-zero for %s even when liquidity and permit are valid", async (_label, mutate, unfunded) => {
+  test.each(defects)("exits non-zero for %s even when liquidity and permit are valid", async (_label, mutate, unfunded, expectedSpend) => {
     const client = createCdpSwapsClient({ env, generateJwtImpl: jwt,
       fetchImpl: (async (url: RequestInfo | URL, init?: RequestInit) => {
         const fromToken = init?.method === "GET" ? new URL(String(url)).searchParams.get("fromToken") : (JSON.parse(String(init?.body)) as { fromToken: string }).fromToken;
@@ -287,6 +319,7 @@ describe("sanitized operator checkpoint", () => {
     if (_label === "forbidden target") expect(buy.targetMatchesRouter).toBe(false);
     if (_label === "empty calldata" || _label === "trailing calldata" || _label === "short action") expect(buy.calldataMatches).toBe(false);
     if (_label === "short action" || _label === "empty calldata") expect([buy.actionSelectors, buy.actionsVerified]).toEqual([null, false]);
+    if (expectedSpend !== undefined) expect(buy.inputSpend).toBe(expectedSpend);
     expect(checkpointExitCode(report)).toBe(2);
   });
 });
@@ -325,7 +358,7 @@ test("checkpoint keeps provider evidence when the chain registry is unavailable"
   };
   const report = await runSwapsCheckpoint({ client, taker: TAKER, amounts: { buy: BigInt(1_000_000), sell: BigInt(1_000_000) }, now: NOW,
     readSwapRouter: async () => { throw new Error("registry unavailable"); }, readBlockNumber: async () => { throw new Error("block unavailable"); } });
-  expect(report.directions[0]).toMatchObject({ quoteLiquidityAvailable: true, chain: "unavailable", actionsVerified: null,
+  expect(report.directions[0]).toMatchObject({ quoteLiquidityAvailable: true, chain: "unavailable", actionsVerified: null, inputSpend: null,
     actionSelectors: ["0xc1fb425e", "0xaabbccdd"], executionReadiness: "chain-unavailable" });
   expect(checkpointExitCode(report)).toBe(2);
 });

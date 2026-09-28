@@ -52,6 +52,10 @@ function v3(input: SwapReviewRequest, recipient: Address = TARGET, route?: Hex) 
   const { fromToken, toToken } = swapTokens(input.direction, TOKEN);
   return action("0x8d68a156", v3Abi, [recipient, BigInt(1_000_000), route ?? path(fromToken, toToken), BigInt(0)]);
 }
+function v3Ppm(input: SwapReviewRequest, ppm: bigint, route?: Hex) {
+  const { fromToken, toToken } = swapTokens(input.direction, TOKEN);
+  return action("0x8d68a156", v3Abi, [TARGET, ppm, route ?? path(fromToken, toToken), BigInt(0)]);
+}
 function positive(input: SwapReviewRequest, expected = BigInt(1001), recipient: Address = FEE_TO) {
   return action("0x34ee90ca", slippageAbi, [recipient, swapTokens(input.direction, TOKEN).toToken, expected, BigInt(1_000_000)]);
 }
@@ -101,6 +105,16 @@ function fixture(input: SwapReviewRequest = request, target: Address = TARGET) {
 function validate(quote: SwapQuote, input = request, swapRouter = TARGET) {
   return validateSwapQuote({ request: input, quote, now: NOW, currentBlockNumber: BigInt(1000), swapRouter });
 }
+function rfqLeg(quote: FullQuote, maxTakerAmount: bigint, nonce = BigInt(4), capacity = BigInt(1000)) {
+  return action("0xd92aadfb", rfqAbi, [TARGET,
+    { permitted: { token: quote.toToken, amount: capacity }, nonce, deadline: BigInt(Math.floor(NOW.getTime() / 1000) + 300) },
+    MAKER, "0x1234", quote.fromToken, maxTakerAmount]);
+}
+function assertSpend(quote: FullQuote, expected: "exact" | "underfill" | "overfill" | "unmodeled", input = request) {
+  expect(swapExecutionMatches(input, quote, TARGET)).toMatchObject({ actionsVerified: expected === "exact", inputSpend: expected });
+  if (expected === "exact") expect(() => validate(quote, input)).not.toThrow();
+  else expect(() => validate(quote, input)).toThrow("stale-quote");
+}
 function changedPermit(change: (typed: ReturnType<typeof fixture>["permit2"]["eip712"]) => void) {
   const quote = fixture();
   change(quote.permit2.eip712);
@@ -126,7 +140,7 @@ describe("swap quote review", () => {
     expect(swapExecutionMatches(input, quote, TARGET)).toEqual({
       targetMatchesRouter: true, calldataMatches: true, actionSelectors: direction === "buy"
         ? ["0xc1fb425e", "0x38c9c147", "0x38c9c147", "0x8d68a156", "0x34ee90ca"]
-        : ["0xc1fb425e", "0x38c9c147", "0x34ee90ca", "0x38c9c147", "0x38c9c147"], actionsVerified: true,
+        : ["0xc1fb425e", "0x38c9c147", "0x34ee90ca", "0x38c9c147", "0x38c9c147"], actionsVerified: true, inputSpend: "exact",
     });
     expect(() => validate(quote, input)).not.toThrow();
     expect(() => validate({ ...quote, transaction: { ...quote.transaction, gas: BigInt(3000000) } }, input)).not.toThrow();
@@ -148,7 +162,7 @@ describe("swap quote review", () => {
     quote.transaction.data = settlerData(quote.toToken, { actions: [transfer(input),
       action("0xd92aadfb", rfqAbi, [TARGET, { permitted: { token: quote.toToken, amount: quote.minToAmount - BigInt(1) }, nonce: BigInt(4), deadline: BigInt(Math.floor(NOW.getTime() / 1000) + 300) }, MAKER, "0x1234", quote.fromToken, quote.fromAmount]),
       positive(input)] });
-    expect(swapExecutionMatches(input, quote, TARGET).actionsVerified).toBe(false);
+    expect(swapExecutionMatches(input, quote, TARGET)).toMatchObject({ actionsVerified: false, inputSpend: null });
     expect(() => validate(quote, input)).toThrow("unverified-actions");
     for (const capacity of [quote.minToAmount, quote.minToAmount + BigInt(1)]) {
       quote.transaction.data = settlerData(quote.toToken, { actions: [transfer(input),
@@ -158,14 +172,76 @@ describe("swap quote review", () => {
       expect(() => validate(quote, input)).not.toThrow();
     }
   });
-  test.each([BigInt(500), BigInt(1000)])("rejects mixed RFQ and AMM routes even when the maker could supply %s base units", (capacity) => {
+  test.each([BigInt(500), BigInt(1000)])("accepts exact mixed RFQ and V3 routes regardless of maker capacity %s", (capacity) => {
     const quote = fixture();
     quote.fees.protocolFee = null;
     quote.transaction.data = settlerData(quote.toToken, { actions: [transfer(request),
-      action("0xd92aadfb", rfqAbi, [TARGET, { permitted: { token: quote.toToken, amount: capacity }, nonce: BigInt(4), deadline: BigInt(Math.floor(NOW.getTime() / 1000) + 300) }, MAKER, "0x1234", quote.fromToken, quote.fromAmount / BigInt(2)]),
-      v3(request), positive(request)] });
-    expect(swapExecutionMatches(request, quote, TARGET).actionsVerified).toBe(false);
+      rfqLeg(quote, BigInt(500_000), BigInt(4), capacity), v3(request), positive(request)] });
+    assertSpend(quote, "exact");
+  });
+  test.each([
+    ["RFQ-only exact", (q: FullQuote) => [rfqLeg(q, BigInt(500_000)), rfqLeg(q, BigInt(500_000), BigInt(5))], "exact"],
+    ["RFQ-only underfill", (q: FullQuote) => [rfqLeg(q, BigInt(500_000)), rfqLeg(q, BigInt(499_999), BigInt(5))], "underfill"],
+    ["RFQ-only final clamp", (q: FullQuote) => [rfqLeg(q, BigInt(500_000)), rfqLeg(q, BigInt(500_001), BigInt(5))], "exact"],
+    ["RFQ-only overfill", (q: FullQuote) => [rfqLeg(q, q.fromAmount), rfqLeg(q, BigInt(1), BigInt(5))], "overfill"],
+    ["RFQ then V3 exact", (q: FullQuote) => [rfqLeg(q, BigInt(500_000)), v3Ppm(request, BigInt(1_000_000))], "exact"],
+    ["RFQ then V3 underfill", (q: FullQuote) => [rfqLeg(q, BigInt(500_000)), v3Ppm(request, BigInt(500_000))], "underfill"],
+    ["RFQ then V3 overfill", (q: FullQuote) => [rfqLeg(q, q.fromAmount), v3Ppm(request, BigInt(1_000_000))], "overfill"],
+    ["RFQ over-allots a nonfinal leg", (q: FullQuote) => [rfqLeg(q, BigInt(600_000)), v3Ppm(request, BigInt(500_000)), rfqLeg(q, BigInt(300_000), BigInt(5)), v3Ppm(request, BigInt(1_000_000))], "overfill"],
+    ["V3 floor spends zero", (q: FullQuote) => [rfqLeg(q, BigInt(999_999)), v3Ppm(request, BigInt(500_000))], "underfill"],
+    ["V3 then RFQ exact", (q: FullQuote) => [v3Ppm(request, BigInt(500_000)), rfqLeg(q, BigInt(500_000))], "exact"],
+    ["V3 then RFQ underfill", (q: FullQuote) => [v3Ppm(request, BigInt(500_000)), rfqLeg(q, BigInt(499_999))], "underfill"],
+    ["V3 then RFQ final clamp", (q: FullQuote) => [v3Ppm(request, BigInt(500_000)), rfqLeg(q, BigInt(500_001))], "exact"],
+    ["V3 split exact", () => [v3Ppm(request, BigInt(500_000)), v3Ppm(request, BigInt(1_000_000))], "exact"],
+    ["V3 split underfill", () => [v3Ppm(request, BigInt(500_000)), v3Ppm(request, BigInt(500_000))], "underfill"],
+    ["V3 split overfill", () => [v3Ppm(request, BigInt(1_000_000)), v3Ppm(request, BigInt(1_000_000))], "overfill"],
+    ["V3 rounding exact", (q: FullQuote) => [v3Ppm(request, BigInt(333_333)), rfqLeg(q, BigInt(666_667))], "exact"],
+    ["V3 rounding underfill", (q: FullQuote) => [v3Ppm(request, BigInt(333_333)), rfqLeg(q, BigInt(666_666))], "underfill"],
+  ] as const)("models %s", (_label, swaps, expected) => {
+    const quote = fixture();
+    quote.fees.protocolFee = null;
+    quote.transaction.data = settlerData(quote.toToken, { actions: [transfer(request), ...swaps(quote), positive(request)] });
+    assertSpend(quote, expected);
+  });
+  test.each([
+    ["RFQ then V3 exact", (q: FullQuote) => [rfqLeg(q, BigInt(500_000)), v3Ppm(request, BigInt(1_000_000))], "exact"],
+    ["RFQ then V3 underfill", (q: FullQuote) => [rfqLeg(q, BigInt(500_000)), v3Ppm(request, BigInt(999_999))], "underfill"],
+    ["RFQ-only exact", (q: FullQuote) => [rfqLeg(q, BigInt(500_000)), rfqLeg(q, BigInt(492_500), BigInt(5))], "exact"],
+    ["RFQ-only off-by-one", (q: FullQuote) => [rfqLeg(q, BigInt(500_000)), rfqLeg(q, BigInt(492_499), BigInt(5))], "underfill"],
+  ] as const)("accounts for an input fee before %s", (_label, swaps, expected) => {
+    const quote = fixture();
+    quote.fees.protocolFee = { token: quote.fromToken, amount: BigInt(7_500) };
+    quote.transaction.data = settlerData(quote.toToken, { actions: [transfer(request), fee(quote.fromToken, 7_500), ...swaps(quote), positive(request)] });
+    assertSpend(quote, expected);
+  });
+  test.each([
+    ["BASIC", (q: FullQuote) => [poolSwap(q.fromToken), rfqLeg(q, BigInt(500_000))], TARGET],
+    ["V2", (q: FullQuote) => [v2(TARGET, q.fromToken, BigInt(1_000_000)), rfqLeg(q, BigInt(500_000))], TARGET],
+    ["Maverick", (q: FullQuote) => [maverick(TARGET, q.fromToken, BigInt(1_000_000)), rfqLeg(q, BigInt(500_000))], TARGET],
+    ["intermediate V3 leg", (q: FullQuote) => [v3Ppm(request, BigInt(500_000)), v3Ppm(request, BigInt(1_000_000), path(INTERMEDIATE, q.toToken))], TARGET],
+    ["V3 path ends at intermediate", (q: FullQuote) => [v3Ppm(request, BigInt(500_000), path(q.fromToken, INTERMEDIATE)), rfqLeg(q, BigInt(500_000))], TARGET],
+    ["pool-funded RFQ", (q: FullQuote) => [v2(TARGET, q.fromToken, BigInt(1_000_000)), rfqLeg(q, BigInt(500_000))], POOL],
+  ] as const)("does not model %s", (_label, swaps, recipient) => {
+    const quote = fixture();
+    quote.fees.protocolFee = null;
+    quote.transaction.data = settlerData(quote.toToken, { actions: [transfer(request, recipient), ...swaps(quote), positive(request)] });
+    assertSpend(quote, "unmodeled");
+  });
+  test("rejects duplicate maker nonce in an otherwise exact mixed route", () => {
+    const quote = fixture();
+    quote.fees.protocolFee = null;
+    quote.transaction.data = settlerData(quote.toToken, { actions: [transfer(request),
+      rfqLeg(quote, BigInt(250_000)), v3Ppm(request, BigInt(500_000)), rfqLeg(quote, BigInt(375_000)), positive(request)] });
+    expect(swapExecutionMatches(request, quote, TARGET)).toMatchObject({ actionsVerified: false, inputSpend: null });
     expect(() => validate(quote)).toThrow("unverified-actions");
+  });
+  test("extracts only the RFQ maker authorization in a mixed route", () => {
+    const quote = fixture();
+    quote.fees.protocolFee = null;
+    quote.transaction.data = settlerData(quote.toToken, { actions: [transfer(request), rfqLeg(quote, BigInt(500_000)), v3(request), positive(request)] });
+    assertSpend(quote, "exact");
+    expect(rfqMakerAuthorizations(request, quote, TARGET)).toMatchObject([{ maker: MAKER, maxTakerAmount: BigInt(500_000), takerToken: quote.fromToken }]);
+    expect(rfqMakerAuthorizations(request, quote, TARGET)).toHaveLength(1);
   });
   test("sums independent RFQ capacity without counting the same maker nonce twice", () => {
     const quote = fixture();
@@ -174,12 +250,12 @@ describe("swap quote review", () => {
       [TARGET, { permitted: { token: quote.toToken, amount }, nonce, deadline: BigInt(Math.floor(NOW.getTime() / 1000) + 300) }, maker, "0x1234", quote.fromToken, quote.fromAmount / BigInt(2)]);
     const route = (second: bigint, nonce: bigint) => settlerData(quote.toToken, { actions: [transfer(request), rfq(BigInt(600), BigInt(4), MAKER), rfq(second, nonce, MAKER), positive(request)] });
     quote.transaction.data = route(BigInt(389), BigInt(5));
-    expect(swapExecutionMatches(request, quote, TARGET).actionsVerified).toBe(false);
+    expect(swapExecutionMatches(request, quote, TARGET)).toMatchObject({ actionsVerified: false, inputSpend: null });
     quote.transaction.data = route(BigInt(390), BigInt(5));
     expect(swapExecutionMatches(request, quote, TARGET).actionsVerified).toBe(true);
     expect(() => validate(quote)).not.toThrow();
     quote.transaction.data = route(BigInt(390), BigInt(4));
-    expect(swapExecutionMatches(request, quote, TARGET).actionsVerified).toBe(false);
+    expect(swapExecutionMatches(request, quote, TARGET)).toMatchObject({ actionsVerified: false, inputSpend: null });
     expect(() => validate(quote)).toThrow("unverified-actions");
   });
   test.each([
@@ -193,9 +269,9 @@ describe("swap quote review", () => {
       [TARGET, { permitted: { token: quote.toToken, amount: makerAmount }, nonce, deadline: BigInt(Math.floor(NOW.getTime() / 1000) + 300) }, MAKER, "0x1234", quote.fromToken, maxTaker]);
     quote.transaction.data = settlerData(quote.toToken, { actions: [transfer(request),
       rfq(BigInt(600), BigInt(4), BigInt(500_000)), rfq(BigInt(500), BigInt(5), secondMax), positive(request)] });
-    expect(swapExecutionMatches(request, quote, TARGET).actionsVerified).toBe(accepted);
+    expect(swapExecutionMatches(request, quote, TARGET)).toMatchObject({ actionsVerified: accepted, inputSpend: accepted ? "exact" : "underfill" });
     if (accepted) expect(() => validate(quote)).not.toThrow();
-    else expect(() => validate(quote)).toThrow("unverified-actions");
+    else expect(() => validate(quote)).toThrow("stale-quote");
   });
   test("accounts for a receive-token fee before comparing RFQ capacity with the reviewed minimum", () => {
     const input = { ...request, direction: "sell" as const };
@@ -296,7 +372,7 @@ describe("swap quote review", () => {
     quote.fees.protocolFee = null;
     const rfqs = offsets.map((offset, index) => action("0xd92aadfb", rfqAbi, [TARGET,
       { permitted: { token: quote.toToken, amount: BigInt(1000) }, nonce: BigInt(4 + index), deadline: BigInt(Math.floor(NOW.getTime() / 1000) + offset) },
-      MAKER, "0x1234", quote.fromToken, quote.fromAmount]));
+      MAKER, "0x1234", quote.fromToken, quote.fromAmount / BigInt(2)]));
     quote.transaction.data = settlerData(quote.toToken, { actions: [transfer(request), ...rfqs, positive(request)] });
     expect(swapExecutionMatches(request, quote, TARGET).actionsVerified).toBe(true);
     if (earliest === 0) expect(() => validate(quote)).toThrow("stale-quote");
@@ -305,27 +381,27 @@ describe("swap quote review", () => {
   test("matches the MAVERICKV2 selector to its ABI signature", () => {
     expect(toFunctionSelector("MAVERICKV2(address,address,uint256,address,bool,int32,uint256)")).toBe("0x9b59756f");
   });
-  function verifyActions(actions: Hex[], expected: boolean, input: SwapReviewRequest = request, recipient: Address = TARGET) {
+  function verifyActions(actions: Hex[], expected: boolean, input: SwapReviewRequest = request, recipient: Address = TARGET, spend: "exact" | "underfill" | "unmodeled" | null = expected ? "exact" : null) {
     const quote = fixture(input);
     quote.fees.protocolFee = null;
     quote.transaction.data = settlerData(quote.toToken, { actions: [transfer(input, recipient), ...actions] });
-    expect(swapExecutionMatches(input, quote, TARGET)).toMatchObject({ calldataMatches: true, actionsVerified: expected });
+    expect(swapExecutionMatches(input, quote, TARGET)).toMatchObject({ calldataMatches: true, actionsVerified: expected, inputSpend: spend });
     if (expected) expect(() => validate(quote, input)).not.toThrow();
-    else expect(() => validate(quote, input)).toThrow("unverified-actions");
+    else expect(() => validate(quote, input)).toThrow(spend === null ? "unverified-actions" : "stale-quote");
   }
   test.each([
-    ["single-hop 64-byte path", (q: FullQuote) => path(q.fromToken, q.toToken), true],
-    ["two-hop 108-byte path via intermediate", (q: FullQuote) => path(q.fromToken, INTERMEDIATE, q.toToken), true],
-    ["intermediate start without any from-token swap", (q: FullQuote) => path(INTERMEDIATE, q.toToken), false],
-    ["shorter than one hop", (q: FullQuote) => `0x${q.fromToken.slice(2)}${"00".repeat(43)}` as Hex, false],
-    ["trailing byte", (q: FullQuote) => `${path(q.fromToken, q.toToken)}00` as Hex, false],
-    ["truncated second hop", (q: FullQuote) => path(q.fromToken, INTERMEDIATE, q.toToken).slice(0, -2) as Hex, false],
-    ["adjacent equal first", (q: FullQuote) => path(q.fromToken, q.fromToken, q.toToken), false],
-    ["adjacent equal second", (q: FullQuote) => path(q.fromToken, INTERMEDIATE, INTERMEDIATE), false],
-    ["returning the input token to Settler", (q: FullQuote) => path(q.fromToken, INTERMEDIATE, q.fromToken), false],
-  ] as const)("validates V3 %s", (_label, route, expected) => {
+    ["single-hop 64-byte path", (q: FullQuote) => path(q.fromToken, q.toToken), true, "exact"],
+    ["two-hop 108-byte path via intermediate", (q: FullQuote) => path(q.fromToken, INTERMEDIATE, q.toToken), true, "exact"],
+    ["intermediate start without any from-token swap", (q: FullQuote) => path(INTERMEDIATE, q.toToken), false, null],
+    ["shorter than one hop", (q: FullQuote) => `0x${q.fromToken.slice(2)}${"00".repeat(43)}` as Hex, false, null],
+    ["trailing byte", (q: FullQuote) => `${path(q.fromToken, q.toToken)}00` as Hex, false, null],
+    ["truncated second hop", (q: FullQuote) => path(q.fromToken, INTERMEDIATE, q.toToken).slice(0, -2) as Hex, false, null],
+    ["adjacent equal first", (q: FullQuote) => path(q.fromToken, q.fromToken, q.toToken), false, null],
+    ["adjacent equal second", (q: FullQuote) => path(q.fromToken, INTERMEDIATE, INTERMEDIATE), false, null],
+    ["returning the input token to Settler", (q: FullQuote) => path(q.fromToken, INTERMEDIATE, q.fromToken), false, "unmodeled"],
+  ] as const)("validates V3 %s", (_label, route, expected, spend) => {
     const quote = fixture();
-    verifyActions([v3(request, TARGET, route(quote))], expected);
+    verifyActions([v3(request, TARGET, route(quote))], expected, request, TARGET, spend);
   });
   test.each([
     ["BASIC", (token: Address) => poolSwap(token)],
@@ -354,14 +430,14 @@ describe("swap quote review", () => {
     const swap = kind === "BASIC"
       ? action("0x38c9c147", basicAbi, [from, BigInt(999_999), POOL, BigInt(0), "0x12345678"])
       : action("0x8d68a156", v3Abi, [TARGET, BigInt(999_999), path(from, swapTokens("buy", TOKEN).toToken), BigInt(0)]);
-    verifyActions([swap], false);
+    verifyActions([swap], false, request, TARGET, "underfill");
   });
   test.each(["UNISWAPV2", "MAVERICKV2"] as const)("validates %s prefunding and ppm edges", (kind) => {
     const make = kind === "UNISWAPV2" ? v2 : maverick;
     const from = swapTokens("buy", TOKEN).fromToken;
     const zero = make(TARGET, from, BigInt(0));
     verifyActions([zero], false);
-    verifyActions([make(TARGET, from, BigInt(1))], false);
+    verifyActions([make(TARGET, from, BigInt(1))], false, request, TARGET, "underfill");
     verifyActions([make(TARGET, from, BigInt(1_000_000))], true);
     verifyActions([make(TARGET, from, BigInt(1_000_001))], false);
     const quote = fixture();
@@ -389,11 +465,19 @@ describe("swap quote review", () => {
       verifyActions([v2(TARGET, swapTokens("buy", TOKEN).fromToken, BigInt(1), NEXT_POOL), make(pool)], false);
     }
   });
+  test("does not model input spend for a non-router target with otherwise valid calldata", () => {
+    const quote = fixture();
+    quote.transaction.to = POOL;
+    expect(swapExecutionMatches(request, quote, TARGET)).toMatchObject({
+      targetMatchesRouter: false, calldataMatches: true, actionSelectors: ["0xc1fb425e", "0x38c9c147", "0x38c9c147", "0x8d68a156", "0x34ee90ca"],
+      actionsVerified: false, inputSpend: null,
+    });
+  });
   test("keeps unknown selectors outer-compatible but unverified", () => {
     const quote = fixture();
     quote.transaction.data = settlerData(quote.toToken, { actions: [transfer(request), "0xaabbccdd"] });
     quote.fees.protocolFee = null;
-    expect(swapExecutionMatches(request, quote, TARGET)).toEqual({ targetMatchesRouter: true, calldataMatches: true, actionSelectors: ["0xc1fb425e", "0xaabbccdd"], actionsVerified: false });
+    expect(swapExecutionMatches(request, quote, TARGET)).toEqual({ targetMatchesRouter: true, calldataMatches: true, actionSelectors: ["0xc1fb425e", "0xaabbccdd"], actionsVerified: false, inputSpend: null });
     expect(() => validate(quote)).toThrow("unverified-actions");
   });
   function setWord(data: Hex, byteOffset: number, value: bigint): Hex {
@@ -532,7 +616,13 @@ describe("swap quote review", () => {
   test("reports null selectors when outer calldata cannot be decoded", () => {
     const quote = fixture();
     quote.transaction.data = "0xdeadbeef";
-    expect(swapExecutionMatches(request, quote, TARGET)).toEqual({ targetMatchesRouter: true, calldataMatches: false, actionSelectors: null, actionsVerified: false });
+    expect(swapExecutionMatches(request, quote, TARGET)).toEqual({ targetMatchesRouter: true, calldataMatches: false, actionSelectors: null, actionsVerified: false, inputSpend: null });
+  });
+  test("reports no input-spend result when outer calldata mismatches", () => {
+    const quote = fixture();
+    quote.transaction.data = settlerData(quote.toToken, { recipient: FEE_TO });
+    expect(swapExecutionMatches(request, quote, TARGET)).toMatchObject({ calldataMatches: false, actionsVerified: false, inputSpend: null });
+    expect(() => validate(quote)).toThrow("quote-rejected");
   });
   test.each([false, true])("preserves insufficient-balance before action validation with simulationIncomplete=%s", (simulationIncomplete) => {
     const quote: FullQuote = fixture();

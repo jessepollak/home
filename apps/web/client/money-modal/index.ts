@@ -30,6 +30,7 @@ export {
   moneyConfirmFromRow,
 } from "./confirm-summary";
 export type { MoneyConfirmRow } from "./confirm-summary";
+export { CashOutReview } from "./cash-out-review";
 
 export {
   maxAmountAfterNetworkFee,

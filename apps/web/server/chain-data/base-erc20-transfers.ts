@@ -1,5 +1,6 @@
 import "server-only";
 
+import { parseAddress, parseHash32 } from "@/shared/chain/hex";
 import { parseCdpSqlResponseEnvelope } from "./cdp-sql-client";
 import { ChainDataError } from "./errors";
 import {
@@ -61,11 +62,11 @@ type TransferRow = {
 };
 
 export function normalizeBaseAddress(value: string): HexAddress {
-  const normalized = value.trim().toLowerCase();
-  if (!ADDRESS_PATTERN.test(normalized)) {
+  const address = parseAddress(value.trim());
+  if (!address) {
     throw new ChainDataError("invalid-input", "Expected a 20-byte EVM address.");
   }
-  return normalized as HexAddress;
+  return address;
 }
 
 export function buildBaseErc20TransferQuery(
@@ -499,11 +500,11 @@ function normalizeBaseAddressResponse(value: string): HexAddress {
 }
 
 function normalizeHash(value: string, field: string): TransactionHash {
-  const normalized = value.toLowerCase();
-  if (!HASH_PATTERN.test(normalized)) {
+  const hash = parseHash32(value);
+  if (!hash) {
     throw invalidResponse(`CDP SQL returned an invalid ${field}.`);
   }
-  return normalized as TransactionHash;
+  return hash;
 }
 
 function parseAmount(value: unknown, allowUnclassified: boolean): string | null {

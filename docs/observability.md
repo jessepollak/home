@@ -15,7 +15,7 @@ Home's first observability milestone is deliberately scrub-first. It provides a 
 | Client reporter | `apps/web/instrumentation-client.ts` | Installs before hydration, sends at most five reports per page, omits credentials and referrer, and never affects application behavior |
 | Error boundaries | `apps/web/app/error.tsx`, `apps/web/app/global-error.tsx` | Render the recoverable `LoadErrorCard` state whose Try again calls Next's `retry()`, and send one client-error report per caught error through the same reporter |
 | Client ingestion | `POST /api/client-errors` | Requires exact same origin and JSON, limits the body to 2 KiB while streaming, rejects unknown fields, and applies a 30-report/minute per-instance shedding limit |
-| Startup ingestion | `POST /api/client-performance` | Accepts closed Home startup, auth-phase, navigation, and scroll kinds with fixed dimensions and bounded timings; it uses the same transport defenses and a separate limiter |
+| Startup ingestion | `POST /api/client-performance` | Accepts closed Home startup, auth-phase, navigation, and scroll kinds with fixed dimensions and bounded timings; it uses the same transport defenses and separate per-instance limiters (startup and auth 60/minute; navigation and scroll 20/minute) keyed by a required `kind` query parameter |
 
 Example log line:
 

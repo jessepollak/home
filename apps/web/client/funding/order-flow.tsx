@@ -29,6 +29,7 @@ import {
 import {
   browserHomeQueryClient,
   ownerQueryKey,
+  disabledQueryKey,
   ownerQueryMeta,
   publicQueryKey,
   useHomeQuery,
@@ -107,7 +108,7 @@ export function FundingOrderFlow({
     ? queryOwnerKey
       ? ownerQueryKey(queryOwnerKey, "funding-order", order.id)
       : publicQueryKey("funding-order-isolated", order.id)
-    : publicQueryKey("funding-order-disabled");
+    : disabledQueryKey("funding-order");
   const orderQuery = useHomeQuery({
     queryKey: orderQueryKey,
     enabled: shouldPollFundingOrder(order),

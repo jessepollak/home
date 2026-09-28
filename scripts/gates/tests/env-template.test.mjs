@@ -14,6 +14,7 @@ import { loadSourceFiles } from "../source-files.mjs";
 // Platform/runtime-injected (never operator configuration).
 const PLATFORM_ALLOWLIST = [
   "CI",
+  "GITHUB_SHA", // GitHub Actions-injected commit SHA for the performance trend
   "LOCALAPPDATA", // Windows user-profile path used by playwright.config.ts
   "NEXT_DEPLOYMENT_ID",
   "NEXT_RUNTIME",

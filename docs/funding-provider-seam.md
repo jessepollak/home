@@ -16,6 +16,17 @@ Peer is a deliberate egress exception to the raw-HTTP adapter rule below. The ex
 
 Peer treats a single-payout Cash 0.5.3 row whose `payeeHash` is empty or `"0x"` as the known legacy unavailable-payee representation and skips it. Any other malformed payee hash fails closed during cash-out preparation as `PeerOfframpSafetyError`, surfaced by the prepare route as `ACTION_PREPARE_UNAVAILABLE`; when `GET /api/actions` lists owner orders to link a hashless cash-out action to its deposit, it skips the malformed row and emits a scrubbed server observability event, so the other cash-out items keep their status and cancel.
 
+### Normalized cash-out quote (#1134)
+
+Every offramp binding's `estimate` returns one normalized `CashoutQuote` (`apps/web/shared/funding/cash-out-quote.ts`), so review and Activity never read provider-specific estimate fields:
+
+- **Fees** as components: `provider`, `network` and `operator`, each an amount and currency or `null` when the provider does not quote it. An ISO 4217 fiat currency renders as money; any other code (for example `USDC`) renders as a token amount with its symbol, so a token-denominated fee never reaches the fiat formatter. `operator` stays `null` until the operator cash-out fee ships; preparation refuses any other value. The review always shows the provider fee ("None" for a quoted zero, "Not quoted" for `null`), shows a network fee only when it is non-zero, and shows the operator line only once it is set.
+- **Rate** only when a conversion happens (`null` for USDC to USD), expressed as quote-currency units per one USDC. Preparation refuses a quote whose rate is missing for a non-USD payout or present for a USD payout.
+- **Receive** is the net local-currency amount, its currency, and whether it is approximate.
+- **Arrival** carries its source: `declared` by the provider or `observed` from recent orders, as a `within` duration ("Usually within 1 hour") or a `business-days` range ("1–2 business days"). With no timing the binding returns `{ source: "unknown" }` and review says "Arrival time varies"; nothing invents a value.
+
+Preparation validates the quote, records it on the cash-out action's metadata beside the legacy `approximateFiatAmount` and `etaSeconds` fields it must agree with, and issuance rejects a quote that disagrees with them. The send review, the requote after expiry, and Activity all read that recorded quote; actions recorded before it existed fall back to the legacy fields with fees shown as not quoted. Peer returns a zero provider fee (its oracle corridors use zero spread), the oracle rate for non-USD corridors, and an observed arrival from recent fills when Peer has a sample. The shared adapter conformance suite (`server/funding/core/testing/describeFundingOfframpAdapter.ts`) checks each binding's quote, including the unknown-arrival case.
+
 ## Intent
 
 Someone at a stablecoin issuer or local rail should be able to clone Home, run it, sign in with their Base Account, drop in their provider credentials, and walk through the Add money flow for their country end to end. That is the whole test. The crew builds most of each adapter; the issuer confirms it against their real API and fixes what disagrees.

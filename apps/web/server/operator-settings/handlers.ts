@@ -94,7 +94,7 @@ export function createSettingsDomainHandlers(deps: Dependencies = {}) {
       let body: unknown;
       try { body = JSON.parse(text); } catch { return error("INVALID_REQUEST", 400); }
       const parsed = parsePutSettingsRequest(body);
-      if (!parsed) return error("INVALID_REQUEST", 400);
+      if (!parsed || settingsStore.registry[domain]?.parse(parsed.value) === null) return error("INVALID_REQUEST", 400);
       try {
         const written = await settingsStore.write({ domain, value: parsed.value, expectedRevision: parsed.expectedRevision, actor: decision.address });
         return privateJson({ version: OPERATOR_SETTINGS_CONTRACT_VERSION, ...written }, 200);

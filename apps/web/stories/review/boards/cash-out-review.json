@@ -1,0 +1,25 @@
+{
+  "id": "cash-out-review",
+  "title": "Cash-out review — one shared quote",
+  "summary": "Every cash-out route reviews the same facts: you send, fees, rate when a conversion happens, you receive with its destination, and when it arrives. Missing facts are stated plainly, never invented.",
+  "refs": { "issue": 1134 },
+  "sections": [
+    { "id": "routes", "title": "Routes", "note": "Peer corridors today, plus a contract fixture showing how an issuer route with fees and declared timing renders.", "frames": [
+      { "id": "us", "story": "money-modal-cash-out-review--us-peer-cash-app", "label": "US · Cash App", "viewport": "mobile", "change": "changed" },
+      { "id": "gb", "story": "money-modal-cash-out-review--gb-peer-monzo", "label": "GB · Monzo", "viewport": "mobile", "change": "changed" },
+      { "id": "euro", "story": "money-modal-cash-out-review--euro-revolut", "label": "Euro area · Revolut", "viewport": "mobile", "change": "changed" },
+      { "id": "issuer", "story": "money-modal-cash-out-review--issuer-contract-fixture-pix", "label": "Issuer contract fixture · Pix", "viewport": "mobile", "change": "new" }
+    ] },
+    { "id": "edges", "title": "Edge states", "frames": [
+      { "id": "unknown", "story": "money-modal-cash-out-review--unknown-arrival", "label": "No arrival estimate", "viewport": "mobile", "change": "new" },
+      { "id": "legacy", "story": "money-modal-cash-out-review--legacy-record", "label": "Older review without fees", "viewport": "mobile", "change": "new" },
+      { "id": "expired", "story": "money-modal-cash-out-review--quote-expired", "label": "Quote expired", "viewport": "mobile", "change": "new" },
+      { "id": "requote", "story": "money-modal-cash-out-review--requote-changed", "label": "New quote changed the amount", "viewport": "mobile", "change": "new" }
+    ] },
+    { "id": "layout", "title": "Layout", "frames": [
+      { "id": "small", "story": "money-modal-cash-out-review--small-mobile-long-copy", "label": "320px · long copy", "viewport": "narrow", "change": "new" },
+      { "id": "text", "story": "money-modal-cash-out-review--enlarged-text-size", "label": "200% text", "viewport": "mobile", "change": "new" },
+      { "id": "desktop", "story": "money-modal-cash-out-review--desktop", "label": "Desktop", "viewport": "desktop", "change": "new" }
+    ] }
+  ]
+}

@@ -17,9 +17,33 @@ The full check suite also covers:
 - story tests (`bun run --cwd apps/web test:stories`)
 - `bun run gates` (the repository gate unit tests above, including commit provenance; also run inside `bun check`)
 - disposable PostgreSQL contracts discovered from tracked `apps/web/**/*postgres*.test.ts` files (including country preferences), run against CI's PostgreSQL 14 service
+- performance budgets (production fixture, structural gates, and report-only timings)
 - the **Code Connect templates** step in the `bun check` job (`bun run --cwd apps/web figma:connect:parse`), which parses every `*.figma.ts` template offline
 
 On pushes to `main`, the `publish Code Connect` and `sync Figma variables` jobs publish templates and tokens to Figma. They run only when the `FIGMA_ACCESS_TOKEN` secret is set and otherwise skip without failing ([Figma workflow](design-explorations/figma-workflow.md#source-of-truth)).
+
+## Performance budgets
+
+The **performance budgets** job runs on pull requests and pushes to `main` against an isolated production fixture build, not a dev server or a provider-backed session. It pins Ubuntu 24.04, the repository's Playwright Chromium, a mobile viewport, and CDP CPU 4× throttle. It samples 20-row calibration and 100-, 300-, and 2,000-row Activity feeds with three 6,000 px flings each, ten warm round trips from Home to each of Invest, Cash, Borrow, and Investments (one fresh browser context per destination, after one unmeasured warm-up visit), and ten Activity-detail and Send modal cycles. Activity and Balances have no Home control, so they are covered by cold route loads only.
+
+Structural gates block from day one:
+
+- **Mounted rows:** at most 25 Recent-group rows in the settled window after each fling, at every feed size. Focus is cleared before each fling, because the list deliberately keeps a focused row mounted. The peak during the gesture is reported but not gated: it is about 30 mid-list, because the list overscans eight rows on each side.
+- **DOM nodes:** connected elements and text nodes on each cold-loaded route stay at or below the baseline plus 10%.
+- **Warm requests:** zero network requests of any kind start during warm client-side navigation. No request is allowlisted. The fixture build sets `NEXT_PUBLIC_HOME_INTERACTION_SAMPLE_RATE=0`, so sampled navigation telemetry cannot add random beacons. Query freshness is held fixed after warm-up, so a request reflects navigation behaviour rather than expiring data. Each destination's loop finishes well inside the 60-second savings poll.
+- **Initial JS:** the gzip size of the scripts in each route's document HTML stays at or below the baseline plus 5%.
+- **Resource growth:** CDP DOM nodes, event listeners, and JS heap after forced garbage collection are compared between cycle 2 and cycle 10 of each navigation loop and each modal loop. Nodes and listeners tolerate +65 and +12, and heap tolerates +2.5 MB.
+- **History writes:** at most five `pushState`/`replaceState` calls per fling.
+
+The `perf:seeds` self-check injects one synthetic regression per structural gate through the harness, never through product code. Each seed runs only its own gate's scenarios on a reduced sample: one fling repetition on the 20- and 300-row feeds, the cold route loads, or the 20-row feed with one navigation path and one modal. A seed that escapes fails the job.
+
+Timing is report-only until 2026-10-11. It covers fling p95 rAF interval, the share of intervals over 33.4 ms, trace-counted dropped frames, long-animation-frame blocking, detail-open, warm navigation p50/p95, and modal-open latency. Each metric except dropped frames has an absolute ceiling and a relative ceiling against this job's own 20-row calibration run. Dropped frames are recorded without ceilings until their headless variance is known. Share and blocking metrics use an additive margin (for example, the 33.4 ms share must be at most 5% and no more than 2 points above calibration); latencies use a 1.5× ratio. Breaches do not block. The first three failing or breaching scenarios in a run (structural failures first) are re-run once with a Playwright trace and a CPU profile. After 2026-10-11, a pull request will propose blocking thresholds from the observed variance; the job never switches over on its own.
+
+Run `bun run --cwd apps/web perf:budget --base-url http://localhost:3199 --out-dir performance-results` against the isolated production fixture using the [local server recipe](activity-performance.md#activity-scroll-profile). Intentional baseline changes use `perf:budget --update-baseline` and include the updated `apps/web/scripts/performance/baseline.json` in the same PR, reviewed like code. The `performance-results` artifact keeps regression traces, JSON, Markdown summaries, seed results, and the server log for 90 days. The CI summary includes a trend over the last 20 `main` runs, with the median job runtime and the share of completed jobs that failed or needed a rerun (the flake indicator).
+
+The job does not block a merge until it is added to the repository's required status checks; that is a repository-operator step, taken after the job has shown stable runs.
+
+Synthetic Chromium and CDP CPU throttle are not real device frame-rate measurements. The job does not validate production network or device performance.
 
 ## Dead-code boundary
 
@@ -60,6 +84,8 @@ The **Storybook review links** workflow (`.github/workflows/storybook-review-lin
 ## Browser-smoke boundary
 
 The current **Chromium smoke** job runs the per-surface fixture-backed Playwright suite (`apps/web/tests/browser/*.pw.ts`, with shared responses under `fixtures/`) in GitHub Actions for every pull request and every push to `main`. It starts a CI-local fixture server; it does not exercise the hosted Vercel preview deployment.
+
+A global setup requests the routes the admin smoke first visits so `next dev` compiles them before any test timer starts; the suite still runs against `next dev` with unchanged timeouts and retries.
 
 The Jesse-locked [architecture](architecture.md#quality-bar) targets Playwright smoke on every hosted preview. That hosted-preview smoke target is not implemented yet; current PR/main fixture smoke must not be described as hosted-preview verification.
 
