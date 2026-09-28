@@ -95,6 +95,14 @@ function validPage(): ActivityResponse {
 }
 
 describe("activity response parser", () => {
+  test("accepts owner-fenced card purchases and rejects malformed card rows", () => {
+    const purchase = { id: "iauth_synthetic", kind: "authorization" as const, amountMinor: "1234", currency: "USD",
+      merchantName: "Synthetic Cafe", merchantCategory: null, status: "declined" as const, declineReasonCode: "insufficient_funds",
+      createdAt: TO, updatedAt: TO };
+    expect(parseActivityPage({ ...validPage(), cards: { status: "ready", rows: [purchase] } }, session, TO).cards?.rows[0]).toEqual(purchase);
+    expect(() => parseActivityPage({ ...validPage(), cards: { status: "ready", rows: [{ ...purchase, amountMinor: "-1234" }] } }, session, TO)).toThrow();
+    expect(parseActivityPage({ ...validPage(), cards: { status: "unavailable", rows: [] } }, session, TO).cards?.status).toBe("unavailable");
+  });
   test("accepts lossless scoped transfers in strict keyset order", () => {
     const page = parseActivityPage(validPage(), session, TO);
     expect(page.transfers.map((transfer) => transfer.amountBaseUnits)).toEqual([

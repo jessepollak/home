@@ -5,6 +5,7 @@ import {
 import type { FiatCurrencyCode } from "@/config/regions";
 import { BASE_CHAIN_ID } from "@/shared/assets/base";
 import type { ActivityTransferValuation } from "./valuation";
+import type { CardPurchases } from "@/shared/cards/transactions-contract";
 
 export type { ActivityTransferValuation } from "./valuation";
 
@@ -77,6 +78,7 @@ export type ActivityPage = {
   };
   currency: FiatCurrencyCode;
   transfers: ActivityTransfer[];
+  cards?: CardPurchases;
   nextCursor: string | null;
   source: ActivitySource;
 };

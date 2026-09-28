@@ -17,6 +17,8 @@ import type {
 import { privateError, privateJson } from "@/server/http/private-response";
 import { isActivityValuationCurrency } from "@/shared/activity/valuation";
 import type { ActivityReadRequest, ActivityReader } from "./types";
+import type { CardPurchases } from "@/shared/cards/transactions-contract";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
 
 type ActivityReadObservation = Extract<
   ObservabilityEvent,
@@ -29,6 +31,7 @@ export type ActivityObservationSink = (
 export function createActivityHandler(dependencies: {
   authorize: SessionAuthorizer;
   readActivity: ActivityReader;
+  readCards?: (session: VerifiedAccountSession, window: { from: string; to: string }) => Promise<CardPurchases>;
   source: () => Exclude<ActivityReadSource, "none">;
   now?: () => Date;
   clock?: () => number;
@@ -138,6 +141,9 @@ export function createActivityHandler(dependencies: {
         activityRequest,
         request.signal,
       );
+      if (activityRequest.cursor === null && dependencies.readCards) {
+        page.cards = await dependencies.readCards(session, page.window).catch((): CardPurchases => ({ status: "unavailable", rows: [] }));
+      }
       primaryFinishedAt = clock();
       throwIfAborted(request.signal);
 

@@ -138,7 +138,8 @@ export function ActivityPanelView({
       transfers[0]!.blockTimestamp)
       : activity.page.window.to
     : null;
-  const feed = useMemo(() => mergeActivityFeed({ transfers, operations, orders, loadedThrough }), [transfers, operations, orders, loadedThrough]);
+  const cards = activity.status === "ready" ? activity.page.cards?.rows : undefined;
+  const feed = useMemo(() => mergeActivityFeed({ transfers, operations, orders, cards, loadedThrough }), [transfers, operations, orders, cards, loadedThrough]);
   const [clock, setClock] = useState(0);
   useEffect(() => {
     const now = Date.now();
@@ -236,6 +237,7 @@ export function ActivityPanelView({
     );
   }
 
+  const cardUnavailable = activity.status === "ready" && activity.page.cards?.status === "unavailable";
   const footer = activity.status === "ready" ? (
     activity.page.nextCursor === null ? hasRows ? (
       <p className="text-center text-xs text-muted-foreground" role="status">End of activity</p>
@@ -246,6 +248,7 @@ export function ActivityPanelView({
   return (
     <>
       <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} rows={hasRows} sectionRef={sectionRef}>
+        {cardUnavailable ? <p role="status" className="text-sm text-muted-foreground">Card purchases may be out of date.</p> : null}
         {inlineStatus && activity.status === "error" ? (
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p role="status" className="text-sm text-muted-foreground">

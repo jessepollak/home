@@ -27,6 +27,7 @@ import { cashoutMoney, cashoutOrderAction, presentCashout, type CashoutStage } f
 import { cashoutQuoteFromLegacy, formatCashoutArrival } from "@/shared/funding/cash-out-quote";
 import { formatCashoutReceive } from "@/shared/funding/cash-out-quote-format";
 import type { CashoutMoneyActionMetadata } from "@/shared/money-actions/types";
+import type { CardPurchase } from "@/shared/cards/transactions-contract";
 
 const directAssets = getDirectPortfolioAssets();
 const portfolioAssetKeyById: ReadonlyMap<string, string> = new Map(
@@ -493,9 +494,27 @@ export function presentActivityLedgerEntries(
   });
 }
 
+function cardItem(purchase: CardPurchase, options: Options): ActivityLedgerItem {
+  const amount = formatFiatAmount(BigInt(purchase.amountMinor), 2, purchase.currency, { regionId: options.regionId });
+  const status = ({ pending: "waiting-provider", declined: "failed", completed: "confirmed",
+    reversed: "reversed", refunded: "refunded" } as const)[purchase.status];
+  const statusLabel = purchase.status === "declined" && purchase.declineReasonCode
+    ? `Declined · ${purchase.declineReasonCode.replaceAll("_", " ")}`
+    : purchase.status[0]!.toUpperCase() + purchase.status.slice(1);
+  return {
+    family: "card", id: purchase.id, status, statusLabel, timestamp: purchase.createdAt, updatedAt: purchase.updatedAt,
+    dateLabel: formatPresentationDate(purchase.createdAt, { style: "activity-short", ...options }),
+    fullDateLabel: formatPresentationDate(purchase.createdAt, { style: "activity-full", ...options }),
+    title: purchase.merchantName, amount: `−${amount}`, detailAmount: `−${amount}`, direction: "out",
+    mark: { kind: "glyph", glyph: "card" }, activateLabel: `View ${purchase.merchantName} card purchase details`,
+    detail: { family: "card", merchant: purchase.merchantName, cardLabel: "Card" },
+  };
+}
+
 export function presentActivityLedgerItems(items: readonly ActivityFeedItem[], options: Options): ActivityLedgerItem[] {
   return items.map((item) => item.kind === "transfer"
     ? transferItem(item.transfer, options)
+    : item.kind === "card" ? cardItem(item.purchase, options)
     : item.kind === "order" ? orderItem(item.order, item.withdraw, item.reviewed, options)
     : item.operation.action.kind === "cash-out" &&
       !(item.operation.action.metadata?.product === "cashout" && item.operation.action.metadata.operation === "withdraw")

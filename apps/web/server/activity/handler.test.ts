@@ -66,6 +66,17 @@ function expectPrivate(response: Response) {
 }
 
 describe("activity route handler", () => {
+  test("adds card purchases only to first page and marks card read failures unavailable without losing onchain history", async () => {
+    let calls = 0;
+    const handler = createActivityHandler({ authorize: async () => sessionResponse(), readActivity: async () => page(),
+      readCards: async () => { calls += 1; throw new Error("provider unavailable"); }, now: () => new Date(TO) });
+    const first = await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`));
+    expect(first.status).toBe(200);
+    expect((await first.json()).cards).toEqual({ status: "unavailable", rows: [] });
+    const next = await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}&cursor=older`));
+    expect((await next.json()).cards).toBeUndefined();
+    expect(calls).toBe(1);
+  });
   test("derives wallet scope only from the verified session and forwards the stable window", async () => {
     let received: unknown;
     let storeCalls = 0;

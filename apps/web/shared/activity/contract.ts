@@ -18,6 +18,7 @@ import {
   parseActivityTransferValuation,
 } from "@/shared/activity/valuation";
 import type { FiatCurrencyCode } from "@/config/regions";
+import { parseCardPurchases } from "@/shared/cards/transactions-contract";
 
 export const ACTIVITY_CONTRACT_VERSION = 1;
 export type ActivityResponse = ActivityPage & {
@@ -110,6 +111,7 @@ export function parseActivityPage(
     window: { from, to },
     currency: expectedCurrency,
     transfers,
+    ...(value.cards === undefined ? {} : { cards: parseCardPurchases(value.cards) }),
     nextCursor: value.nextCursor,
     source: parseSource(value.source),
   };

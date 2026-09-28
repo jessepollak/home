@@ -90,7 +90,7 @@ function stripeObservation(data: Record<string, unknown>, mode: BridgeConfig["mo
   if (!isCardholder && !card) return null;
   return {
     provider: "bridge", mode, eventId: `stripe:${data.id}`, kind,
-    externalIds: { cardholder: id(cardholder) ? cardholder : null, card, transaction: isTransaction ? resource.id as string : null, customer: null },
+    externalIds: { cardholder: id(cardholder) ? cardholder : null, card, transaction: isTransaction || isAuthorization ? resource.id as string : null, customer: null },
     occurredAt: new Date((data.created as number) * 1000).toISOString(),
   };
 }
