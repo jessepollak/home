@@ -6,7 +6,7 @@ on:
   pull_request:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -68,15 +68,6 @@ jobs:
           set -o pipefail
           node scripts/gates/failure-cases.mjs 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
 
-      - name: Caught-by PR body
-        if: github.event_name == 'pull_request'
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title || '' }}
-          PR_BODY: ${{ github.event.pull_request.body || '' }}
-        shell: bash
-        run: |
-          set -o pipefail
-          node scripts/gates/caught-by-pr-body.mjs 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Check
         run: bun check

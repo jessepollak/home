@@ -28,7 +28,7 @@ The full check suite also covers:
 - the **Code Connect templates** step in the `bun check` job (`bun run --cwd apps/web figma:connect:parse`), which parses every `*.figma.ts` template offline
 
 On pushes to `main`, the `publish Code Connect` and `sync Figma variables` jobs publish templates and tokens to Figma. They run only when the `FIGMA_ACCESS_TOKEN` secret is set and otherwise skip without failing ([Figma workflow](design-explorations/figma-workflow.md#source-of-truth)).
-CI cancels in-progress runs only for pull requests; pushes to `main` do not cancel an earlier run, so each push gets its own verdict.
+CI cancels in-progress runs only for pull requests. Each push to `main` runs in its own concurrency group keyed by commit, so no push cancels or replaces another and each gets its own verdict.
 
 ## Unit-test runtime
 
@@ -96,7 +96,7 @@ The blocking **story tests** job runs production component and journey stories i
 ## Fix-commit provenance
 
 The repository gate checks commits after the pull request branch's merge-base with `main`; outside a pull request it checks `HEAD`. Every scoped `fix(...)` subject must name exactly one detector in its commit body with one of these trailers: `Caught-by: lint`, `Caught-by: bot`, `Caught-by: review`, `Caught-by: browser`, or `Caught-by: production`. Identical trailers count once, because a squash merge concatenates every inner commit's body and a multi-commit fix PR repeats the same detector once per commit; two different detectors in one body still fail, as does none. Earlier commits on `main` are grandfathered.
-GitHub squash merges use the PR title as the commit subject and the PR body as the commit message. Therefore every scoped `fix(...)` PR must put its `Caught-by: <lint|bot|review|browser|production>` line in the visible PR body, even when the branch commits already have trailers; a branch-only trailer does not reach the squash commit on `main`. Identical lines count once, but multiple distinct detectors fail the PR-body gate.
+GitHub squash merges use the PR title as the commit subject and the PR body as the commit message. Therefore every scoped `fix(...)` PR must put its `Caught-by: <lint|bot|review|browser|production>` line in the visible PR body, even when the branch commits already have trailers; a branch-only trailer does not reach the squash commit on `main`. Identical lines count once, but multiple distinct detectors fail the PR-body gate. The **Caught-by PR body** check runs in the separate **PR metadata** workflow, which also runs when the title or body is edited, so the verdict always matches the text that will be squashed.
 
 ## Caught-by report
 
