@@ -21,6 +21,13 @@ export type CardCommands = {
   revealKey: (cardId: string, nonce: string) => Promise<CardEphemeralKeyResponse>;
 };
 
+export class CardRefreshError extends Error {
+  override name = "CardRefreshError";
+  constructor(options?: ErrorOptions) {
+    super("Card state could not be re-read after a write", options);
+  }
+}
+
 export function useCards({ ownerKey, fetchAccountResource }: {
   ownerKey: string | null;
   fetchAccountResource: FetchAccountResource;
@@ -42,6 +49,20 @@ export function useCards({ ownerKey, fetchAccountResource }: {
   });
 
   const refresh = useCallback(() => queryClient.invalidateQueries({ queryKey, exact: true }), [queryClient, queryKey]);
+  const confirmedWrite = useCallback(async (write: () => Promise<void>) => {
+    const reread = () => queryClient.refetchQueries({ queryKey, exact: true }, { throwOnError: true });
+    try {
+      await write();
+    } catch (error) {
+      await reread().catch(() => undefined);
+      throw error;
+    }
+    try {
+      await reread();
+    } catch (error) {
+      throw new CardRefreshError({ cause: error });
+    }
+  }, [queryClient, queryKey]);
 
   const commands = useMemo((): CardCommands => ({
     enroll: async () => {
@@ -49,24 +70,16 @@ export function useCards({ ownerKey, fetchAccountResource }: {
       if (!response) throw new Error("Invalid enrollment response");
       return response.kycUrl;
     },
-    issue: async () => {
-      try {
-        const response = parseCardWriteResponse(await fetchAccountResource("/api/cards", { method: "POST", body: {} }));
-        if (!response) throw new Error("Invalid card response");
-      } finally {
-        await refresh();
-      }
-    },
-    setFrozen: async (cardId, frozen) => {
-      try {
-        const response = parseCardWriteResponse(await fetchAccountResource(
-          `/api/cards/${encodeURIComponent(cardId)}/${frozen ? "freeze" : "unfreeze"}`, { method: "POST", body: {} },
-        ));
-        if (!response || response.card.id !== cardId) throw new Error("Invalid card response");
-      } finally {
-        await refresh();
-      }
-    },
+    issue: () => confirmedWrite(async () => {
+      const response = parseCardWriteResponse(await fetchAccountResource("/api/cards", { method: "POST", body: {} }));
+      if (!response) throw new Error("Invalid card response");
+    }),
+    setFrozen: (cardId, frozen) => confirmedWrite(async () => {
+      const response = parseCardWriteResponse(await fetchAccountResource(
+        `/api/cards/${encodeURIComponent(cardId)}/${frozen ? "freeze" : "unfreeze"}`, { method: "POST", body: {} },
+      ));
+      if (!response || response.card.id !== cardId) throw new Error("Invalid card response");
+    }),
     revealKey: async (cardId, nonce) => {
       const response = parseCardEphemeralKeyResponse(await fetchAccountResource(
         `/api/cards/${encodeURIComponent(cardId)}/ephemeral-key`, { method: "POST", body: { nonce } },
@@ -74,7 +87,7 @@ export function useCards({ ownerKey, fetchAccountResource }: {
       if (!response || response.cardId !== cardId) throw new Error("Invalid card key response");
       return response;
     },
-  }), [fetchAccountResource, refresh]);
+  }), [confirmedWrite, fetchAccountResource]);
 
   return { query, refresh, commands };
 }

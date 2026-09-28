@@ -2,13 +2,16 @@ import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, jest, test } from "bun:test";
 import type { CardState } from "@/shared/cards/contract";
+import { getHomeQueryClient } from "@/client/query/query-client";
 import { cardsBody } from "@/tests/browser/fixtures/bodies";
 
 const { cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
-const { CardScreen } = await import("./card-experience");
+const { CardScreen, cardScreenData } = await import("./card-experience");
 const { stripePublishableKey } = await import("./card-reveal");
+const { CardRefreshError, useCards } = await import("./use-cards");
+const { Toaster, toast } = await import("@/components/ui/toast");
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); toast.close(); getHomeQueryClient().clear(); });
 
 function renderScreen(state: CardState | "loading" | "failed", overrides: Partial<Parameters<typeof CardScreen>[0]> = {}) {
   const commands = {
@@ -129,6 +132,86 @@ describe("CardScreen", () => {
     cleanup();
     const withKey = renderScreen("active", { reveal });
     expect(withKey.view.getByRole("button", { name: "Card details" })).toBeTruthy();
+  });
+});
+
+describe("CardScreen review states", () => {
+  const quietCommands = () => ({ enroll: jest.fn(), issue: jest.fn(), setFrozen: jest.fn(async () => {}) });
+
+  test("not enrolled does not promise spending from Cash", () => {
+    const { view } = renderScreen("not-enrolled");
+    expect(view.getByText("Spend online anywhere cards work")).toBeTruthy();
+    expect(view.getByText("Lock it anytime")).toBeTruthy();
+    expect(view.queryByText("Spend straight from your Cash")).toBeNull();
+  });
+
+  test("a restricted customer without a card sees an on-hold notice with no action", () => {
+    const view = render(<CardScreen cards={{ status: "ready", response: { ...cardsBody("restricted"), cards: [] } }}
+      commands={quietCommands()} onRetry={() => {}} onOpenVerification={() => {}} reveal={reveal} />);
+    expect(view.getByText("Your card is on hold")).toBeTruthy();
+    expect(view.getByText("You can't create a card right now.")).toBeTruthy();
+    expect(view.queryByText("Card is unavailable right now")).toBeNull();
+    expect(view.queryByRole("button")).toBeNull();
+  });
+
+  test("every live card renders newest first with its own lock control", async () => {
+    const response = { ...cardsBody("frozen"), cards: [
+      { id: "ic_old1111", status: "frozen" as const, last4: "1111" },
+      { id: "ic_gone0000", status: "canceled" as const, last4: "0000" },
+      { id: "ic_new2222", status: "active" as const, last4: "2222" },
+    ] };
+    const commands = quietCommands();
+    const view = render(<CardScreen cards={{ status: "ready", response }} commands={commands} onRetry={() => {}} onOpenVerification={() => {}} reveal={reveal} />);
+    expect(view.getAllByRole("img").map((item) => item.getAttribute("aria-label"))).toEqual([
+      "Virtual card ending 2222", "Virtual card ending 1111, locked",
+    ]);
+    expect(view.getByRole("button", { name: "Card details ending 2222" })).toBeTruthy();
+    expect(view.getByRole("button", { name: "Card details ending 1111" })).toBeTruthy();
+    fireEvent.click(view.getByRole("switch", { name: "Lock card ending 1111" }));
+    await waitFor(() => expect(commands.setFrozen).toHaveBeenCalledWith("ic_old1111", false));
+    await waitFor(() => expect(view.getByRole("switch", { name: "Lock card ending 2222" }).hasAttribute("disabled")).toBe(false));
+    fireEvent.click(view.getByRole("switch", { name: "Lock card ending 2222" }));
+    await waitFor(() => expect(commands.setFrozen).toHaveBeenCalledWith("ic_new2222", true));
+  });
+
+  test("a failed re-read after a lock shows an error, not a success toast", async () => {
+    const commands = { ...quietCommands(), setFrozen: jest.fn(async () => { throw new CardRefreshError(); }) };
+    const view = render(<><CardScreen cards={{ status: "ready", response: cardsBody("active") }} commands={commands}
+      onRetry={() => {}} onOpenVerification={() => {}} /><Toaster /></>);
+    fireEvent.click(view.getByRole("switch", { name: "Lock card" }));
+    expect((await view.findAllByText("Couldn't refresh your card. Try again.")).length).toBeGreaterThan(0);
+    expect(view.queryByText("Card locked")).toBeNull();
+  });
+
+  test("the latest failed read wins over earlier card data", () => {
+    expect(cardScreenData({ data: cardsBody("active"), isError: true })).toEqual({ status: "failed" });
+    expect(cardScreenData({ data: undefined, isError: false })).toEqual({ status: "loading" });
+  });
+
+  test("freeze followed by a failed card read renders unavailable with retry", async () => {
+    let readFails = false;
+    const fetchAccountResource = jest.fn(async (path: string, options?: { method?: string }) => {
+      if (options?.method === "POST") {
+        readFails = true;
+        return { version: 1, card: { id: "ic_fixture4821", status: "frozen" } };
+      }
+      if (readFails) throw new Error("cards read failed");
+      return cardsBody("active");
+    });
+    function Harness() {
+      const { query, refresh, commands } = useCards({ ownerKey: "owner-1", fetchAccountResource });
+      return <><CardScreen cards={cardScreenData(query)} commands={commands} onRetry={() => void refresh()} onOpenVerification={() => {}} /><Toaster /></>;
+    }
+    const view = render(<Harness />);
+    fireEvent.click(await view.findByRole("switch", { name: "Lock card" }));
+    expect(await view.findByText("Card is unavailable right now")).toBeTruthy();
+    expect((await view.findAllByText("Couldn't refresh your card. Try again.")).length).toBeGreaterThan(0);
+    expect(view.queryByText("Card locked")).toBeNull();
+    expect(view.queryByRole("switch")).toBeNull();
+    readFails = false;
+    fetchAccountResource.mockImplementation(async () => cardsBody("frozen"));
+    fireEvent.click(view.getByRole("button", { name: "Try again" }));
+    expect(await view.findByRole("img", { name: "Virtual card ending 4821, locked" })).toBeTruthy();
   });
 });
 

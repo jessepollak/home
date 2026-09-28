@@ -1,11 +1,11 @@
 import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, jest, test } from "bun:test";
-import { getHomeQueryClient } from "@/client/query/query-client";
+import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import { cardsBody } from "@/tests/browser/fixtures/bodies";
 
 const { cleanup, renderHook, waitFor } = await import("@testing-library/react");
-const { useCards } = await import("./use-cards");
+const { CardRefreshError, useCards } = await import("./use-cards");
 
 afterEach(() => { cleanup(); getHomeQueryClient().clear(); });
 
@@ -43,6 +43,29 @@ describe("useCards", () => {
       { path: "/api/cards/ic_fixture4821/unfreeze", method: "POST", body: {} },
     ]);
     expect(calls.filter((call) => call.path === "/api/cards").length).toBeGreaterThanOrEqual(3);
+  });
+
+  test("a successful freeze whose card re-read fails rejects and leaves the query in error", async () => {
+    let readFails = false;
+    const { hook } = setup((path, options) => {
+      if (options?.method === "POST") { readFails = true; return { version: 1, card: { id: "ic_fixture4821", status: "frozen" } }; }
+      if (readFails) throw new Error("cards read failed");
+      return cardsBody("active");
+    });
+    await waitFor(() => expect(hook.result.current.query.data).toBeDefined());
+    await expect(hook.result.current.commands.setFrozen("ic_fixture4821", true)).rejects.toBeInstanceOf(CardRefreshError);
+    expect(getHomeQueryClient().getQueryState(ownerQueryKey("owner-1", "cards"))?.status).toBe("error");
+  });
+
+  test("a failed write keeps its own error even when the re-read also fails", async () => {
+    let reads = 0;
+    const { hook } = setup((path, options) => {
+      if (options?.method === "POST") throw new Error("freeze failed");
+      if (reads++ > 0) throw new Error("cards read failed");
+      return cardsBody("active");
+    });
+    await waitFor(() => expect(hook.result.current.query.data).toBeDefined());
+    await expect(hook.result.current.commands.setFrozen("ic_fixture4821", true)).rejects.toThrow("freeze failed");
   });
 
   test("a write response for another card is rejected", async () => {

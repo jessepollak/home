@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
-import { Banknote, CircleAlert, CreditCard, Eye, Lock } from "lucide-react";
+import { CircleAlert, CreditCard, Eye, Lock } from "lucide-react";
 import { useAccountWallet } from "@/client/account/cdp-client";
 import { HomeSectionHeading } from "@/client/home/home-overview";
 import { ShimmerRows } from "@/client/home/panel-shared";
@@ -20,7 +20,7 @@ import { StatusStep, StatusSteps, type StepStatus } from "@/components/ui/status
 import { Switch } from "@/components/ui/switch";
 import type { CardsResponse } from "@/shared/cards/contract";
 import { CardDetailsReveal, stripePublishableKey } from "./card-reveal";
-import { useCards, type CardCommands } from "./use-cards";
+import { CardRefreshError, useCards, type CardCommands } from "./use-cards";
 
 type IssuedCard = CardsResponse["cards"][number];
 type Pending = "enroll" | "issue" | "lock" | null;
@@ -45,13 +45,18 @@ function CardArt({ last4, locked }: { last4: string; locked: boolean }) {
     <div
       role="img"
       aria-label={`Virtual card ending ${last4}${locked ? ", locked" : ""}`}
-      className={`flex h-44 w-70 max-w-full shrink-0 flex-col justify-between rounded-lg border p-4 ${
+      className={`relative flex h-44 w-70 max-w-full shrink-0 flex-col justify-between rounded-lg border p-4 ${
         locked ? "border-border bg-muted text-foreground/75" : "border-foreground bg-foreground text-background"}`}
     >
       <div className="flex items-start justify-between gap-2">
-        {locked ? <Badge variant="secondary"><Lock aria-hidden="true" />Locked</Badge> : <span className="size-3 rounded-sm bg-primary" />}
-        <span className="text-xs">Virtual</span>
+        {locked ? null : <span className="size-3 rounded-sm bg-primary" />}
+        <span className="ml-auto text-xs">Virtual</span>
       </div>
+      {locked ? (
+        <Badge variant="secondary" className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
+          <Lock aria-hidden="true" />Locked
+        </Badge>
+      ) : null}
       <span className="font-mono text-sm">•••• {last4}</span>
     </div>
   );
@@ -105,10 +110,11 @@ function CardNotice({ title, action }: { title: string; action?: { label: string
   );
 }
 
-function LockRow({ card, restricted, pending, onChange }: {
+function LockRow({ card, restricted, pending, switchLabel, onChange }: {
   card: IssuedCard;
   restricted: boolean;
   pending: boolean;
+  switchLabel: string;
   onChange: (locked: boolean) => void;
 }) {
   const locked = card.status !== "active";
@@ -124,7 +130,7 @@ function LockRow({ card, restricted, pending, onChange }: {
       </ItemContent>
       <ItemActions>
         <Switch
-          aria-label="Lock card"
+          aria-label={switchLabel}
           checked={locked}
           disabled={pending || unlockBlocked}
           onCheckedChange={onChange}
@@ -134,9 +140,21 @@ function LockRow({ card, restricted, pending, onChange }: {
   );
 }
 
-function IssuedCardOverview({ card, restricted, pending, onLock, reveal }: {
+function HoldAlert({ description }: { description: string }) {
+  return (
+    <Alert>
+      <AlertIcon><CircleAlert /></AlertIcon>
+      <AlertTitle>Your card is on hold</AlertTitle>
+      <AlertDescription>{description}</AlertDescription>
+    </Alert>
+  );
+}
+
+function IssuedCardOverview({ card, restricted, showHold, single, pending, onLock, reveal }: {
   card: IssuedCard;
   restricted: boolean;
+  showHold: boolean;
+  single: boolean;
   pending: boolean;
   onLock: (locked: boolean) => void;
   reveal?: CardReveal;
@@ -145,6 +163,8 @@ function IssuedCardOverview({ card, restricted, pending, onLock, reveal }: {
   const [revealed, setRevealed] = useState(false);
   const locked = card.status !== "active";
   const titleId = useId();
+  const headingId = useId();
+  const suffix = single ? "" : ` ending ${card.last4}`;
   const canReveal = reveal !== undefined && !restricted && (card.status === "active" || card.status === "frozen");
   return (
     <>
@@ -153,30 +173,25 @@ function IssuedCardOverview({ card, restricted, pending, onLock, reveal }: {
           <div className="flex justify-center"><CardArt last4={card.last4} locked={locked} /></div>
         </CardContent>
       </Card>
-      {restricted ? (
-        <Alert>
-          <AlertIcon><CircleAlert /></AlertIcon>
-          <AlertTitle>Your card is on hold</AlertTitle>
-          <AlertDescription>New purchases are declined.</AlertDescription>
-        </Alert>
-      ) : null}
+      {showHold ? <HoldAlert description="New purchases are declined." /> : null}
       {canReveal ? (
-        <Button size="touch" variant="outline" className="w-full" onClick={() => { setRevealed(true); setDetailsOpen(true); }}>
+        <Button size="touch" variant="outline" className="w-full" aria-label={single ? undefined : `Card details${suffix}`}
+          onClick={() => { setRevealed(true); setDetailsOpen(true); }}>
           <Eye data-icon="inline-start" aria-hidden="true" />Card details
         </Button>
       ) : null}
-      <section aria-labelledby="your-card-title">
+      <section aria-labelledby={headingId}>
         <Card className="gap-3">
-          <CardHeader><HomeSectionHeading id="your-card-title">Your card</HomeSectionHeading></CardHeader>
+          <CardHeader><HomeSectionHeading id={headingId}>{single ? "Your card" : `Card${suffix}`}</HomeSectionHeading></CardHeader>
           <CardContent inset="list">
-            <LockRow card={card} restricted={restricted} pending={pending} onChange={onLock} />
+            <LockRow card={card} restricted={restricted} pending={pending} switchLabel={`Lock card${suffix}`} onChange={onLock} />
           </CardContent>
         </Card>
       </section>
       {reveal && canReveal ? (
         <MoneyModal open={detailsOpen} labelledBy={titleId} onCancel={() => setDetailsOpen(false)} onClose={() => setRevealed(false)}>
           <MoneyModalStep step="details">
-            <MoneyModalHeader title="Card details" titleId={titleId} closeLabel="Close card details" />
+            <MoneyModalHeader title={`Card details${suffix}`} titleId={titleId} closeLabel="Close card details" />
             <MoneyModalBody className="gap-3 pt-4">
               {revealed ? <CardDetailsReveal cardId={card.id} publishableKey={reveal.publishableKey} revealKey={reveal.revealKey} /> : null}
             </MoneyModalBody>
@@ -197,7 +212,7 @@ export function CardScreen({ cards, commands, onRetry, onOpenVerification, revea
     try {
       await work();
     } catch (error) {
-      add({ message: failure, tone: "error", role: "alert" });
+      add({ message: error instanceof CardRefreshError ? "Couldn't refresh your card. Try again." : failure, tone: "error", role: "alert" });
       void reportClientError({
         name: error instanceof Error ? error.name : "Error",
         message: `Card ${kind} failed`,
@@ -223,7 +238,9 @@ export function CardScreen({ cards, commands, onRetry, onOpenVerification, revea
     return <LoadErrorCard title="Card is unavailable right now" onRetry={onRetry} />;
   }
   const { state } = cards.response;
-  const card = cards.response.cards.find((item) => item.status !== "canceled") ?? null;
+  const issued = state === "active" || state === "frozen" || state === "restricted";
+  const live = cards.response.cards.filter((item) => item.status !== "canceled").reverse();
+  const single = live.length === 1;
   return (
     <div className="space-y-4">
       {state === "not-enrolled" ? (
@@ -233,7 +250,6 @@ export function CardScreen({ cards, commands, onRetry, onOpenVerification, revea
           benefits={[
             { icon: CreditCard, text: "Spend online anywhere cards work" },
             { icon: Lock, text: "Lock it anytime" },
-            { icon: Banknote, text: "Spend straight from your Cash" },
           ]}
           primary={{ label: "Get your card", pending: pending === "enroll", disabled: pending !== null, onClick: enroll }}
         />
@@ -253,10 +269,15 @@ export function CardScreen({ cards, commands, onRetry, onOpenVerification, revea
           label: "Get a new card", pending: pending === "issue", onClick: () => issue("Couldn't create a new card. Try again."),
         }} />
       ) : null}
-      {(state === "active" || state === "frozen" || state === "restricted") && card ? (
+      {state === "restricted" && !live.length ? <HoldAlert description="You can't create a card right now." /> : null}
+      {state === "restricted" && live.length > 1 ? <HoldAlert description="New purchases are declined." /> : null}
+      {issued ? live.map((card) => (
         <IssuedCardOverview
+          key={card.id}
           card={card}
           restricted={state === "restricted"}
+          showHold={state === "restricted" && single}
+          single={single}
           pending={pending === "lock"}
           reveal={reveal}
           onLock={(locked) => void run("lock", async () => {
@@ -264,12 +285,17 @@ export function CardScreen({ cards, commands, onRetry, onOpenVerification, revea
             add({ message: locked ? "Card locked" : "Card unlocked", tone: "success" });
           }, locked ? "Couldn't lock your card. Try again." : "Couldn't unlock your card. Try again.")}
         />
-      ) : null}
-      {(state === "active" || state === "frozen" || state === "restricted") && !card ? (
+      )) : null}
+      {(state === "active" || state === "frozen") && !live.length ? (
         <LoadErrorCard title="Card is unavailable right now" onRetry={onRetry} />
       ) : null}
     </div>
   );
+}
+
+export function cardScreenData(query: { data?: CardsResponse; isError: boolean }): CardScreenData {
+  if (query.isError) return { status: "failed" };
+  return query.data ? { status: "ready", response: query.data } : { status: "loading" };
 }
 
 export function AuthenticatedCardExperience() {
@@ -278,9 +304,7 @@ export function AuthenticatedCardExperience() {
   const ownerKey = verified ? account.ownerKey : null;
   const { query, refresh, commands } = useCards({ ownerKey, fetchAccountResource: account.fetchAccountResource });
   const publishableKey = stripePublishableKey();
-  const cards: CardScreenData = query.data
-    ? { status: "ready", response: query.data }
-    : query.isError ? { status: "failed" } : { status: "loading" };
+  const cards = cardScreenData(query);
   return (
     <CardScreen
       cards={cards}
