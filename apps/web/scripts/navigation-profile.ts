@@ -261,7 +261,7 @@ async function runSession(browser: Awaited<ReturnType<typeof webkit.launch>>, ba
     await installApiFixtures(page);
     await inlineFixtureMark(page);
     const fixture = await installFeed(page, rows);
-    await page.route("**/api/client-performance", async (route) => {
+    await page.route("**/api/client-performance**", async (route) => {
       try {
         const report = parseNavigationReport(route.request().postDataJSON());
         if (report) reports.push(report);
