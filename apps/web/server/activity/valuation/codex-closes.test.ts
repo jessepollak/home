@@ -226,9 +226,11 @@ describe("Codex historical close reader", () => {
     });
     const early = resultFor(reader, TOKEN_A, epoch("2026-09-07T11:14:40.000Z"));
     const sameBar = resultFor(reader, TOKEN_A, epoch("2026-09-07T11:14:40.000Z"));
+    await Promise.resolve();
     expect(releases).toHaveLength(1);
     nowMs = Date.parse("2026-09-07T11:15:20.000Z");
     const late = resultFor(reader, TOKEN_A, epoch("2026-09-07T11:15:10.000Z"));
+    await Promise.resolve();
     expect(releases).toHaveLength(2);
     releases.forEach((release) => release());
     expect(await early).toMatchObject({ close: { closedAt: "2026-09-07T11:00:00.000Z" } });

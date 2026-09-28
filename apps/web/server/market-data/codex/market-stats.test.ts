@@ -129,6 +129,7 @@ describe("Codex market stats reader", () => {
     });
     const first = reader("cbbtc");
     const coalesced = reader("cbbtc");
+    await Promise.resolve();
     expect(calls).toBe(1);
     release(payload([result()]));
     expect(await first).toEqual(await coalesced);

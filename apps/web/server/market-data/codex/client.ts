@@ -11,7 +11,6 @@ import type {
 } from "@/shared/invest/invest-market";
 import {
   CODEX_CACHE_TTL_MS,
-  CODEX_GRAPHQL_ENDPOINT,
   CODEX_MAX_BATCHES,
   CODEX_MAX_FUTURE_SKEW_MS,
   CODEX_MAX_TOKENS_PER_REQUEST,
@@ -20,7 +19,8 @@ import {
   CODEX_REQUEST_TIMEOUT_MS,
   CODEX_TOKEN_PRICES_QUERY,
 } from "./config";
-import { parseJsonWithNumberLexemes } from "./lossless-json";
+import { executeCodexGraphql } from "./execute";
+import { CodexMarketDataError } from "./errors";
 import { formatChangeLabel } from "./change-label";
 import {
   MARKET_PRICE_DISPLAY_FRESHNESS_MS,
@@ -63,12 +63,7 @@ type ScopedRecord = {
   requestedContracts: ReadonlySet<string>;
 };
 
-export class CodexMarketDataError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
-    super(message, options);
-    this.name = "CodexMarketDataError";
-  }
-}
+export { CodexMarketDataError };
 
 const codexPricedAssets = investAssets.filter((asset) => asset.category !== "stock");
 
@@ -206,7 +201,7 @@ async function fetchMarketPrices({
   };
 }
 
-async function executeCodexBatch({
+function executeCodexBatch({
   apiKey,
   inputs,
   fetchImpl,
@@ -217,49 +212,13 @@ async function executeCodexBatch({
   fetchImpl: FetchLike;
   timeoutMs: number;
 }): Promise<unknown> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const headers = new Headers({
-      accept: "application/json",
-      "content-type": "application/json",
-    });
-    headers.set(["Author", "ization"].join(""), apiKey);
-    const response = await fetchImpl(CODEX_GRAPHQL_ENDPOINT, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        query: CODEX_TOKEN_PRICES_QUERY,
-        variables: { inputs },
-      }),
-      cache: "no-store",
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      throw new CodexMarketDataError(
-        `Codex market data returned HTTP ${response.status}.`,
-      );
-    }
-
-    const parsed = parseJsonWithNumberLexemes(await response.text());
-    const envelope = readRecord(parsed);
-    if (Array.isArray(envelope?.errors) && envelope.errors.length > 0) {
-      throw new CodexMarketDataError("Codex market data returned an error.");
-    }
-    if (envelope?.data === null || envelope?.data === undefined) {
-      throw new CodexMarketDataError("Codex market data returned no data.");
-    }
-    return envelope.data;
-  } catch (error) {
-    if (error instanceof CodexMarketDataError) throw error;
-    const message = controller.signal.aborted
-      ? "Codex market data timed out."
-      : "Codex market data request failed.";
-    throw new CodexMarketDataError(message, { cause: error });
-  } finally {
-    clearTimeout(timeout);
-  }
+  return executeCodexGraphql({
+    apiKey,
+    fetchImpl,
+    timeoutMs,
+    query: CODEX_TOKEN_PRICES_QUERY,
+    variables: { inputs },
+  });
 }
 
 function readBatchRecords(data: unknown): unknown[] {
