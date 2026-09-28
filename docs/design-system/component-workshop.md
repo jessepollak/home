@@ -1,0 +1,90 @@
+# Component workshop
+
+Follow the [issue's design scope](../../.agents/skills/design-engineering/SKILL.md#follow-the-issue-scope); default to implementation within the current system. The production-component instructions below govern maintenance, journey validation and adoption. An explicitly scoped exploration may use local candidate presentation in a clearly labeled `Explorations/` story group, reusing financial fixtures and behavior where practical. Keep the proposal thin: compose owned `components/ui` variants and existing feature components, and drive candidate states with static fixtures and args rather than duplicate shells or flow logic. Story-only candidates stay in that group rather than joining the `UI/<Component>` owned inventory. It is not a second production UI system. Preserve production isolation, enforced repository rules and required checks; document the boundary and stop at the task's review checkpoint. Do not exhaustively harden every candidate before selection.
+
+Storybook is a credential-free development and review workshop for Home's production components. From the repository root, install and run it without `apps/web/.env.local`, provider keys, a wallet, or a database:
+
+```sh
+bun install --frozen-lockfile
+bun run --cwd apps/web storybook
+```
+
+The server listens on `127.0.0.1:6006`. Build the same workshop statically with:
+
+```sh
+bun run --cwd apps/web build-storybook
+```
+
+The generated `apps/web/storybook-static/` directory is ignored and must not be committed. A successful static build does not replace `bun check`; both remain required for a Storybook change.
+
+## Review boards
+
+**Default design loop:**
+
+1. Frame the change in its issue; build options and states as stories using production components (isolated story-only candidates for explicit explorations).
+2. Add or update a board manifest in `apps/web/stories/review/boards/`, or use **Changes in this PR** if it covers the proposal.
+3. Declare the stories to review in the PR's `## Preview` ([Storybook links](../ui-pr-previews.md#storybook-links)); CI keeps the top **Review board** link and each row's frame link on the current Storybook deployment. Jesse can pin Vercel Comments on the preview for context, but only his own GitHub comments and reviews start a factory follow-up run, so feedback the factory should act on goes in a GitHub comment on the PR, with the board frame URL pasted or linked.
+4. Record Jesse's selection and reviewed revision on the issue or PR; implement in the same components and verify in Home.
+
+The board is the default surface for design proposals, review, and selection, not approval by itself. Figma remains optional for references and early sketches; existing mappings, Code Connect, and Figma comment handling continue to work. The [issue scope](../../.agents/skills/design-engineering/SKILL.md#follow-the-issue-scope) and Jesse's approval authority still govern adoption.
+
+A review board is a Storybook story arranging live story canvases; it is not part of the production application. The automatic **Changes in this PR** board shows indexed stories this build changed (changed story files or stories matching changed source files, using the PR number when known), plus any stories a `focus` link declares. Curated manifests in `apps/web/stories/review/boards/` hold story IDs, viewports, sections and review metadata; register their stories in `review-boards.stories.tsx`. Missing stories (and empty sections) are hidden, and a missing before story is omitted without hiding its after frame. Build Storybook to check the current index. Storybook injects `STORYBOOK_REVIEW_REPO`, `STORYBOOK_REVIEW_PR`, `STORYBOOK_REVIEW_CHANGED_FILES`, and `STORYBOOK_REVIEW_ADDED_FILES` alongside revision/deployment/branch; unavailable change data sends the manager's Review board link to Savings and displays an unavailable-data message on Changes.
+
+The board URL keeps Storybook `id` and `viewMode` plus `frame` (selected frame), `side` (`after`, `before`, or `both`), `rev` (build revision), and `deployment` (build host). On the Changes board, `focus` (comma-separated story IDs) adds a leading **Review** section with those stories in order, even when the file heuristic did not match them, and the board opens on its first frame unless `frame` names another; the remaining changed stories follow. Without `focus`, stories whose own files changed come before those matched only through `components/ui/**`. Desktop opens on a fitted canvas with separate outline (`[`) and inspector (`]`) toggles. The outline lists frames with size and change pills; selecting a frame there also fits it. Scroll pans, Shift+scroll pans horizontally, ⌘/Ctrl+scroll or pinch zooms at the pointer, and Space+drag or middle-drag pans. Click selects and fits a frame; double-click, Enter, or Interact enters its live iframe; Esc exits interaction. `+`/`-` zoom, `0` resets, `1` fits the board, `2`/`F` fits the selected frame, and arrow keys pan. ⌘K (Ctrl+K elsewhere) opens the command palette, and `?` opens keyboard shortcuts. The header chip links to the PR when PR information is available and shows status when its status request succeeds. Mobile shows one live frame at a time with a grouped journey picker, Previous/Next actions, and a full-width interactive view. The runtime is design-lane code under `apps/web/stories/review/explorations/board/` and is imported only by review stories, never production bundles.
+
+Open the board on the PR's commit-specific Storybook preview deployment, whose URL is unique to one build; the branch preview alias moves with later pushes. Review comments can use the Vercel Comments toolbar on previews or GitHub with a pasted board frame URL. On load the board writes the build's `rev` and `deployment` into its URL, so a comment's page URL records the revision it was made on, and each frame is covered by an element carrying `data-review-frame` and `data-review-story` for comments to anchor to. Opening that URL on a newer build shows a banner linking back to the reviewed deployment. To recover a comment's context, run `bun run --cwd apps/web review:context '<board iframe URL>'` (`--json` for machine output). It prints the board, frame, story, viewport, notes, story source (after `build-storybook`), story and board links on the reviewed deployment, and whether the story or manifest changed between the reviewed revision and `HEAD`. Record dispositions on the GitHub issue or PR.
+
+On a desktop board opened on its own page (the toolbar's **Review board** link), comment pins and threads follow camera movement and are clipped to the canvas instead of covering the board controls and panels. Inside the Storybook manager the toolbar belongs to the outer page, so neither applies.
+
+## MCP workshop tools
+
+`apps/web/.storybook/main.ts` registers `@storybook/addon-a11y`, `@storybook/addon-vitest`, and `@storybook/addon-mcp`, and sets `features.componentsManifest: true` — the Storybook 10.6 feature key, kept explicit rather than inferred from the addon's preset — alongside the `features.experimentalComponentsManifest: true` alias that issue #660 names. While the workshop runs, the MCP server answers at `http://127.0.0.1:$STORYBOOK_PORT/mcp` and exposes `docs-list`, `docs-show`, `docs-show-story`, `stories-find-by-component`, `stories-preview`, and `test-run`. The repository-root `.mcp.json` registers that endpoint as `storybook` with the literal `${STORYBOOK_PORT}` placeholder, so export the port in an interactive shell before starting the workshop (`export STORYBOOK_PORT=6006`; the factory sets it per slot) and start Storybook before relying on the tools.
+
+Discover before composing: `docs-list` lists every component the manifest knows, which includes every owned `apps/web/components/ui` module (each has a minimal workshop story beside it) and the pilot and journey surfaces. `docs-show <id>` returns documented props and story usage, and `stories-find-by-component` maps any source file to the story IDs that render it. Do not restate component props from memory or invent a parallel component.
+
+## Figma link
+
+Storybook and the [Home Figma file](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home) share one mapping: [`apps/web/figma-components.json`](../../apps/web/figma-components.json) identifies the library, frames and unmapped nodes, while each mapped component has its own [`apps/web/figma/components/<Name>.json`](../../apps/web/figma/components/) file. `@storybook/addon-designs` shows the mapped Figma node in each listed story's Design panel. Code Connect template files (`*.figma.ts` under `client/explorations/code-connect/` and `components/explorations/code-connect/`) show the real component in Figma Dev Mode. `apps/web/scripts/figma-variables.mjs` pushes the `globals.css` tokens into the `Home tokens` variables. Run these from `apps/web`:
+
+```sh
+bun run figma:connect:parse          # offline template check (CI step)
+bun run figma:variables:dry-run      # print the token plan; writes nothing
+bun run figma:connect:publish        # needs FIGMA_ACCESS_TOKEN (code_connect:write)
+bun run figma:variables              # needs FIGMA_ACCESS_TOKEN (file_variables:read/write)
+```
+
+CI publishes both on pushes to `main` when the `FIGMA_ACCESS_TOKEN` secret is set. Source-of-truth rules and the scopes live in [Figma workflow](../design-explorations/figma-workflow.md#source-of-truth).
+
+## Journey stories
+
+Page-level flows live under `apps/web/stories/journeys/<flow>.stories.tsx`. A journey composes the real screen from production components, serves each existing external request with `msw-storybook-addon` handlers (`parameters.msw.handlers`), and walks the flow in a `play` function that asserts observable results, not implementation details. The reference journey is `journeys-savings-deposit--deposit`: it loads vault metadata over the production `/api/savings/vaults` fetch, selects a vault, prepares a deposit, and dispatches the exact prepared action.
+
+## Story tests
+
+`@storybook/addon-vitest` runs production component and journey stories in headless Chromium through the workshop's own Vite pipeline; exploration-tagged stories run separately as non-blocking CI review scenarios:
+
+```sh
+bun run --cwd apps/web test:stories
+bun run --cwd apps/web test:stories:explorations
+```
+
+The same story tests are available through the MCP `test-run` tool and the workshop's test widget. Every story file under `**/explorations/**` declares `tags: ["exploration"]` on its default meta; a lint rule enforces this boundary. A failing `play` function fails its run, but exploration failures do not block merge. Exploration `play` functions use a controlled clock, not wall-clock timers, and do not replace component or journey regression tests when a candidate is adopted. The a11y addon audits every selected story. `a11y.test` is `"todo"` (report, do not fail) globally because owned components carry pre-existing violations that need a product decision — the `ItemMedia variant="avatar"` initials contrast (4.34:1) and the money-modal asset-picker controls' missing accessible names. Minimal workshop stories that pass the audit set `a11y: { test: "error" }` so a new violation in those components fails the run. The Storybook manager and the test runner share a Vite dependency cache, so stop a running `storybook dev` before a full story-test run.
+
+Keep `*.stories.tsx` beside the production surface under `apps/web/components/**` or `apps/web/client/**`. A story imports the component Home uses rather than a separately styled copy, and composes the real card, list, shell, and provider constraints needed by that surface. Prefer the component's natural typed props and injected action functions; use provider fixtures or MSW only at an existing external-request boundary. The current MSW worker starts only through Storybook's global loader. Its file lives under `.storybook/static`, never `public`, and production modules may not import Storybook, stories, or MSW. Keep story-only fixtures inside a `*.stories.*` or `.storybook/**` path so the production-isolation gate can enforce that boundary.
+
+Fixtures use fixed balances, clock values, and presentation regions. Each story resets the shared query client and owns cleanup for mutable or deferred state. Unexpected requests fail visibly; only known Storybook/Vite assets are bypassed. Never let a story fall through to a Home, provider, database, wallet, or other live service. Use the 390 CSS-pixel viewport as the representative mobile review composition; narrower widths such as 320px are safety checks for viewport containment, not the product's definition of mobile.
+
+Every story meta has an explicit stable `id`; keep its meaningful export name stable once it is referenced. For story ID `<id>`, use these deployment-relative direct links:
+
+- manager: `/?path=/story/<id>`
+- canvas: `/iframe.html?id=<id>&viewMode=story`
+
+The pilot and exploration inventories live in [story inventories](stories/). Add a file there for each new story group.
+
+The approved Activity ledger component uses `activity-ledger--mixed-chronology`, `activity-ledger--detail-funding-needs-you`, and `journeys-activity-ledger--pending-to-detail-and-back` (full inventory in [Activity ledger design](../activity-ledger-design.md)).
+
+The adopted Borrow overview uses `borrowing-borrow-overview--multiple-loans`, `borrowing-borrow-overview--management-sheet-open`, and `journeys-borrow-overview--repay-review-cancel-back` (full inventory in [Borrow overview and management](../borrow-overview-design.md)).
+
+Every owned `apps/web/components/ui` module also has a minimal workshop story (`UI/<Component>`) so the MCP manifest exposes the owned inventory rather than only the pilot surfaces, plus the journey inventory `journeys-savings-deposit--deposit`. The unwired, unapproved Card proposal lives in the `Explorations/Card` group (`explorations-card--*`, [#636](https://github.com/jessepollak/home/issues/636)) until selection. The unwired, unapproved USDC ↔ cbBTC trade proposal lives in `Explorations/Invest Trade` (`explorations-invest-trade--*`, [#935](https://github.com/jessepollak/home/issues/935)); [#616](https://github.com/jessepollak/home/issues/616) owns its production adoption. The built `index.json` and the MCP `docs-list` output are the durable discoverability sources when this inventory grows. An intentional ID or export rename must update direct links and review evidence in the same change.
+
+Storybook can prove that a production component renders and supports fixture-backed component interactions under deterministic states and review viewports. Stories and play functions are review scenarios, not permanent browser tests or approval by themselves. Storybook cannot prove Home's Next routing/history, app-level scrolling or focus restoration, browser Back integration, wallet/provider behavior, physical keyboard behavior, or Safari behavior. Verify the integrated component in Home under the [browser-validation contract](../browser-validation.md), and record media and limitations under [UI PR previews](../ui-pr-previews.md).

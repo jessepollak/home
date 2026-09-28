@@ -347,10 +347,10 @@
       "Marks": ["CurrencyMarkSlot 12:59"],
       "Feedback / loading": ["ActivityLoader 91:932"],
       "Navigation": ["TabItem 12:94", "TabBar 12:95"],
-      "Added by #953 outside Home components (Primitives: AddressField under Finance components, FieldSeparator under Inputs and selection; see design-system.md#send-recipient-board-953)": ["AddressField 460:4469", "FieldSeparator 465:4432", "SendRecipientStatus 465:4497", "RecentRecipients 465:4498"]
+      "Added by #953 outside Home components (Primitives: AddressField under Finance components, FieldSeparator under Inputs and selection; see design-system/boards/send-recipient-953.md)": ["AddressField 460:4469", "FieldSeparator 465:4432", "SendRecipientStatus 465:4497", "RecentRecipients 465:4498"]
     },
     "publishChecklist": {
-      "expectInPublishDialog": "#841: FinanceRow 96:1147, CurrencyMarkSlot 12:59, ShimmerRow 274:6015, CopyableValue 282:5961, MoneyConfirmRow 166:1802, Card 269:5270 and new Home/Mono tight text style. #882 deletions of MoneyNumpad, MoneyNumpadKey and the legacy Card variant also require publication. Earlier unpublished changes may also appear; see design-system.md publish checklist.",
+      "expectInPublishDialog": "#841: FinanceRow 96:1147, CurrencyMarkSlot 12:59, ShimmerRow 274:6015, CopyableValue 282:5961, MoneyConfirmRow 166:1802, Card 269:5270 and new Home/Mono tight text style. #882 deletions of MoneyNumpad, MoneyNumpadKey and the legacy Card variant also require publication. Earlier unpublished changes may also appear; see design-system/publish-checklist.md.",
       "codeConnectAfterPublish": ["#684 owns Code Connect and publishes its templates for the nodes in apps/web/figma/components/<Name>.json; #841's 28 earlier writes are superseded by that publish. Do not replace existing mappings to address the read-back."]
     },
     "items": [
