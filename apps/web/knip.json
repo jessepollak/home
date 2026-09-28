@@ -63,6 +63,8 @@
     "server/funding/core/testing/**",
     "client/account/dom-test-harness.ts",
     "shared/balances/fixtures.ts",
+    // Deferred to #594: root layout will consume the brand resolver.
+    "server/operator-settings/brand.ts",
     // Deferred to #686: home and activity surfaces still carry exports that
     // only their own tests exercise; clean up once #686 lands.
     "client/home/**",

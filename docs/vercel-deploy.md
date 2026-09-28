@@ -32,6 +32,8 @@ Set server-only `HOME_OPERATOR_ADDRESSES` to comma-separated `0x` + 40-hex-chara
 
 On an authorized protected deployment, supply deployment access separately, then probe `curl -i https://<host>/api/admin/session`: without Home authentication expect 401, with a non-admin session expect 403, and with an administrator session expect 200 and the address. Check `Cache-Control` includes `private` and `no-store` for each; do not record access cookies, bearer tokens, or personal data. These are manual protected-deployment checks, not proof from local CI.
 
+Brand settings use the `brand` domain in `operator_settings`; administrator GET/PUT `/api/admin/settings/brand` requires `DATABASE_URL` and returns 503 without it, never an in-memory value. The production build applies the existing migration. Previews pointed at the production database see the same brand row, and preview writes change production; Neon preview branches have separate data. After an upstream update, use an authenticated administrator session to GET `/api/admin/settings/brand` and confirm a saved override still returns `source: "stored"` with the revision recorded before the update. Record only HTTP status, source, and revision; never record cookies, addresses, or tokens. Brand values are not yet applied to customer pages.
+
 ### Skew Protection
 
 For your Home Vercel project, enable **Project Settings → Advanced → Skew Protection** with a 12-hour max age.
