@@ -36,6 +36,7 @@
     // imported from production code.
     "server/db/migrate.ts!",
     "server/actions/kinds/trade/checkpoint-command.ts!",
+    "server/balances/history/reconcile-command.ts!",
     "server/operator-events/backfill-command.ts!",
     "server/customers/record-ids-backfill-command.ts!",
     "server/funding/core/user-token-rotation.ts!",
@@ -48,6 +49,7 @@
     "scripts/navigation-profile.ts!",
     "scripts/performance/budget.ts!",
     "scripts/performance/seeds-check.ts!",
+    "scripts/performance/cpu-check.ts!",
     "scripts/invest-catalog/refresh.ts!",
     // Figma variables sync, run by package scripts and the main-only CI job.
     "scripts/figma-variables.mjs!",

@@ -7,7 +7,7 @@ import { isSessionSettling, useAccountWallet } from "@/client/account/cdp-client
 import { presentBalances } from "@/shared/balances/present";
 import { selectOwnedInvestment } from "@/shared/balances/owned-investments";
 import type { AssetKey } from "@/shared/balances/types";
-import type { CountryCode } from "@/config/regions";
+import { ALL_REGIONS_OFFER, presentedRegionId, type CountryCode, type RegionOffer } from "@/config/regions";
 import { COUNTRY_PREFERENCE_VERSION, parseCountryPreferenceReadResponse, parseCountryPreferenceResponse, type CountryPreferenceRequest, type CountryPreferenceSeed } from "@/shared/account/contracts/country-preference";
 import { PricedInvestExperienceWithDiscover } from "@/client/invest/priced-invest-experience";
 import { InvestmentsExperience } from "@/client/investments/investments-experience";
@@ -27,8 +27,10 @@ export function PortfolioHomeExperience({
   initialLocation,
   initialSearch,
   accountPreference,
+  regionOffer = ALL_REGIONS_OFFER,
 }: {
   detectedCountry: CountryCode | null;
+  regionOffer?: RegionOffer;
   initialLocation: ShellLocation;
   initialSearch?: string;
   accountPreference: CountryPreferenceSeed | null;
@@ -122,6 +124,7 @@ export function PortfolioHomeExperience({
     accountReady: accountReady && preferenceReadSettled,
     accountSettling: isSessionSettling(account),
     writeAccountPreference,
+    offer: regionOffer,
   });
   const initialInvestView = useMemo(
     () => investViewFromLocation(initialLocation),
@@ -139,10 +142,10 @@ export function PortfolioHomeExperience({
   const deviceCountryReady = accountPreference === null && region.isPreferenceReady &&
     region.resolutionSource === "persisted";
   const regionMatchesPreference = fetchedPreference?.status !== "settled" || fetchedPreference.regionId === null ||
-    region.regionId === fetchedPreference.regionId || region.resolutionSource === "explicit";
+    region.regionId === presentedRegionId(fetchedPreference.regionId, regionOffer) || region.resolutionSource === "explicit";
   const regionReady = region.isPreferenceReady && regionMatchesPreference && !accountPreferencePending;
   const provisionalPreferenceReady = provisionalPreference && fetchedPreference?.status === "settled" &&
-    region.isPreferenceReady && (fetchedPreference.regionId === null || region.regionId === fetchedPreference.regionId);
+    region.isPreferenceReady && (fetchedPreference.regionId === null || region.regionId === presentedRegionId(fetchedPreference.regionId, regionOffer));
   const provisionalRegionReady = hasSeed ||
     (deviceCountryReady && fetchedPreference?.status !== "settled") || provisionalPreferenceReady;
   const suppressBalances = (account.verification === "server" && !regionReady) ||
@@ -152,9 +155,9 @@ export function PortfolioHomeExperience({
       (provisionalBalances && provisionalRegionReady),
     provisional: provisionalBalances,
     held: suppressBalances,
-    paintCachedWhileHeld: (hasSeed && seedPreference === region.regionId) ||
+    paintCachedWhileHeld: (hasSeed && seedPreference !== null && presentedRegionId(seedPreference, regionOffer) === region.regionId) ||
       (fetchedPreference?.status === "settled" && fetchedPreference.regionId !== null &&
-        fetchedPreference.regionId === region.regionId) || region.resolutionSource === "explicit",
+        presentedRegionId(fetchedPreference.regionId, regionOffer) === region.regionId) || region.resolutionSource === "explicit",
   });
   const interruptionStatus = useInterruption(
     balances.observation,

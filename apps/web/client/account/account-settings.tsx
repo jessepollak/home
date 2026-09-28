@@ -26,6 +26,7 @@ import { useBasenameProfile } from "@/client/account/use-basename-profile";
 import type { AppearancePreference } from "@/shared/appearance/preference";
 import {
   presentationRegions,
+  type CountryCode,
   type RegionId,
   type ResolutionSource,
 } from "@/config/regions";
@@ -95,6 +96,7 @@ function InviteLinkControl({ url }: { url: string }) {
 export function AccountSettings({
   regionId,
   onRegionChange,
+  offeredCountries,
   resolutionSource,
   preferenceMessage,
   isPreferenceReady,
@@ -109,6 +111,7 @@ export function AccountSettings({
 }: {
   regionId: RegionId;
   onRegionChange: (regionId: RegionId) => void;
+  offeredCountries?: readonly CountryCode[];
   resolutionSource: ResolutionSource;
   preferenceMessage: string;
   isPreferenceReady: boolean;
@@ -159,6 +162,7 @@ export function AccountSettings({
                 <CountrySelect
                   value={regionId}
                   onValueChange={onRegionChange}
+                  offered={offeredCountries}
                   describedBy="country-help preference-status"
                   variant="settings"
                 />

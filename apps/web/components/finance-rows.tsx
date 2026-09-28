@@ -180,7 +180,8 @@ function FinanceRow({
         {labelSuffix !== undefined ? <span aria-hidden="true" className="order-3 h-0 basis-full" /> : null}
         {hasValue ? labelSuffix === undefined ? (
           <ItemContent
-            className={cn("max-w-2/3 min-w-0 !flex-none items-end gap-0.5 overflow-hidden text-end @max-[14rem]/finance-row:max-w-full", contextLines === 2 && "ms-auto max-w-full", (value === undefined || valueContext === undefined) && "self-center", "@max-[14rem]/finance-row:self-end")}
+            position="value"
+            className={cn("max-w-2/3 min-w-0 items-end gap-0.5 overflow-hidden text-end @max-[14rem]/finance-row:max-w-full", contextLines === 2 && "ms-auto max-w-full", (value === undefined || valueContext === undefined) && "self-center", "@max-[14rem]/finance-row:self-end")}
             data-slot="finance-row-value"
           >
             {valuePieces}

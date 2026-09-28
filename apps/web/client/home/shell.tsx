@@ -91,6 +91,7 @@ import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 
 const AccountSignInSheet = deferSheet(() => import("@/client/account/account-screen").then((module) => module.AccountSignInSheet));
+const EmailShareSheet = deferSheet(() => import("@/client/account/email-share-sheet").then((module) => module.EmailShareSheet));
 
 function CashPanelContent({ render, view, onOpenSavings }: {
   render: NonNullable<HomeExperienceProps["cashContent"]>;
@@ -196,6 +197,7 @@ function DashboardShellBody({
     isPreferenceReady,
     preferenceMessage,
     selectRegion,
+    offeredCountries,
   } = region;
   const [activeNavigation, setActiveNavigation] = useState<ShellPanelId>(initialPanel);
   const [navigationRequest, setNavigationRequest] = useState(0);
@@ -1072,6 +1074,7 @@ function DashboardShellBody({
               <AccountSettings
                 regionId={regionId}
                 onRegionChange={selectRegion}
+                offeredCountries={offeredCountries}
                 resolutionSource={resolutionSource}
                 preferenceMessage={preferenceMessage}
                 isPreferenceReady={isPreferenceReady}
@@ -1194,6 +1197,13 @@ function DashboardShellBody({
       ) : null}
       {isVerified ? (
         <ActionToasts session={account.session} fetchOperations={account.fetchOperations} />
+      ) : null}
+      {account.emailRequest ? (
+        <EmailShareSheet
+          open={account.emailRequest.pending}
+          onShare={account.emailRequest.share}
+          onNotNow={account.emailRequest.dismiss}
+        />
       ) : null}
         <AccountSignInSheet
           open={isAccountOpen}

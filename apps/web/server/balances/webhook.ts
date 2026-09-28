@@ -2,6 +2,7 @@ import "server-only";
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { emitServerEvent } from "@/server/observability/log";
+import { HISTORY_CHAIN_ID, type HistoryStore } from "./history/types";
 import type { BalanceSnapshotStore } from "./snapshot-store";
 import type { SecretKeyring } from "@/server/secrets/at-rest";
 import { openWebhookSecret } from "./webhook-secret";
@@ -16,6 +17,7 @@ const ACTIVITY_EVENTS = new Set(["wallet.activity.detected", "wallet.activity.mu
 
 export function createCdpWebhookHandler(dependencies: {
   store: Pick<BalanceSnapshotStore, "markStaleMany">;
+  history: Pick<HistoryStore, "markDirty"> | null;
   subscriptions: Pick<WebhookSubscriptionStore, "list">;
   keyring: SecretKeyring | null;
   now?: () => Date;
@@ -100,6 +102,13 @@ export function createCdpWebhookHandler(dependencies: {
       } catch {
         observe("unavailable", "WEBHOOK_SETTLE_UNAVAILABLE", startedAt);
       }
+    }
+    try {
+      await dependencies.history?.markDirty(HISTORY_CHAIN_ID, addresses, current);
+    } catch {
+      emitServerEvent("balances-webhook", {
+        route: "/api/webhooks/cdp", code: "WEBHOOK_HISTORY_DIRTY_FAILED", outcome: "failed", durationMs: Date.now() - startedAt,
+      });
     }
     observe("accepted", "WEBHOOK_ACCEPTED", startedAt);
     return Response.json({ accepted: true }, { status: 200 });

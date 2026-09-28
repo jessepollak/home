@@ -310,7 +310,7 @@ export function parseCdpSqlResponseEnvelope(
       cached: cached ?? false,
       executionTimestamp,
       executionTimeMs: executionTimeMs ?? 0,
-      rowCount: result.length,
+      rowCount: declaredRowCount ?? result.length,
     },
   };
 }

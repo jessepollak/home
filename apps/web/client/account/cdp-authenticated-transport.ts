@@ -9,6 +9,8 @@ import type { OwnerGenerationFence } from "./cdp-session-lifecycle";
 import type { SessionFetch, VerifiedAccountSession } from "./session-client";
 import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
 import { TransferExecutionError } from "@/shared/transfers/types";
+import { parseCashoutPrepareErrorResponse } from "@/shared/actions/contracts/prepare";
+import { parseConfirmActionErrorResponse } from "@/shared/actions/contracts/confirm";
 import { browserHomeQueryClient, useHomeQueryClient } from "@/client/query/query-client";
 import {
   deploymentHeaders,
@@ -30,6 +32,7 @@ const walletFreeAccountResourcePrefixes = ["/api/account/country-preference"] as
 
 const accountResourcePrefixes = [
   ...walletFreeAccountResourcePrefixes,
+  "/api/account/email-request",
   "/api/invites/link",
   "/api/actions",
   "/api/activity/orders",
@@ -66,6 +69,15 @@ export function normalizeAccountResourcePath(path: string): string {
     throw new TransferExecutionError("invalid-request");
   }
   return `${url.pathname}${url.search}`;
+}
+
+function actionErrorDetails(pathname: string, payload: unknown): { code: string; serverMessage: string } | null {
+  const parsed = /^\/api\/actions\/[^/]+\/confirm$/.test(pathname)
+    ? parseConfirmActionErrorResponse(payload)
+    : pathname === "/api/actions/prepare"
+      ? parseCashoutPrepareErrorResponse(payload)
+      : null;
+  return parsed ? { code: parsed.error.code, serverMessage: parsed.error.message } : null;
 }
 
 function responseErrorDetails(payload: unknown): {
@@ -264,7 +276,8 @@ export function useAuthenticatedTransport({
       if (!response.ok) {
         let details = { code: null as string | null, serverMessage: null as string | null };
         try {
-          details = responseErrorDetails(await response.json());
+          const payload: unknown = await response.json();
+          details = actionErrorDetails(pathname, payload) ?? responseErrorDetails(payload);
         } catch {
         }
         throwIfDeploymentExpired(response, skewHeaders, details.code);

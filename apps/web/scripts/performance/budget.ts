@@ -49,6 +49,12 @@ async function main() {
   const timingInputs: TimingInput[] = [];
   const traces: string[] = [];
   const reruns = new Map<string, (dir: string) => Promise<void>>();
+  const cpuScenarios: Record<string, { requested: number[]; applied: number[] }> = {};
+  const cpuMismatches: string[] = [];
+  const recordCpu = (name: string, samples: { requested: number; applied: number }[]) => {
+    if (!samples.length || samples.some(({ requested, applied }) => requested !== cpuThrottle || applied !== requested)) cpuMismatches.push(name);
+    cpuScenarios[name] = { requested: samples.map(({ requested }) => requested), applied: samples.map(({ applied }) => applied) };
+  };
   const phase = async <T>(name: string, run: () => Promise<T>): Promise<T> => {
     const at = performance.now();
     try { return await run(); } finally { phaseRows.push({ name, durationMs: round(performance.now() - at) }); }
@@ -79,7 +85,7 @@ async function main() {
       await writeFile(join(outDir, "results.json"), JSON.stringify({
         version: 1, startedAt, durationMs: round(performance.now() - started), sha, seed, only,
         environment: { browser: `chromium ${browser.version()}`, viewport: "mobile", cpuThrottle, platform: platform() },
-        phases: phaseRows, structural: [], timing: [], timingMode: "report-only", reportOnlyUntil: "2026-10-11", traces: [],
+        phases: phaseRows, structural: [], timing: [], cpu: { requested: cpuThrottle, scenarios: cpuScenarios }, timingMode: "report-only", reportOnlyUntil: "2026-10-11", traces: [],
       }, null, 2) + "\n");
       await writeFile(join(outDir, "summary.md"), ["# Performance baseline updated", "", "| Route | DOM nodes | Initial JS gzip bytes |", "|---|---:|---:|",
         ...routes.map((route) => `| ${route} | ${baseline.domNodes[route]} | ${baseline.initialJs[route]} |`), ""].join("\n"));
@@ -95,6 +101,7 @@ async function main() {
         const key = `feed-${rows}`;
         const measure = (count: number) => withSession(browser, seed, (session) => runFeed(session, baseUrl, rows, count, includeDetail));
         feedResults.set(rows, await phase(key, () => measure(reps)));
+        recordCpu(key, feedResults.get(rows)!.cpu);
         reruns.set(key, async (dir) => { await withSession(browser, seed, (session) => runFeed(session, baseUrl, rows, 1, includeDetail), { dir, name: key }); });
       }
       const calibration = feedResults.get(20)!.timing;
@@ -132,6 +139,7 @@ async function main() {
           const measure = () => withSession(browser, seed, (session) =>
             runNavigation(session, baseUrl, rows, !only || only === "resource-growth", seed === "resource-growth", [path]));
           const result = await phase(key, measure);
+          recordCpu(key, result.cpu);
           latencies.push(...result.latencies);
           if (!slowest || result.p95 > slowest.p95) slowest = { path, p95: result.p95 };
           if (!only || only === "warm-requests") structuralInputs.push({ id: "warm-requests", label: key,
@@ -157,6 +165,7 @@ async function main() {
         const key = `modal-${kind}-${rows}`;
         const measure = () => withSession(browser, seed, (session) => runModal(session, baseUrl, rows, kind, seed === "resource-growth"));
         const result = await phase(key, measure);
+        recordCpu(key, result.cpu);
         addGrowth(key, result.growth);
         if (rows === 20) calibrations.set(kind, result.openMs);
         timingInputs.push({ id: "modal-open", scenario: key, unit: "ms", value: round(result.openMs),
@@ -181,10 +190,13 @@ async function main() {
     const results = {
       version: 1, startedAt, durationMs: round(performance.now() - started), sha, seed, only,
       environment: { browser: `chromium ${browser.version()}`, viewport: "mobile", cpuThrottle, platform: platform() },
-      phases: phaseRows, structural, timing, timingMode: "report-only", reportOnlyUntil: "2026-10-11", traces,
+      phases: phaseRows, structural, timing, cpu: { requested: cpuThrottle, pass: cpuMismatches.length === 0, mismatches: cpuMismatches, scenarios: cpuScenarios },
+      timingMode: "report-only", reportOnlyUntil: "2026-10-11", traces,
     };
     await writeFile(join(outDir, "results.json"), JSON.stringify(results, null, 2) + "\n");
     const lines = ["# Performance budgets", "", `Run: ${round(results.durationMs / 1000)} s · ${results.environment.browser} · ${results.environment.platform}`,
+      cpuMismatches.length ? `CPU throttle: requested ${cpuThrottle}×, MISMATCH in ${cpuMismatches.join(", ")}`
+        : `CPU throttle: requested ${cpuThrottle}×, applied ${cpuThrottle}× on all ${Object.values(cpuScenarios).reduce((sum, row) => sum + row.applied.length, 0)} samples`,
       "", "## Structural (blocking)", "", "| Gate | Scenario | Value | Limit | Pass |", "|---|---|---:|---:|:---:|",
       ...structural.map((row) => `| ${row.id} | ${row.label} | ${format(row.value)} ${row.unit} | ${format(row.limit)} ${row.unit} | ${row.pass ? "yes" : "NO"} |`),
       "", ...structural.filter((row) => row.id === "warm-requests" && !row.pass)
@@ -195,6 +207,7 @@ async function main() {
       ...phaseRows.map((row) => `| ${row.name} | ${format(row.durationMs)} ms |`), "",
       ...(traces.length ? ["Traces: " + traces.join(", "), ""] : [])];
     await writeFile(join(outDir, "summary.md"), lines.join("\n"));
+    if (cpuMismatches.length) throw new Error(`CPU throttle mismatch in ${cpuMismatches.join(", ")}; see results.json cpu`);
     process.exitCode = exitCode(structural);
     console.log(`Performance budgets: ${structural.filter((row) => !row.pass).length} structural failures, ${timing.filter((row) => row.breach).length} report-only timing breaches; ${round(results.durationMs / 1000)} s`);
   } finally { await browser.close(); }

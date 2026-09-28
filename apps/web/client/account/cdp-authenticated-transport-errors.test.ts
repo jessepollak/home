@@ -327,6 +327,16 @@ describe("authenticated transport deployment expiry", () => {
     });
   });
 
+  test("preserves confirm cash-out region failure codes and messages", async () => {
+    delete process.env.NEXT_DEPLOYMENT_ID;
+    for (const [status, code] of [[503, "CASHOUT_SETTINGS_UNAVAILABLE"], [502, "CASHOUT_UNAVAILABLE"]] as const) {
+      const transport = await transportWith(async () => Response.json({ error: { code, message: "Cash out paused." } }, { status }));
+      const error = await rejectionOf(transport.fetchAccountResource("/api/actions/action_1/confirm", { method: "POST", body: {} }));
+      expect(error).toBeInstanceOf(TransferExecutionError);
+      expect(error).toMatchObject({ kind: "http", status, code, serverMessage: "Cash out paused." });
+    }
+  });
+
   test("classifies an envelope-less pinned 404 as an expired deployment", async () => {
     process.env.NEXT_DEPLOYMENT_ID = "dpl_expired";
     const transport = await transportWith(async (_input, init) => {

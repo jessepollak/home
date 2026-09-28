@@ -271,7 +271,9 @@
       ],
       "rules": {
         "home/no-restyle": "error",
-        "home/no-literal-utility-styles": "error"
+        "home/no-literal-utility-styles": "error",
+        "home/no-descendant-has": "error",
+        "home/no-important-utilities": "error"
       }
     },
     {
@@ -395,6 +397,10 @@
         "home/no-self-referential-expectation": "error",
         "home/exact-mock-modules": "error"
       }
+    },
+    {
+      "files": ["**/*.pw.{ts,tsx}"],
+      "rules": { "home/no-request-only-playwright": "error" }
     },
     {
       "files": ["**/explorations/**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],

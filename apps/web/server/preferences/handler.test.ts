@@ -43,6 +43,13 @@ describe("country preference handler", () => {
     expect(response.headers.get("cache-control")).toContain("no-store");
   });
 
+  test("returns saved preference when region is removed or settings are unavailable", async () => {
+    const handler = createCountryPreferenceReadHandler({ authorize: async () => session, read: async () => "DE" });
+    const response = await handler(new Request("https://home.test/api/account/country-preference"));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ version: 1, regionId: "DE" });
+  });
+
   test("returns a private 503 when a preference read fails", async () => {
     const handler = createCountryPreferenceReadHandler({ authorize: async () => session, read: async () => { throw new Error("db"); } });
     const response = await handler(new Request("https://home.test/api/account/country-preference"));
@@ -63,7 +70,7 @@ describe("country preference handler", () => {
 
   test("validates input and forwards adoption flag with authenticated session", async () => {
     const calls: unknown[] = [];
-    const handler = createCountryPreferenceHandler({ authorize: async () => session, write: async (...args) => {
+    const handler = createCountryPreferenceHandler({ authorize: async () => session, regionOffered: async (region) => region === "GB", write: async (...args) => {
       calls.push(args); return "DE";
     } });
     expect((await handler(request({ version: 9, regionId: "GB" }))).status).toBe(400);
@@ -75,8 +82,27 @@ describe("country preference handler", () => {
     expect(response.headers.get("cache-control")).toContain("no-store");
   });
 
+  test("rejects a removed country and does not write", async () => {
+    let writes = 0;
+    const handler = createCountryPreferenceHandler({ authorize: async () => session, regionOffered: async () => false, write: async () => { writes++; return "GB"; } });
+    const response = await handler(request({ version: 1, regionId: "GB" }));
+    expect(response.status).toBe(400);
+    expect((await response.json()).error.code).toBe("COUNTRY_PREFERENCE_INVALID");
+    expect(writes).toBe(0);
+  });
+
+  test("returns a private 503 without writing when region settings cannot be read", async () => {
+    let writes = 0;
+    const handler = createCountryPreferenceHandler({ authorize: async () => session, regionOffered: async () => { throw new Error("settings unavailable"); }, write: async () => { writes++; return "GB"; } });
+    const response = await handler(request({ version: 1, regionId: "GB" }));
+    expect(response.status).toBe(503);
+    expect(response.headers.get("cache-control")).toContain("private");
+    expect((await response.json()).error.code).toBe("COUNTRY_PREFERENCE_UNAVAILABLE");
+    expect(writes).toBe(0);
+  });
+
   test("returns a private service error when persistence fails", async () => {
-    const handler = createCountryPreferenceHandler({ authorize: async () => session, write: async () => { throw new Error("db"); } });
+    const handler = createCountryPreferenceHandler({ authorize: async () => session, regionOffered: async () => true, write: async () => { throw new Error("db"); } });
     const response = await handler(request({ version: 1, regionId: "GB" }));
     expect(response.status).toBe(503);
     expect(response.headers.get("cache-control")).toContain("private");

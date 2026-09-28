@@ -1,5 +1,6 @@
 import { BRAND_DEFAULTS, BRAND_SETTINGS_DOMAIN, OPERATOR_BRANDING_SCHEMA_VERSION, parseBrandSettings } from "@/shared/operator-branding/contract";
 import { OPERATOR_SETTINGS_CONTRACT_VERSION, parseSettingsResponse } from "./envelope";
+import { parseRegionSettings, parseRegionSettingsWrite, REGION_SETTINGS_DEFAULTS } from "./regions";
 
 export { OPERATOR_SETTINGS_CONTRACT_VERSION } from "./envelope";
 /** @public parses settings responses for future administrator clients */
@@ -9,6 +10,7 @@ export type DomainDefinition<T> = {
   schemaVersion: number;
   defaults: T;
   parse(value: unknown): T | null;
+  parseWrite?: (value: unknown) => T | null;
   upgrade?: (fromVersion: number, value: unknown) => unknown;
 };
 
@@ -35,6 +37,7 @@ export function parseSupportSettings(value: unknown): SupportSettings | null {
 export const OPERATOR_SETTINGS_DOMAINS = {
   support: { schemaVersion: 1, defaults: { email: null, url: null }, parse: parseSupportSettings },
   [BRAND_SETTINGS_DOMAIN]: { schemaVersion: OPERATOR_BRANDING_SCHEMA_VERSION, defaults: BRAND_DEFAULTS, parse: parseBrandSettings },
+  regions: { schemaVersion: 1, defaults: REGION_SETTINGS_DEFAULTS, parse: parseRegionSettings, parseWrite: parseRegionSettingsWrite },
 } satisfies DomainRegistry;
 
 export type SettingsEntry<T = unknown> = {

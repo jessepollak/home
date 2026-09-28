@@ -1,6 +1,24 @@
 
 import type { MoneyActionCall } from "@/shared/money-actions/types";
 import type { ActionSummaryResponse } from "./get";
+import { CASHOUT_PREPARE_ERRORS } from "./prepare";
+
+export const CONFIRM_CASHOUT_ERRORS = {
+  unavailable: CASHOUT_PREPARE_ERRORS.unavailable,
+  "settings-unavailable": CASHOUT_PREPARE_ERRORS["settings-unavailable"],
+} as const;
+
+export type ConfirmActionErrorCode = (typeof CONFIRM_CASHOUT_ERRORS)[keyof typeof CONFIRM_CASHOUT_ERRORS]["code"];
+const CONFIRM_ACTION_ERROR_CODES: readonly ConfirmActionErrorCode[] = Object.values(CONFIRM_CASHOUT_ERRORS).map((entry) => entry.code);
+
+export type ConfirmActionErrorResponse = { error: { code: ConfirmActionErrorCode; message: string } };
+
+export function parseConfirmActionErrorResponse(value: unknown): ConfirmActionErrorResponse | null {
+  if (!isRecord(value) || !isRecord(value.error)) return null;
+  const { code, message } = value.error;
+  if (typeof message !== "string" || typeof code !== "string" || !(CONFIRM_ACTION_ERROR_CODES as readonly string[]).includes(code)) return null;
+  return { error: { code: code as ConfirmActionErrorCode, message } };
+}
 
 export type ConfirmActionResponse = {
   id: string;

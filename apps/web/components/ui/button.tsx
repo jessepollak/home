@@ -25,12 +25,12 @@ const buttonVariantStyles = cva(
       },
       size: {
         default:
-          "h-8 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
-        xs: "h-6 gap-1 rounded-md px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
-        sm: "h-7 gap-1 rounded-md px-2.5 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
+          "h-8 gap-1.5 px-2.5 has-[>[data-icon=inline-end]]:pr-2 has-[>[data-icon=inline-start]]:pl-2",
+        xs: "h-6 gap-1 rounded-md px-2 text-xs in-data-[slot=button-group]:rounded-lg has-[>[data-icon=inline-end]]:pr-1.5 has-[>[data-icon=inline-start]]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
+        sm: "h-7 gap-1 rounded-md px-2.5 text-xs in-data-[slot=button-group]:rounded-lg has-[>[data-icon=inline-end]]:pr-1.5 has-[>[data-icon=inline-start]]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
         "sm-touch": "min-h-11 gap-1 rounded-md px-2.5 py-2 text-xs",
-        lg: "h-9 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
-        touch: "min-h-11 gap-1.5 px-2.5 py-2 whitespace-normal text-center has-data-[icon=inline-end]:pe-2 has-data-[icon=inline-start]:ps-2",
+        lg: "h-9 gap-1.5 px-2.5 has-[>[data-icon=inline-end]]:pr-2 has-[>[data-icon=inline-start]]:pl-2",
+        touch: "min-h-11 gap-1.5 px-2.5 py-2 whitespace-normal text-center has-[>[data-icon=inline-end]]:pe-2 has-[>[data-icon=inline-start]]:ps-2",
         "compact-touch": "relative h-8 gap-1.5 ps-2.5 pe-2.5 before:absolute before:inset-x-0 before:-inset-y-1.5 before:content-[''] md:pointer-fine:before:content-none",
         tab: "h-13 min-h-11 min-w-0 rounded-full px-2 focus-visible:border-transparent focus-visible:ring-inset hover:bg-transparent active:bg-transparent",
         icon: "size-8",

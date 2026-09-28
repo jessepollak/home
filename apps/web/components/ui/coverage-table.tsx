@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback, useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { CoverageStatusPreview } from "@/components/ui/coverage-status-preview";
 import { DataTable } from "@/components/ui/data-table";
@@ -38,7 +39,8 @@ const portfolioLabels = { priority: "Priority", deferred: "Deferred", "not-scope
 const integratedLabels = { none: "Not integrated", planned: "Planned", "in-build": "In build", sandbox: "Sandbox", live: "Live" } as const;
 const integratedTraffic = { live: "Green", planned: "Yellow", "in-build": "Yellow", sandbox: "Yellow", none: "Red" } as const;
 
-const columns: ColumnDef<CoverageTableRow>[] = [
+function createColumns(onOpenChange: (countryCode: string, column: string, open: boolean) => void): ColumnDef<CoverageTableRow>[] {
+  return [
   { accessorKey: "countryName", header: "Country", cell: ({ row }) => <><span aria-hidden="true" className="me-[0.45rem] inline-block text-[1.05rem] leading-none">{row.original.flag}</span>{row.original.countryName} <span className="font-normal text-muted-foreground">{row.original.countryCode}</span></> },
   { accessorKey: "currencies", header: "Currency" },
   { accessorKey: "asset", header: "Asset" },
@@ -47,7 +49,7 @@ const columns: ColumnDef<CoverageTableRow>[] = [
     const value = row.original;
     const candidate = value.stablecoin.candidate;
     const status = candidate ? "identified" as const : "not-identified" as const;
-    return <div className="flex w-full items-center justify-center text-center"><CoverageStatusPreview status={stablecoinTraffic[status]} accessibleName={`${stablecoinTraffic[status]} — ${candidate ? "Stablecoin candidate identified" : "No stablecoin candidate identified"}`} heading={`${value.countryName} stablecoin candidate`} details={[
+    return <div className="flex w-full items-center justify-center text-center"><CoverageStatusPreview onOpenChange={(open) => onOpenChange(row.original.countryCode, "stablecoin", open)} status={stablecoinTraffic[status]} accessibleName={`${stablecoinTraffic[status]} — ${candidate ? "Stablecoin candidate identified" : "No stablecoin candidate identified"}`} heading={`${value.countryName} stablecoin candidate`} details={[
       { label: "Status", value: stablecoinLabels[status] },
       { label: "Candidate asset", value: candidate?.symbol ?? "Not identified" },
       ...(candidate ? [
@@ -60,7 +62,7 @@ const columns: ColumnDef<CoverageTableRow>[] = [
   { id: "issuer", header: () => <span className="flex w-full items-center justify-center text-center">1:1 onramp</span>, cell: ({ row }) => {
     const value = row.original;
     const status = value.issuer.status;
-    return <div className="flex w-full items-center justify-center text-center"><CoverageStatusPreview status={issuerTraffic[status]} indicatorVariant={status === "not-researched" ? "hollow" : "solid"} accessibleName={`${issuerTraffic[status]} — ${issuerLabels[status]} 1:1 onramp`} heading={`${value.countryName} 1:1 onramp`} details={[
+    return <div className="flex w-full items-center justify-center text-center"><CoverageStatusPreview onOpenChange={(open) => onOpenChange(row.original.countryCode, "issuer", open)} status={issuerTraffic[status]} indicatorVariant={status === "not-researched" ? "hollow" : "solid"} accessibleName={`${issuerTraffic[status]} — ${issuerLabels[status]} 1:1 onramp`} heading={`${value.countryName} 1:1 onramp`} details={[
       { label: "Status", value: issuerLabels[status] },
       { label: "Rail", value: value.issuer.rail },
       { label: "Audience", value: value.issuer.audience },
@@ -75,7 +77,7 @@ const columns: ColumnDef<CoverageTableRow>[] = [
       { label: `Route ${index + 1}`, value: `${route.currencyCode} → ${route.assetSymbol} via ${route.provider} — ${route.stage === "in-build" ? "In build" : `${route.stage[0].toUpperCase()}${route.stage.slice(1)}`}`, href: route.issueUrl },
       { label: `Route ${index + 1} gate`, value: route.note },
     ]);
-    return <div className="flex w-full items-center justify-center text-center"><CoverageStatusPreview status="Yellow" indicatorVariant={status === "priority" ? "solid" : "hollow"} accessibleName={`Yellow — ${portfolioLabels[status]} portfolio`} heading={`${value.countryName} portfolio status`} details={[
+    return <div className="flex w-full items-center justify-center text-center"><CoverageStatusPreview onOpenChange={(open) => onOpenChange(row.original.countryCode, "portfolio", open)} status="Yellow" indicatorVariant={status === "priority" ? "solid" : "hollow"} accessibleName={`Yellow — ${portfolioLabels[status]} portfolio`} heading={`${value.countryName} portfolio status`} details={[
       { label: "Status", value: portfolioLabels[status] },
       ...routeDetails,
       ...(routeDetails.length === 0 ? [{ label: "Routes", value: status === "deferred" ? "Research retained; no active workstream" : "Outside the top-100 local non-USD pass" }] : []),
@@ -84,7 +86,7 @@ const columns: ColumnDef<CoverageTableRow>[] = [
   { id: "home", header: () => <span className="flex w-full items-center justify-center text-center">Integrated</span>, cell: ({ row }) => {
     const value = row.original;
     const status = value.home.status;
-    return <div className="flex w-full items-center justify-center text-center"><CoverageStatusPreview status={integratedTraffic[status]} accessibleName={`${integratedTraffic[status]} — ${status === "none" ? "Not integrated" : `${integratedLabels[status]} integration`}`} heading={`${value.countryName} integration status`} details={[
+    return <div className="flex w-full items-center justify-center text-center"><CoverageStatusPreview onOpenChange={(open) => onOpenChange(row.original.countryCode, "home", open)} status={integratedTraffic[status]} accessibleName={`${integratedTraffic[status]} — ${status === "none" ? "Not integrated" : `${integratedLabels[status]} integration`}`} heading={`${value.countryName} integration status`} details={[
       { label: "Status", value: integratedLabels[status] },
       { label: "Provider", value: value.home.provider ?? "None" },
       { label: "Asset", value: value.home.asset ?? "None" },
@@ -92,8 +94,20 @@ const columns: ColumnDef<CoverageTableRow>[] = [
       value.home.evidence ? { label: "Hosted production", value: `${value.home.evidence.proofRef}; checked ${value.home.evidence.checkedAt}` } : { label: "Hosted production", value: `No evidence recorded; registry checked ${value.registryCheckedAt}` },
     ]} /></div>;
   } },
-];
+  ];
+}
 
 export function CoverageTable({ rows }: { rows: CoverageTableRow[] }) {
-  return <DataTable columns={columns} data={rows} caption="Country stablecoin candidates, 1:1 onramp research, portfolio priority, and integration status" density="compact" />;
+  const [openPreviews, setOpenPreviews] = useState<readonly { countryCode: string; column: string }[]>([]);
+  const handleOpenChange = useCallback((countryCode: string, column: string, open: boolean) => {
+    setOpenPreviews((current) => {
+      const alreadyOpen = current.some((entry) => entry.countryCode === countryCode && entry.column === column);
+      if (open === alreadyOpen) return current;
+      const without = current.filter((entry) => entry.countryCode !== countryCode || entry.column !== column);
+      return open ? [...without, { countryCode, column }] : without;
+    });
+  }, []);
+  const columns = useMemo(() => createColumns(handleOpenChange), [handleOpenChange]);
+  const getRowId = useCallback((row: CoverageTableRow) => row.countryCode, []);
+  return <DataTable columns={columns} data={rows} caption="Country stablecoin candidates, 1:1 onramp research, portfolio priority, and integration status" density="compact" getRowId={getRowId} rowState={(row) => openPreviews.some((open) => open.countryCode === row.countryCode) ? "expanded" : undefined} />;
 }
