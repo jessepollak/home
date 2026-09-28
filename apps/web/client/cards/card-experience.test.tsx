@@ -5,7 +5,7 @@ import type { CardState } from "@/shared/cards/contract";
 import { getHomeQueryClient } from "@/client/query/query-client";
 import { cardsBody } from "@/tests/browser/fixtures/bodies";
 
-const { cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
+const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { CardScreen, cardScreenData } = await import("./card-experience");
 const { stripePublishableKey } = await import("./card-reveal");
 const { CardRefreshError, useCards } = await import("./use-cards");
@@ -172,6 +172,43 @@ describe("CardScreen review states", () => {
     await waitFor(() => expect(view.getByRole("switch", { name: "Lock card ending 2222" }).hasAttribute("disabled")).toBe(false));
     fireEvent.click(view.getByRole("switch", { name: "Lock card ending 2222" }));
     await waitFor(() => expect(commands.setFrozen).toHaveBeenCalledWith("ic_new2222", true));
+  });
+
+  test("cards that share their last four digits are told apart by position", () => {
+    const response = { ...cardsBody("active"), cards: [
+      { id: "ic_old4821", status: "frozen" as const, last4: "4821" },
+      { id: "ic_new4821", status: "active" as const, last4: "4821" },
+      { id: "ic_mid1111", status: "active" as const, last4: "1111" },
+    ] };
+    const view = render(<CardScreen cards={{ status: "ready", response }} commands={quietCommands()} onRetry={() => {}} onOpenVerification={() => {}} reveal={reveal} />);
+    expect(view.getAllByRole("img").map((item) => item.getAttribute("aria-label"))).toEqual([
+      "Virtual card ending 1111", "Virtual card 2 ending 4821", "Virtual card 3 ending 4821, locked",
+    ]);
+    expect(view.getByRole("switch", { name: "Lock card ending 1111" })).toBeTruthy();
+    expect(view.getByRole("switch", { name: "Lock card 2 ending 4821" }).getAttribute("aria-checked")).toBe("false");
+    expect(view.getByRole("switch", { name: "Lock card 3 ending 4821" }).getAttribute("aria-checked")).toBe("true");
+    expect(view.getByRole("button", { name: "Card details for card 2 ending 4821" })).toBeTruthy();
+    expect(view.getByRole("heading", { name: "Card 3 ending 4821" })).toBeTruthy();
+  });
+
+  test("a lock that settles after the owner changes does not toast on the new owner's screen", async () => {
+    let settle: (() => void) | undefined;
+    const commands = { ...quietCommands(), setFrozen: jest.fn(() => new Promise<void>((resolve) => { settle = resolve; })) };
+    const screen = (owner: string) => (
+      <><CardScreen cards={{ status: "ready", response: cardsBody("active") }} commands={commands}
+        onRetry={() => {}} onOpenVerification={() => {}} ownerBoundary={owner} /><Toaster /></>
+    );
+    const view = render(screen("owner-1"));
+    fireEvent.click(view.getByRole("switch", { name: "Lock card" }));
+    await waitFor(() => expect(commands.setFrozen).toHaveBeenCalledTimes(1));
+    view.rerender(screen("owner-2"));
+    expect(view.getByRole("switch", { name: "Lock card" }).hasAttribute("disabled")).toBe(false);
+    await act(async () => settle?.());
+    expect(view.queryByText("Card locked")).toBeNull();
+    fireEvent.click(view.getByRole("switch", { name: "Lock card" }));
+    await waitFor(() => expect(commands.setFrozen).toHaveBeenCalledTimes(2));
+    await act(async () => settle?.());
+    expect((await view.findAllByText("Card locked")).length).toBeGreaterThan(0);
   });
 
   test("a failed re-read after a lock shows an error, not a success toast", async () => {

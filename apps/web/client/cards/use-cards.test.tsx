@@ -1,13 +1,16 @@
 import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, jest, test } from "bun:test";
+import { onlineManager } from "@tanstack/react-query";
 import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import { cardsBody } from "@/tests/browser/fixtures/bodies";
 
 const { cleanup, renderHook, waitFor } = await import("@testing-library/react");
 const { CardRefreshError, useCards } = await import("./use-cards");
 
-afterEach(() => { cleanup(); getHomeQueryClient().clear(); });
+afterEach(() => { cleanup(); onlineManager.setOnline(true); getHomeQueryClient().clear(); });
+
+const frozenWrite = { version: 1, card: { id: "ic_fixture4821", status: "frozen" } };
 
 function setup(respond: (path: string, options?: { method?: string; body?: unknown }) => unknown) {
   const calls: { path: string; method: string; body: unknown }[] = [];
@@ -31,10 +34,15 @@ describe("useCards", () => {
     expect(hook.result.current.query.data).toBeUndefined();
   });
 
-  test("freeze and unfreeze post an empty body to the card route and refresh state", async () => {
-    const { hook, calls } = setup((path) => path.endsWith("/freeze") || path.endsWith("/unfreeze")
-      ? { version: 1, card: { id: "ic_fixture4821", status: path.endsWith("/freeze") ? "frozen" : "active" } }
-      : cardsBody("active"));
+  test("freeze and unfreeze post an empty body and confirm from a fresh card read", async () => {
+    let current: "active" | "frozen" = "active";
+    const { hook, calls } = setup((path) => {
+      if (path.endsWith("/freeze") || path.endsWith("/unfreeze")) {
+        current = path.endsWith("/freeze") ? "frozen" : "active";
+        return { version: 1, card: { id: "ic_fixture4821", status: current } };
+      }
+      return cardsBody(current);
+    });
     await waitFor(() => expect(hook.result.current.query.data).toBeDefined());
     await hook.result.current.commands.setFrozen("ic_fixture4821", true);
     await hook.result.current.commands.setFrozen("ic_fixture4821", false);
@@ -55,6 +63,46 @@ describe("useCards", () => {
     await waitFor(() => expect(hook.result.current.query.data).toBeDefined());
     await expect(hook.result.current.commands.setFrozen("ic_fixture4821", true)).rejects.toBeInstanceOf(CardRefreshError);
     expect(getHomeQueryClient().getQueryState(ownerQueryKey("owner-1", "cards"))?.status).toBe("error");
+  });
+
+  test("a re-read that pauses offline after a successful freeze is not a confirmation", async () => {
+    const { hook, calls } = setup((path, options) => {
+      if (options?.method === "POST") { onlineManager.setOnline(false); return frozenWrite; }
+      return cardsBody("active");
+    });
+    await waitFor(() => expect(hook.result.current.query.data).toBeDefined());
+    const reads = calls.filter((call) => call.path === "/api/cards").length;
+    await expect(hook.result.current.commands.setFrozen("ic_fixture4821", true)).rejects.toBeInstanceOf(CardRefreshError);
+    expect(calls.filter((call) => call.path === "/api/cards").length).toBe(reads);
+    expect(getHomeQueryClient().getQueryState(ownerQueryKey("owner-1", "cards"))?.fetchStatus).toBe("paused");
+  });
+
+  test("a re-read that answers unavailable after a successful freeze is not a confirmation", async () => {
+    let written = false;
+    const { hook } = setup((path, options) => {
+      if (options?.method === "POST") { written = true; return frozenWrite; }
+      return cardsBody(written ? "unavailable" : "active");
+    });
+    await waitFor(() => expect(hook.result.current.query.data).toBeDefined());
+    await expect(hook.result.current.commands.setFrozen("ic_fixture4821", true)).rejects.toBeInstanceOf(CardRefreshError);
+    await waitFor(() => expect(hook.result.current.query.data?.state).toBe("unavailable"));
+  });
+
+  test("a re-read that still shows the previous status is not a confirmation", async () => {
+    const { hook } = setup((path, options) => options?.method === "POST" ? frozenWrite : cardsBody("active"));
+    await waitFor(() => expect(hook.result.current.query.data).toBeDefined());
+    await expect(hook.result.current.commands.setFrozen("ic_fixture4821", true)).rejects.toBeInstanceOf(CardRefreshError);
+  });
+
+  test("a successful freeze confirmed by the re-read resolves with the frozen card", async () => {
+    let written = false;
+    const { hook } = setup((path, options) => {
+      if (options?.method === "POST") { written = true; return frozenWrite; }
+      return cardsBody(written ? "frozen" : "active");
+    });
+    await waitFor(() => expect(hook.result.current.query.data).toBeDefined());
+    await expect(hook.result.current.commands.setFrozen("ic_fixture4821", true)).resolves.toBeUndefined();
+    await waitFor(() => expect(hook.result.current.query.data?.state).toBe("frozen"));
   });
 
   test("a failed write keeps its own error even when the re-read also fails", async () => {

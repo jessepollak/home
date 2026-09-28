@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import { CircleAlert, CreditCard, Eye, Lock } from "lucide-react";
 import { useAccountWallet } from "@/client/account/cdp-client";
 import { HomeSectionHeading } from "@/client/home/home-overview";
@@ -24,6 +24,8 @@ import { CardRefreshError, useCards, type CardCommands } from "./use-cards";
 
 type IssuedCard = CardsResponse["cards"][number];
 type Pending = "enroll" | "issue" | "lock" | null;
+type PendingRun = { kind: Exclude<Pending, null>; boundary: string | null };
+type Settled = (() => void) | void;
 type CardReveal = { publishableKey: string; revealKey: CardCommands["revealKey"] };
 
 export type CardScreenData =
@@ -40,11 +42,11 @@ export type CardScreenProps = {
   ownerBoundary?: string | null;
 };
 
-function CardArt({ last4, locked }: { last4: string; locked: boolean }) {
+function CardArt({ last4, locked, position }: { last4: string; locked: boolean; position?: number }) {
   return (
     <div
       role="img"
-      aria-label={`Virtual card ending ${last4}${locked ? ", locked" : ""}`}
+      aria-label={`Virtual card${position ? ` ${position}` : ""} ending ${last4}${locked ? ", locked" : ""}`}
       className={`relative flex h-44 w-70 max-w-full shrink-0 flex-col justify-between rounded-lg border p-4 ${
         locked ? "border-border bg-muted text-foreground/75" : "border-foreground bg-foreground text-background"}`}
     >
@@ -150,10 +152,11 @@ function HoldAlert({ description }: { description: string }) {
   );
 }
 
-function IssuedCardOverview({ card, restricted, showHold, single, pending, onLock, reveal }: {
+function IssuedCardOverview({ card, position, restricted, showHold, single, pending, onLock, reveal }: {
   card: IssuedCard;
   restricted: boolean;
   showHold: boolean;
+  position?: number;
   single: boolean;
   pending: boolean;
   onLock: (locked: boolean) => void;
@@ -164,18 +167,19 @@ function IssuedCardOverview({ card, restricted, showHold, single, pending, onLoc
   const locked = card.status !== "active";
   const titleId = useId();
   const headingId = useId();
-  const suffix = single ? "" : ` ending ${card.last4}`;
+  const suffix = single ? "" : `${position ? ` ${position}` : ""} ending ${card.last4}`;
+  const detailsSuffix = single ? "" : position ? ` for card ${position} ending ${card.last4}` : suffix;
   const canReveal = reveal !== undefined && !restricted && (card.status === "active" || card.status === "frozen");
   return (
     <>
       <Card variant="flush">
         <CardContent inset="hero">
-          <div className="flex justify-center"><CardArt last4={card.last4} locked={locked} /></div>
+          <div className="flex justify-center"><CardArt last4={card.last4} locked={locked} position={position} /></div>
         </CardContent>
       </Card>
       {showHold ? <HoldAlert description="New purchases are declined." /> : null}
       {canReveal ? (
-        <Button size="touch" variant="outline" className="w-full" aria-label={single ? undefined : `Card details${suffix}`}
+        <Button size="touch" variant="outline" className="w-full" aria-label={single ? undefined : `Card details${detailsSuffix}`}
           onClick={() => { setRevealed(true); setDetailsOpen(true); }}>
           <Eye data-icon="inline-start" aria-hidden="true" />Card details
         </Button>
@@ -191,7 +195,7 @@ function IssuedCardOverview({ card, restricted, showHold, single, pending, onLoc
       {reveal && canReveal ? (
         <MoneyModal open={detailsOpen} labelledBy={titleId} onCancel={() => setDetailsOpen(false)} onClose={() => setRevealed(false)}>
           <MoneyModalStep step="details">
-            <MoneyModalHeader title={`Card details${suffix}`} titleId={titleId} closeLabel="Close card details" />
+            <MoneyModalHeader title={`Card details${detailsSuffix}`} titleId={titleId} closeLabel="Close card details" />
             <MoneyModalBody className="gap-3 pt-4">
               {revealed ? <CardDetailsReveal cardId={card.id} publishableKey={reveal.publishableKey} revealKey={reveal.revealKey} /> : null}
             </MoneyModalBody>
@@ -203,27 +207,36 @@ function IssuedCardOverview({ card, restricted, showHold, single, pending, onLoc
 }
 
 export function CardScreen({ cards, commands, onRetry, onOpenVerification, reveal, ownerBoundary = null }: CardScreenProps) {
-  const [pending, setPending] = useState<Pending>(null);
+  const [running, setRunning] = useState<PendingRun | null>(null);
+  const pending: Pending = running && running.boundary === ownerBoundary ? running.kind : null;
+  const currentBoundary = useRef(ownerBoundary);
+  useLayoutEffect(() => { currentBoundary.current = ownerBoundary; }, [ownerBoundary]);
   const { add } = useHomeToast(ownerBoundary);
 
-  async function run(kind: Exclude<Pending, null>, work: () => Promise<void>, failure: string) {
+  async function run(kind: Exclude<Pending, null>, work: () => Promise<Settled>, failure: string) {
     if (pending) return;
-    setPending(kind);
+    const started: PendingRun = { kind, boundary: ownerBoundary };
+    const sameOwner = () => currentBoundary.current === started.boundary;
+    setRunning(started);
     try {
-      await work();
+      const settled = await work();
+      if (sameOwner()) settled?.();
     } catch (error) {
-      add({ message: error instanceof CardRefreshError ? "Couldn't refresh your card. Try again." : failure, tone: "error", role: "alert" });
+      if (sameOwner()) add({ message: error instanceof CardRefreshError ? "Couldn't refresh your card. Try again." : failure, tone: "error", role: "alert" });
       void reportClientError({
         name: error instanceof Error ? error.name : "Error",
         message: `Card ${kind} failed`,
         route: window.location.pathname,
       });
     } finally {
-      setPending(null);
+      setRunning((value) => value === started ? null : value);
     }
   }
 
-  const enroll = () => void run("enroll", async () => onOpenVerification(await commands.enroll()), "Couldn't start verification. Try again.");
+  const enroll = () => void run("enroll", async () => {
+    const url = await commands.enroll();
+    return () => onOpenVerification(url);
+  }, "Couldn't start verification. Try again.");
   const issue = (failure: string) => void run("issue", commands.issue, failure);
 
   if (cards.status === "loading") {
@@ -241,6 +254,7 @@ export function CardScreen({ cards, commands, onRetry, onOpenVerification, revea
   const issued = state === "active" || state === "frozen" || state === "restricted";
   const live = cards.response.cards.filter((item) => item.status !== "canceled").reverse();
   const single = live.length === 1;
+  const sharesLast4 = (last4: string) => live.filter((item) => item.last4 === last4).length > 1;
   return (
     <div className="space-y-4">
       {state === "not-enrolled" ? (
@@ -271,10 +285,11 @@ export function CardScreen({ cards, commands, onRetry, onOpenVerification, revea
       ) : null}
       {state === "restricted" && !live.length ? <HoldAlert description="You can't create a card right now." /> : null}
       {state === "restricted" && live.length > 1 ? <HoldAlert description="New purchases are declined." /> : null}
-      {issued ? live.map((card) => (
+      {issued ? live.map((card, index) => (
         <IssuedCardOverview
           key={card.id}
           card={card}
+          position={sharesLast4(card.last4) ? index + 1 : undefined}
           restricted={state === "restricted"}
           showHold={state === "restricted" && single}
           single={single}
@@ -282,7 +297,7 @@ export function CardScreen({ cards, commands, onRetry, onOpenVerification, revea
           reveal={reveal}
           onLock={(locked) => void run("lock", async () => {
             await commands.setFrozen(card.id, locked);
-            add({ message: locked ? "Card locked" : "Card unlocked", tone: "success" });
+            return () => add({ message: locked ? "Card locked" : "Card unlocked", tone: "success" });
           }, locked ? "Couldn't lock your card. Try again." : "Couldn't unlock your card. Try again.")}
         />
       )) : null}

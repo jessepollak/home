@@ -28,6 +28,8 @@ export class CardRefreshError extends Error {
   }
 }
 
+type ConfirmRead = (response: CardsResponse) => boolean;
+
 export function useCards({ ownerKey, fetchAccountResource }: {
   ownerKey: string | null;
   fetchAccountResource: FetchAccountResource;
@@ -49,20 +51,30 @@ export function useCards({ ownerKey, fetchAccountResource }: {
   });
 
   const refresh = useCallback(() => queryClient.invalidateQueries({ queryKey, exact: true }), [queryClient, queryKey]);
-  const confirmedWrite = useCallback(async (write: () => Promise<void>) => {
-    const reread = () => queryClient.refetchQueries({ queryKey, exact: true }, { throwOnError: true });
+  const reread = useCallback(async (): Promise<CardsResponse> => {
+    const before = queryClient.getQueryState(queryKey)?.dataUpdateCount ?? 0;
+    await queryClient.refetchQueries({ queryKey, exact: true }, { throwOnError: true });
+    const state = queryClient.getQueryState<CardsResponse>(queryKey);
+    if (!state || state.fetchStatus !== "idle" || state.status !== "success" || state.dataUpdateCount <= before || !state.data) {
+      throw new Error("Card re-read did not complete");
+    }
+    return state.data;
+  }, [queryClient, queryKey]);
+  const confirmedWrite = useCallback(async (write: () => Promise<void>, confirms: ConfirmRead) => {
     try {
       await write();
     } catch (error) {
       await reread().catch(() => undefined);
       throw error;
     }
+    let response: CardsResponse;
     try {
-      await reread();
+      response = await reread();
     } catch (error) {
       throw new CardRefreshError({ cause: error });
     }
-  }, [queryClient, queryKey]);
+    if (response.state === "unavailable" || !confirms(response)) throw new CardRefreshError();
+  }, [reread]);
 
   const commands = useMemo((): CardCommands => ({
     enroll: async () => {
@@ -70,16 +82,20 @@ export function useCards({ ownerKey, fetchAccountResource }: {
       if (!response) throw new Error("Invalid enrollment response");
       return response.kycUrl;
     },
-    issue: () => confirmedWrite(async () => {
-      const response = parseCardWriteResponse(await fetchAccountResource("/api/cards", { method: "POST", body: {} }));
-      if (!response) throw new Error("Invalid card response");
-    }),
+    issue: () => {
+      let issuedId: string | null = null;
+      return confirmedWrite(async () => {
+        const response = parseCardWriteResponse(await fetchAccountResource("/api/cards", { method: "POST", body: {} }));
+        if (!response) throw new Error("Invalid card response");
+        issuedId = response.card.id;
+      }, (read) => read.cards.some((card) => card.id === issuedId && card.status !== "canceled"));
+    },
     setFrozen: (cardId, frozen) => confirmedWrite(async () => {
       const response = parseCardWriteResponse(await fetchAccountResource(
         `/api/cards/${encodeURIComponent(cardId)}/${frozen ? "freeze" : "unfreeze"}`, { method: "POST", body: {} },
       ));
       if (!response || response.card.id !== cardId) throw new Error("Invalid card response");
-    }),
+    }, (read) => read.cards.find((card) => card.id === cardId)?.status === (frozen ? "frozen" : "active")),
     revealKey: async (cardId, nonce) => {
       const response = parseCardEphemeralKeyResponse(await fetchAccountResource(
         `/api/cards/${encodeURIComponent(cardId)}/ephemeral-key`, { method: "POST", body: { nonce } },
