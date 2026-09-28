@@ -517,12 +517,14 @@ export const DetailLongExactAmount: Story = {
     const unit = dialog.querySelector<HTMLElement>('[data-slot="activity-amount-unit"]');
     if (!number || !scroll || !unit) throw new Error("Missing split amount headline");
     await expect(unit).toHaveTextContent("LONGSYMBOLTOKEN");
+    await waitFor(async () => {
+      await expect(scroll).toHaveAttribute("tabindex", "0");
+      await expect(scroll.scrollWidth).toBeGreaterThan(scroll.clientWidth);
+    });
     await expect(number.getClientRects().length).toBe(1);
     const bounds = dialog.getBoundingClientRect();
     await expect(scroll.getBoundingClientRect().left).toBeGreaterThanOrEqual(bounds.left);
     await expect(scroll.getBoundingClientRect().right).toBeLessThanOrEqual(bounds.right);
-    await expect(scroll).toHaveAttribute("tabindex", "0");
-    await expect(scroll.scrollWidth).toBeGreaterThan(scroll.clientWidth);
   },
 };
 export const Desktop: Story = {

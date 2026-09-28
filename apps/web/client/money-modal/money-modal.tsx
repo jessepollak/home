@@ -109,7 +109,6 @@ function MoneyModalStepHost({ children }: { children: ReactNode }) {
     const prior = previous.current;
     previous.current = next;
     if (!prior) {
-      lastHeight.current = host.offsetHeight;
       stepFocusTarget(next, true).focus({ preventScroll: true });
       return;
     }
@@ -139,7 +138,7 @@ function MoneyModalStepHost({ children }: { children: ReactNode }) {
     };
     stepAnimation.onfinish = finishStep;
     stepAnimation.oncancel = finishStep;
-    if (reduced || Math.abs(endHeight - startHeight) < 1 || typeof host.animate !== "function") return;
+    if (reduced || startHeight <= 0 || Math.abs(endHeight - startHeight) < 1 || typeof host.animate !== "function") return;
     host.style.setProperty("overflow", "hidden");
     const heightAnimation = host.animate(
       [{ height: `${startHeight}px` }, { height: `${endHeight}px` }],

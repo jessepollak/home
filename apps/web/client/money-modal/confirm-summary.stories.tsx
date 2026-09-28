@@ -104,10 +104,12 @@ async function checkFit(canvasElement: HTMLElement, value: string) {
 
 async function checkFallback(canvasElement: HTMLElement, value: string) {
   const headline = await checkFit(canvasElement, value);
-  const number = headline.querySelector('[data-slot="confirm-amount-number"]');
-  const unit = headline.querySelector('[data-slot="confirm-amount-unit"]');
-  if (!(number instanceof HTMLElement) || !(unit instanceof HTMLElement)) throw new Error("Missing fallback lines");
-  await expect(unit.getBoundingClientRect().top).toBeGreaterThanOrEqual(number.getBoundingClientRect().bottom - 1);
+  await waitFor(async () => {
+    const number = headline.querySelector('[data-slot="confirm-amount-number"]');
+    const unit = headline.querySelector('[data-slot="confirm-amount-unit"]');
+    if (!(number instanceof HTMLElement) || !(unit instanceof HTMLElement)) throw new Error("Missing fallback lines");
+    await expect(unit.getBoundingClientRect().top).toBeGreaterThanOrEqual(number.getBoundingClientRect().bottom - 1);
+  });
 }
 
 function EnlargedText({ children }: { children: ReactNode }) {
@@ -133,7 +135,7 @@ export const LargeWholeMobile: Story = {
   render: (args) => frame(320, args),
   play: async ({ canvasElement }) => {
     const headline = await checkFit(canvasElement, "$12,345,678,901");
-    await expect(renderedWidth(headline)).toBeLessThan(heroWidth(headline) - 1);
+    await waitFor(async () => { await expect(renderedWidth(headline)).toBeLessThan(heroWidth(headline) - 1); });
   },
 };
 
