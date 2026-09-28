@@ -61,7 +61,6 @@ const meta = {
   args: { entry: "discover" },
   beforeEach: () => { getHomeQueryClient().clear(); return () => getHomeQueryClient().clear(); },
   parameters: { layout: "fullscreen", a11y: { test: "error" }, viewport: { defaultViewport: "mobile" },
-    design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=422-4404" },
     msw: { handlers: [
       http.get("/api/market-prices/history", ({ request }) => {
         const url = new URL(request.url);

@@ -101,7 +101,6 @@ const meta = {
   parameters: {
     layout: "fullscreen", viewport: { defaultViewport: "mobile" }, a11y: { test: "error" },
     docs: { description: { component: "Unreviewed #638 regional Home content proposal, without navigation chrome. Amounts, region availability and activity are fixed illustrative fixtures; nothing is connected to live money or routes. BR dates render in pt-BR while fixture labels are English (production ActivityPanelView behavior). Production ActivityPanelView rows still truncate at 200% text; consuming-leaf follow-up." } },
-    design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=311-12034" },
   },
 } satisfies Meta<typeof RegionalHomeProposal>;
 export default meta;

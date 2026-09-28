@@ -23,7 +23,7 @@ const meta = {
   component: Progress,
   args: { label: "Identity check", value: 2, max: 3 },
   decorators: [(Story) => <div className="w-[326px]"><Story /></div>],
-  parameters: { layout: "centered", a11y: { test: "error" }, design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=161-1923" } },
+  parameters: { layout: "centered", a11y: { test: "error" } },
 } satisfies Meta<typeof Progress>;
 
 export default meta;

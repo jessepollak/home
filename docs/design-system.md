@@ -8,7 +8,7 @@ Home is a shadcn app using the Base UI preset. The migration history and owner d
 - [Rules](design-system/rules.md)
 - [Styling guards](design-system/styling-guards.md)
 - See [Home-owned product pieces](design-system/product-pieces/) for one file per product behavior.
-- See [Home section primitives](design-system/primitives/) for one file per primitive, each naming the code that constructs it and the Figma component it corresponds to in [figma-mapping.json](design-explorations/figma-mapping.json) (#683).
+- See [Home section primitives](design-system/primitives/) for one file per primitive, each naming its production component and Storybook review story (#683).
 - [Testing](design-system/testing.md)
 - The teardown and sheet-deferral measurements live in [measurements](design-system/measurements/), one file per measured change.
 - [Story inventories](design-system/stories/)

@@ -40,8 +40,6 @@ const config: StorybookConfig = {
   ],
   addons: [
     "@storybook/addon-a11y",
-    // Figma frame beside each story (parameters.design); see figma-components.json.
-    "@storybook/addon-designs",
     "@storybook/addon-vitest",
     "@storybook/addon-mcp",
   ],

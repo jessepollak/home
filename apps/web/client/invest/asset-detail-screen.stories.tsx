@@ -239,7 +239,6 @@ const meta = {
   },
   parameters: {
     layout: "fullscreen", a11y: { test: "error" },
-    design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=422-4404" },
     msw: { handlers: [historyHandler(), statsHandler()] },
     viewport: { defaultViewport: "mobile", viewports: {
       mobile: { name: "Phone 390", styles: { width: "390px", height: "844px" } },

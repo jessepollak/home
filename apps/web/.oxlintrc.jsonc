@@ -253,8 +253,7 @@
       "excludeFiles": [
         "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
-        "**/tests/**",
-        "**/explorations/code-connect/**/*.figma.ts"
+        "**/tests/**"
       ],
       "rules": {
         "home/no-comments": "error"
@@ -518,10 +517,6 @@
           }
         ]
       }
-    },
-    {
-      "files": ["**/explorations/code-connect/**/*.figma.ts"],
-      "rules": {"import/no-anonymous-default-export": "off"}
     }
   ]
 }
