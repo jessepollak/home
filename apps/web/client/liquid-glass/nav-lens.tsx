@@ -321,6 +321,7 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
     document.addEventListener("visibilitychange", hide, { signal });
     return () => {
       off.abort();
+      retarget.current = null;
       clearTimeout(narrow);
       clearTimeout(settle);
       nav.removeAttribute("data-lens-pressed");
