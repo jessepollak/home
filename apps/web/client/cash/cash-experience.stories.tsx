@@ -405,8 +405,10 @@ export const CashValueUnpricedWithUsdQuote: Story = { args: { snapshot: cashValu
 } };
 export const HoldingUnavailable: Story = { args: { snapshot: holdingUnavailableSnapshot }, play: async ({ canvasElement }) => {
   const currencies = within(within(canvasElement).getByRole("region", { name: "Currencies" }));
-  await expect(currencies.getAllByRole("listitem")).toHaveLength(1);
-  await expect(currencies.queryByText("Rupiah")).toBeNull();
+  await expect(currencies.getAllByRole("listitem")).toHaveLength(2);
+  const rupiah = currencies.getByText("Rupiah").closest("li")!;
+  await expect(within(rupiah).getByText("Unavailable")).toBeVisible();
+  await expect(rupiah).not.toHaveTextContent("$0.00");
   await expect(await within(canvasElement).findByRole("button", { name: /^US dollar/ })).toBeVisible();
 } };
 export const LocalHoldingUnavailable: Story = { args: { snapshot: localHoldingUnavailableSnapshot }, play: async ({ canvasElement }) => {
