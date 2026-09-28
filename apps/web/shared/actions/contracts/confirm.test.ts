@@ -8,7 +8,7 @@ const calls = [{
   value: "0",
 }];
 
-test("Base batch gas hint requires every intermediate call to be an exact token approval", () => {
+test("Base batch gas hint requires independent intermediate token calls", () => {
   const approve = { data: `0x095ea7b3${"0".repeat(64)}${"f".repeat(64)}` };
   const upperSelectorApprove = { data: `0x095EA7B3${"A".repeat(128)}` };
   const supplyCollateral = { data: "0x238d6579" };
@@ -23,6 +23,15 @@ test("Base batch gas hint requires every intermediate call to be an exact token 
   expect(supportsBaseBatchGasHint([approve, upperSelectorApprove, supplyCollateral, borrow])).toBe(false);
   expect(supportsBaseBatchGasHint([approve, { data: "0x095ea7b3" }, swap])).toBe(false);
   expect(supportsBaseBatchGasHint([approve, { data: `${approve.data}00` }, swap])).toBe(false);
+  const transfer = { data: `0xa9059cbb${"0".repeat(24)}${"1".repeat(40)}${"0".repeat(63)}1` };
+  expect(supportsBaseBatchGasHint([approve, transfer, swap])).toBe(true);
+  expect(supportsBaseBatchGasHint([transfer, approve, swap])).toBe(true);
+  expect(supportsBaseBatchGasHint([approve, transfer, approve, swap])).toBe(true);
+  expect(supportsBaseBatchGasHint([approve, swap, transfer])).toBe(false);
+  expect(supportsBaseBatchGasHint([swap, transfer])).toBe(true);
+  expect(supportsBaseBatchGasHint([swap, transfer, swap])).toBe(false);
+  expect(supportsBaseBatchGasHint([approve, { data: `${transfer.data}00` }, swap])).toBe(false);
+  expect(supportsBaseBatchGasHint([approve, { data: transfer.data.replace(/^0xa9059cbb0/, "0xa9059cbb1") }, swap])).toBe(false);
 });
 
 describe("confirm action response parser", () => {

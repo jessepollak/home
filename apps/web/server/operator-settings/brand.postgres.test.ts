@@ -32,7 +32,7 @@ describePostgres("brand settings persistence", () => {
       expect((await store.read("brand")).settings.value).toEqual(value);
       const next = { ...value, description: "A better home for money" };
       const handlers = createSettingsDomainHandlers({ authorize: async () => session, config: () => readOperatorConfig({ HOME_OPERATOR_ADDRESSES: actor }), store: () => store });
-      const request = new Request("https://home.test/api/admin/settings/brand", { method: "PUT", headers: { origin: "https://home.test", "content-type": "application/json" }, body: JSON.stringify(brandSettingsPutRequest(1, next)) });
+      const request = new Request("https://home.test/api/admin/settings/brand", { method: "PUT", headers: { origin: "https://home.test", "content-type": "application/json" }, body: JSON.stringify(brandSettingsPutRequest(1, next, actor)) });
       const response = await handlers.PUT(request, { params: Promise.resolve({ domain: "brand" }) });
       expect(response.status).toBe(200);
       expect(response.headers.get("cache-control")).toContain("private");

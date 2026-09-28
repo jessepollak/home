@@ -4,6 +4,7 @@ import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { BASE_USDC_PAYMASTER_ADDRESS } from "@/shared/money-actions/network-fee";
+import { OPERATOR_FEE_TOKEN, operatorFeeAmount } from "@/shared/fees/contract";
 import type { TradeActionParams, TradeDirection } from "@/shared/trading/contract";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { memeAssets } from "@/config/invest-assets";
@@ -51,6 +52,23 @@ function syntheticAction(params: TradeActionParams, expired = false, tinyPrice =
   };
 }
 
+function withServiceFee(action: PreparedMoneyAction): PreparedMoneyAction {
+  if (action.metadata?.product !== "trade") return action;
+  const buy = action.metadata.direction === "buy";
+  const gross = BigInt(buy ? action.metadata.fromAmountBaseUnits : "50000000");
+  const fee = operatorFeeAmount(gross, 50);
+  const expected = buy ? BigInt(action.metadata.expectedToAmountBaseUnits) : BigInt(50_500_000);
+  return {
+    ...action,
+    amounts: action.amounts.map((amount) => buy || amount.direction === "spend" ? amount : { ...amount, amountBaseUnits: (expected - fee).toString() }),
+    metadata: {
+      ...action.metadata,
+      ...(buy ? { fromAmountBaseUnits: (gross - fee).toString() } : { expectedToAmountBaseUnits: expected.toString(), minimumToAmountBaseUnits: gross.toString() }),
+      operatorFee: { amountBaseUnits: fee.toString(), token: OPERATOR_FEE_TOKEN, bps: 50, recipient: "0x3333333333333333333333333333333333333333", collectedBy: "in-batch-transfer" },
+    },
+  };
+}
+
 type StoryProps = {
   direction?: TradeDirection;
   view?: "amount" | "review" | "expired" | "error" | "availability";
@@ -58,9 +76,10 @@ type StoryProps = {
   errorCode?: string;
   networkFee?: "available" | "failed";
   tinyPrice?: boolean;
+  serviceFee?: boolean;
   assetName?: string;
 };
-function TradeStory({ direction = "buy", view = "amount", availability = "available", errorCode, networkFee = "available", tinyPrice = false, assetName = "DEGEN" }: StoryProps) {
+function TradeStory({ direction = "buy", view = "amount", availability = "available", errorCode, networkFee = "available", tinyPrice = false, serviceFee = false, assetName = "DEGEN" }: StoryProps) {
   const [client] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: false } } }));
   const [preparations, setPreparations] = useState(0);
   const fetchAccountResource = async (path: string) => path.startsWith("/api/trades?")
@@ -76,7 +95,8 @@ function TradeStory({ direction = "buy", view = "amount", availability = "availa
         : { version: 1, usdcReserveBaseUnits: "20000" };
   const prepareMoneyAction = async (_kind: string, input: unknown) => {
     if (errorCode) throw { code: errorCode };
-    const result = syntheticAction(input as TradeActionParams, view === "expired" && preparations === 0, tinyPrice);
+    const quoted = syntheticAction(input as TradeActionParams, view === "expired" && preparations === 0, tinyPrice);
+    const result = serviceFee ? withServiceFee(quoted) : quoted;
     setPreparations((count) => count + 1);
     return result;
   };
@@ -98,10 +118,10 @@ function TradeStory({ direction = "buy", view = "amount", availability = "availa
   </PresentationRegionProvider></QueryClientProvider>;
 }
 
-async function enterReview(canvasElement: HTMLElement, direction: TradeDirection, useMax = false) {
+async function enterReview(canvasElement: HTMLElement, direction: TradeDirection, useMax = false, amount = direction === "buy" ? "1" : "0.5") {
   const screen = within(canvasElement.ownerDocument.body);
   if (useMax) await userEvent.click(await screen.findByRole("button", { name: "Max" }));
-  else await userEvent.type(await screen.findByRole("textbox", { name: "Amount" }), direction === "buy" ? "1" : "0.5");
+  else await userEvent.type(await screen.findByRole("textbox", { name: "Amount" }), amount);
   await userEvent.click(await screen.findByRole("button", { name: "Continue" }));
   await expect(await screen.findByText("You get")).toBeVisible();
   return screen;
@@ -183,6 +203,14 @@ export const ReviewDetailsOpen: Story = {
     await expect(await screen.findByText("Max slippage")).toBeVisible();
   },
 };
+export const BuyReviewWithServiceFee: Story = {
+  args: { view: "review", serviceFee: true },
+  play: async ({ canvasElement }) => {
+    const screen = await enterReview(canvasElement, "buy", false, "4");
+    await expect((await screen.findByText("Service fee")).nextElementSibling).toHaveTextContent("$0.02 (0.5%)");
+    await expect(await screen.findByRole("button", { name: "Buy $4.00" })).toBeEnabled();
+  },
+};
 export const SellAmount: Story = {
   args: { direction: "sell" },
   play: async ({ canvasElement }) => {
@@ -218,6 +246,16 @@ export const SellAllReview: Story = {
   play: async ({ canvasElement }) => {
     const screen = await enterReview(canvasElement, "sell", true);
     await expect(await screen.findByRole("button", { name: "Sell 100 DEGEN" })).toBeEnabled();
+  },
+};
+export const SellReviewWithServiceFee: Story = {
+  args: { view: "review", direction: "sell", serviceFee: true },
+  play: async ({ canvasElement }) => {
+    const screen = await enterReview(canvasElement, "sell", true);
+    await expect((await screen.findByText("You get")).nextElementSibling).toHaveTextContent("≈ $50.25");
+    await expect((await screen.findByText("Service fee")).nextElementSibling).toHaveTextContent("$0.25 (0.5%)");
+    await userEvent.click(await screen.findByRole("button", { name: "Details" }));
+    await expect((await screen.findByText("Minimum received")).nextElementSibling).toHaveTextContent("$49.75");
   },
 };
 export const ExpiredQuote: Story = {

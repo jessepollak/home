@@ -1,10 +1,11 @@
 import "@/client/account/dom-test-harness";
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import type { TradeDirection } from "@/shared/trading/contract";
 import type { UseActivityResult } from "./use-activity";
 import { tradePrepareFixture } from "@/tests/browser/feature-map/fixtures";
+import { OPERATOR_FEE_TOKEN } from "@/shared/fees/contract";
 
 const { cleanup, fireEvent, render, within } = await import("@testing-library/react");
 const { ActivityPanelView } = await import("./activity-panel");
@@ -37,6 +38,8 @@ const activity: UseActivityResult = {
 
 afterEach(cleanup);
 
+beforeAll(async () => { await import("./activity-ledger-sheet"); });
+
 describe("trade activity presentation", () => {
   test.each([
     ["buy", "confirmed", "Bought Bitcoin", "Buy Bitcoin"],
@@ -53,6 +56,7 @@ describe("trade activity presentation", () => {
     expect(row.textContent).toContain(title);
     fireEvent.click(row);
     const details = await view.findByRole("dialog", { name: title });
+    await within(details).findByText("You receive");
     if (type !== title) expect(within(details).getByText("Operation").nextElementSibling?.textContent).toBe(type);
     else expect(within(details).queryByText("Operation")).toBeNull();
     expect(within(details).getByText("You receive").nextElementSibling?.textContent).toMatch(/^Estimated /);
@@ -65,8 +69,34 @@ describe("trade activity presentation", () => {
     const view = render(<ActivityPanelView activity={activity} operations={[buy]} />);
     fireEvent.click(view.getByRole("button", { description: "View Bought Bitcoin transaction details" }));
     const details = await view.findByRole("dialog", { name: "Bought Bitcoin" });
-    const contract = within(details).getByText(`${metadata.toAsset.symbol} contract`).nextElementSibling;
+    const contract = (await within(details).findByText(`${metadata.toAsset.symbol} contract`)).nextElementSibling;
     expect(contract?.querySelector(`[title="${metadata.toAsset.address}"]`)).not.toBeNull();
+  });
+
+  test.each([
+    ["buy", "Bought Bitcoin", "$0.005 (0.5%)", "Estimated 0.000014 cbBTC"],
+    ["sell", "Sold Bitcoin", "$0.17 (0.5%)", "Estimated 34.83 USDC"],
+  ] as const)("a %s with an operator fee shows the service fee beside the customer amounts", async (direction, title, fee, receive) => {
+    const trade = operation(direction, "confirmed");
+    const metadata = trade.action.metadata;
+    if (metadata?.product !== "trade") throw new Error("trade fixture metadata missing");
+    const feeBaseUnits = direction === "buy" ? "5000" : "170000";
+    metadata.operatorFee = { amountBaseUnits: feeBaseUnits, token: OPERATOR_FEE_TOKEN, bps: 50,
+      recipient: "0x3333333333333333333333333333333333333333", collectedBy: "in-batch-transfer" };
+    trade.action.amounts = trade.action.amounts.map((amount) => direction === "sell" && amount.direction === "receive"
+      ? { ...amount, amountBaseUnits: (BigInt(amount.amountBaseUnits) - BigInt(feeBaseUnits)).toString() } : amount);
+    const view = render(<ActivityPanelView activity={activity} operations={[trade]} />);
+    fireEvent.click(view.getByRole("button", { description: `View ${title} transaction details` }));
+    const details = await view.findByRole("dialog", { name: title });
+    expect((await within(details).findByText("Service fee", {}, { timeout: 5_000 })).nextElementSibling?.textContent).toBe(fee);
+    expect((await within(details).findByText("You receive", {}, { timeout: 5_000 })).nextElementSibling?.textContent).toBe(receive);
+  });
+
+  test("a trade without an operator fee has no service fee fact", async () => {
+    const view = render(<ActivityPanelView activity={activity} operations={[operation("sell", "confirmed")]} />);
+    fireEvent.click(view.getByRole("button", { description: "View Sold Bitcoin transaction details" }));
+    const details = await view.findByRole("dialog", { name: "Sold Bitcoin" });
+    expect(within(details).queryByText("Service fee")).toBeNull();
   });
 
   test("missing trade metadata preserves the stored title", () => {

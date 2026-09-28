@@ -95,8 +95,10 @@ async function revealNextPage(region: HTMLElement, visible: number, total: numbe
   await expect(status).toHaveTextContent(`Showing ${visible} of ${total} investments`);
   const sentinel = status.nextElementSibling;
   if (!(sentinel instanceof HTMLElement)) throw new Error("Missing pagination sentinel");
-  sentinel.scrollIntoView({ block: "center", behavior: "instant" });
-  await waitFor(() => expect(within(region).getAllByRole("listitem")).toHaveLength(Math.min(visible + 20, total)), { timeout: 2_000 });
+  await waitFor(async () => {
+    sentinel.scrollIntoView({ block: "center", behavior: "instant" });
+    await expect(within(region).getAllByRole("listitem")).toHaveLength(Math.min(visible + 20, total));
+  }, { timeout: 2_000 });
 }
 async function assertSnapshot(canvasElement: HTMLElement, snapshot: BalancesSnapshot) {
   const canvas = screen(canvasElement);

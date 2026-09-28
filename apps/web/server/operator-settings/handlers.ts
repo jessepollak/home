@@ -100,6 +100,9 @@ export function createSettingsDomainHandlers(deps: Dependencies = {}) {
       const parsed = parsePutSettingsRequest(body);
       const definition = settingsStore.registry[domain];
       if (!parsed || !definition || (definition.parseWrite ?? definition.parse)(parsed.value) === null) return error("INVALID_REQUEST", 400);
+      if (parsed.operator !== decision.address.toLowerCase()) {
+        return privateJson({ error: { code: "OPERATOR_CHANGED" }, current: { version: OPERATOR_SETTINGS_CONTRACT_VERSION, ...await settingsStore.read(domain) } }, 409);
+      }
       try {
         const written = await settingsStore.write({ domain, value: parsed.value, expectedRevision: parsed.expectedRevision, actor: decision.address });
         if (domain === REGIONS_SETTINGS_DOMAIN) invalidateRegionPolicy();
