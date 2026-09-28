@@ -4,6 +4,7 @@ import { parseAddress } from "@/shared/chain/hex";
 import { generateJwt } from "@coinbase/cdp-sdk/auth";
 import { emitServerEvent } from "@/server/observability/log";
 import { resolveSecretKeyring, type SecretKeyring } from "@/server/secrets/at-rest";
+import { isRecord, isUnknownArray } from "@/shared/guards";
 import { canOpenWebhookSecret } from "./webhook-secret";
 import {
   getWebhookSubscriptionStore,
@@ -280,9 +281,9 @@ async function requestJson(options: {
 }
 
 function parseSubscriptions(value: unknown): Subscription[] {
-  const rows = isRecord(value) && Array.isArray(value.subscriptions)
+  const rows = isRecord(value) && isUnknownArray(value.subscriptions)
     ? value.subscriptions
-    : Array.isArray(value) ? value : null;
+    : isUnknownArray(value) ? value : null;
   if (!rows) throw new Error("cdp-webhooks-invalid-list");
   return rows.flatMap(parseSubscription);
 }
@@ -290,7 +291,7 @@ function parseSubscriptions(value: unknown): Subscription[] {
 function parseSubscription(value: unknown): Subscription[] {
   if (!isRecord(value)) return [];
   const id = stringField(value, "subscriptionId", "id");
-  const eventTypes = Array.isArray(value.eventTypes)
+  const eventTypes = isUnknownArray(value.eventTypes)
     ? value.eventTypes.filter((entry): entry is string => typeof entry === "string")
     : typeof value.event_type === "string" ? [value.event_type] : [];
   const targetUrl = isRecord(value.target) && typeof value.target.url === "string"
@@ -313,10 +314,10 @@ function parseSubscription(value: unknown): Subscription[] {
 }
 
 function legacyLabels(value: unknown): Record<string, string> {
-  if (!Array.isArray(value)) return {};
+  if (!isUnknownArray(value)) return {};
   const filter = value.find((entry) => isRecord(entry) && entry.network === CDP_ACTIVITY_NETWORK);
   if (!isRecord(filter)) return {};
-  const addresses = Array.isArray(filter.addresses)
+  const addresses = isUnknownArray(filter.addresses)
     ? filter.addresses.filter((entry): entry is string => typeof entry === "string")
     : [];
   return { network: CDP_ACTIVITY_NETWORK, wallet_addresses: addresses.join(",") };
@@ -418,8 +419,4 @@ function observeSubscriptionFailure(reason: string): void {
     provider: reason,
     durationMs: 0,
   });
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

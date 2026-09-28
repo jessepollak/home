@@ -48,6 +48,58 @@ function subscription(addresses: string[] = [OTHER]) {
 }
 
 describe("CDP balance webhook subscriptions", () => {
+  test("reports a non-array subscriptions list as invalid", async () => {
+    const failures: string[] = [];
+    const manager = createCdpWebhookSubscriptions({
+      env, store: persistentStore(), generateJwtImpl: jwt,
+      logFailure: (reason) => failures.push(reason),
+      fetchImpl: async () => Response.json({ subscriptions: "not-an-array" }),
+    });
+    await expect(manager.ensureAddressSubscribed(ADDRESS)).resolves.toBeUndefined();
+    expect(failures).toEqual(["cdp-webhooks-invalid-list"]);
+  });
+
+  test("falls back to legacy event_type when eventTypes is not an array", async () => {
+    const requests: string[] = [];
+    let updated = false;
+    const manager = createCdpWebhookSubscriptions({
+      env, store: persistentStore(["subscription-1"]), generateJwtImpl: jwt,
+      fetchImpl: async (_input, init) => {
+        const method = init?.method ?? "GET";
+        requests.push(method);
+        if (method === "PUT") updated = true;
+        return Response.json({ subscriptions: [{
+          ...subscription(updated ? [OTHER, ADDRESS] : [OTHER]),
+          eventTypes: "not-an-array",
+          event_type: "wallet_activity",
+        }] });
+      },
+    });
+    await manager.ensureAddressSubscribed(ADDRESS);
+    expect(requests).toEqual(["GET", "GET", "PUT", "GET"]);
+  });
+
+  test("does not update a legacy subscription with non-array event_filters", async () => {
+    const requests: string[] = [];
+    const manager = createCdpWebhookSubscriptions({
+      env, store: persistentStore(["subscription-1"]), generateJwtImpl: jwt,
+      fetchImpl: async (_input, init) => {
+        const method = init?.method ?? "GET";
+        requests.push(method);
+        return method === "POST"
+          ? Response.json({ subscriptionId: "new-subscription", secret: "new-secret" })
+          : Response.json({ subscriptions: [{
+              id: "subscription-1",
+              event_type: "wallet_activity",
+              notification_uri: "https://home.example/api/webhooks/cdp",
+              event_filters: "not-an-array",
+            }] });
+      },
+    });
+    await manager.ensureAddressSubscribed(ADDRESS);
+    expect(requests).toEqual(["GET", "POST"]);
+  });
+
   test("unreadable local secret blocks creation without disclosing it", async () => {
     const failures: string[] = [];
     const requests: string[] = [];

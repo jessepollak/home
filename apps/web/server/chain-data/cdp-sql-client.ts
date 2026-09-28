@@ -1,6 +1,7 @@
 import "server-only";
 
 import { generateJwt } from "@coinbase/cdp-sdk/auth";
+import { isRecord, isUnknownArray } from "@/shared/guards";
 import { ChainDataError } from "./errors";
 import type {
   CdpSqlResponse,
@@ -320,7 +321,7 @@ function normalizeResultRows(
   result: unknown,
   declaredRowCount: number | null,
 ): unknown[] | typeof INVALID {
-  if (Array.isArray(result)) return result;
+  if (isUnknownArray(result)) return result;
   if (result === null && declaredRowCount === 0) return [];
   return INVALID;
 }
@@ -378,7 +379,7 @@ function readOptionalSchema(
   value: unknown,
 ): CdpSqlResponse["schema"] | undefined {
   if (value === undefined || value === null) return undefined;
-  if (!isRecord(value) || !Array.isArray(value.columns)) return undefined;
+  if (!isRecord(value) || !isUnknownArray(value.columns)) return undefined;
   const columns = value.columns.flatMap((column) => {
     if (
       !isRecord(column) ||
@@ -398,8 +399,4 @@ function normalizeMetadataTimestamp(value: string): string | null {
     : `${value.replace(" ", "T")}Z`;
   const parsed = new Date(withZone);
   return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
