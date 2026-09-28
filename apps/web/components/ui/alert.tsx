@@ -42,7 +42,7 @@ function Alert({
       className={cn(alertVariants({ variant }), className)}
       {...props}
     >
-      <div data-slot="alert-content" className="grid min-w-0 flex-1 basis-48 grid-cols-[minmax(0,1fr)] gap-x-2.5 has-data-[slot=alert-icon]:grid-cols-[1rem_minmax(0,1fr)]">
+      <div data-slot="alert-content" className="group/alert-content grid min-w-0 flex-1 basis-48 grid-cols-[minmax(0,1fr)] gap-x-2.5 has-[>[data-slot=alert-icon]]:grid-cols-[1rem_minmax(0,1fr)]">
         {content}
       </div>
       {actions}
@@ -66,7 +66,7 @@ function AlertTitle({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="alert-title"
       className={cn(
-        "col-start-1 row-start-1 min-w-0 font-medium group-has-data-[slot=alert-icon]/alert:col-start-2 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground",
+        "col-start-1 row-start-1 min-w-0 font-medium group-has-[>[data-slot=alert-icon]]/alert-content:col-start-2 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground",
         className
       )}
       {...props}
@@ -82,7 +82,7 @@ function AlertDescription({
     <div
       data-slot="alert-description"
       className={cn(
-        "col-start-1 row-start-1 min-w-0 text-balance text-foreground group-has-data-[slot=alert-icon]/alert:col-start-2 group-has-data-[slot=alert-title]/alert:row-start-2 group-has-data-[slot=alert-title]/alert:mt-1 md:text-pretty [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground [&_p:not(:last-child)]:mb-4",
+        "col-start-1 row-start-1 min-w-0 text-balance text-foreground group-has-[>[data-slot=alert-icon]]/alert-content:col-start-2 group-has-[>[data-slot=alert-title]]/alert-content:row-start-2 group-has-[>[data-slot=alert-title]]/alert-content:mt-1 md:text-pretty [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground [&_p:not(:last-child)]:mb-4",
         className
       )}
       {...props}

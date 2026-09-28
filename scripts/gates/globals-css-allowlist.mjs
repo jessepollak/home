@@ -83,17 +83,19 @@ export function inventoryGlobalsCss(css) {
   const parsed = parseGlobalsCss(css);
   const imports = [];
   const customVariants = [];
+  const sources = [];
   const rules = [];
   for (const node of parsed) {
     if (node.children) rules.push(node);
     else if (node.declaration.startsWith("@import ")) imports.push(node.declaration);
     else if (node.declaration.startsWith("@custom-variant ")) customVariants.push(node.declaration);
+    else if (node.declaration.startsWith("@source ")) sources.push(node.declaration);
     else throw new Error(`Unexpected top-level CSS declaration: ${node.declaration}`);
   }
   const top = blocks(rules);
   const nested = (selector) => Object.fromEntries(Object.entries(blocks(top[selector] ?? [])).map(([inner, body]) => [inner, customProperties(body)]));
   return {
-    imports: sorted(imports), customVariants: sorted(customVariants), topLevel: sorted(Object.keys(top)),
+    imports: sorted(imports), customVariants: sorted(customVariants), sources: sorted(sources), topLevel: sorted(Object.keys(top)),
     themeInline: customProperties(top["@theme inline"] ?? []),
     root: customProperties(top[":root"] ?? []), dark: customProperties(top[".dark"] ?? []),
     supports: nested("@supports (height: 100dvh)"),

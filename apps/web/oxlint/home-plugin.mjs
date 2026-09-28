@@ -9,7 +9,7 @@ import {
   noStorybookImports,
 } from "./rules/imports.mjs";
 import { requireServerOnly } from "./rules/server-only.mjs";
-import { noLiteralUtilityStyles } from "./rules/styles.mjs";
+import { noDescendantHas, noImportantUtilities, noLiteralUtilityStyles } from "./rules/styles.mjs";
 import { noLocalFormatting } from "./rules/formatting.mjs";
 import { noRawButtons, noRawFields } from "./rules/raw-elements.mjs";
 import { noRestyle } from "./rules/no-restyle.mjs";
@@ -52,6 +52,8 @@ const homePlugin = {
     "no-relative-location-assignment": noRelativeLocationAssignment,
     "require-server-only": requireServerOnly,
     "no-literal-utility-styles": noLiteralUtilityStyles,
+    "no-descendant-has": noDescendantHas,
+    "no-important-utilities": noImportantUtilities,
     "no-local-formatting": noLocalFormatting,
     "no-raw-buttons": noRawButtons,
     "no-raw-fields": noRawFields,

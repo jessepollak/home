@@ -271,7 +271,9 @@
       ],
       "rules": {
         "home/no-restyle": "error",
-        "home/no-literal-utility-styles": "error"
+        "home/no-literal-utility-styles": "error",
+        "home/no-descendant-has": "error",
+        "home/no-important-utilities": "error"
       }
     },
     {

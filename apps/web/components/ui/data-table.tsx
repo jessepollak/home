@@ -20,11 +20,13 @@ type DataTableProps<TData> = {
   data: TData[];
   caption: string;
   density?: "default" | "compact";
+  rowState?: (row: TData) => string | undefined;
+  getRowId?: (row: TData) => string;
 };
 
-export function DataTable<TData>({ columns, data, caption, density = "default" }: DataTableProps<TData>) {
+export function DataTable<TData>({ columns, data, caption, density = "default", rowState, getRowId }: DataTableProps<TData>) {
   // oxlint-disable-next-line react-hooks/incompatible-library -- TanStack Table returns mutable functions that stay inside this component.
-  const table = useReactTable({ data, columns, getCoreRowModel: getCoreRowModel() });
+  const table = useReactTable({ data, columns, getCoreRowModel: getCoreRowModel(), getRowId });
 
   return (
     <Table className={density === "compact" ? "min-w-[44rem]" : "min-w-3xl"}>
@@ -42,7 +44,7 @@ export function DataTable<TData>({ columns, data, caption, density = "default" }
       </TableHeader>
       <TableBody>
         {table.getRowModel().rows.map((row) => (
-          <TableRow id={`country-${String((row.original as { countryCode?: string }).countryCode ?? row.id)}`} key={row.id}>
+          <TableRow data-state={rowState?.(row.original)} id={`country-${row.id}`} key={row.id}>
             {row.getVisibleCells().map((cell, index) => index === 0 ? (
               <th className={density === "compact" ? "px-1.5 py-0 text-left align-middle font-semibold whitespace-nowrap" : "p-2 text-left align-middle font-semibold whitespace-nowrap"} key={cell.id} scope="row">
                 {flexRender(cell.column.columnDef.cell, cell.getContext())}

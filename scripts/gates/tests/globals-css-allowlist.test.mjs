@@ -35,3 +35,10 @@ test("an unlisted theme token fails the globals.css allowlist", async () => {
   const allowlist = JSON.parse(await readFile(allowlistUrl, "utf8"));
   assert.throws(() => verify(css.replace("@theme inline {", "@theme inline { --color-unlisted: red;"), allowlist), /globals.css structure/);
 });
+
+test("an unlisted @source directive fails the globals.css allowlist", async () => {
+  const css = await readFile(cssUrl, "utf8");
+  const allowlist = JSON.parse(await readFile(allowlistUrl, "utf8"));
+  assert.throws(() => verify(`${css}\n@source \"../elsewhere\";\n`, allowlist), /globals.css structure/);
+  assert.throws(() => verify(css.replace('@source not "../oxlint";', ""), allowlist), /globals.css structure/);
+});
