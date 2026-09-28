@@ -213,6 +213,10 @@
       }
     },
     {
+      "files": ["{shared,client,components}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
+      "rules": { "home/no-classic-zod-imports": "error" }
+    },
+    {
       "files": [
         "{app,client,components,server,shared}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
       ],

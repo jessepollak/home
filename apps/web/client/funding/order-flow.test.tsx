@@ -5,6 +5,7 @@ import type { ComponentProps } from "react";
 import { page } from "@/tests/helpers/dom";
 import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import type { FundingBinding } from "@/shared/funding/contracts/providers";
+import { FUNDING_QUOTE_VERSION } from "@/shared/funding/contracts/quotes";
 import { MoneyModal } from "@/client/money-modal";
 
 const { cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
@@ -51,6 +52,7 @@ test("selecting a payment method does not request a quote until Review quote", a
       fetchAccountResource={async (path, options) => {
         requests.push({ path, body: options?.body });
         if (path === "/api/funding/quotes") return {
+          version: FUNDING_QUOTE_VERSION,
           quoteToken: "signed-token",
           quote: { fiatAmount: "100", tokenAmountAtomic: "100000000000000000000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" },
         };
@@ -82,6 +84,7 @@ test("confirming a funding order invalidates the owner's activity orders", async
   client.setQueryData(activityKey, { orders: [] });
   renderFlow(async (path) => {
     if (path === "/api/funding/quotes") return {
+      version: FUNDING_QUOTE_VERSION,
       quoteToken: "signed-token",
       quote: { fiatAmount: "100", tokenAmountAtomic: "100000000000000000000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" },
     };

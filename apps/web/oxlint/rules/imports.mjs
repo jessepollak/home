@@ -11,6 +11,7 @@ const browserSdkMessage =
 const baseUiMessage =
   "@base-ui/react primitives may only be imported by owned components/ui wrappers";
 const locationMessage = "Do not assign a relative URL to location; use an absolute path or URL.";
+const classicZodMessage = "shared, client, and components modules must import zod/mini instead of classic zod";
 
 function sourceValue(node) {
   if (node?.type === "Literal" || node?.type === "StringLiteral") return node.value;
@@ -77,6 +78,8 @@ function packageRoot(value) {
 }
 
 export const noStorybookImports = rule(productionIsolationMessage, isStorybookImport);
+export const noClassicZodImports = rule(classicZodMessage, (value) =>
+  value !== "zod/mini" && (value === "zod" || value.startsWith("zod/")));
 
 export const noClientServerImports = rule(clientLayerMessage, (value, filename) => {
   const current = layerForFilename(filename);
