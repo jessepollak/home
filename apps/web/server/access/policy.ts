@@ -13,6 +13,7 @@ import {
 const appleAssociationPath =
   "/.well-known/apple-developer-merchantid-domain-association";
 const fundingWebhookPattern = /^\/api\/funding\/webhooks\/[a-z0-9_-]+$/;
+const immersveWebhookPattern = /^\/api\/cards\/webhooks\/immersve\/[a-z0-9-]+$/;
 const actionPaymasterPattern =
   /^\/api\/actions\/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/paymaster$/i;
 
@@ -20,6 +21,9 @@ function isPublicPath(pathname: string): boolean {
   return pathname === appleAssociationPath ||
     pathname === "/api/webhooks/cdp" ||
     fundingWebhookPattern.test(pathname) ||
+    pathname === "/api/cards/webhooks/bridge" ||
+    pathname === "/api/cards/webhooks/stripe" ||
+    immersveWebhookPattern.test(pathname) ||
     actionPaymasterPattern.test(pathname) ||
     pathname === "/access" ||
     pathname === "/api/access" ||
