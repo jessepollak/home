@@ -19,16 +19,23 @@ let admin: Bun.SQL, sql: SqlExecutor;
 let fake: ReturnType<typeof startFakeBridge>;
 let service: ReturnType<typeof createCardWriteService>;
 let writes = 0;
+const issueKeys: string[] = [];
 let ephemeralCalls = 0;
 const card = { id: "ic_123", cardholder: fixtureCustomer.stripe_cardholder_id, status: "active", last4: "1234", metadata: {} as Record<string, string> };
+const replacement = { ...card, id: "ic_456", status: "active", metadata: {} as Record<string, string> };
 const stripe = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = new URL(String(input));
   if (url.pathname === "/v1/ephemeral_keys") { ephemeralCalls++; return Response.json({ secret: "ek_test_synthetic123456", other: "must_not_escape" }); }
   if (url.pathname.endsWith("/cardholders/" + fixtureCustomer.stripe_cardholder_id)) return Response.json({ id: fixtureCustomer.stripe_cardholder_id, status: "active" });
+  if (url.pathname.endsWith("/cards/ic_456")) return Response.json(replacement);
+  if (url.pathname.endsWith("/cards/ic_other")) return Response.json({ ...card, id: "ic_other", cardholder: "ich_other", status: "active" });
   if (init?.method === "POST") {
     writes++;
     const params = new URLSearchParams(String(init.body));
-    if (url.pathname.endsWith("/cards")) return Response.json({ ...card, status: "active" });
+    if (url.pathname.endsWith("/cards")) {
+      issueKeys.push(new Headers(init.headers).get("idempotency-key") ?? "");
+      return Response.json(issueKeys.length === 1 ? { ...card, status: "active" } : replacement);
+    }
     card.status = params.get("status") ?? "active";
     card.metadata = params.get("metadata[home_freeze]") === "customer" ? { home_freeze: "customer" } : {};
   }
@@ -69,12 +76,14 @@ const stripe = (async (input: RequestInfo | URL, init?: RequestInit) => {
     await expect(service.issue(owner, { ...session, smartAccount: { chainId: 8453, address: "0x2222222222222222222222222222222222222222" } })).rejects.toThrow("CARD_NOT_READY");
     expect(writes).toBe(0);
   });
-  test("issues exactly one live card per wallet; rejects another owner before provider calls", async () => {
+  test("retries a successful issue without a second Stripe POST", async () => {
     expect(await service.issue(owner, session)).toBe("ic_123");
     expect((await sql.query("SELECT 1 FROM cards WHERE customer_id=$1 AND mode='sandbox' AND wallet_address=$2", [owner, wallet])).rowCount).toBe(1);
-    await expect(service.issue(owner, session)).rejects.toThrow("CARD_CONFLICT");
+    const before = writes;
+    expect(await service.issue(owner, session)).toBe("ic_123");
     await expect(service.freeze(other, "ic_123", true)).rejects.toThrow("CARD_NOT_FOUND");
-    expect(writes).toBe(1);
+    expect(writes).toBe(before);
+    expect(issueKeys).toHaveLength(1);
   });
   test("freezes, refuses provider-restricted unfreeze, unfreezes customer-marked card", async () => {
     expect(await service.freeze(owner, "ic_123", true)).toBe("ic_123");
@@ -97,5 +106,23 @@ const stripe = (async (input: RequestInfo | URL, init?: RequestInit) => {
     card.status = "canceled";
     await expect(service.ephemeralKey(owner, "ic_123", "nonce_synthetic890")).rejects.toThrow("CARD_NOT_READY");
     expect(ephemeralCalls).toBe(2);
+  });
+  test("issues a replacement after cancellation with a new Stripe idempotency key", async () => {
+    card.status = "canceled";
+    const before = writes;
+    expect(await service.issue(owner, session)).toBe("ic_456");
+    expect(writes).toBe(before + 1);
+    expect(issueKeys).toHaveLength(2);
+    expect(issueKeys[1]).not.toBe(issueKeys[0]);
+    expect((await sql.query<{ stripe_card_id: string }>("SELECT stripe_card_id FROM cards WHERE customer_id=$1 AND mode='sandbox' AND wallet_address=$2 ORDER BY created_at, id", [owner, wallet])).rows.map((row) => row.stripe_card_id).sort()).toEqual(["ic_123", "ic_456"]);
+    expect(await service.issue(owner, session)).toBe("ic_456");
+    expect(writes).toBe(before + 1);
+  });
+  test("rejects a non-canceled card on the wallet owned by another customer", async () => {
+    await sql.query("INSERT INTO card_accounts(customer_id,mode) VALUES ($1,'sandbox')", [other]);
+    await sql.query("INSERT INTO cards(id,customer_id,mode,stripe_card_id,wallet_address) VALUES (gen_random_uuid(),$1,'sandbox','ic_other',$2)", [other, wallet]);
+    const before = writes;
+    await expect(service.issue(owner, session)).rejects.toThrow("CARD_CONFLICT");
+    expect(writes).toBe(before);
   });
 });

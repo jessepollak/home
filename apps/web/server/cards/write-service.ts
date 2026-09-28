@@ -64,12 +64,18 @@ export function createCardWriteService({ sql, config, bridge, stripe }: Dependen
         if (!ownerWallet.rowCount) throw new CardWriteFailure("CARD_NOT_READY", 409);
         const state = await readCardState(customerId, mode, { store: createCardAccountStore(tx), bridge, stripe });
         if (state.state === "unavailable") throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
-        if (!["ready-to-issue", "active", "frozen", "canceled"].includes(state.state)) throw new CardWriteFailure("CARD_NOT_READY", 409);
         const current = await createCardAccountStore(tx).read(customerId, mode);
         if (!current) throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
         const sameWallet = current.cards.filter((card) => card.walletAddress === wallet);
-        if (sameWallet.some((card) => state.cards.find((item) => item.id === card.stripeCardId)?.status !== "canceled"))
-          throw new CardWriteFailure("CARD_CONFLICT", 409);
+        const otherCards = await tx.query<{ stripe_card_id: string }>(
+          "SELECT stripe_card_id FROM cards WHERE mode=$1 AND wallet_address=$2 AND customer_id<>$3", [mode, wallet, customerId],
+        );
+        for (const otherCard of otherCards.rows) {
+          if ((await stripe.readCard(otherCard.stripe_card_id)).status !== "canceled") throw new CardWriteFailure("CARD_CONFLICT", 409);
+        }
+        const existing = sameWallet.find((card) => state.cards.some((item) => item.id === card.stripeCardId && item.status !== "canceled"));
+        if (existing) return existing.stripeCardId;
+        if (!["ready-to-issue", "active", "frozen", "canceled"].includes(state.state)) throw new CardWriteFailure("CARD_NOT_READY", 409);
         const customer = await bridge.readCustomer(account.bridge_customer_id);
         if (!customer.stripeCardholderId || customer.cardsEndorsement?.status !== "approved" || customer.cardsEndorsement.missing || customer.cardsEndorsement.pending || customer.cardsEndorsement.issues || customer.status !== "active")
           throw new CardWriteFailure("CARD_NOT_READY", 409);
