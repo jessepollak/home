@@ -163,6 +163,38 @@ function memberName(node) {
   return sourceValue(node.property);
 }
 
+export const noRequestOnlyPlaywright = {
+  meta: {
+    type: "problem", schema: [], messages: {
+      rejected: "Playwright tests must exercise a browser; move request-only checks to a route or unit test.",
+    },
+  },
+  create(context) {
+    if (!/\.pw\.(?:ts|tsx)$/u.test(String(context.filename ?? ""))) return {};
+    const testModifiers = new Set(["only", "skip", "fixme", "fail", "slow"]);
+    const browserFixtures = new Set(["page", "context", "browser"]);
+    return {
+      CallExpression(node) {
+        const callee = node.callee;
+        if (!(callee.type === "Identifier" && callee.name === "test")
+          && !(callee.type === "MemberExpression" && !callee.computed
+            && callee.object.type === "Identifier" && callee.object.name === "test"
+            && callee.property.type === "Identifier" && testModifiers.has(callee.property.name))) return;
+        const callback = [...node.arguments].reverse().find((argument) =>
+          argument.type === "ArrowFunctionExpression" || argument.type === "FunctionExpression");
+        const firstParam = callback?.params[0];
+        const pattern = firstParam?.type === "AssignmentPattern" ? firstParam.left : firstParam;
+        if (pattern?.type !== "ObjectPattern") return;
+        const keys = new Set(pattern.properties.filter((property) => property.type === "Property" && !property.computed)
+          .map((property) => property.key.type === "Identifier" ? property.key.name : sourceValue(property.key)));
+        if (keys.has("request") && ![...browserFixtures].some((fixture) => keys.has(fixture))) {
+          context.report({ node: pattern, messageId: "rejected" });
+        }
+      },
+    };
+  },
+};
+
 export const noRealWaits = {
   meta: {
     type: "problem", schema: [], messages: {
