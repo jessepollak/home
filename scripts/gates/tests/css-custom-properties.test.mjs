@@ -29,7 +29,6 @@ const RUNTIME_ALLOWED = [
   "drawer-swipe-strength", // @base-ui/react drawer
   "nested-drawers", // @base-ui/react drawer
   "popup-width", // @base-ui/react popover popup
-  "shadow-lg", // Tailwind v4 default theme token
   "toast-frontmost-height", // @base-ui/react toast
   "toast-height", // @base-ui/react toast
   "toast-index", // @base-ui/react toast
