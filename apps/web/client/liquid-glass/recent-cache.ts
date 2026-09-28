@@ -8,7 +8,10 @@ export function createRecentCache<T>(limit: number): RecentCache<T> {
   const touch = (key: string, value: T) => {
     entries.delete(key);
     entries.set(key, value);
-    while (entries.size > Math.max(1, limit)) entries.delete(entries.keys().next().value as string);
+    for (const oldest of entries.keys()) {
+      if (entries.size <= Math.max(1, limit)) break;
+      entries.delete(oldest);
+    }
     return value;
   };
   return {

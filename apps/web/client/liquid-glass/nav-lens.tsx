@@ -138,8 +138,14 @@ function LensTrack({ items, target, className, tone }: LensTrackProps) {
   );
 }
 
+type LensStyle = CSSProperties & Record<`--${string}`, string | number>;
+
+function readBrands(source: Navigator & { userAgentData?: { brands?: readonly EngineBrand[] } }) {
+  return source.userAgentData?.brands;
+}
+
 function readRimEnabled() {
-  const brands = (navigator as Navigator & { userAgentData?: { brands?: readonly EngineBrand[] } }).userAgentData?.brands;
+  const brands = readBrands(navigator);
   return shouldRefractNavRim({ ...readNavLensEnvironment(), brands });
 }
 
@@ -197,12 +203,12 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
     const images = floorSize ? buildRim(floorSize) : null;
     return floorSize && images ? { ...images, ...floorSize, id: `${baseId}-rim-${sizeKey(floorSize)}` } : null;
   }, [floorSize, baseId]);
-  const masks = useMemo(() => size ? {
+  const masks = useMemo<LensStyle | null>(() => size ? {
     "--lens-hole": buildHole(size, 1, 1, true),
     "--lens-hole-lifted": buildHole(size, LIFT_X, LIFT_Y, true),
     "--lens-clip": buildHole(size, 1, 1, false),
     "--lens-clip-lifted": buildHole(size, LIFT_X, LIFT_Y, false),
-  } as CSSProperties : null, [size]);
+  } : null, [size]);
 
   useLayoutEffect(() => {
     retarget.current?.(target);
@@ -392,7 +398,7 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
     nav.style.setProperty("--lens-counter-from", sample(counterRef.current));
     nav.setAttribute("data-lens-glide", glide === "a" ? "b" : "a");
   }, [place, reducedMotion]);
-  const slide = { transform: `translateX(${place * 100}%)`, "--lens-lift-x": LIFT_X, "--lens-lift-y": LIFT_Y } as CSSProperties;
+  const slide: LensStyle = { transform: `translateX(${place * 100}%)`, "--lens-lift-x": LIFT_X, "--lens-lift-y": LIFT_Y };
   const motion = reducedMotion ? styles.still : "";
 
   return (
