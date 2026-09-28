@@ -85,6 +85,15 @@ function cashoutDraft(operation: "deposit" | "withdraw"): MoneyActionDraft {
   };
 }
 
+function reviewedQuote() {
+  return {
+    fees: { provider: { amount: "0", currency: "USD" }, network: null, operator: null },
+    rate: null,
+    receive: { amount: "2", currency: "USD", approximate: true },
+    arrival: { source: "observed", kind: "within", seconds: 3600 },
+  };
+}
+
 afterEach(() => setActionsStoreForTests(null));
 
 describe("cash-out money action issuance", () => {
@@ -102,6 +111,31 @@ describe("cash-out money action issuance", () => {
     const draft = cashoutDraft("deposit");
     if (draft.metadata?.product !== "cashout" || draft.metadata.operation !== "deposit") throw new Error("Expected deposit");
     draft.metadata.payeeHash = payeeHash as `0x${string}`;
+    await expect(issueMoneyAction(session, draft)).rejects.toMatchObject({ reason: "invalid-draft" });
+  });
+
+  test("keeps a reviewed quote that matches the recorded receive amount and timing", async () => {
+    setActionsStoreForTests({ insert: async () => {} } as unknown as ActionsStore);
+    const draft = cashoutDraft("deposit");
+    Object.assign(draft.metadata!, { etaSeconds: 3600, quote: reviewedQuote() });
+    expect((await issueMoneyAction(session, draft)).metadata).toMatchObject({ quote: reviewedQuote() });
+  });
+
+  test.each([
+    ["receive amount", { receive: { amount: "3", currency: "USD", approximate: true } }],
+    ["receive currency", { receive: { amount: "2", currency: "GBP", approximate: true } }],
+    ["arrival", { arrival: { source: "unknown" } }],
+    ["operator fee", { fees: { provider: null, network: null, operator: { amount: "1", currency: "USD" } } }],
+    ["shape", { rate: { from: "USDC", to: "USD", value: "-1" } }],
+  ])("rejects a quote whose %s disagrees with the reviewed record", async (_label, override) => {
+    const draft = cashoutDraft("deposit");
+    Object.assign(draft.metadata!, { etaSeconds: 3600, quote: { ...reviewedQuote(), ...override } });
+    await expect(issueMoneyAction(session, draft)).rejects.toMatchObject({ reason: "invalid-draft" });
+  });
+
+  test("rejects a quote on withdrawal metadata", async () => {
+    const draft = cashoutDraft("withdraw");
+    Object.assign(draft.metadata!, { etaSeconds: 3600, quote: reviewedQuote() });
     await expect(issueMoneyAction(session, draft)).rejects.toMatchObject({ reason: "invalid-draft" });
   });
 

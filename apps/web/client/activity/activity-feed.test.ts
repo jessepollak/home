@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
+import type { ActivityCashoutOrder } from "@/shared/activity/contract-orders";
 import type { ActivityTransfer } from "@/shared/activity/types";
 import { mergeActivityFeed } from "./activity-feed";
 import { presentActivityLedgerItems } from "./activity-ledger-items";
@@ -68,7 +69,85 @@ function paidCashout(providerUpdatedAt: string, transactionHash?: `0x${string}`)
   };
 }
 
+const cashoutOrder: ActivityCashoutOrder = {
+  kind: "cash-out", id: "quoted-cashout", orderId: "deposit-1", region: "US", providerId: "peer", providerName: "Peer",
+  platform: "cashapp", platformLabel: "Cash App", status: "waiting-provider", state: "awaiting-buyer",
+  decimals: 6, amountAtomic: "50000000", filledAtomic: "0", returnedAtomic: "0", remainingAtomic: "50000000",
+  withdrawable: true, settledAt: null, createdAt: "2026-09-15T12:00:00.000Z", updatedAt: "2026-09-15T12:02:00.000Z",
+};
+const quotedCashout: RecentMoneyActionOperation = {
+  ...operation(cashoutOrder.id, cashoutOrder.createdAt),
+  action: {
+    ...operation(cashoutOrder.id, cashoutOrder.createdAt).action, kind: "cash-out",
+    metadata: {
+      product: "cashout", operation: "deposit", providerId: "peer", providerName: "Peer", environment: "production",
+      platform: "cashapp", platformLabel: "Cash App", currency: "USD", canonicalHandle: "alice",
+      approximateFiatAmount: "50.00", minConversionRate: "1", intentAmountRange: { min: "50000000", max: "50000000" },
+      estimateAsOf: cashoutOrder.createdAt, escrow: "0x777777779d229cdF3110e9de47943791c26300Ef",
+      quote: {
+        fees: { provider: { amount: "0", currency: "USD" }, network: null, operator: null }, rate: null,
+        receive: { amount: "50.00", currency: "USD", approximate: true },
+        arrival: { source: "declared", kind: "within", seconds: 600 },
+      },
+    },
+  },
+};
+
 describe("combined Activity feed", () => {
+  test("keeps reviewed receive and arrival facts when the newer order wins", () => {
+    const feed = mergeActivityFeed({ transfers: [], operations: [quotedCashout], orders: [cashoutOrder], loadedThrough: null });
+    expect(feed.map(({ kind, id }) => [kind, id])).toEqual([["order", cashoutOrder.id]]);
+    expect(feed[0]?.kind === "order" && feed[0].reviewed).toBe(quotedCashout);
+    const [item] = presentActivityLedgerItems(feed, { regionId: "US", timeZone: "UTC" });
+    expect(item).toMatchObject({ family: "cash-out-order", status: "waiting-provider" });
+    expect(item?.detail).toMatchObject({ facts: [
+      { label: "You receive", value: "≈ $50.00 to Cash App" },
+      { label: "Arrives", value: "Usually within 10 minutes" },
+    ] });
+  });
+
+  test("leaves order-only cash-outs without reviewed quote facts", () => {
+    const feed = mergeActivityFeed({ transfers: [], operations: [], orders: [cashoutOrder], loadedThrough: null });
+    const [item] = presentActivityLedgerItems(feed, { regionId: "US", timeZone: "UTC" });
+    expect(item?.detail.family === "cash-out-order" && item.detail.facts).toBeUndefined();
+  });
+
+  test.each([
+    { status: "waiting-chain" as const, state: "returned" as const },
+    { status: "refunded" as const, state: "returned" as const },
+    { status: "confirmed" as const, state: "delivered" as const },
+  ])("keeps the quote but omits arrival for $status orders", ({ status, state }) => {
+    const order = { ...cashoutOrder, status, state };
+    const feed = mergeActivityFeed({ transfers: [], operations: [quotedCashout], orders: [order], loadedThrough: null });
+    const [item] = presentActivityLedgerItems(feed, { regionId: "US", timeZone: "UTC" });
+    expect(item).toMatchObject({ family: "cash-out-order", status });
+    expect(item?.detail.family === "cash-out-order" && item.detail.facts).toContainEqual(
+      { label: "You receive", value: "≈ $50.00 to Cash App" },
+    );
+    expect(item?.detail.family === "cash-out-order" && item.detail.facts?.some(({ label }) => label === "Arrives")).toBe(false);
+  });
+
+  test("omits arrival when a linked withdrawal is returning the order", () => {
+    const withdrawal: RecentMoneyActionOperation = {
+      ...operation("withdraw", cashoutOrder.createdAt), status: "pending",
+      action: { ...operation("withdraw", cashoutOrder.createdAt).action, kind: "cash-out-withdraw",
+        metadata: {
+          product: "cashout", operation: "withdraw", depositId: cashoutOrder.orderId!,
+          providerId: "peer", providerName: "Peer", environment: "production", platform: "cashapp", platformLabel: "Cash App",
+          currency: "USD", approximateFiatAmount: "50", minConversionRate: "1",
+          intentAmountRange: { min: "50000000", max: "50000000" }, estimateAsOf: cashoutOrder.createdAt,
+          escrow: "0x777777779d229cdF3110e9de47943791c26300Ef",
+        } },
+    };
+    const feed = mergeActivityFeed({ transfers: [], operations: [quotedCashout, withdrawal], orders: [cashoutOrder], loadedThrough: null });
+    const [item] = presentActivityLedgerItems(feed, { regionId: "US", timeZone: "UTC" });
+    expect(item).toMatchObject({ family: "cash-out-order", status: "waiting-chain" });
+    expect(item?.detail.family === "cash-out-order" && item.detail.facts).toContainEqual(
+      { label: "You receive", value: "≈ $50.00 to Cash App" },
+    );
+    expect(item?.detail.family === "cash-out-order" && item.detail.facts?.some(({ label }) => label === "Arrives")).toBe(false);
+  });
+
   test("keeps a paid cash-out visible while its provider update is newer than the loaded boundary", () => {
     const providerUpdatedAt = "2026-09-15T12:04:00.000Z";
     const items = mergeActivityFeed({

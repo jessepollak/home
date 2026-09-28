@@ -400,10 +400,11 @@ describe("SendDialog Peer cash-out", () => {
     expect(page().queryByText("Payout app")).toBeNull();
     expect(page().getByRole("button", { name: "Cash out $1.00" }).getAttribute("data-money-action-id")).toBe(ACTION_ID);
     expect(destination.querySelector("[data-money-action-id]")).toBeNull();
+    expect(document.body.textContent).toContain("≈ $1.00 to Cash App");
+    expect(document.body.textContent).toContain("Usually within 1 minute");
+    expect(document.body.textContent).toContain("estimates, not guaranteed");
+    fireEvent.click(page().getByRole("button", { name: /Details/ }));
     expect(page().getByRole("button", { name: `Copy ${formatAddress(cashoutAction().owner.address)}` })).toBeTruthy();
-    expect(document.body.textContent).toContain("≈ 1 USD");
-    expect(document.body.textContent).toContain("About 1 min");
-    expect(document.body.textContent).toContain("approximate, not guaranteed");
     fireEvent.click(page().getByRole("button", { name: "Edit Cash App cashtag" }));
     const editing = page().getByRole("textbox", { name: "Cash App cashtag" }) as HTMLInputElement;
     expect(editing.value).toBe("$alice");
@@ -615,6 +616,77 @@ test("cash-out result names the provider without claiming payout delivery", asyn
   fireEvent.click(await page().findByRole("button", { name: "Cash out $1.00" }));
   expect(await page().findByRole("heading", { name: "$1.00 sent to cash out" })).toBeTruthy();
   expect(page().getByText("Peer sends the payout next. Track it in Activity.")).toBeTruthy();
+});
+
+describe("SendDialog cash-out requote", () => {
+  const quote = (amount: string, seconds = 60) => ({
+    fees: { provider: { amount: "0", currency: "USD" }, network: null, operator: null }, rate: null,
+    receive: { amount, currency: "USD", approximate: true }, arrival: { source: "observed" as const, kind: "within" as const, seconds },
+  });
+  const reviewed = (id: string, amount: string, expiresAt = "2099-09-12T12:10:00.000Z"): PreparedMoneyAction => {
+    const base = cashoutAction();
+    return { ...base, id, expiresAt, metadata: { ...base.metadata!, approximateFiatAmount: amount, quote: quote(amount) } as PreparedMoneyAction["metadata"] };
+  };
+
+  test("an expired confirm keeps the review, requotes the same cash-out, and asks again when the amount changed", async () => {
+    const prepares: Record<string, unknown>[] = [];
+    const executed: string[] = [];
+    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="requote-changed" regionId="US" resumeActionId={ACTION_ID}
+      resumeMoneyAction={async () => reviewed(ACTION_ID, "1")}
+      prepareMoneyAction={async (_kind, params) => { prepares.push(params as Record<string, unknown>); return reviewed("22222222-2222-4222-8222-222222222222", "0.98"); }}
+      executeMoneyAction={async (action) => {
+        executed.push(action.id);
+        if (action.id === ACTION_ID) throw Object.assign(new Error("expired"), { code: "ACTION_EXPIRED" });
+        return { id: action.id, status: "submitted" };
+      }}
+      fetchAccountResource={async () => ({ version: 1, recipients: [] })} onClose={() => {}} />);
+
+    fireEvent.click(await page().findByRole("button", { name: "Cash out $1.00" }));
+    const getNewQuote = await page().findByRole("button", { name: "Get new quote" });
+    expect(getNewQuote.hasAttribute("data-money-action-id")).toBe(false);
+    expect(page().getByRole("status").textContent).toBe("This quote expired. Get a new quote to continue.");
+    expect(document.body.textContent).toContain("≈ $1.00 to Cash App");
+
+    fireEvent.click(getNewQuote);
+    expect(await page().findByText("The quote changed. Check what you receive before you cash out.")).toBeTruthy();
+    expect(prepares).toEqual([expect.objectContaining({ providerId: "peer", region: "US", amountBaseUnits: "1000000", platform: "cashapp", currency: "USD", payoutHandle: "alice" })]);
+    expect(document.body.textContent).toContain("≈ $0.98 to Cash App");
+    expect(executed).toEqual([ACTION_ID]);
+
+    const confirmAgain = page().getByRole("button", { name: "Cash out $1.00" });
+    expect(confirmAgain.getAttribute("data-money-action-id")).toBe("22222222-2222-4222-8222-222222222222");
+    fireEvent.click(confirmAgain);
+    await waitFor(() => expect(executed).toEqual([ACTION_ID, "22222222-2222-4222-8222-222222222222"]));
+  });
+
+  test("a review that expired on the client requotes without claiming a change when the amount holds", async () => {
+    const executed: string[] = [];
+    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="requote-same" regionId="US" resumeActionId={ACTION_ID}
+      resumeMoneyAction={async () => reviewed(ACTION_ID, "1", "2000-01-01T00:00:00.000Z")}
+      prepareMoneyAction={async () => reviewed("33333333-3333-4333-8333-333333333333", "1.00")}
+      executeMoneyAction={async (action) => { executed.push(action.id); return { id: action.id, status: "submitted" }; }}
+      fetchAccountResource={async () => ({ version: 1, recipients: [] })} onClose={() => {}} />);
+
+    fireEvent.click(await page().findByRole("button", { name: "Get new quote" }));
+    const confirmAgain = await page().findByRole("button", { name: "Cash out $1.00" });
+    expect(page().queryByText(/The quote changed/)).toBeNull();
+    expect(page().queryByText(/This quote expired/)).toBeNull();
+    expect(executed).toEqual([]);
+    expect(confirmAgain.getAttribute("data-money-action-id")).toBe("33333333-3333-4333-8333-333333333333");
+  });
+
+  test("a failed requote explains why and keeps a way back", async () => {
+    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="requote-failed" regionId="US" resumeActionId={ACTION_ID}
+      resumeMoneyAction={async () => reviewed(ACTION_ID, "1", "2000-01-01T00:00:00.000Z")}
+      prepareMoneyAction={async () => { throw Object.assign(new Error("busy"), { code: "CASHOUT_ORDER_IN_FLIGHT", serverMessage: "A cash-out for this amount to this payee is still in progress. Check Activity." }); }}
+      executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })}
+      fetchAccountResource={async () => ({ version: 1, recipients: [] })} onClose={() => {}} />);
+
+    fireEvent.click(await page().findByRole("button", { name: "Get new quote" }));
+    expect((await page().findByRole("alert")).textContent).toContain("still in progress");
+    expect(page().getByRole("button", { name: "Try again" })).toBeTruthy();
+    expect(page().getAllByRole("button", { name: "Back" }).length).toBeGreaterThan(0);
+  });
 });
 
 test("cash-out withdrawal result describes funds returning to the account, not a payout", async () => {

@@ -10,6 +10,7 @@ import {
   type MoneyActionOwner,
 } from "@/shared/money-actions/types";
 import { isSavingsMetadata } from "@/shared/savings/review";
+import { parseCashoutQuote } from "@/shared/funding/cash-out-quote";
 import { parseTradeMetadata } from "@/shared/trading/review";
 
 export type ActionListItem = {
@@ -113,7 +114,8 @@ function isMoneyMetadata(value: unknown): value is MoneyActionMetadata {
       typeof value.approximateFiatAmount === "string" &&
       typeof value.minConversionRate === "string" && isRecord(value.intentAmountRange) &&
       typeof value.intentAmountRange.min === "string" && typeof value.intentAmountRange.max === "string" &&
-      typeof value.estimateAsOf === "string" && typeof value.escrow === "string";
+      typeof value.estimateAsOf === "string" && typeof value.escrow === "string" &&
+      (value.quote === undefined || (value.operation === "deposit" && parseCashoutQuote(value.quote) !== null));
   }
   if (value.product === "savings") return isSavingsMetadata(value);
   if (value.product === "trade") return parseTradeMetadata(value) !== null;

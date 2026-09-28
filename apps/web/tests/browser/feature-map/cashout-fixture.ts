@@ -21,7 +21,11 @@ const owner = { ...sessionBody, subject: sessionBody.user.subject };
 export const cashoutFixtureAction = {
   id: "90100000-0000-4000-8000-000000000001", provider: "cdp-embedded", kind: "cash-out",
   summary: { title: "Cash out with Peer", amounts: [spend], warnings: [], expiresAt: expiry,
-    metadata: { ...baseMetadata, operation: "deposit", canonicalHandle: "fixture-payee" } },
+    metadata: { ...baseMetadata, operation: "deposit", canonicalHandle: "fixture-payee", quote: {
+      fees: { provider: { amount: "0", currency: "USD" }, network: null, operator: null }, rate: null,
+      receive: { amount: "50.00", currency: "USD", approximate: true },
+      arrival: { source: "observed", kind: "within", seconds: 3600 },
+    } } },
   status: "confirmed", createdAt: now, confirmedAt: now,
   owner: { subject: owner.subject, address: sessionBody.smartAccount.address, chainId: 8453, accountProvider: "cdp-embedded" },
   cashout: cashoutFixtureProgress,

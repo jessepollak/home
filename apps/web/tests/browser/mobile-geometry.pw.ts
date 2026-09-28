@@ -210,7 +210,11 @@ test("mobile cash-out destination review remains within the dialog", async ({ pa
       ...cashoutFixtureWithdraw, kind: "cash-out", title: "Cash out with Peer",
       amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1000000", direction: "spend" }],
       metadata: { ...cashoutFixtureWithdraw.metadata, operation: "deposit", canonicalHandle: canonical,
-        approximateFiatAmount: "1", etaSeconds: 60 },
+        approximateFiatAmount: "1", etaSeconds: 60, quote: {
+          fees: { provider: { amount: "0", currency: "USD" }, network: null, operator: null }, rate: null,
+          receive: { amount: "1", currency: "USD", approximate: true },
+          arrival: { source: "observed", kind: "within", seconds: 60 },
+        } },
     });
   });
 

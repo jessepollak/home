@@ -67,6 +67,22 @@ describe("pending action response parser", () => {
       metadata: { ...metadata, payeeHash: `0x${"ab".repeat(32)}` } } };
     expect(parsePendingActionResponse(withPayee, ID, session)?.metadata).toMatchObject(withPayee.summary.metadata);
   });
+  test("keeps a reviewed cash-out quote on reload and refuses a malformed one", () => {
+    const value = pendingSavings("deposit");
+    const quote = {
+      fees: { provider: { amount: "0", currency: "USD" }, network: null, operator: null }, rate: null,
+      receive: { amount: "2", currency: "USD", approximate: true }, arrival: { source: "unknown" },
+    };
+    const metadata = {
+      product: "cashout", operation: "deposit", providerId: "peer", providerName: "Peer", environment: "production",
+      platform: "cashapp", platformLabel: "Cash App", currency: "USD", canonicalHandle: "Alice",
+      approximateFiatAmount: "2", minConversionRate: "1", intentAmountRange: { min: "1000000", max: "1000000" },
+      estimateAsOf: "2026-09-12T12:00:00.000Z", escrow: VAULT, quote,
+    };
+    const cashout = (next: unknown) => ({ ...value, kind: "cash-out", summary: { ...value.summary, metadata: next } });
+    expect(parsePendingActionResponse(cashout(metadata), ID, session)?.metadata).toMatchObject({ quote });
+    expect(parsePendingActionResponse(cashout({ ...metadata, quote: { ...quote, arrival: { source: "guess" } } }), ID, session)?.metadata).toBeUndefined();
+  });
   test.each(["deposit", "withdraw"] as const)(
     "retains validated savings %s metadata on reload",
     (operation) => {

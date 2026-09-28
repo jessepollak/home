@@ -52,6 +52,6 @@ export const CancelDetails: Story = {
     const dialog = body.getByRole("dialog", { name: "Cash out to Cash App" });
     await expect(within(dialog).getByText("Waiting for a buyer")).toBeVisible();
     await expect(within(dialog).getByRole("button", { name: "Cancel cash-out $50" })).toBeVisible();
-    await expect(within(dialog).getByText("About 60 min")).toBeVisible();
+    await expect(within(dialog).getByText("Usually within 1 hour")).toBeVisible();
   },
 };

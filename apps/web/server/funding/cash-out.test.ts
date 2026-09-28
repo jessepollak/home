@@ -5,6 +5,7 @@ import { encodeFunctionData, type Hex } from "viem";
 import { BASE_BUILDER_CODE, currencyInfo, getPaymentMethodsCatalog, getSpreadOracleConfig, resolvePaymentMethodHashFromCatalog } from "@zkp2p/sdk";
 import { BASE_USDC_ADDRESS, CASH_ATTRIBUTION_CODE, buildIntentAmountRange } from "@zkp2p/cash";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import type { CashoutQuote } from "@/shared/funding/cash-out-quote";
 import { setActionsStoreForTests, type ActionRow, type ActionsStore, type CashoutOrderRow } from "@/server/actions/store";
 import { issueMoneyAction } from "@/server/money-actions/issue";
 import { createProviderContext } from "@/server/funding/core/provider-context";
@@ -17,6 +18,11 @@ import { prepareCashoutAction, prepareCashoutWithdrawAction, recentHashlessCasho
 const OWNER = "0x1111111111111111111111111111111111111111" as const;
 const PAYEE_HASH = `0x${"ab".repeat(32)}` as Hex;
 const session: VerifiedAccountSession = { user: { subject: "subject" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" };
+const originalEstimate = peerProvider.offramp!.estimate;
+const validQuote: CashoutQuote = {
+  fees: { provider: { amount: "0", currency: "USD" }, network: null, operator: null },
+  rate: null, receive: { amount: "2", currency: "USD", approximate: true }, arrival: { source: "unknown" },
+};
 
 function suffix(): Hex {
   const bytes = new TextEncoder().encode(`${CASH_ATTRIBUTION_CODE},${BASE_BUILDER_CODE}`);
@@ -91,6 +97,7 @@ function order(overrides: Partial<CashoutOrderRow> = {}): CashoutOrderRow {
 afterEach(() => {
   setPeerClientFactoryForTests(null);
   setActionsStoreForTests(null);
+  peerProvider.offramp!.estimate = originalEstimate;
 });
 
 describe("Peer cash-out action preparation", () => {
@@ -106,7 +113,33 @@ describe("Peer cash-out action preparation", () => {
     expect(draft.calls[0]?.data.slice(0, 10)).toBe("0x095ea7b3");
     expect(BigInt(`0x${draft.calls[0]!.data.slice(74)}`)).toBe(BigInt(2_000_000));
     expect(draft.metadata).toMatchObject({ product: "cashout", region: "US", canonicalHandle: "Alice", payeeHash: PAYEE_HASH.toLowerCase(), approximateFiatAmount: "2", minConversionRate: "1" });
+    expect(draft.metadata).toMatchObject({
+      etaSeconds: null,
+      quote: {
+        fees: { provider: { amount: "0", currency: "USD" }, network: null, operator: null },
+        rate: null,
+        receive: { amount: "2", currency: "USD", approximate: true },
+        arrival: { source: "unknown" },
+      },
+    });
     expect(Date.parse(draft.expiresAt) - Date.now()).toBeLessThanOrEqual(10 * 60 * 1000);
+  });
+
+  test.each([
+    { name: "malformed quote", quote: { ...validQuote, receive: { amount: "not-an-amount", currency: "USD", approximate: true } } },
+    { name: "wrong receive currency", quote: { ...validQuote, receive: { amount: "2", currency: "EUR", approximate: true } } },
+    { name: "operator fee", quote: { ...validQuote, fees: { ...validQuote.fees, operator: { amount: "0.01", currency: "USD" } } } },
+    { name: "wrong rate source", quote: { ...validQuote, rate: { from: "ETH", to: "USD", value: "1" } } },
+    { name: "wrong rate destination", quote: { ...validQuote, rate: { from: "USDC", to: "EUR", value: "1" } } },
+    { name: "rate without a conversion", quote: { ...validQuote, rate: { from: "USDC", to: "USD", value: "1" } } },
+  ])("fails closed with CASHOUT_UNAVAILABLE for a $name", async ({ quote }) => {
+    installClients();
+    peerProvider.offramp!.estimate = async (estimateInput, ctx) => ({
+      ...(await originalEstimate(estimateInput, ctx)), quote: quote as CashoutQuote,
+    });
+    await expect(prepareCashoutAction(session, input(), undefined, {
+      env: { PEER_OFFRAMP_ENABLED: "1" }, store: clearStore, readAllowance: async () => BigInt(0),
+    })).rejects.toMatchObject({ code: "unavailable", message: "Peer cash-out is unavailable for this selection." });
   });
 
   test("successfully issues a first-allowance action through canonical approval validation", async () => {
