@@ -468,6 +468,7 @@
               "markHomeStartupOutcome",
               "recordAuthDiagnostic",
               "recordHomeStartupCache",
+              "reportCaughtClientError",
               "reportClientError",
               "sendHomeAuthSignOut",
               "startHomeAuthRestore",

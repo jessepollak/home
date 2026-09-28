@@ -13,6 +13,7 @@ Home's first observability milestone is deliberately scrub-first. It provides a 
 | JSON writer | `apps/web/server/observability/log.ts` | Writes one JSON line and swallows sink failures |
 | Server error owner | `apps/web/instrumentation.ts` → `onRequestError` | Uses the route template, method, route type, and sanitized error class only; it never reads the exception message, stack, digest, request URL, or headers |
 | Client reporter | `apps/web/instrumentation-client.ts` | Installs before hydration, sends at most five reports per page, omits credentials and referrer, and never affects application behavior |
+| Error boundaries | `apps/web/app/error.tsx`, `apps/web/app/global-error.tsx` | Render the recoverable `LoadErrorCard` state whose Try again calls Next's `retry()`, and send one client-error report per caught error through the same reporter |
 | Client ingestion | `POST /api/client-errors` | Requires exact same origin and JSON, limits the body to 2 KiB while streaming, rejects unknown fields, and applies a 30-report/minute per-instance shedding limit |
 | Startup ingestion | `POST /api/client-performance` | Accepts closed Home startup, auth-phase, navigation, and scroll kinds with fixed dimensions and bounded timings; it uses the same transport defenses and a separate limiter |
 
@@ -38,7 +39,7 @@ The focused tests lock the following contract:
 | Abuse behavior | Five sends per page; 30 accepted read attempts/minute per server instance | Excess reports shed with `429`; rejected origin/type/declared-size requests are not read |
 | Failure isolation | Sink/network/installation failures are swallowed | Application startup, hydration, and endpoint success never depend on reporting |
 
-Tests: `shared/observability/scrub.test.ts`, `client/observability/client-reporter.test.ts`, `server/observability/schema.test.ts`, `server/observability/log.test.ts`, `server/observability/on-request-error.test.ts`, and `app/api/client-errors/route.test.ts`.
+Tests: `shared/observability/scrub.test.ts`, `client/observability/client-reporter.test.ts`, `server/observability/schema.test.ts`, `server/observability/log.test.ts`, `server/observability/on-request-error.test.ts`, `app/api/client-errors/route.test.ts`, and `app/error.test.tsx`.
 
 ## OpenTelemetry posture
 
