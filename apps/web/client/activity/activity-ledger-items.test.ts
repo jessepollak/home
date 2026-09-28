@@ -45,24 +45,22 @@ function fromAction(value: RecentMoneyActionOperation): Extract<ActivityFeedItem
 
 const present = (items: ActivityFeedItem[]) => presentActivityLedgerItems(items, { regionId: "US", timeZone: "UTC" });
 
-test("card purchases reuse card ledger rows with amount and decline reason", () => {
-  const purchase = { id: "iauth_synthetic", kind: "authorization" as const, amountMinor: "1234", currency: "USD",
-    merchantName: "Synthetic Cafe", merchantCategory: "5812", status: "declined" as const, declineReasonCode: "insufficient_funds",
-    createdAt: TIME, updatedAt: TIME };
-  expect(present([{ kind: "card", id: purchase.id, timestamp: TIME, purchase }])).toMatchObject([{
-    family: "card", title: "Synthetic Cafe", amount: "−$12.34", status: "failed",
-    statusLabel: "Declined · insufficient funds", mark: { kind: "glyph", glyph: "card" },
-  }]);
-});
-test("card purchase statuses retain their provider meaning in the existing row", () => {
-  const base = { id: "ipi_synthetic", kind: "transaction" as const, amountMinor: "100", currency: "USD",
+test("card purchase directions distinguish returned, captured and declined money", () => {
+  const base = { id: "ipi_synthetic", kind: "transaction" as const, amountMinor: "1234", currency: "USD",
     merchantName: "Synthetic Cafe", merchantCategory: null, declineReasonCode: null, createdAt: TIME, updatedAt: TIME };
-  for (const [status, expected] of [["pending", "Pending"], ["completed", "Completed"],
-    ["reversed", "Reversed"], ["refunded", "Refunded"]] as const) {
-    const row = present([{ kind: "card", id: base.id, timestamp: TIME, purchase: { ...base, status } }])[0];
-    expect(row?.statusLabel).toBe(expected);
-    expect(row?.amount).toBe("−$1.00");
+  for (const [status, amount, direction] of [
+    ["pending", "−$12.34", "out"], ["completed", "−$12.34", "out"],
+    ["reversed", "−$12.34", "out"], ["refunded", "+$12.34", "in"],
+    ["declined", "$12.34", "none"],
+  ] as const) {
+    const [row] = present([{ kind: "card", id: base.id, timestamp: TIME, purchase: { ...base, status } }]);
+    expect(row).toMatchObject({ family: "card", title: "Synthetic Cafe", statusLabel: status[0]!.toUpperCase() + status.slice(1),
+      amount, detailAmount: amount, direction, mark: { kind: "glyph", glyph: "card" } });
+    if (status === "declined") expect(row?.ownerSentence?.description).toBe("Your balance didn't change.");
   }
+  const [declined] = present([{ kind: "card", id: base.id, timestamp: TIME,
+    purchase: { ...base, status: "declined", declineReasonCode: "insufficient_funds" } }]);
+  expect(declined).toMatchObject({ status: "failed", statusLabel: "Declined · insufficient funds" });
 });
 
 
