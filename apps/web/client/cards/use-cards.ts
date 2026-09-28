@@ -61,11 +61,17 @@ export function useCards({ ownerKey, fetchAccountResource }: {
     return state.data;
   }, [queryClient, queryKey]);
   const confirmedWrite = useCallback(async (write: () => Promise<void>, confirms: ConfirmRead) => {
-    try {
-      await write();
-    } catch (error) {
-      await reread().catch(() => undefined);
-      throw error;
+    const written = await write().then(
+      () => ({ ok: true as const }),
+      (error: unknown) => ({ ok: false as const, error }),
+    );
+    if (!written.ok) {
+      const read = await reread().then(
+        (data) => ({ ok: true as const, data }),
+        (error: unknown) => ({ ok: false as const, error }),
+      );
+      if (read.ok && read.data.state !== "unavailable" && confirms(read.data)) return;
+      throw written.error;
     }
     let response: CardsResponse;
     try {

@@ -116,6 +116,26 @@ describe("useCards", () => {
     await expect(hook.result.current.commands.setFrozen("ic_fixture4821", true)).rejects.toThrow("freeze failed");
   });
 
+  test("a lock whose response was lost is confirmed by a re-read showing the card locked", async () => {
+    let written = false;
+    const { hook } = setup((path, options) => {
+      if (options?.method === "POST") { written = true; throw new Error("response lost"); }
+      return cardsBody(written ? "frozen" : "active");
+    });
+    await waitFor(() => expect(hook.result.current.query.data).toBeDefined());
+    await expect(hook.result.current.commands.setFrozen("ic_fixture4821", true)).resolves.toBeUndefined();
+    await waitFor(() => expect(hook.result.current.query.data?.state).toBe("frozen"));
+  });
+
+  test("a failed lock whose re-read still shows the card unlocked keeps its error", async () => {
+    const { hook } = setup((path, options) => {
+      if (options?.method === "POST") throw new Error("freeze failed");
+      return cardsBody("active");
+    });
+    await waitFor(() => expect(hook.result.current.query.data).toBeDefined());
+    await expect(hook.result.current.commands.setFrozen("ic_fixture4821", true)).rejects.toThrow("freeze failed");
+  });
+
   test("a write response for another card is rejected", async () => {
     const { hook } = setup((path) => path.endsWith("/freeze") ? { version: 1, card: { id: "ic_other", status: "frozen" } } : cardsBody("active"));
     await waitFor(() => expect(hook.result.current.query.data).toBeDefined());
