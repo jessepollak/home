@@ -95,6 +95,25 @@ function validPage(): ActivityResponse {
 }
 
 describe("activity response parser", () => {
+  test("accepts owner-fenced card purchases and rejects malformed card rows", () => {
+    const purchase = { id: "iauth_synthetic", kind: "authorization" as const, amountMinor: "1234", currency: "USD",
+      merchantName: "Synthetic Cafe", merchantCategory: null, status: "declined" as const, declineReasonCode: "insufficient_funds",
+      createdAt: TO, updatedAt: TO };
+    expect(parseActivityPage({ ...validPage(), cards: { status: "ready", rows: [purchase] } }, session, TO).cards?.rows[0]).toEqual(purchase);
+    expect(() => parseActivityPage({ ...validPage(), cards: { status: "ready", rows: [{ ...purchase, amountMinor: "-1234" }] } }, session, TO)).toThrow();
+    expect(() => parseActivityPage({ ...validPage(), cards: { status: "ready", rows: [{ ...purchase, id: "ipi_bad_id" }] } }, session, TO)).toThrow();
+    expect(parseActivityPage({ ...validPage(), cards: { status: "unavailable", rows: [] } }, session, TO).cards?.status).toBe("unavailable");
+  });
+  test("accepts card-only onchain failure but rejects false success or fabricated transfers", () => {
+    const cards = { status: "ready", rows: [] };
+    const partial = { ...validPage(), transfers: [], nextCursor: null, source: null, cards, onchainStatus: "unavailable" };
+    expect(parseActivityPage(partial, session, TO)).toMatchObject({ source: null, cards, onchainStatus: "unavailable" });
+    expect(() => parseActivityPage({ ...partial, transfers: validPage().transfers }, session, TO)).toThrow(ActivityResponseError);
+    expect(() => parseActivityPage({ ...partial, nextCursor: "older" }, session, TO)).toThrow(ActivityResponseError);
+    expect(() => parseActivityPage({ ...partial, cards: undefined }, session, TO)).toThrow(ActivityResponseError);
+    expect(() => parseActivityPage({ ...validPage(), source: null }, session, TO)).toThrow(ActivityResponseError);
+    expect(() => parseActivityPage({ ...validPage(), onchainStatus: "unexpected" }, session, TO)).toThrow(ActivityResponseError);
+  });
   test("accepts lossless scoped transfers in strict keyset order", () => {
     const page = parseActivityPage(validPage(), session, TO);
     expect(page.transfers.map((transfer) => transfer.amountBaseUnits)).toEqual([
@@ -151,7 +170,7 @@ describe("activity response parser", () => {
       session,
       TO,
     );
-    expect(parsed.source.provider).toBe("cdp-address-history");
+    expect(parsed.source?.provider).toBe("cdp-address-history");
     expect(() => parseActivityPage(
       {
         ...validPage(),

@@ -51,7 +51,7 @@ const adapters: { name: string; expectedStale: "rejected" | "stale"; make(): Car
   { name: "Stripe (https://docs.stripe.com/webhooks)", expectedStale: "stale", make: () => createStripeWebhookProvider(bridge, () => now),
     delivery: stripeDelivery, staleDelivery: () => stripeDelivery(Math.floor(now / 1000) - 301), disabled: () => readBridgeConfig({ BRIDGE_ENABLED: "" }) === null,
     expected: { provider: "bridge", mode: "sandbox", eventId: "stripe:evt_fixture", kind: "issuing_authorization.created", occurredAt: new Date(now).toISOString(),
-      externalIds: { cardholder: "ich_fixture", card: "ic_fixture", transaction: null, customer: null } } },
+      externalIds: { cardholder: "ich_fixture", card: "ic_fixture", transaction: "iauth_fixture", customer: null } } },
 ];
 
 for (const adapter of adapters) describe(`${adapter.name} provider seam`, () => {

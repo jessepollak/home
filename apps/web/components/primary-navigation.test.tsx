@@ -154,27 +154,27 @@ describe("PrimaryNavigation", () => {
     expect(pill?.style.transform).toBe("translateX(-100%)");
   });
 
-  for (const [direction, investTransform] of [["ltr", "translateX(100%)"], ["rtl", "translateX(-100%)"]] as const) {
-    test(`positions the active pill in ${direction}`, () => {
+  for (const direction of ["ltr", "rtl"] as const) {
+    test(`selects the active destination in ${direction}`, () => {
       const view = render(
         <div style={{ direction }}>
           <PrimaryNavigation activeNavigation="home" onNavigate={() => undefined} />
         </div>,
       );
-      const pill = view.container.querySelector<HTMLElement>("[data-navigation-pill]");
-      expect(pill?.style.transform).toBe("translateX(0%)");
+      expect(view.getByRole("button", { name: "Home" }).getAttribute("aria-current")).toBe("page");
       view.rerender(
         <div style={{ direction }}>
           <PrimaryNavigation activeNavigation="invest" onNavigate={() => undefined} />
         </div>,
       );
-      expect(pill?.style.transform).toBe(investTransform);
+      expect(view.getByRole("button", { name: "Invest" }).getAttribute("aria-current")).toBe("page");
+      expect(view.getByRole("button", { name: "Home" }).hasAttribute("aria-current")).toBe(false);
       view.rerender(
         <div style={{ direction }}>
           <PrimaryNavigation activeNavigation="home" onNavigate={() => undefined} />
         </div>,
       );
-      expect(pill?.style.transform).toBe("translateX(0%)");
+      expect(view.getByRole("button", { name: "Home" }).getAttribute("aria-current")).toBe("page");
     });
   }
 });

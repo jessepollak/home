@@ -4,6 +4,10 @@
     "reason": "Interactive SVG globe routes, markers, drag states, and masked static fallback require scoped selectors and geometry."
   },
   {
+    "path": "apps/web/client/liquid-glass/nav-lens.module.css",
+    "reason": "The lazy navigation lens needs scoped SVG-filter, mask, and compositor-transform layers plus a direct-child hover mirror of the real tabs."
+  },
+  {
     "path": "apps/web/components/currency-mark.module.css",
     "reason": "Stacked currency glyphs need scoped size and presentation selectors, including a flag outline pseudo-element."
   },

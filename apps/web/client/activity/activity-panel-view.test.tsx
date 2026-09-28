@@ -638,6 +638,24 @@ describe("combined Activity panel", () => {
     fireEvent.click(view.getByRole("button", { name: "Retry onchain transfers" }));
     expect(retry).toHaveBeenCalledTimes(1);
   });
+  test("shows card purchases and onchain retry without an authoritative end marker when onchain is unavailable", () => {
+    const retry = mock(() => undefined);
+    const activity = ready([]);
+    if (activity.status !== "ready") throw new Error("Expected ready activity");
+    activity.page.cards = { status: "ready", rows: [{ id: "ipi_synthetic", kind: "transaction", amountMinor: "1234", currency: "USD",
+      merchantName: "Synthetic Cafe", merchantCategory: null, status: "completed", declineReasonCode: null,
+      createdAt: "2026-09-15T12:01:00.000Z", updatedAt: "2026-09-15T12:01:00.000Z" }] };
+    activity.page.source = null;
+    activity.page.onchainStatus = "unavailable";
+    activity.retry = retry;
+    const view = render(<ActivityPanelView activity={activity} />);
+    expect(view.getByText("Synthetic Cafe")).toBeTruthy();
+    expect(view.getByRole("status").textContent).toContain("Onchain transfers are unavailable");
+    expect(view.queryByText("End of activity")).toBeNull();
+    expect(view.getByRole("list").querySelector('li[aria-posinset="1"]')?.getAttribute("aria-setsize")).toBe("-1");
+    fireEvent.click(view.getByRole("button", { name: "Retry onchain transfers" }));
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
 
   test("names both page retry controls distinctly and retries only their failed source", () => {
     const retry = mock(() => undefined);
