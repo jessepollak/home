@@ -2,7 +2,7 @@ import { type Locator } from "@playwright/test";
 import { modalCycles } from "./config";
 import { installFeed, fillFeed } from "./feed";
 import { ready } from "./navigation";
-import { leakCycle, resourceSnapshot, twoFrames, type Session } from "./browser";
+import { leakCycle, resourceSnapshot, twoFrames, type Session, type CpuRate } from "./browser";
 import { median } from "./evaluate";
 
 export async function runModal(session: Session, baseUrl: string, rows: number, kind: "detail" | "send", seedLeak: boolean) {
@@ -62,13 +62,15 @@ export async function runModal(session: Session, baseUrl: string, rows: number, 
   await cycle();
   const times: number[] = [];
   let second: Awaited<ReturnType<typeof resourceSnapshot>> | null = null;
+  const cpu: CpuRate[] = [];
   let tenth: Awaited<ReturnType<typeof resourceSnapshot>> | null = null;
   for (let i = 1; i <= modalCycles; i++) {
     times.push(await cycle());
+    cpu.push({ ...session.cpu });
     if (i === 2) second = await resourceSnapshot(session);
     if (i === 10) tenth = await resourceSnapshot(session);
   }
-  return { openMs: median(times), samples: times.length,
+  return { openMs: median(times), samples: times.length, cpu,
     growth: second && tenth ? { nodes: tenth.nodes - second.nodes, listeners: tenth.listeners - second.listeners,
       heapBytes: tenth.heapBytes - second.heapBytes, second, tenth } : null };
 }

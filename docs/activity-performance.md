@@ -31,6 +31,7 @@ On a local production fixture server built and started as above, with `NEXT_PUBL
 ```sh
 bun run --cwd apps/web perf:budget --base-url http://localhost:3199 --out-dir performance-results
 bun run --cwd apps/web perf:seeds --base-url http://localhost:3199 --out-dir performance-results/seeds
+bun run --cwd apps/web perf:cpu-check --base-url http://localhost:3199 --out-dir performance-results/cpu-check
 ```
 
 First calibrate a build with `perf:budget ... --update-baseline` (rewrites `apps/web/scripts/performance/baseline.json`); verify the initial JS gzip totals across two consecutive fixture builds before checking in the baseline. The budget run writes `results.json` and a step-summary-compatible `summary.md`, plus Playwright traces and CDP CPU profiles in `traces/` only for regressions. `--only <gateId>` limits scenarios; `--seed <gateId>` injects a harness-only regression. The six structural gates block (exit 1); timing budgets report only through 2026-10-11. Browser/fixture failures exit 2. `perf:seeds` checks that each structural gate catches its own regression. The 20-row feed is this run's timing calibration, not a checked-in timing baseline. The harness reuses this profiler's fixture shape; its fling legs are capped at 6,000 px (about 90 rows) so the 2,000-row feed does not dominate runtime. Use `profile:activity` without `--fling-distance` for full-history fling analysis. See [performance budgets](gates.md#performance-budgets) for the gate policy. The synthetic fixture is not a provider-backed or live-money test.

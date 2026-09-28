@@ -14,6 +14,7 @@
     "profile:navigation": "bun run scripts/navigation-profile.ts",
     "perf:budget": "bun run scripts/performance/budget.ts",
     "perf:seeds": "bun run scripts/performance/seeds-check.ts",
+    "perf:cpu-check": "bun run scripts/performance/cpu-check.ts",
     "lint": "oxlint -c .oxlintrc.jsonc --deny-warnings --report-unused-disable-directives --disable-nested-config .",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "bun test --max-concurrency 1",

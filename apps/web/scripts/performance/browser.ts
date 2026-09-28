@@ -4,15 +4,24 @@ import { chromium, type Browser, type BrowserContext, type CDPSession, type Page
 import { installApiFixtures, seedSignedInSession } from "../../tests/browser/fixtures/api";
 import { cpuThrottle, type GateId } from "./config";
 
-export type Session = { page: Page; context: BrowserContext; cdp: CDPSession };
+export type CpuRate = { requested: number; applied: number };
+export type Session = { page: Page; context: BrowserContext; cdp: CDPSession; cpu: CpuRate };
 
-export async function openSession(browser: Browser, seed: GateId | null): Promise<Session> {
+export async function setCpuRate(session: Session, rate: number) {
+  if (!Number.isFinite(rate) || rate < 1) throw new Error(`Invalid CPU throttle rate ${rate}`);
+  await session.cdp.send("Emulation.setCPUThrottlingRate", { rate });
+  session.cpu.applied = rate;
+}
+
+export async function openSession(browser: Browser, seed: GateId | null, cpuRate = cpuThrottle): Promise<Session> {
+  if (!Number.isFinite(cpuRate) || cpuRate < 1) throw new Error(`Invalid CPU throttle rate ${cpuRate}`);
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
   try {
     const page = await context.newPage();
     const cdp = await context.newCDPSession(page);
     await cdp.send("Performance.enable");
-    await cdp.send("Emulation.setCPUThrottlingRate", { rate: cpuThrottle });
+    const session: Session = { page, context, cdp, cpu: { requested: cpuRate, applied: 1 } };
+    await setCpuRate(session, cpuRate);
     await seedSignedInSession(page);
     await installApiFixtures(page);
     await page.addInitScript((gate) => {
@@ -82,12 +91,12 @@ export async function openSession(browser: Browser, seed: GateId | null): Promis
         await route.fulfill({ response, body: body.replace("</body>", '<script src="/_next/static/chunks/perf-seed.js"></script></body>') });
       });
     }
-    return { page, context, cdp };
+    return session;
   } catch (error) { await context.close(); throw error; }
 }
 
-export async function withSession<T>(browser: Browser, seed: GateId | null, run: (session: Session) => Promise<T>, trace?: { dir: string; name: string }): Promise<T> {
-  const session = await openSession(browser, seed);
+export async function withSession<T>(browser: Browser, seed: GateId | null, run: (session: Session) => Promise<T>, trace?: { dir: string; name: string }, cpuRate = cpuThrottle): Promise<T> {
+  const session = await openSession(browser, seed, cpuRate);
   try {
     if (trace) {
       await mkdir(trace.dir, { recursive: true });

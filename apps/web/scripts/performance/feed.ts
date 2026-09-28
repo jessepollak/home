@@ -1,9 +1,9 @@
 import { type Page } from "@playwright/test";
 import { json } from "../../tests/browser/fixtures/api";
 import { sessionBody } from "../../tests/browser/fixtures/bodies";
-import { cpuThrottle, flingDistance } from "./config";
+import { flingDistance } from "./config";
 import { median } from "./evaluate";
-import { twoFrames, type Session } from "./browser";
+import { setCpuRate, twoFrames, type Session, type CpuRate } from "./browser";
 
 const section = 'section[aria-label="Activity"]:not(#navigation-panel)';
 const rowSelector = `${section} ul > li`;
@@ -72,10 +72,10 @@ export async function installFeed(page: Page, rows: number) {
 }
 
 export async function fillFeed(session: Session, rows: number, filled: () => boolean, feedSection = section) {
-  const { page, cdp } = session;
+  const { page } = session;
   const main = page.locator("main[data-app-main-authenticated]");
   const end = page.locator(`${feedSection} [role="status"]`).filter({ hasText: "End of activity" });
-  await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 });
+  await setCpuRate(session, 1);
   try {
     const until = Date.now() + 120_000;
     while (Date.now() < until) {
@@ -84,7 +84,7 @@ export async function fillFeed(session: Session, rows: number, filled: () => boo
       await page.waitForTimeout(65);
     }
     throw new Error(`Feed fill timed out at ${rows} rows`);
-  } finally { await cdp.send("Emulation.setCPUThrottlingRate", { rate: cpuThrottle }); }
+  } finally { await setCpuRate(session, session.cpu.requested); }
 }
 
 export type Fling = { p95: number; over33: number; droppedPct: number; blockingMs: number; maxRows: number; settledRows: number; historyWrites: number; frames: number };
@@ -205,14 +205,16 @@ export async function runFeed(session: Session, baseUrl: string, rows: number, r
   await fillFeed(session, rows, fixture.filled);
   fixture.verify();
   const flings: Fling[] = [];
+  const cpu: CpuRate[] = [];
   const opens: number[] = [];
   for (let i = 0; i < repetitions; i++) {
     flings.push(await fling(session));
+    cpu.push({ ...session.cpu });
     if (includeDetail) opens.push(...await detailCycles(session.page, 3));
   }
   if (flings.some((entry) => entry.frames < 3)) throw new Error(`Too few fling frames (${rows} rows)`);
   return {
-    flings, opens,
+    flings, opens, cpu,
     timing: { p95: median(flings.map((run) => run.p95)), over33: median(flings.map((run) => run.over33)), droppedPct: median(flings.map((run) => run.droppedPct)),
       blockingMs: median(flings.map((run) => run.blockingMs)), detailOpen: median(opens) },
     maxRows: Math.max(...flings.map((entry) => entry.maxRows)),
