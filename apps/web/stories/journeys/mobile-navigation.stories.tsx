@@ -542,19 +542,19 @@ export const TransparencyReduced: Story = { beforeEach: withTransparencySwitch, 
   await verifySelectionGeometry(nav, "Home");
   const content = [...nav.querySelectorAll<HTMLElement>(":scope > button > span")];
   const pill = nav.querySelector<HTMLElement>("[data-navigation-pill]")!;
-  await waitFor(() => {
-    for (const element of [...content, pill]) expect(Number(getComputedStyle(element).opacity)).toBeLessThanOrEqual(0.01);
+  await waitFor(async () => {
+    for (const element of [...content, pill]) await expect(element).not.toBeVisible();
   });
-  const restored = new Promise<number[]>((resolve) => {
+  const restored = new Promise<HTMLElement[]>((resolve) => {
     const observer = new MutationObserver(() => {
       if (nav.hasAttribute("data-lens")) return;
       observer.disconnect();
-      resolve([...content, pill].map((element) => Number(getComputedStyle(element).opacity)));
+      resolve([...content, pill]);
     });
     observer.observe(nav, { attributes: true, attributeFilter: ["data-lens"] });
   });
   reduceTransparency?.(true);
-  for (const opacity of await restored) await expect(opacity).toBeGreaterThanOrEqual(0.99);
+  for (const element of await restored) await expect(element).toBeVisible();
   await expect(nav.querySelector("[data-navigation-lens]")).toBeNull();
 } };
 export const Loading: Story = { args: { balances: "loading" } };
