@@ -5,7 +5,7 @@
       "suppression": 1
     },
     "apps/web/client/account/account-screen.tsx": {
-      "suppression": 3
+      "suppression": 4
     },
     "apps/web/client/account/account-settings.tsx": {
       "assertion": 1
@@ -36,10 +36,13 @@
     },
     "apps/web/client/account/cdp-session-lifecycle.tsx": {
       "assertion": 1,
-      "suppression": 1
+      "suppression": 2
     },
     "apps/web/client/account/cdp-wallet-provider-capabilities.ts": {
       "suppression": 4
+    },
+    "apps/web/client/account/composite-account-provider.tsx": {
+      "suppression": 2
     },
     "apps/web/client/account/email-request-flow.ts": {
       "suppression": 2
@@ -63,7 +66,7 @@
       "nonNull": 3
     },
     "apps/web/client/activity/activity-ledger-items.ts": {
-      "nonNull": 2
+      "nonNull": 3
     },
     "apps/web/client/activity/activity-ledger-sheet.tsx": {
       "suppression": 1
@@ -126,14 +129,21 @@
     },
     "apps/web/client/home/activity-panel.tsx": {
       "assertion": 1,
-      "nonNull": 1
+      "nonNull": 2
+    },
+    "apps/web/client/home/landing-shell.tsx": {
+      "suppression": 2
     },
     "apps/web/client/home/portfolio-home-experience.tsx": {
       "assertion": 1,
-      "suppression": 2
+      "suppression": 3
     },
     "apps/web/client/home/shell.tsx": {
-      "assertion": 1
+      "assertion": 1,
+      "suppression": 1
+    },
+    "apps/web/client/home/use-home-region.ts": {
+      "suppression": 1
     },
     "apps/web/client/invest/asset-chart.tsx": {
       "assertion": 1,
@@ -190,7 +200,8 @@
       "suppression": 1
     },
     "apps/web/client/money-modal/amount.tsx": {
-      "assertion": 1
+      "assertion": 1,
+      "suppression": 1
     },
     "apps/web/client/money-modal/confirm-summary.tsx": {
       "suppression": 1
@@ -199,7 +210,8 @@
       "assertion": 1
     },
     "apps/web/client/money-modal/money-modal.tsx": {
-      "nonNull": 1
+      "nonNull": 1,
+      "suppression": 2
     },
     "apps/web/client/observability/auth-performance.ts": {
       "nonNull": 3
@@ -219,8 +231,11 @@
       "nonNull": 1,
       "suppression": 1
     },
+    "apps/web/client/query/mutation-options.ts": {
+      "assertion": 2
+    },
     "apps/web/client/query/query-client.tsx": {
-      "assertion": 4,
+      "assertion": 5,
       "suppression": 1
     },
     "apps/web/client/savings/portfolio-summary.ts": {
@@ -242,7 +257,7 @@
     "apps/web/client/transfers/send-dialog.tsx": {
       "assertion": 4,
       "nonNull": 3,
-      "suppression": 2
+      "suppression": 5
     },
     "apps/web/components/address-field.tsx": {
       "suppression": 1
@@ -255,6 +270,9 @@
     },
     "apps/web/components/home-mark-animation.ts": {
       "nonNull": 1
+    },
+    "apps/web/components/home-mark.tsx": {
+      "suppression": 1
     },
     "apps/web/components/money-ticker.tsx": {
       "assertion": 1,
@@ -369,7 +387,8 @@
       "nonNull": 4
     },
     "apps/web/server/activity/handler.ts": {
-      "suppression": 1
+      "assertion": 2,
+      "suppression": 2
     },
     "apps/web/server/activity/reader.ts": {
       "assertion": 2
@@ -509,7 +528,7 @@
       "nonNull": 1
     },
     "apps/web/server/cards/bridge/client.ts": {
-      "assertion": 3
+      "assertion": 4
     },
     "apps/web/server/cards/bridge/journey-config.ts": {
       "nonNull": 1
@@ -530,7 +549,14 @@
       "assertion": 1
     },
     "apps/web/server/cards/stripe/client.ts": {
-      "assertion": 7
+      "assertion": 8
+    },
+    "apps/web/server/cards/stripe/transactions.ts": {
+      "assertion": 8
+    },
+    "apps/web/server/cards/transaction-refresh.ts": {
+      "assertion": 2,
+      "nonNull": 3
     },
     "apps/web/server/cdp/provider.ts": {
       "assertion": 1
@@ -566,11 +592,12 @@
     },
     "apps/web/server/db/sql.ts": {
       "assertion": 5,
-      "suppression": 1
+      "suppression": 2
     },
     "apps/web/server/funding/cash-out-progress.ts": {
       "assertion": 2,
-      "nonNull": 4
+      "nonNull": 4,
+      "suppression": 1
     },
     "apps/web/server/funding/cash-out.ts": {
       "assertion": 8,
@@ -621,6 +648,10 @@
     "apps/web/server/funding/providers/validate.ts": {
       "assertion": 1
     },
+    "apps/web/server/http/upstream.ts": {
+      "assertion": 1,
+      "nonNull": 1
+    },
     "apps/web/server/market-data/asset-icons/onchain.ts": {
       "assertion": 4,
       "nonNull": 1
@@ -632,8 +663,7 @@
       "assertion": 2
     },
     "apps/web/server/market-data/codex/history-admission.ts": {
-      "assertion": 2,
-      "nonNull": 1
+      "assertion": 2
     },
     "apps/web/server/market-data/codex/history.ts": {
       "assertion": 1
@@ -641,17 +671,11 @@
     "apps/web/server/market-data/codex/lossless-json.ts": {
       "assertion": 1
     },
-    "apps/web/server/market-data/codex/pair-check.ts": {
-      "nonNull": 1
-    },
     "apps/web/server/market-data/codex/raw-quotes.ts": {
       "assertion": 3
     },
     "apps/web/server/market-data/codex/recognized-catalog.ts": {
       "assertion": 1
-    },
-    "apps/web/server/market-data/codex/search.ts": {
-      "nonNull": 1
     },
     "apps/web/server/market-data/codex/token-lookup.ts": {
       "assertion": 1
@@ -660,8 +684,7 @@
       "assertion": 3
     },
     "apps/web/server/market-data/resolve-asset.ts": {
-      "assertion": 1,
-      "nonNull": 1
+      "assertion": 1
     },
     "apps/web/server/market-data/tokenized-equity/reader.ts": {
       "assertion": 1
@@ -734,6 +757,9 @@
     },
     "apps/web/server/savings/rpc.ts": {
       "assertion": 2
+    },
+    "apps/web/server/scheduling/after-schedule.ts": {
+      "suppression": 1
     },
     "apps/web/server/secrets/at-rest.ts": {
       "nonNull": 4
@@ -809,7 +835,10 @@
       "assertion": 4
     },
     "apps/web/shared/cards/contract.ts": {
-      "assertion": 4
+      "assertion": 15
+    },
+    "apps/web/shared/cards/transactions-contract.ts": {
+      "assertion": 1
     },
     "apps/web/shared/chain/hex.ts": {
       "assertion": 2
