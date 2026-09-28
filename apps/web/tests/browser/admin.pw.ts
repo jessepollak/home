@@ -1,31 +1,12 @@
-import { createHash, createHmac } from "node:crypto";
+import { homeSessionToken } from "./fixtures/session";
 import { expect, test, type BrowserContext } from "@playwright/test";
 
 const admin = "0x1111111111111111111111111111111111111111";
 const secondAdmin = "0x3333333333333333333333333333333333333333";
 const customer = "0x2222222222222222222222222222222222222222";
-const secret = "playwright-smoke-home-session-secret-32-bytes!!";
-
-function token(address: string): string {
-  const subject = `base-${createHash("sha256").update(address).digest("hex").slice(0, 32)}`;
-  const now = Date.now();
-  const encoded = Buffer.from(JSON.stringify({
-    version: 1,
-    session: {
-      user: { subject },
-      smartAccount: { address, chainId: 8453 },
-      accountProvider: "base-account",
-    },
-    issuedAt: new Date(now).toISOString(),
-    expiresAt: new Date(now + 60 * 60 * 1_000).toISOString(),
-  })).toString("base64url");
-  const input = `v1.${encoded}`;
-  return `${input}.${createHmac("sha256", Buffer.from(secret)).update(input).digest("base64url")}`;
-}
-
 async function setSession(context: BrowserContext, address: string) {
   await context.addCookies([{
-    name: "home-session", value: token(address), domain: "localhost", path: "/",
+    name: "home-session", value: homeSessionToken(address), domain: "localhost", path: "/",
     httpOnly: true, secure: false, sameSite: "Lax",
   }]);
 }

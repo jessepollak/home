@@ -85,6 +85,8 @@ The **Storybook review links** workflow (`.github/workflows/storybook-review-lin
 
 The current **Chromium smoke** job runs the per-surface fixture-backed Playwright suite (`apps/web/tests/browser/*.pw.ts`, with shared responses under `fixtures/`) in GitHub Actions for every pull request and every push to `main`. It starts a CI-local fixture server; it does not exercise the hosted Vercel preview deployment.
 
+A global setup requests the routes the admin smoke first visits so `next dev` compiles them before any test timer starts; the suite still runs against `next dev` with unchanged timeouts and retries.
+
 The Jesse-locked [architecture](architecture.md#quality-bar) targets Playwright smoke on every hosted preview. That hosted-preview smoke target is not implemented yet; current PR/main fixture smoke must not be described as hosted-preview verification.
 
 Deployment configuration, credentials, and production promotion remain operator decisions; a green local or CI run is not funded-wallet or production authorization.
