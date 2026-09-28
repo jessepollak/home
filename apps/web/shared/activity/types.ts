@@ -80,7 +80,8 @@ export type ActivityPage = {
   transfers: ActivityTransfer[];
   cards?: CardPurchases;
   nextCursor: string | null;
-  source: ActivitySource;
+  source: ActivitySource | null;
+  onchainStatus?: "unavailable";
 };
 
 export type ActivityReadyState = {

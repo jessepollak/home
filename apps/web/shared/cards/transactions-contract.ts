@@ -17,7 +17,7 @@ export function parseCardPurchases(value: unknown): CardPurchases {
   if (!record(value) || (value.status !== "ready" && value.status !== "unavailable") ||
       !Array.isArray(value.rows) || value.rows.length > 50) throw new Error("Invalid card purchases");
   return { status: value.status, rows: value.rows.map((row: unknown) => {
-    if (!record(row) || typeof row.id !== "string" || !/^(?:iauth_|ipi_|itx_)[A-Za-z0-9_]+$/.test(row.id) ||
+    if (!record(row) || typeof row.id !== "string" || !/^(?:iauth_|ipi_|itx_)[A-Za-z0-9]+$/.test(row.id) ||
         !["authorization", "transaction"].includes(String(row.kind)) ||
         typeof row.amountMinor !== "string" || !/^(?:0|[1-9]\d{0,15})$/.test(row.amountMinor) ||
         typeof row.currency !== "string" || !/^[A-Z]{3}$/.test(row.currency) ||

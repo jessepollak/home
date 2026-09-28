@@ -99,6 +99,11 @@ export function parseActivityPage(
   ) {
     throw new ActivityResponseError();
   }
+  if (value.onchainStatus === "unavailable"
+    ? value.source !== null || value.nextCursor !== null || value.transfers.length !== 0 || value.cards === undefined
+    : value.onchainStatus !== undefined || value.source === null) {
+    throw new ActivityResponseError();
+  }
 
   const transfers = value.transfers.map((transfer) =>
     parseTransfer(transfer, walletAddress, from, to, expectedCurrency),
@@ -113,7 +118,8 @@ export function parseActivityPage(
     transfers,
     ...(value.cards === undefined ? {} : { cards: parseCardPurchases(value.cards) }),
     nextCursor: value.nextCursor,
-    source: parseSource(value.source),
+    source: value.onchainStatus === "unavailable" ? null : parseSource(value.source),
+    ...(value.onchainStatus === "unavailable" ? { onchainStatus: "unavailable" as const } : {}),
   };
 }
 

@@ -52,8 +52,21 @@ let admin: Bun.SQL, sql: SqlExecutor;
     expect(await store.pending(cardB, "sandbox")).toEqual([]);
     expect((await store.rows(ownerA, "sandbox"))[0]?.status).toBe("completed");
     await store.upsert(cardA, "sandbox", { ...base, id: "ipi_refund", kind: "transaction", status: "refunded" });
-    expect((await store.rows(ownerA, "sandbox")).map((row) => [row.id, row.status])).toEqual([["ipi_refund", "refunded"]]);
+    expect((await store.rows(ownerA, "sandbox")).map((row) => [row.id, row.status, row.amountMinor])).toEqual([
+      ["ipi_refund", "refunded", "1234"], ["ipi_alpha", "completed", "1234"],
+    ]);
     expect(await store.rows(ownerA, "sandbox", { from: "2026-09-02T00:00:00.000Z", to: "2026-10-01T00:00:00.000Z" })).toEqual([]);
+  });
+  test("partial refund retains the completed capture and its original amount", async () => {
+    const store = createCardTransactionStore(sql);
+    const base = { cardId: "ic_alpha", authorizationId: "iauth_partial", currency: "USD", merchantName: "Synthetic Cafe",
+      merchantCategory: null, declineReasonCode: null, createdAt: "2026-09-03T12:00:00.000Z", updatedAt: "2026-09-03T12:00:00.000Z" } as const;
+    await store.upsert(cardA, "sandbox", { ...base, id: "ipi_partialcapture", kind: "transaction", amountMinor: "1234", status: "completed" });
+    await store.upsert(cardA, "sandbox", { ...base, id: "ipi_partialrefund", kind: "transaction", amountMinor: "400", status: "refunded" });
+    expect((await store.rows(ownerA, "sandbox", { from: "2026-09-03T00:00:00.000Z", to: "2026-09-04T00:00:00.000Z" }))
+      .map((row) => [row.id, row.status, row.amountMinor])).toEqual([
+      ["ipi_partialrefund", "refunded", "400"], ["ipi_partialcapture", "completed", "1234"],
+    ]);
   });
   test("rejects cross-card writes, invalid status, and sensitive fields have no schema column", async () => {
     const store = createCardTransactionStore(sql);

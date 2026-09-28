@@ -66,16 +66,62 @@ function expectPrivate(response: Response) {
 }
 
 describe("activity route handler", () => {
-  test("adds card purchases only to first page and marks card read failures unavailable without losing onchain history", async () => {
+  test("cards fail while onchain succeeds without losing the onchain page", async () => {
     let calls = 0;
     const handler = createActivityHandler({ authorize: async () => sessionResponse(), readActivity: async () => page(),
       readCards: async () => { calls += 1; throw new Error("provider unavailable"); }, now: () => new Date(TO) });
     const first = await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`));
     expect(first.status).toBe(200);
-    expect((await first.json()).cards).toEqual({ status: "unavailable", rows: [] });
+    const body = await first.json();
+    expect(body.cards).toEqual({ status: "unavailable", rows: [] });
+    expect(body.onchainStatus).toBeUndefined();
+    expect(body.source).toEqual(page().source);
     const next = await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}&cursor=older`));
     expect((await next.json()).cards).toBeUndefined();
     expect(calls).toBe(1);
+  });
+  test("onchain failure returns card rows in a scoped, explicitly partial first page", async () => {
+    const purchase = { id: "ipi_synthetic", kind: "transaction" as const, amountMinor: "1234", currency: "USD", merchantName: "Synthetic Cafe",
+      merchantCategory: null, status: "completed" as const, declineReasonCode: null, createdAt: TO, updatedAt: TO };
+    let receivedWindow: unknown;
+    const events: string[] = [];
+    const handler = createActivityHandler({ authorize: async () => sessionResponse(),
+      readActivity: async () => { throw new ChainDataError("upstream-error", "fixture"); },
+      readCards: async (_session, window) => { receivedWindow = window; return { status: "ready", rows: [purchase] }; },
+      observe: (event) => { events.push(event.outcome); }, now: () => new Date(TO) });
+    const response = await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`));
+    expect(response.status).toBe(200);
+    expectPrivate(response);
+    expect(receivedWindow).toEqual(page().window);
+    expect(await response.json()).toEqual({ version: ACTIVITY_CONTRACT_VERSION, walletAddress: VERIFIED, chainId: 8453,
+      window: page().window, currency: "USD", transfers: [], cards: { status: "ready", rows: [purchase] },
+      nextCursor: null, source: null, onchainStatus: "unavailable" });
+    expect(events).toEqual(["started", "failed"]);
+    const older = await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}&cursor=older`));
+    expect(older.status).toBe(502);
+  });
+  test("preserves the onchain error when cards are also unavailable", async () => {
+    const handler = createActivityHandler({ authorize: async () => sessionResponse(),
+      readActivity: async () => { throw new ChainDataError("upstream-error", "fixture"); },
+      readCards: async () => ({ status: "unavailable", rows: [] }), now: () => new Date(TO) });
+    const response = await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`));
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ error: { code: "ACTIVITY_UPSTREAM",
+      message: "Recent Base activity could not be loaded from the data provider." } });
+  });
+  test("starts card reads while the onchain read is pending", async () => {
+    let finishOnchain!: (result: ActivityPage) => void;
+    let signalCardsStarted!: () => void;
+    const cardsStarted = new Promise<void>((resolve) => { signalCardsStarted = resolve; });
+    const handler = createActivityHandler({ authorize: async () => sessionResponse(),
+      readActivity: () => new Promise<ActivityPage>((resolve) => { finishOnchain = resolve; }),
+      readCards: async () => { signalCardsStarted(); return { status: "ready", rows: [] }; }, now: () => new Date(TO) });
+    const pending = handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`));
+    await cardsStarted;
+    finishOnchain(page());
+    const response = await pending;
+    expect(response.status).toBe(200);
+    expect((await response.json()).cards.status).toBe("ready");
   });
   test("derives wallet scope only from the verified session and forwards the stable window", async () => {
     let received: unknown;
@@ -209,7 +255,7 @@ describe("activity route handler", () => {
       source: () => "cdp-address-history",
       readActivity: async () => ({
         ...page(),
-        source: { ...page().source, provider: "cdp-address-history" },
+        source: { ...page().source!, provider: "cdp-address-history" },
       }),
       observe: (event) => events.push({
         outcome: event.outcome,

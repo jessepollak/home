@@ -18,6 +18,7 @@ import { privateError, privateJson } from "@/server/http/private-response";
 import { isActivityValuationCurrency } from "@/shared/activity/valuation";
 import type { ActivityReadRequest, ActivityReader } from "./types";
 import type { CardPurchases } from "@/shared/cards/transactions-contract";
+import { ACTIVITY_WINDOW_DAYS } from "@/shared/activity/types";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 
 type ActivityReadObservation = Extract<
@@ -130,6 +131,15 @@ export function createActivityHandler(dependencies: {
       valuation: emptyActivityValuation(),
     });
 
+    const cardWindow = {
+      from: new Date(Date.parse(activityRequest.to) - ACTIVITY_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString(),
+      to: activityRequest.to,
+    };
+    const readCards = dependencies.readCards;
+    const cardsPromise = activityRequest.cursor === null && readCards
+      ? Promise.resolve().then(() => readCards(session, cardWindow))
+        .catch((): CardPurchases => ({ status: "unavailable", rows: [] }))
+      : null;
     let primaryFinishedAt: number | null = null;
     try {
       const page = await dependencies.readActivity(
@@ -141,10 +151,8 @@ export function createActivityHandler(dependencies: {
         activityRequest,
         request.signal,
       );
-      if (activityRequest.cursor === null && dependencies.readCards) {
-        page.cards = await dependencies.readCards(session, page.window).catch((): CardPurchases => ({ status: "unavailable", rows: [] }));
-      }
       primaryFinishedAt = clock();
+      if (cardsPromise) page.cards = await cardsPromise;
       throwIfAborted(request.signal);
 
       const finishedAt = clock();
@@ -183,6 +191,16 @@ export function createActivityHandler(dependencies: {
         rowCount: 0,
         valuation: emptyActivityValuation(),
       });
+      if (!request.signal.aborted && !(error instanceof ChainDataError && error.code === "invalid-input") && cardsPromise) {
+        const cards = await cardsPromise;
+        if (cards.status === "ready" || cards.rows.length > 0) {
+          return privateJson({
+            version: ACTIVITY_CONTRACT_VERSION, walletAddress: session.smartAccount.address.toLowerCase() as `0x${string}`,
+            chainId: 8453, window: cardWindow, currency: activityRequest.currency, transfers: [], cards,
+            nextCursor: null, source: null, onchainStatus: "unavailable",
+          } satisfies ActivityResponse, 200);
+        }
+      }
       return activityReadError(error);
     }
   };

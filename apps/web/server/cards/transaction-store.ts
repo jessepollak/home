@@ -47,9 +47,6 @@ export function createCardTransactionStore(sql: Pick<SqlExecutor, "query">) {
          WHERE c.customer_id=$1 AND c.mode=$2 AND t.mode=$2 AND t.provider='bridge'
          AND ($3::timestamptz IS NULL OR t.provider_created_at >= $3)
          AND ($4::timestamptz IS NULL OR t.provider_created_at < $4)
-         AND NOT (t.kind='transaction' AND t.status='completed' AND t.authorization_id IS NOT NULL AND EXISTS (
-           SELECT 1 FROM card_transactions refund WHERE refund.card_id=t.card_id AND refund.authorization_id=t.authorization_id
-             AND refund.kind='transaction' AND refund.status='refunded'))
          AND NOT (t.kind='authorization' AND EXISTS (
            SELECT 1 FROM card_transactions newer WHERE newer.card_id=t.card_id AND newer.authorization_id=t.authorization_id
              AND newer.kind='transaction' AND newer.status <> 'reversed'))
