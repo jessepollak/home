@@ -8,6 +8,8 @@ Status: normative browser-development contract. Home pins Vercel Labs `agent-bro
 2. For permanent regressions prefer unit tests of owned functions, then component tests of roles/handlers/states, then an existing Chromium smoke path. Add a Playwright assertion only for layout/geometry, scrolling, focus, history, persisted state, media queries, hydration/first paint, browser dispatch integration or critical cross-page journeys. Otherwise add no browser test. New Playwright test declarations need a PR-body `Playwright-rung` under [the browser-test ladder](gates.md#browser-test-ladder-boundary).
 3. For provider authentication or real money, follow [the verification ladder](operating-manual.md#verification-ladder) and provider runbook. Credentials are provisioned only to permitted runners. Do not create a generic browser wrapper or run live-money acceptance in PR CI.
 
+For performance acceptance on phones, use [device performance profiling](device-profiling.md); simulator and emulator evidence is not physical-device evidence.
+
 ## Verify a change
 
 1. Map the diff's paths to surfaces using each [surface file](../.agents/skills/browser-iteration/surfaces/)'s **Owned paths**. For every affected surface, choose the highest rung required by the [verification ladder](operating-manual.md#verification-ladder).

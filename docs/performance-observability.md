@@ -49,7 +49,7 @@ The dashboard shell keeps visited panels mounted and hidden, so a navigation re-
 - Ledger row amounts render static digits until their value changes; `MoneyTicker` renders plain digits whenever it is not animating and uses one `NumberFlow` element per digit only when it animates.
 - Visual timers inside a panel read `useShellPanelActive()` and pause while the panel is hidden, as the savings growth estimate does.
 
-Profile navigation with a production build (`next build --profile` for React attribution), a synthetic owner with a few hundred loaded Activity rows, and both Chromium with CPU throttling and WebKit. Development-mode timings are not representative. The [warm navigation profiler](navigation-performance.md) runs fixture-backed desktop WebKit navigation and a Chromium fling in one command.
+Profile navigation with a production build (`next build --profile` for React attribution), a synthetic owner with a few hundred loaded Activity rows, and both Chromium with CPU throttling and WebKit; use [device performance profiling](device-profiling.md) for simulator, emulator and phone procedures. Development-mode timings are not representative. The [warm navigation profiler](navigation-performance.md) runs fixture-backed desktop WebKit navigation and a Chromium fling in one command.
 
 ## Production verification
 
