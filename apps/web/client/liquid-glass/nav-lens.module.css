@@ -7,8 +7,8 @@
 .slide { width: calc((100% - .5rem) / 2); }
 
 :global(nav)[data-lens-pressed] :is(.slide, .track) {
-  --lens-travel: 150ms;
-  --lens-travel-ease: cubic-bezier(.2, .4, .5, 1);
+  --lens-travel: 300ms;
+  --lens-travel-ease: cubic-bezier(.35, .9, .3, 1.15);
 }
 
 .window {
@@ -93,6 +93,42 @@
 
 :global(nav)[data-lens-pressed] .shine { opacity: 1; }
 
+:global(nav)[data-lens-glide="a"] .stretch { animation: lens-stretch-a 300ms ease-in-out; }
+
+:global(nav)[data-lens-glide="b"] .stretch { animation: lens-stretch-b 300ms ease-in-out; }
+
+:global(nav)[data-lens-glide="a"] .counter { animation: lens-counter-a 300ms ease-in-out; }
+
+:global(nav)[data-lens-glide="b"] .counter { animation: lens-counter-b 300ms ease-in-out; }
+
+@keyframes lens-stretch-a {
+  0% { transform: none; animation-timing-function: ease-out; }
+  15% { transform: scale(1.14, .93); }
+  48% { transform: scale(1.01, .995); }
+  70% { transform: scale(.985, 1.012); }
+}
+
+@keyframes lens-stretch-b {
+  0% { transform: none; animation-timing-function: ease-out; }
+  15% { transform: scale(1.14, .93); }
+  48% { transform: scale(1.01, .995); }
+  70% { transform: scale(.985, 1.012); }
+}
+
+@keyframes lens-counter-a {
+  0% { transform: none; animation-timing-function: ease-out; }
+  15% { transform: scale(.877, 1.075); }
+  48% { transform: scale(.99, 1.005); }
+  70% { transform: scale(1.015, .988); }
+}
+
+@keyframes lens-counter-b {
+  0% { transform: none; animation-timing-function: ease-out; }
+  15% { transform: scale(.877, 1.075); }
+  48% { transform: scale(.99, 1.005); }
+  70% { transform: scale(1.015, .988); }
+}
+
 .refraction {
   overflow: visible;
   transform: translateZ(0);
@@ -110,6 +146,8 @@
 
 .still:is(.slide), .still :is(.track, .body, .magnifier, .tint, .shine) { transition: none; }
 
+.still :is(.stretch, .counter) { animation: none; }
+
 @media (hover: hover) {
   :global(nav):has(> button:nth-of-type(1):not([aria-current="page"]):hover) .unselected:nth-child(1) :is(.icon, .label),
   :global(nav):has(> button:nth-of-type(2):not([aria-current="page"]):hover) .unselected:nth-child(2) :is(.icon, .label) { color: var(--foreground); }
@@ -117,6 +155,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .slide, .window, .track, .body, .magnifier, .tint, .shine { transition: none; }
+  .stretch, .counter { animation: none; }
   :global(nav)[data-lens-pressed] :is(.body, .magnifier) { transform: none; }
   :global(nav)[data-lens-pressed] .tint { opacity: 1; }
   :global(nav)[data-lens-pressed] .shine { opacity: 0; }

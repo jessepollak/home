@@ -176,6 +176,8 @@ function useLensSize(element: React.RefObject<HTMLElement | null>) {
 
 export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLensProps) {
   const windowRef = useRef<HTMLSpanElement>(null);
+  const stretchRef = useRef<HTMLSpanElement>(null);
+  const placed = useRef(target);
   const retarget = useRef<(next: number) => void>(null);
   const [override, setOverride] = useState<number | null>(null);
   const floorRef = useRef<HTMLElement | null>(null);
@@ -273,6 +275,7 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
       if (lifted) show(index);
       else {
         clearTimeout(hold);
+        setOverride(placed.current);
         glide = window.setTimeout(() => show(index), LIFT_MS);
       }
     };
@@ -329,12 +332,14 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
       confirmed = true;
       if (!gesture && !settle) wait();
     };
+    const settled = (event: AnimationEvent) => { if (event.target === stretchRef.current) nav.removeAttribute("data-lens-glide"); };
     const off = new AbortController();
     const signal = off.signal;
     const listen = { capture: true, passive: true, signal };
     nav.addEventListener("pointerdown", press, { passive: true, signal });
     nav.addEventListener("click", swallow, { capture: true, signal });
     nav.addEventListener("click", confirm, { signal });
+    nav.addEventListener("animationend", settled, { signal });
     document.addEventListener("pointerdown", startPointer, listen);
     document.addEventListener("pointermove", move, listen);
     document.addEventListener("pointerup", end, listen);
@@ -349,6 +354,7 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
       clearTimeout(settle);
       nav.removeAttribute("data-lens-pressed");
       nav.removeAttribute("data-lens-wide");
+      nav.removeAttribute("data-lens-glide");
       show(null);
     };
   }, [reducedMotion]);
@@ -371,6 +377,13 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
   useLayoutEffect(() => () => onReadyChange(false), [onReadyChange]);
 
   const place = override ?? target;
+  useLayoutEffect(() => {
+    const nav = windowRef.current?.parentElement;
+    const from = placed.current;
+    placed.current = place;
+    if (!nav || from === place || reducedMotion || !nav.hasAttribute("data-lens-pressed")) return;
+    nav.setAttribute("data-lens-glide", nav.getAttribute("data-lens-glide") === "a" ? "b" : "a");
+  }, [place, reducedMotion]);
   const slide = { transform: `translateX(${place * 100}%)`, "--lens-lift-x": LIFT_X, "--lens-lift-y": LIFT_Y } as CSSProperties;
   const motion = reducedMotion ? styles.still : "";
 
@@ -384,8 +397,10 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
         style={slide}
       >
         {ready ? (
-          <span className={`${styles.cutout} ${styles.hole} absolute`} style={masks ?? undefined}>
-            <LensTrack items={items} target={place} className={`${styles.cutoutTrack} absolute`} tone="unselected" />
+          <span className={`${styles.cutout} ${styles.hole} ${styles.stretch} absolute`} style={masks ?? undefined}>
+            <span className={`${styles.counter} absolute inset-0`}>
+              <LensTrack items={items} target={place} className={`${styles.cutoutTrack} absolute`} tone="unselected" />
+            </span>
           </span>
         ) : null}
       </span>
@@ -451,24 +466,26 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
             ) : null}
           </svg>
         ) : null}
-        <span data-navigation-lens-body="" className={`${styles.body} absolute inset-0`}>
-          <span className={`${styles.tint} absolute inset-0`} />
-        </span>
-        <span className={`${styles.cutout} ${styles.clip} absolute`} style={masks ?? undefined}>
-          <span className={`${styles.magnifier} absolute`}>
-            <span className={`${styles.refraction} absolute inset-0`} style={filter ? { filter: `url(#${filter.id})` } : undefined}>
-              <LensTrack items={items} target={place} className="absolute inset-y-0 start-0 w-[200%]" tone="selected" />
+        <span ref={stretchRef} className={`${styles.stretch} absolute inset-0`}>
+          <span data-navigation-lens-body="" className={`${styles.body} absolute inset-0`}>
+            <span className={`${styles.tint} absolute inset-0`} />
+          </span>
+          <span className={`${styles.cutout} ${styles.clip} absolute`} style={masks ?? undefined}>
+            <span className={`${styles.magnifier} absolute`}>
+              <span className={`${styles.refraction} absolute inset-0`} style={filter ? { filter: `url(#${filter.id})` } : undefined}>
+                <LensTrack items={items} target={place} className="absolute inset-y-0 start-0 w-[200%]" tone="selected" />
+              </span>
             </span>
           </span>
-        </span>
-        <span className={`${styles.body} absolute inset-0`}>
-          {filter ? (
-            <span
-              className={`${styles.specular} absolute inset-0`}
-              style={{ maskImage: `url(${filter.specular})`, WebkitMaskImage: `url(${filter.specular})` }}
-            />
-          ) : null}
-          <span className={`${styles.shine} absolute inset-0`} />
+          <span className={`${styles.body} absolute inset-0`}>
+            {filter ? (
+              <span
+                className={`${styles.specular} absolute inset-0`}
+                style={{ maskImage: `url(${filter.specular})`, WebkitMaskImage: `url(${filter.specular})` }}
+              />
+            ) : null}
+            <span className={`${styles.shine} absolute inset-0`} />
+          </span>
         </span>
       </span>
     </>
