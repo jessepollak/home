@@ -1,7 +1,7 @@
 import { type Page, type Request } from "@playwright/test";
 import { navigationCycles, navigationPaths, navigationSettleMs } from "./config";
 import { fillFeed, installFeed } from "./feed";
-import { inlineFixtureMark, leakCycle, resourceSnapshot, twoFrames, type Session } from "./browser";
+import { inlineFixtureMark, leakCycle, resourceSnapshot, twoFrames, type Session, type CpuRate } from "./browser";
 import { median, percentile } from "./evaluate";
 
 export async function ready(page: Page, path: string) {
@@ -26,7 +26,7 @@ function control(page: Page, path: string) {
   throw new Error(`No Home navigation control for ${path}`);
 }
 
-async function navigate(page: Page, path: string, requests?: { method: string; path: string; window: string }[], cycle = 0) {
+export async function navigate(page: Page, path: string, requests?: { method: string; path: string; window: string }[], cycle = 0) {
   const onRequest = (request: Request) => {
     const url = new URL(request.url());
     requests?.push({ method: request.method(), path: url.pathname + url.search, window: `${cycle}: ${path}` });
@@ -43,7 +43,7 @@ async function navigate(page: Page, path: string, requests?: { method: string; p
   } finally { page.off("request", onRequest); }
 }
 
-async function home(page: Page, requests?: { method: string; path: string; window: string }[], cycle = 0) {
+export async function home(page: Page, requests?: { method: string; path: string; window: string }[], cycle = 0) {
   const onRequest = (request: Request) => {
     const url = new URL(request.url());
     requests?.push({ method: request.method(), path: url.pathname + url.search, window: `${cycle}: home` });
@@ -79,6 +79,7 @@ export async function runNavigation(session: Session, baseUrl: string, rows: num
   await page.waitForLoadState("networkidle", { timeout: 15_000 });
   await page.clock.setFixedTime(new Date());
   const latencies: number[] = [];
+  const cpu: CpuRate[] = [];
   const requests: { method: string; path: string; window: string }[] = [];
   let second: Awaited<ReturnType<typeof resourceSnapshot>> | null = null;
   let tenth: Awaited<ReturnType<typeof resourceSnapshot>> | null = null;
@@ -86,7 +87,9 @@ export async function runNavigation(session: Session, baseUrl: string, rows: num
   for (let cycle = 1; cycle <= navigationCycles; cycle++) {
     for (const path of paths) {
       latencies.push(await navigate(page, path, requests, cycle));
+      cpu.push({ ...session.cpu });
       latencies.push(await home(page, requests, cycle));
+      cpu.push({ ...session.cpu });
     }
     await leakCycle(page, seedLeak);
     if (collectGrowth && cycle === 2) second = await resourceSnapshot(session);
@@ -94,7 +97,7 @@ export async function runNavigation(session: Session, baseUrl: string, rows: num
   }
   const durationMs = Date.now() - started;
   if (durationMs >= 55_000) throw new Error(`Navigation windows crossed the 60 s savings poll interval (${durationMs} ms)`);
-  return { latencies, p50: median(latencies), p95: percentile(latencies, 0.95), samples: latencies.length,
+  return { latencies, cpu, p50: median(latencies), p95: percentile(latencies, 0.95), samples: latencies.length,
     requests, durationMs, growth: second && tenth ? {
       nodes: tenth.nodes - second.nodes, listeners: tenth.listeners - second.listeners,
       heapBytes: tenth.heapBytes - second.heapBytes, second, tenth,
