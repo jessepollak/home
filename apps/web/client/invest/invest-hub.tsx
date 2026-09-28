@@ -2,9 +2,11 @@ import { useOptionalAppChrome } from "@/components/app-chrome";
 import type { InvestAsset } from "@/config/invest-assets";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import { unavailableMarketData, type MarketDataState } from "@/shared/invest/invest-market";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { INVEST_SETTINGS_DEFAULTS, type InvestSettings } from "@/shared/operator-settings/invest";
 import {
-  discoverShelves,
   getShelfPreviewAssets,
+  getVisibleShelves,
   type DiscoverShelfId,
   type MemeShelfStatus,
 } from "./discover";
@@ -18,6 +20,7 @@ export type InvestHubProps = {
   memeAssets?: readonly InvestAsset[];
   memeStatus?: MemeShelfStatus;
   assetMarkResolution?: AssetMarkResolution;
+  investVisibility?: InvestSettings;
   query?: string;
   onQueryChange?: (query: string) => void;
   composing?: boolean;
@@ -34,6 +37,7 @@ export function InvestHub({
   memeAssets = [],
   memeStatus = "empty",
   assetMarkResolution = {},
+  investVisibility = INVEST_SETTINGS_DEFAULTS,
   query = "",
   onQueryChange = () => {},
   composing = false,
@@ -53,6 +57,7 @@ export function InvestHub({
     crypto: cryptoMarket ?? unavailableMarketData,
     meme: memeMarket,
   } as const;
+  const visibleShelves = getVisibleShelves(memeAssets, investVisibility);
 
   return (
     <section
@@ -67,7 +72,7 @@ export function InvestHub({
           </h2>
         </header>
       )}
-      {search ? (
+      {search && visibleShelves.length > 0 ? (
         <InvestSearch
           query={query}
           onQueryChange={onQueryChange}
@@ -79,13 +84,13 @@ export function InvestHub({
           onOpenAsset={(asset) => onOpenAsset(asset, "hub")}
         />
       ) : null}
-      {!query.trim() ? (
-        <div className={search ? "mt-4 space-y-4" : "space-y-4"}>
-          {discoverShelves.map((shelf) => (
+      {!query.trim() || visibleShelves.length === 0 ? (
+        <div className={search && visibleShelves.length > 0 ? "mt-4 space-y-4" : "space-y-4"}>
+          {visibleShelves.map((shelf) => (
             <DiscoverShelf
               key={shelf.id}
               title={shelf.title}
-              assets={getShelfPreviewAssets(shelf, memeAssets)}
+              assets={getShelfPreviewAssets(shelf, memeAssets, investVisibility)}
               market={shelfMarkets[shelf.category]}
               status={shelf.id === "memes" ? memeStatus : "ready"}
               assetMarkResolution={assetMarkResolution}
@@ -93,6 +98,9 @@ export function InvestHub({
               onOpenAsset={(asset) => onOpenAsset(asset, "hub")}
             />
           ))}
+          {visibleShelves.length === 0 ? (
+            <Empty><EmptyHeader><EmptyTitle>Nothing to invest in right now.</EmptyTitle></EmptyHeader></Empty>
+          ) : null}
         </div>
       ) : null}
     </section>

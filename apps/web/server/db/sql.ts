@@ -56,6 +56,7 @@ type PostgresSqlExecutorOptions = Readonly<{
 function wrapQueryable(
   queryable: Queryable,
   beginTransaction: (fn: (tx: SqlExecutor) => Promise<unknown>) => Promise<unknown>,
+  raceDriverQuery: <T>(work: Promise<T>) => Promise<T>,
 ): SqlExecutor {
   return {
     async query<T = Record<string, unknown>>(
@@ -64,7 +65,7 @@ function wrapQueryable(
       options: SqlQueryOptions = {},
     ) {
       throwIfSqlAborted(options.signal);
-      const driverResult = await queryable.query(text, values);
+      const driverResult = await raceDriverQuery(queryable.query(text, values));
       throwIfSqlAborted(options.signal);
       const result = lastDriverResult(driverResult);
       const rows = result?.rows ?? [];
@@ -117,46 +118,45 @@ export function createPostgresSqlExecutor(
     fn: (tx: SqlExecutor) => Promise<Result>,
     signal?: AbortSignal,
   ): Promise<Result> => {
-    const client = await acquireClient(getPool(), signal);
-    const tx = wrapQueryable(client, () => {
-      throw new Error("nested transactions are not supported");
-    });
+    throwIfSqlAborted(signal);
+    const client: PoolClientLike = await raceAbort(getPool().connect(), signal, { settleLate: (late) => late.release() });
     let released = false;
-    const release = (destroy = false) => {
+    let poisoned = false;
+    let started = false;
+    const releaseClient = (destroy?: boolean) => {
       if (released) return;
       released = true;
-      client.release(destroy);
+      client.release(destroy ?? (poisoned ? true : undefined));
     };
-    const onAbort = () => release(true);
-    if (signal) {
-      if (signal.aborted) onAbort();
-      else signal.addEventListener("abort", onAbort, { once: true });
-    }
+    const runDriverQuery = <T>(work: Promise<T>): Promise<T> => raceAbort(work, signal, { onAbort: () => { poisoned = true; } });
+    const tx = wrapQueryable(client, () => {
+      throw new Error("nested transactions are not supported");
+    }, runDriverQuery);
     try {
       throwIfSqlAborted(signal);
-      await client.query("BEGIN");
+      await runDriverQuery(client.query("BEGIN"));
+      started = true;
       if (schema && schemaName) {
         const existing = lastDriverResult(
-          await client.query("SELECT 1 FROM pg_namespace WHERE nspname = $1", [schemaName]),
+          await runDriverQuery(client.query("SELECT 1 FROM pg_namespace WHERE nspname = $1", [schemaName])),
         );
         if (existing?.rows?.length !== 1) throw new Error(`PostgreSQL schema ${schemaName} does not exist`);
-        await client.query(`SET LOCAL search_path TO ${schema}`);
+        await runDriverQuery(client.query(`SET LOCAL search_path TO ${schema}`));
       }
       const result = await fn(tx);
       throwIfSqlAborted(signal);
-      await client.query("COMMIT");
+      await runDriverQuery(client.query("COMMIT"));
       return result;
     } catch (error) {
-      if (!released) {
+      if (!poisoned && started) {
         try {
-          await client.query("ROLLBACK");
+          await runDriverQuery(client.query("ROLLBACK"));
         } catch { // oxlint-disable-line home/no-silent-catch -- a failed rollback cannot mask the transaction error that is rethrown
         }
       }
       throw error;
     } finally {
-      release();
-      signal?.removeEventListener("abort", onAbort);
+      releaseClient();
     }
   };
 
@@ -190,25 +190,33 @@ export function createPostgresSqlExecutor(
   };
 }
 
-async function acquireClient(pool: PoolLike, signal?: AbortSignal): Promise<PoolClientLike> {
-  if (!signal) return pool.connect();
-  if (signal.aborted) throw signal.reason ?? new DOMException("PostgreSQL query aborted.", "AbortError");
-  const connecting = pool.connect();
-  return new Promise<PoolClientLike>((resolve, reject) => {
+function lastDriverResult(
+  result: DriverQueryResult | DriverQueryResult[],
+): DriverQueryResult | undefined {
+  return Array.isArray(result) ? result.at(-1) : result;
+}
+
+function raceAbort<T>(work: Promise<T>, signal: AbortSignal | undefined, handlers: { onAbort?: () => void; settleLate?: (value: T) => void } = {}): Promise<T> {
+  if (!signal) return work;
+  return new Promise<T>((resolve, reject) => {
     let settled = false;
     const onAbort = () => {
       if (settled) return;
       settled = true;
-      signal.removeEventListener("abort", onAbort);
-      reject(signal.reason ?? new DOMException("PostgreSQL query aborted.", "AbortError"));
+      handlers.onAbort?.();
+      reject(signal.reason ?? new Error("PostgreSQL query aborted"));
     };
-    signal.addEventListener("abort", onAbort, { once: true });
-    connecting.then(
-      (client) => {
-        if (settled) { client.release(true); return; }
-        settled = true;
-        signal.removeEventListener("abort", onAbort);
-        resolve(client);
+    if (signal.aborted) onAbort();
+    else signal.addEventListener("abort", onAbort, { once: true });
+    work.then(
+      (value) => {
+        if (!settled) {
+          settled = true;
+          signal.removeEventListener("abort", onAbort);
+          resolve(value);
+          return;
+        }
+        handlers.settleLate?.(value);
       },
       (error) => {
         if (settled) return;
@@ -217,15 +225,9 @@ async function acquireClient(pool: PoolLike, signal?: AbortSignal): Promise<Pool
         reject(error);
       },
     );
-    if (signal.aborted) onAbort();
   });
 }
 
-function lastDriverResult(
-  result: DriverQueryResult | DriverQueryResult[],
-): DriverQueryResult | undefined {
-  return Array.isArray(result) ? result.at(-1) : result;
-}
 
 function throwIfSqlAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) {

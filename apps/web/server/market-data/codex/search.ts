@@ -38,7 +38,7 @@ function configuredMatches(query: string, assets: readonly InvestAsset[]): Inves
       ? "contract" as const
       : address ? null : matchAliases(query, [asset.id, asset.displayName, asset.displaySymbol, asset.representation.tokenSymbol, asset.contractAddress]);
     return match ? [{ kind: "configured" as const, assetId: asset.id, match }] : [];
-  }).sort((a, b) => investSearchRank(a.match, "configured") - investSearchRank(b.match, "configured")).slice(0, 8);
+  }).sort((a, b) => investSearchRank(a.match, "configured") - investSearchRank(b.match, "configured"));
 }
 
 function readPageInteger(value: unknown): number | null {

@@ -21,10 +21,19 @@ The full check suite also covers:
 - story tests (`bun run --cwd apps/web test:stories`)
 - `bun run gates` (the repository gate unit tests above, including commit provenance; also run inside `bun check`)
 - disposable PostgreSQL contracts discovered from tracked `apps/web/**/*postgres*.test.ts` files (including country preferences), run against CI's PostgreSQL 14 service
+- unit-test runtime budgets (per-test and summed per-file JUnit timings, with a checked-in outlier allowlist)
 - performance budgets (production fixture, structural gates, and report-only timings)
 - the **Code Connect templates** step in the `bun check` job (`bun run --cwd apps/web figma:connect:parse`), which parses every `*.figma.ts` template offline
 
 On pushes to `main`, the `publish Code Connect` and `sync Figma variables` jobs publish templates and tokens to Figma. They run only when the `FIGMA_ACCESS_TOKEN` secret is set and otherwise skip without failing ([Figma workflow](design-explorations/figma-workflow.md#source-of-truth)).
+
+## Unit-test runtime
+
+The **Unit-test runtime** CI step reads the JUnit report produced by `bun test` during `bun check`. A test over 5 seconds or a file over 30 seconds fails unless its exact identity is listed in `scripts/gates/test-runtime-allowlist.json` with a higher ceiling; exceeding that ceiling still fails. The test identity is its nested describe names and test name joined with ` > ` (or just the test name without a describe), which is why an entry can be copied from the slow test's console line. Bun emits describes as nested `testsuite` elements; its `classname` attribute joins the same describes in the opposite order and is not used. File time is the sum of testcase times, including repeated testcases; hooks and module load are not included. Repeated test identities in one file use their maximum time for the per-test check.
+
+The checked-in outlier ceilings were calibrated as `ceil(max observed × 1.25)` from ten CI-runner samples at the main baseline. Entries must be sorted and unique, with ceilings above the defaults and a non-empty evidence `reason` alongside each ceiling. Raising a ceiling is visible next to its reason in the reviewed diff; there is no PR-body declaration or separate authorization step. An entry absent from JUnit fails as stale and should be removed; an entry currently within the default limit produces a non-failing removable note. Removing or lowering ceilings is always allowed. The base comparison is informational: the job summary lists added, raised (old and new ceilings), and removed entries. The base is resolved from `origin/<BASE_REF>` or a local `<BASE_REF>` (with a fallback note); an unavailable or invalid base allowlist is a note, not a failure, and HEAD is never substituted. Missing, malformed, or empty JUnit reports fail, as does a root `tests` count that is missing or differs from the number of testcase elements (including skipped and repeated cases).
+
+Run locally with `bun run test` followed by `node scripts/gates/test-runtime.mjs` from the repository root. Local machines differ from the CI runner; investigate local findings against CI timings rather than treating local measurements as calibration. CI runs the runtime step even after a failed Check when a JUnit report exists; Check's failure remains a failure. CI uploads `unit-test-timings` (JUnit XML and full timing/findings JSON) for 30 days and prints findings, notes, and the ten slowest tests and files in the job summary.
 
 ## Performance budgets
 

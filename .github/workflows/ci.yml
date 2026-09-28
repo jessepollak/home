@@ -71,6 +71,24 @@ jobs:
       - name: Check
         run: bun check
 
+      - name: Unit-test runtime
+        if: ${{ !cancelled() && (success() || hashFiles('apps/web/unit-test-results/junit.xml') != '') }}
+        env:
+          BASE_REF: ${{ github.base_ref || 'main' }}
+        shell: bash
+        run: |
+          set -o pipefail
+          node scripts/gates/test-runtime.mjs --summary-json apps/web/unit-test-results/runtime.json 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload unit-test timings
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: unit-test-timings
+          path: apps/web/unit-test-results
+          retention-days: 30
+          if-no-files-found: ignore
+
       - name: Dead code (knip)
         run: bun run --cwd apps/web knip
 

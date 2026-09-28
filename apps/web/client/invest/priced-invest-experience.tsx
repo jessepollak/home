@@ -22,8 +22,9 @@ import { useMarketPrices } from "./use-market-prices";
 
 export function PricedInvestExperienceWithDiscover({
   initialView,
+  investVisibility,
   discover,
-}: Pick<InvestExperienceProps, "initialView"> & {
+}: Pick<InvestExperienceProps, "initialView" | "investVisibility"> & {
   discover: UseInvestDiscoverResult;
 }) {
   const persistedRegion = usePersistedPresentationRegion();
@@ -39,6 +40,7 @@ export function PricedInvestExperienceWithDiscover({
       <InvestExperience
         {...marketProps}
         initialView={initialView}
+        investVisibility={investVisibility}
         memeMarket={discover.memeMarket}
         memeAssets={discover.memeAssets}
         memeStatus={discover.memeStatus}

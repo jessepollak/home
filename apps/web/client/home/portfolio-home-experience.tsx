@@ -15,6 +15,7 @@ import { investViewFromLocation } from "@/client/invest/invest-location";
 import { useInvestDiscover } from "@/client/invest/use-invest-discover";
 import { AuthenticatedCashExperience } from "@/client/cash/cash-experience";
 import type { ShellLocation } from "@/config/shell-location";
+import type { InvestSettings } from "@/shared/operator-settings/invest";
 import { DashboardShell } from "./shell";
 import { deriveAssetMarkResolution, deriveSendAvailability } from "./send-availability";
 import { useShowSmallBalances } from "./use-show-small-balances";
@@ -28,12 +29,14 @@ export function PortfolioHomeExperience({
   initialSearch,
   accountPreference,
   regionOffer = ALL_REGIONS_OFFER,
+  investVisibility,
 }: {
   detectedCountry: CountryCode | null;
   regionOffer?: RegionOffer;
   initialLocation: ShellLocation;
   initialSearch?: string;
   accountPreference: CountryPreferenceSeed | null;
+  investVisibility?: InvestSettings;
 }) {
   const account = useAccountWallet();
   const discover = useInvestDiscover();
@@ -191,6 +194,7 @@ export function PortfolioHomeExperience({
         <PricedInvestExperienceWithDiscover
           discover={discover}
           initialView={initialInvestView}
+          investVisibility={investVisibility}
         />
       }
       // oxlint-disable-next-line react/no-unstable-nested-components -- Shell invokes this render callback as a function, not a component.

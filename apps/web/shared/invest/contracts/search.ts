@@ -7,6 +7,7 @@ export const INVEST_SEARCH_VERSION = 1 as const;
 export const INVEST_SEARCH_QUERY_MAX_LENGTH = 64;
 export const INVEST_SEARCH_PAGE_SIZE = 20;
 export const INVEST_SEARCH_MAX_OFFSET = 100;
+export const INVEST_SEARCH_MAX_CONFIGURED_RESULTS = 8;
 
 export type InvestSearchMatch = "contract" | "exact" | "prefix" | "partial";
 export type InvestSearchSource = "configured" | "indexed" | "onchain";
