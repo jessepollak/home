@@ -106,6 +106,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
       await expect(page).toHaveURL(new RegExp(`${href}$`));
       await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
       await expect(page.getByText(empty)).toBeVisible();
+      if (heading === "Settings") await expect(page.getByText("Invest settings need a database. Home is showing its full catalog.")).toBeVisible();
       if (viewport.width === 390) {
         const trigger = page.getByRole("button", { name: "Open sections menu" });
         await trigger.click();

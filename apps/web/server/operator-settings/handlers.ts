@@ -6,6 +6,7 @@ import { getSqlExecutor } from "@/server/db/sql";
 import { privateJson } from "@/server/http/private-response";
 import { authorizeOperatorRequest } from "@/server/operator/api";
 import { readOperatorConfig, type OperatorConfig } from "@/server/operator/config";
+import { invalidateInvestVisibility } from "@/server/operator-settings/invest";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { OPERATOR_SETTINGS_CONTRACT_VERSION, parsePutSettingsRequest, validCursor, type OperatorSettingsErrorCode } from "@/shared/operator-settings/contract";
 import { AdminAuditLog } from "./audit";
@@ -18,6 +19,7 @@ type Dependencies = {
   config?: () => OperatorConfig;
   store?: () => OperatorSettingsStore;
   audit?: () => AdminAuditLog;
+  invalidateInvest?: () => void;
 };
 
 function error(code: OperatorSettingsErrorCode, status: number): Response {
@@ -101,6 +103,7 @@ export function createSettingsDomainHandlers(deps: Dependencies = {}) {
       try {
         const written = await settingsStore.write({ domain, value: parsed.value, expectedRevision: parsed.expectedRevision, actor: decision.address });
         if (domain === REGIONS_SETTINGS_DOMAIN) invalidateRegionPolicy();
+        if (domain === "invest") (deps.invalidateInvest ?? invalidateInvestVisibility)();
         return privateJson({ version: OPERATOR_SETTINGS_CONTRACT_VERSION, ...written }, 200);
       } catch (cause) {
         if (cause instanceof OperatorSettingsConflictError) {

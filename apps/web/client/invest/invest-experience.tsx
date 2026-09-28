@@ -19,10 +19,12 @@ import {
 } from "@/shared/invest/contracts/market-price-history";
 import { unavailableMarketData, type MarketDataState } from "@/shared/invest/invest-market";
 import { resolveTradeAsset } from "@/shared/trading/assets";
+import { INVEST_SETTINGS_DEFAULTS, isInvestAssetVisible, type InvestSettings } from "@/shared/operator-settings/invest";
 import {
   getDiscoverAsset,
   getDiscoverShelf,
   getShelfAssets,
+  hasVisibleShelf,
   marketForAsset,
   type MemePagination,
   type MemeShelfStatus,
@@ -90,6 +92,7 @@ export type InvestExperienceProps = {
   memePagination?: MemePagination;
   onLoadMoreMemes?: () => void;
   onRetryLoadMoreMemes?: () => void;
+  investVisibility?: InvestSettings;
 };
 
 export function InvestExperience({
@@ -103,6 +106,7 @@ export function InvestExperience({
   memePagination,
   onLoadMoreMemes,
   onRetryLoadMoreMemes,
+  investVisibility = INVEST_SETTINGS_DEFAULTS,
 }: InvestExperienceProps = {}) {
   const routing = useOptionalHomeShellRouting();
   const [view, setView] = useState<InvestView>(() =>
@@ -110,11 +114,18 @@ export function InvestExperience({
       ? investViewFromLocation(routing.state.location)
       : initialView ?? { screen: "hub" },
   );
+  const displayView = view.screen === "category" &&
+    !hasVisibleShelf(view.shelfId, memeAssets, investVisibility)
+    ? ({ screen: "hub" } as const) : view;
   const savedQuery = useSyncExternalStore(subscribeToSavedQuery, readSavedQuery, readServerSavedQuery);
   const [editedQuery, setQuery] = useState<string | null>(null);
   const query = editedQuery ?? savedQuery;
   const [composing, setComposing] = useState(false);
   const search = useInvestSearch(query, composing);
+  const visibleSearch = {
+    ...search,
+    results: search.results.filter(({ asset }) => isInvestAssetVisible(investVisibility, asset)),
+  };
   const detailIdentity = view.screen === "detail"
     ? resolveMarketPriceAssetIdentity(view.assetId)
     : null;
@@ -146,7 +157,7 @@ export function InvestExperience({
     }
   }
   const hostRef = useRef<HTMLDivElement>(null);
-  const currentViewKey = viewKey(view);
+  const currentViewKey = viewKey(displayView);
   const markets = { stockMarket, memeMarket, cryptoMarket };
   const dynamicSnapshots = [
     ...(memeMarket.status === "ready" ? memeMarket.snapshots : []),
@@ -159,13 +170,13 @@ export function InvestExperience({
       : { status: "ready", snapshots: dynamicSnapshots };
 
   useLayoutEffect(() => {
-    if (view.screen === "hub") {
+    if (displayView.screen === "hub") {
       const scrollTop = historySearchState().scrollTop;
       const host = hostRef.current?.closest("[data-app-main-authenticated]");
       if (host instanceof HTMLElement) host.scrollTop = scrollTop;
       else window.scrollTo(0, scrollTop);
     } else resetHostScroll(hostRef.current);
-  }, [currentViewKey, view.screen]);
+  }, [currentViewKey, displayView.screen]);
 
   const appliedPopRevisionRef = useRef(routing?.popRevision ?? 0);
   useEffect(() => {
@@ -215,7 +226,7 @@ export function InvestExperience({
     setInAppChildDepth(0);
   }, [routing]);
 
-  const onHubEntry = view.screen === "hub" && (!routing || routing.state.location.panel === "invest");
+  const onHubEntry = displayView.screen === "hub" && (!routing || routing.state.location.panel === "invest");
   const changeQuery = useCallback((next: string) => {
     setQuery(next);
     if (onHubEntry) saveHistoryQuery(next);
@@ -256,16 +267,16 @@ export function InvestExperience({
   const detailAsset = view.screen === "detail" ? getDiscoverAsset(view.assetId, catalog) : null;
   const exactAsset = view.screen === "detail" && !detailAsset ? resolveTradeAsset(view.assetId) : null;
   const chromeTitle =
-    view.screen === "category"
-      ? getDiscoverShelf(view.shelfId)?.title ?? null
-      : view.screen === "detail"
+    displayView.screen === "category"
+      ? getDiscoverShelf(displayView.shelfId)?.title ?? null
+      : displayView.screen === "detail"
         ? detailAsset?.displayName ?? (exactAsset?.status === "tradeable"
           ? `${exactAsset.address.slice(0, 6)}…${exactAsset.address.slice(-4)}` : "Asset details")
         : null;
   const chromeBackLabel =
-    view.screen === "category"
+    displayView.screen === "category"
       ? "Back to Invest"
-      : view.screen === "detail"
+      : displayView.screen === "detail"
         ? "Back"
         : null;
 
@@ -299,11 +310,12 @@ export function InvestExperience({
       memeAssets={memeAssets}
       memeStatus={memeStatus}
       assetMarkResolution={assetMarkResolution}
+      investVisibility={investVisibility}
       query={query}
       onQueryChange={changeQuery}
       composing={composing}
       onComposingChange={setComposing}
-      search={search}
+      search={visibleSearch}
       onSeeAll={(shelfId) => go({ screen: "category", shelfId })}
       onOpenAsset={(asset: InvestAsset) =>
         go({ screen: "detail", assetId: asset.id, from: "hub" })
@@ -311,10 +323,10 @@ export function InvestExperience({
     />
   );
 
-  if (view.screen === "category") {
-    const shelf = getDiscoverShelf(view.shelfId);
+  if (displayView.screen === "category") {
+    const shelf = getDiscoverShelf(displayView.shelfId);
     if (!shelf) return <div ref={hostRef} />;
-    const assets = getShelfAssets(shelf, memeAssets);
+    const assets = getShelfAssets(shelf, memeAssets, investVisibility);
     screen = (
       <CategoryScreen
         title={shelf.title}

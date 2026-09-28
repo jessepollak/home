@@ -28,6 +28,14 @@ describe("Base Invest search", () => {
     expect(removed.contractAddress).toBe(investAssets[0]!.contractAddress);
   });
 
+  test("returns every matching configured asset so the caller can filter before capping", async () => {
+    const search = createCodexSearchReader({ apiKey: undefined, isPair: async () => false });
+    const result = await search(request("0xb200"));
+    const configuredIds = result.results.flatMap((value) => value.kind === "configured" ? [value.assetId] : []);
+    expect(configuredIds).toHaveLength(12);
+    expect(configuredIds).toEqual(expect.arrayContaining(["cbhype", "cbzec"]));
+  });
+
   test("sends Base-only phrase search, retains distinct symbols, ranks relevance and drops wrong-chain/configured/duplicate contracts", async () => {
     const checked: string[] = [];
     const search = createCodexSearchReader({ apiKey: "fixture", now, isPair: async (address) => { checked.push(address); return false; }, fetchImpl: async (_, init) => {
