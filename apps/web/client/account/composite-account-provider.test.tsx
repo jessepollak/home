@@ -101,7 +101,7 @@ function MockCdpHooksProvider({ children }: { children: ReactNode }) {
   return children;
 }
 
-mock.module("@coinbase/cdp-hooks", () => ({
+await mock.module("@coinbase/cdp-hooks", () => ({
   CDPHooksProvider: MockCdpHooksProvider,
   useIsInitialized: () => ({ isInitialized: useCdpState().isInitialized }),
   useIsSignedIn: () => ({ isSignedIn: useCdpState().isSignedIn }),
@@ -141,7 +141,7 @@ mock.module("@coinbase/cdp-hooks", () => ({
   }),
 }));
 
-mock.module("./native-base-bridge", () => ({
+await mock.module("./native-base-bridge", () => ({
   default: ({ children }: { children: ReactNode }) => children,
   useNativeBaseIdentity: (enabled = true, options?: { restoreOnMount?: boolean }) => {
     nativeMountRestore = enabled && (options?.restoreOnMount ?? true);
@@ -190,7 +190,7 @@ mock.module("./native-base-bridge", () => ({
   },
 }));
 
-mock.module("@base-org/account", () => ({
+await mock.module("@base-org/account", () => ({
   createBaseAccountSDK: () => ({
     getProvider: () => ({
       on: () => {},

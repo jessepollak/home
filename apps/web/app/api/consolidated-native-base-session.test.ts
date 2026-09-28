@@ -38,7 +38,7 @@ const CDP_SESSION: VerifiedAccountSession = {
   accountProvider: "cdp-embedded",
 };
 
-mock.module("@/server/cdp/provider", () => ({
+await mock.module("@/server/cdp/provider", () => ({
   ...actualCdpProvider,
   getCdpAccessTokenValidator: async () => ({
     validateAccessToken: async () => ({

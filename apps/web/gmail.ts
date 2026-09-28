@@ -232,14 +232,14 @@ export async function runGmailAuth(path: string, options: GmailAuthOptions = {})
     const opener = process.platform === "darwin" ? "open" : "xdg-open";
     const opened = Bun.spawnSync({ cmd: [opener, authorization.toString()], stdout: "ignore", stderr: "ignore" });
     if (opened.exitCode !== 0) {
-      server.stop(true);
+      await server.stop(true);
       throw new Error("Could not open the Gmail authorization URL.");
     }
   }
   try {
     await completeGmailAuthorization(path, await codePromise, bootstrap, redirectUri, options);
   } finally {
-    server.stop(true);
+    await server.stop(true);
   }
 }
 
