@@ -394,7 +394,7 @@ describe("parseCdpSqlResponseEnvelope", () => {
         cached: false,
         executionTimestamp: receivedAt.toISOString(),
         executionTimeMs: 17,
-        rowCount: 1,
+        rowCount: 10,
       },
     });
 

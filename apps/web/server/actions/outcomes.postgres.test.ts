@@ -128,6 +128,7 @@ describePostgres("write-once action outcomes with real handlers", () => {
     const raw = new TextEncoder().encode(JSON.stringify({ eventType: "wallet.activity.detected", data: { matchedAddress: address } }));
     const signature = createHmac("sha256", secret).update(Buffer.concat([Buffer.from(`${timestamp}.`), Buffer.from(raw)])).digest("hex");
     const webhook = createCdpWebhookHandler({ store: { markStaleMany: async () => {} }, keyring: null,
+      history: null,
       subscriptions: { list: async () => [{ subscriptionId: "fixture", credential: { kind: "legacy-plaintext" as const, secret }, target: "https://home.test/api/webhooks/cdp",
         eventType: "wallet_activity", createdAt: new Date().toISOString() }] },
       schedule: (task) => { tasks.push(task); },
@@ -165,6 +166,7 @@ describePostgres("write-once action outcomes with real handlers", () => {
     const raw = new TextEncoder().encode(JSON.stringify({ eventType: "wallet.activity.detected", data: { matchedAddress: address, from: otherAddress } }));
     const signature = createHmac("sha256", secret).update(Buffer.concat([Buffer.from(`${timestamp}.`), Buffer.from(raw)])).digest("hex");
     const webhook = createCdpWebhookHandler({ store: { markStaleMany: async () => {} }, keyring: null,
+      history: null,
       subscriptions: { list: async () => [{ subscriptionId: "fixture", credential: { kind: "legacy-plaintext" as const, secret }, target: "https://home.test/api/webhooks/cdp",
         eventType: "wallet_activity", createdAt: new Date().toISOString() }] },
       schedule: (task) => { tasks.push(task); },
@@ -207,6 +209,7 @@ describePostgres("write-once action outcomes with real handlers", () => {
       userOperations: [{ userOpHash, sender: address, success: true }, { userOpHash, sender: secondAddress, success: true }] };
     const followed: string[] = [];
     const webhook = createCdpWebhookHandler({ store: { markStaleMany: async () => {} }, keyring: null,
+      history: null,
       subscriptions: { list: async () => [{ subscriptionId: "fixture", credential: { kind: "legacy-plaintext" as const, secret }, target: "https://home.test/api/webhooks/cdp",
         eventType: "wallet_activity", createdAt: new Date().toISOString() }] },
       schedule: (task) => { tasks.push(task); },

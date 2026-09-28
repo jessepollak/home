@@ -3,6 +3,7 @@ import { settleOpenActionsForAccounts } from "@/server/actions/follow-through";
 import { createAfterSchedule } from "@/server/scheduling/after-schedule";
 import { createCdpWebhookHandler } from "@/server/balances/webhook";
 import { getBalanceSnapshotStore } from "@/server/balances/snapshot-store";
+import { getHistoryStore } from "@/server/balances/history/store";
 import { getWebhookSubscriptionStore } from "@/server/balances/webhook-subscription-store";
 import { readBoundedWebhookBody } from "@/server/funding/core/webhook-body";
 import { emitServerEvent } from "@/server/observability/log";
@@ -15,6 +16,7 @@ export const maxDuration = 30;
 const resolvedKeyring = resolveSecretKeyring(process.env);
 const handleWebhook = createCdpWebhookHandler({
   store: getBalanceSnapshotStore(),
+  history: getHistoryStore(),
   subscriptions: getWebhookSubscriptionStore(),
   keyring: resolvedKeyring.ok ? resolvedKeyring.keyring : null,
   schedule: createAfterSchedule(after, () => emitServerEvent("balances-webhook", {
