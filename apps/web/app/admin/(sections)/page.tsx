@@ -1,9 +1,14 @@
+import { after } from "next/server";
 import { authorizedOperatorAddress, OperatorEmpty, OperatorSection } from "../section-content";
 import { readOperatorPageDecision } from "@/server/operator/page";
+import { scheduleOperatorRecheck } from "@/server/operator/follow-through";
+
+export const maxDuration = 25;
 
 export default async function AdminPage() {
   const decision = await readOperatorPageDecision();
   const address = authorizedOperatorAddress(decision);
+  scheduleOperatorRecheck(decision, after, "/admin");
   return (
     <OperatorSection address={address} heading="Overview">
       <section aria-labelledby="attention-heading" className="grid gap-3">

@@ -1,13 +1,17 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
+import { createCdpWebhookHandler } from "@/server/balances/webhook";
+import { settleOpenActionsForAccounts } from "./follow-through";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
 import { readMigrationSql } from "@/tests/helpers/migrations";
 import { createDeclineActionHandler, createGetActionHandler, createHandleActionHandler, createListActionsHandler, createRetryActionHandler } from "./handler";
 import { ActionsStore } from "./store";
 import type { MoneyActionOwner } from "@/shared/money-actions/types";
 import type { TransferReceiptStatus } from "./receipt";
-import type { HandleResolution } from "./reconcile";
+import { createActionHandleResolver, type HandleResolution } from "./reconcile";
+import { createUserOperationLogLookup } from "./user-operation-log";
+import { USER_OPERATION_ENTRY_POINTS, USER_OPERATION_EVENT_TOPIC } from "./receipt";
 import { DECLINE_ACTION_CONTRACT_VERSION } from "@/shared/actions/contracts/decline";
 
 const connectionString = process.env.ACTION_PG_TEST_URL?.trim();
@@ -81,6 +85,166 @@ describePostgres("write-once action outcomes with real handlers", () => {
     await sql?.dispose?.();
     await admin?.unsafe(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
     await admin?.close();
+  });
+
+  for (const provider of ["cdp-embedded", "base-account"] as const) {
+    test(`${provider} follows a handle to a finalized receipt without another client call`, async () => {
+      const id = await prepared(provider);
+      const tasks: Array<() => Promise<unknown>> = [];
+      const fetchImpl = async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const call = JSON.parse(String(init?.body)) as { id: number; method: string; params: unknown[] };
+        const result = call.method === "wallet_getCallsStatus"
+          ? { id: userOpHash, version: "2.0.0", chainId: "0x2105", atomic: true, status: 200, receipts: [{ transactionHash: hash }] }
+          : call.method === "eth_chainId" ? "0x2105"
+          : call.method === "eth_blockNumber" ? "0x100"
+          : [{ address: USER_OPERATION_ENTRY_POINTS.V06, transactionHash: hash,
+            topics: [USER_OPERATION_EVENT_TOPIC, userOpHash, `0x${"0".repeat(24)}${address.slice(2)}`] }];
+        return Response.json({ jsonrpc: "2.0", id: call.id, result });
+      };
+      const resolver = createActionHandleResolver({ fetchImpl, now: () => Date.now(),
+        logLookup: createUserOperationLogLookup({ fetchImpl, now: () => Date.now() }) });
+      const handle = createHandleActionHandler({ authorize: provider === "base-account" ? baseAuthorize : authorize,
+        store, schedule: (task) => tasks.push(task), markHot: async () => {},
+        followDeps: { store, resolveHandle: resolver, readReceipt: async () => receipt(true) } });
+      expect((await handle(request(id, "/handle", provider, { providerHandle: userOpHash }), context(id))).status).toBe(200);
+      expect((await store.get(owner(provider), id))?.transaction_hash).toBeNull();
+      expect(tasks).toHaveLength(1);
+      await tasks[0]!();
+      expect(await store.get(owner(provider), id)).toMatchObject({ transaction_hash: hash,
+        observed_receipt_transaction_hash: hash, observed_receipt_outcome: "succeeded", outcome: "succeeded", outcome_source: "chain" });
+      expect((await handle(request(id, "/handle", provider, { providerHandle: userOpHash }), context(id))).status).toBe(200);
+      expect(tasks).toHaveLength(1);
+    });
+  }
+
+  test("a signed account webhook settles a confirmed handle-only action", async () => {
+    const id = await prepared();
+    await store.recordHandle(owner(), id, { providerHandle: userOpHash });
+    const tasks: Array<() => Promise<void>> = [];
+    const logLines: string[] = [];
+    setObservabilityLogWriterForTests((line) => { logLines.push(line); });
+    const secret = "fixture-webhook-secret";
+    const timestamp = Math.floor(Date.now() / 1000);
+    const raw = new TextEncoder().encode(JSON.stringify({ eventType: "wallet.activity.detected", data: { matchedAddress: address } }));
+    const signature = createHmac("sha256", secret).update(Buffer.concat([Buffer.from(`${timestamp}.`), Buffer.from(raw)])).digest("hex");
+    const webhook = createCdpWebhookHandler({ store: { markStaleMany: async () => {} }, keyring: null,
+      subscriptions: { list: async () => [{ subscriptionId: "fixture", credential: { kind: "legacy-plaintext" as const, secret }, target: "https://home.test/api/webhooks/cdp",
+        eventType: "wallet_activity", createdAt: new Date().toISOString() }] },
+      schedule: (task) => { tasks.push(task); },
+      settleActions: (addresses, signal) => settleOpenActionsForAccounts(addresses, {
+        signal, route: "/api/webhooks/cdp", deps: { store,
+          resolveHandle: async () => ({ status: "complete", transactionHash: hash }),
+          readReceipt: async () => receipt(true),
+        },
+      }),
+    });
+    expect((await webhook(raw, `t=${timestamp},v0=${signature}`)).status).toBe(200);
+    expect((await store.get(owner(), id))?.outcome).toBeNull();
+    expect(tasks).toHaveLength(1);
+    await tasks[0]!();
+    expect(await store.get(owner(), id)).toMatchObject({ transaction_hash: hash, outcome: "succeeded", outcome_source: "chain" });
+    expect(logLines.map((line) => JSON.parse(line))).toContainEqual(expect.objectContaining({ kind: "action-reconcile",
+      code: "WEBHOOK_ACTION_SETTLED", outcome: "ok" }));
+    expect(logLines.join(" ")).not.toContain(address);
+    expect(logLines.join(" ")).not.toContain(userOpHash);
+  });
+
+  test("a webhook delivery for one address never settles another account's open action", async () => {
+    const otherAddress = "0x2222222222222222222222222222222222222222" as const;
+    const otherOwner: MoneyActionOwner = { subject: "other-owner", address: otherAddress, chainId: 8453, accountProvider: "cdp-embedded" };
+    const otherId = randomUUID();
+    await store.insert({ id: otherId, owner: otherOwner, kind: "send",
+      summary: { title: "Send", amounts: [], warnings: [], expiresAt: "2099-01-01T00:00:00.000Z" },
+      pending: { calls: [{ to: otherAddress, data: "0x", value: "0" }] }, createdAt: new Date().toISOString() });
+    await store.confirm(otherOwner, otherId);
+    await store.recordHandle(otherOwner, otherId, { providerHandle: userOpHash });
+
+    const tasks: Array<() => Promise<void>> = [];
+    const secret = "fixture-webhook-secret";
+    const timestamp = Math.floor(Date.now() / 1000);
+    const raw = new TextEncoder().encode(JSON.stringify({ eventType: "wallet.activity.detected", data: { matchedAddress: address, from: otherAddress } }));
+    const signature = createHmac("sha256", secret).update(Buffer.concat([Buffer.from(`${timestamp}.`), Buffer.from(raw)])).digest("hex");
+    const webhook = createCdpWebhookHandler({ store: { markStaleMany: async () => {} }, keyring: null,
+      subscriptions: { list: async () => [{ subscriptionId: "fixture", credential: { kind: "legacy-plaintext" as const, secret }, target: "https://home.test/api/webhooks/cdp",
+        eventType: "wallet_activity", createdAt: new Date().toISOString() }] },
+      schedule: (task) => { tasks.push(task); },
+      settleActions: (addresses, signal) => settleOpenActionsForAccounts(addresses, {
+        signal, route: "/api/webhooks/cdp", deps: { store,
+          resolveHandle: async () => ({ status: "complete", transactionHash: hash }),
+          readReceipt: async () => receipt(true),
+        },
+      }),
+    });
+
+    expect((await webhook(raw, `t=${timestamp},v0=${signature}`)).status).toBe(200);
+    await tasks[0]!();
+    expect(await store.get(otherOwner, otherId)).toMatchObject({ transaction_hash: null, outcome: null });
+  });
+
+  test("a multi-wallet delivery checks each matched wallet past its own open-action limit", async () => {
+    const secondAddress = "0x2222222222222222222222222222222222222222" as const;
+    const secondOwner: MoneyActionOwner = { subject: "second-owner", address: secondAddress, chainId: 8453, accountProvider: "cdp-embedded" };
+    const triggered = randomUUID();
+    await store.insert({ id: triggered, owner: secondOwner, kind: "send",
+      summary: { title: "Send", amounts: [], warnings: [], expiresAt: "2099-01-01T00:00:00.000Z" },
+      pending: { calls: [{ to: secondAddress, data: "0x", value: "0" }] }, createdAt: new Date().toISOString() });
+    await store.confirm(secondOwner, triggered);
+    await store.recordHandle(secondOwner, triggered, { providerHandle: userOpHash });
+    await sql.query("UPDATE actions SET confirmed_at = now() - interval '5 minutes' WHERE id = $1", [triggered]);
+    for (let index = 0; index < 24; index += 1) {
+      const id = await prepared();
+      await store.recordHandle(owner(), id, { providerHandle: userOpHash });
+    }
+
+    const tasks: Array<() => Promise<void>> = [];
+    const secret = "fixture-webhook-secret";
+    const timestamp = Math.floor(Date.now() / 1000);
+    const raw = new TextEncoder().encode(JSON.stringify({ eventType: "wallet.activity.multi",
+      data: { matchedAddress: address, address: secondAddress } }));
+    const signature = createHmac("sha256", secret).update(Buffer.concat([Buffer.from(`${timestamp}.`), Buffer.from(raw)])).digest("hex");
+    const multiReceipt: TransferReceiptStatus = { status: "confirmed", transactionHash: hash, blockNumber: "1",
+      blockHash: `0x${"ef".repeat(32)}`, blockTimestamp, finalized: true,
+      userOperations: [{ userOpHash, sender: address, success: true }, { userOpHash, sender: secondAddress, success: true }] };
+    const followed: string[] = [];
+    const webhook = createCdpWebhookHandler({ store: { markStaleMany: async () => {} }, keyring: null,
+      subscriptions: { list: async () => [{ subscriptionId: "fixture", credential: { kind: "legacy-plaintext" as const, secret }, target: "https://home.test/api/webhooks/cdp",
+        eventType: "wallet_activity", createdAt: new Date().toISOString() }] },
+      schedule: (task) => { tasks.push(task); },
+      settleActions: (addresses, signal) => settleOpenActionsForAccounts(addresses, {
+        signal, route: "/api/webhooks/cdp", deps: { store,
+          resolveHandle: async (row) => { followed.push(row.id); return { status: "complete", transactionHash: hash }; },
+          readReceipt: async () => multiReceipt,
+        },
+      }),
+    });
+
+    expect((await webhook(raw, `t=${timestamp},v0=${signature}`)).status).toBe(200);
+    await tasks[0]!();
+
+    expect(followed).toContain(triggered);
+    expect(await store.get(secondOwner, triggered)).toMatchObject({ transaction_hash: hash, outcome: "succeeded" });
+  });
+
+  test("system follow-up queries select only recent identifiable open rows", async () => {
+    const recent = await prepared();
+    const settled = await prepared();
+    const old = await prepared();
+    const unidentified = await prepared();
+    const unconfirmed = randomUUID();
+    await store.insert({ id: unconfirmed, owner: owner(), kind: "send",
+      summary: { title: "Send", amounts: [], warnings: [], expiresAt: "2099-01-01T00:00:00.000Z" },
+      pending: { calls: [{ to: address, data: "0x", value: "0" }] }, createdAt: new Date().toISOString() });
+    await sql.query("UPDATE actions SET provider_handle = $2 WHERE id = $1", [unconfirmed, userOpHash]);
+    await store.recordHandle(owner(), recent, { providerHandle: userOpHash });
+    await store.recordHandle(owner(), settled, { providerHandle: userOpHash });
+    await store.recordOutcome(owner(), settled, { outcome: "not_submitted", source: "wallet", settledAt: null });
+    await store.recordHandle(owner(), old, { providerHandle: userOpHash });
+    await sql.query("UPDATE actions SET confirmed_at = now() - interval '40 days' WHERE id = $1", [old]);
+    const since = new Date(Date.now() - 7 * 86_400_000);
+    expect((await store.listOpenByAccounts([address.toUpperCase()], since, 1)).map((row) => row.id)).toEqual([recent]);
+    expect((await store.listOpenForFollowUp(since, 10)).map((row) => row.id)).toEqual([recent]);
+    expect((await store.listOpenForFollowUp(since, 1)).map((row) => row.id)).toEqual([recent]);
+    expect(unidentified).toBeDefined();
   });
 
   test("duplicate handle, hash, decline and chain reports preserve every column", async () => {

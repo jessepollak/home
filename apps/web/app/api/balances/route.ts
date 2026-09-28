@@ -3,9 +3,9 @@ import { authorizeSession } from "@/server/auth/authorize";
 import { createBalancesHandler } from "@/server/balances/handler";
 import { createBalancesService } from "@/server/balances/coalesce";
 import { createBalancesPricer } from "@/server/balances/price";
-import { createCdpWebhookSubscriptions } from "@/server/balances/webhook-subscriptions";
+import { getBalanceWebhookSubscriptions } from "@/server/balances/webhook-subscriptions";
 import { emitServerEvent } from "@/server/observability/log";
-import { createAfterSchedule } from "./after-schedule";
+import { createAfterSchedule } from "@/server/scheduling/after-schedule";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,10 +23,8 @@ const readBalances = createBalancesService({
   schedule,
   priceBalances: createBalancesPricer({ schedule }),
 });
-const webhookSubscriptions = createCdpWebhookSubscriptions();
-
 export const GET = createBalancesHandler({
   authorize: authorizeSession,
   readBalances,
-  ensureAddressSubscribed: (address) => webhookSubscriptions.ensureAddressSubscribed(address),
+  ensureAddressSubscribed: (address) => getBalanceWebhookSubscriptions().ensureAddressSubscribed(address),
 });
