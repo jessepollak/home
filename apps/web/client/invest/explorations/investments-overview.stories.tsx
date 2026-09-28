@@ -54,6 +54,7 @@ const handlers = [
 ];
 const meta = {
   id: "explorations-investments-l2", title: "Explorations/Investments L2", component: InvestmentStorySurface,
+  tags: ["exploration"],
   args: { snapshot: fundedSnapshot },
   parameters: { layout: "fullscreen", viewport: { defaultViewport: "mobile" }, a11y: { test: "error" }, msw: { handlers } },
   beforeEach() {

@@ -18,9 +18,8 @@ import { parseActivityOrders, type ActivityOrder } from "@/shared/activity/contr
 import type { ActivityLedgerNextActionKind } from "@/client/activity/activity-ledger";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { RegionId } from "@/config/regions";
-import { networkFeeErrorMessage } from "@/shared/money-actions/network-fee";
-import { announceActionFailure } from "./action-toast-events";
-import { useOptionalHomeShellRouting } from "./panel-routing";
+import { useCashOutWithdrawJourney } from "@/client/activity/cash-out-withdraw-journey";
+import { openPanelAfterClose, useOptionalHomeShellRouting } from "./panel-routing";
 import { ShimmerRows } from "./panel-shared";
 
 const EMPTY_OPERATIONS: readonly RecentMoneyActionOperation[] = [];
@@ -182,42 +181,15 @@ export function ConnectedActivityPanel({
   const refetchActions = actions.refetch;
   const retryActions = useCallback(() => { void refetchActions(); }, [refetchActions]);
 
-  const prepareWithdraw = async (providerId: string, region: string, depositId: string) => {
-    if (!wallet || !routing || cancelBusy) return;
-    const attempt = ++cancelAttempt.current;
-    setCancelBusy(true);
-    setCancelError(null);
-    try {
-      const prepared = await wallet.prepareMoneyAction("cash-out-withdraw", {
-        providerId,
-        region: region as RegionId,
-        depositId,
-      });
-      if (prepared.kind !== "cash-out-withdraw" || prepared.metadata?.product !== "cashout" || prepared.metadata.operation !== "withdraw") {
-        throw new Error("Cash-out withdrawal review is unavailable. Try again.");
-      }
-      if (attempt !== cancelAttempt.current) return;
-      if (!routing.setFlow("send", { actionId: prepared.id, mode: "push" })) {
-        throw new Error("Cash-out withdrawal review is unavailable. Try again.");
-      }
-      setReviewOpened((count) => count + 1);
-    } catch (error) {
-      const failure = error as { code?: unknown; serverMessage?: unknown };
-      const message = networkFeeErrorMessage(error) ?? (typeof failure.code === "string" && failure.code.startsWith("CASHOUT_") && typeof failure.serverMessage === "string"
-        ? failure.serverMessage
-        : error instanceof Error && error.message === "Cash-out withdrawal review is unavailable. Try again."
-          ? error.message
-          : "Could not prepare the withdrawal. Try again.");
-      setCancelError((current) => attempt === cancelAttempt.current ? message : current);
-      if (attempt === cancelAttempt.current) announceActionFailure("cash-out-withdraw", message);
-    } finally {
-      if (attempt === cancelAttempt.current) setCancelBusy(false);
-    }
-  };
+  const withdrawJourney = useCashOutWithdrawJourney({ wallet, ownerKey, onDispatched: () => {
+    if (!ownerKey) return;
+    void queryClient.invalidateQueries({ queryKey: ownerQueryKey(ownerKey, "actions") });
+    void queryClient.invalidateQueries({ queryKey: ownerQueryKey(ownerKey, "activity-orders") });
+  } });
   const cancelCashout = (operation: RecentMoneyActionOperation) => {
     const progress = operation.cashout;
     if (progress?.depositId && presentCashout(operation, linkedCashoutWithdraw(operation, actions.data ?? EMPTY_OPERATIONS)).cancellable) {
-      void prepareWithdraw(progress.providerId, progress.region, progress.depositId);
+      void withdrawJourney.prepare(progress.providerId, progress.region, progress.depositId);
     }
   };
   const onOrderAction = async (order: ActivityOrder, kind: ActivityLedgerNextActionKind) => {
@@ -230,7 +202,7 @@ export function ConnectedActivityPanel({
     if (kind === "withdraw-returned-funds" || kind === "cancel-cash-out") {
       if (order.kind === "cash-out" && order.orderId &&
         cashoutOrderAction(order, cashoutWithdrawForDeposit(order.orderId, actions.data ?? EMPTY_OPERATIONS)) === kind) {
-        void prepareWithdraw(order.providerId, order.region, order.orderId);
+        void withdrawJourney.prepare(order.providerId, order.region, order.orderId);
       }
       return;
     }
@@ -287,6 +259,9 @@ export function ConnectedActivityPanel({
       suspendDetailsRequest={suspendDetailsRequest}
       cancelBusy={cancelBusy}
       cancelError={cancelError}
+      withdrawJourney={withdrawJourney}
+      fetchOperations={fetchOperations}
+      onViewActivity={(close) => openPanelAfterClose(routing, "activity", close)}
       onDetailsOpenChange={onDetailsOpenChange}
       onDetailsChange={(open) => {
         assetReturnRef.current = open && routing
@@ -295,6 +270,7 @@ export function ConnectedActivityPanel({
         cancelAttempt.current += 1;
         setCancelBusy(false);
         setCancelError(null);
+        withdrawJourney.reset();
       }}
     />
   );

@@ -96,6 +96,7 @@ const pendingOperation: RecentMoneyActionOperation = {
 };
 const meta = {
   id: "explorations-regional-home", title: "Explorations/Regional Home", component: RegionalHomeProposal,
+  tags: ["exploration"],
   args: { regionId: "US", assetBalances: us, activity },
   parameters: {
     layout: "fullscreen", viewport: { defaultViewport: "mobile" }, a11y: { test: "error" },

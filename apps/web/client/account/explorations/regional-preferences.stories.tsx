@@ -4,6 +4,7 @@ import { RegionalPreferencesProposal } from "./regional-preferences";
 
 const meta = {
   id: "explorations-regional-preferences",
+  tags: ["exploration"],
   title: "Explorations/Regional preferences",
   component: RegionalPreferencesProposal,
   args: { initialCountry: "BR" },

@@ -16,7 +16,7 @@ The full check suite also covers:
 - Chromium product smoke
 - story tests (`bun run --cwd apps/web test:stories`)
 - `bun run gates` (the repository gate unit tests above, including commit provenance; also run inside `bun check`)
-- disposable PostgreSQL contracts for actions, funding (including encrypted user-token storage), balances, the operator registry, and invite attribution
+- disposable PostgreSQL contracts discovered from tracked `apps/web/**/*postgres*.test.ts` files (including country preferences), run against CI's PostgreSQL 14 service
 - the **Code Connect templates** step in the `bun check` job (`bun run --cwd apps/web figma:connect:parse`), which parses every `*.figma.ts` template offline
 
 On pushes to `main`, the `publish Code Connect` and `sync Figma variables` jobs publish templates and tokens to Figma. They run only when the `FIGMA_ACCESS_TOKEN` secret is set and otherwise skip without failing ([Figma workflow](design-explorations/figma-workflow.md#source-of-truth)).
@@ -39,7 +39,7 @@ The **Playwright rung** step is hard (no `continue-on-error`): #779 (net zero), 
 
 ## Story-test boundary
 
-The **story tests** job runs every Storybook story in headless Chromium through `@storybook/addon-vitest` for every pull request and every push to `main`. It executes each story's `play` function — a failing `play` fails the job — and runs the a11y addon's audit. The audit reports findings rather than failing the job globally (`a11y.test: "todo"`) because owned components carry pre-existing violations that need a product decision; minimal workshop stories that are audit-clean opt into `a11y.test: "error"`. The job is not part of `bun check`, so run `bun run --cwd apps/web test:stories` directly for story or owned-component changes and stop a running `storybook dev` first (shared Storybook Vite cache).
+The blocking **story tests** job runs production component and journey stories in headless Chromium through `@storybook/addon-vitest` on every pull request and push to `main`; it excludes stories tagged `exploration`. The separate **exploration story tests** job includes only stories tagged `exploration`, runs on the same events, and uses `continue-on-error` so its failures are visible without failing CI. Keep that job out of required branch-protection checks. `home/exploration-story-tag` requires every story under `**/explorations/**` to default-export either an object literal or a top-level `const` bound directly to one, optionally wrapped in `satisfies`/`as`. The literal must directly contain `tags: ["exploration"]` (other literal tags are allowed). Mutable bindings, computed meta, spreads, indirect or duplicate `tags`, and identifier-valued tags are rejected; use the inline shape instead. Both jobs execute each selected story's `play` function and the a11y addon's audit. The audit reports findings rather than failing the job globally (`a11y.test: "todo"`) because owned components carry pre-existing violations that need a product decision; minimal workshop stories that are audit-clean opt into `a11y.test: "error"`. Neither job is part of `bun check`: run `bun run --cwd apps/web test:stories` for production stories and `bun run --cwd apps/web test:stories:explorations` for explorations. Stop a running `storybook dev` first (shared Storybook Vite cache).
 
 ## Fix-commit provenance
 

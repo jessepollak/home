@@ -363,6 +363,10 @@
       }
     },
     {
+      "files": ["**/explorations/**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
+      "rules": { "home/exploration-story-tag": "error" }
+    },
+    {
       "files": [
         "oxlint/tests/**",
         "tests/helpers/migrations.ts",
@@ -464,6 +468,7 @@
               "markHomeStartupOutcome",
               "recordAuthDiagnostic",
               "recordHomeStartupCache",
+              "reportCaughtClientError",
               "reportClientError",
               "sendHomeAuthSignOut",
               "startHomeAuthRestore",

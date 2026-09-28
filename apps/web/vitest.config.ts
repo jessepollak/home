@@ -5,8 +5,9 @@ import { playwright } from "@vitest/browser-playwright";
 import { defineConfig } from "vitest/config";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
+const explorationStories = process.env.HOME_STORY_TEST_EXPLORATIONS === "1";
 
-// Story tests run every `*.stories.*` file through Storybook's vite config in a
+// Story tests run selected `*.stories.*` files through Storybook's Vite config in
 // headless Chromium, executing `play` functions and the a11y addon's checks.
 // More info: https://storybook.js.org/docs/writing-tests/integrations/vitest-addon
 export default defineConfig({
@@ -14,7 +15,10 @@ export default defineConfig({
     projects: [
       {
         extends: true,
-        plugins: [storybookTest({ configDir: path.join(dirname, ".storybook") })],
+        plugins: [storybookTest({
+          configDir: path.join(dirname, ".storybook"),
+          tags: explorationStories ? { include: ["exploration"] } : { exclude: ["exploration"] },
+        })],
         test: {
           name: "storybook",
           browser: {

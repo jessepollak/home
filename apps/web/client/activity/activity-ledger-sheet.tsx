@@ -2,7 +2,12 @@
 
 import { useId, useState, type ReactNode } from "react";
 import { ArrowDownLeft, CircleAlert, CircleCheck, CircleQuestionMark, CircleX, Clock, LoaderCircle } from "lucide-react";
-import { MoneyModal, MoneyModalActions, MoneyModalBody, MoneyModalFooter, MoneyModalHeader, useAutoFitAmountText } from "@/client/money-modal";
+import { MoneyConfirmFooter, MoneyConfirmSummary, MoneyModal, MoneyModalActions, MoneyModalBody, MoneyModalFooter, MoneyModalHeader, MoneyModalStep, MoneyResult, MoneyResultFooter, moneyConfirmFromRow, useAutoFitAmountText } from "@/client/money-modal";
+import { useMoneyActionOutcome } from "@/client/actions/money-action-outcome";
+import { useReactiveExpiry } from "@/client/actions/expiry";
+import { formatExactPresentationTokenAmount, formatUsdStablecoinAmount } from "@/shared/formatting";
+import type { PreparedMoneyAction } from "@/shared/money-actions/types";
+import type { CashOutWithdrawJourney } from "./cash-out-withdraw-journey";
 import { CopyableValue } from "@/components/copyable-value";
 import { CurrencyMark } from "@/components/currency-mark";
 import { AssetRow } from "@/components/finance-rows";
@@ -97,13 +102,23 @@ export type ActivityLedgerDetailSheetProps = {
   onOpenAsset?: (item: ActivityLedgerItem) => void;
   actionBusy?: boolean;
   actionError?: string | null;
+  withdrawJourney?: CashOutWithdrawJourney;
+  fetchOperations?: (signal?: AbortSignal) => Promise<unknown>;
+  onViewActivity?: (close: () => void) => void;
 };
 
 export function ActivityLedgerDetailSheet({
   item, open, immediate = false, onDismiss, onClosed, onAction, canOpenAsset, onOpenAsset,
-  actionBusy = false, actionError = null,
+  actionBusy = false, actionError = null, withdrawJourney, fetchOperations, onViewActivity,
 }: ActivityLedgerDetailSheetProps) {
   const titleId = useId();
+  const step = withdrawJourney?.step ?? "details";
+  const prepared = withdrawJourney?.preparedAction;
+  const { expired: reviewExpired } = useReactiveExpiry(prepared?.expiresAt ?? null);
+  const received = prepared?.amounts.find((amount) => amount.direction === "receive");
+  const amount = received ? received.symbol === "USDC"
+    ? formatUsdStablecoinAmount(received.amountBaseUnits, received.decimals)
+    : formatExactPresentationTokenAmount(received.amountBaseUnits, received.decimals, received.symbol) : "";
   const [shown, setShown] = useState(item);
   if (item && item !== shown) setShown(item);
   item = item ?? shown;
@@ -194,8 +209,9 @@ export function ActivityLedgerDetailSheet({
     )]);
   }
   return (
-    <MoneyModal open={open} labelledBy={titleId} immediate={immediate} onCancel={onDismiss}
+    <MoneyModal open={open} labelledBy={titleId} immediate={immediate} pending={step === "pending"} onCancel={onDismiss}
       onClose={() => onClosed?.()}>
+      {step === "details" ? <MoneyModalStep step="details" depth={0}>
       <MoneyModalHeader
         title={item?.title ?? "Activity"}
         titleId={titleId}
@@ -266,7 +282,9 @@ export function ActivityLedgerDetailSheet({
             ) : null}
           </>
         ) : null}
-        {action && actionError ? <p role="alert" className="text-sm text-destructive">{actionError}</p> : null}
+        {action && (actionError ?? ((action.kind === "cancel-cash-out" || action.kind === "withdraw-returned-funds") ? withdrawJourney?.error : null)) ? (
+          <p role="alert" className="text-sm text-destructive">{actionError ?? withdrawJourney?.error}</p>
+        ) : null}
       </MoneyModalBody>
       {item && action ? action.kind === "clear-order" ? (
         <MoneyModalActions>
@@ -274,7 +292,7 @@ export function ActivityLedgerDetailSheet({
             size="lg"
             variant="outline"
             className="h-11"
-            disabled={actionBusy}
+            loading={actionBusy}
             onClick={() => onAction(item, action.kind)}
           >
             {action.label}
@@ -285,8 +303,62 @@ export function ActivityLedgerDetailSheet({
           primaryLabel={action.label}
           onPrimary={() => onAction(item, action.kind)}
           primaryDisabled={actionBusy}
+          primaryLoading={Boolean(withdrawJourney?.preparing && (action.kind === "cancel-cash-out" || action.kind === "withdraw-returned-funds"))}
         />
+      ) : null}
+      </MoneyModalStep> : null}
+      {(step === "confirm" || step === "pending") && prepared && withdrawJourney ? (
+        <MoneyModalStep step="confirm" depth={1}>
+          <MoneyModalHeader title="Confirm withdrawal" titleId={titleId}
+            {...(step === "confirm" ? { onBack: withdrawJourney.back } : {})} closeLabel="Close withdrawal review" />
+          <MoneyModalBody hasFooter className="gap-4 pt-4">
+            <MoneyConfirmSummary action={prepared} amount={amount}
+              lead={`You're withdrawing from ${prepared.metadata?.product === "cashout" ? prepared.metadata.providerName : "your cash-out"}`}
+              rows={[
+                moneyConfirmFromRow(prepared.owner),
+                { label: "Provider", value: prepared.metadata?.product === "cashout" ? prepared.metadata.providerName : "" },
+                { label: "Payout app", value: prepared.metadata?.product === "cashout" ? prepared.metadata.platformLabel : "" },
+                { label: "Network", value: "Base" },
+              ]} />
+            {withdrawJourney.error ? <p role="alert" className="text-sm text-destructive">{withdrawJourney.error}</p> : null}
+            {reviewExpired && step === "confirm" && !withdrawJourney.error ? (
+              <p role="alert" className="text-sm text-destructive">This review expired. Go back and continue again.</p>
+            ) : null}
+          </MoneyModalBody>
+          <MoneyConfirmFooter action={prepared} submitting={step === "pending"}
+            primaryLabel={`Withdraw ${amount}`} primaryDisabled={reviewExpired} onPrimary={() => void withdrawJourney.confirm()}
+            secondaryLabel="Back" onSecondary={withdrawJourney.back} />
+        </MoneyModalStep>
+      ) : null}
+      {step === "result" && prepared && withdrawJourney?.submission && fetchOperations ? (
+        <MoneyModalStep step="result" depth={2}>
+          <MoneyModalHeader title="Withdrawal" titleId={titleId} closeLabel="Close withdrawal result" />
+          <CashOutWithdrawResult action={prepared} submission={withdrawJourney.submission} amount={amount}
+            submittedAt={withdrawJourney.submittedAt} fetchOperations={fetchOperations}
+            onDone={onDismiss} onTryAgain={withdrawJourney.retry}
+            onViewActivity={() => onViewActivity ? onViewActivity(onDismiss) : onDismiss()} />
+        </MoneyModalStep>
       ) : null}
     </MoneyModal>
   );
+}
+
+function CashOutWithdrawResult({ action, submission, amount, submittedAt, fetchOperations, onDone, onTryAgain, onViewActivity }: {
+  action: PreparedMoneyAction;
+  submission: "submitted" | "ambiguous" | "failed";
+  amount: string;
+  submittedAt?: string;
+  fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
+  onDone: () => void;
+  onTryAgain: () => void;
+  onViewActivity: () => void;
+}) {
+  const { outcome } = useMoneyActionOutcome({ action, submission, fetchOperations });
+  return <>
+    <MoneyModalBody hasFooter>
+      <MoneyResult kind="cash-out-withdraw" outcome={outcome} amount={amount}
+        provider={action.metadata?.product === "cashout" ? action.metadata.providerName : undefined} submittedAt={submittedAt} />
+    </MoneyModalBody>
+    <MoneyResultFooter outcome={outcome} onDone={onDone} onTryAgain={onTryAgain} onViewActivity={onViewActivity} />
+  </>;
 }

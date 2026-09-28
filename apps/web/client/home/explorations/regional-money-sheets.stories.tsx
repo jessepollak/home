@@ -101,6 +101,7 @@ function ReviewDesktop() {
 }
 const meta = {
   id: "explorations-regional-money-sheets", title: "Explorations/Regional money sheets", component: MethodSheet,
+  tags: ["exploration"],
   parameters: { layout: "fullscreen", viewport: { defaultViewport: "mobile" }, a11y: { test: "error" },
     docs: { description: { component: "Unreviewed #638 method and review proposal. Routes, amounts and fees are illustrative fixed fixtures; controls do not start money actions. Desktop review composes the existing MoneyConfirmSummary over Regional Home in a proposed centered placement that exists only in this story file, passed to the unchanged shared DrawerContent through className, without a MoneyModal state machine or action id. It moves into the shared Drawer only if Jesse selects it." } },
     design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=311-12034" } },

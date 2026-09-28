@@ -157,7 +157,7 @@ describe("invite link API", () => {
   const handle = (status: string, available = true) => createInviteLinkHandler({
     authorize: async () => session,
     available: () => available,
-    resolve: async () => ({ id: "customer", status, created: false }),
+    resolve: async () => ({ id: "customer", status, created: false, credentialId: "credential", walletId: null }),
     code: async () => code,
   });
   test("returns 401, 503, 403 or private versioned link", async () => {

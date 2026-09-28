@@ -115,17 +115,20 @@ test("a failed clear shows the server message without starting another order", a
     .toEqual(["/api/funding/orders/fixture-funding-ambiguous/resolve"]);
 });
 
-test("returned funds prepare withdrawal against the order deposit ID", async () => {
+test("returned funds review the withdrawal against the order deposit ID in the same sheet", async () => {
   const { view, prepared, flows } = setup({ fallback: true });
   const cashout = activityOrdersFixture().orders.find((order) => order.kind === "cash-out")!;
   if (cashout.kind !== "cash-out") throw new Error("Fixture is not a cash-out");
   const button = await view.findByRole("button", { name: /Cash out to Cash App.*\$25/ });
   fireEvent.click(button);
-  fireEvent.click(await view.findByRole("button", { name: /Withdraw \$25/ }));
+  const dialog = await view.findByRole("dialog", { name: /Cash out to Cash App/ });
+  fireEvent.click(within(dialog).getByRole("button", { name: /Withdraw \$25/ }));
   await waitFor(() => expect(prepared).toEqual([{ kind: "cash-out-withdraw", params: {
     providerId: "peer", region: "US", depositId: cashout.orderId,
   } }]));
-  await waitFor(() => expect(flows).toEqual([{ flow: "send", options: { actionId: cashoutFixtureWithdraw.id, mode: "push" } }]));
+  await within(dialog).findByRole("button", { name: "Withdraw $50.00" });
+  expect(within(dialog).getByText("Confirm withdrawal")).toBeTruthy();
+  expect(flows).toEqual([]);
 });
 
 test("a waiting cash-out order offers cancel against the order deposit ID", async () => {
