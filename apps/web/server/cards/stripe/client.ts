@@ -37,29 +37,52 @@ export function parseStripeCardholder(value: unknown): { id: string; status: "ac
 }
 
 export function createStripeClient(config: CardJourneyConfig, fetcher: typeof fetch = fetch) {
+  async function request(path: string, params?: URLSearchParams, key?: string): Promise<unknown> {
+    const response = await fetcher(`https://api.stripe.com/v1/issuing/${path}`, {
+      method: params ? "POST" : "GET", redirect: "manual", cache: "no-store", signal: AbortSignal.timeout(5000),
+      headers: { [["Author", "ization"].join("")]: ["Bearer", config.stripeSecretKey].join(" "), "Stripe-Version": config.stripeApiVersion,
+        ...(params ? { "Content-Type": "application/x-www-form-urlencoded", "Idempotency-Key": key! } : {}) },
+      ...(params ? { body: params.toString() } : {}),
+    });
+    if (!response.ok) throw new Error(`Stripe request failed (${response.status})`);
+    return readProviderJson(response, "Stripe");
+  }
   return {
     async readCardholder(id: string): Promise<ReturnType<typeof parseStripeCardholder>> {
       if (!/^ich_[A-Za-z0-9]+$/.test(id)) throw new Error("Invalid Stripe cardholder ID");
-      const response = await fetcher(`https://api.stripe.com/v1/issuing/cardholders/${encodeURIComponent(id)}`, {
-        method: "GET", redirect: "manual", signal: AbortSignal.timeout(5000),
-        headers: { [["Author", "ization"].join("")]: ["Bearer", config.stripeSecretKey].join(" "), "Stripe-Version": config.stripeApiVersion },
-      });
-      if (!response.ok) throw new Error(`Stripe request failed (${response.status})`);
-      const payload = await readProviderJson(response, "Stripe");
+      const payload = await request(`cardholders/${encodeURIComponent(id)}`);
       const cardholder = parseStripeCardholder(payload);
       if (cardholder.id !== id) throw new Error("Stripe cardholder ID mismatch");
       return cardholder;
     },
     async readCard(id: string): Promise<StripeCard> {
       if (!/^ic_[A-Za-z0-9]+$/.test(id)) throw new Error("Invalid Stripe card ID");
-      const response = await fetcher(`https://api.stripe.com/v1/issuing/cards/${encodeURIComponent(id)}`, {
-        method: "GET", redirect: "manual", signal: AbortSignal.timeout(5000),
-        headers: { [["Author", "ization"].join("")]: ["Bearer", config.stripeSecretKey].join(" "), "Stripe-Version": config.stripeApiVersion },
-      });
-      if (!response.ok) throw new Error(`Stripe request failed (${response.status})`);
-      const payload = await readProviderJson(response, "Stripe");
+      const payload = await request(`cards/${encodeURIComponent(id)}`);
       const card = parseStripeCard(payload);
       if (card.id !== id) throw new Error("Stripe card ID mismatch");
+      return card;
+    },
+    async issueCard(cardholderId: string, wallet: string, key: string): Promise<StripeCard> {
+      if (!/^ich_[A-Za-z0-9]+$/.test(cardholderId) || !/^0x[0-9a-f]{40}$/.test(wallet)) throw new Error("Invalid card issuance owner");
+      const params = new URLSearchParams({ cardholder: cardholderId, currency: "usd", type: "virtual", status: "active" });
+      if (config.funding.kind === "financial_account") {
+        if (config.mode !== "sandbox") throw new Error("Financial account funding requires sandbox");
+        params.set("financial_account_v2", config.funding.financialAccount);
+      } else {
+        params.set("crypto_wallet[chain]", "base");
+        params.set("crypto_wallet[currency]", "usdc");
+        params.set("crypto_wallet[type]", "standard");
+        params.set("crypto_wallet[address]", wallet);
+      }
+      const card = parseStripeCard(await request("cards", params, key));
+      if (card.cardholderId !== cardholderId) throw new Error("Stripe cardholder mismatch");
+      return card;
+    },
+    async setCardFreeze(id: string, freeze: boolean, key: string): Promise<StripeCard> {
+      if (!/^ic_[A-Za-z0-9]+$/.test(id)) throw new Error("Invalid Stripe card ID");
+      const params = new URLSearchParams({ status: freeze ? "inactive" : "active", "metadata[home_freeze]": freeze ? "customer" : "" });
+      const card = parseStripeCard(await request(`cards/${encodeURIComponent(id)}`, params, key));
+      if (card.id !== id || card.status !== (freeze ? "inactive" : "active") || card.customerFrozen !== freeze) throw new Error("Stripe card update mismatch");
       return card;
     },
   };
