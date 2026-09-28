@@ -2,7 +2,7 @@ import { createPublicClient, http } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { toCoinbaseSmartAccount } from "viem/account-abstraction";
 import { base } from "viem/chains";
-import { createImmersveClient } from "../server/cards/immersve-client";
+import { createImmersveClient } from "../server/cards/immersve/immersve-client";
 
 const origin = "https://test.immersve.com";
 const allowedOrigin = "http://localhost:3000";

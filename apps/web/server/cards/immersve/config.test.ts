@@ -3,6 +3,7 @@ import { readImmersveConfig } from "./config";
 
 const enabled = {
   IMMERSVE_ENABLED: "1",
+  IMMERSVE_MODE: "production",
   IMMERSVE_API_KEY: "synthetic-key",
   IMMERSVE_API_SECRET: "synthetic-secret",
   IMMERSVE_PARTNER_ACCOUNT_ID: "a".repeat(32),
@@ -20,9 +21,10 @@ describe("Immersve configuration", () => {
   test("pins mode, origin, and funding type", () => {
     expect(readImmersveConfig(enabled)?.origin).toBe("https://api.immersve.com");
     expect(readImmersveConfig({ ...enabled, IMMERSVE_MODE: "sandbox", IMMERSVE_FUNDING_TYPE: "base-sepolia-usdc-universal-evm" })?.origin).toBe("https://test.immersve.com");
-    for (const mode of ["production", "Sandbox", "1"]) {
+    for (const mode of ["", "Sandbox", "1"]) {
       expect(() => readImmersveConfig({ ...enabled, IMMERSVE_MODE: mode })).toThrow();
     }
+    expect(() => readImmersveConfig({ ...enabled, IMMERSVE_MODE: undefined })).toThrow();
     expect(() => readImmersveConfig({ ...enabled, IMMERSVE_MODE: "sandbox" })).toThrow();
   });
   test("rejects incomplete configuration and malformed IDs", () => {
