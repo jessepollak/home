@@ -3,6 +3,7 @@ export const HOME_STARTUP_VERSION = 1 as const;
 export const HOME_STARTUP_ROUTES = [
   "/",
   "/home",
+  "/card",
   "/balances",
   "/activity",
   "/cash",
@@ -11,7 +12,7 @@ export const HOME_STARTUP_ROUTES = [
   "/invest",
 ] as const;
 export const HOME_INTERACTION_ROUTES = [
-  "/home", "/balances", "/activity", "/cash", "/borrow", "/investments", "/invest",
+  "/home", "/card", "/balances", "/activity", "/cash", "/borrow", "/investments", "/invest",
 ] as const;
 export const HOME_PANEL_CACHE_STATES = ["retained", "first-visit"] as const;
 export const HOME_DEVICE_CLASSES = [

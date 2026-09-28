@@ -1,6 +1,10 @@
+.navigation {
+  grid-template-columns: repeat(var(--navigation-items, 2), minmax(0, 1fr));
+}
+
 @media (max-width: 63.9375rem) {
   .navigation {
-    width: 12rem;
+    width: calc(6rem * var(--navigation-items, 2));
     max-width: calc(100% - 2rem);
     height: var(--spacing-shell-mobile-navigation);
     bottom: calc(var(--shell-navigation-offset) + var(--shell-viewport-overhang));
@@ -8,7 +12,7 @@
   }
 
   .pill {
-    width: calc((100% - .5rem) / 2);
+    width: calc((100% - .5rem) / var(--navigation-items, 2));
   }
 
   .pillReady {

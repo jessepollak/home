@@ -11,6 +11,7 @@ import {
   actionsBody,
   basenameProfileBody,
   fundingProvidersBody,
+  cardsBody,
   borrowOverviewBody,
   sessionBody,
   tradeAvailabilityBody,
@@ -117,6 +118,7 @@ export function marketPricesFixture(now = new Date()): MarketPricesResponse {
   };
 }
 
+
 export function priceHistoryFixture(assetId: string, now = new Date()): MarketPriceHistoryResponse {
   const points = Array.from({ length: 24 }, (_, index) => ({
     time: new Date(now.getTime() - (23 - index) * 7 * 3600_000).toISOString(),
@@ -174,6 +176,7 @@ export function fixtureRoutes() {
     ["**/api/activity**", {}],
     ["**/api/savings/vaults", savingsVaultsBody(new Date().toISOString(), new Date().toISOString())],
     ["**/api/borrow", borrowOverview],
+    ["**/api/cards", cardsBody()],
     ...borrowOverview.opportunities.flatMap((entry) => entry.availability.status === "available"
       ? [[`**/api/borrow/markets/${entry.market.id}`, entry.availability.snapshot] as const]
       : []),

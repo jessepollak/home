@@ -6,6 +6,7 @@ import { activityWindow } from "./activity-window";
 import { balances } from "./balances";
 import { basename } from "./basename";
 import { borrow } from "./borrow";
+import { cards } from "./cards";
 import { fundingOpenOrder } from "./funding-open-order";
 import { fundingOrder } from "./funding-order";
 import { fundingOrderIsolated } from "./funding-order-isolated";
@@ -32,6 +33,7 @@ export const queryScopes = {
   balances,
   basename,
   borrow,
+  cards,
   "funding-open-order": fundingOpenOrder,
   "funding-order": fundingOrder,
   "funding-order-isolated": fundingOrderIsolated,

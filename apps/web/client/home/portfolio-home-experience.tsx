@@ -14,6 +14,7 @@ import { InvestmentsExperience } from "@/client/investments/investments-experien
 import { investViewFromLocation } from "@/client/invest/invest-location";
 import { useInvestDiscover } from "@/client/invest/use-invest-discover";
 import { AuthenticatedCashExperience } from "@/client/cash/cash-experience";
+import { AuthenticatedCardExperience } from "@/client/cards/card-experience";
 import type { ShellLocation } from "@/config/shell-location";
 import type { InvestSettings } from "@/shared/operator-settings/invest";
 import { DashboardShell } from "./shell";
@@ -30,6 +31,7 @@ export function PortfolioHomeExperience({
   accountPreference,
   regionOffer = ALL_REGIONS_OFFER,
   investVisibility,
+  cardsEnabled = false,
 }: {
   detectedCountry: CountryCode | null;
   regionOffer?: RegionOffer;
@@ -37,6 +39,7 @@ export function PortfolioHomeExperience({
   initialSearch?: string;
   accountPreference: CountryPreferenceSeed | null;
   investVisibility?: InvestSettings;
+  cardsEnabled?: boolean;
 }) {
   const account = useAccountWallet();
   const discover = useInvestDiscover();
@@ -190,6 +193,8 @@ export function PortfolioHomeExperience({
       regionReady={regionReady}
       initialPanel={initialLocation.panel}
       initialLocation={initialLocation}
+      cardsEnabled={cardsEnabled}
+      cardContent={cardsEnabled ? <AuthenticatedCardExperience /> : undefined}
       investContent={
         <PricedInvestExperienceWithDiscover
           discover={discover}

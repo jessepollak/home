@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
-import { ChartNoAxesCombined, House, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { ChartNoAxesCombined, CreditCard, House, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { profileGlyph } from "@/client/account/basename-profile";
 import { useBasenameProfile } from "@/client/account/use-basename-profile";
 import { HomeMark } from "@/components/home-mark";
@@ -13,7 +13,7 @@ import {
 } from "@/components/shell-layout";
 import {
   isHomeNestedPanelId,
-  navigationItems,
+  visibleNavigationItems,
   type NavigationId,
   type ShellPanelId,
 } from "@/config/navigation";
@@ -25,6 +25,7 @@ type PrimaryNavigationProps = {
   activeNavigation: ShellPanelId;
   onNavigate: (id: NavigationId) => void;
   labels?: Partial<Record<NavigationId, string>>;
+  cardsEnabled?: boolean;
   isAccountSettingsOpen?: boolean;
   account?: {
     status: "loading" | "ready";
@@ -37,6 +38,7 @@ type PrimaryNavigationProps = {
 
 const navigationIcons = {
   home: House,
+  card: CreditCard,
   invest: ChartNoAxesCombined,
 } satisfies Record<NavigationId, typeof House>;
 
@@ -88,10 +90,12 @@ export function PrimaryNavigation({
   activeNavigation,
   onNavigate,
   labels,
+  cardsEnabled = false,
   isAccountSettingsOpen = false,
   account,
   onOpenAccount,
 }: PrimaryNavigationProps) {
+  const navigationItems = visibleNavigationItems({ cardsEnabled });
   const collapsed = useSyncExternalStore(subscribeRail, readCollapsed, () => false);
   const prefersReducedMotion = useReducedMotion();
   const [animated, setAnimated] = useState(false);
@@ -216,14 +220,15 @@ export function PrimaryNavigation({
         aria-hidden={keyboardOpen ? true : undefined}
         inert={keyboardOpen}
         data-keyboard-hidden={keyboardOpen ? "true" : undefined}
-        className={`${shellWidthClassName} ${styles.navigation} fixed inset-x-0 z-30 grid grid-cols-2 rounded-full p-1 opacity-100 transition-[opacity,transform] duration-150 motion-reduce:transition-none`}
+        style={{ "--navigation-items": navigationItems.length } as CSSProperties}
+        className={`${shellWidthClassName} ${styles.navigation} fixed inset-x-0 z-30 grid rounded-full p-1 opacity-100 transition-[opacity,transform] duration-150 motion-reduce:transition-none`}
       >
         <span aria-hidden="true" className={`${styles.floor} pointer-events-none absolute inset-0 rounded-full`} />
         <span
           aria-hidden="true"
           data-navigation-pill=""
           className={`${styles.pill} ${pillReady && !prefersReducedMotion ? styles.pillReady : ""} pointer-events-none absolute inset-y-1 start-1 rounded-full bg-foreground/10 dark:bg-foreground/15`}
-          style={{ transform: `translateX(${activeIndex > 0 ? (direction === "rtl" ? -100 : 100) : 0}%)` }}
+          style={{ transform: `translateX(${activeIndex > 0 ? activeIndex * (direction === "rtl" ? -100 : 100) : 0}%)` }}
         />
         {navigationItems.map((item, index) => {
           const Icon = navigationIcons[item.id];

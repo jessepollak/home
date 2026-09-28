@@ -17,6 +17,8 @@ export type InvestmentsContentProps = {
 
 export type HomeExperienceProps = {
   investContent?: ReactNode;
+  cardContent?: ReactNode;
+  cardsEnabled?: boolean;
   cashContent?: (props: { view: "cash" | "savings"; onOpenSavings: () => void }) => ReactNode;
   investmentsContent?: (props: InvestmentsContentProps) => ReactNode;
   initialAccountOpen?: boolean;
