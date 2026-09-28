@@ -250,6 +250,9 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
       lower();
       show(null);
     };
+    const startPointer = () => {
+      suppressUntil = -Infinity;
+    };
     const move = (event: PointerEvent) => {
       if (!gesture || event.pointerId !== gesture.id) return;
       const dx = event.clientX - gesture.x;
@@ -289,6 +292,7 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
     const drop = (event: PointerEvent) => { if (gesture && event.pointerId === gesture.id) cancel(); };
     const swallow = (event: MouseEvent) => {
       if (!event.isTrusted || event.detail === 0 || event.timeStamp > suppressUntil) return;
+      suppressUntil = -Infinity;
       event.preventDefault();
       event.stopPropagation();
     };
@@ -296,19 +300,19 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
     const listen = { capture: true, passive: true };
     nav.addEventListener("pointerdown", press, { passive: true });
     nav.addEventListener("click", swallow, { capture: true });
+    document.addEventListener("pointerdown", startPointer, listen);
     document.addEventListener("pointermove", move, listen);
     document.addEventListener("pointerup", end, listen);
     document.addEventListener("pointercancel", drop, listen);
-    document.addEventListener("scroll", cancel, listen);
     window.addEventListener("blur", cancel);
     document.addEventListener("visibilitychange", hide);
     return () => {
       nav.removeEventListener("pointerdown", press);
       nav.removeEventListener("click", swallow, { capture: true });
+      document.removeEventListener("pointerdown", startPointer, { capture: true });
       document.removeEventListener("pointermove", move, { capture: true });
       document.removeEventListener("pointerup", end, { capture: true });
       document.removeEventListener("pointercancel", drop, { capture: true });
-      document.removeEventListener("scroll", cancel, { capture: true });
       window.removeEventListener("blur", cancel);
       document.removeEventListener("visibilitychange", hide);
       window.clearTimeout(narrow);

@@ -137,3 +137,32 @@ test("the capsule covers widths through 1023px and the rail takes over at 1024px
   await expect(nav).toHaveCount(1);
   expect(await nav.evaluate((element) => element.closest("#desktop-rail") !== null)).toBe(true);
 });
+
+test("a drag does not swallow two immediate real taps", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  await page.goto("/home");
+  const nav = page.getByRole("navigation", { name: "Main navigation" });
+  await expect(nav.locator('[data-navigation-lens="ready"]')).toBeVisible();
+  const home = nav.getByRole("button", { name: "Home" });
+  const invest = nav.getByRole("button", { name: "Invest" });
+  const homeBox = (await home.boundingBox())!;
+  const investBox = (await invest.boundingBox())!;
+  const center = (box: typeof homeBox) => ({ x: box.x + box.width / 2, y: box.y + box.height / 2 });
+  await page.mouse.move(center(homeBox).x, center(homeBox).y);
+  await page.mouse.down();
+  await page.mouse.move(center(investBox).x, center(investBox).y);
+  await page.mouse.up();
+  await expect(invest).toHaveAttribute("aria-current", "page");
+  const dragEndedAt = await page.evaluate(() => performance.now());
+  await page.mouse.move(center(homeBox).x, center(homeBox).y);
+  await page.mouse.down();
+  await page.mouse.up();
+  await expect(home).toHaveAttribute("aria-current", "page");
+  await page.mouse.move(center(investBox).x, center(investBox).y);
+  await page.mouse.down();
+  await page.mouse.up();
+  expect(await page.evaluate(() => performance.now()) - dragEndedAt).toBeLessThan(400);
+  await expect(invest).toHaveAttribute("aria-current", "page");
+});

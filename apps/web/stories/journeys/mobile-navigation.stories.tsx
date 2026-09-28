@@ -453,6 +453,20 @@ export const PressAndDrag: Story = { play: async ({ canvasElement }) => {
   await expect(home).toHaveAttribute("aria-current", "page");
   await verifySelectionGeometry(nav, "Home");
 } };
+export const ScrollDuringDrag: Story = { play: async ({ canvasElement }) => {
+  const nav = await verifyNav(canvasElement, "Home");
+  await verifySelectionGeometry(nav, "Home");
+  const home = within(nav).getByRole("button", { name: "Home" });
+  const invest = within(nav).getByRole("button", { name: "Invest" });
+  const main = within(canvasElement).getByRole("main");
+  touch("pointerdown", home, centerOf(home));
+  main.scrollTop = main.scrollHeight;
+  await waitFor(() => expect(main.scrollTop).toBeGreaterThan(0));
+  touch("pointermove", home, centerOf(invest));
+  touch("pointerup", home, centerOf(invest));
+  await waitFor(() => expect(invest).toHaveAttribute("aria-current", "page"));
+  await verifySelectionGeometry(nav, "Invest");
+} };
 export const InterruptedMotion: Story = { render: (args) => <MotionSwitchShell {...args} />, play: async ({ canvasElement }) => {
   const nav = await verifyNav(canvasElement, "Home");
   await waitFor(() => expect(nav.querySelector('[data-navigation-lens="ready"]')).toBeInTheDocument());
