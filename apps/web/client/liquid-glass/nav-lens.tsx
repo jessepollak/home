@@ -33,6 +33,7 @@ const RIM_CORE_INSET = 19;
 const RIM_CORE_FEATHER = 5;
 const RELEASE_MS = 200;
 const HOLD_MS = 600;
+const ABANDON_MS = 3000;
 const SUPPRESS_MS = 400;
 const LIFT_MS = 34;
 const GLIDE_MS = 150;
@@ -215,11 +216,14 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
     let settle = 0;
     let busyUntil = 0;
     let suppressUntil = 0;
+    let confirmed = false;
     const tabs = () => Array.from(nav.querySelectorAll<HTMLButtonElement>(":scope > button"));
+    const aim = (index: number | null) => index === null ? index : getComputedStyle(nav).direction === "rtl" ? -index : index;
     const show = (index: number | null) => {
       clearTimeout(hold);
       clearTimeout(glide);
-      want = index === null ? index : getComputedStyle(nav).direction === "rtl" ? -index : index;
+      want = aim(index);
+      if (want === null) confirmed = false;
       setOverride(want);
     };
     const tabAt = (x: number, y: number) => {
@@ -235,12 +239,16 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
       nav.removeAttribute("data-lens-pressed");
       narrow = window.setTimeout(() => nav.removeAttribute("data-lens-wide"), RELEASE_MS);
     };
+    const wait = () => {
+      clearTimeout(hold);
+      hold = window.setTimeout(() => show(null), confirmed ? ABANDON_MS : HOLD_MS);
+    };
     const finish = () => {
       clearTimeout(settle);
       settle = window.setTimeout(() => {
         settle = 0;
         lower();
-        hold = window.setTimeout(() => show(null), HOLD_MS);
+        wait();
       }, busyUntil - performance.now());
     };
     const press = (event: PointerEvent) => {
@@ -250,6 +258,7 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
       const index = tabs().indexOf(tab);
       const lifted = nav.hasAttribute("data-lens-pressed");
       gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, index, dragged: false };
+      confirmed = false;
       clearTimeout(narrow);
       clearTimeout(settle);
       settle = 0;
@@ -269,7 +278,11 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
       lower();
       show(null);
     };
-    retarget.current = (next) => { if (want !== null && want !== next) reset(); };
+    retarget.current = (next) => {
+      if (want === null) return;
+      if (want !== next) reset();
+      else if (!gesture && !settle) show(null);
+    };
     const startPointer = (event: PointerEvent) => {
       suppressUntil = 0;
       if (gesture && event.pointerId !== gesture.id) reset();
@@ -305,13 +318,18 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
       event.stopPropagation();
     };
     const hide = () => { if (document.visibilityState === "hidden") reset(); };
-    const confirmed = () => { if (!gesture && !settle) show(null); };
+    const confirm = (event: MouseEvent) => {
+      const tab = event.target instanceof Element ? event.target.closest("button") : null;
+      if (want === null || !tab || aim(tabs().indexOf(tab)) !== want) return;
+      confirmed = true;
+      if (!gesture && !settle) wait();
+    };
     const off = new AbortController();
     const signal = off.signal;
     const listen = { capture: true, passive: true, signal };
     nav.addEventListener("pointerdown", press, { passive: true, signal });
     nav.addEventListener("click", swallow, { capture: true, signal });
-    nav.addEventListener("click", confirmed, { signal });
+    nav.addEventListener("click", confirm, { signal });
     document.addEventListener("pointerdown", startPointer, listen);
     document.addEventListener("pointermove", move, listen);
     document.addEventListener("pointerup", end, listen);

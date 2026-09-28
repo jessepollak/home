@@ -245,3 +245,44 @@ test("a tap released just past its tab edge keeps the lens on the tab the click 
   await expect.poll(() => lens.evaluate((element) => element.style.transform)).toBe("translateX(100%)");
   expect(await page.evaluate(() => (window as unknown as { lensPlaces: string[] }).lensPlaces)).not.toContain("translateX(0%)");
 });
+
+test("a tap whose navigation commits late keeps the lens on the tapped tab", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  await page.clock.install();
+  await page.goto("/home");
+  const nav = page.getByRole("navigation", { name: "Main navigation" });
+  const lens = nav.locator('[data-navigation-lens="ready"]');
+  await expect(lens).toBeVisible();
+  const invest = nav.getByRole("button", { name: "Invest" });
+  const investBox = (await invest.boundingBox())!;
+  const point = { x: investBox.x + investBox.width / 2, y: investBox.y + investBox.height / 2 };
+  await nav.evaluate((element) => {
+    element.parentElement!.addEventListener("click", (event) => {
+      const tab = event.target instanceof Element ? event.target.closest("button") : null;
+      if (!event.isTrusted || !tab) return;
+      event.stopPropagation();
+      Object.assign(window, { commitNavigation: () => tab.click() });
+    });
+  });
+  const cdp = await page.context().newCDPSession(page);
+  const touch = (type: "touchStart" | "touchEnd") =>
+    cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ ...point, id: 1 }] });
+  await touch("touchStart");
+  await expect.poll(() => lens.evaluate((element) => element.style.transform)).toBe("translateX(100%)");
+  await lens.evaluate((element) => {
+    const seen: string[] = [];
+    new MutationObserver(() => seen.push(element.style.transform)).observe(element, { attributeFilter: ["style"] });
+    Object.assign(window, { lensPlaces: seen });
+  });
+  await touch("touchEnd");
+  await expect(nav).not.toHaveAttribute("data-lens-pressed");
+  await expect.poll(() => page.evaluate(() => "commitNavigation" in window)).toBe(true);
+  await page.clock.runFor(1_500);
+  await expect(invest).not.toHaveAttribute("aria-current");
+  await page.evaluate(() => (window as unknown as { commitNavigation: () => void }).commitNavigation());
+  await expect(invest).toHaveAttribute("aria-current", "page");
+  await expect.poll(() => lens.evaluate((element) => element.style.transform)).toBe("translateX(100%)");
+  expect(await page.evaluate(() => (window as unknown as { lensPlaces: string[] }).lensPlaces)).not.toContain("translateX(0%)");
+});
