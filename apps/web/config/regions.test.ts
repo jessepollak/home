@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { normalizeRegionId, presentationRegions, resolvePresentation } from "./regions";
+import { normalizeRegionId, presentationRegions, presentedRegionId, resolvePresentation, type RegionOffer } from "./regions";
 
 describe("presentation regions", () => {
   test("excludes held countries while retaining the US fallback", () => {
@@ -72,5 +72,46 @@ describe("resolvePresentation", () => {
 
     expect(result.region.id).toBe("BR");
     expect(result.source).toBe("detected");
+  });
+});
+
+describe("operator region offer", () => {
+  const offer: RegionOffer = { offered: ["BR", "GB"], defaultRegion: "GB" };
+  const resolved = (input: Parameters<typeof resolvePresentation>[0]) => {
+    const result = resolvePresentation(input);
+    return `${result.region.id}:${result.source}`;
+  };
+
+  test.each([
+    [{ explicitCountry: "BR" }, "BR:explicit"],
+    [{ explicitCountry: "US", detectedCountry: "BR" }, "BR:detected"],
+    [{ persistedCountry: "GB", detectedCountry: "BR" }, "GB:persisted"],
+    [{ persistedCountry: "US", detectedCountry: "BR" }, "GLOBAL:fallback"],
+    [{ detectedCountry: "BR" }, "BR:detected"],
+    [{ detectedCountry: "US" }, "GB:fallback"],
+    [{}, "GB:fallback"],
+  ])("resolves %j to %s", (input, expected) => {
+    expect(resolved({ ...input, offer })).toBe(expected);
+  });
+
+  test("uses Global when the default is Global or no longer offered", () => {
+    expect(resolved({ detectedCountry: "US", offer: { offered: ["BR"], defaultRegion: "GLOBAL" } })).toBe("GLOBAL:fallback");
+    expect(resolved({ detectedCountry: "US", offer: { offered: ["BR"], defaultRegion: "GB" } })).toBe("GLOBAL:fallback");
+  });
+
+  test("presents everything as Global when no country is offered", () => {
+    const none: RegionOffer = { offered: [], defaultRegion: "GLOBAL" };
+    expect(resolved({ explicitCountry: "BR", persistedCountry: "GB", detectedCountry: "US", offer: none })).toBe("GLOBAL:fallback");
+    expect(resolved({ offer: none })).toBe("GLOBAL:fallback");
+  });
+
+  test("keeps legacy behaviour without an offer", () => {
+    expect(resolved({ persistedCountry: "MX" })).toBe("MX:persisted");
+    expect(resolved({})).toBe("US:fallback");
+  });
+
+  test("presents a removed country as Global", () => {
+    expect(presentedRegionId("US", offer)).toBe("GLOBAL");
+    expect(presentedRegionId("BR", offer)).toBe("BR");
   });
 });

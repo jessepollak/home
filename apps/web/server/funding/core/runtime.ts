@@ -1,6 +1,7 @@
 import "server-only";
 
 import { authorizeSession } from "@/server/auth/authorize";
+import { isRegionOffered } from "@/server/operator-settings/regions";
 import { withFundingOrderEvents, withProviderCustomerEvents } from "@/server/operator-events/funding";
 import { deferCustomerRecord } from "@/server/customers/resolve";
 import { fundingProviders, fundingUserTokenProviders } from "@/server/funding/providers";
@@ -20,6 +21,7 @@ let core: FundingCore | null = null;
 export function getFundingCore(): FundingCore {
   core ??= new FundingCore({
     providers: fundingProviders,
+    regionOffered: isRegionOffered,
     store: withFundingOrderEvents(createRuntimeFundingOrderStore(), (event) =>
       deferCustomerRecord((registry) => registry.record(event))),
     customerStore: withProviderCustomerEvents(createRuntimeFundingProviderCustomerStore(), (event) =>

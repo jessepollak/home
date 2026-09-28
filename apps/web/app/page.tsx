@@ -5,6 +5,7 @@ import { LandingShell } from "@/client/home/landing-shell";
 import { searchParamsToString } from "@/config/shell-location";
 import { signedInLandingHref } from "@/server/landing/signed-in-redirect";
 import { readRequestCountry } from "@/server/region/request-country";
+import { readRegionOfferForRender } from "@/server/operator-settings/regions";
 
 export default async function HomePage({ searchParams }: PageProps<"/">) {
   const query = await searchParams;
@@ -15,6 +16,7 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
   return (
     <LandingShell
       detectedCountry={readRequestCountry(await headers())}
+      regionOffer={await readRegionOfferForRender()}
       landingVisual={<SupportedGlobeDynamic />}
       initialSearch={search}
     />

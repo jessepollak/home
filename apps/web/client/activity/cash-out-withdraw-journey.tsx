@@ -3,6 +3,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { networkFeeErrorMessage } from "@/shared/money-actions/network-fee";
+import { isCashoutPrepareErrorCode } from "@/shared/actions/contracts/prepare";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { TransferExecutionError } from "@/shared/transfers/types";
 import type { RegionId } from "@/config/regions";
@@ -67,7 +68,7 @@ export function useCashOutWithdrawJourney({ wallet, ownerKey, onDispatched }: {
     } catch (caught) {
       if (token !== attempt.current || ownerKey !== identity.current) return { ok: false as const, message: null };
       const failure = caught as { code?: unknown; serverMessage?: unknown };
-      const message = networkFeeErrorMessage(caught) ?? (typeof failure.code === "string" && failure.code.startsWith("CASHOUT_") && typeof failure.serverMessage === "string"
+      const message = networkFeeErrorMessage(caught) ?? (isCashoutPrepareErrorCode(failure.code) && typeof failure.serverMessage === "string"
         ? failure.serverMessage
         : caught instanceof Error && caught.message === "Cash-out withdrawal review is unavailable. Try again."
           ? caught.message

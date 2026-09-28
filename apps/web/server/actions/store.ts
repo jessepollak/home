@@ -144,7 +144,7 @@ function cashoutInsert(row: ActionRow): unknown[] | null {
     typeof value === "object" && value !== null && "assetId" in value && "direction" in value && "amountBaseUnits" in value &&
     value.assetId === "usdc" && value.direction === "spend" && typeof value.amountBaseUnits === "string");
   if (!amount || !/^[1-9]\d*$/.test(amount.amountBaseUnits)) return null;
-  const region = metadata.region ?? regionForCashout(metadata);
+  const region = cashoutMetadataRegion(metadata);
   if (!region) return null;
   return [row.id, row.owner_key, metadata.providerId, metadata.environment, region, metadata.platform,
     metadata.platformLabel, amount.amountBaseUnits, metadata.etaSeconds ?? null];
@@ -154,6 +154,10 @@ function regionForCashout(metadata: CashoutMoneyActionMetadata): string | null {
   const provider = getFundingProvider(metadata.providerId);
   return provider?.manifest.bindings.find((binding) => binding.currency === metadata.currency &&
     binding.directions.offramp?.paymentMethods.some((method) => method.id === metadata.platform))?.region ?? null;
+}
+
+export function cashoutMetadataRegion(metadata: CashoutMoneyActionMetadata): string | null {
+  return metadata.region ?? regionForCashout(metadata);
 }
 
 let runtimeStore: ActionsStore | null = null;

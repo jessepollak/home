@@ -7,6 +7,7 @@ import { legacyShellRedirectHref, parseShellLocation, searchParamsToString } fro
 import { readRequestCountry } from "@/server/region/request-country";
 import { readRenderSession } from "@/server/auth/render-session";
 import { readCountryPreferenceForRender } from "@/server/preferences/country";
+import { readRegionOfferForRender } from "@/server/operator-settings/regions";
 
 const shellTitles: Record<ShellPanelId, string> = {
   home: "Home",
@@ -49,6 +50,7 @@ export default async function ShellPage({
   return (
     <PortfolioHomeExperience
       detectedCountry={readRequestCountry(await headers())}
+      regionOffer={await readRegionOfferForRender()}
       accountPreference={accountPreference}
       initialLocation={parseShellLocation(shellPathname(shell))}
       initialSearch={searchParamsToString(query)}

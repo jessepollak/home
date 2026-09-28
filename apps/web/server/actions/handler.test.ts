@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import type { ActionRow } from "./store";
 import { createConfirmActionHandler, createDeclineActionHandler, createGetActionHandler, createHandleActionHandler, createListActionsHandler, createRetryActionHandler } from "./handler";
 import { DECLINE_ACTION_CONTRACT_VERSION } from "@/shared/actions/contracts/decline";
+import { parseConfirmActionErrorResponse, parseConfirmActionResponse } from "@/shared/actions/contracts/confirm";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 import type { MoneyActionCall, MoneyActionOwner } from "@/shared/money-actions/types";
 
@@ -629,6 +630,104 @@ describe("actions HTTP handlers", () => {
     expect(confirmedCalls).toEqual([CALL]);
     expect((await response.json()).calls).toEqual([CALL]);
   });
+
+  function cashoutConfirmRow(kind: "cash-out" | "cash-out-withdraw"): ActionRow {
+    const common = { providerId: "peer", providerName: "Peer", environment: "production" as const, region: "US", platform: "cash-app", platformLabel: "Cash App", currency: "USD", minConversionRate: "1", intentAmountRange: { min: "1", max: "100000000" }, estimateAsOf: "2026-09-12T12:00:00.000Z", escrow: ADDRESS };
+    return {
+      ...row,
+      kind,
+      summary: {
+        ...row.summary,
+        metadata: kind === "cash-out"
+          ? { product: "cashout", operation: "deposit", canonicalHandle: "user@example.com", approximateFiatAmount: "10", ...common }
+          : { product: "cashout", operation: "withdraw", depositId: "deposit_1", approximateFiatAmount: "0", ...common },
+      },
+    };
+  }
+
+  test("confirm rechecks the persisted cash-out region and refuses a removed region", async () => {
+    let confirms = 0;
+    const draft = cashoutConfirmRow("cash-out");
+    const handler = createConfirmActionHandler({
+      authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      regionOffered: async () => false,
+      store: { get: async () => draft, confirm: async () => { confirms += 1; return draft; } },
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(502);
+    expect(parseConfirmActionErrorResponse(await response.json())).toEqual({ error: { code: "CASHOUT_UNAVAILABLE", message: "Cash out isn't available in your region." } });
+    expect(confirms).toBe(0);
+  });
+
+  test("confirm fails closed when the cash-out region settings are unavailable", async () => {
+    let confirms = 0;
+    const draft = cashoutConfirmRow("cash-out");
+    const handler = createConfirmActionHandler({
+      authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      regionOffered: async () => { throw new Error("settings unavailable"); },
+      store: { get: async () => draft, confirm: async () => { confirms += 1; return draft; } },
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(503);
+    expect(parseConfirmActionErrorResponse(await response.json())).toEqual({ error: { code: "CASHOUT_SETTINGS_UNAVAILABLE", message: "Cash out is unavailable right now. Try again shortly." } });
+    expect(confirms).toBe(0);
+  });
+
+  test("confirm allows an offered cash-out region", async () => {
+    const draft = cashoutConfirmRow("cash-out");
+    const handler = createConfirmActionHandler({
+      authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      regionOffered: async () => true,
+      store: { get: async () => draft, confirm: async (_owner, _id, calls) => ({ ...draft, confirmed_at: "2026-09-12T12:05:00.000Z", pending: { calls: calls ?? [] } }) },
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(parseConfirmActionResponse(body)).not.toBeNull();
+    expect(parseConfirmActionErrorResponse(body)).toBeNull();
+  });
+
+  test("confirm never rechecks the region for withdrawals or already-confirmed cash-outs", async () => {
+    let regionChecks = 0;
+    const regionOffered = async () => { regionChecks += 1; return true; };
+    const withdraw = cashoutConfirmRow("cash-out-withdraw");
+    const withdrawHandler = createConfirmActionHandler({
+      authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      regionOffered,
+      store: { get: async () => withdraw, confirm: async (_owner, _id, calls) => ({ ...withdraw, confirmed_at: "2026-09-12T12:05:00.000Z", pending: { calls: calls ?? [] } }) },
+    });
+    expect((await withdrawHandler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context())).status).toBe(200);
+
+    const confirmed = { ...cashoutConfirmRow("cash-out"), confirmed_at: "2026-09-12T12:05:00.000Z" };
+    const confirmedHandler = createConfirmActionHandler({
+      authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      regionOffered,
+      store: { get: async () => confirmed, confirm: async () => null },
+    });
+    expect((await confirmedHandler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context())).status).toBe(404);
+    expect(regionChecks).toBe(0);
+  });
+
+  test("confirm fails closed for a cash-out without persisted region metadata", async () => {
+    let confirms = 0;
+    const draft: ActionRow = { ...row, kind: "cash-out" };
+    const handler = createConfirmActionHandler({
+      authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      regionOffered: async () => true,
+      store: { get: async () => draft, confirm: async () => { confirms += 1; return draft; } },
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(503);
+    expect(parseConfirmActionErrorResponse(await response.json())?.error.code).toBe("CASHOUT_SETTINGS_UNAVAILABLE");
+    expect(confirms).toBe(0);
+  });
+
 
   test("Base confirm returns a padded batch gas hint and estimator failure remains non-blocking", async () => {
     const estimatedCalls: unknown[] = [];

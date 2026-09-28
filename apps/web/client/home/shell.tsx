@@ -196,6 +196,7 @@ function DashboardShellBody({
     isPreferenceReady,
     preferenceMessage,
     selectRegion,
+    offeredCountries,
   } = region;
   const [activeNavigation, setActiveNavigation] = useState<ShellPanelId>(initialPanel);
   const [navigationRequest, setNavigationRequest] = useState(0);
@@ -1072,6 +1073,7 @@ function DashboardShellBody({
               <AccountSettings
                 regionId={regionId}
                 onRegionChange={selectRegion}
+                offeredCountries={offeredCountries}
                 resolutionSource={resolutionSource}
                 preferenceMessage={preferenceMessage}
                 isPreferenceReady={isPreferenceReady}

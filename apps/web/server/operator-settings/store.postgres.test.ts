@@ -42,7 +42,7 @@ describePostgres("operator settings and audit against PostgreSQL", () => {
 
   test("defaults, writes, restart reads, revisions, no-ops, and audited before/after", async () => {
     expect(await store.read("support")).toEqual({ domain: "support", settings: { value: { email: null, url: null }, revision: 0, source: "default", updatedAt: null, updatedBy: null } });
-    expect(await store.readAll()).toHaveLength(2);
+    expect((await store.readAll()).map((entry) => entry.domain)).toEqual(["support", "brand", "regions"]);
     await expect(store.write({ domain: "support", expectedRevision: 0, value: { email: "bad", url: null }, actor })).rejects.toBeInstanceOf(OperatorSettingsValidationError);
     expect((await audit.list()).entries).toHaveLength(0);
     const first = await store.write({ domain: "support", expectedRevision: 0, value, actor });

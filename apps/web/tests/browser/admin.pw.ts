@@ -89,7 +89,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
       ["Support", "Support inbox isn't available yet.", "/admin/support"],
       ["Growth", "Invite data isn't available.", "/admin/growth"],
       ["Money", "Revenue isn't available yet.", "/admin/money"],
-      ["Settings", "No settings available yet.", "/admin/settings"],
+      ["Settings", "Region settings need a database. Home is offering its built-in regions.", "/admin/settings"],
       ["Audit log", "Admin activity isn't recorded yet.", "/admin/audit"],
     ] as const;
     for (const [heading, empty, href] of sections) {
