@@ -11,7 +11,7 @@ export function createAfterSchedule(
     try {
       retain(task);
     } catch {
-      void task.catch(() => {});
+      void task.catch(() => {}); // oxlint-disable-line home/no-silent-catch -- the failed retention is reported by onUnavailable; consume the detached task rejection
       onUnavailable();
     }
   };

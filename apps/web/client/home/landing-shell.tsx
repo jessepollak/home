@@ -101,7 +101,7 @@ export function LandingShell({
   }
 
   function signOut() {
-    void account.signOut().catch(() => {});
+    void account.signOut().catch(() => {}); // oxlint-disable-line home/no-silent-catch -- account sign-out owns its error state shown on the landing screen
   }
 
   return (
@@ -129,7 +129,7 @@ export function LandingShell({
         showCreateAccount={account.signInAvailability === "ready"}
         onDashboard={() => router.replace("/home")}
         onSignIn={openAccount}
-        onRetrySignOut={() => void account.signOut().catch(() => {})}
+        onRetrySignOut={() => void account.signOut().catch(() => {})} // oxlint-disable-line home/no-silent-catch -- account sign-out owns the retry error shown on this landing screen
       />
       <AccountSignInSheet
         open={isAccountOpen}

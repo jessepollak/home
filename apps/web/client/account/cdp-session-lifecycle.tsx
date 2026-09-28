@@ -187,7 +187,7 @@ export function AccountWalletSessionOwner({
   }, []);
 
   const signOutLostIdentity = useCallback((pendingProvider: AccountProvider) => {
-    if (cleanupRef.current) return cleanupRef.current.catch(() => {});
+    if (cleanupRef.current) return cleanupRef.current.catch(() => {}); // oxlint-disable-line home/no-silent-catch -- in-flight cleanup already sets signout-error and the retry message on failure
 
     fence.advance();
     clearPrivate();

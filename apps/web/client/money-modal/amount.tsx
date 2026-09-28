@@ -163,7 +163,7 @@ export function useAutoFitAmountText<T extends HTMLElement = HTMLLabelElement>(
     fonts?.addEventListener?.("loadingdone", measure);
     fonts?.ready?.then(() => {
       if (active) measure();
-    }).catch(() => {});
+    }).catch(() => {}); // oxlint-disable-line home/no-silent-catch -- font readiness is optional; loadingdone and later measurements still resize the amount
 
     return () => {
       active = false;
