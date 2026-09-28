@@ -28,6 +28,20 @@ describe("bounded server cache", () => {
     expect(cache.size).toBe(2);
   });
 
+  test("peek observes values and TTL without changing eviction order", () => {
+    let time = 0;
+    const cache = createBoundedCache<string>({ ...options, now: () => time });
+    cache.set("a", "A");
+    cache.set("b", "B");
+    expect(cache.peek("a")).toBe("A");
+    cache.set("c", "C");
+    expect(cache.peek("a")).toBeUndefined();
+    expect(cache.peek("b")).toBe("B");
+    time = 11;
+    expect(cache.peek("b")).toBeUndefined();
+    expect(cache.peek("c")).toBeUndefined();
+  });
+
   test("expires only after the TTL boundary, without extending age on hits, and reloads", async () => {
     let time = 0;
     let calls = 0;
