@@ -49,7 +49,7 @@ Stock prices and stock holding values come from the Chainlink Coinbase tokenized
 | Closed | Valid answer while the session is closed (weekends, NYSE full-day holidays) | Price, “Last close” | Value, “Last close” |
 | Paused | Registry paused for a corporate action | —, “Paused” | —, “Paused” |
 | Stale | Open-market time since the last update exceeds heartbeat + 1 hour | —, “Price delayed” | —, “Price delayed” |
-| Unavailable | Read failed, invalid or future answer, decimals mismatch, invalid registry | — | —, “Value unavailable” |
+| Unavailable | Read failed or was refused because too many distinct reads were already in flight, invalid or future answer, decimals mismatch, invalid registry | — | —, “Value unavailable” |
 
 A stock with `listing: "removed"` stays identifiable for existing holdings and shows “No longer listed” instead of a value. The session model opens Sunday 20:00 and closes Friday 20:00 America/New_York, minus the vendored NYSE holidays (`us-equity-holidays.json`, verified September 28, 2026 against the NYSE hours calendar, covering through 2028-12-31). A date past that coverage is never treated as open, so the state falls to the frozen “Last close” rather than a live price; `invest-catalog:refresh` reports the remaining coverage and fails the drift check when the calendar has expired or is within 120 days of expiry, which is when the vendored list must be extended. The stock detail chart remains the Codex DEX market history and is captioned “DEX market price”, so it is never read as the reference or holding value.
 

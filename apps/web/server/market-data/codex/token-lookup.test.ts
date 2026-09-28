@@ -102,4 +102,54 @@ describe("Codex token lookup", () => {
     expect(await second).toEqual(new Map());
     expect(calls).toBe(1);
   });
+
+  test("shares a pending address, caps new addresses, caches misses and reloads after TTL", async () => {
+    let time = Date.parse("2026-09-13T12:00:00.000Z");
+    let calls = 0;
+    let release!: (response: Response) => void;
+    const gate = new Promise<Response>((resolve) => { release = resolve; });
+    const lookup = createCodexTokenLookup({
+      apiKey: "fixture-key", now: () => new Date(time), cacheTtlMs: 10, maxInFlight: 1,
+      fetchImpl: async () => { calls++; return calls === 1 ? gate : Response.json({ data: { filterTokens: { results: [] } } }); },
+    });
+    const first = lookup([ADDRESS, ADDRESS]);
+    const joined = lookup([ADDRESS]);
+    expect(await lookup([OTHER])).toEqual(new Map());
+    expect(calls).toBe(1);
+    release(Response.json({ data: { filterTokens: { results: [] } } }));
+    expect(await Promise.all([first, joined])).toEqual([new Map(), new Map()]);
+    await lookup([ADDRESS]);
+    expect(calls).toBe(1);
+    time += 10;
+    await lookup([ADDRESS]);
+    expect(calls).toBe(1);
+    time += 1;
+    await lookup([ADDRESS]);
+    expect(calls).toBe(2);
+  });
+
+  test("failed batches do not cache misses and can retry", async () => {
+    let calls = 0;
+    const lookup = createCodexTokenLookup({
+      apiKey: "fixture-key", now: () => new Date("2026-09-13T12:00:00.000Z"),
+      fetchImpl: async () => {
+        calls++;
+        if (calls === 1) throw new Error("provider failure");
+        return Response.json({ data: { filterTokens: { results: [result(ADDRESS)] } } });
+      },
+    });
+    expect(await lookup([ADDRESS])).toEqual(new Map());
+    expect((await lookup([ADDRESS])).has(ADDRESS)).toBeTrue();
+    expect(calls).toBe(2);
+  });
+
+  test("returns no entries without contacting the provider for a non-finite clock", async () => {
+    let calls = 0;
+    const lookup = createCodexTokenLookup({
+      apiKey: "fixture-key", now: () => new Date(Number.NaN),
+      fetchImpl: async () => { calls++; return Response.json({ data: { filterTokens: { results: [] } } }); },
+    });
+    expect(await lookup([ADDRESS])).toEqual(new Map());
+    expect(calls).toBe(0);
+  });
 });

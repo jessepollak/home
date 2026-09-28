@@ -10,6 +10,7 @@ import {
   type InvestAsset,
 } from "@/config/invest-assets";
 import type { MarketSnapshot } from "@/shared/invest/invest-market";
+import { createBoundedCache } from "@/server/cache/bounded";
 import { sanitizeImageUrl } from "../asset-icons/image-url";
 import { formatChangeLabel } from "./change-label";
 import { CodexMarketDataError } from "./client";
@@ -139,16 +140,6 @@ type CachedTrending = {
   result: TrendingMemesResult;
 };
 
-type CachedTrendingPage = {
-  storedAt: number;
-  result: TrendingMemesPage;
-};
-
-type CachedAdmission = {
-  storedAt: number;
-  admitted: boolean;
-};
-
 const excludedDiscoverTokens = [...stockAssets, ...cryptoAssets].map(
   (asset) => `${asset.contractAddress.toLowerCase()}:${asset.chainId}`,
 );
@@ -199,8 +190,12 @@ export function createCodexTrendingMemesPageReader({
   cacheMaxEntries = CODEX_TRENDING_PAGE_CACHE_MAX_ENTRIES,
   maxInFlight = CODEX_TRENDING_PAGE_MAX_IN_FLIGHT,
 }: TrendingPageOptions) {
-  const cache = new Map<string, CachedTrendingPage>();
-  const inFlight = new Map<string, Promise<TrendingMemesPage>>();
+  const cache = createBoundedCache<TrendingMemesPage>({
+    ttlMs: CODEX_CACHE_TTL_MS,
+    maxEntries: cacheMaxEntries,
+    maxInFlight,
+    now: () => now().getTime(),
+  });
 
   return async function readTrendingMemesPage(
     offset: number,
@@ -211,43 +206,20 @@ export function createCodexTrendingMemesPageReader({
     const limit = CODEX_TRENDING_PAGE_SIZE;
     const key = trendingPageKey(safeOffset, limit);
 
-    const currentTime = now().getTime();
-    pruneTrendingPageCache(cache, currentTime);
-    const cached = cache.get(key);
-    if (cached) {
-      cache.delete(key);
-      cache.set(key, cached);
-      return cached.result;
-    }
-    const existing = inFlight.get(key);
-    if (existing) return existing;
-    if (inFlight.size >= maxInFlight) {
-      throw new CodexMarketDataError(
-        "Codex trending pages are temporarily overloaded.",
-      );
-    }
-
-    const pending = fetchTrendingMemesPage({
+    const result = await cache.fetch(key, () => fetchTrendingMemesPage({
       apiKey: apiKey.trim(),
       fetchImpl,
       now,
       timeoutMs,
       offset: safeOffset,
       limit,
-    });
-    inFlight.set(key, pending);
-    try {
-      const result = await pending;
-      setBoundedTrendingPageCache(
-        cache,
-        key,
-        { storedAt: now().getTime(), result },
-        cacheMaxEntries,
+    }));
+    if (result.status === "saturated") {
+      throw new CodexMarketDataError(
+        "Codex trending pages are temporarily overloaded.",
       );
-      return result;
-    } finally {
-      inFlight.delete(key);
     }
+    return result.value;
   };
 }
 
@@ -259,8 +231,12 @@ export function createCodexTrendingMemeAdmissionReader({
   cacheMaxEntries = CODEX_TRENDING_ADMISSION_CACHE_MAX_ENTRIES,
   maxInFlight = CODEX_TRENDING_ADMISSION_MAX_IN_FLIGHT,
 }: TrendingMemeAdmissionOptions) {
-  const cache = new Map<string, CachedAdmission>();
-  const inFlight = new Map<string, Promise<boolean>>();
+  const cache = createBoundedCache<{ admitted: boolean }>({
+    ttlMs: CODEX_CACHE_TTL_MS,
+    maxEntries: cacheMaxEntries,
+    maxInFlight,
+    now: () => now().getTime(),
+  });
 
   return async function isTrendingBaseMeme(
     contractAddress: string,
@@ -271,41 +247,19 @@ export function createCodexTrendingMemeAdmissionReader({
     if (!apiKey?.trim()) return false;
 
     const key = trendingAdmissionKey(networkId, address);
-    const currentTime = now().getTime();
-    pruneTrendingAdmissionCache(cache, currentTime);
-    const cached = cache.get(key);
-    if (cached) {
-      cache.delete(key);
-      cache.set(key, cached);
-      return cached.admitted;
-    }
-    const existing = inFlight.get(key);
-    if (existing !== undefined) return existing;
-    if (inFlight.size >= maxInFlight) {
-      return false;
-    }
-
-    const pending = fetchTrendingMemeAdmission({
-      apiKey: apiKey.trim(),
-      address,
-      networkId,
-      fetchImpl,
-      timeoutMs,
-    });
-    inFlight.set(key, pending);
     try {
-      const admitted = await pending;
-      setBoundedTrendingAdmissionCache(
-        cache,
-        key,
-        { storedAt: now().getTime(), admitted },
-        cacheMaxEntries,
-      );
-      return admitted;
+      const result = await cache.fetch(key, async () => ({
+        admitted: await fetchTrendingMemeAdmission({
+          apiKey: apiKey.trim(),
+          address,
+          networkId,
+          fetchImpl,
+          timeoutMs,
+        }),
+      }));
+      return result.status === "saturated" ? false : result.value.admitted;
     } catch {
       return false;
-    } finally {
-      inFlight.delete(key);
     }
   };
 }
@@ -603,56 +557,6 @@ function trendingPageKey(offset: number, limit: number): string {
 
 function trendingAdmissionKey(networkId: number, address: string): string {
   return `${networkId}:${address.toLowerCase()}`;
-}
-
-function pruneTrendingPageCache(
-  cache: Map<string, CachedTrendingPage>,
-  currentTime: number,
-) {
-  for (const [key, entry] of cache) {
-    if (currentTime - entry.storedAt > CODEX_CACHE_TTL_MS) cache.delete(key);
-  }
-}
-
-function setBoundedTrendingPageCache(
-  cache: Map<string, CachedTrendingPage>,
-  key: string,
-  entry: CachedTrendingPage,
-  cacheMaxEntries: number,
-) {
-  if (cacheMaxEntries <= 0) return;
-  cache.delete(key);
-  while (cache.size >= cacheMaxEntries) {
-    const oldestKey = cache.keys().next().value;
-    if (oldestKey === undefined) break;
-    cache.delete(oldestKey);
-  }
-  cache.set(key, entry);
-}
-
-function pruneTrendingAdmissionCache(
-  cache: Map<string, CachedAdmission>,
-  currentTime: number,
-) {
-  for (const [key, entry] of cache) {
-    if (currentTime - entry.storedAt > CODEX_CACHE_TTL_MS) cache.delete(key);
-  }
-}
-
-function setBoundedTrendingAdmissionCache(
-  cache: Map<string, CachedAdmission>,
-  key: string,
-  entry: CachedAdmission,
-  cacheMaxEntries: number,
-) {
-  if (cacheMaxEntries <= 0) return;
-  cache.delete(key);
-  while (cache.size >= cacheMaxEntries) {
-    const oldestKey = cache.keys().next().value;
-    if (oldestKey === undefined) break;
-    cache.delete(oldestKey);
-  }
-  cache.set(key, entry);
 }
 
 function readTrendingAsset(value: unknown): InvestAsset | null {

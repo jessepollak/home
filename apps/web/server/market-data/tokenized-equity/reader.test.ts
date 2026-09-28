@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { encodeAbiParameters, parseAbiParameters } from "viem";
 import { classifyTokenizedEquityRound } from "./classify";
-import { createTokenizedEquityReader, readTokenizedEquityReferences, type TokenizedEquityFeed, type TokenizedEquityReference } from "./reader";
+import { createTokenizedEquityReader, readTokenizedEquityReferences, TOKENIZED_EQUITY_MAX_IN_FLIGHT, type TokenizedEquityFeed, type TokenizedEquityReference } from "./reader";
 import { isClosedAt, openMarketSeconds } from "./session";
 
 const et = (date: string, time: string, offset: string) => Date.parse(`${date}T${time}:00${offset}`) / 1000;
@@ -156,12 +156,41 @@ test("cached reader coalesces, expires, and does not retain all-failed batches",
   expect(reads).toBe(1);
   now = 100;
   expect(await current([feed])).toEqual(good);
+  expect(reads).toBe(1);
+  now = 101;
+  expect(await current([feed])).toEqual(good);
   expect(reads).toBe(2);
-  now = 200;
+  now = 202;
   expect((await current([feed]))[0]?.status).toBe("unavailable");
   expect(await current([feed])).toEqual(good);
   expect(reads).toBe(4);
   expect(seen).toEqual(Array(4).fill(BigInt(123)));
+});
+
+test("cached reader fails closed at the in-flight cap without requesting another block", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let requests = 0;
+  const rpc: Rpc = {
+    ...mockRpc().rpc,
+    request: async () => { requests++; return "0x7b"; },
+  };
+  const read: typeof readTokenizedEquityReferences = async (feeds) => {
+    await gate;
+    return feeds.map(({ assetId }) => ({ assetId, status: "unavailable", reason: "read-failed", block: null }));
+  };
+  const current = createTokenizedEquityReader({ read, rpc, now: () => 0 });
+  expect(await current([])).toEqual([]);
+  const pending = Array.from({ length: TOKENIZED_EQUITY_MAX_IN_FLIGHT }, (_, index) =>
+    current([{ ...feed, assetId: `asset-${index}` }]));
+  expect(await current([{ ...feed, assetId: "overloaded" }])).toEqual([
+    { assetId: "overloaded", status: "unavailable", reason: "read-failed", block: null },
+  ]);
+  expect(requests).toBe(16);
+  release();
+  await Promise.all(pending);
+  expect((await current([{ ...feed, assetId: "overloaded" }]))[0]?.status).toBe("unavailable");
+  expect(requests).toBe(17);
 });
 
 test("cached reader bounds the latest-block read and the batch with one shared deadline", async () => {

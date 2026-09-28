@@ -56,3 +56,28 @@ test("asset contract rejects mismatched identities and onchain prices", async ()
   expect(parseAssetResolutionResponse({ ...value, assetId: "base:0x2222222222222222222222222222222222222222" })).toBeNull();
   expect(parseAssetResolutionResponse({ ...value, source: "onchain", snapshot: { assetId: id, displayPrice: "$1", asOf: "2026-09-26", sourceLabel: "provider" } })).toBeNull();
 });
+
+test("resolver retries errors, joins identical reads, overloads without work, and expires after TTL", async () => {
+  let time = 0;
+  let calls = 0;
+  let release!: (response: Response) => void;
+  const held = new Promise<Response>((resolve) => { release = resolve; });
+  const resolve = createAssetResolver({ ...options, now: () => new Date(time), maxInFlight: 1, fetchImpl: async () => {
+    calls++;
+    return calls === 1 ? new Response("offline", { status: 503 }) : calls === 2 ? held : Response.json({ data: { filterTokens: { results: [exactRow] } } });
+  } });
+  expect((await resolve(id)).provider).toBe("error");
+  const first = resolve(id);
+  const joined = resolve(address);
+  const other = "base:0x2222222222222222222222222222222222222222";
+  expect(await resolve(other)).toMatchObject({ provider: "unavailable", asset: null });
+  expect(calls).toBe(2);
+  release(Response.json({ data: { filterTokens: { results: [exactRow] } } }));
+  expect(await first).toEqual(await joined);
+  time = 45_000;
+  expect((await resolve(id)).provider).toBe("ok");
+  expect(calls).toBe(2);
+  time = 45_001;
+  expect((await resolve(id)).provider).toBe("ok");
+  expect(calls).toBe(3);
+});

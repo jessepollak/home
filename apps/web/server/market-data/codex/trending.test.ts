@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { memeAssets } from "@/config/invest-assets";
 import { CodexMarketDataError } from "./client";
 import { CODEX_GRAPHQL_ENDPOINT } from "./config";
+import { CODEX_CACHE_TTL_MS } from "./config";
 import {
   CODEX_TRENDING_PAGE_SIZE,
   CODEX_TRENDING_MEME_CATEGORY,
@@ -35,6 +36,12 @@ function memeRow(address: string, name: string) {
       info: { imageSmallUrl: `https://icons.example.test/${name}.png` },
     },
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((yes) => { resolve = yes; });
+  return { promise, resolve };
 }
 
 describe("Codex trending memes", () => {
@@ -235,6 +242,30 @@ describe("Codex trending memes pages", () => {
     expect(upstreamCalls).toBe(2);
   });
 
+  test("shares a pending page, expires after the TTL boundary, and rejects overload without a provider call", async () => {
+    let time = NOW.getTime();
+    let calls = 0;
+    const gate = deferred<Response>();
+    const reader = createCodexTrendingMemesPageReader({
+      apiKey: "fixture-key", now: () => new Date(time), maxInFlight: 1,
+      fetchImpl: async () => { calls++; return calls === 1 ? gate.promise : Response.json({ data: trendingPayload([]) }); },
+    });
+    const first = reader(0);
+    const joined = reader(0);
+    await expect(reader(CODEX_TRENDING_PAGE_SIZE)).rejects.toThrow("Codex trending pages are temporarily overloaded.");
+    expect(calls).toBe(1);
+    gate.resolve(Response.json({ data: trendingPayload([]) }));
+    expect(await first).toEqual(await joined);
+    expect(await reader(0)).toEqual(await first);
+    expect(calls).toBe(1);
+    time += CODEX_CACHE_TTL_MS;
+    await reader(0);
+    expect(calls).toBe(1);
+    time += 1;
+    await reader(0);
+    expect(calls).toBe(2);
+  });
+
 });
 
 describe("Codex trending meme admission", () => {
@@ -321,5 +352,56 @@ describe("Codex trending meme admission", () => {
     });
     expect(await noKey(address, 8453)).toBe(false);
     expect(await noKey(address, 137)).toBe(false); // non-Base network
+  });
+
+  test("shares a pending admission, caches false until TTL expiry, and fails closed on overload", async () => {
+    let time = NOW.getTime();
+    let calls = 0;
+    const gate = deferred<Response>();
+    const reader = createCodexTrendingMemeAdmissionReader({
+      apiKey: "fixture-key", now: () => new Date(time), maxInFlight: 1,
+      fetchImpl: async () => { calls++; return calls === 1 ? gate.promise : Response.json({ data: admissionPayload([]) }); },
+    });
+    const first = reader(address, 8453);
+    const joined = reader(address.toUpperCase().replace("0X", "0x"), 8453);
+    expect(await reader("0x2222222222222222222222222222222222222222", 8453)).toBe(false);
+    expect(calls).toBe(1);
+    gate.resolve(Response.json({ data: admissionPayload([]) }));
+    expect(await Promise.all([first, joined])).toEqual([false, false]);
+    expect(await reader(address, 8453)).toBe(false);
+    expect(calls).toBe(1);
+    time += CODEX_CACHE_TTL_MS;
+    await reader(address, 8453);
+    expect(calls).toBe(1);
+    time += 1;
+    await reader(address, 8453);
+    expect(calls).toBe(2);
+  });
+
+  test("failed admission responses are not cached and retry", async () => {
+    let calls = 0;
+    const reader = createCodexTrendingMemeAdmissionReader({
+      apiKey: "fixture-key", now: () => NOW,
+      fetchImpl: async () => { calls++; throw new Error("provider failure"); },
+    });
+    expect(await reader(address, 8453)).toBe(false);
+    expect(await reader(address, 8453)).toBe(false);
+    expect(calls).toBe(2);
+  });
+
+  test("a joiner of a failing admission reports not-admitted and does not cache the failure", async () => {
+    let calls = 0;
+    let fail!: (error: unknown) => void;
+    const gate = new Promise<Response>((_resolve, reject) => { fail = reject; });
+    const reader = createCodexTrendingMemeAdmissionReader({
+      apiKey: "fixture-key", now: () => NOW,
+      fetchImpl: async () => { calls++; return calls === 1 ? gate : Response.json({ data: admissionPayload([{ token: { address, networkId: "8453" } }]) }); },
+    });
+    const first = reader(address, 8453);
+    const joined = reader(address, 8453);
+    fail(new Error("provider failure"));
+    expect(await Promise.all([first, joined])).toEqual([false, false]);
+    expect(await reader(address, 8453)).toBe(true);
+    expect(calls).toBe(2);
   });
 });
