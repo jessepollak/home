@@ -64,14 +64,15 @@ Apply this cleanup also on interruptions/failures. Never `pkill`, `killall`, or 
 
 ### Real Android device
 
-On a runner that exposes a real Android device, supplement the required rungs with a fixture-only Android Chrome check for mobile-web behavior: safe areas, software keyboard, touch/gestures, fixed bottom UI, viewport units, and sheets. Use the credential-free fixture server above; the runner must provide exclusive access to the device (one agent at a time) and its Chrome CDP port. The fixture-session helper seeds a separate browser, not this CDP session; report flows requiring that state as unverified rather than falling back to live services. Do not use live login, money controls, or other apps on the device.
+On a runner that exposes a real Android device, supplement the required rungs with a fixture-only Android Chrome check for mobile-web behavior: safe areas, software keyboard, touch/gestures, fixed bottom UI, viewport units, and sheets. Use the credential-free fixture server above; the runner must provide exclusive access to the device (one agent at a time) and its Chrome CDP port. `fixture-session --cdp <port>` seeds the signed-in fixture state and routes in the device's Chrome instead of a local browser. Do not use live login, money controls, or other apps on the device.
 
 ```sh
 : "${CDP_PORT:?Set the runner-provided Android Chrome CDP port}"
 unset AGENT_BROWSER_ALLOWED_DOMAINS
 adb forward "tcp:${CDP_PORT}" localabstract:chrome_devtools_remote
 adb reverse "tcp:${HOME_FIXTURE_PORT}" "tcp:${HOME_FIXTURE_PORT}"
-bun run ab -- --session home-android-fixture --cdp "$CDP_PORT" open "http://localhost:${HOME_FIXTURE_PORT}/..."
+bun run --cwd apps/web fixture-session --session home-android-fixture --cdp "$CDP_PORT"
+bun run ab -- --session home-android-fixture --cdp "$CDP_PORT" open "http://127.0.0.1:${HOME_FIXTURE_PORT}/..."
 bun run ab -- --session home-android-fixture --cdp "$CDP_PORT" snapshot
 bun run ab -- --session home-android-fixture --cdp "$CDP_PORT" eval '({ width: innerWidth, height: innerHeight })'
 bun run ab -- --session home-android-fixture --cdp "$CDP_PORT" screenshot
@@ -80,7 +81,7 @@ adb reverse --remove "tcp:${HOME_FIXTURE_PORT}"
 adb forward --remove "tcp:${CDP_PORT}"
 ```
 
-The reverse makes the phone's `http://localhost:${HOME_FIXTURE_PORT}` reach the fixture server. In v0.38.1, `--allowed-domains` (including `AGENT_BROWSER_ALLOWED_DOMAINS`) rejects CDP, so leave it unset and keep navigation to localhost yourself. `--cdp` targets only the explicitly provided device endpoint; it is not the forbidden `--auto-connect`. Capture evidence with `agent-browser screenshot` (page viewport only), never a full-device screencap that could expose notifications; label it with device model, browser, and CSS viewport size. `close` only detaches; remove the reverse on completion, including failure. This proves Android Chrome only; iOS/Safari remains unverified and this check never replaces any required rung.
+The reverse makes the device's loopback `${HOME_FIXTURE_PORT}` reach the fixture server. Route intercepts last only while this agent-browser session stays attached, so pass `--cdp "$CDP_PORT"` on every command, and remove the private fixture init file as in the local cleanup. In v0.38.1, `--allowed-domains` (including `AGENT_BROWSER_ALLOWED_DOMAINS`) rejects CDP, so leave it unset and keep navigation to `127.0.0.1` and `localhost` yourself. `--cdp` targets only the explicitly provided device endpoint; it is not the forbidden `--auto-connect`. Capture evidence with `agent-browser screenshot` (page viewport only), never a full-device screencap that could expose notifications; label it with device model, browser, and CSS viewport size. `close` only detaches; remove the reverse on completion, including failure. This proves Android Chrome only; iOS/Safari remains unverified and this check never replaces any required rung.
 
 ### Live session
 
