@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useRef } from "react";
+
 import { Popover } from "@base-ui/react/popover";
 import { cva } from "class-variance-authority";
 
@@ -38,6 +40,7 @@ type CoverageStatusPreviewProps = {
   heading: string;
   details: readonly DetailItem[];
   indicatorVariant?: "solid" | "hollow";
+  onOpenChange?: (open: boolean) => void;
 };
 
 export function CoverageStatusPreview({
@@ -46,9 +49,26 @@ export function CoverageStatusPreview({
   heading,
   details,
   indicatorVariant = "solid",
+  onOpenChange,
 }: CoverageStatusPreviewProps) {
+  const openRef = useRef(false);
+  const onOpenChangeRef = useRef(onOpenChange);
+
+  useEffect(() => {
+    onOpenChangeRef.current = onOpenChange;
+  }, [onOpenChange]);
+
+  useEffect(() => () => {
+    if (openRef.current) onOpenChangeRef.current?.(false);
+  }, []);
+
+  function handleOpenChange(open: boolean) {
+    openRef.current = open;
+    onOpenChange?.(open);
+  }
+
   return (
-    <Popover.Root>
+    <Popover.Root onOpenChange={handleOpenChange}>
       <Popover.Trigger
         aria-label={accessibleName}
         className={triggerVariants({ tone: status, indicator: indicatorVariant })}

@@ -45,6 +45,10 @@ Propose, review, and select design work on the [Storybook review board](../../..
 6. **Validate at the applicable layer.** Exploration captures actual rendered candidates and focused legibility/interaction checks without claiming production proof. For a page-level maintenance/adoption flow, compose or refresh the journey story under `apps/web/stories/journeys/` from production components, then run the workshop loop: **discover** with the MCP docs tools, **compose** the journey story, **run story tests** with `bun run --cwd apps/web test:stories` (or the MCP `test-run` tool) so `play` functions and the a11y audit execute, and **capture proof** of the canvas at the review viewport. For implementation or interactive review of a rendered surface, follow the browser-validation contract and prove the production component in Home with the repository-pinned `agent-browser`, not a mock, a story, or a separately styled copy. Static or read-only diff review uses the available code and evidence without manufacturing a browser run.
 7. **Review with fresh eyes.** For feel-dependent craft, replay the interaction slowly and revisit it later or the next day when the schedule allows; otherwise use a fresh reviewer. Working-state attention misses timing and detail problems that a reset can reveal.
 
+## Styling guards
+
+Use shadcn components and variants as shipped. Never add global selectors or `:has()` anchors above dynamic content; use direct-child `has-[>…]` for a component's own slots. Where a lint rule or gate fires, change the component variant rather than suppressing the rule. See [design-system styling guards](../../../docs/design-system/styling-guards.md).
+
 ## Motion
 
 Purpose, frequency, and content sensitivity gate motion; `docs/ui-direction.md` sets the Home timing limits.

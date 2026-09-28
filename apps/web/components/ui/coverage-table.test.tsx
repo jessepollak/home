@@ -4,7 +4,7 @@ import type { CoverageTableRow } from "./coverage-table";
 
 import { afterEach, describe, expect, test } from "bun:test";
 
-const { cleanup, fireEvent, render } = await import("@testing-library/react");
+const { cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { CoverageTable } = await import("./coverage-table");
 
 const identifiedRow: CoverageTableRow = {
@@ -84,5 +84,64 @@ describe("CoverageTable", () => {
     const popup = await view.findByRole("dialog");
     expect(popup.textContent).toContain("StatusNot identified");
     expect(popup.textContent).toContain("Candidate assetNot identified");
+  });
+
+  test("marks the containing row expanded only while one of its status popovers is open", async () => {
+    const view = render(<CoverageTable rows={[identifiedRow]} />);
+    const trigger = view.getByRole("button", { name: "Yellow — Stablecoin candidate identified" });
+    const row = trigger.closest("tr");
+    expect(row?.getAttribute("data-state")).toBeNull();
+
+    fireEvent.click(trigger);
+    await view.findByRole("dialog");
+    expect(row?.getAttribute("data-state")).toBe("expanded");
+
+    fireEvent.click(trigger);
+    await waitFor(() => expect(row?.getAttribute("data-state")).toBeNull());
+  });
+
+  test("marks each row from its own open status popover", async () => {
+    const view = render(<CoverageTable rows={[identifiedRow, { ...identifiedRow, countryCode: "CA", countryName: "Canada" }]} />);
+    const triggers = view.getAllByRole("button", { name: "Yellow — Stablecoin candidate identified" });
+    const canada = triggers[1]?.closest("tr");
+
+    fireEvent.click(triggers[1]!);
+    await waitFor(() => expect(canada?.getAttribute("data-state")).toBe("expanded"));
+
+    fireEvent.click(triggers[1]!);
+    await waitFor(() => expect(canada?.getAttribute("data-state")).toBeNull());
+  });
+
+  test("keeps the expanded mark on its own row when the table reorders", async () => {
+    const canada = { ...identifiedRow, countryCode: "CA", countryName: "Canada" };
+    const view = render(<CoverageTable rows={[identifiedRow, canada]} />);
+    const canadaTrigger = view.getAllByRole("button", { name: "Yellow — Stablecoin candidate identified" })[1]!;
+
+    fireEvent.click(canadaTrigger);
+    await waitFor(() => expect(canadaTrigger.closest("tr")?.getAttribute("data-state")).toBe("expanded"));
+
+    view.rerender(<CoverageTable rows={[canada, identifiedRow]} />);
+
+    await waitFor(() => {
+      const rows = [...view.container.querySelectorAll("tbody tr")];
+      expect(rows[0]?.textContent).toContain("Canada");
+      expect(rows[0]?.getAttribute("data-state")).toBe("expanded");
+      expect(rows[1]?.getAttribute("data-state")).toBeNull();
+    });
+  });
+
+  test("clears the expanded mark when an open preview's row leaves and returns", async () => {
+    const canada = { ...identifiedRow, countryCode: "CA", countryName: "Canada" };
+    const view = render(<CoverageTable rows={[identifiedRow, canada]} />);
+    const canadaTrigger = view.getAllByRole("button", { name: "Yellow — Stablecoin candidate identified" })[1]!;
+
+    fireEvent.click(canadaTrigger);
+    await waitFor(() => expect(canadaTrigger.closest("tr")?.getAttribute("data-state")).toBe("expanded"));
+
+    view.rerender(<CoverageTable rows={[identifiedRow]} />);
+    await waitFor(() => expect([...view.container.querySelectorAll("tbody tr")].every((row) => row.getAttribute("data-state") === null)).toBe(true));
+
+    view.rerender(<CoverageTable rows={[identifiedRow, canada]} />);
+    await waitFor(() => expect([...view.container.querySelectorAll("tbody tr")].every((row) => row.getAttribute("data-state") === null)).toBe(true));
   });
 });
