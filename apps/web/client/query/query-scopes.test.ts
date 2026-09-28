@@ -1,0 +1,95 @@
+import { expect, test } from "bun:test";
+import { skipToken, type QueryKey } from "@tanstack/react-query";
+import { afterActionScopes, applyActionHandleEffects, indexedScopes } from "./after-action";
+import { homeRefreshScopes } from "@/client/home/use-home-refresh";
+import { createHomeQueryClient, dehydrateOwnerQueries, ownerQueryKey, publicQueryKey } from "./query-client";
+import { ownerQuery } from "./query-options";
+import { queryScopes, type OwnerQueryScope, type PublicQueryScope, type QueryScope } from "./query-scopes";
+
+const owner = "scope-test-owner";
+const handledPath = "/api/actions/action-123/handle";
+const ownerScopes = Object.keys(queryScopes).filter((scope): scope is OwnerQueryScope =>
+  queryScopes[scope as QueryScope].audience === "owner");
+
+for (const scope of Object.keys(queryScopes) as QueryScope[]) {
+  if (!queryScopes[scope].mutatedByActions) continue;
+  test(`${scope} is invalidated after a confirmed action or refreshed on pull`, async () => {
+    const client = createHomeQueryClient();
+    const key = queryScopes[scope].audience === "owner"
+      ? ownerQueryKey(owner, scope as OwnerQueryScope)
+      : publicQueryKey(scope as PublicQueryScope);
+    client.setQueryData(key, { value: 1 });
+    await applyActionHandleEffects({
+      path: handledPath, body: { transactionHash: "0x1234" }, dataOwnerKey: owner,
+      queryClient: client, startBalanceFreshness: () => {},
+    });
+    const invalidated = client.getQueryState(key)?.isInvalidated === true;
+    const refreshed = homeRefreshScopes.some((refreshScope) => refreshScope === scope);
+    expect(invalidated || refreshed, `${scope} is neither invalidated after actions nor refreshed on pull`).toBe(true);
+    client.clear();
+  });
+}
+
+test("action and refresh scopes belong to the registered audiences", () => {
+  for (const scope of [...afterActionScopes, ...indexedScopes]) {
+    expect(queryScopes[scope]?.audience, scope).toBe("owner");
+  }
+  for (const scope of homeRefreshScopes) {
+    expect(queryScopes[scope], scope).toBeDefined();
+  }
+});
+
+export function rejectedScopeKeys() {
+  // @ts-expect-error misspelled owner scope
+  ownerQueryKey("o", "balanecs");
+  // @ts-expect-error public scope used as an owner scope
+  ownerQueryKey("o", "savings-vaults");
+  // @ts-expect-error misspelled public scope
+  publicQueryKey("savings-vault");
+}
+
+test("registered scopes build their keys", () => {
+  expect(ownerQueryKey(owner, "balances")).toEqual([owner, "balances"]);
+  expect(publicQueryKey("savings-vaults")).toEqual(["unauthenticated", "savings-vaults"]);
+});
+
+test("every signed-out owner scope disables its scoped key, function, and meta", () => {
+  const client = createHomeQueryClient();
+  const queryKey: QueryKey = [owner, "balances"];
+  const query = client.getQueryCache().build(client, { queryKey, queryFn: async () => "value" });
+  for (const scope of ownerScopes) {
+    const options = ownerQuery({ owner: null, scope, key: ["suffix"], queryFn: async () => "value" });
+    expect([...options.queryKey], scope).toEqual(["unauthenticated", `${scope}-disabled`, "suffix"]);
+    expect(options.queryFn, scope).toBe(skipToken);
+    expect(typeof options.enabled === "function" && options.enabled(query), scope).toBe(false);
+    expect(options.meta, scope).toBeUndefined();
+  }
+  client.clear();
+});
+
+test("owner and disabled keys cannot collide across owners or registered scopes", () => {
+  const otherOwner = "scope-test-other-owner";
+  for (const scope of ownerScopes) {
+    const ownerKey = ownerQuery({ owner, scope, key: ["suffix"], queryFn: async () => "value" }).queryKey;
+    const otherOwnerKey = ownerQuery({ owner: otherOwner, scope, key: ["suffix"], queryFn: async () => "value" }).queryKey;
+    const disabledKey = ownerQuery({ owner: null, scope, key: ["suffix"], queryFn: async () => "value" }).queryKey;
+    expect(ownerKey, scope).not.toEqual(otherOwnerKey);
+    for (const otherScope of Object.keys(queryScopes) as QueryScope[]) {
+      if (otherScope === scope) continue;
+      const otherKey: QueryKey = queryScopes[otherScope].audience === "owner"
+        ? ownerQueryKey(owner, otherScope as OwnerQueryScope, "suffix")
+        : publicQueryKey(otherScope as PublicQueryScope, "suffix");
+      expect(disabledKey, `${scope} vs ${otherScope}`).not.toEqual(otherKey);
+    }
+  }
+});
+
+test("owner dehydration excludes memory scopes built from the registry", async () => {
+  const client = createHomeQueryClient();
+  const memory = ownerQuery({ owner, scope: "invite-link", queryFn: async () => "private-link" });
+  const persisted = ownerQuery({ owner, scope: "balances", queryFn: async () => ({ total: 1 }) });
+  await client.fetchQuery(memory);
+  await client.fetchQuery(persisted);
+  expect(dehydrateOwnerQueries(client, owner).queries.map((query) => query.queryKey)).toEqual([[owner, "balances"]]);
+  client.clear();
+});

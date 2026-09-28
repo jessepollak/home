@@ -8,10 +8,11 @@ import {
   type FreshUntilMovedClock,
 } from "./fresh-until-moved";
 import { ownerQueryKey, ownerQueryMeta } from "./query-client";
+import { activityWindowScope, networkFeePolicyScope, tradeAvailabilityScope, type OwnerQueryScope } from "./query-scopes";
 import { parseBalancesSnapshot } from "@/shared/balances/contract";
 import { BALANCES_VERSION, type BalancesSnapshot } from "@/shared/balances/types";
 
-export const tradeAvailabilityScope = "trade-availability";
+export { activityWindowScope, networkFeePolicyScope, tradeAvailabilityScope } from "./query-scopes";
 
 export const afterActionScopes = [
   "balances",
@@ -20,12 +21,10 @@ export const afterActionScopes = [
   "actions",
   tradeAvailabilityScope,
   "activity-orders",
-] as const;
+] as const satisfies readonly OwnerQueryScope[];
 
-export const indexedScopes = ["activity", "borrow", "actions", tradeAvailabilityScope] as const;
+export const indexedScopes = ["activity", "borrow", "actions", tradeAvailabilityScope] as const satisfies readonly OwnerQueryScope[];
 
-export const activityWindowScope = "activity-window";
-export const networkFeePolicyScope = "network-fee-policy";
 const activityWindowQuantumMs = 60_000;
 
 export function invalidateNetworkFeePolicy(queryClient: Pick<QueryClient, "invalidateQueries">): Promise<void> {
@@ -129,7 +128,7 @@ export async function startBalanceFreshness(input: {
   const assetIds = affectedAssetIds(actionsValue, actionId);
   if (assetIds.length === 0) return;
   const balanceQueries = queryClient.getQueryCache().findAll({
-    queryKey: [dataOwnerKey, "balances"],
+    queryKey: ownerQueryKey(dataOwnerKey, "balances"),
   });
   const hasSnapshot = balanceQueries.some((q) => isBalancesSnapshot(q.state.data));
   if (!hasSnapshot || !isLatestStart()) return;
