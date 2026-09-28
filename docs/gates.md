@@ -112,7 +112,7 @@ The **Storybook review links** workflow (`.github/workflows/storybook-review-lin
 
 The current **Chromium smoke** job runs the per-surface fixture-backed Playwright suite (`apps/web/tests/browser/*.pw.ts`, with shared responses under `fixtures/`) in GitHub Actions for every pull request and every push to `main`. It starts a CI-local fixture server; it does not exercise the hosted Vercel preview deployment.
 
-A global setup requests the routes the admin smoke first visits so `next dev` compiles them before any test timer starts; the suite still runs against `next dev` with unchanged timeouts and retries.
+A global setup requests the routes the admin smoke first visits so `next dev` compiles them before any test timer starts. CI still runs against `next dev` with unchanged timeouts and two retries for diagnostic traces. `failOnFlakyTests` makes the job fail when any test passes only on retry, rather than treating that run as green. The job prints each test's final outcome and per-attempt timing, plus flaky tests and the slowest tests. Traces and videos from failed attempts remain in the test results and upload with the existing failure artifact. Outside CI, smoke runs without retries.
 
 The Jesse-locked [architecture](architecture.md#quality-bar) targets Playwright smoke on every hosted preview. That hosted-preview smoke target is not implemented yet; current PR/main fixture smoke must not be described as hosted-preview verification.
 
