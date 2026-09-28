@@ -83,6 +83,7 @@ Funding already has the full plugin shape: one provider directory, one registrat
 | `customers` | record | the Home person, status, first and last seen times, optional country and invite attribution |
 | `invite_codes` | record | one stable invitation code per customer, removed with its owner |
 | `customer_credentials` | record | each provider sign-in subject associated with a customer, with optional sourced email |
+| `customer_email_requests` | record | one row per Base Account credential holding the asked-at marker, answer and channel, and wallet capability evidence; cascades with the credential |
 | `customer_preferences` | record | the customer's single saved configured country code (never `GLOBAL`), distinct from request country, deleted with the customer |
 | `customer_wallets` | record | each known chain address controlled by a credential and associated with its customer |
 | `operator_events` | record | append-only, idempotent operator lifecycle facts linked to a customer |

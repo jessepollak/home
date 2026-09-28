@@ -91,6 +91,7 @@ import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 
 const AccountSignInSheet = deferSheet(() => import("@/client/account/account-screen").then((module) => module.AccountSignInSheet));
+const EmailShareSheet = deferSheet(() => import("@/client/account/email-share-sheet").then((module) => module.EmailShareSheet));
 
 function CashPanelContent({ render, view, onOpenSavings }: {
   render: NonNullable<HomeExperienceProps["cashContent"]>;
@@ -1196,6 +1197,13 @@ function DashboardShellBody({
       ) : null}
       {isVerified ? (
         <ActionToasts session={account.session} fetchOperations={account.fetchOperations} />
+      ) : null}
+      {account.emailRequest ? (
+        <EmailShareSheet
+          open={account.emailRequest.pending}
+          onShare={account.emailRequest.share}
+          onNotNow={account.emailRequest.dismiss}
+        />
       ) : null}
         <AccountSignInSheet
           open={isAccountOpen}
