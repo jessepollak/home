@@ -75,6 +75,13 @@ export type AccountWalletClient = {
     options?: { evmAccount: `0x${string}`; idempotencyKey: string },
   ) => Promise<`0x${string}`>;
   signOut: (options?: { onNavigationSafe?: () => void }) => Promise<void>;
+  emailRequest?: EmailRequestPromptState;
+};
+
+type EmailRequestPromptState = {
+  pending: boolean;
+  share: () => void;
+  dismiss: () => void;
 };
 
 export type ServerVerifiedAccount = {

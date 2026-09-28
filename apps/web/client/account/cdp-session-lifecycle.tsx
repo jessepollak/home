@@ -26,6 +26,7 @@ import { useOwnerGenerationFence } from "./owner-generation-fence";
 import { finishHomeAuthRestore, sendHomeAuthSignOut } from "@/client/observability/auth-performance";
 import { nativeOwnerKey } from "./native-base-session-client";
 import { ACCOUNT_RESTORE_STAGE_TIMEOUT_MS, AccountRestoreStageTimeoutError, runAccountRestoreStage } from "./restore-stage";
+import { readEmailRequestAnsweredHint, useEmailRequestFlow, type SignInEmailFollowUp } from "./email-request-flow";
 
 function renderSeedSdkOwnerKey(seed: AccountRenderSeed): string {
   return seed.source === "home-session"
@@ -111,6 +112,8 @@ export function AccountWalletSessionOwner({
       : null,
   });
   const baseConnectionRef = useRef<ConnectedBaseAccount | null>(null);
+  const emailFollowUpRef = useRef<SignInEmailFollowUp | null>(null);
+  const [emailFollowUp, setEmailFollowUp] = useState(0);
   const providerRef = useRef<AccountProviderRequest>("restore");
   const cleanupRef = useRef<Promise<void> | null>(null);
   const validationRef = useRef<AbortController | null>(null);
@@ -169,6 +172,7 @@ export function AccountWalletSessionOwner({
 
   const clearPrivate = useCallback((preserveCdpRenderHint = false) => {
     seedActiveRef.current = false;
+    emailFollowUpRef.current = null;
     if (!preserveCdpRenderHint) clearCdpRenderHint();
     validationRef.current?.abort();
     setSession(null);
@@ -381,7 +385,8 @@ export function AccountWalletSessionOwner({
       fence.assertCurrent(generation);
       const challenge = await requestBaseAccountChallenge();
       fence.assertCurrent(generation);
-      connection = await baseAccountConnector(challenge, onBaseInvalidated);
+      const requestEmail = !readEmailRequestAnsweredHint();
+      connection = await baseAccountConnector(challenge, onBaseInvalidated, { requestEmail });
       fence.assertCurrent(generation);
       baseConnectionRef.current = connection;
 
@@ -405,6 +410,8 @@ export function AccountWalletSessionOwner({
       await verifyBaseAccountProof({ address: connection.address, message, signature });
       providerRef.current = "base-account";
       writeAccountProviderHint("base-account");
+      emailFollowUpRef.current = requestEmail ? connection.signInEmail ?? { status: "ignored" } : { status: "skipped" };
+      setEmailFollowUp((value) => value + 1);
     } catch (error) {
       if (baseConnectionRef.current === connection) baseConnectionRef.current = null;
       await connection?.disconnect();
@@ -505,7 +512,25 @@ export function AccountWalletSessionOwner({
 
   const persistedOwnerKey = session?.smartAccount ? dataOwnerKey(session) : null;
 
+  const takeEmailFollowUp = useCallback(() => {
+    const next = emailFollowUpRef.current;
+    emailFollowUpRef.current = null;
+    return next;
+  }, []);
+  const requestWalletEmail = useCallback(() => baseConnectionRef.current?.requestEmail?.() ?? null, []);
+
   const transport = useAuthenticatedTransport({ session, status, verification, ownerKey, ownerFence: fence, getAccessToken, sessionFetch, authentication });
+  const emailRequest = useEmailRequestFlow({
+    ready: status === "verified" && verification === "server" && session?.accountProvider === "base-account",
+    ownerKey: persistedOwnerKey,
+    accountAddress: session?.smartAccount?.address ?? null,
+    captureGeneration: fence.capture,
+    isGenerationCurrent: fence.isCurrent,
+    followUp: emailFollowUp,
+    takeFollowUp: takeEmailFollowUp,
+    requestEmail: requestWalletEmail,
+    fetchResource: transport.fetchAccountResource,
+  });
   const moneyActions = useMoneyActionExecution({
     session,
     status,
@@ -586,7 +611,8 @@ export function AccountWalletSessionOwner({
     retrySessionValidation,
     signTypedData,
     signOut,
-  }), [baseAccountEnabled, cancelSignInAttempt, isInitialized, isSignedIn, message, moneyActions, ownerKey, projectConfigured, requestEmailCode, retrySessionValidation, session, signInWithBaseAccount, signOut, signTypedData, status, transport, verification, verifyEmailCode]);
+    emailRequest,
+  }), [baseAccountEnabled, cancelSignInAttempt, emailRequest, isInitialized, isSignedIn, message, moneyActions, ownerKey, projectConfigured, requestEmailCode, retrySessionValidation, session, signInWithBaseAccount, signOut, signTypedData, status, transport, verification, verifyEmailCode]);
 
   return (
     <AccountWalletContext.Provider value={client}>
