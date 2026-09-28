@@ -311,6 +311,41 @@ test("a tap whose navigation commits late keeps the lens on the tapped tab", asy
   expect(await settledLensTab(page)).toBe("invest-nav");
 });
 
+test("a blur mid-glide drops the lift so keyboard travel lands unlifted on the selected tab", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  await page.clock.install();
+  await page.goto("/home");
+  const nav = page.getByRole("navigation", { name: "Main navigation" });
+  await expect(nav.locator('[data-navigation-lens="ready"]')).toBeVisible();
+  const invest = nav.getByRole("button", { name: "Invest" });
+  const investBox = (await invest.boundingBox())!;
+  const point = { x: investBox.x + investBox.width / 2, y: investBox.y + investBox.height / 2 };
+  await nav.evaluate((element) => {
+    const interrupted = new Promise((resolve) => {
+      new MutationObserver((_, observer) => {
+        observer.disconnect();
+        window.dispatchEvent(new Event("blur"));
+        resolve({ pressed: element.hasAttribute("data-lens-pressed"), gliding: element.hasAttribute("data-lens-glide") });
+      }).observe(element, { attributeFilter: ["data-lens-glide"] });
+    });
+    Object.assign(window, { interrupted });
+  });
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ ...point, id: 1 }] });
+  await page.clock.runFor(50);
+  expect(await page.evaluate(() => (window as unknown as { interrupted: Promise<unknown> }).interrupted))
+    .toEqual({ pressed: false, gliding: false });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+  await invest.focus();
+  await page.keyboard.press("Enter");
+  await expect(invest).toHaveAttribute("aria-current", "page");
+  await expect(nav).not.toHaveAttribute("data-lens-pressed");
+  await expect(nav).not.toHaveAttribute("data-lens-glide");
+  expect(await settledLensTab(page)).toBe("invest-nav");
+});
+
 function settledLensTab(page: Page) {
   return page.evaluate(async () => {
     const nav = document.querySelector<HTMLElement>('nav[aria-label="Main navigation"]:not(#desktop-rail nav)')!;

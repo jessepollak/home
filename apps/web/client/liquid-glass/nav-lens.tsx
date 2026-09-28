@@ -284,6 +284,7 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
       gesture = null;
       clearTimeout(settle);
       settle = 0;
+      nav.removeAttribute("data-lens-glide");
       lower();
       show(null);
     };
