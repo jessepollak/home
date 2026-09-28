@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 import { sessionBody } from "./fixtures/bodies";
 
@@ -299,19 +299,29 @@ test("a tap whose navigation commits late keeps the lens on the tapped tab", asy
   const touch = (type: "touchStart" | "touchEnd") =>
     cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ ...point, id: 1 }] });
   await touch("touchStart");
-  await expect.poll(() => lens.evaluate((element) => element.style.transform)).toBe("translateX(100%)");
-  await lens.evaluate((element) => {
-    const seen: string[] = [];
-    new MutationObserver(() => seen.push(element.style.transform)).observe(element, { attributeFilter: ["style"] });
-    Object.assign(window, { lensPlaces: seen });
-  });
+  await expect.poll(() => settledLensTab(page)).toBe("invest-nav");
   await touch("touchEnd");
   await expect(nav).not.toHaveAttribute("data-lens-pressed");
   await expect.poll(() => page.evaluate(() => "commitNavigation" in window)).toBe(true);
   await page.clock.runFor(1_500);
+  expect(await settledLensTab(page)).toBe("invest-nav");
   await expect(invest).not.toHaveAttribute("aria-current");
   await page.evaluate(() => (window as unknown as { commitNavigation: () => void }).commitNavigation());
   await expect(invest).toHaveAttribute("aria-current", "page");
-  await expect.poll(() => lens.evaluate((element) => element.style.transform)).toBe("translateX(100%)");
-  expect(await page.evaluate(() => (window as unknown as { lensPlaces: string[] }).lensPlaces)).not.toContain("translateX(0%)");
+  expect(await settledLensTab(page)).toBe("invest-nav");
 });
+
+function settledLensTab(page: Page) {
+  return page.evaluate(async () => {
+    const nav = document.querySelector<HTMLElement>('nav[aria-label="Main navigation"]:not(#desktop-rail nav)')!;
+    const lens = nav.querySelector<HTMLElement>('[data-navigation-lens="ready"]')!;
+    await Promise.all(lens.getAnimations().map((animation) => animation.finished));
+    const box = lens.getBoundingClientRect();
+    const centre = box.left + box.width / 2;
+    const tab = Array.from(nav.querySelectorAll<HTMLButtonElement>(":scope > button")).find((button) => {
+      const rect = button.getBoundingClientRect();
+      return centre > rect.left && centre < rect.right && box.width <= rect.width + 1;
+    });
+    return tab?.id ?? null;
+  });
+}
