@@ -7,14 +7,13 @@ import { parseExactDecimal } from "@/shared/balances/math";
 import type { PriceQuote, ValuationSource } from "@/shared/balances/quotes";
 import {
   CODEX_CACHE_TTL_MS,
-  CODEX_GRAPHQL_ENDPOINT,
   CODEX_MAX_FUTURE_SKEW_MS,
   CODEX_MAX_TOKENS_PER_REQUEST,
   CODEX_PRICE_SOURCE_LABEL,
   CODEX_REQUEST_TIMEOUT_MS,
   CODEX_TOKEN_PRICES_QUERY,
 } from "./config";
-import { parseJsonWithNumberLexemes } from "./lossless-json";
+import { executeCodexGraphql } from "./execute";
 import { MARKET_PRICE_FRESHNESS_MS } from "@/shared/invest/contracts/market-prices";
 
 export type CodexRawQuoteInput = {
@@ -142,54 +141,26 @@ async function fetchQuotes({
   timeoutMs: number;
   freshnessMs: number;
 }): Promise<PriceQuote[]> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const headers = new Headers({
-      accept: "application/json",
-      "content-type": "application/json",
-    });
-    headers.set(["Author", "ization"].join(""), apiKey);
-    const response = await fetchImpl(CODEX_GRAPHQL_ENDPOINT, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        query: CODEX_TOKEN_PRICES_QUERY,
-        variables: {
-          inputs: inputs.map(({ address, networkId }) => ({ address, networkId })),
-        },
-      }),
-      cache: "no-store",
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      throw new CodexRawQuoteError(`Codex quotes returned HTTP ${response.status}.`);
-    }
-    const parsed = parseJsonWithNumberLexemes(await response.text());
-    const envelope = readRecord(parsed);
-    if (Array.isArray(envelope?.errors) && envelope.errors.length > 0) {
-      throw new CodexRawQuoteError("Codex quotes returned an error.");
-    }
-    const data = readRecord(envelope?.data);
+    const data = readRecord(await executeCodexGraphql({
+      apiKey,
+      query: CODEX_TOKEN_PRICES_QUERY,
+      variables: {
+        inputs: inputs.map(({ address, networkId }) => ({ address, networkId })),
+      },
+      fetchImpl,
+      timeoutMs,
+      subject: "Codex quotes",
+      createError: (message, options) => new CodexRawQuoteError(message, options),
+      noDataMessage: "Codex quotes returned an invalid price list.",
+    }));
     if (!data || !Array.isArray(data.getTokenPrices)) {
       throw new CodexRawQuoteError("Codex quotes returned an invalid price list.");
     }
-    return normalizeQuotes(
-      inputs,
-      data.getTokenPrices,
-      fetchedAt,
-      freshnessMs,
-    );
+    return normalizeQuotes(inputs, data.getTokenPrices, fetchedAt, freshnessMs);
   } catch (error) {
     if (error instanceof CodexRawQuoteError) throw error;
-    throw new CodexRawQuoteError(
-      controller.signal.aborted
-        ? "Codex quotes timed out."
-        : "Codex quotes request failed.",
-      { cause: error },
-    );
-  } finally {
-    clearTimeout(timeout);
+    throw new CodexRawQuoteError("Codex quotes request failed.", { cause: error });
   }
 }
 
