@@ -11,7 +11,7 @@ const request = (query: string, offset = 0) => ({ query, offset });
 
 describe("Base Invest search", () => {
   test("matches configured aliases, whitespace, single-character symbols, contract and case", async () => {
-    const search = createCodexSearchReader({ apiKey: undefined });
+    const search = createCodexSearchReader({ apiKey: undefined, isPair: async () => false });
     for (const query of ["Bitcoin", "BTC", "cbBTC", "  bItCoIn  "]) {
       const result = await search(request(query));
       expect(result.results[0]).toMatchObject({ kind: "configured", assetId: "cbbtc", match: "exact" });
@@ -22,20 +22,96 @@ describe("Base Invest search", () => {
   });
 
   test("sends Base-only phrase search, retains distinct symbols, ranks relevance and drops wrong-chain/configured/duplicate contracts", async () => {
-    const search = createCodexSearchReader({ apiKey: "fixture", now, fetchImpl: async (_, init) => {
+    const checked: string[] = [];
+    const search = createCodexSearchReader({ apiKey: "fixture", now, isPair: async (address) => { checked.push(address); return false; }, fetchImpl: async (_, init) => {
       const body = JSON.parse(String(init?.body));
       expect(body.query).toContain("filterTokens(phrase: $phrase");
       expect(body.variables).toMatchObject({ phrase: "AAPL", filters: { network: [8453] }, limit: 20, offset: 0 });
       expect(body.variables.filters).toEqual({ network: [8453] });
-      return page([row(a, "Zebra", "AAPL"), row(investAssets[2]!.contractAddress, "Apple", "AAPL"), row(b, "AAPL thing", "AAPL"), row(a, "Zebra", "AAPL"), row("0x3333333333333333333333333333333333333333", "AAPL", "AAPL", { token: { address: "0x3333333333333333333333333333333333333333", name: "AAPL", symbol: "AAPL", decimals: 18, networkId: 1, info: {} } })]);
+      return page([row(a, "Zebra", "AAPL"), row(investAssets[2]!.contractAddress, "Apple", "AAPL"), row(b, "AAPL thing", "AAPL"), row(a, "Zebra", "AAPL"), row("0x4444444444444444444444444444444444444444", "Unrelated", "NONE"), row("0x3333333333333333333333333333333333333333", "AAPL", "AAPL", { token: { address: "0x3333333333333333333333333333333333333333", name: "AAPL", symbol: "AAPL", decimals: 18, networkId: 1, info: {} } })]);
     } });
     const result = await search(request("AAPL"));
     expect(result.results.map((value) => value.kind === "configured" ? value.assetId : value.asset.id)).toEqual(["aaplc", `base:${a}`, `base:${b}`]);
     expect(result.snapshots).toHaveLength(2);
+    expect(checked).toEqual([a, b]);
+  });
+
+  test("phrase search excludes LP tokens and their snapshots", async () => {
+    const checked: string[] = [];
+    const search = createCodexSearchReader({ apiKey: "fixture", now, fetchImpl: async () => page([row(a, "UNI-V2", "UNI-V2"), row(b, "UNI-V2 Token", "UNI")]), isPair: async (address) => { checked.push(address); return address === a; } });
+    const result = await search(request("UNI-V2"));
+    expect(result).toMatchObject({ provider: "ok", coverage: "complete" });
+    expect(result.results.map((value) => value.kind === "dynamic" ? value.asset.id : value.assetId)).toEqual([`base:${b}`]);
+    expect(result.snapshots.map((snapshot) => snapshot.assetId)).toEqual([`base:${b}`]);
+    expect(checked).toEqual([a, b]);
+  });
+
+  for (const failure of ["null", "throw"] as const) {
+    test(`inconclusive phrase pair check (${failure}) keeps verified and configured results but is not cached`, async () => {
+      let reads = 0;
+      const checked: string[] = [];
+      const search = createCodexSearchReader({ apiKey: "fixture", now, fetchImpl: async () => {
+        reads++;
+        return page([row(a, "Bitcoin Pool", "BTC"), row(b, "Bitcoin Token", "BTC"), ...Array.from({ length: 18 }, () => row(a, "Bitcoin Pool", "BTC"))]);
+      }, isPair: async (address) => {
+        checked.push(address);
+        if (address === a && reads === 1) {
+          if (failure === "throw") throw new Error("RPC unavailable");
+          return null;
+        }
+        return false;
+      } });
+      const inconclusive = await search(request("BTC"));
+      expect(inconclusive).toMatchObject({ provider: "error", coverage: "partial", nextOffset: 20 });
+      expect(inconclusive.results.map((value) => value.kind === "dynamic" ? value.asset.id : value.assetId)).toEqual(["cbbtc", `base:${b}`]);
+      expect(inconclusive.snapshots.map((snapshot) => snapshot.assetId)).toEqual([`base:${b}`]);
+      const retried = await search(request("BTC"));
+      expect(retried.provider).toBe("ok");
+      expect(retried.results.map((value) => value.kind === "dynamic" ? value.asset.id : value.assetId)).toContain(`base:${a}`);
+      expect(reads).toBe(2);
+      expect(checked).toEqual([a, b, a]);
+    });
+  }
+
+  test("bounds a full phrase page's pair probes and reuses definitive checks across queries", async () => {
+    const rows = Array.from({ length: 20 }, (_, index) => row(`0x${(index + 100).toString(16).padStart(40, "0")}`, "Bitcoin", "BTC"));
+    const releases: (() => void)[] = [];
+    const reached: (() => void)[] = [];
+    const milestones = [8, 16, 20].map(() => new Promise<void>((resolve) => { reached.push(resolve); }));
+    let fetches = 0;
+    let calls = 0;
+    let active = 0;
+    let observedMax = 0;
+    const search = createCodexSearchReader({ apiKey: "fixture", now, fetchImpl: async () => { fetches++; return page(rows); }, isPair: async () => {
+      calls++;
+      active++;
+      observedMax = Math.max(observedMax, active);
+      if (calls === 8) reached[0]!();
+      if (calls === 16) reached[1]!();
+      if (calls === 20) reached[2]!();
+      return new Promise<boolean>((resolve) => { releases.push(() => { active--; resolve(false); }); });
+    } });
+    const first = search(request("BTC"));
+    await milestones[0];
+    expect(calls).toBe(8);
+    for (const release of releases.splice(0)) release();
+    await milestones[1];
+    for (const release of releases.splice(0)) release();
+    await milestones[2];
+    for (const release of releases.splice(0)) release();
+    const firstResult = await first;
+    expect(firstResult).toMatchObject({ provider: "ok", coverage: "complete", nextOffset: 20 });
+    expect(firstResult.results.filter((result) => result.kind === "dynamic")).toHaveLength(20);
+    const secondResult = await search(request("Bitcoin"));
+    expect(secondResult.results.filter((result) => result.kind === "dynamic")).toHaveLength(20);
+    expect(fetches).toBe(2);
+    expect(calls).toBe(20);
+    expect(active).toBe(0);
+    expect(observedMax).toBe(8);
   });
 
   test("provider rows with missing prices and images have no snapshot or image, not a zero price", async () => {
-    const search = createCodexSearchReader({ apiKey: "fixture", now, fetchImpl: async () => page([row(a, "Needle", "NDL", { priceUSD: null })]) });
+    const search = createCodexSearchReader({ apiKey: "fixture", now, isPair: async () => false, fetchImpl: async () => page([row(a, "Needle", "NDL", { priceUSD: null })]) });
     const result = await search(request("Needle"));
     expect(result.snapshots).toEqual([]);
     expect(result.results[0]).toMatchObject({ kind: "dynamic", source: "indexed" });
@@ -125,7 +201,7 @@ describe("Base Invest search", () => {
     let calls = 0;
     let release!: () => void;
     const waiting = new Promise<void>((resolve) => { release = resolve; });
-    const search = createCodexSearchReader({ apiKey: "fixture", now, fetchImpl: async () => { calls++; await waiting; return page([row(a, "Orbit", "ORB")]); } });
+    const search = createCodexSearchReader({ apiKey: "fixture", now, isPair: async () => false, fetchImpl: async () => { calls++; await waiting; return page([row(a, "Orbit", "ORB")]); } });
     const first = search(request("ORB"));
     const concurrent = search(request("orb"));
     release();
@@ -138,14 +214,14 @@ describe("Base Invest search", () => {
   });
 
   test("a provider exact match outranks a weaker configured prefix match", async () => {
-    const search = createCodexSearchReader({ apiKey: "fixture", now, fetchImpl: async () => page([row(a, "Aap Token", "AAP")]) });
+    const search = createCodexSearchReader({ apiKey: "fixture", now, isPair: async () => false, fetchImpl: async () => page([row(a, "Aap Token", "AAP")]) });
     const result = await search(request("AAP"));
     expect(result.results.map((value) => value.kind === "configured" ? `${value.assetId}:${value.match}` : `${value.asset.id}:${value.match}`)).toEqual([`base:${a}:exact`, "aaplc:prefix"]);
   });
 
   test("pagination omits configured later, uses raw provider count, caps last page and keeps page-level dedupe", async () => {
     const seen: number[] = [];
-    const search = createCodexSearchReader({ apiKey: "fixture", now, fetchImpl: async (_, init) => {
+    const search = createCodexSearchReader({ apiKey: "fixture", now, isPair: async () => false, fetchImpl: async (_, init) => {
       const { offset } = JSON.parse(String(init?.body)).variables;
       seen.push(offset);
       return page(Array.from({ length: 20 }, (_, i) => row(i === 0 ? a : `0x${(i + offset + 100).toString(16).padStart(40, "0")}`, "Bitcoin", "BTC")), offset);
@@ -179,7 +255,7 @@ describe("Base Invest search", () => {
   ]) {
     test(`invalid pagination metadata (${label}) returns a partial, uncached provider failure`, async () => {
       let calls = 0;
-      const search = createCodexSearchReader({ apiKey: "fixture", fetchImpl: async () => {
+      const search = createCodexSearchReader({ apiKey: "fixture", isPair: async () => false, fetchImpl: async () => {
         calls++;
         return Response.json({ data: { filterTokens: { results: [], ...metadata } } });
       } });
@@ -191,7 +267,7 @@ describe("Base Invest search", () => {
   }
 
   test("unusable phrase rows are skipped without failing the rest of the page", async () => {
-    const search = createCodexSearchReader({ apiKey: "fixture", fetchImpl: async () => page([null, row(a, "Needle", "NDL", { token: { address: a, name: "Needle", symbol: null, decimals: 18, networkId: 8453 } }), row(b, "Needle Two", "NDL")]) });
+    const search = createCodexSearchReader({ apiKey: "fixture", isPair: async () => false, fetchImpl: async () => page([null, row(a, "Needle", "NDL", { token: { address: a, name: "Needle", symbol: null, decimals: 18, networkId: 8453 } }), row(b, "Needle Two", "NDL")]) });
     expect(await search(request("Needle"))).toMatchObject({ provider: "ok", coverage: "complete", results: [{ kind: "dynamic", asset: { id: `base:${b}` } }] });
   });
 
@@ -202,7 +278,7 @@ describe("Base Invest search", () => {
 
   test("timeouts, HTTP 429 and malformed upstream preserve configured matches as partial", async () => {
     for (const fetchImpl of [async () => new Response("no", { status: 429 }), async () => page([], 20), async (_: unknown, init?: RequestInit) => new Promise<Response>((_, reject) => { init?.signal?.addEventListener("abort", () => reject(new Error("abort")), { once: true }); })]) {
-      const search = createCodexSearchReader({ apiKey: "fixture", fetchImpl, timeoutMs: 10 });
+      const search = createCodexSearchReader({ apiKey: "fixture", fetchImpl, timeoutMs: 10, isPair: async () => false });
       const result = await search(request("BTC"));
       expect(result).toMatchObject({ provider: "error", coverage: "partial", results: [{ kind: "configured", assetId: "cbbtc" }] });
     }
@@ -212,7 +288,7 @@ describe("Base Invest search", () => {
     let release!: () => void;
     let calls = 0;
     const waiting = new Promise<void>((resolve) => { release = resolve; });
-    const search = createCodexSearchReader({ apiKey: "fixture", cacheMaxEntries: 1, maxInFlight: 1, fetchImpl: async () => { calls++; await waiting; return page([]); } });
+    const search = createCodexSearchReader({ apiKey: "fixture", cacheMaxEntries: 1, maxInFlight: 1, isPair: async () => false, fetchImpl: async () => { calls++; await waiting; return page([]); } });
     const first = search(request("BTC"));
     const same = search(request("btc"));
     expect((await search(request("Apple"))).provider).toBe("unavailable");
