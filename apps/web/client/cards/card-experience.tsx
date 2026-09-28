@@ -24,7 +24,7 @@ import { CardRefreshError, useCards, type CardCommands } from "./use-cards";
 
 type IssuedCard = CardsResponse["cards"][number];
 type Pending = "enroll" | "issue" | "lock" | null;
-type PendingRun = { kind: Exclude<Pending, null>; boundary: string | null };
+type PendingRun = { kind: Exclude<Pending, null>; generation: number };
 type Settled = (() => void) | void;
 type CardReveal = { publishableKey: string; revealKey: CardCommands["revealKey"] };
 
@@ -207,22 +207,25 @@ function IssuedCardOverview({ card, position, restricted, showHold, single, pend
 }
 
 export function CardScreen({ cards, commands, onRetry, onOpenVerification, reveal, ownerBoundary = null }: CardScreenProps) {
+  const [session, setSession] = useState({ boundary: ownerBoundary, generation: 0 });
+  if (session.boundary !== ownerBoundary) setSession({ boundary: ownerBoundary, generation: session.generation + 1 });
+  const { generation } = session;
   const [running, setRunning] = useState<PendingRun | null>(null);
-  const pending: Pending = running && running.boundary === ownerBoundary ? running.kind : null;
-  const currentBoundary = useRef(ownerBoundary);
-  useLayoutEffect(() => { currentBoundary.current = ownerBoundary; }, [ownerBoundary]);
+  const pending: Pending = running && running.generation === generation ? running.kind : null;
+  const currentGeneration = useRef(generation);
+  useLayoutEffect(() => { currentGeneration.current = generation; }, [generation]);
   const { add } = useHomeToast(ownerBoundary);
 
   async function run(kind: Exclude<Pending, null>, work: () => Promise<Settled>, failure: string) {
     if (pending) return;
-    const started: PendingRun = { kind, boundary: ownerBoundary };
-    const sameOwner = () => currentBoundary.current === started.boundary;
+    const started: PendingRun = { kind, generation };
+    const sameSession = () => currentGeneration.current === started.generation;
     setRunning(started);
     try {
       const settled = await work();
-      if (sameOwner()) settled?.();
+      if (sameSession()) settled?.();
     } catch (error) {
-      if (sameOwner()) add({ message: error instanceof CardRefreshError ? "Couldn't refresh your card. Try again." : failure, tone: "error", role: "alert" });
+      if (sameSession()) add({ message: error instanceof CardRefreshError ? "Couldn't refresh your card. Try again." : failure, tone: "error", role: "alert" });
       void reportClientError({
         name: error instanceof Error ? error.name : "Error",
         message: `Card ${kind} failed`,

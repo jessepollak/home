@@ -211,6 +211,30 @@ describe("CardScreen review states", () => {
     expect((await view.findAllByText("Card locked")).length).toBeGreaterThan(0);
   });
 
+  test("a write from an earlier session of the same owner stays silent after the owner returns", async () => {
+    const writes: { resolve: () => void; reject: (error: Error) => void }[] = [];
+    const commands = { ...quietCommands(), setFrozen: jest.fn(() => new Promise<void>((resolve, reject) => { writes.push({ resolve, reject }); })) };
+    const screen = (owner: string) => (
+      <><CardScreen cards={{ status: "ready", response: cardsBody("active") }} commands={commands}
+        onRetry={() => {}} onOpenVerification={() => {}} ownerBoundary={owner} /><Toaster /></>
+    );
+    const view = render(screen("owner-a"));
+    fireEvent.click(view.getByRole("switch", { name: "Lock card" }));
+    await waitFor(() => expect(commands.setFrozen).toHaveBeenCalledTimes(1));
+    view.rerender(screen("owner-b"));
+    view.rerender(screen("owner-a"));
+    expect(view.getByRole("switch", { name: "Lock card" }).hasAttribute("disabled")).toBe(false);
+    await act(async () => writes[0]?.resolve());
+    expect(view.queryByText("Card locked")).toBeNull();
+    fireEvent.click(view.getByRole("switch", { name: "Lock card" }));
+    await waitFor(() => expect(commands.setFrozen).toHaveBeenCalledTimes(2));
+    view.rerender(screen("owner-b"));
+    view.rerender(screen("owner-a"));
+    await act(async () => writes[1]?.reject(new Error("lock failed")));
+    expect(view.queryByText("Couldn't lock your card. Try again.")).toBeNull();
+    expect(view.getByRole("switch", { name: "Lock card" }).hasAttribute("disabled")).toBe(false);
+  });
+
   test("a failed re-read after a lock shows an error, not a success toast", async () => {
     const commands = { ...quietCommands(), setFrozen: jest.fn(async () => { throw new CardRefreshError(); }) };
     const view = render(<><CardScreen cards={{ status: "ready", response: cardsBody("active") }} commands={commands}
