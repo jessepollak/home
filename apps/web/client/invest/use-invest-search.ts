@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { deploymentHeaders } from "@/client/query/deployment-headers";
+import { publicResource } from "@/client/query/public-resource";
 import { browserHomeQueryClient, publicQueryKey, useHomeInfiniteQuery, useHomeQueryClient } from "@/client/query/query-client";
 import {
   isInvestSearchAddressQuery,
@@ -46,13 +46,7 @@ export function useInvestSearch(
     refetchOnWindowFocus: false,
     queryFn: async ({ pageParam, signal }) => {
       const params = investSearchSearchParams({ query: active, offset: pageParam });
-      const response = await fetchImpl(`${endpoint}?${params}`, {
-        headers: { ...deploymentHeaders(), accept: "application/json" },
-        cache: "no-store",
-        signal,
-      });
-      if (!response.ok) throw new Error("Search request failed");
-      const page = parseInvestSearchResponse(await response.json());
+      const page = parseInvestSearchResponse(await publicResource(`${endpoint}?${params}`, { signal, fetchImpl }));
       if (!page || page.query !== active || page.offset !== pageParam) {
         throw new Error("Invalid search response");
       }
