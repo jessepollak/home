@@ -37,11 +37,11 @@ export function parseStripeCardholder(value: unknown): { id: string; status: "ac
 }
 
 export function createStripeClient(config: CardJourneyConfig, fetcher: typeof fetch = fetch) {
-  async function request(path: string, params?: URLSearchParams, key?: string): Promise<unknown> {
-    const response = await fetcher(`https://api.stripe.com/v1/issuing/${path}`, {
+  async function request(path: string, params?: URLSearchParams, key?: string, root = false): Promise<unknown> {
+    const response = await fetcher(`https://api.stripe.com/v1/${root ? "" : "issuing/"}${path}`, {
       method: params ? "POST" : "GET", redirect: "manual", cache: "no-store", signal: AbortSignal.timeout(5000),
       headers: { [["Author", "ization"].join("")]: ["Bearer", config.stripeSecretKey].join(" "), "Stripe-Version": config.stripeApiVersion,
-        ...(params ? { "Content-Type": "application/x-www-form-urlencoded", "Idempotency-Key": key! } : {}) },
+        ...(params ? { "Content-Type": "application/x-www-form-urlencoded", ...(key ? { "Idempotency-Key": key } : {}) } : {}) },
       ...(params ? { body: params.toString() } : {}),
     });
     if (!response.ok) throw new Error(`Stripe request failed (${response.status})`);
@@ -84,6 +84,15 @@ export function createStripeClient(config: CardJourneyConfig, fetcher: typeof fe
       const card = parseStripeCard(await request(`cards/${encodeURIComponent(id)}`, params, key));
       if (card.id !== id || card.status !== (freeze ? "inactive" : "active") || card.customerFrozen !== freeze) throw new Error("Stripe card update mismatch");
       return card;
+    },
+    async ephemeralKey(id: string, nonce: string): Promise<string> {
+      if (!/^ic_[A-Za-z0-9]+$/.test(id) || !/^[A-Za-z0-9_-]{8,256}$/.test(nonce)) throw new Error("Invalid Stripe ephemeral key request");
+      const value = await request("ephemeral_keys", new URLSearchParams({ issuing_card: id, nonce }), undefined, true);
+      if (typeof value !== "object" || !value || Array.isArray(value)) throw new Error("Invalid Stripe ephemeral key response");
+      const secret = (value as Record<string, unknown>).secret;
+      if (typeof secret !== "string" || !/^ek_(test|live)_[A-Za-z0-9_-]{10,2048}$/.test(secret) ||
+          !secret.startsWith(config.mode === "sandbox" ? "ek_test_" : "ek_live_")) throw new Error("Invalid Stripe ephemeral key response");
+      return secret;
     },
   };
 }

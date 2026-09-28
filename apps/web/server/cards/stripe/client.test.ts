@@ -74,6 +74,31 @@ describe("Stripe Issuing write client", () => {
       await expect(invoke(createStripeClient(config, (async () => Response.json({ id: "ic_123" })) as unknown as typeof fetch))).rejects.toThrow();
     }
   });
+  test("ephemeral keys use the pinned root API and return only a mode-matching secret", async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const fetcher = (async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      return Response.json({ secret: "ek_test_synthetic123456", id: "eph_123", number: "must_not_escape" });
+    }) as typeof fetch;
+    const result = await createStripeClient(config, fetcher).ephemeralKey("ic_123", "nonce_synthetic123");
+    expect(result).toBe("ek_test_synthetic123456");
+    expect(calls[0]!.url).toBe("https://api.stripe.com/v1/ephemeral_keys");
+    expect(new URLSearchParams(String(calls[0]!.init.body)).toString()).toBe("issuing_card=ic_123&nonce=nonce_synthetic123");
+    expect(calls[0]!.init.headers).toMatchObject({ "Stripe-Version": "2026-08-26.dahlia", "Content-Type": "application/x-www-form-urlencoded" });
+    expect(calls[0]!.init.headers).not.toHaveProperty("Idempotency-Key");
+    expect(calls[0]!.init.cache).toBe("no-store");
+    expect(calls[0]!.init.redirect).toBe("manual");
+    expect(calls[0]!.init.signal).toBeDefined();
+  });
+  test("ephemeral keys fail closed on provider rejection, timeout, oversized and malformed response", async () => {
+    const invoke = (fetcher: typeof fetch) => createStripeClient(config, fetcher).ephemeralKey("ic_123", "nonce_synthetic123");
+    await expect(invoke((async () => new Response(null, { status: 503 })) as unknown as typeof fetch)).rejects.toThrow("503");
+    await expect(invoke((async () => { throw new DOMException("timed out", "TimeoutError"); }) as unknown as typeof fetch)).rejects.toThrow("timed out");
+    await expect(invoke((async () => Response.json({ secret: "ek_test_synthetic123456", padding: "x".repeat(64 * 1024) })) as unknown as typeof fetch)).rejects.toThrow("response too large");
+    for (const secret of ["", "ek_live_synthetic123456", "sk_test_synthetic123456"]) {
+      await expect(invoke((async () => Response.json({ secret })) as unknown as typeof fetch)).rejects.toThrow("Invalid Stripe ephemeral key response");
+    }
+  });
 });
 
 const runLive = process.env.CARDS_STRIPE_LIVE_TEST === "1" && process.env.BRIDGE_STRIPE_SECRET_KEY?.startsWith("sk_test_");

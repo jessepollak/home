@@ -19,9 +19,11 @@ let admin: Bun.SQL, sql: SqlExecutor;
 let fake: ReturnType<typeof startFakeBridge>;
 let service: ReturnType<typeof createCardWriteService>;
 let writes = 0;
+let ephemeralCalls = 0;
 const card = { id: "ic_123", cardholder: fixtureCustomer.stripe_cardholder_id, status: "active", last4: "1234", metadata: {} as Record<string, string> };
 const stripe = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = new URL(String(input));
+  if (url.pathname === "/v1/ephemeral_keys") { ephemeralCalls++; return Response.json({ secret: "ek_test_synthetic123456", other: "must_not_escape" }); }
   if (url.pathname.endsWith("/cardholders/" + fixtureCustomer.stripe_cardholder_id)) return Response.json({ id: fixtureCustomer.stripe_cardholder_id, status: "active" });
   if (init?.method === "POST") {
     writes++;
@@ -82,5 +84,18 @@ const stripe = (async (input: RequestInfo | URL, init?: RequestInit) => {
     expect(await service.freeze(owner, "ic_123", false)).toBe("ic_123");
     expect(card.metadata).toEqual({});
     expect(writes).toBe(3);
+  });
+  test("reveals a key only for the owner and fresh active or customer-frozen card", async () => {
+    await expect(service.ephemeralKey(other, "ic_123", "nonce_synthetic123")).rejects.toThrow("CARD_NOT_FOUND");
+    expect(ephemeralCalls).toBe(0);
+    expect(await service.ephemeralKey(owner, "ic_123", "nonce_synthetic123")).toBe("ek_test_synthetic123456");
+    card.status = "inactive";
+    card.metadata = { home_freeze: "customer" };
+    expect(await service.ephemeralKey(owner, "ic_123", "nonce_synthetic456")).toBe("ek_test_synthetic123456");
+    card.metadata = {};
+    await expect(service.ephemeralKey(owner, "ic_123", "nonce_synthetic789")).rejects.toThrow("CARD_NOT_READY");
+    card.status = "canceled";
+    await expect(service.ephemeralKey(owner, "ic_123", "nonce_synthetic890")).rejects.toThrow("CARD_NOT_READY");
+    expect(ephemeralCalls).toBe(2);
   });
 });

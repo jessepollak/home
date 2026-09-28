@@ -103,5 +103,19 @@ export function createCardWriteService({ sql, config, bridge, stripe }: Dependen
         return card.id;
       });
     },
+    async ephemeralKey(customerId: string, id: string, nonce: string): Promise<string> {
+      return sql.transaction(async (tx) => {
+        const account = await lockedAccount(tx, customerId, mode);
+        if (!account?.bridge_customer_id) throw new CardWriteFailure("CARD_NOT_FOUND", 404);
+        const owned = await tx.query("SELECT 1 FROM cards WHERE customer_id=$1 AND mode=$2 AND stripe_card_id=$3", [customerId, mode, id]);
+        if (!owned.rowCount) throw new CardWriteFailure("CARD_NOT_FOUND", 404);
+        const state = await readCardState(customerId, mode, { store: createCardAccountStore(tx), bridge, stripe });
+        if (state.state === "unavailable") throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
+        const card = state.cards.find((item) => item.id === id);
+        if (!card || !["active", "frozen"].includes(state.state) || !["active", "frozen"].includes(card.status))
+          throw new CardWriteFailure("CARD_NOT_READY", 409);
+        return stripe.ephemeralKey(id, nonce);
+      });
+    },
   };
 }
