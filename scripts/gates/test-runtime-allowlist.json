@@ -1,0 +1,14 @@
+{
+  "tests": [
+    { "file": "client/cash/cash-experience.test.tsx", "test": "Cash L2 > Back returns to the tray and X exits the journey", "maxSeconds": 31, "reason": "ten-sample CI max 24.48 s x 1.25" },
+    { "file": "client/cash/cash-experience.test.tsx", "test": "Cash L2 > close and reopen resets the draft and keeps the correct vault", "maxSeconds": 28, "reason": "ten-sample CI max 22.27 s x 1.25" },
+    { "file": "client/cash/cash-experience.test.tsx", "test": "Cash L2 > closing the tray after modal Back leaves Forward an ordinary inbound flow", "maxSeconds": 26, "reason": "ten-sample CI max 20.60 s x 1.25" },
+    { "file": "client/money-modal/money-step.test.tsx", "test": "persistent money steps > header X at depth C exits the whole journey without stepping Back", "maxSeconds": 14, "reason": "ten-sample CI max 10.75 s x 1.25" },
+    { "file": "client/savings/savings-actions.test.tsx", "test": "SavingsJourney amount entry > Save review X closes once and Back returns exactly to the typed amount", "maxSeconds": 15, "reason": "ten-sample CI max 11.80 s x 1.25" },
+    { "file": "client/trading/trade-money-dialog.test.tsx", "test": "any-token trade review > Trade confirm X closes once and Back returns exactly to Buy amount", "maxSeconds": 15, "reason": "ten-sample CI max 11.60 s x 1.25" },
+    { "file": "client/transfers/send-dialog.test.tsx", "test": "Send review X closes once and Back returns exactly to destination", "maxSeconds": 19, "reason": "ten-sample CI max 14.83 s x 1.25" }
+  ],
+  "files": [
+    { "file": "client/cash/cash-experience.test.tsx", "maxSeconds": 89, "reason": "ten-sample CI max 70.6 s x 1.25" }
+  ]
+}
