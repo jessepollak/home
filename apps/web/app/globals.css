@@ -9,7 +9,7 @@
   --font-sans: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   --spacing-hairline: 1px;
-  --spacing-shell-mobile-navigation: 3.75rem;
+  --spacing-shell-mobile-navigation: 3.875rem;
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
@@ -76,7 +76,7 @@
   --payout-monzo: #14233c; --payout-monzo-foreground: #ffffff;
   --payout-revolut: #000000; --payout-revolut-foreground: #ffffff;
   --shell-safe-area-bottom: 0px;
-  --shell-navigation-offset: max(calc(var(--shell-safe-area-bottom) - 0.875rem), 0.75rem);
+  --shell-navigation-offset: max(calc(var(--shell-safe-area-bottom) - 0.75rem), 0.75rem);
   --shell-navigation-clearance: calc(var(--spacing-shell-mobile-navigation) + var(--shell-navigation-offset) + 1rem);
   --shell-viewport-overhang: 0px;
   --overlay: oklch(0.145 0 0 / 10%);

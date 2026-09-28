@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 import { sessionBody } from "./fixtures/bodies";
 
@@ -25,8 +25,8 @@ for (const width of [390, 320]) {
     });
     expect(geometry.position).toBe("fixed");
     expect(geometry.nav.width).toBe(192);
-    expect(geometry.nav.height).toBe(60);
-    expect(geometry.tabHeights).toEqual([52, 52]);
+    expect(geometry.nav.height).toBe(62);
+    expect(geometry.tabHeights).toEqual([54, 54]);
     expect(844 - geometry.nav.bottom).toBe(12);
     expect(Math.abs(geometry.nav.left + geometry.nav.width / 2 - width / 2)).toBeLessThanOrEqual(1);
     expect(geometry.contentBottom).toBeLessThanOrEqual(geometry.nav.top);
@@ -137,3 +137,226 @@ test("the capsule covers widths through 1023px and the rail takes over at 1024px
   await expect(nav).toHaveCount(1);
   expect(await nav.evaluate((element) => element.closest("#desktop-rail") !== null)).toBe(true);
 });
+
+test("a drag does not swallow two immediate real taps", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  await page.goto("/home");
+  const nav = page.getByRole("navigation", { name: "Main navigation" });
+  await expect(nav.locator('[data-navigation-lens="ready"]')).toBeVisible();
+  const home = nav.getByRole("button", { name: "Home" });
+  const invest = nav.getByRole("button", { name: "Invest" });
+  const homeBox = (await home.boundingBox())!;
+  const investBox = (await invest.boundingBox())!;
+  const center = (box: typeof homeBox) => ({ x: box.x + box.width / 2, y: box.y + box.height / 2 });
+  await nav.evaluate((element) => {
+    element.setAttribute("data-accepted-taps", "");
+    element.addEventListener("click", (event) => {
+      if (!(event instanceof MouseEvent) || !event.isTrusted || event.detail === 0 || !(event.target instanceof Element)) return;
+      const tab = event.target.closest("button");
+      if (tab) element.setAttribute("data-accepted-taps", `${element.getAttribute("data-accepted-taps")}${tab.id},`);
+    });
+  });
+  const cdp = await page.context().newCDPSession(page);
+  const timestamp = Date.now() / 1000;
+  const dispatch = (type: "mouseMoved" | "mousePressed" | "mouseReleased", point: { x: number; y: number }, held = false) =>
+    cdp.send("Input.dispatchMouseEvent", { type, ...point, button: type === "mouseMoved" ? "none" : "left", buttons: held ? 1 : 0, clickCount: 1, timestamp });
+  await dispatch("mouseMoved", center(homeBox));
+  await dispatch("mousePressed", center(homeBox), true);
+  await dispatch("mouseMoved", center(investBox), true);
+  await dispatch("mouseMoved", { x: center(investBox).x, y: investBox.y + investBox.height + 12 }, true);
+  await dispatch("mouseReleased", { x: center(investBox).x, y: investBox.y + investBox.height + 12 });
+  await dispatch("mouseMoved", center(homeBox));
+  await dispatch("mousePressed", center(homeBox), true);
+  await dispatch("mouseReleased", center(homeBox));
+  await dispatch("mouseMoved", center(investBox));
+  await dispatch("mousePressed", center(investBox), true);
+  await dispatch("mouseReleased", center(investBox));
+  await expect(nav).toHaveAttribute("data-accepted-taps", "home-nav,invest-nav,");
+  await expect(invest).toHaveAttribute("aria-current", "page");
+});
+
+for (const { name, lift, selected } of [
+  { name: "a hold that wanders vertically within reach selects the tab under the finger", lift: 40, selected: "Invest" },
+  { name: "a hold released far outside the bar cancels back", lift: 160, selected: "Home" },
+]) {
+  test(name, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await seedSignedInSession(page);
+    await installApiFixtures(page);
+    await page.goto("/home");
+    const nav = page.getByRole("navigation", { name: "Main navigation" });
+    await expect(nav.locator('[data-navigation-lens="ready"]')).toBeVisible();
+    const main = page.locator("main[data-app-main-authenticated]");
+    await main.evaluate((node) => { node.scrollTop = 120; });
+    const scrolled = await main.evaluate((node) => node.scrollTop);
+    const windowScroll = await page.evaluate(() => window.scrollY);
+    const homeBox = (await nav.getByRole("button", { name: "Home" }).boundingBox())!;
+    const investBox = (await nav.getByRole("button", { name: "Invest" }).boundingBox())!;
+    const startX = homeBox.x + homeBox.width / 2;
+    const startY = homeBox.y + homeBox.height / 2;
+    const endX = investBox.x + investBox.width / 2;
+    const cdp = await page.context().newCDPSession(page);
+    const touch = (type: "touchStart" | "touchMove" | "touchEnd", x: number, y: number) =>
+      cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
+    await touch("touchStart", startX, startY);
+    await expect(nav).toHaveAttribute("data-lens-pressed", "");
+    for (let step = 1; step <= 6; step += 1) await touch("touchMove", startX, startY - (160 * step) / 6);
+    await expect(nav).toHaveAttribute("data-lens-pressed", "");
+    for (let step = 1; step <= 6; step += 1) await touch("touchMove", startX + ((endX - startX) * step) / 6, startY - 160 + ((160 - lift) * step) / 6);
+    await expect(nav).toHaveAttribute("data-lens-pressed", "");
+    expect(await main.evaluate((node) => node.scrollTop)).toBe(scrolled);
+    expect(await page.evaluate(() => window.scrollY)).toBe(windowScroll);
+    await touch("touchEnd", endX, startY - lift);
+    await expect(nav.getByRole("button", { name: selected })).toHaveAttribute("aria-current", "page");
+    await expect(nav).not.toHaveAttribute("data-lens-pressed");
+    await expect(nav).not.toHaveAttribute("data-lens-wide");
+    await expect(nav.locator('[data-navigation-lens="ready"]')).toBeVisible();
+  });
+}
+
+for (const { name, beside, selected } of [
+  { name: "a drag released just beside the capsule selects the nearest tab", beside: 16, selected: "Invest" },
+  { name: "a drag released well beside the capsule cancels back", beside: 60, selected: "Home" },
+]) {
+  test(name, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await seedSignedInSession(page);
+    await installApiFixtures(page);
+    await page.goto("/home");
+    const nav = page.getByRole("navigation", { name: "Main navigation" });
+    await expect(nav.locator('[data-navigation-lens="ready"]')).toBeVisible();
+    const navBox = (await nav.boundingBox())!;
+    const homeBox = (await nav.getByRole("button", { name: "Home" }).boundingBox())!;
+    const startX = homeBox.x + homeBox.width / 2;
+    const y = homeBox.y + homeBox.height / 2;
+    const endX = navBox.x + navBox.width + beside;
+    const cdp = await page.context().newCDPSession(page);
+    const touch = (type: "touchStart" | "touchMove" | "touchEnd", x: number) =>
+      cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
+    await touch("touchStart", startX);
+    await expect(nav).toHaveAttribute("data-lens-pressed", "");
+    for (let step = 1; step <= 6; step += 1) await touch("touchMove", startX + ((endX - startX) * step) / 6);
+    await touch("touchEnd", endX);
+    await expect(nav.getByRole("button", { name: selected })).toHaveAttribute("aria-current", "page");
+    await expect(nav).not.toHaveAttribute("data-lens-pressed");
+    await expect(nav).not.toHaveAttribute("data-lens-wide");
+  });
+}
+
+test("a tap released just past its tab edge keeps the lens on the tab the click selects", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  await page.goto("/home");
+  const nav = page.getByRole("navigation", { name: "Main navigation" });
+  const lens = nav.locator('[data-navigation-lens="ready"]');
+  await expect(lens).toBeVisible();
+  const investBox = (await nav.getByRole("button", { name: "Invest" }).boundingBox())!;
+  const startX = investBox.x + investBox.width - 3;
+  const y = investBox.y + investBox.height / 2;
+  const cdp = await page.context().newCDPSession(page);
+  const touch = (type: "touchStart" | "touchMove" | "touchEnd", x: number) =>
+    cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
+  await touch("touchStart", startX);
+  await expect.poll(() => lens.evaluate((element) => element.style.transform)).toBe("translateX(100%)");
+  await lens.evaluate((element) => {
+    const seen: string[] = [];
+    new MutationObserver(() => seen.push(element.style.transform)).observe(element, { attributeFilter: ["style"] });
+    Object.assign(window, { lensPlaces: seen });
+  });
+  await touch("touchMove", startX + 5);
+  await touch("touchEnd", startX + 5);
+  await expect(nav.getByRole("button", { name: "Invest" })).toHaveAttribute("aria-current", "page");
+  await expect(nav).not.toHaveAttribute("data-lens-pressed");
+  await expect(nav).not.toHaveAttribute("data-lens-wide");
+  await expect.poll(() => lens.evaluate((element) => element.style.transform)).toBe("translateX(100%)");
+  expect(await page.evaluate(() => (window as unknown as { lensPlaces: string[] }).lensPlaces)).not.toContain("translateX(0%)");
+});
+
+test("a tap whose navigation commits late keeps the lens on the tapped tab", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  await page.clock.install();
+  await page.goto("/home");
+  const nav = page.getByRole("navigation", { name: "Main navigation" });
+  const lens = nav.locator('[data-navigation-lens="ready"]');
+  await expect(lens).toBeVisible();
+  const invest = nav.getByRole("button", { name: "Invest" });
+  const investBox = (await invest.boundingBox())!;
+  const point = { x: investBox.x + investBox.width / 2, y: investBox.y + investBox.height / 2 };
+  await nav.evaluate((element) => {
+    element.parentElement!.addEventListener("click", (event) => {
+      const tab = event.target instanceof Element ? event.target.closest("button") : null;
+      if (!event.isTrusted || !tab) return;
+      event.stopPropagation();
+      Object.assign(window, { commitNavigation: () => tab.click() });
+    });
+  });
+  const cdp = await page.context().newCDPSession(page);
+  const touch = (type: "touchStart" | "touchEnd") =>
+    cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ ...point, id: 1 }] });
+  await touch("touchStart");
+  await expect.poll(() => settledLensTab(page)).toBe("invest-nav");
+  await touch("touchEnd");
+  await expect(nav).not.toHaveAttribute("data-lens-pressed");
+  await expect.poll(() => page.evaluate(() => "commitNavigation" in window)).toBe(true);
+  await page.clock.runFor(1_500);
+  expect(await settledLensTab(page)).toBe("invest-nav");
+  await expect(invest).not.toHaveAttribute("aria-current");
+  await page.evaluate(() => (window as unknown as { commitNavigation: () => void }).commitNavigation());
+  await expect(invest).toHaveAttribute("aria-current", "page");
+  expect(await settledLensTab(page)).toBe("invest-nav");
+});
+
+test("a blur mid-glide drops the lift so keyboard travel lands unlifted on the selected tab", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  await page.clock.install();
+  await page.goto("/home");
+  const nav = page.getByRole("navigation", { name: "Main navigation" });
+  await expect(nav.locator('[data-navigation-lens="ready"]')).toBeVisible();
+  const invest = nav.getByRole("button", { name: "Invest" });
+  const investBox = (await invest.boundingBox())!;
+  const point = { x: investBox.x + investBox.width / 2, y: investBox.y + investBox.height / 2 };
+  await nav.evaluate((element) => {
+    const interrupted = new Promise((resolve) => {
+      new MutationObserver((_, observer) => {
+        observer.disconnect();
+        window.dispatchEvent(new Event("blur"));
+        resolve({ pressed: element.hasAttribute("data-lens-pressed"), gliding: element.hasAttribute("data-lens-glide") });
+      }).observe(element, { attributeFilter: ["data-lens-glide"] });
+    });
+    Object.assign(window, { interrupted });
+  });
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ ...point, id: 1 }] });
+  await page.clock.runFor(50);
+  expect(await page.evaluate(() => (window as unknown as { interrupted: Promise<unknown> }).interrupted))
+    .toEqual({ pressed: false, gliding: false });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+  await invest.focus();
+  await page.keyboard.press("Enter");
+  await expect(invest).toHaveAttribute("aria-current", "page");
+  await expect(nav).not.toHaveAttribute("data-lens-pressed");
+  await expect(nav).not.toHaveAttribute("data-lens-glide");
+  expect(await settledLensTab(page)).toBe("invest-nav");
+});
+
+function settledLensTab(page: Page) {
+  return page.evaluate(async () => {
+    const nav = document.querySelector<HTMLElement>('nav[aria-label="Main navigation"]:not(#desktop-rail nav)')!;
+    const lens = nav.querySelector<HTMLElement>('[data-navigation-lens="ready"]')!;
+    await Promise.all(lens.getAnimations().map((animation) => animation.finished));
+    const box = lens.getBoundingClientRect();
+    const centre = box.left + box.width / 2;
+    const tab = Array.from(nav.querySelectorAll<HTMLButtonElement>(":scope > button")).find((button) => {
+      const rect = button.getBoundingClientRect();
+      return centre > rect.left && centre < rect.right && box.width <= rect.width + 1;
+    });
+    return tab?.id ?? null;
+  });
+}
