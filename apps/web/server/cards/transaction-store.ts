@@ -23,7 +23,7 @@ export function createCardTransactionStore(sql: Pick<SqlExecutor, "query">) {
          WHERE c.id=$1 AND e.mode=$2 AND e.provider='bridge' AND e.transaction_id IS NOT NULL
            AND (e.kind LIKE 'issuing_authorization.%' OR e.kind LIKE 'issuing_transaction.%')
            AND (t.id IS NULL OR t.updated_at < e.received_at)
-         ORDER BY e.received_at DESC LIMIT 11`, [cardId, mode]);
+         ORDER BY e.received_at ASC, e.event_id ASC LIMIT 11`, [cardId, mode]);
       return result.rows;
     },
     async upsert(cardId: string, mode: CardMode, purchase: StripePurchase) {
@@ -49,7 +49,7 @@ export function createCardTransactionStore(sql: Pick<SqlExecutor, "query">) {
          AND ($4::timestamptz IS NULL OR t.provider_created_at < $4)
          AND NOT (t.kind='authorization' AND EXISTS (
            SELECT 1 FROM card_transactions newer WHERE newer.card_id=t.card_id AND newer.authorization_id=t.authorization_id
-             AND newer.kind='transaction' AND newer.status <> 'reversed'))
+             AND newer.kind='transaction'))
          ORDER BY t.provider_created_at DESC,t.provider_transaction_id DESC LIMIT 50`, [customerId, mode, window?.from ?? null, window?.to ?? null]);
       return result.rows.map((row) => ({ id: row.provider_transaction_id, kind: row.kind, amountMinor: row.amount_minor,
         currency: row.currency, merchantName: row.merchant_name, merchantCategory: row.merchant_category,

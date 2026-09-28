@@ -95,6 +95,16 @@ export function createActivityHandler(dependencies: {
       );
     }
 
+    const cardWindow = {
+      from: new Date(Date.parse(activityRequest.to) - ACTIVITY_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString(),
+      to: activityRequest.to,
+    };
+    const readCards = dependencies.readCards;
+    const cardsPromise = activityRequest.cursor === null && readCards
+      ? Promise.resolve().then(() => readCards(session, cardWindow))
+        .catch((): CardPurchases => ({ status: "unavailable", rows: [] }))
+      : null;
+
     let source: Exclude<ActivityReadSource, "none">;
     try {
       source = dependencies.source();
@@ -113,6 +123,16 @@ export function createActivityHandler(dependencies: {
         rowCount: 0,
         valuation: emptyActivityValuation(),
       });
+      if (cardsPromise) {
+        const cards = await cardsPromise;
+        if (cards.status === "ready" || cards.rows.length > 0) {
+          return privateJson({
+            version: ACTIVITY_CONTRACT_VERSION, walletAddress: session.smartAccount.address.toLowerCase() as `0x${string}`,
+            chainId: 8453, window: cardWindow, currency: activityRequest.currency, transfers: [], cards,
+            nextCursor: null, source: null, onchainStatus: "unavailable",
+          } satisfies ActivityResponse, 200);
+        }
+      }
       return activityReadError(error);
     }
 
@@ -131,15 +151,6 @@ export function createActivityHandler(dependencies: {
       valuation: emptyActivityValuation(),
     });
 
-    const cardWindow = {
-      from: new Date(Date.parse(activityRequest.to) - ACTIVITY_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString(),
-      to: activityRequest.to,
-    };
-    const readCards = dependencies.readCards;
-    const cardsPromise = activityRequest.cursor === null && readCards
-      ? Promise.resolve().then(() => readCards(session, cardWindow))
-        .catch((): CardPurchases => ({ status: "unavailable", rows: [] }))
-      : null;
     let primaryFinishedAt: number | null = null;
     try {
       const page = await dependencies.readActivity(

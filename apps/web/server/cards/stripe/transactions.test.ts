@@ -24,18 +24,31 @@ describe("Stripe Issuing purchase reads", () => {
     expect(paths).toEqual([`/v1/issuing/authorizations/${authorization.id}`, `/v1/issuing/transactions/${transaction.id}`]);
     expect(JSON.stringify(await client.read("transaction", transaction.id))).not.toContain("synthetic-unexpected");
   });
-  test("bounded list rejects partial pages and mismatched cards without pretending no purchases", async () => {
-    const list = { object: "list", data: [authorization], has_more: false };
-    expect((await clientFor((async () => Response.json(list)) as unknown as typeof fetch).list("authorization", "ic_synthetic"))).toHaveLength(1);
-    await expect(clientFor((async () => Response.json({ ...list, has_more: true })) as unknown as typeof fetch).list("authorization", "ic_synthetic")).rejects.toThrow("Partial");
-    await expect(clientFor((async () => Response.json({ ...list, data: [{ ...authorization, card: "ic_other" }] })) as unknown as typeof fetch).list("authorization", "ic_synthetic")).rejects.toThrow("Partial");
+  test("lists card purchases inside the Activity window across bounded pages", async () => {
+    const urls: URL[] = [];
+    const client = clientFor((async (url: string) => {
+      urls.push(new URL(url));
+      return Response.json({ object: "list", data: urls.length === 1 ? [authorization] : [{ ...authorization, id: "iauth_next" }], has_more: urls.length === 1 });
+    }) as typeof fetch);
+    expect(await client.list("authorization", "ic_synthetic", 1_779_000_000)).toMatchObject({ rows: [{ id: authorization.id }, { id: "iauth_next" }], partial: false });
+    expect(urls.map((url) => url.searchParams.get("created[gte]"))).toEqual(["1779000000", "1779000000"]);
+    expect(urls.map((url) => url.searchParams.get("card"))).toEqual(["ic_synthetic", "ic_synthetic"]);
+    expect(urls[1]?.searchParams.get("starting_after")).toBe(authorization.id);
+  });
+  test("pagination bound retains validated rows but reports partial; mismatched cards reject", async () => {
+    let calls = 0;
+    const client = clientFor((async () => Response.json({ object: "list", data: [{ ...authorization, id: `iauth_page${++calls}` }], has_more: true })) as unknown as typeof fetch);
+    expect(await client.list("authorization", "ic_synthetic", 1_779_000_000)).toMatchObject({ rows: [{ id: "iauth_page1" }, { id: "iauth_page2" }, { id: "iauth_page3" }], partial: true });
+    expect(calls).toBe(3);
+    await expect(clientFor((async () => Response.json({ object: "list", data: [{ ...authorization, card: "ic_other" }], has_more: false })) as unknown as typeof fetch)
+      .list("authorization", "ic_synthetic", 1_779_000_000)).rejects.toThrow("Partial");
   });
   test("each bounded list reports upstream rejection and timeout", async () => {
     for (const kind of ["authorization", "transaction"] as const) {
       await expect(clientFor((async () => { throw new Error("rejected"); }) as unknown as typeof fetch)
-        .list(kind, "ic_synthetic")).rejects.toThrow("rejected");
+        .list(kind, "ic_synthetic", 1_779_000_000)).rejects.toThrow("rejected");
       await expect(clientFor((async () => { throw new DOMException("timed out", "TimeoutError"); }) as unknown as typeof fetch)
-        .list(kind, "ic_synthetic")).rejects.toThrow("timed out");
+        .list(kind, "ic_synthetic", 1_779_000_000)).rejects.toThrow("timed out");
     }
   });
   test("each GET rejects rejection, timeout, malformed body, oversized body and mismatched identity", async () => {
@@ -64,6 +77,6 @@ const live = process.env.CARDS_STRIPE_LIVE_TEST === "1" && !process.env.CI;
   const key = process.env.BRIDGE_STRIPE_SECRET_KEY;
   if (!key?.startsWith("sk_test_")) throw new Error("Live test requires a Stripe test-mode key");
   const client = createStripeTransactionClient({ ...config, stripeSecretKey: key });
-  const rows = await client.list("authorization", "ic_1UKVXy1g1mZDnyPFpUOboOCx");
-  expect(rows.every((row) => row.cardId === "ic_1UKVXy1g1mZDnyPFpUOboOCx")).toBe(true);
+  const rows = await client.list("authorization", "ic_1UKVXy1g1mZDnyPFpUOboOCx", Math.floor((Date.now() - 31 * 86_400_000) / 1000));
+  expect(rows.rows.every((row) => row.cardId === "ic_1UKVXy1g1mZDnyPFpUOboOCx")).toBe(true);
 });

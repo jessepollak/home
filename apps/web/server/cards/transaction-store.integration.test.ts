@@ -57,6 +57,33 @@ let admin: Bun.SQL, sql: SqlExecutor;
     ]);
     expect(await store.rows(ownerA, "sandbox", { from: "2026-09-02T00:00:00.000Z", to: "2026-10-01T00:00:00.000Z" })).toEqual([]);
   });
+  test("voided linked transaction supersedes its pending authorization", async () => {
+    const store = createCardTransactionStore(sql);
+    const base = { cardId: "ic_alpha", authorizationId: "iauth_void", amountMinor: "500", currency: "USD", merchantName: "Synthetic Shop",
+      merchantCategory: null, declineReasonCode: null, createdAt: "2026-09-05T12:00:00.000Z", updatedAt: "2026-09-05T12:00:00.000Z" } as const;
+    await store.upsert(cardA, "sandbox", { ...base, id: "iauth_void", kind: "authorization", status: "pending" });
+    await store.upsert(cardA, "sandbox", { ...base, id: "ipi_void", kind: "transaction", status: "reversed" });
+    expect((await store.rows(ownerA, "sandbox", { from: "2026-09-05T00:00:00.000Z", to: "2026-09-06T00:00:00.000Z" }))
+      .map((row) => [row.id, row.status])).toEqual([["ipi_void", "reversed"]]);
+  });
+
+  test("oldest webhook events stay within the refresh budget and drain after successful writes", async () => {
+    const store = createCardTransactionStore(sql);
+    const ids = Array.from({ length: 12 }, (_, i) => `iauth_backlog${i}`);
+    for (const [index, id] of ids.entries()) {
+      await sql.query(
+        "INSERT INTO card_events(provider,mode,event_id,kind,card_id,transaction_id,occurred_at,received_at) VALUES ('bridge','sandbox',$1,'issuing_authorization.updated','ic_alpha',$2,now(),now() - interval '1 hour' + $3 * interval '1 second')",
+        [`stripe:evt_backlog${index}`, id, index]);
+    }
+    expect((await store.pending(cardA, "sandbox")).map((row) => row.transaction_id)).toEqual(ids.slice(0, 11));
+    for (const id of ids.slice(0, 10)) {
+      await store.upsert(cardA, "sandbox", { id, cardId: "ic_alpha", authorizationId: id, kind: "authorization", amountMinor: "100",
+        currency: "USD", merchantName: "Synthetic Shop", merchantCategory: null, status: "pending", declineReasonCode: null,
+        createdAt: "2026-09-01T12:00:00.000Z", updatedAt: "2026-09-01T12:00:00.000Z" });
+    }
+    expect((await store.pending(cardA, "sandbox")).map((row) => row.transaction_id).filter((id) => id.startsWith("iauth_backlog"))).toEqual(ids.slice(10));
+  });
+
   test("partial refund retains the completed capture and its original amount", async () => {
     const store = createCardTransactionStore(sql);
     const base = { cardId: "ic_alpha", authorizationId: "iauth_partial", currency: "USD", merchantName: "Synthetic Cafe",

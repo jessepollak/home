@@ -24,15 +24,26 @@ export function createStripeTransactionClient(config: Pick<CardJourneyConfig, "s
       if (row.id !== id) throw new Error("Stripe purchase ID mismatch");
       return row;
     },
-    async list(kind: "authorization" | "transaction", cardId: string): Promise<StripePurchase[]> {
-      if (!ids.card.test(cardId)) throw new Error("Invalid Stripe card ID");
+    async list(kind: "authorization" | "transaction", cardId: string, from: number): Promise<{ rows: StripePurchase[]; partial: boolean }> {
+      if (!ids.card.test(cardId) || !Number.isSafeInteger(from) || from < 0) throw new Error("Invalid Stripe purchase list filter");
       const path = kind === "authorization" ? "authorizations" : "transactions";
-      const value = await get(`${path}?card=${encodeURIComponent(cardId)}&limit=25`);
-      if (!record(value) || value.object !== "list" || !Array.isArray(value.data) || value.data.length > 25 ||
-          typeof value.has_more !== "boolean") throw new Error("Invalid Stripe purchase list");
-      const rows = value.data.map((row: unknown) => parseStripePurchase(row, kind));
-      if (rows.some((row: StripePurchase) => row.cardId !== cardId) || value.has_more) throw new Error("Partial Stripe purchase list");
-      return rows;
+      const rows: StripePurchase[] = [];
+      let cursor: string | null = null;
+      for (let page = 0; page < 3; page++) {
+        const params = new URLSearchParams({ card: cardId, limit: "25", "created[gte]": String(from) });
+        if (cursor) params.set("starting_after", cursor);
+        const value = await get(`${path}?${params}`);
+        if (!record(value) || value.object !== "list" || !Array.isArray(value.data) || value.data.length > 25 ||
+            typeof value.has_more !== "boolean") throw new Error("Invalid Stripe purchase list");
+        const next = value.data.map((row: unknown) => parseStripePurchase(row, kind));
+        if (next.some((row) => row.cardId !== cardId)) throw new Error("Partial Stripe purchase list");
+        rows.push(...next);
+        if (!value.has_more) return { rows, partial: false };
+        const last = next.at(-1)?.id;
+        if (!last || last === cursor) throw new Error("Invalid Stripe purchase pagination");
+        cursor = last;
+      }
+      return { rows, partial: true };
     },
   };
 }

@@ -100,6 +100,24 @@ describe("activity route handler", () => {
     const older = await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}&cursor=older`));
     expect(older.status).toBe(502);
   });
+  test("source resolution failure still returns first-page card rows as partial activity", async () => {
+    const purchase = { id: "ipi_source", kind: "transaction" as const, amountMinor: "500", currency: "USD", merchantName: "Synthetic Shop",
+      merchantCategory: null, status: "completed" as const, declineReasonCode: null, createdAt: TO, updatedAt: TO };
+    let reads = 0;
+    const handler = createActivityHandler({ authorize: async () => sessionResponse(),
+      source: () => { throw new Error("source unavailable"); },
+      readActivity: async () => { throw new Error("must not read onchain"); },
+      readCards: async (_session, window) => { reads++; expect(window).toEqual(page().window); return { status: "ready", rows: [purchase] }; },
+      now: () => new Date(TO) });
+    const response = await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`));
+    expect(response.status).toBe(200);
+    expectPrivate(response);
+    expect(await response.json()).toMatchObject({ cards: { status: "ready", rows: [purchase] }, onchainStatus: "unavailable", source: null });
+    const older = await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}&cursor=older`));
+    expect(older.status).toBe(502);
+    expect(reads).toBe(1);
+  });
+
   test("preserves the onchain error when cards are also unavailable", async () => {
     const handler = createActivityHandler({ authorize: async () => sessionResponse(),
       readActivity: async () => { throw new ChainDataError("upstream-error", "fixture"); },
