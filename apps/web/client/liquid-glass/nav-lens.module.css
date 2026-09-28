@@ -57,12 +57,6 @@
 
 .tab { border: 1px solid transparent; }
 
-.selected .icon { color: var(--primary); }
-
-.selected .label { color: var(--foreground); }
-
-.unselected :is(.icon, .label) { color: color-mix(in oklab, var(--foreground) 70%, transparent); }
-
 .specular {
   background: var(--glass-lens-specular);
   mask-size: 100% 100%;

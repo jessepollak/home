@@ -9,6 +9,7 @@ import {
   navigationTabContentClassName,
   navigationTabIconClassName,
   navigationTabLabelClassName,
+  navigationTabTone,
 } from "@/components/primary-navigation-tab";
 import styles from "./nav-lens.module.css";
 
@@ -17,7 +18,7 @@ type LensImages = { displacement: string; specular: string; scale: number; margi
 type LensFilter = LensImages & LensSize & { id: string };
 type RimImages = { displacement: string; core: string; scale: number };
 type RimFilter = RimImages & LensSize & { id: string };
-type LensTrackProps = Pick<NavLensProps, "items" | "target"> & { className: string; tone: string };
+type LensTrackProps = Pick<NavLensProps, "items" | "target"> & { className: string; tone: keyof typeof navigationTabTone };
 
 const BEZEL = 10;
 const THICKNESS = 10;
@@ -27,7 +28,7 @@ const RIM_BEZEL = 28;
 const RIM_THICKNESS = 12;
 const RIM_FALLOFF = 1.6;
 const RIM_SOFTEN = 0.5;
-const RIM_FROST = 24;
+const RIM_FROST = 4;
 const RIM_CORE_INSET = 19;
 const RIM_CORE_FEATHER = 5;
 const MIN_PRESS_MS = 120;
@@ -118,13 +119,14 @@ function readRatio() {
 }
 
 function LensTrack({ items, target, className, tone }: LensTrackProps) {
+  const colors = navigationTabTone[tone];
   return (
     <span className={`${styles.track} ${className} grid grid-cols-2`} style={{ transform: `translateX(${target * -50}%)` }}>
       {items.map(({ id, label, Icon }) => (
-        <span key={id} className={`${styles.tab} ${tone} flex min-w-0 items-center justify-center px-2`}>
+        <span key={id} className={`${styles.tab} ${tone === "unselected" ? styles.unselected : ""} flex min-w-0 items-center justify-center px-2`}>
           <span className={navigationTabContentClassName}>
-            <Icon className={`${styles.icon} ${navigationTabIconClassName}`} aria-hidden="true" />
-            <span className={`${styles.label} ${navigationTabLabelClassName}`}>{label}</span>
+            <Icon className={`${styles.icon} ${navigationTabIconClassName} ${colors.icon}`} aria-hidden="true" />
+            <span className={`${styles.label} ${navigationTabLabelClassName} ${colors.label}`}>{label}</span>
           </span>
         </span>
       ))}
@@ -298,7 +300,7 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
             <span ref={holeRef} className={`${styles.hole} absolute inset-0`} style={{ maskImage: hole, WebkitMaskImage: hole }}>
               <span ref={unstretchRef} className="absolute inset-0">
                 <span className={`${styles.unlift} absolute inset-0`}>
-                  <LensTrack items={items} target={target} className={`${styles.cutoutTrack} absolute`} tone={styles.unselected} />
+                  <LensTrack items={items} target={target} className={`${styles.cutoutTrack} absolute`} tone="unselected" />
                 </span>
               </span>
             </span>
@@ -370,7 +372,7 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
               </svg>
             ) : null}
             <span className={`${styles.refraction} absolute inset-0`} style={filter ? { filter: `url(#${filter.id})` } : undefined}>
-              <LensTrack items={items} target={target} className="absolute inset-y-0 start-0 w-[200%]" tone={styles.selected} />
+              <LensTrack items={items} target={target} className="absolute inset-y-0 start-0 w-[200%]" tone="selected" />
             </span>
             {filter ? (
               <span

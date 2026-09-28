@@ -1,9 +1,9 @@
 @media (max-width: 63.9375rem) {
   .navigation {
-    --glass-tint-top: color-mix(in oklch, var(--background) 68%, transparent);
-    --glass-tint-bottom: color-mix(in oklch, var(--background) 80%, transparent);
-    --glass-tone: saturate(180%) brightness(1.04);
-    --glass-filter: blur(24px) var(--glass-tone);
+    --glass-tint-top: color-mix(in oklch, var(--background) 34%, transparent);
+    --glass-tint-bottom: color-mix(in oklch, var(--background) 46%, transparent);
+    --glass-tone: saturate(180%);
+    --glass-filter: blur(4px) var(--glass-tone);
     --glass-highlight: oklch(1 0 0);
     --glass-rim: color-mix(in oklch, var(--foreground) 7%, transparent);
     --glass-rim-low: color-mix(in oklch, var(--foreground) 11%, transparent);
@@ -15,7 +15,7 @@
     --glass-pill-highlight: oklch(1 0 0 / 55%);
     --glass-pill-rim: color-mix(in oklch, var(--foreground) 4%, transparent);
     --glass-lens-tint: var(--glass-pill);
-    --glass-lens-occlusion: blur(20px);
+    --glass-lens-occlusion: blur(4px);
     --glass-lens-specular: oklch(1 0 0 / 85%);
     width: 12rem;
     max-width: calc(100% - 2rem);
@@ -26,8 +26,8 @@
   }
 
   :global(.dark) .navigation {
-    --glass-tint-top: color-mix(in oklch, var(--secondary) 66%, transparent);
-    --glass-tint-bottom: color-mix(in oklch, var(--secondary) 80%, transparent);
+    --glass-tint-top: color-mix(in oklch, var(--secondary) 44%, transparent);
+    --glass-tint-bottom: color-mix(in oklch, var(--secondary) 58%, transparent);
     --glass-tone: saturate(160%) brightness(.9);
     --glass-highlight: oklch(1 0 0 / 28%);
     --glass-rim: oklch(1 0 0 / 9%);
@@ -42,16 +42,7 @@
     --glass-lens-specular: oklch(1 0 0 / 24%);
   }
 
-  .navigation[data-glass-rim] {
-    --glass-tint-top: color-mix(in oklch, var(--background) 38%, transparent);
-    --glass-tint-bottom: color-mix(in oklch, var(--background) 56%, transparent);
-    --glass-filter: var(--glass-rim-lens) var(--glass-tone);
-  }
-
-  :global(.dark) .navigation[data-glass-rim] {
-    --glass-tint-top: color-mix(in oklch, var(--secondary) 48%, transparent);
-    --glass-tint-bottom: color-mix(in oklch, var(--secondary) 64%, transparent);
-  }
+  .navigation[data-glass-rim] { --glass-filter: var(--glass-rim-lens) var(--glass-tone); }
 
   .pill {
     width: calc((100% - .5rem) / 2);

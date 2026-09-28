@@ -3,3 +3,8 @@ export const navigationTabContentClassName = "flex min-w-0 w-full flex-col items
 export const navigationTabIconClassName = "size-6.5";
 
 export const navigationTabLabelClassName = "block max-w-full truncate text-[0.6875rem] leading-3.5 font-semibold tracking-tighter";
+
+export const navigationTabTone = {
+  selected: { icon: "text-primary", label: "text-foreground" },
+  unselected: { icon: "text-foreground/90", label: "text-foreground/90" },
+} as const;

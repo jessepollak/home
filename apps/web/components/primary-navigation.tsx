@@ -16,6 +16,7 @@ import {
   navigationTabContentClassName,
   navigationTabIconClassName,
   navigationTabLabelClassName,
+  navigationTabTone,
 } from "@/components/primary-navigation-tab";
 import {
   isHomeNestedPanelId,
@@ -242,6 +243,7 @@ export function PrimaryNavigation({
         {navigationItems.map((item, index) => {
           const Icon = navigationIcons[item.id];
           const isActive = index === activeIndex;
+          const tone = navigationTabTone[isActive ? "selected" : "unselected"];
           return (
             <Button
               key={item.id}
@@ -255,8 +257,8 @@ export function PrimaryNavigation({
               aria-controls="navigation-panel"
             >
               <span className={`${styles.content} ${navigationTabContentClassName}`}>
-                <Icon className={`${navigationTabIconClassName} ${isActive ? "text-primary" : "text-foreground/70"}`} aria-hidden="true" />
-                <span className={`${navigationTabLabelClassName} ${isActive ? "text-foreground" : "text-foreground/70"}`}>{labels?.[item.id] ?? item.label}</span>
+                <Icon className={`${navigationTabIconClassName} ${tone.icon}`} aria-hidden="true" />
+                <span className={`${navigationTabLabelClassName} ${tone.label}`}>{labels?.[item.id] ?? item.label}</span>
               </span>
             </Button>
           );
