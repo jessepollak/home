@@ -21,6 +21,8 @@ import { FundingCoreError } from "@/server/funding/core/service";
 function assertPrivate(response: Response) {
   expect(response.headers.get("cache-control")).toContain("private");
   expect(response.headers.get("cache-control")).toContain("no-store");
+  expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+  expect(response.headers.get("vary")).toContain("Authorization");
 }
 
 describe("funding route privacy and rejection", () => {
@@ -111,6 +113,30 @@ describe("funding route privacy and rejection", () => {
       error: {
         code: "PROVIDERS_UNAVAILABLE",
         message: "Funding methods are unavailable.",
+      },
+    });
+  });
+
+  test("rejects a session without a smart account with private headers", async () => {
+    const response = await handleFundingProvidersRequest(
+      new Request("https://home.example/api/funding/providers?region=US"),
+      {
+        authorize: async () => ({
+          user: { subject: "funding-user" },
+          smartAccount: null,
+          accountProvider: "cdp-embedded",
+        }),
+        databaseUrl: undefined,
+        listProviders: async () => [],
+      },
+    );
+
+    expect(response.status).toBe(403);
+    assertPrivate(response);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "SMART_ACCOUNT_UNAVAILABLE",
+        message: "A verified Base account is required.",
       },
     });
   });

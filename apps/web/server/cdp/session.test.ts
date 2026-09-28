@@ -52,6 +52,7 @@ async function expectPrivateJson(
     "private, no-store, max-age=0",
   );
   expect(response.headers.get("pragma")).toBe("no-cache");
+  expect(response.headers.get("referrer-policy")).toBe("no-referrer");
   expect(response.headers.get("vary")).toBe(
     `Cookie, Authorization, ${ACCOUNT_PROVIDER_HEADER}`,
   );

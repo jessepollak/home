@@ -1,11 +1,10 @@
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
   authorizeFundingRequest,
-  fundingError,
-  fundingJson,
   fundingRequestOrigin,
   type FundingSessionAuthorizer,
 } from "@/server/funding/core/auth";
+import { privateError, privateJson } from "@/server/http/private-response";
 import { FundingProviderConfigurationError } from "@/server/funding/core/provider-context";
 import { FundingCoreError } from "@/server/funding/core/service";
 import { formatPresentationDate } from "@/shared/formatting";
@@ -57,16 +56,16 @@ export async function handleFundingOrderPost(
   const authorized = await authorizeFundingRequest(request, dependencies.authorize);
   if ("response" in authorized) return authorized.response;
   if (request.headers.get("content-type")?.split(";", 1)[0] !== "application/json") {
-    return fundingError("INVALID_ORDER_REQUEST", "A valid quote token is required.", 400);
+    return privateError("INVALID_ORDER_REQUEST", "A valid quote token is required.", 400);
   }
   let body: unknown;
   try {
     body = await request.json();
   } catch {
-    return fundingError("INVALID_ORDER_REQUEST", "A valid quote token is required.", 400);
+    return privateError("INVALID_ORDER_REQUEST", "A valid quote token is required.", 400);
   }
   try {
-    return fundingJson({
+    return privateJson({
       order: await dependencies.createOrder(
         authorized.session,
         body,
@@ -76,7 +75,7 @@ export async function handleFundingOrderPost(
     }, 201);
   } catch (error) {
     if (error instanceof FundingCoreError) {
-      return fundingError(error.code, "The funding order could not be created.", error.status);
+      return privateError(error.code, "The funding order could not be created.", error.status);
     }
     emitUnknownFundingOrderRouteFailure({
       route: "/api/funding/orders",
@@ -86,7 +85,7 @@ export async function handleFundingOrderPost(
       session: authorized.session,
       startedAt,
     });
-    return fundingError("ORDER_UNAVAILABLE", "The funding order is unavailable.", 503);
+    return privateError("ORDER_UNAVAILABLE", "The funding order is unavailable.", 503);
   }
 }
 
@@ -98,9 +97,9 @@ export async function handleFundingOpenOrderGet(
   const authorized = await authorizeFundingRequest(request, dependencies.authorize);
   if ("response" in authorized) return authorized.response;
   const region = new URL(request.url).searchParams.get("region");
-  if (!region) return fundingError("INVALID_REGION", "Choose a country first.", 400);
+  if (!region) return privateError("INVALID_REGION", "Choose a country first.", 400);
   try {
-    return fundingJson({
+    return privateJson({
       order: await dependencies.getOpenOrder(authorized.session, region),
     });
   } catch {
@@ -110,7 +109,7 @@ export async function handleFundingOpenOrderGet(
       session: authorized.session,
       startedAt,
     });
-    return fundingError("ORDER_UNAVAILABLE", "The funding order is unavailable.", 503);
+    return privateError("ORDER_UNAVAILABLE", "The funding order is unavailable.", 503);
   }
 }
 
@@ -123,13 +122,13 @@ export async function handleFundingOrderGetById(
   const authorized = await authorizeFundingRequest(request, dependencies.authorize);
   if ("response" in authorized) return authorized.response;
   if (!/^[0-9a-f-]{36}$/i.test(id)) {
-    return fundingError("ORDER_NOT_FOUND", "Funding order not found.", 404);
+    return privateError("ORDER_NOT_FOUND", "Funding order not found.", 404);
   }
   try {
-    return fundingJson({ order: await dependencies.getOrder(authorized.session, id) });
+    return privateJson({ order: await dependencies.getOrder(authorized.session, id) });
   } catch (error) {
     if (error instanceof FundingCoreError) {
-      return fundingError(error.code, "Funding order not found.", error.status);
+      return privateError(error.code, "Funding order not found.", error.status);
     }
     emitUnknownFundingOrderRouteFailure({
       route: "/api/funding/orders/:id",
@@ -137,7 +136,7 @@ export async function handleFundingOrderGetById(
       session: authorized.session,
       startedAt,
     });
-    return fundingError("ORDER_UNAVAILABLE", "The funding order is unavailable.", 503);
+    return privateError("ORDER_UNAVAILABLE", "The funding order is unavailable.", 503);
   }
 }
 
@@ -150,27 +149,27 @@ export async function handleFundingOrderResolutionPost(
   const authorized = await authorizeFundingRequest(request, dependencies.authorize);
   if ("response" in authorized) return authorized.response;
   if (!/^[0-9a-f-]{36}$/i.test(id)) {
-    return fundingError("ORDER_NOT_FOUND", "Funding order not found.", 404);
+    return privateError("ORDER_NOT_FOUND", "Funding order not found.", 404);
   }
   if (request.headers.get("content-type")?.split(";", 1)[0] !== "application/json") {
-    return fundingError("INVALID_ORDER_RESOLUTION_REQUEST", "A valid resolution request is required.", 400);
+    return privateError("INVALID_ORDER_RESOLUTION_REQUEST", "A valid resolution request is required.", 400);
   }
   let body: unknown;
   try {
     body = await request.json();
   } catch {
-    return fundingError("INVALID_ORDER_RESOLUTION_REQUEST", "A valid resolution request is required.", 400);
+    return privateError("INVALID_ORDER_RESOLUTION_REQUEST", "A valid resolution request is required.", 400);
   }
   if (!parseResolveFundingOrderRequest(body)) {
-    return fundingError("INVALID_ORDER_RESOLUTION_REQUEST", "A valid resolution request is required.", 400);
+    return privateError("INVALID_ORDER_RESOLUTION_REQUEST", "A valid resolution request is required.", 400);
   }
 
   try {
     const order = await dependencies.resolveAmbiguousOrder(authorized.session, id);
-    return fundingJson({ version: FUNDING_ORDER_RESOLUTION_VERSION, order });
+    return privateJson({ version: FUNDING_ORDER_RESOLUTION_VERSION, order });
   } catch (error) {
     if (error instanceof FundingCoreError) {
-      return fundingError(
+      return privateError(
         error.code,
         resolutionMessage(error.code, error.availableAt),
         error.status,
@@ -182,7 +181,7 @@ export async function handleFundingOrderResolutionPost(
       session: authorized.session,
       startedAt,
     });
-    return fundingError("ORDER_UNAVAILABLE", "The funding order is unavailable.", 503);
+    return privateError("ORDER_UNAVAILABLE", "The funding order is unavailable.", 503);
   }
 }
 
