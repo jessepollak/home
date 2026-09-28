@@ -599,6 +599,7 @@ export const BoardNavigation: Story = {
       await waitFor(() => expect(within(newTabPalette).getByRole("group", { name: "Stories" })).toBeVisible());
       await userEvent.keyboard(`{${modifier}>}{Enter}{/${modifier}}`);
       await waitFor(() => expect(navigationCalls.at(-1)).toEqual({ url: "./?path=%2Fstory%2Faccount-settings--default", newTab: true }));
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: "Command palette" })).not.toBeInTheDocument());
       board.focus();
       await userEvent.keyboard("{Alt>}{ArrowDown}{/Alt}");
       await waitFor(() => expect(new URL(doc.location.href).searchParams.get("frame")).toBe("three"));

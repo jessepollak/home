@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { HomeNavigationReport, HomeScrollReport } from "@/shared/observability/client-performance.contract";
 import {
   classifyHomeDevice,
+  classifyHomeEngine,
   createHomeInteractionRecorder, resolveHomeInteractionSampleRate,
 } from "./interaction-performance";
 
@@ -19,7 +20,7 @@ function fixture({ sampleRate = 1, supported = true }: { sampleRate?: number; su
   let next = 0;
   const recorder = createHomeInteractionRecorder({
     now: () => time, random: () => { draws += 1; return 0.5; }, sampleRate,
-    device: () => "mobile-low", isVisible: () => visible,
+    device: () => "mobile-low", engine: () => "webkit", isVisible: () => visible,
     requestFrame: (run) => { const id = ++next; frames.set(id, run); return id; },
     cancelFrame: (id) => { frames.delete(id); },
     scheduleTimeout: (run) => { const id = ++next; timers.set(id, run); return id as unknown as ReturnType<typeof setTimeout>; },
@@ -63,7 +64,7 @@ describe("Home interaction recorder", () => {
     expect(value.sent).toEqual([]);
     value.at(27); value.idle();
     expect(value.sent).toEqual([{ version: 1, kind: "home-navigation", route: "/cash",
-      from: "/home", trigger: "in-app", cache: "first-visit", device: "mobile-low", durationMs: 30 }]);
+      from: "/home", trigger: "in-app", cache: "first-visit", device: "mobile-low", engine: "webkit", durationMs: 30 }]);
     value.recorder.beginNavigation({ ...navigation, from: "/cash" });
     expect(value.frames.size).toBe(0);
     expect(value.draws).toBe(1);
@@ -126,7 +127,7 @@ describe("Home interaction recorder", () => {
     value.recorder.noteScroll(scroll);
     value.at(379); value.idle();
     expect(value.sent).toEqual([{ version: 1, kind: "home-scroll", route: "/home",
-      cache: "retained", device: "mobile-low", durationMs: 100, frameCount: 3,
+      cache: "retained", device: "mobile-low", engine: "webkit", durationMs: 100, frameCount: 3,
       slowFrameCount: 2, maxFrameMs: 30, longFrameCount: 1, longFrameMs: 40 }]);
     expect(value.frames.size).toBe(0);
   });
@@ -174,7 +175,7 @@ describe("Home interaction recorder", () => {
     expect(value.frames.size).toBe(0);
     value.at(300); value.idle();
     expect(value.sent).toEqual([{ version: 1, kind: "home-scroll", route: "/home",
-      cache: "retained", device: "mobile-low", durationMs: 0, frameCount: 3,
+      cache: "retained", device: "mobile-low", engine: "webkit", durationMs: 0, frameCount: 3,
       slowFrameCount: 0, maxFrameMs: 20, longFrameCount: 0, longFrameMs: 0 }]);
   });
   test("scroll resumes after a pause without treating the pause as a slow frame", () => {
@@ -191,7 +192,7 @@ describe("Home interaction recorder", () => {
     value.at(228); value.frame();
     value.at(480); value.idle();
     expect(value.sent).toEqual([{ version: 1, kind: "home-scroll", route: "/home",
-      cache: "retained", device: "mobile-low", durationMs: 200, frameCount: 6,
+      cache: "retained", device: "mobile-low", engine: "webkit", durationMs: 200, frameCount: 6,
       slowFrameCount: 0, maxFrameMs: 20, longFrameCount: 0, longFrameMs: 0 }]);
     expect(value.frames.size).toBe(0);
   });
@@ -255,7 +256,8 @@ describe("Home interaction recorder", () => {
   test("swallows synchronous send failures", () => {
     const value = fixture();
     const recorder = createHomeInteractionRecorder({
-      now: () => 1, random: () => 0, sampleRate: 1, device: () => "mobile-low", isVisible: () => true,
+      now: () => 1, random: () => 0, sampleRate: 1, device: () => "mobile-low",
+      engine: () => "webkit", isVisible: () => true,
       requestFrame: (run) => { run(); return 1; }, cancelFrame: () => {},
       scheduleTimeout: (run) => { run(); return 1 as unknown as ReturnType<typeof setTimeout>; },
       clearTimeout: () => {}, observeLongFrames: () => null,
@@ -277,9 +279,23 @@ test("device classes use coarse pointer and known low hardware first", () => {
   ] as const) expect(classifyHomeDevice(input)).toBe(expected);
 });
 
+test("engine classification prioritizes iOS and iPadOS over browser tokens", () => {
+  for (const [userAgent, expected] of [
+    ["Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1 CriOS/120.0", "webkit"],
+    ["Mozilla/5.0 (Macintosh; Intel Mac OS X) AppleWebKit/605.1 Mobile/15E148", "webkit"],
+    ["Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1 FxiOS/122.0", "webkit"],
+    ["Mozilla/5.0 (iPod touch; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1 EdgiOS/120.0", "webkit"],
+    ["Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 Chrome/120.0 Edg/120.0", "chromium"],
+    ["Mozilla/5.0 (Linux) Chromium/120.0", "chromium"],
+    ["Mozilla/5.0 (Windows NT 10.0) Gecko/20100101 Firefox/120.0", "gecko"],
+    ["Mozilla/5.0 (Macintosh) AppleWebKit/605.1 Safari/605.1", "webkit"],
+    ["", "other"],
+  ] as const) expect(classifyHomeEngine(userAgent)).toBe(expected);
+});
+
 test("sample-rate override accepts decimals in range or uses default", () => {
-  for (const [raw, expected] of [[undefined, 0.1], ["0", 0], ["1", 1], ["0.25", 0.25],
-    ["1.0", 1], ["-0.1", 0.1], ["1.1", 0.1], ["no", 0.1], ["", 0.1]] as const) {
+  for (const [raw, expected] of [[undefined, 0.25], ["0", 0], ["1", 1], ["0.25", 0.25],
+    ["1.0", 1], ["-0.1", 0.25], ["1.1", 0.25], ["no", 0.25], ["", 0.25]] as const) {
     expect(resolveHomeInteractionSampleRate(raw)).toBe(expected);
   }
 });

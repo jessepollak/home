@@ -4,7 +4,9 @@ import { normalizeObservabilityEvent, type ObservabilityEvent } from "@/server/o
 import {
   CLIENT_PERFORMANCE_MAX_BODY_BYTES,
   CLIENT_PERFORMANCE_MAX_REPORTS_PER_WINDOW,
+  CLIENT_PERFORMANCE_MAX_INTERACTION_REPORTS_PER_WINDOW,
   createClientPerformanceHandler,
+  createClientPerformancePermits,
 } from "@/server/observability/client-performance";
 
 const endpoint = "https://home.example/api/client-performance";
@@ -41,9 +43,15 @@ const authReady = {
   totalMs: 1_024,
 } as const;
 
+const navigation = { version: 1, kind: "home-navigation", route: "/cash", from: "/home",
+  cache: "retained", trigger: "in-app", device: "mobile-low", durationMs: 24 } as const;
+const scroll = { version: 1, kind: "home-scroll", route: "/cash", cache: "retained",
+  device: "desktop-high", durationMs: 401, frameCount: 4, slowFrameCount: 1, maxFrameMs: 29 } as const;
+
 function request(
   body: string | Uint8Array | ReadableStream<Uint8Array>,
   headerValues: Record<string, string> = safeHeaders,
+  query?: string,
 ): Request {
   const normalizedHeaders = new Map(
     Object.entries(headerValues).map(([key, value]) => [key.toLowerCase(), value]),
@@ -56,8 +64,11 @@ function request(
           controller.close();
         },
       });
+  const bodyKind = typeof body === "string" ? (() => {
+    try { return JSON.parse(body).kind as string | undefined; } catch { return undefined; }
+  })() : undefined;
   return {
-    url: endpoint,
+    url: `${endpoint}?${query ?? `kind=${bodyKind ?? "home-startup"}`}`,
     headers: {
       get: (name: string) => normalizedHeaders.get(name.toLowerCase()) ?? null,
       has: (name: string) => normalizedHeaders.has(name.toLowerCase()),
@@ -184,6 +195,87 @@ describe("POST /api/client-performance", () => {
     )).status).toBe(429);
   });
 
+  test("interaction flood cannot consume startup budget, and reporting cannot consume interaction budget", async () => {
+    let now = 1_000;
+    const handler = createClientPerformanceHandler({
+      takePermit: createClientPerformancePermits(() => now), log: () => {},
+    });
+    for (let i = 0; i < CLIENT_PERFORMANCE_MAX_INTERACTION_REPORTS_PER_WINDOW + 5; i++) {
+      const response = await handler(request(JSON.stringify(i % 2 === 0 ? navigation : scroll)));
+      expect(response.status).toBe(i < CLIENT_PERFORMANCE_MAX_INTERACTION_REPORTS_PER_WINDOW ? 204 : 429);
+      if (i >= CLIENT_PERFORMANCE_MAX_INTERACTION_REPORTS_PER_WINDOW) expect(response.headers.get("retry-after")).toBe("60");
+    }
+    expect((await handler(request(JSON.stringify(ready)))).status).toBe(204);
+    expect((await handler(request(JSON.stringify(authReady)))).status).toBe(204);
+    for (let i = 2; i < CLIENT_PERFORMANCE_MAX_REPORTS_PER_WINDOW; i++) {
+      expect((await handler(request(JSON.stringify(ready)))).status).toBe(204);
+    }
+    expect((await handler(request(JSON.stringify(ready)))).status).toBe(429);
+    now += 60_000;
+    expect((await handler(request(JSON.stringify(navigation)))).status).toBe(204);
+    expect((await handler(request(JSON.stringify(ready)))).status).toBe(204);
+  });
+
+  test("reporting flood leaves interaction capacity available", async () => {
+    const handler = createClientPerformanceHandler({
+      takePermit: createClientPerformancePermits(() => 1_000), log: () => {},
+    });
+    for (let i = 0; i < CLIENT_PERFORMANCE_MAX_REPORTS_PER_WINDOW; i++) {
+      expect((await handler(request(JSON.stringify(ready)))).status).toBe(204);
+    }
+    expect((await handler(request(JSON.stringify(authReady)))).status).toBe(429);
+    expect((await handler(request(JSON.stringify(navigation)))).status).toBe(204);
+  });
+
+  test("rejects unknown, absent, and duplicate kind without reading body or taking a permit", async () => {
+    for (const query of ["", "kind=unknown", "kind=home-startup&kind=home-scroll"]) {
+      let pulls = 0;
+      let cancelled = false;
+      let permits = 0;
+      const body = new ReadableStream<Uint8Array>({
+        pull() { pulls += 1; },
+        cancel() { cancelled = true; },
+      }, { highWaterMark: 0 });
+      const response = await createClientPerformanceHandler({
+        takePermit: () => { permits += 1; return true; },
+        log: () => { throw new Error("must not log"); },
+      })(request(body, safeHeaders, query));
+      expect(response.status).toBe(400);
+      expect(pulls).toBe(0);
+      expect(cancelled).toBe(true);
+      expect(permits).toBe(0);
+    }
+  });
+
+  test("over-limit request is cancelled without reading its body", async () => {
+    let pulls = 0;
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull() { pulls += 1; },
+      cancel() { cancelled = true; },
+    }, { highWaterMark: 0 });
+    const response = await createClientPerformanceHandler({ takePermit: () => false })(
+      request(body, safeHeaders, "kind=home-navigation"),
+    );
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("60");
+    expect(pulls).toBe(0);
+    expect(cancelled).toBe(true);
+  });
+
+  test("mismatched query and body kinds are rejected after admission without logging", async () => {
+    const buckets: string[] = [];
+    const events: ObservabilityEvent[] = [];
+    const handler = createClientPerformanceHandler({
+      takePermit: (bucket) => { buckets.push(bucket); return true; },
+      log: (event) => { events.push(event); },
+    });
+    expect((await handler(request(JSON.stringify(navigation), safeHeaders, "kind=home-startup"))).status).toBe(400);
+    expect((await handler(request(JSON.stringify(ready), safeHeaders, "kind=home-navigation"))).status).toBe(400);
+    expect(buckets).toEqual(["reporting", "interaction"]);
+    expect(events).toEqual([]);
+  });
+
   test("logs only the typed event with no identity or arbitrary data", async () => {
     const events: ObservabilityEvent[] = [];
     const response = await createClientPerformanceHandler({
@@ -227,14 +319,10 @@ describe("POST /api/client-performance", () => {
     const handler = createClientPerformanceHandler({
       deployment: "deploy-123", takePermit: () => true, log: (event) => events.push(event),
     });
-    const navigation = { version: 1, kind: "home-navigation", route: "/cash", from: "/home",
-      cache: "retained", trigger: "in-app", device: "mobile-low", durationMs: 24 } as const;
-    const scroll = { version: 1, kind: "home-scroll", route: "/cash", cache: "retained",
-      device: "desktop-high", durationMs: 401, frameCount: 4, slowFrameCount: 1, maxFrameMs: 29 } as const;
-    expect((await handler(request(JSON.stringify(navigation)))).status).toBe(204);
+    expect((await handler(request(JSON.stringify({ ...navigation, engine: "webkit" })))).status).toBe(204);
     expect((await handler(request(JSON.stringify(scroll)))).status).toBe(204);
     expect(events).toEqual([
-      { ...navigation, durationMs: 20, deployment: "deploy-123" },
+      { ...navigation, engine: "webkit", durationMs: 20, deployment: "deploy-123" },
       { ...scroll, durationMs: 400, maxFrameMs: 30, deployment: "deploy-123" },
     ]);
     expect((await handler(request(JSON.stringify({ ...navigation, deployment: "client" })))).status).toBe(400);

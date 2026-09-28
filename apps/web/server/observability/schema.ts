@@ -5,7 +5,7 @@ import {
   sanitizeRoutePath,
   scrubString,
 } from "@/shared/observability/scrub";
-import { HOME_AUTH_RESTORE_STAGES } from "@/shared/observability/client-performance.contract";
+import { HOME_AUTH_RESTORE_STAGES, HOME_ENGINES } from "@/shared/observability/client-performance.contract";
 import type {
   HomeAuthRestoreReport,
   HomeAuthSignOutReport,
@@ -257,6 +257,7 @@ export type ObservabilityLogLine = ObservabilityLogBase &
         trigger: HomeNavigationReport["trigger"];
         cache: HomeNavigationReport["cache"];
         device: HomeNavigationReport["device"];
+        engine?: HomeNavigationReport["engine"];
         deployment: string;
         durationMs: number;
       }
@@ -267,6 +268,7 @@ export type ObservabilityLogLine = ObservabilityLogBase &
         version: 1;
         cache: HomeScrollReport["cache"];
         device: HomeScrollReport["device"];
+        engine?: HomeScrollReport["engine"];
         deployment: string;
         durationMs: number;
         frameCount: number;
@@ -425,6 +427,7 @@ export function normalizeObservabilityEvent(
       trigger: event.trigger,
       cache: event.cache,
       device: event.device,
+      ...(HOME_ENGINES.some((engine) => engine === event.engine) ? { engine: event.engine } : {}),
       deployment: typeof event.deployment === "string"
         ? sanitizeIdentifier(event.deployment, "unknown") : "unknown",
       durationMs: boundedInteger(event.durationMs, 10_000),
@@ -442,6 +445,7 @@ export function normalizeObservabilityEvent(
       version: 1,
       cache: event.cache,
       device: event.device,
+      ...(HOME_ENGINES.some((engine) => engine === event.engine) ? { engine: event.engine } : {}),
       deployment: typeof event.deployment === "string"
         ? sanitizeIdentifier(event.deployment, "unknown") : "unknown",
       durationMs: boundedInteger(event.durationMs, 30_000),

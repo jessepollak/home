@@ -17,6 +17,10 @@ export const HOME_PANEL_CACHE_STATES = ["retained", "first-visit"] as const;
 export const HOME_DEVICE_CLASSES = [
   "mobile-low", "mobile-high", "mobile-unknown", "desktop-low", "desktop-high", "desktop-unknown",
 ] as const;
+export const HOME_ENGINES = ["chromium", "webkit", "gecko", "other"] as const;
+export const CLIENT_PERFORMANCE_KINDS = [
+  "home-startup", "home-auth-phase", "home-navigation", "home-scroll",
+] as const;
 export const HOME_NAVIGATION_TRIGGERS = ["in-app", "history"] as const;
 export const HOME_STARTUP_OUTCOMES = [
   "ready",
@@ -34,6 +38,8 @@ export type HomeStartupRoute = (typeof HOME_STARTUP_ROUTES)[number];
 export type HomeInteractionRoute = (typeof HOME_INTERACTION_ROUTES)[number];
 export type HomePanelCacheState = (typeof HOME_PANEL_CACHE_STATES)[number];
 export type HomeDeviceClass = (typeof HOME_DEVICE_CLASSES)[number];
+export type HomeEngine = (typeof HOME_ENGINES)[number];
+export type ClientPerformanceKind = (typeof CLIENT_PERFORMANCE_KINDS)[number];
 export type HomeNavigationTrigger = (typeof HOME_NAVIGATION_TRIGGERS)[number];
 export type HomeStartupOutcome = (typeof HOME_STARTUP_OUTCOMES)[number];
 export type HomeStartupCacheState = (typeof HOME_STARTUP_CACHE_STATES)[number];
@@ -41,6 +47,10 @@ export type HomeAuthHint = (typeof HOME_AUTH_HINTS)[number];
 export type HomeAuthOutcome = (typeof HOME_AUTH_OUTCOMES)[number];
 export type HomeAuthRestoreStage = "token" | "validation";
 export type HomeAuthSignOutOutcome = (typeof HOME_AUTH_SIGNOUT_OUTCOMES)[number];
+
+export function clientPerformanceBucket(kind: ClientPerformanceKind): "interaction" | "reporting" {
+  return kind === "home-navigation" || kind === "home-scroll" ? "interaction" : "reporting";
+}
 
 export type HomeStartupReport = {
   version: typeof HOME_STARTUP_VERSION;
@@ -96,6 +106,7 @@ export type HomeNavigationReport = {
   trigger: HomeNavigationTrigger;
   cache: HomePanelCacheState;
   device: HomeDeviceClass;
+  engine?: HomeEngine;
   durationMs: number;
 };
 
@@ -105,6 +116,7 @@ export type HomeScrollReport = {
   route: HomeInteractionRoute;
   cache: HomePanelCacheState;
   device: HomeDeviceClass;
+  engine?: HomeEngine;
   durationMs: number;
   frameCount: number;
   slowFrameCount: number;
@@ -119,10 +131,11 @@ export type ClientPerformanceReport = HomeStartupReport | HomeAuthRestoreReport 
 const navigationRequiredKeys = new Set([
   "version", "kind", "route", "from", "trigger", "cache", "device", "durationMs",
 ]);
+const navigationAllowedKeys = new Set([...navigationRequiredKeys, "engine"]);
 const scrollRequiredKeys = new Set([
   "version", "kind", "route", "cache", "device", "durationMs", "frameCount", "slowFrameCount", "maxFrameMs",
 ]);
-const scrollAllowedKeys = new Set([...scrollRequiredKeys, "longFrameCount", "longFrameMs"]);
+const scrollAllowedKeys = new Set([...scrollRequiredKeys, "engine", "longFrameCount", "longFrameMs"]);
 
 const startupAllowedKeys = new Set([
   "version",
@@ -222,20 +235,22 @@ function hasInteractionDimensions(record: Record<string, unknown>): record is Re
 }
 
 function parseHomeNavigationReport(record: Record<string, unknown>): HomeNavigationReport | null {
-  if (!hasExactShape(record, navigationRequiredKeys, navigationRequiredKeys) ||
+  if (!hasExactShape(record, navigationAllowedKeys, navigationRequiredKeys) ||
     !hasInteractionDimensions(record) || !isAllowed(record.from, HOME_INTERACTION_ROUTES) ||
-    record.from === record.route || !isAllowed(record.trigger, HOME_NAVIGATION_TRIGGERS)) return null;
+    record.from === record.route || !isAllowed(record.trigger, HOME_NAVIGATION_TRIGGERS) ||
+    !hasValidEngine(record)) return null;
   const durationMs = normalizeDuration(record.durationMs, 10, 10_000);
   if (durationMs === null) return null;
   return { version: 1, kind: "home-navigation", route: record.route, from: record.from,
-    trigger: record.trigger, cache: record.cache, device: record.device, durationMs };
+    trigger: record.trigger, cache: record.cache, device: record.device,
+    ...(Object.hasOwn(record, "engine") ? { engine: record.engine as HomeEngine } : {}), durationMs };
 }
 
 function parseHomeScrollReport(record: Record<string, unknown>): HomeScrollReport | null {
   const hasLongCount = Object.hasOwn(record, "longFrameCount");
   const hasLongMs = Object.hasOwn(record, "longFrameMs");
   if (!hasExactShape(record, scrollAllowedKeys, scrollRequiredKeys) ||
-    !hasInteractionDimensions(record) || hasLongCount !== hasLongMs) return null;
+    !hasInteractionDimensions(record) || !hasValidEngine(record) || hasLongCount !== hasLongMs) return null;
   const durationMs = normalizeDuration(record.durationMs, 50, 30_000);
   const frameCount = normalizeDuration(record.frameCount, 1, 10_000);
   const slowFrameCount = normalizeDuration(record.slowFrameCount, 1, 10_000);
@@ -245,6 +260,7 @@ function parseHomeScrollReport(record: Record<string, unknown>): HomeScrollRepor
   if (durationMs === null || frameCount === null || slowFrameCount === null || maxFrameMs === null ||
     longFrameCount === null || longFrameMs === null) return null;
   return { version: 1, kind: "home-scroll", route: record.route, cache: record.cache, device: record.device,
+    ...(Object.hasOwn(record, "engine") ? { engine: record.engine as HomeEngine } : {}),
     durationMs, frameCount, slowFrameCount: Math.min(slowFrameCount, frameCount), maxFrameMs,
     ...(hasLongCount ? { longFrameCount, longFrameMs } : {}) };
 }
@@ -359,6 +375,10 @@ function parseHomeAuthSignOutReport(record: Record<string, unknown>): HomeAuthSi
     cdpSignOutAttempted: record.cdpSignOutAttempted,
     totalMs,
   };
+}
+
+function hasValidEngine(record: Record<string, unknown>): boolean {
+  return !Object.hasOwn(record, "engine") || isAllowed(record.engine, HOME_ENGINES);
 }
 
 function hasExactShape(

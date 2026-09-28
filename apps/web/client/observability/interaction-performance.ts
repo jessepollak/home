@@ -1,6 +1,7 @@
 import {
   parseClientPerformanceReport,
   type HomeDeviceClass,
+  type HomeEngine,
   type HomeInteractionRoute,
   type HomeNavigationReport,
   type HomeNavigationTrigger,
@@ -18,6 +19,7 @@ type Dependencies = {
   random: () => number;
   sampleRate: number;
   device: () => HomeDeviceClass;
+  engine: () => HomeEngine;
   isVisible: () => boolean;
   requestFrame: (run: () => void) => number;
   cancelFrame: (handle: number) => void;
@@ -119,7 +121,7 @@ export function createHomeInteractionRecorder(deps: Dependencies) {
         session.intervals.some((interval) => start < interval.end && start + duration > interval.start));
       scrollCount += 1;
       send({ version: 1, kind: "home-scroll", route: session.route, cache: session.cache,
-        device: deps.device(), durationMs: session.lastScrollAt - session.startedAt,
+        device: deps.device(), engine: deps.engine(), durationMs: session.lastScrollAt - session.startedAt,
         frameCount: session.frameCount, slowFrameCount: session.slowFrameCount,
         maxFrameMs: session.maxFrameMs,
         ...(session.longFramesSupported ? {
@@ -163,7 +165,7 @@ export function createHomeInteractionRecorder(deps: Dependencies) {
                 navigationCount += 1;
                 send({ version: 1, kind: "home-navigation", route: to,
                   from: navigation.from, trigger: navigation.trigger, cache: navigation.cache,
-                  device: deps.device(), durationMs: deps.now() - navigation.startedAt });
+                  device: deps.device(), engine: deps.engine(), durationMs: deps.now() - navigation.startedAt });
               } catch {
                 return undefined;
               }
@@ -253,8 +255,16 @@ export function classifyHomeDevice({ coarsePointer, hardwareConcurrency, deviceM
   return `${prefix}-${tier}`;
 }
 
+export function classifyHomeEngine(userAgent: string): HomeEngine {
+  if (/(?:iPhone|iPad|iPod)/i.test(userAgent)) return "webkit";
+  if (/Firefox\//i.test(userAgent)) return "gecko";
+  if (/(?:Chrome|Chromium)\//i.test(userAgent)) return "chromium";
+  if (/AppleWebKit\//i.test(userAgent)) return "webkit";
+  return "other";
+}
+
 export function resolveHomeInteractionSampleRate(raw: string | undefined): number {
-  if (raw === undefined || !/^(?:0(?:\.\d+)?|1(?:\.0+)?)$/.test(raw)) return 0.1;
+  if (raw === undefined || !/^(?:0(?:\.\d+)?|1(?:\.0+)?)$/.test(raw)) return 0.25;
   return Number(raw);
 }
 
@@ -267,6 +277,7 @@ const recorder = createHomeInteractionRecorder({
     hardwareConcurrency: navigator.hardwareConcurrency,
     deviceMemory: (navigator as Navigator & { deviceMemory?: number }).deviceMemory,
   }),
+  engine: () => classifyHomeEngine(navigator.userAgent),
   isVisible: () => document.visibilityState === "visible",
   requestFrame: (run) => requestAnimationFrame(run),
   cancelFrame: (handle) => cancelAnimationFrame(handle),
