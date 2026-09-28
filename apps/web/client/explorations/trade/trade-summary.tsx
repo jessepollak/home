@@ -7,13 +7,13 @@ import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { formatFiatAmount } from "@/shared/formatting";
 
 export function TradeSummary({ amount, lead, receive, action }: { amount: string; lead: string; receive: string; action: PreparedMoneyAction }) {
-  const { containerRef, sizerRef, fontSize } = useAutoFitAmountText(amount);
+  const { containerRef, sizerRef, fontSize } = useAutoFitAmountText<HTMLParagraphElement>(amount);
   return (
     <div className="space-y-6">
       <div className="space-y-1 text-center">
-        <label ref={containerRef} data-trade-amount className="block w-full min-w-0 overflow-hidden whitespace-nowrap text-4xl font-semibold tabular-nums" style={fontSize === undefined ? undefined : { fontSize }}>
+        <p ref={containerRef} data-trade-amount className="block w-full min-w-0 overflow-hidden whitespace-nowrap text-4xl font-semibold tabular-nums" style={fontSize === undefined ? undefined : { fontSize }}>
           <bdi dir="ltr"><MoneyTicker value={amount} animated={false} reserveDigits={false} /></bdi>
-        </label>
+        </p>
         <span ref={sizerRef} className="pointer-events-none absolute invisible whitespace-nowrap text-4xl font-semibold tabular-nums" aria-hidden="true">{amount}</span>
         <p className="text-sm text-muted-foreground">{lead}</p>
       </div>

@@ -16,7 +16,7 @@ function commitUrl(build: ReviewBuild): string | undefined {
 }
 
 function link(href: string, title: string) {
-  return <a href={href} target="_blank" rel="noreferrer" title={title} />;
+  return (props: React.ComponentProps<"a">) => <a {...props} href={href} target="_blank" rel="noreferrer" title={title} />;
 }
 
 export function BuildChip({ build }: { build: ReviewBuild }) {

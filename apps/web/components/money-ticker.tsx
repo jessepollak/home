@@ -172,6 +172,7 @@ export function MoneyTicker({
         {characters.map((character, index) => {
           if (!isAsciiDigit(character)) {
             return (
+              // oxlint-disable-next-line react/no-array-index-key -- Character position is the identity for ticker animation.
               <span className="whitespace-pre" key={`literal-${index}-${character}`}>
                 {character}
               </span>

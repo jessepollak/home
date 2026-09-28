@@ -56,12 +56,13 @@ export function CoverageStatusPreview({
         data-tone={status.toLowerCase()}
         openOnHover
         delay={0}
-        render={<button type="button" />}
+        render={(props) => <button {...props} type="button" />}
       />
       <Popover.Portal>
         <Popover.Positioner className="z-50 w-[min(22rem,var(--available-width))]" sideOffset={8}>
           <Popover.Popup className="box-border max-h-[var(--available-height)] w-[var(--popup-width,auto)] origin-[var(--transform-origin)] overflow-auto rounded-lg border border-border bg-popover p-[0.875rem] text-popover-foreground shadow-lg transition-[opacity,transform] duration-100 ease-[ease] data-starting-style:opacity-0 data-starting-style:[transform:scale(0.98)] data-ending-style:opacity-0 data-ending-style:[transform:scale(0.98)]">
             <Popover.Arrow className="h-1.5 w-3" />
+            {/* oxlint-disable-next-line jsx-a11y/heading-has-content -- Popover.Title supplies the heading content to its rendered element. */}
             <Popover.Title className="m-0 mb-2.5 text-[0.875rem] font-semibold" render={<h3 />}>{heading}</Popover.Title>
             <dl className="m-0 grid gap-[0.45rem] text-[0.8125rem]">
               <div className="grid grid-cols-[minmax(6.5rem,auto)_1fr] gap-3">

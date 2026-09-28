@@ -24,6 +24,7 @@ describe("CoverageStatusPreview", () => {
     expect(trigger.textContent).toBe("");
     expect(trigger.getAttribute("aria-haspopup")).toBe("dialog");
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(trigger.getAttribute("type")).toBe("button");
     expect(view.queryByRole("dialog")).toBeNull();
 
     fireEvent.click(trigger);

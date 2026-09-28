@@ -435,6 +435,7 @@ function QuoteReview({
               {draft.quote.fees.length ? (
                 draft.quote.fees.map((fee, index) => (
                   <DefinitionRow
+                    // oxlint-disable-next-line react/no-array-index-key -- Provider fee breakdown has no guaranteed unique fee identifier.
                     key={`${fee.label}:${index}`}
                     label={fee.label}
                     value={formatFiatAmount(fee.amount, fee.currency)}
@@ -512,6 +513,7 @@ function ProviderEconomicsReview({
               {fees.length ? (
                 fees.map((fee, index) => (
                   <DefinitionRow
+                    // oxlint-disable-next-line react/no-array-index-key -- Provider fee breakdown has no guaranteed unique fee identifier.
                     key={`${fee.label}:${index}`}
                     label={fee.label}
                     value={formatFiatAmount(fee.amount, fee.currency)}
@@ -667,6 +669,7 @@ function SettledAmounts({
       <DefinitionRow label="Receive" value={receive} />
       {fees.map((fee, index) => (
         <DefinitionRow
+          // oxlint-disable-next-line react/no-array-index-key -- Provider fee breakdown has no guaranteed unique fee identifier.
           key={`${fee.label}:${index}`}
           label={fee.label}
           value={formatFiatAmount(fee.amount, fee.currency)}

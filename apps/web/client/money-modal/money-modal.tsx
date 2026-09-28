@@ -16,7 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { MONEY_ACTION_ID_ATTRIBUTE } from "@/shared/money-actions";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { ArrowLeft, X } from "lucide-react";
-import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent, type ReactNode, type RefObject } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode, type RefObject } from "react";
 
 const MoneyModalPendingContext = createContext({ pending: false, register: (_id: symbol, _pending: boolean) => {} });
 const MoneyModalStepContext = createContext<((report: StepReport) => void) | null>(null);
@@ -227,8 +227,10 @@ export function AppDrawer({ open, labelledBy, describedBy, immediate = false, va
     if (document.activeElement === active) active.blur();
   }, [open]);
 
+  const exit = useCallback(() => { onCancel(); }, [onCancel]);
+
   return (
-    <MoneyModalExitContext value={() => { onCancel(); }}>
+    <MoneyModalExitContext value={exit}>
     <Drawer open={open} modal keyboardAware swipeDirection="down" onOpenChange={(nextOpen, eventDetails) => {
       if (nextOpen) return;
       if (onCancel() === false) eventDetails.cancel();
@@ -273,7 +275,8 @@ export function MoneyModal({ open, labelledBy, describedBy, immediate = false, p
   }, []);
   const effectivePending = pending || registrants.size > 0;
   const handoff = useContext(MoneyModalHandoffContext);
-  return <MoneyModalPendingContext value={{ pending: effectivePending, register }}><AppDrawer open={open} labelledBy={labelledBy} describedBy={describedBy} immediate={immediate || handoff} variant="money" onCancel={() => effectivePending ? false : onCancel()} onClose={onClose}>{children}</AppDrawer></MoneyModalPendingContext>;
+  const pendingValue = useMemo(() => ({ pending: effectivePending, register }), [effectivePending, register]);
+  return <MoneyModalPendingContext value={pendingValue}><AppDrawer open={open} labelledBy={labelledBy} describedBy={describedBy} immediate={immediate || handoff} variant="money" onCancel={() => effectivePending ? false : onCancel()} onClose={onClose}>{children}</AppDrawer></MoneyModalPendingContext>;
 }
 
 /** @public shared money-flow step contract (#1058) */

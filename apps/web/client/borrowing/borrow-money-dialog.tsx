@@ -427,7 +427,7 @@ function BorrowPreparedReview({ action, snapshot, regionId }: { action: Prepared
       {action.warnings.length > 0 ? (
         <BorrowNotice title="Review warnings">
           <ul className="list-disc space-y-1 pl-4">
-            {action.warnings.map((warning, index) => <li key={`${index}:${warning}`}>{warning}</li>)}
+            {[...new Set(action.warnings)].map((warning) => <li key={warning}>{warning}</li>)}
           </ul>
         </BorrowNotice>
       ) : null}
