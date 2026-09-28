@@ -1,6 +1,6 @@
 import { useRef, useState, type ComponentProps } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, fireEvent, userEvent, waitFor, within } from "storybook/test";
 import { AppChromeProvider } from "@/components/app-chrome";
 import { MoneyMotionProvider } from "@/components/money-ticker";
 import { PrimaryNavigation } from "@/components/primary-navigation";
@@ -202,9 +202,15 @@ async function verifyRapidTabs(canvasElement: HTMLElement) {
 async function openMoneySheet(canvasElement: HTMLElement) {
   const cash = within(canvasElement).getByRole("main");
   await userEvent.click(await within(cash).findByRole("button", { name: /^US dollar/ }));
-  await within(cash).findByRole("button", { name: "Deposit" });
-  await userEvent.click(within(canvasElement).getByRole("button", { name: "Deposit" }));
+  const savingsRegion = within(cash).getByRole("region", { name: "Your savings" });
+  await waitFor(() => expect(savingsRegion).not.toHaveAttribute("aria-busy"));
+  await waitFor(() => expect(within(savingsRegion).queryAllByText("Loading rate")).toHaveLength(0));
+  const manage = await within(cash).findByRole("button", { name: /^Gauntlet USDC Prime/, description: "Manage Gauntlet USDC Prime" });
+  manage.focus();
+  await fireEvent.click(manage);
   const body = within(canvasElement.ownerDocument.body);
+  await body.findByText("Saved", undefined, { timeout: 10_000 });
+  await fireEvent.click(within(body.getByRole("dialog", { name: "Gauntlet USDC Prime" })).getByRole("button", { name: "Deposit more" }));
   const input = await body.findByRole("textbox", { name: "Amount" });
   const dialog = body.getByRole("dialog", { name: "Deposit" });
   input.focus();
