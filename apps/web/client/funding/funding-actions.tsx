@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
@@ -19,13 +19,10 @@ import { uiBoundary } from "@/client/account/owner-keys";
 import { useIdlePreload } from "@/client/money-modal/deferred-sheet";
 import { moneySheetIntent } from "@/client/money-modal";
 import { browserHomeQueryClient, useHomeQueryClient } from "@/client/query/query-client";
+import { useFlowModal } from "@/client/home/use-flow-modal";
 import { prefetchAddMoneyMethods } from "./funding-prefetch";
 import { FundingExperienceForWallet, preloadAddMoneySheet } from "./funding-experience";
 import type { AddMoneyStep } from "./add-money-dialog";
-
-const subscribeToMountedState = () => () => {};
-const mountedClientSnapshot = () => true;
-const mountedServerSnapshot = () => false;
 
 type FundingFlow = Extract<ShellFlow, "add-money" | "receive">;
 
@@ -59,12 +56,7 @@ export function FundingActionsForWallet({
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
   const [userOpen, setUserOpen] = useState(false);
   const [dismissed, setDismissed] = useState(false);
-  const openedInAppRef = useRef(false);
-  const mounted = useSyncExternalStore(
-    subscribeToMountedState,
-    mountedClientSnapshot,
-    mountedServerSnapshot,
-  );
+  const { mounted, markOpenedInApp, takeOpenedInApp } = useFlowModal();
   useIdlePreload(preloadAddMoneySheet, uiBoundary(wallet) !== null);
   const intent = moneySheetIntent(preloadAddMoneySheet, () => prefetchAddMoneyMethods(wallet, regionId, regionReady, queryClient));
   const routedFlow = routing?.state.flow === "add-money" || routing?.state.flow === "receive"
@@ -92,9 +84,9 @@ export function FundingActionsForWallet({
     closingRef.current = true;
     setUserOpen(false);
     setDismissed(true);
-    if ((routing && window.history.state?.__homeFundingFlowPushed === true) ||
-      (!routing && openedInAppRef.current)) {
-      openedInAppRef.current = false;
+    const routingPushedEntry =
+      routing !== null && window.history.state?.__homeFundingFlowPushed === true;
+    if (routingPushedEntry || (!routing && takeOpenedInApp())) {
       window.history.back();
     } else if (
       isCanonicalShellPathname(pathname) &&
@@ -144,7 +136,7 @@ export function FundingActionsForWallet({
           void preloadAddMoneySheet();
           setDismissed(false);
           setUserOpen(true);
-          if (setFundingFlow("add-money", "push") && !routing) openedInAppRef.current = true;
+          if (setFundingFlow("add-money", "push") && !routing) markOpenedInApp();
         }}
       >
         <Plus className="size-4" aria-hidden="true" />

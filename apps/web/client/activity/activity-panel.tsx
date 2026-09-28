@@ -5,7 +5,7 @@ import { RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LoadErrorCard, LoadRetryButton } from "@/components/load-error";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { EmptyState } from "@/components/empty-state";
 import { ActivityLoader } from "@/components/activity-loader";
 import { deferSheet } from "@/client/money-modal/deferred-sheet";
 import { moneySheetLoading } from "@/client/money-modal";
@@ -468,22 +468,9 @@ function ActivityUnavailable({
 
 function ActivityEmpty({ plain, action }: { plain: boolean; action?: ReactNode }) {
   if (plain && action) {
-    return (
-      <Empty className="gap-3 p-4" data-activity-nux="">
-        <EmptyHeader>
-          <EmptyTitle>No activity yet</EmptyTitle>
-        </EmptyHeader>
-        <EmptyContent>{action}</EmptyContent>
-      </Empty>
-    );
+    return <EmptyState title="No activity yet" className="gap-3 p-4" content={action} data-activity-nux="" />;
   }
-  return (
-    <Empty className="items-start justify-start text-left">
-      <EmptyHeader className="items-start">
-        <EmptyTitle>No activity yet</EmptyTitle>
-      </EmptyHeader>
-    </Empty>
-  );
+  return <EmptyState title="No activity yet" align="start" />;
 }
 
 function DefaultActivityHeader() {

@@ -161,6 +161,12 @@ See [Home-owned product pieces](design-system/product-pieces/) for one file per 
 
 These stay app-local because they encode Home product behavior, not general-purpose primitives.
 
+## Home section primitives
+
+The Home dashboard and its panels compose one construction per visual from a small primitive set. See [Home section primitives](design-system/primitives/) for one file per primitive, each naming the code that constructs it and the Figma component it corresponds to in [figma-mapping.json](design-explorations/figma-mapping.json) (#683).
+
+Not every heading construction is part of the set. `HomeSectionHeading` in `apps/web/client/home/home-overview.tsx` renders a plain `h2`; expressing it as a `CardTitle` would change both the element and its typography, so it stays as it is.
+
 ## Testing
 
 Keep tests for Home behavior: exact amounts, dispatch counts, owner fences, routing, cancellation, focus restoration, and other failures that would affect users or money. Follow the [test policy](architecture.md#test-policy) for what not to test. The owner checks presentation manually; Home has no screenshot baselines.

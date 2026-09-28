@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import {
   useCallback,
   useEffect,
-  useRef,
   useState,
 } from "react";
 import {
@@ -23,6 +22,7 @@ import { markHomePerformance } from "@/client/observability/perf-marks";
 import { useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 import { deferSheet, useIdlePreload } from "@/client/money-modal/deferred-sheet";
 import { moneySheetIntent, moneySheetLoading } from "@/client/money-modal";
+import { useFlowModal } from "@/client/home/use-flow-modal";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import type { TransferAssetAvailability } from "@/shared/transfers/types";
 import type { RegionId } from "@/config/regions";
@@ -68,7 +68,7 @@ export function TransferActionsForWallet({
   const routing = useOptionalHomeShellRouting();
   const [sendOpen, setSendOpen] = useState(false);
   const [modalOwner, setModalOwner] = useState<string | null>(null);
-  const openedInAppRef = useRef(false);
+  const { markOpenedInApp, takeOpenedInApp } = useFlowModal();
   const boundary = uiBoundary(wallet);
   const verifiedAddress = isServerVerified(wallet)
     ? wallet.session.smartAccount?.address ?? null
@@ -99,12 +99,11 @@ export function TransferActionsForWallet({
     const pushed = routing
       ? routing.setFlow("send")
       : commitFlowUrl(flowHref(window.location.pathname, "send"));
-    if (pushed) openedInAppRef.current = true;
+    if (pushed) markOpenedInApp();
   };
   const close = () => {
     setSendOpen(false);
-    if (openedInAppRef.current) {
-      openedInAppRef.current = false;
+    if (takeOpenedInApp()) {
       window.history.back();
     } else if (routing) {
       routing.clearFlow({ mode: "replace" });
