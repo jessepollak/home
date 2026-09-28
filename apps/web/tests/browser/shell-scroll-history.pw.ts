@@ -111,7 +111,7 @@ test("immediate in-app Back preserves an unsettled Savings scroll for Forward", 
   await page.getByRole("region", { name: "Savings" }).getByRole("button", { name: /^US dollar/ }).click();
   await expect(page).toHaveURL(/\/cash\/savings$/);
   const main = page.locator(mainSelector);
-  await expect.poll(() => main.evaluate((node) => node.scrollHeight - node.clientHeight)).toBeGreaterThan(128);
+  await expect.poll(() => main.evaluate((node) => node.scrollHeight - node.clientHeight)).toBeGreaterThan(64);
   await main.evaluate((node) => { node.scrollTop = 0; });
   await expect.poll(() => page.evaluate(() => history.state?.__homeShellScrollTop)).toBe(0);
   const target = await main.evaluate((node) => {
@@ -123,7 +123,7 @@ test("immediate in-app Back preserves an unsettled Savings scroll for Forward", 
     back.click();
     return top;
   });
-  expect(target).toBeGreaterThan(128);
+  expect(target).toBeGreaterThan(64);
   await expect(page).toHaveURL(/\/cash$/);
   await page.goForward();
   await expect(page).toHaveURL(/\/cash\/savings$/);

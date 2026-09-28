@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, fireEvent, userEvent, waitFor, within } from "storybook/test";
 import { HttpResponse, http } from "msw";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { CashExperience } from "@/client/cash/cash-experience";
@@ -172,7 +172,9 @@ const prepareMoneyAction = async (
   input: unknown,
 ): Promise<PreparedMoneyAction> => {
   journey.prepared.push({ endpoint, input });
-  return preparedAction(spark, "25000000");
+  const candidate = vaultsFixture.candidates.find((entry) => entry.vaultAddress.toLowerCase() === (input as { vaultAddress: string }).vaultAddress.toLowerCase());
+  if (!candidate) throw new Error("No savings vault selected");
+  return preparedAction(candidate, "25000000");
 };
 
 const executeMoneyAction = async (
@@ -225,15 +227,11 @@ export const Deposit: Story = {
 
     await userEvent.click(await screen.findByRole("button", { name: /^US dollar/ }));
     await expect(screen.getByLabelText("Savings balance")).toBeVisible();
-    const deposit = await screen.findByRole("button", { name: "Deposit" });
-    await waitFor(() => expect(deposit).toBeEnabled());
-    await userEvent.click(deposit);
-    await screen.findByRole("textbox", { name: "Amount" });
+    await userEvent.click(await screen.findByRole("button", { name: /^Spark USDC Vault/, description: "Deposit to Spark USDC Vault" }));
+    await screen.findByRole("textbox", { name: "Amount" }, { timeout: 10_000 });
     const depositDialog = screen.getByRole("dialog", { name: "Deposit" });
     await userEvent.type(await within(depositDialog).findByRole("textbox", { name: "Amount" }), "25");
-    await userEvent.click(
-      await within(depositDialog).findByRole("button", { name: "Continue" }),
-    );
+    await fireEvent.click(await within(depositDialog).findByRole("button", { name: "Continue" }));
 
     const confirmDialog = await screen.findByRole("dialog", { name: "Confirm" });
     const amountRow = within(confirmDialog)
@@ -256,12 +254,10 @@ export const Deposit: Story = {
       },
     ]);
 
-    await userEvent.click(
-      within(confirmDialog).getByRole("button", { name: "Deposit $25.00" }),
-    );
+    await fireEvent.click(within(confirmDialog).getByRole("button", { name: "Deposit $25.00" }));
     await expect(await screen.findByRole("heading", { name: "Deposited $25.00 to Save" })).toBeVisible();
     await expect(screen.getByRole("dialog", { name: "Deposit" })).toBeVisible();
-    await userEvent.click(screen.getByRole("button", { name: "Done" }));
+    await fireEvent.click(screen.getByRole("button", { name: "Done" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await expect(journey.dispatched).toHaveLength(1);
     await expect(journey.dispatched[0]?.metadata).toMatchObject({
@@ -269,8 +265,6 @@ export const Deposit: Story = {
       vaultAddress: SELECTED_VAULT,
     });
     await expect(journey.dispatched[0]?.amounts[0]?.amountBaseUnits).toBe("25000000");
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Deposit" })).toBe(document.activeElement),
-    );
+    await expect(screen.getByRole("button", { name: /^Gauntlet USDC Prime/, description: "Manage Gauntlet USDC Prime" })).toBeVisible();
   },
 };

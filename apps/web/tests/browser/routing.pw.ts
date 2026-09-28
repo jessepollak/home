@@ -342,14 +342,17 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 
     await expect(send).toBeFocused();
 
     await page.goto("/cash/savings");
-    const deposit = page.getByRole("button", { name: "Deposit", exact: true });
-    await expect(deposit).toBeEnabled();
-    await deposit.click();
+    const savingsRow = page.getByRole("region", { name: "Your savings" }).getByRole("button", { name: /^Gauntlet USDC Prime/ });
+    await expect(savingsRow).toHaveAccessibleDescription("Manage Gauntlet USDC Prime");
+    await savingsRow.click();
+    const tray = page.getByRole("dialog", { name: "Gauntlet USDC Prime" });
+    await expect(tray).toBeVisible();
+    await tray.getByRole("button", { name: "Deposit more" }).click();
     const saveDialog = page.getByRole("dialog", { name: "Deposit" });
     await expect(saveDialog).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(saveDialog).toHaveCount(0);
-    await expect(deposit).toBeFocused();
+    await expect(savingsRow).toBeFocused();
   });
 }
 

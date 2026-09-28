@@ -11,10 +11,11 @@ import { TransferExecutionError } from "@/shared/transfers/types";
 import { formatAddress } from "@/shared/formatting";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
-import type { SavingsMoneyDialogProps } from "./savings-actions";
+import type { SavingsJourneyProps, SavingsActionMode } from "./savings-actions";
+import type { SavingsManagement } from "@/client/cash/savings-management";
 
-const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
-const { SavingsMoneyDialog } = await import("./savings-actions");
+const { act, cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
+const { SavingsJourney } = await import("./savings-actions");
 const { SavingsDialogFixtureProvider } = await import("./savings-dialog-fixture");
 
 const ACCOUNT = "0x1111111111111111111111111111111111111111" as const;
@@ -97,12 +98,17 @@ afterEach(() => {
   getHomeQueryClient().clear();
 });
 
-function ReducedSavingsMoneyDialog(props: SavingsMoneyDialogProps) {
-  return (
-    <SavingsDialogFixtureProvider value={{ motion: "reduced" }}>
-      <SavingsMoneyDialog {...props} />
-    </SavingsDialogFixtureProvider>
-  );
+type AmountJourneyProps = Omit<SavingsJourneyProps, "entry" | "management" | "onSelectMode" | "onBackToManagement" | "mode" | "candidate"> & {
+  mode: SavingsActionMode;
+  candidate: MorphoVaultCandidate;
+};
+
+function AmountJourney(props: AmountJourneyProps) {
+  return <SavingsJourney {...props} entry="amount" management={null} onSelectMode={() => {}} onBackToManagement={() => {}} />;
+}
+
+function ReducedAmountJourney(props: AmountJourneyProps) {
+  return <SavingsDialogFixtureProvider value={{ motion: "reduced" }}><AmountJourney {...props} /></SavingsDialogFixtureProvider>;
 }
 
 function ReopenHarness() {
@@ -110,7 +116,7 @@ function ReopenHarness() {
   return (
     <>
       {!open ? <button onClick={() => setOpen(true)}>Reopen deposit dialog</button> : null}
-      <SavingsMoneyDialog
+      <AmountJourney
         open={open}
         mode="deposit"
         session={session}
@@ -123,10 +129,10 @@ function ReopenHarness() {
   );
 }
 
-describe("SavingsMoneyDialog", () => {
+describe("SavingsJourney amount entry", () => {
   test("deposit Max reports a failed USDC fee lookup and recovers on Retry", async () => {
     let requests = 0;
-    render(<SavingsMoneyDialog open mode="deposit" session={session} candidate={candidate}
+    render(<AmountJourney open mode="deposit" session={session} candidate={candidate}
       availableLabel="$50.00 available" availableBaseUnits="50000000"
       fetchAccountResource={async () => {
         requests++;
@@ -147,7 +153,7 @@ describe("SavingsMoneyDialog", () => {
   });
 
   test("withdraw does not report an irrelevant USDC fee lookup failure", async () => {
-    render(<SavingsMoneyDialog open mode="withdraw" session={session} candidate={candidate}
+    render(<AmountJourney open mode="withdraw" session={session} candidate={candidate}
       availableLabel="$50.00 available" availableBaseUnits="50000000"
       fetchAccountResource={async () => { throw new Error("network unavailable"); }}
       prepareMoneyAction={async () => { throw new Error("unexpected prepare"); }}
@@ -160,7 +166,7 @@ describe("SavingsMoneyDialog", () => {
   test("prepares a deposit through the unified actions endpoint", async () => {
     const requests: Array<{ kind: string; input: unknown }> = [];
     render(
-      <SavingsMoneyDialog
+      <AmountJourney
         open mode="deposit" session={session} candidate={candidate}
         availableLabel="$50.00 available" availableBaseUnits="50000000"
         prepareMoneyAction={async (kind, input) => { requests.push({ kind, input }); return prepared("savings-deposit", "1234567"); }}
@@ -187,7 +193,7 @@ describe("SavingsMoneyDialog", () => {
     const requests: unknown[] = [];
     let executions = 0;
     render(
-      <SavingsMoneyDialog
+      <AmountJourney
         open mode="deposit" session={session} candidate={candidate}
         prepareMoneyAction={async (_kind, input) => { requests.push(input); return prepared("savings-deposit", "1234567"); }}
         executeMoneyAction={async () => { executions += 1; return { id: "action-1", status: "submitted" }; }}
@@ -204,7 +210,7 @@ describe("SavingsMoneyDialog", () => {
   test("explains an empty withdrawal balance before entry and blocks preparation", () => {
     let prepareCalls = 0;
     render(
-      <SavingsMoneyDialog
+      <AmountJourney
         open mode="withdraw" session={session} candidate={candidate}
         availableLabel="$0.00 available" availableBaseUnits="0"
         prepareMoneyAction={async () => { prepareCalls += 1; return prepared("savings-withdraw"); }}
@@ -224,7 +230,7 @@ describe("SavingsMoneyDialog", () => {
 
   test("explains an empty deposit balance before entry", () => {
     render(
-      <SavingsMoneyDialog
+      <AmountJourney
         open mode="deposit" session={session} candidate={candidate}
         availableLabel="$0.00 available" availableBaseUnits="0"
         prepareMoneyAction={async () => prepared()}
@@ -238,7 +244,7 @@ describe("SavingsMoneyDialog", () => {
   test("blocks an amount above a non-zero available deposit balance", () => {
     let prepareCalls = 0;
     render(
-      <SavingsMoneyDialog
+      <AmountJourney
         open mode="deposit" session={session} candidate={candidate}
         availableLabel="$50.00 available" availableBaseUnits="50000000"
         prepareMoneyAction={async () => { prepareCalls += 1; return prepared(); }}
@@ -261,7 +267,7 @@ describe("SavingsMoneyDialog", () => {
   test("defers a stale available balance to server preparation", async () => {
     const requests: unknown[] = [];
     render(
-      <SavingsMoneyDialog
+      <AmountJourney
         open mode="deposit" session={session} candidate={candidate}
         availableLabel="$0.00 available" availableBaseUnits="0" availableStale
         prepareMoneyAction={async (_kind, input) => { requests.push(input); return prepared("savings-deposit", "60000000"); }}
@@ -281,7 +287,7 @@ describe("SavingsMoneyDialog", () => {
   test("defers a malformed available balance to server preparation", async () => {
     const requests: unknown[] = [];
     render(
-      <SavingsMoneyDialog
+      <AmountJourney
         open mode="withdraw" session={session} candidate={candidate}
         availableLabel="$1.50 available" availableBaseUnits="1.5"
         prepareMoneyAction={async (_kind, input) => { requests.push(input); return prepared("savings-withdraw"); }}
@@ -299,7 +305,7 @@ describe("SavingsMoneyDialog", () => {
 
   test("marks only the prepared Save withdrawal confirm control", async () => {
     render(
-      <SavingsMoneyDialog
+      <AmountJourney
         open mode="withdraw" session={session} candidate={candidate}
         prepareMoneyAction={async () => prepared("savings-withdraw")}
         executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
@@ -320,7 +326,7 @@ describe("SavingsMoneyDialog", () => {
     for (const mode of ["deposit", "withdraw"] as const) {
       let executions = 0;
       render(
-        <SavingsMoneyDialog
+        <AmountJourney
           open mode={mode} session={session} candidate={candidate}
           prepareMoneyAction={async () => prepared(mode === "deposit" ? "savings-deposit" : "savings-withdraw")}
           executeMoneyAction={async () => {
@@ -360,7 +366,7 @@ describe("SavingsMoneyDialog", () => {
         ],
         onAssetChange: (assetId) => { selected = assetId; },
       }}>
-        <SavingsMoneyDialog
+        <AmountJourney
           open mode="deposit" session={session} candidate={candidate}
           prepareMoneyAction={async () => prepared()}
           executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
@@ -390,7 +396,7 @@ describe("SavingsMoneyDialog", () => {
         ],
         onAssetChange: () => {},
       }}>
-        <SavingsMoneyDialog
+        <AmountJourney
           open mode="deposit" session={session} candidate={candidate}
           prepareMoneyAction={async () => { prepareCalls += 1; return prepared(); }}
           executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
@@ -410,7 +416,7 @@ describe("SavingsMoneyDialog", () => {
   test("forces every number and drawer layer into deterministic reduced motion", () => {
     const view = render(
       <SavingsDialogFixtureProvider value={{ motion: "reduced" }}>
-        <SavingsMoneyDialog
+        <AmountJourney
           open mode="deposit" session={session} candidate={candidate}
           availableLabel="$50.00 available" availableBaseUnits="50000000"
           prepareMoneyAction={async () => prepared()}
@@ -439,7 +445,7 @@ describe("SavingsMoneyDialog", () => {
     let closes = 0;
     function Journey() {
       const [open, setOpen] = useState(true);
-      return <SavingsMoneyDialog open={open} mode="deposit" session={session} candidate={candidate}
+      return <AmountJourney open={open} mode="deposit" session={session} candidate={candidate}
         prepareMoneyAction={async () => prepared()}
         executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
         onClose={() => { closes++; setOpen(false); }} />;
@@ -461,7 +467,7 @@ describe("SavingsMoneyDialog", () => {
   test("Save amount to review and Back keeps one dialog and refocuses amount", async () => {
     render(<>
       <button type="button">Save trigger</button>
-      <SavingsMoneyDialog open mode="deposit" session={session} candidate={candidate}
+      <AmountJourney open mode="deposit" session={session} candidate={candidate}
         prepareMoneyAction={async () => prepared()}
         executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
         onClose={() => {}}
@@ -482,7 +488,7 @@ describe("SavingsMoneyDialog", () => {
   test("Back and a rejected action preserve the selected vault, amount, and owner", async () => {
     let prepares = 0;
     render(
-      <SavingsMoneyDialog
+      <AmountJourney
         open mode="deposit" session={session} candidate={candidate}
         prepareMoneyAction={async () => { prepares += 1; return prepared(); }}
         executeMoneyAction={async () => ({ id: "action-1", status: "rejected" })}
@@ -508,7 +514,7 @@ describe("SavingsMoneyDialog", () => {
     });
     const ownerBRequests: unknown[] = [];
     const view = render(
-      <ReducedSavingsMoneyDialog
+      <ReducedAmountJourney
         open mode="deposit" session={session} candidate={candidate}
         prepareMoneyAction={() => ownerAPreparation}
         executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
@@ -521,7 +527,7 @@ describe("SavingsMoneyDialog", () => {
     await page().findByRole("dialog", { name: "Confirm" });
 
     view.rerender(
-      <ReducedSavingsMoneyDialog
+      <ReducedAmountJourney
         open mode="deposit" session={sessionB} candidate={candidate}
         prepareMoneyAction={async (_kind, input) => {
           ownerBRequests.push(input);
@@ -554,10 +560,226 @@ describe("SavingsMoneyDialog", () => {
     view.unmount();
   });
 
+const management: SavingsManagement = {
+  address: VAULT,
+  name: "Configured USDC vault",
+  savedBaseUnits: "50000000",
+  unreadable: false,
+  absent: false,
+  rateLabel: "3.50% APY",
+  depositCandidate: candidate,
+  withdrawCandidate: candidate,
+  deposit: { enabled: true, reason: null },
+  withdraw: { enabled: true, reason: null },
+  facts: [],
+  details: [],
+  liquidityNote: null,
+};
+
+function ManagementHarness({ prepareMoneyAction }: {
+  prepareMoneyAction: SavingsJourneyProps["prepareMoneyAction"];
+}) {
+  const [mode, setMode] = useState<SavingsActionMode | null>("deposit");
+  const [open, setOpen] = useState(true);
+  return (
+    <>
+      <button onClick={() => setMode(null)}>Leave amount for tray</button>
+      <SavingsJourney
+        open={open}
+        entry="management"
+        management={management}
+        mode={mode}
+        session={session}
+        candidate={candidate}
+        prepareMoneyAction={prepareMoneyAction}
+        executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
+        onSelectMode={(next) => setMode(next)}
+        onBackToManagement={() => setMode(null)}
+        onClose={() => setOpen(false)}
+      />
+    </>
+  );
+}
+
+  test("browser Back during a pending preparation leaves the management tray dismissible", async () => {
+    let resolveDeposit!: (action: PreparedMoneyAction) => void;
+    const pending = new Promise<PreparedMoneyAction>((resolve) => {
+      resolveDeposit = resolve;
+    });
+    render(
+      <SavingsDialogFixtureProvider value={{ motion: "reduced" }}>
+        <ManagementHarness prepareMoneyAction={() => pending} />
+      </SavingsDialogFixtureProvider>,
+    );
+    typeAmount("1");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.click(page().getByText("Leave amount for tray"));
+    const tray = await page().findByRole("dialog", { name: "Configured USDC vault" });
+    const close = within(tray).getByRole("button", { name: "Close Configured USDC vault details" }) as HTMLButtonElement;
+    expect(close.disabled).toBe(false);
+    await act(async () => {
+      resolveDeposit(prepared("savings-deposit", "1000000"));
+      await pending;
+      await Promise.resolve();
+    });
+    expect(page().queryByRole("button", { name: "Deposit $1.00" })).toBeNull();
+  });
+
+  test("drops an in-flight deposit preparation when the journey switches to withdraw", async () => {
+    let resolveDeposit!: (action: PreparedMoneyAction) => void;
+    const depositPreparation = new Promise<PreparedMoneyAction>((resolve) => {
+      resolveDeposit = resolve;
+    });
+    const requests: unknown[] = [];
+    const view = render(
+      <ReducedAmountJourney
+        open mode="deposit" session={session} candidate={candidate}
+        prepareMoneyAction={() => depositPreparation}
+        executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
+        onClose={() => {}}
+      />,
+    );
+    typeAmount("1");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    view.rerender(
+      <ReducedAmountJourney
+        open mode="withdraw" session={session} candidate={candidate}
+        prepareMoneyAction={async (_kind, input) => { requests.push(input); return prepared("savings-withdraw"); }}
+        executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
+        onClose={() => {}}
+      />,
+    );
+    await act(async () => {
+      resolveDeposit(prepared("savings-deposit", "1000000"));
+      await depositPreparation;
+      await Promise.resolve();
+    });
+    expect(page().getByRole("dialog", { name: "Withdraw" })).toBeTruthy();
+    expect(page().queryByRole("button", { name: "Deposit $1.00" })).toBeNull();
+    expect((page().getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("");
+    typeAmount("1");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    expect(await page().findByRole("button", { name: "Withdraw $1.00" })).toBeTruthy();
+    expect(requests).toEqual([{ kind: "withdraw", vaultAddress: VAULT, amountBaseUnits: "1000000" }]);
+    view.unmount();
+  });
+
+  test("allows a new withdrawal dispatch while an abandoned deposit dispatch is still pending", async () => {
+    let releaseDeposit!: () => void;
+    const depositDispatch = new Promise<{ id: string; status: "submitted" }>((resolve) => {
+      releaseDeposit = () => resolve({ id: "action-1", status: "submitted" });
+    });
+    const withdrawals: string[] = [];
+    const view = render(
+      <ReducedAmountJourney
+        open mode="deposit" session={session} candidate={candidate}
+        prepareMoneyAction={async () => prepared("savings-deposit", "1000000")}
+        executeMoneyAction={() => depositDispatch as never}
+        onClose={() => {}}
+      />,
+    );
+    typeAmount("1");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
+    view.rerender(
+      <ReducedAmountJourney
+        open mode="withdraw" session={session} candidate={candidate}
+        prepareMoneyAction={async () => prepared("savings-withdraw", "1000000")}
+        executeMoneyAction={async (action) => { withdrawals.push(action.kind); return { id: "action-2", status: "submitted" }; }}
+        onClose={() => {}}
+      />,
+    );
+    typeAmount("1");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.click(await page().findByRole("button", { name: "Withdraw $1.00" }));
+    expect(await page().findByRole("button", { name: "Done" })).toBeTruthy();
+    expect(withdrawals).toEqual(["savings-withdraw"]);
+    await act(async () => {
+      releaseDeposit();
+      await depositDispatch;
+      await Promise.resolve();
+    });
+    view.unmount();
+  });
+
+  test("drops a submitted dispatch when the journey switches mode while the refresh is pending", async () => {
+    let releaseRefresh!: () => void;
+    const refresh = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    let refreshes = 0;
+    const view = render(
+      <ReducedAmountJourney
+        open mode="deposit" session={session} candidate={candidate}
+        prepareMoneyAction={async () => prepared("savings-deposit", "1000000")}
+        executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
+        onConfirmed={() => { refreshes += 1; return refresh; }}
+        onClose={() => {}}
+      />,
+    );
+    typeAmount("1");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
+    await waitFor(() => expect(refreshes).toBe(1));
+    view.rerender(
+      <ReducedAmountJourney
+        open mode="withdraw" session={session} candidate={candidate}
+        prepareMoneyAction={async () => prepared("savings-withdraw")}
+        executeMoneyAction={async () => ({ id: "action-2", status: "submitted" })}
+        onConfirmed={() => { refreshes += 1; return refresh; }}
+        onClose={() => {}}
+      />,
+    );
+    await act(async () => {
+      releaseRefresh();
+      await refresh;
+      await Promise.resolve();
+    });
+    expect(page().getByRole("dialog", { name: "Withdraw" })).toBeTruthy();
+    expect(page().queryByRole("button", { name: "Done" })).toBeNull();
+    expect(page().getByRole("textbox", { name: "Amount" })).toBeTruthy();
+    view.unmount();
+  });
+
+  test("drops an in-flight dispatch result after the journey switches mode", async () => {
+    let settleDispatch!: () => void;
+    const dispatch = new Promise<{ id: string; status: "submitted" }>((resolve) => {
+      settleDispatch = () => resolve({ id: "action-1", status: "submitted" });
+    });
+    const view = render(
+      <ReducedAmountJourney
+        open mode="deposit" session={session} candidate={candidate}
+        prepareMoneyAction={async () => prepared("savings-deposit", "1000000")}
+        executeMoneyAction={() => dispatch as never}
+        onClose={() => {}}
+      />,
+    );
+    typeAmount("1");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
+    view.rerender(
+      <ReducedAmountJourney
+        open mode="withdraw" session={session} candidate={candidate}
+        prepareMoneyAction={async () => prepared("savings-withdraw")}
+        executeMoneyAction={async () => ({ id: "action-2", status: "submitted" })}
+        onClose={() => {}}
+      />,
+    );
+    await act(async () => {
+      settleDispatch();
+      await dispatch;
+      await Promise.resolve();
+    });
+    expect(page().getByRole("dialog", { name: "Withdraw" })).toBeTruthy();
+    expect(page().queryByRole("button", { name: "Done" })).toBeNull();
+    expect(page().getByRole("textbox", { name: "Amount" })).toBeTruthy();
+    view.unmount();
+  });
+
   test("clears a completed owner-A review and amount before owner B can confirm", async () => {
     const ownerBRequests: unknown[] = [];
     const view = render(
-      <ReducedSavingsMoneyDialog
+      <ReducedAmountJourney
         open mode="deposit" session={session} candidate={candidate}
         prepareMoneyAction={async () => prepared("savings-deposit", "1234567", session)}
         executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
@@ -571,7 +793,7 @@ describe("SavingsMoneyDialog", () => {
     expect(document.body.textContent).toContain("Base (8453)");
 
     view.rerender(
-      <ReducedSavingsMoneyDialog
+      <ReducedAmountJourney
         open mode="deposit" session={sessionB} candidate={candidate}
         prepareMoneyAction={async (_kind, input) => {
           ownerBRequests.push(input);
@@ -600,7 +822,7 @@ describe("SavingsMoneyDialog", () => {
 
   test("does not restore a completed review after sign-out and sign-in", async () => {
     const dialog = (
-      <ReducedSavingsMoneyDialog
+      <ReducedAmountJourney
         open mode="deposit" session={session} candidate={candidate}
         prepareMoneyAction={async () => prepared()}
         executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
@@ -632,7 +854,7 @@ describe("SavingsMoneyDialog", () => {
     let closes = 0;
     try {
       render(
-        <SavingsMoneyDialog
+        <AmountJourney
           open mode="deposit" session={session} candidate={candidate}
           prepareMoneyAction={async () => prepared()}
           executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
@@ -665,7 +887,7 @@ describe("SavingsMoneyDialog", () => {
     let executions = 0;
     let closes = 0;
     render(
-      <SavingsMoneyDialog
+      <AmountJourney
         open mode="deposit" session={session} candidate={candidate}
         prepareMoneyAction={async () => prepared()}
         executeMoneyAction={async () => { executions += 1; if (executions === 1) throw new Error("ambiguous"); return { id: "action-1", status: "submitted" }; }}
@@ -698,7 +920,7 @@ describe("SavingsMoneyDialog", () => {
     });
     let executions = 0;
     render(
-      <SavingsMoneyDialog
+      <AmountJourney
         open mode="deposit" session={session} candidate={candidate}
         prepareMoneyAction={async () => action}
         executeMoneyAction={async () => {
@@ -728,7 +950,7 @@ describe("SavingsMoneyDialog", () => {
     { name: "RPC", error: Object.assign(new Error("unavailable"), { status: 502, code: "SAVINGS_ACTION_RPC", serverMessage: "Base RPC rejected a savings state read: execution reverted" }), message: "Base RPC rejected a savings state read: execution reverted (SAVINGS_ACTION_RPC) No transaction was submitted." },
     ]) {
       render(
-        <SavingsMoneyDialog
+        <AmountJourney
           open mode="deposit" session={session} candidate={candidate}
           prepareMoneyAction={async () => { throw failure.error; }}
           executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
@@ -745,7 +967,7 @@ describe("SavingsMoneyDialog", () => {
   test("keeps one focused busy confirm control and ignores a second submit", async () => {
     let release!: (value: { id: string; status: "submitted" }) => void;
     let calls = 0;
-    render(<SavingsMoneyDialog open mode="deposit" session={session} candidate={candidate}
+    render(<AmountJourney open mode="deposit" session={session} candidate={candidate}
       prepareMoneyAction={async () => prepared()}
       executeMoneyAction={() => { calls += 1; return new Promise((resolve) => { release = resolve; }); }}
       onClose={() => {}} />);
@@ -773,7 +995,7 @@ describe("SavingsMoneyDialog", () => {
     let rowOwner = prepared().owner;
     let closes = 0;
     const fetchAccountResource = async () => ({ actions: [{ id: "action-1", owner: rowOwner, status: "confirmed" }] });
-    render(<SavingsMoneyDialog open mode="withdraw" session={session} candidate={candidate}
+    render(<AmountJourney open mode="withdraw" session={session} candidate={candidate}
       prepareMoneyAction={async () => prepared("savings-withdraw")}
       executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
       fetchAccountResource={fetchAccountResource} onClose={() => { closes += 1; }} />);
@@ -794,7 +1016,7 @@ describe("SavingsMoneyDialog", () => {
 
   test("a failed owner row offers a fresh review with the amount retained", async () => {
     let preparations = 0;
-    render(<SavingsMoneyDialog open mode="deposit" session={session} candidate={candidate}
+    render(<AmountJourney open mode="deposit" session={session} candidate={candidate}
       prepareMoneyAction={async () => { preparations += 1; return prepared(); }}
       executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
       fetchAccountResource={async () => ({ actions: [{ id: "action-1", owner: prepared().owner, status: "failed" }] })}
@@ -814,7 +1036,7 @@ describe("SavingsMoneyDialog", () => {
   });
 
   test("typed failed execution shows a result instead of the old alert", async () => {
-    render(<SavingsMoneyDialog open mode="withdraw" session={session} candidate={candidate}
+    render(<AmountJourney open mode="withdraw" session={session} candidate={candidate}
       prepareMoneyAction={async () => prepared("savings-withdraw")}
       executeMoneyAction={async () => ({ id: "action-1", status: "failed" })}
       onClose={() => {}} />);
@@ -831,7 +1053,7 @@ describe("SavingsMoneyDialog", () => {
     const events: string[] = [];
     const routing = { openPanel: (panel: string) => { events.push(`panel:${panel}`); } } as HomeShellRouting;
     render(<HomeShellRoutingProvider value={routing}>
-      <SavingsMoneyDialog open mode="deposit" session={session} candidate={candidate}
+      <AmountJourney open mode="deposit" session={session} candidate={candidate}
         prepareMoneyAction={async () => prepared()}
         executeMoneyAction={async () => { throw new TransferExecutionError(reason); }}
         fetchAccountResource={async () => ({ actions: [{ id: "action-1", owner: prepared().owner, status: "pending" }] })}
