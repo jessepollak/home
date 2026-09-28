@@ -1,0 +1,57 @@
+import { describe, expect, test } from "bun:test";
+import { readCardState } from "./journey";
+import type { CardAccountLink } from "./account-store";
+import type { BridgeCustomer } from "./bridge/client";
+import type { StripeCard } from "./stripe/client";
+
+const account: CardAccountLink = { bridgeCustomerId: "bridge-id", stripeCardholderId: "ich_123",
+  cards: [{ id: "local", stripeCardId: "ic_123", walletAddress: "0x1111111111111111111111111111111111111111" }] };
+const bridge: BridgeCustomer = { id: "bridge-id", status: "active", stripeCardholderId: "ich_123",
+  cardsEndorsement: { status: "approved", missing: false, pending: false, issues: false } };
+const card: StripeCard = { id: "ic_123", cardholderId: "ich_123", status: "active", last4: "1234", customerFrozen: false };
+
+function deps(options: { account?: CardAccountLink | null; bridge?: BridgeCustomer | null; card?: StripeCard | null;
+  holder?: "active" | "inactive" | "blocked" | null } = {}) {
+  return { store: { read: async (_customerId: string, _mode: "sandbox" | "production") => options.account === undefined ? account : options.account },
+    bridge: { readCustomer: async (_id: string) => { if (options.bridge === null) throw new Error("down"); return options.bridge ?? bridge; } },
+    stripe: { readCardholder: async (_id: string) => { if (options.holder === null) throw new Error("down"); return { id: "ich_123", status: options.holder ?? "active" as const }; },
+      readCard: async (_id: string) => { if (options.card === null) throw new Error("down"); return options.card ?? card; } },
+    now: () => new Date("2026-09-28T12:00:00Z") };
+}
+const state = (options?: Parameters<typeof deps>[0]) => readCardState("owner", "sandbox", deps(options));
+
+describe("card state precedence and availability", () => {
+  test("no account does not call providers; reserved account requires verification", async () => {
+    expect((await state({ account: null })).state).toBe("not-enrolled");
+    expect((await state({ account: { ...account, bridgeCustomerId: null, cards: [] } })).state).toBe("verification-required");
+  });
+  test("verification outcomes before card issuance", async () => {
+    const noCards = { ...account, cards: [] };
+    expect((await state({ account: noCards })).state).toBe("ready-to-issue");
+    expect((await state({ account: noCards, bridge: { ...bridge, cardsEndorsement: { status: "revoked", missing: false, pending: false, issues: false } } })).state).toBe("verification-required");
+    expect((await state({ account: noCards, bridge: { ...bridge, cardsEndorsement: { status: "pending", missing: false, pending: true, issues: false } } })).state).toBe("verification-pending");
+    expect((await state({ account: noCards, bridge: { ...bridge, cardsEndorsement: { status: "rejected", missing: true, pending: false, issues: true } } })).state).toBe("ineligible");
+  });
+  test("Bridge/cardholder restriction wins over canceled and customer-frozen metadata", async () => {
+    expect((await state({ bridge: { ...bridge, status: "inactive" }, card: { ...card, status: "canceled" } })).state).toBe("restricted");
+    expect((await state({ holder: "inactive", card: { ...card, status: "inactive", customerFrozen: true } })).state).toBe("restricted");
+    expect((await state({ bridge: { ...bridge, cardsEndorsement: { status: "revoked", missing: true, pending: false, issues: false } } })).state).toBe("restricted");
+  });
+  test("canceled > customer frozen > active; inactive without exact marker is restricted", async () => {
+    expect((await state()).state).toBe("active");
+    expect((await state({ card: { ...card, status: "canceled" } })).state).toBe("canceled");
+    expect((await state({ card: { ...card, status: "inactive", customerFrozen: true } })).state).toBe("frozen");
+    expect((await state({ card: { ...card, status: "inactive", customerFrozen: false } })).state).toBe("restricted");
+  });
+  test("one provider down never yields an authoritative active or ready state", async () => {
+    const bridgeDown = await state({ bridge: null });
+    expect(bridgeDown.state).toBe("unavailable");
+    expect(bridgeDown.provenance).toEqual({ bridge: "unavailable", stripe: "available", fetchedAt: "2026-09-28T12:00:00.000Z" });
+    expect(bridgeDown.cards).toHaveLength(1);
+    const stripeDown = await state({ card: null });
+    expect(stripeDown.state).toBe("unavailable");
+    expect(stripeDown.provenance.stripe).toBe("unavailable");
+    expect((await state({ holder: null })).state).toBe("unavailable");
+    expect((await state({ bridge: { ...bridge, stripeCardholderId: "ich_other" } })).state).toBe("unavailable");
+  });
+});
