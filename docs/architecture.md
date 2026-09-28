@@ -167,6 +167,7 @@ A fiat or card ledger, KYC document storage, custom contracts, multichain routin
 - Provider outage: the provider's error is shown; balances show the last observation marked stale with its age.
 - Missed webhook: an active client sees an external transfer within the 120 s backstop plus CDP index lag; an idle client sees it on return.
 - Action failure modes: [actions.md](actions.md#failure-modes-we-accept).
+- Database query timeout: `timeoutMs` on the shared executor (`server/db/sql.ts`) bounds the whole operation, from pool acquisition through `COMMIT`, and cancels it by destroying that connection; a timed-out statement is ambiguous, so `timeoutMs` stays a read deadline and writers use `transaction()`.
 
 ## Comment policy
 
