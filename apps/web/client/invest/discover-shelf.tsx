@@ -1,11 +1,10 @@
 import { Button } from "@/components/ui/button";
 import {
   Card,
-  CardAction,
   CardContent,
   CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
+import { SectionHeader } from "@/components/section-header";
 import type { InvestAsset } from "@/config/invest-assets";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import type { MarketDataState } from "@/shared/invest/invest-market";
@@ -35,12 +34,16 @@ export function DiscoverShelf({
     <section aria-labelledby={titleId}>
       <Card>
         <CardHeader>
-          <CardTitle id={titleId} role="heading" aria-level={3}>{title}</CardTitle>
-          <CardAction>
-            <Button variant="ghost" size="card-action" onClick={onSeeAll}>
-              See all ›
-            </Button>
-          </CardAction>
+          <SectionHeader
+            headingId={titleId}
+            title={title}
+            ariaLevel={3}
+            action={
+              <Button variant="ghost" size="card-action" onClick={onSeeAll}>
+                See all ›
+              </Button>
+            }
+          />
         </CardHeader>
         <CardContent inset="list">
           {assets.length > 0 ? (

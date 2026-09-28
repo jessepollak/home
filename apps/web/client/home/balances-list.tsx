@@ -4,7 +4,7 @@ import { compactFinancialValue } from "@/components/compact-financial-value";
 import { CurrencyMark } from "@/components/currency-mark";
 import { BalanceRow } from "@/components/finance-rows";
 import { MoneyTicker } from "@/components/money-ticker";
-import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { EmptyState } from "@/components/empty-state";
 import { presentPortfolioAssetMark } from "@/client/asset-mark/presentation";
 import type { BalanceRowModel } from "@/shared/balances/present";
 import { ShimmerRows } from "./panel-shared";
@@ -30,13 +30,7 @@ export function BalancesListFallback({
 }
 
 export function BalancesEmpty() {
-  return (
-    <Empty>
-      <EmptyHeader>
-        <EmptyTitle>No money yet</EmptyTitle>
-      </EmptyHeader>
-    </Empty>
-  );
+  return <EmptyState title="No money yet" />;
 }
 
 export function HomeBalanceRowView({ row }: { row: BalanceRowModel }) {

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { MoneyTicker } from "@/components/money-ticker";
+import { SectionHeader } from "@/components/section-header";
 import type { RegionId } from "@/config/regions";
 import type {
   BalanceRowModel,
@@ -218,37 +218,15 @@ function GroupedBalancesList({ groups }: { groups: readonly MoneyGroupPresentati
           data-money-group={group.id}
           aria-labelledby={`panel-${group.id}-heading`}
         >
-          <MoneyGroupHeader
-            id={`panel-${group.id}-heading`}
+          <SectionHeader
+            variant="group"
+            headingId={`panel-${group.id}-heading`}
             label={group.label}
             subtotal={group.displaySubtotal}
           />
           {group.rows.length > 0 ? <BalancesList rows={group.rows} /> : null}
         </section>
       ))}
-    </div>
-  );
-}
-
-function MoneyGroupHeader({
-  id,
-  label,
-  subtotal,
-}: {
-  id: string;
-  label: string;
-  subtotal: string | null;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 px-3 pt-3 pb-1 text-xs font-medium tracking-wider text-muted-foreground uppercase">
-      <h3 id={id}>{label}</h3>
-      {subtotal ? (
-        <MoneyTicker
-          className="text-right tracking-normal normal-case"
-          value={subtotal}
-          reserveDigits={false}
-        />
-      ) : null}
     </div>
   );
 }

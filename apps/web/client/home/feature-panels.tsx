@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import type { RegionId } from "@/config/regions";
 import { Card, CardContent } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyPanel, ShimmerRows } from "./panel-shared";
 
 export function CashPanel({ regionId, isVerified, isChecking, content }: {
@@ -47,7 +46,7 @@ function CashPanelShell() {
     <section className="space-y-4" aria-busy="true">
       <Card variant="flush">
         <CardContent inset="hero">
-          <Skeleton className="h-10 w-48" data-shimmer="hero" />
+          <ShimmerRows variant="hero" />
           <span className="sr-only">Updating…</span>
         </CardContent>
       </Card>

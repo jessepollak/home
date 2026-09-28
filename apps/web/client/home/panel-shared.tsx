@@ -1,5 +1,5 @@
 import { createContext, useContext, type ReactNode } from "react";
-import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { EmptyState } from "@/components/empty-state";
 import { Item, ItemContent, ItemMedia } from "@/components/ui/item";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CurrencyMark } from "@/components/currency-mark";
@@ -31,7 +31,10 @@ export function MountedShellPanel({
   );
 }
 
-export function ShimmerRows({ count }: { count: number }) {
+export function ShimmerRows({ count = 0, variant = "rows" }: { count?: number; variant?: "rows" | "hero" }) {
+  if (variant === "hero") {
+    return <Skeleton className="h-10 w-48" data-shimmer="hero" />;
+  }
   return (
     <div className="flex w-full flex-col" aria-busy="true">
       {Array.from({ length: count }, (_, index) => (
@@ -51,13 +54,5 @@ export function ShimmerRows({ count }: { count: number }) {
 }
 
 export function EmptyPanel({ label }: { label: string }) {
-  return (
-    <section aria-label={label}>
-      <Empty>
-        <EmptyHeader>
-          <EmptyTitle>{label} unavailable</EmptyTitle>
-        </EmptyHeader>
-      </Empty>
-    </section>
-  );
+  return <EmptyState title={`${label} unavailable`} label={label} />;
 }
