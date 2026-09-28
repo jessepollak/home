@@ -203,7 +203,7 @@ export function tradePreparationResponse(error: unknown): { code: string; messag
     case "token-unreadable": return { code: "TRADE_TOKEN_UNREADABLE", message: "This token cannot be read for trading.", status: 422 };
     case "buy-unavailable": return { code: "TRADE_BUY_UNAVAILABLE", message: "Buying this asset is unavailable.", status: 422 };
     case "unverified-actions": return { code: "TRADE_ROUTE_UNAVAILABLE", message: "No verified trade route is available.", status: 422 };
-    case "stale-quote": return { code: "TRADE_QUOTE_STALE", message: "The trade quote expired. Prepare it again.", status: 409 };
+    case "stale-quote": return { code: "TRADE_QUOTE_STALE", message: "The trade quote changed. Prepare it again.", status: 409 };
     case "permit-used": return { code: "TRADE_QUOTE_STALE", message: "This trade quote can no longer be used. Get a new quote.", status: 409 };
     case "provider-unavailable": return { code: "TRADE_UNAVAILABLE", message: "Trading is temporarily unavailable.", status: 503 };
     default: return { code: "TRADE_QUOTE_REJECTED", message: "The trade quote could not be verified.", status: 502 };
