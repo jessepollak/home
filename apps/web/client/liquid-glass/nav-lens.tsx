@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { shouldRefractNavRim, type EngineBrand } from "./lens-gate";
 import { generateLensMaps } from "./lens-map";
 import { createRecentCache } from "./recent-cache";
@@ -17,6 +17,7 @@ type LensImages = { displacement: string; specular: string; scale: number; margi
 type LensFilter = LensImages & LensSize & { id: string };
 type RimImages = { displacement: string; core: string; scale: number };
 type RimFilter = RimImages & LensSize & { id: string };
+type LensTrackProps = Pick<NavLensProps, "items" | "target"> & { className: string; tone: string };
 
 const BEZEL = 10;
 const THICKNESS = 10;
@@ -30,8 +31,14 @@ const RIM_FROST = 24;
 const RIM_CORE_INSET = 19;
 const RIM_CORE_FEATHER = 5;
 const MIN_PRESS_MS = 120;
+const TRAVEL_MS = 180;
+const STRETCH_X = 1.1;
+const STRETCH_Y = .96;
+const HOLE_PAD = 8;
+const HOLE_MARGIN = 1.5;
 const cache = createRecentCache<LensImages>(4);
 const rimCache = createRecentCache<RimImages>(4);
+const holeCache = createRecentCache<string>(4);
 
 function sizeKey({ width, height, ratio }: LensSize) {
   return `${width}x${height}x${Math.round(ratio * 100)}`;
@@ -89,18 +96,40 @@ function buildRim(size: LensSize): RimImages | null {
   return rimCache.set(key, { displacement, core, scale: maps.scale });
 }
 
+function buildHole(size: LensSize) {
+  const key = sizeKey(size);
+  const cached = holeCache.get(key);
+  if (cached) return cached;
+  const width = size.width * 3;
+  const height = size.height + HOLE_PAD * 2;
+  const holeWidth = size.width + HOLE_MARGIN * 2;
+  const holeHeight = size.height + HOLE_MARGIN * 2;
+  const radius = holeHeight / 2;
+  const left = (width - holeWidth) / 2;
+  const top = (height - holeHeight) / 2;
+  const n = (value: number) => Math.round(value * 100) / 100;
+  const path = `M0 0H${width}V${height}H0Z M${n(left + radius)} ${n(top)}H${n(left + holeWidth - radius)}A${n(radius)} ${n(radius)} 0 0 1 ${n(left + holeWidth - radius)} ${n(top + holeHeight)}H${n(left + radius)}A${n(radius)} ${n(radius)} 0 0 1 ${n(left + radius)} ${n(top)}Z`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><path fill-rule="evenodd" d="${path}"/></svg>`;
+  return holeCache.set(key, `url("data:image/svg+xml,${encodeURIComponent(svg)}")`);
+}
+
 function readRatio() {
   return Math.max(1, Math.min(2, window.devicePixelRatio || 1));
 }
 
-function supportsTypedProperties() {
-  return typeof CSS !== "undefined" && "registerProperty" in CSS;
-}
-
-function hasLensTransition(nav: HTMLElement) {
-  return typeof CSSTransition !== "undefined" && nav.getAnimations().some((animation) =>
-    animation instanceof CSSTransition && animation.transitionProperty === "--lens-p" &&
-    (animation.playState === "running" || animation.pending));
+function LensTrack({ items, target, className, tone }: LensTrackProps) {
+  return (
+    <span className={`${styles.track} ${className} grid grid-cols-2`} style={{ transform: `translateX(${target * -50}%)` }}>
+      {items.map(({ id, label, Icon }) => (
+        <span key={id} className={`${styles.tab} ${tone} flex min-w-0 items-center justify-center px-2`}>
+          <span className={navigationTabContentClassName}>
+            <Icon className={`${styles.icon} ${navigationTabIconClassName}`} aria-hidden="true" />
+            <span className={`${styles.label} ${navigationTabLabelClassName}`}>{label}</span>
+          </span>
+        </span>
+      ))}
+    </span>
+  );
 }
 
 function readRimEnabled() {
@@ -139,8 +168,12 @@ function useLensSize(element: React.RefObject<HTMLElement | null>) {
   return size;
 }
 
-export function NavLens({ items, target, reducedMotion, onStatusChange }: NavLensProps) {
+export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLensProps) {
   const windowRef = useRef<HTMLSpanElement>(null);
+  const stretchRef = useRef<HTMLSpanElement>(null);
+  const holeRef = useRef<HTMLSpanElement>(null);
+  const unstretchRef = useRef<HTMLSpanElement>(null);
+  const shownTarget = useRef(target);
   const floorRef = useRef<HTMLElement | null>(null);
   const baseId = `nav-lens-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const [rimEnabled] = useState(readRimEnabled);
@@ -157,55 +190,34 @@ export function NavLens({ items, target, reducedMotion, onStatusChange }: NavLen
     const images = floorSize ? buildRim(floorSize) : null;
     return floorSize && images ? { ...images, ...floorSize, id: `${baseId}-rim-${sizeKey(floorSize)}` } : null;
   }, [floorSize, baseId]);
-  const [animated] = useState(supportsTypedProperties);
-  const [restingTarget, setRestingTarget] = useState(target);
-  const targetRef = useRef(target);
-  useLayoutEffect(() => {
-    targetRef.current = target;
-  }, [target]);
+  const hole = useMemo(() => size ? buildHole(size) : null, [size]);
 
   useLayoutEffect(() => {
-    const nav = windowRef.current?.parentElement;
-    if (!nav) return;
-    let frame = 0;
-    const settle = (event: TransitionEvent) => {
-      if (event.target !== nav || event.propertyName !== "--lens-p") return;
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        if (!hasLensTransition(nav)) setRestingTarget(targetRef.current);
-      });
-    };
-    const hide = () => {
-      if (document.visibilityState === "hidden") setRestingTarget(targetRef.current);
-    };
-    nav.addEventListener("transitionend", settle);
-    nav.addEventListener("transitioncancel", settle);
-    document.addEventListener("visibilitychange", hide);
-    return () => {
-      nav.removeEventListener("transitionend", settle);
-      nav.removeEventListener("transitioncancel", settle);
-      document.removeEventListener("visibilitychange", hide);
-      cancelAnimationFrame(frame);
-    };
-  }, []);
-
-  useLayoutEffect(() => {
-    const nav = windowRef.current?.parentElement;
-    if (!nav) return;
-    if (reducedMotion || !animated || document.visibilityState === "hidden" || nav.getClientRects().length === 0) {
-      setRestingTarget(target);
+    const layers = [[stretchRef.current, STRETCH_X, STRETCH_Y], [holeRef.current, STRETCH_X, STRETCH_Y], [unstretchRef.current, 1 / STRETCH_X, 1 / STRETCH_Y]] as const;
+    const moved = shownTarget.current !== target;
+    shownTarget.current = target;
+    const node = stretchRef.current;
+    if (!node) return;
+    if (reducedMotion) {
+      for (const [layer] of layers) for (const animation of layer?.getAnimations() ?? []) animation.cancel();
       return;
     }
-    if (restingTarget === target) return;
-    const frame = requestAnimationFrame(() => {
-      if (!hasLensTransition(nav)) setRestingTarget(targetRef.current);
+    if (!moved || document.visibilityState === "hidden" || node.getClientRects().length === 0) return;
+    const starts = layers.map(([layer]) => layer ? getComputedStyle(layer).transform : "none");
+    layers.forEach(([layer, x, y], index) => {
+      if (!layer) return;
+      for (const animation of layer.getAnimations()) animation.cancel();
+      layer.animate([
+        { transform: starts[index] === "none" ? "scale(1)" : starts[index], easing: "cubic-bezier(.3, 0, .4, 1)" },
+        { transform: `scale(${x}, ${y})`, offset: .45, easing: "cubic-bezier(.4, 0, .5, 1)" },
+        { transform: "scale(1)" },
+      ], { duration: TRAVEL_MS });
     });
-    return () => cancelAnimationFrame(frame);
-  }, [target, reducedMotion, animated, restingTarget]);
+  }, [target, reducedMotion]);
 
   useLayoutEffect(() => {
     const nav = windowRef.current?.parentElement;
-    if (!nav || reducedMotion || !animated) return;
+    if (!nav || reducedMotion) return;
     let pointer: number | null = null;
     let pressedAt = 0;
     let release = 0;
@@ -246,7 +258,7 @@ export function NavLens({ items, target, reducedMotion, onStatusChange }: NavLen
       window.clearTimeout(release);
       nav.removeAttribute("data-lens-pressed");
     };
-  }, [reducedMotion, animated]);
+  }, [reducedMotion]);
 
   useLayoutEffect(() => {
     const nav = windowRef.current?.parentElement;
@@ -259,113 +271,115 @@ export function NavLens({ items, target, reducedMotion, onStatusChange }: NavLen
     };
   }, [rim]);
 
+  const ready = filter !== null && hole !== null;
   useLayoutEffect(() => {
-    const node = windowRef.current;
-    const nav = node?.parentElement;
-    if (!node || !nav || !size) return;
-    const { width, height } = getComputedStyle(node);
-    const contents = Array.from(nav.querySelectorAll<HTMLElement>(":scope > button > span"));
-    nav.style.setProperty("--nav-lens-width", width);
-    nav.style.setProperty("--nav-lens-height", height);
-    for (const content of contents) {
-      const tab = content.parentElement;
-      const origin = (tab ? tab.offsetLeft + tab.clientLeft : 0) + content.offsetLeft - node.offsetLeft;
-      content.style.setProperty("--nav-lens-origin", `${origin}px`);
-    }
-    return () => {
-      nav.style.removeProperty("--nav-lens-width");
-      nav.style.removeProperty("--nav-lens-height");
-      for (const content of contents) content.style.removeProperty("--nav-lens-origin");
-    };
-  }, [size]);
+    onReadyChange(ready);
+  }, [ready, onReadyChange]);
+  useLayoutEffect(() => () => onReadyChange(false), [onReadyChange]);
 
-  const ready = filter !== null;
-  const status = !ready ? null : reducedMotion || !animated || restingTarget === target ? "resting" : "moving";
-  useLayoutEffect(() => {
-    onStatusChange(status);
-  }, [status, onStatusChange]);
-  useLayoutEffect(() => () => onStatusChange(null), [onStatusChange]);
+  const slide = {
+    transform: `translateX(${target * 100}%)`,
+    "--lens-travel": `${TRAVEL_MS}ms`,
+  } as CSSProperties;
+  const motion = reducedMotion ? styles.still : "";
 
   return (
-    <span
-      ref={windowRef}
-      aria-hidden="true"
-      inert
-      data-navigation-lens={ready ? "ready" : "pending"}
-      className={`${styles.window} pointer-events-none absolute inset-y-1 start-1 z-20 select-none`}
-    >
-      {filter || rim ? (
-        <svg className="absolute size-0 overflow-hidden" focusable="false">
-          {filter ? (
-            <filter
-              id={filter.id}
-              x={-filter.margin / filter.width}
-              y={-filter.margin / filter.height}
-              width={1 + filter.margin * 2 / filter.width}
-              height={1 + filter.margin * 2 / filter.height}
-              colorInterpolationFilters="sRGB"
-            >
-              <feImage
-                href={filter.displacement}
-                x={-filter.margin}
-                y={-filter.margin}
-                width={filter.width + filter.margin * 2}
-                height={filter.height + filter.margin * 2}
-                preserveAspectRatio="none"
-                result="map"
-              />
-              <feDisplacementMap in="SourceGraphic" in2="map" scale={filter.scale} xChannelSelector="R" yChannelSelector="G" />
-            </filter>
-          ) : null}
-          {rim ? (
-            <filter
-              id={rim.id}
-              filterUnits="userSpaceOnUse"
-              primitiveUnits="userSpaceOnUse"
-              x={0}
-              y={0}
-              width={rim.width}
-              height={rim.height}
-              colorInterpolationFilters="sRGB"
-            >
-              <feImage href={rim.displacement} x={0} y={0} width={rim.width} height={rim.height} preserveAspectRatio="none" result="map" />
-              <feGaussianBlur in="SourceGraphic" stdDeviation={RIM_SOFTEN} result="softEdge" />
-              <feComponentTransfer in="softEdge" result="soft">
-                <feFuncA type="linear" slope={0} intercept={1} />
-              </feComponentTransfer>
-              <feDisplacementMap in="soft" in2="map" scale={-rim.scale} xChannelSelector="R" yChannelSelector="G" result="bent" />
-              <feGaussianBlur in="SourceGraphic" stdDeviation={RIM_FROST} result="frostEdge" />
-              <feComponentTransfer in="frostEdge" result="frost">
-                <feFuncA type="linear" slope={0} intercept={1} />
-              </feComponentTransfer>
-              <feImage href={rim.core} x={0} y={0} width={rim.width} height={rim.height} preserveAspectRatio="none" result="core" />
-              <feComposite in="frost" in2="core" operator="in" result="center" />
-              <feMerge>
-                <feMergeNode in="bent" />
-                <feMergeNode in="center" />
-              </feMerge>
-            </filter>
-          ) : null}
-        </svg>
-      ) : null}
-      <span className={`${styles.refraction} absolute inset-0`} style={filter ? { filter: `url(#${filter.id})` } : undefined}>
-        <span className={`${styles.track} absolute inset-y-0 start-0 grid w-[200%] grid-cols-2`}>
-          {items.map(({ id, label, Icon }) => (
-            <span key={id} className={`${styles.tab} flex min-w-0 items-center justify-center px-2`}>
-              <span className={`${styles.content} ${navigationTabContentClassName}`}>
-                <Icon className={`${styles.icon} ${navigationTabIconClassName}`} aria-hidden="true" />
-                <span className={`${styles.label} ${navigationTabLabelClassName}`}>{label}</span>
+    <>
+      <span
+        aria-hidden="true"
+        inert
+        data-navigation-lens-layer="unselected"
+        className={`${styles.slide} ${motion} pointer-events-none absolute inset-y-1 start-1 z-20 select-none`}
+        style={slide}
+      >
+        {ready ? (
+          <span className={`${styles.cutout} ${styles.lift} absolute`}>
+            <span ref={holeRef} className={`${styles.hole} absolute inset-0`} style={{ maskImage: hole, WebkitMaskImage: hole }}>
+              <span ref={unstretchRef} className="absolute inset-0">
+                <span className={`${styles.unlift} absolute inset-0`}>
+                  <LensTrack items={items} target={target} className={`${styles.cutoutTrack} absolute`} tone={styles.unselected} />
+                </span>
               </span>
             </span>
-          ))}
+          </span>
+        ) : null}
+      </span>
+      <span
+        ref={windowRef}
+        aria-hidden="true"
+        inert
+        data-navigation-lens={ready ? "ready" : "pending"}
+        className={`${styles.slide} ${styles.window} ${motion} pointer-events-none absolute inset-y-1 start-1 z-20 select-none`}
+        style={slide}
+      >
+        <span ref={stretchRef} className="absolute inset-0">
+          <span className={`${styles.glass} ${styles.lift} absolute inset-0`}>
+            {filter || rim ? (
+              <svg className="absolute size-0 overflow-hidden" focusable="false">
+                {filter ? (
+                  <filter
+                    id={filter.id}
+                    x={-filter.margin / filter.width}
+                    y={-filter.margin / filter.height}
+                    width={1 + filter.margin * 2 / filter.width}
+                    height={1 + filter.margin * 2 / filter.height}
+                    colorInterpolationFilters="sRGB"
+                  >
+                    <feImage
+                      href={filter.displacement}
+                      x={-filter.margin}
+                      y={-filter.margin}
+                      width={filter.width + filter.margin * 2}
+                      height={filter.height + filter.margin * 2}
+                      preserveAspectRatio="none"
+                      result="map"
+                    />
+                    <feDisplacementMap in="SourceGraphic" in2="map" scale={filter.scale} xChannelSelector="R" yChannelSelector="G" />
+                  </filter>
+                ) : null}
+                {rim ? (
+                  <filter
+                    id={rim.id}
+                    filterUnits="userSpaceOnUse"
+                    primitiveUnits="userSpaceOnUse"
+                    x={0}
+                    y={0}
+                    width={rim.width}
+                    height={rim.height}
+                    colorInterpolationFilters="sRGB"
+                  >
+                    <feImage href={rim.displacement} x={0} y={0} width={rim.width} height={rim.height} preserveAspectRatio="none" result="map" />
+                    <feGaussianBlur in="SourceGraphic" stdDeviation={RIM_SOFTEN} result="softEdge" />
+                    <feComponentTransfer in="softEdge" result="soft">
+                      <feFuncA type="linear" slope={0} intercept={1} />
+                    </feComponentTransfer>
+                    <feDisplacementMap in="soft" in2="map" scale={-rim.scale} xChannelSelector="R" yChannelSelector="G" result="bent" />
+                    <feGaussianBlur in="SourceGraphic" stdDeviation={RIM_FROST} result="frostEdge" />
+                    <feComponentTransfer in="frostEdge" result="frost">
+                      <feFuncA type="linear" slope={0} intercept={1} />
+                    </feComponentTransfer>
+                    <feImage href={rim.core} x={0} y={0} width={rim.width} height={rim.height} preserveAspectRatio="none" result="core" />
+                    <feComposite in="frost" in2="core" operator="in" result="center" />
+                    <feMerge>
+                      <feMergeNode in="bent" />
+                      <feMergeNode in="center" />
+                    </feMerge>
+                  </filter>
+                ) : null}
+              </svg>
+            ) : null}
+            <span className={`${styles.refraction} absolute inset-0`} style={filter ? { filter: `url(#${filter.id})` } : undefined}>
+              <LensTrack items={items} target={target} className="absolute inset-y-0 start-0 w-[200%]" tone={styles.selected} />
+            </span>
+            {filter ? (
+              <span
+                className={`${styles.specular} absolute inset-0`}
+                style={{ maskImage: `url(${filter.specular})`, WebkitMaskImage: `url(${filter.specular})` }}
+              />
+            ) : null}
+          </span>
         </span>
       </span>
-      {filter ? (
-        <span
-          className={`${styles.specular} absolute inset-0`}
-          style={{ maskImage: `url(${filter.specular})`, WebkitMaskImage: `url(${filter.specular})` }}
-        />
-      ) : null}
-    </span>
+    </>
   );
 }

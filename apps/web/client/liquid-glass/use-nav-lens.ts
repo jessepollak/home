@@ -10,13 +10,11 @@ export type NavLensItem = {
   Icon: ComponentType<SVGProps<SVGSVGElement>>;
 };
 
-export type NavLensStatus = "moving" | "resting";
-
 export type NavLensProps = {
   items: readonly NavLensItem[];
   target: number;
   reducedMotion: boolean;
-  onStatusChange: (status: NavLensStatus | null) => void;
+  onReadyChange: (ready: boolean) => void;
 };
 
 type NavLensComponent = ComponentType<NavLensProps>;

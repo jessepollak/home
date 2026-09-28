@@ -1,13 +1,13 @@
 "use client";
 
-import { createElement, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { createElement, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChartNoAxesCombined, House, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { profileGlyph } from "@/client/account/basename-profile";
 import { useBasenameProfile } from "@/client/account/use-basename-profile";
 import { HomeMark } from "@/components/home-mark";
 import { useReducedMotion } from "@/components/money-ticker";
 import { Button } from "@/components/ui/button";
-import { useNavLens, type NavLensStatus } from "@/client/liquid-glass/use-nav-lens";
+import { useNavLens } from "@/client/liquid-glass/use-nav-lens";
 import {
   shellChromeCompensationClassName,
   shellWidthClassName,
@@ -106,7 +106,7 @@ export function PrimaryNavigation({
   const [motionReady, setMotionReady] = useState(false);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const NavLens = useNavLens();
-  const [lensStatus, setLensStatus] = useState<NavLensStatus | null>(null);
+  const [lensReady, setLensReady] = useState(false);
 
   useLayoutEffect(() => {
     if (navRef.current) setDirection(getComputedStyle(navRef.current).direction);
@@ -229,15 +229,15 @@ export function PrimaryNavigation({
         aria-hidden={keyboardOpen ? true : undefined}
         inert={keyboardOpen}
         data-keyboard-hidden={keyboardOpen ? "true" : undefined}
-        data-lens={NavLens ? lensStatus ?? undefined : undefined}
+        data-lens={NavLens && lensReady ? "ready" : undefined}
         className={`${shellWidthClassName} ${styles.navigation} ${motionReady && !prefersReducedMotion ? styles.motionReady : ""} fixed inset-x-0 z-30 grid grid-cols-2 rounded-full p-1 opacity-100`}
-        style={{ "--lens-p": lensTarget, "--lens-dir": direction === "rtl" ? -1 : 1 } as CSSProperties}
       >
         <span aria-hidden="true" data-navigation-floor="" className={`${styles.floor} pointer-events-none absolute inset-0 rounded-full`} />
         <span
           aria-hidden="true"
           data-navigation-pill=""
           className={`${styles.pill} pointer-events-none absolute inset-y-1 start-1 rounded-full bg-foreground/10 dark:bg-foreground/15`}
+          style={{ transform: `translateX(${lensTarget * 100}%)` }}
         />
         {navigationItems.map((item, index) => {
           const Icon = navigationIcons[item.id];
@@ -262,7 +262,7 @@ export function PrimaryNavigation({
           );
         })}
         {NavLens && activeIndex >= 0 ? (
-          createElement(NavLens, { items: lensItems, target: lensTarget, reducedMotion: prefersReducedMotion, onStatusChange: setLensStatus })
+          createElement(NavLens, { items: lensItems, target: lensTarget, reducedMotion: prefersReducedMotion, onReadyChange: setLensReady })
         ) : null}
       </nav>
     </div>

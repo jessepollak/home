@@ -1,40 +1,65 @@
-.window {
+.slide {
   width: calc((100% - .5rem) / 2);
+  transition: transform var(--lens-travel) cubic-bezier(.25, 1.15, .35, 1);
+}
+
+.window {
+  opacity: 0;
+  transition: opacity 160ms ease-out, transform var(--lens-travel) cubic-bezier(.25, 1.15, .35, 1);
+}
+
+.window[data-navigation-lens="ready"] { opacity: 1; }
+
+.cutout {
+  inset-block: -8px;
+  inset-inline: -100%;
+}
+
+.hole {
+  mask-size: 100% 100%;
+  -webkit-mask-size: 100% 100%;
+  mask-repeat: no-repeat;
+  -webkit-mask-repeat: no-repeat;
+}
+
+.cutoutTrack {
+  inset-block: 8px;
+  inset-inline-start: calc(100% / 3);
+  width: calc(200% / 3);
+}
+
+.track { transition: transform var(--lens-travel) cubic-bezier(.25, 1.15, .35, 1); }
+
+.glass {
   overflow: hidden;
   border-radius: 9999px;
   isolation: isolate;
-  opacity: 0;
   background: var(--glass-lens-tint);
   box-shadow: inset 0 1px 0 var(--glass-pill-highlight), inset 0 0 0 1px var(--glass-pill-rim);
   backdrop-filter: var(--glass-lens-occlusion);
   -webkit-backdrop-filter: var(--glass-lens-occlusion);
-  transform: translateX(calc(var(--lens-p) * 100%)) scale(var(--lens-sx), var(--lens-sy));
-  transform-origin: center;
-  transition: opacity 160ms ease-out;
 }
 
-.window[data-navigation-lens="ready"] { opacity: 1; }
+.lift, .unlift { transition: transform 420ms cubic-bezier(.3, 0, .2, 1.5); }
+
+:global(nav)[data-lens-pressed] :is(.lift, .unlift) { transition: transform 160ms cubic-bezier(.2, 0, 0, 1); }
+
+:global(nav)[data-lens-pressed] .lift { transform: scale(1.15, 1.18); }
+
+:global(nav)[data-lens-pressed] .unlift { transform: scale(calc(1 / 1.15), calc(1 / 1.18)); }
 
 .refraction {
   overflow: visible;
   transform: translateZ(0);
 }
 
-.track { transform: translateX(calc(var(--lens-p) * -50%)); }
-
 .tab { border: 1px solid transparent; }
 
-.content { transition: scale 140ms ease-out; }
+.selected .icon { color: var(--primary); }
 
-:global(nav):has(> button:nth-of-type(1):active) .tab:nth-child(1) > .content,
-:global(nav):has(> button:nth-of-type(2):active) .tab:nth-child(2) > .content {
-  scale: .95;
-  transition-duration: 0ms;
-}
+.selected .label { color: var(--foreground); }
 
-.icon { color: var(--primary); }
-
-.label { color: var(--foreground); }
+.unselected :is(.icon, .label) { color: color-mix(in oklab, var(--foreground) 70%, transparent); }
 
 .specular {
   background: var(--glass-lens-specular);
@@ -44,8 +69,16 @@
   -webkit-mask-repeat: no-repeat;
 }
 
+.still.slide, .still :is(.track, .lift, .unlift), :global(nav)[data-lens-pressed] .still :is(.lift, .unlift) { transition: none; }
+
+:global(nav)[data-lens-pressed] .still :is(.lift, .unlift) { transform: none; }
+
+@media (hover: hover) {
+  :global(nav):has(> button:nth-of-type(1):not([aria-current="page"]):hover) .unselected:nth-child(1) :is(.icon, .label),
+  :global(nav):has(> button:nth-of-type(2):not([aria-current="page"]):hover) .unselected:nth-child(2) :is(.icon, .label) { color: var(--foreground); }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .window, .content { transition: none; }
-  :global(nav):has(> button:nth-of-type(1):active) .tab:nth-child(1) > .content,
-  :global(nav):has(> button:nth-of-type(2):active) .tab:nth-child(2) > .content { scale: 1; }
+  .slide, .window, .track, .lift, .unlift, :global(nav)[data-lens-pressed] :is(.lift, .unlift) { transition: none; }
+  :global(nav)[data-lens-pressed] :is(.lift, .unlift) { transform: none; }
 }

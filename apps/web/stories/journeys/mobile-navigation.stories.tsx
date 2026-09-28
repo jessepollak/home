@@ -193,7 +193,7 @@ async function verifySelectionGeometry(nav: HTMLElement, selected: "Home" | "Inv
   const button = within(nav).getByRole("button", { name: selected });
   await expect(button).toHaveAttribute("aria-current", "page");
   await waitFor(() => expect(nav.querySelector('[data-navigation-lens="ready"]')).toBeInTheDocument());
-  await waitFor(() => expect(nav).toHaveAttribute("data-lens", "resting"));
+  await waitFor(() => expect(nav).toHaveAttribute("data-lens", "ready"));
   const pill = nav.querySelector<HTMLElement>("[data-navigation-pill]")!;
   const lens = nav.querySelector<HTMLElement>('[data-navigation-lens="ready"]')!;
   await waitFor(async () => {
@@ -217,8 +217,11 @@ async function verifyLens(canvasElement: HTMLElement) {
   }, { timeout: 2_000 });
   await expect(lens).toHaveAttribute("aria-hidden", "true");
   await expect(lens).toHaveAttribute("inert");
+  const unselected = nav.querySelector<HTMLElement>('[data-navigation-lens-layer="unselected"]')!;
+  await expect(unselected).toHaveAttribute("aria-hidden", "true");
+  await expect(unselected).toHaveAttribute("inert");
   await expect(within(nav).getAllByRole("button")).toHaveLength(2);
-  await expect(nav).toHaveAttribute("data-lens", "resting");
+  await expect(nav).toHaveAttribute("data-lens", "ready");
   const brands = (navigator as Navigator & { userAgentData?: { brands?: readonly EngineBrand[] } }).userAgentData?.brands;
   if (isChromiumEngine(brands)) await expect(nav).toHaveAttribute("data-glass-rim");
   else await expect(nav).not.toHaveAttribute("data-glass-rim");
@@ -241,7 +244,7 @@ async function verifyLens(canvasElement: HTMLElement) {
   await expect(nav).not.toHaveAttribute("data-lens-pressed");
   await userEvent.click(home);
   await expect(home).toHaveAttribute("aria-current", "page");
-  await waitFor(() => expect(nav).toHaveAttribute("data-lens", "resting"));
+  await waitFor(() => expect(nav).toHaveAttribute("data-lens", "ready"));
 }
 async function verifyNoLens(canvasElement: HTMLElement) {
   const nav = await verifyNav(canvasElement, "Home");
@@ -367,17 +370,19 @@ export const RapidTaps: Story = { play: async ({ canvasElement }) => { await ver
 export const InterruptedMotion: Story = { render: (args) => <MotionSwitchShell {...args} />, play: async ({ canvasElement }) => {
   const nav = await verifyNav(canvasElement, "Home");
   await waitFor(() => expect(nav.querySelector('[data-navigation-lens="ready"]')).toBeInTheDocument());
-  await waitFor(() => expect(nav).toHaveAttribute("data-lens", "resting"));
+  await waitFor(() => expect(nav).toHaveAttribute("data-lens", "ready"));
   const invest = within(nav).getByRole("button", { name: "Invest" });
   const toggle = within(canvasElement).getByRole("button", { name: "Toggle reduced motion" });
-  const transitioning = () => nav.getAnimations().some((animation) => animation instanceof CSSTransition && animation.transitionProperty === "--lens-p" && animation.playState === "running");
+  const lens = nav.querySelector<HTMLElement>('[data-navigation-lens="ready"]')!;
+  const transitioning = () => lens.getAnimations().some((animation) => animation instanceof CSSTransition && animation.transitionProperty === "transform" && animation.playState === "running");
   invest.click();
   await waitFor(() => expect(transitioning()).toBe(true));
   toggle.click();
   await waitFor(() => expect(transitioning()).toBe(false));
+  await verifySelectionGeometry(nav, "Invest");
   toggle.click();
   await expect(invest).toHaveAttribute("aria-current", "page");
-  await waitFor(() => expect(nav).toHaveAttribute("data-lens", "resting"));
+  await verifySelectionGeometry(nav, "Invest");
 } };
 export const DepositSheet: Story = { args: { initialPanel: "cash" }, play: async ({ canvasElement }) => { await openMoneySheet(canvasElement); } };
 export const AccountKeyboard: Story = { args: { initialPanel: "account" }, play: async ({ canvasElement }) => {
