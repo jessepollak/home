@@ -467,6 +467,28 @@ export const ScrollDuringDrag: Story = { play: async ({ canvasElement }) => {
   await waitFor(() => expect(invest).toHaveAttribute("aria-current", "page"));
   await verifySelectionGeometry(nav, "Invest");
 } };
+export const MultiTouchCancelsDrag: Story = { play: async ({ canvasElement }) => {
+  const nav = await verifyNav(canvasElement, "Home");
+  await verifySelectionGeometry(nav, "Home");
+  const home = within(nav).getByRole("button", { name: "Home" });
+  const invest = within(nav).getByRole("button", { name: "Invest" });
+  touch("pointerdown", home, centerOf(home));
+  touch("pointermove", home, centerOf(invest));
+  invest.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, isPrimary: false, pointerId: 8, pointerType: "touch", clientX: centerOf(invest).x, clientY: centerOf(invest).y }));
+  touch("pointerup", home, centerOf(invest));
+  await verifySelectionGeometry(nav, "Home");
+} };
+export const UnconfirmedRelease: Story = { play: async ({ canvasElement }) => {
+  const nav = await verifyNav(canvasElement, "Home");
+  await verifySelectionGeometry(nav, "Home");
+  const invest = within(nav).getByRole("button", { name: "Invest" });
+  touch("pointerdown", invest, centerOf(invest));
+  const lens = nav.querySelector<HTMLElement>('[data-navigation-lens="ready"]')!;
+  await waitFor(() => expect(Math.abs(centerOf(lens).x - centerOf(invest).x)).toBeLessThanOrEqual(2));
+  touch("pointerup", invest, { x: centerOf(invest).x, y: nav.getBoundingClientRect().top + 1 });
+  await waitFor(() => expect(Math.abs(centerOf(lens).x - centerOf(within(nav).getByRole("button", { name: "Home" })).x)).toBeLessThanOrEqual(2), { timeout: 400 });
+  await expect(within(nav).getByRole("button", { name: "Home" })).toHaveAttribute("aria-current", "page");
+} };
 export const InterruptedMotion: Story = { render: (args) => <MotionSwitchShell {...args} />, play: async ({ canvasElement }) => {
   const nav = await verifyNav(canvasElement, "Home");
   await waitFor(() => expect(nav.querySelector('[data-navigation-lens="ready"]')).toBeInTheDocument());

@@ -33,6 +33,7 @@ const RIM_CORE_INSET = 19;
 const RIM_CORE_FEATHER = 5;
 const RELEASE_MS = 200;
 const HOLD_MS = 600;
+const TAP_HOLD_MS = 180;
 const SUPPRESS_MS = 400;
 const SLOP = 8;
 const REACH = 24;
@@ -217,9 +218,9 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
       if (index === null) setOverride(null);
       else setOverride({ base: targetRef.current, place: getComputedStyle(nav).direction === "rtl" ? -index : index });
     };
-    const keep = () => {
+    const keep = (duration = HOLD_MS) => {
       window.clearTimeout(hold);
-      hold = window.setTimeout(() => setOverride(null), HOLD_MS);
+      hold = window.setTimeout(() => setOverride(null), duration);
     };
     const tabAt = (x: number, y: number) => {
       const bounds = nav.getBoundingClientRect();
@@ -250,8 +251,9 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
       lower();
       show(null);
     };
-    const startPointer = () => {
+    const startPointer = (event: PointerEvent) => {
       suppressUntil = -Infinity;
+      if (gesture && event.pointerId !== gesture.id) cancel();
     };
     const move = (event: PointerEvent) => {
       if (!gesture || event.pointerId !== gesture.id) return;
@@ -272,11 +274,13 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
     };
     const end = (event: PointerEvent) => {
       if (!gesture || event.pointerId !== gesture.id) return;
-      const { dragged } = gesture;
+      const { dragged, index: gestureIndex } = gesture;
       gesture = null;
       lower();
       if (!dragged) {
-        keep();
+        const rect = tabs()[gestureIndex]?.getBoundingClientRect();
+        if (rect && event.clientX >= rect.left && event.clientX < rect.right && event.clientY >= rect.top && event.clientY < rect.bottom) keep(TAP_HOLD_MS);
+        else show(null);
         return;
       }
       suppressUntil = event.timeStamp + SUPPRESS_MS;
@@ -297,9 +301,11 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
       event.stopPropagation();
     };
     const hide = () => { if (document.visibilityState === "hidden") cancel(); };
+    const confirmed = () => show(null);
     const listen = { capture: true, passive: true };
     nav.addEventListener("pointerdown", press, { passive: true });
     nav.addEventListener("click", swallow, { capture: true });
+    nav.addEventListener("click", confirmed);
     document.addEventListener("pointerdown", startPointer, listen);
     document.addEventListener("pointermove", move, listen);
     document.addEventListener("pointerup", end, listen);
@@ -309,6 +315,7 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
     return () => {
       nav.removeEventListener("pointerdown", press);
       nav.removeEventListener("click", swallow, { capture: true });
+      nav.removeEventListener("click", confirmed);
       document.removeEventListener("pointerdown", startPointer, { capture: true });
       document.removeEventListener("pointermove", move, { capture: true });
       document.removeEventListener("pointerup", end, { capture: true });
