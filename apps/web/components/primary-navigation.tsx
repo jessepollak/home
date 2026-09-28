@@ -1,16 +1,23 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { createElement, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { ChartNoAxesCombined, CreditCard, House, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { profileGlyph } from "@/client/account/basename-profile";
 import { useBasenameProfile } from "@/client/account/use-basename-profile";
 import { HomeMark } from "@/components/home-mark";
 import { useReducedMotion } from "@/components/money-ticker";
 import { Button } from "@/components/ui/button";
+import { useNavLens } from "@/client/liquid-glass/use-nav-lens";
 import {
   shellChromeCompensationClassName,
   shellWidthClassName,
 } from "@/components/shell-layout";
+import {
+  navigationTabContentClassName,
+  navigationTabIconClassName,
+  navigationTabLabelClassName,
+  navigationTabTone,
+} from "@/components/primary-navigation-tab";
 import {
   isHomeNestedPanelId,
   visibleNavigationItems,
@@ -95,14 +102,16 @@ export function PrimaryNavigation({
   account,
   onOpenAccount,
 }: PrimaryNavigationProps) {
-  const navigationItems = visibleNavigationItems({ cardsEnabled });
+  const navigationItems = useMemo(() => visibleNavigationItems({ cardsEnabled }), [cardsEnabled]);
   const collapsed = useSyncExternalStore(subscribeRail, readCollapsed, () => false);
   const prefersReducedMotion = useReducedMotion();
   const [animated, setAnimated] = useState(false);
   const navRef = useRef<HTMLElement>(null);
   const [direction, setDirection] = useState("ltr");
-  const [pillReady, setPillReady] = useState(false);
+  const [motionReady, setMotionReady] = useState(false);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
+  const NavLens = useNavLens();
+  const [lensReady, setLensReady] = useState(false);
 
   const activeIndex = isAccountSettingsOpen && layout === "rail" ? -1 : navigationItems.findIndex((item) =>
     activeNavigation === item.id ||
@@ -113,7 +122,7 @@ export function PrimaryNavigation({
   }, [pillOffStart]);
 
   useEffect(() => {
-    const frame = requestAnimationFrame(() => setPillReady(true));
+    const frame = requestAnimationFrame(() => setMotionReady(true));
     return () => cancelAnimationFrame(frame);
   }, []);
 
@@ -150,6 +159,12 @@ export function PrimaryNavigation({
     persistCollapsed(next);
     for (const listener of railListeners) listener();
   };
+  const lensTarget = activeIndex > 0 ? activeIndex * (direction === "rtl" ? -1 : 1) : 0;
+  const lensItems = useMemo(() => navigationItems.map((item) => ({
+    id: item.id,
+    label: labels?.[item.id] ?? item.label,
+    Icon: navigationIcons[item.id],
+  })), [labels, navigationItems]);
 
   if (layout === "rail") {
     const ToggleIcon = collapsed ? PanelLeftOpen : PanelLeftClose;
@@ -220,19 +235,21 @@ export function PrimaryNavigation({
         aria-hidden={keyboardOpen ? true : undefined}
         inert={keyboardOpen}
         data-keyboard-hidden={keyboardOpen ? "true" : undefined}
+        data-lens={NavLens && lensReady ? "ready" : undefined}
         style={{ "--navigation-items": navigationItems.length } as CSSProperties}
-        className={`${shellWidthClassName} ${styles.navigation} fixed inset-x-0 z-30 grid rounded-full p-1 opacity-100 transition-[opacity,transform] duration-150 motion-reduce:transition-none`}
+        className={`${shellWidthClassName} ${styles.navigation} ${motionReady && !prefersReducedMotion ? styles.motionReady : ""} fixed inset-x-0 z-30 grid rounded-full p-1 opacity-100`}
       >
-        <span aria-hidden="true" className={`${styles.floor} pointer-events-none absolute inset-0 rounded-full`} />
+        <span aria-hidden="true" data-navigation-floor="" className={`${styles.floor} pointer-events-none absolute inset-0 rounded-full`} />
         <span
           aria-hidden="true"
           data-navigation-pill=""
-          className={`${styles.pill} ${pillReady && !prefersReducedMotion ? styles.pillReady : ""} pointer-events-none absolute inset-y-1 start-1 rounded-full bg-foreground/10 dark:bg-foreground/15`}
-          style={{ transform: `translateX(${activeIndex > 0 ? activeIndex * (direction === "rtl" ? -100 : 100) : 0}%)` }}
+          className={`${styles.pill} pointer-events-none absolute inset-y-1 start-1 rounded-full bg-foreground/10 dark:bg-foreground/15`}
+          style={{ transform: `translateX(${lensTarget * 100}%)` }}
         />
         {navigationItems.map((item, index) => {
           const Icon = navigationIcons[item.id];
           const isActive = index === activeIndex;
+          const tone = navigationTabTone[isActive ? "selected" : "unselected"];
           return (
             <Button
               key={item.id}
@@ -245,13 +262,16 @@ export function PrimaryNavigation({
               aria-current={isActive ? "page" : undefined}
               aria-controls="navigation-panel"
             >
-              <span className={`${styles.content} flex min-w-0 w-full flex-col items-center justify-center gap-0.5`}>
-                <Icon className={`size-5.5 ${isActive ? "text-primary" : "text-foreground/70"}`} aria-hidden="true" />
-                <span className={`block max-w-full truncate text-[0.625rem] leading-3 font-medium ${isActive ? "text-foreground" : "text-foreground/70"}`}>{labels?.[item.id] ?? item.label}</span>
+              <span className={`${styles.content} ${navigationTabContentClassName}`}>
+                <Icon className={`${navigationTabIconClassName} ${tone.icon}`} aria-hidden="true" />
+                <span className={`${navigationTabLabelClassName} ${tone.label}`}>{labels?.[item.id] ?? item.label}</span>
               </span>
             </Button>
           );
         })}
+        {NavLens && activeIndex >= 0 ? (
+          createElement(NavLens, { items: lensItems, target: lensTarget, reducedMotion: prefersReducedMotion, onReadyChange: setLensReady })
+        ) : null}
       </nav>
     </div>
   );

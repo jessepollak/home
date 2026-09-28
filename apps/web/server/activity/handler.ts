@@ -17,6 +17,9 @@ import type {
 import { privateError, privateJson } from "@/server/http/private-response";
 import { isActivityValuationCurrency } from "@/shared/activity/valuation";
 import type { ActivityReadRequest, ActivityReader } from "./types";
+import type { CardPurchases } from "@/shared/cards/transactions-contract";
+import { ACTIVITY_WINDOW_DAYS } from "@/shared/activity/types";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
 
 type ActivityReadObservation = Extract<
   ObservabilityEvent,
@@ -29,6 +32,7 @@ export type ActivityObservationSink = (
 export function createActivityHandler(dependencies: {
   authorize: SessionAuthorizer;
   readActivity: ActivityReader;
+  readCards?: (session: VerifiedAccountSession, window: { from: string; to: string }) => Promise<CardPurchases>;
   source: () => Exclude<ActivityReadSource, "none">;
   now?: () => Date;
   clock?: () => number;
@@ -91,6 +95,16 @@ export function createActivityHandler(dependencies: {
       );
     }
 
+    const cardWindow = {
+      from: new Date(Date.parse(activityRequest.to) - ACTIVITY_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString(),
+      to: activityRequest.to,
+    };
+    const readCards = dependencies.readCards;
+    const cardsPromise = activityRequest.cursor === null && readCards
+      ? Promise.resolve().then(() => readCards(session, cardWindow))
+        .catch((): CardPurchases => ({ status: "unavailable", rows: [] }))
+      : null;
+
     let source: Exclude<ActivityReadSource, "none">;
     try {
       source = dependencies.source();
@@ -109,6 +123,16 @@ export function createActivityHandler(dependencies: {
         rowCount: 0,
         valuation: emptyActivityValuation(),
       });
+      if (cardsPromise) {
+        const cards = await cardsPromise;
+        if (cards.status === "ready" || cards.rows.length > 0) {
+          return privateJson({
+            version: ACTIVITY_CONTRACT_VERSION, walletAddress: session.smartAccount.address.toLowerCase() as `0x${string}`,
+            chainId: 8453, window: cardWindow, currency: activityRequest.currency, transfers: [], cards,
+            nextCursor: null, source: null, onchainStatus: "unavailable",
+          } satisfies ActivityResponse, 200);
+        }
+      }
       return activityReadError(error);
     }
 
@@ -139,6 +163,7 @@ export function createActivityHandler(dependencies: {
         request.signal,
       );
       primaryFinishedAt = clock();
+      if (cardsPromise) page.cards = await cardsPromise;
       throwIfAborted(request.signal);
 
       const finishedAt = clock();
@@ -177,6 +202,16 @@ export function createActivityHandler(dependencies: {
         rowCount: 0,
         valuation: emptyActivityValuation(),
       });
+      if (!request.signal.aborted && !(error instanceof ChainDataError && error.code === "invalid-input") && cardsPromise) {
+        const cards = await cardsPromise;
+        if (cards.status === "ready" || cards.rows.length > 0) {
+          return privateJson({
+            version: ACTIVITY_CONTRACT_VERSION, walletAddress: session.smartAccount.address.toLowerCase() as `0x${string}`,
+            chainId: 8453, window: cardWindow, currency: activityRequest.currency, transfers: [], cards,
+            nextCursor: null, source: null, onchainStatus: "unavailable",
+          } satisfies ActivityResponse, 200);
+        }
+      }
       return activityReadError(error);
     }
   };
@@ -247,7 +282,7 @@ function emitActivityObservation(
 ): void {
   try {
     const result = observe(event);
-    void Promise.resolve(result).catch(() => {
+    void Promise.resolve(result).catch(() => { // oxlint-disable-line home/no-silent-catch -- activity observation failures must not change the read response
     });
   } catch { // oxlint-disable-line home/no-silent-catch -- the activity observation sink is isolated so reporting cannot change the read response
   }

@@ -1,4 +1,4 @@
-# Mobile navigation — adopted CSS glass
+# Mobile navigation — liquid glass
 
 Storybook group: `Journeys/Mobile navigation` (`journeys-mobile-navigation`). Review board: `review-boards--glass-navigation`.
 
@@ -8,4 +8,4 @@ Storybook group: `Journeys/Mobile navigation` (`journeys-mobile-navigation`). Re
 - Balance states: `--loading`, `--empty`, `--partial`, `--failed`.
 - Wide layout: `--tablet-1023` (capsule at the widest mobile width). The desktop rail from 1024px is in `PrimaryNavigation` stories.
 
-All use production `PrimaryNavigation` with one Home/Invest button set and fixture-backed Home, Invest, Your money, Cash, Activity, and Account surfaces. The fallback story scopes an opaque-material override inside the story only. The historical candidate comparison and package evaluation remain in [the exploration](../../design-explorations/glass-navigation.md); liquid glass was not adopted.
+All use production `PrimaryNavigation` with one Home/Invest button set and fixture-backed Home, Invest, Your money, Cash, Activity, and Account surfaces. `--home-light` asserts that the lazy liquid lens mounts, stays `aria-hidden` and inert, and settles at rest. In Chromium it also asserts that rim refraction is active. `--opaque-fallback` stubs missing `backdrop-filter` support and asserts that neither the lens nor rim refraction mounts. The fallback story scopes an opaque-material override inside the story only. The material and its engine differences are described in [the exploration](../../design-explorations/glass-navigation.md#liquid-material).

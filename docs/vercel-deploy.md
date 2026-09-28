@@ -40,6 +40,8 @@ For your Home Vercel project, enable **Project Settings → Advanced → Skew Pr
 
 Next exposes the serving deployment ID to client code, and Home adds it as the `x-deployment-id` header on client requests to `/api/*`. No environment variable is required. We use the explicit header rather than the alternative experimental `experimental.useSkewCookie` option.
 
+Public reads use the shared public-resource helper: a pinned 404 without a JSON body means the deployment expired and reloads the page once per expired deployment ID. All other failures surface as failed reads, never empty results.
+
 Verify against a preview after an older deployment passes the configured max age:
 
 ```sh

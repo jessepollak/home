@@ -1,3 +1,6 @@
+import { readJson } from "@/tests/helpers/read-json";
+import { isRecord } from "@/shared/guards";
+
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 import { createHmac, randomUUID } from "node:crypto";
@@ -13,6 +16,12 @@ import { createActionHandleResolver, type HandleResolution } from "./reconcile";
 import { createUserOperationLogLookup } from "./user-operation-log";
 import { USER_OPERATION_ENTRY_POINTS, USER_OPERATION_EVENT_TOPIC } from "./receipt";
 import { DECLINE_ACTION_CONTRACT_VERSION } from "@/shared/actions/contracts/decline";
+
+async function readActions(response: Response): Promise<Record<string, unknown>[]> {
+  const value = await readJson(response);
+  if (!isRecord(value) || !Array.isArray(value.actions) || !value.actions.every(isRecord)) throw new Error("Invalid action list");
+  return value.actions;
+}
 
 const connectionString = process.env.ACTION_PG_TEST_URL?.trim();
 const describePostgres = connectionString ? describe : describe.skip;
@@ -144,7 +153,7 @@ describePostgres("write-once action outcomes with real handlers", () => {
     expect(tasks).toHaveLength(1);
     await tasks[0]!();
     expect(await store.get(owner(), id)).toMatchObject({ transaction_hash: hash, outcome: "succeeded", outcome_source: "chain" });
-    expect(logLines.map((line) => JSON.parse(line))).toContainEqual(expect.objectContaining({ kind: "action-reconcile",
+    expect(logLines.map((line) => { const parsed: unknown = JSON.parse(line); return parsed; })).toContainEqual(expect.objectContaining({ kind: "action-reconcile",
       code: "WEBHOOK_ACTION_SETTLED", outcome: "ok" }));
     expect(logLines.join(" ")).not.toContain(address);
     expect(logLines.join(" ")).not.toContain(userOpHash);
@@ -284,11 +293,11 @@ describePostgres("write-once action outcomes with real handlers", () => {
     for (const chainReceipt of [receipt(true, "0x2222222222222222222222222222222222222222"), receipt(true, address, hash)]) {
       const { get } = handlers("cdp-embedded", { readReceipt: async () => chainReceipt });
       const response = await get(request(id, ""), context(id));
-      expect((await response.json()).status).toBe("unknown");
+      expect(await readJson(response)).toMatchObject({ status: "unknown" });
       expect((await store.get(owner(), id))?.outcome).toBeNull();
     }
     const { get } = handlers("cdp-embedded", { readReceipt: async () => receipt(true) });
-    expect((await (await get(request(id, ""), context(id))).json()).status).toBe("confirmed");
+    expect(await readJson((await get(request(id, ""), context(id))))).toMatchObject({ status: "confirmed" });
     expect(await store.get(owner(), id)).toMatchObject({ outcome: "succeeded", outcome_source: "chain", settled_at: new Date(blockTimestamp) });
   });
 
@@ -298,11 +307,11 @@ describePostgres("write-once action outcomes with real handlers", () => {
       const { handle, get } = handlers("cdp-embedded", { readReceipt: async () => receipt(true) });
       const post = (body: object) => handle(request(id, "/handle", "cdp-embedded", body), context(id));
       expect((await post({ transactionHash: hash, ...(providerHandle ? { providerHandle } : {}) })).status).toBe(200);
-      expect((await (await get(request(id, ""), context(id))).json()).status).toBe("unknown");
+      expect(await readJson((await get(request(id, ""), context(id))))).toMatchObject({ status: "unknown" });
       expect(await store.get(owner(), id)).toMatchObject({ provider_handle: providerHandle ?? null, transaction_hash: hash, outcome: null });
       if (!providerHandle) {
         expect((await post({ providerHandle: `0x${"CD".repeat(32)}` })).status).toBe(200);
-        expect((await (await get(request(id, ""), context(id))).json()).status).toBe("confirmed");
+        expect(await readJson((await get(request(id, ""), context(id))))).toMatchObject({ status: "confirmed" });
         expect(await store.get(owner(), id)).toMatchObject({ outcome: "succeeded", outcome_source: "chain", settled_at: new Date(blockTimestamp) });
       }
     }
@@ -313,13 +322,13 @@ describePostgres("write-once action outcomes with real handlers", () => {
     const { handle } = handlers("base-account");
     expect((await handle(request(id, "/handle", "base-account", { providerHandle: "base-handle" }), context(id))).status).toBe(200);
     const failed = handlers("base-account", { resolveHandle: async () => ({ status: "not_submitted" }) });
-    expect((await (await failed.get(request(id, "", "base-account"), context(id))).json()).status).toBe("failed");
+    expect(await readJson((await failed.get(request(id, "", "base-account"), context(id))))).toMatchObject({ status: "failed" });
     expect(await store.get(owner("base-account"), id)).toMatchObject({ outcome: "not_submitted", outcome_source: "wallet", transaction_hash: null });
 
     const reversedId = await prepared("base-account");
     expect((await handle(request(reversedId, "/handle", "base-account", { providerHandle: "base-handle" }), context(reversedId))).status).toBe(200);
     const reversed = handlers("base-account", { resolveHandle: async () => ({ status: "reverted", transactionHash: hash }), readReceipt: async () => receipt(false) });
-    expect((await (await reversed.get(request(reversedId, "", "base-account"), context(reversedId))).json()).status).toBe("failed");
+    expect(await readJson((await reversed.get(request(reversedId, "", "base-account"), context(reversedId))))).toMatchObject({ status: "failed" });
     expect(await store.get(owner("base-account"), reversedId)).toMatchObject({ transaction_hash: hash, outcome: "reverted", outcome_source: "chain", settled_at: new Date(blockTimestamp) });
   });
 
@@ -327,15 +336,15 @@ describePostgres("write-once action outcomes with real handlers", () => {
     const id = await prepared();
     const { decline, handle, list } = handlers("cdp-embedded", { readReceipt: async () => receipt(true) });
     expect((await decline(request(id, "/decline", "cdp-embedded", { version: DECLINE_ACTION_CONTRACT_VERSION, attempt: 0 }), context(id))).status).toBe(200);
-    expect((await (await list(listRequest())).json()).actions).toEqual([]);
+    expect(await readJson((await list(listRequest())))).toMatchObject({ actions: [] });
     expect((await handle(request(id, "/handle", "cdp-embedded", { providerHandle: userOpHash, transactionHash: hash }), context(id))).status).toBe(200);
-    expect((await (await list(listRequest())).json()).actions).toMatchObject([{ id, status: "confirmed" }]);
+    expect(await readJson((await list(listRequest())))).toMatchObject({ actions: [{ id, status: "confirmed" }] });
     expect((await store.get(owner(), id))?.outcome).toBe("succeeded");
     const laterId = await prepared();
     expect((await handle(request(laterId, "/handle", "cdp-embedded", { providerHandle: userOpHash }), context(laterId))).status).toBe(200);
     const blockedRetry = await handlers().retry(request(laterId, "/retry", "cdp-embedded", { version: 1, attempt: 1 }), context(laterId));
     expect(blockedRetry.status).toBe(409);
-    expect(await blockedRetry.json()).toMatchObject({ error: { code: "ACTION_ALREADY_DISPATCHED" } });
+    expect(await readJson(blockedRetry)).toMatchObject({ error: { code: "ACTION_ALREADY_DISPATCHED" } });
     expect((await decline(request(laterId, "/decline", "cdp-embedded", { version: DECLINE_ACTION_CONTRACT_VERSION, attempt: 0 }), context(laterId))).status).toBe(200);
     expect((await store.get(owner(), laterId))?.declined_reported_at).toBeNull();
   });
@@ -346,18 +355,18 @@ describePostgres("write-once action outcomes with real handlers", () => {
     const report = (attempt: number) => decline(request(id, "/decline", "cdp-embedded", { version: 1, attempt }), context(id));
     const begin = () => retry(request(id, "/retry", "cdp-embedded", { version: 1, attempt: 1 }), context(id));
     expect((await report(0)).status).toBe(200);
-    expect((await (await list(listRequest())).json()).actions).toEqual([]);
+    expect(await readJson((await list(listRequest())))).toMatchObject({ actions: [] });
     expect((await begin()).status).toBe(200);
     const afterRetry = await store.get(owner(), id);
     expect(afterRetry).toMatchObject({ dispatch_attempt: 1, declined_reported_at: null, transaction_hash: null, provider_handle: null });
     expect((await begin()).status).toBe(200);
     expect(await store.get(owner(), id)).toEqual(afterRetry);
-    expect((await (await list(listRequest())).json()).actions).toMatchObject([{ id, status: "pending" }]);
+    expect(await readJson((await list(listRequest())))).toMatchObject({ actions: [{ id, status: "pending" }] });
     expect((await report(0)).status).toBe(200);
     expect(await store.get(owner(), id)).toEqual(afterRetry);
-    expect((await (await list(listRequest())).json()).actions).toHaveLength(1);
+    expect(await readActions(await list(listRequest()))).toHaveLength(1);
     expect((await report(1)).status).toBe(200);
-    expect((await (await list(listRequest())).json()).actions).toEqual([]);
+    expect(await readJson((await list(listRequest())))).toMatchObject({ actions: [] });
     expect((await retry(request(id, "/retry", "cdp-embedded", { version: 1, attempt: 3 }), context(id))).status).toBe(409);
   });
 
@@ -381,15 +390,15 @@ describePostgres("write-once action outcomes with real handlers", () => {
     const id = await prepared();
     await store.recordHandle(owner(), id, { providerHandle: userOpHash, transactionHash: hash });
     const nonfinal = handlers("cdp-embedded", { readReceipt: async () => ({ ...receipt(true), finalized: false }) });
-    expect((await (await nonfinal.get(request(id, ""), context(id))).json()).status).toBe("confirmed");
+    expect(await readJson((await nonfinal.get(request(id, ""), context(id))))).toMatchObject({ status: "confirmed" });
     expect((await store.get(owner(), id))?.outcome).toBeNull();
     expect((await store.get(owner(), id))?.observed_receipt_outcome).toBe("succeeded");
     const unavailable = handlers("cdp-embedded", { readReceipt: async () => { throw new Error("RPC unavailable"); } });
-    expect((await (await unavailable.get(request(id, ""), context(id))).json()).status).toBe("confirmed");
+    expect(await readJson((await unavailable.get(request(id, ""), context(id))))).toMatchObject({ status: "confirmed" });
     const lagging = handlers("cdp-embedded", { readReceipt: async () => ({ status: "pending", transactionHash: hash, finalizedBlockNumber: "0" }) });
-    expect((await (await lagging.get(request(id, ""), context(id))).json()).status).toBe("confirmed");
+    expect(await readJson((await lagging.get(request(id, ""), context(id))))).toMatchObject({ status: "confirmed" });
     const final = handlers("cdp-embedded", { readReceipt: async () => receipt(true) });
-    expect((await (await final.get(request(id, ""), context(id))).json()).status).toBe("confirmed");
+    expect(await readJson((await final.get(request(id, ""), context(id))))).toMatchObject({ status: "confirmed" });
     expect((await store.get(owner(), id))?.outcome).toBe("succeeded");
   });
 
@@ -397,9 +406,9 @@ describePostgres("write-once action outcomes with real handlers", () => {
     const id = await prepared();
     await store.recordHandle(owner(), id, { providerHandle: userOpHash, transactionHash: hash });
     const included = handlers("cdp-embedded", { readReceipt: async () => ({ ...receipt(false), finalized: false }) });
-    expect((await (await included.get(request(id, ""), context(id))).json()).status).toBe("failed");
+    expect(await readJson((await included.get(request(id, ""), context(id))))).toMatchObject({ status: "failed" });
     const dropped = handlers("cdp-embedded", { readReceipt: async () => ({ status: "pending", transactionHash: hash, finalizedBlockNumber: "1" }) });
-    expect((await (await dropped.get(request(id, ""), context(id))).json()).status).toBe("pending");
+    expect(await readJson((await dropped.get(request(id, ""), context(id))))).toMatchObject({ status: "pending" });
     expect(await store.get(owner(), id)).toMatchObject({ observed_receipt_outcome: null, observed_receipt_block_hash: null });
   });
 
@@ -418,7 +427,7 @@ describePostgres("write-once action outcomes with real handlers", () => {
         },
       },
     });
-    expect((await (await get(request(id, ""), context(id))).json()).status).toBe("confirmed");
+    expect(await readJson((await get(request(id, ""), context(id))))).toMatchObject({ status: "confirmed" });
     expect((await store.get(owner(), id))?.outcome).toBe("succeeded");
     expect(events).toContainEqual(expect.objectContaining({ kind: "action-outcome", code: "OUTCOME_CONFLICT", outcome: "conflict" }));
     setObservabilityLogWriterForTests();
@@ -431,7 +440,7 @@ describePostgres("write-once action outcomes with real handlers", () => {
     const conflict = await store.recordOutcome(owner(), id, { outcome: "reverted", source: "chain", settledAt: new Date("2026-09-12T12:07:00.000Z") });
     expect(conflict).toMatchObject({ written: false, conflict: true });
     const { get } = handlers("cdp-embedded", { readReceipt: async () => { throw new Error("receipt should not be reread"); } });
-    expect((await (await get(request(id, ""), context(id))).json()).status).toBe("confirmed");
+    expect(await readJson((await get(request(id, ""), context(id))))).toMatchObject({ status: "confirmed" });
     expect(await store.get(owner(), id)).toEqual(original);
   });
 });

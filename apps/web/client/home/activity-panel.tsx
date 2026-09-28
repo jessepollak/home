@@ -10,7 +10,8 @@ import { activityOwnerKey, useActivity } from "@/client/activity/use-activity";
 import { activityOrdersNeedPolling } from "@/client/activity/activity-feed";
 import { parseRecentMoneyActions } from "@/client/actions";
 import { fetchRecentActions, recentActionsQueryOptions, useRecentActionsStatus } from "@/client/actions/recent-actions-query";
-import { browserHomeQueryClient, ownerQueryKey, ownerQueryMeta, useHomeQuery, useHomeQueryClient } from "@/client/query/query-client";
+import { browserHomeQueryClient, ownerQueryKey, ownerQueryMeta, useHomeMutation, useHomeQuery, useHomeQueryClient } from "@/client/query/query-client";
+import { ownerMutation } from "@/client/query/mutation-options";
 import { AccountWalletContext } from "@/client/account/cdp-client";
 import { cashoutOrderAction, cashoutWithdrawForDeposit, linkedCashoutWithdraw, presentCashout } from "@/client/activity/cash-out-presenter";
 import { isRecentActionsResponse, type RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
@@ -85,6 +86,13 @@ export function ConnectedActivityPanel({
   const ownerKey = activitySession?.smartAccount ? activityOwnerKey(activitySession) : null;
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
   const wallet = useContext(AccountWalletContext);
+  const clearOrderMutation = useHomeMutation(ownerMutation({
+    owner: ownerKey,
+    invalidates: (order: ActivityOrder) => [{ scope: "funding-open-order", key: [order.region], refetchType: "all" }],
+    mutationFn: async (order: ActivityOrder) => wallet!.fetchAccountResource(
+      `/api/funding/orders/${encodeURIComponent(order.id)}/resolve`, { method: "POST", body: { version: 1 } },
+    ),
+  }));
   const routing = useOptionalHomeShellRouting();
   const [cancelBusy, setCancelBusy] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
@@ -212,13 +220,7 @@ export function ConnectedActivityPanel({
     setCancelBusy(true);
     setCancelError(null);
     try {
-      await wallet.fetchAccountResource(`/api/funding/orders/${encodeURIComponent(order.id)}/resolve`, { method: "POST", body: { version: 1 } });
-      if (ownerKey) {
-        void queryClient.invalidateQueries({
-          queryKey: ownerQueryKey(ownerKey, "funding-open-order", order.region),
-          refetchType: "all",
-        });
-      }
+      await clearOrderMutation.mutateAsync(order);
       if (attempt === cancelAttempt.current) await refetchOrders();
     } catch (error) {
       const failure = error as { serverMessage?: unknown };

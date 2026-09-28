@@ -94,7 +94,7 @@ export function PortfolioHomeExperience({
           if (!response) throw new Error("Invalid country preference response");
           if (active) setPreferenceState({ owner: readOwner, identity: livePreferenceIdentity, regionId: response.regionId, status: "settled" });
         })
-        .catch(() => {
+        .catch(() => { // oxlint-disable-line home/no-silent-catch -- invalidated reads are ignored; active failures mark provisional-failed, retry within the bounded schedule, or settle with no region once retries are exhausted
           if (!active) return;
           if (provisionalRead) {
             setPreferenceState({ owner: readOwner, identity: livePreferenceIdentity, regionId: null, status: "provisional-failed" });

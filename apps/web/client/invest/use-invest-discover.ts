@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { InfiniteData } from "@tanstack/react-query";
-import { deploymentHeaders } from "@/client/query/deployment-headers";
+import { publicResource } from "@/client/query/public-resource";
 import {
   browserHomeQueryClient,
   publicQueryKey,
@@ -76,13 +76,7 @@ export function useInvestDiscover({
   const fetchPage = useCallback(async (pageParam: number | null, signal: AbortSignal) => {
     const queryString = pageParam === null ? "" : new URLSearchParams({ offset: String(pageParam) }).toString();
     const url = !queryString ? endpoint : endpoint.includes("?") ? `${endpoint}&${queryString}` : `${endpoint}?${queryString}`;
-    const response = await fetchImpl(url, {
-      headers: { ...deploymentHeaders(), accept: "application/json" },
-      cache: "no-store",
-      signal,
-    });
-    if (!response.ok) throw new Error("Discover page request failed.");
-    const payload = parseDiscoverResponse(await response.json());
+    const payload = parseDiscoverResponse(await publicResource(url, { signal, fetchImpl }));
     if (!payload) throw new Error("Invalid invest discover response");
     if (pageParam !== null && (payload.memeStatus === "error" || payload.memeStatus === "unavailable")) {
       throw new Error("Discover page provider failed.");

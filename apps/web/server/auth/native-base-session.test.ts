@@ -1,8 +1,10 @@
+import { readJson } from "@/tests/helpers/read-json";
 import { describe, expect, test } from "bun:test";
 import { createSiweMessage } from "viem/siwe";
 import { issueInviteCookie } from "@/server/invites/cookie";
 import { inviteVerifiedCookies, verifiedInviteCode } from "@/server/invites/consumption";
-import type { NativeBaseChallenge } from "@/shared/account/contracts/base-nonce";
+import { parseNativeBaseChallenge, type NativeBaseChallenge } from "@/shared/account/contracts/base-nonce";
+import { parseNativeBaseSession } from "@/shared/account/contracts/base-verify";
 import {
   HOME_CHALLENGE_COOKIE,
   HOME_SESSION_COOKIE,
@@ -85,7 +87,8 @@ async function challenge(
   const response = await nonce(post("/api/auth/base/nonce", {}));
   expect(response.status).toBe(200);
   expect(response.headers.get("referrer-policy")).toBe("no-referrer");
-  const payload = await response.json() as NativeBaseChallenge;
+  const payload = parseNativeBaseChallenge(await readJson(response));
+  if (!payload) throw new Error("Invalid challenge response");
   return {
     challenge: payload,
     message: messageFor(payload),
@@ -150,7 +153,8 @@ describe("native Base authentication handlers", () => {
       Host: "localhost:3000",
     }));
     expect(response.status).toBe(200);
-    const payload = await response.json() as NativeBaseChallenge;
+    const payload = parseNativeBaseChallenge(await readJson(response));
+    if (!payload) throw new Error("Invalid challenge response");
     expect(payload.domain).toBe("localhost");
     expect(payload.uri).toBe("http://localhost:3000");
   });
@@ -169,7 +173,7 @@ describe("native Base authentication handlers", () => {
     expect(setCookies.some((value) => value.startsWith(`${HOME_CHALLENGE_COOKIE}=`) && value.includes("Max-Age=0"))).toBe(true);
     expect(setCookies.some((value) => value.startsWith(`${HOME_SESSION_COOKIE}=`))).toBe(true);
     expect(setCookies.every((value) => value.includes("HttpOnly"))).toBe(true);
-    expect(await verified.json()).toEqual({
+    expect(await readJson(verified)).toEqual({
       user: { subject: expect.stringMatching(/^base-[0-9a-f]{32}$/) },
       smartAccount: { address: ADDRESS, chainId: 8453 },
       accountProvider: "base-account",
@@ -181,7 +185,8 @@ describe("native Base authentication handlers", () => {
     const { nonce, verify } = handlers();
     const nonceResponse = await nonce(post("/api/auth/base/nonce", {}, undefined, invalidOrigin));
     expect(nonceResponse.status).toBe(200);
-    const issued = await nonceResponse.json() as NativeBaseChallenge;
+    const issued = parseNativeBaseChallenge(await readJson(nonceResponse));
+    if (!issued) throw new Error("Invalid challenge response");
     const message = `${issued.domain} wants you to sign in with your Ethereum account:\n${ADDRESS}\n\n${issued.statement}\n\nURI: ${issued.uri}\nVersion: ${issued.version}\nChain ID: ${issued.chainId}\nNonce: ${issued.nonce}\nIssued At: ${issued.issuedAt}\nExpiration Time: ${issued.expirationTime}`;
 
     const response = await verify(post(
@@ -193,7 +198,7 @@ describe("native Base authentication handlers", () => {
 
     expect(response.status).toBe(401);
     expect(response.headers.get("referrer-policy")).toBe("no-referrer");
-    expect(await response.json()).toEqual({ error: { code: "INVALID_AUTH_PROOF" } });
+    expect(await readJson(response)).toEqual({ error: { code: "INVALID_AUTH_PROOF" } });
     expect(response.headers.getSetCookie().some((value) =>
       value.startsWith(`${HOME_CHALLENGE_COOKIE}=`) && value.includes("Max-Age=0")
     )).toBe(true);
@@ -371,7 +376,7 @@ describe("native Base authentication handlers", () => {
       issued.cookie,
     ));
     const sessionCookie = cookieValue(response, HOME_SESSION_COOKIE);
-    const session = await response.json();
+    const session = await readJson(response);
     const malformedExpiry = signedValue(Buffer.from(SECRET), JSON.stringify({
       version: 1,
       session,
@@ -439,9 +444,9 @@ describe("verified Base capture", () => {
     const request = post(`/api/auth/base/verify?customerId=${suppliedId}`, body, issued.cookie, ORIGIN, { "X-Customer-Id": suppliedId });
     const response = await createNativeBaseVerifyHandler(deps)(request);
     expect(response.status).toBe(200);
-    expect(captured).toEqual([{ user: { subject: (await response.clone().json()).user.subject },
+    expect(captured).toEqual([{ user: { subject: parseNativeBaseSession(await readJson(response.clone()))?.user.subject },
       smartAccount: { address: ADDRESS, chainId: 8453 }, accountProvider: "base-account" }]);
-    expect(JSON.stringify(await response.json())).not.toContain(suppliedId);
+    expect(JSON.stringify(await readJson(response))).not.toContain(suppliedId);
     expect(response.headers.get("set-cookie")).not.toContain(suppliedId);
   });
 
@@ -471,7 +476,7 @@ describe("verified Base capture", () => {
     });
     const response = await rejecting(post("/api/auth/base/verify", verifyBody(issued.message), issued.cookie));
     expect(response.status).toBe(200);
-    expect((await response.json()).smartAccount.address).toBe(ADDRESS);
+    expect(parseNativeBaseSession(await readJson(response))?.smartAccount.address).toBe(ADDRESS);
     expect(response.headers.getSetCookie()).toContain("home_invite=; Path=/; Max-Age=0");
   });
 
@@ -481,6 +486,6 @@ describe("verified Base capture", () => {
     const issued = await challenge(createNativeBaseNonceHandler(deps));
     const response = await createNativeBaseVerifyHandler(deps)(post("/api/auth/base/verify", verifyBody(issued.message), issued.cookie));
     expect(response.status).toBe(200);
-    expect((await response.json()).smartAccount.address).toBe(ADDRESS);
+    expect(parseNativeBaseSession(await readJson(response))?.smartAccount.address).toBe(ADDRESS);
   });
 });

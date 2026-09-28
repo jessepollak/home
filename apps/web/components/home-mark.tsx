@@ -66,7 +66,7 @@ const MarkArtwork = memo(function MarkArtwork({ interactive = true }: { interact
     function load() {
       import("./home-mark-animation").then(({ attachHomeMarkAnimation }) => {
         if (!disposed && artwork && control) detach = attachHomeMarkAnimation(artwork, control);
-      }, () => {
+      }, () => { // oxlint-disable-line home/no-silent-catch -- a failed optional animation import re-arms pointerenter for a later attempt
         if (!disposed) listen();
       });
     }

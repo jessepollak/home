@@ -67,7 +67,7 @@ describe("Stripe Issuing events https://apidocs.bridge.xyz/platform/cards/overvi
   const provider = createStripeWebhookProvider(config, () => now);
   test("normalizes authorization, transaction and cardholder events by allowlisted ID", async () => {
     for (const [type, object, expected] of [
-      ["issuing_authorization.updated", { object: "issuing.authorization", id: "iauth_fixture", card: "ic_fixture", cardholder: "ich_fixture" }, null],
+      ["issuing_authorization.updated", { object: "issuing.authorization", id: "iauth_fixture", card: "ic_fixture", cardholder: "ich_fixture" }, "iauth_fixture"],
       ["issuing_transaction.updated", { object: "issuing.transaction", id: "itrx_fixture", card: "ic_fixture", cardholder: "ich_fixture" }, "itrx_fixture"],
       ["issuing_cardholder.created", { object: "issuing.cardholder", id: "ich_fixture" }, null],
     ] as const) {

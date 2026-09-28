@@ -4,31 +4,89 @@
 
 @media (max-width: 63.9375rem) {
   .navigation {
+    --glass-tint-top: color-mix(in oklch, var(--background) 12%, transparent);
+    --glass-tint-bottom: color-mix(in oklch, var(--background) 22%, transparent);
+    --glass-tone: saturate(150%) brightness(1.08);
+    --glass-filter: blur(3px) var(--glass-tone);
+    --glass-highlight: oklch(1 0 0);
+    --glass-rim: oklch(1 0 0 / 55%);
+    --glass-rim-low: oklch(1 0 0 / 90%);
+    --glass-glow: oklch(1 0 0 / 85%);
+    --glass-shade: color-mix(in oklch, var(--foreground) 6%, transparent);
+    --glass-edge: color-mix(in oklch, var(--foreground) 14%, transparent);
+    --glass-shadow: 0 1px 2px oklch(0 0 0 / 6%), 0 6px 16px -4px oklch(0 0 0 / 10%), 0 18px 40px -12px oklch(0 0 0 / 14%);
+    --glass-pill: color-mix(in oklch, color-mix(in oklch, var(--foreground) 8%, var(--background)) 70%, transparent);
+    --glass-pill-highlight: oklch(1 0 0 / 70%);
+    --glass-pill-rim: color-mix(in oklch, var(--foreground) 4%, transparent);
+    --glass-lens-tint: var(--glass-pill);
+    --glass-lens-occlusion: blur(2px);
+    --glass-lens-specular: oklch(1 0 0 / 85%);
+    --glass-lens-shine: oklch(1 0 0 / 90%);
+    --glass-lens-lift-shadow: 0 0 0 .5px color-mix(in oklch, var(--foreground) 12%, transparent), 0 1px 2px oklch(0 0 0 / 8%), 0 6px 14px -4px oklch(0 0 0 / 18%);
     width: calc(6rem * var(--navigation-items, 2));
     max-width: calc(100% - 2rem);
     height: var(--spacing-shell-mobile-navigation);
     bottom: calc(var(--shell-navigation-offset) + var(--shell-viewport-overhang));
-    box-shadow: var(--shadow-lg);
+    box-shadow: var(--glass-shadow);
+    transition: opacity 150ms cubic-bezier(.4, 0, .2, 1), transform 150ms cubic-bezier(.4, 0, .2, 1);
   }
+
+  :global(.dark) .navigation {
+    --glass-tint-top: color-mix(in oklch, var(--secondary) 14%, transparent);
+    --glass-tint-bottom: color-mix(in oklch, var(--secondary) 24%, transparent);
+    --glass-tone: saturate(170%) brightness(.78);
+    --glass-highlight: oklch(1 0 0 / 60%);
+    --glass-rim: oklch(1 0 0 / 14%);
+    --glass-rim-low: oklch(1 0 0 / 34%);
+    --glass-glow: oklch(1 0 0 / 16%);
+    --glass-shade: oklch(0 0 0 / 22%);
+    --glass-edge: oklch(0 0 0 / 50%);
+    --glass-shadow: 0 1px 2px oklch(0 0 0 / 30%), 0 6px 16px -4px oklch(0 0 0 / 40%), 0 18px 40px -12px oklch(0 0 0 / 55%);
+    --glass-pill: color-mix(in oklch, color-mix(in oklch, var(--foreground) 10%, var(--background)) 72%, transparent);
+    --glass-pill-highlight: oklch(1 0 0 / 18%);
+    --glass-pill-rim: oklch(1 0 0 / 6%);
+    --glass-lens-specular: oklch(1 0 0 / 24%);
+    --glass-lens-shine: oklch(1 0 0 / 32%);
+    --glass-lens-lift-shadow: 0 0 0 .5px oklch(0 0 0 / 40%), 0 6px 14px -4px oklch(0 0 0 / 45%);
+  }
+
+  .navigation[data-glass-rim] { --glass-filter: var(--glass-rim-lens) var(--glass-tone); }
 
   .pill {
     width: calc((100% - .5rem) / var(--navigation-items, 2));
+    background: var(--glass-pill);
+    box-shadow: inset 0 1px 0 var(--glass-pill-highlight), inset 0 0 0 1px var(--glass-pill-rim);
   }
 
-  .pillReady {
-    transition: transform 180ms cubic-bezier(.25, 1.15, .35, 1);
-  }
+  .motionReady > .pill { transition: transform 180ms cubic-bezier(.25, 1.15, .35, 1); }
+
+  .navigation[data-lens] { touch-action: none; -webkit-touch-callout: none; }
+
+  .navigation[data-lens] > .pill { opacity: 0; transition: opacity 160ms ease-out; }
+  .navigation[data-lens] > button > .content { opacity: 0; transition: scale 140ms ease-out, opacity 120ms ease-out; }
 
   .floor {
-    background: color-mix(in oklch, var(--background) 78%, transparent);
-    box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--foreground) 12%, transparent), 0 0 0 1px color-mix(in oklch, var(--foreground) 6%, transparent), inset 0 1px 0 color-mix(in oklch, var(--background) 80%, transparent);
-    backdrop-filter: blur(24px) saturate(150%);
-    -webkit-backdrop-filter: blur(24px) saturate(150%);
+    background-image: linear-gradient(to bottom, var(--glass-highlight), var(--glass-rim) 42%, var(--glass-rim) 64%, var(--glass-rim-low)), linear-gradient(to bottom, var(--glass-tint-top), var(--glass-tint-bottom));
+    background-size: 0 0, 100% 100%;
+    background-repeat: no-repeat;
+    box-shadow: 0 0 0 .5px var(--glass-edge), inset 0 10px 14px -12px var(--glass-glow), inset 0 -8px 12px -10px var(--glass-shade);
+    -webkit-backdrop-filter: var(--glass-filter);
+    backdrop-filter: var(--glass-filter);
   }
 
-  :global(.dark) .floor {
-    background: color-mix(in oklch, var(--secondary) 78%, transparent);
-    box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--foreground) 15%, transparent), inset 0 1px 0 color-mix(in oklch, var(--foreground) 10%, transparent);
+  .floor::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    padding: 1px;
+    border-radius: inherit;
+    background-image: inherit;
+    background-size: 100% 100%, 0 0;
+    background-repeat: no-repeat;
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
   }
 
   .content { transition: scale 140ms ease-out; }
@@ -41,7 +99,7 @@
 }
 
 @media (max-width: 63.9375rem) and (prefers-reduced-motion: reduce) {
-  .navigation, .content, .pillReady { transition: none; }
+  .navigation, .motionReady > .pill, .content, .pill, .navigation[data-lens] > .pill, .navigation[data-lens] > button > .content { transition: none; }
   .navigation :active > .content { scale: 1; }
   .navigation[data-keyboard-hidden="true"] { transform: none; }
 }
@@ -50,8 +108,8 @@
   .floor, :global(.dark) .floor {
     background: var(--popover);
     box-shadow: inset 0 0 0 1px var(--border);
-    backdrop-filter: none;
     -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 }
 
@@ -60,8 +118,8 @@
     .floor, :global(.dark) .floor {
       background: var(--popover);
       box-shadow: inset 0 0 0 1px var(--border);
-      backdrop-filter: none;
       -webkit-backdrop-filter: none;
+      backdrop-filter: none;
     }
   }
 }
@@ -70,8 +128,8 @@
   .floor, :global(.dark) .floor {
     background: Canvas;
     box-shadow: inset 0 0 0 1px CanvasText;
-    backdrop-filter: none;
     -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
   .navigation :is(span, svg) { color: CanvasText; }
   .pill { background: Highlight; }

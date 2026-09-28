@@ -78,6 +78,7 @@ function HookProbe({
           ? props.stockMarket.snapshots[0]?.changeLabel ?? "none"
           : "n/a"}
       </output>
+      <output data-testid="crypto-status">{props.cryptoMarket?.status}</output>
       <output data-testid="crypto-change">
         {props.cryptoMarket?.status === "ready"
           ? props.cryptoMarket.snapshots[0]?.changeLabel ?? "none"
@@ -195,6 +196,30 @@ describe("useMarketPrices", () => {
         "Price snapshot is stale.",
       ),
     );
+  });
+
+  test("preserves ready stock data from a valid partial 502 response", async () => {
+    const ready = responseWithSnapshot(new Date().toISOString());
+    const partial = { ...ready, markets: { ...ready.markets, crypto: { status: "error", message: "Provider unavailable" } } };
+    render(<HookProbe options={{ fetchImpl: async () => Response.json(partial, { status: 502 }) }} />);
+    await waitFor(() => expect(page().getByTestId("stock-status").textContent).toBe("ready"));
+    expect(page().getByTestId("stock-detail").textContent).toBe("$123.4567890123456789");
+    expect(page().getByTestId("crypto-status").textContent).toBe("error");
+  });
+
+  test("surfaces failed or malformed reads as an error, never an empty price", async () => {
+    for (const response of [
+      Response.json({ markets: "invalid" }, { status: 500 }),
+      Response.json({ markets: "invalid" }, { status: 502 }),
+      new Response("Provider down", { status: 502 }),
+      new Response("{", { status: 200 }),
+    ]) {
+      const { unmount } = render(<HookProbe options={{ fetchImpl: async () => response }} />);
+      await waitFor(() => expect(page().getByTestId("stock-status").textContent).toBe("error"));
+      expect(page().getByTestId("stock-detail").textContent).toBe("Current market prices are unavailable.");
+      unmount();
+      getHomeQueryClient().clear();
+    }
   });
 
   test("rejects malformed public payloads into a generic error state", async () => {

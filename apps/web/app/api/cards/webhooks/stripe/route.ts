@@ -4,6 +4,7 @@ import { readBridgeConfig } from "@/server/cards/bridge/config";
 import { createStripeWebhookProvider } from "@/server/cards/bridge/webhook";
 import { createCardWebhookHandler, type CardWebhookResult } from "@/server/cards/provider";
 import { createCardEventStore } from "@/server/cards/store";
+import { refreshObservedCardEvent } from "@/server/cards/transaction-refresh";
 import { emitServerEvent } from "@/server/observability/log";
 
 export const runtime = "nodejs";
@@ -47,6 +48,16 @@ async function processDelivery(request: Request): Promise<CardWebhookResult | "d
   if (!config) return "disabled";
   const raw = await readBoundedWebhookBody(request);
   if (!raw) return "rejected";
-  cachedHandler ??= createCardWebhookHandler(createStripeWebhookProvider(config), createCardEventStore(getSqlExecutor()));
+  cachedHandler ??= createCardWebhookHandler(createStripeWebhookProvider(config), {
+    async insert(event) {
+      const inserted = await createCardEventStore(getSqlExecutor()).insert(event);
+      if (inserted) {
+        try { await refreshObservedCardEvent(event); } catch {
+          emitServerEvent("cards-webhook", { route: "/api/cards/webhooks/stripe", provider: "bridge", code: "WEBHOOK_UNAVAILABLE", outcome: "unavailable", durationMs: 0 });
+        }
+      }
+      return inserted;
+    },
+  });
   return cachedHandler(raw, request.headers);
 }

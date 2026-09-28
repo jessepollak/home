@@ -210,7 +210,7 @@ export function SendDialog({
           address: resolved && resolved.name === requestedName ? resolved.address : null,
         });
       })
-      .catch(() => {
+      .catch(() => { // oxlint-disable-line home/no-silent-catch -- a failed recipient-name lookup falls back to an unresolved address unless this request was cancelled
         if (!cancelled) setResolution({ name: requestedName, address: null });
       });
     return () => { cancelled = true; };
@@ -230,7 +230,7 @@ export function SendDialog({
           });
         }
       })
-      .catch(() => {
+      .catch(() => { // oxlint-disable-line home/no-silent-catch -- a failed recent-recipient lookup falls back to an empty list unless the request was cancelled
         if (!cancelled) {
           setRecentRecipientState({ ownerBoundary: requestedOwnerBoundary, recipients: [] });
         }
@@ -244,7 +244,7 @@ export function SendDialog({
     const requestedBoundary = resourceBoundary;
     void fetchAccountResource(`/api/funding/providers?region=${encodeURIComponent(regionId)}&direction=offramp`)
       .then((value) => { if (!cancelled) setOfframps(readProviderBindings(value).filter((binding): binding is FundingOfframpBinding => binding.direction === "offramp")); })
-      .catch(() => { if (!cancelled) setOfframps(null); })
+      .catch(() => { if (!cancelled) setOfframps(null); }) // oxlint-disable-line home/no-silent-catch -- a failed provider read clears the list; finally marks this request loaded
       .finally(() => { if (!cancelled) setProvidersLoadedFor(requestedBoundary); });
     return () => { cancelled = true; };
   }, [fetchAccountResource, open, ownerBoundary, regionId, regionReady, resourceBoundary, providerRetry]);

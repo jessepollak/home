@@ -1,3 +1,4 @@
+import { readJson } from "@/tests/helpers/read-json";
 import { describe, expect, test } from "bun:test";
 import { parseCountryPreferenceReadResponse, parseCountryPreferenceRequest, parseCountryPreferenceResponse } from "@/shared/account/contracts/country-preference";
 import { createCountryPreferenceHandler, createCountryPreferenceReadHandler } from "./handler";
@@ -37,7 +38,7 @@ describe("country preference handler", () => {
       return stored;
     } });
     const response = await handler(new Request("https://home.test/api/account/country-preference"));
-    expect(await response.json()).toEqual({ version: 1, regionId: stored });
+    expect(await readJson(response)).toEqual({ version: 1, regionId: stored });
     expect(calls).toEqual([session]);
     expect(response.headers.get("cache-control")).toContain("private");
     expect(response.headers.get("cache-control")).toContain("no-store");
@@ -47,7 +48,7 @@ describe("country preference handler", () => {
     const handler = createCountryPreferenceReadHandler({ authorize: async () => session, read: async () => "DE" });
     const response = await handler(new Request("https://home.test/api/account/country-preference"));
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ version: 1, regionId: "DE" });
+    expect(await readJson(response)).toEqual({ version: 1, regionId: "DE" });
   });
 
   test("returns a private 503 when a preference read fails", async () => {
@@ -55,7 +56,7 @@ describe("country preference handler", () => {
     const response = await handler(new Request("https://home.test/api/account/country-preference"));
     expect(response.status).toBe(503);
     expect(response.headers.get("cache-control")).toContain("private");
-    expect((await response.json()).error.code).toBe("COUNTRY_PREFERENCE_UNAVAILABLE");
+    expect(await readJson(response)).toMatchObject({ error: { code: "COUNTRY_PREFERENCE_UNAVAILABLE" } });
   });
 
   test("rejects unauthenticated writes without reaching the store", async () => {
@@ -77,7 +78,7 @@ describe("country preference handler", () => {
     expect((await handler(request({ version: 1, regionId: "ZZ" }))).status).toBe(400);
     expect((await handler(request({ version: 1, regionId: "GLOBAL" }))).status).toBe(400);
     const response = await handler(request({ version: 1, regionId: "GB", adopt: true }));
-    expect(await response.json()).toEqual({ version: 1, regionId: "DE" });
+    expect(await readJson(response)).toEqual({ version: 1, regionId: "DE" });
     expect(calls).toEqual([[session, "GB", { onlyIfUnset: true }]]);
     expect(response.headers.get("cache-control")).toContain("no-store");
   });
@@ -87,7 +88,7 @@ describe("country preference handler", () => {
     const handler = createCountryPreferenceHandler({ authorize: async () => session, regionOffered: async () => false, write: async () => { writes++; return "GB"; } });
     const response = await handler(request({ version: 1, regionId: "GB" }));
     expect(response.status).toBe(400);
-    expect((await response.json()).error.code).toBe("COUNTRY_PREFERENCE_INVALID");
+    expect(await readJson(response)).toMatchObject({ error: { code: "COUNTRY_PREFERENCE_INVALID" } });
     expect(writes).toBe(0);
   });
 
@@ -97,7 +98,7 @@ describe("country preference handler", () => {
     const response = await handler(request({ version: 1, regionId: "GB" }));
     expect(response.status).toBe(503);
     expect(response.headers.get("cache-control")).toContain("private");
-    expect((await response.json()).error.code).toBe("COUNTRY_PREFERENCE_UNAVAILABLE");
+    expect(await readJson(response)).toMatchObject({ error: { code: "COUNTRY_PREFERENCE_UNAVAILABLE" } });
     expect(writes).toBe(0);
   });
 

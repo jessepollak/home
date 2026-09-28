@@ -201,4 +201,13 @@ describe("no-widen-then-assert", () => {
     await expectClean("no-widen-then-assert", "const byRuntimeKey: Record<string, Item> = {}; for (const item of items) byRuntimeKey[item.id] = item;");
     await expectClean("no-widen-then-assert", "const submissions: Record<string, string>[] = []; submissions.push(Object.fromEntries(new FormData(form)) as Record<string, string>);");
   });
+
+  it("catches burn-down escape cases but leaves genuine boundaries to the assertion ratchet", async () => {
+    await expectHits("no-widen-then-assert", "const typed: Row = read(); const erased = typed as any; const value = erased as Row;");
+    await expectHits("no-widen-then-assert", "const source = { id: 'x' }; const alias = source; const erased: unknown = alias; const value = erased as { id: string };");
+    await expectHits("no-widen-then-assert", "const source = { id: 'x' }; const erased = <unknown>source; const value = <{ id: string }>erased;");
+    await expectHits("no-chained-type-assertions", "const source = { id: 'x' }; const erased: any = source; const value = erased as unknown as { id: string };");
+    await expectClean("no-widen-then-assert", "const erased: unknown = await response.json(); const value = erased as Row;");
+    await expectClean("no-widen-then-assert", "const payload: unknown = JSON.parse(text); if (isRow(payload)) use(payload);");
+  });
 });
