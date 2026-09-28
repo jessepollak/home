@@ -250,6 +250,88 @@ describe("CDP balance activity webhook", () => {
     expect(reads).toBe(1);
   });
 
+  test("signed activity schedules a bounded account follow-through, but rejected and ignored events do not", async () => {
+    const store = await seededStore();
+    const tasks: Array<() => Promise<void>> = [];
+    const calls: string[][] = [];
+    const addresses = Array.from({ length: 55 }, (_, i) => `0x${i.toString(16).padStart(40, "0")}`);
+    const handler = createCdpWebhookHandler({ store, subscriptions: subscriptionStore(), now: () => NOW,
+      schedule: (task) => { tasks.push(task); },
+      settleActions: async (found, signal) => {
+        expect(signal.aborted).toBe(false);
+        calls.push([...found]);
+      },
+    });
+    const raw = body({ eventType: "wallet.activity.multi", data: { matchedAddress: addresses } });
+    expect((await handler(raw, signed(raw))).status).toBe(200);
+    expect(tasks).toHaveLength(1);
+    await tasks[0]!();
+    expect(calls).toEqual([addresses.slice(0, 50)]);
+    expect((await handler(raw, null)).status).toBe(401);
+    const ignored = body({ eventType: "other.event", data: { address: ADDRESS } });
+    expect((await handler(ignored, signed(ignored))).status).toBe(200);
+    expect(tasks).toHaveLength(1);
+  });
+
+  test("settles matched wallet addresses and never counterparties, whatever the field order", async () => {
+    const store = await seededStore();
+    const counterparties = Array.from({ length: 60 }, (_, i) => `0x${(i + 10).toString(16).padStart(40, "0")}`);
+    const calls: string[][] = [];
+    const tasks: Array<() => Promise<void>> = [];
+    const handler = createCdpWebhookHandler({ store, subscriptions: subscriptionStore(), now: () => NOW,
+      schedule: (task) => { tasks.push(task); },
+      settleActions: async (found) => { calls.push([...found]); },
+    });
+    const raw = body({ eventType: "wallet.activity.multi", data: { activities: counterparties.map((from) => ({ from, to: ADDRESS, matchedAddress: ADDRESS })) } });
+
+    expect((await handler(raw, signed(raw))).status).toBe(200);
+    await tasks[0]!();
+    expect(calls).toEqual([[ADDRESS]]);
+  });
+
+  test("still settles the extracted addresses when the payload carries no matched wallet field", async () => {
+    const store = await seededStore();
+    const calls: string[][] = [];
+    const tasks: Array<() => Promise<void>> = [];
+    const handler = createCdpWebhookHandler({ store, subscriptions: subscriptionStore(), now: () => NOW,
+      schedule: (task) => { tasks.push(task); },
+      settleActions: async (found) => { calls.push([...found]); },
+    });
+    const raw = body({ eventType: "wallet.activity.multi", data: { from: ADDRESS, to: "0x2222222222222222222222222222222222222222" } });
+
+    expect((await handler(raw, signed(raw))).status).toBe(200);
+    await tasks[0]!();
+    expect(calls).toEqual([[ADDRESS, "0x2222222222222222222222222222222222222222"]]);
+  });
+
+  test("a throwing or slow scheduled settlement cannot change the accepted response", async () => {
+    const store = await seededStore();
+    const raw = body({ eventType: "wallet.activity.detected", data: { address: ADDRESS } });
+    const tasks: Array<() => Promise<void>> = [];
+    const handler = createCdpWebhookHandler({ store, subscriptions: subscriptionStore(), now: () => NOW,
+      schedule: (task) => { tasks.push(task); },
+      settleActions: async () => { throw new Error("settlement unavailable"); },
+    });
+    expect((await handler(raw, signed(raw))).status).toBe(200);
+    await expect(tasks[0]!()).resolves.toBeUndefined();
+    const slow = createCdpWebhookHandler({ store, subscriptions: subscriptionStore(), now: () => NOW,
+      schedule: (task) => { tasks.push(task); },
+      settleActions: () => new Promise<void>(() => {}),
+    });
+    expect((await slow(raw, signed(raw))).status).toBe(200);
+    expect(tasks).toHaveLength(2);
+  });
+
+  test("an unavailable scheduler does not reject signed activity", async () => {
+    const store = await seededStore();
+    const raw = body({ eventType: "wallet.activity.detected", data: { address: ADDRESS } });
+    const handler = createCdpWebhookHandler({ store, subscriptions: subscriptionStore(), now: () => NOW,
+      schedule: () => { throw new Error("scheduler unavailable"); },
+      settleActions: async () => { throw new Error("should not settle"); },
+    });
+    expect((await handler(raw, signed(raw))).status).toBe(200);
+  });
+
   test("extracts only documented address fields and lowercases/dedupes them", () => {
     expect(extractCdpActivityAddresses({
       data: {

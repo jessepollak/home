@@ -22,6 +22,13 @@ export interface BalanceWebhookSubscriptions {
   ensureAddressSubscribed(address: `0x${string}`): Promise<void>;
 }
 
+let sharedSubscriptions: BalanceWebhookSubscriptions | null = null;
+
+export function getBalanceWebhookSubscriptions(): BalanceWebhookSubscriptions {
+  sharedSubscriptions ??= createCdpWebhookSubscriptions();
+  return sharedSubscriptions;
+}
+
 type Environment = Readonly<Record<string, string | undefined>>;
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 type JwtGenerator = typeof generateJwt;

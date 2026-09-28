@@ -2,9 +2,10 @@ import "server-only";
 
 import { resolveBaseRpcUrl } from "@/server/chain/rpc";
 import type { ActionRow } from "./store";
+import { createUserOperationLogLookup, type UserOperationLogResolution } from "./user-operation-log";
 
 export type HandleResolution =
-  | { status: "complete"; transactionHash: `0x${string}` }
+  | { status: "complete"; transactionHash: `0x${string}`; code?: "USEROP_LOG_V06" | "USEROP_LOG_V07" | "USEROP_LOG_V08" | "BASE_USEROP_LOG_V06" | "BASE_USEROP_LOG_V07" | "BASE_USEROP_LOG_V08" }
   | { status: "pending" }
   | { status: "reverted"; transactionHash?: `0x${string}` }
   | { status: "not_submitted" }
@@ -27,7 +28,7 @@ const UNKNOWN_HANDLE_BACKOFF_MS = 5 * 60_000;
 const UNAVAILABLE_BACKOFF_MS = 30_000;
 const MAX_HANDLE_BACKOFFS = 500;
 const handlePattern = /^[\x21-\x7e]{1,512}$/;
-const transactionHashPattern = /^0x[0-9a-f]{64}$/;
+const transactionHashPattern = /^0x[0-9a-f]{64}$/i;
 const unknownHandleCodes = new Set([-32602, 4200, 5730]);
 
 export function createActionHandleResolver(
@@ -36,9 +37,12 @@ export function createActionHandleResolver(
     walletRpcUrl?: string;
     timeoutMs?: number;
     now?: () => number;
+    logLookup?: (row: ActionRow, signal?: AbortSignal) => Promise<UserOperationLogResolution>;
+    rpcUrl?: string;
   } = {},
 ): ActionHandleResolver {
   const fetchImpl = options.fetchImpl ?? fetch;
+  const logLookup = options.logLookup ?? createUserOperationLogLookup({ fetchImpl, rpcUrl: options.rpcUrl, now: options.now });
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 10_000) {
     throw new Error("The Base Account status timeout must be 1-10000ms.");
@@ -64,6 +68,7 @@ export function createActionHandleResolver(
     externalSignal?: AbortSignal,
   ): Promise<HandleResolution> {
     try {
+      if (row.provider === "cdp-embedded") return await logLookup(row, externalSignal);
       if (
         row.provider !== "base-account" ||
         row.provider_handle === null ||
@@ -76,9 +81,9 @@ export function createActionHandleResolver(
       const handle = row.provider_handle;
       rpcUrl ??= resolveBaseRpcUrl(configuredUrl);
       const currentTime = now();
-      if (currentTime < circuitOpenUntil) return { status: "unavailable" };
+      if (currentTime < circuitOpenUntil) return await fallback(row, externalSignal);
       const handleBackoffUntil = handleBackoffs.get(handle) ?? 0;
-      if (currentTime < handleBackoffUntil) return { status: "unavailable" };
+      if (currentTime < handleBackoffUntil) return await fallback(row, externalSignal);
       if (handleBackoffUntil) handleBackoffs.delete(handle);
 
       const controller = new AbortController();
@@ -110,12 +115,10 @@ export function createActionHandleResolver(
             signal: controller.signal,
           });
         } catch {
-          const timedOut = controller.signal.reason instanceof DOMException &&
-            controller.signal.reason.name === "TimeoutError";
-          if (externalSignal?.aborted && !timedOut) return { status: "unavailable" };
+          if (externalSignal?.aborted) return { status: "unavailable" };
           circuitOpenUntil = now() + CIRCUIT_BREAKER_MS;
           backoff(handle, now() + UNAVAILABLE_BACKOFF_MS);
-          return { status: "unavailable" };
+          return await fallback(row, externalSignal);
         }
 
         if (response.status !== 200) {
@@ -123,7 +126,7 @@ export function createActionHandleResolver(
             circuitOpenUntil = now() + CIRCUIT_BREAKER_MS;
           }
           backoff(handle, now() + UNAVAILABLE_BACKOFF_MS);
-          return { status: "unavailable" };
+          return await fallback(row, externalSignal);
         }
 
         let payload: unknown;
@@ -131,12 +134,12 @@ export function createActionHandleResolver(
           payload = JSON.parse(await response.text()) as unknown;
         } catch {
           backoff(handle, now() + UNAVAILABLE_BACKOFF_MS);
-          return { status: "unavailable" };
+          return await fallback(row, externalSignal);
         }
 
         if (!isRecord(payload) || payload.jsonrpc !== "2.0" || payload.id !== 1) {
           backoff(handle, now() + UNAVAILABLE_BACKOFF_MS);
-          return { status: "unavailable" };
+          return await fallback(row, externalSignal);
         }
         if ("error" in payload) {
           const error = isRecord(payload.error) ? payload.error : null;
@@ -144,7 +147,7 @@ export function createActionHandleResolver(
             ? UNKNOWN_HANDLE_BACKOFF_MS
             : UNAVAILABLE_BACKOFF_MS;
           backoff(handle, now() + delay);
-          return { status: "unavailable" };
+          return await fallback(row, externalSignal);
         }
 
         const resolution = parseResult(payload.result, handle);
@@ -155,15 +158,22 @@ export function createActionHandleResolver(
         } else {
           handleBackoffs.delete(handle);
         }
-        return resolution;
+        return resolution.status === "unavailable" ? await fallback(row, externalSignal) : resolution;
       } finally {
         clearTimeout(timeout);
         externalSignal?.removeEventListener("abort", abortFromExternal);
       }
     } catch {
-      return { status: "unavailable" };
+      return await fallback(row, externalSignal);
     }
   };
+
+  async function fallback(row: ActionRow, signal?: AbortSignal): Promise<HandleResolution> {
+    if (!row.provider_handle || !transactionHashPattern.test(row.provider_handle)) return { status: "unavailable" };
+    const found = await logLookup(row, signal);
+    if (found.status !== "complete") return found;
+    return { ...found, code: `BASE_${found.code}` };
+  }
 }
 
 function parseResult(result: unknown, handle: string): HandleResolution {

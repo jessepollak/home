@@ -1,3 +1,5 @@
+import "server-only";
+
 export type ScheduledTask = Promise<unknown> | (() => Promise<unknown>);
 
 export function createAfterSchedule(
