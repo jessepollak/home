@@ -49,6 +49,8 @@ const navigationIcons = {
   invest: ChartNoAxesCombined,
 } satisfies Record<NavigationId, typeof House>;
 
+type NavigationStyle = CSSProperties & Record<"--navigation-items", number>;
+
 const railStorageKey = "home:sidebar:collapsed";
 const railListeners = new Set<() => void>();
 let inMemoryCollapsed: boolean | null = null;
@@ -165,6 +167,7 @@ export function PrimaryNavigation({
     label: labels?.[item.id] ?? item.label,
     Icon: navigationIcons[item.id],
   })), [labels, navigationItems]);
+  const navigationStyle: NavigationStyle = { "--navigation-items": navigationItems.length };
 
   if (layout === "rail") {
     const ToggleIcon = collapsed ? PanelLeftOpen : PanelLeftClose;
@@ -236,7 +239,7 @@ export function PrimaryNavigation({
         inert={keyboardOpen}
         data-keyboard-hidden={keyboardOpen ? "true" : undefined}
         data-lens={NavLens && lensReady ? "ready" : undefined}
-        style={{ "--navigation-items": navigationItems.length } as CSSProperties}
+        style={navigationStyle}
         className={`${shellWidthClassName} ${styles.navigation} ${motionReady && !prefersReducedMotion ? styles.motionReady : ""} fixed inset-x-0 z-30 grid rounded-full p-1 opacity-100`}
       >
         <span aria-hidden="true" data-navigation-floor="" className={`${styles.floor} pointer-events-none absolute inset-0 rounded-full`} />
