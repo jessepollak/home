@@ -150,19 +150,29 @@ test("a drag does not swallow two immediate real taps", async ({ page }) => {
   const homeBox = (await home.boundingBox())!;
   const investBox = (await invest.boundingBox())!;
   const center = (box: typeof homeBox) => ({ x: box.x + box.width / 2, y: box.y + box.height / 2 });
-  await page.mouse.move(center(homeBox).x, center(homeBox).y);
-  await page.mouse.down();
-  await page.mouse.move(center(investBox).x, center(investBox).y);
-  await page.mouse.up();
-  await expect(invest).toHaveAttribute("aria-current", "page");
-  const dragEndedAt = await page.evaluate(() => performance.now());
-  await page.mouse.move(center(homeBox).x, center(homeBox).y);
-  await page.mouse.down();
-  await page.mouse.up();
-  await expect(home).toHaveAttribute("aria-current", "page");
-  await page.mouse.move(center(investBox).x, center(investBox).y);
-  await page.mouse.down();
-  await page.mouse.up();
-  expect(await page.evaluate(() => performance.now()) - dragEndedAt).toBeLessThan(400);
+  await nav.evaluate((element) => {
+    element.setAttribute("data-accepted-taps", "");
+    element.addEventListener("click", (event) => {
+      if (!(event instanceof MouseEvent) || !event.isTrusted || event.detail === 0 || !(event.target instanceof Element)) return;
+      const tab = event.target.closest("button");
+      if (tab) element.setAttribute("data-accepted-taps", `${element.getAttribute("data-accepted-taps")}${tab.id},`);
+    });
+  });
+  const cdp = await page.context().newCDPSession(page);
+  const timestamp = Date.now() / 1000;
+  const dispatch = (type: "mouseMoved" | "mousePressed" | "mouseReleased", point: { x: number; y: number }, held = false) =>
+    cdp.send("Input.dispatchMouseEvent", { type, ...point, button: type === "mouseMoved" ? "none" : "left", buttons: held ? 1 : 0, clickCount: 1, timestamp });
+  await dispatch("mouseMoved", center(homeBox));
+  await dispatch("mousePressed", center(homeBox), true);
+  await dispatch("mouseMoved", center(investBox), true);
+  await dispatch("mouseMoved", { x: center(investBox).x, y: investBox.y + investBox.height + 12 }, true);
+  await dispatch("mouseReleased", { x: center(investBox).x, y: investBox.y + investBox.height + 12 });
+  await dispatch("mouseMoved", center(homeBox));
+  await dispatch("mousePressed", center(homeBox), true);
+  await dispatch("mouseReleased", center(homeBox));
+  await dispatch("mouseMoved", center(investBox));
+  await dispatch("mousePressed", center(investBox), true);
+  await dispatch("mouseReleased", center(investBox));
+  await expect(nav).toHaveAttribute("data-accepted-taps", "home-nav,invest-nav,");
   await expect(invest).toHaveAttribute("aria-current", "page");
 });
