@@ -52,15 +52,14 @@
     width: calc((100% - .5rem) / 2);
     background: var(--glass-pill);
     box-shadow: inset 0 1px 0 var(--glass-pill-highlight), inset 0 0 0 1px var(--glass-pill-rim);
-    transition: opacity 160ms ease-out;
   }
 
-  .motionReady > .pill { transition: opacity 160ms ease-out, transform 180ms cubic-bezier(.25, 1.15, .35, 1); }
+  .motionReady > .pill { transition: transform 180ms cubic-bezier(.25, 1.15, .35, 1); }
 
   .navigation[data-lens] { touch-action: pan-y; -webkit-touch-callout: none; }
 
-  .navigation[data-lens] > .pill,
-  .navigation[data-lens] > button > .content { opacity: 0; }
+  .navigation[data-lens] > .pill { opacity: 0; transition: opacity 160ms ease-out; }
+  .navigation[data-lens] > button > .content { opacity: 0; transition: scale 140ms ease-out, opacity 120ms ease-out; }
 
   .floor {
     background-image: linear-gradient(to bottom, var(--glass-highlight), var(--glass-rim) 42%, var(--glass-rim) 64%, var(--glass-rim-low)), linear-gradient(to bottom, var(--glass-tint-top), var(--glass-tint-bottom));
@@ -86,7 +85,7 @@
     mask-composite: exclude;
   }
 
-  .content { transition: scale 140ms ease-out, opacity 120ms ease-out; }
+  .content { transition: scale 140ms ease-out; }
   .navigation :active > .content { scale: .95; transition-duration: 0ms; }
   .navigation[data-keyboard-hidden="true"] { opacity: 0; transform: translateY(.5rem); pointer-events: none; }
 }
@@ -96,7 +95,7 @@
 }
 
 @media (max-width: 63.9375rem) and (prefers-reduced-motion: reduce) {
-  .navigation, .motionReady > .pill, .content, .pill { transition: none; }
+  .navigation, .motionReady > .pill, .content, .pill, .navigation[data-lens] > .pill, .navigation[data-lens] > button > .content { transition: none; }
   .navigation :active > .content { scale: 1; }
   .navigation[data-keyboard-hidden="true"] { transform: none; }
 }

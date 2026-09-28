@@ -261,6 +261,28 @@ function withoutBackdropFilter() {
     : value === undefined ? supports(property) : supports(property, value)) as typeof CSS.supports;
   return () => { CSS.supports = supports; };
 }
+let reduceTransparency: ((on: boolean) => void) | null = null;
+function withTransparencySwitch() {
+  const matchMedia = window.matchMedia;
+  const listeners = new Set<(event: MediaQueryListEvent) => void>();
+  let matches = false;
+  const list = {
+    media: "(prefers-reduced-transparency: reduce)",
+    get matches() { return matches; },
+    onchange: null,
+    addEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => { listeners.add(listener); },
+    removeEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => { listeners.delete(listener); },
+    addListener: () => undefined,
+    removeListener: () => undefined,
+    dispatchEvent: () => true,
+  } as unknown as MediaQueryList;
+  window.matchMedia = (query: string) => query === list.media ? list : matchMedia.call(window, query);
+  reduceTransparency = (on) => {
+    matches = on;
+    for (const listener of listeners) listener({ matches: on, media: list.media } as MediaQueryListEvent);
+  };
+  return () => { window.matchMedia = matchMedia; reduceTransparency = null; };
+}
 async function verifyClearance(canvasElement: HTMLElement) {
   const main = within(canvasElement).getByRole("main");
   const nav = within(canvasElement).getByRole("navigation", { name: "Main navigation" });
@@ -504,6 +526,26 @@ async function verifyReducedMotion(canvasElement: HTMLElement) {
 export const ReducedMotion: Story = { args: { reducedMotion: true }, play: async ({ canvasElement }) => { await verifyReducedMotion(canvasElement); } };
 export const LongLabels: Story = { args: { longLabels: true }, play: async ({ canvasElement }) => { await verifyLabels(canvasElement); } };
 export const OpaqueFallback: Story = { args: { fallback: true }, beforeEach: withoutBackdropFilter, play: async ({ canvasElement }) => { await verifyNoLens(canvasElement); } };
+export const TransparencyReduced: Story = { beforeEach: withTransparencySwitch, play: async ({ canvasElement }) => {
+  const nav = await verifyNav(canvasElement, "Home");
+  await verifySelectionGeometry(nav, "Home");
+  const content = [...nav.querySelectorAll<HTMLElement>(":scope > button > span")];
+  const pill = nav.querySelector<HTMLElement>("[data-navigation-pill]")!;
+  await waitFor(() => {
+    for (const element of [...content, pill]) expect(Number(getComputedStyle(element).opacity)).toBeLessThanOrEqual(0.01);
+  });
+  const restored = new Promise<number[]>((resolve) => {
+    const observer = new MutationObserver(() => {
+      if (nav.hasAttribute("data-lens")) return;
+      observer.disconnect();
+      resolve([...content, pill].map((element) => Number(getComputedStyle(element).opacity)));
+    });
+    observer.observe(nav, { attributes: true, attributeFilter: ["data-lens"] });
+  });
+  reduceTransparency?.(true);
+  for (const opacity of await restored) await expect(opacity).toBeGreaterThanOrEqual(0.99);
+  await expect(nav.querySelector("[data-navigation-lens]")).toBeNull();
+} };
 export const Loading: Story = { args: { balances: "loading" } };
 export const Empty: Story = { args: { balances: "empty" } };
 export const Partial: Story = { args: { balances: "partial" } };
