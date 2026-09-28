@@ -244,6 +244,28 @@ describe("CardScreen review states", () => {
     expect(view.queryByText("Card locked")).toBeNull();
   });
 
+  test("a failed card issue request shows an error and no new card", async () => {
+    const posts: string[] = [];
+    const fetchAccountResource = jest.fn(async (path: string, options?: { method?: string }) => {
+      if (options?.method === "POST") {
+        posts.push(path);
+        throw new Error("card issue failed");
+      }
+      return cardsBody("ready-to-issue");
+    });
+    function Harness() {
+      const { query, refresh, commands } = useCards({ ownerKey: "owner-1", fetchAccountResource });
+      return <><CardScreen cards={cardScreenData(query)} commands={commands} onRetry={() => void refresh()} onOpenVerification={() => {}} /><Toaster /></>;
+    }
+    const view = render(<Harness />);
+    fireEvent.click(await view.findByRole("button", { name: "Create your card" }));
+    expect((await view.findAllByText("Couldn't create your card. Try again.")).length).toBeGreaterThan(0);
+    expect(posts).toEqual(["/api/cards"]);
+    await waitFor(() => expect(view.getByRole("button", { name: "Create your card" }).hasAttribute("disabled")).toBe(false));
+    expect(view.queryByRole("img", { name: /Virtual card/ })).toBeNull();
+    expect(view.queryByText("Couldn't refresh your card. Try again.")).toBeNull();
+  });
+
   test("the latest failed read wins over earlier card data", () => {
     expect(cardScreenData({ data: cardsBody("active"), isError: true })).toEqual({ status: "failed" });
     expect(cardScreenData({ data: undefined, isError: false })).toEqual({ status: "loading" });
