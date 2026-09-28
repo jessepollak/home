@@ -1,6 +1,6 @@
 ---
 name: browser-iteration
-description: Explore and verify every Home user-visible UI or core-flow implementation with the repository-pinned agent-browser before and after editing. Use for implementation, visual changes, interaction changes, and browser-visible bug fixes; not for docs-only, CI-only, or pure server work.
+description: Use for every Home user-visible UI or core-flow implementation, including copy-only and delegated fixes: load before editing and use the repository-pinned agent-browser before the first edit and after the last. Not for docs-only, CI-only, or pure server work; Playwright alone does not replace interactive verification.
 license: MIT
 metadata:
   source: https://github.com/vercel-labs/agent-browser/tree/v0.38.1
