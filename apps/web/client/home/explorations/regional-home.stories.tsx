@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import type { CSSProperties } from "react";
 import { MoneyMotionProvider } from "@/components/money-ticker";
 import { expect, fn, userEvent, within } from "storybook/test";
 import type { UseActivityResult } from "@/client/activity/use-activity";
@@ -95,14 +94,13 @@ const pendingOperation: RecentMoneyActionOperation = {
     warnings: [], expiresAt: "2026-09-23T12:00:00.000Z", createdAt: "2026-09-23T12:00:00.000Z" },
   status: "pending", createdAt: "2026-09-23T12:00:00.000Z", updatedAt: "2026-09-23T12:00:00.000Z",
 };
-const openAccount = fn();
 const meta = {
   id: "explorations-regional-home", title: "Explorations/Regional Home", component: RegionalHomeProposal,
   tags: ["exploration"],
-  args: { regionId: "US", assetBalances: us, activity, onOpenAccount: openAccount, onReload: fn() },
+  args: { regionId: "US", assetBalances: us, activity },
   parameters: {
     layout: "fullscreen", viewport: { defaultViewport: "mobile" }, a11y: { test: "error" },
-    docs: { description: { component: "Unreviewed #638 regional and desktop proposal. Amounts, region availability and activity are fixed illustrative fixtures; nothing is connected to live money or routes. BR dates render in pt-BR while fixture labels are English (production ActivityPanelView behavior). The rail keeps Card from #636, unlike #694's Home/Invest rail, and stays pinned around an inner scroll pane. The HomeMark hit area remains below 44px until adoption gives it an owned 44px control (known #694 prerequisite). Production ActivityPanelView rows still truncate at 200% text; consuming-leaf follow-up." } },
+    docs: { description: { component: "Unreviewed #638 regional Home content proposal, without navigation chrome. Amounts, region availability and activity are fixed illustrative fixtures; nothing is connected to live money or routes. BR dates render in pt-BR while fixture labels are English (production ActivityPanelView behavior). Production ActivityPanelView rows still truncate at 200% text; consuming-leaf follow-up." } },
     design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=311-12034" },
   },
 } satisfies Meta<typeof RegionalHomeProposal>;
@@ -113,25 +111,6 @@ const checkActions = async (canvasElement: HTMLElement) => {
   await expect(buttons.map((button) => button.textContent?.trim())).toEqual(["Add money", "Send", "Cash out"]);
 };
 export const Us: Story = { play: async ({ canvasElement }) => { await checkActions(canvasElement); } };
-export const MobileNavigationStaysVisible: Story = { play: async ({ canvasElement }) => {
-  const navigation = within(canvasElement).getByRole("navigation", { name: "Main navigation" });
-  const scroller = within(canvasElement).getByTestId("regional-shell-scroll");
-  scroller.scrollTop = 10000;
-  await expect(navigation).toBeVisible();
-  await expect(within(navigation).getByRole("button", { name: "Home" })).toHaveAttribute("aria-current", "page");
-} };
-export const MobileNavigationSafeArea: Story = {
-  decorators: [(Story) => <div style={{ "--shell-safe-area-bottom": "34px" } as CSSProperties}><Story /></div>],
-  play: async ({ canvasElement }) => {
-    const navigation = within(canvasElement).getByRole("navigation", { name: "Main navigation" });
-    const destinations = within(navigation).getAllByRole("button");
-    await expect(navigation).toBeVisible();
-    await expect(destinations).toHaveLength(3);
-    for (const destination of destinations) await expect(destination).toBeVisible();
-    const clearance = navigation.getBoundingClientRect().bottom - Math.max(...destinations.map((destination) => destination.getBoundingClientRect().bottom));
-    await expect(clearance).toBeGreaterThanOrEqual(33.5);
-  },
-};
 export const Brazil: Story = { args: { regionId: "BR", assetBalances: balances("BR"), activity: activityFor("BR") }, play: async ({ canvasElement }) => {
   await checkActivityCurrency(canvasElement, "R$ 136,25");
   await checkActions(canvasElement);
@@ -237,8 +216,10 @@ export const Rtl: Story = { args: { rtlActivity: true, moneyLabels: ["رصيد �
 };
 export const KeyboardFocus: Story = { play: async ({ canvasElement }) => {
   const canvas = within(canvasElement);
-  canvas.getByRole("button", { name: "Account" }).focus();
-  for (const category of within(canvas.getByRole("list", { name: "Balance allocation" })).getAllByRole("button")) {
+  const categories = within(canvas.getByRole("list", { name: "Balance allocation" })).getAllByRole("button");
+  categories[0].focus();
+  await expect(categories[0]).toHaveFocus();
+  for (const category of categories.slice(1)) {
     await userEvent.tab();
     await expect(category).toHaveFocus();
   }
@@ -258,13 +239,8 @@ export const ReducedMotion: Story = {
 };
 export const Desktop: Story = { parameters: { viewport: { defaultViewport: "desktop" } }, play: async ({ canvasElement }) => {
   const canvas = within(canvasElement);
-  const rail = canvas.getByRole("navigation", { name: "Desktop navigation" });
-  await expect(rail).toBeVisible();
-  await expect(within(rail).getByRole("button", { name: "Home" })).toHaveAttribute("aria-current", "page");
-  const money = canvas.getByRole("region", { name: "Your money" });
-  const activityRegion = canvas.getByRole("region", { name: "Activity" });
-  await expect(money).toBeVisible();
-  await expect(activityRegion).toBeVisible();
-  await expect(within(canvas.getByTestId("regional-shell-scroll")).getByRole("main")).toBeVisible();
+  await expect(canvas.getByRole("main")).toBeVisible();
+  await expect(canvas.getByRole("region", { name: "Your money" })).toBeVisible();
+  await expect(canvas.getByRole("region", { name: "Activity" })).toBeVisible();
 } };
 export const DesktopLoading: Story = { args: { assetBalances: loading, activity: loadingActivity }, parameters: { viewport: { defaultViewport: "desktop" } } };

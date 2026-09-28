@@ -90,12 +90,12 @@ function CardArt({ locked, size = "sm" }: { locked: boolean; size?: "sm" | "lg" 
 
 function CardNavigation() {
   return (
-    <div className={`order-2 w-full shrink-0 bg-background pb-[var(--shell-safe-area-bottom)] sm:order-1 sm:pb-0 ${
+    <div className={`order-2 w-full shrink-0 bg-background pb-[var(--shell-safe-area-bottom)] lg:order-1 lg:pb-0 ${
       shellChromeCompensationClassName
     }`}>
       <nav
         aria-label="Main navigation"
-        className={`${shellWidthClassName} relative grid min-h-shell-mobile-navigation grid-cols-3 border-t sm:border-x sm:border-b`}
+        className={`${shellWidthClassName} relative grid min-h-shell-mobile-navigation grid-cols-3 border-t lg:border-x lg:border-b`}
       >
         {([
           { label: "Home", Icon: House },

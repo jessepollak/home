@@ -10,10 +10,11 @@ import { useAccountWallet } from "@/client/account/cdp-client";
 import {
   publicHeaderFrameClassName,
   shellChromeCompensationClassName,
-  shellContentFrameClassName,
+  shellFrameClassName,
 } from "@/components/shell-layout";
 
 export function ShellHeader({
+  hasDesktopRail = false,
   isAccountSettingsOpen,
   nestedChromeTitle,
   nestedChromeBackLabel,
@@ -30,6 +31,7 @@ export function ShellHeader({
   onCloseSettings,
   status,
 }: {
+  hasDesktopRail?: boolean;
   isAccountSettingsOpen: boolean;
   nestedChromeTitle: string | null;
   nestedChromeBackLabel: string;
@@ -50,10 +52,14 @@ export function ShellHeader({
     ? "Account"
     : nestedChromeTitle ?? (activeNavigation === "invest" ? "Invest" : "Home");
   const hasNestedChrome = !isAccountSettingsOpen && nestedChromeTitle !== null;
+  const checking = account.status === "restoring" || account.status === "validating";
+  const signedIn = account.status === "verified" || (account.status === "unavailable" && account.isSignedIn);
+  const signingOut = account.status === "signing-out";
+  const railReplacesAccountAction = hasDesktopRail && routeMode === "dashboard" && (checking || signingOut || signedIn);
 
   const headerFrameClassName = routeMode === "landing"
     ? publicHeaderFrameClassName
-    : shellContentFrameClassName;
+    : shellFrameClassName;
 
   return (
     <header className={`order-0 w-full shrink-0 bg-background ${shellChromeCompensationClassName}`}>
@@ -65,13 +71,13 @@ export function ShellHeader({
         <div className="flex min-w-0 items-center gap-2" data-shell-header-main="">
           {hasNestedChrome ? (
             <div
-              className="flex h-11 w-11 shrink-0 items-center md:w-7.5 md:pointer-fine:h-7"
+              className="flex size-11 shrink-0 items-center"
               data-shell-back=""
             >
               <Button
                 variant="ghost"
                 size="icon"
-                className="size-11 md:pointer-fine:size-7"
+                className="size-11"
                 aria-label={nestedChromeBackLabel}
                 onClick={onNestedChromeBack}
               >
@@ -79,7 +85,7 @@ export function ShellHeader({
               </Button>
             </div>
           ) : (
-            <HomeMark compact onClick={() => { if (isVerified) onHome(); }} />
+            <span className={hasDesktopRail ? "lg:hidden" : undefined} data-breakpoint-peer={hasDesktopRail ? "home-mark" : undefined}><HomeMark compact onClick={() => { if (isVerified) onHome(); }} /></span>
           )}
           <h1
             className="min-w-0 truncate text-base font-semibold"
@@ -95,7 +101,7 @@ export function ShellHeader({
       )}
       <div className="flex shrink-0 items-center gap-1">
         {status && !isAccountSettingsOpen ? status : null}
-        <div className="flex" hidden={isAccountSettingsOpen} data-shell-account-action="">
+        <div className={railReplacesAccountAction ? "flex lg:hidden" : "flex"} hidden={isAccountSettingsOpen} data-shell-account-action="" data-breakpoint-peer={railReplacesAccountAction ? "account" : undefined}>
           <HeaderAccountAction
             status={account.status}
             isSignedIn={account.isSignedIn}
@@ -109,7 +115,7 @@ export function ShellHeader({
           />
         </div>
         {isAccountSettingsOpen ? (
-          <Button variant="secondary" className="h-11 md:pointer-fine:h-8" onClick={onCloseSettings}>Done</Button>
+          <Button variant="secondary" className="h-11" onClick={onCloseSettings}>Done</Button>
         ) : null}
       </div>
       </div>
@@ -139,7 +145,7 @@ function HeaderAccountAction({
   onOpenSettings: (opener: HTMLButtonElement) => void;
 }) {
   if (status === "signout-error") {
-    return <Button className="h-11 md:pointer-fine:h-8" onClick={onSignOut}>Retry sign out</Button>;
+    return <Button className="h-11" onClick={onSignOut}>Retry sign out</Button>;
   }
   if (routeMode === "dashboard") {
     const checking = status === "restoring" || status === "validating";
@@ -157,12 +163,12 @@ function HeaderAccountAction({
     }
   }
   if (status === "restoring" || status === "validating") {
-    return <Button variant="secondary" className="h-11 md:pointer-fine:h-8" disabled>Account</Button>;
+    return <Button variant="secondary" className="h-11" disabled>Account</Button>;
   }
   if (status === "verified" || (status === "unavailable" && isSignedIn)) {
-    return <Button className="h-11 md:pointer-fine:h-8" onClick={onDashboard}>Dashboard</Button>;
+    return <Button className="h-11" onClick={onDashboard}>Dashboard</Button>;
   }
-  return <Button className="h-11 md:pointer-fine:h-8" onClick={onSignIn}>Sign in</Button>;
+  return <Button className="h-11" onClick={onSignIn}>Sign in</Button>;
 }
 
 export function SignedOutLanding({

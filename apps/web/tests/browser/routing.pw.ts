@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { installApiFixtures, seedSignedInSession } from "./fixtures/api";
+import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 import { trackHydrationErrors } from "./fixtures/hydration-errors";
 
 test("canonical routing preserves the shell and one balances read", async ({ page }) => {
@@ -121,6 +121,237 @@ test("tapping active Invest from a crypto asset preserves category Back after br
   await expect(page.locator("[data-shell-header-title]").first()).toHaveText("Crypto");
   await expect(page.getByRole("button", { name: "Back to Invest" })).toBeVisible();
 });
+
+test("navigation and chrome keep focus across the rail breakpoint", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  await page.goto("/home");
+  await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
+
+  for (const [rail, mobile] of [
+    [page.locator("#invest-rail-nav"), page.locator("#invest-nav")],
+    [page.locator("#home-rail-nav"), page.locator("#home-nav")],
+    [page.locator('#desktop-rail [data-breakpoint-peer="home-mark"]'), page.locator('header [data-breakpoint-peer="home-mark"] button')],
+    [page.locator("[data-rail-account-action]"), page.locator("[data-shell-account-action] button")],
+  ]) {
+    await expect(rail).toBeVisible();
+    await rail.focus();
+    await expect(rail).toBeFocused();
+    await page.setViewportSize({ width: 1023, height: 768 });
+    await expect(mobile).toBeFocused();
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await expect(rail).toBeFocused();
+  }
+
+  const toggle = page.locator("#desktop-rail").getByRole("button", { name: "Sidebar" });
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await toggle.focus();
+  await expect(toggle).toBeFocused();
+  await page.setViewportSize({ width: 1023, height: 768 });
+  const homeTab = page.locator("#home-nav");
+  await expect(homeTab).toBeVisible();
+  await expect(homeTab).toBeFocused();
+});
+
+test("breakpoint focus keeps Home on nested pages and stays in open Account settings", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  await page.goto("/cash");
+  await expect(page.getByRole("button", { name: "Back", exact: true })).toBeVisible();
+  await expect(page.locator("[data-rail-account-action]")).toBeEnabled();
+  const railMark = page.locator('#desktop-rail [data-breakpoint-peer="home-mark"]');
+  await expect(railMark).toBeVisible();
+  await railMark.focus();
+  await expect(railMark).toBeFocused();
+  await page.setViewportSize({ width: 1023, height: 768 });
+  await expect(page.locator("#home-nav")).toBeFocused();
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  const railAccount = page.locator("[data-rail-account-action]");
+  await expect(railAccount).toBeEnabled();
+  await railAccount.click();
+  await expect(page.getByRole("region", { name: "Account settings" })).toBeVisible();
+  await railAccount.focus();
+  await expect(railAccount).toBeFocused();
+  await page.setViewportSize({ width: 1023, height: 768 });
+  await expect(page.getByRole("region", { name: "Account settings" })).toBeFocused();
+});
+
+test("desktop rail keeps routing, collapse state, and money dialog focus across breakpoints", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  await page.goto("/home");
+  await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
+
+  const rail = page.locator("#desktop-rail");
+  const navigation = rail.getByRole("navigation", { name: "Main navigation" });
+  const home = navigation.getByRole("button", { name: "Home", exact: true });
+  const invest = navigation.getByRole("button", { name: "Invest", exact: true });
+  await expect(rail).toBeVisible();
+  await expect(home).toHaveAttribute("aria-current", "page");
+  await expect(page.locator("#home-nav")).toBeHidden();
+
+  await invest.click();
+  await expect(page).toHaveURL(/\/invest$/);
+  await expect(invest).toHaveAttribute("aria-current", "page");
+  await page.getByRole("region", { name: "Crypto" }).getByRole("button", { name: "See all ›" }).click();
+  await expect(page).toHaveURL(/\/invest\/crypto$/);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/invest$/);
+  await expect(invest).toHaveAttribute("aria-current", "page");
+  await page.goBack();
+  await expect(page).toHaveURL(/\/home$/);
+  await expect(home).toHaveAttribute("aria-current", "page");
+
+  await page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /^Cash/ }).click();
+  await expect(page).toHaveURL(/\/cash$/);
+  await expect(home).toHaveAttribute("aria-current", "page");
+
+  const toggle = rail.getByRole("button", { name: "Sidebar" });
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await toggle.click();
+  await expect(toggle).toBeFocused();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect.poll(() => rail.evaluate((element) => element.getBoundingClientRect().width)).toBe(64);
+  await page.addInitScript(() => {
+    const runs: string[] = [];
+    Object.defineProperty(window, "__railTransitionRuns", { value: runs });
+    document.addEventListener("transitionrun", (event) => {
+      if (event.target instanceof Element && event.target.id === "desktop-rail") runs.push(event.propertyName);
+    }, true);
+  });
+  await page.reload();
+  await expect(rail).toBeVisible();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect.poll(() => rail.evaluate((element) => element.getBoundingClientRect().width)).toBe(64);
+  await expect(home).toHaveAttribute("aria-current", "page");
+
+  expect(await page.evaluate(() => (window as Window & { __railTransitionRuns?: string[] }).__railTransitionRuns)).toEqual([]);
+  await home.click();
+  await expect(page).toHaveURL(/\/home$/);
+  const send = page.getByRole("button", { name: "Send", exact: true });
+  await expect(send).toBeEnabled();
+  await send.click();
+  const dialog = page.getByRole("dialog", { name: "Send" });
+  await expect(dialog).toBeVisible();
+  await expect.poll(() => dialog.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    return bounds.width <= 480 && Math.abs(bounds.left + bounds.width / 2 - innerWidth / 2) <= 1;
+  })).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(send).toBeFocused();
+
+  await page.setViewportSize({ width: 1023, height: 768 });
+  await expect(rail).toBeHidden();
+  const tabBar = page.locator("#home-nav").locator("xpath=ancestor::nav");
+  await expect(tabBar).toBeVisible();
+  await expect(page.locator("#home-nav")).toHaveAttribute("aria-current", "page");
+});
+
+test("desktop destinations other than Home stay in the 640px column", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  for (const path of ["/cash", "/invest", "/investments", "/investments/0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf"]) {
+    await page.goto(path);
+    const panel = page.locator("[data-shell-panel]:not([hidden])");
+    await expect(panel).toHaveCount(1);
+    await expect.poll(() => panel.evaluate((element) => element.getBoundingClientRect().width)).toBeLessThanOrEqual(640);
+  }
+});
+
+for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 }]) {
+  test(`money dialogs return focus to their openers at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await seedSignedInSession(page);
+    await installApiFixtures(page);
+    await page.route("**/api/funding/providers**", (route) => {
+      if (new URL(route.request().url()).searchParams.get("direction") !== "offramp") return route.fallback();
+      return json(route, {
+        version: 2,
+        direction: "offramp",
+        providers: [{
+          direction: "offramp", providerId: "peer", displayName: "Peer", region: "US", assetId: "base:usdc",
+          assetSymbol: "USDC", assetDecimals: 6, currency: "USD", quotes: false, kyc: null,
+          paymentMethods: [{ id: "cashapp", label: "Cash App", platform: "cashapp", handleHint: "Cashtag", minimumAmountAtomic: "10000", maximumAmountAtomic: null, estimateSemantics: "approximate", etaSemantics: "historical-not-guaranteed", corridorConfirmedBy: "pending" }],
+        }],
+      });
+    });
+    await page.goto("/home");
+
+    await expect.poll(() => page.evaluate(() =>
+      performance.getEntriesByName("action:first-interactive", "mark").length), {
+      timeout: process.env.CI ? 10_000 : 5_000,
+    }).toBeGreaterThan(0);
+    const addMoney = page.getByRole("button", { name: "Add money", exact: true }).first();
+    await expect(addMoney).toBeEnabled();
+    await addMoney.click();
+    const addDialog = page.getByRole("dialog", { name: "Add money" });
+    await expect(addDialog).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(addDialog).toHaveCount(0);
+    await expect(addMoney).toBeFocused();
+
+    await addMoney.click();
+    await expect(addDialog).toBeVisible();
+    await addDialog.getByRole("button", { name: "Close add money" }).click();
+    await expect(addDialog).toHaveCount(0);
+    await expect(addMoney).toBeFocused();
+
+    const send = page.getByRole("button", { name: "Send", exact: true });
+    await send.click();
+    const sendDialog = page.getByRole("dialog", { name: "Send" });
+    await expect(sendDialog).toBeVisible();
+    if (viewport.width >= 1024) {
+      const keyboardInset = 300;
+      const viewportTop = 100;
+      await page.locator("[data-slot=drawer-viewport]").evaluate((element, frame) => {
+        element.style.setProperty("--sheet-keyboard-inset", `${frame.inset}px`);
+        element.style.setProperty("--sheet-keyboard-top", `${frame.top}px`);
+      }, { inset: keyboardInset, top: viewportTop });
+      await expect.poll(async () => (await sendDialog.boundingBox())?.y ?? Number.NEGATIVE_INFINITY).toBeGreaterThanOrEqual(viewportTop);
+      const continueButton = sendDialog.getByRole("button", { name: "Continue" });
+      await expect.poll(async () => {
+        const box = await continueButton.boundingBox();
+        return box ? box.y + box.height : Number.POSITIVE_INFINITY;
+      }).toBeLessThanOrEqual(viewport.height - keyboardInset);
+      await page.locator("[data-slot=drawer-viewport]").evaluate((element) => {
+        element.style.removeProperty("--sheet-keyboard-inset");
+        element.style.removeProperty("--sheet-keyboard-top");
+      });
+    }
+    await sendDialog.getByRole("button", { name: "Close send dialog" }).click();
+    await expect(sendDialog).toHaveCount(0);
+    await expect(send).toBeFocused();
+
+    await send.click();
+    await expect(sendDialog).toBeVisible();
+    await sendDialog.getByRole("textbox", { name: "Amount" }).fill("1");
+    await sendDialog.getByRole("button", { name: "Continue" }).click();
+    await sendDialog.getByRole("button", { name: /Send to Cash App/ }).click();
+    const cashOutDialog = page.getByRole("dialog", { name: "Cash out with Peer" });
+    await expect(cashOutDialog).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(cashOutDialog).toHaveCount(0);
+    await expect(send).toBeFocused();
+
+    await page.goto("/cash/savings");
+    const deposit = page.getByRole("button", { name: "Deposit", exact: true });
+    await expect(deposit).toBeEnabled();
+    await deposit.click();
+    const saveDialog = page.getByRole("dialog", { name: "Deposit" });
+    await expect(saveDialog).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(saveDialog).toHaveCount(0);
+    await expect(deposit).toBeFocused();
+  });
+}
 
 test("Account settings moves focus into the view and restores it to the account trigger", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });

@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ChartNoAxesCombined, House } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { ChartNoAxesCombined, House, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { profileGlyph } from "@/client/account/basename-profile";
+import { useBasenameProfile } from "@/client/account/use-basename-profile";
+import { HomeMark } from "@/components/home-mark";
 import { useReducedMotion } from "@/components/money-ticker";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,9 +21,18 @@ import { visualViewportKeyboardInset } from "./visual-viewport";
 import styles from "./primary-navigation.module.css";
 
 type PrimaryNavigationProps = {
+  layout?: "tabs" | "rail";
   activeNavigation: ShellPanelId;
   onNavigate: (id: NavigationId) => void;
   labels?: Partial<Record<NavigationId, string>>;
+  isAccountSettingsOpen?: boolean;
+  account?: {
+    status: "loading" | "ready";
+    ownerKey: string | null;
+    address: string | null;
+    disabled: boolean;
+  };
+  onOpenAccount?: (opener: HTMLButtonElement) => void;
 };
 
 const navigationIcons = {
@@ -28,12 +40,61 @@ const navigationIcons = {
   invest: ChartNoAxesCombined,
 } satisfies Record<NavigationId, typeof House>;
 
+const railStorageKey = "home:sidebar:collapsed";
+const railListeners = new Set<() => void>();
+let inMemoryCollapsed: boolean | null = null;
+
+function readCollapsed(): boolean {
+  if (inMemoryCollapsed !== null) return inMemoryCollapsed;
+  try {
+    return window.localStorage.getItem(railStorageKey) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function subscribeRail(listener: () => void) {
+  railListeners.add(listener);
+  const onStorage = (event: StorageEvent) => {
+    if (event.key !== railStorageKey && event.key !== null) return;
+    inMemoryCollapsed = null;
+    for (const subscriber of railListeners) subscriber();
+  };
+  window.addEventListener("storage", onStorage);
+  return () => {
+    railListeners.delete(listener);
+    if (railListeners.size === 0) inMemoryCollapsed = null;
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
+function persistCollapsed(next: boolean): boolean {
+  try {
+    window.localStorage.setItem(railStorageKey, String(next));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function railLabelClassName(collapsed: boolean, animated: boolean): string {
+  const visibility = collapsed ? "opacity-0" : "opacity-100";
+  if (!animated) return `truncate transition-none ${visibility}`;
+  return `truncate transition-opacity ease-out motion-reduce:delay-0 motion-reduce:duration-0 ${visibility} ${collapsed ? "duration-[80ms] delay-0" : "duration-[100ms] delay-[80ms]"}`;
+}
+
 export function PrimaryNavigation({
+  layout = "tabs",
   activeNavigation,
   onNavigate,
   labels,
+  isAccountSettingsOpen = false,
+  account,
+  onOpenAccount,
 }: PrimaryNavigationProps) {
+  const collapsed = useSyncExternalStore(subscribeRail, readCollapsed, () => false);
   const prefersReducedMotion = useReducedMotion();
+  const [animated, setAnimated] = useState(false);
   const navRef = useRef<HTMLElement>(null);
   const [direction, setDirection] = useState("ltr");
   const [pillReady, setPillReady] = useState(false);
@@ -49,10 +110,11 @@ export function PrimaryNavigation({
   }, []);
 
   useEffect(() => {
+    if (layout === "rail") return;
     const viewport = window.visualViewport;
     const update = () => {
       const target = document.activeElement;
-      setKeyboardOpen(window.matchMedia("(max-width: 39.9375rem)").matches &&
+      setKeyboardOpen(window.matchMedia("(max-width: 63.9375rem)").matches &&
         target instanceof HTMLElement && !!target.closest("#navigation-panel") &&
         (target.matches("input, textarea, select, [contenteditable]:not([contenteditable='false'])") || target.isContentEditable) &&
         !!viewport && visualViewportKeyboardInset(window.innerHeight, viewport) > 0);
@@ -71,61 +133,167 @@ export function PrimaryNavigation({
       viewport?.removeEventListener("resize", update);
       viewport?.removeEventListener("scroll", update);
     };
-  }, []);
+  }, [layout]);
 
-  const activeIndex = navigationItems.findIndex((item) =>
+  const toggle = () => {
+    setAnimated(true);
+    const next = !collapsed;
+    inMemoryCollapsed = next;
+    persistCollapsed(next);
+    for (const listener of railListeners) listener();
+  };
+  const activeIndex = isAccountSettingsOpen && layout === "rail" ? -1 : navigationItems.findIndex((item) =>
     activeNavigation === item.id ||
     (item.id === "home" && isHomeNestedPanelId(activeNavigation)));
 
+  if (layout === "rail") {
+    const ToggleIcon = collapsed ? PanelLeftOpen : PanelLeftClose;
+    return (
+      <aside
+        id="desktop-rail"
+        data-rail-state={collapsed ? "collapsed" : "expanded"}
+        data-rail-motion={animated ? "animated" : "static"}
+        className={`hidden h-full shrink-0 overflow-hidden border-e bg-background lg:flex ${animated ? "transition-[width] duration-[180ms] ease-out motion-reduce:transition-none" : "transition-none"} ${collapsed ? "w-16" : "w-60"}`}
+      >
+        <div className="flex h-full w-60 shrink-0 flex-col">
+          <div className="flex h-14 shrink-0 items-center px-2.5">
+            <HomeMark compact onClick={() => onNavigate("home")} data-breakpoint-peer="home-mark" data-breakpoint-fallback="nav-home" />
+          </div>
+          <nav className="flex flex-col gap-2 px-2.5 py-4" aria-label="Main navigation">
+            {navigationItems.map((item, index) => {
+              const Icon = navigationIcons[item.id];
+              const isActive = index === activeIndex;
+              const label = labels?.[item.id] ?? item.label;
+              return (
+                <Button
+                  key={item.id}
+                  id={`${item.id}-rail-nav`}
+                  data-breakpoint-peer={`nav-${item.id}`}
+                  variant="navigation"
+                  size="lg"
+                  className={`relative h-11 min-w-0 justify-start gap-3 overflow-hidden px-3 ${collapsed ? "w-11" : "w-full"}`}
+                  onClick={() => onNavigate(item.id)}
+                  aria-label={label}
+                  aria-current={isActive ? "page" : undefined}
+                  aria-controls="navigation-panel"
+                >
+                  {isActive ? <span className="absolute start-0 top-1/2 h-6 w-0.5 -translate-y-1/2 rounded-full bg-primary" aria-hidden="true" /> : null}
+                  <Icon className="size-5 shrink-0" aria-hidden="true" />
+                  <span aria-hidden={collapsed} className={railLabelClassName(collapsed, animated)}>{label}</span>
+                </Button>
+              );
+            })}
+          </nav>
+          <div className="mt-auto">
+            <div className="px-2.5 pb-2">
+              <Button variant="navigation" size="icon" className="size-11" aria-label="Sidebar" aria-expanded={!collapsed} aria-controls="desktop-rail" data-breakpoint-peer="sidebar-toggle" data-breakpoint-fallback="nav-home" onClick={toggle}>
+                <ToggleIcon className="size-5 rtl:-scale-x-100" aria-hidden="true" />
+              </Button>
+            </div>
+            {account ? (
+              <div className="border-t px-2.5 py-3">
+                <RailAccountButton
+                  account={account}
+                  collapsed={collapsed}
+                  animated={animated}
+                  current={isAccountSettingsOpen}
+                  onOpenAccount={onOpenAccount}
+                />
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </aside>
+    );
+  }
+
   return (
-    <div className={`contents sm:order-1 sm:block sm:w-full sm:shrink-0 sm:bg-background ${shellChromeCompensationClassName}`}>
+    <div className={`contents lg:hidden ${shellChromeCompensationClassName}`}>
       <nav
         ref={navRef}
         aria-label="Main navigation"
         aria-hidden={keyboardOpen ? true : undefined}
         inert={keyboardOpen}
         data-keyboard-hidden={keyboardOpen ? "true" : undefined}
-        className={`${shellWidthClassName} ${styles.navigation} fixed inset-x-0 z-30 grid grid-cols-2 rounded-full p-1 opacity-100 transition-[opacity,transform] duration-150 motion-reduce:transition-none sm:relative sm:z-auto sm:min-h-14 sm:rounded-none sm:border-x sm:border-y sm:p-0 sm:transition-none`}
+        className={`${shellWidthClassName} ${styles.navigation} fixed inset-x-0 z-30 grid grid-cols-2 rounded-full p-1 opacity-100 transition-[opacity,transform] duration-150 motion-reduce:transition-none`}
       >
-        <span aria-hidden="true" className={`${styles.floor} pointer-events-none absolute inset-0 rounded-full sm:hidden`} />
+        <span aria-hidden="true" className={`${styles.floor} pointer-events-none absolute inset-0 rounded-full`} />
         <span
           aria-hidden="true"
           data-navigation-pill=""
-          className={`${styles.pill} ${pillReady && !prefersReducedMotion ? styles.pillReady : ""} pointer-events-none absolute inset-y-1 start-1 rounded-full bg-foreground/10 dark:bg-foreground/15 sm:hidden`}
+          className={`${styles.pill} ${pillReady && !prefersReducedMotion ? styles.pillReady : ""} pointer-events-none absolute inset-y-1 start-1 rounded-full bg-foreground/10 dark:bg-foreground/15`}
           style={{ transform: `translateX(${activeIndex > 0 ? (direction === "rtl" ? -100 : 100) : 0}%)` }}
         />
         {navigationItems.map((item, index) => {
           const Icon = navigationIcons[item.id];
           const isActive = index === activeIndex;
-
           return (
             <Button
               key={item.id}
               id={`${item.id}-nav`}
+              data-breakpoint-peer={`nav-${item.id}`}
               variant="navigation"
               size="tab"
-              className="relative z-10 min-w-0 w-full sm:h-full sm:min-h-11"
+              className="relative z-10 min-w-0 w-full"
               onClick={() => onNavigate(item.id)}
               aria-current={isActive ? "page" : undefined}
               aria-controls="navigation-panel"
             >
-              <span className={`${styles.content} flex min-w-0 w-full flex-col items-center justify-center gap-0.5 sm:contents`}>
-                <Icon className={`size-5.5 sm:size-5 sm:transition-transform sm:group-active/button:scale-95 sm:group-active/button:duration-0 motion-reduce:sm:transition-none motion-reduce:sm:group-active/button:scale-none ${isActive ? "text-primary sm:text-current" : "text-foreground/70 sm:text-current"}`} aria-hidden="true" />
-                <span className={`block max-w-full truncate text-[0.625rem] leading-3 font-medium sm:text-sm sm:font-medium sm:leading-normal sm:transition-colors motion-reduce:sm:transition-none ${isActive ? "text-foreground sm:text-current" : "text-foreground/70 sm:text-current"}`}>{labels?.[item.id] ?? item.label}</span>
+              <span className={`${styles.content} flex min-w-0 w-full flex-col items-center justify-center gap-0.5`}>
+                <Icon className={`size-5.5 ${isActive ? "text-primary" : "text-foreground/70"}`} aria-hidden="true" />
+                <span className={`block max-w-full truncate text-[0.625rem] leading-3 font-medium ${isActive ? "text-foreground" : "text-foreground/70"}`}>{labels?.[item.id] ?? item.label}</span>
               </span>
             </Button>
           );
         })}
-        {activeIndex >= 0 ? (
-          <span
-            className="pointer-events-none absolute bottom-1 left-0 hidden w-1/2 px-6 transition-transform duration-120 ease-out motion-reduce:transition-none sm:block"
-            style={{ transform: `translateX(${activeIndex * 100}%)` }}
-            aria-hidden="true"
-          >
-            <span className="block h-0.5 rounded-full bg-primary" />
-          </span>
-        ) : null}
       </nav>
     </div>
+  );
+}
+
+function RailAccountButton({
+  account,
+  collapsed,
+  animated,
+  current,
+  onOpenAccount,
+}: {
+  account: PrimaryNavigationProps["account"];
+  collapsed: boolean;
+  animated: boolean;
+  current: boolean;
+  onOpenAccount?: (opener: HTMLButtonElement) => void;
+}) {
+  const ready = account?.status === "ready";
+  const profile = useBasenameProfile({
+    ownerKey: account?.ownerKey,
+    address: account?.address,
+    enabled: ready,
+  });
+  const basename = ready ? profile.data?.name ?? null : null;
+  const glyph = ready
+    ? profileGlyph({ basename, ownerKey: account?.ownerKey, address: account?.address })
+    : null;
+  return (
+    <Button
+      variant="ghost"
+      size="lg"
+      className={`relative h-11 justify-start gap-1 overflow-hidden px-0 ${collapsed ? "w-11" : "w-full"}`}
+      aria-label={basename ? `Account settings ${basename}` : "Account settings"}
+      aria-current={current ? "page" : undefined}
+      disabled={account?.disabled}
+      onClick={(event) => { if (!current) onOpenAccount?.(event.currentTarget); }}
+      data-rail-account-action=""
+      data-breakpoint-peer="account"
+      data-breakpoint-fallback="account-settings"
+    >
+      {current ? <span className="absolute start-0 top-1/2 h-6 w-0.5 -translate-y-1/2 rounded-full bg-primary" aria-hidden="true" /> : null}
+      <span className="grid size-11 shrink-0 place-items-center" aria-hidden="true">
+        <span className={`grid size-8 place-items-center rounded-full bg-muted text-sm font-semibold lowercase text-foreground ${ready ? "" : "animate-pulse"}`} data-shimmer={ready ? undefined : "profile"}>
+          {glyph}
+        </span>
+      </span>
+      <span aria-hidden={collapsed} className={railLabelClassName(collapsed, animated)}>{basename ?? "Account"}</span>
+    </Button>
   );
 }

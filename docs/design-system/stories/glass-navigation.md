@@ -6,6 +6,6 @@ Storybook group: `Journeys/Mobile navigation` (`journeys-mobile-navigation`). Re
 - Scroll and safe area: `--last-row`, `--home-indicator`, `--activity-under-capsule`, `--action-toast`.
 - Interactions and accessibility: `--rapid-taps`, `--reduced-motion`, `--rtl`, `--long-labels`, `--opaque-fallback`, `--deposit-sheet`, `--account-keyboard`, `--narrow-320`.
 - Balance states: `--loading`, `--empty`, `--partial`, `--failed`.
-- Wide layout: `--desktop-1440` (unchanged top strip).
+- Wide layout: `--tablet-1023` (capsule at the widest mobile width). The desktop rail from 1024px is in `PrimaryNavigation` stories.
 
 All use production `PrimaryNavigation` with one Home/Invest button set and fixture-backed Home, Invest, Your money, Cash, Activity, and Account surfaces. The fallback story scopes an opaque-material override inside the story only. The historical candidate comparison and package evaluation remain in [the exploration](../../design-explorations/glass-navigation.md); liquid glass was not adopted.

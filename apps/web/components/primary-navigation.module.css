@@ -1,4 +1,4 @@
-@media (max-width: 39.9375rem) {
+@media (max-width: 63.9375rem) {
   .navigation {
     width: 12rem;
     max-width: calc(100% - 2rem);
@@ -32,17 +32,17 @@
   .navigation[data-keyboard-hidden="true"] { opacity: 0; transform: translateY(.5rem); pointer-events: none; }
 }
 
-@media (max-width: 39.9375rem) and (hover: hover) {
+@media (max-width: 63.9375rem) and (hover: hover) {
   .navigation :not([aria-current="page"]):hover > .content :is(span, svg) { color: var(--foreground); }
 }
 
-@media (max-width: 39.9375rem) and (prefers-reduced-motion: reduce) {
+@media (max-width: 63.9375rem) and (prefers-reduced-motion: reduce) {
   .navigation, .content, .pillReady { transition: none; }
   .navigation :active > .content { scale: 1; }
   .navigation[data-keyboard-hidden="true"] { transform: none; }
 }
 
-@media (max-width: 39.9375rem) and (prefers-reduced-transparency: reduce) {
+@media (max-width: 63.9375rem) and (prefers-reduced-transparency: reduce) {
   .floor, :global(.dark) .floor {
     background: var(--popover);
     box-shadow: inset 0 0 0 1px var(--border);
@@ -52,7 +52,7 @@
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  @media (max-width: 39.9375rem) {
+  @media (max-width: 63.9375rem) {
     .floor, :global(.dark) .floor {
       background: var(--popover);
       box-shadow: inset 0 0 0 1px var(--border);
@@ -62,7 +62,7 @@
   }
 }
 
-@media (max-width: 39.9375rem) and (forced-colors: active) {
+@media (max-width: 63.9375rem) and (forced-colors: active) {
   .floor, :global(.dark) .floor {
     background: Canvas;
     box-shadow: inset 0 0 0 1px CanvasText;

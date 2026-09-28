@@ -4,7 +4,6 @@ import { Banknote, ChartLine, HandCoins, Plus } from "lucide-react";
 import { ActivityPanelView } from "@/client/activity";
 import type { UseActivityResult } from "@/client/activity/use-activity";
 import { HomeBalanceBreakdown, HomeSectionHeading } from "@/client/home/home-overview";
-import { homeBalancesStatus, HomeHeaderStatus } from "@/client/home/home-status";
 import type { HomeAssetBalancesPresentation } from "@/client/home/home-types";
 import type { HomeMoneySummary } from "@/shared/balances/present";
 import { GlyphMark } from "@/components/currency-mark";
@@ -18,7 +17,6 @@ import { presentationRegions, type RegionId } from "@/config/regions";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import { formatPresentationPercentage } from "@/shared/formatting";
 import { cn } from "@/lib/utils";
-import { RegionalShell } from "./regional-shell";
 
 const noop = () => undefined;
 const localCashRegions = new Set<RegionId>(["BR", "ID"]);
@@ -33,8 +31,6 @@ type RegionalHomeProps = {
   assetBalances: HomeAssetBalancesPresentation;
   activity: UseActivityResult;
   operations?: RecentMoneyActionOperation[];
-  onOpenAccount: () => void;
-  onReload: () => void;
   actionLabels?: [string, string, string];
   moneyLabels?: [string, string, string];
   cashContext?: string;
@@ -89,47 +85,44 @@ function MoneySummary({ regionId, balances, labels, cashContext }: { regionId: R
   );
 }
 
-export function RegionalHomeProposal({ regionId, assetBalances, activity, operations = [], onOpenAccount, onReload,
+export function RegionalHomeProposal({ regionId, assetBalances, activity, operations = [],
   actionLabels = ["Add money", "Send", "Cash out"], moneyLabels = ["Cash", "Investments", "Borrow Cash"], cashContext, rtlActivity = false,
 }: RegionalHomeProps) {
-  const status = homeBalancesStatus(assetBalances);
   const loading = assetBalances.status === "loading";
   const totalStatus = loading ? undefined : assetBalances.totalStatus ?? "unavailable";
   return (
-    <RegionalShell active="Home" title="Home" status={status ? <HomeHeaderStatus status={status} onRetry={onReload} onOpenAccount={onOpenAccount} /> : null}>
-        <main className="mx-auto w-full max-w-160 min-w-0 px-4 py-4 lg:px-0 lg:py-6">
-          <div className="grid min-w-0 gap-6">
-            <div className="min-w-0 space-y-4">
-              <Card variant="flush" aria-label={loading ? "Updating…" : totalStatus === "unavailable" ? "Balance unavailable" : "Total balance"} aria-busy={loading || undefined}>
-                <CardContent inset="hero">
-                  <p className="text-sm text-muted-foreground">Total balance</p>
-                  {loading ? <div className="space-y-3 pt-1"><Skeleton className="h-10 w-48" /><Skeleton className="h-2 w-full" /></div> : (
-                    <div className="@container"><div className={cn("text-3xl font-semibold tabular-nums @xs:text-4xl", totalStatus !== "complete" && "text-muted-foreground")} data-total-status={totalStatus === "complete" ? undefined : totalStatus}><bdi dir="ltr"><MoneyTicker value={assetBalances.displayTotal ?? "—"} reserveDigits={false} /></bdi></div></div>
-                  )}
-                  {!loading && assetBalances.breakdown.length > 0 ? (
-                    <div className="@container [&_ul]:grid-cols-1 @xs:[&_ul]:grid-cols-3 [&_[data-slot=money-ticker]]:[direction:ltr] [&_[data-slot=money-ticker]]:[unicode-bidi:isolate]"><HomeBalanceBreakdown items={assetBalances.breakdown} />
-                    </div>
-                  ) : null}
-                </CardContent>
-              </Card>
-              <div className="@container" aria-label="Money actions">
-                <div className="grid grid-cols-1 gap-2 @xs:grid-cols-3">
-                  {actionLabels.map((label, index) => (
-                    <Button key={index} variant={index === 0 ? "default" : "outline"} size="lg" className="min-h-11 min-w-0 whitespace-normal @xs:whitespace-nowrap" >
-                      {index === 0 ? <Plus className="size-4 shrink-0 @xs:hidden" aria-hidden="true" /> : null}{label}
-                    </Button>
-                  ))}
+    <main className="mx-auto w-full max-w-160 min-w-0 px-4 py-4 lg:px-0 lg:py-6">
+      <div className="grid min-w-0 gap-6">
+        <div className="min-w-0 space-y-4">
+          <Card variant="flush" aria-label={loading ? "Updating…" : totalStatus === "unavailable" ? "Balance unavailable" : "Total balance"} aria-busy={loading || undefined}>
+            <CardContent inset="hero">
+              <p className="text-sm text-muted-foreground">Total balance</p>
+              {loading ? <div className="space-y-3 pt-1"><Skeleton className="h-10 w-48" /><Skeleton className="h-2 w-full" /></div> : (
+                <div className="@container"><div className={cn("text-3xl font-semibold tabular-nums @xs:text-4xl", totalStatus !== "complete" && "text-muted-foreground")} data-total-status={totalStatus === "complete" ? undefined : totalStatus}><bdi dir="ltr"><MoneyTicker value={assetBalances.displayTotal ?? "—"} reserveDigits={false} /></bdi></div></div>
+              )}
+              {!loading && assetBalances.breakdown.length > 0 ? (
+                <div className="@container [&_ul]:grid-cols-1 @xs:[&_ul]:grid-cols-3 [&_[data-slot=money-ticker]]:[direction:ltr] [&_[data-slot=money-ticker]]:[unicode-bidi:isolate]"><HomeBalanceBreakdown items={assetBalances.breakdown} />
                 </div>
-              </div>
-              <MoneySummary regionId={regionId} balances={assetBalances} labels={moneyLabels} cashContext={cashContext} />
-            </div>
-            <div className={rtlActivity ? "min-w-0 [&_[data-slot=money-ticker]]:[direction:ltr] [&_[data-slot=money-ticker]]:[unicode-bidi:isolate]" : "min-w-0"}>
-              <ActivityPanelView activity={activity} operations={operations} regionId={regionId}
-                density="feed" header={<HomeSectionHeading id="activity-title">Activity</HomeSectionHeading>}
-                emptyAction={<Button variant="outline" size="lg" className="min-h-11"><Plus aria-hidden="true" />Add money</Button>} />
+              ) : null}
+            </CardContent>
+          </Card>
+          <div className="@container" aria-label="Money actions">
+            <div className="grid grid-cols-1 gap-2 @xs:grid-cols-3">
+              {actionLabels.map((label, index) => (
+                <Button key={index} variant={index === 0 ? "default" : "outline"} size="lg" className="min-h-11 min-w-0 whitespace-normal @xs:whitespace-nowrap" >
+                  {index === 0 ? <Plus className="size-4 shrink-0 @xs:hidden" aria-hidden="true" /> : null}{label}
+                </Button>
+              ))}
             </div>
           </div>
-        </main>
-    </RegionalShell>
+          <MoneySummary regionId={regionId} balances={assetBalances} labels={moneyLabels} cashContext={cashContext} />
+        </div>
+        <div className={rtlActivity ? "min-w-0 [&_[data-slot=money-ticker]]:[direction:ltr] [&_[data-slot=money-ticker]]:[unicode-bidi:isolate]" : "min-w-0"}>
+          <ActivityPanelView activity={activity} operations={operations} regionId={regionId}
+            density="feed" header={<HomeSectionHeading id="activity-title">Activity</HomeSectionHeading>}
+            emptyAction={<Button variant="outline" size="lg" className="min-h-11"><Plus aria-hidden="true" />Add money</Button>} />
+        </div>
+      </div>
+    </main>
   );
 }

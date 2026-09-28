@@ -3,7 +3,7 @@
 import * as React from "react"
 import { Drawer as DrawerPrimitive } from "@base-ui/react/drawer"
 import { cn } from "cn"
-import { visualViewportKeyboardInset } from "@/components/visual-viewport"
+import { visualViewportKeyboardFrame } from "@/components/visual-viewport"
 
 type DrawerContextProps = {
   hasSnapPoints: boolean
@@ -121,8 +121,9 @@ function DrawerContent({
   className,
   children,
   immediate = false,
+  variant = "default",
   ...props
-}: DrawerPrimitive.Popup.Props & { immediate?: boolean }) {
+}: DrawerPrimitive.Popup.Props & { immediate?: boolean; variant?: "default" | "money" }) {
   const { hasSnapPoints, keyboardAware, modal, open, showSwipeHandle, swipeDirection } = useDrawer()
   const closingRef = React.useRef(open === false)
   React.useLayoutEffect(() => {
@@ -136,8 +137,9 @@ function DrawerContent({
     const viewport = window.visualViewport
     const updateInset = () => {
       if (closingRef.current || element.querySelector("[data-slot=drawer-popup][data-closed]")) return
-      const inset = opensSoftKeyboard(document.activeElement) ? visualViewportKeyboardInset(window.innerHeight, viewport) : 0
-      element.style.setProperty("--sheet-keyboard-inset", `${inset}px`)
+      const frame = opensSoftKeyboard(document.activeElement) ? visualViewportKeyboardFrame(window.innerHeight, viewport) : { top: 0, inset: 0 }
+      element.style.setProperty("--sheet-keyboard-inset", `${frame.inset}px`)
+      element.style.setProperty("--sheet-keyboard-top", `${frame.top}px`)
     }
     updateInset()
     const updateAfterBlur = (event: FocusEvent) => {
@@ -153,6 +155,7 @@ function DrawerContent({
       document.removeEventListener("focusin", updateInset)
       document.removeEventListener("focusout", updateAfterBlur)
       element.style.removeProperty("--sheet-keyboard-inset")
+      element.style.removeProperty("--sheet-keyboard-top")
     }
   }, [keyboardAware])
 
@@ -162,7 +165,7 @@ function DrawerContent({
         <DrawerOverlay
           data-immediate={immediate ? "" : undefined}
           data-snap-points={hasSnapPoints ? "" : undefined}
-          className="data-[immediate]:duration-0"
+          className={cn("data-[immediate]:duration-0", variant === "money" && "lg:duration-180 lg:data-ending-style:duration-180! lg:data-swiping:duration-0")}
         />
       )}
       <DrawerPrimitive.Viewport
@@ -173,6 +176,7 @@ function DrawerContent({
       >
         <DrawerPrimitive.Popup
           data-slot="drawer-popup"
+          data-variant={variant}
           data-immediate={immediate ? "" : undefined}
           data-swipe-axis={swipeAxis}
           data-snap-points={hasSnapPoints ? "" : undefined}
@@ -189,6 +193,7 @@ function DrawerContent({
             "data-[swipe-direction=up]:top-0 data-[swipe-direction=up]:origin-top data-[swipe-direction=up]:[--closed-transform:translate3d(0,calc(-100%-var(--drawer-inset,0px)-2px),0)] data-[swipe-direction=up]:[--translate-y:calc(var(--drawer-snap-point-offset,0px)+var(--drawer-swipe-movement-y)+var(--stack-peek-offset)+(var(--stack-shrink)*var(--stack-height)))]",
             "data-[swipe-direction=left]:left-0 data-[swipe-direction=left]:origin-left data-[swipe-direction=left]:[--closed-transform:translate3d(calc(-100%-var(--drawer-inset,0px)-2px),0,0)] data-[swipe-direction=left]:[--translate-x:calc(var(--drawer-swipe-movement-x)+var(--stack-peek-offset)+(var(--stack-shrink)*100%))]",
             "data-[swipe-direction=right]:right-0 data-[swipe-direction=right]:origin-right data-[swipe-direction=right]:[--closed-transform:translate3d(calc(100%+var(--drawer-inset,0px)+2px),0,0)] data-[swipe-direction=right]:[--translate-x:calc(var(--drawer-swipe-movement-x)-var(--stack-peek-offset)-(var(--stack-shrink)*100%))]",
+            variant === "money" && "lg:top-[calc((100dvh+var(--sheet-keyboard-top,0px)-var(--sheet-keyboard-inset,0px))/2)]! lg:right-auto! lg:bottom-auto! lg:left-1/2! lg:mx-0 lg:w-[calc(100%-2rem)] lg:max-w-120 lg:max-h-[min(88svh,calc(100dvh-2rem-var(--sheet-keyboard-top,0px)-var(--sheet-keyboard-inset,0px)))] lg:rounded-xl! lg:border! lg:after:hidden lg:origin-center lg:transform-[translate3d(-50%,-50%,0)_scale(var(--stack-scale))] lg:transition-[transform,opacity,top,max-height] lg:duration-180 lg:data-starting-style:transform-[translate3d(-50%,-50%,0)_scale(0.97)]! lg:data-ending-style:transform-[translate3d(-50%,-50%,0)_scale(0.97)]! lg:data-starting-style:opacity-0 lg:data-ending-style:opacity-0 lg:data-ending-style:duration-180! lg:motion-reduce:data-starting-style:transform-[translate3d(-50%,-50%,0)]! lg:motion-reduce:data-ending-style:transform-[translate3d(-50%,-50%,0)]!",
             className
           )}
           {...props}
@@ -226,7 +231,7 @@ function DrawerFooter({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="drawer-footer"
       className={cn(
-        "mt-auto flex shrink-0 flex-col gap-2 p-4 group-data-[swipe-direction=down]/drawer-popup:pb-[calc(1rem_+_max(0px,env(safe-area-inset-bottom)_-_var(--sheet-keyboard-inset,0px)))]",
+        "mt-auto flex shrink-0 flex-col gap-2 p-4 group-data-[swipe-direction=down]/drawer-popup:pb-[calc(1rem_+_max(0px,env(safe-area-inset-bottom)_-_var(--sheet-keyboard-inset,0px)))] lg:group-data-[variant=money]/drawer-popup:pb-4",
         className
       )}
       {...props}

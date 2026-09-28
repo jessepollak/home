@@ -13,7 +13,7 @@ async function waitForHomeMark(page: Page) {
 async function shellGeometry(page: Page) {
   return page.evaluate(() => {
     const main = document.querySelector<HTMLElement>("[data-app-main-authenticated]");
-    const nav = document.querySelector<HTMLElement>('nav[aria-label="Main navigation"]');
+    const nav = document.querySelector<HTMLElement>('nav[aria-label="Main navigation"]:not(#desktop-rail nav)');
     if (!main || !nav || !main.parentElement) throw new Error("Signed-in shell is missing");
     return {
       innerHeight: window.innerHeight,

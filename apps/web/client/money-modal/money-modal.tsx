@@ -16,7 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { MONEY_ACTION_ID_ATTRIBUTE } from "@/shared/money-actions";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { ArrowLeft, X } from "lucide-react";
-import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent, type ReactNode, type RefObject } from "react";
 
 const MoneyModalPendingContext = createContext({ pending: false, register: (_id: symbol, _pending: boolean) => {} });
 const MoneyModalStepContext = createContext<((report: StepReport) => void) | null>(null);
@@ -28,6 +28,7 @@ export const MONEY_MODAL_STEP_DURATION_MS = 180;
 /** @public shared money-flow step contract (#1058) */
 export const MONEY_MODAL_STEP_EASING = "cubic-bezier(0.22, 1, 0.36, 1)";
 const MONEY_MODAL_STEP_ENTER_OPACITY = 0.4;
+const desktopDialogQuery = "(min-width: 64rem)";
 
 type StepReport = { step: string; depth: number; element: HTMLElement; initialFocusRef?: RefObject<HTMLElement | null> };
 
@@ -178,8 +179,12 @@ function StepContent({ step, depth, initialFocusRef, report, children }: {
   return <div ref={elementRef} data-money-step={step} className="flex min-h-0 flex-1 flex-col outline-none" tabIndex={-1}>{children}</div>;
 }
 
-export function AppDrawer({ open, labelledBy, describedBy, immediate = false, initialFocusRef, onCancel, onClose, children }: {
-  open: boolean; labelledBy: string; describedBy?: string; immediate?: boolean;
+function ignoreDesktopSwipe(event: PointerEvent<HTMLDivElement>) {
+  event.currentTarget.toggleAttribute("data-base-ui-swipe-ignore", window.matchMedia?.(desktopDialogQuery).matches ?? false);
+}
+
+export function AppDrawer({ open, labelledBy, describedBy, immediate = false, variant = "default", initialFocusRef, onCancel, onClose, children }: {
+  open: boolean; labelledBy: string; describedBy?: string; immediate?: boolean; variant?: "default" | "money";
   initialFocusRef?: RefObject<HTMLElement | null>; onCancel: () => boolean | void;
   onClose?: () => void; children: ReactNode;
 }) {
@@ -204,7 +209,7 @@ export function AppDrawer({ open, labelledBy, describedBy, immediate = false, in
   useEffect(() => {
     if (open) return;
     const rememberOutsideFocus = (target: EventTarget | null) => {
-      if (target instanceof HTMLElement && target !== document.body && !target.closest("[data-money-sheet]")) {
+      if (target instanceof HTMLButtonElement && !target.closest("[data-money-sheet]")) {
         lastOutsideFocusRef.current = target;
       }
     };
@@ -230,19 +235,21 @@ export function AppDrawer({ open, labelledBy, describedBy, immediate = false, in
     }} onOpenChangeComplete={(nextOpen) => { if (!nextOpen) onClose?.(); }}>
       <DrawerContent
         ref={popupRef}
+        variant={variant}
         aria-labelledby={labelledBy}
         aria-describedby={describedBy}
         initialFocus={initialFocusRef ?? (() => popupRef.current?.querySelector<HTMLElement>("[data-money-amount-input]:not(:disabled)") ?? popupRef.current?.querySelector<HTMLElement>("[data-initial-focus]:not(:disabled)") ?? true)}
         finalFocus={() => {
           const target = lastOutsideFocusRef.current;
           if (openRef.current || opensSoftKeyboard(target)) return false;
-          return target?.isConnected && !target.matches(":disabled") ? target : true;
+          return target?.isConnected && target.getClientRects().length > 0 && !target.matches(":disabled") && !target.closest("[hidden], [inert]") ? target : true;
         }}
         data-money-sheet=""
+        onPointerDownCapture={variant === "money" ? ignoreDesktopSwipe : undefined}
         immediate={immediate}
-        className="max-h-[min(88svh,calc(100dvh_-_var(--sheet-keyboard-inset,0px)_-_2rem))] sm:mx-auto sm:max-w-md"
+        className="max-h-[min(88svh,calc(100dvh_-_var(--sheet-keyboard-top,0px)_-_var(--sheet-keyboard-inset,0px)_-_2rem))] sm:mx-auto sm:max-w-md"
       >
-        <DrawerSwipeHandle data-money-sheet-grabber="" />
+        <DrawerSwipeHandle data-money-sheet-grabber="" className={variant === "money" ? "lg:hidden" : undefined} />
         <MoneyModalStepHost>{children}</MoneyModalStepHost>
       </DrawerContent>
     </Drawer>
@@ -266,7 +273,7 @@ export function MoneyModal({ open, labelledBy, describedBy, immediate = false, p
   }, []);
   const effectivePending = pending || registrants.size > 0;
   const handoff = useContext(MoneyModalHandoffContext);
-  return <MoneyModalPendingContext value={{ pending: effectivePending, register }}><AppDrawer open={open} labelledBy={labelledBy} describedBy={describedBy} immediate={immediate || handoff} onCancel={() => effectivePending ? false : onCancel()} onClose={onClose}>{children}</AppDrawer></MoneyModalPendingContext>;
+  return <MoneyModalPendingContext value={{ pending: effectivePending, register }}><AppDrawer open={open} labelledBy={labelledBy} describedBy={describedBy} immediate={immediate || handoff} variant="money" onCancel={() => effectivePending ? false : onCancel()} onClose={onClose}>{children}</AppDrawer></MoneyModalPendingContext>;
 }
 
 /** @public shared money-flow step contract (#1058) */

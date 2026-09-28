@@ -89,6 +89,17 @@ describe("software keyboard and the persistent money sheet", () => {
     expect(keyboardInset()).toBe(`${KEYBOARD_HEIGHT}px`);
   });
 
+  test("exposes the panned visual viewport top beside the bottom inset", async () => {
+    Object.assign(window.visualViewport!, { offsetTop: 100 });
+    render(<Journey />);
+    await act(async () => fireEvent.click(page().getByRole("button", { name: "Open send" })));
+    const viewport = document.querySelector<HTMLElement>("[data-slot=drawer-viewport]")!;
+    expect(viewport.style.getPropertyValue("--sheet-keyboard-top")).toBe("100px");
+    expect(keyboardInset()).toBe(`${KEYBOARD_HEIGHT - 100}px`);
+    await act(async () => fireEvent.click(page().getByRole("button", { name: "Continue" })));
+    expect(viewport.style.getPropertyValue("--sheet-keyboard-top")).toBe("0px");
+  });
+
   test("a blur with no next focus releases the inset before the next frame and keeps the sheet open", async () => {
     render(<Journey />);
     await act(async () => fireEvent.click(page().getByRole("button", { name: "Open send" })));

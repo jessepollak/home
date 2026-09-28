@@ -133,6 +133,10 @@ function page() {
   return within(document.body);
 }
 
+function tabsNavigation(): HTMLElement {
+  return document.getElementById("home-nav")!.closest("nav")!;
+}
+
 function sdk(overrides: Partial<AccountWalletSdkBoundary> = {}): AccountWalletSdkBoundary {
   return {
     isInitialized: true,
@@ -492,6 +496,14 @@ describe("Home shell auth and privacy", () => {
     expect(page().queryByRole("navigation", { name: "Main navigation" })).toBeNull();
   });
 
+  test("offers sign-in, not Account settings, when initialization fails before sign-in", async () => {
+    render(<HomeHarness accountSdk={sdk({ initializationError: "provider-unavailable" })} />);
+
+    expect(await page().findByText("Account verification is unavailable.")).toBeTruthy();
+    expect(page().getByRole("button", { name: "Sign in" })).toBeTruthy();
+    expect(page().queryByRole("button", { name: /^Account settings/ })).toBeNull();
+  });
+
   test("redirects a signed-out Cash route without exposing cash content", async () => {
     syncLocation("/cash");
     historyEntries = ["/cash"];
@@ -680,6 +692,7 @@ describe("Home shell auth and privacy", () => {
     fireEvent.click(await waitForVerifiedShell());
     fireEvent.click(page().getByRole("button", { name: "Sign out" }));
     expect(replaceCalls).toEqual([]);
+    await waitFor(() => expect(page().getByRole("button", { name: /^Account settings/ }).hasAttribute("disabled")).toBe(true));
 
     await act(async () => {
       pending.resolve(undefined);
@@ -772,7 +785,7 @@ describe("Home shell routing and intents", () => {
         expect(within(headerMain!).getByRole("button", { name: "Back" })).toBeTruthy();
       } else {
         expect(headerMain!.querySelectorAll("[data-home-mark]")).toHaveLength(1);
-        expect(title.previousElementSibling?.hasAttribute("data-home-mark")).toBe(true);
+        expect(title.previousElementSibling?.querySelector("[data-home-mark]")).not.toBeNull();
         expect(within(headerMain!).getByRole("button", { name: "Home" })).toBeTruthy();
       }
       cleanup();
@@ -787,7 +800,7 @@ describe("Home shell routing and intents", () => {
     render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} initialPanel="invest" />);
     await waitForVerifiedShell();
 
-    const investTab = within(page().getByRole("navigation", { name: "Main navigation" }))
+    const investTab = within(tabsNavigation())
       .getByRole("button", { name: "Invest" });
     fireEvent.click(investTab);
     expect(window.location.pathname).toBe("/invest");
@@ -818,7 +831,7 @@ describe("Home shell routing and intents", () => {
     expect(window.location.pathname).toBe("/invest/cbbtc");
     expect(window.history.state.investDetailFrom).toBe("crypto");
 
-    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" }))
+    fireEvent.click(within(tabsNavigation())
       .getByRole("button", { name: "Invest" }));
     expect(window.location.pathname).toBe("/invest");
     await act(async () => { popHistory(); await Promise.resolve(); });
@@ -851,7 +864,7 @@ describe("Home shell routing and intents", () => {
     expect(window.location.search).toBe("?account=settings");
     expect(await page().findByRole("region", { name: "Account settings" })).toBeTruthy();
 
-    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" }))
+    fireEvent.click(within(tabsNavigation())
       .getByRole("button", { name: "Invest" }));
     expect(window.location.pathname).toBe("/invest");
     expect(pushCalls).toEqual(["/invest/crypto?account=settings", "/invest"]);
@@ -895,7 +908,7 @@ describe("Home shell routing and intents", () => {
     });
     const nestedBack = page().getByRole("button", { name: "Back to Invest" });
     expect(nestedBack.closest("[data-shell-back]")).not.toBeNull();
-    expect(document.querySelector("[data-home-mark]")).toBeNull();
+    expect(document.querySelector("[data-shell-header-main] [data-home-mark]")).toBeNull();
 
     fireEvent.click(nestedBack);
     await waitFor(() => {
@@ -985,7 +998,7 @@ describe("Home shell routing and intents", () => {
     await waitFor(() => expect(presentationCalls).toBeGreaterThan(0));
     presentationCalls = 0;
 
-    const navigation = within(page().getByRole("navigation", { name: "Main navigation" }));
+    const navigation = within(tabsNavigation());
     fireEvent.click(navigation.getByRole("button", { name: "Invest" }));
     expect(page().getByRole("region", { name: "Invest module" })).toBeTruthy();
     fireEvent.click(navigation.getByRole("button", { name: "Home" }));
@@ -1251,9 +1264,9 @@ describe("Home shell routing and intents", () => {
     fireEvent.click(page().getByRole("button", { description: /^Open Invest(ments)?$/ }));
     expect(window.location.pathname).toBe("/investments");
     expect(page().getByRole("heading", { level: 1, name: "Investments" })).toBeTruthy();
-    expect(within(page().getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Home" }).getAttribute("aria-current")).toBe("page");
+    expect(within(tabsNavigation()).getByRole("button", { name: "Home" }).getAttribute("aria-current")).toBe("page");
     expect(page().getByRole("region", { name: "Holding list" })).toBeTruthy();
-    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Invest" }));
+    fireEvent.click(within(tabsNavigation()).getByRole("button", { name: "Invest" }));
     expect(window.location.pathname).toBe("/invest");
     expect(page().getByRole("region", { name: "Invest module" })).toBeTruthy();
   });
@@ -1325,11 +1338,11 @@ describe("Home shell routing and intents", () => {
       assetBalances={fundedInvestments()} investContent={<NestedInvestFixture />}
       investmentsContent={InvestmentsFixture} />);
     await waitForVerifiedShell();
-    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" }))
+    fireEvent.click(within(tabsNavigation())
       .getByRole("button", { name: "Invest" }));
     fireEvent.click(page().getByRole("button", { name: "Open asset details" }));
     expect(page().getByRole("heading", { level: 1, name: "US dollar" })).toBeTruthy();
-    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" }))
+    fireEvent.click(within(tabsNavigation())
       .getByRole("button", { name: "Home" }));
     fireEvent.click(page().getByRole("button", { description: /^Open Invest(ments)?$/ }));
     expect(page().getByRole("heading", { level: 1, name: "Investments" })).toBeTruthy();
@@ -1385,7 +1398,7 @@ describe("Home shell routing and intents", () => {
       />,
     );
     await waitForVerifiedShell();
-    const navigation = within(page().getByRole("navigation", { name: "Main navigation" }));
+    const navigation = within(tabsNavigation());
     fireEvent.click(navigation.getByRole("button", { name: "Invest" }));
     const cryptoShelf = page().getByRole("heading", { name: "Crypto", level: 3 }).closest("section")!;
     fireEvent.click(within(cryptoShelf).getByRole("button", { name: "See all ›" }));
@@ -1418,7 +1431,7 @@ describe("Home shell routing and intents", () => {
     expect(page().getByRole("heading", { level: 1, name: "NVIDIA" })).toBeTruthy();
     act(() => popHistory());
     expect(window.location.pathname).toBe("/balances");
-    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Invest" }));
+    fireEvent.click(within(tabsNavigation()).getByRole("button", { name: "Invest" }));
     expect(window.location.pathname).toBe("/invest");
     expect(await page().findByRole("heading", { level: 1, name: "Invest" })).toBeTruthy();
     expect(page().queryByRole("heading", { level: 1, name: "NVIDIA" })).toBeNull();
@@ -1433,7 +1446,7 @@ describe("Home shell routing and intents", () => {
       />,
     );
     await waitForVerifiedShell();
-    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Invest" }));
+    fireEvent.click(within(tabsNavigation()).getByRole("button", { name: "Invest" }));
     const cryptoShelf = page().getByRole("heading", { name: "Crypto", level: 3 }).closest("section")!;
     fireEvent.click(within(cryptoShelf).getByRole("button", { name: "See all ›" }));
     expect(window.location.pathname).toBe("/invest/crypto");
@@ -1456,7 +1469,7 @@ describe("Home shell routing and intents", () => {
     expect(window.location.pathname).toBe("/cash");
 
     fireEvent.click(page().getByRole("button", { name: "Back" }));
-    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Invest" }));
+    fireEvent.click(within(tabsNavigation()).getByRole("button", { name: "Invest" }));
     expect(`${window.location.pathname}${window.location.search}`).toBe("/invest");
     expect(page().getByRole("region", { name: "Invest module" })).toBeTruthy();
 
@@ -1576,7 +1589,7 @@ describe("Home shell routing and intents", () => {
     const detail = await page().findByRole("dialog", { name: "Status" });
     expect(detail.textContent).toContain(offline);
     expect(within(detail).queryByRole("button")).toBeNull();
-    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" }))
+    fireEvent.click(within(tabsNavigation())
       .getByRole("button", { name: "Invest" }));
     expect(page().getByRole("button", { name: offline })).toBeTruthy();
     fireEvent.click(page().getByRole("button", { name: "Open asset details" }));
@@ -1589,7 +1602,7 @@ describe("Home shell routing and intents", () => {
       investContent={<NestedInvestFixture />} interruption={null} />);
     expect(document.querySelector("[data-home-status]")).toBeNull();
     fireEvent.click(page().getByRole("button", { name: "Back to Invest" }));
-    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" }))
+    fireEvent.click(within(tabsNavigation())
       .getByRole("button", { name: "Home" }));
     expect(page().getByRole("button", { name: "Choose a country in Account to set how money is shown" })).toBeTruthy();
     view.rerender(<HomeHarness accountSdk={accountSdk} assetBalances={partial}
@@ -1612,7 +1625,7 @@ describe("Home shell routing and intents", () => {
     fireEvent.click(borrowRow);
     expect(`${window.location.pathname}${window.location.search}`).toBe("/borrow");
     expect(await page().findByText("Borrowed")).toBeTruthy();
-    expect(within(page().getByRole("navigation", { name: "Main navigation" })).queryByRole("button", { name: "Borrow" })).toBeNull();
+    expect(within(tabsNavigation()).queryByRole("button", { name: "Borrow" })).toBeNull();
   });
 
   test("renders a validated Borrow market deep link inside the existing main landmark", async () => {
@@ -1855,7 +1868,7 @@ describe("Home refresh wiring", () => {
     fixture.failNext();
     fireEvent.click(page().getByRole("button", { name: "Refresh Home" }));
     await page().findByText("Couldn't refresh Home.");
-    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Invest" }));
+    fireEvent.click(within(tabsNavigation()).getByRole("button", { name: "Invest" }));
     expect(page().queryByRole("button", { name: "Refresh Home" })).toBeNull();
     expect(page().queryByText("Couldn't refresh Home.")).toBeNull();
   });
@@ -1876,11 +1889,11 @@ describe("Home refresh wiring", () => {
     expect(fixture.calls).toEqual(before);
     fireEvent.click(within(dialog).getByRole("button", { name: "Close add money" }));
     await waitFor(() => expect(page().getByRole("button", { name: "Refresh Home" })).toBeTruthy());
-    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Invest" }));
+    fireEvent.click(within(tabsNavigation()).getByRole("button", { name: "Invest" }));
     expect(page().queryByRole("button", { name: "Refresh Home" })).toBeNull();
     touchPull(target);
     expect(fixture.calls.balances).toBe(before.balances);
-    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Home" }));
+    fireEvent.click(within(tabsNavigation()).getByRole("button", { name: "Home" }));
     fireEvent.click(page().getByRole("button", { name: "Account" }));
     expect(page().queryByRole("button", { name: "Refresh Home" })).toBeNull();
   });
@@ -2419,7 +2432,7 @@ describe("Balances scope scroll interleavings (#485)", () => {
           fireEvent.scroll(main);
           act(() => frames.flush());
         }
-        fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Invest" }));
+        fireEvent.click(within(tabsNavigation()).getByRole("button", { name: "Invest" }));
         if (mode === "asset") {
           fireEvent.click(page().getByRole("button", { name: "Open asset details" }));
           fireEvent.click(page().getByRole("button", { name: "Back" }));
