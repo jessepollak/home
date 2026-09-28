@@ -63,7 +63,8 @@ test("the native access form posts and redirects without JavaScript", async ({ b
   const page = await context.newPage();
   try {
     await context.clearCookies();
-    await page.goto("/access?next=%2Fhome");
+    await page.goto("/home");
+    await expect(page).toHaveURL(/\/access\?next=%2Fhome$/);
     const form = page.locator("form[action='/api/access'][method='post']");
     await expect(form).toBeVisible();
     await expect(form).not.toHaveAttribute("data-hydrated", "true");
@@ -73,8 +74,12 @@ test("the native access form posts and redirects without JavaScript", async ({ b
     const nativeResponse = page.waitForResponse((response) => (
       response.url().endsWith("/api/access") && response.request().method() === "POST"
     ));
+    const nativeRequest = page.waitForRequest((request) => (
+      request.url().endsWith("/api/access") && request.method() === "POST"
+    ));
     await page.getByRole("button", { name: "Continue" }).click();
 
+    expect((await nativeRequest).headers()["origin"]).toBe(new URL(baseURL ?? "").origin);
     expect((await nativeResponse).status()).toBe(303);
     await expect(page).toHaveURL(/\/home$/);
   } finally {

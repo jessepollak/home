@@ -1,4 +1,5 @@
-import { authorizeFundingRequest, fundingError, fundingJson, fundingRequestOrigin } from "@/server/funding/core/auth";
+import { authorizeFundingRequest, fundingRequestOrigin } from "@/server/funding/core/auth";
+import { privateError, privateJson } from "@/server/http/private-response";
 import { authorizeFundingSession, getFundingCore } from "@/server/funding/core/runtime";
 import { FundingCoreError } from "@/server/funding/core/service";
 import { FundingProviderConfigurationError } from "@/server/funding/core/provider-context";
@@ -10,12 +11,12 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request): Promise<Response> {
   const authorized = await authorizeFundingRequest(request, authorizeFundingSession);
   if ("response" in authorized) return authorized.response;
-  if (request.headers.get("content-type")?.split(";", 1)[0] !== "application/json") return fundingError("INVALID_QUOTE_REQUEST", "A valid funding request is required.", 400);
+  if (request.headers.get("content-type")?.split(";", 1)[0] !== "application/json") return privateError("INVALID_QUOTE_REQUEST", "A valid funding request is required.", 400);
   let body: unknown;
-  try { body = await request.json(); } catch { return fundingError("INVALID_QUOTE_REQUEST", "A valid funding request is required.", 400); }
-  try { return fundingJson(await getFundingCore().createQuote(authorized.session, body, fundingRequestOrigin(request))); }
+  try { body = await request.json(); } catch { return privateError("INVALID_QUOTE_REQUEST", "A valid funding request is required.", 400); }
+  try { return privateJson(await getFundingCore().createQuote(authorized.session, body, fundingRequestOrigin(request))); }
   catch (error) {
-    if (error instanceof FundingCoreError) return fundingError(error.code, error.publicMessage ?? "The funding quote could not be created.", error.status);
+    if (error instanceof FundingCoreError) return privateError(error.code, error.publicMessage ?? "The funding quote could not be created.", error.status);
     if (error instanceof FundingProviderConfigurationError) {
       emitServerEvent("funding-order", {
         route: "/api/funding/quotes",
@@ -27,6 +28,6 @@ export async function POST(request: Request): Promise<Response> {
         },
       });
     }
-    return fundingError("QUOTE_UNAVAILABLE", "The funding quote is unavailable.", 503);
+    return privateError("QUOTE_UNAVAILABLE", "The funding quote is unavailable.", 503);
   }
 }

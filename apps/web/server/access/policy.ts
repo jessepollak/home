@@ -41,11 +41,16 @@ function privateHeaders(response: NextResponse): NextResponse {
   return response;
 }
 
+function withReferrerPolicy(response: NextResponse): NextResponse {
+  response.headers.set("Referrer-Policy", "no-referrer");
+  return response;
+}
+
 function errorResponse(code: AccessErrorCode, status: 401 | 503): NextResponse {
-  return privateHeaders(NextResponse.json(
+  return withReferrerPolicy(privateHeaders(NextResponse.json(
     { version: ACCESS_CONTRACT_VERSION, error: { code } },
     { status },
-  ));
+  )));
 }
 
 export function enforceAccess(
@@ -73,7 +78,7 @@ export function enforceAccess(
       destination.pathname = "/access";
       destination.search = "";
       destination.searchParams.set("next", current);
-      return privateHeaders(NextResponse.redirect(destination, 307));
+      return withReferrerPolicy(privateHeaders(NextResponse.redirect(destination, 307)));
     }
   }
   return errorResponse("ACCESS_REQUIRED", 401);

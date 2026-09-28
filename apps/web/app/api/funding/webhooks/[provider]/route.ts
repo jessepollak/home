@@ -1,4 +1,4 @@
-import { fundingJson } from "@/server/funding/core/auth";
+import { privateJson } from "@/server/http/private-response";
 import { getFundingCore } from "@/server/funding/core/runtime";
 import { readBoundedWebhookBody } from "@/server/funding/core/webhook-body";
 import { emitServerEvent } from "@/server/observability/log";
@@ -18,10 +18,10 @@ export async function POST(request: Request, context: { params: Promise<{ provid
       provider,
       durationMs: Date.now() - startedAt,
     });
-    return fundingJson({ accepted: true }, 202);
+    return privateJson({ accepted: true }, 202);
   }
   try {
-    return fundingJson(await getFundingCore().handleWebhook(provider, raw, request.headers), 202);
+    return privateJson(await getFundingCore().handleWebhook(provider, raw, request.headers), 202);
   } catch {
     emitServerEvent("funding-webhook", {
       route: "/api/funding/webhooks/:provider",
@@ -30,6 +30,6 @@ export async function POST(request: Request, context: { params: Promise<{ provid
       provider,
       durationMs: Date.now() - startedAt,
     });
-    return fundingJson({ accepted: true }, 202);
+    return privateJson({ accepted: true }, 202);
   }
 }

@@ -24,6 +24,7 @@ type LoginDependencies = {
 function responseHeaders(): Headers {
   return new Headers({
     "Cache-Control": "private, no-store, max-age=0",
+    "Referrer-Policy": "no-referrer",
     Pragma: "no-cache",
     Vary: `Cookie, ${ACCESS_RESPONSE_MODE_HEADER}`,
   });

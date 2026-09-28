@@ -84,6 +84,7 @@ async function challenge(
 ): Promise<{ challenge: NativeBaseChallenge; message: string; cookie: string }> {
   const response = await nonce(post("/api/auth/base/nonce", {}));
   expect(response.status).toBe(200);
+  expect(response.headers.get("referrer-policy")).toBe("no-referrer");
   const payload = await response.json() as NativeBaseChallenge;
   return {
     challenge: payload,
@@ -121,7 +122,9 @@ describe("native Base authentication handlers", () => {
       now: () => START,
       randomId: () => NONCE,
     });
-    expect((await nonce(post("/api/auth/base/nonce", {}))).status).toBe(503);
+    const unavailable = await nonce(post("/api/auth/base/nonce", {}));
+    expect(unavailable.status).toBe(503);
+    expect(unavailable.headers.get("referrer-policy")).toBe("no-referrer");
 
     const configured = handlers().nonce;
     expect((await configured(post("/api/auth/base/nonce", { address: ADDRESS }))).status).toBe(400);
@@ -161,6 +164,7 @@ describe("native Base authentication handlers", () => {
       issued.cookie,
     ));
     expect(verified.status).toBe(200);
+    expect(verified.headers.get("referrer-policy")).toBe("no-referrer");
     const setCookies = verified.headers.getSetCookie();
     expect(setCookies.some((value) => value.startsWith(`${HOME_CHALLENGE_COOKIE}=`) && value.includes("Max-Age=0"))).toBe(true);
     expect(setCookies.some((value) => value.startsWith(`${HOME_SESSION_COOKIE}=`))).toBe(true);
@@ -188,6 +192,7 @@ describe("native Base authentication handlers", () => {
     ));
 
     expect(response.status).toBe(401);
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
     expect(await response.json()).toEqual({ error: { code: "INVALID_AUTH_PROOF" } });
     expect(response.headers.getSetCookie().some((value) =>
       value.startsWith(`${HOME_CHALLENGE_COOKIE}=`) && value.includes("Max-Age=0")
@@ -334,12 +339,15 @@ describe("native Base authentication handlers", () => {
         issued.cookie,
       ));
       expect(response.status).toBe(entry.status);
+      expect(response.headers.get("referrer-policy")).toBe("no-referrer");
     }
   });
 
   test("logout requires same-origin POST and clears Home authentication without clearing deployment access", async () => {
     const logout = createNativeBaseLogoutHandler();
-    expect((await logout(logoutRequest())).status).toBe(403);
+    const rejected = await logout(logoutRequest());
+    expect(rejected.status).toBe(403);
+    expect(rejected.headers.get("referrer-policy")).toBe("no-referrer");
     expect((await logout(logoutRequest({ Origin: "https://evil.example" }))).status).toBe(403);
 
     const response = await logout(logoutRequest({
@@ -347,6 +355,7 @@ describe("native Base authentication handlers", () => {
       "Sec-Fetch-Site": "same-origin",
     }));
     expect(response.status).toBe(200);
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
     const cookies = response.headers.getSetCookie();
     expect(cookies).toHaveLength(4);
     expect(cookies.every((value) => value.includes("Max-Age=0"))).toBe(true);

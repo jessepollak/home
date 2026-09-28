@@ -69,6 +69,7 @@ describe("API route composition", () => {
     expect(response.status).toBe(400);
     expect(response.headers.get("cache-control")).toContain("private");
     expect(response.headers.get("cache-control")).toContain("no-store");
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
   });
 
   test("keeps every private route dynamic, Node-only, authenticated, and private", async () => {
@@ -95,6 +96,7 @@ describe("API route composition", () => {
         const cacheControl = response.headers.get("cache-control") ?? "";
         expect(cacheControl, name).toContain("private");
         expect(cacheControl, name).toContain("no-store");
+        expect(response.headers.get("referrer-policy"), name).toBe("no-referrer");
         const vary = response.headers.get("vary") ?? "";
         expect(vary, name).toContain("Authorization");
         expect(vary, name).toContain("X-Home-Account-Provider");
