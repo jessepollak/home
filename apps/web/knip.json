@@ -36,6 +36,7 @@
     // imported from production code.
     "server/db/migrate.ts!",
     "server/actions/kinds/trade/checkpoint-command.ts!",
+    "server/balances/history/reconcile-command.ts!",
     "server/operator-events/backfill-command.ts!",
     "server/customers/record-ids-backfill-command.ts!",
     "server/funding/core/user-token-rotation.ts!",

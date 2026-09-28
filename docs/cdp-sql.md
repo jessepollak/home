@@ -5,6 +5,8 @@ Last reviewed: 2026-09-14.
 
 Home uses CDP SQL only as a read-only indexed history source. It is **not** a spendable-balance, transaction-confirmation, vault-position, debt, or authorization source. Current spendable inventory uses CDP Onchain Data Token Balances for enumeration and pinned-block RPC for configured assets and Morpho vault conversion; receipts and protocol adapters remain the confirmation path. Do not query CoinbaSeQL for balances. The locked inventory direction lives in [Balances](balances.md); research detail remains on [#76](https://github.com/jessepollak/home/issues/76#issuecomment-5594452047).
 
+The balance-history change log (`server/balances/history/sql-transfers.ts`, [Balances](balances.md) §10) has its own template on `base.transfers`, not the Activity adapter described below. On September 27, 2026, wallet-scoped `base.events` Transfer windows older than about 60 days, and any 365-day window, exceeded the provider's 93 GiB per-node scan cap. `base.transfers` 31-day windows passed. A block-number predicate also defeats time pruning, so that template filters block ranges after the query.
+
 ## Implemented contract
 
 `apps/web/server/chain-data` provides:
