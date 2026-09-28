@@ -142,6 +142,17 @@ export async function leakCycle(page: Page, enabled: boolean) {
   if (enabled) await page.evaluate(() => (window as typeof window & { __perfLeakCycle: () => void }).__perfLeakCycle());
 }
 
-export async function twoFrames(page: Page) {
-  await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+export async function twoFrames(page: Page, timeoutMs = 5_000) {
+  let hostTimer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([page.evaluate((ms) => {
+      let timer: ReturnType<typeof setTimeout>;
+      return Promise.race([
+        new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
+        new Promise<never>((_done, fail) => { timer = setTimeout(() => fail(new Error(`Two animation frames did not arrive within ${ms} ms`)), ms); }),
+      ]).finally(() => clearTimeout(timer));
+    }, timeoutMs), new Promise<never>((_done, fail) => {
+      hostTimer = setTimeout(() => fail(new Error(`Two animation frames did not arrive within ${timeoutMs} ms`)), timeoutMs + 1_000);
+    })]);
+  } finally { clearTimeout(hostTimer); }
 }
