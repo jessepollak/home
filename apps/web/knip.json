@@ -46,7 +46,8 @@
     "scripts/activity-scroll-profile.ts!",
     "scripts/modal-open-profile.ts!",
     // Figma variables sync, run by package scripts and the main-only CI job.
-    "scripts/figma-variables.mjs!"
+    "scripts/figma-variables.mjs!",
+    "scripts/immersve-probe.ts!"
   ],
   "ignore": [
     // Non-production design-lane code lives under explorations/ or inside a
