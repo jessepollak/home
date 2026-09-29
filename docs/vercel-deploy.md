@@ -13,6 +13,11 @@ Your Home Vercel project uses **Root Directory** `apps/web`; Vercel runs `bun ru
 | Install Command | `bun install --frozen-lockfile` |
 | Build Command | `bun run build` |
 | Node.js | 22+ |
+| Fluid compute | Enabled (Project Settings → Functions) |
+
+### Database pool lifecycle
+
+The server opens its PostgreSQL pools (`max: 5`, 30-second idle timeout, 10-second connect timeout) and attaches each pool it opens to the platform lifecycle hook, so an idle Fluid instance stays alive long enough for `pg` to close idle connections before it suspends. Fluid compute stays enabled for that hook to do anything; without it connections die with the instance. The hook holds one idle wait per instance, so a later pool's attach supersedes an earlier pool's pending wait, and that pool's idle connections can still die with the instance — the same as running without the hook.
 
 ### Pre-release production access
 

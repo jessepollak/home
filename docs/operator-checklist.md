@@ -12,6 +12,7 @@ Each operator sets these values for their own instance; this checklist lists wha
 | Deployment Protection and Firewall rate-limit rules | Vercel project settings and Firewall | [Vercel deploy](vercel-deploy.md#pre-release-production-access) |
 | Skew Protection (12-hour max age) | Vercel project advanced settings | [Vercel deploy](vercel-deploy.md#skew-protection) |
 | Speed Insights | Vercel project settings | [Performance observability](performance-observability.md#production-verification) |
+| Fluid compute (enabled) | Vercel project Functions settings | [Vercel deploy](vercel-deploy.md#database-pool-lifecycle) |
 
 ## Storybook project
 
