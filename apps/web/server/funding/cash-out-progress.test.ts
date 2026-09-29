@@ -81,6 +81,98 @@ const signal = new AbortController().signal;
 afterEach(() => setObservabilityLogWriterForTests());
 
 describe("durable cash-out progress refresh", () => {
+  test("flags an unrefreshed record as unconfirmed when the provider read fails", async () => {
+    const rows = [{ row: depositRow(), receipt: "confirmed" as const }];
+    const failed = fixture(true);
+    const result = await refreshCashoutProgress({ owner, rows, store: failed.store, signal,
+      providerForId: () => provider(async () => { throw new Error("Provider unavailable"); }), env: { PEER_OFFRAMP_ENABLED: "0" },
+    });
+    expect(result[0]?.progressConfirmed).toBe(false);
+    const succeeded = fixture(true);
+    const merged = (await refreshCashoutProgress({ owner, rows, store: succeeded.store, signal,
+      providerForId: () => provider(async () => fakeOrder("awaiting-buyer", "0", "0", "2000000")), env: { PEER_OFFRAMP_ENABLED: "0" },
+    }))[0]!;
+    expect(merged.progressConfirmed).toBe(true);
+  });
+
+  test("marks a record unconfirmed when its progress write returns null", async () => {
+    const { store } = fixture(true);
+    store.updateCashoutProgress = async () => null;
+    const result = await refreshCashoutProgress({ owner, rows: [{ row: depositRow(), receipt: "confirmed" }], store, signal,
+      providerForId: () => provider(async () => fakeOrder("awaiting-buyer", "0", "0", "2000000")), env: { PEER_OFFRAMP_ENABLED: "0" },
+    });
+    expect(result[0]?.progressConfirmed).toBe(false);
+  });
+
+  test("does not confirm an older provider observation that loses the revision check", async () => {
+    let stored = { ...orderRow(), provider_updated_at: null as string | null };
+    const store = {
+      ensureCashoutOrder: async () => stored,
+      cashoutOrders: async () => [stored],
+      claimCashoutRefresh: async () => {},
+      linkedCashoutDepositIds: async () => [],
+      linkCashoutDeposit: async () => null,
+      updateCashoutProgress: async (_owner: unknown, _id: string, update: { state: CashoutOrderRow["state"]; filledAtomic: string; returnedAtomic: string; remainingAtomic: string; withdrawable: boolean; settled: boolean }, observedAt: string | null) => {
+        if (observedAt !== null && stored.provider_updated_at !== null) {
+          if (observedAt < stored.provider_updated_at) return null;
+          if (observedAt === stored.provider_updated_at && !(Number(update.filledAtomic) >= Number(stored.filled_atomic) &&
+            Number(update.returnedAtomic) >= Number(stored.returned_atomic) && Number(update.remainingAtomic) <= Number(stored.remaining_atomic))) return null;
+        }
+        stored = { ...stored, state: update.state, filled_atomic: update.filledAtomic, returned_atomic: update.returnedAtomic,
+          remaining_atomic: update.remainingAtomic, withdrawable: update.withdrawable,
+          settled_at: update.settled ? timestamp : null,
+          provider_updated_at: observedAt === null ? stored.provider_updated_at : observedAt };
+        return stored;
+      },
+    } as unknown as Pick<ActionsStore, "ensureCashoutOrder" | "cashoutOrders" | "claimCashoutRefresh" | "linkedCashoutDepositIds" | "linkCashoutDeposit" | "updateCashoutProgress">;
+    const refresh = (updatedAt: string, filled: string, remaining: string) => refreshCashoutProgress({ owner,
+      rows: [{ row: depositRow(), receipt: "confirmed" }], store, signal,
+      providerForId: () => provider(async () => ({ ...fakeOrder("awaiting-buyer", filled, "0", remaining), updatedAt })),
+      env: { PEER_OFFRAMP_ENABLED: "0" },
+    });
+    const first = await refresh("2026-09-12T12:10:00.000Z", "1500000", "500000");
+    expect(first[0]?.remaining_atomic).toBe("500000");
+    expect(first[0]?.progressConfirmed).toBe(true);
+    const stale = await refresh("2026-09-12T12:00:00.000Z", "0", "2000000");
+    expect(stale[0]?.remaining_atomic).toBe("500000");
+    expect(stale[0]?.progressConfirmed).toBe(false);
+    const newer = await refresh("2026-09-12T12:20:00.000Z", "0", "2000000");
+    expect(newer[0]?.remaining_atomic).toBe("2000000");
+    expect(newer[0]?.progressConfirmed).toBe(true);
+    const equalRegression = await refresh("2026-09-12T12:20:00.000Z", "0", "3000000");
+    expect(equalRegression[0]?.remaining_atomic).toBe("2000000");
+    expect(equalRegression[0]?.progressConfirmed).toBe(false);
+    const equalForward = await refresh("2026-09-12T12:20:00.000Z", "1000000", "1000000");
+    expect(equalForward[0]?.remaining_atomic).toBe("1000000");
+    expect(equalForward[0]?.progressConfirmed).toBe(true);
+  });
+
+  test("an undated provider observation is compare-and-set on the read revision", async () => {
+    const calls: Array<{ observedAt: string | null; expectedUpdatedAt: string | null }> = [];
+    let stored = { ...orderRow(), updated_at: "2026-09-12T12:00:00.000Z" };
+    const store = {
+      ensureCashoutOrder: async () => stored,
+      cashoutOrders: async () => [stored],
+      claimCashoutRefresh: async () => {},
+      linkedCashoutDepositIds: async () => [],
+      linkCashoutDeposit: async () => null,
+      updateCashoutProgress: async (_owner: unknown, _id: string, update: { state: CashoutOrderRow["state"]; filledAtomic: string; returnedAtomic: string; remainingAtomic: string; withdrawable: boolean; settled: boolean }, observedAt: string | null, _expectedWatermark: string | null, _expectedDeposit: string | null, expectedUpdatedAt: string | null) => {
+        calls.push({ observedAt, expectedUpdatedAt });
+        stored = { ...stored, state: update.state, filled_atomic: update.filledAtomic, returned_atomic: update.returnedAtomic,
+          remaining_atomic: update.remainingAtomic, withdrawable: update.withdrawable,
+          settled_at: update.settled ? timestamp : null,
+          provider_updated_at: observedAt ?? stored.provider_updated_at };
+        return stored;
+      },
+    } as unknown as Pick<ActionsStore, "ensureCashoutOrder" | "cashoutOrders" | "claimCashoutRefresh" | "linkedCashoutDepositIds" | "linkCashoutDeposit" | "updateCashoutProgress">;
+    const result = await refreshCashoutProgress({ owner, rows: [{ row: depositRow(), receipt: "confirmed" }], store, signal,
+      providerForId: () => provider(async () => ({ ...fakeOrder("awaiting-buyer", "1000000", "0", "1000000"), updatedAt: "1970-01-01T00:00:00.000Z" })),
+      env: { PEER_OFFRAMP_ENABLED: "0" },
+    });
+    expect(calls).toEqual([{ observedAt: null, expectedUpdatedAt: "2026-09-12T12:00:00.000Z" }]);
+    expect(result[0]?.progressConfirmed).toBe(true);
+  });
+
   test("an included unfinalized deposit shows provisional order progress without linking or settling", async () => {
     const { store } = fixture(false);
     let observedHash: string | null = null;
@@ -587,9 +679,9 @@ describe("durable cash-out progress refresh", () => {
     const { store, events } = fixture(true);
     const updates: string[] = [];
     const originalUpdate = store.updateCashoutProgress.bind(store);
-    store.updateCashoutProgress = async (nextOwner, id, update) => {
+    store.updateCashoutProgress = async (nextOwner, id, update, observedAt, expectedProviderUpdatedAt) => {
       updates.push(update.state);
-      return originalUpdate(nextOwner, id, update);
+      return originalUpdate(nextOwner, id, update, observedAt, expectedProviderUpdatedAt);
     };
     const result = await refreshCashoutProgress({ owner, rows: [
       { row: depositRow(), receipt: "confirmed" }, { row: { ...withdrawalRow(), outcome: "succeeded" }, receipt: null },
@@ -606,9 +698,9 @@ describe("durable cash-out progress refresh", () => {
     const { store } = fixture(true, "0");
     const updates: Array<{ returnedAtomic: string; settled: boolean; withdrawable: boolean }> = [];
     const originalUpdate = store.updateCashoutProgress.bind(store);
-    store.updateCashoutProgress = async (nextOwner, id, update) => {
+    store.updateCashoutProgress = async (nextOwner, id, update, observedAt, expectedProviderUpdatedAt) => {
       updates.push(update);
-      return originalUpdate(nextOwner, id, update);
+      return originalUpdate(nextOwner, id, update, observedAt, expectedProviderUpdatedAt);
     };
     const result = await refreshCashoutProgress({ owner, rows: [
       { row: depositRow(), receipt: "confirmed" }, { row: { ...withdrawalRow("2000000"), outcome: "succeeded" }, receipt: null },
@@ -782,12 +874,14 @@ describe("durable cash-out progress refresh", () => {
     const first = await request();
     expect(reads).toEqual([records.get(ids[0]!)!.deposit_id, records.get(ids[1]!)!.deposit_id]);
     expect(first.map((record) => record.action_id)).toEqual(ids);
+    expect(first.map((record) => record.progressConfirmed)).toEqual([true, true, false]);
     expect(records.get(ids[2]!)?.refreshed_at).toBeNull();
 
     const second = await request();
     expect(reads).toEqual([records.get(ids[0]!)!.deposit_id, records.get(ids[1]!)!.deposit_id,
       records.get(ids[2]!)!.deposit_id, records.get(ids[0]!)!.deposit_id]);
     expect(second.map((record) => record.action_id)).toEqual(ids);
+    expect(second.map((record) => record.progressConfirmed)).toEqual([true, false, true]);
     expect(ids.every((id) => records.get(id)?.refreshed_at !== null)).toBe(true);
   });
 

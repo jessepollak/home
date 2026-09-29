@@ -306,7 +306,7 @@ function pricingInputs(holdings: readonly ReadHolding[], stocksById: ReadonlyMap
 
 function neededFxKeys(holdings: readonly ReadHolding[], quoteCurrency: FiatCurrencyCode | null): string[] {
   const keys = new Set<string>();
-  if (holdings.some(positivePricingAmount)) {
+  if (holdings.some(positivePricingAmount) || holdings.some((holding) => holding.cashCurrency !== null && holding.balance.status === "ready")) {
     if (quoteCurrency && quoteCurrency !== "USD") keys.add(`${FX_PREFIX}${quoteCurrency}`);
     for (const holding of holdings) {
       if (holding.cashCurrency && holding.cashCurrency !== "USD") keys.add(`${FX_PREFIX}${holding.cashCurrency}`);
@@ -399,7 +399,7 @@ function priceHolding(holding: ReadHolding, quoteCurrency: FiatCurrencyCode | nu
   const value: HoldingValue = valuation.fraction
     ? { status: "priced", currency: quoteCurrency, amount: roundFractionPreservingPositive(valuation.fraction), asOf: valuation.asOf, ...(valuation.reference ? { reference: valuation.reference } : {}) }
     : { status: "unpriced", reason: valuation.reason };
-  const unitValue = value.status === "priced" && holding.balance.baseUnits !== "0"
+  const unitValue = value.status === "priced" && (holding.balance.baseUnits !== "0" || holding.cashCurrency !== null)
     ? priceUnit(holding, quoteCurrency, prices, rates, stock?.reference)
     : undefined;
   return { ...base, value, ...(unitValue ? { unitValue } : {}), ...(holding.cashCurrency ? { cashValue: priceCash(holding, prices, rates) } : {}) };
@@ -416,9 +416,10 @@ function priceUnit(holding: ReadHolding, currency: FiatCurrencyCode, prices: rea
     const ratio = divideFractions(exactDecimalToFraction(fx.quoteUnitsPerUsd!), exactDecimalToFraction(native.assetUnitsPerUsd));
     amount = normalizeUnitDecimal({ atoms: (ratio.numerator * BigInt(10) ** BigInt(18) / ratio.denominator).toString(), scale: 18 });
   } else {
+    const price = prices.find(({ assetKey }) => assetKey === holding.key);
     const unitPrice = stockReference?.status === "open" || stockReference?.status === "closed"
       ? stockReference.price
-      : prices.find(({ assetKey }) => assetKey === holding.key)?.unitPrice;
+      : price?.status === "fresh" && price.unitPrice ? price.unitPrice : null;
     if (!unitPrice) return undefined;
     amount = normalizeUnitDecimal({
       atoms: (BigInt(unitPrice.atoms) * BigInt(fx.quoteUnitsPerUsd!.atoms)).toString(),

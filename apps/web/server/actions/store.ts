@@ -16,6 +16,7 @@ import {
   type MoneyActionOwner,
 } from "@/shared/money-actions/types";
 import type { CashoutProgressState } from "@/shared/funding/contracts/cash-out-progress";
+import { RECENT_ACTIONS_LIMIT } from "@/shared/actions/contracts/list";
 import type { AccountProvider } from "@/shared/account/session-types";
 import type { CoinbaseSmartWalletTypedData, Address, Hex } from "@/shared/trading/server-types";
 import type { TradeSigningRequest } from "@/shared/trading/contract";
@@ -92,6 +93,7 @@ export type CashoutOrderRow = {
   eta_seconds: number | null;
   created_at: string | Date;
   updated_at: string | Date;
+  provider_updated_at?: string | Date | null;
   refreshed_at: string | Date | null;
   settled_at: string | Date | null;
 };
@@ -351,13 +353,13 @@ export class ActionsStore {
         await tx.query(
           `UPDATE cashout_orders SET deposit_id = NULL, deposit_proven = false, state = 'submitted',
              filled_atomic = '0', returned_atomic = '0', remaining_atomic = amount_atomic,
-             withdrawable = false, settled_at = NULL, updated_at = now()
+             withdrawable = false, settled_at = NULL, provider_updated_at = NULL, updated_at = now()
            WHERE action_id = $1 AND owner_key = $2 AND provider_id = $3 AND lower(deposit_id) = lower($4) AND deposit_proven = false`,
           [linked.action_id, key, record.provider_id, depositId],
         );
       }
       const result = await tx.query<CashoutOrderRow>(
-        `UPDATE cashout_orders SET deposit_id = $3, deposit_proven = $4, updated_at = now()
+        `UPDATE cashout_orders SET deposit_id = $3, deposit_proven = $4, provider_updated_at = NULL, updated_at = now()
          WHERE owner_key = $1 AND action_id = $2 AND settled_at IS NULL AND deposit_id IS NULL RETURNING *`,
         [key, actionId, depositId, proven],
       );
@@ -372,13 +374,23 @@ export class ActionsStore {
     remainingAtomic: string;
     withdrawable: boolean;
     settled: boolean;
-  }): Promise<CashoutOrderRow | null> {
+  }, observedAt: string | null, expectedProviderUpdatedAt: string | null = null, expectedDepositId: string | null = null, expectedUpdatedAt: string | null = null): Promise<CashoutOrderRow | null> {
     const result = await this.sql.query<CashoutOrderRow>(
       `UPDATE cashout_orders SET state = $3, filled_atomic = $4, returned_atomic = $5,
-         remaining_atomic = $6, withdrawable = $7, settled_at = CASE WHEN $8 THEN now() ELSE NULL END, updated_at = now()
-       WHERE owner_key = $1 AND action_id = $2 AND settled_at IS NULL RETURNING *`,
+         remaining_atomic = $6, withdrawable = $7, settled_at = CASE WHEN $8 THEN now() ELSE NULL END,
+         provider_updated_at = COALESCE($9::timestamptz, provider_updated_at), updated_at = now()
+       WHERE owner_key = $1 AND action_id = $2 AND settled_at IS NULL
+         AND deposit_id IS NOT DISTINCT FROM $11::text
+         AND (CASE WHEN $9::timestamptz IS NULL
+           THEN provider_updated_at IS NOT DISTINCT FROM $10::timestamptz
+             AND date_trunc('milliseconds', updated_at) IS NOT DISTINCT FROM date_trunc('milliseconds', $12::timestamptz)
+           ELSE (provider_updated_at IS NULL OR provider_updated_at < $9::timestamptz
+             OR (provider_updated_at = $9::timestamptz AND filled_atomic::numeric <= $4::numeric
+               AND returned_atomic::numeric <= $5::numeric AND remaining_atomic::numeric >= $6::numeric))
+             AND ($11::text IS NOT NULL OR $12::timestamptz IS NULL OR date_trunc('milliseconds', updated_at) IS NOT DISTINCT FROM date_trunc('milliseconds', $12::timestamptz))
+         END) RETURNING *`,
       [actionOwnerKey(owner), actionId, update.state, update.filledAtomic, update.returnedAtomic,
-        update.remainingAtomic, update.withdrawable, update.settled],
+        update.remainingAtomic, update.withdrawable, update.settled, observedAt, expectedProviderUpdatedAt, expectedDepositId, expectedUpdatedAt],
     );
     return result.rows[0] ?? null;
   }
@@ -566,7 +578,7 @@ export class ActionsStore {
            AND EXISTS (SELECT 1 FROM cashout_orders
              WHERE owner_key = $1 AND settled_at IS NULL AND deposit_id IS NOT NULL
                AND LOWER(deposit_id) = LOWER(actions.summary->'metadata'->>'depositId')))) DESC NULLS LAST,
-           confirmed_at DESC LIMIT 100
+           confirmed_at DESC LIMIT ${RECENT_ACTIONS_LIMIT}
        ) ranked ORDER BY confirmed_at DESC`,
       [key],
       { timeoutMs: 5_000 },
