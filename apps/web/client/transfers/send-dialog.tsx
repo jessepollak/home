@@ -155,16 +155,34 @@ export function SendDialog({
   const quoteExpired = cashout?.operation === "deposit" && action !== null && (cashoutExpiry.expired || serverExpiredId === action.id);
   const selectedStillAvailable = !assetId || availableAssets?.some((asset) => asset.id === assetId) !== false;
   const activeAssetId = assetId && selectedStillAvailable ? assetId : availableAssets?.[0]?.id ?? null;
+  function invalidatePrepare() {
+    prepareTokenRef.current += 1;
+    setPreparing(false);
+  }
   function changeAmount(value: string) {
+    invalidatePrepare();
     setAmount(value);
   }
+  function editAmount(value: string) {
+    if (!preparing) changeAmount(value);
+  }
   function changeRecipient(value: string) {
+    if (value === recipient) return;
+    invalidatePrepare();
     setRecipient(value);
+  }
+  function changePayoutHandle(value: string) {
+    invalidatePrepare();
+    setPayoutHandle(value);
+  }
+  function chooseCashout(binding: FundingOfframpBinding) {
+    invalidatePrepare();
+    setSelectedOfframp(binding); setStep("payout");
   }
 
   if (assetId && !selectedStillAvailable) {
     setAssetId(activeAssetId);
-    if (amount !== "") changeAmount("");
+    if (amount !== "") setAmount("");
   }
   const trimmedRecipient = recipient.trim();
   const typedAddress = isTransferRecipient(trimmedRecipient) ? normalizeTransferRecipient(trimmedRecipient) : null;
@@ -385,7 +403,6 @@ export function SendDialog({
       const canonicalHandle = canonicalizeCashPayee(selectedPlatform.platform, payoutHandle);
       if (!canonicalHandle) throw new Error("invalid");
       const amountBaseUnits = parseTransferAmount(amount.replace(/\.$/, ""), selectedAsset.decimals);
-      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
       setPreparing(true); setError(null); setQuoteNotice(null);
       const next = await prepareCashoutReview({
         providerId: selectedOfframp.providerId, providerName: selectedOfframp.displayName, assetId: selectedOfframp.assetId,
@@ -491,7 +508,8 @@ export function SendDialog({
     assetLabel: selectedAsset?.symbol,
     assetCurrency: selectedAsset?.cashCurrency,
     assetOptions,
-    onAssetChange: (next: string) => { setAssetId(next); changeAmount(""); },
+    onAssetChange: (next: string) => { if (preparing) return; setAssetId(next); changeAmount(""); },
+    locked: preparing,
   };
   return (
     <MoneyModal open={open} labelledBy="send-title" immediate={immediate} pending={busy} onCancel={() => { prepareTokenRef.current += 1; onClose(); }} onClose={() => { reset(); (onClosed ?? onClose)(); }}>
@@ -506,7 +524,7 @@ export function SendDialog({
       />
       {step !== "result" ? <MoneyModalBody hasFooter={["amount", "destination", "handle", "confirm", "error"].includes(step)} className="gap-4 pt-4">
         {step === "amount" ? <>
-          <MoneyAmountDisplay amount={amount} maxDecimals={selectedAsset?.decimals ?? 6} onAmountChange={changeAmount} overAvailable={overAvailable} onSubmit={canContinueAmount ? continueFromAmount : undefined} availableLabel={selectedAvailability ? `${selectedAvailability.balanceLabel} available` : undefined} availableAmount={sendCeiling} assetId={activeAssetId ?? undefined} assetLabel={selectedAsset?.symbol} assetControl="header" chipSet={unit.kind === "fiat" || unit.kind === "convertible" ? "quick-local" : "none"} unit={unit} nativeSymbol={selectedAsset?.symbol ?? ""}>
+          <MoneyAmountDisplay amount={amount} maxDecimals={selectedAsset?.decimals ?? 6} onAmountChange={editAmount} disabled={preparing} overAvailable={overAvailable} onSubmit={canContinueAmount ? continueFromAmount : undefined} availableLabel={selectedAvailability ? `${selectedAvailability.balanceLabel} available` : undefined} availableAmount={sendCeiling} assetId={activeAssetId ?? undefined} assetLabel={selectedAsset?.symbol} assetControl="header" chipSet={unit.kind === "fiat" || unit.kind === "convertible" ? "quick-local" : "none"} unit={unit} nativeSymbol={selectedAsset?.symbol ?? ""}>
             {selectedAsset?.symbol.toUpperCase() === "USDC" && reserveFailed ? (
               <StatusMessage tone="error" role="alert">
                 Couldn&apos;t check the network fee. <Button variant="ghost" size="sm" onClick={retryReserve}>Retry</Button>
@@ -521,6 +539,7 @@ export function SendDialog({
             label="To"
             value={recipient}
             onChange={changeRecipient}
+            disabled={preparing}
             aria-describedby={resolvedRecipient || resolving || unresolved || recipientHint ? "send-recipient-status" : undefined}
           />
           <div id="send-recipient-status" className="grid gap-2">
@@ -531,11 +550,11 @@ export function SendDialog({
           </div>
           <FieldSeparator>Or</FieldSeparator>
           <div className="grid gap-1">
-            {recentRecipients.length > 0 ? <RecentRecipients recipients={recentRecipients} onSelect={changeRecipient} /> : null}
-            {eligibleOfframps.length > 0 ? <CashoutItem binding={eligibleOfframps[0]!} onSelect={() => { setSelectedOfframp(eligibleOfframps[0]!); setStep("payout"); }} /> : null}
+            {recentRecipients.length > 0 ? <RecentRecipients recipients={recentRecipients} disabled={preparing} onSelect={changeRecipient} /> : null}
+            {eligibleOfframps.length > 0 ? <CashoutItem binding={eligibleOfframps[0]!} disabled={preparing} onSelect={() => chooseCashout(eligibleOfframps[0]!)} /> : null}
             {providersLoaded && offramps === null ? <>
               <StatusMessage>Cash out is unavailable right now.</StatusMessage>
-              <Button variant="ghost" size="sm" onClick={() => setProviderRetry((count) => count + 1)}>Try again</Button>
+              <Button variant="ghost" size="sm" disabled={preparing} onClick={() => setProviderRetry((count) => count + 1)}>Try again</Button>
             </> : null}
             {providersLoaded && offramps?.length === 0 ? <StatusMessage>Cash out isn&apos;t available in {presentationRegions[regionId].countryName} yet.</StatusMessage> : null}
           </div>
@@ -551,7 +570,8 @@ export function SendDialog({
             className="h-11"
             variant="touch"
             value={payoutHandle}
-            onInput={(event) => setPayoutHandle(event.currentTarget.value)}
+            readOnly={preparing}
+            onInput={(event) => changePayoutHandle(event.currentTarget.value)}
             placeholder={selectedPlatform.handleHint}
             autoComplete="off"
             autoCapitalize="none"
@@ -616,12 +636,12 @@ function SendResult({ action, submission, amount, provider, submittedAt, fetchAc
   </>;
 }
 
-function RecentRecipients({ recipients, onSelect }: { recipients: ReadonlyArray<RecentTransferRecipient>; onSelect: (address: `0x${string}`) => void }) {
+function RecentRecipients({ recipients, disabled, onSelect }: { recipients: ReadonlyArray<RecentTransferRecipient>; disabled: boolean; onSelect: (address: `0x${string}`) => void }) {
   return <div role="group" aria-labelledby="send-recent-recipients-label" className="grid gap-1">
     <p id="send-recent-recipients-label" className="px-1 text-sm text-muted-foreground">Recent recipients</p>
     {recipients.map((recipient) => <Item
       key={recipient.address}
-      render={<Button variant="ghost" press="none" />}
+      render={<Button variant="ghost" press="none" disabled={disabled} />}
       className="flex-nowrap items-center text-left"
       onClick={() => onSelect(recipient.address)}
     >
@@ -634,11 +654,11 @@ function RecentRecipients({ recipients, onSelect }: { recipients: ReadonlyArray<
   </div>;
 }
 
-function CashoutItem({ binding, onSelect }: { binding: FundingOfframpBinding; onSelect: () => void }) {
+function CashoutItem({ binding, disabled, onSelect }: { binding: FundingOfframpBinding; disabled: boolean; onSelect: () => void }) {
   const labels = binding.paymentMethods.map((method) => method.label);
   const destination = labels.length === 1 ? labels[0] : `${labels.slice(0, -1).join(", ")} or ${labels.at(-1)}`;
   return <Item
-    render={<Button variant="ghost" press="none" />}
+    render={<Button variant="ghost" press="none" disabled={disabled} />}
     className="flex-nowrap items-center text-left"
     onClick={onSelect}
   >

@@ -1133,3 +1133,109 @@ describe("SendDialog resume", () => {
     }
   });
 });
+
+describe("SendDialog in-flight prepare", () => {
+  const OTHER = "0x3333333333333333333333333333333333333333" as const;
+  const usdcBalance = [{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }];
+
+  test("locks the destination while the send review prepares and drops a response for an edited recipient", async () => {
+    const pending: Array<(action: PreparedMoneyAction) => void> = [];
+    const recipients: string[] = [];
+    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-send-fence" regionId="US" availableAssets={usdcBalance}
+      fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse
+        : url.startsWith("/api/funding/providers") ? offrampResponse
+        : url === "/api/transfers/recent-recipients" ? { version: 1, recipients: [{ address: OTHER }] } : { version: 1, recipients: [] }}
+      prepareMoneyAction={(_kind, request) => {
+        recipients.push((request as { recipient: string }).recipient);
+        return new Promise((resolve) => { pending.push(resolve); });
+      }}
+      resumeMoneyAction={async () => resumedAction()}
+      executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />);
+
+    fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.change(page().getByRole("textbox", { name: "To" }), { target: { value: RECIPIENT } });
+    const recent = await page().findByRole("button", { name: formatAddress(OTHER) });
+    const cashOut = await page().findByRole("button", { name: /Send to Cash App/ });
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+
+    await waitFor(() => expect(page().getByRole("button", { name: "Continue" }).getAttribute("aria-busy")).toBe("true"));
+    expect((page().getByRole("textbox", { name: "To" }) as HTMLInputElement).disabled).toBe(true);
+    expect((page().getByRole("button", { name: "Paste address" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((recent as HTMLButtonElement).disabled).toBe(true);
+    expect((cashOut as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.change(page().getByRole("textbox", { name: "To" }), { target: { value: OTHER } });
+    await act(async () => { pending[0]!(resumedAction()); });
+
+    expect(page().queryByRole("dialog", { name: "Confirm" })).toBeNull();
+    expect(page().queryByRole("button", { name: "Send $1.00" })).toBeNull();
+    expect(page().getByRole("button", { name: "Continue" }).getAttribute("aria-busy")).toBeNull();
+    expect((page().getByRole("textbox", { name: "To" }) as HTMLInputElement).disabled).toBe(false);
+
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    await act(async () => { pending[1]!({ ...resumedAction(), calls: [{ to: TOKEN, data: encodeUsdcTransfer(OTHER, BigInt(1_000_000)), value: "0" }] }); });
+    const review = await page().findByRole("dialog", { name: "Confirm" });
+    expect(review.textContent).toContain(formatAddress(OTHER));
+    expect(review.textContent).not.toContain(formatAddress(RECIPIENT));
+    expect(recipients).toEqual([RECIPIENT, OTHER]);
+  });
+
+  test("keeps focus on the read-only payout handle and drops a response for an edited handle", async () => {
+    const pending: Array<(action: PreparedMoneyAction) => void> = [];
+    const handles: string[] = [];
+    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-handle-fence" regionId="US" availableAssets={usdcBalance}
+      fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers") ? offrampResponse : { version: 1, recipients: [] }}
+      prepareMoneyAction={(_kind, request) => {
+        handles.push((request as { payoutHandle: string }).payoutHandle);
+        return new Promise((resolve) => { pending.push(resolve); });
+      }}
+      resumeMoneyAction={async () => cashoutAction()}
+      executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />);
+
+    fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.click(await page().findByRole("button", { name: /Send to Cash App/ }));
+    fireEvent.click(page().getByRole("button", { name: "Cash App" }));
+    const handle = page().getByRole("textbox", { name: "Cash App cashtag" }) as HTMLInputElement;
+    fireEvent.input(handle, { target: { value: "$alice" } });
+    act(() => { handle.focus(); });
+    fireEvent.keyDown(handle, { key: "Enter" });
+
+    await waitFor(() => expect(page().getByRole("button", { name: "Review" }).getAttribute("aria-busy")).toBe("true"));
+    expect(handle.readOnly).toBe(true);
+    expect(document.activeElement).toBe(handle);
+
+    fireEvent.input(handle, { target: { value: "$bob" } });
+    await act(async () => { pending[0]!(cashoutAction()); });
+
+    expect(page().queryByRole("dialog", { name: "Confirm" })).toBeNull();
+    expect(handle.value).toBe("$bob");
+    expect(handle.readOnly).toBe(false);
+    expect(page().getByRole("button", { name: "Review" }).getAttribute("aria-busy")).toBeNull();
+    expect(handles).toEqual(["$alice"]);
+  });
+
+  test("locks the amount step while a routed review resumes", async () => {
+    let release!: (action: PreparedMoneyAction) => void;
+    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-resume-lock" resumeActionId={ACTION_ID}
+      availableAssets={[...usdcBalance, { ...getTransferAsset("cbbtc")!, balanceBaseUnits: "1000000", balanceLabel: "0.01 cbBTC" }]}
+      prepareMoneyAction={async () => resumedAction()}
+      resumeMoneyAction={() => new Promise((resolve) => { release = resolve; })}
+      executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />);
+
+    await waitFor(() => expect(page().getByRole("button", { name: "Continue" }).getAttribute("aria-busy")).toBe("true"));
+    const amount = page().getByRole("textbox", { name: "Amount" }) as HTMLInputElement;
+    expect(amount.disabled).toBe(true);
+    expect(page().queryByRole("combobox")).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "Max" }));
+    expect(amount.value).toBe("");
+    expect(page().getByRole("button", { name: "Continue" }).getAttribute("aria-busy")).toBe("true");
+
+    await act(async () => { release(resumedAction()); });
+    expect(await page().findByRole("button", { name: "Send $1.00" })).toBeTruthy();
+    expect(page().getByRole("dialog", { name: "Confirm" })).toBeTruthy();
+  });
+});
