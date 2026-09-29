@@ -8,7 +8,7 @@ import { readOperatorPageDecision } from "@/server/operator/page";
 import { readInvestSettingsEntry } from "@/server/operator-settings/invest";
 import { readRegionSettingsForPage } from "@/server/operator-settings/regions";
 import { OperatorSettingsStore } from "@/server/operator-settings/store";
-import { parseOperatorFeeSettings } from "@/shared/fees/contract";
+import { parseOperatorFeeSettings } from "@/shared/fees/operator-fee";
 import type { SettingsEntry } from "@/shared/operator-settings/contract";
 import type { InvestSettings } from "@/shared/operator-settings/invest";
 import { parseRegionSettings, type RegionSettings } from "@/shared/operator-settings/regions";

@@ -1,6 +1,6 @@
 import { hashTypedData } from "viem";
 import { BASE_USDC_ADDRESS } from "@/shared/money-actions/network-fee";
-import { operatorFeeAmount, parseOperatorFeeRecord } from "@/shared/fees/contract";
+import { operatorFeeAmount, parseOperatorFeeRecord } from "@/shared/fees/operator-fee";
 import { atomicToDecimal } from "@/shared/formatting/atomic";
 import { formatPresentationPrice } from "@/shared/formatting";
 import { formatDecimalAmount } from "@/shared/formatting/money";

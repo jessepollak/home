@@ -7,7 +7,7 @@ import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { BASE_USDC_PAYMASTER_ADDRESS } from "@/shared/money-actions/network-fee";
 import { TransferExecutionError } from "@/shared/transfers/types";
-import { OPERATOR_FEE_TOKEN } from "@/shared/fees/contract";
+import { OPERATOR_FEE_TOKEN } from "@/shared/fees/operator-fee";
 import type { TradeActionParams, TradeDirection, TradeMoneyActionMetadata, TradeToken } from "@/shared/trading/contract";
 
 const { cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");

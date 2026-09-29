@@ -1,7 +1,7 @@
 import { readJson } from "@/tests/helpers/read-json";
 import { describe, expect, test } from "bun:test";
 import { BASE_CHAIN_ID, type VerifiedAccountSession } from "@/shared/account/session-types";
-import { parseOperatorFeeSettings } from "@/shared/fees/contract";
+import { parseOperatorFeeSettings } from "@/shared/fees/operator-fee";
 import { parseAllSettingsResponse, parseAuditListResponse, parseOperatorSettingsErrorResponse, parsePutSettingsRequest, parseSettingsResponse, parseSupportSettings, OPERATOR_SETTINGS_DOMAINS } from "@/shared/operator-settings/contract";
 import { createAuditListHandler, createSettingsDomainHandlers, createSettingsListHandler } from "./handlers";
 import { AdminAuditLog } from "./audit";

@@ -1,4 +1,4 @@
-import { OPERATOR_FEE_SETTINGS_DEFAULTS, parseOperatorFeeSettings } from "@/shared/fees/contract";
+import { OPERATOR_FEE_SETTINGS_DEFAULTS, parseOperatorFeeSettings } from "@/shared/fees/operator-fee";
 import { BRAND_DEFAULTS, BRAND_SETTINGS_DOMAIN, OPERATOR_BRANDING_SCHEMA_VERSION, parseBrandSettings } from "@/shared/operator-branding/contract";
 import { OPERATOR_SETTINGS_CONTRACT_VERSION, parseSettingsResponse } from "./envelope";
 import { INVEST_SETTINGS_DEFAULTS, parseInvestSettings, parseInvestSettingsWrite } from "./invest";

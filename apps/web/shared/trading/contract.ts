@@ -1,4 +1,4 @@
-import type { OperatorFeeRecord } from "@/shared/fees/contract";
+import type { OperatorFeeRecord } from "@/shared/fees/operator-fee";
 import type { Address, CoinbaseSmartWalletTypedData, Permit2TypedData } from "./server-types";
 
 export const TRADE_ACTION_CONTRACT_VERSION = 3 as const;

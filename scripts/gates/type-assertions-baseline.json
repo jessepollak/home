@@ -843,7 +843,7 @@
     "apps/web/shared/chain/hex.ts": {
       "assertion": 2
     },
-    "apps/web/shared/fees/contract.ts": {
+    "apps/web/shared/fees/operator-fee.ts": {
       "assertion": 2
     },
     "apps/web/shared/formatting/money.ts": {

@@ -1,4 +1,4 @@
-import type { OperatorFeeActionType, OperatorFeeCollection } from "./contract";
+import type { OperatorFeeActionType, OperatorFeeCollection } from "./operator-fee";
 
 export type OperatorFeeResult = "succeeded" | "reverted" | "not_submitted" | "unresolved";
 

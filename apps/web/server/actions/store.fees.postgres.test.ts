@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 import { randomUUID } from "node:crypto";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
 import { readMigrationSql } from "@/tests/helpers/migrations";
-import { OPERATOR_FEE_TOKEN } from "@/shared/fees/contract";
+import { OPERATOR_FEE_TOKEN } from "@/shared/fees/operator-fee";
 import { ActionsStore } from "./store";
 import { readOperatorRevenue } from "@/server/fees/revenue";
 

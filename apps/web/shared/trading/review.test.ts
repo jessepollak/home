@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { parsePendingActionResponse } from "@/shared/actions/contracts/get";
 import { parseRecentMoneyActions } from "@/shared/actions/contracts/list";
 import { BASE_USDC_ADDRESS } from "@/shared/money-actions/network-fee";
-import { OPERATOR_FEE_TOKEN } from "@/shared/fees/contract";
+import { OPERATOR_FEE_TOKEN } from "@/shared/fees/operator-fee";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { parseTradeMetadata, parseTradeSigning, tradeRateLabel } from "./review";
 import type { Address } from "./server-types";

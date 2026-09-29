@@ -31,7 +31,7 @@ import {
 } from "@/shared/trading/contract";
 import { tradeCustomerAmounts, type TradeCustomerAmounts } from "@/shared/trading/fee-amounts";
 import { tradeRateLabel } from "@/shared/trading/review";
-import { operatorFeeAmount, parseOperatorFeeRecord } from "@/shared/fees/contract";
+import { operatorFeeAmount, parseOperatorFeeRecord } from "@/shared/fees/operator-fee";
 import { SERVICE_FEE_LABEL, serviceFeeValue } from "./service-fee";
 
 type Props = {

@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { condensedTransactionHash, transactionExplorerLink } from "@/components/transaction-explorer";
-import type { OperatorFeeActionType } from "@/shared/fees/contract";
+import type { OperatorFeeActionType } from "@/shared/fees/operator-fee";
 import type { OperatorFeeResult, OperatorRevenueDay, OperatorRevenueSummary } from "@/shared/fees/revenue";
 import { formatPresentationDate, formatUsdStablecoinAmount } from "@/shared/formatting";
 import { formatBasisPoints } from "@/shared/formatting/money";

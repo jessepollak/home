@@ -1,7 +1,7 @@
 import "server-only";
 
 import { encodeFunctionData, erc20Abi } from "viem";
-import { OPERATOR_FEE_TOKEN, operatorFeeAmount, type OperatorFeePolicy, type OperatorFeeRecord } from "@/shared/fees/contract";
+import { OPERATOR_FEE_TOKEN, operatorFeeAmount, type OperatorFeePolicy, type OperatorFeeRecord } from "@/shared/fees/operator-fee";
 import type { MoneyActionCall } from "@/shared/money-actions/types";
 import type { TradeDirection } from "@/shared/trading/contract";
 import { TradePreparationError } from "@/server/actions/kinds/trade/permit2";

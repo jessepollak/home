@@ -1,4 +1,4 @@
-import type { OperatorFeeRecord } from "@/shared/fees/contract";
+import type { OperatorFeeRecord } from "@/shared/fees/operator-fee";
 import { formatUsdStablecoinAmount } from "@/shared/formatting";
 import type { RegionId } from "@/config/regions";
 

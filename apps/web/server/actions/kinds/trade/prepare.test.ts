@@ -19,7 +19,7 @@ import { createPrepareActionHandler } from "@/server/actions/prepare";
 import { swapTokens, type SwapReviewRequest } from "./quote";
 import { createTradeFeeStrategy, type TradeFeeStrategy } from "@/server/fees/strategy";
 import { feePolicyForTaker } from "@/server/fees/policy";
-import type { OperatorFeePolicy } from "@/shared/fees/contract";
+import type { OperatorFeePolicy } from "@/shared/fees/operator-fee";
 import { tradeCustomerAmounts } from "@/shared/trading/fee-amounts";
 
 const inBatchTransferStrategy = createTradeFeeStrategy("in-batch-transfer");

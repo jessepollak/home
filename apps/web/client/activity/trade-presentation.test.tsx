@@ -5,7 +5,7 @@ import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list
 import type { TradeDirection } from "@/shared/trading/contract";
 import type { UseActivityResult } from "./use-activity";
 import { tradePrepareFixture } from "@/tests/browser/feature-map/fixtures";
-import { OPERATOR_FEE_TOKEN } from "@/shared/fees/contract";
+import { OPERATOR_FEE_TOKEN } from "@/shared/fees/operator-fee";
 
 const { cleanup, fireEvent, render, within } = await import("@testing-library/react");
 const { ActivityPanelView } = await import("./activity-panel");

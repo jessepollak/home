@@ -14,7 +14,7 @@ import {
   parseRevenueDestination,
   revenueDestinationChecksum,
   type OperatorFeeSettings,
-} from "@/shared/fees/contract";
+} from "@/shared/fees/operator-fee";
 import { DeploymentExpiredError, deploymentHeaders, throwIfDeploymentExpired } from "@/client/query/deployment-headers";
 import { formatAddress, formatPresentationDate } from "@/shared/formatting";
 import { formatBasisPoints } from "@/shared/formatting/money";

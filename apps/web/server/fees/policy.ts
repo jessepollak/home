@@ -1,6 +1,6 @@
 import "server-only";
 
-import { OPERATOR_FEE_SETTINGS_DEFAULTS, parseOperatorFeeSettings, type OperatorFeeActionType, type OperatorFeePolicy } from "@/shared/fees/contract";
+import { OPERATOR_FEE_SETTINGS_DEFAULTS, parseOperatorFeeSettings, type OperatorFeeActionType, type OperatorFeePolicy } from "@/shared/fees/operator-fee";
 import { getSqlExecutor } from "@/server/db/sql";
 import { OperatorSettingsStore } from "@/server/operator-settings/store";
 import { TradePreparationError } from "@/server/actions/kinds/trade/permit2";

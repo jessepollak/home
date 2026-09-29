@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { getAddress } from "viem";
-import { operatorFeeAmount, parseOperatorFeeRecord, parseOperatorFeeSettings, parseRevenueDestination, OPERATOR_FEE_TOKEN } from "./contract";
+import { operatorFeeAmount, parseOperatorFeeRecord, parseOperatorFeeSettings, parseRevenueDestination, OPERATOR_FEE_TOKEN } from "./operator-fee";
 
 const recipient = "0x1234567890123456789012345678901234567890" as const;
 

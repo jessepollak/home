@@ -4,7 +4,7 @@ import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { BASE_USDC_PAYMASTER_ADDRESS } from "@/shared/money-actions/network-fee";
-import { OPERATOR_FEE_TOKEN, operatorFeeAmount } from "@/shared/fees/contract";
+import { OPERATOR_FEE_TOKEN, operatorFeeAmount } from "@/shared/fees/operator-fee";
 import type { TradeActionParams, TradeDirection } from "@/shared/trading/contract";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { memeAssets } from "@/config/invest-assets";

@@ -19,7 +19,7 @@ import type { CashoutProgressState } from "@/shared/funding/contracts/cash-out-p
 import type { AccountProvider } from "@/shared/account/session-types";
 import type { CoinbaseSmartWalletTypedData, Address, Hex } from "@/shared/trading/server-types";
 import type { TradeSigningRequest } from "@/shared/trading/contract";
-import { parseOperatorFeeRecord } from "@/shared/fees/contract";
+import { parseOperatorFeeRecord } from "@/shared/fees/operator-fee";
 
 export type ActionSummary = {
   title: string;
