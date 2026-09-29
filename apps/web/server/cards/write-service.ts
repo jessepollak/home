@@ -35,7 +35,7 @@ async function lockedAccount(tx: SqlExecutor, customerId: string, mode: string) 
 export function createCardWriteService({ sql, config, bridge, stripe }: Dependencies) {
   const mode = config.mode;
   return {
-    async enroll(customerId: string): Promise<string> {
+    async enroll(customerId: string, redirectUri: string): Promise<string> {
       await sql.query("INSERT INTO card_accounts(customer_id,mode) VALUES ($1,$2) ON CONFLICT (customer_id,mode) DO NOTHING", [customerId, mode]);
       const bridgeId = await sql.transaction(async (tx) => {
         const account = await lockedAccount(tx, customerId, mode);
@@ -53,7 +53,7 @@ export function createCardWriteService({ sql, config, bridge, stripe }: Dependen
         );
         if (!updated.rowCount) throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
       }
-      return bridge.cardsKycLink(bridgeId);
+      return bridge.cardsKycLink(bridgeId, redirectUri);
     },
     async issue(customerId: string, session: VerifiedAccountSession): Promise<IssuedCard> {
       if (!session.smartAccount) throw new CardWriteFailure("CARD_NOT_READY", 409);

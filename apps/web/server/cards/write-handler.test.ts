@@ -13,14 +13,17 @@ describe("card POST route contracts and owner fence", () => {
   test("enrollment/issue/freeze responses parse the shared contract", async () => {
     const seen: string[] = [];
     const handlers = createCardWriteHandlers({ authorize: async () => session, customer: async () => ({ id: "owner-id" }),
-      service: () => ({ enroll: async (id) => { seen.push(id); return "https://bridge.withpersona.com/inquiry?inquiry-id=inq_test"; },
+      service: () => ({ enroll: async (id, redirectUri) => { seen.push(`${id}:${redirectUri}`); return "https://bridge.withpersona.com/inquiry?inquiry-id=inq_test"; },
         issue: async (id) => { seen.push(id); return { id: "ic_123", status: "active" as const }; }, freeze: async (id) => { seen.push(id); return "ic_123"; } }) });
     const enroll = await handlers.enrollment(request());
     expect(parseCardEnrollmentResponse(await enroll.json())?.kycUrl).toContain("bridge.withpersona.com");
     expect(enroll.headers.get("cache-control")).toContain("no-store");
     expect(parseCardWriteResponse(await (await handlers.issue(request())).json())?.card.status).toBe("active");
     expect(parseCardWriteResponse(await (await handlers.freeze(request(), "ic_123", true)).json())?.card.status).toBe("frozen");
-    expect(seen).toEqual(["owner-id", "owner-id", "owner-id"]);
+    expect(seen).toEqual(["owner-id:http://localhost/card?return=verification", "owner-id", "owner-id"]);
+    const forwarded = request({ "x-forwarded-host": "home.example", "x-forwarded-proto": "https" });
+    expect((await handlers.enrollment(forwarded)).status).toBe(200);
+    expect(seen.at(-1)).toBe("owner-id:https://home.example/card?return=verification");
   });
   test("no provider calls without auth, owner, same-origin JSON, or valid card ID", async () => {
     let writes = 0;

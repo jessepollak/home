@@ -8,7 +8,7 @@ import { cardsBody } from "@/tests/browser/fixtures/bodies";
 const { cleanup, renderHook, waitFor } = await import("@testing-library/react");
 const { CardRefreshError, useCards } = await import("./use-cards");
 
-afterEach(() => { cleanup(); onlineManager.setOnline(true); getHomeQueryClient().clear(); });
+afterEach(() => { cleanup(); onlineManager.setOnline(true); getHomeQueryClient().clear(); window.history.replaceState(null, "", "/"); });
 
 const frozenWrite = { version: 1, card: { id: "ic_fixture4821", status: "frozen" } };
 
@@ -28,6 +28,36 @@ describe("useCards", () => {
     await waitFor(() => expect(hook.result.current.query.data?.state).toBe("frozen"));
   });
 
+  test("a verification return refetches immediately despite fresh cached data and clears only the return marker", async () => {
+    window.history.replaceState({ keep: true }, "", "/card?return=verification&view=compact#details");
+    getHomeQueryClient().setQueryData(ownerQueryKey("owner-1", "cards"), cardsBody("verification-required"));
+    const { hook, calls } = setup(() => cardsBody("verification-pending"));
+    await waitFor(() => expect(hook.result.current.query.data?.state).toBe("verification-pending"));
+    expect(calls.filter((call) => call.path === "/api/cards")).toHaveLength(1);
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe("/card?view=compact#details");
+    expect(window.history.state).toEqual({ keep: true });
+  });
+  test("keeps the return marker until a verified owner is available", async () => {
+    window.history.replaceState(null, "", "/card?return=verification");
+    const calls: string[] = [];
+    const fetchAccountResource = jest.fn(async (path: string) => { calls.push(path); return cardsBody("verification-pending"); });
+    const hook = renderHook(({ ownerKey }: { ownerKey: string | null }) => useCards({ ownerKey, fetchAccountResource }),
+      { initialProps: { ownerKey: null as string | null } });
+    expect(window.location.search).toBe("?return=verification");
+    expect(calls).toHaveLength(0);
+    hook.rerender({ ownerKey: "owner-1" });
+    await waitFor(() => expect(hook.result.current.query.data?.state).toBe("verification-pending"));
+    expect(window.location.search).toBe("");
+    expect(calls).toEqual(["/api/cards"]);
+  });
+  test("ordinary card visits keep fresh cached data without forcing a return read", async () => {
+    window.history.replaceState(null, "", "/card?view=compact");
+    getHomeQueryClient().setQueryData(ownerQueryKey("owner-1", "cards"), cardsBody("verification-required"));
+    const { hook, calls } = setup(() => cardsBody("verification-pending"));
+    expect(hook.result.current.query.data?.state).toBe("verification-required");
+    expect(calls).toHaveLength(0);
+    expect(window.location.search).toBe("?view=compact");
+  });
   test("an invalid card state response is an error, not a state", async () => {
     const { hook } = setup(() => ({ version: 1, state: "active", cards: [{ id: "ic_1", status: "active", last4: "4242424242424242" }] }));
     await waitFor(() => expect(hook.result.current.query.isError).toBe(true));

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { browserHomeQueryClient, disabledQueryKey, ownerQueryKey, ownerQueryMeta, useHomeQuery, useHomeQueryClient } from "@/client/query/query-client";
 import {
@@ -51,6 +51,14 @@ export function useCards({ ownerKey, fetchAccountResource }: {
   });
 
   const refresh = useCallback(() => queryClient.invalidateQueries({ queryKey, exact: true }), [queryClient, queryKey]);
+  useEffect(() => {
+    if (!ownerKey) return;
+    const url = new URL(window.location.href);
+    if (url.pathname !== "/card" || url.searchParams.get("return") !== "verification") return;
+    url.searchParams.delete("return");
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+    void refresh();
+  }, [ownerKey, refresh]);
   const reread = useCallback(async (): Promise<CardsResponse> => {
     const before = queryClient.getQueryState(queryKey)?.dataUpdateCount ?? 0;
     await queryClient.refetchQueries({ queryKey, exact: true }, { throwOnError: true });

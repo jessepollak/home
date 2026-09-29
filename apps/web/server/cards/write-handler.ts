@@ -3,6 +3,7 @@ import "server-only";
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
 import { requestOrigin } from "@/server/auth/signed-cookie";
 import { resolveCustomer } from "@/server/customers/resolve";
+import { fundingRequestOrigin } from "@/server/funding/core/auth";
 import { getSqlExecutor } from "@/server/db/sql";
 import { CARDS_CONTRACT_VERSION, parseCardEnrollmentResponse, parseCardWriteResponse, parseCardWriteError, type CardWriteErrorCode } from "@/shared/cards/contract";
 import { privateJson, withPrivateHeaders } from "@/server/http/private-response";
@@ -53,7 +54,7 @@ export function createCardWriteHandlers(deps: {
     }
   }
   return {
-    enrollment: (request: Request) => respond(request, async (id) => ({ kycUrl: await deps.service().enroll(id) }), true),
+    enrollment: (request: Request) => respond(request, async (id) => ({ kycUrl: await deps.service().enroll(id, `${fundingRequestOrigin(request)}/card?return=verification`) }), true),
     issue: (request: Request) => respond(request, async (id, session) => ({ card: await deps.service().issue(id, session) })),
     freeze: (request: Request, id: string, freeze: boolean) => respond(request, async (customerId) => {
       if (!/^ic_[A-Za-z0-9]+$/.test(id)) throw new CardWriteFailure("CARD_NOT_FOUND", 404);

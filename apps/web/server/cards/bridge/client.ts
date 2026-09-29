@@ -67,9 +67,15 @@ export function createBridgeClient(config: CardJourneyConfig, fetcher: typeof fe
     async createCustomer(key: string): Promise<BridgeCustomer> {
       return parseBridgeCustomer(await request("/v0/customers", { body: JSON.stringify({ type: "individual", endorsements: ["cards"] }), key }));
     },
-    async cardsKycLink(id: string): Promise<string> {
+    async cardsKycLink(id: string, redirectUri: string): Promise<string> {
       if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(id)) throw new Error("Invalid Bridge customer ID");
-      const value = await request(`/v0/customers/${encodeURIComponent(id)}/kyc_link?endorsement=cards`);
+      let redirect: URL;
+      try { redirect = new URL(redirectUri); } catch { throw new Error("Invalid Bridge KYC return URL"); }
+      if (redirect.username || redirect.password || redirect.hash ||
+          (redirect.protocol !== "https:" && !(config.mode === "sandbox" && redirect.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(redirect.hostname))))
+        throw new Error("Invalid Bridge KYC return URL");
+      const params = new URLSearchParams({ endorsement: "cards", redirect_uri: redirectUri });
+      const value = await request(`/v0/customers/${encodeURIComponent(id)}/kyc_link?${params}`);
       if (typeof value !== "object" || !value || Array.isArray(value)) throw new Error("Invalid Bridge KYC link");
       const url = (value as Record<string, unknown>).url;
       if (typeof url !== "string") throw new Error("Invalid Bridge KYC link");
