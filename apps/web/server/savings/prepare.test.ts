@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import { decodeFunctionData } from "viem";
 import {
   bundler3Abi,
@@ -153,7 +153,7 @@ function vaultsResult(stale: boolean): MorphoVaultsResult {
   };
 }
 
-afterEach(() => setActionsStoreForTests(null));
+afterEach(() => { setActionsStoreForTests(null); setSystemTime(); });
 
 describe("Morpho savings action preparation", () => {
   test("prepares and simulates exact adapter approval then bounded deposit in one ordered action plan", async () => {
@@ -276,7 +276,7 @@ describe("Morpho savings action preparation", () => {
     candidate: Partial<MorphoVaultCandidate>;
   }>)("issues with fallback review metadata when discovery returns $description", async ({ candidate }) => {
     setActionsStoreForTests({ insert: async () => {} } as unknown as ActionsStore);
-    const preparedAt = new Date();
+    const preparedAt = new Date("2026-09-08T10:00:00.000Z");
     const result = vaultsResult(false);
     result.source.fetchedAt = preparedAt.toISOString();
     Object.assign(result.candidates[0]!, candidate, {
@@ -294,6 +294,7 @@ describe("Morpho savings action preparation", () => {
       session,
       action: { kind: "deposit", vaultAddress: VAULT, amountBaseUnits: "1500000" },
     });
+    setSystemTime(preparedAt);
     const issued = await issueMoneyAction(session, draft);
 
     expect(issued.metadata).toMatchObject({

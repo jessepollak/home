@@ -1,6 +1,6 @@
 import "@/client/account/dom-test-harness";
 
-import { afterEach, expect, setSystemTime, test } from "bun:test";
+import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import { buildBalancesSnapshotFixture } from "@/shared/balances/fixtures";
@@ -11,6 +11,8 @@ const { cleanup, renderHook, waitFor } = await import("@testing-library/react");
 const { usePendingCashoutEscrow } = await import("./pending-cashout");
 
 const snapshot = buildBalancesSnapshotFixture();
+const NOW = Date.parse("2026-09-15T12:00:00Z");
+
 const session: VerifiedAccountSession = { user: { subject: "subject-a" },
   smartAccount: { address: snapshot.owner.address, chainId: 8453 }, accountProvider: "cdp-embedded" };
 const action = {
@@ -24,6 +26,7 @@ const action = {
     settledAt: null, updatedAt: "2026-09-15T12:00:00Z" },
 };
 
+beforeEach(() => setSystemTime(NOW));
 afterEach(() => { cleanup(); getHomeQueryClient().clear(); setSystemTime(); });
 
 test("shares the owner actions cache but never applies it to another wallet snapshot", async () => {
@@ -63,11 +66,11 @@ test("an unavailable first actions read becomes unreadable instead of complete",
 
 test("a cached empty actions list reconciles once, then shows escrow without looping", async () => {
   const key = ownerQueryKey(dataOwnerKey(session), "actions");
-  getHomeQueryClient().setQueryData(key, { actions: [] }, { updatedAt: Date.now() - 500 });
+  getHomeQueryClient().setQueryData(key, { actions: [] }, { updatedAt: NOW - 500 });
   let resolve!: (value: unknown) => void;
   let calls = 0;
   const fetchOperations = () => { calls++; return new Promise<unknown>((done) => { resolve = done; }); };
-  const newer = { ...snapshot, fetchedAt: new Date(Date.now() - 100).toISOString() };
+  const newer = { ...snapshot, fetchedAt: new Date(NOW - 100).toISOString() };
   const hook = renderHook(({ currentSnapshot }) => usePendingCashoutEscrow(session, currentSnapshot, fetchOperations),
     { initialProps: { currentSnapshot: newer } });
   await waitFor(() => expect(calls).toBe(1));
@@ -82,12 +85,12 @@ test("a cached empty actions list reconciles once, then shows escrow without loo
 
 test("keeps waiting escrow during reconcile but removes it when the return is observed", async () => {
   const key = ownerQueryKey(dataOwnerKey(session), "actions");
-  getHomeQueryClient().setQueryData(key, { actions: [action] }, { updatedAt: Date.now() - 500 });
+  getHomeQueryClient().setQueryData(key, { actions: [action] }, { updatedAt: NOW - 500 });
   let resolve!: (value: unknown) => void;
   const fetchOperations = () => new Promise<unknown>((done) => { resolve = done; });
   const hook = renderHook(({ currentSnapshot }) => usePendingCashoutEscrow(session, currentSnapshot, fetchOperations),
     { initialProps: { currentSnapshot: snapshot } });
-  const newer = { ...snapshot, fetchedAt: new Date(Date.now() - 100).toISOString() };
+  const newer = { ...snapshot, fetchedAt: new Date(NOW - 100).toISOString() };
   hook.rerender({ currentSnapshot: newer });
   await waitFor(() => expect(resolve).toBeDefined());
   expect(hook.result.current).toEqual({ state: "escrow", baseUnits: "50000000", partial: false });
@@ -101,11 +104,11 @@ test("keeps waiting escrow during reconcile but removes it when the return is ob
 
 test("a failed reconcile marks the wallet-only total partial and does not retry for the same snapshot", async () => {
   const key = ownerQueryKey(dataOwnerKey(session), "actions");
-  getHomeQueryClient().setQueryData(key, { actions: [action] }, { updatedAt: Date.now() - 500 });
+  getHomeQueryClient().setQueryData(key, { actions: [action] }, { updatedAt: NOW - 500 });
   let reject!: (error: Error) => void;
   let calls = 0;
   const fetchOperations = () => { calls++; return new Promise<unknown>((_resolve, fail) => { reject = fail; }); };
-  const newer = { ...snapshot, fetchedAt: new Date(Date.now() - 100).toISOString() };
+  const newer = { ...snapshot, fetchedAt: new Date(NOW - 100).toISOString() };
   const hook = renderHook(({ currentSnapshot }) => usePendingCashoutEscrow(session, currentSnapshot, fetchOperations),
     { initialProps: { currentSnapshot: newer } });
   await waitFor(() => expect(calls).toBe(1));
@@ -127,7 +130,7 @@ test("a failed reconcile marks the wallet-only total partial and does not retry 
 test("a cancelled confirming read turns the estimate unreadable, then a later own read recovers", async () => {
   const client = getHomeQueryClient();
   const key = ownerQueryKey(dataOwnerKey(session), "actions");
-  client.setQueryData(key, { actions: [] }, { updatedAt: Date.now() });
+  client.setQueryData(key, { actions: [] }, { updatedAt: NOW });
   const reads: Array<{ resolve: (value: unknown) => void; signal?: AbortSignal }> = [];
   const hook = renderHook(() => usePendingCashoutEscrow(session, snapshot,
     (signal) => new Promise((resolve) => { reads.push({ resolve, signal }); })));
@@ -159,7 +162,7 @@ test("a capped actions read leaves the escrow unreadable instead of definite", a
 });
 test("a failed own read after the snapshot cannot trust the cached estimate", async () => {
   const key = ownerQueryKey(dataOwnerKey(session), "actions");
-  getHomeQueryClient().setQueryData(key, { actions: [action] }, { updatedAt: Date.now() - 30_000 });
+  getHomeQueryClient().setQueryData(key, { actions: [action] }, { updatedAt: NOW - 30_000 });
   let calls = 0;
   const fetchOperations = async () => { calls++; throw new Error("Actions unavailable"); };
   const hook = renderHook(() => usePendingCashoutEscrow(session, snapshot, fetchOperations));
@@ -177,9 +180,9 @@ test("a read already in flight across a snapshot advance is followed by one post
   const hook = renderHook(({ currentSnapshot }) => usePendingCashoutEscrow(session, currentSnapshot, fetchOperations),
     { initialProps: { currentSnapshot: snapshot } });
   await waitFor(() => expect(reads).toHaveLength(1));
-  const newer = { ...snapshot, fetchedAt: new Date(Date.now() + 100).toISOString() };
+  const newer = { ...snapshot, fetchedAt: new Date(NOW + 100).toISOString() };
   hook.rerender({ currentSnapshot: newer });
-  setSystemTime(new Date(Date.now() + 200));
+  setSystemTime(new Date(NOW + 200));
   reads[0]!.resolve({ actions: [] });
   await waitFor(() => expect(reads).toHaveLength(2));
   reads[1]!.resolve({ actions: [action] });
@@ -192,7 +195,7 @@ test("an external shared read finishing after the snapshot still requires this h
   const key = ownerQueryKey(dataOwnerKey(session), "actions");
   const client = getHomeQueryClient();
   client.setQueryData(key, { actions: [] });
-  const started = Date.now();
+  const started = NOW;
   let finishExternal!: (value: { actions: unknown[] }) => void;
   const external = client.fetchQuery({ queryKey: key, staleTime: 0, queryFn: () =>
     new Promise<{ actions: unknown[] }>((resolve) => { finishExternal = resolve; }) });
@@ -216,7 +219,7 @@ test("an external shared read finishing after the snapshot still requires this h
 test("a read for an earlier snapshot does not confirm a newer one", async () => {
   const key = ownerQueryKey(dataOwnerKey(session), "actions");
   getHomeQueryClient().setQueryData(key, { actions: [] });
-  const started = Date.now();
+  const started = NOW;
   const old = { ...snapshot, fetchedAt: new Date(started - 100).toISOString() };
   const reads: Array<(value: unknown) => void> = [];
   const hook = renderHook(({ currentSnapshot }) => usePendingCashoutEscrow(session, currentSnapshot, () =>
@@ -235,7 +238,7 @@ test("a read for an earlier snapshot does not confirm a newer one", async () => 
 });
 
 test("a fresh snapshot reconciles with its own read and does not repeat it", async () => {
-  const fresh = { ...snapshot, fetchedAt: new Date(Date.now() - 100).toISOString() };
+  const fresh = { ...snapshot, fetchedAt: new Date(NOW - 100).toISOString() };
   let calls = 0;
   const hook = renderHook(({ currentSnapshot }) => usePendingCashoutEscrow(session, currentSnapshot, async () => {
     calls++;
@@ -248,7 +251,7 @@ test("a fresh snapshot reconciles with its own read and does not repeat it", asy
 });
 
 test("the partial estimate stays stable when an unresolved order accompanies known escrow", async () => {
-  const fresh = { ...snapshot, fetchedAt: new Date(Date.now() - 100).toISOString() };
+  const fresh = { ...snapshot, fetchedAt: new Date(NOW - 100).toISOString() };
   let calls = 0;
   const hook = renderHook(({ currentSnapshot }) => usePendingCashoutEscrow(session, currentSnapshot, async () => {
     calls++;
@@ -264,7 +267,7 @@ test("the partial estimate stays stable when an unresolved order accompanies kno
 
 test("a new wallet snapshot consumes exactly one actions read and does not loop", async () => {
   const key = ownerQueryKey(dataOwnerKey(session), "actions");
-  getHomeQueryClient().setQueryData(key, { actions: [] }, { updatedAt: Date.now() - 500 });
+  getHomeQueryClient().setQueryData(key, { actions: [] }, { updatedAt: NOW - 500 });
   let calls = 0;
   const hook = renderHook(({ currentSnapshot }) => usePendingCashoutEscrow(session, currentSnapshot, async () => { calls++; return { actions: [] }; }),
     { initialProps: { currentSnapshot: snapshot } });
@@ -295,7 +298,7 @@ test("a background actions failure after its confirming read keeps the estimate"
 });
 
 test("an unconfirmed stored record leaves the total partial instead of adding escrow", async () => {
-  const fresh = { ...snapshot, fetchedAt: new Date(Date.now() - 100).toISOString() };
+  const fresh = { ...snapshot, fetchedAt: new Date(NOW - 100).toISOString() };
   const hook = renderHook(() => usePendingCashoutEscrow(session, fresh, async () => ({
     actions: [{ ...action, cashout: { ...action.cashout, progressConfirmed: false } }],
   })));
@@ -354,7 +357,7 @@ test("no session and no painted snapshot yields no estimate", () => {
 
 test("a provisional snapshot stays partial until the post-verification read establishes absence", async () => {
   const key = ownerQueryKey(dataOwnerKey(session), "actions");
-  getHomeQueryClient().setQueryData(key, { actions: [] }, { updatedAt: Date.now() - 500 });
+  getHomeQueryClient().setQueryData(key, { actions: [] }, { updatedAt: NOW - 500 });
   let resolve!: (value: unknown) => void;
   const fetchOperations = () => new Promise<unknown>((done) => { resolve = done; });
   const hook = renderHook(({ currentSession }) => usePendingCashoutEscrow(currentSession, snapshot, fetchOperations),

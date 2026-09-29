@@ -1,10 +1,12 @@
 import { generateKeyPairSync, sign } from "node:crypto";
-import { expect, spyOn, test } from "bun:test";
+import { expect, setSystemTime, spyOn, test } from "bun:test";
 import * as sqlModule from "@/server/db/sql";
 import * as storeModule from "@/server/cards/store";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 import type { CardObservation } from "@/server/cards/provider";
 import { POST } from "./route";
+
+const NOW = new Date("2026-09-28T12:00:00.000Z");
 
 function request(body: string, topic: string, headers?: Headers) {
   return new Request(`https://home.test/api/cards/webhooks/immersve/${topic}`, { method: "POST", body, headers });
@@ -113,9 +115,10 @@ test("enabled ingress returns 503 for retryable failures and 202 for deliberate 
     if (jwks === "malformed") return Response.json({ keys: "malformed" });
     return Response.json({ keys: [{ ...publicKey.export({ format: "jwk" }), kid: "first", alg: "RS256" }] });
   }) as unknown as typeof fetch);
+  setSystemTime(NOW);
   try {
     const envelope = {
-      messageId: "event-route", topic: "payment-updated", createdAt: new Date().toISOString(), deliveryAttempt: 1,
+      messageId: "event-route", topic: "payment-updated", createdAt: NOW.toISOString(), deliveryAttempt: 1,
       keyId: "first", issuer: "test.immersve.com",
       payload: { payment: { id: "payment-route", cardholder: { id: "owner-route" }, card: { id: "card-route" } } },
     };
@@ -160,6 +163,7 @@ test("enabled ingress returns 503 for retryable failures and 202 for deliberate 
     expect(logs.join(" ")).not.toContain("first");
     expect(logs.join(" ")).not.toContain("event-route");
   } finally {
+    setSystemTime();
     fetchStub.mockRestore();
     database.mockRestore();
     store.mockRestore();

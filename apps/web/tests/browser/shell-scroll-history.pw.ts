@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 import { sessionBody } from "./fixtures/bodies";
+import { FIXED_NOW } from "./fixtures/fixed-time";
 
 const mainSelector = "main[data-app-main-authenticated]";
 
@@ -20,7 +21,7 @@ async function setupLongActivity(page: Page) {
   });
   await seedSignedInSession(page);
   await installApiFixtures(page);
-  const now = Date.now() - 60_000;
+  const now = FIXED_NOW - 60_000;
   const actions = Array.from({ length: 260 }, (_, index) => {
     const createdAt = new Date(now - index * 60_000).toISOString();
     return {

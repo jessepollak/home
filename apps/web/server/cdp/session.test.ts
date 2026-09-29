@@ -1,6 +1,6 @@
 import { readJson } from "@/tests/helpers/read-json";
 import { createHash } from "node:crypto";
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import {
   ACCOUNT_PROVIDER_HEADER,
   type VerifiedAccountSession,
@@ -17,6 +17,9 @@ import {
 } from "./session";
 
 const requestUrl = "http://127.0.0.1:3103/api/session";
+const NOW = new Date("2026-09-28T12:00:00.000Z");
+beforeEach(() => setSystemTime(NOW));
+afterEach(() => setSystemTime());
 const smartAccountAddress = "0xabcdef0123456789abcdef0123456789abcdef01";
 const baseAddress = "0x1111111111111111111111111111111111111111" as const;
 const SECRET = "test-home-session-secret-value-at-least-32-bytes";
@@ -85,7 +88,7 @@ describe("GET /api/session handler", () => {
   test("verified CDP sign-in consumes the signed invite and clears its cookie", async () => {
     const original = process.env.HOME_SESSION_SECRET;
     process.env.HOME_SESSION_SECRET = SECRET;
-    const invite = issueInviteCookie(makeRequest(), "abcdefghjk", new Date(), SECRET)!;
+    const invite = issueInviteCookie(makeRequest(), "abcdefghjk", NOW, SECRET)!;
     let seen: string | null = null;
     const handler = makeHandler(async () => embeddedProfile(), undefined, {
       verifiedCookies: inviteVerifiedCookies,
@@ -420,7 +423,7 @@ function nativeSubject(address: string): string {
 }
 
 function nativeSessionCookie(): string {
-  const issuedAt = new Date();
+  const issuedAt = new Date(NOW);
   const payload = {
     version: 1,
     session: {

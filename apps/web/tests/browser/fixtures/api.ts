@@ -1,6 +1,7 @@
 import type { Page, Route } from "@playwright/test";
 import type { RegionId } from "../../../config/regions";
 import type { BalancesSnapshot } from "../../../shared/balances/types";
+import { FIXED_NOW, installFixedPageDate } from "./fixed-time";
 import { balancesSnapshot } from "./balances";
 import { COUNTRY_PREFERENCE_VERSION, parseCountryPreferenceRequest } from "../../../shared/account/contracts/country-preference";
 import {
@@ -18,11 +19,11 @@ const APPROVE = `0x095ea7b3${PAYMASTER.slice(2).toLowerCase().padStart(64, "0")}
 const ACTION_ID = "11111111-1111-4111-8111-111111111111";
 const USER_OPERATION_HASH = `0x${"ab".repeat(32)}`;
 const TRANSACTION_HASH = `0x${"cd".repeat(32)}`;
-const CREATED_AT = new Date().toISOString();
-const EXPIRES_AT = new Date(Date.now() + 10 * 60_000).toISOString();
+const CREATED_AT = new Date(FIXED_NOW).toISOString();
+const EXPIRES_AT = new Date(FIXED_NOW + 10 * 60_000).toISOString();
 
 function activityPageBody(windowEnd: string | null, currency: string) {
-  const to = windowEnd ?? new Date().toISOString();
+  const to = windowEnd ?? new Date(FIXED_NOW).toISOString();
   const toTime = new Date(to).getTime();
   const wallet = sessionBody.smartAccount.address.toLowerCase();
   return {
@@ -115,8 +116,10 @@ export function seedSignedInSession(page: Page, country = "US") {
 
 export async function installApiFixtures(
   page: Page,
-  options: { balances?: BalancesSnapshot; countryPreferenceRegion?: RegionId } = {},
+  options: { balances?: BalancesSnapshot; countryPreferenceRegion?: RegionId; clock?: "date" | "playwright" | "system" } = {},
 ) {
+  if (options.clock === "playwright") await page.clock.install({ time: FIXED_NOW });
+  else if (options.clock !== "system") await installFixedPageDate(page);
   let status: ActionStatus = "unconfirmed";
   let balancesReads = 0;
   const balancesReadsByRegion = new Map<RegionId, number>();

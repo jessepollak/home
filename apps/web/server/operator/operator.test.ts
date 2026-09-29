@@ -1,5 +1,5 @@
 import { readJson } from "@/tests/helpers/read-json";
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setSystemTime, test } from "bun:test";
 import { BASE_CHAIN_ID, type VerifiedAccountSession } from "@/shared/account/session-types";
 import { signedValue } from "@/server/auth/native-base-session";
 import { parseOperatorErrorResponse, parseOperatorSessionResponse } from "@/shared/operator/contract";
@@ -77,18 +77,20 @@ test("page boundary accepts only one verified native session and treats any unve
 });
 
 test("admin API accepts an unambiguous native session cookie without a provider header", async () => {
+  setSystemTime(NOW);
   const priorSecret = process.env.HOME_SESSION_SECRET;
   const priorAddresses = process.env.HOME_OPERATOR_ADDRESSES;
   try {
     process.env.HOME_SESSION_SECRET = SECRET;
     process.env.HOME_OPERATOR_ADDRESSES = X;
     const response = await createOperatorApiHandler(true)(new Request("https://home.test/api/admin/session", {
-      headers: { cookie: `home-session=${nativeToken(X, new Date())}` },
+      headers: { cookie: `home-session=${nativeToken(X, NOW)}` },
     }));
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toContain("no-store");
     expect(await readJson(response)).toEqual({ version: 1, operator: { address: X } });
   } finally {
+    setSystemTime();
     if (priorSecret === undefined) delete process.env.HOME_SESSION_SECRET;
     else process.env.HOME_SESSION_SECRET = priorSecret;
     if (priorAddresses === undefined) delete process.env.HOME_OPERATOR_ADDRESSES;

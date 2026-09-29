@@ -49,7 +49,7 @@ function fixture(linked = true, filledAtomic = "0", linkedIds: string[] = []) {
   const store = {
     ensureCashoutOrder: async () => record,
     cashoutOrders: async () => [record],
-    claimCashoutRefresh: async () => { record = { ...record, refreshed_at: new Date().toISOString() }; },
+    claimCashoutRefresh: async () => { record = { ...record, refreshed_at: timestamp }; },
     linkedCashoutDepositIds: async () => linkedIds,
     linkCashoutDeposit: async (_owner: unknown, _id: string, nextId: string, proven = false) => {
       record = { ...record, deposit_id: nextId, deposit_proven: proven };

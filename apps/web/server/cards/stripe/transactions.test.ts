@@ -77,6 +77,7 @@ const live = process.env.CARDS_STRIPE_LIVE_TEST === "1" && !process.env.CI;
   const key = process.env.BRIDGE_STRIPE_SECRET_KEY;
   if (!key?.startsWith("sk_test_")) throw new Error("Live test requires a Stripe test-mode key");
   const client = createStripeTransactionClient({ ...config, stripeSecretKey: key });
+  // oxlint-disable-next-line home/no-real-waits -- This opt-in live probe reads a rolling 31-day window from the provider, whose data follows the real clock.
   const rows = await client.list("authorization", "ic_1UKVXy1g1mZDnyPFpUOboOCx", Math.floor((Date.now() - 31 * 86_400_000) / 1000));
   expect(rows.rows.every((row) => row.cardId === "ic_1UKVXy1g1mZDnyPFpUOboOCx")).toBe(true);
 });

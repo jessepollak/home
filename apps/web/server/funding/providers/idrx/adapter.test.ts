@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import { createProviderContext } from "@/server/funding/core/provider-context";
 import { describeFundingAdapter } from "@/server/funding/core/testing/describeFundingAdapter";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
@@ -17,6 +17,7 @@ import { createIdrxSignature, idrxAtomicAmount, idrxProvider } from "./adapter";
 import { idrxManifest } from "./manifest";
 
 const DESTINATION = "0x1111111111111111111111111111111111111111" as const;
+const NOW = new Date("2026-09-28T12:00:00.000Z");
 const env = {
   IDRX_CLIENT_ID: "synthetic-public-key",
   IDRX_CLIENT_SECRET: Buffer.from("synthetic-secret").toString("base64"),
@@ -33,7 +34,7 @@ const intent = {
   returnUrl: "https://home.example/funding/return",
 } satisfies OrderIntent;
 beforeEach(() => setObservabilityLogWriterForTests(() => undefined));
-afterEach(() => setObservabilityLogWriterForTests());
+afterEach(() => { setObservabilityLogWriterForTests(); setSystemTime(); });
 
 const reconciliationIntent = {
   providerOrderId: "synthetic-order-1",
@@ -624,6 +625,7 @@ describe("IDRX adapter behavior", () => {
   });
 
   test("quotes the net mint and the itemized fees from mint-quote", async () => {
+    setSystemTime(NOW);
     const requests: Array<{ url: string; init: RequestInit }> = [];
     const ctx = createProviderContext({
       manifest: idrxManifest,
@@ -670,7 +672,7 @@ describe("IDRX adapter behavior", () => {
         { label: "QRIS Fee (0.7%)", amount: "140", currency: "IDR" },
       ],
     });
-    expect(Date.parse(quote.expiresAt)).toBeGreaterThan(Date.now());
+    expect(Date.parse(quote.expiresAt)).toBeGreaterThan(NOW.getTime());
   });
 
   test("rejects a quote whose fees do not explain its amounts", async () => {

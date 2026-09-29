@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { keccak256 } from "viem";
 import { encodeCoinbaseExecuteBatch } from "@/server/chain/coinbase-smart-account";
@@ -60,7 +60,12 @@ describePostgres("actions schema and store", () => {
     sql = createPostgresSqlExecutor(connectionString!, { schema: TEST_SCHEMA });
     store = new ActionsStore(sql);
   });
-  beforeEach(async () => { await sql.query("TRUNCATE actions CASCADE"); });
+  beforeEach(async () => {
+    const clock = await sql.query<{ instant: Date }>("SELECT now() AS instant");
+    setSystemTime(clock.rows[0]!.instant);
+    await sql.query("TRUNCATE actions CASCADE");
+  });
+  afterEach(() => setSystemTime());
   afterAll(async () => {
     await sql?.dispose?.();
     await admin?.unsafe(`DROP SCHEMA IF EXISTS ${TEST_SCHEMA} CASCADE`);

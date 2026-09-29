@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import { INVITE_CODE_ALPHABET, invitePath, isInviteCode, parseInviteLinkResponse } from "@/shared/invites/contract";
 import { issueCdpRenderHint } from "@/server/auth/cdp-render-session";
 import { readRenderSession } from "@/server/auth/render-session";
@@ -16,6 +16,7 @@ const other = "mnpqrstuvw";
 const address = `0x${"1".repeat(40)}` as const;
 const session = { accountProvider: "cdp-embedded" as const, user: { subject: "test" }, smartAccount: { chainId: 8453 as const, address } };
 const now = new Date("2026-01-01T00:00:00Z");
+afterEach(() => setSystemTime());
 const request = (cookies = "", method = "GET") => new Request(`https://home.test/invite/${code}`, { method, headers: { cookie: cookies } });
 const makeCookie = (value: string) => `${HOME_INVITE_COOKIE}=${value.split(";")[0].split("=").slice(1).join("=")}`;
 
@@ -128,6 +129,8 @@ describe("invite landing", () => {
 
 describe("verified invitation consumption", () => {
   test("waits for a valid invite write and defers absent or invalid invite writes", async () => {
+    const issuedAt = new Date("2026-09-28T12:00:00.000Z");
+    setSystemTime(issuedAt);
     const previousSecret = process.env.HOME_SESSION_SECRET;
     process.env.HOME_SESSION_SECRET = secret;
     try {
@@ -137,7 +140,7 @@ describe("verified invitation consumption", () => {
       const write = async (inviteCode: string | null) => { written.push(inviteCode); };
       const now = async (operation: () => Promise<unknown>) => { synchronous += 1; await operation(); };
       const later = async (operation: () => Promise<unknown>) => { deferred += 1; await operation(); };
-      const valid = makeCookie(issueInviteCookie(request(), code, new Date(), secret)!);
+      const valid = makeCookie(issueInviteCookie(request(), code, issuedAt, secret)!);
       await recordVerifiedCustomer(request(valid), write, now, later);
       expect(synchronous).toBe(1);
       expect(deferred).toBe(0);

@@ -1,6 +1,7 @@
 import { expect, test, type Route } from "@playwright/test";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 import { sessionBody } from "./fixtures/bodies";
+import { FIXED_NOW } from "./fixtures/fixed-time";
 
 test("warm Cash and Home paint with deferred API reads and restore Home scroll", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -12,7 +13,7 @@ test("warm Cash and Home paint with deferred API reads and restore Home scroll",
   await page.route("**/api/activity*", (route) => {
     const url = new URL(route.request().url());
     if (url.pathname !== "/api/activity") return route.fallback();
-    const to = url.searchParams.get("to") ?? new Date().toISOString();
+    const to = url.searchParams.get("to") ?? new Date(FIXED_NOW).toISOString();
     const cursor = url.searchParams.get("cursor");
     const minutes = cursor === "older" ? [13, 14, 15, 16] : Array.from({ length: 12 }, (_, index) => index + 1);
     return json(route, {
@@ -165,7 +166,7 @@ test("Home activity Add money returns focus to its empty-state button", async ({
   await page.route("**/api/activity*", (route) => {
     const url = new URL(route.request().url());
     if (url.pathname !== "/api/activity") return route.fallback();
-    const to = url.searchParams.get("to") ?? new Date().toISOString();
+    const to = url.searchParams.get("to") ?? new Date(FIXED_NOW).toISOString();
     return json(route, {
       version: 1,
       walletAddress: sessionBody.smartAccount.address.toLowerCase(),
