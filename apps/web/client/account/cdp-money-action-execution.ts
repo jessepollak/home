@@ -176,7 +176,7 @@ export function useMoneyActionExecution({
             ownerFence.assertCurrent(generation);
             if (!response) throw new TransferExecutionError("unavailable");
             return {
-              calls: response.calls as ConfirmedPlan["calls"],
+              calls: response.calls,
               ...(response.batchGasLimit ? { batchGasLimit: response.batchGasLimit } : {}),
             };
           };
