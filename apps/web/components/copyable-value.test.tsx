@@ -100,12 +100,12 @@ describe("CopyableValue", () => {
     await waitFor(() => expect(document.activeElement).toBe(trigger));
   });
 
-  test("renders the compact presentation with a title and copy icon", () => {
+  test("renders the compact presentation with an accessible copy control and title", () => {
     const view = render(<CopyableValue value={VALUE} display={DISPLAY} presentation="compact" valueKind="address" />);
     const control = view.getByRole("button", { name: `Copy ${DISPLAY}` });
 
     expect(control.title).toBe(VALUE);
-    expect(control.querySelector(".lucide-copy")).toBeTruthy();
+    expect(control.textContent).toBe(DISPLAY);
   });
 
   test("exposes the selectable full value and a truthful error when clipboard is unavailable", async () => {

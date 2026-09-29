@@ -582,13 +582,6 @@ export function formatOracleUsd(
   });
 }
 
-/** @public exercised by shared/formatting/money.test.ts */
-export function formatUsdPrice(
-  value: DecimalInput,
-  regionId: RegionId = "GLOBAL",
-): string | null {
-  return formatPresentationPrice(value, "USD", regionId);
-}
 
 export function formatPresentationPrice(
   value: DecimalInput,

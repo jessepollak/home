@@ -15,7 +15,6 @@ import {
   walletHolding,
 } from "./fixtures";
 import {
-  selectAssetCount,
   selectBalanceBaseUnits,
   selectBalanceTotals,
   selectBorrowPositions,
@@ -91,7 +90,7 @@ describe("balance selectors", () => {
     const unnamed = { ...base.holdings.find((holding) => holding.id === "idrx")!, name: " ", symbol: " ", balance: unavailableBalance };
     const snapshot = { ...base, holdings: [...base.holdings.filter((holding) => holding.id !== "idrx"), unnamed] };
     expect(selectCash(snapshot).map((entry) => entry.kind === "holding" ? entry.holding.id : entry.key)).toEqual(["usdc", "eurc"]);
-    expect(selectAssetCount(snapshot)).toBe(2);
+    expect(selectMoneyGroups(snapshot).cash).toHaveLength(2);
     expect(selectCash(base).some((entry) => entry.kind === "holding" && entry.holding.id === "idrx")).toBe(false);
   });
   test("lists named unreadable investments but not unreadable unnamed or known-zero holdings", () => {
@@ -103,7 +102,8 @@ describe("balance selectors", () => {
       coverage: { catalog: "incomplete" },
     });
     expect(selectMoneyGroups(snapshot).investments.map((holding) => holding.id)).toEqual(["eth", "cbbtc", unread.id]);
-    expect(selectAssetCount(snapshot)).toBe(4);
+    expect(selectMoneyGroups(snapshot).cash).toHaveLength(1);
+    expect(selectMoneyGroups(snapshot).investments).toHaveLength(3);
     const symbolOnly = walletHolding({ ...FIXTURE_WALLET_TOKEN, name: "  ", symbol: "DISC" }, "1", { status: "unavailable" });
     const symbolSnapshot = buildBalancesSnapshotFixture({ catalog: [{ ...symbolOnly, balance: unavailableBalance }] });
     expect(selectMoneyGroups(symbolSnapshot).investments.map((holding) => holding.key)).toEqual([symbolOnly.key]);
@@ -181,7 +181,8 @@ describe("balance selectors", () => {
       catalog: [catalogHolding(FIXTURE_CATALOG.priced, "1", priced("USD", "1"))],
     });
 
-    expect(selectAssetCount(snapshot)).toBe(4);
+    expect(selectMoneyGroups(snapshot).cash).toHaveLength(1);
+    expect(selectMoneyGroups(snapshot).investments).toHaveLength(3);
   });
 
   test("returns null for unavailable and preserves successful zero", () => {

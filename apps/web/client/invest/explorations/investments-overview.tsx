@@ -19,7 +19,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { investAssets, type InvestAsset } from "@/config/invest-assets";
 import { addFractions, exactDecimalToFraction, roundFractionPreservingPositive } from "@/shared/balances/math";
-import { presentBalances, presentMoneyGroups, type BalanceRowModel } from "@/shared/balances/present";
+import { presentBalances, type BalanceRowModel } from "@/shared/balances/present";
 import { selectCollateralHoldings, selectMoneyGroups } from "@/shared/balances/select";
 import type { BalancesSnapshot, BorrowCollateralHolding, ExactDecimal, Holding } from "@/shared/balances/types";
 import { formatExactPresentationTokenAmount, formatFiatAmount, formatPresentationTokenAmount, moneyChangeTone } from "@/shared/formatting";
@@ -141,7 +141,7 @@ export function InvestmentsOverviewExploration({ snapshot, balanceStatus, refres
     observer.observe(sentinel.current);
     return () => observer.disconnect();
   }, [visibleCount, rows.length]);
-  const marks = new Map(active ? presentMoneyGroups(active).flatMap((group) => group.rows.map((row) => [row.key, row.mark] as const)) : []);
+  const marks = new Map(active ? presentBalances({ status: "ready", snapshot: active, error: null }, { showSmallBalances: true }).groups.flatMap((group) => group.rows.map((row) => [row.key, row.mark] as const)) : []);
   return <div className="space-y-4">
     <Card variant="flush" aria-label={failed ? "Balance unavailable" : "Investments balance"} aria-busy={loading || undefined}><CardContent inset="hero">
       <div className="@container flex flex-col gap-1">

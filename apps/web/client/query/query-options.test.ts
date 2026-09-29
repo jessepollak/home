@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { skipToken, type InfiniteData, type QueryKey } from "@tanstack/react-query";
+import { skipToken, type QueryKey } from "@tanstack/react-query";
 import { createHomeQueryClient, ownerQueryMeta } from "./query-client";
-import { ownerInfiniteQuery, ownerQuery, publicInfiniteQuery, publicQuery } from "./query-options";
+import { ownerQuery, publicInfiniteQuery, publicQuery } from "./query-options";
 
 const owner = "owner-a";
 
@@ -98,25 +98,8 @@ test("caller options pass through with typed selection", () => {
   expect(options.placeholderData).toEqual({ count: 1 });
 });
 
-test("infinite query factories pass keys, owners, and page parameters through", async () => {
+test("public infinite query passes keys and page parameters through", async () => {
   const client = createHomeQueryClient();
-  const ownerPages: number[] = [];
-  const owned = ownerInfiniteQuery<{ value: number }, number>({
-    owner, scope: "activity", key: ["window", "USD"], initialPageParam: 0,
-    queryFn: async ({ pageParam, signal }, queryOwner) => {
-      expect(queryOwner).toBe(owner);
-      expect(signal).toBeInstanceOf(AbortSignal);
-      ownerPages.push(pageParam);
-      return { value: pageParam };
-    },
-    getNextPageParam: (page) => page.value + 1,
-  });
-  expect([...owned.queryKey]).toEqual([owner, "activity", "window", "USD"]);
-  expect(owned.meta).toEqual(ownerQueryMeta(owner));
-  expect(owned.staleTime).toBe(10_000);
-  expect((await client.fetchInfiniteQuery(owned)).pages).toEqual([{ value: 0 }]);
-  expect(ownerPages).toEqual([0]);
-
   const publicPages: number[] = [];
   const shared = publicInfiniteQuery<{ value: number }, number>({
     scope: "invest-search", key: ["btc"], initialPageParam: 2,
@@ -128,23 +111,5 @@ test("infinite query factories pass keys, owners, and page parameters through", 
   expect(shared.meta).toBeUndefined();
   expect((await client.fetchInfiniteQuery(shared)).pages).toEqual([{ value: 2 }]);
   expect(publicPages).toEqual([2]);
-  client.clear();
-});
-
-test("signed-out infinite owner query stays disabled with its scoped key", () => {
-  const options = ownerInfiniteQuery<{ value: number }, number>({
-    owner: null, scope: "activity", key: ["window"], initialPageParam: 0,
-    queryFn: async ({ pageParam }) => ({ value: pageParam }),
-    getNextPageParam: () => undefined,
-  });
-  expect([...options.queryKey]).toEqual(["unauthenticated", "activity-disabled", "window"]);
-  expect(options.queryFn).toBe(skipToken);
-  expect(options.meta).toBeUndefined();
-  const client = createHomeQueryClient();
-  const queryKey: QueryKey = ["owner", "activity"];
-  const query = client.getQueryCache().build<{ value: number }, Error, InfiniteData<{ value: number }, number>, QueryKey>(
-    client, { queryKey, queryFn: async () => ({ value: 0 }) },
-  );
-  expect(typeof options.enabled === "function" && options.enabled(query)).toBe(false);
   client.clear();
 });

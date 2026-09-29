@@ -110,13 +110,6 @@ export type TrendingMemesPage = TrendingMemesResult & {
 
 type Clock = () => Date;
 
-type TrendingReaderOptions = {
-  apiKey: string | undefined;
-  fetchImpl?: FetchLike;
-  now?: Clock;
-  timeoutMs?: number;
-};
-
 type TrendingPageOptions = {
   apiKey: string | undefined;
   fetchImpl?: FetchLike;
@@ -135,52 +128,9 @@ type TrendingMemeAdmissionOptions = {
   maxInFlight?: number;
 };
 
-type CachedTrending = {
-  storedAt: number;
-  result: TrendingMemesResult;
-};
-
 const excludedDiscoverTokens = [...stockAssets, ...cryptoAssets].map(
   (asset) => `${asset.contractAddress.toLowerCase()}:${asset.chainId}`,
 );
-
-/** @public exercised by server/market-data/codex/trending.test.ts */
-export function createCodexTrendingMemesReader({
-  apiKey,
-  fetchImpl = fetch,
-  now = () => new Date(),
-  timeoutMs = CODEX_REQUEST_TIMEOUT_MS,
-}: TrendingReaderOptions) {
-  let cache: CachedTrending | null = null;
-  let inFlight: Promise<TrendingMemesResult> | null = null;
-
-  return async function readTrendingMemes(): Promise<TrendingMemesResult> {
-    if (!apiKey?.trim()) {
-      return { status: "unavailable", assets: [], snapshots: [] };
-    }
-
-    const currentTime = now().getTime();
-    if (cache && currentTime - cache.storedAt <= CODEX_CACHE_TTL_MS) {
-      return cache.result;
-    }
-    if (inFlight) return inFlight;
-
-    inFlight = fetchTrendingMemes({
-      apiKey: apiKey.trim(),
-      fetchImpl,
-      now,
-      timeoutMs,
-    });
-
-    try {
-      const result = await inFlight;
-      cache = { storedAt: now().getTime(), result };
-      return result;
-    } finally {
-      inFlight = null;
-    }
-  };
-}
 
 export function createCodexTrendingMemesPageReader({
   apiKey,
@@ -304,28 +254,6 @@ export function createErrorTrendingMemesPage(
   };
 }
 
-async function fetchTrendingMemes({
-  apiKey,
-  fetchImpl,
-  now,
-  timeoutMs,
-}: {
-  apiKey: string;
-  fetchImpl: FetchLike;
-  now: Clock;
-  timeoutMs: number;
-}): Promise<TrendingMemesResult> {
-  const page = await fetchTrendingMemesPage({
-    apiKey,
-    fetchImpl,
-    now,
-    timeoutMs,
-    offset: 0,
-    limit: CODEX_TRENDING_PAGE_SIZE,
-  });
-  return stripTrendingPagination(page);
-}
-
 async function fetchTrendingMemesPage({
   apiKey,
   fetchImpl,
@@ -398,15 +326,6 @@ async function fetchTrendingMemeAdmission({
     timeoutMs,
   });
   return normalizeTrendingMemeAdmission(payload, address, networkId);
-}
-
-function stripTrendingPagination(page: TrendingMemesPage): TrendingMemesResult {
-  return {
-    status: page.status,
-    ...(page.message ? { message: page.message } : {}),
-    assets: page.assets,
-    snapshots: page.snapshots,
-  };
 }
 
 /** @public exercised by server/market-data/codex/trending.test.ts */

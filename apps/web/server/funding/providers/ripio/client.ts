@@ -317,12 +317,6 @@ export function createRipioClient(country: RipioCountry, options: {
   };
 }
 
-/** @public exercised by server/funding/providers/ripio/client.test.ts */
-export function ripioCredentialState(country: RipioCountry, env: Environment = process.env): "configured" | "missing" | "partial" {
-  const id = Boolean(env[`RIPIO_CLIENT_ID_${country}`]?.trim());
-  const secret = Boolean(env[`RIPIO_CLIENT_SECRET_${country}`]?.trim());
-  return id && secret ? "configured" : id || secret ? "partial" : "missing";
-}
 
 function parseKycHandoff(value: unknown): RipioKycHandoff {
   if (!isRecord(value) || typeof value.providerUrl !== "string" || value.providerUrl.length > 4096) {
@@ -597,6 +591,3 @@ function catalogEntitles(value: unknown, country: RipioEnabledCountry): boolean 
     ),
   );
 }
-
-/** @public exercised by server/funding/providers/ripio/client.test.ts */
-export const RIPIO_PRODUCTION_ASSETS = RIPIO_ASSETS;

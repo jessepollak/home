@@ -133,8 +133,3 @@ export const VERIFIED_MORPHO_MARKETS: readonly VerifiedMorphoMarketRef[] = [
     capabilities: { borrow: "enabled" },
   }),
 ];
-
-/** @public exercised by shared/morpho-markets/config.test.ts */
-export function getVerifiedMorphoMarket(marketId: string): VerifiedMorphoMarketRef | null {
-  return VERIFIED_MORPHO_MARKETS.find((market) => market.marketId.toLowerCase() === marketId.toLowerCase()) ?? null;
-}

@@ -18,7 +18,6 @@ import {
   formatTokenAmount,
   formatTrimmedChartPrice,
   formatUnsignedTokenAmount,
-  formatUsdPrice,
   formatUsdStablecoinAmount,
   formatWadPercent,
   moneyChangeTone,
@@ -338,20 +337,20 @@ describe("presentation money formatting", () => {
   });
 
   test("keeps ordinary and tiny market prices exact within display bounds", () => {
-    expect(formatUsdPrice("231.708792875")).toBe("$231.71");
-    expect(formatUsdPrice("12345678901234567890.1")).toBe(
+    expect(formatPresentationPrice("231.708792875")).toBe("$231.71");
+    expect(formatPresentationPrice("12345678901234567890.1")).toBe(
       "$12,345,678,901,234,567,890.10",
     );
-    expect(formatUsdPrice("0.000123456789")).toBe("$0.0001235");
-    expect(formatUsdPrice("1e-7")).toBe("$0.0000001");
-    expect(formatUsdPrice("0.000000001")).toBe("<$0.00000001");
+    expect(formatPresentationPrice("0.000123456789")).toBe("$0.0001235");
+    expect(formatPresentationPrice("1e-7")).toBe("$0.0000001");
+    expect(formatPresentationPrice("0.000000001")).toBe("<$0.00000001");
     expect(formatPresentationPrice("231.708792875", "BRL", "BR")).toBe(
       "R$\u00A0231,71",
     );
     expect(formatChartPrice("0.0123456")).toBe("$0.012346");
     expect(formatChartPrice("1.234e-7")).toBe("$0.0000001234");
-    expect(formatUsdPrice("not-a-price")).toBeNull();
-    expect(formatUsdPrice(Number.POSITIVE_INFINITY)).toBeNull();
+    expect(formatPresentationPrice("not-a-price")).toBeNull();
+    expect(formatPresentationPrice(Number.POSITIVE_INFINITY)).toBeNull();
   });
 
   test("scales exact prices and rejects invalid factors", () => {

@@ -36,7 +36,7 @@ describe("estimated Save growth math", () => {
     expect(estimate({ apy: { numerator: BigInt(1), denominator: BigInt(0) } })).toBe(BigInt("1000000000000000000"));
     expect(estimate({ apy: { numerator: BigInt(10), denominator: BigInt(1) } })).toBeGreaterThan(BigInt("1000000000000000000"));
     const huge = BigInt(10) ** BigInt(200);
-    expect(estimate({ apy: { numerator: BigInt(5) * huge, denominator: BigInt(100) * huge } })).toBe(estimate());
+    expect(estimate({ apy: { numerator: BigInt(5) * huge, denominator: BigInt(100) * huge } })).toBe(BigInt("1000000000386781489"));
   });
 
   test("rejects rollback, future samples, expiry, excessive elapsed time, and non-finite input", () => {

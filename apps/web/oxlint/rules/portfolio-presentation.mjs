@@ -1,6 +1,6 @@
 import path from "node:path";
 
-const fullPresenters = new Set(["presentBalances", "presentMoneyGroups", "presentBalanceRows"]);
+const fullPresenters = new Set(["presentBalances"]);
 const listOwner = "client/home/balances-panel.tsx";
 
 function filenameWithinWeb(filename) {

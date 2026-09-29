@@ -1,15 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { memeAssets } from "@/config/invest-assets";
 import { CodexMarketDataError } from "./client";
-import { CODEX_GRAPHQL_ENDPOINT } from "./config";
 import { CODEX_CACHE_TTL_MS } from "./config";
 import {
   CODEX_TRENDING_PAGE_SIZE,
   CODEX_TRENDING_MEME_CATEGORY,
-  CODEX_TRENDING_QUERY,
   createCodexTrendingMemeAdmissionReader,
   createCodexTrendingMemesPageReader,
-  createCodexTrendingMemesReader,
   normalizeTrendingMemeAdmission,
   normalizeTrendingMemes,
   normalizeTrendingMemesPage,
@@ -45,75 +42,6 @@ function deferred<T>() {
 }
 
 describe("Codex trending memes", () => {
-  test("queries Base memes by trendingScore24 and fail-closes without a key", async () => {
-    const seen: { body?: unknown } = {};
-    const reader = createCodexTrendingMemesReader({
-      apiKey: "fixture-key",
-      now: () => NOW,
-      fetchImpl: async (_url, init) => {
-        seen.body = JSON.parse(String(init?.body));
-        expect(String(_url)).toBe(CODEX_GRAPHQL_ENDPOINT);
-        return new Response(
-          JSON.stringify({
-            data: trendingPayload([
-              {
-                priceUSD: "0.0123",
-                change24: "0.05",
-                lastTransaction: "1757361600",
-                token: {
-                  address: "0x1111111111111111111111111111111111111111",
-                  name: "Higher",
-                  symbol: "HIGHER",
-                  decimals: "18",
-                  networkId: "8453",
-                  info: { imageSmallUrl: "https://icons.example.test/higher.png" },
-                },
-              },
-            ]),
-          }),
-        );
-      },
-    });
-
-    const result = await reader();
-    // oxlint-disable-next-line home/no-self-referential-expectation -- the request must carry the canonical query, category, and page-limit contract
-    expect(seen.body).toEqual({
-      query: CODEX_TRENDING_QUERY,
-      variables: {
-        filters: {
-          network: [8453],
-          potentialScam: false,
-          trendingIgnored: false,
-          categories: { anyOf: [CODEX_TRENDING_MEME_CATEGORY] },
-        },
-        rankings: [{ attribute: "trendingScore24", direction: "DESC" }],
-        limit: CODEX_TRENDING_PAGE_SIZE,
-        offset: 0,
-        excludeTokens: expect.any(Array),
-      },
-    });
-    expect(result.status).toBe("ready");
-    expect(result.assets[0]).toMatchObject({
-      id: "base:0x1111111111111111111111111111111111111111",
-      displayName: "Higher",
-      displaySymbol: "HIGHER",
-      imageUrl: "https://icons.example.test/higher.png",
-    });
-    expect(result.snapshots[0]).toMatchObject({
-      assetId: "base:0x1111111111111111111111111111111111111111",
-      displayPrice: "$0.0123",
-      changeLabel: "+5.00%",
-    });
-
-    const unavailable = await createCodexTrendingMemesReader({
-      apiKey: "   ",
-      fetchImpl: async () => {
-        throw new Error("should not contact Codex");
-      },
-    })();
-    expect(unavailable).toEqual({ status: "unavailable", assets: [], snapshots: [] });
-  });
-
   test("reuses configured meme identity and omits stock/crypto contracts", () => {
     const result = normalizeTrendingMemes(
       trendingPayload([
