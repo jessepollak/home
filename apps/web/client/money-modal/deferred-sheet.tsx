@@ -19,7 +19,7 @@ const RETRY_DELAY_MS = 1_000;
 export type DeferredSheetLoading<P> = (props: P) => {
   onCancel: () => void;
   onClosed?: () => void;
-  render: (state: { open: boolean; failed: boolean; retry: () => void; onCancel: () => void; onClosed: () => void }) => ReactNode;
+  render: (state: { open: boolean; failed: boolean; retry: () => void; onCancel: () => void; onClosed: () => void; onEntered: () => void }) => ReactNode;
   renderLoaded?: (sheet: ReactNode) => ReactNode;
 };
 
@@ -118,6 +118,7 @@ export function deferSheet<P extends SheetProps>(
     const [showLoadingShell, setShowLoadingShell] = useState(false);
     const [closingShell, setClosingShell] = useState(false);
     const [shellFinished, setShellFinished] = useState(false);
+    const [shellEntered, setShellEntered] = useState(false);
     const [staging, setStaging] = useState(() => open && visibleInstances === 0);
     if (open && !Loaded && !staging) setStaging(true);
     if (loading && open && !Loaded && !showLoadingShell) setShowLoadingShell(true);
@@ -142,7 +143,7 @@ export function deferSheet<P extends SheetProps>(
       return () => window.cancelAnimationFrame(frame);
     }, [Loaded, staging, showLoadingShell]);
 
-    if (loading && showLoadingShell && (!Loaded || closingShell)) {
+    if (loading && showLoadingShell && (!Loaded || closingShell || (open && !shellEntered && !shellFinished))) {
       if (open && !Loaded && !closingShell && shellFinished) setShellFinished(false);
       const shell = loading(props);
       return shell.render({
@@ -150,7 +151,8 @@ export function deferSheet<P extends SheetProps>(
         failed: failed >= AUTOMATIC_LOAD_ATTEMPTS && !pending,
         retry: () => { void loader.preload(); },
         onCancel: () => { setClosingShell(true); shell.onCancel(); },
-        onClosed: () => { setClosingShell(false); setShellFinished(true); shell.onClosed?.(); },
+        onClosed: () => { setClosingShell(false); setShellFinished(true); setShellEntered(false); shell.onClosed?.(); },
+        onEntered: () => { setShellEntered(true); },
       });
     }
     if (!Loaded) return null;

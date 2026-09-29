@@ -205,10 +205,10 @@ function ignoreDesktopSwipe(event: PointerEvent<HTMLDivElement>) {
   event.currentTarget.toggleAttribute("data-base-ui-swipe-ignore", window.matchMedia?.(desktopDialogQuery).matches ?? false);
 }
 
-export function AppDrawer({ open, labelledBy, describedBy, immediate = false, variant = "default", initialFocusRef, onCancel, onClose, children }: {
+export function AppDrawer({ open, labelledBy, describedBy, immediate = false, variant = "default", initialFocusRef, onCancel, onClose, onOpened, children }: {
   open: boolean; labelledBy: string; describedBy?: string; immediate?: boolean; variant?: "default" | "money";
   initialFocusRef?: RefObject<HTMLElement | null>; onCancel: () => boolean | void;
-  onClose?: () => void; children: ReactNode;
+  onClose?: () => void; onOpened?: () => void; children: ReactNode;
 }) {
   const popupRef = useRef<HTMLDivElement>(null);
   const lastOutsideFocusRef = useRef<HTMLElement | null>(null);
@@ -256,7 +256,7 @@ export function AppDrawer({ open, labelledBy, describedBy, immediate = false, va
     <Drawer open={open} modal keyboardAware swipeDirection="down" onOpenChange={(nextOpen, eventDetails) => {
       if (nextOpen) return;
       if (onCancel() === false) eventDetails.cancel();
-    }} onOpenChangeComplete={(nextOpen) => { if (!nextOpen) onClose?.(); }}>
+    }} onOpenChangeComplete={(nextOpen) => { if (nextOpen) onOpened?.(); else onClose?.(); }}>
       <DrawerContent
         ref={popupRef}
         variant={variant}
@@ -281,9 +281,9 @@ export function AppDrawer({ open, labelledBy, describedBy, immediate = false, va
   );
 }
 
-export function MoneyModal({ open, labelledBy, describedBy, immediate = false, pending = false, onCancel, onClose, children }: {
+export function MoneyModal({ open, labelledBy, describedBy, immediate = false, pending = false, onCancel, onClose, onOpened, children }: {
   open: boolean; labelledBy: string; describedBy?: string; immediate?: boolean; pending?: boolean;
-  onCancel: () => boolean | void; onClose: () => void; children: ReactNode;
+  onCancel: () => boolean | void; onClose: () => void; onOpened?: () => void; children: ReactNode;
 }) {
   const [registrants, setRegistrants] = useState<Set<symbol>>(() => new Set());
   const register = useCallback((id: symbol, active: boolean) => {
@@ -298,7 +298,7 @@ export function MoneyModal({ open, labelledBy, describedBy, immediate = false, p
   const effectivePending = pending || registrants.size > 0;
   const handoff = useContext(MoneyModalHandoffContext);
   const pendingValue = useMemo(() => ({ pending: effectivePending, register }), [effectivePending, register]);
-  return <MoneyModalPendingContext value={pendingValue}><AppDrawer open={open} labelledBy={labelledBy} describedBy={describedBy} immediate={immediate || handoff} variant="money" onCancel={() => effectivePending ? false : onCancel()} onClose={onClose}>{children}</AppDrawer></MoneyModalPendingContext>;
+  return <MoneyModalPendingContext value={pendingValue}><AppDrawer open={open} labelledBy={labelledBy} describedBy={describedBy} immediate={immediate || handoff} variant="money" onCancel={() => effectivePending ? false : onCancel()} onClose={onClose} onOpened={onOpened}>{children}</AppDrawer></MoneyModalPendingContext>;
 }
 
 /** @public shared money-flow step contract (#1058) */
@@ -403,9 +403,9 @@ export function moneySheetLoading({ title, titleId, closeLabel, onCancel, onClos
     onCancel,
     onClosed,
     renderLoaded: (sheet: ReactNode) => <MoneyModalHandoff>{sheet}</MoneyModalHandoff>,
-    render: ({ open, failed, retry, onCancel: cancel, onClosed: closed }: {
-      open: boolean; failed: boolean; retry: () => void; onCancel: () => void; onClosed: () => void;
-    }) => <MoneyModalLoadingSheet open={open} title={title} titleId={titleId} closeLabel={closeLabel} failed={failed} retry={retry} onCancel={cancel} onClosed={closed} placeholder={placeholder} />,
+    render: ({ open, failed, retry, onCancel: cancel, onClosed: closed, onEntered }: {
+      open: boolean; failed: boolean; retry: () => void; onCancel: () => void; onClosed: () => void; onEntered: () => void;
+    }) => <MoneyModalLoadingSheet open={open} title={title} titleId={titleId} closeLabel={closeLabel} failed={failed} retry={retry} onCancel={cancel} onClosed={closed} onEntered={onEntered} placeholder={placeholder} />,
   };
 }
 
@@ -418,9 +418,9 @@ function MoneyModalHandoff({ children }: { children: ReactNode }) {
   return <MoneyModalHandoffContext value={initial}>{children}</MoneyModalHandoffContext>;
 }
 
-function MoneyModalLoadingSheet({ open, title, titleId, closeLabel, failed, retry, onCancel, onClosed, placeholder }: {
+function MoneyModalLoadingSheet({ open, title, titleId, closeLabel, failed, retry, onCancel, onClosed, onEntered, placeholder }: {
   open: boolean; title: string; titleId?: string; closeLabel: string; failed: boolean; retry: () => void;
-  onCancel: () => void; onClosed: () => void; placeholder?: ReactNode;
+  onCancel: () => void; onClosed: () => void; onEntered: () => void; placeholder?: ReactNode;
 }) {
   const generatedId = useId();
   const id = titleId ?? generatedId;
@@ -438,7 +438,7 @@ function MoneyModalLoadingSheet({ open, title, titleId, closeLabel, failed, retr
   useEffect(() => {
     if (closedBeforeEntering) onClosedRef.current();
   }, [closedBeforeEntering]);
-  return <MoneyModal open={open && entered} labelledBy={id} onCancel={onCancel} onClose={onClosed}>
+  return <MoneyModal open={open && entered} labelledBy={id} onCancel={onCancel} onClose={onClosed} onOpened={onEntered}>
     <MoneyModalStepLoading step="loading" title={title} titleId={id} closeLabel={closeLabel} failed={failed} onRetry={retry} placeholder={placeholder} />
   </MoneyModal>;
 }

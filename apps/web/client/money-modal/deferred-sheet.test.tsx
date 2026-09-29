@@ -8,7 +8,10 @@ const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-libr
 const { deferSheet } = await import("./deferred-sheet");
 const { MoneyModal, MoneyModalHeader, moneySheetLoading } = await import("./money-modal");
 
+let restoreAnimations = () => {};
+
 afterEach(() => {
+  restoreAnimations();
   cleanup();
   jest.restoreAllMocks();
 });
@@ -54,6 +57,27 @@ function FocusJourney({ Sheet }: { Sheet: ReturnType<typeof delayedSheet> }) {
     <button type="button" onClick={() => setOpen(true)}>Open add money</button>
     <Sheet open={open} onCancel={() => setOpen(false)} onClosed={() => {}} />
   </>;
+}
+
+function holdEntranceAnimation() {
+  let finish = () => {};
+  const finished = new Promise<void>((resolve) => { finish = resolve; });
+  const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, "getAnimations");
+  Object.defineProperty(Element.prototype, "getAnimations", {
+    configurable: true,
+    value: () => [{ finished, pending: false, playState: "running" }],
+  });
+  restoreAnimations = () => {
+    restoreAnimations = () => {};
+    if (descriptor) Object.defineProperty(Element.prototype, "getAnimations", descriptor);
+    else Reflect.deleteProperty(Element.prototype, "getAnimations");
+  };
+  return {
+    finish: async () => {
+      restoreAnimations();
+      await act(async () => { finish(); await finished; });
+    },
+  };
 }
 
 describe("deferSheet", () => {
@@ -155,6 +179,54 @@ describe("deferSheet", () => {
     expect(page().queryByRole("dialog", { name: "Add money" })).toBeNull();
     expect(openStates.length).toBeGreaterThan(0);
     expect(openStates.every(Boolean)).toBe(true);
+  });
+
+  test("a chunk arriving during the loading shell entrance waits for the entrance to finish before handing off", async () => {
+    let resolve!: (component: ComponentType<LoadingProps>) => void;
+    const openStates: boolean[] = [];
+    const Sheet = delayedSheet(() => new Promise((done) => { resolve = done; }));
+    function RecordedSheet(props: LoadingProps) {
+      openStates.push(props.open);
+      return <LoadedSheet {...props} />;
+    }
+    const entrance = holdEntranceAnimation();
+    render(<Sheet open onCancel={() => {}} onClosed={() => {}} />);
+    await page().findByRole("button", { name: "Close add money" });
+
+    await act(async () => { resolve(RecordedSheet); await Promise.resolve(); });
+    expect(page().getByRole("dialog", { name: "Add money" })).toBeTruthy();
+    expect(page().queryByRole("dialog", { name: "Loaded money sheet" })).toBeNull();
+
+    await entrance.finish();
+    expect(await page().findByRole("dialog", { name: "Loaded money sheet" })).toBeTruthy();
+    expect(page().queryByRole("dialog", { name: "Add money" })).toBeNull();
+    expect(openStates.length).toBeGreaterThan(0);
+    expect(openStates.every(Boolean)).toBe(true);
+  });
+
+  test("closing the loading shell during its entrance after the chunk arrives closes without handing off", async () => {
+    let resolve!: (component: ComponentType<LoadingProps>) => void;
+    const openStates: boolean[] = [];
+    const Sheet = delayedSheet(() => new Promise((done) => { resolve = done; }));
+    function RecordedSheet(props: LoadingProps) {
+      openStates.push(props.open);
+      return <LoadedSheet {...props} />;
+    }
+    let closed = 0;
+    function Journey() {
+      const [open, setOpen] = useState(true);
+      return <Sheet open={open} onCancel={() => setOpen(false)} onClosed={() => { closed++; }} />;
+    }
+    const entrance = holdEntranceAnimation();
+    render(<Journey />);
+    await page().findByRole("button", { name: "Close add money" });
+    await act(async () => { resolve(RecordedSheet); await Promise.resolve(); });
+    fireEvent.click(page().getByRole("button", { name: "Close add money" }));
+    await entrance.finish();
+
+    await waitFor(() => expect(closed).toBe(1));
+    expect(page().queryByRole("dialog")).toBeNull();
+    expect(openStates.every((open) => !open)).toBe(true);
   });
 
   test("keeps focus inside the loaded sheet during handoff and returns it to the trigger on close", async () => {
