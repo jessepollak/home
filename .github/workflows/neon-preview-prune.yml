@@ -1,13 +1,13 @@
-# Keeps Neon Free’s 10-branch project cap from blocking Vercel previews. The
-# Neon integration is a required preview deployment step, so a new git branch
-# fails with “Resource provisioning failed” when the project is full.
+# Keeps room for new Vercel previews under Neon Free's 10-total-branch project
+# cap. The Neon integration is required, so a new git branch's deployment can
+# fail with “Resource provisioning failed” if the project is full.
 #
-# Each run first deletes stale previews: preview/<ref> whose git branch has
-# only closed or merged PRs (a push after merge recreates the DB after
-# PR-close cleanup ran). Then, if preview/* count is >= 6 (the exclusive
-# keep_below threshold), it deletes the oldest remaining previews until count
-# is < 6, so main + five previews = six total leaves four slots free.
-# Never deletes main / production / default / protected / non-preview branches.
+# Each run deletes stale eligible preview/* branches first (no open PR and at
+# least one closed or merged PR), then the oldest remaining previews until the
+# total project branch count reaches cap minus headroom. Default headroom is four
+# slots: main + five previews = six total, leaving four slots free. Only
+# preview/* branches are deleted; default, protected and other branches are safe.
+# If too few previews can be deleted, report reduced headroom or fail when full.
 #
 # Runs on every non-main push, alongside (not before) that push's Vercel
 # deploy, so headroom is restored for the next new branch; GitHub throttles
@@ -16,9 +16,10 @@
 # Assumptions (see docs/vercel-deploy.md):
 # - Vercel-Managed and Neon-Managed integrations name preview DBs
 #   preview/<git-branch> (https://neon.com/docs/guides/vercel-branch-cleanup).
-# - Only those names are eligible. Other branches are left alone.
-# - Oldest-first can delete the preview DB of a still-open older PR once six
-#   preview branches exist; PR-close cleanup is the primary path.
+# - Only those names are eligible. Other branches count toward the cap but
+#   are never deleted.
+# - Oldest-first can delete a still-open older PR's preview DB when needed;
+#   PR-close cleanup is the primary path.
 #
 # Uses the Neon HTTP API (same surface as neon/neonctl). No-op when
 # credentials are missing so forks without Neon stay green.
@@ -34,10 +35,10 @@ on:
       - main
   workflow_dispatch:
     inputs:
-      keep_below:
-        description: "Exclusive threshold: delete oldest preview/* until count is below this (6 keeps the newest five)"
+      headroom:
+        description: "Free slots to leave under the 10-branch project cap (default 4)"
         type: string
-        default: "6"
+        default: "4"
       dry_run:
         description: "List deletions without calling DELETE"
         type: boolean
@@ -53,13 +54,14 @@ permissions:
 
 jobs:
   prune:
-    name: Prune stale preview/* and keep newest five
+    name: Prune stale preview/* and restore project headroom
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
       NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID || secrets.NEON_PROJECT_ID }}
-      PREVIEW_KEEP_BELOW: ${{ github.event.inputs.keep_below || '6' }}
+      NEON_BRANCH_CAP: "10"
+      PREVIEW_HEADROOM: ${{ github.event.inputs.headroom || '4' }}
       DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
@@ -74,18 +76,29 @@ jobs:
           fi
           echo "configured=true" >> "$GITHUB_OUTPUT"
 
+      - name: Checkout
+        if: steps.creds.outputs.configured == 'true'
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Setup Node.js
+        if: steps.creds.outputs.configured == 'true'
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22.13.1
+          package-manager-cache: false
+
       - name: List preview branches and prune oldest
         if: steps.creds.outputs.configured == 'true'
         run: |
           set -euo pipefail
 
-          if ! [[ "${PREVIEW_KEEP_BELOW}" =~ ^[1-9][0-9]*$ ]]; then
-            echo "PREVIEW_KEEP_BELOW must be a positive integer, got: ${PREVIEW_KEEP_BELOW}"
+          if ! [[ "${NEON_BRANCH_CAP}" =~ ^[1-9][0-9]*$ ]] || ! [[ "${PREVIEW_HEADROOM}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "NEON_BRANCH_CAP and PREVIEW_HEADROOM must be positive integers"
             exit 1
           fi
 
           # Paginate GET /projects/{id}/branches (Neon API v2).
-          all='[]'
+          pages='[]'
           cursor=""
           while true; do
             url="https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}/branches?limit=100&sort_by=created_at&sort_order=asc"
@@ -102,28 +115,18 @@ jobs:
               cat "$tmp"
               exit 1
             fi
-            all="$(jq -n --argjson acc "$all" --argjson page "$(cat "$tmp")" '$acc + ($page.branches // [])')"
+            pages="$(jq -n --argjson acc "$pages" --argjson page "$(cat "$tmp")" '$acc + [$page]')"
             cursor="$(jq -r '.pagination.next // empty' "$tmp")"
             rm -f "$tmp"
             [ -z "$cursor" ] && break
           done
+          all="$(node scripts/ci/neon-preview-prune-plan.mjs collect <<<"$pages")"
 
           echo "Total branches in project: $(jq 'length' <<<"$all")"
           echo "All branch names:"
           jq -r '.[] | "- \(.name) (\(.id), created \(.created_at), default=\(.default), protected=\(.protected))"' <<<"$all"
 
-          # Eligible = preview/* only. Belt-and-suspenders skip for
-          # default/protected and production-like names.
-          preview="$(jq -c '
-            [.[]
-              | select(.name | startswith("preview/"))
-              | select((.name | ascii_downcase) != "main")
-              | select((.name | ascii_downcase) != "production")
-              | select((.name | ascii_downcase) != "prod")
-              | select(.default != true)
-              | select(.protected != true)
-            ] | sort_by(.created_at)
-          ' <<<"$all")"
+          preview="$(node scripts/ci/neon-preview-prune-plan.mjs eligible <<<"$all")"
 
           # Stale = no open PR for the git branch and at least one closed or
           # merged PR. Branches without a PR yet are never stale; lookup errors
@@ -140,26 +143,26 @@ jobs:
             fi
           done < <(jq -r '.[].name' <<<"$preview")
 
-          count="$(jq 'length' <<<"$preview")"
-          echo "Deletable preview/* count: ${count} (exclusive keep_below ${PREVIEW_KEEP_BELOW}; keep newest $((PREVIEW_KEEP_BELOW - 1)))"
+          result="$(node scripts/ci/neon-preview-prune-plan.mjs plan --cap "$NEON_BRANCH_CAP" --headroom "$PREVIEW_HEADROOM" --stale "$stale" <<<"$all")"
+          total="$(jq -r '.total' <<<"$result")"
+          target="$(jq -r '.target' <<<"$result")"
+          after="$(jq -r '.after' <<<"$result")"
+          status="$(jq -r '.status' <<<"$result")"
+          plan="$(jq -c '.plan' <<<"$result")"
+          echo "Project branches: total ${total}, cap ${NEON_BRANCH_CAP}, headroom ${PREVIEW_HEADROOM}, target ${target}"
+          echo "Eligible preview/* branches: $(jq 'length' <<<"$preview")"
           jq -r '.[] | "- \(.name) (\(.id), created \(.created_at))"' <<<"$preview"
           echo "Stale (no open PR; closed or merged): $(jq -r 'if length == 0 then "none" else join(", ") end' <<<"$stale")"
-
-          # Stale previews first, then the oldest open ones until below threshold.
-          plan="$(jq -c --argjson stale "$stale" --argjson keep "$PREVIEW_KEEP_BELOW" '
-            map(select(.name as $n | any($stale[]; . == $n))) as $s
-            | map(select(.name as $n | any($stale[]; . == $n) | not)) as $rest
-            | (($rest | length) - $keep + 1) as $extra
-            | $s + $rest[0:(if $extra > 0 then $extra else 0 end)]
-          ' <<<"$preview")"
-
-          to_delete="$(jq 'length' <<<"$plan")"
-          if [ "$to_delete" -eq 0 ]; then
-            echo "No stale previews and count is below ${PREVIEW_KEEP_BELOW}; no-op."
-            exit 0
+          if [ "$total" -ge "$NEON_BRANCH_CAP" ]; then
+            echo "::warning::Project was at the Neon branch cap before pruning (total ${total}, cap ${NEON_BRANCH_CAP})."
           fi
 
-          echo "Deleting ${to_delete} preview/* branch(es): stale first, then oldest, to leave count < ${PREVIEW_KEEP_BELOW}."
+          to_delete="$(jq 'length' <<<"$plan")"
+          echo "Plan: ${to_delete} preview/* branch(es), stale first, then oldest; projected total after pruning: ${after}."
+          jq -r '.[] | "- \(.name) (\(.id), created \(.created_at))"' <<<"$plan"
+          if [ "$to_delete" -eq 0 ] && [ "$status" = "ok" ]; then
+            echo "No stale previews and project total is within target; no-op."
+          fi
 
           mapfile -t rows < <(jq -c '.[]' <<<"$plan")
           for row in "${rows[@]}"; do
@@ -167,7 +170,9 @@ jobs:
             name="$(jq -r '.name' <<<"$row")"
             created="$(jq -r '.created_at' <<<"$row")"
 
-            if [[ "$name" != preview/* ]] || [ "$id" = "null" ] || [ -z "$id" ]; then
+            ref="${name#preview/}"
+            ref="${ref,,}"
+            if [[ "$name" != preview/* ]] || [[ "$ref" == "main" || "$ref" == "production" || "$ref" == "prod" ]] || [ "$id" = "null" ] || [ -z "$id" ]; then
               echo "Refusing to delete unexpected row: ${row}"
               exit 1
             fi
@@ -194,4 +199,11 @@ jobs:
             rm -f "$del"
           done
 
+          noneligible="$(jq -r --argjson preview "$preview" 'map(.name) - ($preview | map(.name)) | if length == 0 then "none" else join(", ") end' <<<"$all")"
+          if [ "$status" = "short" ]; then
+            echo "::warning::Projected total after pruning ${after} exceeds target ${target}; at least one slot is free under cap ${NEON_BRANCH_CAP}, but branches the prune never deletes (non-preview, default or protected) fill the rest: ${noneligible}."
+          elif [ "$status" = "full" ]; then
+            echo "::error::Project is at the Neon cap (${NEON_BRANCH_CAP}); no preview/* branches left to delete. The next preview deployment will fail. Non-eligible branches: ${noneligible}."
+            exit 1
+          fi
           echo "Prune finished."
