@@ -3,6 +3,7 @@
 import { hashKey, keepPreviousData } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { browserHomeQueryClient, publicQueryKey, useHomeQuery } from "@/client/query/query-client";
+import { publicQuery } from "@/client/query/query-options";
 import { publicResource } from "@/client/query/public-resource";
 import {
   MARKET_HISTORY_PRIORITY_HEADER,
@@ -41,13 +42,11 @@ async function fetchHistory(
   return payload;
 }
 
-export function usePriceHistory(assetId: string, range: MarketPriceRange, options: { speculative?: boolean } = {}): PriceHistoryState {
+export function priceHistoryOptions(assetId: string, range: MarketPriceRange, options: { speculative?: boolean } = {}) {
   const speculative = options.speculative === true;
-  const queryKey = publicQueryKey("price-history", assetId, range);
-  const queryHash = hashKey(queryKey);
-  const query = useHomeQuery<MarketPriceHistoryResponse>({
-    queryKey,
-    staleTime: 60_000,
+  const queryHash = hashKey(publicQueryKey("price-history", assetId, range));
+  return publicQuery<MarketPriceHistoryResponse>({
+    scope: "price-history", key: [assetId, range],
     retry: false,
     refetchOnWindowFocus: false,
     placeholderData: (previous, previousQuery) =>
@@ -64,6 +63,13 @@ export function usePriceHistory(assetId: string, range: MarketPriceRange, option
       }
     },
   });
+}
+
+export function usePriceHistory(assetId: string, range: MarketPriceRange, options: { speculative?: boolean } = {}): PriceHistoryState {
+  const speculative = options.speculative === true;
+  const queryKey = publicQueryKey("price-history", assetId, range);
+  const queryHash = hashKey(queryKey);
+  const query = useHomeQuery(priceHistoryOptions(assetId, range, options));
   const { fetchStatus, refetch } = query;
   const liveHash = useRef<string | null>(null);
   useEffect(() => {

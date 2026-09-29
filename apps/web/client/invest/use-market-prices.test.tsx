@@ -120,7 +120,6 @@ describe("useMarketPrices", () => {
         return clock;
       },
       freshnessMs,
-      refreshCooldownMs: 60_000,
     };
     render(<HookProbe options={options} />);
 
@@ -151,7 +150,6 @@ describe("useMarketPrices", () => {
           ? { ...ready, markets: { ...ready.markets, stock: { status: "error", message: "Current market prices are unavailable." } } }
           : ready);
       }),
-      refreshCooldownMs: 0,
       sessionRecheckMs: 20,
     };
     render(<HookProbe options={options} />);

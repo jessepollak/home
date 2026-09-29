@@ -165,15 +165,8 @@
     "apps/web/client/invest/pinned-trade-bar.tsx": {
       "assertion": 4
     },
-    "apps/web/client/invest/use-invest-discover.ts": {
-      "assertion": 1,
-      "nonNull": 1
-    },
     "apps/web/client/invest/use-market-prices.ts": {
       "assertion": 1
-    },
-    "apps/web/client/invest/use-resolved-asset.ts": {
-      "nonNull": 1
     },
     "apps/web/client/investments/investments-overview.tsx": {
       "nonNull": 3

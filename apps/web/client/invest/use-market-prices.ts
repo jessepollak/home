@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { publicQueryKey, useHomeQuery } from "@/client/query/query-client";
+import { useHomeQuery } from "@/client/query/query-client";
+import { publicQuery } from "@/client/query/query-options";
 import { publicResource, PublicResourceError } from "@/client/query/public-resource";
 import { investAssets } from "@/config/invest-assets";
 import {
@@ -18,7 +19,6 @@ import {
 } from "@/shared/invest/invest-market";
 
 const MARKET_PRICES_ENDPOINT = "/api/market-prices";
-const VISIBILITY_REFRESH_COOLDOWN_MS = 60_000;
 const categories = [...new Set(investAssets.map((asset) => asset.category))];
 
 type FetchLike = (
@@ -38,22 +38,15 @@ export type UseMarketPricesOptions = {
   fetchImpl?: FetchLike;
   now?: () => number;
   freshnessMs?: number;
-  refreshCooldownMs?: number;
   sessionRecheckMs?: number;
 };
 
-export function useMarketPrices({
+export function marketPricesOptions({
   endpoint = MARKET_PRICES_ENDPOINT,
   fetchImpl = fetch,
-  now = Date.now,
-  freshnessMs = MARKET_PRICE_DISPLAY_FRESHNESS_MS,
-  sessionRecheckMs = MARKET_SESSION_RECHECK_MS,
-  refreshCooldownMs = VISIBILITY_REFRESH_COOLDOWN_MS,
-}: UseMarketPricesOptions = {}): PricedInvestMarketProps {
-  const [ageRevision, setAgeRevision] = useState(0);
-  const marketQuery = useHomeQuery({
-    queryKey: publicQueryKey("market-prices", endpoint),
-    staleTime: refreshCooldownMs,
+}: { endpoint?: string; fetchImpl?: FetchLike } = {}) {
+  return publicQuery<MarketPricesResponse>({
+    scope: "market-prices", key: [endpoint],
     retry: false,
     refetchOnWindowFocus: false,
     queryFn: async ({ signal }) => {
@@ -72,6 +65,17 @@ export function useMarketPrices({
       return payload;
     },
   });
+}
+
+export function useMarketPrices({
+  endpoint = MARKET_PRICES_ENDPOINT,
+  fetchImpl = fetch,
+  now = Date.now,
+  freshnessMs = MARKET_PRICE_DISPLAY_FRESHNESS_MS,
+  sessionRecheckMs = MARKET_SESSION_RECHECK_MS,
+}: UseMarketPricesOptions = {}): PricedInvestMarketProps {
+  const [ageRevision, setAgeRevision] = useState(0);
+  const marketQuery = useHomeQuery(marketPricesOptions({ endpoint, fetchImpl }));
   const refetchMarketPrices = marketQuery.refetch;
   const marketResponse = marketQuery.data
     ? ageMarketPricesResponse(marketQuery.data, now(), freshnessMs, sessionRecheckMs)
