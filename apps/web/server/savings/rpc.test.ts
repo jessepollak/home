@@ -97,7 +97,7 @@ describe("savings action RPC state", () => {
     const singles = requests.filter(
       (body): body is { method: string; params: unknown[] } => !Array.isArray(body),
     );
-    expect(requests.every((body) => !Array.isArray(body))).toBeTrue();
+    expect(singles).toHaveLength(requests.length);
     const calls = singles.filter((entry) => entry.method === "eth_call");
     expect(calls).toHaveLength(8);
     expect(calls.find((entry) => (entry.params[0] as { data: string }).data.startsWith("0xdd62ed3e"))?.params[0]).toEqual({
