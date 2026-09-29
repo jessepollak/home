@@ -12,6 +12,7 @@ import {
   FUNDING_ORDER_RESOLUTION_VERSION,
   parseResolveFundingOrderRequest,
 } from "@/shared/funding/contracts/order-resolution";
+import { assertFundingOpenOrderResponse, FUNDING_OPEN_ORDER_VERSION } from "@/shared/funding/contracts/open-order";
 import { emitUnknownFundingOrderRouteFailure } from "./event";
 
 type FundingOrderPostDependencies = {
@@ -99,9 +100,12 @@ export async function handleFundingOpenOrderGet(
   const region = new URL(request.url).searchParams.get("region");
   if (!region) return privateError("INVALID_REGION", "Choose a country first.", 400);
   try {
-    return privateJson({
+    const response = {
+      version: FUNDING_OPEN_ORDER_VERSION,
       order: await dependencies.getOpenOrder(authorized.session, region),
-    });
+    };
+    assertFundingOpenOrderResponse(response, region);
+    return privateJson(response);
   } catch {
     emitUnknownFundingOrderRouteFailure({
       route: "/api/funding/orders",

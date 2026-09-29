@@ -6,6 +6,7 @@ import { GET as openOrders, POST as createOrder } from "./orders/route";
 import { GET as orderStatus } from "./orders/[id]/route";
 import { POST as resolveOrder } from "./orders/[id]/resolve/route";
 import { GET as providerCustomers } from "./provider-customers/route";
+import { handleFundingProviderCustomersGet } from "./provider-customers/handler";
 import { POST as startProviderCustomerVerification } from "./provider-customers/verification/route";
 import { POST as webhook } from "./webhooks/[provider]/route";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
@@ -16,6 +17,9 @@ import {
   handleFundingOrderResolutionPost,
 } from "./orders/handler";
 import { FundingCoreError } from "@/server/funding/core/service";
+import { assertFundingProvidersResponse } from "@/shared/funding/contracts/providers";
+import { assertFundingProviderCustomersResponse } from "@/shared/funding/contracts/provider-customers";
+import { assertFundingOpenOrderResponse, FUNDING_OPEN_ORDER_VERSION } from "@/shared/funding/contracts/open-order";
 
 function assertPrivate(response: Response) {
   expect(response.headers.get("cache-control")).toContain("private");
@@ -48,12 +52,168 @@ describe("funding route privacy and rejection", () => {
 
     expect(response.status).toBe(200);
     assertPrivate(response);
-    expect(await response.json()).toEqual({
+    const body = await response.json();
+    assertFundingProvidersResponse(body, "onramp", "AR");
+    expect(body).toEqual({
       version: 3,
       direction: "onramp",
       providers: [],
     });
     expect(listCalls).toBe(0);
+  });
+
+  test("on-ramp provider discovery returns a client-parsable binding", async () => {
+    const binding = {
+      direction: "onramp", providerId: "ripio", displayName: "Ripio", region: "AR",
+      assetId: "base:wars", assetSymbol: "wARS", assetDecimals: 18, currency: "ARS",
+      paymentMethods: [{ id: "bank_transfer", label: "Bank transfer" }], quotes: true, customerSetup: { hosted: true },
+    };
+    const response = await handleFundingProvidersRequest(
+      new Request("https://home.example/api/funding/providers?region=AR&direction=onramp"),
+      {
+        authorize: async () => ({
+          user: { subject: "funding-user" },
+          smartAccount: { address: "0x1111111111111111111111111111111111111111", chainId: 8453 },
+          accountProvider: "cdp-embedded",
+        }),
+        databaseUrl: "postgres://configured",
+        listProviders: async () => [binding],
+      },
+    );
+    expect(response.status).toBe(200);
+    assertPrivate(response);
+    const body = await response.json();
+    assertFundingProvidersResponse(body, "onramp", "AR");
+    expect(body.providers).toEqual([binding]);
+  });
+
+  test("fails closed when provider discovery serves another region's binding", async () => {
+    const response = await handleFundingProvidersRequest(
+      new Request("https://home.example/api/funding/providers?region=AR&direction=onramp"),
+      {
+        authorize: async () => ({
+          user: { subject: "funding-user" },
+          smartAccount: { address: "0x1111111111111111111111111111111111111111", chainId: 8453 },
+          accountProvider: "cdp-embedded",
+        }),
+        databaseUrl: "postgres://configured",
+        listProviders: async () => [{
+          direction: "onramp", providerId: "ripio", displayName: "Ripio", region: "BR",
+          assetId: "base:wars", assetSymbol: "wARS", assetDecimals: 18, currency: "ARS",
+          paymentMethods: [{ id: "bank_transfer", label: "Bank transfer" }], quotes: true, customerSetup: { hosted: true },
+        }],
+      },
+    );
+    expect(response.status).toBe(503);
+    assertPrivate(response);
+    expect(await response.json()).toEqual({ error: { code: "PROVIDERS_UNAVAILABLE", message: "Funding methods are unavailable." } });
+  });
+
+  test("provider-customer GET returns a client-parsable customer", async () => {
+    const customer = { providerId: "ripio", region: "AR", state: "verified", verificationStartedAt: null, updatedAt: "2026-09-18T00:00:00.000Z" };
+    const response = await handleFundingProviderCustomersGet(
+      new Request("https://home.example/api/funding/provider-customers?region=AR"),
+      {
+        authorize: async () => ({
+          user: { subject: "funding-user" },
+          smartAccount: { address: "0x1111111111111111111111111111111111111111", chainId: 8453 },
+          accountProvider: "cdp-embedded",
+        }),
+        listProviderCustomers: async () => [customer],
+      },
+    );
+    expect(response.status).toBe(200);
+    assertPrivate(response);
+    const body = await response.json();
+    assertFundingProviderCustomersResponse(body, "AR");
+    expect(body.customers).toEqual([customer]);
+  });
+
+  test("fails closed when provider-customer GET serves another region's customer", async () => {
+    const response = await handleFundingProviderCustomersGet(
+      new Request("https://home.example/api/funding/provider-customers?region=AR"),
+      {
+        authorize: async () => ({
+          user: { subject: "funding-user" },
+          smartAccount: { address: "0x1111111111111111111111111111111111111111", chainId: 8453 },
+          accountProvider: "cdp-embedded",
+        }),
+        listProviderCustomers: async () => [{ providerId: "ripio", region: "BR", state: "verified", verificationStartedAt: null, updatedAt: "2026-09-18T00:00:00.000Z" }],
+      },
+    );
+    expect(response.status).toBe(503);
+    assertPrivate(response);
+    expect(await response.json()).toEqual({ error: { code: "CUSTOMERS_UNAVAILABLE", message: "Provider setup is unavailable." } });
+  });
+
+  test("open-order GET returns a client-parsable order with complete instructions", async () => {
+    const order = {
+      id: "11111111-1111-4111-8111-111111111111", providerId: "idrx", region: "ID",
+      state: "awaiting-payment", fiatAmount: "20000", providerStatus: null,
+      instructions: { kind: "redirect" as const, url: "https://checkout.idrx.co/?token=synthetic" },
+    };
+    const response = await handleFundingOpenOrderGet(
+      new Request("https://home.example/api/funding/orders?region=ID"),
+      {
+        authorize: async () => ({
+          user: { subject: "funding-user" },
+          smartAccount: { address: "0x1111111111111111111111111111111111111111", chainId: 8453 },
+          accountProvider: "cdp-embedded",
+        }),
+        getOpenOrder: async () => order,
+      },
+    );
+    expect(response.status).toBe(200);
+    assertPrivate(response);
+    const body = await response.json();
+    assertFundingOpenOrderResponse(body, "ID");
+    expect(body).toEqual({ version: FUNDING_OPEN_ORDER_VERSION, order });
+  });
+
+  test("fails closed when the open-order GET serves another region's order", async () => {
+    const response = await handleFundingOpenOrderGet(
+      new Request("https://home.example/api/funding/orders?region=AR"),
+      {
+        authorize: async () => ({
+          user: { subject: "funding-user" },
+          smartAccount: { address: "0x1111111111111111111111111111111111111111", chainId: 8453 },
+          accountProvider: "cdp-embedded",
+        }),
+        getOpenOrder: async () => ({
+          id: "11111111-1111-4111-8111-111111111111", providerId: "idrx", region: "ID",
+          state: "awaiting-payment", fiatAmount: "20000", providerStatus: null, instructions: null,
+        }),
+      },
+    );
+    expect(response.status).toBe(503);
+    assertPrivate(response);
+    expect(await response.json()).toEqual({ error: { code: "ORDER_UNAVAILABLE", message: "The funding order is unavailable." } });
+  });
+
+  test.each([
+    ["null fee", { fees: [null] }],
+    ["non-string atomic amount", { expectedTokenAmountAtomic: { amount: "2000000" } }],
+    ["partial quote", { quote: { fiatAmount: "20000" } }],
+  ])("fails closed when the open-order GET serves a malformed %s", async (_case, fields) => {
+    const response = await handleFundingOpenOrderGet(
+      new Request("https://home.example/api/funding/orders?region=ID"),
+      {
+        authorize: async () => ({
+          user: { subject: "funding-user" },
+          smartAccount: { address: "0x1111111111111111111111111111111111111111", chainId: 8453 },
+          accountProvider: "cdp-embedded",
+        }),
+        getOpenOrder: async () => ({
+          id: "11111111-1111-4111-8111-111111111111", providerId: "idrx", region: "ID",
+          state: "awaiting-payment", fiatAmount: "20000", providerStatus: null,
+          instructions: { kind: "redirect", url: "https://example.com/pay" },
+          ...fields,
+        }),
+      },
+    );
+    expect(response.status).toBe(503);
+    assertPrivate(response);
+    expect(await response.json()).toEqual({ error: { code: "ORDER_UNAVAILABLE", message: "The funding order is unavailable." } });
   });
 
   test("passes the requested funding direction to provider discovery", async () => {

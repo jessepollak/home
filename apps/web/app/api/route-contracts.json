@@ -39,7 +39,7 @@
     "client-performance/route.ts": { "contracts": ["shared/observability/client-performance.contract.ts"] },
     "funding/orders/[id]/resolve/route.ts": { "contracts": ["shared/funding/contracts/order-resolution.ts"] },
     "funding/orders/[id]/route.ts": { "contracts": ["shared/funding/contracts/order.ts"] },
-    "funding/orders/route.ts": { "contracts": ["shared/funding/contracts/order.ts"] },
+    "funding/orders/route.ts": { "contracts": ["shared/funding/contracts/open-order.ts", "shared/funding/contracts/order.ts"] },
     "funding/provider-customers/route.ts": { "contracts": ["shared/funding/contracts/provider-customers.ts"] },
     "funding/provider-customers/verification/route.ts": { "contracts": ["shared/funding/contracts/provider-customers.ts"] },
     "funding/providers/route.ts": { "contracts": ["shared/funding/contracts/providers.ts"] },

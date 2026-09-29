@@ -3,7 +3,7 @@
 import { Item, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item";
 import type { InvestAsset } from "@/config/invest-assets";
 import type { ExactDecimal } from "@/shared/balances/types";
-import { formatChartPrice, formatPresentationPrice, formatTrimmedChartPrice } from "@/shared/formatting";
+import { formatChartPrice, formatPresentationDate, formatPresentationPrice, formatTrimmedChartPrice } from "@/shared/formatting";
 import type { MarketDataState } from "@/shared/invest/invest-market";
 import { endsEarly, scrubTime, type ChartClock } from "./asset-chart-support";
 import { usePresentationQuote, usePresentationRegionId } from "./presentation-quote";
@@ -18,10 +18,11 @@ function RangeStat({ history, day, range, now, snapshotPrice }: {
   snapshotPrice: number | null;
 }) {
   const regionId = usePresentationRegionId();
-  if (history.status !== "ready" || history.points.length < 2) return null;
+  if ((history.status !== "ready" && history.status !== "stale") || history.points.length < 2) return null;
   const last = history.points.at(-1)!;
   if (Date.parse(last.time) < now - (range === "1D" ? 86400000 : 7 * 86400000)) return null;
-  const series = [...history.points, ...(range === "1Y" && day.status === "ready" ? day.points : [])];
+  const dayContributes = range === "1Y" && (day.status === "ready" || day.status === "stale") && day.points.length > 0;
+  const series = [...history.points, ...(dayContributes ? day.points : [])];
   const closes = series.map((point) => Number(point.value));
   const low = Math.min(...closes);
   const high = Math.max(...closes);
@@ -37,8 +38,14 @@ function RangeStat({ history, day, range, now, snapshotPrice }: {
   const formattedLow = formatPresentationPrice(low.toString(), "USD", regionId);
   const formattedHigh = formatPresentationPrice(high.toString(), "USD", regionId);
   const formattedCurrent = formatPresentationPrice(current.toString(), "USD", regionId);
+  const failedAsOf = [history.status === "stale" ? history.asOf : null, dayContributes && day.status === "stale" ? day.asOf : null]
+    .filter((value): value is number => value !== null);
+  const staleAsOf = failedAsOf.length ? Math.min(...failedAsOf) : null;
   return <div role="group" aria-label={`${label} closing-price low ${formattedLow}, high ${formattedHigh}, current ${formattedCurrent}`} className="space-y-2 py-2">
     <p className="text-sm font-medium">{label} <span className="font-normal text-muted-foreground">· Closing prices</span></p>
+    {staleAsOf !== null ? <p role="status" className="text-xs text-muted-foreground">
+      Couldn&apos;t refresh history · last updated {formatPresentationDate(staleAsOf, { regionId, style: "date-time-zone" })}
+    </p> : null}
     <div className="flex items-center gap-3 text-xs tabular-nums">
       <span className="shrink-0">{formattedLow}</span>
       <div aria-hidden="true" className="relative h-1 min-w-0 flex-1 rounded-full bg-border">
@@ -69,7 +76,7 @@ export function AssetStats({ asset, market, clock }: { asset: InvestAsset; marke
   const snapshot = market.status === "ready" ? market.snapshots.find((item) => item.assetId === asset.id) : undefined;
   const parsedPrice = snapshot ? Number(snapshot.displayPrice.replace(/[$,]/g, "")) : NaN;
   const snapshotPrice = Number.isFinite(parsedPrice) ? parsedPrice : null;
-  const hasRow = (history: PriceHistoryState, maxAge: number) => history.status === "ready"
+  const hasRow = (history: PriceHistoryState, maxAge: number) => (history.status === "ready" || history.status === "stale")
     && history.points.length >= 2 && Date.parse(history.points.at(-1)!.time) >= clock.value - maxAge;
   const tiles: Array<[string, ExactDecimal]> = asset.category === "stock" || !stats ? [] : [
     ...(stats.marketCapUsd ? [["Market cap", stats.marketCapUsd] as [string, ExactDecimal]] : []),

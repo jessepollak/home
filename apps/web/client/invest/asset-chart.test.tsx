@@ -2,10 +2,10 @@ import "@/client/account/dom-test-harness";
 
 import React from "react";
 import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
-import { getHomeQueryClient } from "@/client/query/query-client";
+import { getHomeQueryClient, publicQueryKey } from "@/client/query/query-client";
 import type { MarketPriceRange } from "@/shared/invest/contracts/market-price-history";
 
-const { cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
+const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { AssetChart } = await import("./asset-chart");
 const originalFetch = window.fetch;
 const now = Date.parse("2026-09-25T12:00:00.000Z");
@@ -17,12 +17,12 @@ window.matchMedia = ((query: string) => ({
   dispatchEvent: () => true,
 })) as typeof window.matchMedia;
 
-function payload(range: MarketPriceRange, values: number[] = [100, 120]) {
-  return { version: 1, provider: "codex", assetId: "cbbtc", range, currency: "USD",
+function payload(range: MarketPriceRange, values: number[] = [100, 120], assetId = "cbbtc") {
+  return { version: 1, provider: "codex", assetId, range, currency: "USD",
     fetchedAt: new Date(now).toISOString(), status: values.length ? "ready" : "empty",
     points: values.map((value, index) => ({ time: new Date(now - (values.length - index) * 3600000).toISOString(), value: String(value) })) };
 }
-function Harness() {
+function Harness({ assetId = "cbbtc" }: { assetId?: string }) {
   const [range, setRange] = React.useState<MarketPriceRange>("1W");
   const [resting, setResting] = React.useState({ change: "", pending: true });
   const [readout, setReadout] = React.useState("");
@@ -34,7 +34,7 @@ function Harness() {
     <output data-testid="range">{range}</output>
     <output data-testid="change">{resting.pending ? "pending" : resting.change}</output>
     <output data-testid="readout">{resting.pending ? "" : readout}</output>
-    <AssetChart assetId="cbbtc" range={range} clock={clock} onRangeChange={(value) => {
+    <AssetChart assetId={assetId} range={range} clock={clock} onRangeChange={(value) => {
       setReadout(""); setResting({ change: "", pending: true }); setRange(value);
     }} onReadout={onReadout} onResting={onResting} />
   </>;
@@ -108,4 +108,51 @@ test("failed history offers Try again and retry refetches; empty history shows n
   await waitFor(() => expect(calls).toBe(2));
   await waitFor(() => expect(view.getByText("No price history for this range.")).toBeTruthy());
   expect(view.queryByRole("button", { name: "Try again" })).toBeNull();
+});
+
+test("failed cached refetch keeps a labelled old plot until retry succeeds", async () => {
+  let failed = false;
+  let calls = 0;
+  window.fetch = (async (input: RequestInfo | URL) => {
+    const range = new URL(String(input), "http://localhost").searchParams.get("range") as MarketPriceRange;
+    if (range !== "1W") return Response.json(payload(range, []));
+    calls++;
+    return failed ? Response.json({ invalid: true }) : Response.json(payload(range, calls === 1 ? [100, 120] : [100, 130]));
+  }) as typeof fetch;
+  const view = render(<Harness />);
+  const chart = await view.findByRole("group", { name: /1 week price history, 2 points/ });
+  expect(chart.getAttribute("aria-label")).not.toContain("Couldn't refresh");
+  failed = true;
+  await act(async () => { await getHomeQueryClient().invalidateQueries({ queryKey: publicQueryKey("price-history", "cbbtc", "1W") }); });
+  const retry = await view.findByRole("button", { name: "Try again" });
+  expect(view.getByRole("alert").textContent).toContain("Couldn't refresh price history · last updated");
+  expect(view.getByRole("group", { name: /1 week price history, 2 points.*Couldn't refresh/ })).toBeTruthy();
+  await waitFor(() => expect(view.getByTestId("change").textContent).toContain("+20.00%"));
+  expect(view.queryByText("No price history for this range.")).toBeNull();
+  failed = false;
+  fireEvent.click(retry);
+  await waitFor(() => expect(view.getByTestId("change").textContent).toContain("+30.00%"));
+  expect(view.queryByRole("alert")).toBeNull();
+  expect(view.getByRole("group", { name: /1 week price history, 2 points/ }).getAttribute("aria-label")).not.toContain("Couldn't refresh");
+  expect(calls).toBe(3);
+});
+
+test("switching asset identity cannot draw or scrub the prior asset's plot", async () => {
+  let resolveNext!: (response: Response) => void;
+  const nextAsset = new Promise<Response>((resolve) => { resolveNext = resolve; });
+  window.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(String(input), "http://localhost");
+    const range = url.searchParams.get("range") as MarketPriceRange;
+    return url.searchParams.get("assetId") === "cbltc" ? nextAsset : Response.json(payload(range, range === "1W" ? [100, 120] : []));
+  }) as typeof fetch;
+  const view = render(<Harness />);
+  await view.findByRole("group", { name: /1 week price history, 2 points/ });
+  await waitFor(() => expect(view.getByTestId("change").textContent).toContain("+20.00%"));
+  view.rerender(<Harness assetId="cbltc" />);
+  expect(view.getByRole("status", { name: "Loading price history" })).toBeTruthy();
+  expect(view.container.querySelector('[data-layer-range="1W"]')).toBeNull();
+  expect(view.queryByRole("group", { name: /1 week price history/ })).toBeNull();
+  resolveNext(Response.json(payload("1W", [10, 11], "cbltc")));
+  await waitFor(() => expect(view.getByRole("group", { name: /1 week price history, 2 points/ })).toBeTruthy());
+  await waitFor(() => expect(view.getByTestId("change").textContent).toContain("+10.00%"));
 });

@@ -17,6 +17,7 @@ import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/quer
 import { preloadAddMoneySheet } from "@/client/funding/funding-experience";
 import { prefetchAddMoneyMethods } from "@/client/funding/funding-prefetch";
 import { browserHomeQueryClient, getHomeQueryClient, useHomeQueryClient } from "@/client/query/query-client";
+import { queryViewState } from "@/client/query/query-view-state";
 import { useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 import { usePresentationRegionId } from "@/client/invest/presentation-quote";
 import { SavingsJourney, type SavingsActionMode, type SavingsJourneyEntry } from "@/client/savings/savings-actions";
@@ -325,7 +326,8 @@ export function CashExperience({
     [metadata],
   );
   const rateNowMs = useNow(metadata, nextDeadline, now);
-  const vaultStatus = metadata ? "ready" : query.isError ? "failed" : "loading";
+  const vaultView = queryViewState(query, { hasCachedData: metadata !== null });
+  const vaultStatus = vaultView === "failed" ? "failed" : vaultView === "loading" ? "loading" : "ready";
   const liveSnapshot = balanceStatus === "failed" ? null : snapshot;
   const positions = useMemo(
     () => (liveSnapshot ? selectVaultPositions(liveSnapshot) : null),
