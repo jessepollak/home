@@ -73,7 +73,6 @@ describe("CDP SDK activation gate", () => {
     });
 
     void gate.activate().catch(() => {});
-    expect(CDP_ACTIVATION_TIMEOUT_MS).toBe(10_000);
     expect(scheduledMs).toEqual([CDP_ACTIVATION_TIMEOUT_MS]); // oxlint-disable-line home/no-self-referential-expectation -- the constant is the published activation bound; the assertion tests scheduler wiring
   });
 

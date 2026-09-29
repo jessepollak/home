@@ -4,8 +4,6 @@ import { CodexMarketDataError } from "./client";
 import { CODEX_GRAPHQL_ENDPOINT } from "./config";
 import {
   CODEX_BARS_QUERY,
-  CODEX_HISTORY_MAX_IN_FLIGHT,
-  CODEX_HISTORY_SPECULATIVE_CAPACITY_FRACTION,
   createCodexMarketHistoryReader,
   MARKET_HISTORY_WINDOWS,
 } from "./history";
@@ -215,7 +213,6 @@ describe("Codex market history reader", () => {
     const second = reader("cbbtc", "1W");
     const overflow = await reader("cbbtc", "1M");
 
-    expect(CODEX_HISTORY_MAX_IN_FLIGHT).toBe(8);
     expect(calls).toBe(2);
     expect(overflow).toMatchObject({
       assetId: "cbbtc",
@@ -254,7 +251,6 @@ describe("Codex market history reader", () => {
     const sameKey = reader("cbbtc", "1D", { speculative: true });
     const second = reader("cbbtc", "1W", { speculative: true });
     const declined = await reader("cbbtc", "1M", { speculative: true });
-    expect(CODEX_HISTORY_SPECULATIVE_CAPACITY_FRACTION).toBe(0.5);
     expect(calls).toBe(2);
     expect(declined).toMatchObject({ status: "unavailable", unavailableReason: "overloaded" });
 

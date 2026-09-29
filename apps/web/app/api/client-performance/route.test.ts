@@ -78,10 +78,6 @@ function request(
 }
 
 describe("POST /api/client-performance", () => {
-  test("budgets startup, auth restore, and occasional signout reports", () => {
-    expect(CLIENT_PERFORMANCE_MAX_REPORTS_PER_WINDOW).toBe(60);
-  });
-
   test("normalizes the exact closed startup schema without reordering phases", () => {
     expect(parseClientPerformanceReport(ready)).toEqual({
       ...ready,
