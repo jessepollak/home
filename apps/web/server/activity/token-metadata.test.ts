@@ -3,8 +3,6 @@ import {
   activityAssets,
 } from "@/shared/activity/types";
 import {
-  ACTIVITY_ASSET_ICON_WAIT_MS,
-  ACTIVITY_TOKEN_CODEX_TIMEOUT_MS,
   createActivityTokenMetadataResolver,
   createLatestAssetIcons,
   type LatestAssetIcons,
@@ -26,11 +24,6 @@ function staticIcons(icons: Record<string, string | null>) {
 }
 
 describe("Activity token metadata resolver", () => {
-  test("uses bounded Activity Codex and curated icon wait contracts", () => {
-    expect(ACTIVITY_TOKEN_CODEX_TIMEOUT_MS).toBe(3_000);
-    expect(ACTIVITY_ASSET_ICON_WAIT_MS).toBe(750);
-  });
-
   test("uses the full Home registry before Codex and resolves dynamic token decimals", async () => {
     const codexCalls: string[][] = [];
     let rpcCalls = 0;

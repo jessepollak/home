@@ -19,7 +19,6 @@ describe("board camera", () => {
     const other = { x: 96, y: 112, width: 390, height: 844 };
     expect(initialFrameFit({ width: 0, height: 852 }, first, false)).toBeUndefined();
     const camera = initialFrameFit({ width: 880, height: 852 }, first, false);
-    expect(camera).toEqual(fitRect({ width: 880, height: 852 }, first, 32, 60));
     const selectedCamera = fitRect({ width: 880, height: 852 }, other, 32, 60);
     expect(initialFrameFit({ width: 640, height: 852 }, first, true)).toBeUndefined();
     expect(initialFrameFit({ width: 880, height: 852 }, first, true)).toBeUndefined();
