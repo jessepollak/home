@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   BaseRpcError,
+  BASE_RPC_MAX_RESPONSE_BYTES,
   baseRpc,
   baseRpcBatch,
   createBaseRpcClient,
@@ -26,6 +27,14 @@ function single(body: FixtureBody): FixtureRequest {
 function batch(body: FixtureBody): FixtureRequest[] {
   if (!Array.isArray(body)) throw new Error("expected batch request");
   return body;
+}
+
+async function rpcFailure(fetchImpl: typeof fetch, options: { timeoutMs?: number; signal?: AbortSignal } = {}) {
+  return baseRpc("eth_blockNumber", [], {
+    rpcUrl: "https://rpc.example.test",
+    fetchImpl,
+    ...options,
+  }).then(() => null, (reason: unknown) => reason);
 }
 
 describe("Base RPC client", () => {
@@ -83,5 +92,62 @@ describe("Base RPC client", () => {
       fetchImpl: rpcFetch((body) => ({ jsonrpc: "2.0", id: single(body).id, result: "0x1" })),
     });
     await expect(wrong.assertBaseChain()).rejects.toBeInstanceOf(BaseRpcError);
+  });
+
+  test.each([
+    ["HTTP failure", () => new Response("unavailable", { status: 503 }), "Base RPC returned HTTP 503.", "http", 503],
+    ["malformed JSON", () => new Response("{broken"), "Base RPC returned malformed JSON.", "invalid-response", null],
+    ["oversized declared length", () => new Response("{}", { headers: { "content-length": String(BASE_RPC_MAX_RESPONSE_BYTES + 1) } }), "Base RPC returned an oversized response.", "invalid-response", null],
+    ["oversized streamed body", () => Response.json({ pad: "x".repeat(BASE_RPC_MAX_RESPONSE_BYTES) }), "Base RPC returned an oversized response.", "invalid-response", null],
+  ] as const)("maps %s to the RPC error contract", async (_case, response, message, code, httpStatus) => {
+    const error = await rpcFailure((async () => response()) as unknown as typeof fetch);
+    expect(error).toBeInstanceOf(BaseRpcError);
+    expect(error).toMatchObject({ message, code, httpStatus });
+  });
+
+  test("maps a thrown fetch to the transport error", async () => {
+    const error = await rpcFailure((async () => { throw new Error("network failed"); }) as unknown as typeof fetch);
+    expect(error).toBeInstanceOf(BaseRpcError);
+    expect(error).toMatchObject({ message: "The Base RPC transport failed.", code: "transport", httpStatus: null });
+  });
+
+  test("maps an unserializable request body to the transport error", async () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    const error = await baseRpc("eth_call", [circular], {
+      rpcUrl: "https://rpc.example.test",
+      fetchImpl: (async () => { throw new Error("unexpected dispatch"); }) as unknown as typeof fetch,
+    }).then(() => null, (reason: unknown) => reason);
+    expect(error).toBeInstanceOf(BaseRpcError);
+    expect(error).toMatchObject({ message: "The Base RPC transport failed.", code: "transport" });
+  });
+
+  test("aborts a stalled fetch at the deadline", async () => {
+    let sawAbort = false;
+    const error = await rpcFailure((async (_input, init) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => {
+        sawAbort = true;
+        reject(new DOMException("aborted", "AbortError"));
+      }, { once: true });
+    })) as typeof fetch, { timeoutMs: 10 });
+    expect(sawAbort).toBe(true);
+    expect(error).toBeInstanceOf(BaseRpcError);
+    expect(error).toMatchObject({ message: "The Base RPC request timed out or was aborted.", code: "aborted" });
+  });
+
+  test("does not dispatch with an already-aborted signal", async () => {
+    let calls = 0;
+    const error = await rpcFailure((async () => { calls += 1; throw new Error("unexpected dispatch"); }) as unknown as typeof fetch, { signal: AbortSignal.abort() });
+    expect(calls).toBe(0);
+    expect(error).toBeInstanceOf(BaseRpcError);
+    expect(error).toMatchObject({ message: "The Base RPC request timed out or was aborted.", code: "aborted" });
+  });
+
+  test.each([0, 30_001])("rejects the invalid timeout %p before dispatch", async (timeoutMs) => {
+    let calls = 0;
+    const error = await rpcFailure((async () => { calls += 1; throw new Error("unexpected dispatch"); }) as unknown as typeof fetch, { timeoutMs });
+    expect(calls).toBe(0);
+    expect(error).toBeInstanceOf(BaseRpcError);
+    expect(error).toMatchObject({ message: "The Base RPC timeout must be 1-30000ms.", code: "invalid-response" });
   });
 });
