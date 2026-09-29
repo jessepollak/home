@@ -69,6 +69,8 @@ jobs:
           node scripts/gates/failure-cases.mjs 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Gates
+        env:
+          BASE_REF: ${{ github.base_ref || github.event.before }}
         run: bun run gates
 
       - name: Static checks
