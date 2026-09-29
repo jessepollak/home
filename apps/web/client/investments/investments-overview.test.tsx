@@ -1,10 +1,11 @@
 import "@/client/account/dom-test-harness";
 
 import { describe, expect, test } from "bun:test";
+import { render } from "@testing-library/react";
 import { cryptoAssets } from "@/config/invest-assets";
 import { buildBalancesSnapshotFixture, walletHolding } from "@/shared/balances/fixtures";
 
-const { holdingsQuantity, quantity } = await import("./investments-overview");
+const { InvestmentsOverview, holdingsQuantity, quantity } = await import("./investments-overview");
 
 function configuredCrypto(id: string) {
   const asset = cryptoAssets.find((entry) => entry.id === id);
@@ -20,6 +21,29 @@ function holdingAt(address: string, symbol: string, decimals: number, baseUnits:
 }
 
 describe("investments route quantity precision", () => {
+  test("reuses snapshot selection when revealing rows and discards it on owner replacement", () => {
+    const catalog = Array.from({ length: 25 }, (_, index) =>
+      holdingAt(`0x${(index + 100).toString(16).padStart(40, "0")}`, `Asset ${String(index).padStart(2, "0")}`, 18, "1000000000000000000"));
+    const snapshot = buildBalancesSnapshotFixture({ catalog });
+    const holdings = snapshot.holdings;
+    let reads = 0;
+    Object.defineProperty(snapshot, "holdings", { get: () => { reads += 1; return holdings; } });
+    const props = { snapshot, balanceStatus: "ready" as const, visibleCount: 20, onVisibleCountChange: () => {}, onOpenAsset: () => {}, onRetryBalances: () => {} };
+    const view = render(<InvestmentsOverview {...props} />);
+    expect(view.getAllByRole("button", { description: /^Open Asset / })).toHaveLength(20);
+    const initialReads = reads;
+    view.rerender(<InvestmentsOverview {...props} visibleCount={25} />);
+    expect(view.getAllByRole("button", { description: /^Open Asset / })).toHaveLength(25);
+    expect(reads).toBe(initialReads);
+    const replacement = buildBalancesSnapshotFixture({ catalog: [holdingAt("0x9999999999999999999999999999999999999999", "Replacement", 18, "1000000000000000000")] });
+    replacement.owner = { ...replacement.owner, address: "0x9999999999999999999999999999999999999999" };
+    view.rerender(<InvestmentsOverview {...props} snapshot={replacement} />);
+    expect(view.queryByRole("button", { description: /^Open Asset / })).toBeNull();
+    expect(view.getByRole("button", { description: "Open Replacement" })).toBeTruthy();
+    view.rerender(<InvestmentsOverview {...props} snapshot={null} balanceStatus="loading" />);
+    expect(view.queryByRole("button", { description: "Open Replacement" })).toBeNull();
+  });
+
   test("formats a configured crypto quantity at major precision without an explicit category", () => {
     const { symbol, decimals } = configuredCrypto("cbhype");
     const baseUnits = (BigInt(12345) * BigInt(10) ** BigInt(decimals - 4)).toString();

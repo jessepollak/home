@@ -13,7 +13,7 @@ const owner = (provider: "base-account" | "cdp-embedded"): MoneyActionOwner => (
 function fixture(provider: "base-account" | "cdp-embedded"): ActionRow {
   return { id, owner_key: actionOwnerKey(owner(provider)), account_address: address, provider, kind: "send",
     summary: { title: "Send", amounts: [], warnings: [], expiresAt: "2099-01-01T00:00:00.000Z" }, pending: null,
-    created_at: new Date(), confirmed_at: new Date(), provider_handle: null, transaction_hash: null,
+    created_at: new Date("2026-09-28T12:00:00.000Z"), confirmed_at: new Date("2026-09-28T12:00:00.000Z"), provider_handle: null, transaction_hash: null,
     handle_recorded_at: null, declined_reported_at: null, dispatch_attempt: 0, outcome: null, outcome_source: null,
     settled_at: null, outcome_recorded_at: null };
 }

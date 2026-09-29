@@ -1,7 +1,7 @@
 import "@/client/account/dom-test-harness";
 
 import { useEffect } from "react";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import { getHomeQueryClient, ownerQueryKey, publicQueryKey, useHomeQuery } from "@/client/query/query-client";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { useActivity } from "@/client/activity/use-activity";
@@ -18,6 +18,8 @@ const walletA = "0x1111111111111111111111111111111111111111" as const;
 const walletB = "0x2222222222222222222222222222222222222222" as const;
 const other = "0x3333333333333333333333333333333333333333" as const;
 const token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const;
+const NOW = Date.parse("2026-09-28T12:00:00.000Z");
+beforeEach(() => setSystemTime(new Date(NOW)));
 
 function session(subject: string, address: typeof walletA | typeof walletB): VerifiedAccountSession {
   return { user: { subject }, smartAccount: { address, chainId: 8453 }, accountProvider: "cdp-embedded" };
@@ -88,7 +90,7 @@ function Harness({ owner, fetchActivity, reads, capture, regionId = "GLOBAL", en
 function fixture() {
   const owner = session("subject-a", walletA);
   const key = dataOwnerKey(owner);
-  const oldEnd = new Date(Date.now() - 120_000).toISOString();
+  const oldEnd = new Date(NOW - 120_000).toISOString();
   getHomeQueryClient().setQueryData(ownerQueryKey(key, "activity-window"), oldEnd);
   const calls = { balances: 0, actions: 0, vaults: 0, borrow: 0, activity: [] as string[] };
   const reads = {
@@ -152,6 +154,7 @@ async function ready(view: ReturnType<typeof render>) {
 }
 
 afterEach(() => {
+  setSystemTime();
   cleanup();
   getHomeQueryClient().clear();
 });
@@ -360,7 +363,7 @@ describe("useHomeRefresh", () => {
     await waitFor(() => expect(view.getByTestId("activity").textContent).toBe(""));
     expect(view.getByTestId("refresh").textContent).toBe("idle");
     expect(oldSignal?.aborted).toBe(true);
-    await act(async () => { pending.resolve(page(`to=${encodeURIComponent(new Date().toISOString())}&currency=USD`, walletA, [], null)); expect(await oldCycle).toEqual({ phase: "superseded" }); });
+    await act(async () => { pending.resolve(page(`to=${encodeURIComponent(new Date(NOW).toISOString())}&currency=USD`, walletA, [], null)); expect(await oldCycle).toEqual({ phase: "superseded" }); });
     expect(getHomeQueryClient().getQueryData<string>(ownerQueryKey(f.key, "activity-window")) === f.oldEnd).toBe(true);
     expect(view.getByTestId("refresh").textContent).toBe("idle");
   });

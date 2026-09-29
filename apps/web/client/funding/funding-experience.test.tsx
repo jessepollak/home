@@ -1063,6 +1063,22 @@ describe("FundingExperience", () => {
     expect(page().queryByRole("heading", { name: "You have an open deposit" })).toBeNull();
   });
 
+  test("reopening resets an unfinished Receive step to the current start step", async () => {
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers?")) return { providers: [fundingBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return { order: null };
+      throw new Error(`unexpected request: ${path}`);
+    } };
+    const props = { wallet, navigateToRedirect: () => {}, regionId: "AR" as const };
+    const view = render(<FundingExperienceForWallet {...props} open />);
+    fireEvent.click(await page().findByRole("button", { name: /Receive crypto/ }));
+    expect(page().getByRole("heading", { name: "Receive" })).toBeTruthy();
+    view.rerender(<FundingExperienceForWallet {...props} open={false} />);
+    view.rerender(<FundingExperienceForWallet {...props} open />);
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().queryByRole("heading", { name: "Receive" })).toBeNull();
+  });
+
   test("Continue uses the order selected before an open-order refetch", async () => {
     const first = pendingRipioOrder();
     const replacement = { ...first, id: "22222222-2222-4222-8222-222222222222", state: "dispatch-ambiguous" };
@@ -1099,6 +1115,47 @@ describe("FundingExperience", () => {
     expect(await page().findByRole("heading", { name: "Add money" })).toBeTruthy();
     await act(async () => { await getHomeQueryClient().refetchQueries({ queryKey: [dataOwnerKey(wallet.session!), "funding-open-order", "AR"] }); });
     expect(page().queryByText("Deposit pending")).toBeNull();
+  });
+
+  test("a provider return resumes once when its open order arrives after the methods", async () => {
+    const orderRead = deferred<unknown>();
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers?")) return { providers: [fundingBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return orderRead.promise;
+      throw new Error(`unexpected request: ${path}`);
+    } };
+    const steps: string[] = [];
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} returnedFromProvider initialStep="method" regionId="AR" onStepChange={(step) => steps.push(step)} />);
+    expect(await page().findByRole("button", { name: /Receive crypto/ })).toBeTruthy();
+    expect(page().queryByText("Deposit pending")).toBeNull();
+    await act(async () => { orderRead.resolve({ order: pendingRipioOrder() }); await orderRead.promise; });
+    expect(await page().findByText("Deposit pending")).toBeTruthy();
+    expect(steps.filter((step) => step === "order")).toHaveLength(1);
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    await act(async () => { await getHomeQueryClient().refetchQueries({ queryKey: ownerQueryKey(dataOwnerKey(wallet.session!), "funding-open-order", "AR") }); });
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(steps.filter((step) => step === "order")).toHaveLength(1);
+  });
+
+  test("explicit navigation wins when verification customer data arrives later", async () => {
+    const customerRead = deferred<unknown>();
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers?")) return { providers: [customerBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return { order: null };
+      if (path.startsWith("/api/funding/provider-customers?")) return customerRead.promise;
+      throw new Error(`unexpected request: ${path}`);
+    } };
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} returnedFromVerification regionId="AR" />);
+    fireEvent.click(await page().findByRole("button", { name: /Receive crypto/ }));
+    expect(page().getByRole("heading", { name: "Receive" })).toBeTruthy();
+    await act(async () => {
+      customerRead.resolve({ customers: [{ providerId: "ripio", region: "AR", state: "pending", verificationStartedAt: "2026-09-18T00:00:00.000Z", updatedAt: "2026-09-18T00:00:00.000Z" }] });
+      await customerRead.promise;
+    });
+    expect(page().getByRole("heading", { name: "Receive" })).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().queryByRole("heading", { name: "Set up Ripio" })).toBeNull();
   });
 
   test("a provider return opened while restoring resumes its order once after verification", async () => {

@@ -15,7 +15,7 @@ For hosting, see [Vercel deploy](docs/vercel-deploy.md). For a customized operat
 
 ## Local environment
 
-The [README setup](README.md#install-and-run) bootstraps a fresh clone from the tracked `.env.example`. An ordinary Git worktree does not copy the ignored `apps/web/.env.local`; follow the [AGENTS worktree bootstrap](AGENTS.md#working-in-this-repo) to copy it from the primary checkout only when it is missing, without printing, overwriting, or committing it.
+The [README setup](README.md#install-and-run) bootstraps a fresh clone from the tracked `.env.example`. An ordinary Git worktree does not copy the ignored `apps/web/.env.local`; run `bun run worktree:bootstrap` ([AGENTS worktree bootstrap](AGENTS.md#working-in-this-repo)) to install a real dependency tree, and pass `-- --copy-env` in an ordinary worktree to copy the env file from the primary checkout only when it is missing, without printing, overwriting, or committing it.
 
 Automated factory runs use isolated environments and never copy or read the operator's `.env.local` or receive provider, database, production, or Vercel credentials.
 

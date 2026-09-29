@@ -38,6 +38,8 @@ type Navigation = {
   frame: number | null;
   timeout: TimeoutHandle | null;
   committed: boolean;
+  input?: { startedAt: number; dispatchDelayMs: number };
+  contentState?: HomeNavigationReport["contentState"];
 };
 
 type ScrollSession = {
@@ -64,6 +66,9 @@ export function createHomeInteractionRecorder(deps: Dependencies) {
   let pending: Navigation | null = null;
   let scroll: ScrollSession | null = null;
   let intentAt: number | null = null;
+  let input: Navigation["input"];
+  let inputTimer: TimeoutHandle | null = null;
+  const persistence: { start: number; end: number }[] = [];
 
   const enabled = () => {
     if (sampled === null) sampled = deps.random() < deps.sampleRate;
@@ -77,6 +82,12 @@ export function createHomeInteractionRecorder(deps: Dependencies) {
   };
   const safeCleanup = (run: () => void) => {
     try { run(); } catch { return undefined; }
+  };
+  const clearInput = () => {
+    input = undefined;
+    const timer = inputTimer;
+    if (timer !== null) safeCleanup(() => deps.clearTimeout(timer));
+    inputTimer = null;
   };
   const cancelNavigation = () => {
     if (!pending) return;
@@ -134,6 +145,24 @@ export function createHomeInteractionRecorder(deps: Dependencies) {
   };
 
   return {
+    noteInput(timestamp: number, timeOrigin = 0): void {
+      clearInput();
+      if (!enabled() || navigationCount >= HOME_NAVIGATION_REPORT_CAP || !deps.isVisible()) return;
+      const now = deps.now();
+      const startedAt = timestamp > now && timeOrigin > 0 ? timestamp - timeOrigin : timestamp;
+      if (!Number.isFinite(startedAt) || startedAt <= 0 || startedAt > now || now - startedAt > 30_000) return;
+      input = { startedAt, dispatchDelayMs: now - startedAt };
+      inputTimer = deps.scheduleTimeout(clearInput, 0);
+    },
+    notePersistence(start: number, duration: number): void {
+      if (!enabled() || navigationCount >= HOME_NAVIGATION_REPORT_CAP || !deps.isVisible() ||
+        !Number.isFinite(start) || !Number.isFinite(duration) || start < 0 || duration < 0) return;
+      persistence.push({ start, end: start + duration });
+      if (persistence.length > 32) persistence.shift();
+    },
+    noteContent(to: HomeInteractionRoute, state: NonNullable<HomeNavigationReport["contentState"]>): void {
+      if (pending?.to === to) pending.contentState = state;
+    },
     beginNavigation({ from, to, cache, trigger }: {
       from: HomeInteractionRoute; to: HomeInteractionRoute;
       cache: HomePanelCacheState; trigger: HomeNavigationTrigger;
@@ -143,7 +172,9 @@ export function createHomeInteractionRecorder(deps: Dependencies) {
         cancelNavigation();
         discardScroll();
         pending = { from, to, cache, trigger, startedAt: deps.now(), frame: null,
+          ...(trigger === "in-app" && input ? { input } : {}),
           timeout: null, committed: false };
+        clearInput();
       } catch {
         return undefined;
       }
@@ -163,9 +194,17 @@ export function createHomeInteractionRecorder(deps: Dependencies) {
                 pending = null;
                 if (!deps.isVisible()) return;
                 navigationCount += 1;
+                const now = deps.now();
+                const start = navigation.input?.startedAt ?? navigation.startedAt;
+                const cachePersistMs = persistence.reduce((sum, span) =>
+                  sum + Math.max(0, Math.min(now, span.end) - Math.max(start, span.start)), 0);
                 send({ version: 1, kind: "home-navigation", route: to,
                   from: navigation.from, trigger: navigation.trigger, cache: navigation.cache,
-                  device: deps.device(), engine: deps.engine(), durationMs: deps.now() - navigation.startedAt });
+                  device: deps.device(), engine: deps.engine(), durationMs: now - navigation.startedAt,
+                  cachePersistMs,
+                  ...(navigation.contentState ? { contentState: navigation.contentState } : {}),
+                  ...(navigation.input ? { dispatchDelayMs: navigation.input.dispatchDelayMs,
+                    inputToPaintMs: now - navigation.input.startedAt } : {}) });
               } catch {
                 return undefined;
               }
@@ -181,6 +220,8 @@ export function createHomeInteractionRecorder(deps: Dependencies) {
     pageHidden(): void {
       cancelNavigation();
       discardScroll();
+      clearInput();
+      persistence.length = 0;
     },
     noteScrollIntent(): void {
       try {
@@ -301,6 +342,19 @@ const recorder = createHomeInteractionRecorder({
 
 export function beginHomeNavigation(input: Parameters<typeof recorder.beginNavigation>[0]): void {
   try { recorder.beginNavigation(input); } catch { return undefined; }
+}
+
+export function noteHomeNavigationInput(event: MouseEvent): void {
+  if (!event.isTrusted) return;
+  try { recorder.noteInput(event.timeStamp, performance.timeOrigin); } catch { return undefined; }
+}
+
+export function recordHomeCachePersistence(startedAt: number, durationMs: number): void {
+  try { recorder.notePersistence(startedAt, durationMs); } catch { return undefined; }
+}
+
+export function noteHomeNavigationContent(route: HomeInteractionRoute, state: NonNullable<HomeNavigationReport["contentState"]>): void {
+  try { recorder.noteContent(route, state); } catch { return undefined; }
 }
 
 export function commitHomeNavigation(to: HomeInteractionRoute): void {

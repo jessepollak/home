@@ -250,7 +250,11 @@ test("CLI reports an unresolvable base as a note without failing", (t) => {
   writeFileSync(allowlist, JSON.stringify(empty));
   writeFileSync(junitFile, junit(testcase("fast", 1)));
   const cli = fileURLToPath(new URL("../test-runtime.mjs", import.meta.url));
-  const result = spawnSync(process.execPath, [cli, "--junit", junitFile, "--allowlist", allowlist], { cwd: dir, encoding: "utf8" });
+  const result = spawnSync(process.execPath, [cli, "--junit", junitFile, "--allowlist", allowlist], {
+    cwd: dir,
+    encoding: "utf8",
+    env: { ...process.env, BASE_REF: "main" },
+  });
   assert.equal(result.status, 0);
   assert.match(result.stdout, /Base allowlist unavailable or invalid: Could not resolve origin\/main or local main/);
   assert.match(result.stdout, /No findings\./);

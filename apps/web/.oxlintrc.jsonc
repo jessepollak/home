@@ -171,6 +171,15 @@
   },
   "overrides": [
     {
+      "files": ["{client,components}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
+      "excludeFiles": [
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**", "**/stories/**"
+      ],
+      "rules": { "home/no-deferred-effect-setstate": "error" }
+    },
+    {
       "files": ["{app,client,components}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
       "excludeFiles": [
         "components/ui/**", "client/money-modal/**",
@@ -242,7 +251,8 @@
         "**/*.stories.fixture.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
       ],
       "rules": {
-        "home/no-exploration-imports": "error"
+        "home/no-exploration-imports": "error",
+        "home/no-full-portfolio-presentation": "error"
       }
     },
     {

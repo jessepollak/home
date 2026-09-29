@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { FundingUserTokenVault } from "@/server/funding/core/provider-user-token";
 import { MemoryFundingProviderUserTokenStore } from "@/server/funding/core/user-token-store";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { createProviderContext } from "@/server/funding/core/provider-context";
 import { FundingCore } from "@/server/funding/core/service";
@@ -16,6 +16,8 @@ import type {
 } from "@/shared/funding/provider-contract";
 import { createCoinbaseProvider, createCoinbaseUserTokenCreateOrder } from "./adapter";
 import { coinbaseManifest } from "./manifest";
+
+const NOW = new Date("2026-09-28T12:00:00.000Z");
 
 const DESTINATION = "0x1111111111111111111111111111111111111111" as const;
 const PAYMENT_URL = "https://pay.coinbase.com/embedded/apple-pay";
@@ -143,7 +145,7 @@ function context(
 }
 
 beforeEach(() => setObservabilityLogWriterForTests(() => undefined));
-afterEach(() => setObservabilityLogWriterForTests());
+afterEach(() => { setObservabilityLogWriterForTests(); setSystemTime(); });
 
 describeFundingAdapter({
   provider,
@@ -194,7 +196,8 @@ describe("Coinbase headless funding adapter", () => {
         return "synthetic-jwt";
       },
     });
-    const before = Date.now();
+    setSystemTime(NOW);
+    const before = NOW.getTime();
     const quote = await adapter.onramp!.createQuote!(
       quoteIntent,
       context((async (input: RequestInfo | URL, init: RequestInit = {}) => {
@@ -202,7 +205,7 @@ describe("Coinbase headless funding adapter", () => {
         return quoteResponse({ paymentTotal: "25.00" });
       }) as unknown as typeof fetch),
     );
-    const after = Date.now();
+    const after = NOW.getTime();
 
     expect(jwtOptions).toEqual([{
       apiKeyId: env.CDP_API_KEY_ID,
@@ -541,7 +544,7 @@ describe("Coinbase headless funding adapter", () => {
       providers: [provider],
       store,
       userTokenProviders: new Map([["coinbase", createCoinbaseUserTokenCreateOrder({ generateJwtImplementation: async () => "synthetic-jwt" })]]),
-      userTokenVault: new FundingUserTokenVault({ store: tokenStore, env: secretEnv, now: () => new Date(), diagnose: () => undefined }),
+      userTokenVault: new FundingUserTokenVault({ store: tokenStore, env: secretEnv, now: () => new Date(NOW), diagnose: () => undefined }),
       env: {
         ...secretEnv,
         ...env,

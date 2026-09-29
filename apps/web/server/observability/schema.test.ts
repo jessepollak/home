@@ -145,6 +145,15 @@ describe("observability schema", () => {
       longFrameCount: 1_000, longFrameMs: 30_000, deployment: "deploy-42",
     });
   });
+  test("retains only closed tap attribution and real server deployment IDs", () => {
+    expect(normalizeObservabilityEvent({
+      version: 1, kind: "home-navigation", route: "/investments", from: "/home", trigger: "in-app",
+      cache: "first-visit", device: "mobile-low", durationMs: 30,
+      dispatchDelayMs: 900, inputToPaintMs: 930, cachePersistMs: 800, contentState: "ready",
+      deployment: "dpl_A1b2C3d4E5f6G7h8I9j0K1l2",
+    })).toMatchObject({ dispatchDelayMs: 900, inputToPaintMs: 930, cachePersistMs: 800,
+      contentState: "ready", deployment: "dpl_A1b2C3d4E5f6G7h8I9j0K1l2" });
+  });
 
   test("keeps only the closed engine dimension on interaction logs", () => {
     const navigation = { version: 1, kind: "home-navigation", route: "/home", from: "/cash",

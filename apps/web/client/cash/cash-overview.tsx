@@ -30,9 +30,10 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { FeatureIntro } from "@/components/ui/feature-intro";
 import { Alert, AlertDescription, AlertIcon } from "@/components/ui/alert";
-import { presentBalances, presentMoneyGroups, presentPendingCashout } from "@/shared/balances/present";
+import { presentCashSelection, presentCashTotal, presentPendingCashout } from "@/shared/balances/present";
 import {
   selectBalanceTotals,
+  selectCash,
   selectVaultPositions,
 } from "@/shared/balances/select";
 import type { BalancesSnapshot } from "@/shared/balances/types";
@@ -150,11 +151,10 @@ type CashHoldingRow = {
 };
 
 function cashHoldings(snapshot: BalancesSnapshot): CashHoldingRow[] {
-  return presentMoneyGroups(snapshot)
-    .find((group) => group.id === "cash")!
-    .rows.map((row) => {
+  return selectCash(snapshot).map((entry) => {
+      const row = presentCashSelection(entry, snapshot);
       const currency = row.mark.kind === "flag" ? row.mark.currency : "USD";
-      const holding = snapshot.holdings.find((entry) => entry.key === row.key);
+      const holding = entry.kind === "holding" ? entry.holding : null;
       if (!holding)
         return {
           key: row.key,
@@ -404,11 +404,7 @@ export function CashOverview({
   const activeSnapshot = failed ? null : snapshot;
   const pendingValue = activeSnapshot ? presentPendingCashout(activeSnapshot, pendingCashout) : null;
   const summary = useMemo(() => activeSnapshot
-    ? presentBalances({
-        status: "ready",
-        snapshot: activeSnapshot,
-        error: null,
-      }).summary?.cash
+    ? presentCashTotal(activeSnapshot)
     : null, [activeSnapshot]);
   const rows = useMemo(() => activeSnapshot ? cashHoldings(activeSnapshot) : [], [activeSnapshot]);
   const { holdings, total, partial, bestRate } = useMemo(() => savingsData(

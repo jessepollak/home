@@ -84,7 +84,7 @@ function SignInRoute({ initialFlow, snapshot }: { initialFlow: "save-deposit"; s
   </HomeShellRoutingProvider>;
 }
 
-function Route({ initialFlow, snapshot, status = "ready", deferClear = false, onPrepare, onExecute, fetchVaults, fetchAccountResource, addMoneyRoute = false }: { initialFlow: "save-deposit" | "save-withdraw" | null; snapshot: BalancesSnapshot; status?: CashExperienceProps["balanceStatus"]; deferClear?: boolean; onPrepare?: CashExperienceProps["prepareMoneyAction"]; onExecute?: CashExperienceProps["executeMoneyAction"]; fetchVaults?: CashExperienceProps["fetchVaults"]; fetchAccountResource?: CashExperienceProps["fetchAccountResource"]; addMoneyRoute?: boolean }) {
+function Route({ initialFlow, snapshot, view = "savings", status = "ready", deferClear = false, onPrepare, onExecute, fetchVaults, fetchAccountResource, addMoneyRoute = false }: { initialFlow: "save-deposit" | "save-withdraw" | null; snapshot: BalancesSnapshot; view?: "cash" | "savings"; status?: CashExperienceProps["balanceStatus"]; deferClear?: boolean; onPrepare?: CashExperienceProps["prepareMoneyAction"]; onExecute?: CashExperienceProps["executeMoneyAction"]; fetchVaults?: CashExperienceProps["fetchVaults"]; fetchAccountResource?: CashExperienceProps["fetchAccountResource"]; addMoneyRoute?: boolean }) {
   const [flow, setFlow] = useState<string | null>(initialFlow);
   const pushedFlow = useRef<string | null>(initialFlow);
   const routing = {
@@ -96,7 +96,7 @@ function Route({ initialFlow, snapshot, status = "ready", deferClear = false, on
   return <HomeShellRoutingProvider value={routing as Parameters<typeof HomeShellRoutingProvider>[0]["value"]}>
     <div data-shell-back><button onClick={() => setFlow(null)}>Browser Back</button></div>
     <div data-shell-forward><button onClick={() => setFlow(pushedFlow.current)}>Browser Forward</button></div>
-    <Surface snapshot={snapshot} status={status} onPrepare={onPrepare} onExecute={onExecute} fetchVaults={fetchVaults} fetchAccountResource={fetchAccountResource} onAddMoney={addMoneyRoute ? (options) => routing.setFlow("add-money", { mode: options?.replaceFlow ? "replace" : "push" }) : noop} />
+    <Surface view={view} snapshot={snapshot} status={status} onPrepare={onPrepare} onExecute={onExecute} fetchVaults={fetchVaults} fetchAccountResource={fetchAccountResource} onAddMoney={addMoneyRoute ? (options) => routing.setFlow("add-money", { mode: options?.replaceFlow ? "replace" : "push" }) : noop} />
   </HomeShellRoutingProvider>;
 }
 function cached(metadataValue: MorphoVaultsResult = metadata) { getHomeQueryClient().setQueryData(publicQueryKey("savings-vaults"), metadataValue); }
@@ -223,6 +223,21 @@ describe("Cash L2", () => {
     render(<Route initialFlow="save-withdraw" snapshot={single} />);
     expect(within(await page().findByRole("dialog", { name: "Withdraw" })).getByText("$800.00 available")).toBeTruthy();
   });
+  test("a routed withdrawal closes once when its selected shares become unreadable", async () => {
+    cached();
+    const unreadable = buildBalancesSnapshotFixture({ registry: { ...cash,
+      "morpho-steakhouse-usdc": { balance: ready("800000000000000000000"), underlyingBalance: unavailableBalance, value: priced("USD", "80000") },
+    } });
+    const view = render(<Route initialFlow="save-withdraw" snapshot={single} deferClear />);
+    await page().findByRole("dialog", { name: "Withdraw" });
+    routeCalls.length = 0;
+    view.rerender(<Route initialFlow="save-withdraw" snapshot={unreadable} deferClear />);
+    await waitFor(() => expect(routeCalls).toEqual(["clear:replace"]));
+    expect(page().queryByRole("dialog", { name: "Withdraw" })).toBeNull();
+    view.rerender(<Route initialFlow="save-withdraw" snapshot={unreadable} status="failed" deferClear />);
+    expect(routeCalls).toEqual(["clear:replace"]);
+    expect(page().queryByRole("dialog", { name: "Withdraw" })).toBeNull();
+  });
   test("an inbound withdrawal with two funded vaults clears the flow and leaves the tappable list", async () => {
     cached();
     render(<Route initialFlow="save-withdraw" snapshot={held} />);
@@ -291,6 +306,18 @@ describe("Cash L2", () => {
     render(<Route initialFlow="save-deposit" snapshot={single} fetchVaults={async () => { throw new Error("Rates unavailable"); }} />);
     await waitFor(() => expect(routeCalls.at(-1)).toBe("clear:replace"));
     expect(page().queryByRole("dialog", { name: "Deposit" })).toBeNull();
+  });
+  test("a cached metadata refetch failure clears a routed deposit before opening its amount step", async () => {
+    getHomeQueryClient().setQueryData(publicQueryKey("savings-vaults"), metadata, { updatedAt: NOW - 61_000 });
+    const fetchVaults = async () => { throw new Error("Rates unavailable"); };
+    const view = render(<Route initialFlow="save-deposit" snapshot={held} view="cash" fetchVaults={fetchVaults} />);
+    await waitFor(() => expect(getHomeQueryClient().getQueryState(publicQueryKey("savings-vaults"))?.status).toBe("error"));
+    expect(getHomeQueryClient().getQueryData<MorphoVaultsResult>(publicQueryKey("savings-vaults"))).toEqual(metadata);
+    routeCalls.length = 0;
+    view.rerender(<Route initialFlow="save-deposit" snapshot={held} fetchVaults={fetchVaults} />);
+    await waitFor(() => expect(routeCalls).toEqual(["clear:replace"]));
+    expect(page().queryByRole("dialog", { name: "Deposit" })).toBeNull();
+    expect(page().queryByRole("textbox", { name: "Amount" })).toBeNull();
   });
   test("an unconfigured held vault clears the routed withdrawal", async () => {
     const unconfigured = { ...single, holdings: single.holdings.map((holding) =>
@@ -641,6 +668,24 @@ describe("Cash L2", () => {
     await act(async () => history.resolve({ actions: [] }));
     const dialog = await page().findByRole("dialog", { name: "Deposit" });
     expect(within(dialog).getByRole("textbox", { name: "Amount" })).toBeTruthy();
+    expect(preparedInputs).toEqual([]);
+  });
+  test("a routed first deposit needs a newer history read before it can confirm", async () => {
+    const actionsKey = ownerQueryKey(dataOwnerKey(session), "actions");
+    getHomeQueryClient().setQueryData(actionsKey, { actions: [] }, { updatedAt: NOW - 61_000 });
+    cached();
+    onlineManager.setOnline(false);
+    render(<Route initialFlow="save-deposit" snapshot={empty} fetchAccountResource={async (path) => {
+      if (path !== "/api/actions") return { version: 1, usdcReserveBaseUnits: "100000" };
+      return { actions: [] };
+    }} />);
+    const amount = await page().findByRole("textbox", { name: "Amount" });
+    fireEvent.change(amount, { target: { value: "1" } });
+    const submit = () => page().getByRole("button", { name: "Continue" }) as HTMLButtonElement;
+    expect(submit().disabled).toBe(true);
+    act(() => onlineManager.setOnline(true));
+    await act(async () => { await getHomeQueryClient().refetchQueries({ queryKey: actionsKey }); });
+    await waitFor(() => expect(submit().disabled).toBe(false));
     expect(preparedInputs).toEqual([]);
   });
   test("an offline action history holds the intro rather than offering Start saving", async () => {
@@ -1573,3 +1618,4 @@ describe("Cash L2", () => {
     expect(preparedInputs).toEqual([]);
   });
 });
+

@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { installApiFixtures, json, RECIPIENT, seedSignedInSession } from "./fixtures/api";
 import { sessionBody } from "./fixtures/bodies";
+import { FIXED_NOW } from "./fixtures/fixed-time";
 
 const wallet = sessionBody.smartAccount.address;
 const token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
@@ -65,10 +66,9 @@ function activityResponse(url: URL, partial: boolean) {
 async function setup(page: Page) {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.clock.install();
   await seedSignedInSession(page);
-  await installApiFixtures(page);
-  const createdAt = new Date(Date.now() - 5 * 60_000).toISOString();
+  await installApiFixtures(page, { clock: "playwright" });
+  const createdAt = new Date(FIXED_NOW - 5 * 60_000).toISOString();
   await page.route("**/api/actions*", (route) =>
     new URL(route.request().url()).pathname === "/api/actions"
       ? json(route, { actions: [{

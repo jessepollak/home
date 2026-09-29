@@ -28,6 +28,7 @@ import {
 } from "@/client/savings/portfolio-summary";
 import { savingsTeaserApyLabel } from "@/client/savings/savings-teaser-apy";
 import { useSavingsVaults } from "@/client/savings/use-savings-vaults";
+import { useNow } from "@/client/time/use-now";
 import type { SavingsGrowthAuthority } from "@/client/savings/use-estimated-growth";
 import { selectVaultPositions } from "@/shared/balances/select";
 import type { BalancesSnapshot } from "@/shared/balances/types";
@@ -52,6 +53,7 @@ import { savingsWithdrawTargets } from "./savings-withdraw-targets";
 import { savingsManagement, type SavingsManagement } from "./savings-management";
 
 const SAVINGS_JOURNEY_TITLE_ID = "savings-journey-title";
+const noDeadline = () => null;
 type View = "cash" | "savings";
 type Mode = SavingsActionMode;
 type PendingFirstDeposit = { account: string; action: PreparedMoneyAction; submission: "submitted" | "ambiguous" };
@@ -301,9 +303,15 @@ export function CashExperience({
 }: CashExperienceProps) {
   const routing = useOptionalHomeShellRouting();
   const ownerIdentity = session ? `${session.user.subject}:${session.smartAccount?.address.toLowerCase() ?? ""}:${session.accountProvider}` : "signed-out";
-  const [rateNowMs, setRateNowMs] = useState(() => now());
   const query = useSavingsVaults({ fetchVaults });
   const metadata = query.data ?? null;
+  const nextDeadline = useCallback(
+    (nowMs: number) => metadata
+      ? nextSavingsRateExpiryAt(metadata.candidates, metadata.source.fetchedAt, nowMs)
+      : null,
+    [metadata],
+  );
+  const rateNowMs = useNow(metadata, nextDeadline, now);
   const vaultStatus = metadata ? "ready" : query.isError ? "failed" : "loading";
   const liveSnapshot = balanceStatus === "failed" ? null : snapshot;
   const positions = useMemo(
@@ -348,30 +356,6 @@ export function CashExperience({
             liveSnapshot.coverage.registry === "complete",
         }
       : null;
-  useEffect(() => {
-    if (!metadata) return;
-    let active = true;
-    queueMicrotask(() => {
-      if (active) setRateNowMs(now());
-    });
-    return () => {
-      active = false;
-    };
-  }, [metadata, now]);
-  useEffect(() => {
-    if (!metadata) return;
-    const expiresAt = nextSavingsRateExpiryAt(
-      metadata.candidates,
-      metadata.source.fetchedAt,
-      rateNowMs
-    );
-    if (expiresAt === null || expiresAt <= rateNowMs) return;
-    const timeout = setTimeout(
-      () => setRateNowMs(now()),
-      expiresAt - rateNowMs
-    );
-    return () => clearTimeout(timeout);
-  }, [metadata, now, rateNowMs]);
 
   const [localMode, setLocalMode] = useState<Mode | null>(null);
   const [targetSelection, setTargetSelection] = useState<{ owner: string; candidate: MorphoVaultCandidate } | null>(null);
@@ -387,6 +371,8 @@ export function CashExperience({
   const previousOwner = useRef(ownerIdentity);
   const opener = useRef<HTMLElement | null>(null);
   const autoClosed = useRef<{ mode: Mode; target: MorphoVaultCandidate } | null>(null);
+  const [autoClosedSelection, setAutoClosedSelection] = useState<{ mode: Mode; target: MorphoVaultCandidate } | null>(null);
+  const [routedJourney, setRoutedJourney] = useState<Mode | null>(null);
   const initialRoute = useRef(
     routing &&
       view === "savings" &&
@@ -501,27 +487,21 @@ export function CashExperience({
     (fundedNow || savingsDepositRetired(scopedServerDeposits, liveSnapshot, pendingFirstDeposit.action.id))) {
     setPendingFirstDeposit(null);
   }
+  const chooseFlowSuperseded = choosing && fundedNow && !confirmed && mode !== null && target === null;
+  if (!routing && chooseFlowSuperseded) setLocalMode(null);
+  const chooseFlowCleared = useRef(false);
   useEffect(() => {
-    if (!choosing || !fundedNow || confirmed || !mode || target) return;
-    let active = true;
-    queueMicrotask(() => {
-      if (!active) return;
-      if (routing) routing.clearFlow({ mode: "replace" });
-      else setLocalMode(null);
-    });
-    return () => { active = false; };
-  }, [choosing, fundedNow, confirmed, mode, routing, target]);
-  useEffect(() => {
-    if (mode !== "deposit" || confirmed || fundedNow) return;
-    if (serverInFlightDeposits.length === 0 && !savingsEntryUnresolved && !localPendingUnresolved) return;
-    let active = true;
-    queueMicrotask(() => {
-      if (!active) return;
-      if (routing) routing.clearFlow({ mode: "replace" });
-      else setLocalMode(null);
-    });
-    return () => { active = false; };
-  }, [mode, confirmed, fundedNow, serverInFlightDeposits, savingsEntryUnresolved, localPendingUnresolved, routing]);
+    if (!routing || !chooseFlowSuperseded) {
+      chooseFlowCleared.current = false;
+      return;
+    }
+    if (chooseFlowCleared.current) return;
+    chooseFlowCleared.current = true;
+    routing.clearFlow({ mode: "replace" });
+  }, [routing, chooseFlowSuperseded]);
+  const depositFlowSuperseded = mode === "deposit" && !confirmed && !fundedNow &&
+    (serverInFlightDeposits.length > 0 || savingsEntryUnresolved || localPendingUnresolved);
+  if (!routing && depositFlowSuperseded) setLocalMode(null);
 
   useEffect(() => {
     if (!routing || !initialRoute.current || normalized.current) return;
@@ -600,57 +580,66 @@ export function CashExperience({
       },
       null
     ) ?? null;
+  if (!mode && autoClosedSelection !== null) setAutoClosedSelection(null);
+  if (!mode && routedJourney !== null) setRoutedJourney(null);
+  const routedDepositCandidate = best && usdc?.status === "ready" &&
+    !(summary?.funded === false && BigInt(usdc.baseUnits) === BigInt(0)) ? best : null;
+  const routedCandidate = routeMode === "deposit" ? routedDepositCandidate
+    : routeMode === "withdraw" && withdrawable.length === 1 ? withdrawable[0]!.candidate
+    : null;
+  const routedOpenBlocked = routeMode === "deposit" &&
+    (choosing || query.isError || (!fundedNow &&
+      (savingsEntryUnresolved || serverInFlightDeposits.length > 0 || actionsStatus === "loading" ||
+        pendingFirstDeposit?.account === accountIdentity)));
+  const routedSelection = routing && view === "savings" && routedCandidate && !target &&
+    autoClosedSelection?.mode !== routeMode && balanceStatus !== "failed" && !routedOpenBlocked &&
+    liveSnapshot && session?.smartAccount && (metadata || query.isError) ? routedCandidate : null;
+  const routedEntryNowMs = useNow(routedSelection, noDeadline);
+  if (routedSelection) {
+    setRoutedJourney(routeMode);
+    setTargetSelection({ owner: ownerIdentity, candidate: routedSelection });
+    setEntry("amount");
+    if (routeMode === "deposit" && !fundedNow && hasHistorySource) setFirstUseHistoryFloor(routedEntryNowMs);
+  }
+  const routedDepositNeedsFreshHistory = routedJourney === "deposit" && !fundedNow && hasHistorySource;
+  useEffect(() => {
+    if (!routedDepositNeedsFreshHistory) return;
+    void browserHomeQueryClient()?.refetchQueries({ queryKey: actionsQueryKey });
+  }, [routedDepositNeedsFreshHistory, actionsQueryKey]);
 
   useEffect(() => {
-    if (!routing || view !== "savings" || !routeMode || target || (routeMode === "deposit" && choosing) || autoClosed.current?.mode === routeMode) return;
+    if (!routing) return;
+    if (depositFlowSuperseded && autoClosed.current?.mode !== mode) {
+      routing.clearFlow({ mode: "replace" });
+      return;
+    }
+    if (view !== "savings" || !routeMode || target || (routeMode === "deposit" && choosing) || autoClosed.current?.mode === routeMode) return;
     if (balanceStatus === "failed" || (routeMode === "deposit" && (query.isError || (pendingFirstDeposit?.account === accountIdentity && !fundedNow)))) {
       routing.clearFlow({ mode: "replace" });
       return;
     }
     if (!liveSnapshot || !session?.smartAccount || (!metadata && !query.isError)) return;
     if (routeMode === "deposit") {
-      if (!metadata) return;
-      if (!fundedNow && (savingsEntryUnresolved || serverInFlightDeposits.length > 0)) {
-        routing.clearFlow({ mode: "replace" });
-        return;
-      }
       if (!fundedNow && actionsStatus === "loading") return;
-      const usdc = liveSnapshot.holdings.find(
-        (holding) => holding.id === "usdc"
-      )?.balance;
-      if (best && usdc?.status === "ready" && !(summary?.funded === false && BigInt(usdc.baseUnits) === BigInt(0)))
-        queueMicrotask(() => {
-          if (!fundedNow && hasHistorySource) {
-            setFirstUseHistoryFloor(Date.now());
-            void browserHomeQueryClient()?.refetchQueries({ queryKey: actionsQueryKey });
-          }
-          setTargetSelection({ owner: ownerIdentity, candidate: best });
-          setEntry("amount");
-        });
-      else routing.clearFlow({ mode: "replace" });
+      if (!routedDepositCandidate) routing.clearFlow({ mode: "replace" });
       return;
     }
-    if (withdrawable.length === 1) {
-      queueMicrotask(() => {
-        setTargetSelection({ owner: ownerIdentity, candidate: withdrawable[0]!.candidate });
-        setEntry("amount");
-      });
-    } else {
-      routing.clearFlow({ mode: "replace" });
-    }
+    if (withdrawable.length !== 1) routing.clearFlow({ mode: "replace" });
   }, [
     routing,
     view,
     routeMode,
+    mode,
     target,
     choosing,
+    confirmed,
     balanceStatus,
     query.isError,
     liveSnapshot,
     metadata,
     session,
-    ownerIdentity,
     best,
+    usdc,
     withdrawable,
     summary?.funded,
     pendingFirstDeposit,
@@ -658,9 +647,9 @@ export function CashExperience({
     fundedNow,
     actionsStatus,
     savingsEntryUnresolved,
+    depositFlowSuperseded,
     serverInFlightDeposits,
-    hasHistorySource,
-    actionsQueryKey,
+    routedDepositCandidate,
   ]);
 
   function close() {
@@ -690,6 +679,7 @@ export function CashExperience({
   }
   function open(nextMode: Mode, candidate: MorphoVaultCandidate) {
     autoClosed.current = null;
+    setAutoClosedSelection(null);
     leavingForAddMoney.current = false;
     if (nextMode === "deposit" && !fundedNow) {
       setFirstUseHistoryFloor(Date.now());
@@ -745,6 +735,17 @@ export function CashExperience({
         )
         ?.focus();
   }
+  const shouldAutoClose = mode && target && !confirmed &&
+    (balanceStatus === "failed" || availableBaseUnits === null) &&
+    (autoClosedSelection?.mode !== mode || autoClosedSelection.target !== target);
+  if (shouldAutoClose) {
+    setAutoClosedSelection({ mode, target });
+    if (entry === "management") {
+      setClosingManagement(management);
+      setManagementSelection(null);
+    }
+    if (!routing) setLocalMode(null);
+  }
   useEffect(() => {
     if (!mode) {
       autoClosed.current = null;
@@ -754,19 +755,9 @@ export function CashExperience({
       (balanceStatus !== "failed" && availableBaseUnits !== null) ||
       (autoClosed.current?.mode === mode && autoClosed.current.target === target)
     ) return;
-    let active = true;
-    queueMicrotask(() => {
-      if (!active) return;
-      autoClosed.current = { mode, target };
-      if (entry === "management") {
-        setClosingManagement(management);
-        setManagementSelection(null);
-      }
-      if (routing) routing.clearFlow({ mode: "replace" });
-      else setLocalMode(null);
-    });
-    return () => { active = false; };
-  }, [mode, target, balanceStatus, availableBaseUnits, confirmed, routing, entry, management]);
+    autoClosed.current = { mode, target };
+    if (routing) routing.clearFlow({ mode: "replace" });
+  }, [mode, target, balanceStatus, availableBaseUnits, confirmed, routing]);
   const closedJourney = () => { if (latestJourneyGeneration.current === journeyGeneration) restoreFocus(); };
   const sheetOpen = view === "savings" && session !== null && (management !== null ||
     (choosing && mode === "deposit") ||

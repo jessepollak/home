@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 import { sessionBody } from "./fixtures/bodies";
+import { FIXED_NOW } from "./fixtures/fixed-time";
 
 for (const width of [390, 320]) {
   test(`mobile navigation clears the final Home content at ${width}px`, async ({ page }) => {
@@ -72,7 +73,7 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 1024, height: 600
     await page.route("**/api/activity*", (route) => {
       const url = new URL(route.request().url());
       if (url.pathname !== "/api/activity") return route.fallback();
-      const to = url.searchParams.get("to") ?? new Date().toISOString();
+      const to = url.searchParams.get("to") ?? new Date(FIXED_NOW).toISOString();
       const wallet = sessionBody.smartAccount.address.toLowerCase();
       const token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
       return json(route, {
@@ -159,6 +160,7 @@ test("a drag does not swallow two immediate real taps", async ({ page }) => {
     });
   });
   const cdp = await page.context().newCDPSession(page);
+  // oxlint-disable-next-line home/no-real-waits -- CDP input timestamps are read by the browser's real input pipeline, which no page clock controls.
   const timestamp = Date.now() / 1000;
   const dispatch = (type: "mouseMoved" | "mousePressed" | "mouseReleased", point: { x: number; y: number }, held = false) =>
     cdp.send("Input.dispatchMouseEvent", { type, ...point, button: type === "mouseMoved" ? "none" : "left", buttons: held ? 1 : 0, clickCount: 1, timestamp });
@@ -278,8 +280,7 @@ test("a tap released just past its tab edge keeps the lens on the tab the click 
 test("a tap whose navigation commits late keeps the lens on the tapped tab", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await seedSignedInSession(page);
-  await installApiFixtures(page);
-  await page.clock.install();
+  await installApiFixtures(page, { clock: "playwright" });
   await page.goto("/home");
   const nav = page.getByRole("navigation", { name: "Main navigation" });
   const lens = nav.locator('[data-navigation-lens="ready"]');
@@ -314,8 +315,7 @@ test("a tap whose navigation commits late keeps the lens on the tapped tab", asy
 test("a blur mid-glide drops the lift so keyboard travel lands unlifted on the selected tab", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await seedSignedInSession(page);
-  await installApiFixtures(page);
-  await page.clock.install();
+  await installApiFixtures(page, { clock: "playwright" });
   await page.goto("/home");
   const nav = page.getByRole("navigation", { name: "Main navigation" });
   await expect(nav.locator('[data-navigation-lens="ready"]')).toBeVisible();

@@ -337,15 +337,54 @@ describe("bounded account restore stages", () => {
     }
   });
 
+  test("retry after a non-timeout validation failure shows provisional validation until it settles", async () => {
+    let fetches = 0;
+    let finishRetry!: (response: Response) => void;
+    const sessionFetch = async () => {
+      fetches += 1;
+      if (fetches === 1) throw new Error("Temporary verification failure.");
+      return new Promise<Response>((resolve) => { finishRetry = resolve; });
+    };
+    const retryInitialization = async () => { view.rerender(owner(false)); };
+    const owner = (isInitialized: boolean) => (
+      <AccountWalletSessionOwner
+        sdk={sdk({ isInitialized, provisionalSession: verifiedSession, retryInitialization })}
+        sessionFetch={sessionFetch}
+        restoreStageTimeoutMs={TEST_TIMEOUT_MS}
+      >
+        <Probe />
+      </AccountWalletSessionOwner>
+    );
+    const view = render(owner(true));
+    await waitFor(() => expect(account().status).toBe("unavailable"));
+    expect(account().message).toBe("unavailable");
+    let retry!: Promise<void>;
+    act(() => { retry = account().retrySessionValidation(); });
+    expect(account().isInitialized).toBe(false);
+    act(() => { view.rerender(owner(true)); });
+    await waitFor(() => expect(fetches).toBe(2));
+    expect(account().status).toBe("validating");
+    expect(account().session).toEqual(verifiedSession);
+    expect(account().verification).toBe("provisional");
+    expect(account().message).toBeNull();
+    await act(async () => {
+      finishRetry(Response.json(verifiedSession));
+      await retry;
+    });
+    expect(account().status).toBe("verified");
+    expect(account().verification).toBe("server");
+    expect(account().message).toBeNull();
+  });
+
   test("retry after a stage timeout revalidates even when SDK initialization retry is a no-op", async () => {
     const timeout = manualStageTimeout();
     try {
-      let working = false;
+      let finishRetry!: (response: Response) => void;
       let fetches = 0;
       let initializationRetries = 0;
       renderOwner({ retryInitialization: async () => { initializationRetries += 1; } }, async (_input, init) => {
         fetches += 1;
-        if (working) return Response.json(verifiedSession);
+        if (fetches > 1) return new Promise<Response>((resolve) => { finishRetry = resolve; });
         return new Promise<Response>((resolve) => {
           init?.signal?.addEventListener("abort", () => resolve(Response.json(verifiedSession)), { once: true });
         });
@@ -353,10 +392,15 @@ describe("bounded account restore stages", () => {
       await waitFor(() => expect(fetches).toBe(1));
       await act(async () => { timeout.fire(); });
       expect(account().status).toBe("unavailable");
-      working = true;
-      await act(async () => { await account().retrySessionValidation(); });
+      let retry!: Promise<void>;
+      act(() => { retry = account().retrySessionValidation(); });
+      await waitFor(() => expect(fetches).toBe(2));
+      expect(account().status).toBe("validating");
+      await act(async () => {
+        finishRetry(Response.json(verifiedSession));
+        await retry;
+      });
       expect(initializationRetries).toBe(1);
-      expect(fetches).toBe(2);
       expect(account().status).toBe("verified");
       expect(account().message).toBeNull();
     } finally {

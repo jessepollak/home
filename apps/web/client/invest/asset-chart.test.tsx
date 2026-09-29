@@ -1,14 +1,15 @@
 import "@/client/account/dom-test-harness";
 
 import React from "react";
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
 import { getHomeQueryClient } from "@/client/query/query-client";
 import type { MarketPriceRange } from "@/shared/invest/contracts/market-price-history";
 
 const { cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { AssetChart } = await import("./asset-chart");
 const originalFetch = window.fetch;
-const now = Date.now();
+const now = Date.parse("2026-09-25T12:00:00.000Z");
+beforeEach(() => setSystemTime(new Date(now)));
 const clock = { value: now, read: () => now, refresh: () => {} };
 window.matchMedia = ((query: string) => ({
   matches: query === "(prefers-reduced-motion: reduce)", media: query, onchange: null,
@@ -38,7 +39,7 @@ function Harness() {
     }} onReadout={onReadout} onResting={onResting} />
   </>;
 }
-afterEach(() => { cleanup(); getHomeQueryClient().clear(); window.fetch = originalFetch; });
+afterEach(() => { cleanup(); getHomeQueryClient().clear(); window.fetch = originalFetch; setSystemTime(); });
 
 test("a rapid second range switch never shows the previous change or scrub under a new label", async () => {
   let resolveDay!: (response: Response) => void;

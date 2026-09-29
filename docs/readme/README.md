@@ -40,7 +40,7 @@ find . -path './.git' -prune -o -name '.env*' ! -name '.env.example' -print
 bun install --frozen-lockfile
 ```
 
-The `find` command must print nothing. In one terminal, run the web app on the smoke-fixture boundary. `HOME_FIXTURE_PORT` defaults to `3199`, matching Playwright; export a different port in both terminals when using a dedicated runner slot.
+The `find` command must print nothing. In one terminal, run the web app on the smoke-fixture boundary. `HOME_FIXTURE_PORT` defaults to `3199` for that fixture server; export it to pin both the server and Playwright to the same port, or a different port on a dedicated runner slot.
 
 ```sh
 env -i \
