@@ -196,6 +196,7 @@ describe("MoneyAmountDisplay", () => {
     input.focus();
     expect(input.readOnly).toBe(true);
     expect(input.disabled).toBe(false);
+    expect(input.getAttribute("aria-readonly")).toBe("true");
     fireEvent.input(input, { target: { value: "7" } });
     fireEvent.paste(input, { clipboardData: { getData: () => "9" } });
     expect(page().getByLabelText("Native amount").textContent).toBe("5");

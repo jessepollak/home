@@ -445,6 +445,7 @@ export function MoneyPrimaryAmount({
                 placeholder="0"
                 disabled={disabled}
                 readOnly={readOnly}
+                aria-readonly={readOnly || undefined}
                 onSelect={rememberSelection}
                 onBeforeInput={rememberSelection}
                 onKeyDown={(event) => {
