@@ -251,7 +251,11 @@ describe("SendDialog review", () => {
     }
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
 
-    expect(await page().findByText("Preparing review…")).toBeTruthy();
+    await waitFor(() => expect(page().getByRole("button", { name: "Continue" }).getAttribute("aria-busy")).toBe("true"));
+    expect(page().getByRole("button", { name: "Continue" }).getAttribute("aria-disabled")).toBe("true");
+    expect(page().getByRole("dialog", { name: "Send" })).toBeTruthy();
+    expect(page().getByRole("textbox", { name: "To" })).toBeTruthy();
+    expect(page().queryByRole("button", { name: "Send $1.00" })).toBeNull();
     expect((page().getByRole("button", { name: "Close send dialog" }) as HTMLButtonElement).disabled).toBe(true);
     expect(page().queryByText("Waiting for your wallet…")).toBeNull();
 
@@ -259,7 +263,7 @@ describe("SendDialog review", () => {
 
     expect(await page().findByRole("button", { name: "Send $1.00" })).toBeTruthy();
     expect(page().queryByText("Waiting for your wallet…")).toBeNull();
-    expect(page().queryByText("Preparing review…")).toBeNull();
+    expect(page().getByRole("dialog", { name: "Confirm" })).toBeTruthy();
     expect(page().getByText("From").closest("dl")?.querySelector("dt")?.textContent).toBe("From");
     expect(page().getByRole("button", { name: `Copy ${formatAddress(resumedAction().owner.address)}` })).toBeTruthy();
     expect(reviews).toEqual([ACTION_ID]);
@@ -419,6 +423,37 @@ describe("SendDialog Peer cash-out", () => {
     expect(page().getByRole("button", { name: "Cash out $1.00" }).getAttribute("data-money-action-id")).toBe("22222222-2222-4222-8222-222222222222");
     await waitFor(() => expect(fetches.filter((url) => url.startsWith("/api/funding/providers"))).toHaveLength(1));
   });
+  test("keeps the payout handle step while the cash-out review prepares", async () => {
+    let release!: (action: PreparedMoneyAction) => void;
+    const prepares: string[] = [];
+    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-peer-preparing" regionId="US"
+      availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
+      fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers") ? offrampResponse : { version: 1, recipients: [] }}
+      prepareMoneyAction={(kind) => { prepares.push(kind); return new Promise((resolve) => { release = resolve; }); }}
+      resumeMoneyAction={async () => cashoutAction()}
+      executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />);
+
+    fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.click(await page().findByRole("button", { name: /Send to Cash App/ }));
+    fireEvent.click(page().getByRole("button", { name: "Cash App" }));
+    const handle = page().getByRole("textbox", { name: "Cash App cashtag" });
+    fireEvent.input(handle, { target: { value: "$alice" } });
+    fireEvent.click(page().getByRole("button", { name: "Review" }));
+
+    await waitFor(() => expect(page().getByRole("button", { name: "Review" }).getAttribute("aria-busy")).toBe("true"));
+    expect(page().getByRole("dialog", { name: "Cash out with Peer" })).toBeTruthy();
+    expect(page().getByRole("textbox", { name: "Cash App cashtag" })).toBeTruthy();
+    fireEvent.keyDown(handle, { key: "Enter" });
+    fireEvent.click(page().getByRole("button", { name: "Review" }));
+    expect(prepares).toEqual(["cash-out"]);
+
+    await act(async () => { release({ ...cashoutAction(), metadata: { ...cashoutAction().metadata!, canonicalHandle: "alice" } } as PreparedMoneyAction); });
+    expect(await page().findByRole("button", { name: "Cash out $1.00" })).toBeTruthy();
+    expect(page().getByRole("dialog", { name: "Confirm" })).toBeTruthy();
+  });
+
   test("a lone dollar sign cannot be reviewed", async () => {
     render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-empty-handle" regionId="US"
       availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
@@ -675,6 +710,24 @@ describe("SendDialog cash-out requote", () => {
     expect(confirmAgain.getAttribute("data-money-action-id")).toBe("33333333-3333-4333-8333-333333333333");
   });
 
+  test("keeps the expired review on screen while the new quote loads", async () => {
+    let release!: (action: PreparedMoneyAction) => void;
+    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="requote-loading" regionId="US" resumeActionId={ACTION_ID}
+      resumeMoneyAction={async () => reviewed(ACTION_ID, "1", "2000-01-01T00:00:00.000Z")}
+      prepareMoneyAction={() => new Promise((resolve) => { release = resolve; })}
+      executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })}
+      fetchAccountResource={async () => ({ version: 1, recipients: [] })} onClose={() => {}} />);
+
+    fireEvent.click(await page().findByRole("button", { name: "Get new quote" }));
+    await waitFor(() => expect(page().getByRole("button", { name: "Get new quote" }).getAttribute("aria-busy")).toBe("true"));
+    expect(page().getByRole("dialog", { name: "Confirm" })).toBeTruthy();
+    expect(page().getByRole("group", { name: "Payout destination" }).textContent).toContain("alice");
+    expect(page().getByRole("status").textContent).toBe("This quote expired. Get a new quote to continue.");
+
+    await act(async () => { release(reviewed("33333333-3333-4333-8333-333333333333", "1.00")); });
+    expect(await page().findByRole("button", { name: "Cash out $1.00" })).toBeTruthy();
+  });
+
   test("a failed requote explains why and keeps a way back", async () => {
     render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="requote-failed" regionId="US" resumeActionId={ACTION_ID}
       resumeMoneyAction={async () => reviewed(ACTION_ID, "1", "2000-01-01T00:00:00.000Z")}
@@ -827,7 +880,8 @@ describe("SendDialog resume", () => {
       />
     );
     const view = render(dialog(resume));
-    expect(await page().findByText("Preparing review…")).toBeTruthy();
+    await waitFor(() => expect(page().getByRole("button", { name: "Continue" }).getAttribute("aria-busy")).toBe("true"));
+    expect(page().getByRole("dialog", { name: "Send" })).toBeTruthy();
 
     view.rerender(dialog((id) => resume(id), [{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]));
     expect(pending).toHaveLength(2);
@@ -837,7 +891,7 @@ describe("SendDialog resume", () => {
     });
 
     expect(await page().findByRole("button", { name: "Send $1.00" })).toBeTruthy();
-    expect(page().queryByText("Preparing review…")).toBeNull();
+    expect(page().getByRole("dialog", { name: "Confirm" })).toBeTruthy();
     expect(invalidResumes).toBe(0);
   });
 
