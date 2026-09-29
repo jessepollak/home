@@ -11,6 +11,9 @@ import {
   policyMaximumDebtAssets,
 } from "../../../shared/morpho-markets/math";
 import { BORROW_HEALTH_FLOOR_WAD } from "../../../shared/borrowing/config";
+import { CARDS_CONTRACT_VERSION, type CardsResponse, type CardState } from "../../../shared/cards/contract";
+
+import { FIXED_NOW } from "./fixed-time";
 
 export const sessionBody = {
   user: { subject: "playwright-smoke-subject" },
@@ -21,6 +24,16 @@ export const sessionBody = {
 export const actionsBody = { actions: [] };
 export const fundingProvidersBody = { providers: [] };
 export const basenameProfileBody = { profile: null };
+
+export function cardsBody(state: CardState = "active", now = new Date(FIXED_NOW)): CardsResponse {
+  const status = state === "frozen" || state === "restricted" || state === "canceled" ? state : "active";
+  const issued = status !== "active" || state === "active";
+  return {
+    version: CARDS_CONTRACT_VERSION, state,
+    cards: issued ? [{ id: "ic_fixture4821", status, last4: "4821" }] : [],
+    provenance: { bridge: "available", stripe: issued ? "available" : "not-requested", fetchedAt: now.toISOString() },
+  };
+}
 
 export function tradeAvailabilityBody(assetId: string) {
   const market = VERIFIED_MORPHO_MARKETS.find((entry) => buyRouteForToken({ chainId: entry.chainId, address: entry.collateralToken.address }) === assetId);

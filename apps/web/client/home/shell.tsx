@@ -75,7 +75,7 @@ import {
 import { ActivityPage } from "./activity-panel";
 import { CashPanel, InvestPanel, InvestmentsPanel } from "./feature-panels";
 import { HomePanel } from "./home-panel";
-import { MountedShellPanel } from "./panel-shared";
+import { EmptyPanel, MountedShellPanel } from "./panel-shared";
 import type { HomeExperienceProps, HomeAssetBalancesPresentation, InvestmentsContentProps } from "./home-types";
 import {
   HomeShellRoutingProvider,
@@ -124,6 +124,7 @@ const loadingAssetBalances: HomeAssetBalancesPresentation = {
 
 const panelStartupRoutes: Record<ShellPanelId, HomeInteractionRoute> = {
   home: "/home",
+  card: "/card",
   balances: "/balances",
   activity: "/activity",
   cash: "/cash",
@@ -144,6 +145,8 @@ export function DashboardShell(props: DashboardShellProps) {
 
 function DashboardShellBody({
   investContent,
+  cardContent,
+  cardsEnabled = false,
   cashContent,
   investmentsContent,
   initialAccountOpen = false,
@@ -985,6 +988,7 @@ function DashboardShellBody({
         {!isSignedOut ? (
           <PrimaryNavigation
             layout="rail"
+            cardsEnabled={cardsEnabled}
             activeNavigation={activeNavigation}
             onNavigate={navigateTo}
             isAccountSettingsOpen={isAccountSettingsOpen}
@@ -1188,6 +1192,11 @@ function DashboardShellBody({
                     </AppChromeProvider>
                   </MountedShellPanel>
                 ) : null}
+                {cardsEnabled && mountedPanels.has("card") ? (
+                  <MountedShellPanel active={activeNavigation === "card"} className={shellDesktopContentClassName}>
+                    {cardContent ?? <EmptyPanel label="Card" />}
+                  </MountedShellPanel>
+                ) : null}
                 {mountedPanels.has("invest") ? (
                   <MountedShellPanel active={activeNavigation === "invest"} className={shellDesktopContentClassName}>
                     <InvestPanel regionId={regionId} content={investContent} />
@@ -1200,7 +1209,7 @@ function DashboardShellBody({
         </div>
       </main>
       {!isSignedOut ? (
-        <PrimaryNavigation activeNavigation={activeNavigation} onNavigate={navigateTo} />
+        <PrimaryNavigation activeNavigation={activeNavigation} onNavigate={navigateTo} cardsEnabled={cardsEnabled} />
       ) : null}
       {isVerified ? (
         <ActionToasts session={account.session} fetchOperations={account.fetchOperations} />

@@ -12,6 +12,7 @@ import {
   actionsBody,
   basenameProfileBody,
   fundingProvidersBody,
+  cardsBody,
   borrowOverviewBody,
   sessionBody,
   tradeAvailabilityBody,
@@ -182,6 +183,7 @@ export function fixtureRoutes() {
     ["**/api/activity**", {}],
     ["**/api/savings/vaults", savingsVaultsBody(new Date(FIXED_NOW).toISOString(), new Date(FIXED_NOW).toISOString())],
     ["**/api/borrow", borrowOverview],
+    ["**/api/cards", cardsBody()],
     ...borrowOverview.opportunities.flatMap((entry) => entry.availability.status === "available"
       ? [[`**/api/borrow/markets/${entry.market.id}`, entry.availability.snapshot] as const]
       : []),

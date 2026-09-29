@@ -11,8 +11,12 @@ export type CardJourneyConfig = Readonly<{
   funding: Readonly<{ kind: "crypto_wallet" } | { kind: "financial_account"; financialAccount: string }>;
 }>;
 
+export function cardJourneyEnabled(env: Readonly<Record<string, string | undefined>> = process.env): boolean {
+  return env.BRIDGE_CARDS_ENABLED === "1";
+}
+
 export function readCardJourneyConfig(env: Readonly<Record<string, string | undefined>> = process.env): CardJourneyConfig | null {
-  if (env.BRIDGE_CARDS_ENABLED !== "1") return null;
+  if (!cardJourneyEnabled(env)) return null;
   const mode = env.BRIDGE_MODE?.trim();
   if (mode !== "sandbox" && mode !== "production") throw new Error("Invalid Bridge mode");
   const bridgeApiKey = env.BRIDGE_API_KEY?.trim();

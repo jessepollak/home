@@ -9,9 +9,11 @@ import { readRenderSession } from "@/server/auth/render-session";
 import { readCountryPreferenceForRender } from "@/server/preferences/country";
 import { readRegionOfferForRender } from "@/server/operator-settings/regions";
 import { readInvestSettingsForRender } from "@/server/operator-settings/invest";
+import { cardJourneyEnabled } from "@/server/cards/bridge/journey-config";
 
 const shellTitles: Record<ShellPanelId, string> = {
   home: "Home",
+  card: "Card",
   balances: "Your money",
   activity: "Activity",
   cash: "Cash",
@@ -43,6 +45,9 @@ export default async function ShellPage({
   const query = await searchParams;
   const legacyHref = legacyShellRedirectHref(shellPathname(shell), query);
   if (legacyHref) redirect(legacyHref);
+  const initialLocation = parseShellLocation(shellPathname(shell));
+  const cardsEnabled = cardJourneyEnabled();
+  if (initialLocation.panel === "card" && !cardsEnabled) redirect("/home");
   const rendered = readRenderSession(await cookies());
   const preference = rendered ? await readCountryPreferenceForRender(rendered.session) : null;
   const accountPreference = rendered && preference
@@ -54,7 +59,8 @@ export default async function ShellPage({
       detectedCountry={readRequestCountry(await headers())}
       regionOffer={await readRegionOfferForRender()}
       accountPreference={accountPreference}
-      initialLocation={parseShellLocation(shellPathname(shell))}
+      initialLocation={initialLocation}
+      cardsEnabled={cardsEnabled}
       investVisibility={investVisibility}
       initialSearch={searchParamsToString(query)}
     />
