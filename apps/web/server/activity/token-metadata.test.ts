@@ -276,7 +276,7 @@ describe("Activity token metadata resolver", () => {
         settled = true;
         iconUrl = value.metadata.get(USDC.tokenAddress.toLowerCase())?.tokenImageUrl;
       });
-      jest.advanceTimersByTime(ACTIVITY_ASSET_ICON_WAIT_MS - 1);
+      jest.advanceTimersByTime(749);
       for (let tick = 0; tick < 32; tick += 1) await Promise.resolve();
       expect(settled).toBeFalse();
       jest.advanceTimersByTime(1);
@@ -308,7 +308,7 @@ describe("Activity token metadata resolver", () => {
       const response = resolve([ZORA]);
       for (let tick = 0; tick < 32 && !fetchStarted; tick += 1) await Promise.resolve();
       expect(fetchStarted).toBeTrue();
-      jest.advanceTimersByTime(ACTIVITY_TOKEN_CODEX_TIMEOUT_MS - 1);
+      jest.advanceTimersByTime(2_999);
       expect(codexSignal?.aborted).toBeFalse();
       jest.advanceTimersByTime(1);
       expect(codexSignal?.aborted).toBeTrue();

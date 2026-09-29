@@ -252,7 +252,7 @@ describe("Activity token metadata RPC fallback", () => {
       const pending = resolver([A]);
       for (let tick = 0; tick < 32 && !requestStarted; tick += 1) await Promise.resolve();
       expect(requestStarted).toBeTrue();
-      jest.advanceTimersByTime(ACTIVITY_TOKEN_RPC_TIMEOUT_MS - 1);
+      jest.advanceTimersByTime(2_999);
       expect(requestSignal?.aborted).toBeFalse();
       jest.advanceTimersByTime(1);
       expect(requestSignal?.aborted).toBeTrue();
