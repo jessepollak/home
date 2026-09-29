@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { callbackDecision, completeGmailAuthorization, defaultOtpSender, extractOtp, gmailAuthorizationUrl, gmailReadonlyScope, isReadonlyScopeGrant, pollGmailOtp, readGmailCredentials, verifyAccountEmail, type GmailCredentials, type GmailMessage } from "./gmail";
+import { callbackDecision, completeGmailAuthorization, defaultOtpSender, extractOtp, gmailAuthorizationUrl, gmailCredentialsPath, gmailReadonlyScope, isReadonlyScopeGrant, pollGmailOtp, readGmailCredentials, verifyAccountEmail, type GmailCredentials, type GmailMessage } from "./gmail";
 
 const credentials: Required<GmailCredentials> = {
   client_id: "client-id",
@@ -98,6 +98,11 @@ describe("Gmail OTP parsing", () => {
 });
 
 describe("Gmail account configuration", () => {
+  test("refuses Gmail credential paths inside the checkout", () => {
+    const path = resolve(import.meta.dir, "../../x.json");
+    expect(() => gmailCredentialsPath({ HOME_VERIFY_GMAIL_CREDENTIALS: path })).toThrow("Private verification files must live outside the repository.");
+  });
+
   test("does not expose a credential path or malformed JSON in read errors", async () => {
     const directory = Bun.spawnSync(["mktemp", "-d", resolve(tmpdir(), "home-gmail-test-XXXXXX")]).stdout.toString().trim();
     try {
