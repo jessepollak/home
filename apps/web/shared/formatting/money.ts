@@ -582,7 +582,6 @@ export function formatOracleUsd(
   });
 }
 
-
 export function formatPresentationPrice(
   value: DecimalInput,
   currency = "USD",

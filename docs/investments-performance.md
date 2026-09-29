@@ -12,7 +12,7 @@ Issue #1555 compared the base `593b1a9` and this change using Bun 1.3.12, five s
 | --- | ---: | ---: |
 | `selectOwnedInvestments` | 482 ms | 16 ms |
 | Full `presentBalances` | 1,100 ms | 136 ms |
-| Full `presentMoneyGroups` | 775 ms | 104 ms |
+| Full group presentation (now via `presentBalances`) | 775 ms | 104 ms |
 | Overview preparation: total, selection, 20 marks | Previous three operations total approximately 2,357 ms | 13 ms |
 
 The new overview no longer invokes the two full presenters. The old total is the sum of separate operation medians, not a measured browser interaction. These measurements isolate selector/presenter CPU; they exclude React rendering, browser layout, cache serialization, networking and phone hardware. They neither establish input latency nor sustained 60 fps. Deterministic tests assert equivalent presentation and that expanding the visible window does not traverse the snapshot again; wall-clock thresholds do not belong in unit tests.
@@ -29,7 +29,7 @@ Single-asset lookup still sorts the full owned list. Activity needs both bounded
 
 ### Home and Cash CPU comparison
 
-A second comparison uses the same fixture, runtime and five-sample method above, with the initial Investments/cache change as its baseline. Home compares `presentBalances` against `presentHomeBalances`; Cash compares `presentBalances(...).summary.cash` plus `presentMoneyGroups(...).find(cash)` against `presentCashTotal` plus `selectCash(...).map(presentCashSelection)`. These isolate the replaced shared presentation work, excluding the remaining Cash component/savings computations and React/browser work.
+A second comparison uses the same fixture, runtime and five-sample method above, with the initial Investments/cache change as its baseline. Home compares `presentBalances` against `presentHomeBalances`; Cash compares `presentBalances(...).summary.cash` plus `presentBalances(...).groups.find(cash)` against `presentCashTotal` plus `selectCash(...).map(presentCashSelection)`. These isolate the replaced shared presentation work, excluding the remaining Cash component/savings computations and React/browser work.
 
 | Synthetic assets | Home before | Home after | Cash before | Cash after |
 | --- | ---: | ---: | ---: | ---: |

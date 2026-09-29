@@ -143,7 +143,6 @@ function investmentHoldings(snapshot: BalancesSnapshot, cash: CashSelection[]): 
   );
 }
 
-
 export function selectBalanceTotals(snapshot: BalancesSnapshot): BalancesTotals {
   return snapshot.totals;
 }

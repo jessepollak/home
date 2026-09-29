@@ -6,7 +6,6 @@ import {
 
 const ADDRESS = "0x1111111111111111111111111111111111111111";
 
-
 describe("parseBasenameProfile", () => {
   test("reads name and https avatar and ignores junk", () => {
     expect(

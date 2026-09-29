@@ -317,7 +317,6 @@ export function createRipioClient(country: RipioCountry, options: {
   };
 }
 
-
 function parseKycHandoff(value: unknown): RipioKycHandoff {
   if (!isRecord(value) || typeof value.providerUrl !== "string" || value.providerUrl.length > 4096) {
     throw new RipioProviderError("invalid-response");

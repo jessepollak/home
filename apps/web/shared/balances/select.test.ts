@@ -91,6 +91,7 @@ describe("balance selectors", () => {
     const snapshot = { ...base, holdings: [...base.holdings.filter((holding) => holding.id !== "idrx"), unnamed] };
     expect(selectCash(snapshot).map((entry) => entry.kind === "holding" ? entry.holding.id : entry.key)).toEqual(["usdc", "eurc"]);
     expect(selectMoneyGroups(snapshot).cash).toHaveLength(2);
+    expect(selectMoneyGroups(snapshot).investments).toHaveLength(0);
     expect(selectCash(base).some((entry) => entry.kind === "holding" && entry.holding.id === "idrx")).toBe(false);
   });
   test("lists named unreadable investments but not unreadable unnamed or known-zero holdings", () => {
